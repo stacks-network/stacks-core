@@ -34,7 +34,7 @@ runs:
     - name: Check Cache
       if: |
         inputs.action == 'check'
-      uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      uses: ./.github/wrappers/cache/restore
       id: check-cache
       with:
         lookup-only: true
@@ -47,7 +47,7 @@ runs:
     - name: Restore Cache
       if: |
         inputs.action == 'restore'
-      uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      uses: ./.github/wrappers/cache/restore
       id: restore-cache
       with:
         path: ~/bitcoin
@@ -90,7 +90,7 @@ runs:
     - name: Save Cache
       if: |
         inputs.action == 'create'
-      uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      uses: ./.github/wrappers/cache/save
       with:
         path: ~/bitcoin
         key: ${{ steps.generate-keys.outputs.bitcoin-cache-key }}

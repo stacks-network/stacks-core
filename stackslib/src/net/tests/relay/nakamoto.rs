@@ -22,10 +22,9 @@ use rand::{thread_rng, Rng};
 use stacks_common::address::AddressHashMode;
 use stacks_common::types::chainstate::{StacksBlockId, TrieHash};
 use stacks_common::types::Address;
-use stacks_common::util::hash::Sha512Trunc256Sum;
+use stacks_common::util::hash::{Hash160, Sha512Trunc256Sum};
 
 use crate::burnchains::bitcoin::indexer::BitcoinIndexer;
-use crate::burnchains::tests::TestMiner;
 use crate::chainstate::burn::operations::BlockstackOperationType;
 use crate::chainstate::nakamoto::coordinator::tests::make_token_transfer;
 use crate::chainstate::nakamoto::tests::get_account;
@@ -33,23 +32,21 @@ use crate::chainstate::nakamoto::NakamotoBlockHeader;
 use crate::chainstate::stacks::tests::TestStacksNode;
 use crate::chainstate::stacks::*;
 use crate::chainstate::tests::TestChainstate;
+use crate::net::p2p::{PendingMessages, PendingMessagesFrom};
 use crate::net::relay::{AcceptedNakamotoBlocks, ProcessedNetReceipts, Relayer};
 use crate::net::stackerdb::{StackerDBConfig, StackerDBs};
 use crate::net::test::*;
 use crate::net::tests::inv::nakamoto::make_nakamoto_peers_from_invs;
 use crate::net::{Error as NetError, *};
 
-/// Everything in a TestPeer, except the coordinator (which is encumbered by the lifetime of its
-/// chains coordinator's event observer)
+/// Peer state needed to continue networking after its coordinator stops.
 struct ExitedPeer {
     pub config: TestPeerConfig,
     pub network: PeerNetwork,
     pub sortdb: Option<SortitionDB>,
-    pub miner: TestMiner,
     pub stacks_node: Option<TestStacksNode>,
     pub relayer: Relayer,
     pub mempool: Option<MemPoolDB>,
-    pub chainstate_path: String,
     pub indexer: Option<BitcoinIndexer>,
 }
 
@@ -60,11 +57,9 @@ impl ExitedPeer {
             config: peer.config,
             network: peer.network,
             sortdb: peer.chain.sortdb,
-            miner: peer.chain.miner,
             stacks_node: peer.chain.stacks_node,
             relayer: peer.relayer,
             mempool: peer.mempool,
-            chainstate_path: peer.chain.chainstate_path,
             indexer: peer.chain.indexer,
         }
     }
@@ -622,7 +617,13 @@ fn test_no_buffer_ready_nakamoto_blocks() {
                             blocks: blocks.clone(),
                         }),
                     );
-                    unsolicited.insert((1, peer_nk.clone()), vec![msg]);
+                    unsolicited.insert(
+                        (1, peer_nk.clone()),
+                        PendingMessagesFrom::new(
+                            NeighborAddress::from_neighbor_key(peer_nk.clone(), Hash160([0u8; 20])),
+                            vec![msg],
+                        ),
+                    );
 
                     if let Some(mut network_result) = network_result.take() {
                         network_result.consume_unsolicited(unsolicited);
@@ -850,8 +851,7 @@ fn test_buffer_nonready_nakamoto_blocks() {
 
                     // pass this and other blocks to the p2p network's unsolicited message handler,
                     // so they can be buffered up and processed.
-                    let mut unsolicited_msgs: HashMap<(usize, NeighborKey), Vec<StacksMessage>> =
-                        HashMap::new();
+                    let mut unsolicited_msgs: PendingMessages = HashMap::new();
                     for (event_id, convo) in follower.network.peers.iter() {
                         for blks in all_blocks.iter() {
                             let msg = StacksMessage::from_chain_view(
@@ -863,11 +863,16 @@ fn test_buffer_nonready_nakamoto_blocks() {
                                 }),
                             );
                             let nk = convo.to_neighbor_key();
-                            if let Some(msgs) = unsolicited_msgs.get_mut(&(*event_id, nk)) {
-                                msgs.push(msg);
+                            if let Some(inbox) = unsolicited_msgs.get_mut(&(*event_id, nk)) {
+                                inbox.messages.push(msg);
                             } else {
-                                unsolicited_msgs
-                                    .insert((*event_id, convo.to_neighbor_key()), vec![msg]);
+                                unsolicited_msgs.insert(
+                                    (*event_id, convo.to_neighbor_key()),
+                                    PendingMessagesFrom::new(
+                                        convo.to_neighbor_address(),
+                                        vec![msg],
+                                    ),
+                                );
                             }
                         }
                     }

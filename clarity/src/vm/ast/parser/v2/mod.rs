@@ -14,6 +14,8 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 pub mod lexer;
 
+use std::mem;
+
 use clarity_types::representations::{ClarityName, ContractName};
 use clarity_types::types::{
     CharType, PrincipalData, QualifiedContractIdentifier, SequenceData, TraitIdentifier, UTF8Data,
@@ -321,7 +323,7 @@ impl<'a> Parser<'a> {
                                     ParseErrorKind::NoteToMatchThis(Token::Lbrace),
                                     open_tuple.span.clone(),
                                 )?;
-                                let out_nodes: Vec<_> = open_tuple.nodes.drain(..).collect();
+                                let out_nodes = mem::take(&mut open_tuple.nodes);
                                 let mut e = PreSymbolicExpression::tuple(out_nodes);
                                 let span_before_eof = &self.tokens[self.tokens.len() - 2].span;
                                 open_tuple.span.end_line = span_before_eof.end_line;
@@ -363,7 +365,7 @@ impl<'a> Parser<'a> {
                         let mut placeholder = PreSymbolicExpression::placeholder("".to_string());
                         placeholder.copy_span(&token.span);
                         open_tuple.nodes.push(placeholder); // Placeholder value
-                        let out_nodes: Vec<_> = open_tuple.nodes.drain(..).collect();
+                        let out_nodes = mem::take(&mut open_tuple.nodes);
                         let mut e = PreSymbolicExpression::tuple(out_nodes);
                         let span_before_eof = &self.tokens[self.tokens.len() - 2].span;
                         open_tuple.span.end_line = span_before_eof.end_line;
@@ -411,7 +413,7 @@ impl<'a> Parser<'a> {
                                     PreSymbolicExpression::placeholder("".to_string());
                                 placeholder.copy_span(&eof_span);
                                 open_tuple.nodes.push(placeholder); // Placeholder value
-                                let out_nodes: Vec<_> = open_tuple.nodes.drain(..).collect();
+                                let out_nodes = mem::take(&mut open_tuple.nodes);
                                 let mut e = PreSymbolicExpression::tuple(out_nodes);
                                 open_tuple.span.end_line =
                                     open_tuple.diagnostic_token.span.end_line;
@@ -446,7 +448,7 @@ impl<'a> Parser<'a> {
                         open_tuple.span.end_line = token.span.end_line;
                         open_tuple.span.end_column = token.span.end_column;
                         self.next_token();
-                        let out_nodes: Vec<_> = open_tuple.nodes.drain(..).collect();
+                        let out_nodes = mem::take(&mut open_tuple.nodes);
                         let mut e = PreSymbolicExpression::tuple(out_nodes);
                         e.copy_span(&open_tuple.span);
                         return Ok(Some(e));
@@ -464,7 +466,7 @@ impl<'a> Parser<'a> {
                     open_tuple.span.end_line = token.span.end_line;
                     open_tuple.span.end_column = token.span.end_column;
                     self.next_token();
-                    let out_nodes: Vec<_> = open_tuple.nodes.drain(..).collect();
+                    let out_nodes = mem::take(&mut open_tuple.nodes);
                     let mut e = PreSymbolicExpression::tuple(out_nodes);
                     e.copy_span(&open_tuple.span);
                     return Ok(Some(e));
@@ -503,7 +505,7 @@ impl<'a> Parser<'a> {
                 open_tuple.span.end_line = token.span.end_line;
                 open_tuple.span.end_column = token.span.end_column;
                 self.next_token();
-                let out_nodes: Vec<_> = open_tuple.nodes.drain(..).collect();
+                let out_nodes = mem::take(&mut open_tuple.nodes);
                 let mut e = PreSymbolicExpression::tuple(out_nodes);
                 e.copy_span(&open_tuple.span);
                 return Ok(SetupTupleResult::Closed(e));
@@ -520,7 +522,7 @@ impl<'a> Parser<'a> {
             open_tuple.span.end_line = token.span.end_line;
             open_tuple.span.end_column = token.span.end_column;
             self.next_token();
-            let out_nodes: Vec<_> = open_tuple.nodes.drain(..).collect();
+            let out_nodes = mem::take(&mut open_tuple.nodes);
             let mut e = PreSymbolicExpression::tuple(out_nodes);
             e.copy_span(&open_tuple.span);
             return Ok(SetupTupleResult::Closed(e));
@@ -1582,7 +1584,7 @@ mod tests {
             }
         );
 
-        let (stmts, diagnostics, success) = parse_collect_diagnostics(
+        let (_, diagnostics, success) = parse_collect_diagnostics(
             "veryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryverylong",
         );
         assert!(!success);
@@ -2806,6 +2808,7 @@ mod tests {
         let (stmts, diagnostics, success) =
             parse_collect_diagnostics("'ST000000000000000000002AMW42H");
         assert!(success);
+        assert!(diagnostics.is_empty());
         assert_eq!(stmts.len(), 1);
         assert_eq!(
             stmts[0].span,
@@ -3571,6 +3574,7 @@ mod tests {
             parse_collect_diagnostics(" # here is a python comment\n\n    # and another\n(foo)");
         assert!(!success);
         assert_eq!(stmts.len(), 10);
+        assert!(!diagnostics.is_empty());
     }
 
     #[test]
@@ -3681,7 +3685,7 @@ mod tests {
             x => panic!("expected a stack depth too deep error, got {x:?}"),
         });
 
-        let (stmts, diagnostics, success) = parse_collect_diagnostics(&exceeds_stack_depth_list);
+        let (_, diagnostics, success) = parse_collect_diagnostics(&exceeds_stack_depth_list);
         assert!(!success);
         assert!(!diagnostics.is_empty());
         assert_eq!(
@@ -3707,7 +3711,7 @@ mod tests {
             x => panic!("expected a stack depth too deep error, got {x:?}"),
         });
 
-        let (stmts, diagnostics, success) = parse_collect_diagnostics(&exceeds_stack_depth_tuple);
+        let (_, diagnostics, success) = parse_collect_diagnostics(&exceeds_stack_depth_tuple);
         assert!(!success);
         assert!(!diagnostics.is_empty());
         assert_eq!(

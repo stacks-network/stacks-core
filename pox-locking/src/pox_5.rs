@@ -770,7 +770,7 @@ mod tests {
         store: &'a mut MemoryBackingStore,
         staker: &PrincipalData,
         total_amount: u128,
-    ) -> GlobalContext<'a> {
+    ) -> GlobalContext<'a, 'a> {
         let db = store.as_clarity_db();
         let mut global_context = GlobalContext::new(
             false,

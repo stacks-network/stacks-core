@@ -4,6 +4,12 @@ name: Docker Image
 
 on:
   workflow_dispatch:
+    inputs:
+      blank_version_build:
+        description: "Should the version info be blank?"
+        required: true
+        type: boolean
+        default: true
   schedule:
     # Run at 05:00 UTC daily
     - cron: "0 5 * * *"
@@ -35,12 +41,18 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # Check if CI is enabled
+  check-ci:
+    name: "Check: CI Enabled"
+    uses: ./.github/workflows/__check-ci.yml
+
   # Build arch dependent binaries from source
   build-binaries:
-    name: Build Binaries
-    # Only run this if it's the public repo or manually triggered
-    if: github.event_name == 'workflow_dispatch' || github.event.repository.visibility == 'public'
-    runs-on: ubuntu-latest
+    name: "Build: Binaries"
+    needs:
+      - check-ci
+    if: needs.check-ci.outputs.enabled == 'true'
+    runs-on: ${{ vars.BUILD_RUNNER_LABEL || 'ubuntu-latest' }}
     strategy:
       max-parallel: 2
       matrix:
@@ -70,14 +82,30 @@ jobs:
       # Checkout the code
       #   - Checkout a specified branch or main for scheduled jobs
       - name: Checkout the latest code
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: $/.github/wrappers/checkout
         with:
           ref: ${{ steps.set-vars.outputs.branch }}
+
+      # Optionally elide build/version info from the binaries.
+      #   - option_env!("GIT_BRANCH"|"GIT_COMMIT"|"STACKS_NODE_VERSION") is read at
+      #     compile time, so exporting these to $GITHUB_ENV before the build overrides
+      #     the git-derived version info baked into the binaries.
+      #   - Only runs when the dispatch input requests it (scheduled runs have no
+      #     input and therefore keep real version info).
+      - name: Blank version info
+        if: ${{ inputs.blank_version_build }}
+        run: |
+          {
+            echo "GIT_BRANCH=No Branch Info"
+            echo "GIT_COMMIT=No Commit Info"
+            echo "STACKS_NODE_VERSION=No Version Info"
+          } >> "$GITHUB_ENV"
 
       # Configure target platform, install Rust toolchain, and build binaries
       - name: Build Binaries
         id: build-binaries
         env:
+          CARGO_BUILD_JOBS: ${{ vars.CARGO_BUILD_JOBS || '1' }}
           MATRIX_CPU: ${{ matrix.cpu }}
           # Set the build target statically, since we only need to build for linux-glibc
           MATRIX_ARCH: linux-glibc
@@ -93,24 +121,25 @@ jobs:
 
       # Upload the binary archive using the commit sha as the key
       - name: Upload Artifact
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: ./.github/wrappers/upload-artifact
         with:
           name: ${{ github.sha }}-${{ steps.build-binaries.outputs.zipfile_name }}
           path: ${{ steps.build-binaries.outputs.zipfile_name }}.zip
 
       # Attest the binary archive
       - name: Attest Artifact
-        uses: actions/attest-build-provenance@a2bbfa25375fe432b6a289bc6b6cd05ecd0c4c32 # v4.1.0
+        uses: ./.github/wrappers/attest-build-provenance
         with:
           subject-path: ${{ steps.build-binaries.outputs.zipfile_name }}.zip
 
   # Build and publish the docker images using the binary archives
   image:
-    name: Build Image
+    name: "Build: Image"
     needs:
+      - check-ci
       - build-binaries
-    # Only run this if it's the public repo or manually triggered
-    if: github.event_name == 'workflow_dispatch' || github.event.repository.visibility == 'public'
+    # Only run this for versioned builds (skip for blanked builds)
+    if: needs.check-ci.outputs.enabled == 'true' && !inputs.blank_version_build
     runs-on: ubuntu-latest
     permissions:
       contents: read       # required for checkout
@@ -145,7 +174,7 @@ jobs:
       # Checkout the code
       #   - only .github is required for this job
       - name: Checkout the latest code
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: $/.github/wrappers/checkout
         with:
           ref: ${{ needs.build-binaries.outputs.branch }} # use the output in case we're building a nightly image
           sparse-checkout: |
@@ -153,7 +182,7 @@ jobs:
 
       # Download binary artifacts
       - name: Download Artifacts
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: ./.github/wrappers/download-artifact
         with:
           # linux-glibc variants are the only artifacts produced. Download for both architectures (Dockerfile will choose specific architecture archive)
           pattern: ${{ github.sha }}-*
@@ -208,7 +237,7 @@ jobs:
       - name: Attest Image
         if: |
           env.PROVENANCE != true
-        uses: actions/attest-build-provenance@a2bbfa25375fe432b6a289bc6b6cd05ecd0c4c32 # v4.1.0
+        uses: ./.github/wrappers/attest-build-provenance
         with:
           subject-name: |
             ${{ steps.set-vars.outputs.docker_images }}

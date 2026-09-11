@@ -16,17 +16,23 @@
 
 #[cfg(feature = "rusqlite")]
 use rusqlite::Connection;
+#[cfg(feature = "clarity-wasm")]
+use stacks_common::types::StacksEpochId;
 use stacks_common::types::chainstate::{StacksBlockId, TrieHash};
 use stacks_common::util::hash::{Sha512Trunc256Sum, hex_bytes, to_hex};
 
 use crate::vm::Value;
 use crate::vm::analysis::AnalysisDatabase;
+#[cfg(feature = "clarity-wasm")]
+use crate::vm::analysis::ContractAnalysis;
 use crate::vm::contexts::GlobalContext;
 use crate::vm::database::{
     ClarityDatabase, ClarityDeserializable, ClaritySerializable, NULL_BURN_STATE_DB, NULL_HEADER_DB,
 };
 use crate::vm::errors::{VmExecutionError, VmInternalError};
 use crate::vm::types::{PrincipalData, QualifiedContractIdentifier};
+#[cfg(feature = "clarity-wasm")]
+use crate::vm::version::ClarityVersion;
 
 pub struct NullBackingStore {}
 
@@ -46,6 +52,39 @@ pub type SpecialCaseHandler = &'static dyn Fn(
     // the result of the function call
     &Value,
 ) -> Result<(), VmExecutionError>;
+
+/// The result of compiling an already-deployed contract: see [`WasmCompiler`].
+#[cfg(feature = "clarity-wasm")]
+pub struct WasmCompilation {
+    /// The compiled Wasm binary.
+    pub module: Vec<u8>,
+    /// The analysis the contract was compiled with. A contract deployed by the interpreter has
+    /// no function return types in its stored `ContractContext`, and the Wasm runtime needs
+    /// them, so they are taken from here.
+    pub analysis: ContractAnalysis,
+}
+
+/// Compiles an already-deployed contract into a Wasm binary, so that it can be executed by the
+/// Wasm runtime even though it was deployed without one (e.g. a boot contract, or any contract
+/// deployed before Wasm compilation was enabled).
+///
+/// The Wasm compiler (`clar2wasm`) depends on this crate, so it cannot be called from here
+/// directly. Instead, the embedder supplies the implementation through
+/// [`ClarityBackingStore::get_wasm_compiler`], the same way it supplies [`SpecialCaseHandler`].
+#[cfg(feature = "clarity-wasm")]
+pub type WasmCompiler = &'static (
+             dyn Fn(
+    // the database to read the contract source and its dependencies' analyses from
+    &mut ClarityDatabase,
+    // the contract to compile
+    &QualifiedContractIdentifier,
+    // the Clarity version the contract was deployed with
+    ClarityVersion,
+    // the epoch the contract was deployed in
+    StacksEpochId,
+) -> Result<WasmCompilation, String>
+                 + Sync
+         );
 
 // These functions generally _do not_ return errors, rather, any errors in the underlying storage
 //    will _panic_. The rationale for this is that under no condition should the interpreter
@@ -91,6 +130,14 @@ pub trait ClarityBackingStore {
     fn get_side_store(&mut self) -> &Connection;
 
     fn get_cc_special_cases_handler(&self) -> Option<SpecialCaseHandler> {
+        None
+    }
+
+    /// The Wasm compiler to use for contracts which were deployed without a compiled Wasm
+    /// module. Returning `None` means no compiler is available, in which case such contracts
+    /// are executed by the interpreter.
+    #[cfg(feature = "clarity-wasm")]
+    fn get_wasm_compiler(&self) -> Option<WasmCompiler> {
         None
     }
 

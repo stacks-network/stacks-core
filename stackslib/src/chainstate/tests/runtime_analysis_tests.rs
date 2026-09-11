@@ -94,6 +94,10 @@ fn variant_coverage_report(variant: RuntimeCheckErrorKind) {
         TraitMethodUnknown(_, _) => Tested(vec![trait_method_unknown_transitive_use_trait_ccall]),
         Unreachable(_) => Unreachable_ExpectLike, // This error is used in places where we expect the code to be unreachable, so if we hit it, it indicates a bug.
         ListTypesMustMatch => Tested(vec![runtime_check_error_kind_list_types_must_match_cdeploy]),
+        SequenceElementArityMismatch { .. } => Tested(vec![
+            runtime_check_error_kind_sequence_element_arity_mismatch_cdeploy,
+            runtime_check_error_kind_sequence_element_arity_mismatch_ccall,
+        ]),
         TypeError(_, _) => Tested(vec![
             runtime_check_error_kind_type_error_cdeploy,
             runtime_check_error_kind_type_error_ccall,
@@ -644,6 +648,46 @@ fn runtime_check_error_kind_type_value_error_ccall() {
     );
 }
 
+/// RuntimeCheckErrorKind: [`RuntimeCheckErrorKind::SequenceElementArityMismatch`]
+/// Caused by: a `replace-at?` buff/string element whose length is not exactly 1.
+/// Outcome: block rejected before epoch 4.1; block accepted (failure receipt) from 4.1.
+#[test]
+fn runtime_check_error_kind_sequence_element_arity_mismatch_cdeploy() {
+    contract_deploy_consensus_snap_test!(
+        contract_name: "check-error-kind",
+        // `as-max-len?` widens `0x` to type `(buff 1)` while it still holds 0 bytes,
+        // so analysis passes in every epoch and the runtime arity check fires.
+        contract_code: "(replace-at? 0x0102 u0 (unwrap-panic (as-max-len? 0x u1)))",
+        deploy_epochs: &[
+            StacksEpochId::Epoch34,
+            StacksEpochId::Epoch40,
+            StacksEpochId::Epoch41,
+        ],
+        clarity_versions: ClarityVersion::since(ClarityVersion::Clarity2),
+    );
+}
+
+/// RuntimeCheckErrorKind: [`RuntimeCheckErrorKind::SequenceElementArityMismatch`]
+/// Caused by: a `replace-at?` buff/string element whose length is not exactly 1.
+/// Outcome: block rejected before epoch 4.1; block accepted (failure receipt) from 4.1.
+#[test]
+fn runtime_check_error_kind_sequence_element_arity_mismatch_ccall() {
+    contract_call_consensus_snap_test!(
+        contract_name: "check-error-kind",
+        contract_code: "(define-public (trigger-error)
+            (ok (replace-at? 0x0102 u0 (unwrap-panic (as-max-len? 0x u1)))))",
+        function_name: "trigger-error",
+        function_args: &[],
+        deploy_epochs: EPOCHS_TO_TEST,
+        call_epochs: &[
+            StacksEpochId::Epoch34,
+            StacksEpochId::Epoch40,
+            StacksEpochId::Epoch41,
+        ],
+        clarity_versions: ClarityVersion::since(ClarityVersion::Clarity2),
+    );
+}
+
 /// RuntimeCheckErrorKind: [`RuntimeCheckErrorKind::ContractCallExpectName`]
 /// Caused by: the trait reference is stored as a constant, so the runtime never
 ///     binds it in `LocalContext::callable_contracts` and `special_contract_call`
@@ -1175,12 +1219,12 @@ fn invalid_characters_detected_invalid_utf8() {
     );
 }
 
-/// Error: [`RuntimeCheckErrorKind::CostComputationFailed`] (before epoch 3.4)
+/// Error: [`RuntimeCheckErrorKind::CostComputationFailed`] (pre-Costs5, Clarity 2–4)
 /// Caused by: calling nlogn with n = 0
 /// Outcome: block accepted at deploy time.
-/// Note: Before epoch 3.4, this returns a `CostComputationFailed` error which wraps the underlying
-///       [`RuntimeError::Arithmetic`] error. After 3.4, this executes successfully (`none` is
-///       stored in the constant).
+/// Note: This error is reachable only with the pre-Costs5 schedule and Clarity 2–4. Clarity 5+
+///       clamps the empty buffer before cost evaluation, while Epoch 4.0's Costs5 schedule accepts
+///       zero directly. Those combinations are excluded because they cannot exercise this error.
 #[test]
 fn arithmetic_zero_n_log_n_cdeploy() {
     contract_deploy_consensus_snap_test!(
@@ -1191,12 +1235,12 @@ fn arithmetic_zero_n_log_n_cdeploy() {
     );
 }
 
-/// Error: [`RuntimeCheckErrorKind::CostComputationFailed`] (before epoch 3.4)
+/// Error: [`RuntimeCheckErrorKind::CostComputationFailed`] (pre-Costs5, Clarity 2–4)
 /// Caused by: calling nlogn with n = 0
 /// Outcome: block accepted at call time.
-/// Note: Before epoch 3.4, this returns a `CostComputationFailed` error which wraps the underlying
-///       [`RuntimeError::Arithmetic`] error. After 3.4, this executes successfully and returns
-///       `none`.
+/// Note: This error is reachable only with the pre-Costs5 schedule and Clarity 2–4. Clarity 5+
+///       clamps the empty buffer before cost evaluation, while Epoch 4.0's Costs5 schedule accepts
+///       zero directly. Those combinations are excluded because they cannot exercise this error.
 #[test]
 fn arithmetic_zero_n_log_n_ccall() {
     contract_call_consensus_snap_test!(
@@ -1296,15 +1340,15 @@ fn trait_reference_unknown_transitive_use_trait_ccall() {
 /// Scenario:
 ///   - `foo`        — `(define-trait foo ((do-it () (response bool uint))))`
 ///   - `transitive` — `(define-trait foo ((other-method () ...)))` comes first, then
-///                    `(use-trait alias .foo.foo)` (remote name also "foo").
-///                    Analysis: use-trait overwrites `defined_traits["foo"]` → `{do-it}`.
-///                    Runtime:  `defined_traits["foo"]` = `{other-method}` (define-trait only).
+///     `(use-trait alias .foo.foo)` (remote name also "foo").
+///     Analysis: use-trait overwrites `defined_traits["foo"]` → `{do-it}`.
+///     Runtime:  `defined_traits["foo"]` = `{other-method}` (define-trait only).
 ///   - `foo-impl`   — `(impl-trait .foo.foo)` + `(define-public (do-it) ...)`.
-///                    Does NOT impl-trait `.transitive.foo`, so the short-circuit is bypassed.
+///     Does NOT impl-trait `.transitive.foo`, so the short-circuit is bypassed.
 ///   - `call-foo`   — `(use-trait foo .transitive.foo)`.
-///                    Analysis sees `do-it` in `.transitive.foo` and accepts the call.
-///                    Runtime: `lookup_trait_definition("foo")` finds `{other-method}`;
-///                    `get("do-it")` returns `None` → `TraitMethodUnknown`.
+///     Analysis sees `do-it` in `.transitive.foo` and accepts the call.
+///     Runtime: `lookup_trait_definition("foo")` finds `{other-method}`;
+///     `get("do-it")` returns `None` → `TraitMethodUnknown`.
 ///
 /// Outcome: block accepted.
 #[test]

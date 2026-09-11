@@ -65,7 +65,7 @@ pub const BANDWIDTH_POINT_LIFETIME: u64 = 600;
 pub const MAX_PEER_HEARTBEAT_INTERVAL: usize = 3600 * 6; // 6 hours
 
 /// Statistics on relayer hints in Stacks messages.  Used to deduce network choke points.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct RelayStats {
     pub num_messages: u64, // how many messages a relayer has pushed to this neighbor
     pub num_bytes: u64,    // how many bytes a relayer has pushed to this neighbor
@@ -467,9 +467,10 @@ impl Neighbor {
     /// Instantiate a Neighbor from HandshakeData, merging the information we have on-disk in the
     /// PeerDB with information in the handshake.
     /// * If we already know about this neighbor, then all previously-calculated state and local
-    /// configuration state will be loaded as well.  This includes things like the calculated
-    /// in/out-degree and last-contact time, as well as the allow/deny time limits.
+    ///   configuration state will be loaded as well.  This includes things like the calculated
+    ///   in/out-degree and last-contact time, as well as the allow/deny time limits.
     /// * If we do not know about this neighbor, then the above state will not be loaded.
+    ///
     /// Returns (the neighbor, whether or not the neighbor was known)
     pub fn load_and_update(
         conn: &DBConn,
@@ -2051,6 +2052,7 @@ impl ConversationP2P {
     /// Check that a message was properly relayed.
     /// * there are no relay cycles
     /// * we didn't send this
+    ///
     /// Update relayer statistics for this conversation
     fn process_relayers(
         &mut self,

@@ -3,6 +3,7 @@ use std::io::{Cursor, Write as _};
 use std::ops::{AddAssign, SubAssign};
 
 use clarity_types::types::MAX_VALUE_SIZE;
+use stacks_common::bounded_format;
 use stacks_common::types::StacksEpochId;
 use stacks_common::types::chainstate::StacksBlockId;
 use stacks_common::util::ed25519::ed25519_verify;
@@ -18,7 +19,7 @@ use wasmtime::{
 
 use super::callables::{DefineType, DefinedFunction};
 use super::costs::{CostTracker, constants as cost_constants};
-use super::database::STXBalance;
+use super::database::{ClarityDatabase, STXBalance};
 use super::events::*;
 use super::functions::bitcoin::{
     VERIFY_MERKLE_PROOF_MAX_DEPTH, native_get_bitcoin_tx_output, native_verify_merkle_proof,
@@ -81,8 +82,8 @@ enum StxErrorCodes {
 }
 
 // The context used when making calls into the Wasm module.
-pub struct ClarityWasmContext<'a, 'b> {
-    pub global_context: &'a mut GlobalContext<'b>,
+pub struct ClarityWasmContext<'a, 'b, 'hooks> {
+    pub global_context: &'a mut GlobalContext<'b, 'hooks>,
     contract_context: Option<&'a ContractContext>,
     contract_context_mut: Option<&'a mut ContractContext>,
     pub call_stack: &'a mut CallStack,
@@ -102,9 +103,9 @@ pub struct ClarityWasmContext<'a, 'b> {
     pub cost_globals: Option<CostGlobals>,
 }
 
-impl<'a, 'b> ClarityWasmContext<'a, 'b> {
+impl<'a, 'b, 'hooks> ClarityWasmContext<'a, 'b, 'hooks> {
     pub fn new_init(
-        global_context: &'a mut GlobalContext<'b>,
+        global_context: &'a mut GlobalContext<'b, 'hooks>,
         contract_context: &'a mut ContractContext,
         call_stack: &'a mut CallStack,
         sender: Option<PrincipalData>,
@@ -129,7 +130,7 @@ impl<'a, 'b> ClarityWasmContext<'a, 'b> {
     }
 
     pub fn new_run(
-        global_context: &'a mut GlobalContext<'b>,
+        global_context: &'a mut GlobalContext<'b, 'hooks>,
         contract_context: &'a ContractContext,
         call_stack: &'a mut CallStack,
         sender: Option<PrincipalData>,
@@ -508,9 +509,155 @@ pub fn initialize_contract(
     }
 }
 
-/// Call a function in the contract.
+/// The return type of `function`, needed to read the function's result out of Wasm memory.
+///
+/// Contracts published by the interpreter store `None` for the return type of every function in
+/// their `ContractContext`, only the Wasm publish path records it, so for those the declared
+/// return type is read from the stored contract analysis instead.
+fn function_return_type(
+    function: &DefinedFunction,
+    contract_identifier: &QualifiedContractIdentifier,
+    database: &mut ClarityDatabase,
+) -> Result<TypeSignature, VmExecutionError> {
+    if let Some(return_type) = function.get_return_type() {
+        return Ok(return_type.clone());
+    }
+
+    let analysis = database.load_contract_analysis(contract_identifier)?;
+    let function_type = analysis.as_ref().and_then(|analysis| {
+        let function_name = function.get_name();
+        match function.define_type {
+            DefineType::Public => analysis.get_public_function_type(function_name),
+            DefineType::ReadOnly => analysis.get_read_only_function_type(function_name),
+            DefineType::Private => analysis.get_private_function(function_name),
+        }
+    });
+
+    match function_type {
+        Some(FunctionType::Fixed(fixed)) => Ok(fixed.returns.clone()),
+        _ => Err(VmExecutionError::Wasm(WasmError::ExpectedReturnValue)),
+    }
+}
+
+/// Call a function in the contract, using the Wasm module which was compiled when the contract
+/// was deployed.
 #[allow(clippy::too_many_arguments)]
 pub fn call_function<'a>(
+    function_name: &str,
+    args: &[Value],
+    global_context: &'a mut GlobalContext,
+    contract_context: &'a ContractContext,
+    call_stack: &'a mut CallStack,
+    sender: Option<PrincipalData>,
+    caller: Option<PrincipalData>,
+    sponsor: Option<PrincipalData>,
+) -> Result<Value, VmExecutionError> {
+    let engine = global_context.engine.clone();
+    let module = contract_context.with_wasm_module(|wasm_module| unsafe {
+        Module::deserialize(&engine, wasm_module)
+            .map_err(|e| VmExecutionError::Wasm(WasmError::UnableToLoadModule(e)))
+    })?;
+
+    call_function_with_module(
+        module,
+        function_name,
+        args,
+        global_context,
+        contract_context,
+        call_stack,
+        sender,
+        caller,
+        sponsor,
+    )
+}
+
+/// Compile a contract which was deployed without a Wasm module -- a boot contract, or any
+/// contract deployed before Wasm compilation was enabled -- then call `function_name` on the
+/// freshly compiled module. The compiled module is kept in the contract cache, so that later
+/// calls in this transaction do not have to compile the contract again.
+///
+/// The compilation is not charged to the caller: the contract's analysis was already paid for
+/// when it was deployed, and charging for it here would make the cost of a contract-call depend
+/// on which runtime happens to hold the contract.
+#[allow(clippy::too_many_arguments)]
+pub fn compile_and_call_function<'a>(
+    function_name: &str,
+    args: &[Value],
+    global_context: &'a mut GlobalContext,
+    contract_context: &'a ContractContext,
+    call_stack: &'a mut CallStack,
+    sender: Option<PrincipalData>,
+    caller: Option<PrincipalData>,
+    sponsor: Option<PrincipalData>,
+) -> Result<Value, VmExecutionError> {
+    let contract_identifier = contract_context.contract_identifier.clone();
+    let clarity_version = *contract_context.get_clarity_version();
+
+    let compiler = global_context.database.get_wasm_compiler().ok_or_else(|| {
+        VmExecutionError::Wasm(WasmError::WasmGeneratorError(
+            "no Wasm compiler is available for contracts deployed without a Wasm module".into(),
+        ))
+    })?;
+
+    // Compile the contract in the epoch it was deployed in, so that the generated code matches
+    // the analysis it was deployed with. Contracts which were never analyzed (some unit tests)
+    // fall back to the current epoch.
+    let epoch = global_context
+        .database
+        .load_contract_analysis(&contract_identifier)?
+        .map_or(global_context.epoch_id, |analysis| analysis.epoch);
+
+    debug!("Compiling {contract_identifier} to Wasm for a contract-call";
+           "function" => %function_name,
+           "clarity_version" => %clarity_version,
+           "epoch" => %epoch);
+
+    let compilation = compiler(
+        &mut global_context.database,
+        &contract_identifier,
+        clarity_version,
+        epoch,
+    )
+    .map_err(|e| VmExecutionError::Wasm(WasmError::WasmGeneratorError(e)))?;
+
+    let engine = global_context.engine.clone();
+    let module = Module::from_binary(&engine, &compilation.module)
+        .map_err(|e| VmExecutionError::Wasm(WasmError::UnableToLoadModule(e)))?;
+
+    // Complete the contract context for the Wasm runtime: attach the compiled module, in the
+    // serialized form `call_function` expects, and fill in the function return types which the
+    // interpreter's deploy path does not record.
+    let mut contract_context = contract_context.clone();
+    contract_context.set_wasm_module(
+        module
+            .serialize()
+            .map_err(|e| VmExecutionError::Wasm(WasmError::WasmCompileFailed(e)))?,
+    );
+    contract_context.complete_function_return_types(&compilation.analysis);
+
+    // Keep the completed contract context in the cache, so that the rest of this transaction
+    // calls this contract through the ordinary path.
+    global_context
+        .database
+        .cache_contract_context(&contract_identifier, contract_context.clone());
+
+    call_function_with_module(
+        module,
+        function_name,
+        args,
+        global_context,
+        &contract_context,
+        call_stack,
+        sender,
+        caller,
+        sponsor,
+    )
+}
+
+/// Call a function in the contract, using an already loaded Wasm `module`.
+#[allow(clippy::too_many_arguments)]
+fn call_function_with_module<'a>(
+    module: Module,
     function_name: &str,
     args: &[Value],
     global_context: &'a mut GlobalContext,
@@ -539,12 +686,6 @@ pub fn call_function<'a>(
         .ok_or(RuntimeCheckErrorKind::UndefinedFunction(
             function_name.to_string(),
         ))?;
-    let module = context
-        .contract_context()
-        .with_wasm_module(|wasm_module| unsafe {
-            Module::deserialize(&engine, wasm_module)
-                .map_err(|e| VmExecutionError::Wasm(WasmError::UnableToLoadModule(e)))
-        })?;
     let mut store = Store::new(&engine, context);
     let mut linker = Linker::new(&engine);
 
@@ -709,11 +850,11 @@ pub fn call_function<'a>(
         .set(&mut store, Val::I32(offset))
         .map_err(|e| VmExecutionError::Wasm(WasmError::Runtime(e)))?;
 
-    let return_type = func_types
-        .get_return_type()
-        .as_ref()
-        .ok_or(VmExecutionError::Wasm(WasmError::ExpectedReturnValue))?
-        .clone();
+    let return_type = function_return_type(
+        &func_types,
+        &contract_context.contract_identifier,
+        &mut store.data_mut().global_context.database,
+    )?;
 
     // Call the function
     let mut results: Vec<_> = clar2wasm_ty(&return_type)
@@ -1987,60 +2128,6 @@ pub fn signature_from_string(
         expr,
         &mut (),
     )?)
-}
-
-/// Reserve space on the Wasm stack for the return value of a function, if
-/// needed, and return a vector of `Val`s that can be passed to `call`, as a
-/// place to store the return value, along with the new offset, which is the
-/// next available memory location.
-fn reserve_space_for_return(
-    offset: i32,
-    return_type: &TypeSignature,
-) -> Result<(Vec<Val>, i32), VmExecutionError> {
-    match return_type {
-        TypeSignature::UIntType | TypeSignature::IntType => {
-            Ok((vec![Val::I64(0), Val::I64(0)], offset))
-        }
-        TypeSignature::BoolType => Ok((vec![Val::I32(0)], offset)),
-        TypeSignature::OptionalType(optional) => {
-            let mut vals = vec![Val::I32(0)];
-            let (opt_vals, adjusted) = reserve_space_for_return(offset, optional)?;
-            vals.extend(opt_vals);
-            Ok((vals, adjusted))
-        }
-        TypeSignature::ResponseType(response) => {
-            let mut vals = vec![Val::I32(0)];
-            let (mut subexpr_values, mut adjusted) = reserve_space_for_return(offset, &response.0)?;
-            vals.extend(subexpr_values);
-            (subexpr_values, adjusted) = reserve_space_for_return(adjusted, &response.1)?;
-            vals.extend(subexpr_values);
-            Ok((vals, adjusted))
-        }
-        TypeSignature::NoType => Ok((vec![Val::I32(0)], offset)),
-        TypeSignature::SequenceType(_)
-        | TypeSignature::PrincipalType
-        | TypeSignature::CallableType(_)
-        | TypeSignature::TraitReferenceType(_) => {
-            // All in-memory types return an offset and length.˝
-            let length = get_type_in_memory_size(return_type, false);
-
-            // Return values will be offset and length
-            Ok((vec![Val::I32(0), Val::I32(0)], offset + length))
-        }
-        TypeSignature::TupleType(type_sig) => {
-            let mut vals = vec![];
-            let mut adjusted = offset;
-            for ty in type_sig.get_type_map().values() {
-                let (subexpr_values, new_offset) = reserve_space_for_return(adjusted, ty)?;
-                vals.extend(subexpr_values);
-                adjusted = new_offset;
-            }
-            Ok((vals, adjusted))
-        }
-        TypeSignature::ListUnionType(_) => {
-            unreachable!("not a valid return type");
-        }
-    }
 }
 
 /// Convert a Wasm value into a Clarity `Value`. Depending on the type, the
@@ -7703,7 +7790,7 @@ fn link_contract_call_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), 
                             if caller.data().global_context.is_read_only() {
                                 return Err(VmExecutionError::from(
                                     RuntimeCheckErrorKind::Unreachable(
-                                        "Trait based contract call in read-only".to_string(),
+                                        "Trait based contract call in read-only".into(),
                                     ),
                                 )
                                 .into());
@@ -7733,16 +7820,18 @@ fn link_contract_call_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), 
                         let expected_returns = defining_context
                             .lookup_trait_definition(&trait_name)
                             .ok_or_else(|| {
-                                VmExecutionError::from(RuntimeCheckErrorKind::Unreachable(format!(
-                                    "Trait reference unknown: {trait_name}"
-                                )))
+                                VmExecutionError::from(RuntimeCheckErrorKind::Unreachable(
+                                    bounded_format!("Trait reference unknown: {trait_name}"),
+                                ))
                             })?
                             .get(function_name.as_str())
                             .map(|f_ty| f_ty.returns.clone())
                             .ok_or_else(|| {
-                                VmExecutionError::from(RuntimeCheckErrorKind::Unreachable(format!(
-                                    "Trait method unknown: {trait_name}.{function_name}"
-                                )))
+                                VmExecutionError::from(RuntimeCheckErrorKind::Unreachable(
+                                    bounded_format!(
+                                        "Trait method unknown: {trait_name}.{function_name}"
+                                    ),
+                                ))
                             })?;
 
                         let constraint = (!short_circuit_checks).then(|| expected_returns.clone());
@@ -7751,13 +7840,11 @@ fn link_contract_call_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), 
                 };
 
                 let mut args = Vec::new();
-                let mut args_sizes = Vec::new();
                 let mut arg_offset = args_offset;
                 // Read the arguments from the Wasm memory
                 for arg_ty in function.get_arg_types() {
                     let arg =
                         read_from_wasm_indirect(memory, &mut caller, arg_ty, arg_offset, epoch)?;
-                    args_sizes.push(arg.size()? as u64);
                     args.push(arg);
 
                     arg_offset += get_type_size(arg_ty);
@@ -7778,16 +7865,6 @@ fn link_contract_call_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), 
                 let sender = caller.data().sender.clone();
                 let sponsor = caller.data().sponsor.clone();
 
-                let short_circuit_cost = caller
-                    .data_mut()
-                    .global_context
-                    .cost_track
-                    .short_circuit_contract_call(
-                        contract_id,
-                        &ClarityName::try_from(function_name.clone())?,
-                        &args_sizes,
-                    )?;
-
                 let mut exec_state = ExecutionState {
                     global_context: caller.data_mut().global_context,
                     call_stack: &mut call_stack,
@@ -7800,23 +7877,12 @@ fn link_contract_call_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), 
                     sponsor,
                 };
 
-                let result = if short_circuit_cost {
-                    exec_state.run_free(&invoke_ctx, |exec_state, free_invoke_ctx| {
-                        exec_state.execute_contract_from_wasm(
-                            free_invoke_ctx,
-                            contract_id,
-                            &function_name,
-                            &args,
-                        )
-                    })
-                } else {
-                    exec_state.execute_contract_from_wasm(
-                        &invoke_ctx,
-                        contract_id,
-                        &function_name,
-                        &args,
-                    )
-                }?;
+                let result = exec_state.execute_contract_from_wasm(
+                    &invoke_ctx,
+                    contract_id,
+                    &function_name,
+                    &args,
+                )?;
 
                 // sanitize contract-call outputs in epochs >= 2.4, as the
                 // interpreter does in `special_contract_call`

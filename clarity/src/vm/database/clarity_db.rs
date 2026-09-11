@@ -14,6 +14,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use stacks_common::bounded_format;
 use stacks_common::consts::{
     BITCOIN_REGTEST_FIRST_BLOCK_HASH, BITCOIN_REGTEST_FIRST_BLOCK_HEIGHT,
     BITCOIN_REGTEST_FIRST_BLOCK_TIMESTAMP, FIRST_BURNCHAIN_CONSENSUS_HASH, FIRST_STACKS_BLOCK_HASH,
@@ -27,6 +28,8 @@ use stacks_common::types::{StacksEpoch as GenericStacksEpoch, StacksEpochId};
 use stacks_common::util::hash::{Hash160, Sha512Trunc256Sum, to_hex};
 
 use super::clarity_store::SpecialCaseHandler;
+#[cfg(feature = "clarity-wasm")]
+use super::clarity_store::WasmCompiler;
 use super::key_value_wrapper::ValueResult;
 use crate::vm::analysis::{AnalysisDatabase, ContractAnalysis};
 use crate::vm::contexts::ContractContext;
@@ -1572,6 +1575,40 @@ impl ClarityDatabase<'_> {
         self.store.get_cc_special_cases_handler()
     }
 
+    /// The Wasm compiler supplied by the embedder, used to compile contracts which were
+    /// deployed without a Wasm module. Returns [`None`] when no compiler is available.
+    #[cfg(feature = "clarity-wasm")]
+    pub fn get_wasm_compiler(&self) -> Option<WasmCompiler> {
+        self.store.get_wasm_compiler()
+    }
+
+    /// Replace the cached copy of `contract_identifier` with `contract_context`, which is how a
+    /// just-in-time compiled contract is kept for the rest of the transaction, so that it does
+    /// not have to be compiled again on every call.
+    ///
+    /// This only updates the in-memory execution cache -- the contract is never written back to
+    /// the data store, since the stored contract is consensus-critical. This is a no-op when no
+    /// cache is attached or when the contract is not already cached.
+    #[cfg(feature = "clarity-wasm")]
+    pub fn cache_contract_context(
+        &mut self,
+        contract_identifier: &QualifiedContractIdentifier,
+        contract_context: ContractContext,
+    ) {
+        let Some(entry) = self.peek_cached_contract(contract_identifier) else {
+            return;
+        };
+        let load_cost_size = entry.load_cost_size;
+
+        self.cache_contract(
+            contract_identifier.clone(),
+            CachedContract {
+                contract: contract_context.into(),
+                load_cost_size,
+            },
+        );
+    }
+
     #[allow(clippy::unnecessary_fallible_conversions)]
     pub fn insert_microblock_poison(
         &mut self,
@@ -1715,8 +1752,10 @@ impl ClarityDatabase<'_> {
         let key = ClarityDatabase::make_metadata_key(StoreType::VariableMeta, variable_name);
 
         map_no_contract_as_none(self.fetch_metadata(contract_identifier, &key))?.ok_or(
-            RuntimeCheckErrorKind::Unreachable(format!("No such data variable: {variable_name}"))
-                .into(),
+            RuntimeCheckErrorKind::Unreachable(bounded_format!(
+                "No such data variable: {variable_name}"
+            ))
+            .into(),
         )
     }
 
@@ -1857,8 +1896,9 @@ impl ClarityDatabase<'_> {
     ) -> Result<DataMapMetadata, VmExecutionError> {
         let key = ClarityDatabase::make_metadata_key(StoreType::DataMapMeta, map_name);
 
-        map_no_contract_as_none(self.fetch_metadata(contract_identifier, &key))?
-            .ok_or(RuntimeCheckErrorKind::Unreachable(format!("No such map: {map_name}")).into())
+        map_no_contract_as_none(self.fetch_metadata(contract_identifier, &key))?.ok_or(
+            RuntimeCheckErrorKind::Unreachable(bounded_format!("No such map: {map_name}")).into(),
+        )
     }
 
     pub fn make_key_for_data_map_entry(
@@ -2221,8 +2261,9 @@ impl ClarityDatabase<'_> {
     ) -> Result<FungibleTokenMetadata, VmExecutionError> {
         let key = ClarityDatabase::make_metadata_key(StoreType::FungibleTokenMeta, token_name);
 
-        map_no_contract_as_none(self.fetch_metadata(contract_identifier, &key))?
-            .ok_or(RuntimeCheckErrorKind::Unreachable(format!("No such FT: {token_name}")).into())
+        map_no_contract_as_none(self.fetch_metadata(contract_identifier, &key))?.ok_or(
+            RuntimeCheckErrorKind::Unreachable(bounded_format!("No such FT: {token_name}")).into(),
+        )
     }
 
     pub fn create_non_fungible_token(
@@ -2247,8 +2288,9 @@ impl ClarityDatabase<'_> {
     ) -> Result<NonFungibleTokenMetadata, VmExecutionError> {
         let key = ClarityDatabase::make_metadata_key(StoreType::NonFungibleTokenMeta, token_name);
 
-        map_no_contract_as_none(self.fetch_metadata(contract_identifier, &key))?
-            .ok_or(RuntimeCheckErrorKind::Unreachable(format!("No such NFT: {token_name}")).into())
+        map_no_contract_as_none(self.fetch_metadata(contract_identifier, &key))?.ok_or(
+            RuntimeCheckErrorKind::Unreachable(bounded_format!("No such NFT: {token_name}")).into(),
+        )
     }
 
     pub fn checked_increase_token_supply(

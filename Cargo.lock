@@ -819,7 +819,7 @@ checksum = "a1d728cc89cf3aee9ff92b05e62b19ee65a02b5702cff7d5a377e32c6ae29d8d"
 [[package]]
 name = "clar2wasm"
 version = "0.1.0"
-source = "git+https://github.com/stx-labs/clarity-wasm.git#02bf6737d4a4bed0f42a0b557f50ebaba19f5f3f"
+source = "git+https://github.com/stx-labs/clarity-wasm.git?rev=c1bac48b8a840cd6f1655d3916502a56fa71adeb#c1bac48b8a840cd6f1655d3916502a56fa71adeb"
 dependencies = [
  "chrono",
  "clap",
@@ -2762,7 +2762,6 @@ version = "0.0.1"
 dependencies = [
  "clarity",
  "hashbrown 0.15.2",
- "libc",
  "libstackerdb",
  "mutants",
  "rand 0.8.5",
@@ -2896,9 +2895,9 @@ checksum = "f8ca58f447f06ed17d5fc4043ce1b10dd205e060fb3ce5b979b8ed8e59ff3f79"
 
 [[package]]
 name = "memfd"
-version = "0.6.5"
+version = "0.6.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ad38eb12aea514a0466ea40a80fd8cc83637065948eb4a426e4aa46261175227"
+checksum = "57804b2c9b69967f1536a56f86297e367a33b19e98852ed624b84551cdbc0d90"
 dependencies = [
  "rustix 1.1.3",
 ]
@@ -3374,7 +3373,7 @@ checksum = "8b870d8c151b6f2fb93e84a13146138f05d02ed11c7e7c54f8826aaaf7c9f184"
 [[package]]
 name = "pinny"
 version = "0.0.2"
-source = "git+https://github.com/stx-labs/pinny-rs.git?rev=54ba9d533a7b84525a5e65a3eae1a3ae76b9ea49#54ba9d533a7b84525a5e65a3eae1a3ae76b9ea49"
+source = "git+https://github.com/stx-labs/pinny-rs.git?rev=0e888bce54c822f050befaadc07709a7abbf6838#0e888bce54c822f050befaadc07709a7abbf6838"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -4791,7 +4790,7 @@ dependencies = [
 
 [[package]]
 name = "stacks-common"
-version = "0.0.2"
+version = "4.0.3"
 dependencies = [
  "chrono",
  "curve25519-dalek",
@@ -4820,13 +4819,12 @@ dependencies = [
  "slog-term",
  "thiserror 1.0.65",
  "time",
- "toml 0.5.11",
  "winapi 0.3.9",
 ]
 
 [[package]]
 name = "stacks-inspect"
-version = "0.1.0"
+version = "4.0.3"
 dependencies = [
  "clap",
  "clarity",
@@ -4844,7 +4842,7 @@ dependencies = [
 
 [[package]]
 name = "stacks-node"
-version = "0.1.0"
+version = "4.0.3"
 dependencies = [
  "async-h1",
  "async-std",
@@ -4914,7 +4912,7 @@ dependencies = [
 
 [[package]]
 name = "stacks-signer"
-version = "0.0.1"
+version = "4.0.3"
 dependencies = [
  "backoff",
  "clap",
@@ -4945,6 +4943,17 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "url",
+]
+
+[[package]]
+name = "stacks-transactions"
+version = "0.1.0"
+dependencies = [
+ "clarity-types",
+ "pinny",
+ "proptest",
+ "stacks-codec",
+ "stacks-common",
 ]
 
 [[package]]
@@ -4987,6 +4996,7 @@ dependencies = [
  "slog",
  "stacks-codec",
  "stacks-common",
+ "stacks-transactions",
  "stdext",
  "stx-genesis",
  "tempfile",
@@ -6764,9 +6774,9 @@ dependencies = [
 
 [[package]]
 name = "zstd-sys"
-version = "2.0.16+zstd.1.5.7"
+version = "2.1.0+zstd.1.5.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "91e19ebc2adc8f83e43039e79776e3fda8ca919132d68a1fed6a5faca2683748"
+checksum = "0ef0a8027ec3ee71300ab3bcbcd0393f434aa72b91ca6d635a39941deae8eea0"
 dependencies = [
  "cc",
  "pkg-config",
