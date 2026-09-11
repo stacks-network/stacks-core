@@ -152,9 +152,50 @@ impl BurnchainParameters {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct BurnchainSigner(pub String);
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BurnchainSignerKind<'a> {
+    Signer(&'a str),
+    NoChangeOutput,
+    UndecodableOutput,
+}
+
+impl BurnchainSigner {
+    pub const NO_CHANGE_OUTPUT: &'static str = "<no-change-output>";
+    pub const UNDECODABLE_OUTPUT: &'static str = "<undecodable-output>";
+
+    pub fn kind(&self) -> BurnchainSignerKind<'_> {
+        match self.0.as_str() {
+            Self::NO_CHANGE_OUTPUT => BurnchainSignerKind::NoChangeOutput,
+            Self::UNDECODABLE_OUTPUT => BurnchainSignerKind::UndecodableOutput,
+            signer => BurnchainSignerKind::Signer(signer),
+        }
+    }
+}
+
 impl fmt::Display for BurnchainSigner {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{}", &self.0)
+    }
+}
+
+#[cfg(test)]
+mod burnchain_signer_tests {
+    use super::{BurnchainSigner, BurnchainSignerKind};
+
+    #[test]
+    fn classifies_burnchain_signers() {
+        assert_eq!(
+            BurnchainSigner("address".into()).kind(),
+            BurnchainSignerKind::Signer("address")
+        );
+        assert_eq!(
+            BurnchainSigner(BurnchainSigner::NO_CHANGE_OUTPUT.into()).kind(),
+            BurnchainSignerKind::NoChangeOutput
+        );
+        assert_eq!(
+            BurnchainSigner(BurnchainSigner::UNDECODABLE_OUTPUT.into()).kind(),
+            BurnchainSignerKind::UndecodableOutput
+        );
     }
 }
 
