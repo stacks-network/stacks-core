@@ -14,7 +14,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-#[cfg(all(any(test, feature = "testing"), not(feature = "wasm-deterministic")))]
+#[cfg(any(test, feature = "testing"))]
 use ::libsecp256k1::curve::Scalar;
 pub use ::libsecp256k1::Error;
 use ::libsecp256k1::{
@@ -139,23 +139,38 @@ impl Secp256k1PublicKey {
         sig: &MessageSignature,
         verify_low_s: bool,
     ) -> Result<Secp256k1PublicKey, &'static str> {
+        // Validate in the same order as `native.rs`, so that both backends return
+        // the same error for the same input.
+        let message = LibSecp256k1Message::parse_slice(msg)
+            .map_err(|_| "Invalid message: failed to decode data hash: must be a 32-byte hash")?;
+
+        // `MessageSignature` stores the recovery ID before the compact signature
+        // (VRS), so decode it into separate recovery ID and signature values.
+        let (signature, recovery_id) = sig
+            .to_secp256k1_recoverable()
+            .ok_or("Invalid signature: failed to decode recoverable signature")?;
+
         if verify_low_s {
-            let signature = LibSecp256k1Signature::parse_standard_slice(&sig[..64])
-                .map_err(|_| "Invalid signature: incorrect length")?;
             let mut sig_low_s = signature;
             sig_low_s.normalize_s();
             if signature != sig_low_s {
                 return Err("Invalid signature: high-S");
             }
         }
-        let secp256k1_sig = secp256k1_recover(msg, sig.as_bytes())
-            .map_err(|_e| "Invalid signature: failed to recover public key")?;
 
-        Secp256k1PublicKey::from_slice(&secp256k1_sig)
+        let recovered = libsecp256k1::recover(&message, &signature, &recovery_id)
+            .map_err(|_| "Invalid signature: failed to recover public key")?;
+
+        Secp256k1PublicKey::from_slice(&recovered.serialize_compressed())
     }
 }
 
 impl Secp256k1PrivateKey {
+    #[cfg(feature = "rand")]
+    pub fn random() -> Secp256k1PrivateKey {
+        Self::new()
+    }
+
     #[cfg(feature = "rand")]
     pub fn new() -> Secp256k1PrivateKey {
         use rand::RngCore as _;
@@ -221,6 +236,7 @@ impl Secp256k1PrivateKey {
 }
 
 #[cfg(not(feature = "wasm-deterministic"))]
+/// Recover a public key from a 32-byte message hash and a 65-byte RSV signature.
 pub fn secp256k1_recover(
     message_arr: &[u8],
     serialized_signature: &[u8],
@@ -323,14 +339,27 @@ impl MessageSignature {
         MessageSignature(ret_bytes)
     }
 
+    /// Return the equivalent signature with `s` negated modulo the curve order.
+    #[cfg(any(test, feature = "testing"))]
+    pub fn with_negated_s(&self) -> Self {
+        let mut bytes = [0u8; 65];
+        bytes.copy_from_slice(self.as_bytes());
+
+        // `s` occupies bytes 33..65, since byte 0 is the recovery id.
+        let mut s = Scalar::default();
+        let mut s_bytes = [0u8; 32];
+        s_bytes.copy_from_slice(&bytes[33..]);
+        let _ = s.set_b32(&s_bytes);
+        bytes[33..].copy_from_slice(&(-s).b32());
+        bytes[0] ^= 1; // invert the parity of the recovery id
+        Self(bytes)
+    }
+
     pub fn to_secp256k1_recoverable(
         &self,
     ) -> Option<(LibSecp256k1Signature, LibSecp256k1RecoveryId)> {
-        let recovery_id = match LibSecp256k1RecoveryId::parse(self.0[0]) {
-            Ok(rid) => rid,
-            Err(_) => {
-                return None;
-            }
+        let Ok(recovery_id) = LibSecp256k1RecoveryId::parse(self.0[0]) else {
+            return None;
         };
         let signature = LibSecp256k1Signature::parse_standard_slice(&self.0[1..65]).ok()?;
         Some((signature, recovery_id))
@@ -351,8 +380,14 @@ impl PublicKey for Secp256k1PublicKey {
     fn verify(&self, data_hash: &[u8], sig: &MessageSignature) -> Result<bool, &'static str> {
         // `recover_to_pubkey` also ensures that the signature has low-S. That matches the
         // corresponding implementation in `native.rs`.
-        let pub_key = Secp256k1PublicKey::recover_to_pubkey(data_hash, sig)?;
-        Ok(self.eq(&pub_key))
+        let recovered = Secp256k1PublicKey::recover_to_pubkey(data_hash, sig)?;
+
+        // Compare the curve points only. `recover_to_pubkey()` always returns a
+        // compressed key, while `self` may use either encoding, and `compressed`
+        // takes part in the derived `PartialEq` for `Secp256k1PublicKey`. Comparing
+        // whole values would reject every uncompressed key. `native.rs` compares
+        // the underlying keys for the same reason.
+        Ok(self.key == recovered.key)
     }
 }
 
