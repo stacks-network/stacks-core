@@ -658,7 +658,7 @@ pub fn make_big_read_count_contract(limit: ExecutionCost, proportion: u64) -> St
     let read_count = (limit.read_count * proportion) / 100;
 
     let read_lines = (0..read_count)
-        .map(|_| format!("(var-get my-var)"))
+        .map(|_| "(var-get my-var)".to_string())
         .collect::<Vec<_>>()
         .join("\n");
 

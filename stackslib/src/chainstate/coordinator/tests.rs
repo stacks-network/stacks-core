@@ -1253,7 +1253,7 @@ fn missed_block_commits_2_05() {
             let min_burn = 1;
             let median_burn = if expected_window_commits > expected_window_size / 2 {
                 10000
-            } else if expected_window_size % 2 == 0
+            } else if expected_window_size.is_multiple_of(2)
                 && expected_window_commits == expected_window_size / 2
             {
                 (10000 + 1) / 2
@@ -1586,7 +1586,7 @@ fn missed_block_commits_2_1() {
                 && last_bad_op_height + (MINING_COMMITMENT_WINDOW as u64) > tip.block_height;
             if have_bad_missed_commit {
                 // bad commit breaks the chain if its PoX outputs are invalid
-                if ix >= 24 && ix < 29 {
+                if (24..29).contains(&ix) {
                     expected_window_commits = (tip.block_height - last_bad_op_height + 1) as usize;
                 }
                 info!(
@@ -1603,7 +1603,7 @@ fn missed_block_commits_2_1() {
             let min_burn = 1;
             let median_burn = if expected_window_commits > expected_window_size / 2 {
                 10000
-            } else if expected_window_size % 2 == 0
+            } else if expected_window_size.is_multiple_of(2)
                 && expected_window_commits == expected_window_size / 2
             {
                 (10000 + 1) / 2
@@ -1942,7 +1942,7 @@ fn late_block_commits_2_1() {
             let min_burn = 1;
             let median_burn = if expected_window_commits > expected_window_size / 2 {
                 10000
-            } else if expected_window_size % 2 == 0
+            } else if expected_window_size.is_multiple_of(2)
                 && expected_window_commits == expected_window_size / 2
             {
                 (10000 + 1) / 2
@@ -3559,7 +3559,7 @@ fn test_delegate_stx_btc_ops() {
         //                          \ _ S30 -> S31 -> ...
         let parent = if ix == 0 {
             BlockHeaderHash([0; 32])
-        } else if ix >= 22 && ix <= 30 {
+        } else if (22..=30).contains(&ix) {
             stacks_blocks[20].1.header.block_hash()
         } else {
             stacks_blocks[ix - 1].1.header.block_hash()
@@ -3741,7 +3741,7 @@ fn test_delegate_stx_btc_ops() {
             // Want to ensure that a burnchain operation sent in a burn block
             // is picked up by stacks blocks on the same burnchain block
             // up to 6 stacks blocks in the future, even if the stacks blockchain is forking.
-            if ix >= 21 && ix <= 27 {
+            if (21..=27).contains(&ix) {
                 assert_eq!(
                     second_delegation_info,
                     Some((delegated_amt * 2, None)),
@@ -4372,7 +4372,7 @@ fn test_epoch_switch_pox_2_contract_instantiation() {
         // check that the expected stacks epoch ID is equal to the actual stacks epoch ID
         let expected_epoch = match burn_block_height {
             x if x < 4 => StacksEpochId::Epoch20,
-            x if x >= 4 && x < 8 => StacksEpochId::Epoch2_05,
+            x if (4..8).contains(&x) => StacksEpochId::Epoch2_05,
             x => StacksEpochId::Epoch21,
         };
         assert_eq!(
@@ -4393,7 +4393,7 @@ fn test_epoch_switch_pox_2_contract_instantiation() {
         // `StacksEpoch::unit_test_up_to(_, Epoch21)`.
         let expected_runtime = match burn_block_height {
             x if x < 4 => u64::MAX,
-            x if x >= 4 && x < 8 => 205205,
+            x if (4..8).contains(&x) => 205205,
             x => 210210,
         };
         assert_eq!(
@@ -4579,10 +4579,10 @@ fn test_epoch_switch_pox_3_contract_instantiation() {
         // check that the expected stacks epoch ID is equal to the actual stacks epoch ID
         let expected_epoch = match burn_block_height {
             x if x < 4 => StacksEpochId::Epoch20,
-            x if x >= 4 && x < 8 => StacksEpochId::Epoch2_05,
-            x if x >= 8 && x < 12 => StacksEpochId::Epoch21,
-            x if x >= 12 && x < 16 => StacksEpochId::Epoch22,
-            x if x >= 16 && x < 20 => StacksEpochId::Epoch23,
+            x if (4..8).contains(&x) => StacksEpochId::Epoch2_05,
+            x if (8..12).contains(&x) => StacksEpochId::Epoch21,
+            x if (12..16).contains(&x) => StacksEpochId::Epoch22,
+            x if (16..20).contains(&x) => StacksEpochId::Epoch23,
             _ => StacksEpochId::Epoch24,
         };
         assert_eq!(
@@ -4603,7 +4603,7 @@ fn test_epoch_switch_pox_3_contract_instantiation() {
         // `StacksEpoch::unit_test_up_to(_, Epoch24)`.
         let expected_runtime = match burn_block_height {
             x if x < 4 => u64::MAX,
-            x if x >= 4 && x < 8 => 205205,
+            x if (4..8).contains(&x) => 205205,
             x => 210210,
         };
         assert_eq!(

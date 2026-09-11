@@ -992,7 +992,9 @@ impl<
                 .burnchain
                 .block_height_to_reward_cycle(stacks_sn.block_height)
                 .ok_or_else(|| {
-                    ChainstateError::Expects(format!("burnchain block height has no reward cycle"))
+                    ChainstateError::Expects(
+                        "burnchain block height has no reward cycle".to_string(),
+                    )
                 })?;
 
             let last_processed_reward_cycle = {

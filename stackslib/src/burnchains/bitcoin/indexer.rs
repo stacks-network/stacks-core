@@ -3214,7 +3214,7 @@ mod test {
                         if block_height > 40320 {
                             break;
                         }
-                        if block_height >= 40319 && block_height <= 40320 {
+                        if (40319..=40320).contains(&block_height) {
                             test_debug!("insert bad header {}", block_height);
                             ret.push(bad_headers[(block_height - 40319) as usize].clone());
                             inserted_bad_header = true;
@@ -3377,7 +3377,7 @@ mod test {
                         if block_height > 40320 {
                             break;
                         }
-                        if block_height >= 40319 && block_height <= 40320 {
+                        if (40319..=40320).contains(&block_height) {
                             test_debug!("insert good header {}", block_height);
                             ret.push(good_headers[(block_height - 40319) as usize].clone());
                             inserted_good_header = true;

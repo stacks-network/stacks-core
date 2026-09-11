@@ -1428,7 +1428,7 @@ mod test {
             grid[101][j] = '_';
         }
 
-        println!("");
+        println!();
         for row in grid.iter() {
             let grid_str: String = row.clone().into_iter().collect();
             println!("|{}", &grid_str);

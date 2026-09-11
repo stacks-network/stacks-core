@@ -744,7 +744,7 @@ pub fn naka_neon_integration_conf(seed: Option<&[u8]>) -> (Config, StacksAddress
         burnchain.peer_host = Some("127.0.0.1".to_string());
     }
 
-    conf.burnchain.magic_bytes = MagicBytes::from([b'T', b'3'].as_ref());
+    conf.burnchain.magic_bytes = MagicBytes::from(b"T3".as_slice());
     conf.burnchain.poll_time_secs = 1;
     conf.node.pox_sync_sample_secs = 0;
 
@@ -6029,7 +6029,7 @@ fn check_block_heights() {
 
     let mut last_burn_block_height;
     let mut last_stacks_block_height = info.stacks_tip_height as u128;
-    let mut last_tenure_height = last_stacks_block_height as u128;
+    let mut last_tenure_height = last_stacks_block_height;
 
     let heights0_value = call_read_only(
         &naka_conf,
@@ -12302,7 +12302,7 @@ fn large_mempool_base(strategy: MemPoolWalkStrategy, set_fee: impl Fn() -> u64) 
         .collect::<Vec<_>>();
     let initial_sender_addrs = initial_sender_sks
         .iter()
-        .map(|sk| tests::to_addr(sk))
+        .map(tests::to_addr)
         .collect::<Vec<_>>();
 
     // These 10 accounts will send to 25 accounts each, then those 260 accounts
@@ -12508,7 +12508,7 @@ fn large_mempool_base(strategy: MemPoolWalkStrategy, set_fee: impl Fn() -> u64) 
         for (sender_sk, nonce) in senders.iter_mut() {
             let sender_addr = tests::to_addr(sender_sk);
             let fee = set_fee();
-            assert!(fee >= 180 && fee <= 2000);
+            assert!((180..=2000).contains(&fee));
             let transfer_tx = make_stacks_transfer_serialized(
                 sender_sk,
                 *nonce,
@@ -12646,7 +12646,7 @@ fn larger_mempool() {
         .collect::<Vec<_>>();
     let initial_sender_addrs = initial_sender_sks
         .iter()
-        .map(|sk| tests::to_addr(sk))
+        .map(tests::to_addr)
         .collect::<Vec<_>>();
 
     // These 10 accounts will send to 25 accounts each, then those 260 accounts
@@ -16318,8 +16318,7 @@ fn check_with_stacking_allowances_delegate_stx() {
 
     let mut sender_nonce = 0;
     let contract_name = "test-contract";
-    let contract = format!(
-        r#"
+    let contract = r#"
 (define-public (delegate-stx (amount uint) (allowed uint))
   (as-contract? ((with-stacking allowed))
     (unwrap! (contract-call? 'ST000000000000000000002AMW42H.pox-4 delegate-stx
@@ -16355,7 +16354,7 @@ fn check_with_stacking_allowances_delegate_stx() {
   )
 )
 "#
-    );
+    .to_string();
 
     let contract_tx = make_contract_publish(
         &sender_sk,
@@ -17328,8 +17327,7 @@ fn check_restrict_assets_rollback() {
 
     let mut sender_nonce = 0;
     let contract_name = "test-contract";
-    let contract = format!(
-        r#"
+    let contract = r#"
 (define-public (single-transfer
     (recipient principal)
     (amount uint)
@@ -17472,7 +17470,7 @@ fn check_restrict_assets_rollback() {
   )
 )
 "#
-    );
+    .to_string();
 
     let contract_tx = make_contract_publish(
         &sender_sk,
@@ -18048,8 +18046,7 @@ fn check_as_contract_rollback() {
     next_block_and_mine_commit(&mut btc_regtest_controller, 60, &naka_conf, &counters).unwrap();
 
     let mut sender_nonce = 0;
-    let contract = format!(
-        r#"
+    let contract = r#"
 (define-public (single-transfer
     (recipient principal)
     (amount uint)
@@ -18192,7 +18189,7 @@ fn check_as_contract_rollback() {
   )
 )
 "#
-    );
+    .to_string();
 
     let contract_tx = make_contract_publish(
         &sender_sk,

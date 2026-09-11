@@ -2909,7 +2909,7 @@ mod tests {
             config.burnchain.password = None;
             config.burnchain.peer_host = String::from("127.0.0.1");
             config.burnchain.peer_port = 8333;
-            config.node.working_dir = format!("/tmp/follower");
+            config.node.working_dir = "/tmp/follower".to_string();
             config
         }
     }

@@ -2330,7 +2330,6 @@ pub mod test {
     use std::io::Write;
     use std::path::Path;
     use std::time::Duration;
-    use std::u64;
 
     use rand::{thread_rng, Rng};
     use stacks::burnchains::Txid;

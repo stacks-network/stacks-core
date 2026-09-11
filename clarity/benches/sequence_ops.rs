@@ -85,6 +85,10 @@ fn make_utf8_string(n: usize) -> SequenceData {
 // ---------------------------------------------------------------------------
 
 /// Old behavior: drain(..).collect() + iter + to_value (clone) + SymbolicExpression wrap.
+#[expect(
+    clippy::drain_collect,
+    reason = "This benchmark compares drain-and-collect with mem::take."
+)]
 fn drain_and_clone(sequence_data: &mut SequenceData) {
     let result: Vec<_> = match sequence_data {
         SequenceData::Buffer(data) => data
@@ -281,9 +285,7 @@ fn new_try_retain_linear(
     sequence_data: SequenceData,
     predicate: &mut impl FnMut(Value) -> Result<bool, ()>,
 ) -> SequenceData {
-    sequence_data
-        .try_retain::<(), _>(|val| predicate(val))
-        .unwrap()
+    sequence_data.try_retain::<(), _>(predicate).unwrap()
 }
 
 fn bench_try_retain(c: &mut Criterion) {
@@ -305,7 +307,7 @@ fn bench_try_retain(c: &mut Criterion) {
                         counter = 0;
                         old_retain_quadratic(&mut seq, &mut |_sym| {
                             counter += 1;
-                            Ok(counter % 2 == 0)
+                            Ok(counter.is_multiple_of(2))
                         });
                         black_box(seq);
                     },
@@ -324,7 +326,7 @@ fn bench_try_retain(c: &mut Criterion) {
                         counter = 0;
                         let seq = new_try_retain_linear(seq, &mut |_sym| {
                             counter += 1;
-                            Ok(counter % 2 == 0)
+                            Ok(counter.is_multiple_of(2))
                         });
                         black_box(seq);
                     },

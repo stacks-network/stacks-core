@@ -182,14 +182,14 @@ impl ClarityMarfStoreTransaction for EphemeralMarfStore<'_> {
 /// The tip can point to a block in the ephemeral RAM-backed MARF, or the on-disk MARF.
 #[derive(Debug, PartialEq, Clone)]
 enum EphemeralTip {
-    RAM(StacksBlockId),
+    Ram(StacksBlockId),
     Disk(StacksBlockId),
 }
 
 impl EphemeralTip {
     fn into_block_id(self) -> StacksBlockId {
         match self {
-            Self::RAM(tip) => tip,
+            Self::Ram(tip) => tip,
             Self::Disk(tip) => tip,
         }
     }
@@ -230,7 +230,7 @@ impl<'a> EphemeralMarfStore<'a> {
             .ok_or(Error::NotFoundError)?
             .clone();
         let ephemeral_marf_store = Self {
-            open_tip: EphemeralTip::RAM(ephemeral_tip),
+            open_tip: EphemeralTip::Ram(ephemeral_tip),
             base_tip: read_only_marf.get_chain_tip().clone(),
             base_tip_height,
             ephemeral_marf: ephemeral_marf_tx,
@@ -349,7 +349,7 @@ impl<'a> EphemeralMarfStore<'a> {
         MarfGetter: FnOnce(&mut ReadOnlyMarfStore, Key) -> Result<Option<V>, VmExecutionError>,
         Key: std::fmt::Debug + Copy,
     {
-        let value_opt = if let EphemeralTip::RAM(tip) = &self.open_tip {
+        let value_opt = if let EphemeralTip::Ram(tip) = &self.open_tip {
             // try the ephemeral MARF first
             tx_getter(&mut self.ephemeral_marf, tip, key)?
         } else {
@@ -385,8 +385,8 @@ impl ClarityBackingStore for EphemeralMarfStore<'_> {
 
             // update ephemeral MARF open tip
             let old_tip =
-                mem::replace(&mut self.open_tip, EphemeralTip::RAM(bhh.clone())).into_block_id();
-            self.open_tip = EphemeralTip::RAM(bhh);
+                mem::replace(&mut self.open_tip, EphemeralTip::Ram(bhh.clone())).into_block_id();
+            self.open_tip = EphemeralTip::Ram(bhh);
             return Ok(old_tip);
         }
 
@@ -568,7 +568,7 @@ impl ClarityBackingStore for EphemeralMarfStore<'_> {
     /// Returns Some(block-id) if there is a block at the given height.
     /// Returns None otherwise.
     fn get_block_at_height(&mut self, height: u32) -> Option<StacksBlockId> {
-        let block_id_opt = if let EphemeralTip::RAM(tip) = &self.open_tip {
+        let block_id_opt = if let EphemeralTip::Ram(tip) = &self.open_tip {
             // careful -- the ephemeral MARF's height 0 corresponds to the base tip height
             if height > self.base_tip_height {
                 self.ephemeral_marf
@@ -602,7 +602,7 @@ impl ClarityBackingStore for EphemeralMarfStore<'_> {
     /// If the tip points to the ephemeral MARF, then use that MARF.
     /// Otherwise, use the disk-backed one.
     fn get_open_chain_tip(&mut self) -> StacksBlockId {
-        if let EphemeralTip::RAM(..) = &self.open_tip {
+        if let EphemeralTip::Ram(..) = &self.open_tip {
             return self
                 .ephemeral_marf
                 .get_open_chain_tip()
@@ -617,7 +617,7 @@ impl ClarityBackingStore for EphemeralMarfStore<'_> {
     /// If the tip points to the ephemeral MARF, then use that MARF.
     /// Otherwise, use the disk-backed one.
     fn get_open_chain_tip_height(&mut self) -> u32 {
-        if let EphemeralTip::RAM(..) = &self.open_tip {
+        if let EphemeralTip::Ram(..) = &self.open_tip {
             return self
                 .ephemeral_marf
                 .get_open_chain_tip_height()
@@ -633,7 +633,7 @@ impl ClarityBackingStore for EphemeralMarfStore<'_> {
     /// If the tip points to the ephemeral MARF, then use that MARF.
     /// Otherwise, use the disk-backed one.
     fn get_current_block_height(&mut self) -> u32 {
-        let height_opt = if let EphemeralTip::RAM(tip) = &self.open_tip {
+        let height_opt = if let EphemeralTip::Ram(tip) = &self.open_tip {
             match self.ephemeral_marf.get_block_height_of(tip, tip) {
                 Ok(Some(x)) => Some(x + self.base_tip_height + 1),
                 Ok(None) => {

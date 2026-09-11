@@ -208,6 +208,9 @@ impl PeerNetwork {
     ///
     /// Returns the new neighbor walk on success.
     /// Returns None if we could not instantiate a walk for some reason.
+    ///
+    /// # Panics
+    /// Panics if selecting an inbound/outbound strategy requires an overflowing walk interval.
     fn new_neighbor_walk(
         &mut self,
         ibd: bool,
@@ -241,7 +244,12 @@ impl PeerNetwork {
                 self,
                 ibd,
             )
-        } else if self.walk_attempts % (self.connection_opts.walk_inbound_ratio + 1) == 0 {
+        } else if self.walk_attempts.is_multiple_of(
+            self.connection_opts
+                .walk_inbound_ratio
+                .checked_add(1)
+                .expect("Inbound walk interval must not overflow"),
+        ) {
             // not IBD, or not walk_seed, or connected to an always-allowed peer, or no always-allowed.
             // Time to try an inbound neighbor
             debug!("{:?}: Instantiate walk to inbound neigbor", self.get_local_peer();
@@ -270,7 +278,12 @@ impl PeerNetwork {
             Ok(x) => Ok(x),
             Err(net_error::NotFoundError) => {
                 // initial strategy failed, so try the other strategy
-                if self.walk_attempts % (self.connection_opts.walk_inbound_ratio + 1) == 0 {
+                if self.walk_attempts.is_multiple_of(
+                    self.connection_opts
+                        .walk_inbound_ratio
+                        .checked_add(1)
+                        .expect("Inbound walk interval must not overflow"),
+                ) {
                     // tried inbound walk (it failed), so try outbound or pingback
                     self.new_outbound_or_pingback_walk()
                 } else {
@@ -473,5 +486,20 @@ impl PeerNetwork {
 
         self.walk = Some(walk);
         (done, walk_result_opt)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::net::test::{TestPeer, TestPeerConfig};
+
+    /// An overflowing interval must panic instead of selecting a walk using a zero divisor.
+    #[test]
+    #[should_panic(expected = "Inbound walk interval must not overflow")]
+    fn test_neighbor_walk_interval_overflow() {
+        let config = TestPeerConfig::new(function_name!(), 0, 0);
+        let mut peer = TestPeer::new(config);
+        peer.network.connection_opts.walk_inbound_ratio = u64::MAX;
+        peer.network.new_neighbor_walk(false);
     }
 }

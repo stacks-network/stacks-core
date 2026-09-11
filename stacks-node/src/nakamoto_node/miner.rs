@@ -777,7 +777,7 @@ impl BlockMinerThread {
                 if self.is_aborted() {
                     info!("Miner interrupted while mining in order to shut down");
                     self.globals
-                        .raise_initiative(format!("MiningFailure: aborted by node"));
+                        .raise_initiative("MiningFailure: aborted by node".to_string());
                     return Err(ChainstateError::MinerAborted.into());
                 }
 
@@ -800,7 +800,7 @@ impl BlockMinerThread {
                     if self.is_aborted() {
                         info!("Miner interrupted while mining in order to shut down");
                         self.globals
-                            .raise_initiative(format!("MiningFailure: aborted by node"));
+                            .raise_initiative("MiningFailure: aborted by node".to_string());
                         return Err(ChainstateError::MinerAborted.into());
                     }
 
@@ -1056,7 +1056,7 @@ impl BlockMinerThread {
             if self.is_aborted() {
                 info!("Miner interrupted while mining in order to shut down");
                 self.globals
-                    .raise_initiative(format!("MiningFailure: aborted by node"));
+                    .raise_initiative("MiningFailure: aborted by node".to_string());
                 return Err(ChainstateError::MinerAborted.into());
             }
 

@@ -36,6 +36,7 @@
 //!                                          variadic-is-cheaper property.
 
 use std::hint::black_box;
+use std::iter;
 
 use clarity::vm::contexts::{ContractContext, GlobalContext};
 use clarity::vm::costs::LimitedCostTracker;
@@ -100,7 +101,7 @@ fn buff_literal(bytes_per_arg: usize) -> String {
 /// `(concat <arg> <arg> ... <arg>)` with `n_args` copies of the same arg.
 fn make_variadic_concat_program(n_args: usize, bytes_per_arg: usize) -> String {
     let arg = buff_literal(bytes_per_arg);
-    let args: Vec<&str> = std::iter::repeat(arg.as_str()).take(n_args).collect();
+    let args: Vec<&str> = iter::repeat_n(arg.as_str(), n_args).collect();
     format!("(concat {})", args.join(" "))
 }
 

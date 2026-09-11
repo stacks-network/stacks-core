@@ -4905,7 +4905,7 @@ fn multiple_miners_with_nakamoto_blocks() {
     assert_eq!(peer_1_height, peer_2_height);
     assert_eq!(
         peer_1_height,
-        pre_nakamoto_peer_1_height + (btc_blocks_mined - 1) * (inter_blocks_per_tenure as u64 + 1)
+        pre_nakamoto_peer_1_height + (btc_blocks_mined - 1) * (inter_blocks_per_tenure + 1)
     );
     assert_eq!(btc_blocks_mined, miner_1_tenures + miner_2_tenures);
     miners.shutdown();
@@ -7312,7 +7312,7 @@ fn large_mempool_base(strategy: MemPoolWalkStrategy, set_fee: impl Fn() -> u64) 
         .collect::<Vec<_>>();
     let initial_sender_addrs = initial_sender_sks
         .iter()
-        .map(|sk| tests::to_addr(sk))
+        .map(tests::to_addr)
         .collect::<Vec<_>>();
 
     // These 10 accounts will send to 25 accounts each, then those 260 accounts
@@ -7493,7 +7493,7 @@ fn large_mempool_base(strategy: MemPoolWalkStrategy, set_fee: impl Fn() -> u64) 
         for (sender_sk, nonce) in senders.iter_mut() {
             let sender_addr = tests::to_addr(sender_sk);
             let fee = set_fee();
-            assert!(fee >= 180 && fee <= 2000);
+            assert!((180..=2000).contains(&fee));
             let transfer_tx =
                 make_stacks_transfer_serialized(sender_sk, *nonce, fee, chain_id, &recipient, 1);
             insert_tx_in_mempool(
@@ -7603,7 +7603,7 @@ fn larger_mempool() {
         .collect::<Vec<_>>();
     let initial_sender_addrs = initial_sender_sks
         .iter()
-        .map(|sk| tests::to_addr(sk))
+        .map(tests::to_addr)
         .collect::<Vec<_>>();
 
     // These 10 accounts will send to 25 accounts each, then those 260 accounts

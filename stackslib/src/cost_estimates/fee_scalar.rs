@@ -166,7 +166,6 @@ impl<M: CostMetric> FeeEstimator for ScalarFeeRateEstimator<M> {
                             unlock_height: 1,
                         }
                         .serialize()
-                        .as_bytes()
                         .len() as u64;
                         self.metric.from_cost_and_len(
                             &ExecutionCost {

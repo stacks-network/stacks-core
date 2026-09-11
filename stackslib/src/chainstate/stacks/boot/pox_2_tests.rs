@@ -830,7 +830,7 @@ fn test_simple_pox_lockup_transition_pox_2() {
 
     // our "tenure counter" is now at 0
     let tip = get_tip(peer.chain.sortdb.as_ref());
-    assert_eq!(tip.block_height, 0 + EMPTY_SORTITIONS as u64);
+    assert_eq!(tip.block_height, (EMPTY_SORTITIONS as u64));
 
     // first tenure is empty
     peer.tenure_with_txs(&[], &mut coinbase_nonce);
@@ -1244,7 +1244,7 @@ fn test_simple_pox_2_auto_unlock(alice_first: bool) {
     let bob_lockup = make_pox_2_lockup(
         &bob,
         0,
-        1 * POX_THRESHOLD_STEPS_USTX,
+        POX_THRESHOLD_STEPS_USTX,
         PoxAddress::from_legacy(
             AddressHashMode::SerializeP2PKH,
             key_to_stacks_addr(&bob).destruct().1,
@@ -2116,7 +2116,7 @@ fn test_lock_period_invariant_extend_transition() {
 
     // our "tenure counter" is now at 0
     let tip = get_tip(peer.chain.sortdb.as_ref());
-    assert_eq!(tip.block_height, 0 + EMPTY_SORTITIONS as u64);
+    assert_eq!(tip.block_height, (EMPTY_SORTITIONS as u64));
 
     // first tenure is empty
     peer.tenure_with_txs(&[], &mut coinbase_nonce);
@@ -2368,7 +2368,7 @@ fn test_pox_extend_transition_pox_2() {
 
     // our "tenure counter" is now at 0
     let tip = get_tip(peer.chain.sortdb.as_ref());
-    assert_eq!(tip.block_height, 0 + EMPTY_SORTITIONS as u64);
+    assert_eq!(tip.block_height, (EMPTY_SORTITIONS as u64));
 
     // first tenure is empty
     peer.tenure_with_txs(&[], &mut coinbase_nonce);
@@ -2754,7 +2754,7 @@ fn test_delegate_extend_transition_pox_2() {
         );
         assert_eq!(&(reward_addrs[0].0).hash160(), charlie_address.bytes());
         // 1 lockup was done between alice's first cycle and the start of v2 cycles
-        assert_eq!(reward_addrs[0].1, 1 * LOCKUP_AMT);
+        assert_eq!(reward_addrs[0].1, LOCKUP_AMT);
     };
 
     // these checks should pass after the start of V2 reward cycles
@@ -2793,7 +2793,7 @@ fn test_delegate_extend_transition_pox_2() {
 
     // our "tenure counter" is now at 0
     let tip = get_tip(peer.chain.sortdb.as_ref());
-    assert_eq!(tip.block_height, 0 + EMPTY_SORTITIONS as u64);
+    assert_eq!(tip.block_height, (EMPTY_SORTITIONS as u64));
 
     // first tenure is empty
     peer.tenure_with_txs(&[], &mut coinbase_nonce);
@@ -3548,7 +3548,7 @@ fn test_pox_2_getters() {
     }}", &alice_address,
         &bob_address,
         &bob_address, &format!("{}.hello-world", &charlie_address), cur_reward_cycle + 1,
-        charlie_address.bytes(), cur_reward_cycle + 0, &charlie_address,
+        charlie_address.bytes(), cur_reward_cycle, &charlie_address,
         charlie_address.bytes(), cur_reward_cycle + 1, &charlie_address,
         charlie_address.bytes(), cur_reward_cycle + 2, &charlie_address,
         charlie_address.bytes(), cur_reward_cycle + 3, &charlie_address,

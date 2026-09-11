@@ -283,13 +283,13 @@ fn test_stackerdb_prepare_clear_slots() {
                 slot_validation.signer,
                 StacksAddress::new(0x02, Hash160([0x02; 20])).unwrap()
             );
-        } else if slot_id >= 2 && slot_id < 2 + 3 {
+        } else if (2..2 + 3).contains(&slot_id) {
             // belongs to 0x03
             assert_eq!(
                 slot_validation.signer,
                 StacksAddress::new(0x03, Hash160([0x03; 20])).unwrap()
             );
-        } else if slot_id >= 2 + 3 && slot_id < 2 + 3 + 4 {
+        } else if (2 + 3..2 + 3 + 4).contains(&slot_id) {
             // belongs to 0x03
             assert_eq!(
                 slot_validation.signer,

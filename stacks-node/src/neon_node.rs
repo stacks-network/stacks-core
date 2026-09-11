@@ -3221,7 +3221,6 @@ impl RelayerThread {
                 parent_consensus_hash,
                 anchored_block: mined_block,
                 burn_hash: mined_burn_hash,
-                attempt: _,
                 ..
             } = last_mined_block_data;
 
