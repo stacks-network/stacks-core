@@ -491,13 +491,16 @@ The declared list element type and maximum bound MUST NOT select the physical la
 
 ### Integer lanes
 
-An unsigned-integer lane uses:
+All elements in an integer lane share one byte width, `W`, chosen to fit the element requiring the
+most bytes. Smaller values still occupy `W` bytes.
+
+**An unsigned-integer lane uses:**
 
 | Offset | Length | Field | Encoding | Meaning |
 | ---- | ---- | ---- | ---- | ---- |
 | `i * W` | `W` bytes | Element `i` | Final `W` bytes of the unsigned 128-bit big-endian representation | Repeated for `0 <= i < count`; no per-element framing |
 
-A signed-integer lane uses:
+**A signed-integer lane uses:**
 
 | Offset | Length | Field | Encoding | Meaning |
 | ---- | ---- | ---- | ---- | ---- |
