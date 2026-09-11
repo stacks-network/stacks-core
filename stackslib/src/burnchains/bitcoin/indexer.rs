@@ -39,7 +39,7 @@ use crate::burnchains::bitcoin::blocks::{
 };
 use crate::burnchains::bitcoin::messages::BitcoinMessageHandler;
 use crate::burnchains::bitcoin::spv::*;
-use crate::burnchains::bitcoin::{BitcoinNetworkType, Error as btc_error};
+use crate::burnchains::bitcoin::{signet, BitcoinNetworkType, Error as btc_error};
 use crate::burnchains::db::BurnchainHeaderReader;
 use crate::burnchains::indexer::{BurnchainIndexer, *};
 use crate::burnchains::{
@@ -56,6 +56,10 @@ pub const USER_AGENT: &str = "Stacks/2.1";
 pub const BITCOIN_MAINNET: u32 = 0xD9B4BEF9;
 pub const BITCOIN_TESTNET: u32 = 0x0709110B;
 pub const BITCOIN_REGTEST: u32 = 0xDAB5BFFA;
+/// Public signet wire magic; custom challenges derive their own wire magic.
+pub const BITCOIN_SIGNET: u32 = 0x40CF030A;
+/// Name used to select BIP 325 burnchain parameters.
+pub const BITCOIN_SIGNET_NAME: &str = "signet";
 
 pub const BITCOIN_MAINNET_NAME: &str = "mainnet";
 pub const BITCOIN_TESTNET_NAME: &str = "testnet";
@@ -73,6 +77,7 @@ pub fn network_id_to_bytes(network_id: BitcoinNetworkType) -> u32 {
         BitcoinNetworkType::Mainnet => BITCOIN_MAINNET,
         BitcoinNetworkType::Testnet => BITCOIN_TESTNET,
         BitcoinNetworkType::Regtest => BITCOIN_REGTEST,
+        BitcoinNetworkType::Signet => BITCOIN_SIGNET,
     }
 }
 
@@ -84,6 +89,7 @@ impl TryFrom<u32> for BitcoinNetworkType {
             BITCOIN_MAINNET => Ok(BitcoinNetworkType::Mainnet),
             BITCOIN_TESTNET => Ok(BitcoinNetworkType::Testnet),
             BITCOIN_REGTEST => Ok(BitcoinNetworkType::Regtest),
+            BITCOIN_SIGNET => Ok(BitcoinNetworkType::Signet),
             _ => Err("Invalid network type"),
         }
     }
@@ -97,6 +103,7 @@ pub fn get_bitcoin_stacks_epochs(network_id: BitcoinNetworkType) -> EpochList {
         BitcoinNetworkType::Mainnet => (*STACKS_EPOCHS_MAINNET).clone(),
         BitcoinNetworkType::Testnet => (*STACKS_EPOCHS_TESTNET).clone(),
         BitcoinNetworkType::Regtest => (*STACKS_EPOCHS_REGTEST).clone(),
+        BitcoinNetworkType::Signet => signet::default_epochs(),
     }
 }
 
@@ -126,6 +133,8 @@ pub struct BitcoinIndexerConfig {
     pub magic_bytes: MagicBytes,
     /// The epochs for this network
     pub epochs: Option<EpochList>,
+    /// Custom BIP 325 challenge; None selects the public signet challenge.
+    pub signet_challenge: Option<Vec<u8>>,
 }
 
 #[derive(Debug)]
@@ -162,6 +171,7 @@ impl BitcoinIndexerConfig {
             first_block,
             magic_bytes: BLOCKSTACK_MAGIC_MAINNET,
             epochs: None,
+            signet_challenge: None,
         }
     }
 
@@ -179,6 +189,7 @@ impl BitcoinIndexerConfig {
             first_block: 0,
             magic_bytes: BLOCKSTACK_MAGIC_MAINNET,
             epochs: None,
+            signet_challenge: None,
         }
     }
 
@@ -197,6 +208,7 @@ impl BitcoinIndexerConfig {
             first_block: 0,
             magic_bytes: BLOCKSTACK_MAGIC_MAINNET,
             epochs: None,
+            signet_challenge: None,
         }
     }
 }
@@ -219,6 +231,16 @@ impl BitcoinIndexerRuntime {
 }
 
 impl BitcoinIndexer {
+    /// Select the wire magic for the configured Bitcoin network and signet challenge.
+    pub fn network_magic(&self) -> u32 {
+        if self.runtime.network_id == BitcoinNetworkType::Signet {
+            if let Some(challenge) = &self.config.signet_challenge {
+                return signet::network_magic(challenge);
+            }
+        }
+        network_id_to_bytes(self.runtime.network_id)
+    }
+
     #[cfg(test)]
     pub fn new(
         config: BitcoinIndexerConfig,
@@ -1612,6 +1634,7 @@ mod test {
             first_block: 0,
             magic_bytes: MagicBytes([105, 100]),
             epochs: None,
+            signet_challenge: None,
         };
 
         if fs::metadata(&indexer_conf.spv_headers_path).is_ok() {

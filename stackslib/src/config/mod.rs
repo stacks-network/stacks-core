@@ -46,7 +46,7 @@ use stacks_common::util::get_epoch_time_ms;
 use stacks_common::util::hash::hex_bytes;
 use stacks_common::util::secp256k1::{Secp256k1PrivateKey, Secp256k1PublicKey};
 
-use crate::burnchains::bitcoin::BitcoinNetworkType;
+use crate::burnchains::bitcoin::{signet, BitcoinNetworkType};
 use crate::burnchains::{Burnchain, MagicBytes, BLOCKSTACK_MAGIC_MAINNET};
 use crate::chainstate::nakamoto::signer_set::{
     set_pox_5_bond_admin, set_pox_5_pause_admin, set_pox_5_sbtc_contract,
@@ -505,6 +505,10 @@ impl Config {
                 burnchain.first_block_height
             );
             burnchain.first_block_height = first_burn_block_height;
+            if self.burnchain.get_bitcoin_network().1 == BitcoinNetworkType::Signet {
+                // A new signet-backed Stacks chain has no rewards before its launch anchor.
+                burnchain.initial_reward_start_block = first_burn_block_height;
+            }
         }
 
         if let Some(first_burn_block_timestamp) = self.burnchain.first_burn_block_timestamp {
@@ -741,6 +745,7 @@ impl Config {
             }
             BitcoinNetworkType::Testnet => Ok(STACKS_EPOCHS_TESTNET.clone().to_vec()),
             BitcoinNetworkType::Regtest => Ok(STACKS_EPOCHS_REGTEST.clone().to_vec()),
+            BitcoinNetworkType::Signet => Ok(signet::default_epochs().to_vec()),
         }?;
         let mut matched_epochs = vec![];
         for configured_epoch in conf_epochs.iter() {
@@ -948,6 +953,7 @@ impl Config {
             "xenon",
             "mainnet",
             "nakamoto-neon",
+            "signet",
         ];
 
         if !supported_modes.contains(&burnchain.mode.as_str()) {
@@ -1152,16 +1158,44 @@ impl Config {
         path
     }
 
-    fn get_burnchain_path(&self) -> PathBuf {
+    /// Return and create the event queue directory, scoped to the signet challenge.
+    pub fn get_event_observer_dir(&self) -> PathBuf {
+        if self.burnchain.mode != "signet" {
+            return self.get_working_dir();
+        }
+        let path = self.get_network_path();
+        fs::create_dir_all(&path).unwrap_or_else(|e| {
+            panic!(
+                "Failed to create event observer directory {}: {e}",
+                path.display()
+            )
+        });
+        path
+    }
+
+    /// Separate all persistent chain data by the complete signet challenge hash.
+    fn get_network_path(&self) -> PathBuf {
         let mut path = PathBuf::from(&self.node.working_dir);
         path.push(&self.burnchain.mode);
+        if self.burnchain.mode == "signet" {
+            let challenge = self
+                .burnchain
+                .signet_challenge
+                .clone()
+                .unwrap_or_else(signet::default_challenge);
+            path.push(signet::challenge_hash(&challenge).to_string());
+        }
+        path
+    }
+
+    fn get_burnchain_path(&self) -> PathBuf {
+        let mut path = self.get_network_path();
         path.push("burnchain");
         path
     }
 
     pub fn get_chainstate_path(&self) -> PathBuf {
-        let mut path = PathBuf::from(&self.node.working_dir);
-        path.push(&self.burnchain.mode);
+        let mut path = self.get_network_path();
         path.push("chainstate");
         path
     }
@@ -1409,6 +1443,7 @@ pub struct BurnchainConfig {
     /// Supported values:
     /// - `"mainnet"`: mainnet
     /// - `"xenon"`: testnet
+    /// - `"signet"`: public or custom Bitcoin signet through a trusted Bitcoin Core peer
     /// - `"mocknet"`: regtest
     /// - `"helium"`: regtest
     /// - `"neon"`: regtest
@@ -1465,15 +1500,15 @@ pub struct BurnchainConfig {
     /// find the underlying bitcoin node to interact with for PoX operations,
     /// block validation, and mining.
     /// ---
-    /// @default: `"0.0.0.0"`
+    /// @default: `"127.0.0.1"` for signet; `"0.0.0.0"` otherwise
     pub peer_host: String,
     /// The P2P network port of the bitcoin node specified by [`BurnchainConfig::peer_host`].
     /// ---
-    /// @default: `8333`
+    /// @default: `38333` for signet; `8333` otherwise
     pub peer_port: u16,
     /// The RPC port of the bitcoin node specified by [`BurnchainConfig::peer_host`].
     /// ---
-    /// @default: `8332`
+    /// @default: `38332` for signet; `8332` otherwise
     pub rpc_port: u16,
     /// Flag indicating whether to use SSL/TLS when connecting to the bitcoin node's
     /// RPC interface.
@@ -1520,8 +1555,17 @@ pub struct BurnchainConfig {
     /// ---
     /// @default: |
     ///   - if [`BurnchainConfig::mode`] is `"xenon"`: `"T2"`
+    ///   - if [`BurnchainConfig::mode`] is `"signet"`: `"S2"`
     ///   - else: `"X2"`
     pub magic_bytes: MagicBytes,
+    /// Bitcoin signet challenge script, distinct from Stacks operation magic bytes.
+    /// The configured Bitcoin Core peer must fully validate this challenge.
+    /// ---
+    /// @default: `None` (Bitcoin Core's public signet challenge)
+    /// @notes:
+    ///   - Set `signet_challenge` to the same hex script as Bitcoin Core's `signetchallenge`.
+    ///   - Valid only in `signet` mode; changing the challenge selects separate chain data.
+    pub signet_challenge: Option<Vec<u8>>,
     /// The public key associated with the local mining address for the underlying
     /// Bitcoin regtest node. Provided as a hex string representing an uncompressed
     /// public key.
@@ -1789,6 +1833,7 @@ impl BurnchainConfig {
             timeout: 300,
             socket_timeout: 30,
             magic_bytes: BLOCKSTACK_MAGIC_MAINNET,
+            signet_challenge: None,
             local_mining_public_key: None,
             process_exit_at_block_height: None,
             poll_time_secs: 10, // TODO: this is a testnet specific value.
@@ -1835,6 +1880,7 @@ impl BurnchainConfig {
         match self.mode.as_str() {
             "mainnet" => ("mainnet".to_string(), BitcoinNetworkType::Mainnet),
             "xenon" => ("testnet".to_string(), BitcoinNetworkType::Testnet),
+            "signet" => ("signet".to_string(), BitcoinNetworkType::Signet),
             "helium" | "neon" | "argon" | "krypton" | "mocknet" | "nakamoto-neon" => {
                 ("regtest".to_string(), BitcoinNetworkType::Regtest)
             }
@@ -1888,6 +1934,8 @@ pub struct BurnchainConfigFile {
     /// Socket timeout, in seconds, for socket operations with bitcoind
     pub socket_timeout: Option<u64>,
     pub magic_bytes: Option<String>,
+    /// Hex-encoded BIP 325 challenge; omitted for public signet.
+    pub signet_challenge: Option<String>,
     pub local_mining_public_key: Option<String>,
     pub process_exit_at_block_height: Option<u64>,
     pub poll_time_secs: Option<u64>,
@@ -1923,6 +1971,20 @@ impl BurnchainConfigFile {
 
         let mode = self.mode.unwrap_or(default_burnchain_config.mode);
         let is_mainnet = mode == "mainnet";
+        if self.signet_challenge.is_some() && mode != "signet" {
+            return Err("signet_challenge is only valid in signet mode".into());
+        }
+        let signet_challenge = self
+            .signet_challenge
+            .as_deref()
+            .map(signet::parse_challenge)
+            .transpose()?;
+        if mode == "signet" {
+            self.peer_host.get_or_insert_with(|| "127.0.0.1".into());
+            self.peer_port.get_or_insert(signet::P2P_PORT);
+            self.rpc_port.get_or_insert(signet::RPC_PORT);
+            self.magic_bytes.get_or_insert_with(|| "S2".into());
+        }
         if is_mainnet {
             // check magic bytes and set if not defined
             let mainnet_magic = ConfigFile::mainnet().burnchain.unwrap().magic_bytes;
@@ -1938,6 +2000,7 @@ impl BurnchainConfigFile {
         }
 
         let mut config = BurnchainConfig {
+            signet_challenge,
             chain: self.chain.unwrap_or(default_burnchain_config.chain),
             chain_id: match self.chain_id {
                 Some(chain_id) => {
@@ -2076,6 +2139,9 @@ impl BurnchainConfigFile {
             }
         }
 
+        if config.mode == "signet" && self.epochs.is_none() {
+            config.epochs = Some(signet::default_epochs());
+        }
         if let Some(ref conf_epochs) = self.epochs {
             config.epochs = Some(Config::make_epochs(
                 conf_epochs,

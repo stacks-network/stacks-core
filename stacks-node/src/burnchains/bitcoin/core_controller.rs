@@ -22,6 +22,8 @@
 use std::io::{BufRead, BufReader};
 use std::process::{Child, Command, Stdio};
 
+use stacks::util::hash::to_hex;
+
 use crate::burnchains::rpc::bitcoin_rpc_client::BitcoinRpcClient;
 use crate::Config;
 
@@ -74,7 +76,16 @@ impl BitcoinCoreController {
             rpc_client: client,
         };
 
-        result.add_arg("-regtest");
+        if config.burnchain.mode == "signet" {
+            result.add_arg("-signet");
+            result.add_arg("-dnsseed=0");
+            result.add_arg("-connect=0");
+            if let Some(challenge) = &config.burnchain.signet_challenge {
+                result.add_arg(format!("-signetchallenge={}", to_hex(challenge)));
+            }
+        } else {
+            result.add_arg("-regtest");
+        }
         result.add_arg("-nodebug");
         result.add_arg("-nodebuglogfile");
         result.add_arg("-rest");
@@ -91,6 +102,10 @@ impl BitcoinCoreController {
             info!("Peer Port is disabled. So `-listen=0` flag will be used");
             result.add_arg("-listen=0");
         } else {
+            if config.burnchain.mode == "signet" {
+                // -connect=0 otherwise disables listening by default.
+                result.add_arg("-listen=1");
+            }
             result.add_arg(format!("-port={peer_port}"));
         }
 

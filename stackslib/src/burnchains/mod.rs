@@ -25,9 +25,10 @@ pub use stacks_common::types::{Address, PrivateKey, PublicKey};
 use self::bitcoin::indexer::{
     BITCOIN_MAINNET as BITCOIN_NETWORK_ID_MAINNET, BITCOIN_MAINNET_NAME,
     BITCOIN_REGTEST as BITCOIN_NETWORK_ID_REGTEST, BITCOIN_REGTEST_NAME,
+    BITCOIN_SIGNET as BITCOIN_NETWORK_ID_SIGNET, BITCOIN_SIGNET_NAME,
     BITCOIN_TESTNET as BITCOIN_NETWORK_ID_TESTNET, BITCOIN_TESTNET_NAME,
 };
-use self::bitcoin::{BitcoinBlock, BitcoinTransaction, Error as btc_error};
+use self::bitcoin::{signet, BitcoinBlock, BitcoinTransaction, Error as btc_error};
 use crate::chainstate::burn::distribution::BurnSamplePoint;
 use crate::chainstate::burn::operations::leader_block_commit::{
     MissedBlockCommit, OUTPUTS_PER_COMMIT,
@@ -86,6 +87,7 @@ impl BurnchainParameters {
             ("bitcoin", "mainnet") => Some(BurnchainParameters::bitcoin_mainnet()),
             ("bitcoin", "testnet") => Some(BurnchainParameters::bitcoin_testnet()),
             ("bitcoin", "regtest") => Some(BurnchainParameters::bitcoin_regtest()),
+            ("bitcoin", "signet") => Some(BurnchainParameters::bitcoin_signet()),
             _ => None,
         }
     }
@@ -135,10 +137,26 @@ impl BurnchainParameters {
         }
     }
 
+    /// Signet burnchain defaults; deployment-specific activation heights are configurable.
+    pub fn bitcoin_signet() -> BurnchainParameters {
+        BurnchainParameters {
+            chain_name: "bitcoin".into(),
+            network_name: BITCOIN_SIGNET_NAME.into(),
+            network_id: BITCOIN_NETWORK_ID_SIGNET,
+            stable_confirmations: 7,
+            consensus_hash_lifetime: 24,
+            first_block_height: 0,
+            first_block_hash: BurnchainHeaderHash::from_hex(signet::GENESIS_HASH)
+                .expect("Valid signet genesis hash"),
+            first_block_timestamp: signet::GENESIS_TIMESTAMP,
+            initial_reward_start_block: 0,
+        }
+    }
+
     pub fn is_testnet(network_id: u32) -> bool {
         matches!(
             network_id,
-            BITCOIN_NETWORK_ID_TESTNET | BITCOIN_NETWORK_ID_REGTEST
+            BITCOIN_NETWORK_ID_TESTNET | BITCOIN_NETWORK_ID_REGTEST | BITCOIN_NETWORK_ID_SIGNET
         )
     }
 }
@@ -532,6 +550,15 @@ impl PoxConstants {
             244,
             247,
         )
+    }
+
+    /// Development cycles allow signer registration and a five-block prepare phase.
+    pub fn signet_default() -> PoxConstants {
+        let mut constants = Self::regtest_default();
+        constants.reward_cycle_length = 20;
+        constants.prepare_length = 5;
+        constants.anchor_threshold = 3;
+        constants
     }
 
     // TODO: add tests from mutation testing results #4838

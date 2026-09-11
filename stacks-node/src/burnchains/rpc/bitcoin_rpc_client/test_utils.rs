@@ -63,6 +63,7 @@ where
         "main" => Ok(BitcoinNetworkType::Mainnet),
         "test" => Ok(BitcoinNetworkType::Testnet),
         "regtest" => Ok(BitcoinNetworkType::Regtest),
+        "signet" => Ok(BitcoinNetworkType::Signet),
         other => Err(serde::de::Error::custom(format!(
             "invalid network type: {other}"
         ))),

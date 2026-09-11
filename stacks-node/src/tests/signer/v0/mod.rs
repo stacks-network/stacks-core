@@ -35,6 +35,7 @@ use pinny::tag;
 use proptest::prelude::Strategy;
 use rand::{thread_rng, Rng};
 use rusqlite::Connection;
+use serde_json::{Map as JsonMap, Value as JsonValue};
 use stacks::address::AddressHashMode;
 use stacks::chainstate::burn::db::sortdb::SortitionDB;
 use stacks::chainstate::burn::ConsensusHash;
@@ -93,7 +94,7 @@ use stacks_signer::v0::SpawnedSigner;
 use tracing_subscriber::prelude::*;
 use tracing_subscriber::{fmt, EnvFilter};
 
-use super::SignerTest;
+use super::{wait_for_node_commit, SignerTest};
 use crate::event_dispatcher::TEST_SKIP_BLOCK_ANNOUNCEMENT;
 use crate::nakamoto_node::miner::{
     fault_injection_stall_miner, fault_injection_try_stall_miner, fault_injection_unstall_miner,
@@ -130,6 +131,7 @@ pub mod reorg;
 pub mod signers_consider_consensus_blocks;
 pub mod signers_consider_late_proposals;
 pub mod signers_wait_for_validation;
+mod signet_qualification;
 pub mod tenure_extend;
 
 impl<Z: SpawnedSignerTrait> SignerTest<Z> {
@@ -226,6 +228,9 @@ impl<Z: SpawnedSignerTrait> SignerTest<Z> {
         // Note, we don't use `nakamoto_blocks_mined` counter, because there
         // could be other miners mining blocks.
         info!("Waiting for first Epoch 3.0 tenure to start");
+        // The Nakamoto relayer starts asynchronously at the epoch boundary.
+        // Wait for its commit before mining the first tenure's Bitcoin block.
+        wait_for_node_commit(&self.running_nodes.conf, &self.running_nodes.counters, 60);
         self.mine_nakamoto_block(Duration::from_secs(60), false);
         info!("Ready to mine Nakamoto blocks!");
     }
@@ -1124,6 +1129,13 @@ impl MultipleMinerTest {
         let node_1_pk = StacksPublicKey::from_private(&node_1_sk);
 
         conf_node_2.node.working_dir = format!("{}-1", conf_node_2.node.working_dir);
+        // A cloned configuration must not load the other miner's persisted VRF key.
+        if conf_node_2.miner.activated_vrf_key_path.is_some()
+            && conf_node_2.miner.activated_vrf_key_path == conf.miner.activated_vrf_key_path
+        {
+            conf_node_2.miner.activated_vrf_key_path =
+                Some(format!("{}/vrf_key", conf_node_2.node.working_dir));
+        }
 
         conf_node_2.node.set_bootstrap_nodes(
             format!("{}@{}", &node_1_pk.to_hex(), conf.node.p2p_address),
@@ -2117,8 +2129,16 @@ impl MultipleMinerTest {
 /// transaction with the given cause.
 fn last_block_contains_tenure_change_tx(cause: TenureChangeCause) -> bool {
     let blocks = test_observer::get_blocks();
-    let last_block = &blocks.last().unwrap();
-    let transactions = last_block["transactions"].as_array().unwrap();
+    let last_block = blocks.last().unwrap().as_object().unwrap();
+    block_contains_tenure_change_tx(last_block, cause)
+}
+
+/// Returns whether an observed block contains a tenure change with the given cause.
+fn block_contains_tenure_change_tx(
+    block: &JsonMap<String, JsonValue>,
+    cause: TenureChangeCause,
+) -> bool {
+    let transactions = block["transactions"].as_array().unwrap();
     let tx = transactions.first().expect("No transactions in block");
     let raw_tx = tx["raw_tx"].as_str().unwrap();
     let tx_bytes = hex_bytes(&raw_tx[2..]).unwrap();
