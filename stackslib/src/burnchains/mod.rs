@@ -153,17 +153,17 @@ impl BurnchainParameters {
 pub struct BurnchainSigner(pub String);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum BurnchainSignerKind<'a> {
+pub enum BurnchainSignerKind<'a> {
     Signer(&'a str),
     NoChangeOutput,
     UndecodableOutput,
 }
 
 impl BurnchainSigner {
-    pub(crate) const NO_CHANGE_OUTPUT: &'static str = "<no-change-output>";
-    pub(crate) const UNDECODABLE_OUTPUT: &'static str = "<undecodable-output>";
+    pub const NO_CHANGE_OUTPUT: &'static str = "<no-change-output>";
+    pub const UNDECODABLE_OUTPUT: &'static str = "<undecodable-output>";
 
-    pub(crate) fn kind(&self) -> BurnchainSignerKind<'_> {
+    pub fn kind(&self) -> BurnchainSignerKind<'_> {
         match self.0.as_str() {
             Self::NO_CHANGE_OUTPUT => BurnchainSignerKind::NoChangeOutput,
             Self::UNDECODABLE_OUTPUT => BurnchainSignerKind::UndecodableOutput,
