@@ -15,7 +15,7 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use std::fmt::Debug;
-use std::path::PathBuf;
+use std::path::Path;
 use std::sync::Arc;
 use std::thread::sleep;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -39,12 +39,12 @@ pub struct EventDispatcherDbConnection {
 }
 
 impl EventDispatcherDbConnection {
-    pub fn new_without_init(db_path: &PathBuf) -> Result<EventDispatcherDbConnection, db_error> {
+    pub fn new_without_init(db_path: &Path) -> Result<EventDispatcherDbConnection, db_error> {
         let connection = Connection::open(db_path.to_str().unwrap())?;
         Ok(EventDispatcherDbConnection { connection })
     }
 
-    pub fn new(db_path: &PathBuf) -> Result<EventDispatcherDbConnection, db_error> {
+    pub fn new(db_path: &Path) -> Result<EventDispatcherDbConnection, db_error> {
         let connection = Connection::open(db_path.to_str().unwrap())?;
         connection.execute(
             "CREATE TABLE IF NOT EXISTS pending_payloads (
