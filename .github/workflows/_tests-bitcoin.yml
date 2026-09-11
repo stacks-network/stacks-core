@@ -9,6 +9,20 @@ on:
         description: "The test archive file"
         required: true
         type: string
+      nextest-profile:
+        description: |
+          Nextest profile override forwarded to the run-tests action. Empty (the
+          default) keeps the profile used by PR CI.
+        required: false
+        default: ""
+        type: string
+      only-tests:
+        description: |
+          Comma-separated fully qualified test names. When set, the matrix is
+          narrowed to just these tests. Empty (the default) generates the full matrix.
+        required: false
+        default: ""
+        type: string
       upload-junit-xml:
         description: "Whether or not to upload the nextest JUnit XML artifact"
         required: true
@@ -38,7 +52,7 @@ env:
 
 # Configure concurrency
 concurrency:
-  group: bitcoin-tests-${{ github.head_ref || github.ref || github.run_id }}
+  group: bitcoin-tests-${{ github.workflow }}-${{ github.head_ref || github.ref || github.run_id }}
   cancel-in-progress: true
 
 jobs:
@@ -71,6 +85,8 @@ jobs:
       # Generate the bitcoin test matrices json used for running tests
       - name: Generate Test Matrices
         id: set-matrix
+        env:
+          ONLY_TESTS: ${{ inputs.only-tests }}
         run: bash ./.github/scripts/bitcoin_tests.sh
 
   integration-tests-1:
@@ -97,6 +113,7 @@ jobs:
           test-names: ${{ matrix.batch.csv }}
           archive-file: ${{ inputs.archive-file }}
           codecov-test-name: isolated-test-${{ matrix.batch.index }}
+          nextest-profile: ${{ inputs.nextest-profile }}
           upload-junit-xml: ${{ inputs.upload-junit-xml }}
           upload-code-coverage: ${{ inputs.upload-code-coverage }}
 
@@ -124,6 +141,7 @@ jobs:
           test-names: ${{ matrix.batch.csv }}
           archive-file: ${{ inputs.archive-file }}
           codecov-test-name: isolated-test-${{ matrix.batch.index }}
+          nextest-profile: ${{ inputs.nextest-profile }}
           upload-junit-xml: ${{ inputs.upload-junit-xml }}
           upload-code-coverage: ${{ inputs.upload-code-coverage }}
 
@@ -151,6 +169,7 @@ jobs:
           test-names: ${{ matrix.batch.csv }}
           archive-file: ${{ inputs.archive-file }}
           codecov-test-name: isolated-test-${{ matrix.batch.index }}
+          nextest-profile: ${{ inputs.nextest-profile }}
           upload-junit-xml: ${{ inputs.upload-junit-xml }}
           upload-code-coverage: ${{ inputs.upload-code-coverage }}
           
@@ -178,6 +197,7 @@ jobs:
           test-names: ${{ matrix.batch.csv }}
           archive-file: ${{ inputs.archive-file }}
           codecov-test-name: isolated-test-${{ matrix.batch.index }}
+          nextest-profile: ${{ inputs.nextest-profile }}
           upload-junit-xml: ${{ inputs.upload-junit-xml }}
           upload-code-coverage: ${{ inputs.upload-code-coverage }}
  
