@@ -292,9 +292,9 @@ impl LeaderBlockCommitOp {
                 .map(|out| {
                     out.as_ref()
                         .map(|out| out.address.clone().to_b58())
-                        .unwrap_or("<undecodable-output>".to_string())
+                        .unwrap_or(BurnchainSigner::UNDECODABLE_OUTPUT.to_string())
                 })
-                .unwrap_or("<no-change-output>".to_string()),
+                .unwrap_or(BurnchainSigner::NO_CHANGE_OUTPUT.to_string()),
         );
 
         let sunset_burn = 0;
@@ -338,9 +338,9 @@ impl LeaderBlockCommitOp {
                     .map(|out| {
                         out.as_ref()
                             .map(|out| out.address.clone().to_b58())
-                            .unwrap_or("<undecodable-output>".to_string())
+                            .unwrap_or(BurnchainSigner::UNDECODABLE_OUTPUT.to_string())
                     })
-                    .unwrap_or("<no-change-output>".to_string()),
+                    .unwrap_or(BurnchainSigner::NO_CHANGE_OUTPUT.to_string()),
             );
 
             let sunset_burn = tx.get_burn_amount();
@@ -403,9 +403,9 @@ impl LeaderBlockCommitOp {
                     .map(|out| {
                         out.as_ref()
                             .map(|out| out.address.clone().to_b58())
-                            .unwrap_or("<undecodable-output>".to_string())
+                            .unwrap_or(BurnchainSigner::UNDECODABLE_OUTPUT.to_string())
                     })
-                    .unwrap_or("<no-change-output>".to_string()),
+                    .unwrap_or(BurnchainSigner::NO_CHANGE_OUTPUT.to_string()),
             );
             Ok(CommitCalculation {
                 commit_outs,
