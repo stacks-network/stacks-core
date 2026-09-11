@@ -582,7 +582,7 @@ impl TrieFile {
             let block_hash: T = row.get_unwrap("block_hash");
             let offset_i64: i64 = row.get_unwrap("external_offset");
             let offset = offset_i64 as u64;
-            let start = TrieStorageConnection::<T>::root_ptr_disk() as u64;
+            let start = TrieStorageConnection::<T>::root_ptr_disk();
 
             self.seek(SeekFrom::Start(offset + start))?;
             let hash_buff = read_hash_bytes(self)?;

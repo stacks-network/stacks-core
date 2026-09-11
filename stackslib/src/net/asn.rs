@@ -180,7 +180,7 @@ impl ASEntry4 {
             ));
         }
         let mask = mask_opt.unwrap();
-        if mask < 8 || mask > 24 {
+        if !(8..=24).contains(&mask) {
             debug!("Invalid mask \"{}\"", mask);
             return Err(net_error::DeserializeError(format!(
                 "Invalid ASN mask {}",

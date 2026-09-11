@@ -5697,7 +5697,7 @@ pub mod test {
                             1,
                         );
                         block_txs.push(alice_stack);
-                    } else if tenure_id >= 2 && tenure_id <= 8 {
+                    } else if (2..=8).contains(&tenure_id) {
                         // try to spend tokens -- they should all fail with short-return
                         let alice_spend = make_bare_contract(
                             &alice,
@@ -5911,7 +5911,7 @@ pub mod test {
 
                 assert!(reward_cycle > cur_reward_cycle);
                 test_before_first_reward_cycle = true;
-            } else if tenure_id >= 2 && tenure_id <= 8 {
+            } else if (2..=8).contains(&tenure_id) {
                 // alice did _NOT_ spend
                 assert!(get_contract(
                     &mut peer,

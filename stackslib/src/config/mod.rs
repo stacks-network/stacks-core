@@ -4986,11 +4986,11 @@ mod tests {
     #[test]
     fn test_config_file() {
         assert_eq!(
-            format!("Invalid path: No such file or directory (os error 2)"),
+            "Invalid path: No such file or directory (os error 2)".to_string(),
             ConfigFile::from_path("some_path").unwrap_err()
         );
         assert_eq!(
-            format!("Invalid toml: unexpected character found: `/` at line 1 column 1"),
+            "Invalid toml: unexpected character found: `/` at line 1 column 1".to_string(),
             ConfigFile::from_str("//[node]").unwrap_err()
         );
         assert!(ConfigFile::from_str("").is_ok());
@@ -4999,7 +4999,7 @@ mod tests {
     #[test]
     fn test_config() {
         assert_eq!(
-            format!("node.seed should be a hex encoded string"),
+            "node.seed should be a hex encoded string".to_string(),
             Config::from_config_file(
                 ConfigFile::from_str(
                     r#"
@@ -5014,7 +5014,7 @@ mod tests {
         );
 
         assert_eq!(
-            format!("node.local_peer_seed should be a hex encoded string"),
+            "node.local_peer_seed should be a hex encoded string".to_string(),
             Config::from_config_file(
                 ConfigFile::from_str(
                     r#"

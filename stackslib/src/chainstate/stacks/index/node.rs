@@ -1540,7 +1540,7 @@ impl TrieNodePatch {
         let ptr_diff = Self::make_ptr_diff(&old_node_ptr, old_node.ptrs(), new_node.ptrs());
         Self {
             ptr: old_node_ptr,
-            ptr_diff: ptr_diff,
+            ptr_diff,
         }
     }
 
@@ -1553,7 +1553,7 @@ impl TrieNodePatch {
         let ptr_diff = Self::make_ptr_diff(&old_node_ptr, old_node.ptrs(), new_node.ptrs());
         Self {
             ptr: old_node_ptr,
-            ptr_diff: ptr_diff,
+            ptr_diff,
         }
     }
 
@@ -1566,7 +1566,7 @@ impl TrieNodePatch {
         let ptr_diff = Self::make_ptr_diff(&old_node_ptr, old_node.ptrs(), new_node.ptrs());
         Self {
             ptr: old_node_ptr,
-            ptr_diff: ptr_diff,
+            ptr_diff,
         }
     }
 
@@ -1579,7 +1579,7 @@ impl TrieNodePatch {
         let ptr_diff = Self::make_ptr_diff(&old_node_ptr, old_node.ptrs(), new_node.ptrs());
         Self {
             ptr: old_node_ptr,
-            ptr_diff: ptr_diff,
+            ptr_diff,
         }
     }
 

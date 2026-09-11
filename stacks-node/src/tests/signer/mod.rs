@@ -395,7 +395,7 @@ impl<Z: SpawnedSignerTrait> SignerTest<Z> {
             let duration = now.duration_since(created_at).unwrap();
             // Regtest doesn't like if the last block is > 2 hours old, so
             // don't use this snapshot.
-            if duration > Duration::from_secs(3600 * 1) {
+            if duration > Duration::from_secs(3600) {
                 // Bitcoin regtest node is too old, act like no snapshot exists
                 warn!("Bitcoin regtest node is too old, not restoring snapshot");
                 std::fs::remove_dir_all(snapshot_path.clone()).unwrap();
@@ -1229,7 +1229,7 @@ impl<Z: SpawnedSignerTrait> SignerTest<Z> {
     /// Chain information is captured before `f` is called, and then again after `f`
     /// to ensure that the block was mined.
     /// Note: this function does _not_ mine a BTC block.
-    fn wait_for_nakamoto_block(&self, timeout_secs: u64, f: impl FnOnce() -> ()) {
+    fn wait_for_nakamoto_block(&self, timeout_secs: u64, f: impl FnOnce()) {
         let blocks_before = self.running_nodes.counters.naka_mined_blocks.get();
         let info_before = self.get_peer_info();
 

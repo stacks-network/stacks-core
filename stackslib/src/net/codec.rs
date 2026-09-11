@@ -44,7 +44,7 @@ use crate::net::db::LocalPeer;
 use crate::net::{Error as net_error, *};
 
 pub fn bitvec_len(bitlen: u16) -> u16 {
-    (bitlen / 8) + (if bitlen % 8 != 0 { 1 } else { 0 })
+    (bitlen / 8) + (if !bitlen.is_multiple_of(8) { 1 } else { 0 })
 }
 
 impl Preamble {

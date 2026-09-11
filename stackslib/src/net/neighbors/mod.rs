@@ -208,6 +208,10 @@ impl PeerNetwork {
     ///
     /// Returns the new neighbor walk on success.
     /// Returns None if we could not instantiate a walk for some reason.
+    #[expect(
+        clippy::manual_is_multiple_of,
+        reason = "Remainder must still panic if the configured walk interval wraps to zero."
+    )]
     fn new_neighbor_walk(
         &mut self,
         ibd: bool,
