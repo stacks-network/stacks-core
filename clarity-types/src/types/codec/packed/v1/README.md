@@ -494,9 +494,11 @@ following order:
 
 The declared list element type and maximum bound MUST NOT select the physical layout.
 
-Historical unsanitized lists may contain elements with different shapes. These lists use fixed
-concatenation when every element is fixed-width, even if their individual widths differ; otherwise,
-they use an offset directory. Heterogeneity does not itself require directory framing.
+Historical unsanitized lists may contain elements with different shapes. When every element is
+fixed-width, the descriptor's per-element shapes determine each element's byte length. Readers can
+therefore calculate element boundaries by summing those widths, even when the widths differ, so an offset directory would only duplicate that information;
+these lists therefore use fixed concatenation. Otherwise, they use an offset directory to supply
+the boundaries that the element shapes alone do not determine.
 
 ### Integer lanes
 
