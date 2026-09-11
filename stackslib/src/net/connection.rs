@@ -38,7 +38,8 @@ use crate::net::neighbors::{
     WALK_SEED_PROBABILITY, WALK_STATE_TIMEOUT,
 };
 use crate::net::{
-    Error as net_error, MessageSequence, NeighborAddress, ProtocolFamily, StacksHttp, StacksP2P,
+    CompletedPayload, Error as net_error, MessageSequence, NeighborAddress, ProtocolFamily,
+    StacksHttp, StacksP2P, StreamRead,
 };
 
 /// The default maximum age in seconds of a block that can be validated by the block proposal endpoint
@@ -871,7 +872,10 @@ impl<P: ProtocolFamily> ConnectionInbox<P> {
         })?;
 
         trace!("Stream up to {} payload bytes", to_buffer.len());
-        let (message_opt, bytes_consumed) = protocol.stream_payload(preamble, &mut to_buffer)?;
+        let StreamRead {
+            completed: message_opt,
+            consumed: bytes_consumed,
+        } = protocol.stream_payload(preamble, &mut to_buffer)?;
 
         trace!("Streamed {} payload bytes", bytes_consumed);
         self.payload_ptr =
@@ -882,7 +886,10 @@ impl<P: ProtocolFamily> ConnectionInbox<P> {
                 ))?;
 
         let ret = match message_opt {
-            Some((message, _message_len)) => {
+            Some(CompletedPayload {
+                payload: message,
+                total_encoded_bytes: _message_len,
+            }) => {
                 test_debug!(
                     "Streamed {} bytes to form a message from preamble {:?}",
                     _message_len,

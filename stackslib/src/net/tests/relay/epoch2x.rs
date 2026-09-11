@@ -47,7 +47,7 @@ use crate::net::db::PeerDB;
 use crate::net::http::{HttpRequestContents, HttpRequestPreamble};
 use crate::net::httpcore::StacksHttpMessage;
 use crate::net::p2p::*;
-use crate::net::relay::*;
+use crate::net::relay::{ProcessedBlocks, *};
 use crate::net::test::*;
 use crate::net::tests::download::epoch2x::run_get_blocks_and_microblocks;
 use crate::net::{Error as net_error, *};
@@ -2886,14 +2886,18 @@ fn process_new_blocks_rejects_problematic_asts() {
         .push((new_consensus_hash.clone(), vec![bad_mblock], 234));
 
     let mut sortdb = peer.chain.sortdb.take().unwrap();
-    let (processed_blocks, processed_mblocks, relay_mblocks, bad_neighbors) =
-        Relayer::process_new_blocks(
-            &mut network_result,
-            &mut sortdb,
-            &mut peer.chain.stacks_node.as_mut().unwrap().chainstate,
-            None,
-        )
-        .unwrap();
+    let ProcessedBlocks {
+        blocks: processed_blocks,
+        confirmed_microblocks: processed_mblocks,
+        unconfirmed_microblocks: relay_mblocks,
+        bad_neighbors,
+    } = Relayer::process_new_blocks(
+        &mut network_result,
+        &mut sortdb,
+        &mut peer.chain.stacks_node.as_mut().unwrap().chainstate,
+        None,
+    )
+    .unwrap();
 
     // despite this data showing up in all aspects of the network result, none of it actually
     // gets relayed

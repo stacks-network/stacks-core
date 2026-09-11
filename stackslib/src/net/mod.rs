@@ -60,6 +60,7 @@ use crate::net::httpcore::{
     TipRequest,
 };
 use crate::net::p2p::{PeerNetwork, PendingMessages};
+use crate::net::relay::RelayedMicroblocks;
 use crate::util_lib::db::{DBConn, Error as db_error};
 use crate::util_lib::strings::UrlString;
 
@@ -1260,6 +1261,24 @@ pub trait MessageSequence {
     fn get_message_name(&self) -> &'static str;
 }
 
+/// A completed streamed payload and its encoded size.
+#[derive(Debug)]
+pub struct CompletedPayload<T> {
+    /// Decoded payload assembled across one or more reads.
+    pub payload: T,
+    /// Total encoded bytes consumed to assemble this payload.
+    pub total_encoded_bytes: usize,
+}
+
+/// Progress made while consuming a streamed payload.
+#[derive(Debug)]
+pub struct StreamRead<T> {
+    /// Completed payload, or none if more input is required.
+    pub completed: Option<CompletedPayload<T>>,
+    /// Encoded bytes consumed during this call only.
+    pub consumed: usize,
+}
+
 pub trait ProtocolFamily {
     type Preamble: StacksMessageCodec + Send + Sync + Clone + PartialEq + std::fmt::Debug;
     type Message: MessageSequence + Send + Sync + Clone + PartialEq + std::fmt::Debug;
@@ -1293,7 +1312,7 @@ pub trait ProtocolFamily {
         &mut self,
         preamble: &Self::Preamble,
         fd: &mut R,
-    ) -> Result<(Option<(Self::Message, usize)>, usize), Error>;
+    ) -> Result<StreamRead<Self::Message>, Error>;
 
     /// Given a public key, a preamble, and the yet-to-be-parsed message bytes, verify the message
     /// authenticity.  Not all protocols need to do this.
@@ -1541,7 +1560,7 @@ pub struct NetworkResult {
     /// all Stacks 2.x blocks pushed to us
     pub pushed_blocks: HashMap<NeighborKey, Vec<BlocksData>>,
     /// all Stacks 2.x microblocks pushed to us, and the relay hints from the message
-    pub pushed_microblocks: HashMap<NeighborKey, Vec<(Vec<RelayData>, MicroblocksData)>>,
+    pub pushed_microblocks: HashMap<NeighborKey, Vec<RelayedMicroblocks>>,
     /// all Stacks 3.x blocks pushed to us
     pub pushed_nakamoto_blocks: HashMap<NeighborKey, Vec<(Vec<RelayData>, NakamotoBlocksData)>>,
     /// transactions sent to us by the http server

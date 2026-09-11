@@ -1550,7 +1550,7 @@ impl ProtocolFamily for StacksP2P {
         &mut self,
         _preamble: &Preamble,
         _fd: &mut R,
-    ) -> Result<(Option<(StacksMessage, usize)>, usize), net_error> {
+    ) -> Result<StreamRead<StacksMessage>, net_error> {
         panic!(
             "BUG: tried to stream a StacksP2P message, even though their lengths are always known"
         )
