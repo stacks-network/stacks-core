@@ -29,6 +29,7 @@ use crate::vm::costs::{ExecutionCost, LimitedCostTracker};
 use crate::vm::database::ClarityDatabase;
 use crate::vm::errors::{ClarityEvalError, VmExecutionError};
 use crate::vm::events::StacksTransactionEvent;
+use crate::vm::hooks::EvalHook;
 use crate::vm::resource_limiter::ResourceBudget;
 use crate::vm::types::{BuffData, PrincipalData, QualifiedContractIdentifier};
 use crate::vm::{ClarityVersion, ContractContext, SymbolicExpression, Value, analysis, ast};
@@ -429,6 +430,73 @@ pub trait ClarityConnection {
     }
 }
 
+/// Execute a nested Clarity transaction and let a callback decide whether its
+/// database changes should be committed.
+///
+/// Successful execution commits unless `abort_callback` returns a reason; errors and
+/// callback aborts roll back. The returned cost tracker retains its memory usage for the
+/// surrounding transaction to reset. Evaluation hooks must not run on consensus paths.
+#[allow(clippy::too_many_arguments, clippy::type_complexity)]
+pub fn execute_with_abort_callback<'db, 'hooks, F, A, R, E>(
+    mut db: ClarityDatabase<'db>,
+    cost_tracker: LimitedCostTracker,
+    mainnet: bool,
+    chain_id: u32,
+    epoch: StacksEpochId,
+    eval_hooks: Option<Vec<&'hooks mut dyn EvalHook>>,
+    to_do: F,
+    abort_callback: A,
+) -> (
+    ClarityDatabase<'db>,
+    LimitedCostTracker,
+    Result<
+        (
+            R,
+            AssetMap,
+            Vec<StacksTransactionEvent>,
+            Option<BoundedErrorString>,
+        ),
+        E,
+    >,
+)
+where
+    A: FnOnce(&AssetMap, &mut ClarityDatabase) -> Option<BoundedErrorString>,
+    F: FnOnce(
+        &mut OwnedEnvironment<'_, 'hooks>,
+    ) -> Result<(R, AssetMap, Vec<StacksTransactionEvent>), E>,
+    E: From<VmExecutionError>,
+{
+    db.begin();
+    let mut vm_env = OwnedEnvironment::new_cost_limited(mainnet, chain_id, db, cost_tracker, epoch);
+    for hook in eval_hooks.into_iter().flatten() {
+        vm_env.add_eval_hook(hook);
+    }
+
+    let execution_result = to_do(&mut vm_env);
+    let (mut db, cost_tracker) = vm_env
+        .destruct()
+        .expect("Failed to recover database reference after executing transaction");
+
+    let result = match execution_result {
+        Ok((value, asset_map, events)) => {
+            let abort_reason = abort_callback(&asset_map, &mut db);
+            let db_result = match &abort_reason {
+                Some(_) => db.roll_back(),
+                None => db.commit(),
+            };
+            db_result
+                .map(|()| (value, asset_map, events, abort_reason))
+                .map_err(Into::into)
+        }
+        Err(error) => match db.roll_back() {
+            Ok(()) => Err(error),
+            Err(db_error) => Err(db_error.into()),
+        },
+    };
+
+    (db, cost_tracker, result)
+}
+
 pub trait TransactionConnection: ClarityConnection {
     /// Do something with this connection's Clarity environment that can be aborted
     /// with `abort_call_back`.
@@ -696,9 +764,110 @@ mod unit_tests {
     use super::*;
     use crate::vm::analysis::errors::StaticCheckErrorKind;
     use crate::vm::ast::errors::ParseErrorKind;
+    use crate::vm::database::MemoryBackingStore;
     use crate::vm::errors::{EarlyReturnError, RuntimeError};
     use crate::vm::events::{STXBurnEventData, STXEventType};
+    use crate::vm::hooks::ExecutionOutcome;
+    use crate::vm::hooks::testing::{ExecutionLifecycleEvent, ExecutionLifecycleHook};
     use crate::vm::types::StandardPrincipalData;
+
+    #[test]
+    fn shared_transaction_frame_commits_and_runs_hooks() {
+        let mut store = MemoryBackingStore::new();
+        let db = store.as_clarity_db();
+        let mut hook = ExecutionLifecycleHook::default();
+
+        let (mut db, _, result) = execute_with_abort_callback(
+            db,
+            LimitedCostTracker::new_free(),
+            false,
+            stacks_common::consts::CHAIN_ID_TESTNET,
+            StacksEpochId::Epoch33,
+            Some(vec![&mut hook]),
+            |vm_env| {
+                vm_env.execute_in_env(
+                    PrincipalData::Standard(StandardPrincipalData::transient()),
+                    None,
+                    None,
+                    |exec_state, _| {
+                        exec_state
+                            .global_context
+                            .database
+                            .put_data("shared-frame", &1_u64)?;
+                        Ok::<_, VmExecutionError>(())
+                    },
+                )
+            },
+            |_, _| None,
+        );
+
+        let (_, _, _, abort_reason) = result.unwrap();
+        assert!(abort_reason.is_none());
+        db.begin();
+        assert_eq!(db.get_data::<u64>("shared-frame").unwrap(), Some(1));
+        db.roll_back().unwrap();
+        assert_eq!(
+            hook.events,
+            vec![
+                ExecutionLifecycleEvent::Begin,
+                ExecutionLifecycleEvent::Finish(ExecutionOutcome::Success),
+            ]
+        );
+    }
+
+    #[test]
+    fn shared_transaction_frame_rolls_back_callback_abort() {
+        let mut store = MemoryBackingStore::new();
+        let db = store.as_clarity_db();
+
+        let (mut db, _, result) = execute_with_abort_callback(
+            db,
+            LimitedCostTracker::new_free(),
+            false,
+            stacks_common::consts::CHAIN_ID_TESTNET,
+            StacksEpochId::Epoch33,
+            None,
+            |vm_env| {
+                vm_env.context.database.put_data("shared-frame", &1_u64)?;
+                Ok::<_, VmExecutionError>(((), AssetMap::new(), vec![]))
+            },
+            |_, _| Some("abort".into()),
+        );
+
+        let (_, _, _, abort_reason) = result.unwrap();
+        assert_eq!(abort_reason, Some("abort".into()));
+        db.begin();
+        assert_eq!(db.get_data::<u64>("shared-frame").unwrap(), None);
+        db.roll_back().unwrap();
+    }
+
+    #[test]
+    fn shared_transaction_frame_rolls_back_execution_error() {
+        let mut store = MemoryBackingStore::new();
+        let db = store.as_clarity_db();
+
+        let (mut db, _, result) = execute_with_abort_callback(
+            db,
+            LimitedCostTracker::new_free(),
+            false,
+            stacks_common::consts::CHAIN_ID_TESTNET,
+            StacksEpochId::Epoch33,
+            None,
+            |vm_env| {
+                vm_env.context.database.put_data("shared-frame", &1_u64)?;
+                Err::<((), AssetMap, Vec<StacksTransactionEvent>), _>(VmExecutionError::Runtime(
+                    RuntimeError::ArithmeticOverflow,
+                    None,
+                ))
+            },
+            |_, _| None,
+        );
+
+        assert!(result.is_err());
+        db.begin();
+        assert_eq!(db.get_data::<u64>("shared-frame").unwrap(), None);
+        db.roll_back().unwrap();
+    }
 
     #[test]
     fn runtime_error_disposition_is_authoritative() {

@@ -2410,51 +2410,24 @@ impl TransactionConnection for ClarityTransactionConnection<'_, '_> {
         using!(self.log, "log", |log| {
             using!(self.cost_track, "cost tracker", |cost_track| {
                 let rollback_wrapper = RollbackWrapper::from_persisted_log(self.store, log);
-                let mut db = ClarityDatabase::new_with_rollback_wrapper(
+                let db = ClarityDatabase::new_with_rollback_wrapper(
                     rollback_wrapper,
                     self.header_db,
                     self.burn_state_db,
                 )
                 .with_cache(&mut self.cache);
 
-                // wrap the whole contract-call in a claritydb transaction,
-                //   so we can abort on call_back's boolean retun
-                db.begin();
-                let mut vm_env = OwnedEnvironment::new_cost_limited(
-                    self.mainnet,
-                    self.chain_id,
+                let (db, cost_track, result) = clarity::vm::clarity::execute_with_abort_callback(
                     db,
                     cost_track,
+                    self.mainnet,
+                    self.chain_id,
                     self.epoch,
+                    None,
+                    to_do,
+                    abort_call_back,
                 );
-
-                let result = to_do(&mut vm_env);
-                let (mut db, cost_track) = vm_env
-                    .destruct()
-                    .expect("Failed to recover database reference after executing transaction");
-                // DO NOT reset memory usage yet -- that should happen only when the TX commits.
-
-                let result = match result {
-                    Ok((value, asset_map, events)) => {
-                        let aborted = abort_call_back(&asset_map, &mut db);
-                        let db_result = if aborted.is_some() {
-                            db.roll_back()
-                        } else {
-                            db.commit()
-                        };
-                        match db_result {
-                            Ok(_) => Ok((value, asset_map, events, aborted)),
-                            Err(e) => Err(e.into()),
-                        }
-                    }
-                    Err(e) => {
-                        let db_result = db.roll_back();
-                        match db_result {
-                            Ok(_) => Err(e),
-                            Err(db_err) => Err(db_err.into()),
-                        }
-                    }
-                };
+                // Memory is reset when the surrounding transaction commits.
 
                 (cost_track, (db.destroy().into(), result))
             })
