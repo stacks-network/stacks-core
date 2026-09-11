@@ -494,6 +494,10 @@ following order:
 
 The declared list element type and maximum bound MUST NOT select the physical layout.
 
+Historical unsanitized lists may contain elements with different shapes. These lists use fixed
+concatenation when every element is fixed-width, even if their individual widths differ; otherwise,
+they use an offset directory. Heterogeneity does not itself require directory framing.
+
 ### Integer lanes
 
 All elements in an integer lane share one byte width, `W`, chosen to fit the element requiring the
@@ -534,9 +538,9 @@ bits in the final byte MUST be zero.
 
 ### Fixed-width elements
 
-Fixed-width element bodies are concatenated with no directory. For historical heterogeneous lists,
-each active element's own fixed width is used during descriptor-guided reconstruction. Ordinary
-typed lists use the one width implied by their expected element type.
+Fixed-width element bodies are concatenated with no directory. Descriptor-guided reconstruction
+uses each element's own fixed width to locate its body. Ordinary typed lists use the one width
+implied by their expected element type.
 
 ### Variable-width elements
 
