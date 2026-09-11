@@ -581,8 +581,7 @@ fn test_http_parse_host_header_value() {
 
 #[test]
 fn test_http_headers_too_big() {
-    let bad_header_value =
-        std::iter::repeat_n("A", HTTP_PREAMBLE_MAX_ENCODED_SIZE as usize).collect::<String>();
+    let bad_header_value = "A".repeat(HTTP_PREAMBLE_MAX_ENCODED_SIZE as usize);
     let bad_request_preamble = format!(
         "GET /v2/neighbors HTTP/1.1\r\nHost: localhost:1234\r\nBad-Header: {}\r\n\r\n",
         &bad_header_value
