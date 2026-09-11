@@ -495,24 +495,25 @@ An unsigned-integer lane uses:
 
 | Offset | Length | Field | Encoding | Meaning |
 | ---- | ---- | ---- | ---- | ---- |
-| `i * W` | `W` bytes | Element `i` | Unsigned big-endian, zero-extended to `W` | Repeated for `0 <= i < count`; no per-element framing |
+| `i * W` | `W` bytes | Element `i` | Final `W` bytes of the unsigned 128-bit big-endian representation | Repeated for `0 <= i < count`; no per-element framing |
 
 A signed-integer lane uses:
 
 | Offset | Length | Field | Encoding | Meaning |
 | ---- | ---- | ---- | ---- | ---- |
-| `i * W` | `W` bytes | Element `i` | Two's-complement big-endian, sign-extended to `W` | Repeated for `0 <= i < count`; no per-element framing |
+| `i * W` | `W` bytes | Element `i` | Final `W` bytes of the 128-bit two's-complement big-endian representation | Repeated for `0 <= i < count`; no per-element framing |
+
+Each element is encoded in exactly `W` big-endian bytes: the final `W` bytes of its 128-bit
+representation. The selected width MUST preserve every element's value.
 
 `W` is inferred as `element_region.len() / count`; it is not stored separately. The region MUST be
 non-empty and evenly divisible by the non-zero count. `W` MUST be in `1..=16`.
 
 For an unsigned lane, `W` is the maximum minimal unsigned width of all active elements, with a
-minimum lane width of one. Each element is zero-extended to `W` bytes. If `W > 1`, at least one
-element's first byte MUST be non-zero.
+minimum lane width of one. If `W > 1`, at least one element's first byte MUST be non-zero.
 
 For a signed lane, `W` is the maximum minimal two's-complement width of all active elements, with a
-minimum lane width of one. Each element is sign-extended to `W` bytes. If `W > 1`, at least one
-element MUST require exactly `W` bytes.
+minimum lane width of one. If `W > 1`, at least one element MUST require exactly `W` bytes.
 
 ### Boolean lane
 
@@ -868,8 +869,8 @@ descriptor = 01 0e 01
 
 ### Signed-integer lane
 
-For `(list -129 0 127)`, the two-byte signed lane sign-extends every element to the width required
-by `-129`:
+For `(list -129 0 127)`, the signed lane encodes every element in exactly two bytes, the width
+required by `-129`:
 
 ```text
 packed = 01 00 00 38  00 00 00 03  ff 7f  00 00  00 7f
