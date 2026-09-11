@@ -624,14 +624,26 @@ body.
 
 ### List descriptors
 
-| Variant | Offset | Length | Field | Encoding | Meaning |
-| ---- | ---- | ---- | ---- | ---- | ---- |
-| Empty list | `0` | 1 byte | List opcode | `u8` | MUST be `0d`; no bytes may follow |
-| Shared shape | `0` | 1 byte | List opcode | `u8` | MUST be `0e` |
-| Shared shape | `1` | Shape-dependent | Element shape | One complete shape | Shared by every active element |
-| Per-element shapes | `0` | 1 byte | List opcode | `u8` | MUST be `0f` |
-| Per-element shapes | `1` | Variable | Element count | Minimal `varuint` | Non-zero count that MUST equal the packed list count |
-| Per-element shapes | `cursor` | Shape-dependent | Element shape | One complete shape | Repeated `element_count` times with no padding |
+**Empty list:**
+
+| Offset | Length | Field | Encoding | Meaning |
+| ---- | ---- | ---- | ---- | ---- |
+| `0` | 1 byte | List opcode | `u8` | MUST be `0d`; no bytes may follow |
+
+**Shared shape:**
+
+| Offset | Length | Field | Encoding | Meaning |
+| ---- | ---- | ---- | ---- | ---- |
+| `0` | 1 byte | List opcode | `u8` | MUST be `0e` |
+| `1` | Shape-dependent | Element shape | One complete shape | Shared by every active element |
+
+**Per-element shapes:**
+
+| Offset | Length | Field | Encoding | Meaning |
+| ---- | ---- | ---- | ---- | ---- |
+| `0` | 1 byte | List opcode | `u8` | MUST be `0f` |
+| `1` | Variable | Element count | Minimal `varuint` | Non-zero count that MUST equal the packed list count |
+| `cursor` | Shape-dependent | Element shape | One complete shape | Repeated `element_count` times with no padding |
 
 `element_count` in a per-element descriptor MUST be non-zero and MUST equal the packed list count
 during reconstruction. For that variant, `cursor` starts immediately after the encoded element count
