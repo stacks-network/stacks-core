@@ -9419,7 +9419,7 @@ pub mod test {
         let block_3 = make_empty_coinbase_block(&privk);
         let block_4 = make_empty_coinbase_block(&privk);
 
-        let mut blocks = vec![block_1, block_2, block_3, block_4];
+        let mut blocks = [block_1, block_2, block_3, block_4];
 
         let mut microblocks = vec![];
 

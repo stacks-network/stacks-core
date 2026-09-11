@@ -107,7 +107,7 @@ impl PreStxOp {
         assert!(!outputs.is_empty());
 
         let output = outputs
-            .get(0)
+            .first()
             .ok_or_else(|| {
                 warn!("Invalid tx: first output not found");
                 op_error::InvalidInput
@@ -310,7 +310,7 @@ impl StackStxOp {
         assert!(!outputs.is_empty());
 
         let first_output = outputs
-            .get(0)
+            .first()
             .ok_or_else(|| {
                 warn!("Invalid tx: no first output");
                 op_error::InvalidInput

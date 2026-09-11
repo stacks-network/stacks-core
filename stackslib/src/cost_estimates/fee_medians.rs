@@ -264,7 +264,7 @@ pub fn fee_rate_estimate_from_sorted_weighted_fees(
             fees_index += 1;
         }
         let v = if fees_index == 0 {
-            sorted_fee_rates.get(0)?.fee_rate
+            sorted_fee_rates.first()?.fee_rate
         } else if fees_index == percentiles.len() {
             sorted_fee_rates.last()?.fee_rate
         } else {
@@ -281,7 +281,7 @@ pub fn fee_rate_estimate_from_sorted_weighted_fees(
     Some(FeeRateEstimate {
         high: *values_at_target_percentiles.get(2)?,
         middle: *values_at_target_percentiles.get(1)?,
-        low: *values_at_target_percentiles.get(0)?,
+        low: *values_at_target_percentiles.first()?,
     })
 }
 

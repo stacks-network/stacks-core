@@ -3512,7 +3512,7 @@ mod tests {
 
         btc_controller.build_next_block(1);
         let mut utxos = btc_controller.get_all_utxos(&miner_pubkey);
-        utxos.sort_by(|a, b| b.confirmations.cmp(&a.confirmations));
+        utxos.sort_by_key(|utxo| cmp::Reverse(utxo.confirmations));
 
         assert_eq!(2, utxos.len());
         assert_eq!(102, utxos[0].confirmations);
@@ -3602,7 +3602,7 @@ mod tests {
         assert_eq!(2, uxto_set.num_utxos());
         assert_eq!(10_000_000_000, uxto_set.total_available());
         let mut utxos = uxto_set.utxos;
-        utxos.sort_by(|a, b| b.confirmations.cmp(&a.confirmations));
+        utxos.sort_by_key(|utxo| cmp::Reverse(utxo.confirmations));
         assert_eq!(102, utxos[0].confirmations);
         assert_eq!(5_000_000_000, utxos[0].amount);
         assert_eq!(101, utxos[1].confirmations);

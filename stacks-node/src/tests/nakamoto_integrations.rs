@@ -6496,8 +6496,7 @@ fn nakamoto_attempt_time() {
             // submitted before it mines a block
             fault_injection_stall_miner();
 
-            let mut sender_nonce = account.nonce;
-            for _ in 0..txs_per_block {
+            for sender_nonce in (account.nonce..).take(txs_per_block) {
                 let transfer_tx = make_stacks_transfer_serialized(
                     &sender_sk,
                     sender_nonce,
@@ -6506,7 +6505,6 @@ fn nakamoto_attempt_time() {
                     &recipient,
                     amount,
                 );
-                sender_nonce += 1;
                 submit_tx(&http_origin, &transfer_tx);
             }
 
@@ -10387,9 +10385,7 @@ fn nakamoto_lockup_events() {
     );
 
     // submit a tx so that the miner will mine an extra stacks block
-    let mut sender_nonce = 0;
-
-    for _ in 0..interims_to_mine {
+    for sender_nonce in 0..interims_to_mine {
         let height_before = get_stacks_height();
         info!("----- Mining interim block -----";
             "height" => %height_before,
@@ -10404,7 +10400,6 @@ fn nakamoto_lockup_events() {
             send_amt,
         );
         submit_tx(&http_origin, &transfer_tx);
-        sender_nonce += 1;
 
         wait_for(30, || Ok(get_stacks_height() > height_before)).unwrap();
     }
@@ -14371,7 +14366,7 @@ fn test_sip_031_last_phase_coinbase_matches_activation() {
                                 .unwrap()
                                 .as_array()
                                 .unwrap()
-                                .get(0)
+                                .first()
                                 .unwrap()
                                 .get("txid")
                                 .unwrap()
@@ -18772,7 +18767,7 @@ fn smaller_tenure_size_for_miner() {
     blind_signer(&naka_conf, &signers, &counters);
 
     let mut long_comment = String::from(";; ");
-    long_comment.extend(std::iter::repeat('x').take(524_288 - long_comment.len()));
+    long_comment.extend(std::iter::repeat_n('x', 524_288 - long_comment.len()));
     let contract = format!(
         r#"
         {long_comment}
@@ -18967,7 +18962,7 @@ fn smaller_tenure_size_for_miner_on_two_tenures() {
     blind_signer(&naka_conf, &signers, &counters);
 
     let mut long_comment = String::from(";; ");
-    long_comment.extend(std::iter::repeat('x').take(524_288 - long_comment.len()));
+    long_comment.extend(std::iter::repeat_n('x', 524_288 - long_comment.len()));
     let contract = format!(
         r#"
         {long_comment}
@@ -19188,7 +19183,7 @@ fn smaller_tenure_size_for_miner_with_tenure_extend() {
     blind_signer(&naka_conf, &signers, &counters);
 
     let mut long_comment = String::from(";; ");
-    long_comment.extend(std::iter::repeat('x').take(524_288 - long_comment.len()));
+    long_comment.extend(std::iter::repeat_n('x', 524_288 - long_comment.len()));
     let contract = format!(
         r#"
         {long_comment}

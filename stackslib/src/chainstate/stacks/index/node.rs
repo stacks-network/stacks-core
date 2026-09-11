@@ -1614,7 +1614,7 @@ impl TrieNodePatch {
             trace!("Cannot produce TrieNodePatch: old node and new node are type leaf!");
             return None;
         };
-        if patch.ptr_diff.len() == 0 {
+        if patch.ptr_diff.is_empty() {
             trace!("Cannot produce TrieNodePatch: patch has no diffs!");
             return None;
         }
@@ -1637,7 +1637,7 @@ impl TrieNodePatch {
             ptr: old_patch_ptr,
             ptr_diff,
         };
-        if patch.ptr_diff.len() == 0 {
+        if patch.ptr_diff.is_empty() {
             trace!("Cannot produce TrieNodePatch: patch has no diffs!");
             return None;
         }

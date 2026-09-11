@@ -425,7 +425,7 @@ fn test_process_block_ops() {
         ],
     ];
 
-    let block_124_winners = vec![block_commit_1.clone(), block_commit_3, block_commit_1];
+    let block_124_winners = [block_commit_1.clone(), block_commit_3, block_commit_1];
 
     let mut db = SortitionDB::connect_test(first_block_height, &first_burn_hash).unwrap();
 

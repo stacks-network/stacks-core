@@ -665,7 +665,7 @@ impl BlockstackOperationType {
         if let Some(serde_json::Value::Array(arr)) = map.get("reward_addr") {
             if arr.len() == 2 {
                 let index = arr
-                    .get(0)
+                    .first()
                     .unwrap()
                     .as_u64()
                     .ok_or_else(|| DeError::custom("Expected u64 index"))?

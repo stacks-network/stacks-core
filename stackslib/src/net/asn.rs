@@ -86,7 +86,7 @@ impl ASEntry4 {
             )));
         }
 
-        asn4.sort_by(|a1, a2| a1.prefix.cmp(&a2.prefix));
+        asn4.sort_by_key(|a1| a1.prefix);
         Ok(asn4)
     }
 

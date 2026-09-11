@@ -164,7 +164,7 @@ impl TransferStxOp {
         assert!(!outputs.is_empty());
 
         let output = outputs
-            .get(0)
+            .first()
             .ok_or_else(|| {
                 warn!("Invalid tx: No first output");
                 op_error::InvalidInput

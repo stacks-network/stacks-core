@@ -475,7 +475,7 @@ impl AtlasDB {
     ) -> Result<Vec<u8>, db_error> {
         let page = self.get_attachments_missing_at_page_index(page_index, block_id)?;
         let mut bit_vector = vec![];
-        for (_index, is_attachment_missing) in page.iter().enumerate() {
+        for is_attachment_missing in page.iter() {
             // todo(ludo): use a bitvector instead
             bit_vector.push(if *is_attachment_missing { 0 } else { 1 });
         }

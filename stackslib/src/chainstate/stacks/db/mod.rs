@@ -1644,7 +1644,7 @@ impl StacksChainState {
                             };
 
                             let name = {
-                                let name_str = components.get(0).unwrap().to_string();
+                                let name_str = components.first().unwrap().to_string();
                                 if !BNS_CHARS_REGEX.is_match(&name_str) {
                                     panic!("Invalid name characters");
                                 }

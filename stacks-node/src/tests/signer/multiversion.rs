@@ -408,8 +408,7 @@ fn with_new_miners<S: SpawnedSignerTrait>(supported_signer_protocol_version: u64
     let stackerdb_events = test_observer::get_stackerdb_chunks();
     let old_updates_count = stackerdb_events
         .iter()
-        .map(|ev| ev.modified_slots.iter())
-        .flatten()
+        .flat_map(|ev| ev.modified_slots.iter())
         .filter(|chunk| {
             let Ok(message) = SignerMessage::consensus_deserialize(&mut chunk.data.as_slice())
             else {
@@ -423,8 +422,7 @@ fn with_new_miners<S: SpawnedSignerTrait>(supported_signer_protocol_version: u64
         .count();
     let new_updates_count = stackerdb_events
         .iter()
-        .map(|ev| ev.modified_slots.iter())
-        .flatten()
+        .flat_map(|ev| ev.modified_slots.iter())
         .filter(|chunk| {
             let Ok(message) = SignerMessage::consensus_deserialize(&mut chunk.data.as_slice())
             else {
@@ -532,8 +530,7 @@ fn mixed_signer_set_40_percent_new_60_percent_old() {
         let stackerdb_events = test_observer::get_stackerdb_chunks();
         let nmb_signatures = stackerdb_events
             .iter()
-            .map(|ev| ev.modified_slots.iter())
-            .flatten()
+            .flat_map(|ev| ev.modified_slots.iter())
             .filter_map(|chunk| {
                 let Ok(message) = SignerMessage::consensus_deserialize(&mut chunk.data.as_slice())
                 else {
@@ -553,8 +550,7 @@ fn mixed_signer_set_40_percent_new_60_percent_old() {
     let stackerdb_events = test_observer::get_stackerdb_chunks();
     let state_machine_updates = stackerdb_events
         .iter()
-        .map(|ev| ev.modified_slots.iter())
-        .flatten()
+        .flat_map(|ev| ev.modified_slots.iter())
         .filter_map(|chunk| {
             let Ok(message) = SignerMessage::consensus_deserialize(&mut chunk.data.as_slice())
             else {
@@ -679,8 +675,7 @@ fn mixed_signer_set_80_percent_new_20_percent_old() {
         let stackerdb_events = test_observer::get_stackerdb_chunks();
         let nmb_signatures = stackerdb_events
             .iter()
-            .map(|ev| ev.modified_slots.iter())
-            .flatten()
+            .flat_map(|ev| ev.modified_slots.iter())
             .filter_map(|chunk| {
                 let Ok(message) = SignerMessage::consensus_deserialize(&mut chunk.data.as_slice())
                 else {
@@ -700,8 +695,7 @@ fn mixed_signer_set_80_percent_new_20_percent_old() {
     let stackerdb_events = test_observer::get_stackerdb_chunks();
     let state_machine_updates = stackerdb_events
         .iter()
-        .map(|ev| ev.modified_slots.iter())
-        .flatten()
+        .flat_map(|ev| ev.modified_slots.iter())
         .filter_map(|chunk| {
             let Ok(message) = SignerMessage::consensus_deserialize(&mut chunk.data.as_slice())
             else {

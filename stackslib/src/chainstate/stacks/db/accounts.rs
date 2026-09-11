@@ -664,7 +664,7 @@ impl StacksChainState {
         )?;
         if ret.len() == 2 {
             // unwrap, because we do a len check above.
-            let ret_0 = ret.get(0).unwrap();
+            let ret_0 = ret.first().unwrap();
             let ret_1 = ret.get(1).unwrap();
             let reward = if ret_0.is_child() {
                 ret_0
