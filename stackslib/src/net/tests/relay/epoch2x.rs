@@ -192,10 +192,7 @@ fn test_relayer_stats_add_relyed_messages() {
         MAX_RECENT_MESSAGES
     );
 
-    for transaction in all_transactions[..MAX_RECENT_MESSAGES]
-        .iter()
-        .skip(all_transactions.len() - MAX_RECENT_MESSAGES)
-    {
+    for transaction in all_transactions.iter().rev().take(MAX_RECENT_MESSAGES) {
         let digest = transaction.get_digest();
         let mut found = false;
         for (_, hash) in relay_stats.recent_messages.get(&nk).unwrap().iter() {
