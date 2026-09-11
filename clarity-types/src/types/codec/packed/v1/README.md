@@ -398,7 +398,8 @@ A response `ok` body is:
 | `0` | 1 byte | Variant tag | `u8` | MUST be `01` |
 | `1` | `B - 1` bytes | Active success child | Packed body for the success type | Consumes the remainder of the enclosing frame |
 
-The inactive response branch contributes no physical bytes and MUST NOT affect parent framing.
+The inactive response branch contributes no physical bytes. Framing within a tuple or list follows
+the [fixed-width classification rules](#fixed-width-classification).
 
 ## Fixed-width classification
 
