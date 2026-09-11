@@ -225,7 +225,7 @@ fn parse_standard_principal(bytes: &[u8]) -> Result<&[u8; 21], PackedValueError>
     Ok(bytes)
 }
 
-/// Validate and borrow the UTF-8 contract-name suffix of a packed principal.
+/// Validate and borrow the Clarity-valid ASCII contract-name suffix of a packed principal.
 fn parse_contract_name(bytes: &[u8]) -> Result<&str, PackedValueError> {
     let name =
         str::from_utf8(bytes).map_err(|error| PackedRecordError::InvalidContractNameUtf8 {

@@ -335,9 +335,9 @@ The complete body is exactly 22 bytes.
 | `0` | 1 byte | Principal kind | `u8` | MUST be `01` |
 | `1` | 1 byte | Issuer version | `u8` | Network/address version; MUST be less than 32 |
 | `2` | 20 bytes | Issuer hash | Hash160 bytes | Contract issuer identity |
-| `22` | `B - 22` bytes | Contract name | Clarity-valid UTF-8 bytes | Non-empty remainder of the enclosing frame; maximum 128 bytes |
+| `22` | `B - 22` bytes | Contract name | Clarity-valid ASCII bytes | Non-empty remainder of the enclosing frame; maximum 128 bytes |
 
-The principal version MUST be less than 32. A contract name MUST be non-empty, valid UTF-8, no
+The principal version MUST be less than 32. A contract name MUST be non-empty, ASCII, no
 longer than Clarity's 128-byte name bound, and accepted by the Clarity contract-name grammar.
 
 The contract-name length is omitted because the enclosing frame supplies it. A contract-principal
