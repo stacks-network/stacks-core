@@ -50,7 +50,7 @@ use crate::chainstate::nakamoto::signer_set::{NakamotoSigners, SignerCalculation
 use crate::chainstate::nakamoto::{NakamotoChainState, TxToProcess};
 use crate::chainstate::stacks::address::PoxAddress;
 use crate::chainstate::stacks::db::accounts::MinerReward;
-use crate::chainstate::stacks::db::transactions::TransactionNonceMismatch;
+use crate::chainstate::stacks::db::transactions::{NonceCheckFailure, TransactionNonceMismatch};
 use crate::chainstate::stacks::db::*;
 use crate::chainstate::stacks::events::StacksBlockEventData;
 use crate::chainstate::stacks::{
@@ -99,6 +99,15 @@ pub struct StagingBlock {
     pub commit_burn: u64,
     pub sortition_burn: u64,
     pub block_data: Vec<u8>,
+}
+
+/// A transaction-processing failure tied to the microblock that contained it.
+#[derive(Debug)]
+pub struct MicroblockProcessingFailure {
+    /// Chainstate error raised while processing the transaction.
+    pub source: Error,
+    /// Hash of the microblock containing the invalid transaction.
+    pub microblock_hash: BlockHeaderHash,
 }
 
 #[derive(Debug)]
@@ -405,8 +414,8 @@ impl FromRow<StagingBlock> for StagingBlock {
 
 impl StagingMicroblock {
     #[cfg(test)]
-    pub fn try_into_microblock(self) -> Result<StacksMicroblock, StagingMicroblock> {
-        StacksMicroblock::consensus_deserialize(&mut &self.block_data[..]).map_err(|_e| self)
+    pub fn try_into_microblock(self) -> Result<StacksMicroblock, Box<StagingMicroblock>> {
+        StacksMicroblock::consensus_deserialize(&mut &self.block_data[..]).map_err(|_e| self.into())
     }
 }
 
@@ -2893,6 +2902,7 @@ impl StacksChainState {
     /// Given a microblock stream, does it connect the parent and child anchored blocks?
     /// * verify that the blocks are a contiguous sequence, with no duplicate sequence numbers
     /// * verify that each microblock is signed by the parent anchor block's key
+    ///
     /// The stream must be in order by sequence number, and there must be no duplicates.
     /// If the stream connects to the anchored block, then
     /// return the index in the given microblocks vec that corresponds to the highest valid
@@ -3104,7 +3114,7 @@ impl StacksChainState {
     /// Returns Some(commit burn, total burn) if valid
     /// Returns None if not valid
     /// * consensus_hash is the PoX history hash of the burnchain block whose sortition
-    /// (ostensibly) selected this block for inclusion.
+    ///   (ostensibly) selected this block for inclusion.
     fn validate_anchored_block_burnchain(
         blocks_conn: &DBConn,
         db_handle: &SortitionHandleConn,
@@ -3930,16 +3940,22 @@ impl StacksChainState {
     pub fn process_microblocks_transactions(
         clarity_tx: &mut ClarityTx,
         microblocks: &[StacksMicroblock],
-    ) -> Result<(u128, u128, Vec<StacksTransactionReceipt>), (Error, BlockHeaderHash)> {
+    ) -> Result<(u128, u128, Vec<StacksTransactionReceipt>), Box<MicroblockProcessingFailure>> {
         let mut fees = 0u128;
         let mut burns = 0u128;
         let mut receipts = vec![];
         for microblock in microblocks.iter() {
             debug!("Process microblock {}", &microblock.block_hash());
             for (tx_index, tx) in microblock.txs.iter().enumerate() {
-                let (tx_fee, mut tx_receipt) =
-                    StacksChainState::process_transaction(clarity_tx, tx, false, None)
-                        .map_err(|e| (e, microblock.block_hash()))?;
+                let (tx_fee, mut tx_receipt) = StacksChainState::process_transaction(
+                    clarity_tx, tx, false, None,
+                )
+                .map_err(|source| {
+                    Box::new(MicroblockProcessingFailure {
+                        source,
+                        microblock_hash: microblock.block_hash(),
+                    })
+                })?;
 
                 tx_receipt.microblock_header = Some(microblock.header.clone());
                 tx_receipt.tx_index = u32::try_from(tx_index).expect("more than 2^32 items");
@@ -4836,14 +4852,14 @@ impl StacksChainState {
     /// The rules are different for different epochs:
     ///
     /// * In Stacks 2.0/2.05, only the operations in the burnchain block will be considered.
-    /// So if a transaction was mined in burnchain block N, it will be processed in the Stacks
-    /// block mined in burnchain block N (if there is one).
+    ///   So if a transaction was mined in burnchain block N, it will be processed in the Stacks
+    ///   block mined in burnchain block N (if there is one).
     ///
     /// * In Stacks 2.1+, the operations in the last K burnchain blocks that have not yet been
-    /// considered in this Stacks block's fork will be processed in the order in which they are
-    /// mined in the burnchain.  So if a transaction was mined in an burnchain block between N and
-    /// N-K inclusive, it will be processed in each Stacks fork that contains at least one Stacks
-    /// block mined in the same burnchain interval.
+    ///   considered in this Stacks block's fork will be processed in the order in which they are
+    ///   mined in the burnchain.  So if a transaction was mined in an burnchain block between N and
+    ///   N-K inclusive, it will be processed in each Stacks fork that contains at least one Stacks
+    ///   block mined in the same burnchain interval.
     ///
     /// The rationale for the new behavior in Stacks 2.1+ is that burnchain-hosted STX operations
     /// can get picked up in Stacks blocks that only live on short-lived forks, or get mined in
@@ -5136,17 +5152,20 @@ impl StacksChainState {
                 parent_microblocks,
             ) {
                 Ok((fees, burns, events)) => (fees, burns, events),
-                Err((e, mblock_header_hash)) => {
+                Err(error) => {
                     let msg = format!(
                         "Invalid Stacks microblocks {},{} (offender {}): {:?}",
-                        parent_consensus_hash, parent_header_hash, mblock_header_hash, &e
+                        parent_consensus_hash,
+                        parent_header_hash,
+                        error.microblock_hash,
+                        error.source,
                     );
                     warn!("{}", &msg);
 
                     if miner_id_opt.is_none() {
                         clarity_tx.rollback_block();
                     }
-                    return Err(Error::InvalidStacksMicroblock(msg, mblock_header_hash));
+                    return Err(Error::InvalidStacksMicroblock(msg, error.microblock_hash));
                 }
             };
 
@@ -6650,7 +6669,12 @@ impl StacksChainState {
             match StacksChainState::check_transaction_nonces(clarity_connection, tx, true) {
                 Ok(x) => x,
                 // if errored, check if MEMPOOL_TX_CHAINING would admit this TX
-                Err((e, (origin, payer))) => {
+                Err(failure) => {
+                    let NonceCheckFailure {
+                        mismatch: e,
+                        origin_account: origin,
+                        payer_account: payer,
+                    } = *failure;
                     // if the nonce is less than expected, then TX_CHAINING would not allow in any case
                     if e.actual < e.expected {
                         return Err(e.into());

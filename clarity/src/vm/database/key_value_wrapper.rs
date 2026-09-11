@@ -53,7 +53,7 @@ fn rollback_check_pre_bottom_commit<T>(
 where
     T: Eq + Hash + Clone,
 {
-    for (_, edit_history) in lookup_map.iter_mut() {
+    for edit_history in lookup_map.values_mut() {
         edit_history.reverse();
     }
 
@@ -90,7 +90,7 @@ fn rollback_check_pre_bottom_commit<T>(
 where
     T: Eq + Hash + Clone,
 {
-    for (_, edit_history) in lookup_map.iter_mut() {
+    for edit_history in lookup_map.values_mut() {
         edit_history.reverse();
     }
     for (key, value) in edits.iter() {

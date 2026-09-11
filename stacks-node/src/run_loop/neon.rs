@@ -46,7 +46,7 @@ use stacks_common::util::hash::Hash160;
 use stx_genesis::GenesisData;
 
 use super::RunLoopCallbacks;
-use crate::burnchains::{make_bitcoin_indexer, Error};
+use crate::burnchains::Error;
 use crate::globals::NeonGlobals as Globals;
 use crate::monitoring::{start_serving_monitoring_metrics, MonitoringError};
 use crate::neon_node::{
@@ -330,13 +330,7 @@ impl RunLoop {
             config.burnchain.burn_fee_cap,
         )));
 
-        let mut event_dispatcher = EventDispatcher::new_with_custom_queue_size(
-            config.get_working_dir(),
-            config.node.effective_event_dispatcher_queue_size(),
-        );
-        for observer in config.events_observers.iter() {
-            event_dispatcher.register_observer(observer);
-        }
+        let event_dispatcher = EventDispatcher::from_config(&config);
 
         Self {
             config,
@@ -695,8 +689,6 @@ impl RunLoop {
             true,
         )
         .expect("Failed to connect Atlas DB during startup");
-        let coordinator_indexer =
-            make_bitcoin_indexer(&self.config, Some(self.should_keep_running.clone()));
 
         let coordinator_thread_handle = thread::Builder::new()
             .name(format!(
@@ -725,7 +717,6 @@ impl RunLoop {
                     cost_estimator.as_deref_mut(),
                     fee_estimator.as_deref_mut(),
                     miner_status,
-                    coordinator_indexer,
                     atlas_db,
                 );
             })

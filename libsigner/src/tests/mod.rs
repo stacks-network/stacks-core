@@ -55,10 +55,6 @@ impl<T: SignerEventTrait> SimpleRunLoop<T> {
     }
 }
 
-enum Command {
-    Empty,
-}
-
 impl<T: SignerEventTrait> SignerRunLoop<Vec<SignerEvent<T>>, T> for SimpleRunLoop<T> {
     fn set_event_timeout(&mut self, timeout: Duration) {
         self.poll_timeout = timeout;
@@ -134,7 +130,7 @@ fn test_simple_signer() {
             let req = format!(
                 "POST /stackerdb_chunks HTTP/1.1\r\nHost: {}\r\nConnection: close\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n{}",
                 endpoint,
-                &body.len(),
+                body.len(),
                 body
             );
             debug!("Send:\n{}", &req);

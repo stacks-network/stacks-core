@@ -28,6 +28,7 @@ use stacks_common::util::hash::Sha512Trunc256Sum;
 
 use crate::burnchains::bitcoin::core_controller::BitcoinCoreController;
 use crate::burnchains::BurnchainController;
+use crate::tests::nakamoto_integrations::wait_for;
 use crate::tests::neon_integrations::{
     neon_integration_test_conf, next_block_and_wait, submit_tx, test_observer, wait_for_runloop,
 };
@@ -375,14 +376,24 @@ fn test_stackerdb_event_observer() {
         assert_eq!(data, chunk_str.as_bytes().to_vec());
     }
 
-    // get events, verifying that they're all for the same contract (i.e. this one)
-    let stackerdb_events: Vec<_> = test_observer::get_stackerdb_chunks()
-        .into_iter()
-        .flat_map(|stackerdb_event| {
-            assert_eq!(stackerdb_event.contract_id, contract_id);
-            stackerdb_event.modified_slots
-        })
-        .collect();
+    // Wait for the relayer to deliver all uploaded chunks to the observer.
+    let mut stackerdb_events = vec![];
+    wait_for(30, || {
+        stackerdb_events = test_observer::get_stackerdb_chunks()
+            .into_iter()
+            .flat_map(|stackerdb_event| {
+                assert_eq!(stackerdb_event.contract_id, contract_id);
+                stackerdb_event.modified_slots
+            })
+            .collect();
+        Ok(stackerdb_events.len() >= 6)
+    })
+    .unwrap_or_else(|err| {
+        panic!(
+            "{err} waiting for six StackerDB chunks; received {}",
+            stackerdb_events.len()
+        )
+    });
 
     assert_eq!(stackerdb_events.len(), 6);
     for (i, event) in stackerdb_events.iter().enumerate() {

@@ -65,73 +65,73 @@
 /// When the node is running, there are 4-5 active threads at once. They are:
 ///
 /// * **RunLoop Thread**:
-///     This is the main thread, whose code body lives in `src/run_loop/neon.rs`.
-///     This thread is responsible for:
-///       * Bootup
-///       * Running the burnchain indexer
-///       * Notifying the ChainsCoordinator thread when there are new burnchain blocks to process
+///   This is the main thread, whose code body lives in `src/run_loop/neon.rs`.
+///   This thread is responsible for:
+///   * Bootup
+///   * Running the burnchain indexer
+///   * Notifying the ChainsCoordinator thread when there are new burnchain blocks to process
 ///
 /// * **Relayer Thread**:
-///     This is the thread that stores and relays blocks and microblocks. Both
-///     it and the ChainsCoordinator thread are very I/O-heavy threads, and care has been taken to
-///     ensure that neither one attempts to acquire a write-lock in the underlying databases.
-///     Specifically, this thread directs the ChainsCoordinator thread when to process new Stacks
-///     blocks, and it directs the miner thread (if running) to stop when either it or the
-///     ChainsCoordinator thread needs to acquire the write-lock.
-///     This thread is responsible for:
-///       * Receiving new blocks and microblocks from the P2P thread via a shared channel
-///       * (Synchronously) requesting the CoordinatorThread to process newly-stored Stacks blocks
-///         and microblocks
-///       * Building up the node's unconfirmed microblock stream state, and sharing it with the P2P
-///         thread so it can answer queries about the unconfirmed microblock chain
-///       * Pushing newly-discovered blocks and microblocks to the P2P thread for broadcast
-///       * Registering the VRF public key for the miner
-///       * Spawning the block and microblock miner threads, and stopping them if their continued
-///         execution would inhibit block or microblock storage or processing.
-///       * Submitting the burnchain operation to commit to a freshly-mined block
+///   This is the thread that stores and relays blocks and microblocks. Both
+///   it and the ChainsCoordinator thread are very I/O-heavy threads, and care has been taken to
+///   ensure that neither one attempts to acquire a write-lock in the underlying databases.
+///   Specifically, this thread directs the ChainsCoordinator thread when to process new Stacks
+///   blocks, and it directs the miner thread (if running) to stop when either it or the
+///   ChainsCoordinator thread needs to acquire the write-lock.
+///   This thread is responsible for:
+///   * Receiving new blocks and microblocks from the P2P thread via a shared channel
+///   * (Synchronously) requesting the CoordinatorThread to process newly-stored Stacks blocks
+///     and microblocks
+///   * Building up the node's unconfirmed microblock stream state, and sharing it with the P2P
+///     thread so it can answer queries about the unconfirmed microblock chain
+///   * Pushing newly-discovered blocks and microblocks to the P2P thread for broadcast
+///   * Registering the VRF public key for the miner
+///   * Spawning the block and microblock miner threads, and stopping them if their continued
+///     execution would inhibit block or microblock storage or processing.
+///   * Submitting the burnchain operation to commit to a freshly-mined block
 ///
 /// * **Miner Thread**:
-///     This is the thread that actually produces new blocks and microblocks. It
-///     is spawned only by the Relayer thread to carry out mining activity when the underlying
-///     chainstate is not needed by either the Relayer or ChainsCoordinator threads.
-///     This thread does the following:
-///       * Walk the mempool DB to build a new block or microblock
-///       * Return the block or microblock to the Relayer thread
+///   This is the thread that actually produces new blocks and microblocks. It
+///   is spawned only by the Relayer thread to carry out mining activity when the underlying
+///   chainstate is not needed by either the Relayer or ChainsCoordinator threads.
+///   This thread does the following:
+///   * Walk the mempool DB to build a new block or microblock
+///   * Return the block or microblock to the Relayer thread
 ///
 /// * **P2P Thread**:
-///     This is the thread that communicates with the rest of the P2P network, and
-///     handles RPC requests. It is meant to do as little storage-write I/O as possible to avoid lock
-///     contention with the Miner, Relayer, and ChainsCoordinator threads. In particular, it forwards
-///     data it receives from the P2P thread to the Relayer thread for I/O-bound processing. At the
-///     time of this writing, it still requires holding a write-lock to handle some RPC requests, but
-///     future work will remove this so that this thread's execution will not interfere with the
-///     others. This is the only thread that does socket I/O.
-///     This thread runs the PeerNetwork state machines, which include the following:
-///       * Learning the node's public IP address
-///       * Discovering neighbor nodes
-///       * Forwarding newly-discovered blocks, microblocks, and transactions from the Relayer thread
-///         to other neighbors
-///       * Synchronizing block and microblock inventory state with other neighbors
-///       * Downloading blocks and microblocks, and passing them to the Relayer for storage and
-///         processing
-///       * Downloading transaction attachments as their hashes are discovered during block processing
-///       * Synchronizing the local mempool database with other neighbors
-///         (notifications for new attachments come from a shared channel in the ChainsCoordinator thread)
-///       * Handling HTTP requests
+///   This is the thread that communicates with the rest of the P2P network, and
+///   handles RPC requests. It is meant to do as little storage-write I/O as possible to avoid lock
+///   contention with the Miner, Relayer, and ChainsCoordinator threads. In particular, it forwards
+///   data it receives from the P2P thread to the Relayer thread for I/O-bound processing. At the
+///   time of this writing, it still requires holding a write-lock to handle some RPC requests, but
+///   future work will remove this so that this thread's execution will not interfere with the
+///   others. This is the only thread that does socket I/O.
+///   This thread runs the PeerNetwork state machines, which include the following:
+///   * Learning the node's public IP address
+///   * Discovering neighbor nodes
+///   * Forwarding newly-discovered blocks, microblocks, and transactions from the Relayer thread
+///     to other neighbors
+///   * Synchronizing block and microblock inventory state with other neighbors
+///   * Downloading blocks and microblocks, and passing them to the Relayer for storage and
+///     processing
+///   * Downloading transaction attachments as their hashes are discovered during block processing
+///   * Synchronizing the local mempool database with other neighbors
+///     (notifications for new attachments come from a shared channel in the ChainsCoordinator thread)
+///   * Handling HTTP requests
 ///
 /// * **ChainsCoordinator Thread**:
-///     This thread processes sortitions and Stacks blocks and
-///     microblocks, and handles PoX reorgs should they occur (this mainly happens in boot-up). It,
-///     like the Relayer thread, is a very I/O-heavy thread, and it will hold a write-lock on the
-///     chainstate DBs while it works. Its actions are controlled by a CoordinatorComms structure in
-///     the Globals shared state, which the Relayer thread and RunLoop thread both drive (the former
-///     drives Stacks blocks processing, the latter sortitions).
-///     This thread is responsible for:
-///       * Responding to requests from other threads to process sortitions
-///       * Responding to requests from other threads to process Stacks blocks and microblocks
-///       * Processing PoX chain reorgs, should they ever happen
-///       * Detecting attachment creation events, and informing the P2P thread of them so it can go
-///         and download them
+///   This thread processes sortitions and Stacks blocks and
+///   microblocks, and handles PoX reorgs should they occur (this mainly happens in boot-up). It,
+///   like the Relayer thread, is a very I/O-heavy thread, and it will hold a write-lock on the
+///   chainstate DBs while it works. Its actions are controlled by a CoordinatorComms structure in
+///   the Globals shared state, which the Relayer thread and RunLoop thread both drive (the former
+///   drives Stacks blocks processing, the latter sortitions).
+///   This thread is responsible for:
+///   * Responding to requests from other threads to process sortitions
+///   * Responding to requests from other threads to process Stacks blocks and microblocks
+///   * Processing PoX chain reorgs, should they ever happen
+///   * Detecting attachment creation events, and informing the P2P thread of them so it can go
+///     and download them
 ///
 /// In addition to the mempool and chainstate databases, these threads share access to a Globals
 /// singleton that contains soft state shared between threads. Mainly, the Globals struct is meant

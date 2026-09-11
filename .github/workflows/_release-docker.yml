@@ -116,7 +116,7 @@ jobs:
       # Checkout the code
       #   - only .github is required for this job
       - name: Checkout the latest code
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        uses: $/.github/wrappers/checkout
         with:
           ref: ${{ github.event.pull_request.head.sha || github.ref }}
           sparse-checkout: |
@@ -124,7 +124,7 @@ jobs:
 
       # Download binary artifacts
       - name: Download Artifacts
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: ./.github/wrappers/download-artifact
         with:
           pattern: ${{ steps.set-vars.outputs.artifact_pattern }}
           path: /tmp/release
@@ -157,21 +157,31 @@ jobs:
             org.opencontainers.image.title=${{ inputs.release_type }}
             org.opencontainers.image.description=${{ steps.repo-desc.outputs.description }} | ${{ steps.set-vars.outputs.annotation_pattern }} Image
           tags: |
-            # debian tags #
-            #  latest tag
+            # -----------------------------------------------------------------
+            # DISTRO TAGS (Applies to both Alpine and Debian)
+            # -----------------------------------------------------------------
+
+            # 'latest-<dist>' tag (e.g., latest-alpine, latest-debian)
+            type=raw,value=latest,suffix=-${{ matrix.dist }},enable=${{ steps.set-vars.outputs.docker_tag != '' && steps.set-vars.outputs.docker_tag_rc != 'true' }}
+
+            # Minor version-dist tag (e.g., 1.2-alpine, 1.2-debian)
+            type=semver,pattern={{major}}.{{minor}},suffix=-${{ matrix.dist }},value=${{ steps.set-vars.outputs.docker_tag }},enable=${{ steps.set-vars.outputs.docker_tag != '' && steps.set-vars.outputs.docker_tag_rc != 'true' }}
+
+            # Full version-dist tag (e.g., 1.2.3-alpine, 1.2.3-debian)
+            type=raw,value=${{ steps.set-vars.outputs.docker_tag }},suffix=-${{ matrix.dist }},enable=${{ steps.set-vars.outputs.docker_tag != '' }}
+
+            # -----------------------------------------------------------------
+            # DEFAULT ALIAS TAGS (Debian default)
+            # -----------------------------------------------------------------
+
+            # 'latest' tag
             type=raw,value=latest,enable=${{ steps.set-vars.outputs.docker_tag != '' && steps.set-vars.outputs.docker_tag_rc != 'true' && matrix.dist == 'debian' }}
-            #  latest-debian tag
-            type=raw,value=latest,suffix=-${{ matrix.dist }},enable=${{ steps.set-vars.outputs.docker_tag != '' && steps.set-vars.outputs.docker_tag_rc != 'true' && matrix.dist == 'debian' }}
-            #  version tag
-            type=raw,value=${{ steps.set-vars.outputs.docker_tag }},enable=${{ steps.set-vars.outputs.docker_tag != '' && matrix.dist == 'debian'}}
-            #  version-dist tag
-            type=raw,value=${{ steps.set-vars.outputs.docker_tag }},suffix=-${{ matrix.dist }},enable=${{ steps.set-vars.outputs.docker_tag != '' && matrix.dist == 'debian' }}
-            #
-            # alpine tags #
-            #   latest-alpine tag
-            type=raw,value=latest,suffix=-${{ matrix.dist }},enable=${{ steps.set-vars.outputs.docker_tag != '' && steps.set-vars.outputs.docker_tag_rc != 'true' && matrix.dist == 'alpine' }}
-            #  version-dist tag
-            type=raw,value=${{ steps.set-vars.outputs.docker_tag }},suffix=-${{ matrix.dist }},enable=${{ steps.set-vars.outputs.docker_tag != '' && matrix.dist == 'alpine' }}
+
+            # Minor version tag (e.g., 1.2)
+            type=semver,pattern={{major}}.{{minor}},value=${{ steps.set-vars.outputs.docker_tag }},enable=${{ steps.set-vars.outputs.docker_tag != '' && steps.set-vars.outputs.docker_tag_rc != 'true' && matrix.dist == 'debian' }}
+
+            # Full version tag (e.g., 1.2.3)
+            type=raw,value=${{ steps.set-vars.outputs.docker_tag }},enable=${{ steps.set-vars.outputs.docker_tag != '' && matrix.dist == 'debian' }}
 
       # Build docker image for release
       - name: Build and Push ( ${{matrix.dist}} )
@@ -193,7 +203,7 @@ jobs:
       - name: Attest Image (${{ github.event.repository.name }})
         if: |
           env.PROVENANCE != true
-        uses: actions/attest-build-provenance@0f67c3f4856b2e3261c31976d6725780e5e4c373 # v4.1.1
+        uses: ./.github/wrappers/attest-build-provenance
         with:
           subject-name: ${{ env.DOCKER_REGISTRY }}/${{ github.repository_owner }}/${{ inputs.release_type }}
           subject-digest: ${{ steps.docker-build.outputs.digest }}
@@ -265,7 +275,7 @@ jobs:
       # Upload individual digest file as artifact for consolidation
       - name: Upload Individual Digest
         if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: ./.github/wrappers/upload-artifact
         with:
           name: digest-${{ inputs.release_type }}-${{ matrix.dist }}
           path: /tmp/digest-exports/

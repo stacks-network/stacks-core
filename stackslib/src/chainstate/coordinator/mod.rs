@@ -31,7 +31,7 @@ use stacks_common::util::serde_serializers::prefix_hex;
 pub use self::comm::CoordinatorCommunication;
 use super::stacks::boot::{RewardSet, RewardSetData};
 use super::stacks::db::blocks::DummyEventDispatcher;
-use crate::burnchains::db::{BurnchainBlockData, BurnchainDB, BurnchainHeaderReader};
+use crate::burnchains::db::{BurnchainBlockData, BurnchainDB};
 use crate::burnchains::{
     Burnchain, BurnchainBlockHeader, Error as BurnchainError, PoxConstants, Txid,
 };
@@ -184,6 +184,7 @@ pub trait BlockEventDispatcher {
     );
 }
 
+#[derive(Default)]
 pub struct ChainsCoordinatorConfig {
     /// true: enable transactions indexing
     /// false: no transactions indexing
@@ -200,6 +201,7 @@ impl ChainsCoordinatorConfig {
     }
 }
 
+/// Processes burnchain and Stacks blocks using the coordinator's databases.
 pub struct ChainsCoordinator<
     'a,
     T: BlockEventDispatcher,
@@ -207,7 +209,6 @@ pub struct ChainsCoordinator<
     R: RewardSetProvider,
     CE: CostEstimator + ?Sized,
     FE: FeeEstimator + ?Sized,
-    B: BurnchainHeaderReader,
 > {
     pub canonical_sortition_tip: Option<SortitionId>,
     pub burnchain_blocks_db: BurnchainDB,
@@ -222,12 +223,12 @@ pub struct ChainsCoordinator<
     pub notifier: N,
     pub atlas_config: AtlasConfig,
     pub config: ChainsCoordinatorConfig,
-    burnchain_indexer: B,
     /// Used to tell the P2P thread that the stackerdb
     ///  needs to be refreshed.
     pub refresh_stacker_db: Arc<AtomicBool>,
     /// whether or not the canonical tip is now a Nakamoto header
     pub in_nakamoto_epoch: bool,
+    pub comms: CoordinatorReceivers,
 }
 
 #[derive(Debug)]
@@ -292,6 +293,12 @@ pub trait RewardSetProvider {
 }
 
 pub struct OnChainRewardSetProvider<'a, T: BlockEventDispatcher>(pub Option<&'a T>);
+
+impl Default for OnChainRewardSetProvider<'static, DummyEventDispatcher> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 
 impl OnChainRewardSetProvider<'static, DummyEventDispatcher> {
     pub fn new() -> Self {
@@ -453,23 +460,10 @@ impl<T: BlockEventDispatcher> OnChainRewardSetProvider<'_, T> {
     }
 }
 
-impl<
-        'a,
-        T: BlockEventDispatcher,
-        CE: CostEstimator + ?Sized,
-        FE: FeeEstimator + ?Sized,
-        B: BurnchainHeaderReader,
-    >
-    ChainsCoordinator<
-        'a,
-        T,
-        ArcCounterCoordinatorNotices,
-        OnChainRewardSetProvider<'a, T>,
-        CE,
-        FE,
-        B,
-    >
+impl<'a, T: BlockEventDispatcher, CE: CostEstimator + ?Sized, FE: FeeEstimator + ?Sized>
+    ChainsCoordinator<'a, T, ArcCounterCoordinatorNotices, OnChainRewardSetProvider<'a, T>, CE, FE>
 {
+    /// Process block notifications until the coordinator receives a stop event.
     pub fn run(
         config: ChainsCoordinatorConfig,
         chain_state_db: StacksChainState,
@@ -480,7 +474,6 @@ impl<
         cost_estimator: Option<&'a mut CE>,
         fee_estimator: Option<&'a mut FE>,
         miner_status: Arc<Mutex<MinerStatus>>,
-        burnchain_indexer: B,
         atlas_db: AtlasDB,
     ) where
         T: BlockEventDispatcher,
@@ -513,29 +506,35 @@ impl<
             atlas_config,
             atlas_db: Some(atlas_db),
             config,
-            burnchain_indexer,
             refresh_stacker_db: comms.refresh_stacker_db.clone(),
             in_nakamoto_epoch: false,
+            comms,
         };
 
+        inst.comms_loop(miner_status)
+    }
+
+    /// Continuously polls the [`CoordinatorReceivers`] and handles any incoming signals.
+    /// Returns when any of the handlers has indicated that the coordinator should stop.
+    fn comms_loop(&mut self, miner_status: Arc<Mutex<MinerStatus>>) {
         loop {
-            let bits = comms.wait_on();
-            if inst.in_subsequent_nakamoto_reward_cycle() {
+            let bits = self.comms.wait_on();
+            if self.in_subsequent_nakamoto_reward_cycle() {
                 debug!("Coordinator: in subsequent Nakamoto reward cycle");
-                if !inst.handle_comms_nakamoto(bits, miner_status.clone()) {
+                if !self.handle_comms_nakamoto(bits, miner_status.clone()) {
                     return;
                 }
-            } else if inst.in_first_nakamoto_reward_cycle() {
+            } else if self.in_first_nakamoto_reward_cycle() {
                 debug!("Coordinator: in first Nakamoto reward cycle");
-                if !inst.handle_comms_nakamoto(bits, miner_status.clone()) {
+                if !self.handle_comms_nakamoto(bits, miner_status.clone()) {
                     return;
                 }
-                if !inst.handle_comms_epoch2(bits, miner_status.clone()) {
+                if !self.handle_comms_epoch2(bits, miner_status.clone()) {
                     return;
                 }
             } else {
                 debug!("Coordinator: in epoch2 reward cycle");
-                if !inst.handle_comms_epoch2(bits, miner_status.clone()) {
+                if !self.handle_comms_epoch2(bits, miner_status.clone()) {
                     return;
                 }
             }
@@ -595,9 +594,7 @@ impl<
     }
 }
 
-impl<T: BlockEventDispatcher, U: RewardSetProvider, B: BurnchainHeaderReader>
-    ChainsCoordinator<'_, T, (), U, (), (), B>
-{
+impl<T: BlockEventDispatcher, U: RewardSetProvider> ChainsCoordinator<'_, T, (), U, (), ()> {
     /// Create a coordinator for testing, with some parameters defaulted to None
     #[cfg(test)]
     pub fn test_new<'a>(
@@ -605,16 +602,14 @@ impl<T: BlockEventDispatcher, U: RewardSetProvider, B: BurnchainHeaderReader>
         chain_id: u32,
         path: &str,
         reward_set_provider: U,
-        indexer: B,
         txindex: bool,
-    ) -> ChainsCoordinator<'a, T, (), U, (), (), B> {
+    ) -> ChainsCoordinator<'a, T, (), U, (), ()> {
         ChainsCoordinator::test_new_full(
             burnchain,
             chain_id,
             path,
             reward_set_provider,
             None,
-            indexer,
             None,
             txindex,
         )
@@ -628,10 +623,9 @@ impl<T: BlockEventDispatcher, U: RewardSetProvider, B: BurnchainHeaderReader>
         path: &str,
         reward_set_provider: U,
         dispatcher: Option<&'a T>,
-        burnchain_indexer: B,
         atlas_config: Option<AtlasConfig>,
         txindex: bool,
-    ) -> ChainsCoordinator<'a, T, (), U, (), (), B> {
+    ) -> ChainsCoordinator<'a, T, (), U, (), ()> {
         let burnchain = burnchain.clone();
 
         let mut boot_data = ChainStateBootData::new(&burnchain, vec![], None);
@@ -664,6 +658,8 @@ impl<T: BlockEventDispatcher, U: RewardSetProvider, B: BurnchainHeaderReader>
         )
         .unwrap();
 
+        let (comms, _channels) = CoordinatorCommunication::instantiate();
+
         ChainsCoordinator {
             canonical_sortition_tip: Some(canonical_sortition_tip),
             burnchain_blocks_db,
@@ -678,9 +674,9 @@ impl<T: BlockEventDispatcher, U: RewardSetProvider, B: BurnchainHeaderReader>
             atlas_config,
             atlas_db: Some(atlas_db),
             config: ChainsCoordinatorConfig::test_new(txindex),
-            burnchain_indexer,
             refresh_stacker_db: Arc::new(AtomicBool::new(false)),
             in_nakamoto_epoch: false,
+            comms,
         }
     }
 }
@@ -972,8 +968,7 @@ impl<
         U: RewardSetProvider,
         CE: CostEstimator + ?Sized,
         FE: FeeEstimator + ?Sized,
-        B: BurnchainHeaderReader,
-    > ChainsCoordinator<'_, T, N, U, CE, FE, B>
+    > ChainsCoordinator<'_, T, N, U, CE, FE>
 {
     /// Process new Stacks blocks.  If we get stuck for want of a missing PoX anchor block, return
     /// its hash.

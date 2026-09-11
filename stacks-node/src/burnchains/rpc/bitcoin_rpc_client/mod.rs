@@ -215,8 +215,8 @@ where
 ///
 /// # Arguments
 /// * `amount` - A string slice containing the BTC amount in decimal notation.
-///              Expected format: `<integer>.<fractional>` with up to 8 decimal places.
-///              Examples: "1.00000000", "0.00012345", "0.5", "1".
+///   Expected format: `<integer>.<fractional>` with up to 8 decimal places.
+///   Examples: "1.00000000", "0.00012345", "0.5", "1".
 ///
 /// # Returns
 /// On success return the equivalent amount in satoshis (as u64).

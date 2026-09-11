@@ -993,8 +993,6 @@ pub struct StacksHttp {
     last_four_preamble_bytes: [u8; 4],
     /// Incoming reply state
     reply: Option<StacksHttpReplyData>,
-    /// Size of HTTP chunks to write
-    chunk_size: usize,
     /// Which request handler is active.
     /// This is only used if this state-machine is used by a client to issue a request and then
     /// parse a reply.  If instead this state-machine is used by the server to parse a request and
@@ -1027,7 +1025,6 @@ impl StacksHttp {
             num_preamble_bytes: 0,
             last_four_preamble_bytes: [0u8; 4],
             reply: None,
-            chunk_size: 8192,
             request_handler_index: None,
             request_handlers: vec![],
             maximum_call_argument_size: conn_opts.maximum_call_argument_size,
@@ -1052,7 +1049,6 @@ impl StacksHttp {
             num_preamble_bytes: 0,
             last_four_preamble_bytes: [0u8; 4],
             reply: None,
-            chunk_size: 8192,
             request_handler_index: None,
             request_handlers: vec![],
             maximum_call_argument_size: conn_opts.maximum_call_argument_size,

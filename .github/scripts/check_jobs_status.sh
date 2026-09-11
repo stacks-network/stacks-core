@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Checks whether all required jobs in a GitHub Actions workflow have succeeded.
+# Checks whether all required jobs in a GitHub Actions workflow have succeeded or been skipped.
 #
 # Required env vars (set by the calling workflow step):
 #   JOBS          - JSON object of job results
@@ -8,9 +8,9 @@
 #   SUMMARY_PRINT - "true" to append a failure summary to $GITHUB_STEP_SUMMARY; defaults to "false"
 #
 # Exit behaviour:
-#   - All jobs succeeded  → exits 0
-#   - Any job failed      → prints failing job names, writes summary, exits 1
-#   - JOBS is invalid JSON → writes error to $GITHUB_STEP_SUMMARY, exits 1
+#   - All jobs succeeded or skipped → exits 0
+#   - Any job failed/cancelled      → prints failing job names, writes summary, exits 1
+#   - JOBS is invalid JSON         → writes error to $GITHUB_STEP_SUMMARY, exits 1
 set -euo pipefail
 
 ## Load logging functions
@@ -37,20 +37,20 @@ if ! jq -e type <<< "${JOBS}" > /dev/null 2>&1; then
     exit 1
 fi
 
-## ── Collect all jobs whose result is not "success" ──────────────────────────
+## ── Collect all jobs whose result is neither "success" nor "skipped" ────────
 failing_jobs=()
 while IFS= read -r job_name; do
     [[ -n "${job_name}" ]] && failing_jobs+=("${job_name}")
-done < <(jq -r 'to_entries[] | select(.value.result != "success") | .key' <<< "${JOBS}")
+done < <(jq -r 'to_entries[] | select(.value.result != "success" and .value.result != "skipped") | .key' <<< "${JOBS}")
 
-## ── All jobs passed ─────────────────────────────────────────────────────────
+## ── All jobs passed or skipped ──────────────────────────────────────────────
 if [[ ${#failing_jobs[@]} -eq 0 ]]; then
-    info "All jobs were successful"
+    info "All jobs were successful or skipped"
     exit 0
 fi
 
 ## ── Report failing jobs ─────────────────────────────────────────────────────
-error "The following required jobs did not succeed:"
+error "The following required jobs did not succeed or were not skipped:"
 for job in "${failing_jobs[@]}"; do
     echo "  - $(hl "${job}")" >&2
 done
@@ -60,7 +60,7 @@ if [[ "${SUMMARY_PRINT}" == "true" ]]; then
     {
         echo "### Jobs Status"
         echo ""
-        echo "The following required jobs did not succeed:"
+        echo "The following required jobs did not succeed or were not skipped:"
         echo ""
         for job in "${failing_jobs[@]}"; do
             echo "- \`${job}\`"

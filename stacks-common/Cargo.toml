@@ -1,6 +1,6 @@
 [package]
 name = "stacks-common"
-version = "0.0.2"
+version.workspace = true
 authors = [
     "Jude Nelson <jude@stacks.org>",
     "Aaron Blankstein <aaron@blockstack.com>",
@@ -91,9 +91,6 @@ pinny = { workspace = true }
 
 [target.'cfg(windows)'.dev-dependencies]
 winapi = { version = "0.3", features = ["fileapi", "processenv", "winnt"] }
-
-[build-dependencies]
-toml = { workspace = true }
 
 [features]
 default = ["rusqlite", "vrf", "developer-mode", "ctrlc-handler", "rand", "clarity-wasm"]

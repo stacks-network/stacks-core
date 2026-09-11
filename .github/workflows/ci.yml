@@ -34,9 +34,17 @@ concurrency:
 # Env vars
 env:
   TEST_ARCHIVE_FILE: "./test_archive.tar.zst"
-  DEBUG_BINARY_PATH: "./target/debug/"
+  # Whether or not to create the slow and failed tests summary
+  CREATE_SLOW_FAILED_TESTS_SUMMARY: ${{ (vars.ENABLE_CI_WORKFLOWS == 'true' || github.repository == 'stacks-network/stacks-core') && github.event_name != 'merge_group' }}
+  # Whether or not to create the code coverage report
+  CREATE_CODE_COVERAGE_REPORT: ${{ github.repository == 'stacks-network/stacks-core' }}
 
 jobs:
+  # Check if CI is enabled
+  check-ci:
+    name: "Check: CI Enabled"
+    uses: ./.github/workflows/__check-ci.yml
+
   ############################################################################
   ### Global Variables Setup
   ###
@@ -46,10 +54,14 @@ jobs:
   ############################################################################
   setup-env:
     name: "Setup: Global Variables"
+    needs:
+      - check-ci
+    if: needs.check-ci.outputs.enabled == 'true'
     runs-on: &shared_config ubuntu-latest
     outputs:
       test-archive-file: ${{ steps.set-env.outputs.test_archive_file }}
-      debug-binary-path: ${{ steps.set-env.outputs.debug_binary_path }}
+      create-slow-failed-tests-summary: ${{ steps.set-env.outputs.create_slow_failed_tests_summary }}
+      create-code-coverage-report: ${{ steps.set-env.outputs.create_code_coverage_report }}
     steps:
       - name: Export Env Variables
         id: set-env
@@ -59,7 +71,8 @@ jobs:
           ARCHIVE_FILE="${INPUT_FILE/#\~/$HOME}"
 
           echo "test_archive_file=$ARCHIVE_FILE" >> $GITHUB_OUTPUT
-          echo "debug_binary_path=${{ env.DEBUG_BINARY_PATH }}" >> $GITHUB_OUTPUT
+          echo "create_slow_failed_tests_summary=$CREATE_SLOW_FAILED_TESTS_SUMMARY" >> $GITHUB_OUTPUT
+          echo "create_code_coverage_report=$CREATE_CODE_COVERAGE_REPORT" >> $GITHUB_OUTPUT
 
   ############################################################################
   ### Changelog Check
@@ -69,6 +82,8 @@ jobs:
   ############################################################################
   check-changelog:
     name: "Check: Changelog"
+    needs:
+      - setup-env
     runs-on: *shared_config
     permissions:
       contents: read
@@ -77,7 +92,7 @@ jobs:
       # Checkout the code
       #   - only .github is required for this job
       - name: Checkout the latest code
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: $/.github/wrappers/checkout
         with:
           ref: ${{ github.event.pull_request.head.sha || github.ref }}
           sparse-checkout: |
@@ -85,7 +100,7 @@ jobs:
 
       # Run script to detect changelog entries
       - name: Check for changelog fragments
-        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8.0.0
+        uses: ./.github/wrappers/github-script
         with:
           script: |
             const changelog = require('./.github/scripts/changelog.js');
@@ -104,7 +119,7 @@ jobs:
     runs-on: *shared_config
     steps:
       - name: Checkout the latest code
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: $/.github/wrappers/checkout
         with:
           ref: ${{ github.event.pull_request.head.sha || github.ref }}
 
@@ -117,47 +132,6 @@ jobs:
       # Check Rust formatting
       - name: Rustfmt
         run: bash ./.github/scripts/rustfmt.sh
-
-  ############################################################################
-  ### Release Check
-  ###
-  ### Checks if this is a release build
-  ### If true, will execute release jobs
-  ###
-  ### Release detection only matters on the public repo. This job is depended
-  ### on only by the release-specific jobs (tests-epoch, create-release); the
-  ### regular CI/test jobs are intentionally decoupled from it, so it is safe
-  ### for this job to be skipped (and cascade-skip those release jobs) on
-  ### private forks.
-  ############################################################################
-  check-release:
-    name: "Check: Release"
-    needs:
-      - check-changelog
-      - check-rustfmt
-    if: >-
-      github.event.repository.visibility == 'public'
-    runs-on: *shared_config
-    outputs:
-      tag: ${{ steps.check-release.outputs.tag }}
-      is_release: ${{ steps.check-release.outputs.is_release }}
-    steps:
-      # Checkout the code
-      #   - only .github and versions.toml are required for this job
-      - name: Checkout the latest code
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-        with:
-          ref: ${{ github.event.pull_request.head.sha || github.ref }}
-          sparse-checkout: |
-            .github
-            versions.toml
-
-      # Run script to check if this is a release and set outputs
-      - name: Check Release
-        id: check-release
-        env:
-          BRANCH: ${{ github.ref_name }}
-        run: bash ./.github/scripts/check_release.sh
 
   ############################################################################
   ### Check Reusable Test Caches
@@ -206,25 +180,24 @@ jobs:
     needs:
       - check-changelog
       - check-rustfmt
-      - setup-env
       - check-test-caches
+      - setup-env
     steps:
       # Checkout the code
       #   - only .github is required for this job
       - name: Checkout the latest code
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: $/.github/wrappers/checkout
         with:
           ref: ${{ github.event.pull_request.head.sha || github.ref }}
           sparse-checkout: |
             .github
-
+            
       # Create Nextest archive artifact
       - name: Create Nextest Archive Artifact
         uses: ./.github/actions/artifacts/nextest-archive
         with:
           action: create
           archive-file: ${{ needs.setup-env.outputs.test-archive-file }}
-          debug-binary-path: ${{ needs.setup-env.outputs.debug-binary-path }}
 
   ############################################################################
   ### Run Stacks Core Tests
@@ -240,7 +213,8 @@ jobs:
     uses: ./.github/workflows/_tests-stacks-core.yml
     with:
       archive-file: ${{ needs.setup-env.outputs.test-archive-file }}
-      debug-binary-path: ${{ needs.setup-env.outputs.debug-binary-path }}
+      upload-junit-xml: ${{ needs.setup-env.outputs.create-slow-failed-tests-summary }}
+      upload-code-coverage: ${{ needs.setup-env.outputs.create-code-coverage-report }}
 
   ############################################################################
   ### Run Bitcoin Tests
@@ -256,7 +230,8 @@ jobs:
     uses: ./.github/workflows/_tests-bitcoin.yml
     with:
       archive-file: ${{ needs.setup-env.outputs.test-archive-file }}
-      debug-binary-path: ${{ needs.setup-env.outputs.debug-binary-path }}
+      upload-junit-xml: ${{ needs.setup-env.outputs.create-slow-failed-tests-summary }}
+      upload-code-coverage: ${{ needs.setup-env.outputs.create-code-coverage-report }}
 
   ############################################################################
   ### Run Bitcoin RPC Tests
@@ -272,7 +247,6 @@ jobs:
     uses: ./.github/workflows/_tests-bitcoin-rpc.yml
     with:
       archive-file: ${{ needs.setup-env.outputs.test-archive-file }}
-      debug-binary-path: ${{ needs.setup-env.outputs.debug-binary-path }}
 
   ############################################################################
   ### Run P2P Tests
@@ -288,72 +262,26 @@ jobs:
     uses: ./.github/workflows/_tests-p2p.yml
     with:
       archive-file: ${{ needs.setup-env.outputs.test-archive-file }}
-      debug-binary-path: ${{ needs.setup-env.outputs.debug-binary-path }}
-
-  ############################################################################
-  ### Run Epoch Tests (Release Only)
-  ############################################################################
-  tests-epoch:
-    name: "Tests: Epoch (Release Only)"
-    needs:
-      - check-changelog
-      - check-rustfmt
-      - check-release
-      - check-test-caches
-      - create-nextest-archive
-      - setup-env
-    if: >-
-      needs.check-release.outputs.is_release == 'true' &&
-      github.event_name != 'merge_group'
-    uses: ./.github/workflows/_tests-epoch.yml
-    with:
-      archive-file: ${{ needs.setup-env.outputs.test-archive-file }}
-      debug-binary-path: ${{ needs.setup-env.outputs.debug-binary-path }}
-
-  ############################################################################
-  ### Create Release
-  ###
-  ### Creates binary archives for several architectures
-  ### Creates Docker images and pushes to ghcr registry
-  ### Creates a draft GitHub release
-  ############################################################################
-  create-release:
-    name: "Create: Release"
-    needs:
-      - check-changelog
-      - check-release
-      - check-rustfmt
-    if: >-
-      github.event.repository.visibility == 'public' &&
-      needs.check-release.outputs.is_release == 'true' &&
-      github.event_name != 'merge_group'
-    permissions:
-      contents: write      # required for github release
-      id-token: write      # required for attestation
-      attestations: write  # required for attestation
-      packages: write      # required for image push to ghcr
-    uses: ./.github/workflows/_release-github.yml
-    with:
-      tag: ${{ needs.check-release.outputs.tag }} # 3-part version shared by the node and signer, like 4.0.0
+      upload-junit-xml: ${{ needs.setup-env.outputs.create-slow-failed-tests-summary }}
+      upload-code-coverage: ${{ needs.setup-env.outputs.create-code-coverage-report }}
 
   ############################################################################
   ### Create Job Summary: Slow & Failed Tests
   ############################################################################
   create-slow-failed-tests-summary:
-    if: >-
-      always() &&
-      github.event_name != 'merge_group'
     name: "Create: Slow & Failed Tests Report"
     runs-on: *shared_config
     needs:
       - check-changelog
       - check-rustfmt
-      - check-release
       - check-test-caches
+      - setup-env
       - tests-bitcoin
-      - tests-epoch
       - tests-p2p
       - tests-stacks-core
+    if: >-
+      always() && 
+      needs.setup-env.outputs.create-slow-failed-tests-summary == 'true'
     env:
       NEXTEST_FILES_DIR: "nextest_files"
       NEXTEST_FILES_EXT: "xml"
@@ -364,9 +292,9 @@ jobs:
     steps:
       # Download the nextest JUnit .xml files generated by tests from artifacts
       - name: Download nextest JUnit artifacts
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # 8.0.1
+        uses: $/.github/wrappers/download-artifact
         with:
-          pattern: nextest-*
+          pattern: junit-*
           path: ${{ env.NEXTEST_FILES_DIR }}
           merge-multiple: true
 
@@ -495,20 +423,19 @@ jobs:
   ### Create Code Coverage Report
   ############################################################################
   create-code-coverage-report:
-    if: >-
-      always() &&
-      github.event.repository.visibility == 'public'
     name: "Create: Code Coverage Report"
     runs-on: *shared_config
     needs:
       - check-changelog
       - check-rustfmt
-      - check-release
       - check-test-caches
+      - setup-env
       - tests-bitcoin
-      - tests-epoch
       - tests-p2p
       - tests-stacks-core
+    if: >-
+      always() && 
+      needs.setup-env.outputs.create-code-coverage-report == 'true'
     env:
       REPORT_FILES_DIR: "code_coverage_files"
       REPORT_FILES_EXT: "info"
@@ -524,13 +451,13 @@ jobs:
 
       # Checkout the code (Coveralls requires source code to be available when action is called)
       - name: Checkout the latest code
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: $/.github/wrappers/checkout
         with:
            ref: ${{ github.event.pull_request.head.sha || github.ref }}
 
       # Download the code coverage .info files generated by tests from artifacts
       - name: Download code coverage artifacts
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # 8.0.1
+        uses: ./.github/wrappers/download-artifact
         with:
           pattern: codecov-*
           path: ${{ env.REPORT_FILES_DIR }}

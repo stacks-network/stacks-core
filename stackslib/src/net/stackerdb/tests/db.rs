@@ -415,11 +415,13 @@ fn test_stackerdb_insert_query_chunks() {
         chunk_data.sign(pk).unwrap();
         if let Err(net_error::TooManySlotWrites {
             supplied_version,
+            latest_version,
             max_writes,
         }) = tx.try_replace_chunk(&sc, &chunk_data.get_slot_metadata(), &chunk_data.data)
         {
+            assert_eq!(supplied_version, db_config.max_writes + 1);
+            assert_eq!(latest_version, 1);
             assert_eq!(max_writes, db_config.max_writes);
-            assert_eq!(supplied_version, 1);
         } else {
             panic!("Did not get TooManySlotWrites");
         }
