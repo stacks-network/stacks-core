@@ -398,8 +398,12 @@ A response `ok` body is:
 | `0` | 1 byte | Variant tag | `u8` | MUST be `01` |
 | `1` | `B - 1` bytes | Active success child | Packed body for the success type | Consumes the remainder of the enclosing frame |
 
-The inactive response branch contributes no physical bytes. Framing within a tuple or list follows
-the [fixed-width classification rules](#fixed-width-classification).
+A response contains only its variant tag and selected child; the unselected branch contributes no
+bytes. Responses are always [classified as variable-width](#fixed-width-classification), so a
+containing tuple or list MUST use an offset directory. This keeps the container's layout independent
+of the expected type: for example, `(ok true)` MUST have identical framing whether the expected type
+is `(response bool bool)` or `(response bool (buff 100))`. Treating the first type as fixed-width
+because both branches contain Booleans would make framing depend on the unused branch's type.
 
 ## Fixed-width classification
 
