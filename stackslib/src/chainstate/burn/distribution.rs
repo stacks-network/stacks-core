@@ -275,7 +275,7 @@ impl BurnSamplePoint {
 
         // now, commits_with_priors has the burn amounts for each
         //   linked commitment, we can now generate the burn sample points.
-        let mut burn_sample = commits_with_priors
+        let mut burn_sample: Vec<BurnSamplePoint> = commits_with_priors
             .into_iter()
             .map(|mut linked_commits| {
                 let all_burns: Vec<_> = linked_commits
@@ -378,7 +378,7 @@ impl BurnSamplePoint {
 
     /// Calculate the ranges between 0 and 2**256 - 1 over which each point in the burn sample
     /// applies, so we can later select which block to use.
-    fn make_sortition_ranges(burn_sample: &mut Vec<BurnSamplePoint>) {
+    fn make_sortition_ranges(burn_sample: &mut [BurnSamplePoint]) {
         if burn_sample.is_empty() {
             // empty sample
             return;

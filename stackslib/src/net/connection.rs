@@ -1994,7 +1994,7 @@ mod test {
             pipes.push(pipe);
         }
 
-        fn flush_all(pipes: &mut Vec<ReplyHandleP2P>) {
+        fn flush_all(pipes: &mut [ReplyHandleP2P]) {
             for ref mut p in pipes.iter_mut() {
                 let _ = p.try_flush();
             }
