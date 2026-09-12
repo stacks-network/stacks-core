@@ -1565,7 +1565,7 @@ impl PeerNetwork {
         for (block_height, requests) in requests.iter() {
             ordered.push((*block_height, requests.len()));
         }
-        ordered.sort_by(|(_, ref l1), (_, ref l2)| l1.cmp(l2));
+        ordered.sort_by_key(|(_, ref l1)| *l1);
         ordered.iter().map(|(ref h, _)| *h).collect()
     }
 

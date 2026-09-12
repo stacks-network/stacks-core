@@ -1337,7 +1337,7 @@ mod test {
         let mut block_header_empty = header;
         block_header_empty.tx_merkle_root = get_tx_root(&[]);
 
-        let invalid_blocks = vec![
+        let invalid_blocks = [
             (
                 StacksBlock {
                     header: block_header_no_coinbase,
@@ -1458,7 +1458,7 @@ mod test {
         let mut block_header_empty = header;
         block_header_empty.tx_merkle_root = get_tx_root(&[]);
 
-        let invalid_blocks = vec![
+        let invalid_blocks = [
             (
                 StacksMicroblock {
                     header: block_header_offchain_coinbase,

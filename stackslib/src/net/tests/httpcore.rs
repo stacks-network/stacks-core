@@ -105,23 +105,39 @@ fn test_parse_stacks_http_preamble_request_err() {
 
 #[test]
 fn test_parse_stacks_http_preamble_response_err() {
-    let tests = vec![
-        ("HTTP/1.1 200",
-        "Not enough bytes to form a HTTP request or response"),
-        ("HTTP/1.1 200 OK\r\nfoo: \u{2764}\r\n\r\n",
-         "Failed to decode HTTP request or HTTP response"),
-        ("HTTP/1.1 200 OK\r\nfoo: bar\r\nfoo: bar\r\n\r\n",
-         "Failed to decode HTTP request or HTTP response"),
-        ("HTTP/1.1 200 OK\r\nContent-Type: image/png\r\n\r\n",
-         "Failed to decode HTTP request or HTTP response"),
-        ("HTTP/1.1 200 OK\r\nContent-Length: foo\r\n\r\n",
-         "Failed to decode HTTP request or HTTP response"),
-        ("HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\n\r\n",
-         "Failed to decode HTTP request or HTTP response"),
-        ("HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: 123\r\nTransfer-Encoding: chunked\r\n\r\n",
-         "Failed to decode HTTP request or HTTP response"),
-        ("HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: 123\r\nConnection: foo\r\n\r\n",
-         "Failed to decode HTTP request or HTTP response"),
+    let tests = [
+        (
+            "HTTP/1.1 200",
+            "Not enough bytes to form a HTTP request or response",
+        ),
+        (
+            "HTTP/1.1 200 OK\r\nfoo: \u{2764}\r\n\r\n",
+            "Failed to decode HTTP request or HTTP response",
+        ),
+        (
+            "HTTP/1.1 200 OK\r\nfoo: bar\r\nfoo: bar\r\n\r\n",
+            "Failed to decode HTTP request or HTTP response",
+        ),
+        (
+            "HTTP/1.1 200 OK\r\nContent-Type: image/png\r\n\r\n",
+            "Failed to decode HTTP request or HTTP response",
+        ),
+        (
+            "HTTP/1.1 200 OK\r\nContent-Length: foo\r\n\r\n",
+            "Failed to decode HTTP request or HTTP response",
+        ),
+        (
+            "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\n\r\n",
+            "Failed to decode HTTP request or HTTP response",
+        ),
+        (
+            "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: 123\r\nTransfer-Encoding: chunked\r\n\r\n",
+            "Failed to decode HTTP request or HTTP response",
+        ),
+        (
+            "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: 123\r\nConnection: foo\r\n\r\n",
+            "Failed to decode HTTP request or HTTP response",
+        ),
     ];
 
     for (data, errstr) in tests.iter() {

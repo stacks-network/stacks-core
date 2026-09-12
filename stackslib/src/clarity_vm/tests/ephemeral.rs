@@ -224,11 +224,8 @@ fn test_ephemeral_marf_store() {
         }
 
         // can read all ephemeral values and all disk-backed values up to base_tip in random order
-        let mut all_keys_and_values: Vec<(String, String)> = block_data[0..=i]
-            .iter()
-            .map(|keys_and_values| keys_and_values.clone())
-            .flatten()
-            .collect();
+        let mut all_keys_and_values: Vec<(String, String)> =
+            block_data[0..=i].iter().flatten().cloned().collect();
 
         all_keys_and_values.append(&mut keys_and_values.clone());
         all_keys_and_values.shuffle(&mut thread_rng());
@@ -757,8 +754,7 @@ fn test_ephemeral_nakamoto_block_replay_smart_contract() {
         all_nakamoto_blocks.append(&mut nakamoto_blocks);
     }
 
-    all_nakamoto_blocks
-        .sort_by(|blk1, blk2| blk1.header.chain_length.cmp(&blk2.header.chain_length));
+    all_nakamoto_blocks.sort_by_key(|blk1| blk1.header.chain_length);
 
     for naka_block in all_nakamoto_blocks {
         replay_block(&sortdb, &mut stacks_node.chainstate, naka_block, &observer);

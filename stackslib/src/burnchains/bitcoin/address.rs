@@ -209,7 +209,7 @@ impl LegacyBitcoinAddress {
             return Err(btc_error::InvalidByteSequence);
         }
 
-        let Some(version) = bytes.get(0) else {
+        let Some(version) = bytes.first() else {
             return Err(btc_error::InvalidByteSequence);
         };
 
@@ -327,7 +327,7 @@ impl SegwitBitcoinAddress {
             return None;
         }
 
-        let version = u8::from(*quintets.get(0)?);
+        let version = u8::from(*quintets.first()?);
         let mut prog = Vec::with_capacity(quintets.len());
         prog.append(&mut quintets.get(1..)?.to_vec());
 

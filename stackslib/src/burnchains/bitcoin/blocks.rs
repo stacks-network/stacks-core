@@ -273,7 +273,7 @@ impl BitcoinBlockParser {
             return None;
         }
 
-        match (script_pieces.get(0)?, script_pieces.get(1)?) {
+        match (script_pieces.first()?, script_pieces.get(1)?) {
             (Instruction::Op(ref opcode), Instruction::PushBytes(data)) => {
                 if *opcode != btc_opcodes::OP_RETURN {
                     test_debug!("Data output does not use a standard OP_RETURN");
@@ -302,7 +302,7 @@ impl BitcoinBlockParser {
     /// * an OP_RETURN output at output 0
     /// * only p2pkh or p2sh outputs for outputs 1...n
     fn maybe_burnchain_tx(&self, tx: &Transaction, epoch_id: StacksEpochId) -> bool {
-        let Some(output_0) = tx.output.get(0) else {
+        let Some(output_0) = tx.output.first() else {
             return false;
         };
         if self.parse_data(&output_0.script_pubkey).is_none() {
@@ -419,13 +419,13 @@ impl BitcoinBlockParser {
             return None;
         }
 
-        let data_opt = self.parse_data(&tx.output.get(0)?.script_pubkey);
+        let data_opt = self.parse_data(&tx.output.first()?.script_pubkey);
         if data_opt.is_none() {
             test_debug!("No OP_RETURN script");
             return None;
         }
 
-        let data_amt = tx.output.get(0)?.value;
+        let data_amt = tx.output.first()?.value;
 
         let (opcode, data) = data_opt.unwrap();
         let inputs_opt = if BitcoinBlockParser::allow_raw_inputs(epoch_id) {

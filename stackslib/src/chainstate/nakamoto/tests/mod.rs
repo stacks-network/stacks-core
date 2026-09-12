@@ -2798,7 +2798,7 @@ fn parse_vote_for_aggregate_public_key_invalid() {
     };
     invalid_function_arg_reward_cycle.set_origin_nonce(1);
 
-    for (i, tx) in vec![
+    for (i, tx) in [
         invalid_contract_address,
         invalid_contract_name,
         invalid_signers_vote_function,

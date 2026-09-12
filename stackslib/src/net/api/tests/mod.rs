@@ -185,7 +185,10 @@ const TEST_CONTRACT_UNCONFIRMED: &str = "
 fn bool_list_hex(len: u32) -> String {
     let mut data = vec![TypePrefix::List as u8];
     data.extend_from_slice(&len.to_be_bytes());
-    data.extend(std::iter::repeat(TypePrefix::BoolTrue as u8).take(len as usize));
+    data.extend(std::iter::repeat_n(
+        TypePrefix::BoolTrue as u8,
+        len as usize,
+    ));
     to_hex(&data)
 }
 

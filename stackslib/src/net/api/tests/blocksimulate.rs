@@ -312,7 +312,7 @@ fn simulate_block_with_pc_failure() {
                 &address,
                 contract_name.clone(),
                 function_name.clone(),
-                &vec![],
+                &[],
             );
 
             let boot_tenures = vec![NakamotoBootTenure::Sortition(vec![

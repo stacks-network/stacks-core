@@ -1028,7 +1028,7 @@ fn test_get_block_info_v210() {
                     .unwrap();
 
                     let list = list_val.expect_list().unwrap();
-                    let block_reward_opt = list.get(0).cloned().unwrap().expect_optional().unwrap();
+                    let block_reward_opt = list.first().cloned().unwrap().expect_optional().unwrap();
                     let miner_spend_winner = list.get(1).cloned().unwrap().expect_optional().unwrap().unwrap().expect_u128().unwrap();
                     let miner_spend_total = list.get(2).cloned().unwrap().expect_optional().unwrap().unwrap().expect_u128().unwrap();
 
@@ -1333,7 +1333,7 @@ fn test_get_block_info_v210_no_microblocks() {
                     .unwrap();
 
                     let list = list_val.expect_list().unwrap();
-                    let block_reward_opt = list.get(0).cloned().unwrap().expect_optional().unwrap();
+                    let block_reward_opt = list.first().cloned().unwrap().expect_optional().unwrap();
                     let miner_spend_winner = list.get(1).cloned().unwrap().expect_optional().unwrap().unwrap().expect_u128().unwrap();
                     let miner_spend_total = list.get(2).cloned().unwrap().expect_optional().unwrap().unwrap().expect_u128().unwrap();
 
@@ -1802,7 +1802,7 @@ fn test_coinbase_pay_to_alt_recipient_v210(pay_to_contract: bool) {
                     .unwrap();
 
                     let list = list_val.expect_list().unwrap();
-                    let block_reward_opt = list.get(0).cloned().unwrap().expect_optional().unwrap();
+                    let block_reward_opt = list.first().cloned().unwrap().expect_optional().unwrap();
                     let miner_spend_winner = list.get(1).cloned().unwrap().expect_optional().unwrap().unwrap().expect_u128().unwrap();
                     let miner_spend_total = list.get(2).cloned().unwrap().expect_optional().unwrap().unwrap().expect_u128().unwrap();
 

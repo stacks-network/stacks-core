@@ -46,7 +46,7 @@ impl BitcoinTxInputStructured {
             return None;
         }
 
-        let i1 = instructions.get(0)?;
+        let i1 = instructions.first()?;
         let i2 = instructions.get(1)?;
 
         match (i1, i2) {
@@ -189,7 +189,7 @@ impl BitcoinTxInputStructured {
                 }
 
                 match (
-                    multisig_instructions.get(0)?,
+                    multisig_instructions.first()?,
                     multisig_instructions.get(multisig_instructions.len() - 2)?,
                     multisig_instructions.get(multisig_instructions.len() - 1)?,
                 ) {
@@ -325,7 +325,7 @@ impl BitcoinTxInputStructured {
                     );
                     return None;
                 }
-                if *witness_hash.get(0)? != 0 {
+                if *witness_hash.first()? != 0 {
                     test_debug!("Not a p2wpkh-over-p2sh script: not a version-0 witness program");
                     return None;
                 }
@@ -376,7 +376,7 @@ impl BitcoinTxInputStructured {
                     );
                     return None;
                 }
-                if *witness_hash.get(0)? != 0 {
+                if *witness_hash.first()? != 0 {
                     test_debug!("Not a p2wsh-over-p2sh script: not a version-0 witness program");
                     return None;
                 }
