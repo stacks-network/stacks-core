@@ -211,7 +211,7 @@ flowchart TB
     CHECK -- "not provably invalid" --> BUSY{"validation slot free?<br/>submitted_block_proposal"}
     BUSY -- yes --> SUBMIT["submit_block_for_validation<br/>(ask the stacks-node)"]
     BUSY -- no --> QUEUE["queue it<br/>insert_pending_block_validation"]
-    SUBMIT --> STORE["insert_block +<br/>process_pending_responses_for_block<br/>(replay early votes)"]
+    SUBMIT --> STORE["insert_block +<br/>process_pending_responses_for_block<br/>(replay the drained early votes;<br/>none for a re-evaluated block)"]
     QUEUE --> STORE
     classDef good fill:#17a45c22,stroke:#1d9d5f,stroke-width:1.5px;
     classDef bad fill:#d84a3f22,stroke:#c9473d,stroke-width:1.5px;
