@@ -251,6 +251,10 @@ jobs:
       # Download the nextest JUnit reports produced by the test jobs
       #   - pattern is narrowed to the per-test reports on purpose, so this
       #     never picks up an unrelated artifact from the same run.
+      #   - no completeness check, deliberately. A test job that dies before
+      #     uploading leaves its report missing, which can only hide evidence,
+      #     never invent it - and the one inference that reads a missing report
+      #     as evidence, the orphan close, needs ORPHAN_AFTER consecutive runs.
       - name: Download nextest JUnit artifacts
         uses: $/.github/wrappers/download-artifact
         with:
