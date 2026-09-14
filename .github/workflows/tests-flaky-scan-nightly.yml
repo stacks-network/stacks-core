@@ -227,9 +227,9 @@ jobs:
       - tests-bitcoin
     runs-on: ubuntu-latest
     permissions:
-      contents: read
-      # issues: file and comment on the per-test issues
-      issues: write
+      actions: read     # required for `gh run list`, to count qualifying runs
+      contents: read    # required for checkout
+      issues: write     # required for filing and commenting on the per-test issues
     env:
       JUNIT_DIR: "nextest_files"
       OBSERVED_TESTS_FILE: "observed-tests.jsonl"
