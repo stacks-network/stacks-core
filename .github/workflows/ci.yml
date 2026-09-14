@@ -168,7 +168,6 @@ jobs:
       - check-changelog
       - check-rustfmt
       - setup-env
-      - check-test-caches
     uses: ./.github/workflows/_tests-wasm.yml
 
   ############################################################################
