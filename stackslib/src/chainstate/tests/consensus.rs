@@ -1090,7 +1090,7 @@ impl ContractConsensusTest<'_> {
                 // A pin where versioned deploys are rejected would fail the whole
                 // block at precheck; fail fast with the reason instead.
                 assert!(
-                    deploys_can_pin_version(deploy_epoch),
+                    !deploy_epoch.rejects_versioned_smart_contracts(),
                     "Setup contract {} pins {version} at {deploy_epoch}, which rejects versioned deploys",
                     contract.name
                 );
