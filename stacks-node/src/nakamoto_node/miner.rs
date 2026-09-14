@@ -2357,9 +2357,8 @@ fn should_read_count_extend_units() {
         runtime: 1000,
     };
 
-    assert_eq!(
-        miner.should_read_count_extend(&()).unwrap(),
-        false,
+    assert!(
+        !miner.should_read_count_extend(&()).unwrap(),
         "When read_count is below the configured threshold, we shouldn't try to extend"
     );
 
@@ -2379,9 +2378,8 @@ fn should_read_count_extend_units() {
         runtime: 1000,
     };
 
-    assert_eq!(
+    assert!(
         miner.should_read_count_extend(&()).unwrap(),
-        true,
         "When read_count is at the configured threshhold, we should try to extend"
     );
 }
