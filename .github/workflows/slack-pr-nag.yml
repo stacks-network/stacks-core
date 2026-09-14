@@ -18,6 +18,7 @@ jobs:
     with:
       allow-fork-runs: false
 
+  # Execute only on our official repo, because it manages Slack PR nags for us
   nag-slack:
     name: "Slack: Nag Team"
     needs:
@@ -29,6 +30,7 @@ jobs:
       - name: Fetch PRs and Post Nags to Console / GitHub Summary
         uses: $/.github/wrappers/github-script
         env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_CORE_PR_NAG_BOT }}
           # CONFIGURABLE VARIABLES
           TARGET_OWNER: 'stacks-network'
           TARGET_REPO: 'stacks-core'
@@ -36,6 +38,12 @@ jobs:
           MANUAL_RUN: ${{ github.event_name == 'workflow_dispatch' }}
           
           # CENTRAL TEAM REGISTRY
+          # Membership in this registry is what marks a PR author as internal;
+          # anyone absent from it is treated as an external contributor.
+          #   name   : display name (Slack mention fallback + sort key)
+          #   slack  : Slack member ID, enables an actual @-mention
+          #   triage : whether this member takes part in the external-PR
+          #            triage rotation (omitted is treated as true)
           TEAM_REGISTRY: |
             {
               "aaronb-stacks":     { "name": "Aaron",     "slack": "U067F1SRYT0", "triage": true  },
@@ -58,6 +66,7 @@ jobs:
             const owner = process.env.TARGET_OWNER;
             const repo = process.env.TARGET_REPO;
             const ignoreDrafts = process.env.IGNORE_DRAFTS === 'true';
+            const webhookUrl = process.env.SLACK_WEBHOOK_URL;
             const manualRun = process.env.MANUAL_RUN === 'true';
 
             // 1. Parse the team registry safely
@@ -75,7 +84,7 @@ jobs:
               .filter(login => registry[login]?.triage !== false)
               .sort();
 
-            const getSlackMention = (githubUsername, ping = true) => {
+            const getSlackMention = (githubUsername, ping = false) => {
               const entry = registry[githubUsername.toLowerCase()];
               if (ping && entry?.slack) {
                 return `<@${entry.slack}>`;
@@ -228,7 +237,7 @@ jobs:
 
               if (needsTriage) {
                 const triager = triagerPool.length > 0
-                  ? getSlackMention(triagerPool[pr.number % triagerPool.length], true)
+                  ? getSlackMention(triagerPool[pr.number % triagerPool.length], false)
                   : 'Someone';
                 explanation = `External PR — ${triager} to triage (assign yourself/someone + request reviewers)`;
                 sortWeight = -1;
@@ -362,8 +371,7 @@ jobs:
                 .slice()
                 .sort((a, b) => getPlainName(a.login).localeCompare(getPlainName(b.login)))
                 .map(r => {
-                  const shouldPing = r.state !== 'APPROVED';
-                  const name = getSlackMention(r.login, shouldPing);
+                  const name = getSlackMention(r.login, false);
                   
                   switch (r.state) {
                     case 'APPROVED':
