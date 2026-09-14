@@ -45,6 +45,8 @@ jobs:
   check-ci:
     name: "Check: CI Enabled"
     uses: ./.github/workflows/__check-ci.yml
+    with:
+      extra-enable-var: ENABLE_CI_DOCKER_IMAGE
 
   # Build arch dependent binaries from source
   build-binaries:
