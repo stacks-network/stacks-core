@@ -205,7 +205,7 @@ flowchart TB
     REASON -- yes --> AGE
     KNOWN -- no --> AGE{"older than<br/>block_proposal_max_age_secs?"}
     AGE -- yes --> OLD["reject ProposalTooOld<br/>(not stored)"]:::bad
-    AGE -- no --> FRESH["fresh evaluation:<br/>new BlockInfo (overwrites a stored row),<br/>replay early votes, fetch<br/>SortitionsView if needed"]
+    AGE -- no --> FRESH["fresh evaluation:<br/>drain early votes (first sighting only,<br/>drain_pending_block_responses),<br/>new BlockInfo (overwrites a stored row),<br/>fetch SortitionsView if needed"]
     FRESH --> CHECK["check_block_against_state:<br/>protocol version consensus (NoSignerConsensus),<br/>static validity, no problematic_txs<br/>(ProblematicTransactions), then<br/>v1 SortitionsView::check_proposal or<br/>v2 GlobalStateView::check_proposal → section 7"]
     CHECK -- invalid --> REJ["send rejection<br/>(not stored)"]:::bad
     CHECK -- "not provably invalid" --> BUSY{"validation slot free?<br/>submitted_block_proposal"}
