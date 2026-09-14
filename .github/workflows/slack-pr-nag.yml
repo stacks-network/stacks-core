@@ -21,10 +21,10 @@ jobs:
   # Execute only on our official repo, because it manages Slack PR nags for us
   nag-slack:
     name: "Slack: Nag Team"
-    needs:
-      - check-ci
-    if: >-
-      needs.check-ci.outputs.enabled == 'true'
+    # needs:
+      # - check-ci
+    # if: >-
+      # needs.check-ci.outputs.enabled == 'true'
     runs-on: ubuntu-latest
     steps:
       - name: Fetch PRs and Post Nags to Slack
