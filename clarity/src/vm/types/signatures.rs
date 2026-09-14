@@ -716,8 +716,7 @@ mod test {
             (
                 "(tuple)",
                 Unreachable(
-                    "Unexpected error type during runtime analysis: EmptyTuplesNotAllowed"
-                        .to_string(),
+                    "Unexpected error type during runtime analysis: EmptyTuplesNotAllowed".into(),
                 ),
             ),
             (

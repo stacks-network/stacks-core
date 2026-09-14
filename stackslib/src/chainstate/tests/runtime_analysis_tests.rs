@@ -94,6 +94,10 @@ fn variant_coverage_report(variant: RuntimeCheckErrorKind) {
         TraitMethodUnknown(_, _) => Tested(vec![trait_method_unknown_transitive_use_trait_ccall]),
         Unreachable(_) => Unreachable_ExpectLike, // This error is used in places where we expect the code to be unreachable, so if we hit it, it indicates a bug.
         ListTypesMustMatch => Tested(vec![runtime_check_error_kind_list_types_must_match_cdeploy]),
+        SequenceElementArityMismatch { .. } => Tested(vec![
+            runtime_check_error_kind_sequence_element_arity_mismatch_cdeploy,
+            runtime_check_error_kind_sequence_element_arity_mismatch_ccall,
+        ]),
         TypeError(_, _) => Tested(vec![
             runtime_check_error_kind_type_error_cdeploy,
             runtime_check_error_kind_type_error_ccall,
@@ -641,6 +645,46 @@ fn runtime_check_error_kind_type_value_error_ccall() {
         contract_code: "(define-public (trigger-error (x uint)) (ok true))",
         function_name: "trigger-error",
         function_args: &[ClarityValue::Bool(true)],
+    );
+}
+
+/// RuntimeCheckErrorKind: [`RuntimeCheckErrorKind::SequenceElementArityMismatch`]
+/// Caused by: a `replace-at?` buff/string element whose length is not exactly 1.
+/// Outcome: block rejected before epoch 4.1; block accepted (failure receipt) from 4.1.
+#[test]
+fn runtime_check_error_kind_sequence_element_arity_mismatch_cdeploy() {
+    contract_deploy_consensus_snap_test!(
+        contract_name: "check-error-kind",
+        // `as-max-len?` widens `0x` to type `(buff 1)` while it still holds 0 bytes,
+        // so analysis passes in every epoch and the runtime arity check fires.
+        contract_code: "(replace-at? 0x0102 u0 (unwrap-panic (as-max-len? 0x u1)))",
+        deploy_epochs: &[
+            StacksEpochId::Epoch34,
+            StacksEpochId::Epoch40,
+            StacksEpochId::Epoch41,
+        ],
+        clarity_versions: ClarityVersion::since(ClarityVersion::Clarity2),
+    );
+}
+
+/// RuntimeCheckErrorKind: [`RuntimeCheckErrorKind::SequenceElementArityMismatch`]
+/// Caused by: a `replace-at?` buff/string element whose length is not exactly 1.
+/// Outcome: block rejected before epoch 4.1; block accepted (failure receipt) from 4.1.
+#[test]
+fn runtime_check_error_kind_sequence_element_arity_mismatch_ccall() {
+    contract_call_consensus_snap_test!(
+        contract_name: "check-error-kind",
+        contract_code: "(define-public (trigger-error)
+            (ok (replace-at? 0x0102 u0 (unwrap-panic (as-max-len? 0x u1)))))",
+        function_name: "trigger-error",
+        function_args: &[],
+        deploy_epochs: EPOCHS_TO_TEST,
+        call_epochs: &[
+            StacksEpochId::Epoch34,
+            StacksEpochId::Epoch40,
+            StacksEpochId::Epoch41,
+        ],
+        clarity_versions: ClarityVersion::since(ClarityVersion::Clarity2),
     );
 }
 

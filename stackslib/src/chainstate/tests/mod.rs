@@ -412,7 +412,6 @@ pub struct TestChainstate<'a> {
         OnChainRewardSetProvider<'a, TestEventObserver>,
         (),
         (),
-        BitcoinIndexer,
     >,
     pub nakamoto_parent_tenure_opt: Option<Vec<NakamotoBlock>>,
     /// list of malleablized blocks produced when mining.
@@ -658,7 +657,6 @@ impl<'a> TestChainstate<'a> {
             &test_path,
             OnChainRewardSetProvider(observer),
             observer,
-            indexer,
             None,
             config.txindex,
         );
@@ -687,8 +685,6 @@ impl<'a> TestChainstate<'a> {
                 fork.mine_pending_blocks_pox(&mut sortdb, &config.burnchain, &mut coord);
             }
         }
-
-        let indexer = BitcoinIndexer::new_unit_test(&config.burnchain.working_dir);
 
         TestChainstate {
             config,

@@ -46,7 +46,7 @@ use crate::chainstate::stacks::db::transactions::{
 };
 use crate::chainstate::stacks::db::unconfirmed::UnconfirmedState;
 use crate::chainstate::stacks::db::{ChainstateTx, ClarityTx, StacksChainState};
-use crate::chainstate::stacks::events::StacksTransactionReceipt;
+use crate::chainstate::stacks::events::{BoundedErrorString, StacksTransactionReceipt};
 use crate::chainstate::stacks::{Error, StacksBlockHeader, StacksMicroblockHeader, *};
 use crate::clarity_vm::clarity::{ClarityError, ClarityInstance};
 use crate::config::DEFAULT_MAX_TENURE_BYTES;
@@ -356,7 +356,7 @@ pub struct TransactionSuccessEvent {
 pub struct TransactionErrorEvent {
     #[serde(deserialize_with = "hex_deserialize", serialize_with = "hex_serialize")]
     pub txid: Txid,
-    pub error: String,
+    pub error: BoundedErrorString,
 }
 
 /// Represents an event for a transaction that was skipped, but might succeed later.
@@ -364,7 +364,7 @@ pub struct TransactionErrorEvent {
 pub struct TransactionSkippedEvent {
     #[serde(deserialize_with = "hex_deserialize", serialize_with = "hex_serialize")]
     pub txid: Txid,
-    pub error: String,
+    pub error: BoundedErrorString,
 }
 
 /// Represents an event for a transaction that needs to be dropped from the mempool for some reason
@@ -372,7 +372,7 @@ pub struct TransactionSkippedEvent {
 pub struct TransactionProblematicEvent {
     #[serde(deserialize_with = "hex_deserialize", serialize_with = "hex_serialize")]
     pub txid: Txid,
-    pub error: String,
+    pub error: BoundedErrorString,
 }
 
 fn hex_serialize<S: serde::Serializer>(txid: &Txid, s: S) -> Result<S::Ok, S::Error> {
@@ -574,19 +574,19 @@ impl TransactionResult {
             TransactionResult::ProcessingError(TransactionError { tx, error }) => {
                 TransactionEvent::ProcessingError(TransactionErrorEvent {
                     txid: tx.txid(),
-                    error: error.to_string(),
+                    error: BoundedErrorString::from_display(error),
                 })
             }
             TransactionResult::Skipped(TransactionSkipped { tx, error }) => {
                 TransactionEvent::Skipped(TransactionSkippedEvent {
                     txid: tx.txid(),
-                    error: error.to_string(),
+                    error: BoundedErrorString::from_display(error),
                 })
             }
             TransactionResult::Problematic(TransactionProblematic { tx, error }) => {
                 TransactionEvent::Problematic(TransactionProblematicEvent {
                     txid: tx.txid(),
-                    error: error.to_string(),
+                    error: BoundedErrorString::from_display(error),
                 })
             }
         }

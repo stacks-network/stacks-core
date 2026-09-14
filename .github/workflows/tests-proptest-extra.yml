@@ -61,26 +61,10 @@ env:
   BTC_VERSION: "25.0"
 
 jobs:
-  check-ci-enabled:
+  # Check if CI is enabled
+  check-ci:
     name: "Check: CI Enabled"
-    runs-on: ubuntu-latest
-    outputs:
-      enabled: ${{ steps.check.outputs.enabled }}
-    steps:
-      - id: check
-        run: |
-          echo "=== CI Enablement Check ==="
-          echo "ENABLE_CI_WORKFLOWS: '${{ vars.ENABLE_CI_WORKFLOWS }}'"
-          echo "github.repository:   '${{ github.repository }}'"
-          echo "github.event_name:   '${{ github.event_name }}'"
-    
-          if [[ "${{ vars.ENABLE_CI_WORKFLOWS }}" == "true" || "${{ github.repository }}" == "stacks-network/stacks-core" || "${{ github.event_name }}" == "workflow_dispatch" ]]; then
-            echo "Result: CI is ENABLED"
-            echo "enabled=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "Result: CI is DISABLED"
-            echo "enabled=false" >> "$GITHUB_OUTPUT"
-          fi
+    uses: ./.github/workflows/__check-ci.yml
 
   # Gate 1: on manual dispatch, always proceed.
   # On pull_request_review, proceed only when the triggering review is an
@@ -89,9 +73,9 @@ jobs:
   check-approvals:
     name: "Check: Approval Count"
     needs:
-      - check-ci-enabled
+      - check-ci
     # Only run this if a PR review is approved targeting the main branch
-    if: needs.check-ci-enabled.outputs.enabled == 'true' && github.event.review.state == 'approved' && github.event.pull_request.base.ref == 'main'
+    if: needs.check-ci.outputs.enabled == 'true' && github.event.review.state == 'approved' && github.event.pull_request.base.ref == 'main'
     runs-on: ubuntu-latest
     outputs:
       ready: ${{ steps.count.outputs.ready }}
@@ -152,7 +136,6 @@ jobs:
   check-changes:
     name: "Detect: New Proptest Tests"
     needs:
-      - check-ci-enabled
       - check-approvals
     if: needs.check-approvals.outputs.ready == 'true'
     runs-on: ubuntu-latest
@@ -161,7 +144,7 @@ jobs:
     steps:
       # Checkout the code
       - name: Checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: $/.github/wrappers/checkout
         with:
           ref: ${{ github.event.pull_request.head.sha || github.ref }}
           fetch-depth: 0
@@ -261,7 +244,7 @@ jobs:
       # Checkout the code
       - name: Checkout the latest code
         id: git_checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: $/.github/wrappers/checkout
         with:
           ref: ${{ github.event.pull_request.head.sha || github.ref }}
      
@@ -462,7 +445,7 @@ jobs:
         if: failure() && steps.run-tests.outcome == 'failure'
         env:
           ARTIFACT_NAME: proptest-extra-pr-${{ github.event.pull_request.number || inputs.pr_number }}
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: ./.github/wrappers/upload-artifact
         with:
           name: ${{ env.ARTIFACT_NAME }}
           path: "**/proptest-regressions/"

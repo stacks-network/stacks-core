@@ -9,6 +9,20 @@ on:
         description: "The test archive file"
         required: true
         type: string
+      nextest-profile:
+        description: |
+          Nextest profile override forwarded to the run-tests action. Empty (the
+          default) keeps the profile used by PR CI.
+        required: false
+        default: ""
+        type: string
+      only-tests:
+        description: |
+          Comma-separated fully qualified test names. When set, the matrix is
+          narrowed to just these tests. Empty (the default) generates the full matrix.
+        required: false
+        default: ""
+        type: string
       upload-junit-xml:
         description: "Whether or not to upload the nextest JUnit XML artifact"
         required: true
@@ -38,7 +52,7 @@ env:
 
 # Configure concurrency
 concurrency:
-  group: bitcoin-tests-${{ github.head_ref || github.ref || github.run_id }}
+  group: bitcoin-tests-${{ github.workflow }}-${{ github.head_ref || github.ref || github.run_id }}
   cancel-in-progress: true
 
 jobs:
@@ -56,7 +70,7 @@ jobs:
     steps:
       # Checkout the code
       - name: Checkout the latest code
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        uses: $/.github/wrappers/checkout
         with:
           ref: ${{ github.event.pull_request.head.sha || github.ref }}
 
@@ -71,6 +85,8 @@ jobs:
       # Generate the bitcoin test matrices json used for running tests
       - name: Generate Test Matrices
         id: set-matrix
+        env:
+          ONLY_TESTS: ${{ inputs.only-tests }}
         run: bash ./.github/scripts/bitcoin_tests.sh
 
   integration-tests-1:
@@ -84,7 +100,7 @@ jobs:
         batch: ${{ fromJSON(needs.generate-tests.outputs.batch-1) }}
     steps:
       - name: Checkout the latest code
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        uses: $/.github/wrappers/checkout
         with:
           ref: ${{ github.event.pull_request.head.sha || github.ref }}
           sparse-checkout: .github
@@ -97,6 +113,7 @@ jobs:
           test-names: ${{ matrix.batch.csv }}
           archive-file: ${{ inputs.archive-file }}
           codecov-test-name: isolated-test-${{ matrix.batch.index }}
+          nextest-profile: ${{ inputs.nextest-profile }}
           upload-junit-xml: ${{ inputs.upload-junit-xml }}
           upload-code-coverage: ${{ inputs.upload-code-coverage }}
 
@@ -111,7 +128,7 @@ jobs:
         batch: ${{ fromJSON(needs.generate-tests.outputs.batch-2) }}
     steps:
       - name: Checkout the latest code
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        uses: $/.github/wrappers/checkout
         with:
           ref: ${{ github.event.pull_request.head.sha || github.ref }}
           sparse-checkout: .github
@@ -124,6 +141,7 @@ jobs:
           test-names: ${{ matrix.batch.csv }}
           archive-file: ${{ inputs.archive-file }}
           codecov-test-name: isolated-test-${{ matrix.batch.index }}
+          nextest-profile: ${{ inputs.nextest-profile }}
           upload-junit-xml: ${{ inputs.upload-junit-xml }}
           upload-code-coverage: ${{ inputs.upload-code-coverage }}
 
@@ -138,7 +156,7 @@ jobs:
         batch: ${{ fromJSON(needs.generate-tests.outputs.batch-3) }}
     steps:
       - name: Checkout the latest code
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        uses: $/.github/wrappers/checkout
         with:
           ref: ${{ github.event.pull_request.head.sha || github.ref }}
           sparse-checkout: .github
@@ -151,6 +169,7 @@ jobs:
           test-names: ${{ matrix.batch.csv }}
           archive-file: ${{ inputs.archive-file }}
           codecov-test-name: isolated-test-${{ matrix.batch.index }}
+          nextest-profile: ${{ inputs.nextest-profile }}
           upload-junit-xml: ${{ inputs.upload-junit-xml }}
           upload-code-coverage: ${{ inputs.upload-code-coverage }}
           
@@ -165,7 +184,7 @@ jobs:
         batch: ${{ fromJSON(needs.generate-tests.outputs.batch-4) }}
     steps:
       - name: Checkout the latest code
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        uses: $/.github/wrappers/checkout
         with:
           ref: ${{ github.event.pull_request.head.sha || github.ref }}
           sparse-checkout: .github
@@ -178,6 +197,7 @@ jobs:
           test-names: ${{ matrix.batch.csv }}
           archive-file: ${{ inputs.archive-file }}
           codecov-test-name: isolated-test-${{ matrix.batch.index }}
+          nextest-profile: ${{ inputs.nextest-profile }}
           upload-junit-xml: ${{ inputs.upload-junit-xml }}
           upload-code-coverage: ${{ inputs.upload-code-coverage }}
  
@@ -204,7 +224,7 @@ jobs:
       # Checkout the code
       #   - only .github is required for this job
       - name: Checkout the latest code
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        uses: $/.github/wrappers/checkout
         with:
           ref: ${{ github.event.pull_request.head.sha || github.ref }}
           sparse-checkout: .github

@@ -43,7 +43,6 @@ pub struct AttachmentsDownloader {
     priority_queue: BinaryHeap<AttachmentsBatch>,
     initial_batch: Vec<AttachmentInstance>,
     ongoing_batch: Option<AttachmentsBatchStateMachine>,
-    processed_batches: Vec<AttachmentsBatch>,
     reliability_reports: HashMap<UrlString, ReliabilityReport>,
 }
 
@@ -52,7 +51,6 @@ impl AttachmentsDownloader {
         AttachmentsDownloader {
             priority_queue: BinaryHeap::new(),
             ongoing_batch: None,
-            processed_batches: vec![],
             reliability_reports: HashMap::new(),
             initial_batch,
         }
@@ -948,11 +946,6 @@ pub struct BatchedDNSLookupsResults {
     pub parsed_urls: HashMap<UrlString, DNSRequest>,
     pub dns_lookups: HashMap<UrlString, Option<Vec<SocketAddr>>>,
     pub errors: HashMap<UrlString, net_error>,
-}
-
-#[derive(Debug, Clone)]
-struct BatchedRequestsInitializedState<T: Ord + Requestable> {
-    pub queue: BinaryHeap<T>,
 }
 
 #[derive(Debug, Default)]

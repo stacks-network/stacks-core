@@ -1328,7 +1328,7 @@ impl Signer {
                 "signer_signature_hash" => %block_hash,
                 "block_height" => block_info.block.header.chain_length,
                 "reject_code" => %block_rejection.reason_code,
-                "reject_reason" => &block_rejection.reason,
+                "reject_reason" => %block_rejection.reason,
             );
             if let Err(e) = block_info.mark_locally_rejected() {
                 if !block_info.has_reached_consensus() {
@@ -1808,9 +1808,7 @@ impl Signer {
                         "block_id" => %proposed_block.block_id()
                     );
                     return Some(self.create_block_rejection(
-                        RejectReason::ConnectivityIssues(
-                            "error checking block proposal".to_string(),
-                        ),
+                        RejectReason::ConnectivityIssues("error checking block proposal".into()),
                         proposed_block,
                     ));
                 }
@@ -1849,7 +1847,7 @@ impl Signer {
                 );
                 Some(self.create_block_rejection(
                     RejectReason::ConnectivityIssues(
-                        "failed to check block against signer db".to_string(),
+                        "failed to check block against signer db".into(),
                     ),
                     proposed_block,
                 ))
@@ -2118,7 +2116,7 @@ impl Signer {
         );
         let rejection = self.create_block_rejection(
             RejectReason::ConnectivityIssues(
-                "failed to receive block validation response in time".to_string(),
+                "failed to receive block validation response in time".into(),
             ),
             &block_info.block,
         );

@@ -30,6 +30,9 @@ use stacks_common::types::StacksEpochId;
 use stacks_common::types::chainstate::StacksAddress;
 #[cfg(any(test, feature = "testing"))]
 use stacks_common::types::chainstate::StacksPrivateKey;
+pub use stacks_common::util::bounded_string::{
+    BoundedErrorString, BoundedString, MAX_ERROR_MESSAGE_LEN,
+};
 use stacks_common::util::hash;
 
 pub use self::signatures::{
@@ -58,9 +61,15 @@ pub const MAX_TYPE_DEPTH: u8 = 32;
 /// this is the charged size for wrapped values, i.e., response or optionals
 pub const WRAPPER_VALUE_SIZE: u32 = 1;
 /// Maximum byte length for Value string representations in error messages.
-const MAX_ERROR_VALUE_DISPLAY_LEN: usize = 512;
+/// Deliberately smaller than `MAX_ERROR_MESSAGE_LEN` so a rendered value
+/// cannot eat the whole message budget.
+pub const MAX_ERROR_VALUE_DISPLAY_LEN: usize = 512;
 
-#[derive(Debug, Clone, Eq, Serialize, Deserialize)]
+/// A Clarity value rendered for use in an error message, bounded by
+/// construction (see [`Value::to_error_string`]).
+pub type BoundedValueString = BoundedString<MAX_ERROR_VALUE_DISPLAY_LEN>;
+
+#[derive(Clone, Eq, Serialize, Deserialize)]
 pub struct TupleData {
     // todo: remove type_signature
     pub type_signature: TupleTypeSignature,
@@ -72,7 +81,7 @@ pub struct BuffData {
     pub data: Vec<u8>,
 }
 
-#[derive(Debug, Clone, Eq, Serialize, Deserialize)]
+#[derive(Clone, Eq, Serialize, Deserialize)]
 pub struct ListData {
     pub data: Vec<Value>,
     // todo: remove type_signature
@@ -1423,17 +1432,8 @@ impl Value {
 
     /// Format as a truncated string for use in error messages.
     /// Avoids cloning potentially large Values in error paths.
-    pub fn to_error_string(&self) -> String {
-        let full = format!("{self:?}");
-        if full.len() <= MAX_ERROR_VALUE_DISPLAY_LEN {
-            full
-        } else {
-            let end = (0..=MAX_ERROR_VALUE_DISPLAY_LEN)
-                .rev()
-                .find(|&i| full.is_char_boundary(i))
-                .unwrap_or(0);
-            format!("{}...", &full[..end])
-        }
+    pub fn to_error_string(&self) -> BoundedValueString {
+        BoundedValueString::from_debug(self)
     }
 }
 
@@ -1549,16 +1549,7 @@ impl fmt::Display for Value {
             Value::Response(res_data) => write!(f, "{res_data}"),
             Value::Sequence(SequenceData::Buffer(vec_bytes)) => write!(f, "0x{vec_bytes}"),
             Value::Sequence(SequenceData::String(string)) => write!(f, "{string}"),
-            Value::Sequence(SequenceData::List(list_data)) => {
-                write!(f, "(")?;
-                for (ix, v) in list_data.data.iter().enumerate() {
-                    if ix > 0 {
-                        write!(f, " ")?;
-                    }
-                    write!(f, "{v}")?;
-                }
-                write!(f, ")")
-            }
+            Value::Sequence(SequenceData::List(list_data)) => write!(f, "{list_data}"),
             Value::CallableContract(callable_data) => write!(f, "{callable_data}"),
         }
     }
@@ -1890,6 +1881,32 @@ impl fmt::Display for TupleData {
             write!(f, "({} {value})", &**name)?;
         }
         write!(f, ")")
+    }
+}
+
+// `Debug` for `TupleData` and `ListData` must not render `type_signature`:
+impl fmt::Debug for TupleData {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{self}")
+    }
+}
+
+impl fmt::Display for ListData {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "(")?;
+        for (ix, v) in self.data.iter().enumerate() {
+            if ix > 0 {
+                write!(f, " ")?;
+            }
+            write!(f, "{v}")?;
+        }
+        write!(f, ")")
+    }
+}
+
+impl fmt::Debug for ListData {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{self}")
     }
 }
 

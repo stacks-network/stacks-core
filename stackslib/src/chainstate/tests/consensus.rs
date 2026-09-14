@@ -39,7 +39,7 @@ use crate::chainstate::nakamoto::test_signers::TestSigners;
 use crate::chainstate::nakamoto::tests::node::TestStacker;
 use crate::chainstate::nakamoto::NakamotoChainState;
 use crate::chainstate::stacks::db::{StacksChainState, StacksEpochReceipt};
-use crate::chainstate::stacks::events::TransactionOrigin;
+use crate::chainstate::stacks::events::{BoundedErrorString, TransactionOrigin};
 use crate::chainstate::stacks::miner::{BlockBuilder, TransactionResourceBudgets};
 use crate::chainstate::stacks::tests::{make_coinbase, TestStacksNode};
 use crate::chainstate::stacks::{
@@ -105,6 +105,12 @@ pub static FAUCET_ADDRESS: LazyLock<StacksAddress> = LazyLock::new(|| to_addr(&F
 const FOO_CONTRACT: &str = "(define-public (foo) (ok 1))
                                     (define-public (bar (x uint)) (ok x))";
 
+/// Whether a deploy in `epoch` may pin a Clarity version: the payload exists
+/// from Epoch 2.1 and is rejected from Epoch 4.1.
+pub fn deploys_can_pin_version(epoch: StacksEpochId) -> bool {
+    epoch >= StacksEpochId::Epoch21 && !epoch.rejects_versioned_smart_contracts()
+}
+
 /// Returns the list of Clarity versions that can be used to deploy contracts in the given epoch.
 pub const fn clarity_versions_for_epoch(epoch: StacksEpochId) -> &'static [ClarityVersion] {
     match epoch {
@@ -133,7 +139,7 @@ pub const fn clarity_versions_for_epoch(epoch: StacksEpochId) -> &'static [Clari
             ClarityVersion::Clarity4,
             ClarityVersion::Clarity5,
         ],
-        StacksEpochId::Epoch40 | StacksEpochId::Epoch41 => &[
+        StacksEpochId::Epoch40 => &[
             ClarityVersion::Clarity1,
             ClarityVersion::Clarity2,
             ClarityVersion::Clarity3,
@@ -141,6 +147,8 @@ pub const fn clarity_versions_for_epoch(epoch: StacksEpochId) -> &'static [Clari
             ClarityVersion::Clarity5,
             ClarityVersion::Clarity6,
         ],
+        // From Epoch 4.1 deploys cannot pin a version; they run as the epoch default.
+        StacksEpochId::Epoch41 => &[ClarityVersion::Clarity7],
     }
 }
 
@@ -190,7 +198,10 @@ where
 }
 
 /// Serialize an optional string field appending a non-consensus breaking info message.
-fn serialize_opt_string_ncb<S>(value: &Option<String>, serializer: S) -> Result<S::Ok, S::Error>
+fn serialize_opt_string_ncb<S>(
+    value: &Option<BoundedErrorString>,
+    serializer: S,
+) -> Result<S::Ok, S::Error>
 where
     S: Serializer,
 {
@@ -211,7 +222,7 @@ pub struct ExpectedTransactionOutput {
     pub tx: Option<TransactionPayload>,
     /// The possible Clarity VM error message associated to the transaction (non-consensus breaking)
     #[serde(serialize_with = "serialize_opt_string_ncb")]
-    pub vm_error: Option<String>,
+    pub vm_error: Option<BoundedErrorString>,
     /// The expected return value of the transaction.
     pub return_type: ClarityValue,
     /// The expected execution cost of the transaction.
@@ -1082,11 +1093,8 @@ impl ContractConsensusTest<'_> {
             let deploy_epoch = contract.deploy_epoch.unwrap_or(default_setup_epoch);
             // Get the default Clarity version for the epoch of the contract if not specified.
             let clarity_version = contract.clarity_version.or_else(|| {
-                if deploy_epoch < StacksEpochId::Epoch21 {
-                    None
-                } else {
-                    Some(ClarityVersion::default_for_epoch(deploy_epoch))
-                }
+                deploys_can_pin_version(deploy_epoch)
+                    .then(|| ClarityVersion::default_for_epoch(deploy_epoch))
             });
             let mut contract = contract.clone();
             contract.deploy_epoch = Some(deploy_epoch);
@@ -1265,13 +1273,9 @@ impl ContractConsensusTest<'_> {
             .clone()
             .iter()
             .map(|(name, version)| {
-                let clarity_version = if epoch < StacksEpochId::Epoch21 {
-                    // Old epochs have no concept of clarity version. It defaults to
-                    // clarity version 1 behaviour.
-                    None
-                } else {
-                    Some(*version)
-                };
+                // Epochs that reject versioned deploys (before 2.1, from 4.1)
+                // deploy unversioned and run as the epoch default.
+                let clarity_version = deploys_can_pin_version(epoch).then_some(*version);
                 self.chain.consume_pre_naka_prepare_phase();
                 self.append_tx_block(
                     &TestTxSpec::ContractDeploy {

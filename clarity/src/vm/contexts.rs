@@ -15,11 +15,11 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use std::collections::{BTreeMap, HashMap, HashSet};
-use std::mem::replace;
 
 pub use clarity_types::effects::{AssetMap, AssetMapEntry};
 use clarity_types::representations::ClarityName;
 use serde::Serialize;
+use stacks_common::bounded_format;
 use stacks_common::types::StacksEpochId;
 use stacks_common::types::chainstate::StacksBlockId;
 
@@ -641,16 +641,6 @@ impl CostTracker for ExecutionState<'_, '_, '_> {
     fn reset_memory(&mut self) {
         self.global_context.cost_track.reset_memory()
     }
-    fn short_circuit_contract_call(
-        &mut self,
-        contract: &QualifiedContractIdentifier,
-        function: &ClarityName,
-        input: &[u64],
-    ) -> std::result::Result<bool, CostErrors> {
-        self.global_context
-            .cost_track
-            .short_circuit_contract_call(contract, function, input)
-    }
 }
 
 impl CostTracker for GlobalContext<'_, '_> {
@@ -674,35 +664,9 @@ impl CostTracker for GlobalContext<'_, '_> {
     fn reset_memory(&mut self) {
         self.cost_track.reset_memory()
     }
-    fn short_circuit_contract_call(
-        &mut self,
-        contract: &QualifiedContractIdentifier,
-        function: &ClarityName,
-        input: &[u64],
-    ) -> std::result::Result<bool, CostErrors> {
-        self.cost_track
-            .short_circuit_contract_call(contract, function, input)
-    }
 }
 
 impl<'a, 'b, 'hooks> ExecutionState<'a, 'b, 'hooks> {
-    /// Used only for contract-call! cost short-circuiting. Once the short-circuited cost
-    ///  has been evaluated and assessed, the contract-call! itself is executed "for free".
-    pub fn run_free<F, A>(&mut self, invoke_ctx: &InvocationContext, to_run: F) -> A
-    where
-        F: FnOnce(&mut ExecutionState, &InvocationContext) -> A,
-    {
-        let original_tracker = replace(
-            &mut self.global_context.cost_track,
-            LimitedCostTracker::new_free(),
-        );
-        // note: it is important that this method not return until original_tracker has been
-        //  restored. DO NOT use the try syntax (?).
-        let result = to_run(self, invoke_ctx);
-        self.global_context.cost_track = original_tracker;
-        result
-    }
-
     pub fn eval_read_only(
         &mut self,
         invoke_ctx: &InvocationContext,
@@ -859,7 +823,7 @@ impl<'a, 'b, 'hooks> ExecutionState<'a, 'b, 'hooks> {
             if !allow_private && !func.is_public() {
                 return Err(RuntimeCheckErrorKind::NoSuchPublicFunction(contract_identifier.to_string(), tx_name.to_string()).into());
             } else if read_only && !func.is_read_only() {
-                return Err(RuntimeCheckErrorKind::Unreachable(format!("Public function not read-only: {contract_identifier} {tx_name}")).into());
+                return Err(RuntimeCheckErrorKind::Unreachable(bounded_format!("Public function not read-only: {contract_identifier} {tx_name}")).into());
             }
 
             let args: Result<Vec<Value>, VmExecutionError> = args.iter()
@@ -1047,7 +1011,7 @@ impl<'a, 'b, 'hooks> ExecutionState<'a, 'b, 'hooks> {
                 .database
                 .has_contract(&contract_identifier)
             {
-                return Err(RuntimeCheckErrorKind::Unreachable(format!(
+                return Err(RuntimeCheckErrorKind::Unreachable(bounded_format!(
                     "Contract already exists: {contract_identifier}"
                 ))
                 .into());
@@ -1700,7 +1664,7 @@ impl<'a, 'hooks> GlobalContext<'a, 'hooks> {
                 Ok(result)
             } else {
                 self.roll_back()?;
-                Err(RuntimeCheckErrorKind::Unreachable(format!(
+                Err(RuntimeCheckErrorKind::Unreachable(bounded_format!(
                     "Public function must return response: {}",
                     TypeSignature::type_of(&result)?
                 ))
@@ -2173,7 +2137,7 @@ mod test {
         assert_eq!(
             err,
             VmExecutionError::RuntimeCheck(RuntimeCheckErrorKind::Unreachable(
-                "Contract already exists: S1G2081040G2081040G2081040G208105NK8PE5.dup".to_string()
+                "Contract already exists: S1G2081040G2081040G2081040G208105NK8PE5.dup".into()
             ))
         );
     }
