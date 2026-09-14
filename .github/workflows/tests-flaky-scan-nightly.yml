@@ -10,8 +10,7 @@
 #   dispatch  - manual, on any branch, with the inputs below.
 #
 # Jobs:
-#   check-ci-enabled        gate - the official repo, ENABLE_CI_WORKFLOWS, or a
-#                           manual dispatch. Everything else skips without it
+#   check-ci                gate ci execution
 #   setup-env               bridges workflow env into the jobs context, which a
 #                           reusable workflow's `with:` block cannot read
 #   check-test-caches       fails fast if the bitcoin/cargo caches are missing
@@ -104,32 +103,13 @@ jobs:
   ############################################################################
   ### CI Enablement Check
   ###
-  ### Only the official repo runs this on a schedule. A fork that wants it can
-  ### set the ENABLE_CI_WORKFLOWS variable, and a manual dispatch always runs,
-  ### which is what makes the workflow testable on a fork without granting it
-  ### the nightly cron.
-  ###
+  ### Gate CI execution
   ############################################################################
-  check-ci-enabled:
+  check-ci:
     name: "Check: CI Enabled"
-    runs-on: ubuntu-latest
-    outputs:
-      enabled: ${{ steps.check.outputs.enabled }}
-    steps:
-      - id: check
-        run: |
-          echo "=== CI Enablement Check ==="
-          echo "ENABLE_CI_WORKFLOWS: '${{ vars.ENABLE_CI_WORKFLOWS }}'"
-          echo "github.repository:   '${{ github.repository }}'"
-          echo "github.event_name:   '${{ github.event_name }}'"
-
-          if [[ "${{ vars.ENABLE_CI_WORKFLOWS }}" == "true" || "${{ github.repository }}" == "stacks-network/stacks-core" || "${{ github.event_name }}" == "workflow_dispatch" ]]; then
-            echo "Result: CI is ENABLED"
-            echo "enabled=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "Result: CI is DISABLED"
-            echo "enabled=false" >> "$GITHUB_OUTPUT"
-          fi
+    uses: ./.github/workflows/__check-ci.yml
+    with:
+      extra-enable-var: ENABLE_CI_FLAKY_SCAN_NIGHTLY
 
   ############################################################################
   ### Global Variables Setup
@@ -140,8 +120,8 @@ jobs:
   setup-env:
     name: "Setup: Global Variables"
     needs:
-      - check-ci-enabled
-    if: needs.check-ci-enabled.outputs.enabled == 'true'
+      - check-ci
+    if: needs.check-ci.outputs.enabled == 'true'
     runs-on: ubuntu-latest
     outputs:
       test-archive-file: ${{ steps.set-env.outputs.test_archive_file }}
@@ -163,8 +143,8 @@ jobs:
   ############################################################################
   check-test-caches:
     needs:
-      - check-ci-enabled
-    if: needs.check-ci-enabled.outputs.enabled == 'true'
+      - check-ci
+    if: needs.check-ci.outputs.enabled == 'true'
     name: "Check: Test Caches"
     uses: ./.github/workflows/_check-test-caches.yml
 
@@ -221,9 +201,9 @@ jobs:
     name: "Report: Failed Tests"
     # always(): the test jobs are expected to fail when a flaky test trips, and
     # that failure is exactly what needs reporting.
-    if: always() && !cancelled() && needs.check-ci-enabled.outputs.enabled == 'true'
+    if: always() && !cancelled() && needs.check-ci.outputs.enabled == 'true'
     needs:
-      - check-ci-enabled
+      - check-ci
       - tests-bitcoin
     runs-on: ubuntu-latest
     permissions:
@@ -294,7 +274,7 @@ jobs:
   notify:
     name: "Slack: Workflow Errors"
     needs:
-      - check-ci-enabled
+      - check-ci
       - setup-env
       - check-test-caches
       - create-nextest-archive
@@ -302,11 +282,11 @@ jobs:
     # Deliberately NOT gated on enabled == 'true'. When the workflow is disabled
     # every job below reports `skipped`, which is not `failure`, so nothing
     # fires - this is exactly the case that ruled out `!= success` earlier.
-    # Leaving the gate off instead lets a *failure* of check-ci-enabled itself be
+    # Leaving the gate off instead lets a *failure* of check-ci itself be
     # alerted on, which would otherwise skip the whole run in silence.
     if: >-
       always() && !cancelled() && (
-        needs.check-ci-enabled.result == 'failure' ||
+        needs.check-ci.result == 'failure' ||
         needs.setup-env.result == 'failure' ||
         needs.check-test-caches.result == 'failure' ||
         needs.create-nextest-archive.result == 'failure' ||
