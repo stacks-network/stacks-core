@@ -337,11 +337,14 @@ close_quiet_issues() {
     done < <(jq -r '[.name, .status] | @tsv' "${CFG_OBSERVED_TESTS_FILE}")
 
     # Runs that gave every test a chance to fail. One call for the whole phase.
+    #
+    # An allow-list, not a deny-list: only a run that finished ("success" or "failure") 
+    # has given every test a chance to execute.
     quiet_runs=$(gh run list --repo "${CFG_REPO}" --workflow "${CFG_WORKFLOW_NAME}" \
         --limit 200 --json event,createdAt,conclusion \
         | jq -c --arg manual "${CFG_COUNT_MANUAL_RUNS}" '
             [ .[]
-              | select(.conclusion != "cancelled")
+              | select(.conclusion == "success" or .conclusion == "failure")
               | select(.event == "schedule"
                        or ($manual == "true" and .event == "workflow_dispatch"))
               | .createdAt ]')
