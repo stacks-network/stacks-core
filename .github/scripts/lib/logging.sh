@@ -1,6 +1,10 @@
 #!/usr/bin/env bash
-set -euo pipefail
 
+# Include guard
+[[ -n "${_LIB_LOGGING:-}" ]] && return 0
+_LIB_LOGGING=1
+
+set -euo pipefail
 
 ## ── ANSI color codes and logging helpers ────────────────────────────────────
 COLRED=$'\033[31m'    # Red

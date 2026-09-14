@@ -33,6 +33,7 @@ script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 ## Load logging functions
 source "${script_dir}/lib/logging.sh"
+source "${script_dir}/lib/require.sh"
 
 ## ── Main ────────────────────────────────────────────────────────────────────
 main() {
@@ -158,22 +159,10 @@ main() {
 # Exits on failure.
 initialize() {
     ## Preconditions: tools
-    local missing_cmds=() cmd
-    for cmd in awk find grep jq sort xmllint; do
-        command -v "${cmd}" > /dev/null 2>&1 || missing_cmds+=("${cmd}")
-    done
-    if (( ${#missing_cmds[@]} > 0 )); then
-        error "Missing required command(s): $(hl "${missing_cmds[*]}")"
-        # Named only when it is the one missing: it is the only non-obvious package.
-        if [[ " ${missing_cmds[*]} " == *" xmllint "* ]]; then
-            error "xmllint comes from the $(hl "libxml2-utils") package"
-        fi
-        exit 1
-    fi
+    require_cmds awk find grep jq sort xmllint
 
     ## Preconditions: inputs
     # Checked before binding, so the bindings below can be plain expansions.
-    info "Checking required env vars..."
     require_vars \
         JUNIT_DIR \
         OBSERVED_TESTS_FILE
@@ -187,20 +176,6 @@ initialize() {
     CFG_EXCERPT_LINES=10
 }
 
-# Exit unless every named variable is set and non-empty.
-# Reports all the misses at once.
-require_vars() {
-    local missing=() var
-
-    for var in "$@"; do
-        [[ -n "${!var:-}" ]] || missing+=("${var}")
-    done
-
-    if (( ${#missing[@]} > 0 )); then
-        error "Missing required var(s): $(hl "${missing[*]}")"
-        exit 1
-    fi
-}
 
 # Run an XPath query, treating "no match" as empty rather than an error.
 # xmllint exits non-zero and prints "XPath set is empty" when nothing matches.

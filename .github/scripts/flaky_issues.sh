@@ -72,6 +72,7 @@
 set -euo pipefail
 
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib/logging.sh"
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib/require.sh"
 
 main() {
     initialize
@@ -120,24 +121,15 @@ main() {
 # Exits on failure.
 initialize() {
     # Preconditions: tools
-    local missing_cmds=() cmd
-    for cmd in gh jq; do
-        command -v "${cmd}" > /dev/null 2>&1 || missing_cmds+=("${cmd}")
-    done
-    if (( ${#missing_cmds[@]} > 0 )); then
-        error "Missing required command(s): $(hl "${missing_cmds[*]}")"
-        exit 1
-    fi
+    require_cmds gh jq
 
     # Preconditions: inputs
-    info "Checking required env vars..."
-    # Github-provided
+    ## Github-provided
     require_vars \
         GH_TOKEN \
         GITHUB_REPOSITORY \
         GITHUB_WORKFLOW
-
-    # User-provided
+    ## Custom-provided
     require_vars \
         OBSERVED_TESTS_FILE \
         FLAKY_LABEL \
@@ -464,20 +456,6 @@ Last recorded failure: ${last_failure%%T*}."
 **If a test by this name fails again this issue reopens automatically** with the new failure attached."
 }
 
-# Exit unless every named variable is set and non-empty.
-# Reports all the misses at once.
-require_vars() {
-    local missing=() var
-
-    for var in "$@"; do
-        [[ -n "${!var:-}" ]] || missing+=("${var}")
-    done
-
-    if (( ${#missing[@]} > 0 )); then
-        error "Missing required var(s): $(hl "${missing[*]}")"
-        exit 1
-    fi
-}
 
 # The no-observations summary: the run did not observe any tests.
 report_summary_no_observations() {
