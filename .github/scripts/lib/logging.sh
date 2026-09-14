@@ -31,3 +31,14 @@ error() {
         echo "$(strip_ansi "$*")" >> "${GITHUB_STEP_SUMMARY}"
     fi
 }
+
+# Append a line to the job summary.
+#
+# Outside Actions there is no summary file, so the line goes to stdout instead (for local testing)
+summary() {
+    if [[ -n "${GITHUB_STEP_SUMMARY:-}" ]]; then
+        printf '%s\n' "$*" >> "${GITHUB_STEP_SUMMARY}"
+    else
+        printf '%s\n' "$*"
+    fi
+}

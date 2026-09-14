@@ -549,13 +549,6 @@ issue_action_row() {
     printf '%s\t%s\t%s' "${test_id}" "${issue}" "${action}"
 }
 
-# Append a line to the job summary, and echo it so the log shows the report too
-summary() {
-    printf '%s\n' "$*"
-    if [[ -n "${GITHUB_STEP_SUMMARY:-}" ]]; then
-        printf '%s\n' "$*" >> "${GITHUB_STEP_SUMMARY}"
-    fi
-}
 # Run a gh command that writes, or print it under DRY_RUN_ISSUES
 gh_mutate() {
     if [[ "${CFG_DRY_RUN_ISSUES}" == "true" ]]; then

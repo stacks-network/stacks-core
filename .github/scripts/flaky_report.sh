@@ -245,13 +245,6 @@ excerpt() {
     fi | sed 's/[[:space:]]*$//' || true
 }
 
-# Append a line to the job summary, and echo it so the log shows the report too
-summary() {
-    printf '%s\n' "$*"
-    if [[ -n "${GITHUB_STEP_SUMMARY:-}" ]]; then
-        printf '%s\n' "$*" >> "${GITHUB_STEP_SUMMARY}"
-    fi
-}
 
 ## ── Entry point ─────────────────────────────────────────────────────────────
 # Guarded so a this file can be sourced and exercise the helpers above
