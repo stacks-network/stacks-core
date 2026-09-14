@@ -27,7 +27,7 @@ jobs:
       needs.check-ci.outputs.enabled == 'true'
     runs-on: ubuntu-latest
     steps:
-      - name: Fetch PRs and Post Nags to Console / GitHub Summary
+      - name: Fetch PRs and Post Nags to Slack
         uses: $/.github/wrappers/github-script
         env:
           SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_CORE_PR_NAG_BOT }}
@@ -68,6 +68,11 @@ jobs:
             const ignoreDrafts = process.env.IGNORE_DRAFTS === 'true';
             const webhookUrl = process.env.SLACK_WEBHOOK_URL;
             const manualRun = process.env.MANUAL_RUN === 'true';
+            
+             if (!webhookUrl) {
+              core.setFailed('Missing SLACK_WEBHOOK_URL secret.');
+              return;
+            }
 
             // 1. Parse the team registry safely
             let registry = {};
@@ -79,19 +84,25 @@ jobs:
               return;
             }
 
+            // Team membership marks a PR author as internal.
             const allowedUsers = new Set(Object.keys(registry));
+            // Triage rotation is an opt-out subset of the team.
             const triagerPool = Object.keys(registry)
               .filter(login => registry[login]?.triage !== false)
               .sort();
 
+            // Helper to get Slack mention or display name
             const getSlackMention = (githubUsername, ping = false) => {
               const entry = registry[githubUsername.toLowerCase()];
+              // If we have a Slack ID, return it as a mention
               if (ping && entry?.slack) {
                 return `<@${entry.slack}>`;
               }
+              // Fallback to display name
               if (entry?.name) {
                 return entry.name;
               }
+              // Fallback to capitalized login
               return githubUsername.charAt(0).toUpperCase() + githubUsername.slice(1);
             };
 
@@ -171,6 +182,7 @@ jobs:
                 mergeableState = prNode?.mergeable || 'UNKNOWN';
                 mergeStateStatus = prNode?.mergeStateStatus || 'UNKNOWN';
             
+                // Process unresolved comments
                 const threads = prNode?.reviewThreads?.nodes || [];
                 unresolvedComments = threads
                   .filter(thread => !thread.isResolved)
@@ -182,6 +194,7 @@ jobs:
                     };
                   });
             
+                // Populate historical review statuses (APPROVED, CHANGES_REQUESTED, COMMENTED)
                 const latestReviewsNodes = prNode?.latestReviews?.nodes || [];
                 latestReviewsNodes.forEach(node => {
                   if (node.author?.login) {
@@ -193,6 +206,7 @@ jobs:
                   }
                 });
             
+                // Extract active pending reviewers and overwrite map state to 'AWAITING_REVIEW'
                 const pendingLogins = prNode?.reviewRequests?.nodes
                   ?.map(node => node.requestedReviewer?.login)
                   .filter(Boolean) || [];
@@ -201,6 +215,7 @@ jobs:
                   reviewerStateMap[login.toLowerCase()] = 'AWAITING_REVIEW';
                 });
             
+                // Deduplicate all unique reviewer handles and filter out Copilot
                 allReviewersSuperset = Object.keys(reviewerStateMap)
                   .filter(login => login !== 'copilot-pull-request-reviewer');
             
@@ -215,6 +230,7 @@ jobs:
                 });
               }
             
+              // Package structural models back up for the line builder to scan
               pr.unresolved_comment_threads = unresolvedComments;
               pr.requested_reviewers = allReviewersSuperset.map(login => ({
                 login,
@@ -232,6 +248,10 @@ jobs:
                 .some(r => r.state === 'CHANGES_REQUESTED');
               const resolveCount = unresolvedComments.length;
 
+              // External PRs (author not in the registry) with no assignee need
+              // a team member to triage them. Pick one deterministically from the
+              // PR number so the same person is nagged on every run. Once someone
+              // is assigned, the PR flows through the normal classification below.
               const isExternal = !allowedUsers.has(pr.user.login.toLowerCase());
               const needsTriage = isExternal && (pr.assignees || []).length === 0;
 
@@ -360,6 +380,7 @@ jobs:
               const author = getSlackMention(pr.user.login, false);
               const title = sanitizeTitle(pr.title);
             
+              // Helper to extract the plain display name for consistent sorting
               const getPlainName = (login) => {
                 const clean = login.toLowerCase();
                 if (registry[clean]?.name) return registry[clean].name;
@@ -393,6 +414,7 @@ jobs:
               return line;
             };
 
+            // Build payload list chunks
             let currentLines = [];
             const flushLines = () => {
               if (currentLines.length > 0) {
