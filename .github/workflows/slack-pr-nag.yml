@@ -18,20 +18,17 @@ jobs:
     with:
       allow-fork-runs: false
 
-  # Execute only on our official repo, because it manages Slack PR nags for us
   nag-slack:
     name: "Slack: Nag Team"
-    # needs:
-      # - check-ci
-    # if: >-
-      # needs.check-ci.outputs.enabled == 'true'
+    #needs:
+    #  - check-ci
+    #if: >-
+    #  needs.check-ci.outputs.enabled == 'true'
     runs-on: ubuntu-latest
     steps:
-      - name: Fetch PRs and Post Nags to Slack
+      - name: Fetch PRs and Post Nags to Console / GitHub Summary
         uses: $/.github/wrappers/github-script
         env:
-          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_CORE_PR_NAG_BOT }}
-          
           # CONFIGURABLE VARIABLES
           TARGET_OWNER: 'stacks-network'
           TARGET_REPO: 'stacks-core'
@@ -39,12 +36,6 @@ jobs:
           MANUAL_RUN: ${{ github.event_name == 'workflow_dispatch' }}
           
           # CENTRAL TEAM REGISTRY
-          # Membership in this registry is what marks a PR author as internal;
-          # anyone absent from it is treated as an external contributor.
-          #   name   : display name (Slack mention fallback + sort key)
-          #   slack  : Slack member ID, enables an actual @-mention
-          #   triage : whether this member takes part in the external-PR
-          #            triage rotation (omitted is treated as true)
           TEAM_REGISTRY: |
             {
               "aaronb-stacks":     { "name": "Aaron",     "slack": "U067F1SRYT0", "triage": true  },
@@ -67,13 +58,7 @@ jobs:
             const owner = process.env.TARGET_OWNER;
             const repo = process.env.TARGET_REPO;
             const ignoreDrafts = process.env.IGNORE_DRAFTS === 'true';
-            const webhookUrl = process.env.SLACK_WEBHOOK_URL;
             const manualRun = process.env.MANUAL_RUN === 'true';
-
-            if (!webhookUrl) {
-              core.setFailed('Missing SLACK_WEBHOOK_URL secret.');
-              return;
-            }
 
             // 1. Parse the team registry safely
             let registry = {};
@@ -85,14 +70,11 @@ jobs:
               return;
             }
 
-            // Team membership marks a PR author as internal.
             const allowedUsers = new Set(Object.keys(registry));
-            // Triage rotation is an opt-out subset of the team.
             const triagerPool = Object.keys(registry)
               .filter(login => registry[login]?.triage !== false)
               .sort();
 
-            // Helper to get Slack mention or plain display name
             const getSlackMention = (githubUsername, ping = true) => {
               const entry = registry[githubUsername.toLowerCase()];
               if (ping && entry?.slack) {
@@ -125,13 +107,13 @@ jobs:
               return;
             }
 
-            // 3. Enrich PR data with unresolved review comments and precise reviewer state maps via GraphQL
-            console.log(`Enriching ${filteredSortedPrs.length} PRs with merge metrics, comments, and reviewer status tokens...`);
+            // 3. Enrich PR data
+            console.log(`Enriching ${filteredSortedPrs.length} PRs...`);
             
             const reviewsGroup = await Promise.all(filteredSortedPrs.map(async (pr) => {
               let unresolvedComments = [];
               let allReviewersSuperset = [];
-              const reviewerStateMap = {}; // Maps lowercased login -> state string
+              const reviewerStateMap = {};
               let approvedCount = 0;
               let mergeableState = 'UNKNOWN';
               let mergeStateStatus = 'UNKNOWN';
@@ -180,7 +162,6 @@ jobs:
                 mergeableState = prNode?.mergeable || 'UNKNOWN';
                 mergeStateStatus = prNode?.mergeStateStatus || 'UNKNOWN';
             
-                // Process unresolved comments
                 const threads = prNode?.reviewThreads?.nodes || [];
                 unresolvedComments = threads
                   .filter(thread => !thread.isResolved)
@@ -192,19 +173,17 @@ jobs:
                     };
                   });
             
-                // Populate historical review statuses (APPROVED, CHANGES_REQUESTED, COMMENTED)
                 const latestReviewsNodes = prNode?.latestReviews?.nodes || [];
                 latestReviewsNodes.forEach(node => {
                   if (node.author?.login) {
                     const login = node.author.login.toLowerCase();
-                    reviewerStateMap[login] = node.state; // e.g., 'APPROVED', 'CHANGES_REQUESTED', 'COMMENTED'
+                    reviewerStateMap[login] = node.state;
                     if (node.state === 'APPROVED') {
                       approvedCount++;
                     }
                   }
                 });
             
-                // Extract active pending reviewers and overwrite map state to 'AWAITING_REVIEW'
                 const pendingLogins = prNode?.reviewRequests?.nodes
                   ?.map(node => node.requestedReviewer?.login)
                   .filter(Boolean) || [];
@@ -213,7 +192,6 @@ jobs:
                   reviewerStateMap[login.toLowerCase()] = 'AWAITING_REVIEW';
                 });
             
-                // Deduplicate all unique reviewer handles and filter out Copilot
                 allReviewersSuperset = Object.keys(reviewerStateMap)
                   .filter(login => login !== 'copilot-pull-request-reviewer');
             
@@ -228,7 +206,6 @@ jobs:
                 });
               }
             
-              // Package structural models back up for the line builder to scan
               pr.unresolved_comment_threads = unresolvedComments;
               pr.requested_reviewers = allReviewersSuperset.map(login => ({
                 login,
@@ -237,7 +214,7 @@ jobs:
               pr.merge_conflict_present = mergeableState === 'CONFLICTING';
               pr.out_of_date_with_base = mergeStateStatus === 'BEHIND';
             
-              // 4. Classify the PRs locally (Hierarchical Triage Engine)
+              // 4. Classify PRs
               let explanation = '';
               let sortWeight = 7;
               let statusIcon = '👀';
@@ -289,7 +266,7 @@ jobs:
               return { pr, explanation, sortWeight, statusIcon };
             }));
 
-            // 5. Programmatic Priority Sort Engine
+            // 5. Priority Sort Engine
             reviewsGroup.sort((a, b) => {
               if (a.sortWeight !== b.sortWeight) {
                 return a.sortWeight - b.sortWeight;
@@ -319,14 +296,12 @@ jobs:
                   actionTakers.add(triagerLogin);
                 }
               } else {
-                // Reviewers awaiting review owe an action
                 pr.requested_reviewers.forEach(r => {
                   if (r.state === 'AWAITING_REVIEW') {
                     actionTakers.add(r.login.toLowerCase());
                   }
                 });
 
-                // Check if the author/assignees need to take action
                 const changesRequested = pr.requested_reviewers.some(r => r.state === 'CHANGES_REQUESTED');
                 const resolveCount = pr.unresolved_comment_threads ? pr.unresolved_comment_threads.length : 0;
                 const isAuthorAction = changesRequested ||
@@ -345,7 +320,6 @@ jobs:
                 }
               }
 
-              // Fallback: assign to assignees/author if no specific action taker was mapped
               if (actionTakers.size === 0) {
                 if (pr.assignees && pr.assignees.length > 0) {
                   pr.assignees.forEach(a => actionTakers.add(a.login.toLowerCase()));
@@ -355,6 +329,9 @@ jobs:
               }
 
               actionTakers.forEach(login => {
+                // Only create group sections for users in the registry
+                if (!allowedUsers.has(login)) return;
+
                 if (!userPrMap.has(login)) {
                   userPrMap.set(login, []);
                 }
@@ -362,23 +339,13 @@ jobs:
               });
             }
 
-            // Sort person sections alphabetically by display name
             const sortedLogins = Array.from(userPrMap.keys()).sort((a, b) => {
               const nameA = getSlackMention(a, false).toLowerCase();
               const nameB = getSlackMention(b, false).toLowerCase();
               return nameA.localeCompare(nameB);
             });
 
-            // 7. Construct Slack payload blocks
-            const payload = { blocks: [] };
-            payload.blocks.push({
-              type: 'section',
-              text: {
-                type: 'mrkdwn',
-                text: `*📋 Open PR Status Report (${filteredSortedPrs.length} Total)*${manualRun ? ' | _(Manual Run)_' : ''}\n`
-              }
-            });
-
+            // 7. Build Output Buffer
             const buildPrLine = (item) => {
               const pr = item.pr;
               const author = getSlackMention(pr.user.login, false);
@@ -395,7 +362,6 @@ jobs:
                 .slice()
                 .sort((a, b) => getPlainName(a.login).localeCompare(getPlainName(b.login)))
                 .map(r => {
-                  // Do NOT @ mention approved reviewers; use plain name instead
                   const shouldPing = r.state !== 'APPROVED';
                   const name = getSlackMention(r.login, shouldPing);
                   
@@ -419,42 +385,27 @@ jobs:
               return line;
             };
 
-            let currentLines = [];
-            const flushLines = () => {
-              if (currentLines.length > 0) {
-                payload.blocks.push({
-                  type: 'section',
-                  text: { type: 'mrkdwn', text: currentLines.join('\n') }
-                });
-                currentLines = [];
-              }
-            };
+            const outputLines = [];
+            outputLines.push(`*📋 Open PR Status Report (${filteredSortedPrs.length} Total)*${manualRun ? ' | _(Manual Run)_' : ''}\n`);
 
             for (const login of sortedLogins) {
               const userItems = userPrMap.get(login);
               if (!userItems || userItems.length === 0) continue;
 
-              currentLines.push(`*${getSlackMention(login, true)}*`);
+              outputLines.push(`*${getSlackMention(login, true)}*`);
               for (const item of userItems) {
-                currentLines.push(buildPrLine(item));
+                outputLines.push(buildPrLine(item));
               }
-              currentLines.push(''); // Spacing between user groups
-
-              if (currentLines.length >= 18) {
-                flushLines();
-              }
+              outputLines.push('');
             }
-            flushLines();
 
-            // 8. Send payload via Webhook
-            const response = await fetch(webhookUrl, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify(payload)
-            });
+            const fullText = outputLines.join('\n');
 
-            if (!response.ok) {
-              core.setFailed(`Slack API responded with status ${response.status}`);
-            } else {
-              console.log(`Successfully posted real-time PR triage lines to Slack.`);
+            // 8. Output to Console & GitHub Workflow Run Summary
+            console.log('=============== PR NAG BOT OUTPUT ===============');
+            console.log(fullText);
+            console.log('=================================================');
+
+            if (core.summary) {
+              await core.summary.addRaw(fullText).write();
             }
