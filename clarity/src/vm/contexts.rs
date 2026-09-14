@@ -184,16 +184,16 @@ impl<'a> FunctionExecutionOptions<'a> {
 /// - `ExecutionState`    → mutable VM/runtime state
 /// - `InvocationContext` → authority + contract binding
 /// - `LocalContext`      → lexical variables/scope
-pub struct ExecutionState<'a, 'b, 'hooks> {
+pub struct ExecutionState<'a, 'b> {
     /// Global chainstate and database access for this execution.
-    pub global_context: &'a mut GlobalContext<'b, 'hooks>,
+    pub global_context: &'a mut GlobalContext<'b>,
 
     /// The Clarity call stack tracking nested function/contract calls.
     pub call_stack: &'a mut CallStack,
 }
 
-pub struct OwnedEnvironment<'a, 'hooks> {
-    pub(crate) context: GlobalContext<'a, 'hooks>,
+pub struct OwnedEnvironment<'a> {
+    pub(crate) context: GlobalContext<'a>,
     call_stack: CallStack,
 }
 
@@ -208,7 +208,7 @@ pub struct EventBatch {
      and is responsible for committing/rolling-back transactions as they error or
      abort.
 */
-pub struct GlobalContext<'a, 'hooks> {
+pub struct GlobalContext<'a> {
     asset_maps: Vec<AssetMap>,
     pub event_batches: Vec<(EventBatch, u64)>,
     pub database: ClarityDatabase<'a>,
@@ -219,7 +219,7 @@ pub struct GlobalContext<'a, 'hooks> {
     pub epoch_id: StacksEpochId,
     /// This is the chain ID of the transaction
     pub chain_id: u32,
-    pub eval_hooks: Option<Vec<&'hooks mut dyn EvalHook>>,
+    pub eval_hooks: Option<Vec<&'a mut dyn EvalHook>>,
     /// A resource limiter that will be polled on every `eval` to check that execution
     /// time and heap allocation don't exceed configured maximums
     pub execution_resource_limiter: ResourceLimiter,
@@ -290,9 +290,9 @@ impl EventBatch {
     }
 }
 
-impl<'a, 'hooks> OwnedEnvironment<'a, 'hooks> {
+impl<'a> OwnedEnvironment<'a> {
     #[cfg(any(test, feature = "testing"))]
-    pub fn new(database: ClarityDatabase<'a>, epoch: StacksEpochId) -> OwnedEnvironment<'a, 'a> {
+    pub fn new(database: ClarityDatabase<'a>, epoch: StacksEpochId) -> OwnedEnvironment<'a> {
         OwnedEnvironment {
             context: GlobalContext::new(
                 false,
@@ -306,7 +306,7 @@ impl<'a, 'hooks> OwnedEnvironment<'a, 'hooks> {
     }
 
     #[cfg(any(test, feature = "testing"))]
-    pub fn new_toplevel(mut database: ClarityDatabase<'a>) -> OwnedEnvironment<'a, 'a> {
+    pub fn new_toplevel(mut database: ClarityDatabase<'a>) -> OwnedEnvironment<'a> {
         database.begin();
         let epoch = database.get_clarity_epoch_version().unwrap();
         let version = ClarityVersion::default_for_epoch(epoch);
@@ -330,7 +330,7 @@ impl<'a, 'hooks> OwnedEnvironment<'a, 'hooks> {
         mut database: ClarityDatabase<'a>,
         epoch: StacksEpochId,
         use_mainnet: bool,
-    ) -> OwnedEnvironment<'a, 'a> {
+    ) -> OwnedEnvironment<'a> {
         use crate::vm::tests::test_only_mainnet_to_chain_id;
         let cost_track = LimitedCostTracker::new_max_limit(&mut database, epoch, use_mainnet)
             .expect("FAIL: problem instantiating cost tracking");
@@ -347,7 +347,7 @@ impl<'a, 'hooks> OwnedEnvironment<'a, 'hooks> {
         chain_id: u32,
         database: ClarityDatabase<'a>,
         epoch_id: StacksEpochId,
-    ) -> OwnedEnvironment<'a, 'a> {
+    ) -> OwnedEnvironment<'a> {
         OwnedEnvironment {
             context: GlobalContext::new(
                 mainnet,
@@ -366,7 +366,7 @@ impl<'a, 'hooks> OwnedEnvironment<'a, 'hooks> {
         database: ClarityDatabase<'a>,
         cost_tracker: LimitedCostTracker,
         epoch_id: StacksEpochId,
-    ) -> OwnedEnvironment<'a, 'a> {
+    ) -> OwnedEnvironment<'a> {
         OwnedEnvironment {
             context: GlobalContext::new(mainnet, chain_id, database, cost_tracker, epoch_id),
             call_stack: CallStack::new(),
@@ -374,7 +374,7 @@ impl<'a, 'hooks> OwnedEnvironment<'a, 'hooks> {
     }
 
     /// Registers an evaluation hook for this environment.
-    pub fn add_eval_hook(&mut self, hook: &'hooks mut dyn EvalHook) {
+    pub fn add_eval_hook(&mut self, hook: &'a mut dyn EvalHook) {
         if let Some(mut hooks) = self.context.eval_hooks.take() {
             hooks.push(hook);
             self.context.eval_hooks = Some(hooks);
@@ -393,7 +393,7 @@ impl<'a, 'hooks> OwnedEnvironment<'a, 'hooks> {
         sender: Option<PrincipalData>,
         sponsor: Option<PrincipalData>,
         context: &'b ContractContext,
-    ) -> (ExecutionState<'b, 'a, 'hooks>, InvocationContext<'b>) {
+    ) -> (ExecutionState<'b, 'a>, InvocationContext<'b>) {
         (
             ExecutionState {
                 global_context: &mut self.context,
@@ -717,7 +717,7 @@ impl<'a, 'hooks> OwnedEnvironment<'a, 'hooks> {
     }
 }
 
-impl CostTracker for ExecutionState<'_, '_, '_> {
+impl CostTracker for ExecutionState<'_, '_> {
     fn compute_cost(
         &mut self,
         cost_function: ClarityCostFunction,
@@ -741,7 +741,7 @@ impl CostTracker for ExecutionState<'_, '_, '_> {
     }
 }
 
-impl CostTracker for GlobalContext<'_, '_> {
+impl CostTracker for GlobalContext<'_> {
     fn compute_cost(
         &mut self,
         cost_function: ClarityCostFunction,
@@ -764,7 +764,7 @@ impl CostTracker for GlobalContext<'_, '_> {
     }
 }
 
-impl<'a, 'b, 'hooks> ExecutionState<'a, 'b, 'hooks> {
+impl<'a, 'b> ExecutionState<'a, 'b> {
     pub fn eval_read_only(
         &mut self,
         invoke_ctx: &InvocationContext,
@@ -1589,7 +1589,7 @@ impl<'a, 'b, 'hooks> ExecutionState<'a, 'b, 'hooks> {
     }
 }
 
-impl ExecutionState<'_, '_, '_> {
+impl ExecutionState<'_, '_> {
     /// Invokes `f` for each registered eval hook.
     fn for_each_eval_hook(&mut self, mut f: impl FnMut(&mut dyn EvalHook, &mut Self)) {
         let Some(mut eval_hooks) = self.global_context.eval_hooks.take() else {
@@ -1603,7 +1603,7 @@ impl ExecutionState<'_, '_, '_> {
     }
 }
 
-impl EvalHookNotifier for ExecutionState<'_, '_, '_> {
+impl EvalHookNotifier for ExecutionState<'_, '_> {
     fn has_eval_hooks(&self) -> bool {
         self.global_context
             .eval_hooks
@@ -1663,7 +1663,7 @@ impl EvalHookNotifier for ExecutionState<'_, '_, '_> {
     }
 }
 
-impl<'a, 'hooks> GlobalContext<'a, 'hooks> {
+impl<'a> GlobalContext<'a> {
     // Instantiate a new Global Context
     pub fn new(
         mainnet: bool,
@@ -1671,7 +1671,7 @@ impl<'a, 'hooks> GlobalContext<'a, 'hooks> {
         database: ClarityDatabase<'a>,
         cost_track: LimitedCostTracker,
         epoch_id: StacksEpochId,
-    ) -> GlobalContext<'a, 'hooks> {
+    ) -> GlobalContext<'a> {
         #[cfg(feature = "clarity-wasm")]
         let engine = Engine::default();
 
