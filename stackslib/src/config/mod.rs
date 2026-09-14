@@ -14,6 +14,16 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+// The doc comments on the config structs below are parsed by
+// `contrib/tools/config-docs-generator` to produce the node configuration
+// reference. That parser is whitespace-sensitive: it locates `@notes`,
+// `@units`, `@toml_example` and friends by their indentation, and collects each
+// annotation's body from the lines indented beneath it. Re-indenting a doc line
+// to satisfy rustdoc's list-continuation rules silently detaches annotations
+// from their content and mangles the generated examples, so these two lints are
+// off for this module.
+#![allow(clippy::doc_lazy_continuation, clippy::doc_overindented_list_items)]
+
 pub mod chain_data;
 
 use std::collections::{HashMap, HashSet};
@@ -1034,9 +1044,6 @@ impl Config {
             None => miner_default_config,
         };
 
-        if is_mainnet && miner.replay_transactions {
-            return Err("Attempted to run mainnet node with `replay_transactions` set to true. This feature is still incomplete and may not be enabled on a mainnet node".into());
-        }
         let initial_balances: Vec<InitialBalance> = match config_file.ustx_balance {
             Some(balances) => {
                 if is_mainnet && !balances.is_empty() {
@@ -3300,9 +3307,6 @@ pub struct MinerConfig {
     /// @default: [`DEFAULT_MAX_ANALYSIS_TIME_SECS`]
     /// @units: seconds
     pub max_analysis_time_secs: u64,
-    /// TODO: remove this option when its no longer a testing feature and it becomes default behaviour
-    /// The miner will attempt to replay transactions that a threshold number of signers are expecting in the next block
-    pub replay_transactions: bool,
     /// Defines the socket timeout (in seconds) for stackerdb communcation.
     /// ---
     /// @default: [`DEFAULT_STACKERDB_TIMEOUT_SECS`]
@@ -3383,7 +3387,6 @@ impl Default for MinerConfig {
             },
             max_execution_time_secs: DEFAULT_MAX_EXECUTION_TIME_SECS,
             max_analysis_time_secs: DEFAULT_MAX_ANALYSIS_TIME_SECS,
-            replay_transactions: false,
             stackerdb_timeout: Duration::from_secs(DEFAULT_STACKERDB_TIMEOUT_SECS),
             max_tenure_bytes: DEFAULT_MAX_TENURE_BYTES,
             log_skipped_transactions: false,
@@ -4472,8 +4475,6 @@ pub struct MinerConfigFile {
     pub block_rejection_timeout_steps: Option<HashMap<String, u64>>,
     pub max_execution_time_secs: Option<u64>,
     pub max_analysis_time_secs: Option<u64>,
-    /// TODO: remove this config option once its no longer a testing feature
-    pub replay_transactions: Option<bool>,
     pub stackerdb_timeout_secs: Option<u64>,
     pub max_tenure_bytes: Option<u64>,
     pub log_skipped_transactions: Option<bool>,
@@ -4673,7 +4674,6 @@ impl MinerConfigFile {
             max_analysis_time_secs: self
                 .max_analysis_time_secs
                 .unwrap_or(miner_default_config.max_analysis_time_secs),
-            replay_transactions: self.replay_transactions.unwrap_or_default(),
             stackerdb_timeout: self.stackerdb_timeout_secs.map(Duration::from_secs).unwrap_or(miner_default_config.stackerdb_timeout),
             max_tenure_bytes: self.max_tenure_bytes.unwrap_or(miner_default_config.max_tenure_bytes),
             log_skipped_transactions: self.log_skipped_transactions.unwrap_or(miner_default_config.log_skipped_transactions),

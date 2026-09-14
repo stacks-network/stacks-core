@@ -254,7 +254,7 @@ impl SignerCoordinator {
                     debug!("Wrote message to stackerdb: {ack:?}");
                     Ok(())
                 } else {
-                    Err(NakamotoNodeError::StackerDBUploadError(ack))
+                    Err(NakamotoNodeError::StackerDBUploadError(ack.into()))
                 }
             }
             Err(e) => Err(NakamotoNodeError::SigningCoordinatorFailure(format!(

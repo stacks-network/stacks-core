@@ -81,10 +81,7 @@ fn proposal_void_shorter_than_max_age_recovers_with_original_block() {
         num_signers,
         vec![(sender_addr, send_amt + send_fee)],
         |_| {},
-        |config| {
-            // make the miner's SignatureTimeout resend loop fast enough to observe
-            config.miner.block_rejection_timeout_steps = [(0, Duration::from_secs(20))].into();
-        },
+        |_| {},
         None,
         None,
     );

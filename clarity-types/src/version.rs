@@ -56,8 +56,10 @@ impl fmt::Display for ClarityVersion {
 }
 
 impl ClarityVersion {
+    /// The default version of the latest epoch, so it tracks
+    /// `StacksEpochId::latest()` in both test and release builds.
     pub const fn latest() -> ClarityVersion {
-        ClarityVersion::Clarity7
+        Self::default_for_epoch(StacksEpochId::latest())
     }
 
     pub const ALL: &'static [ClarityVersion] = &[
@@ -92,13 +94,11 @@ impl ClarityVersion {
         &Self::ALL[..=idx]
     }
 
-    pub fn default_for_epoch(epoch_id: StacksEpochId) -> ClarityVersion {
+    pub const fn default_for_epoch(epoch_id: StacksEpochId) -> ClarityVersion {
         match epoch_id {
+            // Unreachable for any Stacks block: Clarity does not exist yet.
             StacksEpochId::Epoch10 => {
-                warn!(
-                    "Attempted to get default Clarity version for Epoch 1.0 where Clarity does not exist"
-                );
-                ClarityVersion::Clarity1
+                panic!("Epoch 1.0 predates Clarity; no default Clarity version")
             }
             StacksEpochId::Epoch20 => ClarityVersion::Clarity1,
             StacksEpochId::Epoch2_05 => ClarityVersion::Clarity1,

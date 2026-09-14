@@ -200,7 +200,6 @@ impl Trie {
             let (node, node_hash) = storage.read_nodetype(ptr)?;
             Ok((node, node_hash, *ptr))
         } else {
-            storage.bench_mut().marf_find_backptr_node_start();
             // ptr is a backptr -- find the block
             let back_block_hash = storage
                 .get_block_from_local_id(ptr.back_block())
@@ -220,7 +219,6 @@ impl Trie {
                 })?;
 
             let backptr = ptr.from_backptr();
-            storage.bench_mut().marf_find_backptr_node_finish();
 
             let (node, node_hash) = storage.read_nodetype(&backptr)?;
             cursor.repair_backptr_step_backptr(&node, &backptr, storage.get_cur_block());

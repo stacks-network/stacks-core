@@ -402,7 +402,7 @@ impl BitcoinIndexer {
                             }
                         }
                         Err(btc_error::UnhandledMessage(m)) => {
-                            match m {
+                            match *m {
                                 // some Bitcoin nodes send this to tell us to upgrade, so just
                                 // consume it
                                 NetworkMessage::Alert(..) => {}

@@ -322,7 +322,7 @@ fn signers_respond_to_unprocessed_globally_accepted_block_proposals() {
 ///
 /// Test Execution:
 /// 1. Configure 1 signer to insert block proposals without processing. Configure the remaining 4 to automatically reject all block proposals. Set the miner to ignore
-///   responses so that the block will be marked as globally rejected without the miner reproposing a new block (enables us to better control the test)
+///    responses so that the block will be marked as globally rejected without the miner reproposing a new block (enables us to better control the test)
 /// 2. Propose a block to all signers.
 /// 3. Confirm the 4 rejecting signers did indeed reject the block proposal. (>30% rejection threshold so its globally rejected)
 /// 4. Configure the 1 signer to process block proposals.

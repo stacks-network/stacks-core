@@ -38,7 +38,7 @@ pub struct ConstantValResponse {
     pub data: String,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Default)]
 pub struct RPCGetConstantValRequestHandler {
     pub constname: Option<ClarityName>,
     pub contract_identifier: Option<QualifiedContractIdentifier>,

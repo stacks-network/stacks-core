@@ -2662,10 +2662,12 @@ fn partial_tenure_fork() {
             .submit_transfer_tx(&sender_sk, send_fee, send_amt)
             .unwrap();
 
-        wait_for(60, || {
+        // Use a timeout long enough to cover a miner proposal re-send cycle
+        // (block_rejection_timeout_steps) in case signer responses are lost.
+        wait_for(120, || {
             Ok(get_account(&http_origin, &sender_addr).nonce > sender_nonce)
         })
-        .unwrap();
+        .expect("Timed out waiting for the interim block transfer to be mined in the to-be-forked tenure");
     }
 
     info!("------- Unblocking Miner 2 ------");
@@ -2741,18 +2743,18 @@ fn partial_tenure_fork() {
     assert_eq!(tip_sn.miner_pk_hash, Some(mining_pkh_1.clone()));
 
     for interim_block_ix in 0..inter_blocks_per_tenure {
-        info!(
-            "Mining interim block #{interim_block_ix} in Miner 1's first tenure (the to-be-forked tenure)";
-        );
+        info!("Mining interim block #{interim_block_ix} in Miner 1's third tenure post-fork";);
 
         let (_, sender_nonce) = signer_test
             .submit_transfer_tx(&sender_sk, send_fee, send_amt)
             .unwrap();
 
-        wait_for(60, || {
+        // Use a timeout long enough to cover a miner proposal re-send cycle
+        // (block_rejection_timeout_steps) in case signer responses are lost.
+        wait_for(120, || {
             Ok(get_account(&http_origin, &sender_addr).nonce > sender_nonce)
         })
-        .unwrap();
+        .expect("Timed out waiting for the interim block transfer to be mined in Miner 1's third tenure post-fork");
     }
 
     info!("------- Miner 2 wins the fourth tenure post-fork ------");
@@ -4526,10 +4528,12 @@ fn revalidate_unknown_parent() {
 
     // wait for the tenure to start (i.e., the tenure change block to be produced,
     //  which should be mined and not ignored)
-    wait_for(60, || {
+    // Use a timeout long enough to cover a miner proposal re-send cycle
+    // (block_rejection_timeout_steps) in case signer responses are lost.
+    wait_for(120, || {
         Ok(signer_test.get_peer_info().stacks_tip_height == ignore_block - 1)
     })
-    .unwrap();
+    .expect("Timed out waiting for Miner 2's tenure change block to be mined");
 
     info!(
         "Mining 1st interim block in Miner 2's first tenure";
@@ -4539,11 +4543,13 @@ fn revalidate_unknown_parent() {
         .submit_transfer_tx(&sender_sk, send_fee, send_amt)
         .unwrap();
 
-    wait_for(60, || {
+    // Use a timeout long enough to cover a miner proposal re-send cycle
+    // (block_rejection_timeout_steps) in case signer responses are lost.
+    wait_for(120, || {
         let http_origin = &conf_node_2.node.data_url;
         Ok(get_account(http_origin, &sender_addr).nonce > sender_nonce)
     })
-    .unwrap();
+    .expect("Timed out waiting for the 1st interim block to be mined on Miner 2's node");
 
     // should not have updated yet in node 1
     assert_eq!(get_account(&http_origin, &sender_addr).nonce, sender_nonce);
@@ -4597,10 +4603,12 @@ fn revalidate_unknown_parent() {
     // clear the block ignore and make sure that the proposal gets processed by miner 1
     clear_ignore_block();
 
-    wait_for(60, || {
+    // Use a timeout long enough to cover a miner proposal re-send cycle
+    // (block_rejection_timeout_steps) in case signer responses are lost.
+    wait_for(120, || {
         Ok(get_account(&http_origin, &sender_addr).nonce > sender_nonce)
     })
-    .unwrap();
+    .expect("Timed out waiting for the previously pending proposal to be accepted and mined");
 
     rl2_coord_channels
         .lock()

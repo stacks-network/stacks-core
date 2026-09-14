@@ -29,10 +29,10 @@ use crate::util_lib::db::{query_row, u64_to_sql, DBConn, Error as db_error};
 /// 1. MARF - source of truth for nonces
 /// 2. Nonce DB - table in mempool sqlite database
 /// 3. HashMap - in-memory cache for nonces
-/// The in-memory cache is restricted to a maximum size to avoid memory
-/// exhaustion. When the cache is full, it should be flushed to the database
-/// and cleared. It is recommended to do this in between batches of candidate
-/// transactions from the mempool.
+///    The in-memory cache is restricted to a maximum size to avoid memory
+///    exhaustion. When the cache is full, it should be flushed to the database
+///    and cleared. It is recommended to do this in between batches of candidate
+///    transactions from the mempool.
 pub struct NonceCache {
     /// In-memory LRU cache of nonces.
     cache: LruCache<StacksAddress, u64>,

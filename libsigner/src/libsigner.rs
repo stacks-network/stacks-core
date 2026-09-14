@@ -21,17 +21,8 @@
 Usage documentation can be found in the [README](https://github.com/stacks-network/stacks-blockchain/libsigner/README.md).
 */
 
-#![allow(dead_code)]
-#[allow(unused_imports)]
-#[macro_use(o, slog_log, slog_trace, slog_debug, slog_info, slog_warn, slog_error)]
-extern crate slog;
-
-extern crate serde;
-extern crate serde_json;
 #[macro_use]
 extern crate stacks_common;
-extern crate clarity;
-extern crate libc;
 
 #[cfg(test)]
 mod tests;
@@ -79,7 +70,7 @@ pub trait SignerMessage<T: MessageSlotID>: StacksMessageCodec {
 }
 
 /// The version string for the signer with package name.
-/// The signer shares the node's version (see `versions.toml`).
+/// The signer shares the node's workspace package version (see `Cargo.toml`).
 pub static VERSION_STRING: LazyLock<String> = LazyLock::new(|| {
     let pkg_version = option_env!("STACKS_NODE_VERSION").or(Some(STACKS_NODE_VERSION));
     version_string("stacks-signer", pkg_version)

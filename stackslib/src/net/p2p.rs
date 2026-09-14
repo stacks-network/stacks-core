@@ -4750,9 +4750,9 @@ impl PeerNetwork {
     /// Refresh view of burnchain, if needed.
     /// If the burnchain view changes, then take the following additional steps:
     /// * hint to the inventory sync state-machine to restart, since we potentially have a new
-    /// block to go fetch
+    ///   block to go fetch
     /// * hint to the download state machine to start looking for the new block at the new
-    /// stable sortition height
+    ///   stable sortition height
     /// * hint to the antientropy protocol to reset to the latest reward cycle
     pub fn refresh_burnchain_view(
         &mut self,
@@ -5594,7 +5594,6 @@ mod test {
     use std::{thread, time};
 
     use clarity::util::sleep_ms;
-    use rand::{self, RngCore};
     use stacks_common::types::chainstate::BurnchainHeaderHash;
 
     use super::*;
@@ -5605,13 +5604,6 @@ mod test {
     use crate::net::test::*;
     use crate::net::*;
     use crate::util_lib::test::*;
-
-    fn make_random_peer_address() -> PeerAddress {
-        let mut rng = rand::thread_rng();
-        let mut bytes = [0u8; 16];
-        rng.fill_bytes(&mut bytes);
-        PeerAddress(bytes)
-    }
 
     fn make_test_neighbor(port: u16) -> Neighbor {
         let neighbor = Neighbor {
