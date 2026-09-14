@@ -178,8 +178,7 @@ pub struct NeighborWalk<DB: NeighborWalkDB, NC: NeighborComms> {
     /// neighbor walk result we build up incrementally
     pub result: NeighborWalkResult,
 
-    /// time that we started/finished the last walk
-    walk_start_time: u64,
+    /// Time that we finished the last walk.
     walk_end_time: u64,
 
     /// walk random-restart parameters
@@ -237,7 +236,6 @@ impl<DB: NeighborWalkDB, NC: NeighborComms> NeighborWalk<DB, NC> {
 
             result: NeighborWalkResult::new(),
 
-            walk_start_time: get_epoch_time_secs(),
             walk_end_time: 0,
 
             walk_step_count: 0,

@@ -1608,38 +1608,6 @@ pub mod test {
     use super::*;
     use crate::net::{GetNakamotoInvData, NakamotoInvData};
 
-    fn check_overflow<T>(r: Result<T, net_error>) -> bool {
-        match r {
-            Ok(_) => {
-                test_debug!("did not get an overflow error, or any error");
-                false
-            }
-            Err(e) => match e {
-                net_error::OverflowError(_) => true,
-                _ => {
-                    test_debug!("did not get an overflow error, but got {:?}", &e);
-                    false
-                }
-            },
-        }
-    }
-
-    fn check_underflow<T>(r: Result<T, net_error>) -> bool {
-        match r {
-            Ok(_) => {
-                test_debug!("did not get an underflow error, or any error");
-                false
-            }
-            Err(e) => match e {
-                net_error::UnderflowError(_) => true,
-                _ => {
-                    test_debug!("did not get an underflow error, but got {:?}", &e);
-                    false
-                }
-            },
-        }
-    }
-
     fn check_deserialize<T: std::fmt::Debug>(r: Result<T, codec_error>) -> bool {
         match r {
             Ok(m) => {

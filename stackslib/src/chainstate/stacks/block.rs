@@ -597,18 +597,17 @@ impl StacksBlock {
                 return false;
             }
         }
-        if let TransactionPayload::SmartContract(_, ref version_opt) = &tx.payload {
-            if let Some(version) = version_opt {
-                if epoch_id < StacksEpochId::Epoch21 {
-                    // not supported
-                    error!("Versioned smart contracts not supported before Stacks 2.1"; "txid" => %tx.txid());
-                    return false;
-                }
-                if *version > ClarityVersion::default_for_epoch(epoch_id) {
-                    // not supported
-                    error!("Smart contract version {version} not supported in Epoch {epoch_id}"; "txid" => %tx.txid());
-                    return false;
-                }
+        if let TransactionPayload::SmartContract(_, Some(version)) = &tx.payload {
+            if epoch_id < StacksEpochId::Epoch21 {
+                // not supported
+                error!("Versioned smart contracts not supported before Stacks 2.1"; "txid" => %tx.txid());
+                return false;
+            }
+            if let Err(reason) =
+                stacks_transactions::check_versioned_deploy_supported_in_epoch(*version, epoch_id)
+            {
+                error!("Smart contract deploy {reason}"; "txid" => %tx.txid());
+                return false;
             }
         }
         if let TransactionPayload::TenureChange(..) = &tx.payload {
@@ -1968,6 +1967,46 @@ mod test {
             &tx_future_clarity,
             StacksEpochId::Epoch34
         ));
+    }
+
+    #[rstest]
+    // Through epoch 4.0 a deploy may pin any version up to the epoch default.
+    #[case(StacksEpochId::Epoch40, Some(ClarityVersion::Clarity5), true)]
+    #[case(StacksEpochId::Epoch40, Some(ClarityVersion::Clarity6), true)]
+    // From epoch 4.1 no pin is accepted, so the block is rejected before it
+    // is staged; unversioned deploys get the epoch default.
+    #[case(StacksEpochId::Epoch41, Some(ClarityVersion::Clarity6), false)]
+    #[case(StacksEpochId::Epoch41, Some(ClarityVersion::Clarity7), false)]
+    #[case(StacksEpochId::Epoch41, None, true)]
+    fn test_validate_transaction_static_epoch_rejects_versioned_deploys_from_epoch41(
+        #[case] epoch_id: StacksEpochId,
+        #[case] version_opt: Option<ClarityVersion>,
+        #[case] expected: bool,
+    ) {
+        let privk = StacksPrivateKey::random();
+        let origin_auth = TransactionAuth::Standard(
+            TransactionSpendingCondition::new_singlesig_p2pkh(StacksPublicKey::from_private(
+                &privk,
+            ))
+            .unwrap(),
+        );
+
+        let tx = StacksTransaction::new(
+            TransactionVersion::Testnet,
+            origin_auth,
+            TransactionPayload::SmartContract(
+                TransactionSmartContract {
+                    name: ContractName::try_from("pinned-clarity").unwrap(),
+                    code_body: StacksString::from_str("(print \"hi\")").unwrap(),
+                },
+                version_opt,
+            ),
+        );
+
+        assert_eq!(
+            StacksBlock::validate_transaction_static_epoch(&tx, epoch_id),
+            expected
+        );
     }
 
     #[rstest]
