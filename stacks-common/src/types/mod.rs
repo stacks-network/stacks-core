@@ -501,8 +501,8 @@ impl SIP031EmissionInterval {
 
 impl StacksEpochId {
     /// Highest epoch enabled in release builds.
-    /// Keep this in sync with `versions.toml` and `PEER_NETWORK_EPOCH`
-    /// (validated in tests and `validate_epochs()`)
+    /// Keep this in sync with `workspace.package.version` in `Cargo.toml` and
+    /// `PEER_NETWORK_EPOCH` (validated in tests and `validate_epochs()`).
     pub const RELEASE_LATEST_EPOCH: StacksEpochId = StacksEpochId::Epoch40;
 
     #[cfg(any(test, feature = "testing"))]
@@ -807,6 +807,13 @@ impl StacksEpochId {
     /// during a transaction?
     pub fn supports_staking_post_conditions(&self) -> bool {
         self >= &StacksEpochId::Epoch40
+    }
+
+    /// Whether or not this epoch rejects smart-contract deploys that pin a
+    /// Clarity version (the `VersionedSmartContract` payload), so that new
+    /// contracts always use the epoch default.
+    pub fn rejects_versioned_smart_contracts(&self) -> bool {
+        self >= &StacksEpochId::Epoch41
     }
 
     /// Does this epoch sum stacking entries in the assetmap or just replace

@@ -18,8 +18,8 @@ use stacks_common::types::StacksEpochId;
 
 use super::{SimpleNativeFunction, TypedNativeFunction};
 use crate::vm::analysis::type_checker::v2_1::{
-    StaticCheckError, StaticCheckErrorKind, TypeChecker, TypingContext, check_argument_count,
-    check_arguments_at_least,
+    ArgumentCheckOutcome, StaticCheckError, StaticCheckErrorKind, TypeChecker, TypingContext,
+    check_argument_count, check_arguments_at_least,
 };
 use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::costs::{CostTracker, analysis_typecheck_cost, runtime_cost};
@@ -113,7 +113,10 @@ pub fn check_special_map(
         };
 
         if check_result.is_ok() {
-            let (costs, result) = function_type.check_args_visitor_2_1(
+            let ArgumentCheckOutcome {
+                cost: costs,
+                result,
+            } = function_type.check_args_visitor_2_1(
                 checker,
                 &entry_type,
                 arg_ix,

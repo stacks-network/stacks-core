@@ -3428,7 +3428,7 @@ mod test {
             &self,
             _bhh: &StacksBlockId,
             _tip: &StacksBlockId,
-            epoch: &StacksEpochId,
+            _epoch: &StacksEpochId,
         ) -> Option<VRFSeed> {
             Some(
                 VRFSeed::from_hex(
@@ -3472,7 +3472,7 @@ mod test {
         }
         fn get_burnchain_tokens_spent_for_block(
             &self,
-            id_bhh: &StacksBlockId,
+            _id_bhh: &StacksBlockId,
             _tip: &StacksBlockId,
             _epoch: &StacksEpochId,
         ) -> Option<u128> {
@@ -3481,7 +3481,7 @@ mod test {
 
         fn get_burnchain_tokens_spent_for_winning_block(
             &self,
-            id_bhh: &StacksBlockId,
+            _id_bhh: &StacksBlockId,
             _tip: &StacksBlockId,
             _epoch: &StacksEpochId,
         ) -> Option<u128> {
@@ -3490,7 +3490,7 @@ mod test {
 
         fn get_tokens_earned_for_block(
             &self,
-            id_bhh: &StacksBlockId,
+            _id_bhh: &StacksBlockId,
             _tip: &StacksBlockId,
             _epoch: &StacksEpochId,
         ) -> Option<u128> {
@@ -3523,7 +3523,7 @@ mod test {
         }
         fn get_burn_header_hash(
             &self,
-            height: u32,
+            _height: u32,
             _sortition_id: &SortitionId,
         ) -> Option<BurnchainHeaderHash> {
             Some(
@@ -3535,12 +3535,12 @@ mod test {
         }
         fn get_sortition_id_from_consensus_hash(
             &self,
-            consensus_hash: &ConsensusHash,
+            _consensus_hash: &ConsensusHash,
         ) -> Option<SortitionId> {
             Some(SortitionId([0u8; 32]))
         }
 
-        fn get_stacks_epoch(&self, height: u32) -> Option<StacksEpoch> {
+        fn get_stacks_epoch(&self, _height: u32) -> Option<StacksEpoch> {
             Some(StacksEpoch {
                 epoch_id: StacksEpochId::Epoch21,
                 start_height: 0,
@@ -3588,13 +3588,13 @@ mod test {
         fn get_pox_rejection_fraction(&self) -> u64 {
             panic!("Docs db should not return PoX info")
         }
-        fn get_stacks_epoch_by_epoch_id(&self, epoch_id: &StacksEpochId) -> Option<StacksEpoch> {
+        fn get_stacks_epoch_by_epoch_id(&self, _epoch_id: &StacksEpochId) -> Option<StacksEpoch> {
             self.get_stacks_epoch(0)
         }
         fn get_pox_payout_addrs(
             &self,
-            height: u32,
-            sortition_id: &SortitionId,
+            _height: u32,
+            _sortition_id: &SortitionId,
         ) -> Option<(Vec<TupleData>, u128)> {
             // (some (tuple (addrs ((tuple (hashbytes 0x395f3643cea07ec4eec73b4d9a973dcce56b9bf1) (version 0x00)) (tuple (hashbytes 0x7c6775e20e3e938d2d7e9d79ac310108ba501ddb) (version 0x01)))) (payout u123)))
 
@@ -3667,7 +3667,7 @@ mod test {
             .unwrap()
             .expressions;
 
-            let analysis = type_check(
+            type_check(
                 &contract_id,
                 &mut parsed,
                 &mut analysis_db,

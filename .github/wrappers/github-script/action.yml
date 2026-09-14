@@ -1,0 +1,53 @@
+name: "GitHub Script"
+description: "Wraps actions/github-script with standardized defaults"
+
+inputs:
+  script:
+    description: The script to run
+    required: true
+  github-token:
+    description: The GitHub token used to create an authenticated client
+    default: ${{ github.token }}
+    required: false
+  debug:
+    description: Whether to tell the GitHub client to log details of its requests. true or false. Default is to run in debug mode when the GitHub Actions step debug logging is turned on.
+    default: ${{ runner.debug == '1' }}
+  user-agent:
+    description: An optional user-agent string
+    default: actions/github-script
+  previews:
+    description: A comma-separated list of GraphQL API previews to accept
+  result-encoding:
+    description: Either "string" or "json" (default "json")—how the result will be encoded
+    default: json
+  retries:
+    description: The number of times to retry a request
+    default: "0"
+  retry-exempt-status-codes:
+    description: A comma separated list of status codes that will NOT be retried e.g. "400,500". No effect unless `retries` is set
+    default: 400,401,403,404,422 # from https://github.com/octokit/plugin-retry.js/blob/9a2443746c350b3beedec35cf26e197ea318a261/src/index.ts#L14
+  base-url:
+    description: An optional GitHub REST API URL to connect to a different GitHub instance. For example, https://my.github-enterprise-server.com/api/v3
+    required: false
+    
+outputs:
+  result:
+    description: The return value of the script, stringified with `JSON.stringify`
+    value: ${{ steps.github-script.outputs.result }}
+
+runs:
+  using: 'composite'
+  steps:
+    - name: GitHub Script
+      id: github-script
+      uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+      with:
+        script: ${{ inputs.script }}
+        github-token: ${{ inputs.github-token }}
+        debug: ${{ inputs.debug }}
+        user-agent: ${{ inputs.user-agent }}
+        previews: ${{ inputs.previews }}
+        result-encoding: ${{ inputs.result-encoding }}
+        retries: ${{ inputs.retries }}
+        retry-exempt-status-codes: ${{ inputs.retry-exempt-status-codes }}
+        base-url: ${{ inputs.base-url }}

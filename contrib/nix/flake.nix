@@ -77,8 +77,7 @@
         # Keep the source fileset in sync with Cargo's workspace declarations.
         workspaceCrates = map (crate: ../.. + "/${crate}") cargoWorkspace.members;
 
-        versions = builtins.fromTOML (builtins.readFile ../../versions.toml);
-        version = versions.stacks_node_version;
+        version = cargoWorkspace.package.version;
 
         # Common arguments can be set here to avoid repeating them later
         commonArgs = {
@@ -116,8 +115,6 @@
               [
                 ../../Cargo.toml
                 ../../Cargo.lock
-                #
-                ../../versions.toml
                 #
                 ../../stx-genesis/name_zonefiles.txt
                 ../../stx-genesis/name_zonefiles.txt.sha256
