@@ -59,7 +59,8 @@ fn shadow_target_setup() -> SetupContract {
     .with_clarity_version(ClarityVersion::Clarity1)
 }
 
-/// A Clarity 7 implementation of the legacy trait, deployed at Epoch 4.1.
+/// A Clarity 7 implementation of the legacy trait: deployed unversioned at
+/// Epoch 4.1, where pins are rejected, so it runs as the epoch default.
 fn c7_shadow_target_setup() -> SetupContract {
     SetupContract::new(
         "shadow-target-c7",
@@ -69,7 +70,6 @@ fn c7_shadow_target_setup() -> SetupContract {
         ",
     )
     .with_epoch(StacksEpochId::Epoch41)
-    .with_clarity_version(ClarityVersion::Clarity7)
 }
 
 /// Principal of a setup contract deployed by the faucet, for dynamic dispatch.

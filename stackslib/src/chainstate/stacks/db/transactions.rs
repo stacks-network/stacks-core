@@ -661,40 +661,20 @@ impl StacksChainState {
             Error::InvalidStacksTransaction(msg, false)
         })?;
 
-        Self::validate_deploy_clarity_version(tx, epoch_id)?;
-
-        Ok(())
-    }
-
-    /// Reject a pinned Clarity version above the epoch default (statically
-    /// invalid) and, from epoch 4.1, below it: new contracts must use the
-    /// latest version now that Clarity 7 lets legacy traits be implemented
-    /// there. Deployed contracts keep their version; unversioned deploys use
-    /// the default.
-    fn validate_deploy_clarity_version(
-        tx: &StacksTransaction,
-        epoch_id: StacksEpochId,
-    ) -> Result<(), Error> {
-        let TransactionPayload::SmartContract(_, Some(clarity_version)) = &tx.payload else {
-            return Ok(());
-        };
-        let epoch_default = ClarityVersion::default_for_epoch(epoch_id);
-        if *clarity_version > epoch_default {
-            let msg = format!(
-                "Invalid transaction {}: asks for {clarity_version}, but current epoch {epoch_id} only supports up to {epoch_default}",
-                tx.txid()
-            );
-            info!("{msg}");
-            return Err(Error::InvalidStacksTransaction(msg, false));
+        // Same rule as static block validation, so a block that would fail
+        // here is never staged.
+        if let TransactionPayload::SmartContract(_, Some(clarity_version)) = &tx.payload {
+            stacks_transactions::check_versioned_deploy_supported_in_epoch(
+                *clarity_version,
+                epoch_id,
+            )
+            .map_err(|reason| {
+                let msg = format!("Invalid transaction {}: {reason}", tx.txid());
+                info!("{msg}");
+                Error::InvalidStacksTransaction(msg, false)
+            })?;
         }
-        if epoch_id >= StacksEpochId::Epoch41 && *clarity_version < epoch_default {
-            let msg = format!(
-                "Invalid transaction {}: asks for {clarity_version}, but epoch {epoch_id} requires contracts to use {epoch_default}",
-                tx.txid()
-            );
-            info!("{msg}");
-            return Err(Error::InvalidStacksTransaction(msg, false));
-        }
+
         Ok(())
     }
 

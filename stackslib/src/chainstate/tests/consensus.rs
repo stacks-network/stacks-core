@@ -1086,6 +1086,15 @@ impl ContractConsensusTest<'_> {
         for contract in setup_contracts {
             // Deploy the setup contracts in the first epoch if not specified.
             let deploy_epoch = contract.deploy_epoch.unwrap_or(default_setup_epoch);
+            if let Some(version) = contract.clarity_version {
+                // A pin where versioned deploys are rejected would fail the whole
+                // block at precheck; fail fast with the reason instead.
+                assert!(
+                    deploys_can_pin_version(deploy_epoch),
+                    "Setup contract {} pins {version} at {deploy_epoch}, which rejects versioned deploys",
+                    contract.name
+                );
+            }
             // Get the default Clarity version for the epoch of the contract if not specified.
             let clarity_version = contract.clarity_version.or_else(|| {
                 deploys_can_pin_version(deploy_epoch)
