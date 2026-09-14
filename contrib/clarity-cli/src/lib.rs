@@ -20,8 +20,8 @@ use std::{fs, io};
 
 use clarity::vm::analysis::contract_interface_builder::build_contract_interface;
 use clarity::vm::analysis::{AnalysisDatabase, ContractAnalysis};
-use clarity::vm::ast::build_ast;
 use clarity::vm::ast::errors::ParseError;
+use clarity::vm::ast::{ContractAST, build_ast};
 use clarity::vm::contexts::{AssetMap, GlobalContext, OwnedEnvironment};
 use clarity::vm::costs::{ExecutionCost, LimitedCostTracker};
 use clarity::vm::database::{
@@ -193,19 +193,28 @@ pub fn parse_allocations_json(json_content: &str) -> Result<Vec<(PrincipalData, 
 
 pub const DEFAULT_CLI_EPOCH: StacksEpochId = StacksEpochId::latest();
 
+fn parse_ast(
+    contract_identifier: &QualifiedContractIdentifier,
+    source_code: &str,
+    clarity_version: ClarityVersion,
+    epoch: StacksEpochId,
+) -> Result<ContractAST, ParseError> {
+    build_ast(
+        contract_identifier,
+        source_code,
+        &mut (),
+        clarity_version,
+        epoch,
+    )
+}
+
 fn parse(
     contract_identifier: &QualifiedContractIdentifier,
     source_code: &str,
     clarity_version: ClarityVersion,
     epoch: StacksEpochId,
 ) -> Result<Vec<SymbolicExpression>, ParseError> {
-    let ast = build_ast(
-        contract_identifier,
-        source_code,
-        &mut (),
-        clarity_version,
-        epoch,
-    )?;
+    let ast = parse_ast(contract_identifier, source_code, clarity_version, epoch)?;
     Ok(ast.expressions)
 }
 
@@ -832,7 +841,7 @@ fn install_boot_code<C: ClarityStorage>(
         );
 
         let mut ast = friendly_expect(
-            parse(
+            parse_ast(
                 &contract_identifier,
                 contract_content,
                 ClarityVersion::Clarity1,
@@ -843,21 +852,23 @@ fn install_boot_code<C: ClarityStorage>(
 
         let analysis_result = run_analysis_free(
             &contract_identifier,
-            &mut ast,
+            &mut ast.expressions,
             marf,
             true,
             ClarityVersion::Clarity2,
             epoch,
         );
         match analysis_result {
-            Ok(_) => {
+            Ok(analysis) => {
                 let db = marf.get_clarity_db(header_db, &NULL_BURN_STATE_DB);
                 let mut vm_env =
                     OwnedEnvironment::new_free(mainnet, default_chain_id(mainnet), db, epoch);
                 vm_env
-                    .initialize_versioned_contract(
+                    .initialize_contract_from_ast(
                         contract_identifier,
                         ClarityVersion::Clarity1,
+                        &mut ast,
+                        &analysis,
                         contract_content,
                         None,
                     )
@@ -1430,7 +1441,7 @@ pub fn execute_launch(
 ) -> (i32, Option<serde_json::Value>) {
     // Parse the contract
     let mut ast = friendly_expect(
-        parse(
+        parse_ast(
             contract_identifier,
             contract_content,
             clarity_version,
@@ -1451,7 +1462,7 @@ pub fn execute_launch(
     let (_, _, analysis_result_and_cost) = in_block(header_db, marf_kv, |header_db, mut marf| {
         let analysis_result = run_analysis(
             contract_identifier,
-            &mut ast,
+            &mut ast.expressions,
             &header_db,
             &mut marf,
             true,
@@ -1463,9 +1474,11 @@ pub fn execute_launch(
             Ok(analysis) => {
                 let result_and_cost =
                     with_env_costs(mainnet, epoch, &header_db, &mut marf, |vm_env| {
-                        vm_env.initialize_versioned_contract(
+                        vm_env.initialize_contract_from_ast(
                             contract_identifier.clone(),
                             clarity_version,
+                            &mut ast,
+                            &analysis,
                             contract_content,
                             None,
                         )
