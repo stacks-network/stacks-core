@@ -79,7 +79,7 @@ insta = { version = "1.37.0", features = ["ron"] }
 
 [features]
 default = []
-profile-sqlite = []
+profile-sqlite = ["stacks-common/profile-sqlite"]
 disable-costs = []
 developer-mode = ["clarity/developer-mode"]
 monitoring_prom = ["prometheus"]
