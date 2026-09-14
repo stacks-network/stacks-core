@@ -64,6 +64,12 @@ main() {
 
     ## Record every test that ran
     for report in "${reports[@]}"; do
+        # Check that the report is well-formed XML before trying to query it.
+        if ! xmllint --noout "${report}" 2> /dev/null; then
+            error "Malformed JUnit report: $(hl "${report}")"
+            exit 1
+        fi
+
         # Gather failed tests names per report
         failed_names=$(test_names "${report}" '//testcase[failure or error]/@name')
 
