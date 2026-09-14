@@ -20,10 +20,10 @@ jobs:
 
   nag-slack:
     name: "Slack: Nag Team"
-    #needs:
-    #  - check-ci
-    #if: >-
-    #  needs.check-ci.outputs.enabled == 'true'
+    needs:
+      - check-ci
+    if: >-
+      needs.check-ci.outputs.enabled == 'true'
     runs-on: ubuntu-latest
     steps:
       - name: Fetch PRs and Post Nags to Console / GitHub Summary
@@ -385,27 +385,42 @@ jobs:
               return line;
             };
 
-            const outputLines = [];
-            outputLines.push(`*📋 Open PR Status Report (${filteredSortedPrs.length} Total)*${manualRun ? ' | _(Manual Run)_' : ''}\n`);
+            let currentLines = [];
+            const flushLines = () => {
+              if (currentLines.length > 0) {
+                payload.blocks.push({
+                  type: 'section',
+                  text: { type: 'mrkdwn', text: currentLines.join('\n') }
+                });
+                currentLines = [];
+              }
+            };
 
             for (const login of sortedLogins) {
               const userItems = userPrMap.get(login);
               if (!userItems || userItems.length === 0) continue;
 
-              outputLines.push(`*${getSlackMention(login, true)}*`);
+              currentLines.push(`*${getSlackMention(login, true)}*`);
               for (const item of userItems) {
-                outputLines.push(buildPrLine(item));
+                currentLines.push(buildPrLine(item));
               }
-              outputLines.push('');
+              currentLines.push(''); // Spacing between user groups
+
+              if (currentLines.length >= 18) {
+                flushLines();
+              }
             }
+            flushLines();
 
-            const fullText = outputLines.join('\n');
+            // 8. Send payload via Webhook
+            const response = await fetch(webhookUrl, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(payload)
+            });
 
-            // 8. Output to Console & GitHub Workflow Run Summary
-            console.log('=============== PR NAG BOT OUTPUT ===============');
-            console.log(fullText);
-            console.log('=================================================');
-
-            if (core.summary) {
-              await core.summary.addRaw(fullText).write();
+            if (!response.ok) {
+              core.setFailed(`Slack API responded with status ${response.status}`);
+            } else {
+              console.log(`Successfully posted PR Nag to Slack.`);
             }
