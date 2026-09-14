@@ -92,18 +92,15 @@ jobs:
               .filter(login => registry[login]?.triage !== false)
               .sort();
 
-            // Helper to get Slack mention or display name
-            const getSlackMention = (githubUsername) => {
+            // Helper to get Slack mention or plain display name
+            const getSlackMention = (githubUsername, ping = true) => {
               const entry = registry[githubUsername.toLowerCase()];
-              // If we have a Slack ID, return it as a mention
-              if (entry?.slack) {
+              if (ping && entry?.slack) {
                 return `<@${entry.slack}>`;
               }
-              // Fallback to display name
               if (entry?.name) {
                 return entry.name;
               }
-              // Fallback to capitalized login
               return githubUsername.charAt(0).toUpperCase() + githubUsername.slice(1);
             };
 
@@ -249,16 +246,12 @@ jobs:
                 .some(r => r.state === 'CHANGES_REQUESTED');
               const resolveCount = unresolvedComments.length;
 
-              // External PRs (author not in the registry) with no assignee need
-              // a team member to triage them. Pick one deterministically from the
-              // PR number so the same person is nagged on every run. Once someone
-              // is assigned, the PR flows through the normal classification below.
               const isExternal = !allowedUsers.has(pr.user.login.toLowerCase());
               const needsTriage = isExternal && (pr.assignees || []).length === 0;
 
               if (needsTriage) {
                 const triager = triagerPool.length > 0
-                  ? getSlackMention(triagerPool[pr.number % triagerPool.length])
+                  ? getSlackMention(triagerPool[pr.number % triagerPool.length], true)
                   : 'Someone';
                 explanation = `External PR — ${triager} to triage (assign yourself/someone + request reviewers)`;
                 sortWeight = -1;
@@ -302,16 +295,81 @@ jobs:
                 return a.sortWeight - b.sortWeight;
               }
 
-              // Alphabetical tie-breaker by Author display name
-              const authorA = getSlackMention(a.pr.user.login).toLowerCase();
-              const authorB = getSlackMention(b.pr.user.login).toLowerCase();
+              const authorA = getSlackMention(a.pr.user.login, false).toLowerCase();
+              const authorB = getSlackMention(b.pr.user.login, false).toLowerCase();
               if (authorA !== authorB) {
                 return authorA.localeCompare(authorB);
               }
               return new Date(a.pr.created_at) - new Date(b.pr.created_at);
             });
 
-            // 6. Construct Slack payload blocks
+            // 6. Map PRs to Action Takers
+            const userPrMap = new Map();
+
+            for (const item of reviewsGroup) {
+              const pr = item.pr;
+              const actionTakers = new Set();
+
+              const isExternal = !allowedUsers.has(pr.user.login.toLowerCase());
+              const needsTriage = isExternal && (pr.assignees || []).length === 0;
+
+              if (needsTriage) {
+                if (triagerPool.length > 0) {
+                  const triagerLogin = triagerPool[pr.number % triagerPool.length].toLowerCase();
+                  actionTakers.add(triagerLogin);
+                }
+              } else {
+                // Reviewers awaiting review owe an action
+                pr.requested_reviewers.forEach(r => {
+                  if (r.state === 'AWAITING_REVIEW') {
+                    actionTakers.add(r.login.toLowerCase());
+                  }
+                });
+
+                // Check if the author/assignees need to take action
+                const changesRequested = pr.requested_reviewers.some(r => r.state === 'CHANGES_REQUESTED');
+                const resolveCount = pr.unresolved_comment_threads ? pr.unresolved_comment_threads.length : 0;
+                const isAuthorAction = changesRequested ||
+                  resolveCount > 0 ||
+                  pr.merge_conflict_present ||
+                  pr.out_of_date_with_base ||
+                  item.explanation === 'Ready for merge' ||
+                  pr.requested_reviewers.length === 0;
+
+                if (isAuthorAction) {
+                  if (pr.assignees && pr.assignees.length > 0) {
+                    pr.assignees.forEach(a => actionTakers.add(a.login.toLowerCase()));
+                  } else {
+                    actionTakers.add(pr.user.login.toLowerCase());
+                  }
+                }
+              }
+
+              // Fallback: assign to assignees/author if no specific action taker was mapped
+              if (actionTakers.size === 0) {
+                if (pr.assignees && pr.assignees.length > 0) {
+                  pr.assignees.forEach(a => actionTakers.add(a.login.toLowerCase()));
+                } else {
+                  actionTakers.add(pr.user.login.toLowerCase());
+                }
+              }
+
+              actionTakers.forEach(login => {
+                if (!userPrMap.has(login)) {
+                  userPrMap.set(login, []);
+                }
+                userPrMap.get(login).push(item);
+              });
+            }
+
+            // Sort person sections alphabetically by display name
+            const sortedLogins = Array.from(userPrMap.keys()).sort((a, b) => {
+              const nameA = getSlackMention(a, false).toLowerCase();
+              const nameB = getSlackMention(b, false).toLowerCase();
+              return nameA.localeCompare(nameB);
+            });
+
+            // 7. Construct Slack payload blocks
             const payload = { blocks: [] };
             payload.blocks.push({
               type: 'section',
@@ -320,13 +378,12 @@ jobs:
                 text: `*📋 Open PR Status Report (${filteredSortedPrs.length} Total)*${manualRun ? ' | _(Manual Run)_' : ''}\n`
               }
             });
-          
+
             const buildPrLine = (item) => {
               const pr = item.pr;
-              const author = getSlackMention(pr.user.login);
+              const author = getSlackMention(pr.user.login, false);
               const title = sanitizeTitle(pr.title);
             
-              // Helper to extract the plain display name for consistent sorting
               const getPlainName = (login) => {
                 const clean = login.toLowerCase();
                 if (registry[clean]?.name) return registry[clean].name;
@@ -335,14 +392,12 @@ jobs:
               };
             
               const reviewers = pr.requested_reviewers
-                .slice() // Clone to prevent mutation
-                .sort((a, b) => {
-                  // 1. Alphabetize by Plain Display Name
-                  return getPlainName(a.login).localeCompare(getPlainName(b.login));
-                })
+                .slice()
+                .sort((a, b) => getPlainName(a.login).localeCompare(getPlainName(b.login)))
                 .map(r => {
-                  // 2. Use Slack Ping/Mention for the final output
-                  const name = getSlackMention(r.login);
+                  // Do NOT @ mention approved reviewers; use plain name instead
+                  const shouldPing = r.state !== 'APPROVED';
+                  const name = getSlackMention(r.login, shouldPing);
                   
                   switch (r.state) {
                     case 'APPROVED':
@@ -364,26 +419,34 @@ jobs:
               return line;
             };
 
-            // Build payload list chunks
             let currentLines = [];
-            for (const item of reviewsGroup) {
-              currentLines.push(buildPrLine(item));
-              if (currentLines.length === 6) {
+            const flushLines = () => {
+              if (currentLines.length > 0) {
                 payload.blocks.push({
                   type: 'section',
                   text: { type: 'mrkdwn', text: currentLines.join('\n') }
                 });
                 currentLines = [];
               }
-            }
-            if (currentLines.length > 0) {
-              payload.blocks.push({
-                type: 'section',
-                text: { type: 'mrkdwn', text: currentLines.join('\n') }
-              });
-            }
+            };
 
-            // 7. Send payload via Webhook
+            for (const login of sortedLogins) {
+              const userItems = userPrMap.get(login);
+              if (!userItems || userItems.length === 0) continue;
+
+              currentLines.push(`*${getSlackMention(login, true)}*`);
+              for (const item of userItems) {
+                currentLines.push(buildPrLine(item));
+              }
+              currentLines.push(''); // Spacing between user groups
+
+              if (currentLines.length >= 18) {
+                flushLines();
+              }
+            }
+            flushLines();
+
+            // 8. Send payload via Webhook
             const response = await fetch(webhookUrl, {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
