@@ -1,0 +1,388 @@
+# Find flaky tests in the Bitcoin integration suite, and keep one GitHub issue
+# per flaky test in step with what each run observed.
+#
+# Runs the same suite as PR CI through `_tests-bitcoin.yml`, but on the
+# `flaky-scan` nextest profile, whose only real difference is `retries = 0`
+#  to gather flaky tests failure. 
+#
+# Triggers:
+#   schedule  - 0600 UTC daily, on the default branch
+#   dispatch  - manual, on any branch, with the inputs below.
+#
+# Jobs:
+#   check-ci-enabled        gate - the official repo, ENABLE_CI_WORKFLOWS, or a
+#                           manual dispatch. Everything else skips without it
+#   setup-env               bridges workflow env into the jobs context, which a
+#                           reusable workflow's `with:` block cannot read
+#   check-test-caches       fails fast if the bitcoin/cargo caches are missing
+#   create-nextest-archive  builds the test archive once, shared by every test
+#   tests-bitcoin           the suite, one job per test
+#   report                  parses the JUnit reports and files the issues
+#   notify                  Slack, on harness failure only
+#
+# What `report` does, in order (see the two scripts for detail):
+#   1. flaky_report.sh  - reads every junit_*.xml into observed-tests.jsonl,
+#                         one record per test with its status and failure excerpt
+#   2. flaky_issues.sh  - files or comments on an issue for each failed test,
+#                         closes issues whose test has gone quiet or vanished,
+#                         and refuses to act at all on a run that looks broken
+#
+# This workflow is red on most runs by design: failing tests are its output, not
+# an error. So the Slack alert deliberately ignores `tests-bitcoin` and fires
+# only when the harness itself breaks - see the `notify` job for the reasoning.
+name: "Tests: Flaky Scan Nightly"
+run-name: "Tests: Flaky Scan Nightly [${{ github.ref_name }}]"
+
+on:
+  schedule:
+    # 0600 UTC daily. 
+    - cron: "0 6 * * *"
+  workflow_dispatch:
+    inputs:
+      only-tests:
+        description: "Fully qualified test name(s), comma-separated. Empty runs the full set."
+        required: false
+        default: ""
+        type: string
+      count-manual-runs:
+        description: "Count manual runs towards quiet-after/orphan-after (testing only; scheduled runs always count)"
+        required: false
+        default: false
+        type: boolean
+      dry-run-issues:
+        description: "Print issue writes instead of making them."
+        required: false
+        default: false
+        type: boolean
+      slack-notify:
+        description: "Post to Slack if the run breaks (scheduled runs always do)"
+        required: false
+        default: false
+        type: boolean
+      quiet-after:
+        description: "Quiet runs count before an issue is closed (0 = close as soon as it passes)"
+        required: false
+        default: "14"
+        type: string
+      orphan-after:
+        description: "Runs a test may go unobserved before its issue closes as unwatched (must exceed quiet-after)"
+        required: false
+        default: "30"
+        type: string
+      max-flaky-failures:
+        description: "Most failures still treated as flakiness. Above it the run is treated as broken: nothing filed, nothing closed"
+        required: false
+        default: "15"
+        type: string
+
+# Set default permissions for all jobs
+permissions:
+  contents: read
+
+# Set default shell
+defaults:
+  run:
+    shell: bash
+
+# Configure concurrency
+concurrency:
+  group: flaky-scan-nightly-${{ github.ref }}
+  cancel-in-progress: true
+
+# Env vars
+env:
+  TEST_ARCHIVE_FILE: "./test_archive.tar.zst"
+  # nextest profile with retries disabled (see .github/nextest/ci-nextest.toml).
+  #
+  # Do NOT name this NEXTEST_PROFILE: that variable is read by cargo-nextest
+  # itself, and workflow-level env reaches every job. The archive build runs
+  # `cargo nextest archive` without --config-file, so it would try to resolve
+  # this profile against the built-in set and fail
+  WF_NEXTEST_PROFILE: "flaky-scan"
+
+jobs:
+  ############################################################################
+  ### CI Enablement Check
+  ###
+  ### Only the official repo runs this on a schedule. A fork that wants it can
+  ### set the ENABLE_CI_WORKFLOWS variable, and a manual dispatch always runs,
+  ### which is what makes the workflow testable on a fork without granting it
+  ### the nightly cron.
+  ###
+  ############################################################################
+  check-ci-enabled:
+    name: "Check: CI Enabled"
+    runs-on: ubuntu-latest
+    outputs:
+      enabled: ${{ steps.check.outputs.enabled }}
+    steps:
+      - id: check
+        run: |
+          echo "=== CI Enablement Check ==="
+          echo "ENABLE_CI_WORKFLOWS: '${{ vars.ENABLE_CI_WORKFLOWS }}'"
+          echo "github.repository:   '${{ github.repository }}'"
+          echo "github.event_name:   '${{ github.event_name }}'"
+
+          if [[ "${{ vars.ENABLE_CI_WORKFLOWS }}" == "true" || "${{ github.repository }}" == "stacks-network/stacks-core" || "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            echo "Result: CI is ENABLED"
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "Result: CI is DISABLED"
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+          fi
+
+  ############################################################################
+  ### Global Variables Setup
+  ###
+  ### Bridges global env variables to the jobs context so they are safely
+  ### accessible by the reusable test workflow.
+  ############################################################################
+  setup-env:
+    name: "Setup: Global Variables"
+    needs:
+      - check-ci-enabled
+    if: needs.check-ci-enabled.outputs.enabled == 'true'
+    runs-on: ubuntu-latest
+    outputs:
+      test-archive-file: ${{ steps.set-env.outputs.test_archive_file }}
+      nextest-profile: ${{ steps.set-env.outputs.nextest_profile }}
+    steps:
+      - name: Export Env Variables
+        id: set-env
+        run: |
+          echo "test_archive_file=${{ env.TEST_ARCHIVE_FILE }}" >> $GITHUB_OUTPUT
+          echo "nextest_profile=${{ env.WF_NEXTEST_PROFILE }}" >> $GITHUB_OUTPUT
+
+  ############################################################################
+  ### Check Reusable Test Caches
+  ###
+  ### Check test cashes existence
+  ###
+  ### Caches are only ever created by create-test-caches.yml (push to `main`, or
+  ### manual dispatch).
+  ############################################################################
+  check-test-caches:
+    needs:
+      - check-ci-enabled
+    if: needs.check-ci-enabled.outputs.enabled == 'true'
+    name: "Check: Test Caches"
+    uses: ./.github/workflows/_check-test-caches.yml
+
+  ############################################################################
+  ### Create Nextest Archive Artifact for Tests
+  ############################################################################
+  create-nextest-archive:
+    name: "Create: Nextest Archive Artifact"
+    needs:
+      - check-test-caches
+      - setup-env
+    runs-on: ubuntu-latest
+    steps:
+      # Checkout the code
+      #   - only .github is required for this job
+      - name: Checkout the latest code
+        uses: $/.github/wrappers/checkout
+        with:
+          sparse-checkout: |
+            .github
+
+      # Create Nextest archive artifact
+      - name: Create Nextest Archive Artifact
+        uses: ./.github/actions/artifacts/nextest-archive
+        with:
+          action: create
+          archive-file: ${{ needs.setup-env.outputs.test-archive-file }}
+
+  ############################################################################
+  ### Run Bitcoin Tests
+  ###
+  ### Same test set, exclusions and partitioning as PR CI. Only the nextest
+  ### profile differs. Code coverage is skipped.
+  ############################################################################
+  tests-bitcoin:
+    name: "Tests: Bitcoin"
+    needs:
+      - create-nextest-archive
+      - setup-env
+    uses: ./.github/workflows/_tests-bitcoin.yml
+    with:
+      archive-file: ${{ needs.setup-env.outputs.test-archive-file }}
+      nextest-profile: ${{ needs.setup-env.outputs.nextest-profile }}
+      only-tests: ${{ inputs.only-tests }}
+      upload-junit-xml: "true"
+      upload-code-coverage: "false"
+
+  ############################################################################
+  ### Report Failed Tests
+  ###
+  ### Gather JUnit test reports info, looking for failed tests.
+  ############################################################################
+  report:
+    name: "Report: Failed Tests"
+    # always(): the test jobs are expected to fail when a flaky test trips, and
+    # that failure is exactly what needs reporting.
+    if: always() && !cancelled() && needs.check-ci-enabled.outputs.enabled == 'true'
+    needs:
+      - check-ci-enabled
+      - tests-bitcoin
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      # issues: file and comment on the per-test issues
+      issues: write
+    env:
+      JUNIT_DIR: "nextest_files"
+      OBSERVED_TESTS_FILE: "observed-tests.jsonl"
+      FLAKY_LABEL: "flaky"
+      QUIET_AFTER: ${{ inputs.quiet-after || '14' }}
+      COUNT_MANUAL_RUNS: ${{ inputs.count-manual-runs == true }}
+      ORPHAN_AFTER: ${{ inputs.orphan-after || '30' }}
+      MAX_FLAKY_FAILURES: ${{ inputs.max-flaky-failures || '15' }}
+      DRY_RUN_ISSUES: ${{ inputs.dry-run-issues == true }}
+    steps:
+      # Checkout the code
+      #   - only .github is required for this job
+      - name: Checkout the latest code
+        uses: $/.github/wrappers/checkout
+        with:
+          sparse-checkout: |
+            .github
+
+      # Download the nextest JUnit reports produced by the test jobs
+      #   - pattern is narrowed to the per-test reports on purpose, so this
+      #     never picks up an unrelated artifact from the same run.
+      - name: Download nextest JUnit artifacts
+        uses: $/.github/wrappers/download-artifact
+        with:
+          pattern: junit-isolated-test-*
+          path: ${{ env.JUNIT_DIR }}
+          merge-multiple: true
+
+      # xmllint is not preinstalled on ubuntu-latest
+      - name: Install libxml2-utils
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libxml2-utils
+
+      # Parse the reports into a job summary and produce JSONL with
+      # the failed tests
+      - name: Report Failed Tests
+        run: |
+          bash ./.github/scripts/flaky_report.sh
+
+      # Run on the failed tests JSONL and manage Github issues lifecycle.
+      - name: File Flaky Test Issues
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          bash ./.github/scripts/flaky_issues.sh
+
+  ############################################################################
+  ### Slack Alert
+  ###
+  ### Posts ONLY when the harness misbehaves - never when a test fails.
+  ###
+  ### This workflow is red almost every night by design: failing tests are its
+  ### expected output. Alerting on that would train everyone to mute the
+  ### channel, and the real breakages would then be invisible too. So
+  ### test failures are deliberately absent from the notify condition.
+  ############################################################################
+  notify:
+    name: "Slack: Workflow Errors"
+    needs:
+      - check-ci-enabled
+      - setup-env
+      - check-test-caches
+      - create-nextest-archive
+      - report
+    # Deliberately NOT gated on enabled == 'true'. When the workflow is disabled
+    # every job below reports `skipped`, which is not `failure`, so nothing
+    # fires - this is exactly the case that ruled out `!= success` earlier.
+    # Leaving the gate off instead lets a *failure* of check-ci-enabled itself be
+    # alerted on, which would otherwise skip the whole run in silence.
+    if: >-
+      always() && !cancelled() && (
+        needs.check-ci-enabled.result == 'failure' ||
+        needs.setup-env.result == 'failure' ||
+        needs.check-test-caches.result == 'failure' ||
+        needs.create-nextest-archive.result == 'failure' ||
+        needs.report.result == 'failure'
+      )
+    runs-on: ubuntu-latest
+    steps:
+      # Scheduled runs always notify; a manual dispatch only when asked. 
+      # A fork has no webhook secret, so say so and stop rather than failing the job.
+      - name: Resolve whether to notify
+        id: resolve
+        env:
+          SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK_CI_NIGHTLY }}
+          EVENT_NAME: ${{ github.event_name }}
+          WANT_NOTIFY: ${{ inputs.slack-notify }}
+        run: |
+          if [[ "${EVENT_NAME}" == "schedule" ]]; then
+            notify="true"
+          else
+            notify="${WANT_NOTIFY:-false}"
+          fi
+
+          if [[ -z "${SLACK_WEBHOOK}" ]]; then
+            echo "::notice title=Slack disabled::SLACK_WEBHOOK_CI_NIGHTLY is not set"
+            notify="false"
+          fi
+
+          echo "notify=${notify}" >> "$GITHUB_OUTPUT"
+          echo "Slack notify: ${notify}"
+
+      - name: Post to Slack
+        if: steps.resolve.outputs.notify == 'true'
+        uses: slackapi/slack-github-action@e090a7a7c0b2d9b7ae32bd34f086e680ce260b06 # v3.0.0
+        with:
+          webhook: ${{ secrets.SLACK_WEBHOOK_CI_NIGHTLY }}
+          webhook-type: incoming-webhook
+          payload: |
+            {
+              "blocks": [
+                {
+                  "type": "header",
+                  "text": {
+                    "type": "plain_text",
+                    "text": ":warning: ${{ github.workflow }} — Workflow Error",
+                    "emoji": true
+                  }
+                },
+                {
+                  "type": "section",
+                  "text": {
+                    "type": "mrkdwn",
+                    "text": "The workflow failed due to unexpected error or special conditions being met."
+                  }
+                },
+                {
+                  "type": "section",
+                  "fields": [
+                    {
+                      "type": "mrkdwn",
+                      "text": "*Workflow:*\n${{ github.workflow }}"
+                    },
+                    {
+                      "type": "mrkdwn",
+                      "text": "*Branch:*\n`${{ github.ref_name }}`"
+                    }
+                  ]
+                },
+                {
+                  "type": "actions",
+                  "elements": [
+                    {
+                      "type": "button",
+                      "text": {
+                        "type": "plain_text",
+                        "text": "View Run",
+                        "emoji": true
+                      },
+                      "url": "https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+                    }
+                  ]
+                }
+              ]
+            }
