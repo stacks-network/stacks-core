@@ -1490,73 +1490,7 @@ fn vm_events_opt_in_not_included_in_star() {
 
 #[test]
 fn process_chain_tip_vm_events_only_on_opt_in_observer() {
-    let dir = tempdir().unwrap();
-    let star_port = get_random_port();
-    let vm_port = get_random_port();
-
-    let (star_tx, star_rx) = channel();
-    let (vm_tx, vm_rx) = channel();
-
-    let star_server = Server::http(format!("127.0.0.1:{star_port}")).unwrap();
-    thread::spawn(move || {
-        let mut request = star_server.recv().unwrap();
-        let mut body = String::new();
-        request.as_reader().read_to_string(&mut body).unwrap();
-        request.respond(Response::from_string("ok")).unwrap();
-        star_tx.send(body).unwrap();
-    });
-
-    let vm_server = Server::http(format!("127.0.0.1:{vm_port}")).unwrap();
-    thread::spawn(move || {
-        let mut request = vm_server.recv().unwrap();
-        let mut body = String::new();
-        request.as_reader().read_to_string(&mut body).unwrap();
-        request.respond(Response::from_string("ok")).unwrap();
-        vm_tx.send(body).unwrap();
-    });
-
-    let mut dispatcher = EventDispatcher::new_with_custom_queue_size(dir.path().to_path_buf(), 0);
-    dispatcher.register_observer(&dummy_observer(
-        format!("127.0.0.1:{star_port}"),
-        vec![EventKeyType::AnyEvent],
-    ));
-    dispatcher.register_observer(&dummy_observer(
-        format!("127.0.0.1:{vm_port}"),
-        vec![EventKeyType::StorageEvent, EventKeyType::ContractCallEvent],
-    ));
-
-    let block = StacksBlock::genesis_block();
-    let metadata = StacksHeaderInfo::regtest_genesis();
-    dispatcher.process_chain_tip(
-        &block.into(),
-        &metadata,
-        &[],
-        &StacksBlockId([0; 32]),
-        &Txid([0; 32]),
-        &[],
-        None,
-        &BurnchainHeaderHash([0; 32]),
-        0,
-        0,
-        &ExecutionCost::ZERO,
-        &ExecutionCost::ZERO,
-        &PoxConstants::testnet_default(),
-        &None,
-        &Some(BitVec::zeros(2).expect("bitvec")),
-        Some(123456),
-        1,
-    );
-    dispatcher.catch_up();
-
-    let star_body = star_rx
-        .recv_timeout(Duration::from_secs(10))
-        .expect("star observer /new_block");
-    let vm_body = vm_rx
-        .recv_timeout(Duration::from_secs(10))
-        .expect("vm observer /new_block");
-
-    let star_json: serde_json::Value = serde_json::from_str(&star_body).unwrap();
-    let vm_json: serde_json::Value = serde_json::from_str(&vm_body).unwrap();
+    let (star_json, vm_json) = dispatch_chain_tip_to_star_and_vm(&[]);
     assert!(
         star_json.get("vm_events").is_none(),
         "`*` /new_block must not include vm_events"

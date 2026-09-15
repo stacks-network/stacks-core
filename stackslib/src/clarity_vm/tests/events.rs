@@ -22,9 +22,14 @@ use clarity::vm::tests::{
 };
 use clarity::vm::types::{AssetIdentifier, BuffData, QualifiedContractIdentifier, Value};
 use clarity::vm::{ClarityName, ClarityVersion, ContractContext};
-use stacks_common::types::chainstate::StacksBlockId;
-use stacks_common::types::StacksEpochId;
+use stacks_common::types::chainstate::{BurnchainHeaderHash, StacksAddress, StacksBlockId};
+use stacks_common::types::{Address, StacksEpochId};
 
+use crate::burnchains::Txid;
+use crate::chainstate::burn::operations::DelegateStxOp;
+use crate::chainstate::stacks::boot::POX_2_NAME;
+use crate::chainstate::stacks::db::{ClarityTx, StacksChainState};
+use crate::chainstate::stacks::events::StacksTransactionReceipt;
 use crate::chainstate::stacks::index::ClarityMarfTrieId;
 use crate::chainstate::stacks::StacksBlockHeader;
 use crate::clarity_vm::clarity::{ClarityInstance, ClarityMarfStore};
@@ -520,4 +525,67 @@ fn vm_trace_limited_tracker_cost_identity() {
     );
     assert_eq!(off_vm, 0);
     assert_eq!(on_vm, 1);
+}
+
+fn process_delegate_with_trace(emit_vm_trace: bool) -> Vec<StacksTransactionReceipt> {
+    let marf_kv = MarfedKV::temporary();
+    let chain_id = test_only_mainnet_to_chain_id(false);
+    let mut clarity_instance = ClarityInstance::new(false, chain_id, marf_kv);
+    clarity_instance.set_emit_vm_trace(emit_vm_trace);
+
+    let genesis_id = StacksBlockHeader::make_index_block_hash(
+        &FIRST_BURNCHAIN_CONSENSUS_HASH,
+        &FIRST_STACKS_BLOCK_HASH,
+    );
+    let genesis = clarity_instance.begin_test_genesis_block_2_1(
+        &StacksBlockId::sentinel(),
+        &genesis_id,
+        &TEST_HEADER_DB,
+        &TEST_BURN_STATE_DB,
+    );
+    let mut clarity_tx = ClarityTx::from_block_connection(genesis);
+
+    let sender = StacksAddress::from_string("ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM").unwrap();
+    let delegate_to =
+        StacksAddress::from_string("ST1SJ3DTE5DN7X54YDH5D64R3BCB6A2AG2ZQ8YPD5").unwrap();
+
+    StacksChainState::process_delegate_ops(
+        &mut clarity_tx,
+        vec![DelegateStxOp {
+            sender,
+            delegate_to,
+            reward_addr: None,
+            delegated_ustx: 1,
+            until_burn_height: None,
+            txid: Txid([1; 32]),
+            vtxindex: 0,
+            block_height: 1,
+            burn_header_hash: BurnchainHeaderHash([0; 32]),
+        }],
+        POX_2_NAME,
+    )
+}
+
+/// Bitcoin-origin `delegate-stx` must keep traces taken inside `as_transaction`.
+#[test]
+fn burn_op_delegate_carries_vm_events() {
+    let on = process_delegate_with_trace(true);
+    assert_eq!(on.len(), 1);
+    assert_eq!(on[0].result, Value::okay_true());
+    assert!(
+        on[0].vm_events.iter().any(|e| matches!(
+            e,
+            VmTraceEvent::Storage(StorageEvent::MapSet(d)) if d.map_name == "delegation-state"
+        )),
+        "committed delegate-stx must emit map_set_event: {:?}",
+        on[0].vm_events
+    );
+
+    let off = process_delegate_with_trace(false);
+    assert_eq!(off.len(), 1);
+    assert_eq!(off[0].result, Value::okay_true());
+    assert!(
+        off[0].vm_events.is_empty(),
+        "flag off must not collect traces"
+    );
 }
