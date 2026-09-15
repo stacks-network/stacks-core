@@ -60,6 +60,7 @@ impl StacksTransactionReceipt {
             microblock_header: None,
             tx_index: 0,
             vm_error: None,
+            vm_events: vec![],
             problematic_skipped: None,
         }
     }
@@ -83,6 +84,7 @@ impl StacksTransactionReceipt {
             microblock_header: None,
             tx_index: 0,
             vm_error,
+            vm_events: vec![],
             problematic_skipped: None,
         }
     }
@@ -106,6 +108,7 @@ impl StacksTransactionReceipt {
             microblock_header: None,
             tx_index: 0,
             vm_error: Some(reason),
+            vm_events: vec![],
             problematic_skipped: None,
         }
     }
@@ -128,6 +131,7 @@ impl StacksTransactionReceipt {
             microblock_header: None,
             tx_index: 0,
             vm_error: None,
+            vm_events: vec![],
             problematic_skipped: None,
         }
     }
@@ -151,6 +155,7 @@ impl StacksTransactionReceipt {
             microblock_header: None,
             tx_index: 0,
             vm_error: Some(reason),
+            vm_events: vec![],
             problematic_skipped: None,
         }
     }
@@ -167,6 +172,7 @@ impl StacksTransactionReceipt {
             microblock_header: None,
             tx_index: 0,
             vm_error: None,
+            vm_events: vec![],
             problematic_skipped: None,
         }
     }
@@ -214,6 +220,7 @@ impl StacksTransactionReceipt {
             microblock_header: None,
             tx_index: 0,
             vm_error: Some(vm_error),
+            vm_events: vec![],
             problematic_skipped: None,
         }
     }
@@ -234,6 +241,7 @@ impl StacksTransactionReceipt {
             microblock_header: None,
             tx_index: 0,
             vm_error: None,
+            vm_events: vec![],
             problematic_skipped: None,
         }
     }
@@ -255,6 +263,7 @@ impl StacksTransactionReceipt {
             microblock_header: None,
             tx_index: 0,
             vm_error: Some(BoundedErrorString::from_display(&error)),
+            vm_events: vec![],
             problematic_skipped: None,
         }
     }
@@ -275,6 +284,7 @@ impl StacksTransactionReceipt {
             microblock_header: None,
             tx_index: 0,
             vm_error: Some(BoundedErrorString::from_display(&error)),
+            vm_events: vec![],
             problematic_skipped: None,
         }
     }
@@ -291,6 +301,7 @@ impl StacksTransactionReceipt {
             microblock_header: None,
             tx_index: 0,
             vm_error: None,
+            vm_events: vec![],
             problematic_skipped: None,
         }
     }
@@ -316,6 +327,7 @@ impl StacksTransactionReceipt {
             microblock_header: None,
             tx_index: 0,
             vm_error: None,
+            vm_events: vec![],
             problematic_skipped: Some(category),
         }
     }
@@ -955,7 +967,8 @@ impl StacksChainState {
                     events,
                     value,
                     total_cost,
-                );
+                )
+                .with_vm_events(clarity_tx.take_vm_trace_events());
                 Ok(receipt)
             }
             TransactionPayload::ContractCall(ref contract_call) => {
@@ -1052,7 +1065,8 @@ impl StacksChainState {
                                             .map_err(VmExecutionError::from)?,
                                         total_cost,
                                         reason,
-                                    );
+                                    )
+                                    .with_vm_events(clarity_tx.take_vm_trace_events());
                                 return Ok(receipt);
                             }
                             ClarityRuntimeTxError::Rejected(RejectedRuntimeTxError::Cost {
@@ -1134,7 +1148,8 @@ impl StacksChainState {
                         .map_err(VmExecutionError::from)?,
                     total_cost,
                     vm_error,
-                );
+                )
+                .with_vm_events(clarity_tx.take_vm_trace_events());
                 Ok(receipt)
             }
             TransactionPayload::SmartContract(ref smart_contract, ref version_opt) => {
@@ -1315,6 +1330,7 @@ impl StacksChainState {
                                     microblock_header: None,
                                     tx_index: 0,
                                     vm_error: Some(vm_error),
+                                    vm_events: vec![],
                                     problematic_skipped: None,
                                 };
                                 return Ok(receipt);
@@ -1337,7 +1353,8 @@ impl StacksChainState {
                                         contract_analysis,
                                         total_cost,
                                         reason,
-                                    );
+                                    )
+                                    .with_vm_events(clarity_tx.take_vm_trace_events());
                                 return Ok(receipt);
                             }
                             ClarityRuntimeTxError::Rejected(RejectedRuntimeTxError::Cost {
@@ -1410,7 +1427,8 @@ impl StacksChainState {
                         .map_err(VmExecutionError::from)?,
                     contract_analysis,
                     total_cost,
-                );
+                )
+                .with_vm_events(clarity_tx.take_vm_trace_events());
                 Ok(receipt)
             }
             TransactionPayload::PoisonMicroblock(ref mblock_header_1, ref mblock_header_2) => {

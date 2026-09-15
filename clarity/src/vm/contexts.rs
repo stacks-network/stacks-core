@@ -190,11 +190,15 @@ pub struct ExecutionState<'a, 'b, 'hooks> {
 pub struct OwnedEnvironment<'a, 'hooks> {
     pub(crate) context: GlobalContext<'a, 'hooks>,
     call_stack: CallStack,
+    /// Last committed VM trace. Empty unless `emit_vm_trace`.
+    last_vm_events: Vec<VmTraceEvent>,
 }
 
 #[derive(Debug, Clone, Default)]
 pub struct EventBatch {
     pub events: Vec<StacksTransactionEvent>,
+    /// Opt-in storage / nested-call trace. Isolated from `events`.
+    pub vm_events: Vec<VmTraceEvent>,
 }
 
 /** GlobalContext represents the outermost context for a single transaction's
@@ -218,6 +222,8 @@ pub struct GlobalContext<'a, 'hooks> {
     /// A resource limiter that will be polled on every `eval` to check that execution
     /// time and heap allocation don't exceed configured maximums
     pub execution_resource_limiter: ResourceLimiter,
+    /// Collect into `EventBatch.vm_events`. Default off. Free (no cost, no batch cap).
+    pub emit_vm_trace: bool,
 }
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -288,6 +294,7 @@ impl<'a, 'hooks> OwnedEnvironment<'a, 'hooks> {
                 epoch,
             ),
             call_stack: CallStack::new(),
+            last_vm_events: Vec::new(),
         }
     }
 
@@ -308,6 +315,7 @@ impl<'a, 'hooks> OwnedEnvironment<'a, 'hooks> {
                 epoch,
             ),
             call_stack: CallStack::new(),
+            last_vm_events: Vec::new(),
         }
     }
 
@@ -325,6 +333,7 @@ impl<'a, 'hooks> OwnedEnvironment<'a, 'hooks> {
         OwnedEnvironment {
             context: GlobalContext::new(use_mainnet, chain_id, database, cost_track, epoch),
             call_stack: CallStack::new(),
+            last_vm_events: Vec::new(),
         }
     }
 
@@ -343,6 +352,7 @@ impl<'a, 'hooks> OwnedEnvironment<'a, 'hooks> {
                 epoch_id,
             ),
             call_stack: CallStack::new(),
+            last_vm_events: Vec::new(),
         }
     }
 
@@ -356,6 +366,7 @@ impl<'a, 'hooks> OwnedEnvironment<'a, 'hooks> {
         OwnedEnvironment {
             context: GlobalContext::new(mainnet, chain_id, database, cost_tracker, epoch_id),
             call_stack: CallStack::new(),
+            last_vm_events: Vec::new(),
         }
     }
 
@@ -372,6 +383,18 @@ impl<'a, 'hooks> OwnedEnvironment<'a, 'hooks> {
     pub fn set_execution_resource_limiter(&mut self, resource_limiter: ResourceLimiter) {
         self.context
             .set_execution_resource_limiter(resource_limiter);
+    }
+
+    pub fn set_emit_vm_trace(&mut self, on: bool) {
+        self.context.emit_vm_trace = on;
+    }
+
+    pub fn vm_trace_events(&self) -> &[VmTraceEvent] {
+        &self.last_vm_events
+    }
+
+    pub fn take_vm_trace_events(&mut self) -> Vec<VmTraceEvent> {
+        std::mem::take(&mut self.last_vm_events)
     }
 
     pub fn get_exec_environment<'b>(
@@ -431,9 +454,11 @@ impl<'a, 'hooks> OwnedEnvironment<'a, 'hooks> {
         match result {
             Ok(return_value) => {
                 let (asset_map, event_batch) = self.commit()?;
+                self.last_vm_events = event_batch.vm_events;
                 Ok((return_value, asset_map, event_batch.events))
             }
             Err(e) => {
+                self.last_vm_events.clear();
                 self.context.roll_back()?;
                 Err(e)
             }
@@ -1302,6 +1327,98 @@ impl<'a, 'b, 'hooks> ExecutionState<'a, 'b, 'hooks> {
         self.push_to_event_batch(event)?;
         Ok(())
     }
+
+    fn push_vm_trace(&mut self, event: VmTraceEvent) {
+        if !self.global_context.emit_vm_trace {
+            return;
+        }
+        if let Some((batch, _)) = self.global_context.event_batches.last_mut() {
+            batch.vm_events.push(event);
+        }
+    }
+
+    pub fn register_var_set_event(
+        &mut self,
+        contract_identifier: QualifiedContractIdentifier,
+        var_name: String,
+        value: Value,
+    ) {
+        self.push_vm_trace(VmTraceEvent::Storage(StorageEvent::VarSet(
+            VarSetEventData {
+                contract_identifier,
+                var_name,
+                value,
+            },
+        )));
+    }
+
+    pub fn register_map_set_event(
+        &mut self,
+        contract_identifier: QualifiedContractIdentifier,
+        map_name: String,
+        key: Value,
+        value: Value,
+    ) {
+        self.push_vm_trace(VmTraceEvent::Storage(StorageEvent::MapSet(
+            MapWriteEventData {
+                contract_identifier,
+                map_name,
+                key,
+                value,
+            },
+        )));
+    }
+
+    pub fn register_map_insert_event(
+        &mut self,
+        contract_identifier: QualifiedContractIdentifier,
+        map_name: String,
+        key: Value,
+        value: Value,
+    ) {
+        self.push_vm_trace(VmTraceEvent::Storage(StorageEvent::MapInsert(
+            MapWriteEventData {
+                contract_identifier,
+                map_name,
+                key,
+                value,
+            },
+        )));
+    }
+
+    pub fn register_map_delete_event(
+        &mut self,
+        contract_identifier: QualifiedContractIdentifier,
+        map_name: String,
+        key: Value,
+    ) {
+        self.push_vm_trace(VmTraceEvent::Storage(StorageEvent::MapDelete(
+            MapDeleteEventData {
+                contract_identifier,
+                map_name,
+                key,
+            },
+        )));
+    }
+
+    pub fn register_nested_contract_call_event(
+        &mut self,
+        contract_identifier: QualifiedContractIdentifier,
+        sender: Option<PrincipalData>,
+        caller: PrincipalData,
+        function_name: String,
+        function_args: Vec<Value>,
+        result: Value,
+    ) {
+        self.push_vm_trace(VmTraceEvent::ContractCall(ContractCallEventData {
+            contract_identifier,
+            sender,
+            caller,
+            function_name,
+            function_args,
+            result,
+        }));
+    }
 }
 
 impl ExecutionState<'_, '_, '_> {
@@ -1398,6 +1515,7 @@ impl<'a, 'hooks> GlobalContext<'a, 'hooks> {
             chain_id,
             eval_hooks: None,
             execution_resource_limiter: ResourceLimiter::unlimited(),
+            emit_vm_trace: false,
         }
     }
 
@@ -1616,6 +1734,7 @@ impl<'a, 'hooks> GlobalContext<'a, 'hooks> {
         let out_batch = match self.event_batches.last_mut() {
             Some((tail_back, total_size)) => {
                 tail_back.events.append(&mut event_batch.events);
+                tail_back.vm_events.append(&mut event_batch.vm_events);
                 *total_size = new_total_size;
                 None
             }

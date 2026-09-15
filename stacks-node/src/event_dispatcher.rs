@@ -41,6 +41,7 @@ use stacks::chainstate::stacks::db::unconfirmed::ProcessedUnconfirmedState;
 use stacks::chainstate::stacks::db::{MinerRewardInfo, StacksHeaderInfo};
 use stacks::chainstate::stacks::events::{
     StackerDBChunksEvent, StacksBlockEventData, StacksTransactionEvent, StacksTransactionReceipt,
+    VmTraceEvent,
 };
 use stacks::chainstate::stacks::miner::TransactionEvent;
 use stacks::chainstate::stacks::{StacksBlock, StacksMicroblock, StacksTransaction};
@@ -131,6 +132,39 @@ pub const PATH_BLOCK_PROCESSED: &str = "new_block";
 pub const PATH_ATTACHMENT_PROCESSED: &str = "attachments/new";
 pub const PATH_PROPOSAL_RESPONSE: &str = "proposal_response";
 
+/// `vm_event_index` is assigned across committed vm_events in the block
+/// (aborted / problematic-skipped receipts skipped). Observers only receive
+/// types they subscribed to; omitted types leave gaps, like classic `event_index`.
+fn serialize_block_vm_events(
+    receipts: &[StacksTransactionReceipt],
+    include_storage: bool,
+    include_contract_calls: bool,
+) -> serde_json::Value {
+    let mut out = Vec::new();
+    let mut idx = 0usize;
+    for receipt in receipts {
+        if receipt.post_condition_aborted || receipt.problematic_skipped.is_some() {
+            continue;
+        }
+        let txid = receipt.transaction.txid();
+        for event in &receipt.vm_events {
+            let include = match event {
+                VmTraceEvent::Storage(_) => include_storage,
+                VmTraceEvent::ContractCall(_) => include_contract_calls,
+            };
+            if include {
+                out.push(
+                    event
+                        .json_serialize(idx, &txid, true)
+                        .expect("vm_event json"),
+                );
+            }
+            idx += 1;
+        }
+    }
+    serde_json::Value::Array(out)
+}
+
 #[cfg(test)]
 static TEST_EVENT_OBSERVER_SKIP_RETRY: LazyLock<TestFlag<bool>> = LazyLock::new(TestFlag::default);
 
@@ -190,6 +224,10 @@ pub struct EventDispatcher {
     /// Index into `registered_observers` that will receive block proposal events (Nakamoto and
     /// later)
     block_proposal_observers_lookup: HashSet<u16>,
+    /// Clarity storage writes. Not included in `*` / AnyEvent.
+    storage_observers_lookup: HashSet<u16>,
+    /// Nested `contract-call?`. Not included in `*` / AnyEvent.
+    contract_call_observers_lookup: HashSet<u16>,
     /// Channel for sending StackerDB events to the miner coordinator
     pub stackerdb_channel: Arc<Mutex<StackerDBChannel>>,
     /// Path to the database where pending payloads are stored.
@@ -445,6 +483,8 @@ impl EventDispatcher {
             mined_microblocks_observers_lookup: HashSet::new(),
             stackerdb_observers_lookup: HashSet::new(),
             block_proposal_observers_lookup: HashSet::new(),
+            storage_observers_lookup: HashSet::new(),
+            contract_call_observers_lookup: HashSet::new(),
             db_path,
             worker,
         }
@@ -651,7 +691,7 @@ impl EventDispatcher {
                     .map(|event_id| (*event_id, &events[*event_id]))
                     .collect();
 
-                let payload = make_new_block_processed_payload(
+                let mut payload = make_new_block_processed_payload(
                     filtered_events,
                     block,
                     metadata,
@@ -671,6 +711,22 @@ impl EventDispatcher {
                     coinbase_height,
                     !self.registered_observers[observer_id].disable_contract_interface,
                 );
+
+                // Opt-in only. Never added for `*` / AnyEvent.
+                if self.observer_wants_vm_events(observer_id) {
+                    let i = observer_id as u16;
+                    payload
+                        .as_object_mut()
+                        .expect("payload is an object")
+                        .insert(
+                            "vm_events".into(),
+                            serialize_block_vm_events(
+                                receipts,
+                                self.storage_observers_lookup.contains(&i),
+                                self.contract_call_observers_lookup.contains(&i),
+                            ),
+                        );
+                }
 
                 // Send payload
                 self.dispatch_to_observer_or_log_error(
@@ -995,6 +1051,17 @@ impl EventDispatcher {
         self.register_observer_private(conf);
     }
 
+    /// True if any observer opted into storage or nested contract-call events.
+    pub fn emit_vm_trace(&self) -> bool {
+        !self.storage_observers_lookup.is_empty() || !self.contract_call_observers_lookup.is_empty()
+    }
+
+    fn observer_wants_vm_events(&self, observer_index: usize) -> bool {
+        let i = observer_index as u16;
+        self.storage_observers_lookup.contains(&i)
+            || self.contract_call_observers_lookup.contains(&i)
+    }
+
     fn register_observer_private(&mut self, conf: &EventObserverConfig) -> EventObserver {
         info!("Registering event observer at: {}", conf.endpoint);
         let event_observer = EventObserver::new(
@@ -1069,6 +1136,12 @@ impl EventDispatcher {
                 }
                 EventKeyType::BlockProposal => {
                     self.block_proposal_observers_lookup.insert(observer_index);
+                }
+                EventKeyType::StorageEvent => {
+                    self.storage_observers_lookup.insert(observer_index);
+                }
+                EventKeyType::ContractCallEvent => {
+                    self.contract_call_observers_lookup.insert(observer_index);
                 }
             }
         }

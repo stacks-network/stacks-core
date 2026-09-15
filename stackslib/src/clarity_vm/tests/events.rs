@@ -15,6 +15,7 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use clarity::vm::contexts::OwnedEnvironment;
+use clarity::vm::costs::ExecutionCost;
 use clarity::vm::events::*;
 use clarity::vm::tests::{
     execute, test_only_mainnet_to_chain_id, TEST_BURN_STATE_DB, TEST_HEADER_DB,
@@ -31,7 +32,9 @@ use crate::clarity_vm::database::marf::MarfedKV;
 use crate::core::{FIRST_BURNCHAIN_CONSENSUS_HASH, FIRST_STACKS_BLOCK_HASH};
 
 fn helper_execute(contract: &str, method: &str) -> (Value, Vec<StacksTransactionEvent>) {
-    helper_execute_epoch(contract, method, None, StacksEpochId::Epoch21, false)
+    let (value, events, _, _) =
+        helper_execute_epoch(contract, method, None, StacksEpochId::Epoch21, false, false);
+    (value, events)
 }
 
 fn helper_execute_epoch(
@@ -40,7 +43,8 @@ fn helper_execute_epoch(
     set_epoch: Option<StacksEpochId>,
     epoch: StacksEpochId,
     use_mainnet: bool,
-) -> (Value, Vec<StacksTransactionEvent>) {
+    emit_vm_trace: bool,
+) -> (Value, Vec<StacksTransactionEvent>, ExecutionCost, usize) {
     let contract_id = QualifiedContractIdentifier::local("contract").unwrap();
     let address = "'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR";
     let sender = execute(address).expect_principal().unwrap();
@@ -107,11 +111,14 @@ fn helper_execute_epoch(
     }
 
     owned_env.stx_faucet(&sender, 10);
+    owned_env.set_emit_vm_trace(emit_vm_trace);
 
     let (value, _, events) = owned_env
         .execute_transaction(sender, None, contract_id, method, &[])
         .unwrap();
-    (value, events)
+    let cost = owned_env.get_cost_total();
+    let vm_n = owned_env.vm_trace_events().len();
+    (value, events, cost, vm_n)
 }
 
 #[test]
@@ -186,11 +193,12 @@ fn test_emit_stx_transfer_memo_ok() {
                 (unwrap-panic (stx-transfer-memo? u10 sender recipient 0x010203))
                 (ok u1)))"#;
 
-    let (value, mut events) = helper_execute_epoch(
+    let (value, mut events, _, _) = helper_execute_epoch(
         contract,
         "emit-event-ok",
         Some(StacksEpochId::Epoch21),
         StacksEpochId::Epoch21,
+        false,
         false,
     );
     assert_eq!(value, Value::okay(Value::UInt(1)).unwrap());
@@ -477,4 +485,39 @@ fn test_emit_nft_mint_nok() {
     let (value, events) = helper_execute(contract, "emit-event-nok");
     assert_eq!(value, Value::error(Value::UInt(1)).unwrap());
     assert!(events.is_empty());
+}
+
+/// Flag on vs off must not change metered execution cost. The free-tracker
+/// twin in `clarity::vm::tests::vm_trace` cannot prove this (both costs ZERO).
+#[test]
+fn vm_trace_limited_tracker_cost_identity() {
+    let contract = r#"
+        (define-data-var n uint u0)
+        (define-public (set-n)
+          (begin
+            (print u1)
+            (ok (var-set n u8))))
+    "#;
+    let (off_val, off_events, off_cost, off_vm) = helper_execute_epoch(
+        contract,
+        "set-n",
+        None,
+        StacksEpochId::Epoch21,
+        false,
+        false,
+    );
+    let (on_val, on_events, on_cost, on_vm) =
+        helper_execute_epoch(contract, "set-n", None, StacksEpochId::Epoch21, false, true);
+    assert_eq!(off_val, on_val);
+    assert_eq!(off_events, on_events);
+    assert!(
+        !off_cost.is_zero(),
+        "Limited tracker must meter this tx, got {off_cost:?}"
+    );
+    assert_eq!(
+        off_cost, on_cost,
+        "emit_vm_trace must not change ExecutionCost"
+    );
+    assert_eq!(off_vm, 0);
+    assert_eq!(on_vm, 1);
 }

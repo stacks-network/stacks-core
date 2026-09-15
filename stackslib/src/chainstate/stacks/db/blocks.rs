@@ -4179,6 +4179,7 @@ impl StacksChainState {
                             microblock_header: None,
                             tx_index: 0,
                             vm_error: None,
+                            vm_events: vec![],
                             problematic_skipped: None,
                         };
 
@@ -4276,6 +4277,7 @@ impl StacksChainState {
                                     microblock_header: None,
                                     tx_index: 0,
                                     vm_error: None,
+                                    vm_events: vec![],
                                     problematic_skipped: None,
                                 })
                             }
@@ -4394,6 +4396,7 @@ impl StacksChainState {
                             microblock_header: None,
                             tx_index: 0,
                             vm_error: None,
+                            vm_events: vec![],
                             problematic_skipped: None,
                         };
 
@@ -4504,6 +4507,7 @@ impl StacksChainState {
                             microblock_header: None,
                             tx_index: 0,
                             vm_error: None,
+                            vm_events: vec![],
                             problematic_skipped: None,
                         };
 

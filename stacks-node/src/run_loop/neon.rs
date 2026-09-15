@@ -640,7 +640,7 @@ impl RunLoop {
         };
 
         info!("About to call open_and_exec");
-        let (chain_state_db, receipts) = StacksChainState::open_and_exec(
+        let (mut chain_state_db, receipts) = StacksChainState::open_and_exec(
             self.config.is_mainnet(),
             self.config.burnchain.chain_id,
             &self.config.get_chainstate_path_str(),
@@ -648,6 +648,9 @@ impl RunLoop {
             Some(self.config.node.get_marf_opts()),
         )
         .unwrap();
+        chain_state_db
+            .clarity_state
+            .set_emit_vm_trace(self.event_dispatcher.emit_vm_trace());
         run_loop::announce_boot_receipts(
             &mut self.event_dispatcher,
             &chain_state_db,

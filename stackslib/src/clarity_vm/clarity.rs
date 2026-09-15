@@ -91,6 +91,7 @@ pub struct ClarityInstance {
     datastore: MarfedKV,
     mainnet: bool,
     chain_id: u32,
+    emit_vm_trace: bool,
 }
 
 ///
@@ -120,6 +121,7 @@ pub struct ClarityBlockConnection<'a, 'b> {
     mainnet: bool,
     chain_id: u32,
     epoch: StacksEpochId,
+    emit_vm_trace: bool,
 }
 
 ///
@@ -139,6 +141,8 @@ pub struct ClarityTransactionConnection<'a, 'b> {
     /// Per-tx cache container which is attached to [`ClarityDatabase`] instances handed out by this
     /// connection.
     cache: ClarityExecutionCache,
+    emit_vm_trace: bool,
+    last_vm_events: Vec<clarity::vm::events::VmTraceEvent>,
 }
 
 /// Unified API common to all MARF stores
@@ -277,6 +281,8 @@ impl<'a, 'b> ClarityTransactionConnection<'a, 'b> {
             chain_id,
             epoch,
             cache: ClarityExecutionCache::default(),
+            emit_vm_trace: false,
+            last_vm_events: Vec::new(),
         }
     }
 }
@@ -333,6 +339,7 @@ impl ClarityBlockConnection<'_, '_> {
             mainnet: false,
             chain_id: CHAIN_ID_TESTNET,
             epoch,
+            emit_vm_trace: false,
         }
     }
 
@@ -388,6 +395,7 @@ impl ClarityBlockConnection<'_, '_> {
             mainnet,
             chain_id,
             epoch: epoch.epoch_id,
+            emit_vm_trace: false,
         }
     }
 
@@ -411,6 +419,7 @@ impl ClarityBlockConnection<'_, '_> {
             mainnet,
             chain_id,
             epoch: GENESIS_EPOCH,
+            emit_vm_trace: false,
         }
     }
 
@@ -479,7 +488,12 @@ impl ClarityInstance {
             datastore,
             mainnet,
             chain_id,
+            emit_vm_trace: false,
         }
+    }
+
+    pub fn set_emit_vm_trace(&mut self, on: bool) {
+        self.emit_vm_trace = on;
     }
 
     pub fn with_marf<F, R>(&mut self, f: F) -> R
@@ -526,14 +540,16 @@ impl ClarityInstance {
         // funnels through the same generic injection point external backends use.
         let datastore = self.datastore.begin(current, next);
         let epoch = Self::get_epoch_of(current, header_db, burn_state_db);
-        ClarityBlockConnection::from_writable_store(
+        let mut conn = ClarityBlockConnection::from_writable_store(
             Box::new(datastore),
             header_db,
             burn_state_db,
             self.mainnet,
             self.chain_id,
             epoch,
-        )
+        );
+        conn.emit_vm_trace = self.emit_vm_trace;
+        conn
     }
 
     pub fn begin_genesis_block<'a, 'b>(
@@ -544,13 +560,15 @@ impl ClarityInstance {
         burn_state_db: &'b dyn BurnStateDB,
     ) -> ClarityBlockConnection<'a, 'b> {
         let datastore = self.datastore.begin(current, next);
-        ClarityBlockConnection::from_writable_store_genesis(
+        let mut conn = ClarityBlockConnection::from_writable_store_genesis(
             Box::new(datastore),
             header_db,
             burn_state_db,
             self.mainnet,
             self.chain_id,
-        )
+        );
+        conn.emit_vm_trace = self.emit_vm_trace;
+        conn
     }
 
     /// begin a genesis block with the default cost contract
@@ -576,6 +594,7 @@ impl ClarityInstance {
             mainnet: self.mainnet,
             chain_id: self.chain_id,
             epoch,
+            emit_vm_trace: self.emit_vm_trace,
         };
 
         let use_mainnet = self.mainnet;
@@ -675,6 +694,7 @@ impl ClarityInstance {
             mainnet: self.mainnet,
             chain_id: self.chain_id,
             epoch,
+            emit_vm_trace: self.emit_vm_trace,
         };
 
         let use_mainnet = self.mainnet;
@@ -786,6 +806,7 @@ impl ClarityInstance {
             mainnet: self.mainnet,
             chain_id: self.chain_id,
             epoch: epoch.epoch_id,
+            emit_vm_trace: self.emit_vm_trace,
         }
     }
 
@@ -826,6 +847,7 @@ impl ClarityInstance {
             mainnet: self.mainnet,
             chain_id: self.chain_id,
             epoch: epoch.epoch_id,
+            emit_vm_trace: self.emit_vm_trace,
         }
     }
 
@@ -2263,7 +2285,7 @@ impl<'a, 'b> ClarityBlockConnection<'a, 'b> {
     }
 
     pub fn start_transaction_processing(&mut self) -> ClarityTransactionConnection<'_, '_> {
-        ClarityTransactionConnection::new(
+        let mut tx = ClarityTransactionConnection::new(
             &mut self.datastore,
             self.header_db,
             self.burn_state_db,
@@ -2271,7 +2293,9 @@ impl<'a, 'b> ClarityBlockConnection<'a, 'b> {
             self.mainnet,
             self.chain_id,
             self.epoch,
-        )
+        );
+        tx.emit_vm_trace = self.emit_vm_trace;
+        tx
     }
 
     /// Execute `todo` as a transaction in this block. The execution
@@ -2387,6 +2411,10 @@ impl Drop for ClarityTransactionConnection<'_, '_> {
 }
 
 impl TransactionConnection for ClarityTransactionConnection<'_, '_> {
+    fn take_vm_trace_events(&mut self) -> Vec<clarity::vm::events::VmTraceEvent> {
+        std::mem::take(&mut self.last_vm_events)
+    }
+
     fn with_abort_callback<'hooks, F, A, R, E>(
         &'hooks mut self,
         to_do: F,
@@ -2407,6 +2435,7 @@ impl TransactionConnection for ClarityTransactionConnection<'_, '_> {
         ) -> Result<(R, AssetMap, Vec<StacksTransactionEvent>), E>,
         E: From<VmExecutionError>,
     {
+        let emit_vm_trace = self.emit_vm_trace;
         using!(self.log, "log", |log| {
             using!(self.cost_track, "cost tracker", |cost_track| {
                 let rollback_wrapper = RollbackWrapper::from_persisted_log(self.store, log);
@@ -2427,8 +2456,10 @@ impl TransactionConnection for ClarityTransactionConnection<'_, '_> {
                     cost_track,
                     self.epoch,
                 );
+                vm_env.set_emit_vm_trace(emit_vm_trace);
 
                 let result = to_do(&mut vm_env);
+                let vm_events = vm_env.take_vm_trace_events();
                 let (mut db, cost_track) = vm_env
                     .destruct()
                     .expect("Failed to recover database reference after executing transaction");
@@ -2442,12 +2473,17 @@ impl TransactionConnection for ClarityTransactionConnection<'_, '_> {
                         } else {
                             db.commit()
                         };
+                        self.last_vm_events = if aborted.is_some() { vec![] } else { vm_events };
                         match db_result {
                             Ok(_) => Ok((value, asset_map, events, aborted)),
-                            Err(e) => Err(e.into()),
+                            Err(e) => {
+                                self.last_vm_events.clear();
+                                Err(e.into())
+                            }
                         }
                     }
                     Err(e) => {
+                        self.last_vm_events.clear();
                         let db_result = db.roll_back();
                         match db_result {
                             Ok(_) => Err(e),

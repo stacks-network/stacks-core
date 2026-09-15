@@ -60,6 +60,8 @@ mod simple_apply_eval;
 mod traits;
 #[cfg(test)]
 mod variables;
+#[cfg(test)]
+mod vm_trace;
 
 #[cfg(any(test, feature = "testing"))]
 impl OwnedEnvironment<'_, '_> {

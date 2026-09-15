@@ -4752,7 +4752,8 @@ pub struct EventObserverConfigFile {
     ///     - `/new_mempool_tx`: For new mempool transactions.
     ///     - `/drop_mempool_tx`: For dropped mempool transactions.
     ///     - `/new_burn_block`: For new burnchain blocks.
-    ///   - Note: This key does NOT by itself subscribe to `/stackerdb_chunks` or `/proposal_response`.
+    ///   - Note: This key does NOT by itself subscribe to `/stackerdb_chunks`,
+    ///     `/proposal_response`, `"storage"`, or `"contract_calls"`.
     ///
     /// - `"stx"`: Subscribes to STX token operation events (transfer, mint, burn, lock).
     ///   - Events delivered to: `/new_block`, `/new_microblocks`.
@@ -4781,6 +4782,16 @@ pub struct EventObserverConfigFile {
     /// - `"block_proposal"`: Subscribes to block proposal response events (for Nakamoto consensus).
     ///   - Events delivered to: `/proposal_response`.
     ///
+    /// - `"storage"`: Subscribes to Clarity data-var and map write traces.
+    ///   - Events delivered to: `/new_block` (`vm_events` array, not `events[]`).
+    ///   - Types: `var_set_event`, `map_set_event`, `map_insert_event`, `map_delete_event`.
+    ///   - Not included in `"*"`. Does not include nested `contract-call?`.
+    ///
+    /// - `"contract_calls"`: Subscribes to nested `contract-call?` traces.
+    ///   - Events delivered to: `/new_block` (`vm_events` array).
+    ///   - Type: `contract_call_event`. The key is plural. `"contract_call"` is invalid.
+    ///   - Not included in `"*"`. Does not include storage writes.
+    ///
     /// - Smart Contract Event: Subscribes to a specific smart contract event.
     ///   - Format: `"{deployer_address}.{contract_name}::{event_name}"`
     ///     (e.g., `ST0000000000000000000000000000000000000000.my-contract::my-custom-event`)
@@ -4804,6 +4815,8 @@ pub struct EventObserverConfigFile {
     ///   events_keys = [
     ///     "burn_blocks",
     ///     "memtx",
+    ///     "storage",
+    ///     "contract_calls",
     ///     "ST0000000000000000000000000000000000000000.my-contract::my-custom-event",
     ///     "ST0000000000000000000000000000000000000000.token-contract.my-ft"
     ///   ]
@@ -4873,6 +4886,10 @@ pub enum EventKeyType {
     MinedMicroblocks,
     StackerDBChunks,
     BlockProposal,
+    /// Opt-in Clarity data-var / map write events. Not included in `*`.
+    StorageEvent,
+    /// Opt-in nested `contract-call?` events. Not included in `*`.
+    ContractCallEvent,
 }
 
 impl EventKeyType {
@@ -4903,6 +4920,14 @@ impl EventKeyType {
 
         if raw_key == "block_proposal" {
             return Some(EventKeyType::BlockProposal);
+        }
+
+        if raw_key == "storage" {
+            return Some(EventKeyType::StorageEvent);
+        }
+
+        if raw_key == "contract_calls" {
+            return Some(EventKeyType::ContractCallEvent);
         }
 
         let comps: Vec<_> = raw_key.split("::").collect();
@@ -4981,6 +5006,54 @@ mod tests {
         pub fn config_from_valid_string(valid_config: &str) -> Config {
             Config::from_config_file(ConfigFile::from_str(valid_config).unwrap(), false).unwrap()
         }
+    }
+
+    #[test]
+    fn event_key_type_storage_and_contract_calls_not_star() {
+        assert_eq!(
+            EventKeyType::from_string("storage"),
+            Some(EventKeyType::StorageEvent)
+        );
+        assert_eq!(
+            EventKeyType::from_string("contract_calls"),
+            Some(EventKeyType::ContractCallEvent)
+        );
+        assert_eq!(EventKeyType::from_string("*"), Some(EventKeyType::AnyEvent));
+        assert_ne!(
+            EventKeyType::from_string("*"),
+            EventKeyType::from_string("storage")
+        );
+        assert_ne!(
+            EventKeyType::from_string("stx"),
+            EventKeyType::from_string("storage")
+        );
+        assert!(EventKeyType::from_string("contract_call").is_none());
+    }
+
+    #[test]
+    fn event_observer_config_parses_storage_and_contract_calls() {
+        let config = Config::from_config_file(
+            ConfigFile::from_str(
+                r#"
+                [[events_observer]]
+                endpoint = "localhost:3700"
+                events_keys = ["*", "storage", "contract_calls"]
+                "#,
+            )
+            .unwrap(),
+            false,
+        )
+        .unwrap();
+        let observer = config
+            .events_observers
+            .iter()
+            .find(|o| o.endpoint == "localhost:3700")
+            .expect("observer");
+        assert!(observer.events_keys.contains(&EventKeyType::AnyEvent));
+        assert!(observer.events_keys.contains(&EventKeyType::StorageEvent));
+        assert!(observer
+            .events_keys
+            .contains(&EventKeyType::ContractCallEvent));
     }
 
     #[test]

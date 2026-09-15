@@ -338,7 +338,7 @@ impl Node {
             Some(config.node.get_marf_opts()),
         );
 
-        let (chain_state, receipts) = match chain_state_result {
+        let (mut chain_state, receipts) = match chain_state_result {
             Ok(res) => res,
             Err(err) => panic!(
                 "Error while opening chain state at path {}: {err:?}",
@@ -360,6 +360,9 @@ impl Node {
         .expect("FATAL: failed to initiate mempool");
 
         let mut event_dispatcher = EventDispatcher::from_config(&config);
+        chain_state
+            .clarity_state
+            .set_emit_vm_trace(event_dispatcher.emit_vm_trace());
 
         let burnchain_config = config.get_burnchain();
 

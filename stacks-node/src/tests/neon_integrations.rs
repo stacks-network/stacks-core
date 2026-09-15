@@ -313,6 +313,8 @@ pub mod test_observer {
     pub const EVENT_OBSERVER_PORT: u16 = 50303;
 
     pub static NEW_BLOCKS: Mutex<Vec<serde_json::Value>> = Mutex::new(Vec::new());
+    /// `/new_block` bodies received by the opt-in storage / contract_calls observer.
+    pub static NEW_BLOCKS_VM: Mutex<Vec<serde_json::Value>> = Mutex::new(Vec::new());
     pub static MINED_BLOCKS: Mutex<Vec<MinedBlockEvent>> = Mutex::new(Vec::new());
     pub static MINED_MICROBLOCKS: Mutex<Vec<MinedMicroblockEvent>> = Mutex::new(Vec::new());
     pub static MINED_NAKAMOTO_BLOCKS: Mutex<Vec<MinedNakamotoBlockEvent>> = Mutex::new(Vec::new());
@@ -349,6 +351,11 @@ pub mod test_observer {
     async fn handle_block(block: serde_json::Value) -> Result<impl warp::Reply, Infallible> {
         let mut blocks = NEW_BLOCKS.lock().unwrap();
         blocks.push(block);
+        Ok(warp::http::StatusCode::OK)
+    }
+
+    async fn handle_block_vm(block: serde_json::Value) -> Result<impl warp::Reply, Infallible> {
+        NEW_BLOCKS_VM.lock().unwrap().push(block);
         Ok(warp::http::StatusCode::OK)
     }
 
@@ -551,6 +558,10 @@ pub mod test_observer {
         NEW_BLOCKS.lock().unwrap().clone()
     }
 
+    pub fn get_vm_blocks() -> Vec<serde_json::Value> {
+        NEW_BLOCKS_VM.lock().unwrap().clone()
+    }
+
     pub fn get_microblocks() -> Vec<serde_json::Value> {
         NEW_MICROBLOCKS.lock().unwrap().clone()
     }
@@ -671,6 +682,7 @@ pub mod test_observer {
 
     pub fn clear() {
         NEW_BLOCKS.lock().unwrap().clear();
+        NEW_BLOCKS_VM.lock().unwrap().clear();
         MINED_BLOCKS.lock().unwrap().clear();
         MINED_MICROBLOCKS.lock().unwrap().clear();
         NEW_MICROBLOCKS.lock().unwrap().clear();
@@ -756,8 +768,12 @@ pub mod test_observer {
     }
 
     pub fn register(config: &mut Config, event_keys: &[EventKeyType]) {
+        self::register_at(config, event_keys, EVENT_OBSERVER_PORT);
+    }
+
+    pub fn register_at(config: &mut Config, event_keys: &[EventKeyType], port: u16) {
         config.events_observers.insert(EventObserverConfig {
-            endpoint: format!("localhost:{EVENT_OBSERVER_PORT}"),
+            endpoint: format!("localhost:{port}"),
             events_keys: event_keys.to_vec(),
             timeout_ms: 1000,
             disable_retries: false,
@@ -767,6 +783,42 @@ pub mod test_observer {
 
     pub fn register_any(config: &mut Config) {
         self::register(config, &[EventKeyType::AnyEvent]);
+    }
+
+    /// Opt-in storage + nested-call observer, plus `*` so classic `events[]` can be
+    /// compared against the star-only observer (event_index must match).
+    pub fn register_vm_trace(config: &mut Config, port: u16) {
+        config.events_observers.insert(EventObserverConfig {
+            endpoint: format!("localhost:{port}"),
+            events_keys: vec![
+                EventKeyType::AnyEvent,
+                EventKeyType::StorageEvent,
+                EventKeyType::ContractCallEvent,
+            ],
+            timeout_ms: 1000,
+            disable_retries: false,
+            disable_contract_interface: false,
+        });
+    }
+
+    /// Second warp server. Does not clear the star observer log.
+    /// Accepts every observer path with 200 so `/new_burn_block` etc. do not
+    /// stall the dispatcher (it retries failed POSTs serially).
+    pub fn spawn_vm_observer(port: u16) {
+        thread::spawn(move || {
+            let rt = tokio::runtime::Runtime::new().expect("Failed to initialize tokio");
+            rt.block_on(async move {
+                let new_blocks = warp::path!("new_block")
+                    .and(warp::post())
+                    .and(warp::body::json())
+                    .and_then(handle_block_vm);
+                let ok = warp::any().map(|| warp::http::StatusCode::OK);
+                info!("Spawning vm-events observer warp server"; "port" => port);
+                warp::serve(new_blocks.or(ok))
+                    .run(([127, 0, 0, 1], port))
+                    .await
+            });
+        });
     }
 }
 
@@ -9418,4 +9470,168 @@ pub fn wait_for_tenure_change_tx(
         Ok(false)
     })?;
     Ok(result.unwrap())
+}
+
+const VM_TRACE_CALLER: &str = r#"
+(define-public (go (key (string-ascii 32)) (value (string-ascii 32)))
+  (contract-call? .store set-value key value))
+"#;
+
+/// Two observers: `*` only vs `*` + storage + contract_calls.
+/// A write via nested `contract-call?` must:
+/// - leave `*` payloads without a `vm_events` key
+/// - put `map_set_event` + `contract_call_event` on the opt-in observer
+/// - keep classic `events[].event_index` identical (print stays in `events[]`)
+#[test]
+#[ignore]
+fn vm_storage_events_observer_integration() {
+    if env::var("BITCOIND_TEST") != Ok("1".into()) {
+        return;
+    }
+
+    let spender_sk = StacksPrivateKey::random();
+    let spender_addr = to_addr(&spender_sk);
+    let spender_princ: PrincipalData = spender_addr.clone().into();
+
+    let (mut conf, _miner_account) = neon_integration_test_conf();
+
+    let star_port = gen_random_port();
+    let vm_port = gen_random_port();
+    test_observer::spawn_at(star_port);
+    test_observer::spawn_vm_observer(vm_port);
+    test_observer::register_at(&mut conf, &[EventKeyType::AnyEvent], star_port);
+    test_observer::register_vm_trace(&mut conf, vm_port);
+
+    conf.initial_balances.push(InitialBalance {
+        address: spender_princ,
+        amount: 10_000_000_000 * u64::from(core::MICROSTACKS_PER_STACKS),
+    });
+
+    let mut btcd_controller = BitcoinCoreController::from_stx_config(&conf);
+    btcd_controller
+        .start_bitcoind()
+        .expect("Failed starting bitcoind");
+
+    let burnchain_config = Burnchain::regtest(&conf.get_burn_db_path());
+    let mut btc_regtest_controller = BitcoinRegtestController::with_burnchain(
+        conf.clone(),
+        None,
+        Some(burnchain_config.clone()),
+        None,
+    );
+    let http_origin = format!("http://{}", &conf.node.rpc_bind);
+
+    btc_regtest_controller.bootstrap_chain(201);
+
+    let mut run_loop = neon::RunLoop::new(conf.clone());
+    let blocks_processed = run_loop.get_blocks_processed_arc();
+    let channel = run_loop.get_coordinator_channel().unwrap();
+    thread::spawn(move || run_loop.start(Some(burnchain_config), 0));
+    wait_for_runloop(&blocks_processed);
+
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+
+    submit_tx(
+        &http_origin,
+        &make_contract_publish(
+            &spender_sk,
+            0,
+            1000,
+            conf.burnchain.chain_id,
+            "store",
+            crate::tests::STORE_CONTRACT,
+        ),
+    );
+    submit_tx(
+        &http_origin,
+        &make_contract_publish(
+            &spender_sk,
+            1,
+            1000,
+            conf.burnchain.chain_id,
+            "caller",
+            VM_TRACE_CALLER,
+        ),
+    );
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+
+    let key = Value::string_ascii_from_bytes("hello".into()).unwrap();
+    let val = Value::string_ascii_from_bytes("world".into()).unwrap();
+    submit_tx(
+        &http_origin,
+        &make_contract_call(
+            &spender_sk,
+            2,
+            1000,
+            conf.burnchain.chain_id,
+            &spender_addr,
+            "caller",
+            "go",
+            &[key, val],
+        ),
+    );
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+
+    test_observer::clear();
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+
+    let star_blocks = test_observer::get_blocks();
+    let vm_blocks = test_observer::get_vm_blocks();
+    assert_eq!(star_blocks.len(), 1, "star observer: one new block");
+    assert_eq!(vm_blocks.len(), 1, "vm observer: one new block");
+
+    let star = &star_blocks[0];
+    let vm = &vm_blocks[0];
+
+    assert!(
+        star.get("vm_events").is_none(),
+        "`*` /new_block must not include vm_events"
+    );
+    let vm_events = vm
+        .get("vm_events")
+        .expect("opt-in observer must have vm_events")
+        .as_array()
+        .unwrap();
+    assert!(
+        vm_events.iter().any(|e| e["type"] == "map_set_event"),
+        "nested write must emit map_set_event: {vm_events:?}"
+    );
+    assert!(
+        vm_events.iter().any(|e| e["type"] == "contract_call_event"),
+        "nested contract-call? must emit contract_call_event: {vm_events:?}"
+    );
+    assert!(
+        vm_events.iter().all(|e| e.get("event_index").is_none()),
+        "vm_events must use vm_event_index, not event_index"
+    );
+
+    let star_indexes: Vec<u64> = star["events"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|e| e["event_index"].as_u64().unwrap())
+        .collect();
+    let vm_classic_indexes: Vec<u64> = vm["events"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|e| e["event_index"].as_u64().unwrap())
+        .collect();
+    assert_eq!(
+        star_indexes, vm_classic_indexes,
+        "classic event_index must match between `*` and opt-in observers"
+    );
+    assert!(
+        star["events"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|e| e["type"] == "contract_event"),
+        "print stays in classic events[]"
+    );
+
+    channel.stop_chains_coordinator();
 }
