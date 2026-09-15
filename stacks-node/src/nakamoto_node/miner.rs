@@ -256,12 +256,12 @@ impl std::fmt::Display for MinerReason {
     }
 }
 
-impl Into<MiningReason> for MinerReason {
-    fn into(self) -> MiningReason {
-        match self {
-            Self::BlockFound { .. } => MiningReason::BlockFound,
-            Self::Extended { .. } => MiningReason::Extended,
-            Self::ReadCountExtend { .. } => MiningReason::ReadCountExtend,
+impl From<MinerReason> for MiningReason {
+    fn from(reason: MinerReason) -> Self {
+        match reason {
+            MinerReason::BlockFound { .. } => MiningReason::BlockFound,
+            MinerReason::Extended { .. } => MiningReason::Extended,
+            MinerReason::ReadCountExtend { .. } => MiningReason::ReadCountExtend,
         }
     }
 }
