@@ -83,6 +83,10 @@ pub struct ValidateBlockArgs {
     #[arg(long, default_value_t = false)]
     pub early_exit: bool,
 
+    /// Don't fail a block whose only mismatch is its execution cost
+    #[arg(long, default_value_t = false)]
+    pub ignore_costs: bool,
+
     /// Block selection mode (if not specified, validates all blocks)
     #[command(subcommand)]
     pub mode: Option<ValidateBlockMode>,
@@ -618,5 +622,50 @@ mod tests {
 
         assert_eq!(cli.config, Some("/path/to/config.toml".to_string()));
         assert!(matches!(cli.command, Command::DumpConsts));
+    }
+
+    #[test]
+    fn test_validate_block_defaults() {
+        let cli = Cli::try_parse_from(["stacks-inspect", "validate-block", "/path/to/chainstate"])
+            .unwrap();
+
+        match cli.command {
+            Command::ValidateBlock(args) => {
+                assert_eq!(args.database_path, "/path/to/chainstate");
+                assert!(!args.early_exit);
+                assert!(!args.ignore_costs);
+                assert!(args.mode.is_none());
+            }
+            _ => panic!("Expected ValidateBlock command"),
+        }
+    }
+
+    #[test]
+    fn test_validate_block_ignore_costs() {
+        let cli = Cli::try_parse_from([
+            "stacks-inspect",
+            "validate-block",
+            "--ignore-costs",
+            "/path/to/chainstate",
+            "naka-index-range",
+            "0",
+            "100",
+        ])
+        .unwrap();
+
+        match cli.command {
+            Command::ValidateBlock(args) => {
+                assert!(args.ignore_costs);
+                assert!(!args.early_exit);
+                assert!(matches!(
+                    args.mode,
+                    Some(ValidateBlockMode::NakaIndexRange {
+                        start: Some(0),
+                        end: Some(100)
+                    })
+                ));
+            }
+            _ => panic!("Expected ValidateBlock command"),
+        }
     }
 }

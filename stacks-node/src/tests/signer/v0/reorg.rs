@@ -4876,8 +4876,8 @@ fn miner_rejection_by_contract_call_execution_time_expired() {
 
     miners.wait_for_test_observer_blocks(60);
 
-    assert_eq!(last_block_contains_txid(&tx1), true);
-    assert_eq!(last_block_contains_txid(&contract_call_txid), false);
+    assert!(last_block_contains_txid(&tx1));
+    assert!(!last_block_contains_txid(&contract_call_txid));
 
     info!("------------------------- Miner 1 Mines a Nakamoto Block N+2 -------------------------");
 
@@ -4887,7 +4887,7 @@ fn miner_rejection_by_contract_call_execution_time_expired() {
 
     miners.wait_for_test_observer_blocks(60);
 
-    assert_eq!(last_block_contains_txid(&tx2), true);
+    assert!(last_block_contains_txid(&tx2));
 
     verify_sortition_winner(&sortdb, &miner_pkh_1);
 
@@ -4915,7 +4915,7 @@ fn miner_rejection_by_contract_call_execution_time_expired() {
 
     miners.wait_for_test_observer_blocks(60);
 
-    assert_eq!(last_block_contains_txid(&contract_call_txid), true);
+    assert!(last_block_contains_txid(&contract_call_txid));
 
     verify_sortition_winner(&sortdb, &miner_pkh_2);
 
@@ -5000,7 +5000,7 @@ fn miner_rejection_by_contract_publish_execution_time_expired() {
         .send_and_mine_contract_publish(sender_nonce + 1, "dummy-contract", dummy_contract_src, 60)
         .expect_err("Expected an error while publishing contract in a new block");
 
-    assert_eq!(last_block_contains_txid(&tx1), true);
+    assert!(last_block_contains_txid(&tx1));
 
     verify_sortition_winner(&sortdb, &miner_pkh_1);
 

@@ -3093,15 +3093,13 @@ mod tests {
         let btc_controller = BitcoinRegtestController::new(config.clone(), None);
 
         let reviewed = btc_controller.to_epoch_aware_pubkey(StacksEpochId::Epoch20, &pubkey);
-        assert_eq!(
-            false,
-            reviewed.compressed(),
+        assert!(
+            !reviewed.compressed(),
             "Segwit disabled with Epoch < 2.1: not compressed"
         );
         let reviewed = btc_controller.to_epoch_aware_pubkey(StacksEpochId::Epoch21, &pubkey);
-        assert_eq!(
-            false,
-            reviewed.compressed(),
+        assert!(
+            !reviewed.compressed(),
             "Segwit disabled with Epoch >= 2.1: not compressed"
         );
 
@@ -3109,14 +3107,12 @@ mod tests {
         let btc_controller = BitcoinRegtestController::new(config.clone(), None);
 
         let reviewed = btc_controller.to_epoch_aware_pubkey(StacksEpochId::Epoch20, &pubkey);
-        assert_eq!(
-            false,
-            reviewed.compressed(),
+        assert!(
+            !reviewed.compressed(),
             "Segwit enabled with Epoch < 2.1: not compressed"
         );
         let reviewed = btc_controller.to_epoch_aware_pubkey(StacksEpochId::Epoch21, &pubkey);
-        assert_eq!(
-            true,
+        assert!(
             reviewed.compressed(),
             "Segwit enabled with Epoch >= 2.1: compressed"
         );
@@ -3183,8 +3179,8 @@ mod tests {
 
         let btc_controller = BitcoinRegtestController::with_burnchain(config, None, None, None);
 
+        // Accessing the RPC client must not panic for a miner.
         let _ = btc_controller.get_rpc_client();
-        assert!(true, "Invoking any Bitcoin RPC related method should work.");
     }
 
     #[test]
@@ -3223,8 +3219,8 @@ mod tests {
 
         let btc_controller = BitcoinRegtestController::new_dummy(config);
 
+        // Accessing the RPC client must not panic for a miner.
         let _ = btc_controller.get_rpc_client();
-        assert!(true, "Invoking any Bitcoin RPC related method should work.");
     }
 
     #[test]
