@@ -17,9 +17,12 @@ use std::fmt::Debug;
 use std::sync::mpsc::Sender;
 use std::time::Duration;
 
+use blockstack_lib::net::api::getsortition::SortitionInfo;
 use clarity::codec::StacksMessageCodec;
 use hashbrown::HashMap;
 use libsigner::{SignerEntries, SignerEvent, SignerRunLoop};
+use reqwest::StatusCode;
+use stacks_common::types::chainstate::ConsensusHash;
 use stacks_common::{debug, error, info, warn};
 
 use crate::chainstate::v1::SortitionsView;
@@ -127,6 +130,41 @@ impl RewardCycleInfo {
     }
 }
 
+/// The oldest reward cycle whose signer set may still be asked to sign.
+///
+/// Normally this is the current reward cycle. It is the previous cycle while that cycle's
+/// sortition is still the latest one on the burnchain: the tenure that sortition elected can
+/// be extended into the current cycle, and only the reward set that elected it can sign for
+/// those blocks (see `load_nakamoto_reward_set_for_tenure` in stackslib). As soon as a
+/// sortition occurs in the current cycle, the previous cycle's set is retired (whether or
+/// not the new cycle's set considers that winner valid).
+///
+/// This is the same condition `Signer::is_reward_cycle_retired` applies per proposal. Here it
+/// only decides how long to keep a signer configured (so here it is a resource allocation policy
+/// rather than a signing policy).
+///
+/// This never looks back more than one cycle: `stacks_signers` is
+/// keyed by reward cycle parity, so only two cycles can be configured
+/// at a time.
+fn oldest_active_reward_cycle(
+    current_reward_cycle: u64,
+    latest_sortition_reward_cycle: Option<u64>,
+) -> u64 {
+    let Some(prior_reward_cycle) = current_reward_cycle.checked_sub(1) else {
+        return current_reward_cycle;
+    };
+    // `None` means the latest sortition could not be confirmed. Keep the prior cycle's
+    // signer configured anyway: retention is a liveness question, and the safety question
+    // is settled separately by `Signer::is_reward_cycle_retired`, which refuses to sign on
+    // an unconfirmed view. Tearing the signer down here instead would make an unconfirmed
+    // view permanent for that cycle, since it could no longer act once the view recovers.
+    if latest_sortition_reward_cycle.is_none_or(|latest| latest <= prior_reward_cycle) {
+        prior_reward_cycle
+    } else {
+        current_reward_cycle
+    }
+}
+
 /// The configuration state for a reward cycle.
 /// Allows us to track if we've registered a signer for a cycle or not
 ///  and to differentiate between being unregistered and simply not configured
@@ -198,6 +236,21 @@ where
     pub current_reward_cycle_info: Option<RewardCycleInfo>,
     /// Cache sortitin data from `stacks-node`
     pub sortition_state: Option<SortitionsView>,
+    /// The reward cycle of the latest sortition on the node's canonical burnchain
+    /// fork, refreshed on every burn block.
+    ///
+    /// This is *not* the reward cycle of the burnchain tip: a burn
+    /// block with no sortition leaves this pointing at the prior
+    /// cycle. This is `None` if the sortition cannot be successfully
+    /// queried.
+    pub latest_sortition_reward_cycle: Option<u64>,
+    /// Consensus hash of the most recent burn block we have been told about.
+    ///
+    /// Sortition queries are anchored to it rather than to the node's idea of "latest",
+    /// which names the burnchain fork we are reasoning about and makes an answer the node
+    /// cannot yet give recognisable as such. `None` only before the first burn block is
+    /// known.
+    pub latest_burn_block_consensus_hash: Option<ConsensusHash>,
 }
 
 impl<Signer: SignerTrait<T>, T: StacksMessageCodec + Clone + Send + Debug> RunLoop<Signer, T> {
@@ -211,6 +264,8 @@ impl<Signer: SignerTrait<T>, T: StacksMessageCodec + Clone + Send + Debug> RunLo
             state: State::Uninitialized,
             current_reward_cycle_info: None,
             sortition_state: None,
+            latest_sortition_reward_cycle: None,
+            latest_burn_block_consensus_hash: None,
         }
     }
     /// Get the registered signers for a specific reward cycle
@@ -373,7 +428,18 @@ impl<Signer: SignerTrait<T>, T: StacksMessageCodec + Clone + Send + Debug> RunLo
         {
             self.refresh_signer_config(current_reward_cycle.saturating_add(1));
         }
+        // Recover a latest burn block so that the signer can query sortitions before
+        //  the next burn block arrives.
+        self.latest_burn_block_consensus_hash = self
+            .stacks_client
+            .get_peer_info()
+            .inspect_err(|e| warn!("Could not read the node's burnchain tip"; "err" => %e))
+            .ok()
+            .map(|peer_info| peer_info.pox_consensus)
+            .filter(|consensus_hash| consensus_hash.as_bytes().iter().any(|b| *b != 0));
         self.current_reward_cycle_info = Some(reward_cycle_info);
+        self.refresh_latest_sortition_reward_cycle();
+        self.refresh_active_reward_cycle_signers(current_reward_cycle);
         if self.stacks_signers.is_empty() {
             self.state = State::NoRegisteredSigners;
         } else {
@@ -382,7 +448,112 @@ impl<Signer: SignerTrait<T>, T: StacksMessageCodec + Clone + Send + Debug> RunLo
         Ok(())
     }
 
-    fn refresh_runloop(&mut self, ev_burn_block_height: u64) -> Result<(), ClientError> {
+    /// Refresh `latest_sortition_reward_cycle` from the node.
+    ///
+    /// `None` means the answer could not be determined -- an unreachable node, or no burn
+    /// block known yet. It does *not* mean "no later sortition exists", and callers must
+    /// not read it that way; see `Signer::is_reward_cycle_retired`.
+    fn refresh_latest_sortition_reward_cycle(&mut self) {
+        self.latest_sortition_reward_cycle = self.query_latest_sortition_reward_cycle();
+    }
+
+    /// The reward cycle of the latest winning sortition on the
+    /// burnchain fork named by `latest_burn_block_consensus_hash`, or
+    /// `None` if it could not be determined.
+    ///
+    /// Queries by specific consensus hash rather than for the node's
+    /// "latest" sortition.  The distinction is detectability, not
+    /// freshness: `/v3/sortitions/latest_and_last` returns the latest
+    /// block with a sortition, which means the case where
+    /// `/v3/sortitions` is stale looks identical to the case where
+    /// the latest block has been processed, but it has no sortition.
+    ///
+    /// Anchoring on the event's own consensus hash also makes this
+    /// fork-correct for free: after a burnchain reorg the new events
+    /// name the new fork, and the answer follows it rather than a
+    /// cached tip.
+    fn query_latest_sortition_reward_cycle(&self) -> Option<u64> {
+        let reward_cycle_info = self.current_reward_cycle_info.as_ref()?;
+        let consensus_hash = self.latest_burn_block_consensus_hash.as_ref()?;
+
+        let sortition = self.query_sortition(consensus_hash)?;
+        if sortition.was_sortition {
+            return Some(reward_cycle_info.get_reward_cycle(sortition.burn_block_height));
+        }
+
+        // No sortition in this burn block, so the latest one is whatever it points back to.
+        // A burn block without a sortition still carries `last_sortition_ch`; it is absent
+        // only when no sortition has ever occurred on this fork.
+        let Some(last_sortition_ch) = sortition.last_sortition_ch.as_ref() else {
+            debug!("No sortition has occurred yet on this burnchain fork.";
+                "consensus_hash" => %consensus_hash,
+            );
+            return None;
+        };
+        let last_sortition = self.query_sortition(last_sortition_ch)?;
+        Some(reward_cycle_info.get_reward_cycle(last_sortition.burn_block_height))
+    }
+
+    /// Read one sortition from the node by consensus hash, logging rather than propagating
+    /// a failure: every caller treats a missing answer as "unknown".
+    fn query_sortition(&self, consensus_hash: &ConsensusHash) -> Option<SortitionInfo> {
+        match self
+            .stacks_client
+            .get_sortition_by_consensus_hash(consensus_hash)
+        {
+            Ok(sortition) => Some(sortition),
+            // The node has not caught up to this burn block yet. Expected on the passes
+            // immediately following a burn block event, so not worth a warning.
+            Err(ClientError::RequestFailure(status)) if status == StatusCode::NOT_FOUND => {
+                debug!("Node does not know this burn block yet; deferring.";
+                    "consensus_hash" => %consensus_hash,
+                );
+                None
+            }
+            Err(e) => {
+                warn!("Could not read sortition info; leaving the latest sortition unresolved.";
+                    "consensus_hash" => %consensus_hash,
+                    "err" => %e,
+                );
+                None
+            }
+        }
+    }
+
+    /// Configure the signer for `reward_cycle` unless its slot is already held by a newer
+    /// cycle.
+    ///
+    /// `stacks_signers` is keyed by reward cycle parity, so cycles N and N+2 compete for one
+    /// slot. The newer cycle always wins: it is the one that will be asked to sign next.
+    fn refresh_signer_config_if_not_superseded(&mut self, reward_cycle: u64) {
+        if let Some(signer) = self.stacks_signers.get(&(reward_cycle % 2)) {
+            if signer.reward_cycle() >= reward_cycle {
+                return;
+            }
+        }
+        self.refresh_signer_config(reward_cycle);
+    }
+
+    /// Make sure a signer is configured for every reward cycle that may still be asked to
+    /// sign, and return the oldest of them for `cleanup_stale_signers` to keep.
+    ///
+    /// Re-configuring rather than merely declining to tear down is what makes this survive a
+    /// signer restart during the overlap, and a burnchain reorg that orphans the sortition
+    /// which retired the prior cycle.
+    fn refresh_active_reward_cycle_signers(&mut self, current_reward_cycle: u64) -> u64 {
+        let oldest_active =
+            oldest_active_reward_cycle(current_reward_cycle, self.latest_sortition_reward_cycle);
+        if oldest_active < current_reward_cycle {
+            self.refresh_signer_config_if_not_superseded(oldest_active);
+        }
+        oldest_active
+    }
+
+    fn refresh_runloop(
+        &mut self,
+        ev_burn_block_height: u64,
+        ev_consensus_hash: &ConsensusHash,
+    ) -> Result<(), ClientError> {
         let current_burn_block_height = std::cmp::max(
             self.stacks_client.get_peer_info()?.burn_block_height,
             ev_burn_block_height,
@@ -410,6 +581,14 @@ impl<Signer: SignerTrait<T>, T: StacksMessageCodec + Clone + Send + Debug> RunLo
         let is_in_next_prepare_phase =
             reward_cycle_info.is_in_next_prepare_phase(current_burn_block_height);
         let next_reward_cycle = current_reward_cycle.saturating_add(1);
+        // Defer resolving the latest sortition rather than attempting it here. The event
+        // is emitted as part of processing this burn block, so it usually
+        // reaches us before the node can describe the block over RPC so querying now
+        // only wastes a request with a 404. `run_one_pass` retries on each later
+        // pass, which is before any event is dispatched to the signers, so a block
+        // proposal still sees a resolved view.
+        self.latest_burn_block_consensus_hash = Some(ev_consensus_hash.clone());
+        self.latest_sortition_reward_cycle = None;
 
         info!(
             "Refreshing runloop with new burn block event";
@@ -422,6 +601,7 @@ impl<Signer: SignerTrait<T>, T: StacksMessageCodec + Clone + Send + Debug> RunLo
             "configured_for_next" => Self::is_configured_for_cycle(&self.stacks_signers, next_reward_cycle),
             "registered_for_next" => Self::is_registered_for_cycle(&self.stacks_signers, next_reward_cycle),
             "is_in_next_prepare_phase" => is_in_next_prepare_phase,
+            "latest_sortition_reward_cycle" => ?self.latest_sortition_reward_cycle,
         );
 
         // Check if we need to refresh the signers:
@@ -436,7 +616,10 @@ impl<Signer: SignerTrait<T>, T: StacksMessageCodec + Clone + Send + Debug> RunLo
             self.refresh_signer_config(next_reward_cycle);
         }
 
-        self.cleanup_stale_signers(current_reward_cycle);
+        let oldest_active_reward_cycle =
+            self.refresh_active_reward_cycle_signers(current_reward_cycle);
+
+        self.cleanup_stale_signers(oldest_active_reward_cycle);
         if self.stacks_signers.is_empty() {
             self.state = State::NoRegisteredSigners;
         } else {
@@ -466,7 +649,10 @@ impl<Signer: SignerTrait<T>, T: StacksMessageCodec + Clone + Send + Debug> RunLo
             && matches!(signer, ConfiguredSigner::RegisteredSigner(_))
     }
 
-    fn cleanup_stale_signers(&mut self, current_reward_cycle: u64) {
+    /// Tear down signers for reward cycles older than `oldest_active_reward_cycle` once
+    /// they have no work left. This is resource management only: whether a signer may
+    /// still sign is decided by `Signer::is_reward_cycle_retired`, not by its lifetime.
+    fn cleanup_stale_signers(&mut self, oldest_active_reward_cycle: u64) {
         #[cfg(any(test, feature = "testing"))]
         if TEST_SKIP_SIGNER_CLEANUP.get() {
             warn!("Skipping signer cleanup due to testing directive.");
@@ -475,8 +661,8 @@ impl<Signer: SignerTrait<T>, T: StacksMessageCodec + Clone + Send + Debug> RunLo
         let mut to_delete = Vec::new();
         for (idx, signer) in &mut self.stacks_signers {
             let reward_cycle = signer.reward_cycle();
-            if reward_cycle >= current_reward_cycle {
-                // We are either the current or a future reward cycle, so we are not stale.
+            if reward_cycle >= oldest_active_reward_cycle {
+                // Still active, or a future reward cycle, so not stale.
                 continue;
             }
             match signer {
@@ -579,10 +765,26 @@ impl<Signer: SignerTrait<T>, T: StacksMessageCodec + Clone + Send + Debug>
                 }
                 return None;
             }
-        } else if let Some(SignerEvent::NewBurnBlock { burn_height, .. }) = event {
-            if let Err(e) = self.refresh_runloop(burn_height) {
+        } else if let Some(SignerEvent::NewBurnBlock {
+            burn_height,
+            ref consensus_hash,
+            ..
+        }) = event
+        {
+            if let Err(e) = self.refresh_runloop(burn_height, consensus_hash) {
                 error!("Failed to refresh signer runloop: {e}.");
                 warn!("Signer may have an outdated view of the network.");
+            }
+        } else if self.state != State::Uninitialized && self.latest_sortition_reward_cycle.is_none()
+        {
+            // Resolve the burn block deferred above. Runs before the
+            // event is dispatched to the signers.
+            self.refresh_latest_sortition_reward_cycle();
+            if let Some(latest_sortition_reward_cycle) = self.latest_sortition_reward_cycle {
+                info!("Resolved the latest sortition's reward cycle";
+                    "latest_sortition_reward_cycle" => latest_sortition_reward_cycle,
+                    "latest_burn_block_consensus_hash" => ?self.latest_burn_block_consensus_hash,
+                );
             }
         }
 
@@ -603,6 +805,7 @@ impl<Signer: SignerTrait<T>, T: StacksMessageCodec + Clone + Send + Debug>
                 event.as_ref(),
                 res,
                 current_reward_cycle,
+                self.latest_sortition_reward_cycle,
             );
         }
 
@@ -621,7 +824,39 @@ mod tests {
     use rand::{thread_rng, Rng, RngCore};
     use stacks_common::types::chainstate::StacksPublicKey;
 
-    use super::RewardCycleInfo;
+    use super::{oldest_active_reward_cycle, RewardCycleInfo};
+
+    #[test]
+    fn oldest_active_reward_cycle_holds_prior_until_a_sortition_lands() {
+        // The burnchain is still in cycle 10: nothing to hold open.
+        assert_eq!(oldest_active_reward_cycle(10, Some(10)), 10);
+
+        // The burnchain has crossed into cycle 11, but the latest sortition is still the one
+        // in cycle 10. The tenure it elected can be extended into cycle 11, and only cycle
+        // 10's reward set can sign for it, so cycle 10's signer is still needed.
+        assert_eq!(oldest_active_reward_cycle(11, Some(10)), 10);
+
+        // A sortition has landed in cycle 11. Responsibility has passed on, whatever cycle
+        // 11's signers make of the winner.
+        assert_eq!(oldest_active_reward_cycle(11, Some(11)), 11);
+
+        // Unconfirmed: keep the prior cycle configured so it can act once the view
+        // recovers. It will not sign in the meantime -- `Signer::is_reward_cycle_retired`
+        // treats an unconfirmed view as retiring a past cycle's signer.
+        assert_eq!(oldest_active_reward_cycle(11, None), 10);
+    }
+
+    #[test]
+    fn oldest_active_reward_cycle_looks_back_at_most_one_cycle() {
+        // `stacks_signers` is keyed by reward cycle parity, so cycle 10 could not be held
+        // alongside cycle 12 even if no sortition had occurred since.
+        assert_eq!(oldest_active_reward_cycle(12, Some(10)), 11);
+        assert_eq!(oldest_active_reward_cycle(12, None), 11);
+
+        // No underflow at the very first reward cycle.
+        assert_eq!(oldest_active_reward_cycle(0, None), 0);
+        assert_eq!(oldest_active_reward_cycle(0, Some(0)), 0);
+    }
 
     #[test]
     fn parse_nakamoto_signer_entries_test() {
