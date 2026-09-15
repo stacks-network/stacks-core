@@ -32,8 +32,8 @@
 //! Two invariants establish canonical byte identity:
 //!
 //! - Packed bytes depend only on the active [`Value`], never declared bounds or epoch;
-//! - [`ValueDescriptor`] records only information omitted from packed bytes that is needed to reconstruct
-//!   the exact consensus serialization without a declared [`crate::types::TypeSignature`].
+//! - [`ValueDescriptor`] is likewise value-derived and supplies structural metadata and independent
+//!   framing for exact consensus reconstruction without an expected [`TypeSignature`].
 
 use crate::types::{TypeSignature, Value};
 
@@ -312,8 +312,9 @@ impl<'a> PackedValueRef<'a> {
 
 /// An owned, versioned value descriptor.
 ///
-/// The descriptor contains only information omitted from [`PackedValue`] that is required to
-/// reconstruct consensus bytes without a caller-supplied [`TypeSignature`].
+/// The descriptor supplies structural metadata for reconstructing consensus bytes from
+/// [`PackedValue`] without an expected [`TypeSignature`]. Its independent framing may repeat
+/// information present in the packed record, such as per-element list counts.
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct ValueDescriptor {
     /// Complete versioned descriptor bytes.

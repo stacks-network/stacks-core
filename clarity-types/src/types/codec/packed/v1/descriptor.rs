@@ -15,9 +15,10 @@
 
 //! Version 1 value descriptor encoding and decoding.
 //!
-//! A descriptor records only information omitted from packed bytes, such as tuple field names and
-//! active optional/response/list shapes. It is derived from the value itself; declared bounds and
-//! the current epoch must never influence these bytes.
+//! A descriptor records structural metadata, such as tuple field names and active
+//! optional/response/list shapes, plus its own framing. Counts delimit child shapes independently
+//! of the packed record. It is derived from the value itself; declared bounds and the current epoch
+//! must never influence these bytes.
 
 pub use super::super::shape::ActiveShape;
 use super::super::shape::merge_list_elements;

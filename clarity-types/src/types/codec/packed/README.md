@@ -9,8 +9,8 @@ The remaining envelope and body are interpreted only by the selected version imp
 Packed records and value descriptors are independently versioned:
 
 - a packed record stores the active value and its equivalent consensus-serialization length; and
-- an optional value descriptor (`ValueDescriptor`) stores the minimal value-derived structural
-  metadata needed to reconstruct consensus bytes without a caller-supplied `TypeSignature`.
+- an optional value descriptor (`ValueDescriptor`) stores value-derived structural metadata and
+  independent framing for consensus reconstruction without a caller-supplied `TypeSignature`.
 
 Typed decoding needs only a packed record and an **expected type** (the caller-supplied
 `TypeSignature`). Descriptor-guided reconstruction needs both the record and its descriptor.

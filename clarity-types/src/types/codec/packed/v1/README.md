@@ -565,9 +565,16 @@ serializing can reuse that checked length rather than serialize the value again.
 
 ## Value descriptor
 
-The value descriptor supplies only information omitted from packed bytes that is necessary for
-descriptor-guided reconstruction. It uses the
-[value descriptor envelope](#value-descriptor-envelope) defined above.
+The value descriptor supplies structural metadata for consensus reconstruction and its own framing.
+That framing allows the descriptor to be parsed independently of the packed record and may repeat
+information present there. For example, a per-element list count tells the descriptor parser how
+many child shapes to read before continuing with a sibling, without consulting the packed list's
+count. Reconstruction checks that the two counts agree.
+
+Independent framing lets readers inspect and validate the descriptor's grammar without accessing
+the associated packed record or interpreting its body layout.
+
+The descriptor uses the [value descriptor envelope](#value-descriptor-envelope) defined above.
 
 The descriptor MUST contain exactly one shape with no trailing bytes. Its total length MUST NOT
 exceed `BOUND_VALUE_DESCRIPTOR_BYTES` (currently 2,097,153 bytes), and its recursive depth MUST NOT
