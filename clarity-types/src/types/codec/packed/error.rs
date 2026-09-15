@@ -587,13 +587,11 @@ pub enum ValueDescriptorError {
     NonCanonicalVarUint {
         /// Encoded seven-bit groups.
         encoded_groups: usize,
-        /// Decoded integer value.
-        value: usize,
+        /// Decoded `u32` count.
+        value: u32,
     },
-    /// A descriptor varuint cannot be represented as a `usize`.
-    #[error(
-        "descriptor varuint at byte offset {offset} exceeds usize after {encoded_groups} groups"
-    )]
+    /// A descriptor varuint exceeds the `u32` wire-format limit.
+    #[error("descriptor varuint at byte offset {offset} exceeds u32 after {encoded_groups} groups")]
     VarUintOverflow {
         /// Complete-descriptor offset of the first varuint byte.
         offset: usize,

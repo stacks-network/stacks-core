@@ -191,7 +191,8 @@ impl<'a> DescriptorParser<'a> {
 
     /// Parse a non-empty, canonically ordered tuple descriptor.
     fn parse_tuple(&mut self, child_depth: u8) -> Result<ActiveShape, PackedValueError> {
-        let count = self.take_varuint()?;
+        let count =
+            usize::try_from(self.take_varuint()?).map_err(|_| PackedValueError::SizeOverflow)?;
         if count == 0 {
             return Err(ValueDescriptorError::EmptyTuple.into());
         }
@@ -241,7 +242,8 @@ impl<'a> DescriptorParser<'a> {
 
     /// Parse non-mergeable per-element list descriptors.
     fn parse_list_elements(&mut self, child_depth: u8) -> Result<ActiveShape, PackedValueError> {
-        let count = self.take_varuint()?;
+        let count =
+            usize::try_from(self.take_varuint()?).map_err(|_| PackedValueError::SizeOverflow)?;
         let remaining_bytes = self.bytes.len().saturating_sub(self.cursor);
         if count == 0 || count > remaining_bytes {
             return Err(ValueDescriptorError::InvalidPerElementListCount {
@@ -263,15 +265,15 @@ impl<'a> DescriptorParser<'a> {
         Ok(ActiveShape::ListElements(elements))
     }
 
-    /// Decode one minimal unsigned LEB128 descriptor integer.
-    fn take_varuint(&mut self) -> Result<usize, PackedValueError> {
+    /// Decode one minimal unsigned LEB128 count bounded by the wire format to `u32`.
+    fn take_varuint(&mut self) -> Result<u32, PackedValueError> {
         let start = self.cursor;
-        let mut value = 0usize;
+        let mut value = 0u32;
         let mut shift = 0u32;
         loop {
             let byte = self.take_byte()?;
-            let group = usize::from(byte & 0x7f);
-            if group > (usize::MAX >> shift) {
+            let group = u32::from(byte & 0x7f);
+            if group > (u32::MAX >> shift) {
                 return Err(self.varuint_overflow(start).into());
             }
             let part = group << shift;
@@ -291,7 +293,7 @@ impl<'a> DescriptorParser<'a> {
             shift = shift
                 .checked_add(7)
                 .ok_or_else(|| self.varuint_overflow(start))?;
-            if shift >= usize::BITS {
+            if shift >= u32::BITS {
                 return Err(self.varuint_overflow(start).into());
             }
         }
@@ -394,8 +396,9 @@ fn encode_shape_node(shape: &ActiveShape, output: &mut Vec<u8>) -> Result<(), Pa
     Ok(())
 }
 
-/// Append a minimal unsigned LEB128 descriptor integer.
-fn encode_varuint(mut value: usize, output: &mut Vec<u8>) -> Result<(), PackedValueError> {
+/// Check a host-sized count against the `u32` wire limit and append its minimal unsigned LEB128.
+fn encode_varuint(value: usize, output: &mut Vec<u8>) -> Result<(), PackedValueError> {
+    let mut value = u32::try_from(value).map_err(|_| PackedValueError::SizeOverflow)?;
     loop {
         let mut byte = u8::try_from(value & 0x7f).map_err(|_| PackedValueError::SizeOverflow)?;
         value >>= 7;
@@ -411,9 +414,128 @@ fn encode_varuint(mut value: usize, output: &mut Vec<u8>) -> Result<(), PackedVa
 
 #[cfg(test)]
 mod tests {
+    use std::assert_matches;
+
     use super::*;
     use crate::types::BOUND_VALUE_SERIALIZATION_BYTES;
     use crate::types::codec::packed::{PackedValue, PackedValueVersion};
+
+    /// Independent vectors cover every unsigned LEB128 width transition through `u32::MAX`.
+    #[test]
+    fn varuint_u32_boundary_vectors() {
+        let vectors: &[(u32, &[u8])] = &[
+            (0, &[0x00]),
+            (1, &[0x01]),
+            (127, &[0x7f]),
+            (128, &[0x80, 0x01]),
+            (16_383, &[0xff, 0x7f]),
+            (16_384, &[0x80, 0x80, 0x01]),
+            (2_097_151, &[0xff, 0xff, 0x7f]),
+            (2_097_152, &[0x80, 0x80, 0x80, 0x01]),
+            (268_435_455, &[0xff, 0xff, 0xff, 0x7f]),
+            (268_435_456, &[0x80, 0x80, 0x80, 0x80, 0x01]),
+            (u32::MAX, &[0xff, 0xff, 0xff, 0xff, 0x0f]),
+        ];
+        for &(value, bytes) in vectors {
+            let mut parser = DescriptorParser::new(bytes);
+            assert_eq!(parser.take_varuint().unwrap(), value);
+            assert_eq!(parser.cursor, bytes.len());
+            let mut encoded = Vec::new();
+            encode_varuint(usize::try_from(value).unwrap(), &mut encoded).unwrap();
+            assert_eq!(encoded, bytes);
+        }
+    }
+
+    /// Neither excessive fifth-byte payload bits nor continuation past five groups can fit `u32`.
+    #[test]
+    fn varuint_overflow_uses_complete_descriptor_coordinates() {
+        for bytes in [
+            [0x80, 0x80, 0x80, 0x80, 0x10],
+            [0xff, 0xff, 0xff, 0xff, 0x7f],
+            [0x80, 0x80, 0x80, 0x80, 0x80],
+            [0xff, 0xff, 0xff, 0xff, 0x8f],
+        ] {
+            let mut body = vec![0x0c];
+            body.extend_from_slice(&bytes);
+            let mut parser = DescriptorParser::new(&body);
+            parser.take_byte().unwrap();
+            assert_matches!(
+                parser.take_varuint(),
+                Err(PackedValueError::Descriptor(
+                    ValueDescriptorError::VarUintOverflow {
+                        offset: 2,
+                        encoded_groups: 5,
+                    }
+                ))
+            );
+        }
+    }
+
+    /// The numeric limit does not replace minimality or truncation checks.
+    #[test]
+    fn varuint_rejects_redundant_and_truncated_groups() {
+        for (bytes, value) in [
+            (&[0x80, 0x00][..], 0),
+            (&[0xff, 0x00][..], 127),
+            (&[0x80, 0x80, 0x80, 0x80, 0x00][..], 0),
+        ] {
+            assert_matches!(
+                DescriptorParser::new(bytes).take_varuint(),
+                Err(PackedValueError::Descriptor(ValueDescriptorError::NonCanonicalVarUint {
+                    encoded_groups,
+                    value: actual,
+                })) if encoded_groups == bytes.len() && actual == value
+            );
+        }
+        for length in 0..5 {
+            let bytes = vec![0x80; length];
+            assert_matches!(
+                DescriptorParser::new(&bytes).take_varuint(),
+                Err(PackedValueError::Descriptor(ValueDescriptorError::Truncated {
+                    offset,
+                })) if offset == length + VALUE_DESCRIPTOR_VERSION_LEN
+            );
+        }
+    }
+
+    /// Host-sized counts above the wire limit must fail before appending any bytes.
+    #[test]
+    fn varuint_writer_rejects_counts_above_u32() {
+        let Ok(oversized) = usize::try_from(u64::from(u32::MAX) + 1) else {
+            // This count cannot exist on a host with a narrower usize.
+            return;
+        };
+        let mut output = vec![0xa5];
+        assert_matches!(
+            encode_varuint(oversized, &mut output),
+            Err(PackedValueError::SizeOverflow)
+        );
+        assert_eq!(output, [0xa5]);
+    }
+
+    /// A valid numeric count must still fit the remaining descriptor before allocating children.
+    #[test]
+    fn u32_counts_retain_descriptor_allocation_bounds() {
+        let count = [0xff, 0xff, 0xff, 0xff, 0x0f];
+        let mut tuple = vec![VALUE_DESCRIPTOR_VERSION, 0x0c];
+        tuple.extend_from_slice(&count);
+        assert_matches!(
+            parse_value_descriptor(&tuple),
+            Err(PackedValueError::Descriptor(ValueDescriptorError::TupleFieldCountExceedsDescriptor {
+                declared,
+                remaining_bytes: 0,
+            })) if declared == usize::try_from(u32::MAX).unwrap()
+        );
+        let mut list = vec![VALUE_DESCRIPTOR_VERSION, 0x0f];
+        list.extend_from_slice(&count);
+        assert_matches!(
+            parse_value_descriptor(&list),
+            Err(PackedValueError::Descriptor(ValueDescriptorError::InvalidPerElementListCount {
+                declared,
+                remaining_bytes: 0,
+            })) if declared == usize::try_from(u32::MAX).unwrap()
+        );
+    }
 
     /// Preserve the complete historical payload when its descriptor exceeds the runtime size bound.
     #[test]

@@ -679,8 +679,13 @@ Tuple field counts and per-element list counts use minimal unsigned LEB128. For 
 
 The complete `varuint` additionally obeys these canonicality rules:
 
-- the terminal byte MUST NOT contain a zero group when more than one byte was used; and
-- overflow of the host `usize` MUST be rejected.
+- the value MUST fit in `u32` (at most 4,294,967,295), regardless of host integer width;
+- at most five bytes may be used; in a fifth byte, only the low four bits may be set; and
+- the terminal byte MUST NOT contain a zero group when more than one byte was used.
+
+These are numeric encoding limits. Tuple and per-element list counts MUST also satisfy their
+non-zero and remaining-descriptor-byte constraints. Implementations MUST check conversions between
+descriptor counts and host-sized lengths for overflow.
 
 ## Typed decoding
 

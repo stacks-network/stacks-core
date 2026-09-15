@@ -520,30 +520,30 @@ fn value_descriptor_enforces_depth_and_size_bounds() {
     );
 }
 
+/// Both count-bearing descriptor nodes enforce the same host-independent wire limit.
 #[test]
-fn value_descriptor_rejects_varuint_groups_that_exceed_usize() {
-    const TUPLE_SHAPE: u8 = 0x0c;
-    const BOOL_SHAPE: u8 = 0x02;
-
-    let continuation_groups = (usize::BITS - 1) / 7;
-    let final_shift = continuation_groups * 7;
-    let overflowing_group = 1u8 << (usize::BITS - final_shift);
-    let mut overflowing_count = vec![VALUE_DESCRIPTOR_VERSION, TUPLE_SHAPE, 0x81];
-    overflowing_count.extend(std::iter::repeat_n(
-        0x80,
-        usize::try_from(continuation_groups - 1).unwrap(),
-    ));
-    overflowing_count.extend([overflowing_group, 1, b'a', BOOL_SHAPE]);
-
-    assert_matches!(
-        ValueDescriptor::from_bytes(&overflowing_count),
-        Err(PackedValueError::Descriptor(
-            ValueDescriptorError::VarUintOverflow {
-                offset: 2,
-                encoded_groups
-            }
-        )) if encoded_groups == usize::try_from(continuation_groups + 1).unwrap()
-    );
+fn value_descriptor_rejects_varuint_groups_that_exceed_u32() {
+    for opcode in [0x0c, 0x0f] {
+        // 2^32, encoded in five groups: the fifth payload exceeds its four available bits.
+        let descriptor = [
+            VALUE_DESCRIPTOR_VERSION,
+            opcode,
+            0x80,
+            0x80,
+            0x80,
+            0x80,
+            0x10,
+        ];
+        assert_matches!(
+            ValueDescriptor::from_bytes(&descriptor),
+            Err(PackedValueError::Descriptor(
+                ValueDescriptorError::VarUintOverflow {
+                    offset: 2,
+                    encoded_groups: 5,
+                }
+            ))
+        );
+    }
 }
 
 #[test]
