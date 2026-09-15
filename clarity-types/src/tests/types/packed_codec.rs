@@ -229,6 +229,168 @@ fn value_descriptor_merges_active_list_branches() {
     );
 }
 
+/// A shared optional child shape describes both variants; all-none lists need no child shape.
+#[test]
+fn optional_list_descriptors_have_stable_golden_vectors() {
+    let list_type = ListTypeData::new_list(
+        TypeSignature::new_option(TypeSignature::UIntType).unwrap(),
+        2,
+    )
+    .unwrap();
+    for (elements, descriptor_bytes, packed_bytes) in [
+        (
+            vec![Value::none(), Value::some(Value::UInt(1)).unwrap()],
+            &[VALUE_DESCRIPTOR_VERSION, 0x0e, 0x08, 0x01][..],
+            &[
+                PACKED_VALUE_VERSION,
+                0,
+                0,
+                24,
+                0,
+                0,
+                0,
+                2,
+                0,
+                0,
+                1,
+                3,
+                0,
+                1,
+                1,
+            ][..],
+        ),
+        (
+            vec![Value::none(), Value::none()],
+            &[VALUE_DESCRIPTOR_VERSION, 0x0e, 0x07][..],
+            &[PACKED_VALUE_VERSION, 0, 0, 7, 0, 0, 0, 2, 0, 0, 1, 2, 0, 0][..],
+        ),
+    ] {
+        let value = Value::list_with_type(&EPOCH, elements, list_type.clone()).unwrap();
+        assert_eq!(
+            ValueDescriptor::from_value(DESCRIPTOR_VERSION, &value)
+                .unwrap()
+                .as_bytes(),
+            descriptor_bytes
+        );
+        let packed = assert_canonical_round_trip(
+            value,
+            TypeSignature::SequenceType(SequenceSubtype::ListType(list_type.clone())),
+        );
+        assert_eq!(packed, packed_bytes);
+    }
+}
+
+/// Empty nested lists share an observed element shape, but do not introduce one themselves.
+#[test]
+fn nested_list_descriptors_have_stable_golden_vectors() {
+    let inner_type = ListTypeData::new_list(TypeSignature::UIntType, 1).unwrap();
+    let outer_type = ListTypeData::new_list(
+        TypeSignature::SequenceType(SequenceSubtype::ListType(inner_type.clone())),
+        2,
+    )
+    .unwrap();
+    let empty = Value::list_with_type(&EPOCH, vec![], inner_type.clone()).unwrap();
+    let non_empty = Value::list_with_type(&EPOCH, vec![Value::UInt(1)], inner_type).unwrap();
+    for (elements, descriptor_bytes, packed_bytes) in [
+        (
+            vec![empty.clone(), non_empty],
+            &[VALUE_DESCRIPTOR_VERSION, 0x0e, 0x0e, 0x01][..],
+            &[
+                PACKED_VALUE_VERSION,
+                0,
+                0,
+                32,
+                0,
+                0,
+                0,
+                2,
+                0,
+                0,
+                4,
+                9,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                1,
+                1,
+            ][..],
+        ),
+        (
+            vec![empty.clone(), empty],
+            &[VALUE_DESCRIPTOR_VERSION, 0x0e, 0x0d][..],
+            &[
+                PACKED_VALUE_VERSION,
+                0,
+                0,
+                15,
+                0,
+                0,
+                0,
+                2,
+                0,
+                0,
+                4,
+                8,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+            ][..],
+        ),
+    ] {
+        let value = Value::list_with_type(&EPOCH, elements, outer_type.clone()).unwrap();
+        assert_eq!(
+            ValueDescriptor::from_value(DESCRIPTOR_VERSION, &value)
+                .unwrap()
+                .as_bytes(),
+            descriptor_bytes
+        );
+        let packed = assert_canonical_round_trip(
+            value,
+            TypeSignature::SequenceType(SequenceSubtype::ListType(outer_type.clone())),
+        );
+        assert_eq!(packed, packed_bytes);
+    }
+}
+
+/// A present optional child cannot be reconstructed without its child shape.
+#[test]
+fn optional_without_child_shape_rejects_some() {
+    let value = Value::some(Value::UInt(1)).unwrap();
+    let packed = PackedValue::encode(PACKED_VERSION, &value).unwrap();
+    assert_matches!(
+        packed
+            .as_packed_ref()
+            .reconstruct_consensus(&[VALUE_DESCRIPTOR_VERSION, 0x07]),
+        Err(PackedValueError::Reconstruction(
+            ReconstructionError::OptionalShapeMismatch
+        ))
+    );
+}
+
+/// A positive packed list count requires an element shape.
+#[test]
+fn list_without_element_shape_rejects_non_empty_list() {
+    let value = Value::cons_list_unsanitized(vec![Value::UInt(1)]).unwrap();
+    let packed = PackedValue::encode(PACKED_VERSION, &value).unwrap();
+    assert_matches!(
+        packed
+            .as_packed_ref()
+            .reconstruct_consensus(&[VALUE_DESCRIPTOR_VERSION, 0x0d]),
+        Err(PackedValueError::Reconstruction(
+            ReconstructionError::MissingListElementShape { record_count: 1 }
+        ))
+    );
+}
+
 #[test]
 fn homogeneous_list_reuses_one_active_shape() {
     let element = || {

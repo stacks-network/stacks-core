@@ -202,6 +202,10 @@ rows show all of their runtime subtypes.
 | `Response::Ok` | Tag `01` plus active child | `09` | Success type or shape |
 | `Tuple` | Fixed concatenation or offset directory | `0c` | Field names/types or tuple shape |
 
+The shape opcodes above describe each value in isolation. A shared descriptor may also carry child
+shapes observed in sibling list elements; see [shape opcodes](#shape-opcodes) for their meaning and
+[list descriptors](#list-descriptors) for merging rules.
+
 `NoType` is not an active runtime value. `ListUnionType` is an analysis-only type and cannot
 describe an active runtime value.
 
@@ -595,13 +599,13 @@ at offset one:
 | `0` | 1 byte | `05` | UTF-8 string | None |
 | `0` | 1 byte | `06` | Principal | None |
 | `0` | 1 byte | `07` | Optional `none` | None |
-| `0` | 1 byte | `08` | Optional `some` | One child shape |
+| `0` | 1 byte | `08` | Optional (`none` or `some`) | One child shape |
 | `0` | 1 byte | `09` | Response `ok` only | One `ok` child shape |
 | `0` | 1 byte | `0a` | Response `err` only | One `err` child shape |
-| `0` | 1 byte | `0b` | Response with observed `ok` and `err` shapes | `ok` shape, then `err` shape |
+| `0` | 1 byte | `0b` | Response (`ok` or `err`) | `ok` shape, then `err` shape |
 | `0` | 1 byte | `0c` | Tuple | Tuple descriptor |
 | `0` | 1 byte | `0d` | Empty list | None |
-| `0` | 1 byte | `0e` | Non-empty list with one shared shape | One element shape |
+| `0` | 1 byte | `0e` | List (empty or non-empty) | One element shape |
 | `0` | 1 byte | `0f` | Historical list with per-element shapes | List-elements descriptor |
 
 Unknown opcodes MUST be rejected.
@@ -609,7 +613,16 @@ Unknown opcodes MUST be rejected.
 `06` deliberately merges ordinary principals and callable contracts because their canonical
 consensus bytes contain the same contract-principal identity.
 
-`0b` normally arises by merging response shapes across list elements. A shape for one standalone
+Optional opcode `08` supplies the shape to use when a packed optional's tag is `01` (`some`);
+it also describes `none`, whose tag is `00` and has no child bytes. Opcode `07` supplies no child
+shape and can only describe `none`.
+
+List opcode `0e` supplies an element shape for non-empty lists but can also describe an empty list:
+its packed count is zero, so no element shape is used. Opcode `0d` supplies no element shape and
+can only describe empty lists.
+
+Response opcode `0b` supplies both the `ok` and `err` child shapes; each packed response tag selects
+one. It normally arises by merging response shapes across list elements. A shape for one standalone
 response contains only its active branch.
 
 ### Tuple descriptor
@@ -668,6 +681,12 @@ Shape merging follows these rules:
 - tuples merge only when names and arity match, then merge each child;
 - list shapes recursively merge their element shapes; and
 - incompatible shapes do not merge.
+
+Merging `none` and `some` needs only one shared optional shape: the child shape is used only for
+present children, following the [optional opcode rules](#shape-opcodes). Similarly, empty and
+non-empty nested lists can share an element shape because a zero packed count requires no elements.
+See the golden examples for [optionals](#merged-optional-shape-in-a-list) and
+[nested lists](#merged-nested-list-shape-in-a-list).
 
 ### Descriptor varuint
 
@@ -958,6 +977,28 @@ packed = 01 00 00 12  00 00 00 02  00  00 01 03  01 02 03
 
 descriptor = 01 0e 03
 ```
+
+### Merged optional shape in a list
+
+A shared optional shape records the child shape observed in `some`; `none` contributes no child
+shape. Both lists below use a directory because optionals are variable-width. Their offsets are
+`[0, 1, 3]` and `[0, 1, 2]`, respectively.
+
+| Value | Consensus-length calculation | `packed` | `descriptor` |
+| ---- | ---- | ---- | ---- |
+| `(list none (some u1))` | `5 + 1 + (1 + 17) = 24` | `01 00 00 18  00 00 00 02  00  00 01 03  00  01 01` | `01 0e 08 01` |
+| `(list none none)` | `5 + 1 + 1 = 7` | `01 00 00 07  00 00 00 02  00  00 01 02  00 00` | `01 0e 07` |
+
+### Merged nested list shape in a list
+
+A shared list shape records the element shape observed in non-empty inner lists; empty lists
+contribute no element shape. The outer lists use directory offsets `[0, 4, 9]` and `[0, 4, 8]`,
+respectively. Each inner list body starts with its own four-byte count.
+
+| Value | Consensus-length calculation | `packed` | `descriptor` |
+| ---- | ---- | ---- | ---- |
+| `(list (list) (list u1))` | `5 + 5 + (5 + 17) = 32` | `01 00 00 20  00 00 00 02  00  00 04 09  00 00 00 00  00 00 00 01 01` | `01 0e 0e 01` |
+| `(list (list) (list))` | `5 + 5 + 5 = 15` | `01 00 00 0f  00 00 00 02  00  00 04 08  00 00 00 00  00 00 00 00` | `01 0e 0d` |
 
 ### Merged response shape in a list
 

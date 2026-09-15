@@ -43,13 +43,20 @@ enum ShapeOpcode {
     Ascii = 0x04,
     Utf8 = 0x05,
     Principal = 0x06,
+    /// No child shape was observed; only absent optional values can be described.
     OptionalNone = 0x07,
-    OptionalSome = 0x08,
+    /// An observed child shape shared by absent and present optional values.
+    Optional = 0x08,
+    /// Only the `ok` child shape is supplied; describes only `ok` values.
     ResponseOk = 0x09,
+    /// Only the `err` child shape is supplied; describes only `err` values.
     ResponseErr = 0x0a,
-    ResponseBoth = 0x0b,
+    /// Observed shapes for both branches; each packed response tag selects one.
+    Response = 0x0b,
     Tuple = 0x0c,
+    /// No element shape was observed; only empty lists can be described.
     EmptyList = 0x0d,
+    /// An observed element shape shared by empty and non-empty lists.
     List = 0x0e,
     ListElements = 0x0f,
 }
@@ -66,10 +73,10 @@ impl ShapeOpcode {
             0x05 => Ok(Self::Utf8),
             0x06 => Ok(Self::Principal),
             0x07 => Ok(Self::OptionalNone),
-            0x08 => Ok(Self::OptionalSome),
+            0x08 => Ok(Self::Optional),
             0x09 => Ok(Self::ResponseOk),
             0x0a => Ok(Self::ResponseErr),
-            0x0b => Ok(Self::ResponseBoth),
+            0x0b => Ok(Self::Response),
             0x0c => Ok(Self::Tuple),
             0x0d => Ok(Self::EmptyList),
             0x0e => Ok(Self::List),
@@ -165,7 +172,7 @@ impl<'a> DescriptorParser<'a> {
             ShapeOpcode::Utf8 => Ok(ActiveShape::Utf8),
             ShapeOpcode::Principal => Ok(ActiveShape::Principal),
             ShapeOpcode::OptionalNone => Ok(ActiveShape::Optional(None)),
-            ShapeOpcode::OptionalSome => Ok(ActiveShape::Optional(Some(Box::new(
+            ShapeOpcode::Optional => Ok(ActiveShape::Optional(Some(Box::new(
                 self.parse_shape(child_depth)?,
             )))),
             ShapeOpcode::ResponseOk => Ok(ActiveShape::Response {
@@ -176,7 +183,7 @@ impl<'a> DescriptorParser<'a> {
                 ok: None,
                 err: Some(Box::new(self.parse_shape(child_depth)?)),
             }),
-            ShapeOpcode::ResponseBoth => Ok(ActiveShape::Response {
+            ShapeOpcode::Response => Ok(ActiveShape::Response {
                 ok: Some(Box::new(self.parse_shape(child_depth)?)),
                 err: Some(Box::new(self.parse_shape(child_depth)?)),
             }),
@@ -336,7 +343,7 @@ fn encode_shape_node(shape: &ActiveShape, output: &mut Vec<u8>) -> Result<(), Pa
         ActiveShape::Principal => output.push(ShapeOpcode::Principal.to_byte()),
         ActiveShape::Optional(None) => output.push(ShapeOpcode::OptionalNone.to_byte()),
         ActiveShape::Optional(Some(child)) => {
-            output.push(ShapeOpcode::OptionalSome.to_byte());
+            output.push(ShapeOpcode::Optional.to_byte());
             encode_shape_node(child, output)?;
         }
         ActiveShape::Response {
@@ -357,7 +364,7 @@ fn encode_shape_node(shape: &ActiveShape, output: &mut Vec<u8>) -> Result<(), Pa
             ok: Some(ok),
             err: Some(err),
         } => {
-            output.push(ShapeOpcode::ResponseBoth.to_byte());
+            output.push(ShapeOpcode::Response.to_byte());
             encode_shape_node(ok, output)?;
             encode_shape_node(err, output)?;
         }

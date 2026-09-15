@@ -41,7 +41,7 @@ pub enum ActiveShape {
     Utf8,
     /// Standard, contract, or callable contract principal identity.
     Principal,
-    /// Optional with only its active child shape, when present.
+    /// Optional with an observed child shape, if any. A shared shape can also describe `none`.
     Optional(Option<Box<ActiveShape>>),
     /// Response with one or both observed branch shapes.
     Response {
@@ -52,7 +52,8 @@ pub enum ActiveShape {
     },
     /// Canonically ordered tuple field names and active child shapes.
     Tuple(Vec<(ClarityName, ActiveShape)>),
-    /// Empty list or non-empty list with one shared element shape.
+    /// List with an observed shared element shape, if any. A shared element shape can also describe
+    /// empty lists.
     List(Option<Box<ActiveShape>>),
     /// Per-element shapes for a historical list whose active shapes cannot merge.
     ListElements(Vec<ActiveShape>),
