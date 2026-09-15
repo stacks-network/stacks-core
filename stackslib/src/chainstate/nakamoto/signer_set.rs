@@ -770,7 +770,7 @@ impl NakamotoSigners {
             reward_cycle,
             &signer_set,
             signers_contract,
-            signer_set.len() > 0,
+            !signer_set.is_empty(),
             coinbase_height,
             is_mainnet,
         )?;

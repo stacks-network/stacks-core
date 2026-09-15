@@ -380,7 +380,7 @@ fn log_sql_eqp(conn: &Connection, sql_query: &str) {
         sql_query.to_string()
     };
 
-    while let Some(part) = parts.next() {
+    for part in parts {
         if part.starts_with("?") {
             full_sql = format!("{} \"mock_arg\"", full_sql.trim());
         } else {
