@@ -18,6 +18,11 @@ disable_contract_interface = false      # Optional: If true, the contract_interf
 #   "stx",
 #   "ST0000000000000000000000000000000000000000.my-contract::my-event"
 # ]
+#
+# Opt-in VM write / nested-call traces (not included in "*")
+# [[events_observer]]
+# endpoint = "indexer:3700"
+# events_keys = ["*", "storage", "contract_calls"]
 ...
 ```
 
@@ -41,6 +46,7 @@ Note that this is only meant to deal with bursts of events. If your event observ
 
 *   **`/new_microblocks` Endpoint Limitation:** Event delivery via the `/new_microblocks` endpoint (and by extension, events sourced from microblocks delivered to `/new_block`) is **only supported until epoch 2.5**. After this epoch, observers will no longer receive events on this path for new microblocks.
 *   **`/attachments/new` Implicit Subscription:** All observers, regardless of their `events_keys` configuration, implicitly receive payloads on the `/attachments/new` endpoint for new AtlasDB attachments.
+*   **`vm_events` isolation:** `"storage"` and `"contract_calls"` are opt-in. They are not included in `"*"`. The resulting writes are delivered in a separate `vm_events` array on `/new_block`, not in `events[]`, so classic `event_index` values do not move.
 
 
 ## Configuring Event Subscriptions (`events_keys`)
@@ -57,7 +63,7 @@ Below is a comprehensive list of valid keys and their behaviors:
         *   `/new_mempool_tx`: For new mempool transactions.
         *   `/drop_mempool_tx`: For dropped mempool transactions.
         *   `/new_burn_block`: For new burnchain blocks.
-    *   **Note**: This key does NOT by itself subscribe to the StackerDB events (`/stackerdb_chunks`), or block proposal responses (`/proposal_response`).
+    *   **Note**: This key does NOT by itself subscribe to the StackerDB events (`/stackerdb_chunks`), block proposal responses (`/proposal_response`), or VM storage / nested `contract-call?` traces (`"storage"`, `"contract_calls"`). `"*"` payloads never include a `vm_events` field.
 
 *   `"stx"`: Subscribes to STX token operation events.
     *   **Description**: Captures STX token events like transfers, mints, burns, and locks.
@@ -90,6 +96,18 @@ Below is a comprehensive list of valid keys and their behaviors:
     *   **Events delivered to**: `/proposal_response`.
     *   **Note**: Requires specific subscription; not included in `*`.
 
+*   `"storage"`: Subscribes to Clarity data-var and map write traces.
+    *   **Description**: Captures `var-set`, `map-set`, and `map-insert` / `map-delete` only when the operation actually changed storage (`true`).
+    *   **Events delivered to**: `/new_block`.
+    *   **Payload details**: Delivered in the `vm_events` array (not `events[]`). Types: `var_set_event`, `map_set_event`, `map_insert_event`, `map_delete_event`. `vm_event_index` is assigned across the block's committed vm_events (aborted / problematic-skipped receipts skipped). This key does not include `contract_call_event`; omitted types leave gaps in the index, same as classic `event_index`.
+    *   **Note**: Requires specific subscription; not included in `*`. Collection is off unless at least one observer uses `"storage"` or `"contract_calls"`. Cannot fail a transaction. Post-condition aborted and problematic-skipped transactions contribute nothing.
+
+*   `"contract_calls"`: Subscribes to nested `contract-call?` traces.
+    *   **Description**: Captures inner `contract-call?` invocations after the callee returns, including already-evaluated arguments and the result. The outer transaction `contract_call` in `transactions[]` is unchanged.
+    *   **Events delivered to**: `/new_block`.
+    *   **Payload details**: Delivered in the `vm_events` array. Type: `contract_call_event`. Does not include storage write types. Same `vm_event_index` assignment as `"storage"`.
+    *   **Note**: The key is `"contract_calls"` (plural). `"contract_call"` is invalid and will panic on startup. Not included in `*`. Same collection gating as `"storage"`.
+
 *   **Smart Contract Event**: Subscribes to a specific smart contract event.
     *   **Description**: Allows subscription to events emitted by a particular smart contract.
     *   **Format**: `"{deployer_address}.{contract_name}::{event_name}"`
@@ -111,8 +129,8 @@ The following endpoints are used to deliver event payloads.
 ### `POST /new_block`
 
 Delivers data for a newly processed Stacks block, including transactions and associated events. If transactions originated from microblocks, relevant microblock details are included.
-*   **Triggered by keys**: `*`, `"stx"`, specific smart contract or asset identifiers.
-*   **Payload Summary**: Contains block details, an array of transactions, and an array of filtered events based on subscription.
+*   **Triggered by keys**: `*`, `"stx"`, `"storage"`, `"contract_calls"`, specific smart contract or asset identifiers.
+*   **Payload Summary**: Contains block details, an array of transactions, and an array of filtered events based on subscription. Observers subscribed to `"storage"` or `"contract_calls"` also receive a `vm_events` array. `"*"` observers do not get that field.
 *   **Note**: If the `raw_tx` field for a transaction is `"0x00"`, it indicates a burnchain operation (see "Burnchain Operations" below).
 
 The section below has example json encodings for each of the burnchain operations.
@@ -254,6 +272,49 @@ The section below has example json encodings for each of the burnchain operation
    ]
 }
 ```
+
+The example above is a `"*"` payload. It has no `vm_events` field.
+
+#### `vm_events` (opt-in only)
+
+Present only when this observer's `events_keys` includes `"storage"` and/or `"contract_calls"`. Indexed by `vm_event_index` (dense across the block, not per transaction). Does not use `event_index`. Values are Clarity hex (`raw_*`), same encoding as print `raw_value`.
+
+Post-condition aborted transactions and problematic-skipped transactions contribute no `vm_events` entries.
+
+*Example (`vm_events` array only):*
+
+```json
+"vm_events": [
+  {
+    "txid": "0x03346e2e50cdd34c253d960bde16d397c27f9c47fa47b435510a50d9f5b14378",
+    "vm_event_index": 0,
+    "committed": true,
+    "type": "contract_call_event",
+    "contract_call_event": {
+      "contract_identifier": "ST3FEXKRAY93SR2MERXNSAXWGV9XSDNM1MVEFY5TH.store",
+      "sender": "ST3FEXKRAY93SR2MERXNSAXWGV9XSDNM1MVEFY5TH",
+      "caller": "ST3FEXKRAY93SR2MERXNSAXWGV9XSDNM1MVEFY5TH.caller",
+      "function_name": "set-value",
+      "function_args": ["0x0d0000000568656c6c6f", "0x0d00000005776f726c64"],
+      "raw_result": "0x0703"
+    }
+  },
+  {
+    "txid": "0x03346e2e50cdd34c253d960bde16d397c27f9c47fa47b435510a50d9f5b14378",
+    "vm_event_index": 1,
+    "committed": true,
+    "type": "map_set_event",
+    "map_set_event": {
+      "contract_identifier": "ST3FEXKRAY93SR2MERXNSAXWGV9XSDNM1MVEFY5TH.store",
+      "map_name": "store",
+      "raw_key": "0x0c00000001036b65790d0000000568656c6c6f",
+      "raw_value": "0x0c000000010576616c75650d00000005776f726c64"
+    }
+  }
+]
+```
+
+Other `type` values: `var_set_event` (`var_name`, `raw_value`), `map_insert_event` (same shape as `map_set_event`), `map_delete_event` (`map_name`, `raw_key` only). `sender` on `contract_call_event` may be `null`.
 
 ## Burnchain Operations
 When a transaction in the `/new_block` payload has a `raw_tx` field of `"0x00"`, it signifies a "burnchain operation." These are Stacks operations initiated via the Bitcoin network. The specific operation details are found in the `burnchain_op` field of that transaction object.

@@ -1,0 +1,2 @@
+Added opt-in `events_keys` values `"storage"` and `"contract_calls"` for Clarity data-var / map writes and nested `contract-call?` traces. These keys are not included in `"*"`.
+Observers subscribed to those keys receive a `vm_events` array on `POST /new_block`, indexed by `vm_event_index` and isolated from classic `events[]` / `event_index`. Each key filters to its own types (`"storage"` does not include nested calls, and vice versa). Collection is off unless an observer opts in, and cannot fail a transaction.
