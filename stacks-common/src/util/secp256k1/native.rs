@@ -491,6 +491,7 @@ pub fn secp256k1_verify(
         let message = LibSecp256k1Message::from_slice(message_arr)?;
         let expanded_sig = LibSecp256k1Signature::from_compact(&serialized_signature_arr[..64])?; // ignore 65th byte if present
         let pubkey = LibSecp256k1PublicKey::from_slice(pubkey_arr)?;
+        // `verify_ecdsa()` rejects high-S signatures
         ctx.verify_ecdsa(&message, &expanded_sig, &pubkey)
     })
 }

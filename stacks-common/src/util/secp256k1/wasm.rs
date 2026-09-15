@@ -32,6 +32,14 @@ use crate::util::hash::{hex_bytes, to_hex};
 
 pub const PUBLIC_KEY_SIZE: usize = 33;
 
+/// Check `s <= floor(n / 2)` without `Scalar::is_high()`'s off-by-one at the boundary.
+#[cfg(not(feature = "wasm-deterministic"))]
+fn is_low_s(sig: &LibSecp256k1Signature) -> bool {
+    // For nonzero s, -s is n - s. Big-endian bytes preserve numeric ordering;
+    // zero also compares equal, leaving its rejection to ECDSA verification.
+    sig.s.b32() <= (-sig.s).b32()
+}
+
 #[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]
 pub struct Secp256k1PublicKey {
     // serde is broken for secp256k1, so do it ourselves
@@ -139,23 +147,17 @@ impl Secp256k1PublicKey {
         sig: &MessageSignature,
         verify_low_s: bool,
     ) -> Result<Secp256k1PublicKey, &'static str> {
-        // Validate in the same order as `native.rs`, so that both backends return
-        // the same error for the same input.
+        // Match native validation order and errors.
         let message = LibSecp256k1Message::parse_slice(msg)
             .map_err(|_| "Invalid message: failed to decode data hash: must be a 32-byte hash")?;
 
-        // `MessageSignature` stores the recovery ID before the compact signature
-        // (VRS), so decode it into separate recovery ID and signature values.
+        // Decode VRS: recovery ID followed by the compact signature.
         let (signature, recovery_id) = sig
             .to_secp256k1_recoverable()
             .ok_or("Invalid signature: failed to decode recoverable signature")?;
 
-        if verify_low_s {
-            let mut sig_low_s = signature;
-            sig_low_s.normalize_s();
-            if signature != sig_low_s {
-                return Err("Invalid signature: high-S");
-            }
+        if verify_low_s && !is_low_s(&signature) {
+            return Err("Invalid signature: high-S");
         }
 
         let recovered = libsecp256k1::recover(&message, &signature, &recovery_id)
@@ -260,6 +262,11 @@ pub fn secp256k1_verify(
         pubkey_arr,
         Some(libsecp256k1::PublicKeyFormat::Compressed),
     )?;
+
+    // The Rust library accepts high-S; reject it to match native verification.
+    if !is_low_s(&signature) {
+        return Err(LibSecp256k1Error::InvalidSignature);
+    }
 
     let res = libsecp256k1::verify(&message, &signature, &pubkey);
     if res {
@@ -378,15 +385,11 @@ impl PublicKey for Secp256k1PublicKey {
 
     #[cfg(not(feature = "wasm-deterministic"))]
     fn verify(&self, data_hash: &[u8], sig: &MessageSignature) -> Result<bool, &'static str> {
-        // `recover_to_pubkey` also ensures that the signature has low-S. That matches the
-        // corresponding implementation in `native.rs`.
+        // Recovery enforces low-S, matching `native.rs`.
         let recovered = Secp256k1PublicKey::recover_to_pubkey(data_hash, sig)?;
 
-        // Compare the curve points only. `recover_to_pubkey()` always returns a
-        // compressed key, while `self` may use either encoding, and `compressed`
-        // takes part in the derived `PartialEq` for `Secp256k1PublicKey`. Comparing
-        // whole values would reject every uncompressed key. `native.rs` compares
-        // the underlying keys for the same reason.
+        // Compare curve points: recovery always returns a compressed key, but
+        // `self` may be uncompressed. Struct equality includes that encoding flag.
         Ok(self.key == recovered.key)
     }
 }

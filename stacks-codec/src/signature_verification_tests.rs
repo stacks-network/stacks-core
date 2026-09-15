@@ -33,7 +33,7 @@ use stacks_common::types::chainstate::{
 };
 use stacks_common::types::{PrivateKey, PublicKey};
 use stacks_common::util::hash::{hex_bytes, Hash160, Sha512Trunc256Sum};
-use stacks_common::util::secp256k1::MessageSignature;
+use stacks_common::util::secp256k1::{secp256k1_verify, MessageSignature};
 #[cfg(target_family = "wasm")]
 use wasm_bindgen_test::wasm_bindgen_test as test;
 
@@ -419,6 +419,83 @@ fn high_s_signatures_are_rejected_only_when_enforcing_low_s() {
             "{name}: a high-S signature was rejected under AllowHighS"
         );
     }
+}
+
+/// Clarity's direct verification entry point must reject high-S on both backends.
+#[test]
+fn secp256k1_verify_rejects_high_s() {
+    for i in 0..KEY_COUNT {
+        let privk = compressed_key(i);
+        let pubkey = StacksPublicKey::from_private(&privk).to_bytes_compressed();
+        let sighash = Sha512Trunc256Sum::from_data(&[b'v', b'e', b'r', i]);
+        let sig = privk
+            .sign(sighash.as_bytes())
+            .expect("BUG: failed to sign a 32-byte hash");
+        let high_s = sig.with_negated_s();
+
+        // Skip the recovery ID: this entry point takes `r || s`.
+        assert!(
+            secp256k1_verify(sighash.as_bytes(), &sig.as_bytes()[1..65], &pubkey).is_ok(),
+            "key{i}: a correctly signed low-S signature was rejected"
+        );
+        assert!(
+            secp256k1_verify(sighash.as_bytes(), &high_s.as_bytes()[1..65], &pubkey).is_err(),
+            "key{i}: a high-S signature was accepted"
+        );
+    }
+}
+
+/// Accept the largest low-S value and reject its high-S neighbor on both backends.
+#[test]
+fn boundary_s_value_is_not_treated_as_high_s() {
+    /// `(n - 1) / 2`, big-endian.
+    const HALF_ORDER_BE: [u8; 32] = [
+        0x7f, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, //
+        0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, //
+        0x5d, 0x57, 0x6e, 0x73, 0x57, 0xa4, 0x50, 0x1d, //
+        0xdf, 0xe9, 0x2f, 0x46, 0x68, 0x1b, 0x20, 0xa0, //
+    ];
+
+    let privk = compressed_key(0);
+    let sighash = Sha512Trunc256Sum::from_data(b"boundary");
+    let sig = privk
+        .sign(sighash.as_bytes())
+        .expect("BUG: failed to sign a 32-byte hash");
+
+    // Splice the boundary value into `s`, leaving the rest of the signature alone.
+    let mut bytes = [0u8; 65];
+    bytes.copy_from_slice(sig.as_bytes());
+    bytes[33..].copy_from_slice(&HALF_ORDER_BE);
+    let boundary = MessageSignature(bytes);
+
+    // Changing s changes the recovered key; the signature remains valid for that key.
+    let pubkey = StacksPublicKey::recover_to_pubkey(sighash.as_bytes(), &boundary)
+        .expect("the largest low-S value must recover successfully");
+    assert!(pubkey.verify(sighash.as_bytes(), &boundary).unwrap());
+    assert!(secp256k1_verify(
+        sighash.as_bytes(),
+        &boundary.as_bytes()[1..65],
+        &pubkey.to_bytes_compressed(),
+    )
+    .is_ok());
+
+    // n - floor(n / 2) is floor(n / 2) + 1, the smallest high-S value.
+    let high_s = boundary.with_negated_s();
+    assert_eq!(
+        StacksPublicKey::recover_to_pubkey(sighash.as_bytes(), &high_s),
+        Err("Invalid signature: high-S"),
+    );
+    assert_eq!(
+        StacksPublicKey::recover_to_pubkey_without_validating_low_s(sighash.as_bytes(), &high_s)
+            .unwrap(),
+        pubkey,
+    );
+    assert!(secp256k1_verify(
+        sighash.as_bytes(),
+        &high_s.as_bytes()[1..65],
+        &pubkey.to_bytes_compressed(),
+    )
+    .is_err());
 }
 
 /// Directly exercise the recovery function fixed by this change.
