@@ -1006,13 +1006,11 @@ fn runtime_check_error_kind_at_block_unavailable_ccall() {
 /// Outcome: block accepted.
 #[test]
 fn runtime_check_error_kind_no_such_contract_ccall() {
-    let mut nonce = 0;
-
     let mut epochs_blocks = HashMap::new();
 
-    for epoch in EPOCHS_TO_TEST {
+    for (nonce, epoch) in EPOCHS_TO_TEST.iter().enumerate() {
         let call_tx = ConsensusUtils::new_call_tx(
-            nonce,
+            nonce as u64,
             "non-existent-contract",
             "this-function-does-not-exist",
         );
@@ -1022,8 +1020,6 @@ fn runtime_check_error_kind_no_such_contract_ccall() {
             .push(TestBlock {
                 transactions: vec![call_tx],
             });
-
-        nonce += 1;
     }
 
     let result = ConsensusTest::new(function_name!(), vec![], epochs_blocks).run();

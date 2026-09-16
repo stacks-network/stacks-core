@@ -644,7 +644,7 @@ fn test_get_commit_at() {
         burnchain_db
             .store_new_burnchain_block_ops_unchecked(
                 block_header,
-                &vec![BlockstackOperationType::LeaderBlockCommit(cmt.clone())],
+                &[BlockstackOperationType::LeaderBlockCommit(cmt.clone())],
             )
             .unwrap();
 
@@ -685,7 +685,7 @@ fn test_get_commit_at() {
     burnchain_db
         .store_new_burnchain_block_ops_unchecked(
             &fork_block_header,
-            &vec![BlockstackOperationType::LeaderBlockCommit(fork_cmt.clone())],
+            &[BlockstackOperationType::LeaderBlockCommit(fork_cmt.clone())],
         )
         .unwrap();
 
@@ -750,7 +750,7 @@ fn test_get_set_check_anchor_block() {
         burnchain_db
             .store_new_burnchain_block_ops_unchecked(
                 block_header,
-                &vec![BlockstackOperationType::LeaderBlockCommit(cmt.clone())],
+                &[BlockstackOperationType::LeaderBlockCommit(cmt.clone())],
             )
             .unwrap();
 
