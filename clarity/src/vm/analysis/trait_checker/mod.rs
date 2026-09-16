@@ -21,7 +21,7 @@ use crate::vm::analysis::errors::{StaticCheckError, StaticCheckErrorKind};
 use crate::vm::analysis::types::{AnalysisPass, ContractAnalysis};
 use crate::vm::analysis::{AnalysisDatabase, check_analysis_resource_limits};
 use crate::vm::resource_limiter::ResourceLimiter;
-use crate::vm::{ClarityName, ClarityVersion, is_reserved, is_shadowable_reserved};
+use crate::vm::{ClarityName, is_reserved, is_shadowable_reserved};
 
 pub struct TraitChecker {
     epoch: StacksEpochId,
@@ -54,7 +54,7 @@ impl TraitChecker {
         contract_analysis: &ContractAnalysis,
         analysis_db: &mut AnalysisDatabase,
     ) -> Result<(), StaticCheckError> {
-        let mut unmatched_shadowable = Self::shadowable_function_names(contract_analysis)?;
+        let mut unmatched_shadowable = self.shadowable_function_names(contract_analysis)?;
 
         for trait_identifier in &contract_analysis.implemented_traits {
             // per-trait analysis deadline check
@@ -80,7 +80,7 @@ impl TraitChecker {
             )?;
 
             // A method still free at the defining contract's version unlocks
-            // the same-named function. (Empty set below Clarity 7.)
+            // the same-named function.
             if !unmatched_shadowable.is_empty() {
                 let trait_version = &contract_defining_trait.clarity_version;
                 for method_name in trait_definition.keys() {
@@ -102,12 +102,13 @@ impl TraitChecker {
     /// trait method. Private ones are rejected outright: trait methods are
     /// never private.
     fn shadowable_function_names(
+        &self,
         contract_analysis: &ContractAnalysis,
     ) -> Result<BTreeSet<ClarityName>, StaticCheckError> {
-        let version = &contract_analysis.clarity_version;
-        if *version < ClarityVersion::Clarity7 {
+        if !self.epoch.allows_shadowable_reserved_names() {
             return Ok(BTreeSet::new());
         }
+        let version = &contract_analysis.clarity_version;
         if let Some(name) = contract_analysis
             .private_function_types
             .keys()

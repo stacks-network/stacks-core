@@ -2157,8 +2157,8 @@ fn clarity7_external_call_reaches_shadowed_function_and_native_is_kept() {
      (define-public (foo (x int)) (ok x))
      (define-public (slice? (a int) (b int)) (ok (+ a b)))"
 )]
-// The trait's own version already reserved the name; only traits that predate
-// the reservation unlock it (pre-7 traits could declare any name).
+// The trait's own version already reserved the name; only a trait from a
+// version where it was still free unlocks it (pre-epoch 4.1 traits could declare any name).
 #[case(
     Some(("bad-def", "(define-trait bad ((slice? (int int) (response int int))))", ClarityVersion::Clarity5)),
     "(impl-trait .bad-def.bad)
@@ -2169,8 +2169,10 @@ fn clarity7_shadowable_define_requires_legacy_trait_method(
     #[case] contract: &str,
 ) {
     let mut tl_env_factory = tl_env_factory();
-    let mut owned_env = tl_env_factory.get_env(StacksEpochId::Epoch41);
     if let Some((name, code, version)) = trait_setup {
+        // Legacy traits must predate Epoch 4.1, where `define-trait` rejects
+        // reserved method names.
+        let mut owned_env = tl_env_factory.get_env(StacksEpochId::Epoch40);
         owned_env
             .initialize_versioned_contract(
                 QualifiedContractIdentifier::local(name).unwrap(),
@@ -2180,6 +2182,7 @@ fn clarity7_shadowable_define_requires_legacy_trait_method(
             )
             .unwrap();
     }
+    let mut owned_env = tl_env_factory.get_env(StacksEpochId::Epoch41);
     let contract_id = QualifiedContractIdentifier::local("subject").unwrap();
     let err = owned_env
         .initialize_versioned_contract(contract_id, ClarityVersion::Clarity7, contract, None)
@@ -2234,6 +2237,45 @@ fn clarity7_read_only_implementation_of_legacy_trait_method() {
         ],
     );
     let contract_id = QualifiedContractIdentifier::local("c7-ro-impl").unwrap();
+    let placeholder_context = make_c7_placeholder();
+    let (mut exec_state, invoke_ctx) =
+        owned_env.get_exec_environment(None, None, &placeholder_context);
+    assert_eq!(
+        exec_state
+            .execute_contract(
+                &invoke_ctx,
+                &contract_id,
+                "slice?",
+                &symbols_from_values(vec![Value::Int(4), Value::Int(5)]),
+                false
+            )
+            .unwrap(),
+        Value::okay(Value::Int(9)).unwrap()
+    );
+}
+
+/// The gate is the epoch, not the version: tooling may run a pinned Clarity 6
+/// contract at Epoch 4.1 (on chain such pins are rejected).
+#[test]
+fn clarity6_at_epoch41_implements_legacy_trait_method() {
+    let mut tl_env_factory = tl_env_factory();
+    let mut owned_env = make_epoch41_env(
+        &mut tl_env_factory,
+        &[
+            (
+                "ops-def",
+                ClarityVersion::Clarity1,
+                "(define-trait ops ((slice? (int int) (response int int))))",
+            ),
+            (
+                "c6-impl",
+                ClarityVersion::Clarity6,
+                "(impl-trait .ops-def.ops)
+                 (define-public (slice? (a int) (b int)) (ok (+ a b)))",
+            ),
+        ],
+    );
+    let contract_id = QualifiedContractIdentifier::local("c6-impl").unwrap();
     let placeholder_context = make_c7_placeholder();
     let (mut exec_state, invoke_ctx) =
         owned_env.get_exec_environment(None, None, &placeholder_context);
@@ -2473,7 +2515,7 @@ fn clarity7_own_trait_cannot_match_reserved_name() {
 fn clarity7_trait_cannot_declare_reserved_method_name() {
     let trait_def = "(define-trait t ((slice? (int int) (response int int))))";
 
-    // Unchecked before Clarity 7 (definable, though unimplementable).
+    // Unchecked before Epoch 4.1.
     {
         let mut tl_env_factory = tl_env_factory();
         let trait_id = QualifiedContractIdentifier::local("t-c5").unwrap();
@@ -2483,7 +2525,7 @@ fn clarity7_trait_cannot_declare_reserved_method_name() {
             .unwrap();
     }
 
-    // From Clarity 7, a trait may not declare a currently-reserved method name.
+    // From Epoch 4.1, a trait may not declare a currently-reserved method name.
     {
         let mut tl_env_factory = tl_env_factory();
         let trait_id = QualifiedContractIdentifier::local("t-c7").unwrap();
@@ -2500,7 +2542,7 @@ fn clarity7_trait_cannot_declare_reserved_method_name() {
     }
 }
 
-/// Defines that stay illegal: reserved names before Clarity 7; private
+/// Defines that stay illegal: reserved names before Epoch 4.1; private
 /// functions (never trait methods); and names reserved since Clarity 1, for
 /// every define form.
 #[rstest]

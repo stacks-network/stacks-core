@@ -13,8 +13,8 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-//! End-to-end tests for the Epoch 4.1 force-latest deploy rule and Clarity 7
-//! reserved-name trait implementations (see `is_shadowable_reserved`).
+//! End-to-end tests for the Epoch 4.1 reserved-name trait implementations
+//! (see `is_shadowable_reserved`).
 
 use clarity::types::{StacksEpochId, StacksEpochRangeTestExt as _};
 use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier, StandardPrincipalData};
@@ -81,7 +81,7 @@ fn setup_contract_principal(name: &'static str) -> Value {
 }
 
 /// Implementing a Clarity 1 trait's `slice?` (reserved since Clarity 2): free
-/// at Clarity 1, allowed again from Clarity 7, rejected at initialization in
+/// at Clarity 1, allowed again from Epoch 4.1, rejected at initialization in
 /// between.
 #[test]
 fn test_clarity7_shadow_deploy() {

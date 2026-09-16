@@ -624,16 +624,12 @@ pub fn is_reserved(name: &str, version: &ClarityVersion) -> bool {
         || variables::is_reserved_name(name, version)
 }
 
-/// Whether `name` is reserved at `version` but was free in an earlier version,
-/// so legacy traits may carry it as a method name.
-///
-/// From Clarity 7 a public or read-only function may take such a name to
-/// implement a legacy trait method, which keeps old traits implementable at
-/// the latest version. The native still wins every bare reference: the
-/// function is reachable by literal name only (`contract-call?`, trait
-/// dispatch), plus head position for keyword names, which have no native
-/// function. The `TraitChecker` enforces the trait match at analysis and the
-/// VM repeats it in `validate_shadowable_reserved_definitions`.
+/// Reserved at `version` but free in an earlier one, so a legacy trait may
+/// carry it as a method name. From Epoch 4.1 a public/read-only function may
+/// take such a name to implement that method, else old traits would be
+/// unimplementable at the only deployable version; the native still wins every
+/// reference where one exists. Enforced by `TraitChecker`, re-checked in
+/// `validate_shadowable_reserved_definitions`.
 pub fn is_shadowable_reserved(name: &str, version: &ClarityVersion) -> bool {
     is_reserved(name, version)
         && ClarityVersion::ALL
@@ -776,16 +772,16 @@ pub fn eval_all(
 
 /// VM repeat of the `TraitChecker` rule (see [`is_shadowable_reserved`]): every
 /// shadowable-named function must match a method of an implemented foreign
-/// trait that predates the reservation. Runs after evaluation so the define /
-/// `impl-trait` order does not matter.
+/// trait whose version still had the name free. Runs after evaluation so the
+/// define / `impl-trait` order does not matter.
 fn validate_shadowable_reserved_definitions(
     contract_context: &ContractContext,
     global_context: &mut GlobalContext,
 ) -> Result<(), VmExecutionError> {
-    let version = *contract_context.get_clarity_version();
-    if version < ClarityVersion::Clarity7 {
+    if !global_context.epoch_id.allows_shadowable_reserved_names() {
         return Ok(());
     }
+    let version = *contract_context.get_clarity_version();
     // BTreeSet: the reported name must not depend on hash order.
     let mut unmatched = contract_context
         .functions

@@ -122,10 +122,10 @@ impl DefinitionSorter {
     ) -> ParseResult<()> {
         match expr.pre_expr {
             Atom(ref name) => {
-                // From Clarity 7 a user function may share a native's name
+                // From Epoch 4.1 a user function may share a native's name
                 // (see `is_shadowable_reserved`); in value position the atom
                 // means the native, never that definition.
-                if version >= ClarityVersion::Clarity7 && is_reserved(name, &version) {
+                if self.epoch.allows_shadowable_reserved_names() && is_reserved(name, &version) {
                     return Ok(());
                 }
                 if let Some(dep) = self.top_level_expressions_map.get(name)
@@ -293,7 +293,7 @@ impl DefinitionSorter {
                                 NativeFunctions::Map
                                 | NativeFunctions::Fold
                                 | NativeFunctions::Filter
-                                    if version >= ClarityVersion::Clarity7 =>
+                                    if self.epoch.allows_shadowable_reserved_names() =>
                                 {
                                     // Args: [function-name, ...]
                                     if let Some((function_ref, rest)) = function_args.split_first()
@@ -311,9 +311,9 @@ impl DefinitionSorter {
                                 }
                                 _ => {}
                             }
-                        } else if version >= ClarityVersion::Clarity7 {
+                        } else if self.epoch.allows_shadowable_reserved_names() {
                             // A user function, possibly keyword-named: head
-                            // position resolves to it from Clarity 7.
+                            // position resolves to it.
                             self.probe_function_reference(head, tle_index, version)?;
                             for expr in function_args.iter() {
                                 self.probe_for_dependencies(expr, tle_index, version)?;

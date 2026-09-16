@@ -856,6 +856,24 @@ fn clarity7_shadowable_define_requires_legacy_trait_method() {
 }
 
 /// The reported name is the lexicographically first, not the first defined.
+/// The gate is the epoch, not the version: tooling may analyze a pinned
+/// Clarity 6 contract at Epoch 4.1 (on chain such pins are rejected).
+#[test]
+fn clarity6_at_epoch41_shadowable_define_is_accepted() {
+    let analysis = run_analyses(&[
+        LEGACY_OPS,
+        (
+            "subject",
+            ClarityVersion::Clarity6,
+            StacksEpochId::Epoch41,
+            "(impl-trait .ops-def.ops)
+             (define-public (slice? (a int) (b int)) (ok (+ a b)))",
+        ),
+    ])
+    .unwrap();
+    assert!(analysis.public_function_types.contains_key("slice?"));
+}
+
 #[test]
 fn clarity7_multiple_unmatched_names_report_deterministically() {
     assert_name_already_used(
@@ -873,7 +891,7 @@ fn clarity7_trait_cannot_declare_reserved_method_name() {
     let trait_def = "(define-trait t ((slice? (int int) (response int int))))";
     assert_name_already_used(run_clarity7_analysis(&[], trait_def), "slice?");
 
-    // Unchecked before Clarity 7.
+    // Unchecked before Epoch 4.1.
     run_analyses(&[(
         "t-c6",
         ClarityVersion::Clarity6,

@@ -1883,9 +1883,9 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
             self.clarity_version,
         )?;
 
-        // Only traits that predate a reservation unlock the name (see
-        // `is_shadowable_reserved`), so new traits must not declare one.
-        if self.clarity_version >= ClarityVersion::Clarity7
+        // Only a trait from a version where the name was still free unlocks it
+        // (see `is_shadowable_reserved`), so new traits must not declare one.
+        if self.epoch.allows_shadowable_reserved_names()
             && let Some(method_name) = trait_signature
                 .keys()
                 .find(|name| is_reserved(name, &self.clarity_version))

@@ -317,9 +317,15 @@ fn clarity7_native_application_in_same_named_function_is_not_a_cycle() {
     let contract = "(define-read-only (slice? (a int) (b int))
                         (len (unwrap-panic (slice? (list a b) u0 u1))))";
     build_ast_at(contract, ClarityVersion::Clarity7, StacksEpochId::Epoch41).unwrap();
+    // The gate is the epoch, not the version (a pinned Clarity 6 cannot deploy
+    // at Epoch 4.1 on chain, but tooling may still parse one).
+    build_ast_at(contract, ClarityVersion::Clarity6, StacksEpochId::Epoch41).unwrap();
 
-    // Pre-7 behavior unchanged (such contracts fail at initialization anyway).
+    // Before Epoch 4.1 behavior is unchanged, whatever the version (such
+    // contracts fail at initialization anyway).
     let err = build_ast_at(contract, ClarityVersion::Clarity6, StacksEpochId::Epoch40).unwrap_err();
+    assert!(matches!(*err.err, ParseErrorKind::CircularReference(_)));
+    let err = build_ast_at(contract, ClarityVersion::Clarity7, StacksEpochId::Epoch40).unwrap_err();
     assert!(matches!(*err.err, ParseErrorKind::CircularReference(_)));
 }
 

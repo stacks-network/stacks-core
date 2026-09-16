@@ -250,8 +250,7 @@ fn expect_contract_error(
         }
     }
 
-    // Before Clarity 7 built-in name reuse is caught at initialization, not by
-    // the type checker (the Clarity 7 analysis case returned above).
+    // No analysis case matched: this reuse must surface at initialization.
     assert!(
         analysis.is_ok(),
         "analysis of case `{name}` failed at {version} / {epoch}: {}",
@@ -747,9 +746,11 @@ fn reuse_stacks_block_height(
         (define-private (test-func) (stacks-block-height))
         "#,
         &[
-            // Clarity 7: rejected at analysis (private functions are never trait methods).
+            // From Epoch 4.1: rejected at analysis (private functions are never trait methods).
             (
-                |version, _| version >= ClarityVersion::Clarity7,
+                |version, epoch| {
+                    epoch >= StacksEpochId::Epoch41 && version >= ClarityVersion::Clarity3
+                },
                 ExpectedContractError::Analysis(StaticCheckErrorKind::NameAlreadyUsed(
                     "stacks-block-height".to_string(),
                 )),
@@ -866,9 +867,11 @@ fn reuse_stacks_block_height(
         (define-private (test-func) (unwrap-panic (stacks-block-height)))
         "#,
         &[
-            // Clarity 7: rejected at analysis (no legacy trait method).
+            // From Epoch 4.1: rejected at analysis (no legacy trait method).
             (
-                |version, _| version >= ClarityVersion::Clarity7,
+                |version, epoch| {
+                    epoch >= StacksEpochId::Epoch41 && version >= ClarityVersion::Clarity3
+                },
                 ExpectedContractError::Analysis(StaticCheckErrorKind::NameAlreadyUsed(
                     "stacks-block-height".to_string(),
                 )),
@@ -894,9 +897,11 @@ fn reuse_stacks_block_height(
         (define-private (test-func) (stacks-block-height))
         "#,
         &[
-            // Clarity 7: rejected at analysis (no legacy trait method).
+            // From Epoch 4.1: rejected at analysis (no legacy trait method).
             (
-                |version, _| version >= ClarityVersion::Clarity7,
+                |version, epoch| {
+                    epoch >= StacksEpochId::Epoch41 && version >= ClarityVersion::Clarity3
+                },
                 ExpectedContractError::Analysis(StaticCheckErrorKind::NameAlreadyUsed(
                     "stacks-block-height".to_string(),
                 )),
@@ -920,6 +925,14 @@ fn reuse_builtin_name(
     epoch: StacksEpochId,
     mut tl_env_factory: TopLevelMemoryEnvironmentGenerator,
 ) {
+    // From Epoch 4.1 a function reusing a name reserved at this version is
+    // caught at analysis (fn pointer, so `version_check` cannot be captured).
+    let analysis_check: VersionEpochPredicate = if version_check(version, epoch) {
+        |_, epoch| epoch >= StacksEpochId::Epoch41
+    } else {
+        |_, _| false
+    };
+
     // data var
     expect_contract_error(
         version,
@@ -1030,9 +1043,9 @@ fn reuse_builtin_name(
         "#
         ),
         &[
-            // Clarity 7: rejected at analysis (private functions are never trait methods).
+            // From Epoch 4.1: rejected at analysis (private functions are never trait methods).
             (
-                |version, _| version >= ClarityVersion::Clarity7,
+                analysis_check,
                 ExpectedContractError::Analysis(StaticCheckErrorKind::NameAlreadyUsed(
                     name.to_string(),
                 )),
@@ -1161,9 +1174,9 @@ fn reuse_builtin_name(
         "#
         ),
         &[
-            // Clarity 7: rejected at analysis (no legacy trait method).
+            // From Epoch 4.1: rejected at analysis (no legacy trait method).
             (
-                |version, _| version >= ClarityVersion::Clarity7,
+                analysis_check,
                 ExpectedContractError::Analysis(StaticCheckErrorKind::NameAlreadyUsed(
                     name.to_string(),
                 )),
@@ -1191,9 +1204,9 @@ fn reuse_builtin_name(
         "#
         ),
         &[
-            // Clarity 7: rejected at analysis (no legacy trait method).
+            // From Epoch 4.1: rejected at analysis (no legacy trait method).
             (
-                |version, _| version >= ClarityVersion::Clarity7,
+                analysis_check,
                 ExpectedContractError::Analysis(StaticCheckErrorKind::NameAlreadyUsed(
                     name.to_string(),
                 )),
