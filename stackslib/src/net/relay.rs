@@ -68,8 +68,12 @@ struct PreprocessedMicroblocks {
 /// Newly processed epoch-2 blocks and streams, with invalid-data sources.
 pub struct ProcessedBlocks {
     /// Newly discovered anchored blocks keyed by their sortition consensus hash.
+    ///
+    /// Used to construct `BlocksAvailable` announcements and `BlocksData` messages.
     pub blocks: HashMap<ConsensusHash, StacksBlock>,
     /// Confirmed streams with their anchor IDs, keyed by consensus hash.
+    ///
+    /// Used to construct `MicroblocksAvailable` announcements and `MicroblocksData` messages.
     pub confirmed_microblocks: HashMap<ConsensusHash, (StacksBlockId, Vec<StacksMicroblock>)>,
     /// Unconfirmed microblock messages to relay with their prior relay hints.
     pub unconfirmed_microblocks: Vec<RelayedMicroblocks>,
@@ -1918,12 +1922,10 @@ impl Relayer {
         true
     }
 
-    /// Process blocks and microblocks that we received, both downloaded (confirmed) and streamed
-    /// (unconfirmed). Returns:
-    /// * set of consensus hashes that elected the newly-discovered blocks, and the blocks, so we can turn them into BlocksAvailable / BlocksData messages
-    /// * set of confirmed microblock consensus hashes for newly-discovered microblock streams, and the streams, so we can turn them into MicroblocksAvailable / MicroblocksData messages
-    /// * list of unconfirmed microblocks that got pushed to us, as well as their relayers (so we can forward them)
-    /// * list of neighbors that served us invalid data (so we can ban them)
+    /// Process downloaded, pushed, and HTTP-uploaded epoch-2 blocks and microblocks.
+    ///
+    /// Returns [`ProcessedBlocks`] containing newly available blocks and microblock
+    /// streams to announce or relay, together with neighbors to ban for invalid data.
     pub fn process_new_blocks(
         network_result: &mut NetworkResult,
         sortdb: &mut SortitionDB,
