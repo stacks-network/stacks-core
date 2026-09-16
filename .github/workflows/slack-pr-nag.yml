@@ -232,7 +232,6 @@ jobs:
               }
             
               // Package structural models back up for the line builder to scan
-              pr.unresolved_comment_threads = unresolvedComments;
               pr.requested_reviewers = allReviewersSuperset.map(login => ({
                 login,
                 state: reviewerStateMap[login.toLowerCase()] || 'AWAITING_REVIEW'
@@ -291,14 +290,13 @@ jobs:
                   addAction(authorLogin, `✅ Ready for merge: ${link}`);
                 } else if (item.allReviewersSuperset.length === 0) {
                   addAction(authorLogin, `👥 Needs reviewers assigned: ${link}`);
+                } else {
+                  addAction(authorLogin, `⏳ Needs reviews: ${link}`);
                 }
               }
 
               // Reviewer actions
               pr.requested_reviewers.forEach(r => {
-                // No longer @ users when they've approved a PR
-                if (r.state === 'APPROVED') return;
-                
                 if (r.state === 'AWAITING_REVIEW') {
                   addAction(r.login, `⏳ Need to review: ${link}`);
                 }
@@ -332,12 +330,23 @@ jobs:
               const userData = userActionsMap[login];
               if (userData.actions.length === 0) continue;
               
+              let actionText = userData.mention;
+              for (const action of userData.actions) {
+                const candidate = `${actionText}\n${action}`;
+                if (candidate.length > 2900) {
+                  payload.blocks.push({
+                    type: 'section',
+                    text: { type: 'mrkdwn', text: actionText }
+                  });
+                  actionText = action;
+                } else {
+                  actionText = candidate;
+                }
+              }
+              
               payload.blocks.push({
                 type: 'section',
-                text: { 
-                  type: 'mrkdwn', 
-                  text: `${userData.mention}\n${userData.actions.join('\n')}` 
-                }
+                text: { type: 'mrkdwn', text: actionText }
               });
             }
 
