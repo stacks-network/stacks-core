@@ -339,8 +339,15 @@ close_quiet_issues() {
 
     # Runs that gave every test a chance to fail. One call for the whole phase.
     #
-    # An allow-list, not a deny-list: only a run that finished ("success" or "failure") 
-    # has given every test a chance to execute.
+    # An allow-list, not a deny-list: only a run that finished ("success" or
+    # "failure") has given every test a chance to execute.
+    #
+    # This is the workflow's conclusion, not the report job's, so a run that
+    # finished but refused to triage - a mass failure, or no reports at all -
+    # still counts here. Deliberately coarse: telling those apart needs a jobs
+    # query per run or a marker persisted between runs, and a premature close is
+    # self-correcting. The next observed failure reopens the issue with its
+    # evidence attached, which is what the closing comment promises.
     quiet_runs=$(gh run list --repo "${CFG_REPO}" --workflow "${CFG_WORKFLOW_NAME}" \
         --limit 200 --json event,createdAt,conclusion \
         | jq -c --arg manual "${CFG_COUNT_MANUAL_RUNS}" '
