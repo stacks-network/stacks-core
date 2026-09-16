@@ -160,10 +160,11 @@ impl SortitionData {
     /// A permitted reorg is recorded once the whole reorg is permitted: each tenure whose
     /// blocks this one is allowed to replace is marked superseded (see
     /// [`SignerDb::mark_tenure_superseded`]), so a signature we already placed on one of those
-    /// blocks does not later block the replacement. The record carries this tenure's sortition
-    /// as the permitting one, so the permit stops applying if a burnchain fork later orphans
-    /// it. Nothing is recorded for a refused reorg, even for the tenures in it that
-    /// individually qualified.
+    /// blocks does not later block the replacement. The record names this tenure as the
+    /// permitting one, which bounds the permit in two ways: it excuses those signatures only
+    /// against the branch it sanctions and only while this tenure's sortition survives a
+    /// burnchain fork. Nothing is recorded for a refused reorg, even for the tenures in it
+    /// that individually qualified.
     pub fn check_parent_tenure_choice(
         &self,
         signer_db: &mut SignerDb,

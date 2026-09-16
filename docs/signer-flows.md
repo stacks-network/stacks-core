@@ -248,7 +248,7 @@ flowchart TB
     TH -- yes --> RECHECK{"chainstate checks still pass?<br/>check_block_against_signer_db_state<br/>→ section 7"}
     RECHECK -- no --> REJ["mark_locally_rejected,<br/>handle_block_rejection,<br/>broadcast rejection"]:::bad
     RECHECK -- yes --> CONF["signed conflicts at height ≥ h,<br/>in ANY tenure<br/>get_signed_conflicts"]
-    CONF --> PERM{"covered by a reorg permit whose<br/>permitting sortition is still canonical?<br/>reorg_permit_stands"}
+    CONF --> PERM{"covered by a reorg permit for the branch<br/>THIS block is on, whose permitting<br/>sortition is still canonical?<br/>reorg_permit_stands"}
     PERM -- yes --> EXCL(["excluded — our signature must not<br/>block a replacement we sanctioned"]):::good
     PERM -- no --> FRESH{"any of them still fresh?<br/>last_endorsed > cutoff"}
     FRESH -- yes --> SORT{"conflict_still_blocks, question 1:<br/>is its tenure's sortition still on the<br/>canonical burn chain?<br/>get_sortition_by_burn_hash"}
@@ -332,13 +332,35 @@ taken back. The one recorded exception is a tenure whose reorg we sanctioned
 under the reorg-timing rules (section 8): there the node still serves the
 conflict as fully live — replacing it is only legitimate because we permitted it
 — so no question asked of the node about the _conflict_ could clear it. Instead
-the record carries the permitting tenure's sortition, and `reorg_permit_stands`
-asks the node whether that sortition is still canonical: while it is, the
-conflict is excluded outright; if a burnchain fork orphaned it, the reorg we
-sanctioned can no longer happen and the conflict gets its voice back. A false
-404 there needs no tip-height guard — it merely restores a conflict, which at
-worst delays the replacement. For the own-tenure question below, an unreachable
-node is instead treated as unconfirmed and the signature goes out.
+the record names the tenure we permitted to do the replacing, and
+`reorg_permit_stands` asks two things about it. First, is the block in front of
+us on the branch that replacement started? It is if it belongs to the permitting
+tenure, and also if it is a tenure-change block naming the permitting tenure as
+its `prev_tenure_consensus_hash`, since consensus fixes that to the tenure of
+the block's parent -- the next tenure carrying on where the sanctioned
+replacement left off is not a second reorg to sanction, and refusing it would
+stall the branch we ourselves said should win until the signature goes stale. A
+block anywhere else, including one that forks back onto the branch we abandoned,
+claims a reorg we never sanctioned. Second, is that tenure's sortition still
+canonical: while it is, the conflict is excluded outright; if a burnchain fork
+orphaned it, the reorg we sanctioned can no longer happen and the conflict gets
+its voice back. A false 404 there needs no tip-height guard-- it merely restores
+a conflict, which at worst delays the replacement. For the own-tenure question
+below, an unreachable node is instead treated as unconfirmed and the signature
+goes out.
+
+One hop reaches the tenure that produced the block directly beneath the
+proposal, which is the permitting tenure in the ordinary case -- sortitions that
+mine nothing move nothing, and reorging the permitting tenure itself re-records
+the permit under whichever tenure did that. A proposal separated from the
+permitting tenure by tenures that did produce blocks is not reached, and stays
+blocked until the conflicting signature goes stale; that takes the conflict
+still being fresh several sortitions after we signed it, which the freshness
+window makes vanishingly unlikely. The branch test is also what keeps the
+own-tenure branch below meaningful:
+a permit can never reach it, since that would take a tenure superseded by itself
+or by a tenure it builds on, and `check_parent_tenure_choice` records neither,
+so the `DuplicateBlockFound` gap that branch backstops stays covered.
 
 > Anchors: `handle_block_pre_commit`, `conflict_still_blocks`,
 > `reorg_permit_stands`, `check_block_against_signer_db_state` (signer.rs);
@@ -502,11 +524,14 @@ its first block too close to the next sortition to count
 signer records those tenures as **superseded** (`mark_tenure_superseded`), so its
 own signature over what they built does not then block the replacement it just
 permitted — the node cannot answer this one at signing time, since it still
-serves the reorged tenure as fully live until the replacement lands. What _is_
-still derived from the node is the permit's own validity: the record carries the
-permitting tenure's sortition, and it only excludes conflicts while that
-sortition remains canonical (section 5, `reorg_permit_stands`), so a burnchain
-fork that orphans the permitting tenure automatically voids the permit. A record
+serves the reorged tenure as fully live until the replacement lands. The permit
+is scoped to the branch that replacement starts: the record names the permitting
+tenure, and only a block in it or in a tenure built on top of it is excused
+(section 5, `reorg_permit_stands`).
+What _is_ still derived from the node is the permit's own validity: the record
+also carries the permitting tenure's sortition, and it only excludes conflicts
+while that sortition remains canonical, so a burnchain fork that orphans the
+permitting tenure automatically voids the permit. A record
 more than `MAX_FORK_DEPTH` (100) burn blocks below the tip is dropped; a fork
 that deep would cause far bigger problems than a stale conflict.
 
