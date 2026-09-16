@@ -259,7 +259,7 @@ pub trait NeighborWalkDB {
             return Err(net_error::NoSuchNeighbor);
         }
 
-        next_neighbors.sort_by(|n1, n2| n1.last_contact_time.cmp(&n2.last_contact_time));
+        next_neighbors.sort_by_key(|n1| n1.last_contact_time);
         let median_neighbor_idx = next_neighbors.len() / 2;
         let random_neighbor_idx = if median_neighbor_idx > 0 {
             thread_rng().gen::<usize>() % median_neighbor_idx

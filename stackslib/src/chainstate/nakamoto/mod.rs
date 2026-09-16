@@ -1580,7 +1580,7 @@ impl NakamotoBlock {
 
             // must be a non-sortition-triggered tenure change
             let Some(TransactionPayload::TenureChange(tc_payload)) =
-                self.txs.get(0).map(|x| &x.payload)
+                self.txs.first().map(|x| &x.payload)
             else {
                 // this transaction is not a tenure change
                 // (should be unreachable)

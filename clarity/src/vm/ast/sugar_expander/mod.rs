@@ -14,9 +14,6 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::collections::{HashMap, HashSet};
-
-use clarity_types::representations::ClarityName;
 use clarity_types::types::{
     PrincipalData, QualifiedContractIdentifier, StandardPrincipalData, TraitIdentifier, Value,
 };
@@ -29,8 +26,6 @@ use crate::vm::representations::{PreSymbolicExpressionType, SymbolicExpression};
 
 pub struct SugarExpander {
     issuer: StandardPrincipalData,
-    defined_traits: HashSet<ClarityName>,
-    imported_traits: HashMap<ClarityName, TraitIdentifier>,
 }
 
 impl BuildASTPass for SugarExpander {
@@ -47,11 +42,7 @@ impl BuildASTPass for SugarExpander {
 
 impl SugarExpander {
     fn new(issuer: StandardPrincipalData) -> Self {
-        Self {
-            issuer,
-            defined_traits: HashSet::new(),
-            imported_traits: HashMap::new(),
-        }
+        Self { issuer }
     }
 
     pub fn run(&self, contract_ast: &mut ContractAST) -> ParseResult<()> {
@@ -239,6 +230,8 @@ mod test {
         e
     }
 
+    /// Builds a comment with a source span for comment-preservation tests.
+    #[cfg(feature = "developer-mode")]
     fn make_pre_comment(
         comment: String,
         start_line: u32,
@@ -259,18 +252,6 @@ mod test {
         end_column: u32,
     ) -> SymbolicExpression {
         let mut e = SymbolicExpression::atom(ClarityName::from_literal(x));
-        e.set_span(start_line, start_column, end_line, end_column);
-        e
-    }
-
-    fn make_atom_value(
-        x: Value,
-        start_line: u32,
-        start_column: u32,
-        end_line: u32,
-        end_column: u32,
-    ) -> SymbolicExpression {
-        let mut e = SymbolicExpression::atom_value(x);
         e.set_span(start_line, start_column, end_line, end_column);
         e
     }

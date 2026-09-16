@@ -135,19 +135,31 @@ fn parse_http_request_set_cookie() {
 
 #[test]
 fn test_parse_http_request_preamble_ok() {
-    let tests = vec![
-        ("GET /foo HTTP/1.1\r\nHost: localhost:6270\r\n\r\n",
-         HttpRequestPreamble::from_headers(HttpVersion::Http11, "GET".to_string(), "/foo".to_string(), "localhost".to_string(), 6270, true, vec![], vec![])),
-        ("POST asdf HTTP/1.1\r\nHost: core.blockstack.org\r\nFoo: Bar\r\n\r\n",
-         HttpRequestPreamble::from_headers(HttpVersion::Http11, "POST".to_string(), "asdf".to_string(), "core.blockstack.org".to_string(), 80, true, vec!["foo".to_string()], vec!["Bar".to_string()])),
-        ("POST asdf HTTP/1.1\r\nHost: core.blockstack.org\r\nFoo: Bar\r\n\r\n",
-         HttpRequestPreamble::from_headers(HttpVersion::Http11, "POST".to_string(), "asdf".to_string(), "core.blockstack.org".to_string(), 80, true, vec!["foo".to_string()], vec!["Bar".to_string()])),
-        ("GET /foo HTTP/1.1\r\nConnection: close\r\nHost: localhost:6270\r\n\r\n",
-         HttpRequestPreamble::from_headers(HttpVersion::Http11, "GET".to_string(), "/foo".to_string(), "localhost".to_string(), 6270, false, vec![], vec![])),
-        ("POST asdf HTTP/1.1\r\nHost: core.blockstack.org\r\nConnection: close\r\nFoo: Bar\r\n\r\n",
-         HttpRequestPreamble::from_headers(HttpVersion::Http11, "POST".to_string(), "asdf".to_string(), "core.blockstack.org".to_string(), 80, false, vec!["foo".to_string()], vec!["Bar".to_string()])),
-        ("POST asdf HTTP/1.1\r\nHost: core.blockstack.org\r\nFoo: Bar\r\nConnection: close\r\n\r\n",
-         HttpRequestPreamble::from_headers(HttpVersion::Http11, "POST".to_string(), "asdf".to_string(), "core.blockstack.org".to_string(), 80, false, vec!["foo".to_string()], vec!["Bar".to_string()]))
+    let tests = [
+        (
+            "GET /foo HTTP/1.1\r\nHost: localhost:6270\r\n\r\n",
+            HttpRequestPreamble::from_headers(HttpVersion::Http11, "GET".to_string(), "/foo".to_string(), "localhost".to_string(), 6270, true, vec![], vec![]),
+        ),
+        (
+            "POST asdf HTTP/1.1\r\nHost: core.blockstack.org\r\nFoo: Bar\r\n\r\n",
+            HttpRequestPreamble::from_headers(HttpVersion::Http11, "POST".to_string(), "asdf".to_string(), "core.blockstack.org".to_string(), 80, true, vec!["foo".to_string()], vec!["Bar".to_string()]),
+        ),
+        (
+            "POST asdf HTTP/1.1\r\nHost: core.blockstack.org\r\nFoo: Bar\r\n\r\n",
+            HttpRequestPreamble::from_headers(HttpVersion::Http11, "POST".to_string(), "asdf".to_string(), "core.blockstack.org".to_string(), 80, true, vec!["foo".to_string()], vec!["Bar".to_string()]),
+        ),
+        (
+            "GET /foo HTTP/1.1\r\nConnection: close\r\nHost: localhost:6270\r\n\r\n",
+            HttpRequestPreamble::from_headers(HttpVersion::Http11, "GET".to_string(), "/foo".to_string(), "localhost".to_string(), 6270, false, vec![], vec![]),
+        ),
+        (
+            "POST asdf HTTP/1.1\r\nHost: core.blockstack.org\r\nConnection: close\r\nFoo: Bar\r\n\r\n",
+            HttpRequestPreamble::from_headers(HttpVersion::Http11, "POST".to_string(), "asdf".to_string(), "core.blockstack.org".to_string(), 80, false, vec!["foo".to_string()], vec!["Bar".to_string()]),
+        ),
+        (
+            "POST asdf HTTP/1.1\r\nHost: core.blockstack.org\r\nFoo: Bar\r\nConnection: close\r\n\r\n",
+            HttpRequestPreamble::from_headers(HttpVersion::Http11, "POST".to_string(), "asdf".to_string(), "core.blockstack.org".to_string(), 80, false, vec!["foo".to_string()], vec!["Bar".to_string()]),
+        ),
     ];
 
     for (data, request) in tests.iter() {
@@ -176,13 +188,19 @@ fn test_parse_http_request_options() {
 
 #[test]
 fn test_parse_http_request_preamble_case_ok() {
-    let tests = vec![
-        ("GET /foo HTTP/1.1\r\nhOsT: localhost:6270\r\n\r\n",
-         HttpRequestPreamble::from_headers(HttpVersion::Http11, "GET".to_string(), "/foo".to_string(), "localhost".to_string(), 6270, true, vec![], vec![])),
-        ("GET /foo HTTP/1.1\r\ncOnNeCtIoN: cLoSe\r\nhOsT: localhost:6270\r\n\r\n",
-         HttpRequestPreamble::from_headers(HttpVersion::Http11, "GET".to_string(), "/foo".to_string(), "localhost".to_string(), 6270, false, vec![], vec![])),
-        ("POST asdf HTTP/1.1\r\nhOsT: core.blockstack.org\r\nCOnNeCtIoN: kEeP-aLiVE\r\nFoo: Bar\r\n\r\n",
-         HttpRequestPreamble::from_headers(HttpVersion::Http11, "POST".to_string(), "asdf".to_string(), "core.blockstack.org".to_string(), 80, true, vec!["foo".to_string()], vec!["Bar".to_string()])),
+    let tests = [
+        (
+            "GET /foo HTTP/1.1\r\nhOsT: localhost:6270\r\n\r\n",
+            HttpRequestPreamble::from_headers(HttpVersion::Http11, "GET".to_string(), "/foo".to_string(), "localhost".to_string(), 6270, true, vec![], vec![]),
+        ),
+        (
+            "GET /foo HTTP/1.1\r\ncOnNeCtIoN: cLoSe\r\nhOsT: localhost:6270\r\n\r\n",
+            HttpRequestPreamble::from_headers(HttpVersion::Http11, "GET".to_string(), "/foo".to_string(), "localhost".to_string(), 6270, false, vec![], vec![]),
+        ),
+        (
+            "POST asdf HTTP/1.1\r\nhOsT: core.blockstack.org\r\nCOnNeCtIoN: kEeP-aLiVE\r\nFoo: Bar\r\n\r\n",
+            HttpRequestPreamble::from_headers(HttpVersion::Http11, "POST".to_string(), "asdf".to_string(), "core.blockstack.org".to_string(), 80, true, vec!["foo".to_string()], vec!["Bar".to_string()]),
+        ),
     ];
 
     for (data, request) in tests.iter() {
@@ -314,23 +332,39 @@ fn test_http_request_preamble_headers() {
 
 #[test]
 fn test_parse_http_response_preamble_ok() {
-    let tests = vec![
-        ("HTTP/1.1 200 OK\r\nContent-Type: application/octet-stream\r\nContent-Length: 123\r\n\r\n",
-         HttpResponsePreamble::from_headers(200, "OK".to_string(), true, Some(123), HttpContentType::Bytes, vec![], vec![])),
-        ("HTTP/1.1 400 Bad Request\r\nContent-Type: application/json\r\nContent-Length: 456\r\nFoo: Bar\r\n\r\n",
-         HttpResponsePreamble::from_headers(400, "Bad Request".to_string(), true, Some(456), HttpContentType::JSON,vec!["foo".to_string()], vec!["Bar".to_string()])),
-        ("HTTP/1.1 400 Bad Request\r\nContent-Type: application/json\r\nContent-Length: 456\r\nFoo: Bar\r\n\r\n",
-         HttpResponsePreamble::from_headers(400, "Bad Request".to_string(), true, Some(456), HttpContentType::JSON, vec!["foo".to_string()], vec!["Bar".to_string()])),
-        ("HTTP/1.1 200 Ok\r\nContent-Type: application/octet-stream\r\nTransfer-encoding: chunked\r\n\r\n",
-         HttpResponsePreamble::from_headers(200, "Ok".to_string(), true, None, HttpContentType::Bytes, vec![], vec![])),
-        ("HTTP/1.1 200 OK\r\nContent-Type: application/octet-stream\r\nContent-Length: 123\r\nConnection: close\r\n\r\n",
-         HttpResponsePreamble::from_headers(200, "OK".to_string(), false, Some(123), HttpContentType::Bytes, vec![], vec![])),
-        ("HTTP/1.1 400 Bad Request\r\nContent-Type: application/json\r\nContent-Length: 456\r\nConnection: close\r\nFoo: Bar\r\n\r\n",
-         HttpResponsePreamble::from_headers(400, "Bad Request".to_string(), false, Some(456), HttpContentType::JSON, vec!["foo".to_string()], vec!["Bar".to_string()])),
-        ("HTTP/1.1 400 Bad Request\r\nContent-Type: application/json\r\nConnection: close\r\nContent-Length: 456\r\nFoo: Bar\r\n\r\n",
-         HttpResponsePreamble::from_headers(400, "Bad Request".to_string(), false, Some(456), HttpContentType::JSON, vec!["foo".to_string()], vec!["Bar".to_string()])),
-        ("HTTP/1.1 200 Ok\r\nConnection: close\r\nContent-Type: application/octet-stream\r\nTransfer-encoding: chunked\r\n\r\n",
-         HttpResponsePreamble::from_headers(200, "Ok".to_string(), false, None, HttpContentType::Bytes, vec![], vec![])),
+    let tests = [
+        (
+            "HTTP/1.1 200 OK\r\nContent-Type: application/octet-stream\r\nContent-Length: 123\r\n\r\n",
+            HttpResponsePreamble::from_headers(200, "OK".to_string(), true, Some(123), HttpContentType::Bytes, vec![], vec![]),
+        ),
+        (
+            "HTTP/1.1 400 Bad Request\r\nContent-Type: application/json\r\nContent-Length: 456\r\nFoo: Bar\r\n\r\n",
+            HttpResponsePreamble::from_headers(400, "Bad Request".to_string(), true, Some(456), HttpContentType::JSON,vec!["foo".to_string()], vec!["Bar".to_string()]),
+        ),
+        (
+            "HTTP/1.1 400 Bad Request\r\nContent-Type: application/json\r\nContent-Length: 456\r\nFoo: Bar\r\n\r\n",
+            HttpResponsePreamble::from_headers(400, "Bad Request".to_string(), true, Some(456), HttpContentType::JSON, vec!["foo".to_string()], vec!["Bar".to_string()]),
+        ),
+        (
+            "HTTP/1.1 200 Ok\r\nContent-Type: application/octet-stream\r\nTransfer-encoding: chunked\r\n\r\n",
+            HttpResponsePreamble::from_headers(200, "Ok".to_string(), true, None, HttpContentType::Bytes, vec![], vec![]),
+        ),
+        (
+            "HTTP/1.1 200 OK\r\nContent-Type: application/octet-stream\r\nContent-Length: 123\r\nConnection: close\r\n\r\n",
+            HttpResponsePreamble::from_headers(200, "OK".to_string(), false, Some(123), HttpContentType::Bytes, vec![], vec![]),
+        ),
+        (
+            "HTTP/1.1 400 Bad Request\r\nContent-Type: application/json\r\nContent-Length: 456\r\nConnection: close\r\nFoo: Bar\r\n\r\n",
+            HttpResponsePreamble::from_headers(400, "Bad Request".to_string(), false, Some(456), HttpContentType::JSON, vec!["foo".to_string()], vec!["Bar".to_string()]),
+        ),
+        (
+            "HTTP/1.1 400 Bad Request\r\nContent-Type: application/json\r\nConnection: close\r\nContent-Length: 456\r\nFoo: Bar\r\n\r\n",
+            HttpResponsePreamble::from_headers(400, "Bad Request".to_string(), false, Some(456), HttpContentType::JSON, vec!["foo".to_string()], vec!["Bar".to_string()]),
+        ),
+        (
+            "HTTP/1.1 200 Ok\r\nConnection: close\r\nContent-Type: application/octet-stream\r\nTransfer-encoding: chunked\r\n\r\n",
+            HttpResponsePreamble::from_headers(200, "Ok".to_string(), false, None, HttpContentType::Bytes, vec![], vec![]),
+        ),
     ];
 
     for (data, response) in tests.iter() {
@@ -343,15 +377,23 @@ fn test_parse_http_response_preamble_ok() {
 
 #[test]
 fn test_parse_http_response_case_ok() {
-    let tests = vec![
-        ("HTTP/1.1 200 OK\r\ncOnTeNt-TyPe: aPpLiCaTiOn/oCtEt-StReAm\r\ncOnTeNt-LeNgTh: 123\r\n\r\n",
-         HttpResponsePreamble::from_headers(200, "OK".to_string(), true, Some(123), HttpContentType::Bytes, vec![], vec![])),
-        ("HTTP/1.1 200 Ok\r\ncOnTeNt-tYpE: aPpLiCaTiOn/OcTeT-sTrEaM\r\ntRaNsFeR-eNcOdInG: cHuNkEd\r\n\r\n",
-         HttpResponsePreamble::from_headers(200, "Ok".to_string(), true, None, HttpContentType::Bytes, vec![], vec![])),
-        ("HTTP/1.1 200 Ok\r\ncOnNeCtIoN: cLoSe\r\nContent-Type: application/octet-stream\r\nTransfer-encoding: chunked\r\n\r\n",
-         HttpResponsePreamble::from_headers(200, "Ok".to_string(), false, None, HttpContentType::Bytes, vec![], vec![])),
-        ("HTTP/1.1 200 Ok\r\ncOnNeCtIoN: kEeP-AlIvE\r\nContent-Type: application/octet-stream\r\nTransfer-encoding: chunked\r\n\r\n",
-         HttpResponsePreamble::from_headers(200, "Ok".to_string(), true, None, HttpContentType::Bytes, vec![], vec![])),
+    let tests = [
+        (
+            "HTTP/1.1 200 OK\r\ncOnTeNt-TyPe: aPpLiCaTiOn/oCtEt-StReAm\r\ncOnTeNt-LeNgTh: 123\r\n\r\n",
+            HttpResponsePreamble::from_headers(200, "OK".to_string(), true, Some(123), HttpContentType::Bytes, vec![], vec![]),
+        ),
+        (
+            "HTTP/1.1 200 Ok\r\ncOnTeNt-tYpE: aPpLiCaTiOn/OcTeT-sTrEaM\r\ntRaNsFeR-eNcOdInG: cHuNkEd\r\n\r\n",
+            HttpResponsePreamble::from_headers(200, "Ok".to_string(), true, None, HttpContentType::Bytes, vec![], vec![]),
+        ),
+        (
+            "HTTP/1.1 200 Ok\r\ncOnNeCtIoN: cLoSe\r\nContent-Type: application/octet-stream\r\nTransfer-encoding: chunked\r\n\r\n",
+            HttpResponsePreamble::from_headers(200, "Ok".to_string(), false, None, HttpContentType::Bytes, vec![], vec![]),
+        ),
+        (
+            "HTTP/1.1 200 Ok\r\ncOnNeCtIoN: kEeP-AlIvE\r\nContent-Type: application/octet-stream\r\nTransfer-encoding: chunked\r\n\r\n",
+            HttpResponsePreamble::from_headers(200, "Ok".to_string(), true, None, HttpContentType::Bytes, vec![], vec![]),
+        ),
     ];
 
     for (data, response) in tests.iter() {
@@ -420,23 +462,39 @@ fn test_http_response_preamble_headers() {
 
 #[test]
 fn test_parse_http_response_preamble_err() {
-    let tests = vec![
-        ("HTTP/1.1 200",
-        "failed to fill whole buffer"),
-        ("HTTP/1.1 200 OK\r\nfoo: \u{2764}\r\n\r\n",
-        "header value is not ASCII-US"),
-        ("HTTP/1.1 200 OK\r\nfoo: bar\r\nfoo: bar\r\n\r\n",
-         "duplicate header"),
-        ("HTTP/1.1 200 OK\r\nContent-Type: image/png\r\n\r\n",
-         "Unsupported HTTP content type"),
-        ("HTTP/1.1 200 OK\r\nContent-Length: foo\r\n\r\n",
-         "Invalid Content-Length"),
-        ("HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\n\r\n",
-         "missing Content-Type, Content-Length"),
-        ("HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: 123\r\nTransfer-Encoding: chunked\r\n\r\n",
-         "incompatible transfer-encoding and content-length"),
-        ("HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: 123\r\nConnection: foo\r\n\r\n",
-         "invalid Connection: header"),
+    let tests = [
+        (
+            "HTTP/1.1 200",
+            "failed to fill whole buffer",
+        ),
+        (
+            "HTTP/1.1 200 OK\r\nfoo: \u{2764}\r\n\r\n",
+            "header value is not ASCII-US",
+        ),
+        (
+            "HTTP/1.1 200 OK\r\nfoo: bar\r\nfoo: bar\r\n\r\n",
+            "duplicate header",
+        ),
+        (
+            "HTTP/1.1 200 OK\r\nContent-Type: image/png\r\n\r\n",
+            "Unsupported HTTP content type",
+        ),
+        (
+            "HTTP/1.1 200 OK\r\nContent-Length: foo\r\n\r\n",
+            "Invalid Content-Length",
+        ),
+        (
+            "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\n\r\n",
+            "missing Content-Type, Content-Length",
+        ),
+        (
+            "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: 123\r\nTransfer-Encoding: chunked\r\n\r\n",
+            "incompatible transfer-encoding and content-length",
+        ),
+        (
+            "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: 123\r\nConnection: foo\r\n\r\n",
+            "invalid Connection: header",
+        ),
     ];
 
     for (data, errstr) in tests.iter() {
@@ -523,9 +581,7 @@ fn test_http_parse_host_header_value() {
 
 #[test]
 fn test_http_headers_too_big() {
-    let bad_header_value = std::iter::repeat("A")
-        .take(HTTP_PREAMBLE_MAX_ENCODED_SIZE as usize)
-        .collect::<String>();
+    let bad_header_value = "A".repeat(HTTP_PREAMBLE_MAX_ENCODED_SIZE as usize);
     let bad_request_preamble = format!(
         "GET /v2/neighbors HTTP/1.1\r\nHost: localhost:1234\r\nBad-Header: {}\r\n\r\n",
         &bad_header_value
@@ -587,7 +643,7 @@ fn test_http_headers_too_many() {
 
 #[test]
 fn test_http_request_version_keep_alive() {
-    let requests = vec![
+    let requests = [
         HttpRequestPreamble::new(
             HttpVersion::Http10,
             "GET".to_string(),

@@ -574,7 +574,7 @@ impl StacksMessageCodec for LeaderBlockCommitOp {
         write_next(fd, &self.key_block_ptr)?;
         write_next(fd, &self.key_vtxindex)?;
         let memo_burn_parent_modulus =
-            (self.memo.get(0).copied().unwrap_or(0x00) << 3) + (self.burn_parent_modulus & 0b111);
+            (self.memo.first().copied().unwrap_or(0x00) << 3) + (self.burn_parent_modulus & 0b111);
         write_next(fd, &memo_burn_parent_modulus)?;
         Ok(())
     }
@@ -818,8 +818,8 @@ impl LeaderBlockCommitOp {
             return Err(op_error::BlockCommitBadOutputs);
         }
 
-        if self.commit_outs.get(0) != Some(&wf_info.sbtc_address) {
-            warn!("Invalid waterfall block commit: unexpected output"; "expected" => %wf_info.sbtc_address, "found" => ?self.commit_outs.get(0));
+        if self.commit_outs.first() != Some(&wf_info.sbtc_address) {
+            warn!("Invalid waterfall block commit: unexpected output"; "expected" => %wf_info.sbtc_address, "found" => ?self.commit_outs.first());
             return Err(op_error::BlockCommitBadOutputs);
         }
 
@@ -2448,7 +2448,7 @@ mod tests {
             prev_snapshot.index_root
         };
 
-        let mut fixtures = vec![
+        let mut fixtures = [
             CheckFixture {
                 // accept -- consumes leader_key_2
                 op: LeaderBlockCommitOp {
@@ -4144,7 +4144,7 @@ mod tests {
             burn_header_hash: BurnchainHeaderHash([0x00; 32]), // to be filled in
         };
 
-        let all_leader_key_ops = vec![leader_key];
+        let all_leader_key_ops = [leader_key];
 
         let mut all_block_commit_ops = vec![
             (block_commit_pre_2_05, true),

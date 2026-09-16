@@ -771,7 +771,6 @@ fn test_as_contract_good_transfer_with_short_return_in_body() {
     true
   )
 )"#;
-    let sender = StandardPrincipalData::transient();
     let expected_err = Value::error(Value::UInt(200)).unwrap();
     let short_return: ClarityEvalError =
         VmExecutionError::EarlyReturn(EarlyReturnError::UnwrapFailed(expected_err.into())).into();
@@ -1624,7 +1623,6 @@ fn test_restrict_assets_good_transfer_with_short_return_in_body() {
     true
   )
 )"#;
-    let sender = StandardPrincipalData::transient();
     let expected_err = Value::error(Value::UInt(200)).unwrap();
     let short_return: ClarityEvalError =
         VmExecutionError::EarlyReturn(EarlyReturnError::UnwrapFailed(expected_err.into())).into();
