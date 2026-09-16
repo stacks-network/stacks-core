@@ -440,7 +440,7 @@ impl<DB: NeighborWalkDB, NC: NeighborComms> NeighborWalk<DB, NC> {
             idx
         );
 
-        let (addr, pingback_peer) = match network.get_walk_pingbacks().iter().skip(idx).next() {
+        let (addr, pingback_peer) = match network.get_walk_pingbacks().iter().nth(idx) {
             Some((addr, pingback_peer)) => (addr, pingback_peer),
             None => {
                 return Err(net_error::NoSuchNeighbor);

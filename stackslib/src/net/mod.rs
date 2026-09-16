@@ -3544,7 +3544,7 @@ pub mod test {
         }
 
         pub fn set_ops_consensus_hash(
-            blockstack_ops: &mut Vec<BlockstackOperationType>,
+            blockstack_ops: &mut [BlockstackOperationType],
             ch: &ConsensusHash,
         ) {
             for op in blockstack_ops.iter_mut() {
@@ -3555,7 +3555,7 @@ pub mod test {
         }
 
         pub fn set_ops_burn_header_hash(
-            blockstack_ops: &mut Vec<BlockstackOperationType>,
+            blockstack_ops: &mut [BlockstackOperationType],
             bhh: &BurnchainHeaderHash,
         ) {
             for op in blockstack_ops.iter_mut() {
