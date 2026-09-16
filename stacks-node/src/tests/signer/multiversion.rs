@@ -133,7 +133,7 @@ impl SpawnedSignerTrait for MultiverSpawnedSigner {
     type StopResult = ();
 
     fn new(c: stacks_signer::config::GlobalConfig) -> Self {
-        if c.endpoint.port() % 2 == 0 {
+        if c.endpoint.port().is_multiple_of(2) {
             debug!(
                 "Spawning current version signer for endpoint {}",
                 c.endpoint

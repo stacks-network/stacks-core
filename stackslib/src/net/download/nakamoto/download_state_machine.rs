@@ -926,7 +926,7 @@ impl NakamotoDownloadStateMachine {
     /// additionally ensure that there are no in-flight confirmed tenure downloads.
     ///
     /// This method is static to facilitate testing.
-    pub(crate) fn need_unconfirmed_tenures<'a>(
+    pub(crate) fn need_unconfirmed_tenures(
         burnchain_height: u64,
         sort_tip: &BlockSnapshot,
         wanted_tenures: &[WantedTenure],

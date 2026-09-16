@@ -130,7 +130,6 @@ impl LocalPeer {
         rng.fill_bytes(&mut my_nonce);
 
         let addr = addrbytes;
-        let port = port;
         let services = (ServiceFlags::RELAY as u16)
             | (ServiceFlags::RPC as u16)
             | (ServiceFlags::STACKERDB as u16);

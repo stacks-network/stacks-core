@@ -33,7 +33,8 @@ use super::stacks::boot::{RewardSet, RewardSetData};
 use super::stacks::db::blocks::DummyEventDispatcher;
 use crate::burnchains::db::{BurnchainBlockData, BurnchainDB};
 use crate::burnchains::{
-    Burnchain, BurnchainBlockHeader, Error as BurnchainError, PoxConstants, Txid,
+    Burnchain, BurnchainBlockHeader, BurnchainSignerKind, Error as BurnchainError, PoxConstants,
+    Txid,
 };
 use crate::chainstate::burn::db::sortdb::{SortitionDB, SortitionHandleTx};
 use crate::chainstate::burn::operations::leader_block_commit::RewardSetInfo;
@@ -857,6 +858,7 @@ pub struct PoxTransactionRewardRecipient {
 pub struct PoxTransactionReward {
     #[serde(with = "prefix_hex")]
     pub txid: Txid,
+    pub apparent_sender: Option<String>,
     pub reward_recipients: Vec<PoxTransactionRewardRecipient>,
 }
 
@@ -899,6 +901,11 @@ pub fn calculate_paid_rewards(ops: &[BlockstackOperationType]) -> PaidRewards {
             if !tx_reward_recipients.is_empty() {
                 pox_transactions.push(PoxTransactionReward {
                     txid: commit.txid.clone(),
+                    apparent_sender: match commit.apparent_sender.kind() {
+                        BurnchainSignerKind::Signer(signer) => Some(signer.to_string()),
+                        BurnchainSignerKind::NoChangeOutput
+                        | BurnchainSignerKind::UndecodableOutput => None,
+                    },
                     reward_recipients: tx_reward_recipients,
                 });
             }
