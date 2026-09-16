@@ -1595,7 +1595,7 @@ impl TupleTypeSignature {
 
     fn max_depth(&self) -> u8 {
         let mut max = 0;
-        for (_name, type_signature) in self.type_map.iter() {
+        for type_signature in self.type_map.values() {
             max = cmp::max(max, type_signature.depth())
         }
         max
@@ -1670,10 +1670,8 @@ impl TupleTypeSignature {
 impl fmt::Display for TupleTypeSignature {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "(tuple")?;
-        let mut type_strs: Vec<_> = self.type_map.iter().collect();
-        type_strs.sort_unstable_by_key(|x| x.0);
-        for (field_name, field_type) in type_strs {
-            write!(f, " ({} {})", &**field_name, field_type)?;
+        for (field_name, field_type) in self.type_map.iter() {
+            write!(f, " ({field_name} {field_type})")?;
         }
         write!(f, ")")
     }
@@ -1683,7 +1681,7 @@ impl fmt::Debug for TupleTypeSignature {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "TupleTypeSignature {{")?;
         for (field_name, field_type) in self.type_map.iter() {
-            write!(f, " \"{}\": {},", &**field_name, field_type)?;
+            write!(f, " \"{field_name}\": {field_type},")?;
         }
         write!(f, "}}")
     }

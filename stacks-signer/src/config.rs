@@ -54,14 +54,11 @@ const DEFAULT_TENURE_IDLE_TIMEOUT_BUFFER_SECS: u64 = 2;
 ///  cannot determine that our stacks-node has processed the parent
 ///  block
 const DEFAULT_PROPOSAL_WAIT_TIME_FOR_PARENT_SECS: u64 = 15;
-/// Default number of blocks after a fork to reset the replay set,
-/// as a failsafe mechanism
-pub const DEFAULT_RESET_REPLAY_SET_AFTER_FORK_BLOCKS: u64 = 2;
 /// Default time (in secs) to wait between updating our local state
 /// machine view point and capitulating to other signers tenure view
 const DEFAULT_CAPITULATE_MINER_VIEW_SECS: u64 = 20;
 /// Default HTTP timeout (in seconds) for read/write operations with StackerDB.
-pub const DEFAULT_STACKERDB_TIMEOUT_SECS: u64 = 120;
+pub const DEFAULT_STACKERDB_TIMEOUT_SECS: u64 = 10;
 
 #[derive(thiserror::Error, Debug)]
 /// An error occurred parsing the provided configuration
@@ -197,11 +194,6 @@ pub struct SignerConfig {
     /// Time to wait before submitting a block proposal to the stacks-node if we cannot
     ///  determine that the stacks-node has processed the parent
     pub proposal_wait_for_parent_time: Duration,
-    /// Whether or not to validate blocks with replay transactions
-    pub validate_with_replay_tx: bool,
-    /// How many blocks after a fork should we reset the replay set,
-    /// as a failsafe mechanism
-    pub reset_replay_set_after_fork_blocks: u64,
     /// Time to wait between updating our local state machine view point and capitulating to other signers miner view
     pub capitulate_miner_view_timeout: Duration,
     /// The HTTP timeout for read/write operations with StackerDB.
@@ -262,11 +254,6 @@ pub struct GlobalConfig {
     pub proposal_wait_for_parent_time: Duration,
     /// Is this signer binary going to be running in dry-run mode?
     pub dry_run: bool,
-    /// Whether or not to validate blocks with replay transactions
-    pub validate_with_replay_tx: bool,
-    /// How many blocks after a fork should we reset the replay set,
-    /// as a failsafe mechanism
-    pub reset_replay_set_after_fork_blocks: u64,
     /// Time to wait between updating our local state machine view point and capitulating to other signers miner view
     pub capitulate_miner_view_timeout: Duration,
     /// The HTTP timeout for read/write operations with StackerDB.
@@ -282,6 +269,7 @@ pub struct GlobalConfig {
 /// `stacks-signer` binary. All fields with `Option` types will use their
 /// documented defaults when omitted.
 #[derive(Deserialize, Debug)]
+#[serde(deny_unknown_fields)]
 struct RawConfigFile {
     /// The Stacks node RPC endpoint that this signer will connect to.
     /// ---
@@ -416,7 +404,9 @@ struct RawConfigFile {
     ///   - Increase if signer and miner clocks are poorly synchronized.
     pub tenure_idle_timeout_buffer_secs: Option<u64>,
     /// The maximum age of a block proposal that will be processed by the signer.
-    /// Proposals older than this are ignored.
+    /// Proposals older than this are rejected (without validation) with a
+    /// `ProposalTooOld` response, unless the signer has already decided on the
+    /// block, in which case it resends its prior decision.
     /// ---
     /// @default: `600`
     /// @units: seconds
@@ -439,18 +429,6 @@ struct RawConfigFile {
     /// ---
     /// @default: `false`
     pub dry_run: Option<bool>,
-    /// Whether to validate blocks by replaying transactions.
-    /// ---
-    /// @default: `false`
-    /// @notes:
-    ///   - Experimental feature. Provides additional validation but increases
-    ///     resource usage.
-    pub validate_with_replay_tx: Option<bool>,
-    /// Number of blocks after a fork to reset the replay set as a failsafe mechanism.
-    /// ---
-    /// @default: `2`
-    /// @units: blocks
-    pub reset_replay_set_after_fork_blocks: Option<u64>,
     /// Time to wait between updating the local state machine view and capitulating
     /// to other signers' tenure view.
     /// ---
@@ -462,7 +440,7 @@ struct RawConfigFile {
     pub capitulate_miner_view_timeout_secs: Option<u64>,
     /// HTTP timeout for read/write operations with StackerDB.
     /// ---
-    /// @default: `120`
+    /// @default: `10`
     /// @units: seconds
     pub stackerdb_timeout_secs: Option<u64>,
     #[cfg(any(test, feature = "testing"))]
@@ -597,14 +575,6 @@ impl TryFrom<RawConfigFile> for GlobalConfig {
                 .unwrap_or(DEFAULT_PROPOSAL_WAIT_TIME_FOR_PARENT_SECS),
         );
 
-        // TODO: remove this before going to mainnet
-        // https://github.com/stacks-network/stacks-core/issues/6087
-        let validate_with_replay_tx = raw_data.validate_with_replay_tx.unwrap_or(false);
-
-        let reset_replay_set_after_fork_blocks = raw_data
-            .reset_replay_set_after_fork_blocks
-            .unwrap_or(DEFAULT_RESET_REPLAY_SET_AFTER_FORK_BLOCKS);
-
         let capitulate_miner_view_timeout = Duration::from_secs(
             raw_data
                 .capitulate_miner_view_timeout_secs
@@ -643,8 +613,6 @@ impl TryFrom<RawConfigFile> for GlobalConfig {
             tenure_idle_timeout_buffer,
             read_count_idle_timeout,
             proposal_wait_for_parent_time,
-            validate_with_replay_tx,
-            reset_replay_set_after_fork_blocks,
             capitulate_miner_view_timeout,
             stackerdb_timeout,
             #[cfg(any(test, feature = "testing"))]
@@ -736,8 +704,6 @@ pub fn build_signer_config_tomls(
     password: &str,
     run_stamp: u16,
     mut port_start: usize,
-    max_tx_fee_ustx: Option<u64>,
-    tx_fee_ustx: Option<u64>,
     mut metrics_port_start: Option<usize>,
     chain_id: Option<u32>,
 ) -> Vec<String> {
@@ -771,25 +737,7 @@ db_path = "{db_path}"
             signer_config_toml = format!(
                 r#"
 {signer_config_toml}
-event_timeout = {event_timeout_ms}
-"#
-            )
-        }
-
-        if let Some(max_tx_fee_ustx) = max_tx_fee_ustx {
-            signer_config_toml = format!(
-                r#"
-{signer_config_toml}
-max_tx_fee_ustx = {max_tx_fee_ustx}
-"#
-            )
-        }
-
-        if let Some(tx_fee_ustx) = tx_fee_ustx {
-            signer_config_toml = format!(
-                r#"
-{signer_config_toml}
-tx_fee_ustx = {tx_fee_ustx}
+event_timeout_ms = {event_timeout_ms}
 "#
             )
         }
@@ -847,6 +795,25 @@ mod tests {
     }
 
     #[test]
+    fn test_unknown_fields_rejected() {
+        let config_toml = r#"
+node_host = "127.0.0.1:20443"
+endpoint = "127.0.0.1:30000"
+network = "testnet"
+auth_password = "abcd"
+db_path = ":memory:"
+stacks_private_key = "eb05c83546fdd2c79f10f5ad5434a90dd28f7e3acb7c092157aa1bc3656b012c01"
+tenure_idle_timeout_sec = 30 # Error: missing trailing 's' in 'secs'
+"#;
+        let result = RawConfigFile::load_from_str(config_toml);
+        let err = result.expect_err("Config with a misspelled field should fail to parse");
+        assert!(
+            format!("{err:?}").contains("tenure_idle_timeout_sec"),
+            "Error should name the unknown field: {err:?}"
+        );
+    }
+
+    #[test]
     fn build_signer_config_tomls_should_produce_deserializable_strings() {
         let pk = StacksPrivateKey::from_hex(
             "eb05c83546fdd2c79f10f5ad5434a90dd28f7e3acb7c092157aa1bc3656b012c01",
@@ -865,8 +832,6 @@ mod tests {
             password,
             rand::random(),
             3000,
-            None,
-            None,
             Some(4000),
             None,
         );
@@ -936,7 +901,6 @@ db_path = ":memory:"
         );
         let config = GlobalConfig::load_from_str(&config_toml).unwrap();
         assert_eq!(config.stacks_address.to_string(), expected_addr);
-        assert!(!config.validate_with_replay_tx);
         assert_eq!(
             config.capitulate_miner_view_timeout,
             Duration::from_secs(DEFAULT_CAPITULATE_MINER_VIEW_SECS)
@@ -952,16 +916,12 @@ endpoint = "localhost:30000"
 network = "mainnet"
 auth_password = "abcd"
 db_path = ":memory:"
-validate_with_replay_tx = true
-reset_replay_set_after_fork_blocks = 100
 capitulate_miner_view_timeout_secs = 1000
             "#
         );
         let config = GlobalConfig::load_from_str(&config_toml).unwrap();
         assert_eq!(config.stacks_address.to_string(), expected_addr);
         assert_eq!(config.to_chain_id(), CHAIN_ID_MAINNET);
-        assert!(config.validate_with_replay_tx);
-        assert_eq!(config.reset_replay_set_after_fork_blocks, 100);
         assert_eq!(
             config.capitulate_miner_view_timeout,
             Duration::from_secs(1000)
@@ -986,8 +946,6 @@ capitulate_miner_view_timeout_secs = 1000
             password,
             rand::random(),
             3000,
-            None,
-            None,
             Some(4000),
             Some(0x80000100),
         );

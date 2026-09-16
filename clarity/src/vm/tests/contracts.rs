@@ -54,6 +54,8 @@ const FACTORIAL_CONTRACT: &str = "(define-map factorials { id: int } { current: 
         (begin (init-factorial 1337 3)
                (init-factorial 8008 5))";
 
+// Only used by `test_simple_naming_system`, which the clarity-wasm runtime skips.
+#[cfg(not(feature = "clarity-wasm"))]
 const SIMPLE_TOKENS: &str = "(define-map tokens { account: principal } { balance: uint })
          (define-read-only (my-get-token-balance (account principal))
             (default-to u0 (get balance (map-get? tokens (tuple (account account))))))
@@ -155,23 +157,6 @@ fn test_get_block_info_eval(
             ),
         ]);
     }
-    let expected: [Result<Value, RuntimeCheckErrorKind>; 8] = [
-        Ok(Value::none()),
-        Ok(Value::none()),
-        Ok(Value::none()),
-        Err(RuntimeCheckErrorKind::TypeValueError(
-            Box::new(TypeSignature::UIntType),
-            Value::Int(-1).to_error_string(),
-        )),
-        Err(RuntimeCheckErrorKind::TypeValueError(
-            Box::new(TypeSignature::UIntType),
-            Value::Bool(true).to_error_string(),
-        )),
-        Ok(Value::none()),
-        Ok(Value::none()),
-        Ok(Value::none()),
-    ];
-
     let placeholder_context = ContractContext::new(
         QualifiedContractIdentifier::transient(),
         ClarityVersion::Clarity2,
@@ -1443,7 +1428,6 @@ fn test_contract_hash_success(
 
     // Attempt to get the hash of the other contract and expect it to be
     // successful and for the returned hash to match the expected hash.
-    let standard_principal = QualifiedContractIdentifier::local("standard-principal").unwrap();
     let result = exec_state
         .execute_contract(
             &invoke_ctx,
@@ -1484,7 +1468,6 @@ fn test_contract_hash_nonexistent_contract(
     // Deploy a contract to hash
     let other_contract = QualifiedContractIdentifier::local("other-contract").unwrap();
     let contract_content = "(define-constant test-var 1)";
-    let expected_hash = Sha512Trunc256Sum::from_data(contract_content.as_bytes());
 
     exec_state
         .initialize_contract(&invoke_ctx, other_contract.clone(), contract_content)
@@ -1536,7 +1519,6 @@ fn test_contract_hash_standard_principal(
     // Deploy a contract to hash
     let other_contract = QualifiedContractIdentifier::local("other-contract").unwrap();
     let contract_content = "(define-constant test-var 1)";
-    let expected_hash = Sha512Trunc256Sum::from_data(contract_content.as_bytes());
 
     exec_state
         .initialize_contract(&invoke_ctx, other_contract.clone(), contract_content)
@@ -1625,7 +1607,6 @@ fn test_contract_hash_pre_clarity4(
     // Deploy a contract to hash
     let other_contract = QualifiedContractIdentifier::local("other-contract").unwrap();
     let contract_content = "(define-constant test-var 1)";
-    let expected_hash = Sha512Trunc256Sum::from_data(contract_content.as_bytes());
 
     exec_state
         .initialize_contract(&invoke_ctx, other_contract.clone(), contract_content)
@@ -1642,7 +1623,6 @@ fn test_contract_hash_pre_clarity4(
 
     // Attempt to get the hash of the other contract and expect it to be
     // successful and for the returned hash to match the expected hash.
-    let standard_principal = QualifiedContractIdentifier::local("standard-principal").unwrap();
     let err = exec_state
         .execute_contract(
             &invoke_ctx,

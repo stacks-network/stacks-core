@@ -1,6 +1,6 @@
 [package]
 name = "stacks-signer"
-version = "0.0.1"
+version.workspace = true
 authors = [ "Jude Nelson <jude@stacks.org>" ]
 license = "GPLv3"
 homepage = "https://github.com/blockstack/stacks-blockchain"

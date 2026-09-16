@@ -60,9 +60,16 @@ env:
   MADHOUSE: 1
 
 jobs:
+  # Check if CI is enabled
+  check-ci:
+    name: "Check: CI Enabled"
+    uses: ./.github/workflows/__check-ci.yml
+
   proptests-nightly:
-    name: Run All Proptest Tests
-    if: github.event_name == 'workflow_dispatch' || github.event.repository.visibility == 'public'
+    name: "Tests: All Proptest Tests"
+    needs:
+      - check-ci
+    if: needs.check-ci.outputs.enabled == 'true'
     runs-on: ubuntu-latest
     steps:
       # Compute env variables depending on the workflow trigger (schedule vs dispatch)
@@ -101,7 +108,7 @@ jobs:
           echo "SLACK_NOTIFY=${slack_notify}"
 
       - name: Checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: $/.github/wrappers/checkout
         with:
           ref: ${{ env.CHECKOUT_REF }}
 
@@ -189,7 +196,7 @@ jobs:
       # Persist proptest regression files for the next run on this branch.
       - name: Save proptest regressions (if any)
         if: failure() && steps.run_tests.outcome == 'failure'
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: ./.github/wrappers/upload-artifact
         with:
           name: ${{ env.ARTIFACT_NAME }}
           path: |

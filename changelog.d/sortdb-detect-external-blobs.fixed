@@ -1,1 +1,0 @@
-The sortition MARF index now auto-detects external-blob storage (a sibling `marf.sqlite.blobs` file) instead of assuming internal SQLite blobs.

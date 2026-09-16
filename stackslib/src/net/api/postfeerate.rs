@@ -75,7 +75,7 @@ pub struct RPCFeeEstimateResponse {
     pub cost_scalar_change_by_byte: f64,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Default)]
 pub struct RPCPostFeeRateRequestHandler {
     pub estimated_len: Option<u64>,
     pub transaction_payload: Option<TransactionPayload>,

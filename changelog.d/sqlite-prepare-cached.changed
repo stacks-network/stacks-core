@@ -1,2 +1,0 @@
-Cache prepared statements on hot SQLite read paths (Clarity side-store reads, MARF block-id/hash lookups, and the generic `query_*` helpers) instead of re-parsing the SQL on every call, and raise the per-connection statement-cache capacity so the cache is not LRU-thrashed 
-

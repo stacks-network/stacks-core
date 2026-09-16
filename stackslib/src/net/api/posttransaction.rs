@@ -36,7 +36,7 @@ pub struct PostTransactionRequestBody {
     pub attachment: Option<String>,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Default)]
 pub struct RPCPostTransactionRequestHandler {
     pub tx: Option<StacksTransaction>,
     pub attachment: Option<Attachment>,

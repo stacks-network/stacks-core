@@ -18,6 +18,7 @@ use std::time::Instant;
 use clarity::vm::costs::ExecutionCost;
 use clarity::vm::Value;
 use regex::{Captures, Regex};
+use stacks_common::bounded_format;
 use stacks_common::codec::StacksMessageCodec;
 use stacks_common::types::chainstate::{BlockHeaderHash, ConsensusHash, StacksBlockId, TrieHash};
 use stacks_common::types::net::PeerHost;
@@ -31,7 +32,9 @@ use crate::chainstate::burn::db::sortdb::SortitionDB;
 use crate::chainstate::nakamoto::miner::{MinerTenureInfoCause, NakamotoBlockBuilder};
 use crate::chainstate::nakamoto::{NakamotoBlock, NakamotoChainState};
 use crate::chainstate::stacks::db::{ClarityTx, StacksChainState};
-use crate::chainstate::stacks::events::{StacksTransactionReceipt, TransactionOrigin};
+use crate::chainstate::stacks::events::{
+    BoundedErrorString, StacksTransactionReceipt, TransactionOrigin,
+};
 use crate::chainstate::stacks::miner::{
     BlockBuilder, BlockLimitFunction, TransactionResourceBudgets, TransactionResult,
 };
@@ -319,11 +322,13 @@ where
                 txs_receipts.push((tx_result.receipt, execution_tracker, profiler_result));
                 Ok(())
             }
-            TransactionResult::ProcessingError(e) => {
-                Err(format!("Error processing tx {}: {}", i, e.error))
-            }
-            TransactionResult::Skipped(e) => Err(format!("Skipped tx {}: {}", i, e.error)),
-            TransactionResult::Problematic(e) => Err(format!("Problematic tx {}: {}", i, e.error)),
+            TransactionResult::ProcessingError(e) => Err(BoundedErrorString::from_display(
+                &format_args!("Error processing tx {}: {}", i, e.error),
+            )),
+            TransactionResult::Skipped(e) => Err(bounded_format!("Skipped tx {i}: {}", e.error)),
+            TransactionResult::Problematic(e) => Err(BoundedErrorString::from_display(
+                &format_args!("Problematic tx {}: {}", i, e.error),
+            )),
         };
         if let Err(reason) = err {
             let txid = tx.txid();
@@ -432,7 +437,7 @@ pub struct RPCReplayedBlockTransaction {
     /// Whether the tx was aborted by a post-condition
     pub post_condition_aborted: bool,
     /// optional vm error
-    pub vm_error: Option<String>,
+    pub vm_error: Option<BoundedErrorString>,
     pub profiler: Option<RPCReplayedBlockTransactionProfiler>,
     pub execution_stats: BlockReplayExecutionTracker,
 }
@@ -649,9 +654,10 @@ impl RPCRequestHandler for RPCNakamotoBlockReplayRequestHandler {
             }
             Err(e) => {
                 // nope -- error trying to check
-                let msg = format!("Failed to load block {}: {:?}\n", &block_id, &e);
+                let msg: BoundedErrorString =
+                    bounded_format!("Failed to load block {block_id}: {e:?}\n");
                 warn!("{}", &msg);
-                return StacksHttpResponse::new_error(&preamble, &HttpServerError::new(msg))
+                return StacksHttpResponse::new_error(&preamble, &HttpServerError::new(msg.into()))
                     .try_into_contents()
                     .map_err(NetError::from);
             }

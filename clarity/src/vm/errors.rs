@@ -18,11 +18,13 @@ use std::string::FromUtf8Error;
 use std::{error, fmt};
 
 use clarity_types::Value;
+pub use clarity_types::effects::AssetMapError;
 pub use clarity_types::errors::{ClarityTypeError, IncomparableError};
 use clarity_types::representations::SymbolicExpression;
 use clarity_types::types::FunctionIdentifier;
 #[cfg(feature = "rusqlite")]
 use rusqlite::Error as SqliteError;
+use stacks_common::types::StacksEpochId;
 use stacks_common::types::chainstate::BlockHeaderHash;
 
 pub use crate::vm::analysis::errors::{
@@ -342,12 +344,12 @@ impl From<ClarityTypeError> for VmExecutionError {
 
 impl VmExecutionError {
     /// Returns `true` if this error, were it to propagate out of transaction processing, makes the
-    /// transaction non-includable (a block that contains it is invalid), as opposed to producing an
-    /// includable failure receipt.
-    pub fn rejectable(&self) -> bool {
+    /// transaction non-includable in the given epoch (a block that contains it is invalid), as
+    /// opposed to producing an includable failure receipt.
+    pub fn rejectable_in_epoch(&self, epoch: StacksEpochId) -> bool {
         match self {
             VmExecutionError::RuntimeCheck(check) => {
-                check.rejectable()
+                check.rejectable_in_epoch(epoch)
                     || matches!(
                         check,
                         RuntimeCheckErrorKind::CostOverflow
@@ -380,6 +382,20 @@ impl From<CostErrors> for VmExecutionError {
 impl From<RuntimeError> for VmExecutionError {
     fn from(err: RuntimeError) -> Self {
         VmExecutionError::Runtime(err, None)
+    }
+}
+
+impl From<AssetMapError> for VmExecutionError {
+    fn from(err: AssetMapError) -> Self {
+        match err {
+            AssetMapError::AmountOverflow => RuntimeError::ArithmeticOverflow.into(),
+            AssetMapError::BurnTotalOverflow => {
+                VmInternalError::Expect("BURN OVERFLOW".into()).into()
+            }
+            AssetMapError::StackingEntryConflict => {
+                RuntimeCheckErrorKind::PoxStxAssetMapOverwrite.into()
+            }
+        }
     }
 }
 
@@ -471,7 +487,26 @@ impl fmt::Display for ClarityEvalError {
 mod test {
     use clarity_types::Value;
 
-    use crate::vm::errors::{EarlyReturnError, VmExecutionError, VmInternalError};
+    use crate::vm::errors::{
+        AssetMapError, EarlyReturnError, RuntimeCheckErrorKind, RuntimeError, VmExecutionError,
+        VmInternalError,
+    };
+
+    #[test]
+    fn asset_map_errors_map_to_vm_errors() {
+        assert!(matches!(
+            VmExecutionError::from(AssetMapError::AmountOverflow),
+            VmExecutionError::Runtime(RuntimeError::ArithmeticOverflow, None)
+        ));
+        assert_eq!(
+            VmExecutionError::from(AssetMapError::BurnTotalOverflow),
+            VmExecutionError::Internal(VmInternalError::Expect("BURN OVERFLOW".into()))
+        );
+        assert_eq!(
+            VmExecutionError::from(AssetMapError::StackingEntryConflict),
+            VmExecutionError::RuntimeCheck(RuntimeCheckErrorKind::PoxStxAssetMapOverwrite)
+        );
+    }
 
     #[test]
     #[cfg(feature = "developer-mode")]

@@ -219,6 +219,7 @@ impl ConversationHttp {
         req: StacksHttpRequest,
         node: &mut StacksNodeState,
     ) -> Result<Option<StacksMessageType>, net_error> {
+        node.set_http_peer_addr(self.peer_addr);
         // NOTE: This may set node.relay_message
         let keep_alive = req.preamble().keep_alive;
         let (mut response_preamble, response_body) =
@@ -613,7 +614,7 @@ impl ConversationHttp {
                 break;
             }
         }
-        monitoring::update_inbound_rpc_bandwidth(total_sz as i64);
+        monitoring::update_outbound_rpc_bandwidth(total_sz as i64);
         Ok(total_sz)
     }
 

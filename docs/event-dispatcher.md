@@ -9,6 +9,7 @@ endpoint = "listener:3700" # The host and port of your listening service
 events_keys = ["*"]                     # A list of event keys to subscribe to (see below)
 timeout_ms = 5000                       # Optional: Timeout in milliseconds for requests (default: 1000)
 disable_retries = false                 # Optional: If true, failed deliveries won't be retried (default: false)
+disable_contract_interface = false      # Optional: If true, the contract_interface (ABI) field of transactions in new_block / new_microblocks payloads sent to this observer is null (default: false)
 
 # Example of another observer for specific events
 # [[events_observer]]

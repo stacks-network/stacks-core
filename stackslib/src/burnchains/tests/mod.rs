@@ -291,6 +291,12 @@ impl TestMiner {
 }
 
 // creates miners deterministically
+impl Default for TestMinerFactory {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl TestMinerFactory {
     pub fn new() -> TestMinerFactory {
         TestMinerFactory {
@@ -621,12 +627,11 @@ impl TestBurnchainBlock {
         R: RewardSetProvider,
         CE: CostEstimator,
         FE: FeeEstimator,
-        B: BurnchainHeaderReader,
     >(
         &self,
         db: &mut SortitionDB,
         burnchain: &Burnchain,
-        coord: &mut ChainsCoordinator<'_, T, N, R, CE, FE, B>,
+        coord: &mut ChainsCoordinator<'_, T, N, R, CE, FE>,
     ) -> BlockSnapshot {
         let mut indexer = BitcoinIndexer::new_unit_test(&burnchain.working_dir);
         let parent_hdr = indexer
@@ -761,12 +766,11 @@ impl TestBurnchainFork {
         R: RewardSetProvider,
         CE: CostEstimator,
         FE: FeeEstimator,
-        B: BurnchainHeaderReader,
     >(
         &mut self,
         db: &mut SortitionDB,
         burnchain: &Burnchain,
-        coord: &mut ChainsCoordinator<'_, T, N, R, CE, FE, B>,
+        coord: &mut ChainsCoordinator<'_, T, N, R, CE, FE>,
     ) -> BlockSnapshot {
         let mut snapshot = {
             let ic = db.index_conn();
@@ -792,6 +796,8 @@ impl TestBurnchainFork {
     }
 }
 
+// A default would hide test database initialization and a possible panic.
+#[allow(clippy::new_without_default)]
 impl TestBurnchainNode {
     pub fn new() -> TestBurnchainNode {
         let first_block_height = 100;

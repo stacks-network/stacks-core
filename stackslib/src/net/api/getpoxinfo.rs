@@ -47,7 +47,7 @@ use crate::net::{Error as NetError, StacksNodeState, TipRequest};
 use crate::util_lib::boot::boot_code_id;
 use crate::util_lib::db::Error as DBError;
 
-#[derive(Clone)]
+#[derive(Clone, Default)]
 pub struct RPCPoxInfoRequestHandler {}
 impl RPCPoxInfoRequestHandler {
     pub fn new() -> Self {

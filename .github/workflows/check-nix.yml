@@ -29,12 +29,20 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # Check if CI is enabled
+  check-ci:
+    name: "Check: CI Enabled"
+    uses: ./.github/workflows/__check-ci.yml
+
   build-pkg:
-    name: Check Nix package
+    name: "Check: Nix package"
+    needs:
+      - check-ci
+    if: needs.check-ci.outputs.enabled == 'true'
     runs-on: ubuntu-latest
     steps:
       # Checkout the code
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: $/.github/wrappers/checkout
         with:
           ref: ${{ github.event.pull_request.head.sha || github.ref }}
 

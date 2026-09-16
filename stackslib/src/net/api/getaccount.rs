@@ -45,7 +45,7 @@ pub struct AccountEntryResponse {
     pub nonce_proof: Option<String>,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Default)]
 pub struct RPCGetAccountRequestHandler {
     pub account: Option<PrincipalData>,
 }

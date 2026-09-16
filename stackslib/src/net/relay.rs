@@ -34,20 +34,23 @@ use crate::chainstate::burn::db::sortdb::{SortitionDB, SortitionDBConn, Sortitio
 use crate::chainstate::burn::{BlockSnapshot, ConsensusHash};
 use crate::chainstate::coordinator::comm::CoordinatorChannels;
 use crate::chainstate::coordinator::{Error as CoordinatorError, OnChainRewardSetProvider};
-use crate::chainstate::nakamoto::coordinator::load_nakamoto_reward_set;
+use crate::chainstate::nakamoto::coordinator::{
+    load_nakamoto_reward_set, load_nakamoto_reward_set_for_tenure,
+};
 use crate::chainstate::nakamoto::staging_blocks::NakamotoBlockObtainMethod;
 use crate::chainstate::nakamoto::{NakamotoBlock, NakamotoChainState};
 use crate::chainstate::stacks::db::unconfirmed::ProcessedUnconfirmedState;
 use crate::chainstate::stacks::db::StacksChainState;
 use crate::chainstate::stacks::{StacksBlockHeader, TransactionPayload};
-use crate::core::mempool::{MemPoolDB, *};
+use crate::core::mempool::MemPoolDB;
 use crate::monitoring::update_stacks_tip_height;
 use crate::net::chat::*;
 use crate::net::connection::*;
 use crate::net::db::*;
 use crate::net::p2p::*;
 use crate::net::stackerdb::{
-    StackerDBConfig, StackerDBEventDispatcher, StackerDBSyncResult, StackerDBs,
+    log_stored_stackerdb_chunk, StackerDBConfig, StackerDBEventDispatcher, StackerDBSyncResult,
+    StackerDBs,
 };
 use crate::net::{Error as net_error, *};
 
@@ -116,7 +119,7 @@ pub struct Relayer {
     recently_sent_nakamoto_blocks: HashMap<StacksBlockId, (ConsensusHash, u128)>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct RelayerStats {
     /// Relayer statistics for the p2p network's ongoing conversations.
     /// Note that we key on (addr, port), not the full NeighborAddress.
@@ -1009,45 +1012,25 @@ impl Relayer {
             &block.header.block_hash()
         );
 
-        let tip = block_sn.sortition_id;
+        let tip = &block_sn.sortition_id;
 
-        let reward_info = match load_nakamoto_reward_set(
-            burnchain
-                .block_height_to_reward_cycle(block_sn.block_height)
-                .expect("FATAL: block snapshot has no reward cycle"),
-            &tip,
+        let reward_set = match load_nakamoto_reward_set_for_tenure(
+            &block_sn,
             burnchain,
             chainstate,
             stacks_tip,
             sortdb,
             &OnChainRewardSetProvider::new(),
         ) {
-            Ok(Some((reward_info, ..))) => reward_info,
+            Ok(Some(reward_set)) => reward_set,
             Ok(None) => {
                 error!("No RewardCycleInfo found for tip {}", tip);
                 return Err(chainstate_error::PoxNoRewardCycle);
             }
-            Err(CoordinatorError::DBError(db_error::NotFoundError)) => {
-                error!("No RewardCycleInfo found for tip {}", tip);
-                return Err(chainstate_error::PoxNoRewardCycle);
-            }
-            Err(CoordinatorError::ChainstateError(e)) => {
+            Err(e) => {
                 error!("No RewardCycleInfo loaded for tip {}: {:?}", tip, &e);
                 return Err(e);
             }
-            Err(CoordinatorError::DBError(e)) => {
-                error!("No RewardCycleInfo loaded for tip {}: {:?}", tip, &e);
-                return Err(chainstate_error::DBError(e));
-            }
-            Err(e) => {
-                error!("Failed to load RewardCycleInfo for tip {}: {:?}", tip, &e);
-                return Err(chainstate_error::PoxNoRewardCycle);
-            }
-        };
-        let reward_cycle = reward_info.reward_cycle;
-
-        let Some(reward_set) = reward_info.known_selected_anchor_block_owned() else {
-            return Err(chainstate_error::NoRegisteredSigners(reward_cycle));
         };
 
         let accepted = NakamotoChainState::accept_block(
@@ -2360,34 +2343,36 @@ impl Relayer {
         uploaded_chunks: Vec<StackerDBPushChunkData>,
         event_observer: Option<&dyn StackerDBEventDispatcher>,
     ) {
-        if let Some(observer) = event_observer {
-            let mut all_events: HashMap<QualifiedContractIdentifier, Vec<StackerDBChunkData>> =
-                HashMap::new();
-            for chunk in uploaded_chunks.into_iter() {
-                // forward if not stale
-                if chunk.rc_consensus_hash != *rc_consensus_hash {
-                    debug!("Drop stale uploaded StackerDB chunk";
-                           "stackerdb_contract_id" => %chunk.contract_id,
-                           "slot_id" => chunk.chunk_data.slot_id,
-                           "slot_version" => chunk.chunk_data.slot_version,
-                           "chunk.rc_consensus_hash" => %chunk.rc_consensus_hash,
-                           "network.rc_consensus_hash" => %rc_consensus_hash);
-                    continue;
-                }
-
+        let mut all_events: HashMap<QualifiedContractIdentifier, Vec<StackerDBChunkData>> =
+            HashMap::new();
+        for chunk in uploaded_chunks.into_iter() {
+            // Always forward the event to ensure the local signer receives it.
+            if event_observer.is_some() {
                 if let Some(events) = all_events.get_mut(&chunk.contract_id) {
                     events.push(chunk.chunk_data.clone());
                 } else {
                     all_events.insert(chunk.contract_id.clone(), vec![chunk.chunk_data.clone()]);
                 }
-
-                debug!("Got uploaded StackerDB chunk"; "stackerdb_contract_id" => %chunk.contract_id, "slot_id" => chunk.chunk_data.slot_id, "slot_version" => chunk.chunk_data.slot_version);
-
-                let msg = StacksMessageType::StackerDBPushChunk(chunk);
-                if let Err(e) = self.p2p.broadcast_message(vec![], msg) {
-                    warn!("Failed to broadcast Nakamoto blocks: {e:?}");
-                }
             }
+
+            if chunk.rc_consensus_hash != *rc_consensus_hash {
+                debug!("Not rebroadcasting stale uploaded StackerDB chunk";
+                           "stackerdb_contract_id" => %chunk.contract_id,
+                           "slot_id" => chunk.chunk_data.slot_id,
+                           "slot_version" => chunk.chunk_data.slot_version,
+                           "chunk.rc_consensus_hash" => %chunk.rc_consensus_hash,
+                           "network.rc_consensus_hash" => %rc_consensus_hash);
+                continue;
+            }
+
+            debug!("Got uploaded StackerDB chunk"; "stackerdb_contract_id" => %chunk.contract_id, "slot_id" => chunk.chunk_data.slot_id, "slot_version" => chunk.chunk_data.slot_version);
+
+            let msg = StacksMessageType::StackerDBPushChunk(chunk);
+            if let Err(e) = self.p2p.broadcast_message(vec![], msg) {
+                warn!("Failed to broadcast StackerDB chunk: {e:?}");
+            }
+        }
+        if let Some(observer) = event_observer {
             for (contract_id, new_chunks) in all_events.into_iter() {
                 observer.new_stackerdb_chunks(contract_id, new_chunks);
             }
@@ -2422,7 +2407,7 @@ impl Relayer {
             if let Some(config) = stackerdb_configs.get(&sc) {
                 let tx = self.stacker_dbs.tx_begin(config.clone())?;
                 for sync_result in sync_results.into_iter() {
-                    for chunk in sync_result.chunks_to_store.into_iter() {
+                    for (origin, chunk) in sync_result.chunks_to_store.into_iter() {
                         let md = chunk.get_slot_metadata();
                         if let Err(e) = tx.try_replace_chunk(&sc, &md, &chunk.data) {
                             if matches!(e, Error::StaleChunk { .. }) {
@@ -2448,7 +2433,7 @@ impl Relayer {
                             }
                             continue;
                         } else {
-                            debug!("Stored chunk"; "stackerdb_contract_id" => %sync_result.contract_id, "slot_id" => md.slot_id, "slot_version" => md.slot_version);
+                            log_stored_stackerdb_chunk(&sync_result.contract_id, &chunk, &origin);
                         }
 
                         if let Some(event_list) = all_events.get_mut(&sync_result.contract_id) {
@@ -2487,16 +2472,15 @@ impl Relayer {
         &mut self,
         rc_consensus_hash: &ConsensusHash,
         stackerdb_configs: &HashMap<QualifiedContractIdentifier, StackerDBConfig>,
-        stackerdb_chunks: Vec<StackerDBPushChunkData>,
+        stackerdb_chunks: Vec<PushedStackerDBChunk>,
         event_observer: Option<&dyn StackerDBEventDispatcher>,
     ) -> Result<(), Error> {
         // synthesize StackerDBSyncResults from each chunk
         let sync_results = stackerdb_chunks
             .into_iter()
-            .map(|chunk_data| {
-                debug!("Received pushed StackerDB chunk {chunk_data:?}");
-                let sync_result = StackerDBSyncResult::from_pushed_chunk(chunk_data);
-                sync_result
+            .map(|pushed| {
+                debug!("Received pushed StackerDB chunk {:?}", pushed.chunk);
+                StackerDBSyncResult::from_pushed_chunk(pushed.chunk, pushed.peer)
             })
             .collect();
 
@@ -2869,6 +2853,7 @@ impl Relayer {
     /// * Add all transactions to the mempool.
     /// * Forward transactions we didn't already have.
     /// * Reload the unconfirmed state, if necessary.
+    ///
     /// Mask errors from invalid data -- all errors due to invalid blocks and invalid data should be captured, and
     /// turned into peer bans.
     pub fn process_network_result(
@@ -3247,10 +3232,11 @@ impl PeerNetwork {
 
     /// Announce blocks that we have to a subset of inbound and outbound peers.
     /// * Outbound peers receive announcements for blocks that we know they don't have, based on
-    /// the inv state we synchronized from them.  We send the blocks themselves, if we have them.
+    ///   the inv state we synchronized from them.  We send the blocks themselves, if we have them.
     /// * Inbound peers are chosen uniformly at random to receive a full announcement, since we
-    /// don't track their inventory state.  We send blocks-available messages to them, since they
-    /// can turn around and ask us for the block data.
+    ///   don't track their inventory state.  We send blocks-available messages to them, since they
+    ///   can turn around and ask us for the block data.
+    ///
     /// Return the number of inbound and outbound neighbors that have received it
     pub fn advertize_blocks(
         &mut self,
@@ -3299,9 +3285,10 @@ impl PeerNetwork {
 
     /// Announce confirmed microblocks that we have to a subset of inbound and outbound peers.
     /// * Outbound peers receive announcements for confirmed microblocks that we know they don't have, based on
-    /// the inv state we synchronized from them.
+    ///   the inv state we synchronized from them.
     /// * Inbound peers are chosen uniformly at random to receive a full announcement, since we
-    /// don't track their inventory state.
+    ///   don't track their inventory state.
+    ///
     /// Return the number of inbound and outbound neighbors that have received it
     pub fn advertize_microblocks(
         &mut self,
@@ -3382,5 +3369,48 @@ impl PeerNetwork {
                 self.relayer_stats.add_relayed_message((*nk).clone(), tx);
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::mpsc::TryRecvError;
+
+    use stacks_common::util::secp256k1::MessageSignature;
+
+    use super::*;
+    use crate::net::p2p::{NetworkHandle, NetworkRequest};
+
+    /// An HTTP-uploaded StackerDB chunk is broadcast to peers whether or not an event observer
+    /// is attached.
+    #[test]
+    fn uploaded_chunk_is_broadcast_without_event_observer() {
+        let (requests, handle) = NetworkHandle::test_channel(4);
+        let mut relayer = Relayer::new(
+            handle,
+            ConnectionOptions::default(),
+            StackerDBs::connect_memory(),
+        );
+        let rc_consensus_hash = ConsensusHash([0x11; 20]);
+        let chunk = StackerDBPushChunkData {
+            contract_id: QualifiedContractIdentifier::transient(),
+            rc_consensus_hash: rc_consensus_hash.clone(),
+            chunk_data: StackerDBChunkData {
+                slot_id: 1,
+                slot_version: 2,
+                sig: MessageSignature::empty(),
+                data: vec![3],
+            },
+        };
+
+        relayer.process_uploaded_stackerdb_chunks(&rc_consensus_hash, vec![chunk.clone()], None);
+        match requests.try_recv().unwrap() {
+            NetworkRequest::Broadcast(relay_hints, StacksMessageType::StackerDBPushChunk(sent)) => {
+                assert!(relay_hints.is_empty());
+                assert_eq!(sent, chunk);
+            }
+            request => panic!("unexpected network request: {request:?}"),
+        }
+        assert!(matches!(requests.try_recv(), Err(TryRecvError::Empty)));
     }
 }

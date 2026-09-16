@@ -1075,7 +1075,7 @@ pub fn fcall_memory_test(#[case] clarity_version: ClarityVersion, #[case] epoch_
                     &ct_analysis,
                     &contract_ok,
                     None,
-                    |_, _| Some("abort".to_string()),
+                    |_, _| Some("abort".into()),
                     &ResourceBudget::unlimited()
                 )
                 .unwrap_err()
@@ -1458,7 +1458,7 @@ fn test_deep_type_nesting() {
 /// Tests that when `MemoryBalanceExceeded` error occurs in a block, the transactions fail, but are
 /// still committed to the block, and the "valid" transactions are still executed without errors.
 ///
-/// 1. Deploy the memory-test-contract once in epoch 3.2
+/// 1. Deploy the memory-test-contract once in the latest epoch
 /// 2. Create a second block with 21 transactions:
 ///    - 20 transactions that call the contract (should fail with MemoryBalanceExceeded)
 ///    - 1 transaction that is expected to succeed
@@ -1496,12 +1496,7 @@ fn test_memory_balance_exceeded_multiple_calls() {
 
     let mut nonce = 0;
 
-    let deploy_tx = ConsensusUtils::new_deploy_tx(
-        nonce,
-        contract_name,
-        &contract_code,
-        Some(ClarityVersion::Clarity4),
-    );
+    let deploy_tx = ConsensusUtils::new_deploy_tx(nonce, contract_name, &contract_code, None);
 
     let block1 = TestBlock {
         transactions: vec![deploy_tx],
@@ -1542,7 +1537,7 @@ fn test_memory_balance_exceeded_multiple_calls() {
     }
     if let ExpectedResult::Success(expected_block_output) = &result[1] {
         assert_eq!(expected_block_output.transactions.len(), 21);
-        let expected_vm_error = Some("MemoryBalanceExceeded(100665664, 100000000)".to_string());
+        let expected_vm_error = Some("MemoryBalanceExceeded(100665664, 100000000)");
         let expected_failure_return_type = ClarityValue::Response(ResponseData {
             committed: false,
             data: Box::new(ClarityValue::Optional(OptionalData { data: None })),
@@ -1550,7 +1545,7 @@ fn test_memory_balance_exceeded_multiple_calls() {
 
         for transaction in &expected_block_output.transactions[..20] {
             assert_eq!(transaction.return_type, expected_failure_return_type);
-            assert_eq!(transaction.vm_error, expected_vm_error);
+            assert_eq!(transaction.vm_error.as_deref(), expected_vm_error);
         }
         assert_eq!(
             expected_block_output.transactions[20].return_type,

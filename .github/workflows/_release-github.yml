@@ -1,6 +1,6 @@
 # Github workflow to create a github release and upload binary artifacts
 
-name: "Release: Github"
+name: "Release: GitHub"
 
 on:
   workflow_call:
@@ -9,42 +9,33 @@ on:
         description: "Release Tag (shared by the node and signer)"
         required: true
         type: string
+    secrets:
+      RELEASE_APP_ID:
+        required: true
+      RELEASE_APP_PRIVATE_KEY:
+        required: true
 
 # Set default permissions
 permissions:
   contents: read
 
-# Configure concurrency
+# Configure concurrency so that we can only have one release at a time
 concurrency:
-  group: release-github-${{ github.head_ref || github.ref }}
+  group: release-github
   # Always cancel duplicate jobs
   cancel-in-progress: true
 
 run-name: ${{ inputs.tag }}
 
+# Build arch dependent binaries from source
+#
+# Runs when the following is true:
+#  - a release tag is provided
+#  - workflow approval is provided
 jobs:
-
-  # Build arch dependent binaries from source
-  #
-  # Runs when the following is true:
-  #  - a release tag is provided
-  #  - workflow approval is provided
-  andon-cord:
-    name: Andon Cord
-    if: >-
-      inputs.tag != ''
-    runs-on: ubuntu-latest
-    environment: "Build Release"
-    steps:
-      - name: Check Approval
-        run: |
-          exit 0
-
   # Build binaries as artifacts
   build-binaries:
     name: Build Binaries
-    needs:
-      - andon-cord
     if: |
       inputs.tag != ''
     permissions:
@@ -59,7 +50,6 @@ jobs:
   docker-images:
     name: Build Docker Images
     needs:
-      - andon-cord
       - build-binaries
     if: |
       inputs.tag != ''
@@ -86,12 +76,12 @@ jobs:
   consolidate-digests:
     name: Consolidate Digest Artifacts
     needs: docker-images
-    if: always()
+    if: "!cancelled() && needs.docker-images.result != 'skipped'"
     runs-on: ubuntu-latest
     steps:
       # Download all individual digest artifacts from all matrix jobs
       - name: Download All Digest Artifacts
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: $/.github/wrappers/download-artifact
         with:
           pattern: digest-*
           path: /tmp/digest-artifacts
@@ -140,7 +130,7 @@ jobs:
 
       # Upload the consolidated manifest as an artifact
       - name: Upload Consolidated Manifest
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: $/.github/wrappers/upload-artifact
         with:
           name: digest-manifest
           path: /tmp/digest-manifest.json
@@ -150,21 +140,20 @@ jobs:
   create-release:
     name: Create Release
     needs:
-      - andon-cord
       - build-binaries
       - docker-images
       - consolidate-digests
-    if: >-
-      github.event.repository.visibility == 'public' &&
-      inputs.tag != ''
+    # Execute if ENABLE_CI_WORKFLOWS GitHub Actions variable is 'true' or we're on the official repository AND tag is not empty
+    if: (vars.ENABLE_CI_WORKFLOWS == 'true' || github.repository == 'stacks-network/stacks-core') && inputs.tag != ''
     runs-on: ubuntu-latest
+    environment: release # Required to access secrets relating to Release Bot GitHub App
     permissions:
-      contents: write
+      contents: read
     steps:
       # Checkout the code
       #   - only .github is required for this job
       - name: Checkout the latest code
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        uses: $/.github/wrappers/checkout
         with:
           ref: ${{ github.event.pull_request.head.sha || github.ref }}
           sparse-checkout: |
@@ -172,7 +161,7 @@ jobs:
 
       # Download consolidated digest manifest from consolidate-digests job
       - name: Download Docker Image Digest Manifest
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: ./.github/wrappers/download-artifact
         with:
           name: digest-manifest
           path: /tmp
@@ -183,3 +172,5 @@ jobs:
         with:
           tag: ${{ inputs.tag }}
           digest_manifest: /tmp/digest-manifest.json
+          release-app-client-id: ${{ secrets.RELEASE_APP_ID }}
+          release-app-private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}

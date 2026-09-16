@@ -52,7 +52,7 @@ pub fn get_block_snapshot_by_burnchain_block_hash(
     )
 }
 
-#[derive(Clone)]
+#[derive(Clone, Default)]
 pub struct RPCNakamotoTenureBlocksByHashRequestHandler {
     pub(crate) burnchain_block_hash: Option<BurnchainHeaderHash>,
 }

@@ -1,1 +1,0 @@
-Swap the order of the analysis checks so that the type checker runs before the read-only checker. The latter makes some assumptions about the type soundness, so it's more appropriate that the former runs first. This change can be consensus-breaking (albeit only in rare edge cases), so it's gated to start in Epoch 4.1.

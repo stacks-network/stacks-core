@@ -4,19 +4,16 @@
 #   - the node and signer share a single version and ship in one combined release
 #   - the release body lists all docker images (stacks-core and stacks-signer)
 #     with a sha256 (if available)
-#   - the release body includes the node changelog section and, when present,
-#     the signer changelog section
+#   - the release body includes the changelog section for the release version
 #   - rc releases follow the same rules
 #
 # Required env vars:
 #   VERSION      - Release version (e.g. 4.0.0)
-#   CHANGELOG    - Path to the node CHANGELOG.md file
+#   CHANGELOG    - Path to the CHANGELOG.md file
 #   TEMPLATE     - Path to the release body template
 #   REPO         - repository to create release for
 #
 # Optional env vars:
-#   SIGNER_CHANGELOG - Path to the signer CHANGELOG.md file (its section is
-#       omitted from the body when unset or when it has no entry for VERSION)
 #   DIGEST_MANIFEST  - json file containing sha256 for image variants and package IDs
 #       Example manifest:
 #       {
@@ -45,8 +42,7 @@
 # Template variables substituted:
 #   ${tag}                      - release version (e.g. 4.0.0)
 #   ${node_epoch}               - epoch compatibility tag (e.g. 4.0.x)
-#   ${changelog_section}        - extracted node changelog block (may be empty)
-#   ${signer_changelog_section} - extracted signer changelog block (may be empty)
+#   ${changelog_section}        - extracted changelog block (may be empty)
 #
 # Outputs:
 #   GITHUB_OUTPUT  - Path to the GitHub Actions output file (set by runner); prints to stderr if unset (via logging.sh)
@@ -62,7 +58,6 @@ source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/logging.sh"
 : "${TEMPLATE:?TEMPLATE is required}"
 : "${REPO:?REPO is required}"
 
-SIGNER_CHANGELOG="${SIGNER_CHANGELOG:-}"
 DIGEST_MANIFEST="${DIGEST_MANIFEST:-}"
 
 if [[ ! -f "${TEMPLATE}" ]]; then
@@ -197,14 +192,8 @@ extract_changelog() {
 
 changelog_content=$(extract_changelog "${CHANGELOG}")
 
-signer_changelog_content=""
-if [[ -n "${SIGNER_CHANGELOG}" ]] && [[ -f "${SIGNER_CHANGELOG}" ]]; then
-    signer_changelog_content=$(extract_changelog "${SIGNER_CHANGELOG}")
-fi
-
-## ── Build changelog sections (omitted entirely when content is empty) ───────
+## ── Build changelog section (omitted entirely when content is empty) ────────
 changelog_link="https://github.com/${REPO}/blob/${tag}/CHANGELOG.md"
-signer_changelog_link="https://github.com/${REPO}/blob/${tag}/stacks-signer/CHANGELOG.md"
 
 if [[ -n "${changelog_content}" ]]; then
     changelog_section="This release includes the following changes:
@@ -213,15 +202,6 @@ ${changelog_link}
 ${changelog_content}"
 else
     changelog_section=""
-fi
-
-if [[ -n "${signer_changelog_content}" ]]; then
-    signer_changelog_section="This release includes the following stacks-signer changes:
-${signer_changelog_link}
-
-${signer_changelog_content}"
-else
-    signer_changelog_section=""
 fi
 
 ## ── Log derived values ──────────────────────────────────────────────────────
@@ -234,15 +214,11 @@ changelog_lines=0
 [[ -n "${changelog_content}" ]] && changelog_lines=$(printf '%s\n' "${changelog_content}" | wc -l | tr -d '[:space:]')
 info "changelog_content: $(hl "${CHANGELOG}") (${changelog_lines} lines)"
 
-signer_changelog_lines=0
-[[ -n "${signer_changelog_content}" ]] && signer_changelog_lines=$(printf '%s\n' "${signer_changelog_content}" | wc -l | tr -d '[:space:]')
-info "signer_changelog_content: $(hl "${SIGNER_CHANGELOG:-<unset>}") (${signer_changelog_lines} lines)"
-
 ## ── Expand template ─────────────────────────────────────────────────────────
-export tag node_epoch changelog_section signer_changelog_section repo_owner docker_pulls_with_digests
+export tag node_epoch changelog_section repo_owner docker_pulls_with_digests
 
 # shellcheck disable=SC2016
-if ! body=$(envsubst '${tag}${node_epoch}${changelog_section}${signer_changelog_section}${repo_owner}${docker_pulls_with_digests}' < "${TEMPLATE}" 2>/dev/null); then
+if ! body=$(envsubst '${tag}${node_epoch}${changelog_section}${repo_owner}${docker_pulls_with_digests}' < "${TEMPLATE}" 2>/dev/null); then
     error "failed to expand template with envsubst"
     exit 1
 fi

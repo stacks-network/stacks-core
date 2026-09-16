@@ -140,6 +140,12 @@ pub struct GetSortitionHandler {
     pub query: QuerySpecifier,
 }
 
+impl Default for GetSortitionHandler {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl GetSortitionHandler {
     pub fn new() -> Self {
         Self {

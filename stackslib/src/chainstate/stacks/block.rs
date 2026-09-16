@@ -181,9 +181,9 @@ impl StacksBlockHeader {
     /// Validate this block header against the burnchain.
     /// Used to determine whether or not we'll keep a block around (even if we don't yet have its parent).
     /// * burn_chain_tip is the BlockSnapshot encoding the sortition that selected this block for
-    /// inclusion in the Stacks blockchain chain state.
+    ///   inclusion in the Stacks blockchain chain state.
     /// * parent_stacks_chain_tip is the BlockSnapshot for the parent Stacks block this header builds on
-    /// (i.e. this is the BlockSnapshot that corresponds to the parent of the given block_commit).
+    ///   (i.e. this is the BlockSnapshot that corresponds to the parent of the given block_commit).
     pub fn validate_burnchain(
         &self,
         burn_chain_tip: &BlockSnapshot,
@@ -572,34 +572,13 @@ impl StacksBlock {
         tx: &StacksTransaction,
         epoch_id: StacksEpochId,
     ) -> bool {
-        if tx.post_condition_mode == TransactionPostConditionMode::Originator
-            && !epoch_id.supports_sip040_post_conditions()
-        {
-            error!("Originator post-condition mode is not supported in epoch {epoch_id}"; "txid" => %tx.txid());
+        if let Err(reason) = stacks_transactions::check_post_conditions_supported_in_epoch(
+            &tx.post_conditions,
+            &tx.post_condition_mode,
+            epoch_id,
+        ) {
+            error!("{reason}"; "txid" => %tx.txid(), "epoch_id" => %epoch_id);
             return false;
-        }
-        if !epoch_id.supports_sip040_post_conditions() {
-            for post_condition in tx.post_conditions.iter() {
-                if let TransactionPostCondition::Nonfungible(_, _, _, condition_code) =
-                    post_condition
-                {
-                    if *condition_code == NonfungibleConditionCode::MaybeSent {
-                        error!("NFT MaybeSent post-condition is not supported in epoch {epoch_id}"; "txid" => %tx.txid());
-                        return false;
-                    }
-                }
-            }
-        }
-        if !epoch_id.supports_staking_post_conditions() {
-            for post_condition in tx.post_conditions.iter() {
-                if matches!(
-                    post_condition,
-                    TransactionPostCondition::Staking(..) | TransactionPostCondition::Pox(..)
-                ) {
-                    error!("Staking/Pox post-condition is not supported in epoch {epoch_id}"; "txid" => %tx.txid());
-                    return false;
-                }
-            }
         }
         if let TransactionPayload::Coinbase(_, ref recipient_opt, ref proof_opt) = &tx.payload {
             if proof_opt.is_some() && epoch_id < StacksEpochId::Epoch30 {
@@ -618,18 +597,17 @@ impl StacksBlock {
                 return false;
             }
         }
-        if let TransactionPayload::SmartContract(_, ref version_opt) = &tx.payload {
-            if let Some(version) = version_opt {
-                if epoch_id < StacksEpochId::Epoch21 {
-                    // not supported
-                    error!("Versioned smart contracts not supported before Stacks 2.1"; "txid" => %tx.txid());
-                    return false;
-                }
-                if *version > ClarityVersion::default_for_epoch(epoch_id) {
-                    // not supported
-                    error!("Smart contract version {version} not supported in Epoch {epoch_id}"; "txid" => %tx.txid());
-                    return false;
-                }
+        if let TransactionPayload::SmartContract(_, Some(version)) = &tx.payload {
+            if epoch_id < StacksEpochId::Epoch21 {
+                // not supported
+                error!("Versioned smart contracts not supported before Stacks 2.1"; "txid" => %tx.txid());
+                return false;
+            }
+            if let Err(reason) =
+                stacks_transactions::check_versioned_deploy_supported_in_epoch(*version, epoch_id)
+            {
+                error!("Smart contract deploy {reason}"; "txid" => %tx.txid());
+                return false;
             }
         }
         if let TransactionPayload::TenureChange(..) = &tx.payload {
@@ -1989,6 +1967,46 @@ mod test {
             &tx_future_clarity,
             StacksEpochId::Epoch34
         ));
+    }
+
+    #[rstest]
+    // Through epoch 4.0 a deploy may pin any version up to the epoch default.
+    #[case(StacksEpochId::Epoch40, Some(ClarityVersion::Clarity5), true)]
+    #[case(StacksEpochId::Epoch40, Some(ClarityVersion::Clarity6), true)]
+    // From epoch 4.1 no pin is accepted, so the block is rejected before it
+    // is staged; unversioned deploys get the epoch default.
+    #[case(StacksEpochId::Epoch41, Some(ClarityVersion::Clarity6), false)]
+    #[case(StacksEpochId::Epoch41, Some(ClarityVersion::Clarity7), false)]
+    #[case(StacksEpochId::Epoch41, None, true)]
+    fn test_validate_transaction_static_epoch_rejects_versioned_deploys_from_epoch41(
+        #[case] epoch_id: StacksEpochId,
+        #[case] version_opt: Option<ClarityVersion>,
+        #[case] expected: bool,
+    ) {
+        let privk = StacksPrivateKey::random();
+        let origin_auth = TransactionAuth::Standard(
+            TransactionSpendingCondition::new_singlesig_p2pkh(StacksPublicKey::from_private(
+                &privk,
+            ))
+            .unwrap(),
+        );
+
+        let tx = StacksTransaction::new(
+            TransactionVersion::Testnet,
+            origin_auth,
+            TransactionPayload::SmartContract(
+                TransactionSmartContract {
+                    name: ContractName::try_from("pinned-clarity").unwrap(),
+                    code_body: StacksString::from_str("(print \"hi\")").unwrap(),
+                },
+                version_opt,
+            ),
+        );
+
+        assert_eq!(
+            StacksBlock::validate_transaction_static_epoch(&tx, epoch_id),
+            expected
+        );
     }
 
     #[rstest]

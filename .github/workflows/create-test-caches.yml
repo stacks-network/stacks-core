@@ -19,9 +19,7 @@ run-name: "Create: Test Caches [${{ github.ref_name }}]"
 # and build them on-the-fly. This allows slightly stale caches to still be very useful.
 #
 # NOTE: 
-#   This job ONLY runs if EITHER of the following is true:
-#     1. We're on the `main` branch of `stacks-network/stacks-core`, OR
-#     2. A GitHub Action variable is set: SEED_CACHES = true
+#   This job ONLY runs if a GitHub Action variable is set: ENABLE_CI_WORKFLOWS = true
 ################################################################################################################################
 
 on:
@@ -42,30 +40,34 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # Check if CI is enabled
+  check-ci:
+    name: "Check: CI Enabled"
+    uses: ./.github/workflows/__check-ci.yml
+
   #######################################################################################################################
   ### Create Reusable Caches for Tests
   ###
-  ### Caches can only be created from `main` (or via manual seeding when the SEED_CACHES Actions variable is 'true').
+  ### Caches are created from `main` branch when a GitHub Action variable is set: ENABLE_CI_WORKFLOWS = true
   ### When run on `main`, this workflow creates canonical re-usable caches for future CI runs.
   ### When manually dispatched from another branch, any created caches will be scoped to that branch.
   #######################################################################################################################
   cache-bitcoin-binary:
     name: "Create: Bitcoin Binary Cache"
+    needs:
+      - check-ci
+    if: needs.check-ci.outputs.enabled == 'true'
     runs-on: ubuntu-latest
-    # Execute if running in our core repo on `main` OR manually if SEED_CACHES GitHub Actions variable is 'true'
-    if: |
-      (github.repository == 'stacks-network/stacks-core' && github.ref_name == 'main') ||
-      vars.SEED_CACHES == 'true'
     steps:
       # Checkout the code
-      #   - only .github is required for checking caches
+      #   - only .github is required for this job
       - name: Checkout the latest code
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        uses: $/.github/wrappers/checkout
         with:
-          ref: ${{ github.ref }}
+          ref: ${{ github.event.pull_request.head.sha || github.ref }}
           sparse-checkout: |
             .github
-
+    
       # Check cache for bitcoin binary
       # We don't need multiple caches of the same Bitcoin binary, so skip create if one already exists
       - name: Check Bitcoin Cache
@@ -82,21 +84,20 @@ jobs:
 
   cache-cargo:
     name: "Create: Cargo Cache"
+    needs:
+      - check-ci
+    if: needs.check-ci.outputs.enabled == 'true'
     runs-on: ubuntu-latest
-    # Execute if running in our core repo on `main` OR manually if SEED_CACHES GitHub Actions variable is 'true'
-    if: |
-      (github.repository == 'stacks-network/stacks-core' && github.ref_name == 'main') ||
-      vars.SEED_CACHES == 'true'
     steps:
       # Checkout the code
-      #   - only .github is required for checking caches
+      #   - only .github is required for this job
       - name: Checkout the latest code
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        uses: $/.github/wrappers/checkout
         with:
-          ref: ${{ github.ref }}
+          ref: ${{ github.event.pull_request.head.sha || github.ref }}
           sparse-checkout: |
             .github
-
+    
       - name: Create Cargo Cache
         uses: ./.github/actions/cache/cargo
         with:

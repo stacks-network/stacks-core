@@ -11,13 +11,24 @@ permissions:
   pull-requests: read
 
 jobs:
+  # Check if CI is enabled
+  check-ci:
+    name: "Check: CI Enabled"
+    uses: ./.github/workflows/__check-ci.yml
+    with:
+      allow-fork-runs: false
+
+  # Execute only on our official repo, because it manages Slack PR nags for us
   nag-slack:
+    name: "Slack: Nag Team"
+    needs:
+      - check-ci
+    if: >-
+      needs.check-ci.outputs.enabled == 'true'
     runs-on: ubuntu-latest
-    # Only execute if running in our core repo
-    if: github.repository == 'stacks-network/stacks-core'
     steps:
       - name: Fetch PRs and Post Nags to Slack
-        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        uses: $/.github/wrappers/github-script
         env:
           SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_CORE_PR_NAG_BOT }}
           

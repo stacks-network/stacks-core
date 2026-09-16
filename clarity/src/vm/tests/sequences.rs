@@ -18,6 +18,7 @@ use pinny::tag;
 use proptest::prelude::*;
 use rstest::rstest;
 use rstest_reuse::{self, *};
+use stacks_common::bounded_format;
 use stacks_common::types::StacksEpochId;
 use stacks_common::util::hash::to_hex;
 
@@ -108,7 +109,7 @@ fn test_index_of() {
     ];
 
     let bad_expected = [
-        RuntimeCheckErrorKind::Unreachable(format!(
+        RuntimeCheckErrorKind::Unreachable(bounded_format!(
             "Expected sequence: {}",
             TypeSignature::IntType
         )),
@@ -172,7 +173,7 @@ fn test_element_at() {
     let bad = ["(element-at 3 u1)", "(element-at (list 1 2 3) 1)"];
 
     let bad_expected = [
-        RuntimeCheckErrorKind::Unreachable(format!(
+        RuntimeCheckErrorKind::Unreachable(bounded_format!(
             "Expected sequence: {}",
             TypeSignature::IntType
         )),
@@ -851,7 +852,7 @@ fn test_simple_list_concat() {
 
     assert_eq!(
         execute("(concat (list 1) 3)").unwrap_err(),
-        RuntimeCheckErrorKind::Unreachable(format!(
+        RuntimeCheckErrorKind::Unreachable(bounded_format!(
             "Expected sequence: {}",
             TypeSignature::IntType
         ))
@@ -892,7 +893,7 @@ fn test_simple_buff_concat() {
 
     assert_eq!(
         execute("(concat 0x31 3)").unwrap_err(),
-        RuntimeCheckErrorKind::Unreachable(format!(
+        RuntimeCheckErrorKind::Unreachable(bounded_format!(
             "Expected sequence: {}",
             TypeSignature::IntType
         ))
@@ -1149,7 +1150,7 @@ fn test_simple_list_replace_at() {
     // The sequence input has the wrong type
     assert_eq!(
         execute_v2("(replace-at? 0 u0 (list 0))").unwrap_err(),
-        RuntimeCheckErrorKind::Unreachable(format!("Expected sequence: {IntType}")).into()
+        RuntimeCheckErrorKind::Unreachable(bounded_format!("Expected sequence: {IntType}")).into()
     );
 
     // The type of the index should be uint.
@@ -1216,7 +1217,7 @@ fn test_simple_buff_replace_at() {
     // The sequence input has the wrong type
     assert_eq!(
         execute_v2("(replace-at? 33 u0 0x00)").unwrap_err(),
-        RuntimeCheckErrorKind::Unreachable(format!("Expected sequence: {IntType}")).into()
+        RuntimeCheckErrorKind::Unreachable(bounded_format!("Expected sequence: {IntType}")).into()
     );
 
     // The type of the index should be uint.
@@ -1296,7 +1297,7 @@ fn test_simple_string_ascii_replace_at() {
     // The sequence input has the wrong type
     assert_eq!(
         execute_v2("(replace-at? 33 u0 \"c\")").unwrap_err(),
-        RuntimeCheckErrorKind::Unreachable(format!("Expected sequence: {IntType}")).into()
+        RuntimeCheckErrorKind::Unreachable(bounded_format!("Expected sequence: {IntType}")).into()
     );
 
     // The type of the index should be uint.
@@ -1380,7 +1381,7 @@ fn test_simple_string_utf8_replace_at() {
     // The sequence input has the wrong type
     assert_eq!(
         execute_v2("(replace-at? 33 u0 u\"c\")").unwrap_err(),
-        RuntimeCheckErrorKind::Unreachable(format!("Expected sequence: {IntType}")).into()
+        RuntimeCheckErrorKind::Unreachable(bounded_format!("Expected sequence: {IntType}")).into()
     );
 
     // The type of the index should be uint.
@@ -1430,6 +1431,80 @@ fn test_simple_string_utf8_replace_at() {
     );
 }
 
+/// A zero-length `replace-at?` element raises `SequenceElementArityMismatch` in
+/// every epoch; it is rejectable (block-invalidating) before 4.1 and an ordinary
+/// includable failure after. Lists are exempt in all epochs.
+#[rstest]
+#[case::epoch21(ClarityVersion::Clarity2, StacksEpochId::Epoch21, true)]
+#[case::epoch40(ClarityVersion::Clarity6, StacksEpochId::Epoch40, true)]
+#[case::epoch41(ClarityVersion::latest(), StacksEpochId::Epoch41, false)]
+fn test_replace_at_empty_element(
+    #[case] version: ClarityVersion,
+    #[case] epoch: StacksEpochId,
+    #[case] expect_rejectable: bool,
+) {
+    let exec = |program: &str| execute_with_parameters(program, version, epoch, false);
+
+    let arity_mismatch: ClarityEvalError = RuntimeCheckErrorKind::SequenceElementArityMismatch {
+        expected: 1,
+        found: 0,
+    }
+    .into();
+    for snippet in [
+        "(replace-at? 0x0102 u0 0x)",
+        "(replace-at? \"ab\" u0 \"\")",
+        "(replace-at? u\"ab\" u0 u\"\")",
+        // A non-literal `(buff 1)`-typed expression holding an empty value hits
+        // the same check.
+        "(replace-at? 0x0102 u0 (unwrap-panic (as-max-len? 0x u1)))",
+    ] {
+        assert_eq!(exec(snippet).unwrap_err(), arity_mismatch);
+    }
+
+    // Same error in every epoch; only the disposition flips at 4.1.
+    let ClarityEvalError::Vm(VmExecutionError::RuntimeCheck(kind)) =
+        exec("(replace-at? 0x0102 u0 0x)").unwrap_err()
+    else {
+        panic!("expected a runtime check error");
+    };
+    assert_eq!(kind.rejectable_in_epoch(epoch), expect_rejectable);
+
+    // An out-of-bounds index still returns `none` before the element is checked.
+    assert_eq!(
+        exec("(replace-at? 0x0102 u5 0x)").unwrap().unwrap(),
+        Value::none()
+    );
+
+    // A too-long element raises the same `TypeValueError` in every epoch.
+    let too_long: ClarityEvalError = RuntimeCheckErrorKind::TypeValueError(
+        Box::new(SequenceType(BufferType(
+            BufferLength::try_from(1u32).unwrap(),
+        ))),
+        Value::buff_from(vec![0, 68]).unwrap().to_error_string(),
+    )
+    .into();
+    assert_eq!(
+        exec("(replace-at? 0x445522 u0 0x0044)").unwrap_err(),
+        too_long
+    );
+
+    // Lists are exempt from the arity check: an empty list element is valid.
+    let expected_list = Value::some(
+        Value::list_from(vec![
+            Value::list_from(vec![]).unwrap(),
+            Value::list_from(vec![Value::Int(2)]).unwrap(),
+        ])
+        .unwrap(),
+    )
+    .unwrap();
+    assert_eq!(
+        exec("(replace-at? (list (list 1) (list 2)) u0 (list))")
+            .unwrap()
+            .unwrap(),
+        expected_list
+    );
+}
+
 #[test]
 fn test_simple_buff_assert_max_len() {
     let tests = [
@@ -1460,7 +1535,7 @@ fn test_simple_buff_assert_max_len() {
 
     assert_eq!(
         execute("(as-max-len? 1 u3)").unwrap_err(),
-        RuntimeCheckErrorKind::Unreachable(format!("Expected sequence: {IntType}")).into()
+        RuntimeCheckErrorKind::Unreachable(bounded_format!("Expected sequence: {IntType}")).into()
     );
 
     assert_eq!(
@@ -1664,13 +1739,11 @@ fn test_construct_bad_list(#[case] version: ClarityVersion, #[case] epoch: Stack
 #[test]
 fn test_eval_func_arg_panic() {
     let test1 = "(fold (lambda (x y) (* x y)) (list 1 2 3 4) 1)";
-    let e: ClarityEvalError =
-        RuntimeCheckErrorKind::Unreachable("Expected name".to_string()).into();
+    let e: ClarityEvalError = RuntimeCheckErrorKind::Unreachable("Expected name".into()).into();
     assert_eq!(e, execute(test1).unwrap_err());
 
     let test2 = "(map (lambda (x) (* x x)) (list 1 2 3 4))";
-    let e: ClarityEvalError =
-        RuntimeCheckErrorKind::Unreachable("Expected name".to_string()).into();
+    let e: ClarityEvalError = RuntimeCheckErrorKind::Unreachable("Expected name".into()).into();
     assert_eq!(e, execute(test2).unwrap_err());
 
     let test3 = "(map square (list 1 2 3 4) 2)";
@@ -1684,7 +1757,7 @@ fn test_eval_func_arg_panic() {
 
     let test5 = "(map + (list 1 2 3 4) 2)";
     let e: ClarityEvalError =
-        RuntimeCheckErrorKind::Unreachable(format!("Expected sequence: {IntType}")).into();
+        RuntimeCheckErrorKind::Unreachable(bounded_format!("Expected sequence: {IntType}")).into();
     assert_eq!(e, execute(test5).unwrap_err());
 }
 
@@ -1694,7 +1767,7 @@ fn test_expected_list_application() {
     // first argument is NOT a list
     let test1 = "(append u1 u2)";
     let e: ClarityEvalError =
-        RuntimeCheckErrorKind::Unreachable("Expected list application".to_string()).into();
+        RuntimeCheckErrorKind::Unreachable("Expected list application".into()).into();
     assert_eq!(e, execute(test1).unwrap_err());
 }
 

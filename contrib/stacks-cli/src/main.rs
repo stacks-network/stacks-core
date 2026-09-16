@@ -812,7 +812,7 @@ fn decode_transaction(args: &[String], _version: TransactionVersion) -> Result<S
         Ok(tx) => Ok(serde_json::to_string(&tx).expect("Failed to serialize transaction to JSON")),
         Err(e) => {
             let mut ret = String::new();
-            ret.push_str(&format!("Failed to decode transaction: {:?}\n", &e));
+            ret.push_str(&format!("Failed to decode transaction: {:?}\n", e));
             ret.push_str("Bytes consumed:\n");
             for buf in debug_cursor.log().iter() {
                 ret.push_str(&format!("   {}", to_hex(buf)));
@@ -849,7 +849,7 @@ fn decode_header(args: &[String], _version: TransactionVersion) -> Result<String
         }
         Err(e) => {
             let mut ret = String::new();
-            ret.push_str(&format!("Failed to decode header: {:?}\n", &e));
+            ret.push_str(&format!("Failed to decode header: {:?}\n", e));
             ret.push_str("Bytes consumed:\n");
             for buf in debug_cursor.log().iter() {
                 ret.push_str(&format!("   {}", to_hex(buf)));
@@ -884,7 +884,7 @@ fn decode_block(args: &[String], _version: TransactionVersion) -> Result<String,
         Ok(block) => Ok(serde_json::to_string(&block).expect("Failed to serialize block to JSON")),
         Err(e) => {
             let mut ret = String::new();
-            ret.push_str(&format!("Failed to decode block: {:?}\n", &e));
+            ret.push_str(&format!("Failed to decode block: {:?}\n", e));
             ret.push_str("Bytes consumed:\n");
             for buf in debug_cursor.log().iter() {
                 ret.push_str(&format!("   {}", to_hex(buf)));
@@ -923,7 +923,7 @@ fn decode_microblock(args: &[String], _version: TransactionVersion) -> Result<St
         }
         Err(e) => {
             let mut ret = String::new();
-            ret.push_str(&format!("Failed to decode microblock: {:?}\n", &e));
+            ret.push_str(&format!("Failed to decode microblock: {:?}\n", e));
             ret.push_str("Bytes consumed:\n");
             for buf in debug_cursor.log().iter() {
                 ret.push_str(&format!("   {}", to_hex(buf)));
@@ -962,7 +962,7 @@ fn decode_microblocks(args: &[String], _version: TransactionVersion) -> Result<S
         }
         Err(e) => {
             let mut ret = String::new();
-            ret.push_str(&format!("Failed to decode microblocks: {:?}\n", &e));
+            ret.push_str(&format!("Failed to decode microblocks: {:?}\n", e));
             ret.push_str("Bytes consumed:\n");
             for buf in debug_cursor.log().iter() {
                 ret.push_str(&format!("   {}\n", to_hex(buf)));

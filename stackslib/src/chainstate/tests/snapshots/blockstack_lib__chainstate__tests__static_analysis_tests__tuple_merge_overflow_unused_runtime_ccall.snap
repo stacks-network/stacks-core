@@ -4,7 +4,7 @@ expression: result.get_expected_results()
 ---
 [
   Success(ExpectedBlockOutput(
-    marf_hash: "8205600be780ecc963f4aad50ecb9ee223029a72ef4af1f42d4a666eee684307",
+    marf_hash: "1aa237e6da60d040555eb82e83e0629b580345487f3eb54fa8c3d5fe4bfbbc33",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -32,7 +32,7 @@ expression: result.get_expected_results()
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "f8015448a18711ec0b7ce97d78e83004e499a640bc2febded8d3263be028e21c",
+    marf_hash: "b149cbd66b481e3a9d650543b9a18ca64ce7c4ea22a526c6c914e24e5062f3b3",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -60,7 +60,7 @@ expression: result.get_expected_results()
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "2bf9eebacc64fd5e530dbb342f86bf217a3a3095ec733cc823a8b5dcb2b99b58",
+    marf_hash: "1993ec6092f270cffc224a28ec5b9e0529bbce3fbad3ceeb18ee423c18357a00",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -88,7 +88,7 @@ expression: result.get_expected_results()
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "3ad2821d99f6b9f1bf88e90cda7d375405ae6becab381b3486064f37902eb800",
+    marf_hash: "6495e3022455f46ab2e6662f57f7082ad3459af627c58b0343460fe662a51d96",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -116,7 +116,7 @@ expression: result.get_expected_results()
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "1f0d8318a2e4e04d65b7626a31f51581f726251a99244e50d6165bbf00a9408d",
+    marf_hash: "13a9c756fa0915707a53e05fdb4bad0e3cc068af6912fb252aff074f32eeaadd",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -145,26 +145,26 @@ expression: result.get_expected_results()
   )),
   Failure(ExpectedFailureOutput(
     evaluated_epoch: Epoch34,
-    error: "Invalid Stacks block a5d4fe7acb883a5849b924ec925ae090ee44c6bb69baf27ffb5226a72dab700a: ClarityError(Interpreter(Internal(Expect(\"Interpreter failure during cost calculation\"))))",
+    error: "Invalid Stacks block 64e8c46f993406e9d1dc7c11ba47fa0da09c375bef0c2631a4b579314a75eab8: ClarityError(Interpreter(Internal(Expect(\"Interpreter failure during cost calculation\"))))",
   )),
   Failure(ExpectedFailureOutput(
     evaluated_epoch: Epoch34,
-    error: "Invalid Stacks block 89be00578d29ba61693ec811fd035c1fb49270f77acdf247e4d8a9be3cfdeaf6: ClarityError(Interpreter(Internal(Expect(\"Interpreter failure during cost calculation\"))))",
+    error: "Invalid Stacks block 17c6d655d8bc1c7cc8f5269a5c8169a59cb9f36ff6d09557fbee2cf8643379de: ClarityError(Interpreter(Internal(Expect(\"Interpreter failure during cost calculation\"))))",
   )),
   Failure(ExpectedFailureOutput(
     evaluated_epoch: Epoch34,
-    error: "Invalid Stacks block 88f85b87c5ede025f42ecd0dc9a4602732ee6dd0133527866c32f422755690d5: ClarityError(Interpreter(Internal(Expect(\"Interpreter failure during cost calculation\"))))",
+    error: "Invalid Stacks block 6f571464e162a2777692f850e1f007d86de80cdd0e86048d3c527ba34ecb2130: ClarityError(Interpreter(Internal(Expect(\"Interpreter failure during cost calculation\"))))",
   )),
   Failure(ExpectedFailureOutput(
     evaluated_epoch: Epoch34,
-    error: "Invalid Stacks block 509e2d91e2d6d027bbc17fec40481125ab4b4ba44aaee51015339d8fdedc8f44: ClarityError(Interpreter(Internal(Expect(\"Interpreter failure during cost calculation\"))))",
+    error: "Invalid Stacks block 8e1ce68c567d2203bc1dcf26088f70da4e28e575c3a29772ba84ae062e6ff341: ClarityError(Interpreter(Internal(Expect(\"Interpreter failure during cost calculation\"))))",
   )),
   Failure(ExpectedFailureOutput(
     evaluated_epoch: Epoch34,
-    error: "Invalid Stacks block dcb41433e1bf6af548bfda3aacb6c787e7834df448bbca12306ce4591f63d6ba: ClarityError(Interpreter(Internal(Expect(\"Interpreter failure during cost calculation\"))))",
+    error: "Invalid Stacks block 432036b1cd68af79c476449450f257914844fbeef0065f8a0a9c3171b3553274: ClarityError(Interpreter(Internal(Expect(\"Interpreter failure during cost calculation\"))))",
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "6f759d930faca6ffb685b809ef23747bfa2cf6b3255714608e0562e4fde9d855",
+    marf_hash: "7a9ac4444beb2d2720e514def0d686c6fd2bc54174ecaf1845a896c42da8c6a5",
     evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
@@ -194,7 +194,7 @@ expression: result.get_expected_results()
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "2d591e4905024e593869e6ae424b0e5c732fdaa7b837837e157c7e4b841f4692",
+    marf_hash: "eece83dfd890d91f8a635b42adce32d478f4973947e95fd0f7fd0434171db3e0",
     evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
@@ -224,7 +224,7 @@ expression: result.get_expected_results()
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "b2f5ec6c36c7d7c14d5b22af6fbe45b3cb1805b0af053e958703349a609bbd3c",
+    marf_hash: "5874eba5b18234825a37b79079db2f887bc4be3d2c6bf9eb3d6d6acee773f8ed",
     evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
@@ -254,7 +254,7 @@ expression: result.get_expected_results()
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "aaa3356deb863cde24f4093fc55867b7cb7ca96aa50cfcd420f4d950a52601df",
+    marf_hash: "bafdf69856d08db4fdb8ddd6737d7e4f1b12af29d739e171c1d27d646caf416e",
     evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
@@ -284,7 +284,7 @@ expression: result.get_expected_results()
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "8b055b4c5f4ba48e4acb2e2560ce6c72bba932570b21f2d253513f790440deba",
+    marf_hash: "820cd9de7ee9466c9cd68ca0150fa509204d0945c44ea9bcf05cec7106eb3ffa",
     evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
@@ -314,7 +314,7 @@ expression: result.get_expected_results()
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "b57c9bed1cb28de4d6714e1ba6a13885a8f6b83b1ae0730ebd31dbe336f53a8e",
+    marf_hash: "633962799acdeea4d8eab8dac640d80d14e11b0985133eb69e6b8fafde4772d0",
     evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
@@ -344,7 +344,7 @@ expression: result.get_expected_results()
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "bd329314730a6a6bb493d95e8fe4ebd2dcfd4fed7b3b05c1326dc5f5c992c372",
+    marf_hash: "9ceafadf272e5140af5b05d01216fb8ca6c0c1ebacec583ca0720fe499ca2da1",
     evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
@@ -374,7 +374,7 @@ expression: result.get_expected_results()
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "403a0d280cef0ce7a49919e7c579b96665392a4122b6be6859e0581b6834a475",
+    marf_hash: "a7d7d88cd3d1eb5fcabd98bcf07374aca23c5d97580c20d37cc6d93d09759d67",
     evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
@@ -404,7 +404,7 @@ expression: result.get_expected_results()
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "96a4d77fb06a4d69c1715a0c2290f557e6d01b28d81435af4441d1f3f60350f2",
+    marf_hash: "e9238f00156c1938556eb14009266ffdd618722a2a5b106f6d70526dd36d8d47",
     evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
@@ -434,7 +434,7 @@ expression: result.get_expected_results()
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "2120c99d4e9e7b4af5b05b290f4625993a3d13e2811c2bd75738b131a7014ab5",
+    marf_hash: "d52e0227f58fc9393aaaa2a3c6eeb234e1d47bb074f8f30a627ec3a36566e5df",
     evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
@@ -464,7 +464,7 @@ expression: result.get_expected_results()
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "8b4cb70bb7e36cd743ea0327f268d6e7af0a6f0c5d39ee86220cb0b2f6b229cb",
+    marf_hash: "36de8718879a3335a839040cee1e82788fb08d5b65679b95f56101650bfd8049",
     evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
@@ -494,7 +494,7 @@ expression: result.get_expected_results()
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "e5e0f31d9dd4f5cdef9a555b5bd80bcc449eb040a77000684e35e191892a5d40",
+    marf_hash: "d2d19875ff47f95afe08819f849df6eaf39ed691649feea762d64df026e45e37",
     evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
@@ -524,7 +524,7 @@ expression: result.get_expected_results()
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "db80eb8efe74a0cb169e47381092f047e44a9050f151442ed0d134032a0f71bb",
+    marf_hash: "2476132368535d5200ff9698c780cdbba57306fe398476ef9c7a363a97fcce61",
     evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
@@ -554,7 +554,7 @@ expression: result.get_expected_results()
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "a8e73da605b29d0e4f9ce784a965aaa557c6fe0c969ff754d844e003483a2ba3",
+    marf_hash: "a87de11273bd2571e5f87dd960b7737b7c0b2b0558e0a132c91126872225298a",
     evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
@@ -584,7 +584,7 @@ expression: result.get_expected_results()
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "bd2b0356d5ad2ee220ec727fbfd7a937e960f903e970a17bcde66bcb876ac173",
+    marf_hash: "876cb57e1a778878cf9c6754c8f85eae8e65fed00a2bd47422ec9c67c5cab17b",
     evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
@@ -614,7 +614,7 @@ expression: result.get_expected_results()
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "cacc84a08dc3469c7654dd22b0162163c62873a1904810d8691415bde22be13d",
+    marf_hash: "a1452d018dde4ccb0aaaf60bd0447114b7d8715d03944901c6c4a53f5957ea93",
     evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
@@ -644,7 +644,7 @@ expression: result.get_expected_results()
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "5d519d0a251e80ea8725fed124167e43973c43efe7c0d85df23f585d925c6503",
+    marf_hash: "c28c976f6655c2706d6d3f6ff1981dfee3aad317b4cd837ee43087e6fe745bb9",
     evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(

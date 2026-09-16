@@ -1,1 +1,0 @@
-Add the `marf-squash` offline CLI (`contrib/marf-squash`) that produces a bootable Pruned Chainstate Snapshot (PCS) from another chainstate.
