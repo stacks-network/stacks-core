@@ -204,13 +204,14 @@ ensure_flaky_label() {
     fi
 }
 
-# Write every issue we have already filed to the given file. `comments` is
-# needed because the close phase dates each issue's last failure from them.
+# Write every issue we have already filed to the given file. `comments` and
+# `createdAt` are needed because the close phase dates each issue's last
+# failure from them.
 load_existing_issues() {
     local target="$1"
 
     gh issue list --repo "${CFG_REPO}" --label "${CFG_FLAKY_LABEL}" --state all \
-        --limit 500 --json number,state,body,comments > "${target}"
+        --limit 500 --json number,state,body,comments,createdAt > "${target}"
 
     info "Found $(hl "$(jq 'length' "${target}")") existing $(hl "${CFG_FLAKY_LABEL}") issue(s)"
 }
@@ -363,14 +364,22 @@ close_quiet_issues() {
         warn "No qualifying run(s) found - nothing can close as quiet"
     fi
 
+    # One row per issue this workflow filed, tab separated: number, state,
+    # test_id, last_failure. Only issues carrying the id marker in their body
+    # qualify, so anything hand-filed under the same label is left alone.
+    # `last_failure` is the newest failure comment's date, falling back to the
+    # issue's creation date: an issue exists because a test failed, so creation
+    # is a lower bound on it, and the only record left if the evidence comment
+    # never landed.
     while IFS=$'\t' read -r number state test_id last_failure; do
         [[ -z "${test_id}" ]] && continue
 
         # Only open issues can be closed
         [[ "${state}" != "OPEN" ]] && continue
 
-        # Both branches need it. An issue with no failure comment counts as
-        # infinitely quiet, since every run sorts after "no failure".
+        # Both branches need it. An issue with no date at all - neither a failure
+        # comment nor a creation date - counts as infinitely quiet, since every
+        # run sorts after "no failure".
         quiet_count=$(jq --arg last "${last_failure}" \
             '[.[] | select($last == "" or . > $last)] | length' <<< "${quiet_runs}")
 
@@ -418,7 +427,8 @@ close_quiet_issues() {
         | [ $issue.number,
             $issue.state,
             $m.id,
-            ([$issue.comments[]? | select(.body | startswith($heading)) | .createdAt] | max) // ""
+            ([$issue.comments[]? | select(.body | startswith($heading)) | .createdAt] | max)
+              // $issue.createdAt // ""
           ]
         | @tsv
     ' "${existing_issues}")
