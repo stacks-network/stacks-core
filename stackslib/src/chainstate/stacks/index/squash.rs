@@ -120,7 +120,7 @@ fn remap_child_ptrs(
     let node_count = store.len();
 
     for idx in 0..node_count {
-        if idx > 0 && idx as u64 % LOG_PROGRESS_NODE_INTERVAL == 0 {
+        if idx > 0 && (idx as u64).is_multiple_of(LOG_PROGRESS_NODE_INTERVAL) {
             info!(
                 "[{label}] Remap trie pointers: {idx}/{node_count} nodes in {}",
                 fmt_duration(remap_start.elapsed())
@@ -1053,7 +1053,7 @@ impl<T: MarfTrieId> MARF<T> {
 
                 nodes_collected += 1;
                 if last_log.elapsed().as_secs() >= LOG_PROGRESS_TIME_INTERVAL_SECS
-                    || nodes_collected % LOG_PROGRESS_NODE_INTERVAL == 0
+                    || nodes_collected.is_multiple_of(LOG_PROGRESS_NODE_INTERVAL)
                 {
                     info!(
                         "Trie DFS: {nodes_collected} nodes, stack depth {stack_depth}, {} elapsed",

@@ -859,7 +859,7 @@ impl SpvClient {
                 .inspect_err(|e| error!("Failed to insert block headers: {e:?}"))?;
 
             // check work
-            let interval_start = if insert_height % BLOCK_DIFFICULTY_CHUNK_SIZE == 0 {
+            let interval_start = if insert_height.is_multiple_of(BLOCK_DIFFICULTY_CHUNK_SIZE) {
                 insert_height / BLOCK_DIFFICULTY_CHUNK_SIZE
             } else {
                 insert_height / BLOCK_DIFFICULTY_CHUNK_SIZE + 1
@@ -1139,7 +1139,7 @@ impl SpvClient {
             }
         };
 
-        if current_header_height % BLOCK_DIFFICULTY_CHUNK_SIZE != 0
+        if !current_header_height.is_multiple_of(BLOCK_DIFFICULTY_CHUNK_SIZE)
             && self.network_id == BitcoinNetworkType::Testnet
         {
             // In Testnet mode, if the new block's timestamp is more than 2 * 60 * 10 minutes

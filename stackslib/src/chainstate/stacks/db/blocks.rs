@@ -300,7 +300,7 @@ impl MemPoolRejection {
             Other(s) => ("ServerFailureOther", Some(json!({ "message": s }))),
         };
         let mut result = json!({
-            "txid": format!("{}", txid.to_hex()),
+            "txid": txid.to_hex(),
             "error": "transaction rejected",
             "reason": reason_code,
         });

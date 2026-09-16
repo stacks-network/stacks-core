@@ -60,18 +60,18 @@ impl StacksMessageCodec for UrlString {
     fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), codec_error> {
         // UrlString can't be longer than vm::representations::MAX_STRING_LEN, which itself is
         // a u8, so we should be good here.
-        if self.as_bytes().len() > CLARITY_MAX_STRING_LENGTH as usize {
+        if self.as_str().len() > CLARITY_MAX_STRING_LENGTH as usize {
             return Err(codec_error::SerializeError(
                 "Failed to serialize URL string: too long".to_string(),
             ));
         }
 
         // must be a valid block URL, or empty string
-        if !self.as_bytes().is_empty() {
+        if !self.as_str().is_empty() {
             let _ = self.parse_to_block_url()?;
         }
 
-        write_next(fd, &(self.as_bytes().len() as u8))?;
+        write_next(fd, &(self.as_str().len() as u8))?;
         fd.write_all(self.as_bytes())
             .map_err(codec_error::WriteError)?;
         Ok(())

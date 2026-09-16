@@ -1794,7 +1794,7 @@ impl StacksBlockBuilder {
     }
 
     /// Cut the next microblock.
-    pub fn mine_next_microblock<'a>(&mut self) -> Result<StacksMicroblock, Error> {
+    pub fn mine_next_microblock(&mut self) -> Result<StacksMicroblock, Error> {
         let txid_vecs: Vec<_> = self
             .micro_txs
             .iter()
