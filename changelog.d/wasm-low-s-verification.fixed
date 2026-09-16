@@ -1,3 +1,0 @@
-Fixed `secp256k1_verify()` on Wasm accepting high-S signatures, which made Clarity's `secp256k1-verify` return `true` in simnet for signatures that are rejected on chain.
-Fixed Wasm low-S validation rejecting `s == (n - 1) / 2`, the largest canonical low-S value, which the native backend accepts.
-Fixed Wasm signing producing high-S signatures at the low-S boundary and public-key verification reporting high-S before a key mismatch.
