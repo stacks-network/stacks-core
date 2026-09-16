@@ -449,9 +449,9 @@ fn secp256k1_verify_rejects_high_s() {
 #[test]
 fn secp256k1_recover_accepts_low_and_high_s() {
     for (i, (hash_hex, sig_hex, pubkey_hex)) in REFERENCE_SIGNATURES.iter().enumerate() {
-        let hash = hex_bytes(hash_hex).unwrap();
-        let sig = MessageSignature::from_hex(sig_hex).unwrap();
-        let expected = hex_bytes(pubkey_hex).unwrap();
+        let hash = hex_bytes(hash_hex).expect("BUG: bad reference hash hex");
+        let sig = MessageSignature::from_hex(sig_hex).expect("BUG: bad reference signature hex");
+        let expected = hex_bytes(pubkey_hex).expect("BUG: bad reference public key hex");
 
         // Negating s also flips the recovery ID, preserving the recovered key.
         for signature in [&sig, &sig.with_negated_s()] {
@@ -466,8 +466,10 @@ fn secp256k1_recover_accepts_low_and_high_s() {
 #[test]
 fn secp256k1_recover_rejects_malformed_input() {
     let (hash_hex, sig_hex, _) = REFERENCE_SIGNATURES[0];
-    let hash = hex_bytes(hash_hex).unwrap();
-    let sig = MessageSignature::from_hex(sig_hex).unwrap().to_rsv();
+    let hash = hex_bytes(hash_hex).expect("BUG: bad reference hash hex");
+    let sig = MessageSignature::from_hex(sig_hex)
+        .expect("BUG: bad reference signature hex")
+        .to_rsv();
 
     for len in [0usize, 31, 33, 64] {
         assert!(
@@ -485,8 +487,8 @@ fn secp256k1_recover_rejects_malformed_input() {
         );
     }
 
-    let order =
-        hex_bytes("fffffffffffffffffffffffffffffffebaaedce6af48a03bbfd25e8cd0364141").unwrap();
+    let order = hex_bytes("fffffffffffffffffffffffffffffffebaaedce6af48a03bbfd25e8cd0364141")
+        .expect("BUG: bad curve order hex");
     // Both scalars must be nonzero and strictly less than the curve order.
     // Test each independently while leaving the other scalar valid.
     for offset in [0usize, 32] {
