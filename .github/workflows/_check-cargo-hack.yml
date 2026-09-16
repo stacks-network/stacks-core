@@ -91,6 +91,8 @@ jobs:
           tools: cargo-hack
 
       # Run cargo-hack for WASM Web
+      #   - clarity-wasm is excluded because it pulls in wasmtime, which cannot
+      #     itself be built for wasm32-unknown-unknown
       - name: Run cargo hack check (WASM Web)
         run: |
           cargo hack check \
@@ -101,7 +103,7 @@ jobs:
             -p stacks-transactions \
             --each-feature \
             --no-dev-deps \
-            --exclude-features=default,rusqlite,ctrlc-handler,wasm-deterministic,testing \
+            --exclude-features=default,rusqlite,ctrlc-handler,wasm-deterministic,testing,clarity-wasm \
             --features=wasm-web \
             --target wasm32-unknown-unknown
 
