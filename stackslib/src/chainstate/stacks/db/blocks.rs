@@ -4894,45 +4894,33 @@ impl StacksChainState {
         let cur_epoch = SortitionDB::get_stacks_epoch(sortdb_conn, burn_tip_height)?
             .expect("FATAL: no epoch defined for current burnchain tip height");
 
-        if cur_epoch.epoch_id >= StacksEpochId::Epoch25 {
-            StacksChainState::get_stacking_and_transfer_and_delegate_burn_ops_v210(
-                chainstate_tx,
-                parent_index_hash,
-                sortdb_conn,
-                burn_tip,
-                burn_tip_height,
-                cur_epoch.start_height,
-            )
-        } else if cur_epoch.epoch_id >= StacksEpochId::Epoch21 {
-            let StacksOnBurnchainOperations {
-                stack: stack_ops,
-                transfer: transfer_ops,
-                delegate: delegate_ops,
-                ..
-            } = StacksChainState::get_stacking_and_transfer_and_delegate_burn_ops_v210(
-                chainstate_tx,
-                parent_index_hash,
-                sortdb_conn,
-                burn_tip,
-                burn_tip_height,
-                cur_epoch.start_height,
-            )?;
-            Ok(StacksOnBurnchainOperations {
-                stack: stack_ops,
-                transfer: transfer_ops,
-                delegate: delegate_ops,
-                vote_for_aggregate_key: vec![],
-            })
-        } else {
-            let (stack_ops, transfer_ops) =
-                StacksChainState::get_stacking_and_transfer_burn_ops_v205(sortdb_conn, burn_tip)?;
+        if cur_epoch.epoch_id < StacksEpochId::Epoch21 {
+            let (stack, transfer) =
+                Self::get_stacking_and_transfer_burn_ops_v205(sortdb_conn, burn_tip)?;
             // The DelegateStx bitcoin wire format does not exist before Epoch 2.1.
-            Ok(StacksOnBurnchainOperations {
-                stack: stack_ops,
-                transfer: transfer_ops,
+            return Ok(StacksOnBurnchainOperations {
+                stack,
+                transfer,
                 ..StacksOnBurnchainOperations::default()
-            })
+            });
         }
+
+        let mut ops = Self::get_stacking_and_transfer_and_delegate_burn_ops_v210(
+            chainstate_tx,
+            parent_index_hash,
+            sortdb_conn,
+            burn_tip,
+            burn_tip_height,
+            cur_epoch.start_height,
+        )?;
+
+        // Epochs 2.1+ use the same operation lookup, but aggregate-key votes are only included from
+        // epoch 2.5 onward.
+        if cur_epoch.epoch_id < StacksEpochId::Epoch25 {
+            ops.vote_for_aggregate_key = vec![];
+        }
+
+        Ok(ops)
     }
 
     /// Check if current PoX reward cycle (as of `burn_tip_height`) has handled any
