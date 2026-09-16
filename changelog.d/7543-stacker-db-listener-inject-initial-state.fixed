@@ -1,1 +1,0 @@
-Prevent one potential cause for miner stalls by moving signer state machine retrieval from HTTP requests to DB lookup.

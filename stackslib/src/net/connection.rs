@@ -1951,9 +1951,11 @@ mod test {
 
     #[test]
     fn test_connection_ping_relay_producer_consumer() {
-        let mut conn_opts = ConnectionOptions::default();
-        conn_opts.inbox_maxlen = 5000;
-        conn_opts.outbox_maxlen = 5000;
+        let conn_opts = ConnectionOptions {
+            inbox_maxlen: 5000,
+            outbox_maxlen: 5000,
+            ..Default::default()
+        };
 
         let conn = ConnectionP2P::new(StacksP2P::new(), &conn_opts, None);
 
@@ -1962,9 +1964,11 @@ mod test {
 
     #[test]
     fn test_connection_ping_request_producer_consumer() {
-        let mut conn_opts = ConnectionOptions::default();
-        conn_opts.inbox_maxlen = 5000;
-        conn_opts.outbox_maxlen = 5000;
+        let conn_opts = ConnectionOptions {
+            inbox_maxlen: 5000,
+            outbox_maxlen: 5000,
+            ..Default::default()
+        };
 
         let conn = ConnectionP2P::new(StacksP2P::new(), &conn_opts, None);
 
@@ -1973,9 +1977,11 @@ mod test {
 
     #[test]
     fn connection_relay_send() {
-        let mut conn_opts = ConnectionOptions::default();
-        conn_opts.inbox_maxlen = 5;
-        conn_opts.outbox_maxlen = 5;
+        let conn_opts = ConnectionOptions {
+            inbox_maxlen: 5,
+            outbox_maxlen: 5,
+            ..Default::default()
+        };
 
         let mut conn = ConnectionP2P::new(StacksP2P::new(), &conn_opts, None);
 
@@ -2001,7 +2007,7 @@ mod test {
             pipes.push(pipe);
         }
 
-        fn flush_all(pipes: &mut Vec<ReplyHandleP2P>) {
+        fn flush_all(pipes: &mut [ReplyHandleP2P]) {
             for ref mut p in pipes.iter_mut() {
                 let _ = p.try_flush();
             }
@@ -2136,9 +2142,11 @@ mod test {
             out_degree: 0,
         };
 
-        let mut conn_opts = ConnectionOptions::default();
-        conn_opts.inbox_maxlen = 5;
-        conn_opts.outbox_maxlen = 5;
+        let conn_opts = ConnectionOptions {
+            inbox_maxlen: 5,
+            outbox_maxlen: 5,
+            ..Default::default()
+        };
 
         let mut conn = ConnectionP2P::new(StacksP2P::new(), &conn_opts, Some(neighbor.public_key));
 
@@ -2234,9 +2242,11 @@ mod test {
                 out_degree: 0,
             };
 
-            let mut conn_opts = ConnectionOptions::default();
-            conn_opts.inbox_maxlen = 5;
-            conn_opts.outbox_maxlen = 5;
+            let conn_opts = ConnectionOptions {
+                inbox_maxlen: 5,
+                outbox_maxlen: 5,
+                ..Default::default()
+            };
 
             let mut conn =
                 ConnectionP2P::new(StacksP2P::new(), &conn_opts, Some(neighbor.public_key));
@@ -2349,9 +2359,11 @@ mod test {
             out_degree: 0,
         };
 
-        let mut conn_opts = ConnectionOptions::default();
-        conn_opts.inbox_maxlen = 5;
-        conn_opts.outbox_maxlen = 5;
+        let conn_opts = ConnectionOptions {
+            inbox_maxlen: 5,
+            outbox_maxlen: 5,
+            ..Default::default()
+        };
 
         let mut conn = ConnectionP2P::new(StacksP2P::new(), &conn_opts, Some(neighbor.public_key));
 

@@ -156,7 +156,7 @@ impl DelegateStxOp {
         })?;
 
         let delegate_to = outputs
-            .get(0)
+            .first()
             .ok_or(op_error::InvalidInput)?
             .as_ref()
             .ok_or(op_error::InvalidInput)?

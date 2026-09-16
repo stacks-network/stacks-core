@@ -561,14 +561,14 @@ impl NakamotoDownloadStateMachine {
     pub(crate) fn find_available_tenures<'a>(
         reward_cycle: u64,
         wanted_tenures: &[WantedTenure],
-        mut inventory_iter: impl Iterator<Item = (&'a NeighborAddress, &'a NakamotoTenureInv)>,
+        inventory_iter: impl Iterator<Item = (&'a NeighborAddress, &'a NakamotoTenureInv)>,
     ) -> HashMap<ConsensusHash, Vec<NeighborAddress>> {
         let mut available: HashMap<ConsensusHash, Vec<NeighborAddress>> = HashMap::new();
         for wt in wanted_tenures.iter() {
             available.insert(wt.tenure_id_consensus_hash.clone(), vec![]);
         }
 
-        while let Some((naddr, inv)) = inventory_iter.next() {
+        for (naddr, inv) in inventory_iter {
             let Some(rc_inv) = inv.tenures_inv.get(&reward_cycle) else {
                 // this peer has no inventory data for this reward cycle
                 debug!(
@@ -618,10 +618,10 @@ impl NakamotoDownloadStateMachine {
         next_wanted_tenures: Option<&[WantedTenure]>,
         pox_constants: &PoxConstants,
         first_burn_height: u64,
-        mut inventory_iter: impl Iterator<Item = (&'a NeighborAddress, &'a NakamotoTenureInv)>,
+        inventory_iter: impl Iterator<Item = (&'a NeighborAddress, &'a NakamotoTenureInv)>,
     ) -> HashMap<NeighborAddress, AvailableTenures> {
         let mut tenure_block_ids = HashMap::new();
-        while let Some((naddr, tenure_inv)) = inventory_iter.next() {
+        for (naddr, tenure_inv) in inventory_iter {
             let Some(peer_tenure_block_ids) = TenureStartEnd::from_inventory(
                 rc,
                 wanted_tenures,
@@ -684,7 +684,7 @@ impl NakamotoDownloadStateMachine {
         }
 
         // order by fewest neighbors first
-        schedule.sort_by(|a, b| a.0.cmp(&b.0));
+        schedule.sort_by_key(|a| a.0);
         schedule.into_iter().map(|(_count, ch)| ch).collect()
     }
 

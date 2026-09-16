@@ -2965,7 +2965,7 @@ impl PeerNetwork {
         // pick a random outbound conversation to one of the initial neighbors
         let mut idx = thread_rng().gen::<usize>() % self.peers.len();
         for _ in 0..self.peers.len() + 1 {
-            let event_id = match self.peers.keys().skip(idx).next() {
+            let event_id = match self.peers.keys().nth(idx) {
                 Some(eid) => *eid,
                 None => {
                     idx = 0;
@@ -4376,7 +4376,7 @@ impl PeerNetwork {
                     if self.walk_pingbacks.len() > MAX_NEIGHBORS_DATA_LEN as usize {
                         // drop one at random
                         let idx = thread_rng().gen::<usize>() % self.walk_pingbacks.len();
-                        let drop_addr = match self.walk_pingbacks.keys().skip(idx).next() {
+                        let drop_addr = match self.walk_pingbacks.keys().nth(idx) {
                             Some(addr) => (*addr).clone(),
                             None => {
                                 continue;
@@ -5598,7 +5598,6 @@ mod test {
     use std::{thread, time};
 
     use clarity::util::sleep_ms;
-    use rand::{self, RngCore};
     use stacks_common::types::chainstate::BurnchainHeaderHash;
 
     use super::*;
@@ -5609,13 +5608,6 @@ mod test {
     use crate::net::test::*;
     use crate::net::*;
     use crate::util_lib::test::*;
-
-    fn make_random_peer_address() -> PeerAddress {
-        let mut rng = rand::thread_rng();
-        let mut bytes = [0u8; 16];
-        rng.fill_bytes(&mut bytes);
-        PeerAddress(bytes)
-    }
 
     fn make_test_neighbor(port: u16) -> Neighbor {
         let neighbor = Neighbor {
