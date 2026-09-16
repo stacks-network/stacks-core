@@ -318,8 +318,7 @@ impl AttachmentsDownloader {
             return Ok(vec![]);
         }
 
-        // we're draining the initial batch, so to avoid angering The Borrow Checker
-        //  use mem replace to just take the whole vec.
+        // Move the batch out so we can process it while borrowing `self` mutably.
         let initial_batch = mem::take(&mut self.initial_batch);
 
         self.check_attachment_instances(
