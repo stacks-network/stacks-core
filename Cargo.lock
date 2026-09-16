@@ -4503,7 +4503,7 @@ dependencies = [
 
 [[package]]
 name = "stacks-marf"
-version = "0.0.1"
+version = "4.0.3"
 dependencies = [
  "rstest",
  "rstest_reuse",

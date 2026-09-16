@@ -1,6 +1,6 @@
 [package]
 name = "stacks-marf"
-version = "0.0.1"
+version.workspace = true
 edition = "2021"
 description = "The Merkleized Adaptive Radix Forest (MARF) used by the Stacks blockchain"
 license = "GPL-3.0-only"
