@@ -128,7 +128,7 @@ pub fn sql_vacuum(conn: &Connection) -> Result<(), SqliteError> {
 ///  database of the provided SQLite connection.
 pub fn table_exists(conn: &Connection, table_name: &str) -> Result<bool, SqliteError> {
     let sql = "SELECT name FROM sqlite_master WHERE type='table' AND name=?";
-    conn.query_row(sql, &[table_name], |row| row.get::<_, String>(0))
+    conn.query_row(sql, [table_name], |row| row.get::<_, String>(0))
         .optional()
         .map(|r| r.is_some())
 }
