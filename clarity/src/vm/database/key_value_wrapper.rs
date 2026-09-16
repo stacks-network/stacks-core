@@ -484,7 +484,7 @@ impl RollbackWrapper<'_> {
                     && self.cache.len() < 1024
                 {
                     // Just a very dumb cache: No LRU, simply a hard limit on the size.
-                    // Clear on set_block_hash().
+                    // Cleared on set_block_hash() and when committing to the store.
                     self.cache.insert(key.into(), to_return.clone());
                 }
                 Ok(Some(to_return))
