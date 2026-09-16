@@ -874,7 +874,7 @@ impl Node {
                         break;
                     } else {
                         for block in blocks.iter() {
-                            if let (Some(epoch_receipt), _) = block {
+                            if let Some(epoch_receipt) = &block.receipt {
                                 let attachments_instances =
                                     self.get_attachment_instances(epoch_receipt, &atlas_config);
                                 if !attachments_instances.is_empty() {
@@ -903,7 +903,7 @@ impl Node {
 
         // todo(ludo): yikes but good enough in the context of helium:
         // we only expect 1 block.
-        let processed_block = processed_blocks[0].clone().0.unwrap();
+        let processed_block = processed_blocks[0].clone().receipt.unwrap();
 
         let mut cost_estimator = self.config.make_cost_estimator();
         let mut fee_estimator = self.config.make_fee_estimator();

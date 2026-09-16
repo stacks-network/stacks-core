@@ -2650,14 +2650,14 @@ fn test_build_microblock_stream_forks() {
                         }
 
                         // find the poison-microblock at seq 2
-                        let (_, poison_opt) = match StacksChainState::load_descendant_staging_microblock_stream_with_poison(
+                        let poison_opt = match StacksChainState::load_descendant_staging_microblock_stream_with_poison(
                             chainstate.db(),
                             &parent_index_hash,
                             0,
                             u16::MAX
                         ).unwrap() {
-                            Some(x) => x,
-                            None => (vec![], None)
+                            Some(stream) => stream.poison_payload,
+                            None => None
                         };
 
                         if let Some(poison_payload) = poison_opt {
@@ -2977,14 +2977,14 @@ fn test_build_microblock_stream_forks_with_descendants() {
                         }
 
                         // find the poison-microblock at seq 2
-                        let (_, poison_opt) = match StacksChainState::load_descendant_staging_microblock_stream_with_poison(
+                        let poison_opt = match StacksChainState::load_descendant_staging_microblock_stream_with_poison(
                             chainstate.db(),
                             &parent_index_hash,
                             0,
                             u16::MAX
                         ).unwrap() {
-                            Some(x) => x,
-                            None => (vec![], None)
+                            Some(stream) => stream.poison_payload,
+                            None => None
                         };
 
                         if let Some(poison_payload) = poison_opt {

@@ -1,0 +1,1 @@
+Replace complex chainstate results and callbacks with documented named types and aliases, updating node and inspection-tool callers without changing consensus rules or database schemas.

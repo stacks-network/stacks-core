@@ -72,6 +72,7 @@ use crate::chainstate::nakamoto::{
     MaturedMinerPaymentSchedules, MaturedMinerRewards, NakamotoBlock, NakamotoBlockHeader,
     NakamotoChainState, StacksDBIndexed,
 };
+use crate::chainstate::stacks::db::accounts::MaturedMinerPayouts;
 use crate::chainstate::stacks::db::{
     ChainstateTx, ClarityTx, MinerPaymentSchedule, MinerPaymentTxFees, StacksChainState,
     StacksDBTx, StacksHeaderInfo,
@@ -395,7 +396,12 @@ impl NakamotoChainState {
             matured_miner_schedule.latest_miners,
             matured_miner_schedule.parent_miner,
         ) {
-            Ok(Some((recipient, _user_burns, parent, reward_info))) => Some(MaturedMinerRewards {
+            Ok(Some(MaturedMinerPayouts {
+                miner: recipient,
+                parent,
+                info: reward_info,
+                ..
+            })) => Some(MaturedMinerRewards {
                 recipient,
                 parent_reward: parent,
                 reward_info,

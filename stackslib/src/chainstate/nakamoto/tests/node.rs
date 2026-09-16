@@ -56,6 +56,9 @@ use crate::net::relay::{BlockAcceptResponse, Relayer};
 use crate::net::test::{TestPeer, *};
 use crate::util_lib::db::query_row;
 
+/// A mined test block, its byte size and execution cost, and its malleablized variants.
+pub type MinedTenureBlock = (NakamotoBlock, u64, ExecutionCost, Vec<NakamotoBlock>);
+
 #[derive(Debug, Clone)]
 pub struct TestStacker {
     /// Key used to send stacking transactions
@@ -724,7 +727,7 @@ impl TestStacksNode {
         malleablize: bool,
         mined_canonical: bool,
         timestamp: Option<u64>,
-    ) -> Result<Vec<(NakamotoBlock, u64, ExecutionCost, Vec<NakamotoBlock>)>, ChainstateError>
+    ) -> Result<Vec<MinedTenureBlock>, ChainstateError>
     where
         S: FnMut(&mut NakamotoBlockBuilder),
         F: FnMut(
@@ -1176,7 +1179,7 @@ impl TestStacksNode {
         let res = stacks_node
             .chainstate
             .process_next_staging_block(&mut sort_tx, coord.dispatcher)
-            .map(|(epoch_receipt, _)| epoch_receipt)?;
+            .map(|outcome| outcome.receipt)?;
         sort_tx.commit()?;
         if let Some(block_receipt) = res.as_ref() {
             let in_sortition_set = coord

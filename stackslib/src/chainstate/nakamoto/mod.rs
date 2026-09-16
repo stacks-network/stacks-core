@@ -57,7 +57,7 @@ use super::stacks::boot::{
 use super::stacks::db::accounts::MinerReward;
 use super::stacks::db::{
     ChainstateTx, ClarityTx, MinerPaymentSchedule, MinerRewardInfo, StacksBlockHeaderTypes,
-    StacksEpochReceipt, StacksHeaderInfo,
+    StacksEpochReceipt, StacksHeaderInfo, StacksOnBurnchainOperations,
 };
 use super::stacks::events::StacksTransactionReceipt;
 use super::stacks::{
@@ -4234,21 +4234,13 @@ impl NakamotoChainState {
         sortdb_conn: &Connection,
         burn_tip: &BurnchainHeaderHash,
         burn_tip_height: u64,
-    ) -> Result<
-        (
-            Vec<StackStxOp>,
-            Vec<TransferStxOp>,
-            Vec<DelegateStxOp>,
-            Vec<VoteForAggregateKeyOp>,
-        ),
-        ChainstateError,
-    > {
+    ) -> Result<StacksOnBurnchainOperations, ChainstateError> {
         let cur_epoch = SortitionDB::get_stacks_epoch(sortdb_conn, burn_tip_height)?
             .expect("FATAL: no epoch defined for current burnchain tip height");
 
         // only consider transactions in Stacks 3.0
         if cur_epoch.epoch_id < StacksEpochId::Epoch30 {
-            return Ok((vec![], vec![], vec![], vec![]));
+            return Ok(StacksOnBurnchainOperations::default());
         }
 
         let epoch_start_height = cur_epoch.start_height;
@@ -4326,12 +4318,12 @@ impl NakamotoChainState {
                 }
             }
         }
-        Ok((
-            all_stacking_burn_ops,
-            all_transfer_burn_ops,
-            all_delegate_burn_ops,
-            all_vote_for_aggregate_key_ops,
-        ))
+        Ok(StacksOnBurnchainOperations {
+            stack: all_stacking_burn_ops,
+            transfer: all_transfer_burn_ops,
+            delegate: all_delegate_burn_ops,
+            vote_for_aggregate_key: all_vote_for_aggregate_key_ops,
+        })
     }
 
     /// Begin block-processing for a normal block and return all of the pre-processed state within a
@@ -4578,19 +4570,23 @@ impl NakamotoChainState {
             None
         };
 
-        let (stacking_burn_ops, transfer_burn_ops, delegate_burn_ops, vote_for_agg_key_ops) =
-            if tenure_cause.is_new_tenure() {
-                NakamotoChainState::get_stacks_on_burnchain_operations(
-                    chainstate_tx.as_tx(),
-                    parent_consensus_hash,
-                    parent_header_hash,
-                    sortition_dbconn.sqlite_conn(),
-                    burn_header_hash,
-                    burn_header_height.into(),
-                )?
-            } else {
-                (vec![], vec![], vec![], vec![])
-            };
+        let StacksOnBurnchainOperations {
+            stack: stacking_burn_ops,
+            transfer: transfer_burn_ops,
+            delegate: delegate_burn_ops,
+            vote_for_aggregate_key: vote_for_agg_key_ops,
+        } = if tenure_cause.is_new_tenure() {
+            NakamotoChainState::get_stacks_on_burnchain_operations(
+                chainstate_tx.as_tx(),
+                parent_consensus_hash,
+                parent_header_hash,
+                sortition_dbconn.sqlite_conn(),
+                burn_header_hash,
+                burn_header_height.into(),
+            )?
+        } else {
+            StacksOnBurnchainOperations::default()
+        };
 
         // Nakamoto must load block cost from parent if this block isn't a tenure change.
         // If this is a tenure-extend, then the execution cost is reset.

@@ -25,6 +25,19 @@ use crate::clarity_vm::clarity::{ClarityConnection, ClarityTransactionConnection
 use crate::core::StacksEpochId;
 use crate::util_lib::db::{Error as db_error, *};
 
+/// Mature rewards for a block, its supporting burners, and its parent.
+#[derive(Debug, Clone)]
+pub struct MaturedMinerPayouts {
+    /// Child miner reward, possibly redirected to a poison reporter.
+    pub miner: MinerReward,
+    /// Rewards for user-support burns, in payment order.
+    pub users: Vec<MinerReward>,
+    /// Parent miner's reward for produced microblocks.
+    pub parent: MinerReward,
+    /// Chain locations of the rewarded child and parent blocks.
+    pub info: MinerRewardInfo,
+}
+
 /// A record of a coin reward for a miner.  There will be at most two of these for a miner: one for
 /// the coinbase + block-txs + confirmed-mblock-txs, and one for the produced-mblock-txs.  The
 /// latter reward only stores the produced-mblock-txs, and is only ever stored if the microblocks
@@ -988,7 +1001,7 @@ impl StacksChainState {
         tip_stacks_height: u64,
         mut latest_matured_miners: Vec<MinerPaymentSchedule>,
         parent_miner: MinerPaymentSchedule,
-    ) -> Result<Option<(MinerReward, Vec<MinerReward>, MinerReward, MinerRewardInfo)>, Error> {
+    ) -> Result<Option<MaturedMinerPayouts>, Error> {
         let mainnet = clarity_tx.config.mainnet;
         if tip_stacks_height <= MINER_REWARD_MATURITY {
             // no mature rewards exist
@@ -1067,12 +1080,12 @@ impl StacksChainState {
             user_rewards.push(reward);
         }
 
-        Ok(Some((
-            miner_reward,
-            user_rewards,
-            parent_miner_reward,
-            reward_info,
-        )))
+        Ok(Some(MaturedMinerPayouts {
+            miner: miner_reward,
+            users: user_rewards,
+            parent: parent_miner_reward,
+            info: reward_info,
+        }))
     }
 }
 
