@@ -862,7 +862,7 @@ const MEMPOOL_SCHEMA_7_TIME_ESTIMATES: &[&str] = &[
     "#,
 ];
 
-const MEMPOOL_SCHEMA_8_NONCE_SORTING: &'static [&'static str] = &[
+const MEMPOOL_SCHEMA_8_NONCE_SORTING: &[&str] = &[
     r#"
     -- Add table to track considered transactions
     CREATE TABLE IF NOT EXISTS considered_txs(

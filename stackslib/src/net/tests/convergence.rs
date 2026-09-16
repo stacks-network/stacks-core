@@ -93,7 +93,7 @@ fn setup_peer_config(
 
     // even-number peers support stacker DBs.
     // odd-number peers do not
-    if i % 2 == 0 {
+    if i.is_multiple_of(2) {
         conf.services = (ServiceFlags::RELAY as u16)
             | (ServiceFlags::RPC as u16)
             | (ServiceFlags::STACKERDB as u16);
