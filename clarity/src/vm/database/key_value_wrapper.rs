@@ -281,6 +281,7 @@ impl<'a> RollbackWrapper<'a> {
                 next_up.metadata_edits.push((key, value));
             }
         } else {
+            self.cache.clear();
             // stack is empty, committing to the backing store
             let all_edits =
                 rollback_check_pre_bottom_commit(last_item.edits, &mut self.lookup_map)?;
