@@ -1129,8 +1129,8 @@ fn global_acceptance_depends_on_block_announcement() {
     // Make less than 30% of the signers reject the block and ensure it is accepted by the node, but not announced.
     let rejecting_signers: Vec<_> = all_signers
         .iter()
-        .cloned()
         .take(num_signers * 3 / 10)
+        .cloned()
         .collect();
     TEST_REJECT_ALL_BLOCK_PROPOSAL.set(rejecting_signers);
     TEST_SKIP_BLOCK_ANNOUNCEMENT.set(true);
@@ -2871,8 +2871,8 @@ fn locally_accepted_blocks_overriden_by_global_rejection() {
     // Make half of the signers reject the block proposal by the miner to ensure its marked globally rejected
     let rejecting_signers: Vec<_> = all_signers
         .iter()
-        .cloned()
         .take(num_signers / 2 + num_signers % 2)
+        .cloned()
         .collect();
     TEST_REJECT_ALL_BLOCK_PROPOSAL.set(rejecting_signers.clone());
     test_observer::clear();
@@ -3014,8 +3014,8 @@ fn locally_rejected_blocks_overriden_by_global_acceptance() {
     // Make less than 30% of the signers reject the block and ensure it is STILL marked globally accepted
     let rejecting_signers: Vec<_> = all_signers
         .iter()
-        .cloned()
         .take(num_signers * 3 / 10)
+        .cloned()
         .collect();
     TEST_REJECT_ALL_BLOCK_PROPOSAL.set(rejecting_signers.clone());
     test_observer::clear();
@@ -3161,13 +3161,13 @@ fn reorg_locally_accepted_blocks_across_tenures_succeeds() {
     // Make more than >70% of the signers ignore the block proposal to ensure it it is not globally accepted/rejected
     let ignoring_signers: Vec<_> = all_signers
         .iter()
-        .cloned()
         .take(num_signers * 7 / 10)
+        .cloned()
         .collect();
     let non_ignoring_signers: Vec<_> = all_signers
         .iter()
-        .cloned()
         .skip(num_signers * 7 / 10)
+        .cloned()
         .collect();
     TEST_SIGNERS_SKIP_BLOCK_RESPONSE_BROADCAST.set(ignoring_signers.clone());
     // Clear the stackerdb chunks
@@ -3353,13 +3353,13 @@ fn reorg_locally_accepted_blocks_across_tenures_fails() {
     // Make more than >70% of the signers ignore the block proposal to ensure it it is not globally accepted/rejected
     let ignoring_signers: Vec<_> = all_signers
         .iter()
-        .cloned()
         .take(num_signers * 7 / 10)
+        .cloned()
         .collect();
     let non_ignoring_signers: Vec<_> = all_signers
         .iter()
-        .cloned()
         .skip(num_signers * 7 / 10)
+        .cloned()
         .collect();
     TEST_SIGNERS_SKIP_BLOCK_RESPONSE_BROADCAST.set(ignoring_signers.clone());
     // Clear the stackerdb chunks

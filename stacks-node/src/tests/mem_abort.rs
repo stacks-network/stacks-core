@@ -46,7 +46,7 @@ fn big_alloc_program() -> String {
     let mut lines = Vec::new();
     for i in 0u8..100 {
         let ch = (b'a' + (i % 26)) as char;
-        let s: String = std::iter::repeat(ch).take(100).collect();
+        let s: String = std::iter::repeat_n(ch, 100).collect();
         lines.push(format!("    \"{s}\""));
     }
     format!("(list\n{}\n)", lines.join("\n"))
