@@ -127,7 +127,7 @@ impl Secp256k1PublicKey {
         msg: &[u8],
         sig: &MessageSignature,
     ) -> Result<Secp256k1PublicKey, &'static str> {
-        Self::recover_to_pubkey_possibly_with_low_s_verification(msg, sig, true)
+        Self::recover_to_pubkey_possibly_with_low_s_verification(msg, sig, true).map(|(key, _)| key)
     }
 
     #[cfg(not(feature = "wasm-deterministic"))]
@@ -139,14 +139,16 @@ impl Secp256k1PublicKey {
         sig: &MessageSignature,
     ) -> Result<Secp256k1PublicKey, &'static str> {
         Self::recover_to_pubkey_possibly_with_low_s_verification(msg, sig, false)
+            .map(|(key, _)| key)
     }
 
     #[cfg(not(feature = "wasm-deterministic"))]
+    /// Return the recovered key and low-S status without decoding twice.
     fn recover_to_pubkey_possibly_with_low_s_verification(
         msg: &[u8],
         sig: &MessageSignature,
         verify_low_s: bool,
-    ) -> Result<Secp256k1PublicKey, &'static str> {
+    ) -> Result<(Secp256k1PublicKey, bool), &'static str> {
         // Match native validation order and errors.
         let message = LibSecp256k1Message::parse_slice(msg)
             .map_err(|_| "Invalid message: failed to decode data hash: must be a 32-byte hash")?;
@@ -156,14 +158,16 @@ impl Secp256k1PublicKey {
             .to_secp256k1_recoverable()
             .ok_or("Invalid signature: failed to decode recoverable signature")?;
 
-        if verify_low_s && !is_low_s(&signature) {
+        let low_s = is_low_s(&signature);
+        if verify_low_s && !low_s {
             return Err("Invalid signature: high-S");
         }
 
         let recovered = libsecp256k1::recover(&message, &signature, &recovery_id)
             .map_err(|_| "Invalid signature: failed to recover public key")?;
 
-        Secp256k1PublicKey::from_slice(&recovered.serialize_compressed())
+        let key = Secp256k1PublicKey::from_slice(&recovered.serialize_compressed())?;
+        Ok((key, low_s))
     }
 }
 
@@ -362,6 +366,23 @@ impl MessageSignature {
         Self(bytes)
     }
 
+    /// Correct the signing library's boundary normalization, preserving recovery parity.
+    #[cfg(not(feature = "wasm-deterministic"))]
+    fn from_secp256k1_recoverable_low_s(
+        mut sig: LibSecp256k1Signature,
+        recid: LibSecp256k1RecoveryId,
+    ) -> Self {
+        let high_s = !is_low_s(&sig);
+        if high_s {
+            sig.s = -sig.s;
+        }
+        let mut result = Self::from_secp256k1_recoverable(&sig, recid);
+        if high_s {
+            result.0[0] ^= 1;
+        }
+        result
+    }
+
     pub fn to_secp256k1_recoverable(
         &self,
     ) -> Option<(LibSecp256k1Signature, LibSecp256k1RecoveryId)> {
@@ -385,12 +406,19 @@ impl PublicKey for Secp256k1PublicKey {
 
     #[cfg(not(feature = "wasm-deterministic"))]
     fn verify(&self, data_hash: &[u8], sig: &MessageSignature) -> Result<bool, &'static str> {
-        // Recovery enforces low-S, matching `native.rs`.
-        let recovered = Secp256k1PublicKey::recover_to_pubkey(data_hash, sig)?;
+        // Native reports a key mismatch before rejecting high-S.
+        let (recovered, low_s) =
+            Self::recover_to_pubkey_possibly_with_low_s_verification(data_hash, sig, false)?;
 
         // Compare curve points: recovery always returns a compressed key, but
         // `self` may be uncompressed. Struct equality includes that encoding flag.
-        Ok(self.key == recovered.key)
+        if self.key != recovered.key {
+            return Ok(false);
+        }
+        if !low_s {
+            return Err("Invalid signature: high-S");
+        }
+        Ok(true)
     }
 }
 
@@ -413,7 +441,7 @@ impl PrivateKey for Secp256k1PrivateKey {
         let message = LibSecp256k1Message::parse_slice(data_hash)
             .map_err(|_e| "Invalid message: failed to decode data hash: must be a 32-byte hash")?;
         let (sig, recid) = libsecp256k1::sign(&message, &self.key);
-        let rec_sig = MessageSignature::from_secp256k1_recoverable(&sig, recid);
+        let rec_sig = MessageSignature::from_secp256k1_recoverable_low_s(sig, recid);
         Ok(rec_sig)
     }
 
@@ -452,7 +480,7 @@ impl PrivateKey for Secp256k1PrivateKey {
         };
 
         let (sig, recid) = (LibSecp256k1Signature { r: sigr, s: sigs }, recid);
-        let rec_sig = MessageSignature::from_secp256k1_recoverable(&sig, recid);
+        let rec_sig = MessageSignature::from_secp256k1_recoverable_low_s(sig, recid);
         Ok(rec_sig)
     }
 }

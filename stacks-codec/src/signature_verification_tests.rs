@@ -643,6 +643,12 @@ fn public_key_verify_accepts_both_key_encodings() {
             "key{i}: verify() accepted a signature made by a different key"
         );
 
+        assert_eq!(
+            other.verify(hash.as_bytes(), &sig.with_negated_s()),
+            Ok(false),
+            "key{i}: key mismatch must take precedence over high-S",
+        );
+
         assert!(
             StacksPublicKey::from_private(&privk)
                 .verify(hash.as_bytes(), &sig.with_negated_s())
@@ -753,4 +759,27 @@ fn microblock_header_signatures_verify() {
             "key{i}: verification accepted a header with a tampered sequence"
         );
     }
+}
+
+/// With d = k = 1, choosing z = floor(n / 2) - r forces s to the low-S boundary.
+/// Wasm takes a raw nonce; native treats noncedata as entropy for nonce derivation.
+#[cfg(target_family = "wasm")]
+#[test]
+fn signing_at_low_s_boundary_preserves_recovery_id() {
+    let privk = StacksPrivateKey::from_hex(
+        "0000000000000000000000000000000000000000000000000000000000000001",
+    )
+    .unwrap();
+    let hash =
+        hex_bytes("0641998106234453aa5f9d6a3178f4f85abb719829d6274485f6adeb51230908").unwrap();
+    let mut nonce = [0u8; 32];
+    nonce[31] = 1;
+    let sig = privk.sign_with_noncedata(&hash, &nonce).unwrap();
+    assert_eq!(sig.as_bytes()[0], 0);
+    assert_eq!(
+        &sig.as_bytes()[33..],
+        hex_bytes("7fffffffffffffffffffffffffffffff5d576e7357a4501ddfe92f46681b20a0").unwrap(),
+    );
+    let pubkey = StacksPublicKey::from_private(&privk);
+    assert!(pubkey.verify(&hash, &sig).unwrap());
 }
