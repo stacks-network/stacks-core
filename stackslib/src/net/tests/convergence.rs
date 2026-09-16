@@ -252,7 +252,7 @@ fn test_walk_ring_15_org_biased() {
 }
 
 fn test_walk_ring_ex(
-    peer_configs: &mut Vec<TestPeerConfig>,
+    peer_configs: &mut [TestPeerConfig],
     test_pingback: bool,
 ) -> Vec<TestPeer<'_>> {
     // arrange neighbors into a "ring" topology, where
@@ -308,11 +308,11 @@ fn test_walk_ring_ex(
     peers
 }
 
-fn test_walk_ring(peer_configs: &mut Vec<TestPeerConfig>) -> Vec<TestPeer<'_>> {
+fn test_walk_ring(peer_configs: &mut [TestPeerConfig]) -> Vec<TestPeer<'_>> {
     test_walk_ring_ex(peer_configs, false)
 }
 
-fn test_walk_ring_pingback(peer_configs: &mut Vec<TestPeerConfig>) -> Vec<TestPeer<'_>> {
+fn test_walk_ring_pingback(peer_configs: &mut [TestPeerConfig]) -> Vec<TestPeer<'_>> {
     test_walk_ring_ex(peer_configs, true)
 }
 
@@ -458,16 +458,16 @@ fn test_walk_line_15_pingback() {
     })
 }
 
-fn test_walk_line(peer_configs: &mut Vec<TestPeerConfig>) -> Vec<TestPeer<'_>> {
+fn test_walk_line(peer_configs: &mut [TestPeerConfig]) -> Vec<TestPeer<'_>> {
     test_walk_line_ex(peer_configs, false)
 }
 
-fn test_walk_line_pingback(peer_configs: &mut Vec<TestPeerConfig>) -> Vec<TestPeer<'_>> {
+fn test_walk_line_pingback(peer_configs: &mut [TestPeerConfig]) -> Vec<TestPeer<'_>> {
     test_walk_line_ex(peer_configs, true)
 }
 
 fn test_walk_line_ex(
-    peer_configs: &mut Vec<TestPeerConfig>,
+    peer_configs: &mut [TestPeerConfig],
     pingback_test: bool,
 ) -> Vec<TestPeer<'_>> {
     // arrange neighbors into a "line" topology.
@@ -667,16 +667,16 @@ fn test_walk_star_15_org_biased() {
     })
 }
 
-fn test_walk_star(peer_configs: &mut Vec<TestPeerConfig>) -> Vec<TestPeer<'_>> {
+fn test_walk_star(peer_configs: &mut [TestPeerConfig]) -> Vec<TestPeer<'_>> {
     test_walk_star_ex(peer_configs, false)
 }
 
-fn test_walk_star_pingback(peer_configs: &mut Vec<TestPeerConfig>) -> Vec<TestPeer<'_>> {
+fn test_walk_star_pingback(peer_configs: &mut [TestPeerConfig]) -> Vec<TestPeer<'_>> {
     test_walk_star_ex(peer_configs, true)
 }
 
 fn test_walk_star_ex(
-    peer_configs: &mut Vec<TestPeerConfig>,
+    peer_configs: &mut [TestPeerConfig],
     pingback_test: bool,
 ) -> Vec<TestPeer<'_>> {
     // arrange neighbors into a "star" topology.
@@ -729,7 +729,7 @@ fn test_walk_star_ex(
     peers
 }
 
-fn test_walk_inbound_line(peer_configs: &mut Vec<TestPeerConfig>) -> Vec<TestPeer<'_>> {
+fn test_walk_inbound_line(peer_configs: &mut [TestPeerConfig]) -> Vec<TestPeer<'_>> {
     // arrange neighbors into a two-tiered "line" topology, where even-numbered neighbors are
     // "NAT'ed" but connected to both the predecessor and successor odd neighbors.  Odd
     // numbered neighbors are not connected to anyone.  The first and last even-numbered

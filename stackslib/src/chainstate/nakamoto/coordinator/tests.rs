@@ -2009,7 +2009,7 @@ fn transactions_indexing() {
     let (tracked_block, burn_height, ..) =
         peer.single_block_tenure(&private_key, |_| {}, |_| {}, |_| false);
 
-    assert_eq!(peer.try_process_block(&tracked_block).unwrap(), true);
+    assert!(peer.try_process_block(&tracked_block).unwrap());
 
     let tracked_block_id = tracked_block.block_id();
 
@@ -2074,7 +2074,7 @@ fn transactions_not_indexing() {
     let (untracked_block, burn_height, ..) =
         peer.single_block_tenure(&private_key, |_| {}, |_| {}, |_| false);
 
-    assert_eq!(peer.try_process_block(&untracked_block).unwrap(), true);
+    assert!(peer.try_process_block(&untracked_block).unwrap());
 
     let untracked_block_id = untracked_block.block_id();
 
@@ -2082,11 +2082,10 @@ fn transactions_not_indexing() {
 
     // ensure untracked transactions are not recorded
     for tx in untracked_block.txs {
-        assert_eq!(
+        assert!(
             NakamotoChainState::get_tx_info_from_txid(&chainstate.index_conn(), &tx.txid(),)
                 .unwrap()
-                .is_none(),
-            true
+                .is_none()
         );
     }
 }

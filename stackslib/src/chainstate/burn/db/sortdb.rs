@@ -7821,7 +7821,7 @@ pub mod tests {
         {
             let mut ic = SortitionHandleTx::begin(&mut db, &snapshot.sortition_id).unwrap();
             let keys = ic
-                .get_consumed_leader_keys(&snapshot, &vec![block_commit.clone()])
+                .get_consumed_leader_keys(&snapshot, &[block_commit.clone()])
                 .unwrap();
             assert_eq!(keys, vec![leader_key.clone()]);
         }
@@ -7914,7 +7914,7 @@ pub mod tests {
         {
             let mut ic = SortitionHandleTx::begin(&mut db, &snapshot.sortition_id).unwrap();
             let keys = ic
-                .get_consumed_leader_keys(&empty_snapshot, &vec![block_commit.clone()])
+                .get_consumed_leader_keys(&empty_snapshot, &[block_commit.clone()])
                 .unwrap();
             assert_eq!(keys, vec![leader_key.clone()]);
         }
@@ -7951,7 +7951,7 @@ pub mod tests {
         {
             let mut ic = SortitionHandleTx::begin(&mut db, &snapshot.sortition_id).unwrap();
             let keys = ic
-                .get_consumed_leader_keys(&fork_snapshot, &vec![block_commit])
+                .get_consumed_leader_keys(&fork_snapshot, &[block_commit])
                 .unwrap();
             assert_eq!(keys, vec![leader_key]);
         }
@@ -11270,7 +11270,7 @@ pub mod tests {
         .unwrap();
         let vote_key: StacksPublicKeyBuffer = vote_pubkey.to_bytes_compressed().as_slice().into();
 
-        let good_ops = vec![
+        let good_ops = [
             BlockstackOperationType::TransferStx(TransferStxOp {
                 sender: StacksAddress::new(1, Hash160([1u8; 20])).unwrap(),
                 recipient: StacksAddress::new(2, Hash160([2u8; 20])).unwrap(),
@@ -11368,7 +11368,7 @@ pub mod tests {
         );
 
         // if the same ops get mined in a different burnchain block, they will still be available
-        let good_ops_2 = vec![
+        let good_ops_2 = [
             BlockstackOperationType::TransferStx(TransferStxOp {
                 sender: StacksAddress::new(1, Hash160([1u8; 20])).unwrap(),
                 recipient: StacksAddress::new(2, Hash160([2u8; 20])).unwrap(),

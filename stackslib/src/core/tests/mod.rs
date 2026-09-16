@@ -2801,8 +2801,10 @@ fn large_mempool() {
     }
     mempool_tx.commit().unwrap();
 
-    let mut mempool_settings = MemPoolWalkSettings::default();
-    mempool_settings.strategy = MemPoolWalkStrategy::NextNonceWithHighestFeeRate;
+    let mempool_settings = MemPoolWalkSettings {
+        strategy: MemPoolWalkStrategy::NextNonceWithHighestFeeRate,
+        ..Default::default()
+    };
     let mut tx_events = Vec::new();
 
     println!("Iterating mempool");

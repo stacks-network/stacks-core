@@ -415,7 +415,7 @@ impl<NC: NeighborComms> StackerDBSync<NC> {
             })
             .collect();
 
-        schedule.sort_by(|item_1, item_2| item_1.1.len().cmp(&item_2.1.len()));
+        schedule.sort_by_key(|item_1| item_1.1.len());
         schedule.reverse();
 
         debug!(
@@ -524,7 +524,7 @@ impl<NC: NeighborComms> StackerDBSync<NC> {
             .map(|(_, (stackerdb_chunkdata, neighbors))| (stackerdb_chunkdata, neighbors))
             .collect();
 
-        schedule.sort_by(|item_1, item_2| item_1.1.len().cmp(&item_2.1.len()));
+        schedule.sort_by_key(|item_1| item_1.1.len());
         debug!(
             "{:?}: {}: Will push up to {} chunks",
             network.get_local_peer(),

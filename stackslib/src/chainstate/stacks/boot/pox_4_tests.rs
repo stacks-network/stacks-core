@@ -5291,7 +5291,7 @@ fn stack_stx_signer_key(use_nakamoto: bool) {
     let stacker_txs =
         get_last_block_sender_transactions(&observer, key_to_stacks_addr(stacker_key));
 
-    let stacking_tx = stacker_txs.get(0).unwrap();
+    let stacking_tx = stacker_txs.first().unwrap();
     let events: Vec<&STXLockEventData> = stacking_tx
         .events
         .iter()
@@ -5301,7 +5301,7 @@ fn stack_stx_signer_key(use_nakamoto: bool) {
         })
         .collect();
 
-    assert_eq!(events.get(0).unwrap().locked_amount, min_ustx);
+    assert_eq!(events.first().unwrap().locked_amount, min_ustx);
 
     let next_reward_cycle = 1 + burnchain
         .block_height_to_reward_cycle(block_height)
@@ -6851,7 +6851,7 @@ pub fn pox_4_scenario_test_setup_nakamoto<'a>(
     let test_signers = TestSigners::new(test_keys.clone());
     let addrs: Vec<StacksAddress> = test_keys.iter().map(key_to_stacks_addr).collect();
     let initial_stacker_balance = initial_balances
-        .get(0)
+        .first()
         .expect("Expected at least 1 initial balance")
         .1;
     let test_stackers = vec![TestStacker {
