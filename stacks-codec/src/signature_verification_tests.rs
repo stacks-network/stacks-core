@@ -33,7 +33,7 @@ use stacks_common::types::chainstate::{
 };
 use stacks_common::types::{PrivateKey, PublicKey};
 use stacks_common::util::hash::{hex_bytes, Hash160, Sha512Trunc256Sum};
-use stacks_common::util::secp256k1::{secp256k1_verify, MessageSignature};
+use stacks_common::util::secp256k1::{secp256k1_recover, secp256k1_verify, MessageSignature};
 #[cfg(target_family = "wasm")]
 use wasm_bindgen_test::wasm_bindgen_test as test;
 
@@ -445,7 +445,74 @@ fn secp256k1_verify_rejects_high_s() {
     }
 }
 
-/// Accept the largest low-S value and reject its high-S neighbor on both backends.
+/// Clarity's recovery entry point accepts both low-S and high-S reference signatures.
+#[test]
+fn secp256k1_recover_accepts_low_and_high_s() {
+    for (i, (hash_hex, sig_hex, pubkey_hex)) in REFERENCE_SIGNATURES.iter().enumerate() {
+        let hash = hex_bytes(hash_hex).unwrap();
+        let sig = MessageSignature::from_hex(sig_hex).unwrap();
+        let expected = hex_bytes(pubkey_hex).unwrap();
+
+        // Negating s also flips the recovery ID, preserving the recovered key.
+        for signature in [&sig, &sig.with_negated_s()] {
+            let recovered = secp256k1_recover(&hash, &signature.to_rsv())
+                .unwrap_or_else(|e| panic!("reference {i}: {e}"));
+            assert_eq!(recovered.as_slice(), expected, "reference {i}");
+        }
+    }
+}
+
+/// Invalid hashes, recovery IDs, and scalars fail on both backends.
+#[test]
+fn secp256k1_recover_rejects_malformed_input() {
+    let (hash_hex, sig_hex, _) = REFERENCE_SIGNATURES[0];
+    let hash = hex_bytes(hash_hex).unwrap();
+    let sig = MessageSignature::from_hex(sig_hex).unwrap().to_rsv();
+
+    for len in [0usize, 31, 33, 64] {
+        assert!(
+            secp256k1_recover(&vec![0u8; len], &sig).is_err(),
+            "accepted a {len}-byte message hash"
+        );
+    }
+
+    for recovery_id in [4u8, 0x80, 0xff] {
+        let mut invalid = sig.clone();
+        invalid[64] = recovery_id;
+        assert!(
+            secp256k1_recover(&hash, &invalid).is_err(),
+            "accepted recovery ID {recovery_id}"
+        );
+    }
+
+    let order =
+        hex_bytes("fffffffffffffffffffffffffffffffebaaedce6af48a03bbfd25e8cd0364141").unwrap();
+    // Both scalars must be nonzero and strictly less than the curve order.
+    // Test each independently while leaving the other scalar valid.
+    for offset in [0usize, 32] {
+        for scalar in [[0u8; 32].as_slice(), order.as_slice(), &[0xff; 32]] {
+            let mut invalid = sig.clone();
+            invalid[offset..offset + 32].copy_from_slice(scalar);
+            assert!(
+                secp256k1_recover(&hash, &invalid).is_err(),
+                "accepted invalid scalar at offset {offset}: {scalar:02x?}"
+            );
+        }
+    }
+
+    // IDs 2 and 3 are valid encodings, but require the nonce point's x = r + n
+    // to fit in the field. This reference r is too large for either to recover.
+    for recovery_id in [2, 3] {
+        let mut unrecoverable = sig.clone();
+        unrecoverable[64] = recovery_id;
+        assert!(
+            secp256k1_recover(&hash, &unrecoverable).is_err(),
+            "recovered an impossible nonce point for ID {recovery_id}"
+        );
+    }
+}
+
+/// Verification rejects the high-S neighbor of the low-S boundary; recovery accepts both.
 #[test]
 fn boundary_s_value_is_not_treated_as_high_s() {
     /// `(n - 1) / 2`, big-endian.
@@ -481,6 +548,15 @@ fn boundary_s_value_is_not_treated_as_high_s() {
 
     // n - floor(n / 2) is floor(n / 2) + 1, the smallest high-S value.
     let high_s = boundary.with_negated_s();
+    for signature in [&boundary, &high_s] {
+        assert_eq!(
+            secp256k1_recover(sighash.as_bytes(), &signature.to_rsv())
+                .unwrap()
+                .as_slice(),
+            pubkey.to_bytes_compressed(),
+            "Clarity recovery must accept both sides of the low-S boundary"
+        );
+    }
     assert_eq!(
         StacksPublicKey::recover_to_pubkey(sighash.as_bytes(), &high_s),
         Err("Invalid signature: high-S"),
