@@ -819,7 +819,7 @@ checksum = "a1d728cc89cf3aee9ff92b05e62b19ee65a02b5702cff7d5a377e32c6ae29d8d"
 [[package]]
 name = "clar2wasm"
 version = "0.1.0"
-source = "git+https://github.com/stx-labs/clarity-wasm.git#8bcce7aa5caae4a744590ca19bc5e696cb8b0a85"
+source = "git+https://github.com/stx-labs/clarity-wasm.git#ea03355abb0469940b27446fc30c381c7436d611"
 dependencies = [
  "chrono",
  "clap",
