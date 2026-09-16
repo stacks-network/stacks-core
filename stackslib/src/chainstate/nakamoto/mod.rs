@@ -1194,7 +1194,7 @@ impl NakamotoBlockHeader {
     pub fn compute_voting_weight_threshold(total_weight: u32) -> Result<u32, ChainstateError> {
         let threshold = NAKAMOTO_SIGNER_BLOCK_APPROVAL_THRESHOLD;
         let total_weight = u64::from(total_weight);
-        let ceil = if (total_weight * threshold) % 10 == 0 {
+        let ceil = if (total_weight * threshold).is_multiple_of(10) {
             0
         } else {
             1

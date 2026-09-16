@@ -6808,9 +6808,9 @@ pub fn pox_4_scenario_test_setup<'a>(
         peer,
         peer_nonce,
         burn_block_height,
-        reward_cycle as u128,
-        next_reward_cycle as u128,
-        min_ustx as u128,
+        reward_cycle,
+        next_reward_cycle,
+        min_ustx,
         peer_config.clone(),
         None,
     )
@@ -9567,7 +9567,7 @@ fn missed_slots_no_unlock() {
     let alice_lockup =
         make_simple_pox_4_lock(&alice, &mut peer, 1024 * POX_THRESHOLD_STEPS_USTX, 6);
 
-    let bob_lockup = make_simple_pox_4_lock(&bob, &mut peer, 1 * POX_THRESHOLD_STEPS_USTX, 6);
+    let bob_lockup = make_simple_pox_4_lock(&bob, &mut peer, POX_THRESHOLD_STEPS_USTX, 6);
 
     let txs = [alice_lockup, bob_lockup];
     let mut latest_block = peer.tenure_with_txs(&txs, &mut coinbase_nonce);
@@ -9815,7 +9815,7 @@ fn no_lockups_2_5() {
 
     let tip = get_tip(peer.chain.sortdb.as_ref());
 
-    let bob_lockup = make_simple_pox_4_lock(&bob, &mut peer, 1 * POX_THRESHOLD_STEPS_USTX, 6);
+    let bob_lockup = make_simple_pox_4_lock(&bob, &mut peer, POX_THRESHOLD_STEPS_USTX, 6);
 
     let txs = [bob_lockup];
     let mut latest_block = peer.tenure_with_txs(&txs, &mut coinbase_nonce);

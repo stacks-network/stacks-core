@@ -2326,9 +2326,7 @@ impl PeerNetwork {
 
                 // find peer with lowest block_reward_cycle
                 let lowest_block_reward_cycle = inv_state
-                    .block_stats
-                    .iter()
-                    .map(|(_nk, stats)| stats.block_reward_cycle)
+                    .block_stats.values().map(|stats| stats.block_reward_cycle)
                     .fold(local_rc, |min_block_reward_cycle, rc| cmp::min(rc, min_block_reward_cycle));
 
                 // hint to downloader as to where to begin scanning next time

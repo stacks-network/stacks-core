@@ -586,6 +586,7 @@ fn stx_transfers_dont_effect_idle_timeout() {
 
     let slot_id = 0_u32;
 
+    // This response predates global acceptance and reports an estimated idle time.
     let initial_acceptance = signer_test.get_latest_block_acceptance(slot_id);
     assert_eq!(initial_acceptance.signer_signature_hash, last_block_hash);
 
@@ -598,8 +599,6 @@ fn stx_transfers_dont_effect_idle_timeout() {
 
     let mut sender_nonce = 0;
 
-    // Note that this response was BEFORE the block was globally accepted. it will report a guestimated idle time
-    let initial_acceptance = initial_acceptance;
     let mut first_global_acceptance = None;
     for i in 0..num_txs {
         info!("---- Mining interim block {} ----", i + 1);
