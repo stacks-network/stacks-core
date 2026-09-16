@@ -3181,7 +3181,7 @@ fn test_combine_tuples() {
 ///
 /// Two individually-valid `(buff 524288)`-typed fields merge into a tuple type whose value
 /// size exceeds `MAX_VALUE_SIZE`. `check_special_merge` rejects it at the merge site with a
-/// clean `ValueTooLarge`, and the error does not vary by epoch. 
+/// clean `ValueTooLarge`, and the error does not vary by epoch.
 /// The check lives in [`TupleTypeSignature::shallow_merge`].
 #[test]
 fn tuple_merge_oversized_analysis_rejected() {
