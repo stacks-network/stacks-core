@@ -29,3 +29,26 @@ Typically, you will want to start your "top level" workflow with a call to the `
 ```
 
 This workflow checks if CI is enabled, providing useful output variables. Using these outputs is a best practice so that forks and clones do not have to run CI unless they choose to opt-in.
+
+### Inputs
+
+| Input | Description | Required | Default |
+| ----- | ----------- | -------- | ------- |
+| `allow-fork-runs` | Whether this workflow may run outside of the official repository at all. Set `false` for workflows whose side effects land on upstream, so no variable can enable them in a fork. | `false` | `true` |
+| `extra-enable-var` | Name of an additional repository variable that enables this one workflow on its own, e.g. `ENABLE_CI_PROPTEST_NIGHTLY`. Lets a fork run a single scheduled workflow — on its schedule, not just by hand — without `ENABLE_CI_WORKFLOWS` turning on all of CI. Empty means no workflow-specific variable. | `false` | `""` |
+
+### Outputs
+
+| Output | Description |
+| ------ | ----------- |
+| `enabled` | `'true'` if CI is enabled in this repository, `'false'` otherwise |
+
+### Per-workflow variables
+
+Workflows that name their own variable via `extra-enable-var`. Set one to `true` to enable
+just that workflow:
+
+| Workflow | Variable |
+| -------- | -------- |
+| `docker-image.yml` | `ENABLE_CI_DOCKER_IMAGE` |
+| `tests-proptest-nightly.yml` | `ENABLE_CI_PROPTEST_NIGHTLY` |

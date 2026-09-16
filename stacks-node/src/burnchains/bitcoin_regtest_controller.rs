@@ -2909,7 +2909,7 @@ mod tests {
             config.burnchain.password = None;
             config.burnchain.peer_host = String::from("127.0.0.1");
             config.burnchain.peer_port = 8333;
-            config.node.working_dir = format!("/tmp/follower");
+            config.node.working_dir = "/tmp/follower".to_string();
             config
         }
     }
@@ -3093,15 +3093,13 @@ mod tests {
         let btc_controller = BitcoinRegtestController::new(config.clone(), None);
 
         let reviewed = btc_controller.to_epoch_aware_pubkey(StacksEpochId::Epoch20, &pubkey);
-        assert_eq!(
-            false,
-            reviewed.compressed(),
+        assert!(
+            !reviewed.compressed(),
             "Segwit disabled with Epoch < 2.1: not compressed"
         );
         let reviewed = btc_controller.to_epoch_aware_pubkey(StacksEpochId::Epoch21, &pubkey);
-        assert_eq!(
-            false,
-            reviewed.compressed(),
+        assert!(
+            !reviewed.compressed(),
             "Segwit disabled with Epoch >= 2.1: not compressed"
         );
 
@@ -3109,14 +3107,12 @@ mod tests {
         let btc_controller = BitcoinRegtestController::new(config.clone(), None);
 
         let reviewed = btc_controller.to_epoch_aware_pubkey(StacksEpochId::Epoch20, &pubkey);
-        assert_eq!(
-            false,
-            reviewed.compressed(),
+        assert!(
+            !reviewed.compressed(),
             "Segwit enabled with Epoch < 2.1: not compressed"
         );
         let reviewed = btc_controller.to_epoch_aware_pubkey(StacksEpochId::Epoch21, &pubkey);
-        assert_eq!(
-            true,
+        assert!(
             reviewed.compressed(),
             "Segwit enabled with Epoch >= 2.1: compressed"
         );
@@ -3183,8 +3179,8 @@ mod tests {
 
         let btc_controller = BitcoinRegtestController::with_burnchain(config, None, None, None);
 
+        // Accessing the RPC client must not panic for a miner.
         let _ = btc_controller.get_rpc_client();
-        assert!(true, "Invoking any Bitcoin RPC related method should work.");
     }
 
     #[test]
@@ -3223,8 +3219,8 @@ mod tests {
 
         let btc_controller = BitcoinRegtestController::new_dummy(config);
 
+        // Accessing the RPC client must not panic for a miner.
         let _ = btc_controller.get_rpc_client();
-        assert!(true, "Invoking any Bitcoin RPC related method should work.");
     }
 
     #[test]
@@ -3512,7 +3508,7 @@ mod tests {
 
         btc_controller.build_next_block(1);
         let mut utxos = btc_controller.get_all_utxos(&miner_pubkey);
-        utxos.sort_by(|a, b| b.confirmations.cmp(&a.confirmations));
+        utxos.sort_by_key(|utxo| cmp::Reverse(utxo.confirmations));
 
         assert_eq!(2, utxos.len());
         assert_eq!(102, utxos[0].confirmations);
@@ -3602,7 +3598,7 @@ mod tests {
         assert_eq!(2, uxto_set.num_utxos());
         assert_eq!(10_000_000_000, uxto_set.total_available());
         let mut utxos = uxto_set.utxos;
-        utxos.sort_by(|a, b| b.confirmations.cmp(&a.confirmations));
+        utxos.sort_by_key(|utxo| cmp::Reverse(utxo.confirmations));
         assert_eq!(102, utxos[0].confirmations);
         assert_eq!(5_000_000_000, utxos[0].amount);
         assert_eq!(101, utxos[1].confirmations);

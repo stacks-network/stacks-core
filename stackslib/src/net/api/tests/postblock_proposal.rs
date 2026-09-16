@@ -655,7 +655,7 @@ fn test_block_proposal_validation_timeout() {
     loop {
         {
             let observer_guard = proposal_observer.lock().unwrap();
-            if observer_guard.results.lock().unwrap().len() >= 1 {
+            if !observer_guard.results.lock().unwrap().is_empty() {
                 break;
             }
         }
@@ -833,7 +833,7 @@ fn test_block_proposal_validation_execution_time_expired_blames_tx() {
     loop {
         {
             let observer_guard = proposal_observer.lock().unwrap();
-            if observer_guard.results.lock().unwrap().len() >= 1 {
+            if !observer_guard.results.lock().unwrap().is_empty() {
                 break;
             }
         }
@@ -1009,7 +1009,7 @@ fn test_block_proposal_validation_analysis_time_expired_blames_tx() {
     loop {
         {
             let observer_guard = proposal_observer.lock().unwrap();
-            if observer_guard.results.lock().unwrap().len() >= 1 {
+            if !observer_guard.results.lock().unwrap().is_empty() {
                 break;
             }
         }

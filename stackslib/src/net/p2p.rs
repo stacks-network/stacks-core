@@ -2964,7 +2964,7 @@ impl PeerNetwork {
         // pick a random outbound conversation to one of the initial neighbors
         let mut idx = thread_rng().gen::<usize>() % self.peers.len();
         for _ in 0..self.peers.len() + 1 {
-            let event_id = match self.peers.keys().skip(idx).next() {
+            let event_id = match self.peers.keys().nth(idx) {
                 Some(eid) => *eid,
                 None => {
                     idx = 0;
@@ -4372,7 +4372,7 @@ impl PeerNetwork {
                     if self.walk_pingbacks.len() > MAX_NEIGHBORS_DATA_LEN as usize {
                         // drop one at random
                         let idx = thread_rng().gen::<usize>() % self.walk_pingbacks.len();
-                        let drop_addr = match self.walk_pingbacks.keys().skip(idx).next() {
+                        let drop_addr = match self.walk_pingbacks.keys().nth(idx) {
                             Some(addr) => (*addr).clone(),
                             None => {
                                 continue;

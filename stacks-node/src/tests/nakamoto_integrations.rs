@@ -744,7 +744,7 @@ pub fn naka_neon_integration_conf(seed: Option<&[u8]>) -> (Config, StacksAddress
         burnchain.peer_host = Some("127.0.0.1".to_string());
     }
 
-    conf.burnchain.magic_bytes = MagicBytes::from([b'T', b'3'].as_ref());
+    conf.burnchain.magic_bytes = MagicBytes::from(b"T3".as_slice());
     conf.burnchain.poll_time_secs = 1;
     conf.node.pox_sync_sample_secs = 0;
 
@@ -6029,7 +6029,7 @@ fn check_block_heights() {
 
     let mut last_burn_block_height;
     let mut last_stacks_block_height = info.stacks_tip_height as u128;
-    let mut last_tenure_height = last_stacks_block_height as u128;
+    let mut last_tenure_height = last_stacks_block_height;
 
     let heights0_value = call_read_only(
         &naka_conf,
@@ -6496,8 +6496,7 @@ fn nakamoto_attempt_time() {
             // submitted before it mines a block
             fault_injection_stall_miner();
 
-            let mut sender_nonce = account.nonce;
-            for _ in 0..txs_per_block {
+            for sender_nonce in (account.nonce..).take(txs_per_block) {
                 let transfer_tx = make_stacks_transfer_serialized(
                     &sender_sk,
                     sender_nonce,
@@ -6506,7 +6505,6 @@ fn nakamoto_attempt_time() {
                     &recipient,
                     amount,
                 );
-                sender_nonce += 1;
                 submit_tx(&http_origin, &transfer_tx);
             }
 
@@ -10387,9 +10385,7 @@ fn nakamoto_lockup_events() {
     );
 
     // submit a tx so that the miner will mine an extra stacks block
-    let mut sender_nonce = 0;
-
-    for _ in 0..interims_to_mine {
+    for sender_nonce in 0..interims_to_mine {
         let height_before = get_stacks_height();
         info!("----- Mining interim block -----";
             "height" => %height_before,
@@ -10404,7 +10400,6 @@ fn nakamoto_lockup_events() {
             send_amt,
         );
         submit_tx(&http_origin, &transfer_tx);
-        sender_nonce += 1;
 
         wait_for(30, || Ok(get_stacks_height() > height_before)).unwrap();
     }
@@ -12302,7 +12297,7 @@ fn large_mempool_base(strategy: MemPoolWalkStrategy, set_fee: impl Fn() -> u64) 
         .collect::<Vec<_>>();
     let initial_sender_addrs = initial_sender_sks
         .iter()
-        .map(|sk| tests::to_addr(sk))
+        .map(tests::to_addr)
         .collect::<Vec<_>>();
 
     // These 10 accounts will send to 25 accounts each, then those 260 accounts
@@ -12508,7 +12503,7 @@ fn large_mempool_base(strategy: MemPoolWalkStrategy, set_fee: impl Fn() -> u64) 
         for (sender_sk, nonce) in senders.iter_mut() {
             let sender_addr = tests::to_addr(sender_sk);
             let fee = set_fee();
-            assert!(fee >= 180 && fee <= 2000);
+            assert!((180..=2000).contains(&fee));
             let transfer_tx = make_stacks_transfer_serialized(
                 sender_sk,
                 *nonce,
@@ -12646,7 +12641,7 @@ fn larger_mempool() {
         .collect::<Vec<_>>();
     let initial_sender_addrs = initial_sender_sks
         .iter()
-        .map(|sk| tests::to_addr(sk))
+        .map(tests::to_addr)
         .collect::<Vec<_>>();
 
     // These 10 accounts will send to 25 accounts each, then those 260 accounts
@@ -14371,7 +14366,7 @@ fn test_sip_031_last_phase_coinbase_matches_activation() {
                                 .unwrap()
                                 .as_array()
                                 .unwrap()
-                                .get(0)
+                                .first()
                                 .unwrap()
                                 .get("txid")
                                 .unwrap()
@@ -16318,8 +16313,7 @@ fn check_with_stacking_allowances_delegate_stx() {
 
     let mut sender_nonce = 0;
     let contract_name = "test-contract";
-    let contract = format!(
-        r#"
+    let contract = r#"
 (define-public (delegate-stx (amount uint) (allowed uint))
   (as-contract? ((with-stacking allowed))
     (unwrap! (contract-call? 'ST000000000000000000002AMW42H.pox-4 delegate-stx
@@ -16355,7 +16349,7 @@ fn check_with_stacking_allowances_delegate_stx() {
   )
 )
 "#
-    );
+    .to_string();
 
     let contract_tx = make_contract_publish(
         &sender_sk,
@@ -17328,8 +17322,7 @@ fn check_restrict_assets_rollback() {
 
     let mut sender_nonce = 0;
     let contract_name = "test-contract";
-    let contract = format!(
-        r#"
+    let contract = r#"
 (define-public (single-transfer
     (recipient principal)
     (amount uint)
@@ -17472,7 +17465,7 @@ fn check_restrict_assets_rollback() {
   )
 )
 "#
-    );
+    .to_string();
 
     let contract_tx = make_contract_publish(
         &sender_sk,
@@ -18048,8 +18041,7 @@ fn check_as_contract_rollback() {
     next_block_and_mine_commit(&mut btc_regtest_controller, 60, &naka_conf, &counters).unwrap();
 
     let mut sender_nonce = 0;
-    let contract = format!(
-        r#"
+    let contract = r#"
 (define-public (single-transfer
     (recipient principal)
     (amount uint)
@@ -18192,7 +18184,7 @@ fn check_as_contract_rollback() {
   )
 )
 "#
-    );
+    .to_string();
 
     let contract_tx = make_contract_publish(
         &sender_sk,
@@ -18772,7 +18764,7 @@ fn smaller_tenure_size_for_miner() {
     blind_signer(&naka_conf, &signers, &counters);
 
     let mut long_comment = String::from(";; ");
-    long_comment.extend(std::iter::repeat('x').take(524_288 - long_comment.len()));
+    long_comment.extend(std::iter::repeat_n('x', 524_288 - long_comment.len()));
     let contract = format!(
         r#"
         {long_comment}
@@ -18967,7 +18959,7 @@ fn smaller_tenure_size_for_miner_on_two_tenures() {
     blind_signer(&naka_conf, &signers, &counters);
 
     let mut long_comment = String::from(";; ");
-    long_comment.extend(std::iter::repeat('x').take(524_288 - long_comment.len()));
+    long_comment.extend(std::iter::repeat_n('x', 524_288 - long_comment.len()));
     let contract = format!(
         r#"
         {long_comment}
@@ -19188,7 +19180,7 @@ fn smaller_tenure_size_for_miner_with_tenure_extend() {
     blind_signer(&naka_conf, &signers, &counters);
 
     let mut long_comment = String::from(";; ");
-    long_comment.extend(std::iter::repeat('x').take(524_288 - long_comment.len()));
+    long_comment.extend(std::iter::repeat_n('x', 524_288 - long_comment.len()));
     let contract = format!(
         r#"
         {long_comment}

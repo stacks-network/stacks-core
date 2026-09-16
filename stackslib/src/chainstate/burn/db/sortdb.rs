@@ -310,7 +310,8 @@ impl FromRow<StackStxOp> for StackStxOp {
         let sender = StacksAddress::from_column(row, "sender_addr")?;
         let reward_addr = PoxAddress::from_column(row, "reward_addr")?;
         let stacked_ustx_str: String = row.get_unwrap("stacked_ustx");
-        let stacked_ustx = u128::from_str_radix(&stacked_ustx_str, 10)
+        let stacked_ustx = stacked_ustx_str
+            .parse::<u128>()
             .expect("CORRUPTION: bad u128 written to sortdb");
         let num_cycles = row.get_unwrap("num_cycles");
         let signing_key_str_opt: Option<String> = row.get("signer_key")?;
@@ -320,7 +321,8 @@ impl FromRow<StackStxOp> for StackStxOp {
         };
         let max_amount_str_opt: Option<String> = row.get("max_amount")?;
         let max_amount = match max_amount_str_opt {
-            Some(max_amount_str) => u128::from_str_radix(&max_amount_str, 10)
+            Some(max_amount_str) => max_amount_str
+                .parse::<u128>()
                 .map_err(|_| db_error::ParseError)
                 .ok(),
             None => None,
@@ -357,7 +359,8 @@ impl FromRow<DelegateStxOp> for DelegateStxOp {
             .expect("CORRUPTION: DB stored bad transition ops");
 
         let delegated_ustx_str: String = row.get_unwrap("delegated_ustx");
-        let delegated_ustx = u128::from_str_radix(&delegated_ustx_str, 10)
+        let delegated_ustx = delegated_ustx_str
+            .parse::<u128>()
             .expect("CORRUPTION: bad u128 written to sortdb");
         let until_burn_height = u64::from_column(row, "until_burn_height")?;
 
@@ -385,7 +388,8 @@ impl FromRow<TransferStxOp> for TransferStxOp {
         let sender = StacksAddress::from_column(row, "sender_addr")?;
         let recipient = StacksAddress::from_column(row, "recipient_addr")?;
         let transfered_ustx_str: String = row.get_unwrap("transfered_ustx");
-        let transfered_ustx = u128::from_str_radix(&transfered_ustx_str, 10)
+        let transfered_ustx = transfered_ustx_str
+            .parse::<u128>()
             .expect("CORRUPTION: bad u128 written to sortdb");
         let memo_hex: String = row.get_unwrap("memo");
         let memo = hex_bytes(&memo_hex).map_err(|_| db_error::Corruption)?;
@@ -6342,7 +6346,7 @@ impl SortitionHandleTx<'_> {
                             pox_payout_addrs = vec![wf.sbtc_address.clone()];
                             keys.push(db_keys::pox_reward_set_size().to_string());
                             values.push(db_keys::reward_set_size_to_string(1));
-                            keys.push(db_keys::pox_reward_set_entry(0 as u16));
+                            keys.push(db_keys::pox_reward_set_entry(0_u16));
                             values.push(wf.sbtc_address.to_db_string());
                             keys.push(db_keys::pox_reward_set_wf_activated().to_string());
                             values.push("1".to_string());
@@ -7817,7 +7821,7 @@ pub mod tests {
         {
             let mut ic = SortitionHandleTx::begin(&mut db, &snapshot.sortition_id).unwrap();
             let keys = ic
-                .get_consumed_leader_keys(&snapshot, &vec![block_commit.clone()])
+                .get_consumed_leader_keys(&snapshot, &[block_commit.clone()])
                 .unwrap();
             assert_eq!(keys, vec![leader_key.clone()]);
         }
@@ -7910,7 +7914,7 @@ pub mod tests {
         {
             let mut ic = SortitionHandleTx::begin(&mut db, &snapshot.sortition_id).unwrap();
             let keys = ic
-                .get_consumed_leader_keys(&empty_snapshot, &vec![block_commit.clone()])
+                .get_consumed_leader_keys(&empty_snapshot, &[block_commit.clone()])
                 .unwrap();
             assert_eq!(keys, vec![leader_key.clone()]);
         }
@@ -7947,7 +7951,7 @@ pub mod tests {
         {
             let mut ic = SortitionHandleTx::begin(&mut db, &snapshot.sortition_id).unwrap();
             let keys = ic
-                .get_consumed_leader_keys(&fork_snapshot, &vec![block_commit])
+                .get_consumed_leader_keys(&fork_snapshot, &[block_commit])
                 .unwrap();
             assert_eq!(keys, vec![leader_key]);
         }
@@ -11266,7 +11270,7 @@ pub mod tests {
         .unwrap();
         let vote_key: StacksPublicKeyBuffer = vote_pubkey.to_bytes_compressed().as_slice().into();
 
-        let good_ops = vec![
+        let good_ops = [
             BlockstackOperationType::TransferStx(TransferStxOp {
                 sender: StacksAddress::new(1, Hash160([1u8; 20])).unwrap(),
                 recipient: StacksAddress::new(2, Hash160([2u8; 20])).unwrap(),
@@ -11364,7 +11368,7 @@ pub mod tests {
         );
 
         // if the same ops get mined in a different burnchain block, they will still be available
-        let good_ops_2 = vec![
+        let good_ops_2 = [
             BlockstackOperationType::TransferStx(TransferStxOp {
                 sender: StacksAddress::new(1, Hash160([1u8; 20])).unwrap(),
                 recipient: StacksAddress::new(2, Hash160([2u8; 20])).unwrap(),

@@ -415,7 +415,7 @@ impl<NC: NeighborComms> StackerDBSync<NC> {
             })
             .collect();
 
-        schedule.sort_by(|item_1, item_2| item_1.1.len().cmp(&item_2.1.len()));
+        schedule.sort_by_key(|item_1| item_1.1.len());
         schedule.reverse();
 
         debug!(
@@ -524,7 +524,7 @@ impl<NC: NeighborComms> StackerDBSync<NC> {
             .map(|(_, (stackerdb_chunkdata, neighbors))| (stackerdb_chunkdata, neighbors))
             .collect();
 
-        schedule.sort_by(|item_1, item_2| item_1.1.len().cmp(&item_2.1.len()));
+        schedule.sort_by_key(|item_1| item_1.1.len());
         debug!(
             "{:?}: {}: Will push up to {} chunks",
             network.get_local_peer(),
@@ -1109,9 +1109,9 @@ impl<NC: NeighborComms> StackerDBSync<NC> {
             .map(|naddr| self.unpin_connected_replica(network, &naddr));
 
         if requested == 0 && self.comms.count_inflight() == 0 {
-            return Err(net_error::PeerNotConnected(format!(
-                "StackerDB getchunks_begin: no chunks to request"
-            )));
+            return Err(net_error::PeerNotConnected(
+                "StackerDB getchunks_begin: no chunks to request".to_string(),
+            ));
         }
 
         self.next_chunk_fetch_priority = cur_priority;

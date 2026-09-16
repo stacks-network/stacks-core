@@ -2804,20 +2804,17 @@ fn miner_gather_signatures() {
             let precommits = re_precommits
                 .captures(&metrics_response)
                 .and_then(|caps| caps.get(1))
-                .map(|m| m.as_str().parse::<u64>().ok())
-                .flatten();
+                .and_then(|m| m.as_str().parse::<u64>().ok());
 
             let proposals = re_proposals
                 .captures(&metrics_response)
                 .and_then(|caps| caps.get(1))
-                .map(|m| m.as_str().parse::<u64>().ok())
-                .flatten();
+                .and_then(|m| m.as_str().parse::<u64>().ok());
 
             let responses = re_responses
                 .captures(&metrics_response)
                 .and_then(|caps| caps.get(1))
-                .map(|m| m.as_str().parse::<u64>().ok())
-                .flatten();
+                .and_then(|m| m.as_str().parse::<u64>().ok());
 
             if let (Some(proposals), Some(responses), Some(precommits)) =
                 (proposals, responses, precommits)
@@ -4370,7 +4367,7 @@ fn min_gap_between_blocks() {
 
     // Verify that every Nakamoto block is mined after the gap is exceeded between each
     let mut blocks = get_nakamoto_headers(&signer_test.running_nodes.conf);
-    blocks.sort_by(|a, b| a.stacks_block_height.cmp(&b.stacks_block_height));
+    blocks.sort_by_key(|a| a.stacks_block_height);
     for i in 1..blocks.len() {
         let block = &blocks[i];
         let parent_block = &blocks[i - 1];
@@ -4905,7 +4902,7 @@ fn multiple_miners_with_nakamoto_blocks() {
     assert_eq!(peer_1_height, peer_2_height);
     assert_eq!(
         peer_1_height,
-        pre_nakamoto_peer_1_height + (btc_blocks_mined - 1) * (inter_blocks_per_tenure as u64 + 1)
+        pre_nakamoto_peer_1_height + (btc_blocks_mined - 1) * (inter_blocks_per_tenure + 1)
     );
     assert_eq!(btc_blocks_mined, miner_1_tenures + miner_2_tenures);
     miners.shutdown();
@@ -6672,13 +6669,13 @@ fn injected_signatures_are_ignored_across_boundaries() {
         .collect();
     let non_ignoring_signers: Vec<_> = all_signers
         .iter()
-        .cloned()
         .take(new_num_signers * 5 / 10)
+        .cloned()
         .collect();
     let ignoring_signers: Vec<_> = all_signers
         .iter()
-        .cloned()
         .skip(new_num_signers * 5 / 10)
+        .cloned()
         .collect();
     assert_eq!(ignoring_signers.len(), 3);
     assert_eq!(non_ignoring_signers.len(), 2);
@@ -7312,7 +7309,7 @@ fn large_mempool_base(strategy: MemPoolWalkStrategy, set_fee: impl Fn() -> u64) 
         .collect::<Vec<_>>();
     let initial_sender_addrs = initial_sender_sks
         .iter()
-        .map(|sk| tests::to_addr(sk))
+        .map(tests::to_addr)
         .collect::<Vec<_>>();
 
     // These 10 accounts will send to 25 accounts each, then those 260 accounts
@@ -7493,7 +7490,7 @@ fn large_mempool_base(strategy: MemPoolWalkStrategy, set_fee: impl Fn() -> u64) 
         for (sender_sk, nonce) in senders.iter_mut() {
             let sender_addr = tests::to_addr(sender_sk);
             let fee = set_fee();
-            assert!(fee >= 180 && fee <= 2000);
+            assert!((180..=2000).contains(&fee));
             let transfer_tx =
                 make_stacks_transfer_serialized(sender_sk, *nonce, fee, chain_id, &recipient, 1);
             insert_tx_in_mempool(
@@ -7603,7 +7600,7 @@ fn larger_mempool() {
         .collect::<Vec<_>>();
     let initial_sender_addrs = initial_sender_sks
         .iter()
-        .map(|sk| tests::to_addr(sk))
+        .map(tests::to_addr)
         .collect::<Vec<_>>();
 
     // These 10 accounts will send to 25 accounts each, then those 260 accounts

@@ -38,6 +38,35 @@ use crate::chainstate::burn::{
 };
 use crate::chainstate::stacks::StacksPublicKey;
 
+/// Signer cycles begin at the offset's multiples of the reward-cycle length.
+#[test]
+fn test_naka_signing_cycle_start() {
+    let mut pox_constants = PoxConstants::test_default();
+    pox_constants.reward_cycle_length = 10;
+
+    for (height, expected) in [
+        (100, true),
+        (101, false),
+        (109, false),
+        (110, true),
+        (111, false),
+    ] {
+        assert_eq!(
+            pox_constants.is_naka_signing_cycle_start(100, height),
+            expected
+        );
+    }
+}
+
+/// A zero-length cycle must panic even at an effective height of zero.
+#[test]
+#[should_panic(expected = "Reward-cycle length must be nonzero")]
+fn test_naka_signing_cycle_start_zero_length() {
+    let mut pox_constants = PoxConstants::test_default();
+    pox_constants.reward_cycle_length = 0;
+    pox_constants.is_naka_signing_cycle_start(100, 100);
+}
+
 #[test]
 fn test_process_block_ops() {
     let first_burn_hash = BurnchainHeaderHash::from_hex(
@@ -425,7 +454,7 @@ fn test_process_block_ops() {
         ],
     ];
 
-    let block_124_winners = vec![block_commit_1.clone(), block_commit_3, block_commit_1];
+    let block_124_winners = [block_commit_1.clone(), block_commit_3, block_commit_1];
 
     let mut db = SortitionDB::connect_test(first_block_height, &first_burn_hash).unwrap();
 

@@ -24,7 +24,7 @@ set -euo pipefail
 
 # Load logging functions from logging.sh for color and standardized output
 # shellcheck disable=SC1091
-source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/logging.sh"
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib/logging.sh"
 
 ## ── Helper to append to GitHub Summary ──────────────────────────────────────
 summary_file="${GITHUB_SUMMARY:-${GITHUB_STEP_SUMMARY:-}}"
