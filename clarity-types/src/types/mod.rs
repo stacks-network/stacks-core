@@ -1860,7 +1860,12 @@ impl TupleData {
         })
     }
 
-    pub fn shallow_merge(mut base: TupleData, updates: TupleData) -> TupleData {
+    /// Merge `updates` into `base`, rejecting a merged tuple whose value size exceeds
+    /// `MAX_VALUE_SIZE` with [`ClarityTypeError::ValueTooLarge`].
+    pub fn shallow_merge(
+        mut base: TupleData,
+        updates: TupleData,
+    ) -> Result<TupleData, ClarityTypeError> {
         let TupleData {
             data_map,
             mut type_signature,
@@ -1868,8 +1873,8 @@ impl TupleData {
         for (name, value) in data_map.into_iter() {
             base.data_map.insert(name, value);
         }
-        base.type_signature.shallow_merge(&mut type_signature);
-        base
+        base.type_signature.shallow_merge(&mut type_signature)?;
+        Ok(base)
     }
 }
 

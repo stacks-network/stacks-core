@@ -2559,3 +2559,22 @@ fn test_string_utf8_negative_len() {
     .unwrap_err();
     assert_eq!(*res.err, StaticCheckErrorKind::ValueOutOfBounds);
 }
+
+/// Static-analysis rejection of an oversized tuple `merge`.
+#[test]
+fn tuple_merge_oversized_analysis_rejected_v2_05() {
+    // Result is sized by the enclosing `ok`.
+    let sized = "(define-private (f (x (buff 524288)))
+        (ok (merge (tuple (a x)) (tuple (b x)))))";
+    let res =
+        mem_type_check(sized, ClarityVersion::Clarity1, StacksEpochId::Epoch2_05).unwrap_err();
+    assert_eq!(*res.err, StaticCheckErrorKind::ValueTooLarge);
+
+    // Result bound but never sized: the case that historically slipped through.
+    let unused = "(define-private (f (x (buff 524288)))
+        (let ((m (merge (tuple (a x)) (tuple (b x)))))
+            (ok true)))";
+    let res =
+        mem_type_check(unused, ClarityVersion::Clarity1, StacksEpochId::Epoch2_05).unwrap_err();
+    assert_eq!(*res.err, StaticCheckErrorKind::ValueTooLarge);
+}
