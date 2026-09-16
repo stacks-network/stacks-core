@@ -85,8 +85,8 @@ defaults:
 
 # Configure concurrency
 concurrency:
-  group: flaky-scan-nightly-${{ github.ref }}
-  cancel-in-progress: true
+  group: flaky-scan-nightly
+  cancel-in-progress: false
 
 # Env vars
 env:
