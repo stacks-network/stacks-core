@@ -840,9 +840,8 @@ impl<'a> StacksMicroblockBuilder<'a> {
             return Err(Error::NoSuchBlockError);
         };
 
-        let (header_reader, _) = chainstate.reopen()?;
         StacksChainState::get_anchored_block_header_info(
-            header_reader.db(),
+            chainstate.db(),
             &anchor_block_consensus_hash,
             &anchor_block,
         )?
@@ -853,8 +852,6 @@ impl<'a> StacksMicroblockBuilder<'a> {
             );
             Error::NoSuchBlockError
         })?;
-
-        drop(header_reader);
 
         // when we drop the miner, the underlying clarity instance will be rolled back
         chainstate.set_unconfirmed_dirty(true);
@@ -901,36 +898,25 @@ impl<'a> StacksMicroblockBuilder<'a> {
         cost_so_far: &ExecutionCost,
         settings: BlockBuilderSettings,
     ) -> Result<StacksMicroblockBuilder<'a>, Error> {
-        let runtime = if let Some(unconfirmed_state) = chainstate.unconfirmed_state.as_ref() {
-            MicroblockMinerRuntime::from(unconfirmed_state)
-        } else {
+        let Some(unconfirmed) = chainstate.unconfirmed_state.as_ref() else {
             warn!("No unconfirmed state instantiated; cannot mine microblocks");
             return Err(Error::NoSuchBlockError);
         };
+        let runtime = MicroblockMinerRuntime::from(unconfirmed);
 
-        let (anchored_consensus_hash, anchored_block_hash) = if let Some(unconfirmed) =
-            chainstate.unconfirmed_state.as_ref()
-        {
-            let header_info = StacksChainState::get_stacks_block_header_info_by_index_block_hash(
-                chainstate.db(),
-                &unconfirmed.confirmed_chain_tip,
-            )?
-            .ok_or_else(|| {
-                warn!(
-                    "No such confirmed block {}",
-                    &unconfirmed.confirmed_chain_tip
-                );
-                Error::NoSuchBlockError
-            })?;
-            (
-                header_info.consensus_hash,
-                header_info.anchored_header.block_hash(),
-            )
-        } else {
-            // unconfirmed state needs to be initialized
-            debug!("Unconfirmed chainstate not initialized");
-            return Err(Error::NoSuchBlockError)?;
-        };
+        let header_info = StacksChainState::get_stacks_block_header_info_by_index_block_hash(
+            chainstate.db(),
+            &unconfirmed.confirmed_chain_tip,
+        )?
+        .ok_or_else(|| {
+            warn!(
+                "No such confirmed block {}",
+                &unconfirmed.confirmed_chain_tip
+            );
+            Error::NoSuchBlockError
+        })?;
+        let anchored_consensus_hash = header_info.consensus_hash;
+        let anchored_block_hash = header_info.anchored_header.block_hash();
 
         let mut clarity_tx = chainstate.begin_unconfirmed(burn_dbconn).ok_or_else(|| {
             warn!(
