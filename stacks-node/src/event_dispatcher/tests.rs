@@ -1502,23 +1502,25 @@ fn process_chain_tip_vm_events_only_on_opt_in_observer() {
 }
 
 fn dummy_var_set_event() -> VmTraceEvent {
-    VmTraceEvent::Storage(StorageEvent::VarSet(VarSetEventData {
-        contract_identifier: boot_code_id("dummy", false),
-        var_name: "n".into(),
-        value: Value::UInt(7),
-    }))
+    VmTraceEvent::Storage(StorageEvent::VarSet(
+        VarSetEventData::try_from_value(boot_code_id("dummy", false), "n".into(), &Value::UInt(7))
+            .unwrap(),
+    ))
 }
 
 fn dummy_nested_call_event() -> VmTraceEvent {
     let id = boot_code_id("dummy", false);
-    VmTraceEvent::ContractCall(ContractCallEventData {
-        contract_identifier: id.clone(),
-        sender: None,
-        caller: PrincipalData::Contract(id),
-        function_name: "f".into(),
-        function_args: vec![],
-        result: Value::okay_true(),
-    })
+    VmTraceEvent::ContractCall(
+        ContractCallEventData::try_from_values(
+            id.clone(),
+            None,
+            PrincipalData::Contract(id),
+            "f".into(),
+            &[] as &[Value],
+            &Value::okay_true(),
+        )
+        .unwrap(),
+    )
 }
 
 fn dummy_cc_receipt(

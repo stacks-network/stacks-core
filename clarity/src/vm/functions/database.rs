@@ -29,6 +29,10 @@ use crate::vm::errors::{
     RuntimeCheckErrorKind, RuntimeError, VmExecutionError, VmInternalError, check_argument_count,
     check_arguments_at_least,
 };
+use crate::vm::events::{
+    ContractCallEventData, MapDeleteEventData, MapWriteEventData, StorageEvent, VarSetEventData,
+    VmTraceEvent,
+};
 use crate::vm::representations::{SymbolicExpression, SymbolicExpressionType};
 use crate::vm::types::{
     BlockInfoProperty, BuffData, BurnBlockInfoProperty, PrincipalData, SequenceData,
@@ -261,20 +265,18 @@ pub fn special_contract_call(
         }
     }
 
-    // After return. Reuse already-eval'd `rest_args`; do not eval again.
-    if exec_state.global_context.emit_vm_trace {
-        let arg_values: Vec<Value> = rest_args
-            .iter()
-            .filter_map(|expr| expr.match_atom_value().cloned())
-            .collect();
-        exec_state.register_nested_contract_call_event(
+    // After return. Encode already-eval'd `rest_args`; do not clone Values.
+    if exec_state.vm_trace_collecting()
+        && let Ok(data) = ContractCallEventData::try_from_values(
             contract_identifier,
             invoke_ctx.sender.clone(),
             PrincipalData::Contract(invoke_ctx.contract_context.contract_identifier.clone()),
             function_name.to_string(),
-            arg_values,
-            result.clone(),
-        );
+            rest_args.iter().filter_map(|expr| expr.match_atom_value()),
+            &result,
+        )
+    {
+        exec_state.push_vm_trace(VmTraceEvent::ContractCall(data));
     }
 
     Ok(result)
@@ -395,16 +397,17 @@ pub fn special_set_variable_v200(
 
     let value = value.clone_with_cost(exec_state)?;
     let epoch = *exec_state.epoch();
-    let trace_value = exec_state
-        .global_context
-        .emit_vm_trace
-        .then(|| value.clone());
+    let encoded = if exec_state.vm_trace_collecting() {
+        VarSetEventData::try_from_value(contract.clone(), var_name.to_string(), &value).ok()
+    } else {
+        None
+    };
     let result = exec_state
         .global_context
         .database
         .set_variable(contract, var_name, value, data_types, &epoch)?;
-    if let Some(v) = trace_value {
-        exec_state.register_var_set_event(contract.clone(), var_name.to_string(), v);
+    if let Some(data) = encoded {
+        exec_state.push_vm_trace(VmTraceEvent::Storage(StorageEvent::VarSet(data)));
     }
     Ok(result.value)
 }
@@ -443,10 +446,11 @@ pub fn special_set_variable_v205(
 
     let value = value.clone_with_cost(exec_state)?;
     let epoch = *exec_state.epoch();
-    let trace_value = exec_state
-        .global_context
-        .emit_vm_trace
-        .then(|| value.clone());
+    let encoded = if exec_state.vm_trace_collecting() {
+        VarSetEventData::try_from_value(contract.clone(), var_name.to_string(), &value).ok()
+    } else {
+        None
+    };
     let result = exec_state
         .global_context
         .database
@@ -462,8 +466,8 @@ pub fn special_set_variable_v205(
     exec_state.add_memory(result_size)?;
 
     let result = result?;
-    if let Some(v) = trace_value {
-        exec_state.register_var_set_event(contract.clone(), var_name.to_string(), v);
+    if let Some(data) = encoded {
+        exec_state.push_vm_trace(VmTraceEvent::Storage(StorageEvent::VarSet(data)));
     }
     Ok(result.value)
 }
@@ -636,15 +640,18 @@ pub fn special_set_entry_v200(
     let key = key.clone_with_cost(exec_state)?;
     let value = value.clone_with_cost(exec_state)?;
     let epoch = *exec_state.epoch();
-    let tracing = exec_state.global_context.emit_vm_trace;
-    let trace_key = tracing.then(|| key.clone());
-    let trace_value = tracing.then(|| value.clone());
+    let encoded = if exec_state.vm_trace_collecting() {
+        MapWriteEventData::try_from_values(contract.clone(), map_name.to_string(), &key, &value)
+            .ok()
+    } else {
+        None
+    };
     let result = exec_state
         .global_context
         .database
         .set_entry(contract, map_name, key, value, data_types, &epoch)?;
-    if let (Some(k), Some(v)) = (trace_key, trace_value) {
-        exec_state.register_map_set_event(contract.clone(), map_name.to_string(), k, v);
+    if let Some(data) = encoded {
+        exec_state.push_vm_trace(VmTraceEvent::Storage(StorageEvent::MapSet(data)));
     }
     Ok(result.value)
 }
@@ -686,9 +693,12 @@ pub fn special_set_entry_v205(
     let key = key.clone_with_cost(exec_state)?;
     let value = value.clone_with_cost(exec_state)?;
     let epoch = *exec_state.epoch();
-    let tracing = exec_state.global_context.emit_vm_trace;
-    let trace_key = tracing.then(|| key.clone());
-    let trace_value = tracing.then(|| value.clone());
+    let encoded = if exec_state.vm_trace_collecting() {
+        MapWriteEventData::try_from_values(contract.clone(), map_name.to_string(), &key, &value)
+            .ok()
+    } else {
+        None
+    };
     let result = exec_state
         .global_context
         .database
@@ -704,8 +714,8 @@ pub fn special_set_entry_v205(
     exec_state.add_memory(result_size)?;
 
     let result = result?;
-    if let (Some(k), Some(v)) = (trace_key, trace_value) {
-        exec_state.register_map_set_event(contract.clone(), map_name.to_string(), k, v);
+    if let Some(data) = encoded {
+        exec_state.push_vm_trace(VmTraceEvent::Storage(StorageEvent::MapSet(data)));
     }
     Ok(result.value)
 }
@@ -755,17 +765,20 @@ pub fn special_insert_entry_v200(
 
     let key = key.clone_with_cost(exec_state)?;
     let value = value.clone_with_cost(exec_state)?;
-    let tracing = exec_state.global_context.emit_vm_trace;
-    let trace_key = tracing.then(|| key.clone());
-    let trace_value = tracing.then(|| value.clone());
+    let encoded = if exec_state.vm_trace_collecting() {
+        MapWriteEventData::try_from_values(contract.clone(), map_name.to_string(), &key, &value)
+            .ok()
+    } else {
+        None
+    };
     let result = exec_state
         .global_context
         .database
         .insert_entry(contract, map_name, key, value, data_types, &epoch)?;
-    if result.value == Value::Bool(true) {
-        if let (Some(k), Some(v)) = (trace_key, trace_value) {
-            exec_state.register_map_insert_event(contract.clone(), map_name.to_string(), k, v);
-        }
+    if result.value == Value::Bool(true)
+        && let Some(data) = encoded
+    {
+        exec_state.push_vm_trace(VmTraceEvent::Storage(StorageEvent::MapInsert(data)));
     }
     Ok(result.value)
 }
@@ -807,9 +820,12 @@ pub fn special_insert_entry_v205(
     let key = key.clone_with_cost(exec_state)?;
     let value = value.clone_with_cost(exec_state)?;
     let epoch = *exec_state.epoch();
-    let tracing = exec_state.global_context.emit_vm_trace;
-    let trace_key = tracing.then(|| key.clone());
-    let trace_value = tracing.then(|| value.clone());
+    let encoded = if exec_state.vm_trace_collecting() {
+        MapWriteEventData::try_from_values(contract.clone(), map_name.to_string(), &key, &value)
+            .ok()
+    } else {
+        None
+    };
     let result = exec_state
         .global_context
         .database
@@ -825,10 +841,10 @@ pub fn special_insert_entry_v205(
     exec_state.add_memory(result_size)?;
 
     let result = result?;
-    if result.value == Value::Bool(true) {
-        if let (Some(k), Some(v)) = (trace_key, trace_value) {
-            exec_state.register_map_insert_event(contract.clone(), map_name.to_string(), k, v);
-        }
+    if result.value == Value::Bool(true)
+        && let Some(data) = encoded
+    {
+        exec_state.push_vm_trace(VmTraceEvent::Storage(StorageEvent::MapInsert(data)));
     }
     Ok(result.value)
 }
@@ -872,10 +888,12 @@ pub fn special_delete_entry_v200(
     exec_state.add_memory(key.as_ref().get_memory_use()?)?;
 
     let epoch = *exec_state.epoch();
-    let trace_key = exec_state
-        .global_context
-        .emit_vm_trace
-        .then(|| key.as_ref().clone());
+    let encoded = if exec_state.vm_trace_collecting() {
+        MapDeleteEventData::try_from_value(contract.clone(), map_name.to_string(), key.as_ref())
+            .ok()
+    } else {
+        None
+    };
     let result = exec_state.global_context.database.delete_entry(
         contract,
         map_name,
@@ -883,10 +901,10 @@ pub fn special_delete_entry_v200(
         data_types,
         &epoch,
     )?;
-    if result.value == Value::Bool(true) {
-        if let Some(k) = trace_key {
-            exec_state.register_map_delete_event(contract.clone(), map_name.to_string(), k);
-        }
+    if result.value == Value::Bool(true)
+        && let Some(data) = encoded
+    {
+        exec_state.push_vm_trace(VmTraceEvent::Storage(StorageEvent::MapDelete(data)));
     }
     Ok(result.value)
 }
@@ -924,10 +942,12 @@ pub fn special_delete_entry_v205(
         )))?;
 
     let epoch = *exec_state.epoch();
-    let trace_key = exec_state
-        .global_context
-        .emit_vm_trace
-        .then(|| key.as_ref().clone());
+    let encoded = if exec_state.vm_trace_collecting() {
+        MapDeleteEventData::try_from_value(contract.clone(), map_name.to_string(), key.as_ref())
+            .ok()
+    } else {
+        None
+    };
     let result = exec_state.global_context.database.delete_entry(
         contract,
         map_name,
@@ -946,10 +966,10 @@ pub fn special_delete_entry_v205(
     exec_state.add_memory(result_size)?;
 
     let result = result?;
-    if result.value == Value::Bool(true) {
-        if let Some(k) = trace_key {
-            exec_state.register_map_delete_event(contract.clone(), map_name.to_string(), k);
-        }
+    if result.value == Value::Bool(true)
+        && let Some(data) = encoded
+    {
+        exec_state.push_vm_trace(VmTraceEvent::Storage(StorageEvent::MapDelete(data)));
     }
     Ok(result.value)
 }

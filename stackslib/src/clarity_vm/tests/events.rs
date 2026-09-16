@@ -14,13 +14,17 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use clarity::vm::clarity::TransactionConnection;
 use clarity::vm::contexts::OwnedEnvironment;
 use clarity::vm::costs::ExecutionCost;
 use clarity::vm::events::*;
+use clarity::vm::resource_limiter::ResourceBudget;
 use clarity::vm::tests::{
-    execute, test_only_mainnet_to_chain_id, TEST_BURN_STATE_DB, TEST_HEADER_DB,
+    execute, is_committed, test_only_mainnet_to_chain_id, TEST_BURN_STATE_DB, TEST_HEADER_DB,
 };
-use clarity::vm::types::{AssetIdentifier, BuffData, QualifiedContractIdentifier, Value};
+use clarity::vm::types::{
+    AssetIdentifier, BuffData, PrincipalData, QualifiedContractIdentifier, Value,
+};
 use clarity::vm::{ClarityName, ClarityVersion, ContractContext};
 use stacks_common::types::chainstate::{BurnchainHeaderHash, StacksAddress, StacksBlockId};
 use stacks_common::types::{Address, StacksEpochId};
@@ -32,7 +36,9 @@ use crate::chainstate::stacks::db::{ClarityTx, StacksChainState};
 use crate::chainstate::stacks::events::StacksTransactionReceipt;
 use crate::chainstate::stacks::index::ClarityMarfTrieId;
 use crate::chainstate::stacks::StacksBlockHeader;
-use crate::clarity_vm::clarity::{ClarityInstance, ClarityMarfStore};
+use crate::clarity_vm::clarity::{
+    ClarityBlockConnection, ClarityError, ClarityInstance, ClarityMarfStore,
+};
 use crate::clarity_vm::database::marf::MarfedKV;
 use crate::core::{FIRST_BURNCHAIN_CONSENSUS_HASH, FIRST_STACKS_BLOCK_HASH};
 
@@ -588,4 +594,119 @@ fn burn_op_delegate_carries_vm_events() {
         off[0].vm_events.is_empty(),
         "flag off must not collect traces"
     );
+}
+
+const STORE_CONTRACT: &str = r#"
+(define-data-var n uint u0)
+(define-public (set-n (x uint))
+  (ok (var-set n x)))
+"#;
+
+fn publish_store(
+    conn: &mut ClarityBlockConnection,
+) -> (QualifiedContractIdentifier, PrincipalData) {
+    let contract_id = QualifiedContractIdentifier::local("store").unwrap();
+    let sender = execute("'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR")
+        .expect_principal()
+        .unwrap();
+    conn.as_transaction(|tx| {
+        let (ast, analysis) = tx
+            .analyze_smart_contract(
+                &contract_id,
+                ClarityVersion::Clarity2,
+                STORE_CONTRACT,
+                &ResourceBudget::unlimited(),
+            )
+            .unwrap();
+        tx.initialize_smart_contract(
+            &contract_id,
+            ClarityVersion::Clarity2,
+            &ast,
+            STORE_CONTRACT,
+            None,
+            |_, _| None,
+            &ResourceBudget::unlimited(),
+        )
+        .unwrap();
+        tx.save_analysis(&contract_id, &analysis).unwrap();
+    });
+    (contract_id, sender)
+}
+
+/// Production hop: `as_transaction` → `run_contract_call` → `take_vm_trace_events`.
+fn call_set_n(
+    conn: &mut ClarityBlockConnection,
+    sender: &PrincipalData,
+    contract: &QualifiedContractIdentifier,
+    x: u128,
+    abort: bool,
+) -> (Result<Value, ClarityError>, Vec<VmTraceEvent>) {
+    conn.as_transaction(|tx| {
+        let result = tx
+            .run_contract_call(
+                sender,
+                None,
+                contract,
+                "set-n",
+                &[Value::UInt(x)],
+                |_, _| {
+                    if abort {
+                        Some("aborted".into())
+                    } else {
+                        None
+                    }
+                },
+                &ResourceBudget::unlimited(),
+            )
+            .map(|(v, _, _)| v);
+        let events = tx.take_vm_trace_events();
+        (result, events)
+    })
+}
+
+/// Block ↔ transaction hop: later receipts still collect; abort drops traces.
+#[test]
+fn vm_trace_block_connection_collects_across_receipts() {
+    let marf_kv = MarfedKV::temporary();
+    let chain_id = test_only_mainnet_to_chain_id(false);
+    let mut clarity_instance = ClarityInstance::new(false, chain_id, marf_kv);
+    clarity_instance.set_emit_vm_trace(true);
+
+    let genesis_id = StacksBlockHeader::make_index_block_hash(
+        &FIRST_BURNCHAIN_CONSENSUS_HASH,
+        &FIRST_STACKS_BLOCK_HASH,
+    );
+    let mut conn = clarity_instance.begin_test_genesis_block_2_1(
+        &StacksBlockId::sentinel(),
+        &genesis_id,
+        &TEST_HEADER_DB,
+        &TEST_BURN_STATE_DB,
+    );
+    let (contract_id, sender) = publish_store(&mut conn);
+
+    let (r1, e1) = call_set_n(&mut conn, &sender, &contract_id, 1, false);
+    assert!(is_committed(&r1.unwrap()));
+    assert_eq!(e1.len(), 1);
+    assert!(matches!(
+        e1[0],
+        VmTraceEvent::Storage(StorageEvent::VarSet(_))
+    ));
+
+    let (r2, e2) = call_set_n(&mut conn, &sender, &contract_id, 2, false);
+    assert!(is_committed(&r2.unwrap()));
+    assert_eq!(e2.len(), 1);
+
+    let (aborted, abort_events) = call_set_n(&mut conn, &sender, &contract_id, 3, true);
+    assert!(
+        matches!(aborted, Err(ClarityError::AbortedByCallback { .. })),
+        "expected abort, got {aborted:?}"
+    );
+    assert!(
+        abort_events.is_empty(),
+        "aborted tx must drop traces: {abort_events:?}"
+    );
+
+    let (r3, e3) = call_set_n(&mut conn, &sender, &contract_id, 4, false);
+    assert!(is_committed(&r3.unwrap()));
+    assert_eq!(e3.len(), 1);
 }

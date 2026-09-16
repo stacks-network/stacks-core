@@ -153,11 +153,7 @@ fn serialize_block_vm_events(
                 VmTraceEvent::ContractCall(_) => include_contract_calls,
             };
             if include {
-                out.push(
-                    event
-                        .json_serialize(idx, &txid, true)
-                        .expect("vm_event json"),
-                );
+                out.push(event.json_serialize(idx, &txid, true));
             }
             idx += 1;
         }

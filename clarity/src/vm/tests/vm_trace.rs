@@ -103,6 +103,27 @@ fn init_store(env: &mut OwnedEnvironment, version: ClarityVersion) {
         .unwrap();
 }
 
+fn placeholder_ctx() -> ContractContext {
+    ContractContext::new(
+        QualifiedContractIdentifier::transient(),
+        ClarityVersion::Clarity2,
+    )
+}
+
+/// Invoke a public function on an already-`begin()`'d environment so the
+/// caller can inspect the live event batch (classic `total_size`).
+fn exec_on_batch(
+    env: &mut OwnedEnvironment,
+    contract: &QualifiedContractIdentifier,
+    name: &str,
+    args: Vec<Value>,
+) -> Value {
+    let ctx = placeholder_ctx();
+    let (mut exec, invoke) = env.get_exec_environment(Some(issuer()), None, &ctx);
+    exec.execute_contract(&invoke, contract, name, &symbols_from_values(args), false)
+        .unwrap()
+}
+
 fn clarity_for_epoch(epoch: StacksEpochId) -> ClarityVersion {
     ClarityVersion::default_for_epoch(epoch)
 }
@@ -136,7 +157,7 @@ fn vm_trace_var_set_isolated_from_classic_events(
     match &env.vm_trace_events()[0] {
         VmTraceEvent::Storage(StorageEvent::VarSet(data)) => {
             assert_eq!(data.var_name, "n");
-            assert_eq!(data.value, Value::UInt(4));
+            assert_eq!(data.raw_value, "0x0100000000000000000000000000000004");
         }
         other => panic!("expected var_set, got {other:?}"),
     }
@@ -275,8 +296,9 @@ fn vm_trace_nested_call_after_inner_return(
     match &env.vm_trace_events()[0] {
         VmTraceEvent::ContractCall(data) => {
             assert_eq!(data.function_name, "fail-after-set");
-            assert!(!is_committed(&data.result));
-            assert!(is_err_code(&data.result, 1));
+            let result = Value::try_deserialize_hex_untyped(&data.raw_result).unwrap();
+            assert!(!is_committed(&result));
+            assert!(is_err_code(&result, 1));
         }
         other => panic!("expected contract_call, got {other:?}"),
     }
@@ -313,31 +335,53 @@ fn vm_trace_same_result_flag_on_or_off(
 fn vm_trace_does_not_charge_event_batch_size() {
     let mut marf = MemoryBackingStore::new();
     let mut env = OwnedEnvironment::new(marf.as_clarity_db(), StacksEpochId::latest());
+    let version = ClarityVersion::Clarity2;
+    init_store(&mut env, version);
+    let callee = QualifiedContractIdentifier::local("callee").unwrap();
+    let caller = QualifiedContractIdentifier::local("caller").unwrap();
+    env.initialize_versioned_contract(callee, version, CALLEE, None)
+        .unwrap();
+    env.initialize_versioned_contract(caller.clone(), version, CALLER, None)
+        .unwrap();
     env.set_emit_vm_trace(true);
     env.begin();
     let before = env.context.event_batches.last().unwrap().1;
-    let ctx = ContractContext::new(store_id(), ClarityVersion::Clarity2);
-    {
-        let (mut exec, _invoke) = env.get_exec_environment(None, None, &ctx);
-        exec.register_var_set_event(store_id(), "n".into(), Value::UInt(1));
-        exec.register_map_set_event(store_id(), "kv".into(), Value::UInt(1), Value::UInt(2));
-        exec.register_nested_contract_call_event(
-            store_id(),
-            None,
-            PrincipalData::Contract(store_id()),
-            "set-n".into(),
-            vec![],
-            Value::okay_true(),
-        );
-    }
+
+    let set = exec_on_batch(&mut env, &store_id(), "set-n", vec![Value::UInt(1)]);
+    assert!(is_committed(&set));
+    let map = exec_on_batch(
+        &mut env,
+        &store_id(),
+        "write-map",
+        vec![Value::UInt(1), Value::UInt(2)],
+    );
+    assert!(is_committed(&map));
+    let call = exec_on_batch(&mut env, &caller, "go", vec![]);
+    assert!(is_committed(&call));
+
     let after = env.context.event_batches.last().unwrap().1;
     assert_eq!(
         before, after,
         "vm_events must not count toward MAX_EVENTS_BATCH"
     );
-    assert_eq!(
-        env.context.event_batches.last().unwrap().0.vm_events.len(),
-        3
+    let vm_events = &env.context.event_batches.last().unwrap().0.vm_events;
+    assert!(
+        vm_events
+            .iter()
+            .any(|e| matches!(e, VmTraceEvent::Storage(StorageEvent::VarSet(_)))),
+        "set-n must emit var_set: {vm_events:?}"
+    );
+    assert!(
+        vm_events
+            .iter()
+            .any(|e| matches!(e, VmTraceEvent::Storage(StorageEvent::MapSet(_)))),
+        "write-map must emit map_set: {vm_events:?}"
+    );
+    assert!(
+        vm_events
+            .iter()
+            .any(|e| matches!(e, VmTraceEvent::ContractCall(_))),
+        "nested contract-call? must emit contract_call: {vm_events:?}"
     );
 }
 
@@ -345,9 +389,10 @@ fn vm_trace_does_not_charge_event_batch_size() {
 fn vm_trace_on_print_still_charges_and_cap_still_fires() {
     let mut marf = MemoryBackingStore::new();
     let mut env = OwnedEnvironment::new(marf.as_clarity_db(), StacksEpochId::latest());
+    init_store(&mut env, ClarityVersion::Clarity2);
     env.set_emit_vm_trace(true);
     env.begin();
-    let ctx = ContractContext::new(store_id(), ClarityVersion::Clarity2);
+    let ctx = placeholder_ctx();
     {
         let (mut exec, invoke) = env.get_exec_environment(None, None, &ctx);
         exec.register_print_event(&invoke, Value::UInt(1)).unwrap();
@@ -369,17 +414,210 @@ fn vm_trace_on_print_still_charges_and_cap_still_fires() {
     }
 
     env.context.event_batches.last_mut().unwrap().1 = MAX_EVENTS_BATCH;
-    {
-        let (mut exec, _invoke) = env.get_exec_environment(None, None, &ctx);
-        exec.register_var_set_event(store_id(), "n".into(), Value::UInt(9));
-    }
+    let set = exec_on_batch(&mut env, &store_id(), "set-n", vec![Value::UInt(9)]);
+    assert!(is_committed(&set));
     assert_eq!(
         env.context.event_batches.last().unwrap().1,
         MAX_EVENTS_BATCH,
         "var-set at cap must not bump total_size or fail"
     );
+    assert!(
+        env.context
+            .event_batches
+            .last()
+            .unwrap()
+            .0
+            .vm_events
+            .iter()
+            .any(|e| matches!(e, VmTraceEvent::Storage(StorageEvent::VarSet(_)))),
+        "var-set at classic cap must still be collected"
+    );
+}
+
+#[apply(test_epochs)]
+fn vm_trace_contract_call_arg_hex_matches_principal_trait_cast(
+    epoch: StacksEpochId,
+    mut tl_env_factory: TopLevelMemoryEnvironmentGenerator,
+) {
+    if epoch < StacksEpochId::Epoch21 {
+        return;
+    }
+    let mut env = tl_env_factory.get_env(epoch);
+    let version = clarity_for_epoch(epoch);
+    let trait_c = QualifiedContractIdentifier::local("iface").unwrap();
+    let impl_c = QualifiedContractIdentifier::local("impl").unwrap();
+    let callee = QualifiedContractIdentifier::local("callee").unwrap();
+    let caller = QualifiedContractIdentifier::local("caller").unwrap();
+    env.initialize_versioned_contract(
+        trait_c.clone(),
+        version,
+        "(define-trait t ((noop () (response bool uint))))",
+        None,
+    )
+    .unwrap();
+    env.initialize_versioned_contract(
+        impl_c.clone(),
+        version,
+        "(impl-trait .iface.t)\n(define-public (noop) (ok true))",
+        None,
+    )
+    .unwrap();
+    env.initialize_versioned_contract(
+        callee.clone(),
+        version,
+        "(use-trait t .iface.t)\n(define-public (takes (x <t>)) (ok true))",
+        None,
+    )
+    .unwrap();
+    env.initialize_versioned_contract(
+        caller.clone(),
+        version,
+        "(define-public (go) (contract-call? .callee takes .impl))",
+        None,
+    )
+    .unwrap();
+    env.set_emit_vm_trace(true);
+
+    let impl_principal = Value::Principal(PrincipalData::Contract(impl_c.clone()));
+    let (value, _) = exec(&mut env, &caller, "go", vec![]);
+    assert!(is_committed(&value));
+    let call = env
+        .vm_trace_events()
+        .iter()
+        .find_map(|e| match e {
+            VmTraceEvent::ContractCall(data) if data.function_name == "takes" => Some(data),
+            _ => None,
+        })
+        .expect("expected takes contract_call");
+    assert_eq!(call.function_args.len(), 1);
+    let expected = crate::vm::events::VarSetEventData::try_from_value(
+        impl_c.clone(),
+        "unused".into(),
+        &impl_principal,
+    )
+    .unwrap()
+    .raw_value;
     assert_eq!(
-        env.context.event_batches.last().unwrap().0.vm_events.len(),
-        1
+        call.function_args[0], expected,
+        "principal→trait binding must not change emitted argument hex"
+    );
+}
+
+#[apply(test_epochs)]
+fn vm_trace_extra_tuple_fields_do_not_bind(
+    epoch: StacksEpochId,
+    mut tl_env_factory: TopLevelMemoryEnvironmentGenerator,
+) {
+    let mut env = tl_env_factory.get_env(epoch);
+    let version = clarity_for_epoch(epoch);
+    let callee = QualifiedContractIdentifier::local("callee").unwrap();
+    env.initialize_versioned_contract(
+        callee.clone(),
+        version,
+        "(define-public (takes (x {a: uint})) (ok x))",
+        None,
+    )
+    .unwrap();
+    env.set_emit_vm_trace(true);
+
+    let extra = crate::vm::types::TupleData::from_data(vec![
+        (crate::vm::ClarityName::from_literal("a"), Value::UInt(1)),
+        (crate::vm::ClarityName::from_literal("b"), Value::UInt(2)),
+    ])
+    .unwrap();
+    let result = env.execute_transaction(
+        issuer(),
+        None,
+        callee,
+        "takes",
+        &symbols_from_values(vec![Value::Tuple(extra)]),
+    );
+    assert!(
+        result.is_err(),
+        "extra tuple fields must not bind; got {result:?}"
+    );
+    assert!(
+        env.vm_trace_events().is_empty(),
+        "failed invocation must not emit function_args"
+    );
+}
+
+#[test]
+fn vm_trace_hex_encodes_large_buffer() {
+    let mut marf = MemoryBackingStore::new();
+    let mut env = OwnedEnvironment::new(marf.as_clarity_db(), StacksEpochId::latest());
+    env.initialize_versioned_contract(
+        store_id(),
+        ClarityVersion::Clarity2,
+        r#"
+(define-data-var n (buff 2048) 0x)
+(define-public (set-n (x (buff 2048)))
+  (ok (var-set n x)))
+"#,
+        None,
+    )
+    .unwrap();
+    env.set_emit_vm_trace(true);
+    let val = Value::buff_from(vec![0u8; 2048]).unwrap();
+    env.begin();
+    let first = exec_on_batch(&mut env, &store_id(), "set-n", vec![val.clone()]);
+    assert!(is_committed(&first));
+    let second = exec_on_batch(&mut env, &store_id(), "set-n", vec![val]);
+    assert!(is_committed(&second));
+    let batch = &env.context.event_batches.last().unwrap().0;
+    assert_eq!(batch.vm_events.len(), 2);
+    for event in &batch.vm_events {
+        match event {
+            VmTraceEvent::Storage(StorageEvent::VarSet(data)) => {
+                assert!(data.raw_value.starts_with("0x"));
+                assert!(data.raw_value.len() > 4000);
+            }
+            other => panic!("expected var_set, got {other:?}"),
+        }
+    }
+}
+
+#[apply(test_epochs)]
+fn vm_trace_nested_read_only_calls_are_kept(
+    epoch: StacksEpochId,
+    mut tl_env_factory: TopLevelMemoryEnvironmentGenerator,
+) {
+    let mut env = tl_env_factory.get_env(epoch);
+    let version = clarity_for_epoch(epoch);
+    let c = QualifiedContractIdentifier::local("c").unwrap();
+    let b = QualifiedContractIdentifier::local("b").unwrap();
+    let a = QualifiedContractIdentifier::local("a").unwrap();
+    env.initialize_versioned_contract(c.clone(), version, "(define-read-only (c) (ok u3))", None)
+        .unwrap();
+    env.initialize_versioned_contract(
+        b.clone(),
+        version,
+        "(define-read-only (b) (contract-call? .c c))",
+        None,
+    )
+    .unwrap();
+    env.initialize_versioned_contract(
+        a.clone(),
+        version,
+        "(define-public (a) (ok (contract-call? .b b)))",
+        None,
+    )
+    .unwrap();
+    env.set_emit_vm_trace(true);
+
+    let (value, _) = exec(&mut env, &a, "a", vec![]);
+    assert!(is_committed(&value));
+    let names: Vec<&str> = env
+        .vm_trace_events()
+        .iter()
+        .filter_map(|e| match e {
+            VmTraceEvent::ContractCall(data) => Some(data.function_name.as_str()),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        names,
+        vec!["c", "b"],
+        "A → read-only B → read-only C must report C then B: {names:?}"
     );
 }

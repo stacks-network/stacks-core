@@ -99,14 +99,14 @@ Below is a comprehensive list of valid keys and their behaviors:
 *   `"storage"`: Subscribes to Clarity data-var and map write traces.
     *   **Description**: Captures `var-set`, `map-set`, and `map-insert` / `map-delete` only when the operation actually changed storage (`true`).
     *   **Events delivered to**: `/new_block`.
-    *   **Payload details**: Delivered in the `vm_events` array (not `events[]`). Types: `var_set_event`, `map_set_event`, `map_insert_event`, `map_delete_event`. `vm_event_index` is assigned across the block's committed vm_events (aborted / problematic-skipped receipts skipped). This key does not include `contract_call_event`; omitted types leave gaps in the index, same as classic `event_index`.
-    *   **Note**: Requires specific subscription; not included in `*`. Collection is off unless at least one observer uses `"storage"` or `"contract_calls"`. Cannot fail a transaction. Post-condition aborted and problematic-skipped transactions contribute nothing.
+    *   **Payload details**: Delivered in the `vm_events` array (not `events[]`). Types: `var_set_event`, `map_set_event`, `map_insert_event`, `map_delete_event`. `vm_event_index` is assigned across the block's committed vm_events (aborted / problematic-skipped receipts skipped). This key does not include `contract_call_event`; omitted types leave gaps in the index, same as classic `event_index`. Enclosing `contract_call_event`s are appended after the callee's committed inner events.
+    *   **Note**: Requires specific subscription; not included in `*`. If any observer on the node lists `"storage"` or `"contract_calls"`, the VM records **both** categories; each observer's keys still filter the POST. Collection cannot fail a transaction: it adds no VM error path or additional consensus-metered execution cost, but still consumes CPU and RAM. That is not a memory cap — there is no independent trace budget, and a subscribed node can use substantial RAM (especially nested-call argument/result hex). Operators who do not subscribe pay nothing. Values are hex-encoded at emission. Every committed `var-set` / changing map write and nested `contract-call?` in the block is retained. `define-data-var` / `define-map` are not traced. Maps start empty; changing map writes (including those in the deploy body) are traced. Data-var initializers are expressions in the contract source, not evaluated values on the publish transaction or ABI, and are not recoverable from this interface. Post-condition aborted and problematic-skipped transactions contribute nothing. Successful nested read-only `contract-call?` traces are kept (they are not dropped with the callee's read-only rollback).
 
 *   `"contract_calls"`: Subscribes to nested `contract-call?` traces.
     *   **Description**: Captures inner `contract-call?` invocations after the callee returns, including already-evaluated arguments and the result. The outer transaction `contract_call` in `transactions[]` is unchanged.
     *   **Events delivered to**: `/new_block`.
-    *   **Payload details**: Delivered in the `vm_events` array. Type: `contract_call_event`. Does not include storage write types. Same `vm_event_index` assignment as `"storage"`.
-    *   **Note**: The key is `"contract_calls"` (plural). `"contract_call"` is invalid and will panic on startup. Not included in `*`. Same collection gating as `"storage"`.
+    *   **Payload details**: Delivered in the `vm_events` array. Type: `contract_call_event`. Does not include storage write types. Same `vm_event_index` assignment as `"storage"`. Enclosing calls follow their committed inner events (storage writes from the callee appear first).
+    *   **Note**: The key is `"contract_calls"` (plural). `"contract_call"` is invalid and will panic on startup. Not included in `*`. Same gating as `"storage"` (one node-wide collection flag; this key only filters the POST). Nested-call hex is the usual RAM cost of opting in.
 
 *   **Smart Contract Event**: Subscribes to a specific smart contract event.
     *   **Description**: Allows subscription to events emitted by a particular smart contract.
@@ -277,7 +277,7 @@ The example above is a `"*"` payload. It has no `vm_events` field.
 
 #### `vm_events` (opt-in only)
 
-Present only when this observer's `events_keys` includes `"storage"` and/or `"contract_calls"`. Indexed by `vm_event_index` (dense across the block, not per transaction). Does not use `event_index`. Values are Clarity hex (`raw_*`), same encoding as print `raw_value`.
+Present only when this observer's `events_keys` includes `"storage"` and/or `"contract_calls"`. Indexed by `vm_event_index` (assigned across the block's committed vm_events, not per transaction). Does not use `event_index`. Indices are dense before subscription filtering; observers subscribed to only `"storage"` or only `"contract_calls"` see gaps for omitted types, same as classic `event_index`. Values are Clarity hex (`raw_*`), same encoding as print `raw_value`.
 
 Post-condition aborted transactions and problematic-skipped transactions contribute no `vm_events` entries.
 
@@ -289,6 +289,18 @@ Post-condition aborted transactions and problematic-skipped transactions contrib
     "txid": "0x03346e2e50cdd34c253d960bde16d397c27f9c47fa47b435510a50d9f5b14378",
     "vm_event_index": 0,
     "committed": true,
+    "type": "map_set_event",
+    "map_set_event": {
+      "contract_identifier": "ST3FEXKRAY93SR2MERXNSAXWGV9XSDNM1MVEFY5TH.store",
+      "map_name": "store",
+      "raw_key": "0x0c00000001036b65790d0000000568656c6c6f",
+      "raw_value": "0x0c000000010576616c75650d00000005776f726c64"
+    }
+  },
+  {
+    "txid": "0x03346e2e50cdd34c253d960bde16d397c27f9c47fa47b435510a50d9f5b14378",
+    "vm_event_index": 1,
+    "committed": true,
     "type": "contract_call_event",
     "contract_call_event": {
       "contract_identifier": "ST3FEXKRAY93SR2MERXNSAXWGV9XSDNM1MVEFY5TH.store",
@@ -298,23 +310,11 @@ Post-condition aborted transactions and problematic-skipped transactions contrib
       "function_args": ["0x0d0000000568656c6c6f", "0x0d00000005776f726c64"],
       "raw_result": "0x0703"
     }
-  },
-  {
-    "txid": "0x03346e2e50cdd34c253d960bde16d397c27f9c47fa47b435510a50d9f5b14378",
-    "vm_event_index": 1,
-    "committed": true,
-    "type": "map_set_event",
-    "map_set_event": {
-      "contract_identifier": "ST3FEXKRAY93SR2MERXNSAXWGV9XSDNM1MVEFY5TH.store",
-      "map_name": "store",
-      "raw_key": "0x0c00000001036b65790d0000000568656c6c6f",
-      "raw_value": "0x0c000000010576616c75650d00000005776f726c64"
-    }
   }
 ]
 ```
 
-Other `type` values: `var_set_event` (`var_name`, `raw_value`), `map_insert_event` (same shape as `map_set_event`), `map_delete_event` (`map_name`, `raw_key` only). `sender` on `contract_call_event` may be `null`.
+The callee's committed storage batch is appended before the enclosing `contract_call_event`. Other `type` values: `var_set_event` (`var_name`, `raw_value`), `map_insert_event` (same shape as `map_set_event`), `map_delete_event` (`map_name`, `raw_key` only). `sender` on `contract_call_event` may be `null`.
 
 ## Burnchain Operations
 When a transaction in the `/new_block` payload has a `raw_tx` field of `"0x00"`, it signifies a "burnchain operation." These are Stacks operations initiated via the Bitcoin network. The specific operation details are found in the `burnchain_op` field of that transaction object.

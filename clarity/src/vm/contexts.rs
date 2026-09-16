@@ -222,7 +222,8 @@ pub struct GlobalContext<'a, 'hooks> {
     /// A resource limiter that will be polled on every `eval` to check that execution
     /// time and heap allocation don't exceed configured maximums
     pub execution_resource_limiter: ResourceLimiter,
-    /// Collect into `EventBatch.vm_events`. Default off. Free (no cost, no batch cap).
+    /// Collect into `EventBatch.vm_events`. Default off. No additional
+    /// consensus-metered cost; no classic batch cap.
     pub emit_vm_trace: bool,
 }
 
@@ -1328,96 +1329,14 @@ impl<'a, 'b, 'hooks> ExecutionState<'a, 'b, 'hooks> {
         Ok(())
     }
 
-    fn push_vm_trace(&mut self, event: VmTraceEvent) {
-        if !self.global_context.emit_vm_trace {
-            return;
-        }
+    pub fn vm_trace_collecting(&self) -> bool {
+        self.global_context.emit_vm_trace
+    }
+
+    pub fn push_vm_trace(&mut self, event: VmTraceEvent) {
         if let Some((batch, _)) = self.global_context.event_batches.last_mut() {
             batch.vm_events.push(event);
         }
-    }
-
-    pub fn register_var_set_event(
-        &mut self,
-        contract_identifier: QualifiedContractIdentifier,
-        var_name: String,
-        value: Value,
-    ) {
-        self.push_vm_trace(VmTraceEvent::Storage(StorageEvent::VarSet(
-            VarSetEventData {
-                contract_identifier,
-                var_name,
-                value,
-            },
-        )));
-    }
-
-    pub fn register_map_set_event(
-        &mut self,
-        contract_identifier: QualifiedContractIdentifier,
-        map_name: String,
-        key: Value,
-        value: Value,
-    ) {
-        self.push_vm_trace(VmTraceEvent::Storage(StorageEvent::MapSet(
-            MapWriteEventData {
-                contract_identifier,
-                map_name,
-                key,
-                value,
-            },
-        )));
-    }
-
-    pub fn register_map_insert_event(
-        &mut self,
-        contract_identifier: QualifiedContractIdentifier,
-        map_name: String,
-        key: Value,
-        value: Value,
-    ) {
-        self.push_vm_trace(VmTraceEvent::Storage(StorageEvent::MapInsert(
-            MapWriteEventData {
-                contract_identifier,
-                map_name,
-                key,
-                value,
-            },
-        )));
-    }
-
-    pub fn register_map_delete_event(
-        &mut self,
-        contract_identifier: QualifiedContractIdentifier,
-        map_name: String,
-        key: Value,
-    ) {
-        self.push_vm_trace(VmTraceEvent::Storage(StorageEvent::MapDelete(
-            MapDeleteEventData {
-                contract_identifier,
-                map_name,
-                key,
-            },
-        )));
-    }
-
-    pub fn register_nested_contract_call_event(
-        &mut self,
-        contract_identifier: QualifiedContractIdentifier,
-        sender: Option<PrincipalData>,
-        caller: PrincipalData,
-        function_name: String,
-        function_args: Vec<Value>,
-        result: Value,
-    ) {
-        self.push_vm_trace(VmTraceEvent::ContractCall(ContractCallEventData {
-            contract_identifier,
-            sender,
-            caller,
-            function_name,
-            function_args,
-            result,
-        }));
     }
 }
 
@@ -1750,13 +1669,20 @@ impl<'a, 'hooks> GlobalContext<'a, 'hooks> {
         if popped.is_none() {
             return Err(VmInternalError::Expect("Expected entry to rollback".into()).into());
         }
-        let popped = self.read_only.pop();
-        if popped.is_none() {
-            return Err(VmInternalError::Expect("Expected entry to rollback".into()).into());
-        }
-        let popped = self.event_batches.pop();
-        if popped.is_none() {
-            return Err(VmInternalError::Expect("Expected entry to rollback".into()).into());
+        let was_read_only = self
+            .read_only
+            .pop()
+            .ok_or_else(|| VmInternalError::Expect("Expected entry to rollback".into()))?;
+        let (mut batch, _) = self
+            .event_batches
+            .pop()
+            .ok_or_else(|| VmInternalError::Expect("Expected entry to rollback".into()))?;
+        // Read-only callees always roll back, including successful nested
+        // `contract-call?` traces recorded on their batch. Promote those
+        // traces (not classic events) so A → read-only B → read-only C
+        // still reports C then B.
+        if was_read_only && let Some((parent, _)) = self.event_batches.last_mut() {
+            parent.vm_events.append(&mut batch.vm_events);
         }
 
         self.database.roll_back()
