@@ -64,12 +64,9 @@ fn test_block_height(
     // Note that we're ignoring the analysis failure here so that we can test
     // the runtime behavior. In Clarity 3, if this case somehow gets past the
     // analysis, it should fail at runtime.
-    let result = owned_env.initialize_versioned_contract(
-        contract_identifier.clone(),
-        version,
-        contract,
-        None,
-    );
+    owned_env
+        .initialize_versioned_contract(contract_identifier.clone(), version, contract, None)
+        .unwrap();
 
     let (mut exec_state, invoke_ctx) =
         owned_env.get_exec_environment(None, None, &placeholder_context);
@@ -124,12 +121,9 @@ fn test_stacks_block_height(
     // Note that we're ignoring the analysis failure here so that we can test
     // the runtime behavior. In Clarity 3, if this case somehow gets past the
     // analysis, it should fail at runtime.
-    let result = owned_env.initialize_versioned_contract(
-        contract_identifier.clone(),
-        version,
-        contract,
-        None,
-    );
+    owned_env
+        .initialize_versioned_contract(contract_identifier.clone(), version, contract, None)
+        .unwrap();
 
     let (mut exec_state, invoke_ctx) =
         owned_env.get_exec_environment(None, None, &placeholder_context);
@@ -186,12 +180,9 @@ fn test_tenure_height(
     // Note that we're ignoring the analysis failure here so that we can test
     // the runtime behavior. In Clarity 3, if this case somehow gets past the
     // analysis, it should fail at runtime.
-    let result = owned_env.initialize_versioned_contract(
-        contract_identifier.clone(),
-        version,
-        contract,
-        None,
-    );
+    owned_env
+        .initialize_versioned_contract(contract_identifier.clone(), version, contract, None)
+        .unwrap();
 
     let (mut exec_state, invoke_ctx) =
         owned_env.get_exec_environment(None, None, &placeholder_context);
@@ -220,18 +211,18 @@ enum ExpectedContractError {
     Runtime(RuntimeCheckErrorKind),
 }
 
+/// Selects the Clarity versions and epochs in which an expected error applies.
 #[cfg(test)]
-#[allow(clippy::type_complexity)]
+type VersionEpochPredicate = fn(ClarityVersion, StacksEpochId) -> bool;
+
+#[cfg(test)]
 fn expect_contract_error(
     version: ClarityVersion,
     epoch: StacksEpochId,
     tl_env_factory: &mut TopLevelMemoryEnvironmentGenerator,
     name: &str,
     contract: &str,
-    expected_errors: &[(
-        fn(ClarityVersion, StacksEpochId) -> bool,
-        ExpectedContractError,
-    )],
+    expected_errors: &[(VersionEpochPredicate, ExpectedContractError)],
     expected_success: Value,
 ) {
     let placeholder_context =
@@ -1202,12 +1193,9 @@ fn test_block_time(
     // Note that we're ignoring the analysis failure here so that we can test
     // the runtime behavior. In earlier versions, if this case somehow gets past the
     // analysis, it should fail at runtime.
-    let result = owned_env.initialize_versioned_contract(
-        contract_identifier.clone(),
-        version,
-        contract,
-        None,
-    );
+    owned_env
+        .initialize_versioned_contract(contract_identifier.clone(), version, contract, None)
+        .unwrap();
 
     let (mut exec_state, invoke_ctx) =
         owned_env.get_exec_environment(None, None, &placeholder_context);
@@ -1334,12 +1322,9 @@ fn test_current_contract(
     // Note that we're ignoring the analysis failure here so that we can test
     // the runtime behavior. In Clarity 3, if this case somehow gets past the
     // analysis, it should fail at runtime.
-    let result = owned_env.initialize_versioned_contract(
-        contract_identifier.clone(),
-        version,
-        contract,
-        None,
-    );
+    owned_env
+        .initialize_versioned_contract(contract_identifier.clone(), version, contract, None)
+        .unwrap();
 
     let (mut exec_state, invoke_ctx) =
         owned_env.get_exec_environment(None, None, &placeholder_context);

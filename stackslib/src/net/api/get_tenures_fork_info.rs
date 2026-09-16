@@ -1,4 +1,4 @@
-// Copyright (C) 2024 Stacks Open Internet Foundation
+// Copyright (C) 2024-2026 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -66,8 +66,16 @@ pub struct TenureForkingInfo {
     /// tenure's first block.
     #[serde(with = "prefix_opt_hex")]
     pub first_block_mined: Option<StacksBlockId>,
-    /// Nakamoto blocks in the tenure
-    #[serde(with = "prefix_opt_hex_codec")]
+    /// Deprecated. Always `null`. It will be removed in a future release.
+    ///
+    /// Existed to support signer's tx-replay feature, which has been removed. The key
+    /// is still emitted — as `null` — because a signer built before this release declares the
+    /// field with `#[serde(with = ...)]` and no `#[serde(default)]`, which makes it *required*.
+    ///
+    /// The `#[serde(default)]` below is what lets this field be deleted outright in a later
+    /// release: it makes signers from this release onward tolerate the key's absence. Do not
+    /// remove it before the field itself goes.
+    #[serde(default, with = "prefix_opt_hex_codec")]
     pub nakamoto_blocks: Option<Vec<NakamotoBlock>>,
 }
 
@@ -143,8 +151,8 @@ impl TenureForkingInfo {
         chainstate: &StacksChainState,
         tip_block_id: &StacksBlockId,
     ) -> Result<Self, ChainError> {
-        let (first_block_mined, nakamoto_blocks) = if !sn.sortition {
-            (None, None)
+        let first_block_mined = if !sn.sortition {
+            None
         } else {
             // is this a nakamoto sortition?
             let epoch = SortitionDB::get_stacks_epoch(sortdb.conn(), sn.block_height)?.ok_or_else(
@@ -157,28 +165,18 @@ impl TenureForkingInfo {
                 },
             )?;
             if epoch.epoch_id < StacksEpochId::Epoch30 {
-                (
-                    StacksChainState::get_stacks_block_header_info_by_consensus_hash(
-                        chainstate.db(),
-                        &sn.consensus_hash,
-                    )?
-                    .map(|header| header.index_block_hash()),
-                    None,
-                )
+                StacksChainState::get_stacks_block_header_info_by_consensus_hash(
+                    chainstate.db(),
+                    &sn.consensus_hash,
+                )?
+                .map(|header| header.index_block_hash())
             } else {
-                (
-                    NakamotoChainState::get_nakamoto_tenure_start_block_header(
-                        &mut chainstate.index_conn(),
-                        tip_block_id,
-                        &sn.consensus_hash,
-                    )?
-                    .map(|header| header.index_block_hash()),
-                    Some(
-                        chainstate
-                            .nakamoto_blocks_db()
-                            .get_nakamoto_blocks_in_tenure(&sn.consensus_hash)?,
-                    ),
-                )
+                NakamotoChainState::get_nakamoto_tenure_start_block_header(
+                    &mut chainstate.index_conn(),
+                    tip_block_id,
+                    &sn.consensus_hash,
+                )?
+                .map(|header| header.index_block_hash())
             }
         };
         Ok(TenureForkingInfo {
@@ -189,7 +187,8 @@ impl TenureForkingInfo {
             consensus_hash: sn.consensus_hash.clone(),
             was_sortition: sn.sortition,
             first_block_mined,
-            nakamoto_blocks,
+            // Deprecated; see the field's documentation.
+            nakamoto_blocks: None,
         })
     }
 }

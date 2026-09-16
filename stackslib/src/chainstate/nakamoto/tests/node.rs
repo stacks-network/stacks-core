@@ -27,7 +27,6 @@ use stacks_common::util::hash::Hash160;
 use stacks_common::util::secp256k1::Secp256k1PrivateKey;
 use stacks_common::util::vrf::VRFProof;
 
-use crate::burnchains::bitcoin::indexer::BitcoinIndexer;
 use crate::burnchains::tests::*;
 use crate::chainstate::burn::db::sortdb::*;
 use crate::chainstate::burn::operations::{
@@ -690,7 +689,6 @@ impl TestStacksNode {
             OnChainRewardSetProvider<'a, TestEventObserver>,
             (),
             (),
-            BitcoinIndexer,
         >,
         mut miner_setup: S,
         mut block_builder: F,
@@ -1084,7 +1082,6 @@ impl TestStacksNode {
             OnChainRewardSetProvider<'a, TestEventObserver>,
             (),
             (),
-            BitcoinIndexer,
         >,
         block: &StacksBlock,
         microblocks: &[StacksMicroblock],
@@ -1197,7 +1194,6 @@ impl TestStacksNode {
             OnChainRewardSetProvider<'a, TestEventObserver>,
             (),
             (),
-            BitcoinIndexer,
         >,
         nakamoto_block: NakamotoBlock,
         reward_set: &RewardSet,
