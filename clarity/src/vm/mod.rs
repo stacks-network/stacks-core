@@ -624,6 +624,19 @@ pub fn is_reserved(name: &str, version: &ClarityVersion) -> bool {
         || variables::is_reserved_name(name, version)
 }
 
+/// Reserved at `version` but free in an earlier one, so a legacy trait may
+/// carry it as a method name. From Epoch 4.1 a public/read-only function may
+/// take such a name to implement that method, else old traits would be
+/// unimplementable at the only deployable version; the native still wins every
+/// reference where one exists. Enforced by `TraitChecker` at analysis.
+pub fn is_shadowable_reserved(name: &str, version: &ClarityVersion) -> bool {
+    is_reserved(name, version)
+        && ClarityVersion::ALL
+            .iter()
+            .filter(|v| *v < version)
+            .any(|v| !is_reserved(name, v))
+}
+
 /// This function evaluates a list of expressions, sharing a global context.
 /// It returns the final evaluated result.
 /// Used for the initialization of a new contract.
