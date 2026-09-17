@@ -284,19 +284,19 @@ jobs:
               const someoneOwesReview = pr.requested_reviewers.some(r => r.state === 'AWAITING_REVIEW');
               for (const ownerLogin of owners) {
                 if (changesRequested) {
-                  addAction(ownerLogin, `🛑 Changes requested: ${link}`);
+                  addAction(ownerLogin, `🛑 Changes requested: ${link}`, pr.number);
                 } else if (resolveCount > 0) {
-                  addAction(ownerLogin, `💬 ${resolveCount} ${resolveCount === 1 ? 'comment' : 'comments'} to resolve: ${link}`);
+                  addAction(ownerLogin, `💬 ${resolveCount} ${resolveCount === 1 ? 'comment' : 'comments'} to resolve: ${link}`, pr.number);
                 } else if (pr.merge_conflict_present) {
-                  addAction(ownerLogin, `⚠️ Needs merge conflicts fixed: ${link}`);
+                  addAction(ownerLogin, `⚠️ Needs merge conflicts fixed: ${link}`, pr.number);
                 } else if (pr.out_of_date_with_base) {
-                  addAction(ownerLogin, `⏩ Needs rebase/merge: ${link}`);
+                  addAction(ownerLogin, `⏩ Needs rebase/merge: ${link}`, pr.number);
                 } else if (item.approvedCount >= 2) {
-                  addAction(ownerLogin, `✅ Ready for merge: ${link}`);
+                  addAction(ownerLogin, `✅ Ready for merge: ${link}`, pr.number);
                 } else if (item.allReviewersSuperset.length === 0) {
-                  addAction(ownerLogin, `👥 Needs reviewers assigned: ${link}`);
+                  addAction(ownerLogin, `👥 Needs reviewers assigned: ${link}`, pr.number);
                 } else if (!someoneOwesReview) {
-                  addAction(ownerLogin, `⏳ Need reviews: ${link}`);
+                  addAction(ownerLogin, `⏳ Need reviews: ${link}`, pr.number);
                 }
               }
 
