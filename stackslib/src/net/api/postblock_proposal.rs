@@ -667,7 +667,7 @@ impl NakamotoBlockProposal {
                 TransactionPayload::TenureChange(tc) => Some(MinerTenureInfoCause::from(tc)),
                 _ => None,
             })
-            .unwrap_or_else(|| MinerTenureInfoCause::NoTenureChange);
+            .unwrap_or(MinerTenureInfoCause::NoTenureChange);
 
         let mut builder = NakamotoBlockBuilder::new(
             &parent_stacks_header,

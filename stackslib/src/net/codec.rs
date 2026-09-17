@@ -44,7 +44,7 @@ use crate::net::db::LocalPeer;
 use crate::net::{Error as net_error, *};
 
 pub fn bitvec_len(bitlen: u16) -> u16 {
-    (bitlen / 8) + (if bitlen % 8 != 0 { 1 } else { 0 })
+    (bitlen / 8) + (if !bitlen.is_multiple_of(8) { 1 } else { 0 })
 }
 
 impl Preamble {
@@ -1603,7 +1603,6 @@ pub mod test {
     use stacks_common::bitvec::BitVec;
     use stacks_common::codec::NEIGHBOR_ADDRESS_ENCODED_SIZE;
     use stacks_common::util::hash::hex_bytes;
-    use stacks_common::util::secp256k1::*;
 
     use super::*;
     use crate::net::{GetNakamotoInvData, NakamotoInvData};

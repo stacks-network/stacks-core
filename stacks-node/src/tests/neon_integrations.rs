@@ -1399,7 +1399,7 @@ fn confirm_unparsed_ongoing_ops() {
     bitcoin_regtest_controller::TEST_MAGIC_BYTES
         .lock()
         .unwrap()
-        .replace([b'Z', b'Z']);
+        .replace(*b"ZZ");
 
     // let's trigger another mining loop: this should create an invalid block commit.
     // this bitcoin block will contain the valid commit created before (so, a second stacks block)

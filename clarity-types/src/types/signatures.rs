@@ -369,7 +369,7 @@ impl ListTypeData {
         };
         let would_be_size = list_data
             .inner_size()?
-            .ok_or_else(|| ClarityTypeError::ValueTooLarge)?;
+            .ok_or(ClarityTypeError::ValueTooLarge)?;
         if would_be_size > MAX_VALUE_SIZE {
             Err(ClarityTypeError::ValueTooLarge)
         } else {
@@ -758,7 +758,7 @@ impl TryFrom<BTreeMap<ClarityName, TypeSignature>> for TupleTypeSignature {
         let result = TupleTypeSignature { type_map };
         let would_be_size = result
             .inner_size()?
-            .ok_or_else(|| ClarityTypeError::ValueTooLarge)?;
+            .ok_or(ClarityTypeError::ValueTooLarge)?;
         if would_be_size > MAX_VALUE_SIZE {
             Err(ClarityTypeError::ValueTooLarge)
         } else {
@@ -1401,7 +1401,7 @@ impl TypeSignature {
 
     pub fn type_size(&self) -> Result<u32, ClarityTypeError> {
         self.inner_type_size()
-            .ok_or_else(|| ClarityTypeError::ValueTooLarge)
+            .ok_or(ClarityTypeError::ValueTooLarge)
     }
 
     /// Returns the size of the _type signature_

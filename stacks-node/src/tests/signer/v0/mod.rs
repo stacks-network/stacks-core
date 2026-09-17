@@ -4902,7 +4902,7 @@ fn multiple_miners_with_nakamoto_blocks() {
     assert_eq!(peer_1_height, peer_2_height);
     assert_eq!(
         peer_1_height,
-        pre_nakamoto_peer_1_height + (btc_blocks_mined - 1) * (inter_blocks_per_tenure as u64 + 1)
+        pre_nakamoto_peer_1_height + (btc_blocks_mined - 1) * (inter_blocks_per_tenure + 1)
     );
     assert_eq!(btc_blocks_mined, miner_1_tenures + miner_2_tenures);
     miners.shutdown();
@@ -7309,7 +7309,7 @@ fn large_mempool_base(strategy: MemPoolWalkStrategy, set_fee: impl Fn() -> u64) 
         .collect::<Vec<_>>();
     let initial_sender_addrs = initial_sender_sks
         .iter()
-        .map(|sk| tests::to_addr(sk))
+        .map(tests::to_addr)
         .collect::<Vec<_>>();
 
     // These 10 accounts will send to 25 accounts each, then those 260 accounts
@@ -7490,7 +7490,7 @@ fn large_mempool_base(strategy: MemPoolWalkStrategy, set_fee: impl Fn() -> u64) 
         for (sender_sk, nonce) in senders.iter_mut() {
             let sender_addr = tests::to_addr(sender_sk);
             let fee = set_fee();
-            assert!(fee >= 180 && fee <= 2000);
+            assert!((180..=2000).contains(&fee));
             let transfer_tx =
                 make_stacks_transfer_serialized(sender_sk, *nonce, fee, chain_id, &recipient, 1);
             insert_tx_in_mempool(
@@ -7600,7 +7600,7 @@ fn larger_mempool() {
         .collect::<Vec<_>>();
     let initial_sender_addrs = initial_sender_sks
         .iter()
-        .map(|sk| tests::to_addr(sk))
+        .map(tests::to_addr)
         .collect::<Vec<_>>();
 
     // These 10 accounts will send to 25 accounts each, then those 260 accounts
@@ -8099,7 +8099,7 @@ fn verify_mempool_caches() {
         let is_next_block = test_observer::get_blocks()
             .last()
             .and_then(|block| block["block_height"].as_u64())
-            .map_or(false, |h| h == block_height_before + 1);
+            .is_some_and(|h| h == block_height_before + 1);
 
         Ok(is_next_block)
     })
@@ -9149,7 +9149,23 @@ fn burn_block_payload_includes_pox_transactions() {
     }
     let mut miners = MultipleMinerTest::new(5, 0);
 
-    let (conf_1, _conf_2) = miners.get_node_configs();
+    let (conf_1, conf_2) = miners.get_node_configs();
+    let expected_apparent_senders = HashSet::from([
+        miners
+            .btc_regtest_controller_mut()
+            .get_miner_address(
+                StacksEpochId::Epoch21,
+                &Keychain::default(conf_1.node.seed.clone()).get_pub_key(),
+            )
+            .to_string(),
+        miners
+            .btc_regtest_controller_mut()
+            .get_miner_address(
+                StacksEpochId::Epoch21,
+                &Keychain::default(conf_2.node.seed.clone()).get_pub_key(),
+            )
+            .to_string(),
+    ]);
     miners.boot_to_epoch_3();
     let sortdb = conf_1.get_burnchain().open_sortition_db(true).unwrap();
 
@@ -9209,6 +9225,14 @@ fn burn_block_payload_includes_pox_transactions() {
     }
 
     assert_eq!(total_per_recipient, total_per_recipient_from_transactions);
+
+    assert_eq!(
+        expected_apparent_senders,
+        pox_transactions
+            .iter()
+            .map(|t| t.apparent_sender.clone().unwrap())
+            .collect()
+    );
 }
 
 #[test]

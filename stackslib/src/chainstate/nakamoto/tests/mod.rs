@@ -3078,7 +3078,7 @@ fn valid_vote_transaction_malformed_transactions() {
         post_conditions: vec![],
         payload: TransactionPayload::ContractCall(TransactionContractCall {
             address: contract_addr.clone(),
-            contract_name: contract_name,
+            contract_name,
             function_name: ClarityName::from_literal(SIGNERS_VOTING_FUNCTION_NAME),
             function_args: valid_function_args,
         }),
