@@ -796,7 +796,7 @@ impl HeadersDB for CLIHeadersDB {
     }
 }
 
-/// This function uses Clarity1 to parse the boot code.
+/// This function uses Clarity2 to parse the 2.1 boot code.
 fn install_boot_code<C: ClarityStorage>(
     header_db: &CLIHeadersDB,
     marf: &mut C,
@@ -844,7 +844,7 @@ fn install_boot_code<C: ClarityStorage>(
             parse_ast(
                 &contract_identifier,
                 contract_content,
-                ClarityVersion::Clarity1,
+                ClarityVersion::Clarity2,
                 epoch,
             ),
             "Failed to parse program.",
@@ -866,7 +866,7 @@ fn install_boot_code<C: ClarityStorage>(
                 vm_env
                     .initialize_contract_from_ast(
                         contract_identifier,
-                        ClarityVersion::Clarity1,
+                        ClarityVersion::Clarity2,
                         &mut ast,
                         &analysis,
                         contract_content,
