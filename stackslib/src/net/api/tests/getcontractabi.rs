@@ -22,8 +22,7 @@ use clarity::vm::analysis::mem_type_check;
 use clarity::vm::types::QualifiedContractIdentifier;
 use clarity::vm::ClarityVersion;
 use stacks_common::types::chainstate::StacksAddress;
-use stacks_common::types::Address;
-use stacks_common::types::StacksEpochId;
+use stacks_common::types::{Address, StacksEpochId};
 
 use super::{test_rpc, TEST_CONTRACT, TEST_CONTRACT_UNCONFIRMED};
 use crate::net::api::*;
