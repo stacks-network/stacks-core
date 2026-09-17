@@ -805,7 +805,7 @@ impl Config {
         // Stacks 1.0 must start at 0
         if matched_epochs
             .first()
-            .ok_or_else(|| "Must configure at least 1 epoch")?
+            .ok_or("Must configure at least 1 epoch")?
             .1
             != 0
         {

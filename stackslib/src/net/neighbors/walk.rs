@@ -1279,7 +1279,7 @@ impl<DB: NeighborWalkDB, NC: NeighborComms> NeighborWalk<DB, NC> {
     ) -> Result<bool, net_error> {
         assert!(self.state == NeighborWalkState::GetNeighborsNeighborsBegin);
 
-        let handshake_neighbor_addrs = mem::replace(&mut self.handshake_neighbor_addrs, vec![]);
+        let handshake_neighbor_addrs = mem::take(&mut self.handshake_neighbor_addrs);
         for naddr in handshake_neighbor_addrs.into_iter() {
             let nk = naddr.to_neighbor_key(network);
             if !network.is_registered(&nk) {
@@ -1591,7 +1591,7 @@ impl<DB: NeighborWalkDB, NC: NeighborComms> NeighborWalk<DB, NC> {
         // caller will have already populated the pending_pingback_handshakes hashmap
         assert!(self.state == NeighborWalkState::PingbackHandshakesBegin);
 
-        let network_pingbacks = mem::replace(&mut self.network_pingbacks, HashMap::new());
+        let network_pingbacks = mem::take(&mut self.network_pingbacks);
         let mut still_pending: HashMap<NeighborAddress, _> = HashMap::new();
 
         for (naddr, pingback) in network_pingbacks.into_iter() {

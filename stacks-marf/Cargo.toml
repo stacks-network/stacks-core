@@ -1,0 +1,35 @@
+[package]
+name = "stacks-marf"
+version.workspace = true
+edition = "2021"
+description = "The Merkleized Adaptive Radix Forest (MARF) used by the Stacks blockchain"
+license = "GPL-3.0-only"
+
+[lib]
+name = "stacks_marf"
+path = "src/lib.rs"
+
+[dependencies]
+rusqlite = { workspace = true }
+serde = { workspace = true }
+serde_derive = { workspace = true }
+slog = { workspace = true }
+stacks-common = { path = "../stacks-common", default-features = false, features = ["rusqlite"] }
+
+[target.'cfg(all(any(target_arch = "x86_64", target_arch = "x86", target_arch = "aarch64"), not(any(target_os="windows"))))'.dependencies]
+sha2 = { version = "0.10", features = ["asm"] }
+
+[target.'cfg(any(not(any(target_arch = "x86_64", target_arch = "x86", target_arch = "aarch64")), any(target_os = "windows")))'.dependencies]
+sha2 = { version = "0.10" }
+
+[dev-dependencies]
+rstest = "0.17.0"
+rstest_reuse = "0.5.0"
+stacks-common = { path = "../stacks-common", features = ["default", "testing"] }
+stdext = "0.3.1"
+tempfile = "3"
+
+[features]
+default = []
+# Expose the MARF's test-only helpers to other crates' test suites.
+testing = ["stacks-common/testing"]
