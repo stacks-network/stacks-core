@@ -19,8 +19,8 @@ use std::thread;
 #[cfg(test)]
 use clarity::consts::CHAIN_ID_TESTNET;
 use clarity::vm::analysis::AnalysisDatabase;
-use clarity::vm::clarity::TransactionConnection;
 pub use clarity::vm::clarity::{ClarityConnection, ClarityError};
+use clarity::vm::clarity::{TransactionConfig, TransactionConnection, TransactionOutput};
 use clarity::vm::contexts::{AssetMap, OwnedEnvironment};
 use clarity::vm::costs::{CostTracker, ExecutionCost, LimitedCostTracker};
 use clarity::vm::database::{
@@ -2391,15 +2391,7 @@ impl TransactionConnection for ClarityTransactionConnection<'_, '_> {
         &'hooks mut self,
         to_do: F,
         abort_call_back: A,
-    ) -> Result<
-        (
-            R,
-            AssetMap,
-            Vec<StacksTransactionEvent>,
-            Option<BoundedErrorString>,
-        ),
-        E,
-    >
+    ) -> Result<TransactionOutput<R>, E>
     where
         A: FnOnce(&AssetMap, &mut ClarityDatabase) -> Option<BoundedErrorString>,
         F: FnOnce(
@@ -2417,17 +2409,19 @@ impl TransactionConnection for ClarityTransactionConnection<'_, '_> {
                 )
                 .with_cache(&mut self.cache);
 
+                // The returned cost tracker keeps its memory usage: it is reset only when the
+                // surrounding transaction commits.
                 let (db, cost_track, result) = clarity::vm::clarity::execute_with_abort_callback(
                     db,
                     cost_track,
-                    self.mainnet,
-                    self.chain_id,
-                    self.epoch,
-                    None,
+                    TransactionConfig {
+                        mainnet: self.mainnet,
+                        chain_id: self.chain_id,
+                        epoch: self.epoch,
+                    },
                     to_do,
                     abort_call_back,
                 );
-                // Memory is reset when the surrounding transaction commits.
 
                 (cost_track, (db.destroy().into(), result))
             })

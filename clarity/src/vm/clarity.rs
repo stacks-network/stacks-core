@@ -29,7 +29,6 @@ use crate::vm::costs::{ExecutionCost, LimitedCostTracker};
 use crate::vm::database::ClarityDatabase;
 use crate::vm::errors::{ClarityEvalError, VmExecutionError};
 use crate::vm::events::StacksTransactionEvent;
-use crate::vm::hooks::EvalHook;
 use crate::vm::resource_limiter::ResourceBudget;
 use crate::vm::types::{BuffData, PrincipalData, QualifiedContractIdentifier};
 use crate::vm::{ClarityVersion, ContractContext, SymbolicExpression, Value, analysis, ast};
@@ -429,34 +428,42 @@ pub trait ClarityConnection {
     }
 }
 
+/// Network and epoch settings for a Clarity transaction frame.
+#[derive(Debug, Clone, Copy)]
+pub struct TransactionConfig {
+    /// Whether execution uses mainnet rules.
+    pub mainnet: bool,
+    /// Chain identifier exposed to Clarity contracts.
+    pub chain_id: u32,
+    /// Epoch whose execution rules apply.
+    pub epoch: StacksEpochId,
+}
+
+/// Execution output, asset changes, events, and an optional callback abort reason.
+pub type TransactionOutput<R> = (
+    R,
+    AssetMap,
+    Vec<StacksTransactionEvent>,
+    Option<BoundedErrorString>,
+);
+
 /// Execute a nested Clarity transaction and let a callback decide whether its
 /// database changes should be committed.
 ///
 /// Successful execution commits unless `abort_callback` returns a reason; errors and
 /// callback aborts roll back. The returned cost tracker retains its memory usage for the
-/// surrounding transaction to reset. Evaluation hooks must not run on consensus paths.
-#[allow(clippy::too_many_arguments, clippy::type_complexity)]
+/// surrounding transaction to reset. Register evaluation hooks inside `to_do` before
+/// execution; hooks must not run on consensus paths.
 pub fn execute_with_abort_callback<'db, 'hooks, F, A, R, E>(
     mut db: ClarityDatabase<'db>,
     cost_tracker: LimitedCostTracker,
-    mainnet: bool,
-    chain_id: u32,
-    epoch: StacksEpochId,
-    eval_hooks: Option<Vec<&'hooks mut dyn EvalHook>>,
+    config: TransactionConfig,
     to_do: F,
     abort_callback: A,
 ) -> (
     ClarityDatabase<'db>,
     LimitedCostTracker,
-    Result<
-        (
-            R,
-            AssetMap,
-            Vec<StacksTransactionEvent>,
-            Option<BoundedErrorString>,
-        ),
-        E,
-    >,
+    Result<TransactionOutput<R>, E>,
 )
 where
     A: FnOnce(&AssetMap, &mut ClarityDatabase) -> Option<BoundedErrorString>,
@@ -466,10 +473,13 @@ where
     E: From<VmExecutionError>,
 {
     db.begin();
-    let mut vm_env = OwnedEnvironment::new_cost_limited(mainnet, chain_id, db, cost_tracker, epoch);
-    for hook in eval_hooks.into_iter().flatten() {
-        vm_env.add_eval_hook(hook);
-    }
+    let mut vm_env = OwnedEnvironment::new_cost_limited(
+        config.mainnet,
+        config.chain_id,
+        db,
+        cost_tracker,
+        config.epoch,
+    );
 
     let execution_result = to_do(&mut vm_env);
     let (mut db, cost_tracker) = vm_env
@@ -513,15 +523,7 @@ pub trait TransactionConnection: ClarityConnection {
         &'hooks mut self,
         to_do: F,
         abort_call_back: A,
-    ) -> Result<
-        (
-            R,
-            AssetMap,
-            Vec<StacksTransactionEvent>,
-            Option<BoundedErrorString>,
-        ),
-        E,
-    >
+    ) -> Result<TransactionOutput<R>, E>
     where
         A: FnOnce(&AssetMap, &mut ClarityDatabase) -> Option<BoundedErrorString>,
         F: FnOnce(
@@ -761,6 +763,7 @@ mod unit_tests {
     use super::*;
     use crate::vm::analysis::errors::StaticCheckErrorKind;
     use crate::vm::ast::errors::ParseErrorKind;
+    use crate::vm::costs::CostTracker;
     use crate::vm::database::MemoryBackingStore;
     use crate::vm::errors::{EarlyReturnError, RuntimeError};
     use crate::vm::events::{STXBurnEventData, STXEventType};
@@ -774,19 +777,27 @@ mod unit_tests {
         let db = store.as_clarity_db();
         let mut hook = ExecutionLifecycleHook::default();
 
-        let (mut db, _, result) = execute_with_abort_callback(
+        let (mut db, cost_tracker, result) = execute_with_abort_callback(
             db,
-            LimitedCostTracker::new_free(),
-            false,
-            stacks_common::consts::CHAIN_ID_TESTNET,
-            StacksEpochId::Epoch33,
-            Some(vec![&mut hook]),
+            LimitedCostTracker::new_with_limit(StacksEpochId::Epoch33, ExecutionCost::max_value()),
+            TransactionConfig {
+                mainnet: false,
+                chain_id: stacks_common::consts::CHAIN_ID_TESTNET,
+                epoch: StacksEpochId::Epoch33,
+            },
             |vm_env| {
+                vm_env.add_eval_hook(&mut hook);
                 vm_env.execute_in_env(
                     PrincipalData::Standard(StandardPrincipalData::transient()),
                     None,
                     None,
                     |exec_state, _| {
+                        // The surrounding transaction owns resetting this memory charge.
+                        exec_state
+                            .global_context
+                            .cost_track
+                            .add_memory(123)
+                            .unwrap();
                         exec_state
                             .global_context
                             .database
@@ -800,6 +811,7 @@ mod unit_tests {
 
         let (_, _, _, abort_reason) = result.unwrap();
         assert!(abort_reason.is_none());
+        assert_eq!(cost_tracker.get_memory(), 123);
         db.begin();
         assert_eq!(db.get_data::<u64>("shared-frame").unwrap(), Some(1));
         db.roll_back().unwrap();
@@ -820,10 +832,11 @@ mod unit_tests {
         let (mut db, _, result) = execute_with_abort_callback(
             db,
             LimitedCostTracker::new_free(),
-            false,
-            stacks_common::consts::CHAIN_ID_TESTNET,
-            StacksEpochId::Epoch33,
-            None,
+            TransactionConfig {
+                mainnet: false,
+                chain_id: stacks_common::consts::CHAIN_ID_TESTNET,
+                epoch: StacksEpochId::Epoch33,
+            },
             |vm_env| {
                 vm_env.context.database.put_data("shared-frame", &1_u64)?;
                 Ok::<_, VmExecutionError>(((), AssetMap::new(), vec![]))
@@ -842,27 +855,56 @@ mod unit_tests {
     fn shared_transaction_frame_rolls_back_execution_error() {
         let mut store = MemoryBackingStore::new();
         let db = store.as_clarity_db();
+        let mut hook = ExecutionLifecycleHook::default();
 
         let (mut db, _, result) = execute_with_abort_callback(
             db,
             LimitedCostTracker::new_free(),
-            false,
-            stacks_common::consts::CHAIN_ID_TESTNET,
-            StacksEpochId::Epoch33,
-            None,
+            TransactionConfig {
+                mainnet: false,
+                chain_id: stacks_common::consts::CHAIN_ID_TESTNET,
+                epoch: StacksEpochId::Epoch33,
+            },
             |vm_env| {
-                vm_env.context.database.put_data("shared-frame", &1_u64)?;
-                Err::<((), AssetMap, Vec<StacksTransactionEvent>), _>(VmExecutionError::Runtime(
-                    RuntimeError::ArithmeticOverflow,
+                vm_env.add_eval_hook(&mut hook);
+                // Also write outside execute_in_env's frame to verify the helper's rollback.
+                vm_env.context.database.put_data("outer-frame", &2_u64)?;
+                vm_env.execute_in_env(
+                    PrincipalData::Standard(StandardPrincipalData::transient()),
                     None,
-                ))
+                    None,
+                    |exec_state, _| {
+                        exec_state
+                            .global_context
+                            .database
+                            .put_data("shared-frame", &1_u64)?;
+                        Err::<(), _>(VmExecutionError::Runtime(
+                            RuntimeError::ArithmeticOverflow,
+                            None,
+                        ))
+                    },
+                )
             },
             |_, _| None,
         );
 
-        assert!(result.is_err());
+        assert!(matches!(
+            result,
+            Err(VmExecutionError::Runtime(
+                RuntimeError::ArithmeticOverflow,
+                None
+            ))
+        ));
+        assert_eq!(
+            hook.events,
+            vec![
+                ExecutionLifecycleEvent::Begin,
+                ExecutionLifecycleEvent::Finish(ExecutionOutcome::Failure),
+            ]
+        );
         db.begin();
         assert_eq!(db.get_data::<u64>("shared-frame").unwrap(), None);
+        assert_eq!(db.get_data::<u64>("outer-frame").unwrap(), None);
         db.roll_back().unwrap();
     }
 
