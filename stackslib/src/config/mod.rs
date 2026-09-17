@@ -5056,6 +5056,7 @@ mod tests {
                 miner = true
 
                 [burnchain]
+                mode = "krypton"
                 {wallet_setting}
                 "#
             );
@@ -5075,6 +5076,7 @@ mod tests {
                 miner = true
 
                 [burnchain]
+                mode = "krypton"
                 wallet_name = "miner-wallet"
                 "#,
             )
@@ -5093,6 +5095,9 @@ mod tests {
                 [node]
                 miner = true
                 mock_mining = true
+
+                [burnchain]
+                mode = "krypton"
                 "#,
             )
             .unwrap(),
@@ -5100,8 +5105,17 @@ mod tests {
         )
         .expect("A mock miner does not use wallet RPCs");
 
-        Config::from_config_file(ConfigFile::from_str("").unwrap(), false)
-            .expect("A follower does not need a wallet");
+        Config::from_config_file(
+            ConfigFile::from_str(
+                r#"
+                [burnchain]
+                mode = "krypton"
+                "#,
+            )
+            .unwrap(),
+            false,
+        )
+        .expect("A follower does not need a wallet");
     }
 
     /// Build a miner config with the given `burnchain.wallet_name`.
@@ -5112,6 +5126,7 @@ mod tests {
             miner = true
 
             [burnchain]
+            mode = "krypton"
             wallet_name = "{wallet_name}"
             "#
         );
@@ -5175,6 +5190,7 @@ mod tests {
         let config = format!(
             r#"
             [burnchain]
+            mode = "krypton"
             wallet_name = "{wallet_name}"
             "#
         );
@@ -5207,13 +5223,21 @@ mod tests {
 
     #[test]
     fn test_stackerdb_chunk_source_logging_config() {
-        let config = utils::config_from_valid_string("[node]");
+        let config = utils::config_from_valid_string(
+            r#"
+            [burnchain]
+            mode = "krypton"
+            [node]
+            "#,
+        );
 
         assert!(config.node.log_stackerdb_chunk_sources);
         assert!(NodeConfig::default().log_stackerdb_chunk_sources);
 
         let config = utils::config_from_valid_string(
             r#"
+            [burnchain]
+            mode = "krypton"
             [node]
             log_stackerdb_chunk_sources = false
             "#,
@@ -5265,6 +5289,8 @@ mod tests {
         assert!(Config::from_config_file(
             ConfigFile::from_str(
                 r#"
+                [burnchain]
+                mode = "krypton"
                 [node]
                 pox_5_bond_admin = "ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM"
                 pox_5_pause_admin = "ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM"
