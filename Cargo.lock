@@ -4513,6 +4513,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "stacks-marf"
+version = "4.0.3"
+dependencies = [
+ "rstest",
+ "rstest_reuse",
+ "rusqlite",
+ "serde",
+ "serde_derive",
+ "sha2 0.10.8",
+ "slog",
+ "stacks-common 4.0.3",
+ "stdext",
+ "tempfile",
+]
+
+[[package]]
 name = "stacks-node"
 version = "4.0.3"
 dependencies = [
