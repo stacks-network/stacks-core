@@ -51,7 +51,7 @@ pub mod test_util;
 
 pub mod clarity;
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 
 pub use clarity_types::max_call_stack_depth_for_epoch;
 use stacks_common::bounded_format;
@@ -628,8 +628,7 @@ pub fn is_reserved(name: &str, version: &ClarityVersion) -> bool {
 /// carry it as a method name. From Epoch 4.1 a public/read-only function may
 /// take such a name to implement that method, else old traits would be
 /// unimplementable at the only deployable version; the native still wins every
-/// reference where one exists. Enforced by `TraitChecker`, re-checked in
-/// `validate_shadowable_reserved_definitions`.
+/// reference where one exists. Enforced by `TraitChecker` at analysis.
 pub fn is_shadowable_reserved(name: &str, version: &ClarityVersion) -> bool {
     is_reserved(name, version)
         && ClarityVersion::ALL
@@ -763,91 +762,9 @@ pub fn eval_all(
             }
         }
 
-        validate_shadowable_reserved_definitions(contract_context, global_context)?;
-
         contract_context.data_size = total_memory_use;
         Ok(last_executed)
     })
-}
-
-/// VM repeat of the `TraitChecker` rule (see [`is_shadowable_reserved`]): every
-/// shadowable-named function must match a method of an implemented foreign
-/// trait whose version still had the name free. Runs after evaluation so the
-/// define / `impl-trait` order does not matter.
-fn validate_shadowable_reserved_definitions(
-    contract_context: &ContractContext,
-    global_context: &mut GlobalContext,
-) -> Result<(), VmExecutionError> {
-    if !global_context.epoch_id.allows_shadowable_reserved_names() {
-        return Ok(());
-    }
-    let version = *contract_context.get_clarity_version();
-    // BTreeSet: the reported name must not depend on hash order.
-    let mut unmatched = contract_context
-        .functions
-        .keys()
-        .filter(|name| is_shadowable_reserved(name, &version))
-        .cloned()
-        .collect::<BTreeSet<_>>();
-    if unmatched.is_empty() {
-        return Ok(());
-    }
-
-    // HashSet order varies per process, and the loop charges cost per trait
-    // and can fail mid-way, so iterate in a fixed order.
-    let mut implemented_traits: Vec<_> = contract_context.implemented_traits.iter().collect();
-    implemented_traits.sort();
-
-    for trait_identifier in implemented_traits {
-        if unmatched.is_empty() {
-            break;
-        }
-        // Own traits cannot declare reserved names (and are not stored yet).
-        if trait_identifier.contract_identifier == contract_context.contract_identifier {
-            continue;
-        }
-        // Priced and memory-accounted like a contract call (see
-        // `inner_execute_contract`): memory is held per load, not accumulated.
-        let contract_size = global_context
-            .database
-            .get_contract_size(&trait_identifier.contract_identifier)?;
-        runtime_cost(
-            ClarityCostFunction::LoadContract,
-            global_context,
-            contract_size,
-        )?;
-        global_context.add_memory(contract_size)?;
-        let matched: Result<(), VmExecutionError> = finally_drop_memory!(global_context, contract_size; {
-            let defining_contract = global_context
-                .database
-                .get_contract(&trait_identifier.contract_identifier)?;
-            remove_matched_names(&mut unmatched, &defining_contract, &trait_identifier.name);
-            Ok(())
-        });
-        matched?;
-    }
-    if let Some(name) = unmatched.first() {
-        return Err(RuntimeCheckErrorKind::NameAlreadyUsed(name.to_string()).into());
-    }
-    Ok(())
-}
-
-/// Unmatches every method of `trait_name` that was still free at the defining
-/// contract's version.
-fn remove_matched_names(
-    unmatched: &mut BTreeSet<ClarityName>,
-    defining_contract: &ContractContext,
-    trait_name: &str,
-) {
-    let Some(trait_definition) = defining_contract.lookup_trait_definition(trait_name) else {
-        return;
-    };
-    let trait_version = defining_contract.get_clarity_version();
-    for method in trait_definition.into_keys() {
-        if !is_reserved(&method, trait_version) {
-            unmatched.remove(&method);
-        }
-    }
 }
 
 /// Run provided program in a brand new environment, with a transient, empty

@@ -134,7 +134,7 @@ fn check_legal_define(
 
 /// [`check_legal_define`] for functions: from Epoch 4.1 a public or read-only
 /// function may take a shadowable name (see [`is_shadowable_reserved`]); the
-/// trait match is verified after evaluation. Trait methods are never private.
+/// trait match is the `TraitChecker`'s job. Trait methods are never private.
 fn check_legal_function_define(
     name: &str,
     define_type: &DefineType,
