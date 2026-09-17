@@ -842,7 +842,7 @@ mod tests {
             auth_id: Some(0u32),
         };
         let op_bytes = {
-            let mut bytes = [b'T', b'3'].to_vec();
+            let mut bytes = b"T3".to_vec();
             op.consensus_serialize(&mut bytes)
                 .expect("Expected to be able to serialize op into bytes");
             bytes

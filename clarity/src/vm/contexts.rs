@@ -1763,7 +1763,7 @@ impl ContractContext {
                 let owned = std::mem::replace(value, Value::none());
                 let (sanitized, _) =
                     Value::sanitize_value(epoch, &TypeSignature::type_of(&owned)?, owned)
-                        .ok_or_else(|| RuntimeCheckErrorKind::CouldNotDetermineType)?;
+                        .ok_or(RuntimeCheckErrorKind::CouldNotDetermineType)?;
                 *value = sanitized;
             }
         }

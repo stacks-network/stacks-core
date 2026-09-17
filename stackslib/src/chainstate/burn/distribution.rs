@@ -294,7 +294,7 @@ impl BurnSamplePoint {
 
                 let mut sorted_burns = all_burns.clone();
                 sorted_burns.sort();
-                let median_burn = if window_size % 2 == 0 {
+                let median_burn = if window_size.is_multiple_of(2) {
                     (sorted_burns[(window_size / 2) as usize]
                         + sorted_burns[(window_size / 2 - 1) as usize])
                         / 2

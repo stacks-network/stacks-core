@@ -1794,7 +1794,7 @@ impl StacksBlockBuilder {
     }
 
     /// Cut the next microblock.
-    pub fn mine_next_microblock<'a>(&mut self) -> Result<StacksMicroblock, Error> {
+    pub fn mine_next_microblock(&mut self) -> Result<StacksMicroblock, Error> {
         let txid_vecs: Vec<_> = self
             .micro_txs
             .iter()
@@ -1875,15 +1875,13 @@ impl StacksBlockBuilder {
                 &self.parent_header_hash,
             );
             let (parent_microblocks, _) =
-                match StacksChainState::load_descendant_staging_microblock_stream_with_poison(
+                StacksChainState::load_descendant_staging_microblock_stream_with_poison(
                     chainstate.db(),
                     &parent_index_hash,
                     0,
                     u16::MAX,
-                )? {
-                    Some(x) => x,
-                    None => (vec![], None),
-                };
+                )?
+                .unwrap_or_default();
 
             debug!(
                 "Loaded {} microblocks made by {}/{}",

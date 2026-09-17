@@ -231,7 +231,7 @@ impl NeighborStats {
     }
 
     pub fn take_relayers(&mut self) -> HashMap<NeighborAddress, RelayStats> {
-        let ret = mem::replace(&mut self.relayed_messages, HashMap::new());
+        let ret = mem::take(&mut self.relayed_messages);
         ret
     }
 
@@ -447,10 +447,7 @@ impl Neighbor {
         let asn_opt =
             PeerDB::asn_lookup(conn, &handshake_data.addrbytes).map_err(net_error::DBError)?;
 
-        let asn = match asn_opt {
-            Some(a) => a,
-            None => 0,
-        };
+        let asn = asn_opt.unwrap_or_default();
 
         self.public_key = pubk;
         self.expire_block = handshake_data.expire_block_height;

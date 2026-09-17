@@ -259,8 +259,8 @@ mod tests {
             )
             .commit_block();
         let mut clarity_conn = clarity_instance.begin_block(
-            &StacksBlockId([0 as u8; 32]),
-            &StacksBlockId([1 as u8; 32]),
+            &StacksBlockId([0_u8; 32]),
+            &StacksBlockId([1_u8; 32]),
             &TEST_HEADER_DB,
             &TEST_BURN_STATE_DB,
         );
