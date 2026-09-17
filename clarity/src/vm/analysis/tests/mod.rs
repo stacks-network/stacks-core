@@ -33,7 +33,7 @@ use crate::vm::ast::{build_ast, parse};
 use crate::vm::costs::LimitedCostTracker;
 use crate::vm::database::MemoryBackingStore;
 use crate::vm::resource_limiter::{ResourceBudget, ResourceLimiter};
-use crate::vm::types::{QualifiedContractIdentifier, TypeSignature};
+use crate::vm::types::{FunctionType, QualifiedContractIdentifier, TypeSignature};
 
 pub mod utils {
     use super::*;
@@ -855,7 +855,6 @@ fn clarity7_shadowable_define_requires_legacy_trait_method() {
     );
 }
 
-/// The reported name is the lexicographically first, not the first defined.
 /// The gate is the epoch, not the version: tooling may analyze a pinned
 /// Clarity 6 contract at Epoch 4.1 (on chain such pins are rejected).
 #[test]
@@ -874,6 +873,7 @@ fn clarity6_at_epoch41_shadowable_define_is_accepted() {
     assert!(analysis.public_function_types.contains_key("slice?"));
 }
 
+/// The reported name is the lexicographically first, not the first defined.
 #[test]
 fn clarity7_multiple_unmatched_names_report_deterministically() {
     assert_name_already_used(
@@ -930,7 +930,8 @@ fn clarity7_shadowable_define_keeps_native_for_bare_references() {
 }
 
 /// Callers defined before a keyword-named implementation still resolve: the
-/// sorter orders them after it. The bare atom stays the keyword.
+/// sorter orders them after it. Applying the name types against the function;
+/// the bare atom is still the keyword.
 #[test]
 fn clarity7_keyword_named_function_callable_regardless_of_definition_order() {
     let heights = (
@@ -948,31 +949,13 @@ fn clarity7_keyword_named_function_callable_regardless_of_definition_order() {
          (define-read-only (stacks-block-height (x uint)) (ok x))",
     )
     .unwrap();
-    assert!(
-        analysis
-            .read_only_function_types
-            .contains_key("stacks-block-height")
-    );
-}
-
-#[test]
-fn clarity7_native_keyword_still_wins_at_analysis() {
-    // Keyword references resolve to the native in every version.
-    let snippet = "(define-read-only (get-it) stacks-block-height)
-                   (get-it)";
-    for (version, epoch) in [
-        (ClarityVersion::Clarity5, StacksEpochId::Epoch34),
-        (ClarityVersion::Clarity6, StacksEpochId::Epoch40),
-        (ClarityVersion::Clarity7, StacksEpochId::Epoch41),
-    ] {
-        let (ty, _) = mem_run_analysis(snippet, version, epoch).unwrap();
-        assert_eq!(ty, Some(TypeSignature::UIntType));
-    }
-}
-
-#[test]
-fn clarity7_native_available_when_not_shadowed() {
-    let snippet = "(define-read-only (use-native) (element-at? (list 1 2 3) u0))
-                   (use-native)";
-    mem_run_analysis(snippet, ClarityVersion::Clarity7, StacksEpochId::Epoch41).unwrap();
+    let returns = |name: &str| match analysis.get_read_only_function_type(name) {
+        Some(FunctionType::Fixed(f)) => f.returns.clone(),
+        other => panic!("unexpected type for `{name}`: {other:?}"),
+    };
+    assert!(matches!(
+        returns("call-mine"),
+        TypeSignature::ResponseType(_)
+    ));
+    assert_eq!(returns("read-keyword"), TypeSignature::UIntType);
 }

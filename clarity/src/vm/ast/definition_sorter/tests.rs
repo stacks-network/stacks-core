@@ -369,18 +369,36 @@ fn sorted_definition_names(ast: &ContractAST) -> Vec<String> {
         .collect()
 }
 
-/// Function positions resolve to a keyword-named user function, so callers
-/// defined before it are sorted after it.
+/// Applying a keyword-named user function, directly or as a `map`/`fold`/
+/// `filter` callback, makes the caller depend on it. One contract per case:
+/// in a shared one the direct-call edge alone would satisfy the assertion.
+#[rstest]
+#[case::direct_call("(stacks-block-height u1)")]
+#[case::map("(map stacks-block-height (list u1 u2))")]
+#[case::fold("(fold stacks-block-height (list u1 u2) u0)")]
+#[case::filter("(filter stacks-block-height (list u1 u2))")]
+fn clarity7_keyword_named_function_is_a_dependency_in_function_position(#[case] call: &str) {
+    let contract = format!(
+        "(define-read-only (caller) {call})
+         (define-read-only (stacks-block-height (x uint)) (ok x))"
+    );
+    let ast = build_ast_at(&contract, ClarityVersion::Clarity7, StacksEpochId::Epoch41).unwrap();
+    let names = sorted_definition_names(&ast);
+    assert_eq!(
+        names,
+        ["stacks-block-height", "caller"],
+        "sorted: {names:?}"
+    );
+}
+
+/// The remaining `fold` arguments are still probed: the seed is a dependency.
 #[test]
-fn clarity7_keyword_named_function_is_a_dependency_in_function_position() {
-    let contract = "(define-read-only (call-mine) (stacks-block-height u1))
-                    (define-read-only (map-mine) (map stacks-block-height (list u1 u2)))
-                    (define-read-only (fold-mine) (fold stacks-block-height (list u1 u2) u0))
-                    (define-read-only (filter-mine) (filter stacks-block-height (list u1 u2)))
-                    (define-read-only (stacks-block-height (x uint)) (ok x))";
+fn clarity7_fold_seed_is_still_a_dependency() {
+    let contract = "(define-read-only (fold-seed) (fold + (list u1 u2) seed))
+                    (define-constant seed u0)";
     let ast = build_ast_at(contract, ClarityVersion::Clarity7, StacksEpochId::Epoch41).unwrap();
     let names = sorted_definition_names(&ast);
-    assert_eq!(names[0], "stacks-block-height", "sorted: {names:?}");
+    assert_eq!(names, ["seed", "fold-seed"], "sorted: {names:?}");
 }
 
 /// A native function name in function position still means the native.
