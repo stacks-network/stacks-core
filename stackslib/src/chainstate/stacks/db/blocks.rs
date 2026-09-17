@@ -11967,6 +11967,9 @@ pub mod test {
     /// are evaluated against the same state. The five publish fees deliberately leave
     /// 99_500 uSTX for the insufficient-funds boundary.
     ///
+    /// The chain runs in Epoch 2.1: the authorization, signature-mode, and argument
+    /// type checks behind these rejections are epoch-gated.
+    ///
     /// One poison payload is sufficient because admission rejects this payload type
     /// before inspecting its microblock headers.
     #[test]
@@ -12015,6 +12018,7 @@ pub mod test {
         let mut peer_config = TestPeerConfig::new(function_name!(), 21319, 21320);
         peer_config.chain_config.initial_balances =
             vec![(contract_addr.to_account_principal(), 100_000)];
+        peer_config.chain_config.epochs = Some(epoch_21_test_epochs(ExecutionCost::max_value()));
         let mut peer = TestPeer::new(peer_config);
 
         let mut coinbase_nonce = 0;

@@ -127,39 +127,6 @@ where
     (stacks_block, block_size, block_cost)
 }
 
-fn epoch_21_test_epochs(block_limit: ExecutionCost) -> EpochList {
-    EpochList::new(&[
-        StacksEpoch {
-            epoch_id: StacksEpochId::Epoch10,
-            start_height: 0,
-            end_height: 0,
-            block_limit: ExecutionCost::max_value(),
-            network_epoch: PEER_VERSION_EPOCH_1_0,
-        },
-        StacksEpoch {
-            epoch_id: StacksEpochId::Epoch20,
-            start_height: 0,
-            end_height: 0,
-            block_limit: ExecutionCost::max_value(),
-            network_epoch: PEER_VERSION_EPOCH_2_0,
-        },
-        StacksEpoch {
-            epoch_id: StacksEpochId::Epoch2_05,
-            start_height: 0,
-            end_height: 0,
-            block_limit: ExecutionCost::max_value(),
-            network_epoch: PEER_VERSION_EPOCH_2_05,
-        },
-        StacksEpoch {
-            epoch_id: StacksEpochId::Epoch21,
-            start_height: 0,
-            end_height: STACKS_EPOCH_MAX,
-            block_limit,
-            network_epoch: PEER_VERSION_EPOCH_2_1,
-        },
-    ])
-}
-
 #[test]
 fn test_build_anchored_blocks_empty() {
     let peer_config = TestPeerConfig::new(function_name!(), 2000, 2001);
@@ -414,6 +381,7 @@ fn test_build_anchored_blocks_release_nonce_gap() {
 
     let mut peer_config = TestPeerConfig::new(function_name!(), 2054, 2055);
     peer_config.chain_config.initial_balances = vec![(sender_addr.clone().into(), 100_000)];
+    peer_config.chain_config.epochs = Some(epoch_21_test_epochs(ExecutionCost::max_value()));
     let mut peer = TestPeer::new(peer_config);
 
     for (tenure_id, tx_to_submit) in submitted_by_tenure.iter().cloned().enumerate() {
@@ -430,7 +398,7 @@ fn test_build_anchored_blocks_release_nonce_gap() {
                         &tx_to_submit,
                         None,
                         &ExecutionCost::max_value(),
-                        &StacksEpochId::Epoch20,
+                        &StacksEpochId::Epoch21,
                     )
                     .unwrap();
             },
@@ -504,6 +472,7 @@ fn test_build_anchored_blocks_contract_principal_lifecycle() {
         (caller_address.clone().into(), 1_000),
         (contract_address.clone().into(), 1_000),
     ];
+    peer_config.chain_config.epochs = Some(epoch_21_test_epochs(ExecutionCost::max_value()));
     let mut peer = TestPeer::new(peer_config);
 
     let initial_transfer =
@@ -519,7 +488,7 @@ fn test_build_anchored_blocks_contract_principal_lifecycle() {
                     &initial_transfer,
                     None,
                     &ExecutionCost::max_value(),
-                    &StacksEpochId::Epoch20,
+                    &StacksEpochId::Epoch21,
                 )
                 .unwrap();
         });
@@ -556,7 +525,7 @@ fn test_build_anchored_blocks_contract_principal_lifecycle() {
                     &publish,
                     None,
                     &ExecutionCost::max_value(),
-                    &StacksEpochId::Epoch20,
+                    &StacksEpochId::Epoch21,
                 )
                 .unwrap();
         });
@@ -588,7 +557,7 @@ fn test_build_anchored_blocks_contract_principal_lifecycle() {
                     &duplicate_publish,
                     None,
                     &ExecutionCost::max_value(),
-                    &StacksEpochId::Epoch20,
+                    &StacksEpochId::Epoch21,
                 )
                 .unwrap();
             mempool
@@ -600,7 +569,7 @@ fn test_build_anchored_blocks_contract_principal_lifecycle() {
                     &contract_call,
                     None,
                     &ExecutionCost::max_value(),
-                    &StacksEpochId::Epoch20,
+                    &StacksEpochId::Epoch21,
                 )
                 .unwrap();
         });
@@ -652,7 +621,7 @@ fn test_build_anchored_blocks_contract_principal_lifecycle() {
                         transfer,
                         None,
                         &ExecutionCost::max_value(),
-                        &StacksEpochId::Epoch20,
+                        &StacksEpochId::Epoch21,
                     )
                     .unwrap();
             }
@@ -666,7 +635,7 @@ fn test_build_anchored_blocks_contract_principal_lifecycle() {
                     &conflicting_transfer,
                     None,
                     &ExecutionCost::max_value(),
-                    &StacksEpochId::Epoch20,
+                    &StacksEpochId::Epoch21,
                 ),
                 Err(MemPoolRejection::ConflictingNonceInMempool)
             ));
@@ -971,11 +940,13 @@ fn test_build_anchored_blocks_preserve_state_and_receipts_across_tenures() {
         "set-value",
         vec![foo.clone(), bar.clone()],
     );
+    // The mainnet-version copy originates from a mainnet principal that has never
+    // transacted on this chain, so nonce 0 is what block assembly expects of it.
     let wrong_version = sign_standard_single_sig_tx_anchor_mode_version(
         set_value.payload.clone(),
         &contract_key,
-        2,
-        1_000,
+        0,
+        999,
         CHAIN_ID_TESTNET,
         TransactionAnchorMode::OnChainOnly,
         TransactionVersion::Mainnet,
@@ -984,13 +955,42 @@ fn test_build_anchored_blocks_preserve_state_and_receipts_across_tenures() {
         set_value.payload.clone(),
         &contract_key,
         2,
-        1_000,
+        999,
         CHAIN_ID_TESTNET + 1,
         TransactionAnchorMode::OnChainOnly,
         TransactionVersion::Testnet,
     );
+
+    // Raw submission skips admission, as a relayed or pre-existing mempool entry
+    // would, so block assembly alone has to keep the malformed transactions out.
+    for (tenure_id, malformed) in [(2, &wrong_version), (3, &wrong_chain_id)] {
+        let (block, _, _) = mine_mempool_tenure(
+            &mut peer,
+            tenure_id,
+            |chainstate, sortdb, parent_tip, mempool| {
+                mempool
+                    .submit_raw(
+                        chainstate,
+                        sortdb,
+                        &parent_tip.consensus_hash,
+                        &parent_tip.anchored_header.block_hash(),
+                        malformed.serialize_to_vec(),
+                        &ExecutionCost::max_value(),
+                        &StacksEpochId::Epoch21,
+                    )
+                    .unwrap();
+                assert!(mempool.has_tx(&malformed.txid()));
+            },
+        );
+        assert_eq!(block.txs.len(), 1);
+        assert!(matches!(
+            block.txs[0].payload,
+            TransactionPayload::Coinbase(..)
+        ));
+    }
+
     let (set_block, _, _) =
-        mine_mempool_tenure(&mut peer, 2, |chainstate, sortdb, parent_tip, mempool| {
+        mine_mempool_tenure(&mut peer, 4, |chainstate, sortdb, parent_tip, mempool| {
             let rejection = mempool
                 .submit(
                     chainstate,
@@ -1004,7 +1004,6 @@ fn test_build_anchored_blocks_preserve_state_and_receipts_across_tenures() {
                 )
                 .unwrap_err();
             assert!(matches!(rejection, MemPoolRejection::BadTransactionVersion));
-            assert!(!mempool.has_tx(&wrong_version.txid()));
 
             let rejection = mempool
                 .submit(
@@ -1024,8 +1023,8 @@ fn test_build_anchored_blocks_preserve_state_and_receipts_across_tenures() {
                     ChainstateError::InvalidStacksTransaction(ref message, false)
                 ) if message.contains("invalid chain ID")
             ));
-            assert!(!mempool.has_tx(&wrong_chain_id.txid()));
 
+            // The higher fee lets the valid call displace the stale nonce-2 entry.
             mempool
                 .submit(
                     chainstate,
@@ -1039,6 +1038,7 @@ fn test_build_anchored_blocks_preserve_state_and_receipts_across_tenures() {
                 )
                 .unwrap();
             assert!(mempool.has_tx(&set_value.txid()));
+            assert!(!mempool.has_tx(&wrong_chain_id.txid()));
         });
     assert_eq!(set_block.txs.len(), 2);
     assert_eq!(set_block.txs[1].txid(), set_value.txid());
@@ -1063,7 +1063,7 @@ fn test_build_anchored_blocks_preserve_state_and_receipts_across_tenures() {
         "get-value",
         vec![foo],
     );
-    mine_transaction(&mut peer, 3, &stored_get);
+    mine_transaction(&mut peer, 5, &stored_get);
     let stored_get_receipt = receipt_for(&observer, &stored_get);
     assert_eq!(stored_get_receipt.result, Value::okay(bar.clone()).unwrap());
     assert_eq!(stored_get_receipt.events.len(), 1);
@@ -1078,7 +1078,7 @@ fn test_build_anchored_blocks_preserve_state_and_receipts_across_tenures() {
 
     let recipient_principal = recipient_address.clone().into();
     let transfer = make_user_stacks_transfer(&transfer_key, 0, 200, &recipient_principal, 1_000);
-    let transfer_block = mine_transaction(&mut peer, 4, &transfer);
+    let transfer_block = mine_transaction(&mut peer, 6, &transfer);
     assert!(matches!(
         transfer_block.txs[1].payload,
         TransactionPayload::TokenTransfer(..)
