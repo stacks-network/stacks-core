@@ -1010,7 +1010,7 @@ fn test_release_epoch_matches_versions_and_peer_epoch() {
     assert_eq!(
         release_epoch_from_version,
         StacksEpochId::RELEASE_LATEST_EPOCH,
-        "versions.toml stacks_node_version major.minor must match RELEASE_LATEST_EPOCH"
+        "Cargo.toml workspace.package.version major.minor must match RELEASE_LATEST_EPOCH"
     );
     assert_eq!(
         u32::from(StacksEpochId::network_epoch(

@@ -255,7 +255,7 @@ impl StacksMessageCodec for HttpRequestPreamble {
         if let Some(ref c) = self.content_type {
             fd.write_all("Content-Type: ".as_bytes())
                 .map_err(CodecError::WriteError)?;
-            fd.write_all(c.to_string().as_str().as_bytes())
+            fd.write_all(c.to_string().as_bytes())
                 .map_err(CodecError::WriteError)?;
             fd.write_all("\r\n".as_bytes())
                 .map_err(CodecError::WriteError)?;
@@ -482,7 +482,7 @@ impl HttpRequestPayload {
             }
             Self::JSONBytes(ref val) => Ok(val.len() as u32),
             Self::Bytes(ref val) => Ok(val.len() as u32),
-            Self::Text(ref val) => Ok(val.as_str().as_bytes().len() as u32),
+            Self::Text(ref val) => Ok(val.as_str().len() as u32),
         }
     }
 

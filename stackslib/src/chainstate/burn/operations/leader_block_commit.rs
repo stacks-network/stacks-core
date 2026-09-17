@@ -292,9 +292,9 @@ impl LeaderBlockCommitOp {
                 .map(|out| {
                     out.as_ref()
                         .map(|out| out.address.clone().to_b58())
-                        .unwrap_or("<undecodable-output>".to_string())
+                        .unwrap_or(BurnchainSigner::UNDECODABLE_OUTPUT.to_string())
                 })
-                .unwrap_or("<no-change-output>".to_string()),
+                .unwrap_or(BurnchainSigner::NO_CHANGE_OUTPUT.to_string()),
         );
 
         let sunset_burn = 0;
@@ -338,9 +338,9 @@ impl LeaderBlockCommitOp {
                     .map(|out| {
                         out.as_ref()
                             .map(|out| out.address.clone().to_b58())
-                            .unwrap_or("<undecodable-output>".to_string())
+                            .unwrap_or(BurnchainSigner::UNDECODABLE_OUTPUT.to_string())
                     })
-                    .unwrap_or("<no-change-output>".to_string()),
+                    .unwrap_or(BurnchainSigner::NO_CHANGE_OUTPUT.to_string()),
             );
 
             let sunset_burn = tx.get_burn_amount();
@@ -403,9 +403,9 @@ impl LeaderBlockCommitOp {
                     .map(|out| {
                         out.as_ref()
                             .map(|out| out.address.clone().to_b58())
-                            .unwrap_or("<undecodable-output>".to_string())
+                            .unwrap_or(BurnchainSigner::UNDECODABLE_OUTPUT.to_string())
                     })
-                    .unwrap_or("<no-change-output>".to_string()),
+                    .unwrap_or(BurnchainSigner::NO_CHANGE_OUTPUT.to_string()),
             );
             Ok(CommitCalculation {
                 commit_outs,
@@ -574,7 +574,7 @@ impl StacksMessageCodec for LeaderBlockCommitOp {
         write_next(fd, &self.key_block_ptr)?;
         write_next(fd, &self.key_vtxindex)?;
         let memo_burn_parent_modulus =
-            (self.memo.get(0).copied().unwrap_or(0x00) << 3) + (self.burn_parent_modulus & 0b111);
+            (self.memo.first().copied().unwrap_or(0x00) << 3) + (self.burn_parent_modulus & 0b111);
         write_next(fd, &memo_burn_parent_modulus)?;
         Ok(())
     }
@@ -818,8 +818,8 @@ impl LeaderBlockCommitOp {
             return Err(op_error::BlockCommitBadOutputs);
         }
 
-        if self.commit_outs.get(0) != Some(&wf_info.sbtc_address) {
-            warn!("Invalid waterfall block commit: unexpected output"; "expected" => %wf_info.sbtc_address, "found" => ?self.commit_outs.get(0));
+        if self.commit_outs.first() != Some(&wf_info.sbtc_address) {
+            warn!("Invalid waterfall block commit: unexpected output"; "expected" => %wf_info.sbtc_address, "found" => ?self.commit_outs.first());
             return Err(op_error::BlockCommitBadOutputs);
         }
 
@@ -2448,7 +2448,7 @@ mod tests {
             prev_snapshot.index_root
         };
 
-        let mut fixtures = vec![
+        let mut fixtures = [
             CheckFixture {
                 // accept -- consumes leader_key_2
                 op: LeaderBlockCommitOp {
@@ -3469,12 +3469,10 @@ mod tests {
         }
     }
 
-    pub enum DescendencyStubbedSortitionHandle {
-        Descended,
-        NotDescended,
-    }
+    /// Sortition handle keeping PoX waterfall inactive and reporting descent from any anchor.
+    pub struct PreWaterfallSortitionStub;
 
-    impl SortitionHandle for DescendencyStubbedSortitionHandle {
+    impl SortitionHandle for PreWaterfallSortitionStub {
         fn sqlite(&self) -> &Connection {
             panic!("Cannot evaluate");
         }
@@ -3509,10 +3507,7 @@ mod tests {
             _block_at_burn_height: u64,
             _potential_ancestor: &BlockHeaderHash,
         ) -> Result<bool, db_error> {
-            match self {
-                DescendencyStubbedSortitionHandle::Descended => Ok(true),
-                DescendencyStubbedSortitionHandle::NotDescended => Ok(false),
-            }
+            Ok(true)
         }
 
         fn get_first_pox_waterfall_block(&self) -> Result<u64, db_error> {
@@ -3758,7 +3753,7 @@ mod tests {
                     reward_set_info.clone()
                 };
                 eprintln!("Processing {}", ix);
-                let mut ic = DescendencyStubbedSortitionHandle::Descended;
+                let mut ic = PreWaterfallSortitionStub;
                 let output = op.check_pox(
                     StacksEpochId::Epoch30,
                     &burnchain,
@@ -4144,7 +4139,7 @@ mod tests {
             burn_header_hash: BurnchainHeaderHash([0x00; 32]), // to be filled in
         };
 
-        let all_leader_key_ops = vec![leader_key];
+        let all_leader_key_ops = [leader_key];
 
         let mut all_block_commit_ops = vec![
             (block_commit_pre_2_05, true),

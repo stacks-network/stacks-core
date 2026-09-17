@@ -1,0 +1,1 @@
+Added the apparent sender to each PoX transaction in the `/new_burn_block` event payload.

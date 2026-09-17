@@ -50,7 +50,7 @@ use crate::chainstate::nakamoto::signer_set::{NakamotoSigners, SignerCalculation
 use crate::chainstate::nakamoto::{NakamotoChainState, TxToProcess};
 use crate::chainstate::stacks::address::PoxAddress;
 use crate::chainstate::stacks::db::accounts::MinerReward;
-use crate::chainstate::stacks::db::transactions::TransactionNonceMismatch;
+use crate::chainstate::stacks::db::transactions::{NonceCheckFailure, TransactionNonceMismatch};
 use crate::chainstate::stacks::db::*;
 use crate::chainstate::stacks::events::StacksBlockEventData;
 use crate::chainstate::stacks::{
@@ -99,6 +99,15 @@ pub struct StagingBlock {
     pub commit_burn: u64,
     pub sortition_burn: u64,
     pub block_data: Vec<u8>,
+}
+
+/// A transaction-processing failure tied to the microblock that contained it.
+#[derive(Debug)]
+pub struct MicroblockProcessingFailure {
+    /// Chainstate error raised while processing the transaction.
+    pub source: Error,
+    /// Hash of the microblock containing the invalid transaction.
+    pub microblock_hash: BlockHeaderHash,
 }
 
 #[derive(Debug)]
@@ -291,7 +300,7 @@ impl MemPoolRejection {
             Other(s) => ("ServerFailureOther", Some(json!({ "message": s }))),
         };
         let mut result = json!({
-            "txid": format!("{}", txid.to_hex()),
+            "txid": txid.to_hex(),
             "error": "transaction rejected",
             "reason": reason_code,
         });
@@ -405,8 +414,8 @@ impl FromRow<StagingBlock> for StagingBlock {
 
 impl StagingMicroblock {
     #[cfg(test)]
-    pub fn try_into_microblock(self) -> Result<StacksMicroblock, StagingMicroblock> {
-        StacksMicroblock::consensus_deserialize(&mut &self.block_data[..]).map_err(|_e| self)
+    pub fn try_into_microblock(self) -> Result<StacksMicroblock, Box<StagingMicroblock>> {
+        StacksMicroblock::consensus_deserialize(&mut &self.block_data[..]).map_err(|_e| self.into())
     }
 }
 
@@ -871,15 +880,6 @@ impl StacksChainState {
         StacksChainState::inner_load_block_header(&block_path)
     }
 
-    /// Closure for defaulting to an empty microblock stream if a microblock stream file is not found
-    fn empty_stream(e: Error) -> Result<Option<Vec<StacksMicroblock>>, Error> {
-        if matches!(e, Error::DBError(db_error::NotFoundError)) {
-            Ok(Some(vec![]))
-        } else {
-            Err(e)
-        }
-    }
-
     /// Load up a blob of data.
     /// Query should be structured to return rows of BLOBs
     fn load_block_data_blobs<P>(
@@ -946,20 +946,6 @@ impl StacksChainState {
             "staging_microblocks_data",
             block_hash,
         )
-    }
-
-    fn has_blocks_with_microblock_pubkh(
-        block_conn: &DBConn,
-        pubkey_hash: &Hash160,
-        minimum_block_height: i64,
-    ) -> bool {
-        let sql = "SELECT 1 FROM staging_blocks WHERE microblock_pubkey_hash = ?1 AND height >= ?2";
-        let args = params![pubkey_hash, minimum_block_height];
-        block_conn
-            .query_row(sql, args, |_r| Ok(()))
-            .optional()
-            .expect("DB CORRUPTION: block header DB corrupted!")
-            .is_some()
     }
 
     /// Load up a preprocessed (queued) but still unprocessed block.
@@ -2167,18 +2153,6 @@ impl StacksChainState {
         let qry = "SELECT consensus_hash FROM staging_blocks WHERE anchored_block_hash = ?1";
         let args = params![block_hash];
         query_rows(conn, qry, args).map_err(|e| e.into())
-    }
-
-    /// Determine if we have the block data for a given block-commit.
-    /// Used to see if we have the block data for an unaffirmed PoX anchor block
-    /// (hence the test_debug! macros referring to PoX anchor blocks)
-    fn has_stacks_block_for(chainstate_conn: &DBConn, block_commit: LeaderBlockCommitOp) -> bool {
-        !StacksChainState::get_known_consensus_hashes_for_block(
-            chainstate_conn,
-            &block_commit.block_header_hash,
-        )
-        .expect("FATAL: failed to query staging blocks DB")
-        .is_empty()
     }
 
     /// Delete a microblock's data from the DB
@@ -3931,16 +3905,22 @@ impl StacksChainState {
     pub fn process_microblocks_transactions(
         clarity_tx: &mut ClarityTx,
         microblocks: &[StacksMicroblock],
-    ) -> Result<(u128, u128, Vec<StacksTransactionReceipt>), (Error, BlockHeaderHash)> {
+    ) -> Result<(u128, u128, Vec<StacksTransactionReceipt>), Box<MicroblockProcessingFailure>> {
         let mut fees = 0u128;
         let mut burns = 0u128;
         let mut receipts = vec![];
         for microblock in microblocks.iter() {
             debug!("Process microblock {}", &microblock.block_hash());
             for (tx_index, tx) in microblock.txs.iter().enumerate() {
-                let (tx_fee, mut tx_receipt) =
-                    StacksChainState::process_transaction(clarity_tx, tx, false, None)
-                        .map_err(|e| (e, microblock.block_hash()))?;
+                let (tx_fee, mut tx_receipt) = StacksChainState::process_transaction(
+                    clarity_tx, tx, false, None,
+                )
+                .map_err(|source| {
+                    Box::new(MicroblockProcessingFailure {
+                        source,
+                        microblock_hash: microblock.block_hash(),
+                    })
+                })?;
 
                 tx_receipt.microblock_header = Some(microblock.header.clone());
                 tx_receipt.tx_index = u32::try_from(tx_index).expect("more than 2^32 items");
@@ -5137,17 +5117,20 @@ impl StacksChainState {
                 parent_microblocks,
             ) {
                 Ok((fees, burns, events)) => (fees, burns, events),
-                Err((e, mblock_header_hash)) => {
+                Err(error) => {
                     let msg = format!(
                         "Invalid Stacks microblocks {},{} (offender {}): {:?}",
-                        parent_consensus_hash, parent_header_hash, mblock_header_hash, &e
+                        parent_consensus_hash,
+                        parent_header_hash,
+                        error.microblock_hash,
+                        error.source,
                     );
                     warn!("{}", &msg);
 
                     if miner_id_opt.is_none() {
                         clarity_tx.rollback_block();
                     }
-                    return Err(Error::InvalidStacksMicroblock(msg, mblock_header_hash));
+                    return Err(Error::InvalidStacksMicroblock(msg, error.microblock_hash));
                 }
             };
 
@@ -6641,7 +6624,12 @@ impl StacksChainState {
             match StacksChainState::check_transaction_nonces(clarity_connection, tx, true) {
                 Ok(x) => x,
                 // if errored, check if MEMPOOL_TX_CHAINING would admit this TX
-                Err((e, (origin, payer))) => {
+                Err(failure) => {
+                    let NonceCheckFailure {
+                        mismatch: e,
+                        origin_account: origin,
+                        payer_account: payer,
+                    } = *failure;
                     // if the nonce is less than expected, then TX_CHAINING would not allow in any case
                     if e.actual < e.expected {
                         return Err(e.into());
@@ -8608,8 +8596,8 @@ pub mod test {
         // non-empty stream, but missing first microblock
         {
             let mut broken_microblocks = vec![];
-            for i in 1..num_mblocks {
-                broken_microblocks.push(microblocks[i].clone());
+            for microblock in microblocks[..num_mblocks].iter().skip(1) {
+                broken_microblocks.push(microblock.clone());
             }
 
             let mut new_child_block_header = child_block_header.clone();
@@ -8629,9 +8617,9 @@ pub mod test {
         {
             let mut broken_microblocks = vec![];
             let missing = num_mblocks / 2;
-            for i in 0..num_mblocks {
+            for (i, microblock) in microblocks[..num_mblocks].iter().enumerate() {
                 if i != missing {
-                    broken_microblocks.push(microblocks[i].clone());
+                    broken_microblocks.push(microblock.clone());
                 }
             }
 
@@ -9396,7 +9384,7 @@ pub mod test {
         let block_3 = make_empty_coinbase_block(&privk);
         let block_4 = make_empty_coinbase_block(&privk);
 
-        let mut blocks = vec![block_1, block_2, block_3, block_4];
+        let mut blocks = [block_1, block_2, block_3, block_4];
 
         let mut microblocks = vec![];
 
@@ -10014,12 +10002,12 @@ pub mod test {
             assert!(!block_inv_all.has_ith_microblock_stream((i + 1) as u16));
 
             if i < blocks.len() - 1 {
-                for k in 0..3 {
+                for (k, microblock) in microblocks[i][..3].iter().enumerate() {
                     set_microblocks_processed(
                         &mut chainstate,
                         &consensus_hashes[i + 1],
                         &block_hashes[i + 1],
-                        &microblocks[i][k].block_hash(),
+                        &microblock.block_hash(),
                     );
 
                     let block_inv_all =
@@ -10713,11 +10701,11 @@ pub mod test {
         let mut mblocks_branches = vec![];
         let mut consensus_hashes = vec![ConsensusHash([2u8; 20])];
 
-        for i in 1..4 {
+        for (i, mblock) in mblocks[..4].iter().enumerate().skip(1) {
             let mut mblocks_branch = make_sample_microblock_stream_fork(
                 &privk,
-                &mblocks[i].block_hash(),
-                mblocks[i].header.sequence + 1,
+                &mblock.block_hash(),
+                mblock.header.sequence + 1,
             );
             mblocks_branch.truncate(3);
 
@@ -10814,8 +10802,8 @@ pub mod test {
 
         for (i, mblock_branch) in mblocks_branches.iter().enumerate() {
             let mut expected_mblocks = vec![];
-            for j in 0..((mblock_branch[0].header.sequence) as usize) {
-                expected_mblocks.push(mblocks[j].clone());
+            for mblock in mblocks[..(mblock_branch[0].header.sequence) as usize].iter() {
+                expected_mblocks.push(mblock.clone());
             }
             expected_mblocks.append(&mut mblock_branch.clone());
 
@@ -11205,8 +11193,7 @@ pub mod test {
             1000000000 - (1000 + 2000 + 3000 + 4000 + 5000 + 6000 + 7000 + 8000 + 9000)
         );
 
-        for i in 0..(num_blocks - 1) {
-            let del_addr = &del_addrs[i];
+        for (i, del_addr) in del_addrs[..num_blocks - 1].iter().enumerate() {
             let result = eval_at_tip(
                 &mut peer,
                 "pox-2",
@@ -11913,12 +11900,11 @@ pub mod test {
                     + 19000)
         );
 
-        for i in 0..(num_blocks - 1) {
+        for (i, del_addr) in del_addrs[..num_blocks - 1].iter().enumerate() {
             // skipped tenure 6's DelegateSTX
             if i == 5 {
                 continue;
             }
-            let del_addr = &del_addrs[i];
             let result = eval_at_tip(
                 &mut peer,
                 "pox-2",

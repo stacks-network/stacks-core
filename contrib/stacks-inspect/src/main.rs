@@ -320,6 +320,10 @@ fn build_common_opts(cli: &Cli) -> CommonOpts {
         });
         let config = Config::from_config_file(config_file, false)
             .unwrap_or_else(|e| panic!("Failed to convert config file into node config: {e}"));
+        // Install the config-driven process-wide state (the pox-5 sBTC contract and admin
+        // overrides) exactly as the node's run loop does, so that a replay which crosses the
+        // Epoch 4.0 boundary instantiates the same pox-5 body as the chain being replayed.
+        config.apply_runtime_state();
         opts.config.replace(config);
     }
 
@@ -337,6 +341,10 @@ fn build_common_opts(cli: &Cli) -> CommonOpts {
         };
         let config = Config::from_config_file(config_file, false)
             .unwrap_or_else(|e| panic!("Failed to convert config file into node config: {e}"));
+        // Install the config-driven process-wide state (the pox-5 sBTC contract and admin
+        // overrides) exactly as the node's run loop does, so that a replay which crosses the
+        // Epoch 4.0 boundary instantiates the same pox-5 body as the chain being replayed.
+        config.apply_runtime_state();
         opts.config.replace(config);
     }
 

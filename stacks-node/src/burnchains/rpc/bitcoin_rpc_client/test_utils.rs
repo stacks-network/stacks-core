@@ -15,6 +15,8 @@
 
 //! Test-only utilities for [`BitcoinRpcClient`]
 
+use std::fmt;
+
 use serde::{Deserialize, Deserializer};
 use serde_json::Value;
 use stacks::burnchains::bitcoin::address::BitcoinAddress;
@@ -101,15 +103,28 @@ pub enum AddressType {
     Bech32m,
 }
 
-impl ToString for AddressType {
-    fn to_string(&self) -> String {
-        match self {
+impl fmt::Display for AddressType {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(match self {
             AddressType::Legacy => "legacy",
             AddressType::P2shSegwit => "p2sh-segwit",
             AddressType::Bech32 => "bech32",
             AddressType::Bech32m => "bech32m",
-        }
-        .to_string()
+        })
+    }
+}
+
+/// Address formatting must preserve the strings accepted by Bitcoin Core RPC.
+#[test]
+fn test_address_type_rpc_strings() {
+    for (address_type, expected) in [
+        (AddressType::Legacy, "legacy"),
+        (AddressType::P2shSegwit, "p2sh-segwit"),
+        (AddressType::Bech32, "bech32"),
+        (AddressType::Bech32m, "bech32m"),
+    ] {
+        assert_eq!(address_type.to_string(), expected);
+        assert_eq!(format!("{address_type}"), expected);
     }
 }
 

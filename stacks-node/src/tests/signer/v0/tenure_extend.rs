@@ -586,6 +586,7 @@ fn stx_transfers_dont_effect_idle_timeout() {
 
     let slot_id = 0_u32;
 
+    // This response predates global acceptance and reports an estimated idle time.
     let initial_acceptance = signer_test.get_latest_block_acceptance(slot_id);
     assert_eq!(initial_acceptance.signer_signature_hash, last_block_hash);
 
@@ -598,8 +599,6 @@ fn stx_transfers_dont_effect_idle_timeout() {
 
     let mut sender_nonce = 0;
 
-    // Note that this response was BEFORE the block was globally accepted. it will report a guestimated idle time
-    let initial_acceptance = initial_acceptance;
     let mut first_global_acceptance = None;
     for i in 0..num_txs {
         info!("---- Mining interim block {} ----", i + 1);
@@ -1402,7 +1401,9 @@ fn tenure_extend_after_stale_commit_same_miner() {
 
     let Counters {
         skip_commit_op,
+        naka_submitted_commits: commits_submitted,
         naka_submitted_commit_last_burn_height: last_commit_burn_height,
+        naka_submitted_commit_last_stacks_tip: last_commit_stacks_tip,
         ..
     } = signer_test.running_nodes.counters.clone();
 
@@ -1432,13 +1433,15 @@ fn tenure_extend_after_stale_commit_same_miner() {
         .wait_for_nonce_increase(&sender_addr, transfer_nonce)
         .unwrap();
 
+    let commits_before = commits_submitted.get();
     skip_commit_op.set(false);
 
     info!("---- Waiting for block commit to N-1 ----");
 
     wait_for(30, || {
-        let last_height = last_commit_burn_height.get();
-        Ok(last_height == prev_tip.burn_block_height)
+        let commits_after = commits_submitted.get();
+        let last_commit_tip = last_commit_stacks_tip.get();
+        Ok(commits_after > commits_before && last_commit_tip == prev_tip.stacks_tip_height)
     })
     .expect("Timed out waiting for block commit to N-1");
 
@@ -1536,7 +1539,9 @@ fn tenure_extend_after_stale_commit_same_miner_then_no_winner() {
 
     let Counters {
         skip_commit_op,
+        naka_submitted_commits: commits_submitted,
         naka_submitted_commit_last_burn_height: last_commit_burn_height,
+        naka_submitted_commit_last_stacks_tip: last_commit_stacks_tip,
         ..
     } = signer_test.running_nodes.counters.clone();
 
@@ -1566,13 +1571,15 @@ fn tenure_extend_after_stale_commit_same_miner_then_no_winner() {
         .wait_for_nonce_increase(&sender_addr, transfer_nonce)
         .unwrap();
 
+    let commits_before = commits_submitted.get();
     skip_commit_op.set(false);
 
     info!("---- Waiting for block commit to N-1 ----");
 
     wait_for(30, || {
-        let last_height = last_commit_burn_height.get();
-        Ok(last_height == prev_tip.burn_block_height)
+        let commits_after = commits_submitted.get();
+        let last_commit_tip = last_commit_stacks_tip.get();
+        Ok(commits_after > commits_before && last_commit_tip == prev_tip.stacks_tip_height)
     })
     .expect("Timed out waiting for block commit to N-1");
 

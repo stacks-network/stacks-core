@@ -49,26 +49,6 @@ impl I128Ops {
         Ok(Value::Int(x))
     }
 }
-impl ASCIIOps {
-    fn make_value(x: Vec<u8>) -> Result<Value, VmExecutionError> {
-        Ok(Value::Sequence(SequenceData::String(CharType::ASCII(
-            ASCIIData { data: x },
-        ))))
-    }
-}
-impl UTF8Ops {
-    fn make_value(x: Vec<Vec<u8>>) -> Result<Value, VmExecutionError> {
-        Ok(Value::Sequence(SequenceData::String(CharType::UTF8(
-            UTF8Data { data: x },
-        ))))
-    }
-}
-
-impl BuffOps {
-    fn make_value(x: Vec<u8>) -> Result<Value, VmExecutionError> {
-        Ok(Value::Sequence(SequenceData::Buffer(BuffData { data: x })))
-    }
-}
 
 // This macro checks the type of the required two arguments and then dispatches the evaluation
 //   to the correct arithmetic type handler (after deconstructing the Clarity Values into

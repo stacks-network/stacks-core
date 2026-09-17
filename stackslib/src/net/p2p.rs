@@ -2838,7 +2838,7 @@ impl PeerNetwork {
         let mut drained = vec![];
 
         // flush each outgoing conversation
-        let mut relay_handles = std::mem::replace(&mut self.relay_handles, HashMap::new());
+        let mut relay_handles = mem::take(&mut self.relay_handles);
         for (event_id, handle_list) in relay_handles.iter_mut() {
             if handle_list.is_empty() {
                 debug!("No handles for event {}", event_id);
@@ -2964,7 +2964,7 @@ impl PeerNetwork {
         // pick a random outbound conversation to one of the initial neighbors
         let mut idx = thread_rng().gen::<usize>() % self.peers.len();
         for _ in 0..self.peers.len() + 1 {
-            let event_id = match self.peers.keys().skip(idx).next() {
+            let event_id = match self.peers.keys().nth(idx) {
                 Some(eid) => *eid,
                 None => {
                     idx = 0;
@@ -4372,7 +4372,7 @@ impl PeerNetwork {
                     if self.walk_pingbacks.len() > MAX_NEIGHBORS_DATA_LEN as usize {
                         // drop one at random
                         let idx = thread_rng().gen::<usize>() % self.walk_pingbacks.len();
-                        let drop_addr = match self.walk_pingbacks.keys().skip(idx).next() {
+                        let drop_addr = match self.walk_pingbacks.keys().nth(idx) {
                             Some(addr) => (*addr).clone(),
                             None => {
                                 continue;
@@ -4467,7 +4467,7 @@ impl PeerNetwork {
         sortdb: &SortitionDB,
         chainstate: &mut StacksChainState,
     ) -> Result<(), net_error> {
-        let stacker_db_configs = mem::replace(&mut self.stacker_db_configs, HashMap::new());
+        let stacker_db_configs = mem::take(&mut self.stacker_db_configs);
         self.stacker_db_configs = self.stackerdbs.create_or_reconfigure_stackerdbs(
             chainstate,
             sortdb,
@@ -4947,7 +4947,7 @@ impl PeerNetwork {
                     .iter()
                     .fold(0, |acc, (_, inbox)| acc + inbox.messages.len())
             );
-            let buffered_messages = mem::replace(&mut self.pending_messages, HashMap::new());
+            let buffered_messages = mem::take(&mut self.pending_messages);
             let unhandled = self.handle_unsolicited_sortition_messages(
                 sortdb,
                 chainstate,
@@ -4968,8 +4968,7 @@ impl PeerNetwork {
                     .iter()
                     .fold(0, |acc, (_, inbox)| acc + inbox.messages.len())
             );
-            let buffered_stacks_messages =
-                mem::replace(&mut self.pending_stacks_messages, HashMap::new());
+            let buffered_stacks_messages = mem::take(&mut self.pending_stacks_messages);
             let unhandled = self.handle_unsolicited_stacks_messages(
                 chainstate,
                 buffered_stacks_messages,
@@ -5594,7 +5593,6 @@ mod test {
     use std::{thread, time};
 
     use clarity::util::sleep_ms;
-    use rand::{self, RngCore};
     use stacks_common::types::chainstate::BurnchainHeaderHash;
 
     use super::*;
@@ -5605,13 +5603,6 @@ mod test {
     use crate::net::test::*;
     use crate::net::*;
     use crate::util_lib::test::*;
-
-    fn make_random_peer_address() -> PeerAddress {
-        let mut rng = rand::thread_rng();
-        let mut bytes = [0u8; 16];
-        rng.fill_bytes(&mut bytes);
-        PeerAddress(bytes)
-    }
 
     fn make_test_neighbor(port: u16) -> Neighbor {
         let neighbor = Neighbor {

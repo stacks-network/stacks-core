@@ -346,6 +346,7 @@ impl LocalStateMachine {
             parent_tenure_id,
             db,
             tenure_last_block_proposal_timeout,
+            None,
         )?
         .map(|info| (info.block.header.chain_length, info.block.block_id()));
 

@@ -133,7 +133,7 @@ impl PeerNetwork {
 
         // flip a coin
         let mut rng = thread_rng();
-        if rng.next_u32() % 2 == 0 {
+        if rng.next_u32().is_multiple_of(2) {
             return Ordering::Less;
         } else {
             return Ordering::Greater;

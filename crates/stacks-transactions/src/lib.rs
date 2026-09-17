@@ -35,13 +35,13 @@
 
 use std::collections::{HashMap, HashSet};
 
-use clarity_types::Value;
 use clarity_types::effects::{AssetMap, AssetMapEntry};
 use clarity_types::types::serialization::SerializationError;
 use clarity_types::types::{
     AssetIdentifier, BoundedErrorString, PrincipalData, QualifiedContractIdentifier,
     StandardPrincipalData,
 };
+use clarity_types::{ClarityVersion, Value};
 use stacks_codec::transaction::{
     NonfungibleConditionCode, TransactionPostCondition, TransactionPostConditionMode,
 };
@@ -50,6 +50,8 @@ use stacks_common::types::StacksEpochId;
 
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod version_tests;
 
 /// This is a safe-to-hash Clarity value
 #[derive(PartialEq, Eq)]
@@ -135,6 +137,74 @@ pub fn check_post_conditions_supported_in_epoch(
         return Err(UnsupportedPostCondition::StakingOrPox);
     }
 
+    Ok(())
+}
+
+/// Why a versioned smart-contract deploy is not valid in a given epoch. Typed
+/// rather than a formatted message so callers keep their own error channel.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum UnsupportedVersionedDeploy {
+    /// From Epoch 4.1 deploys may not pin a version: new contracts always use
+    /// the epoch default.
+    NotAccepted {
+        requested: ClarityVersion,
+        epoch_default: ClarityVersion,
+    },
+    /// The pinned version is newer than the epoch supports.
+    VersionTooNew {
+        requested: ClarityVersion,
+        epoch_id: StacksEpochId,
+        max: ClarityVersion,
+    },
+}
+
+impl std::fmt::Display for UnsupportedVersionedDeploy {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::NotAccepted {
+                requested,
+                epoch_default,
+            } => write!(
+                f,
+                "pins {requested}, but versioned smart-contract deploys are not accepted since Stacks 4.1; an unversioned deploy gets {epoch_default}"
+            ),
+            Self::VersionTooNew {
+                requested,
+                epoch_id,
+                max,
+            } => write!(
+                f,
+                "asks for {requested}, but current epoch {epoch_id} only supports up to {max}"
+            ),
+        }
+    }
+}
+
+impl std::error::Error for UnsupportedVersionedDeploy {}
+
+/// Reject a smart-contract deploy that pins `clarity_version` when `epoch_id`
+/// no longer accepts versioned deploys (from Epoch 4.1) or does not know that
+/// version yet. Unversioned deploys get the epoch default Clarity version.
+/// Versioned deploys before Epoch 2.1 are rejected by static block validation,
+/// not here.
+pub fn check_versioned_deploy_supported_in_epoch(
+    clarity_version: ClarityVersion,
+    epoch_id: StacksEpochId,
+) -> Result<(), UnsupportedVersionedDeploy> {
+    let epoch_default = ClarityVersion::default_for_epoch(epoch_id);
+    if epoch_id.rejects_versioned_smart_contracts() {
+        return Err(UnsupportedVersionedDeploy::NotAccepted {
+            requested: clarity_version,
+            epoch_default,
+        });
+    }
+    if clarity_version > epoch_default {
+        return Err(UnsupportedVersionedDeploy::VersionTooNew {
+            requested: clarity_version,
+            epoch_id,
+            max: epoch_default,
+        });
+    }
     Ok(())
 }
 

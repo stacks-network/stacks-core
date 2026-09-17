@@ -19,7 +19,7 @@ use stacks_common::types::net::PeerHost;
 
 use crate::net::http::{
     parse_json, Error, HttpRequest, HttpRequestContents, HttpRequestPreamble, HttpResponse,
-    HttpResponseContents, HttpResponsePayload, HttpResponsePreamble, HttpServerError,
+    HttpResponseContents, HttpResponsePayload, HttpResponsePreamble,
 };
 use crate::net::httpcore::{RPCRequestHandler, StacksHttpRequest, StacksHttpResponse};
 use crate::net::{Error as NetError, StacksNodeState};
@@ -82,15 +82,6 @@ impl HttpRequest for RPCGetHealthRequestHandler {
 
         Ok(HttpRequestContents::new().query_string(query))
     }
-}
-
-fn create_error_response(
-    preamble: &HttpRequestPreamble,
-    error_message: &str,
-) -> Result<(HttpResponsePreamble, HttpResponseContents), NetError> {
-    StacksHttpResponse::new_error(preamble, &HttpServerError::new(error_message.to_string()))
-        .try_into_contents()
-        .map_err(NetError::from)
 }
 
 impl RPCRequestHandler for RPCGetHealthRequestHandler {
