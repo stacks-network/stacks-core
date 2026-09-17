@@ -21,7 +21,7 @@ use clarity_types::types::SequenceSubtype;
 use rstest::rstest;
 #[cfg(test)]
 use rstest_reuse::{self, *};
-use stacks_common::types::StacksEpochId;
+use stacks_common::types::{StacksEpochId, StacksEpochRangeTestExt as _};
 
 use crate::vm::analysis::errors::{StaticCheckError, StaticCheckErrorKind, SyntaxBindingError};
 use crate::vm::analysis::tests::utils::{SingleAnalysisPass, run_single_analysis_pass};
@@ -3177,7 +3177,7 @@ fn test_combine_tuples() {
     mem_type_check("(merge { a: 1, b: 2, c: 3 } 5)").unwrap_err();
 }
 
-/// Static-analysis rejection of an oversized tuple `merge`, in every epoch.
+/// Static-analysis rejection of an oversized tuple `merge`.
 ///
 /// Two individually-valid `(buff 524288)`-typed fields merge into a tuple type whose value
 /// size exceeds `MAX_VALUE_SIZE`. `check_special_merge` rejects it at the merge site with a
@@ -3188,13 +3188,13 @@ fn tuple_merge_oversized_analysis_rejected() {
     let snippet = "(define-private (f (x (buff 524288)))
         (ok (merge (tuple (a x)) (tuple (b x)))))";
 
-    // Same clean `ValueTooLarge` on both sides.
-    for epoch in [StacksEpochId::Epoch34, StacksEpochId::Epoch40] {
-        let err = mem_run_analysis(snippet, ClarityVersion::Clarity3, epoch).unwrap_err();
+    for &epoch in (StacksEpochId::Epoch21..).as_slice() {
+        let version = ClarityVersion::default_for_epoch(epoch);
+        let err = mem_run_analysis(snippet, version, epoch).unwrap_err();
         assert_eq!(
             *err.err,
             StaticCheckErrorKind::ValueTooLarge,
-            "expected ValueTooLarge at {epoch}"
+            "expected ValueTooLarge at {epoch} ({version})"
         );
     }
 }
@@ -3212,13 +3212,13 @@ fn tuple_merge_unused_oversized_analysis_rejected() {
         (let ((m (merge (tuple (a x)) (tuple (b x)))))
             (ok true)))";
 
-    // Same clean `ValueTooLarge` on both sides.
-    for epoch in [StacksEpochId::Epoch34, StacksEpochId::Epoch40] {
-        let err = mem_run_analysis(snippet, ClarityVersion::Clarity3, epoch).unwrap_err();
+    for &epoch in (StacksEpochId::Epoch21..).as_slice() {
+        let version = ClarityVersion::default_for_epoch(epoch);
+        let err = mem_run_analysis(snippet, version, epoch).unwrap_err();
         assert_eq!(
             *err.err,
             StaticCheckErrorKind::ValueTooLarge,
-            "expected ValueTooLarge at {epoch}"
+            "expected ValueTooLarge at {epoch} ({version})"
         );
     }
 }

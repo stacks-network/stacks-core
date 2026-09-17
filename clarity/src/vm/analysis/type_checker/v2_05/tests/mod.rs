@@ -2561,20 +2561,30 @@ fn test_string_utf8_negative_len() {
 }
 
 /// Static-analysis rejection of an oversized tuple `merge`.
+///
+/// Two individually-valid `(buff 524288)`-typed fields merge into a tuple type whose value
+/// size exceeds `MAX_VALUE_SIZE`. `check_special_merge` rejects it at the merge site with a
+/// clean `ValueTooLarge`, and the error does not vary by epoch.
+/// The check lives in [`TupleTypeSignature::shallow_merge`].
 #[test]
-fn tuple_merge_oversized_analysis_rejected_v2_05() {
+fn tuple_merge_oversized_analysis_rejected() {
     // Result is sized by the enclosing `ok`.
     let sized = "(define-private (f (x (buff 524288)))
         (ok (merge (tuple (a x)) (tuple (b x)))))";
-    let res =
-        mem_type_check(sized, ClarityVersion::Clarity1, StacksEpochId::Epoch2_05).unwrap_err();
-    assert_eq!(*res.err, StaticCheckErrorKind::ValueTooLarge);
-
     // Result bound but never sized: the case that historically slipped through.
     let unused = "(define-private (f (x (buff 524288)))
         (let ((m (merge (tuple (a x)) (tuple (b x)))))
             (ok true)))";
-    let res =
-        mem_type_check(unused, ClarityVersion::Clarity1, StacksEpochId::Epoch2_05).unwrap_err();
-    assert_eq!(*res.err, StaticCheckErrorKind::ValueTooLarge);
+
+    for epoch in [StacksEpochId::Epoch20, StacksEpochId::Epoch2_05] {
+        let version = ClarityVersion::default_for_epoch(epoch);
+        for snippet in [sized, unused] {
+            let res = mem_type_check(snippet, version, epoch).unwrap_err();
+            assert_eq!(
+                *res.err,
+                StaticCheckErrorKind::ValueTooLarge,
+                "expected ValueTooLarge at {epoch} ({version}) for: {snippet}"
+            );
+        }
+    }
 }

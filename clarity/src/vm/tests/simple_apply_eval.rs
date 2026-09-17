@@ -25,8 +25,8 @@ use stacks_common::address::{
 };
 use stacks_common::bounded_format;
 use stacks_common::consts::{CHAIN_ID_MAINNET, CHAIN_ID_TESTNET};
-use stacks_common::types::StacksEpochId;
 use stacks_common::types::chainstate::{StacksAddress, StacksPrivateKey, StacksPublicKey};
+use stacks_common::types::{StacksEpochId, StacksEpochRangeTestExt as _};
 use stacks_common::util::hash::{hex_bytes, to_hex};
 
 use crate::vm::ast::parse;
@@ -1742,7 +1742,7 @@ fn merge_update_type_signature_2239() {
 /// site that happens to size the value.
 ///
 /// `merge` rejects the oversized result cleanly with `ValueTooLarge` and the error does not
-/// vary by epoch — the check lives in `shallow_merge`, which is not epoch-gated.
+/// vary by epoch — the check lives in `shallow_merge`.
 #[test]
 fn tuple_merge_runtime_rejects_oversized() {
     let program = r#"
@@ -1778,20 +1778,13 @@ fn tuple_merge_runtime_rejects_oversized() {
                 true))
     "#;
 
-    for epoch in [
-        StacksEpochId::Epoch30,
-        StacksEpochId::Epoch31,
-        StacksEpochId::Epoch32,
-        StacksEpochId::Epoch33,
-        StacksEpochId::Epoch34,
-        StacksEpochId::Epoch40,
-    ] {
-        let err =
-            execute_with_parameters(program, ClarityVersion::Clarity3, epoch, false).unwrap_err();
+    for &epoch in (StacksEpochId::Epoch20..).as_slice() {
+        let version = ClarityVersion::default_for_epoch(epoch);
+        let err = execute_with_parameters(program, version, epoch, false).unwrap_err();
         assert_eq!(
             err,
             RuntimeCheckErrorKind::ValueTooLarge.into(),
-            "expected ValueTooLarge at {epoch}"
+            "expected ValueTooLarge at {epoch} ({version})"
         );
     }
 }
