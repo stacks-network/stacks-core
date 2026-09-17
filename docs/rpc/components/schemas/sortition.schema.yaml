@@ -32,8 +32,7 @@ properties:
   was_sortition:
     type: boolean
     description: Boolean indicating whether or not there was a successful sortition
-      (i.e. a winning block or miner was chosen). This will also be true if this
-      sortition corresponds to a shadow block.
+      (i.e. a winning block or miner was chosen).
   miner_pk_hash160:
     type: [string, "null"]
     description: If sortition occurred, and the miner's VRF key registration associated
