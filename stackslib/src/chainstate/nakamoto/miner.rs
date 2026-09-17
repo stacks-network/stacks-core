@@ -15,9 +15,7 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use clarity::vm::clarity::ClarityError;
-use clarity::vm::contexts::AbortCallback;
 use clarity::vm::costs::ExecutionCost;
-use stacks_common::alloc_tracker::{thread_allocated, tracking_allocator_installed};
 use stacks_common::types::chainstate::{
     BlockHeaderHash, BurnchainHeaderHash, ConsensusHash, StacksBlockId,
 };
@@ -36,7 +34,8 @@ use crate::chainstate::stacks::db::{
     ChainstateTx, ClarityTx, StacksBlockHeaderTypes, StacksChainState, StacksHeaderInfo,
 };
 use crate::chainstate::stacks::miner::{
-    BlockBuilder, BlockBuilderSettings, BlockLimitFunction, TransactionEvent, TransactionResult,
+    BlockBuilder, BlockBuilderSettings, BlockLimitFunction, TransactionEvent,
+    TransactionResourceBudgets, TransactionResult,
 };
 use crate::chainstate::stacks::{Error, StacksBlockHeader, *};
 use crate::clarity_vm::clarity::ClarityInstance;
@@ -47,34 +46,6 @@ use crate::monitoring::{
     set_last_mined_block_transaction_count, set_last_mined_execution_cost_observed,
 };
 use crate::net::relay::Relayer;
-
-/// Build an [`AbortCallback`] that aborts when per-thread net heap
-/// allocation exceeds `limit_bytes`. Should be called once per
-/// transaction so each transaction gets a fresh baseline.
-///
-/// Returns `AbortCallback::None` when `limit_bytes` is 0 (disabled).
-///
-/// This is only called from block assembly and proposal validation contexts,
-/// and *not* during normal block append or block replay.
-///
-/// Requires a [`TrackingAllocator`](stacks_common::alloc_tracker::TrackingAllocator)
-/// to be set as the `#[global_allocator]` in the binary crate. If no
-/// tracking allocator is active the counters remain at 0 and the callback
-/// will never trigger (safe degradation).
-pub fn make_mem_abort_callback(limit_bytes: u64) -> AbortCallback {
-    if limit_bytes == 0 {
-        return AbortCallback::None;
-    }
-    if !tracking_allocator_installed() {
-        error!(
-            "TrackingAllocator is not installed as the global allocator; any miner or signer configured memory limits will never trigger"
-        );
-    }
-    AbortCallback::MemAbort {
-        baseline: thread_allocated(),
-        limit_bytes,
-    }
-}
 
 /// Nakamoto tenure information
 #[derive(Debug, Default)]
@@ -129,9 +100,6 @@ pub struct NakamotoBlockBuilder {
     contract_limit_percentage: Option<u8>,
     /// Maximum size of the whole tenure
     pub max_tenure_bytes: u64,
-    /// Wall-clock deadline for the contract-analysis phase of each
-    /// transaction mined by this builder. `None` means no analysis deadline.
-    pub max_analysis_time: Option<std::time::Duration>,
 }
 
 /// NB: No PartialEq implementation is deliberate in order to ensure that we use the appropriate
@@ -272,7 +240,6 @@ impl NakamotoBlockBuilder {
             soft_limit: None,
             contract_limit_percentage: None,
             max_tenure_bytes: u64::from(DEFAULT_MAX_TENURE_BYTES),
-            max_analysis_time: None,
         }
     }
 
@@ -281,12 +248,12 @@ impl NakamotoBlockBuilder {
     /// * `parent_stacker_header` - the stacks header this builder's block will build off
     ///
     /// * `tenure_id_consensus_hash` - consensus hash of this tenure's burnchain block.
-    ///    This is the consensus hash that goes into the block header.
+    ///   This is the consensus hash that goes into the block header.
     ///
     /// * `total_burn` - total BTC burnt so far in this fork.
     ///
     /// * `tenure_change` - the TenureChange tx if this is going to start or
-    ///    extend a tenure
+    ///   extend a tenure
     ///
     /// * `coinbase` - the coinbase tx if this is going to start a new tenure
     ///
@@ -348,7 +315,6 @@ impl NakamotoBlockBuilder {
             soft_limit,
             contract_limit_percentage,
             max_tenure_bytes,
-            max_analysis_time: None,
         })
     }
 
@@ -628,6 +594,11 @@ impl NakamotoBlockBuilder {
 
         self.header.tx_merkle_root = tx_merkle_root;
         self.header.state_index_root = state_root_hash;
+        // Keep the shadow bit, but set the version to the expected version for
+        // this epoch.
+        let shadow_flag = self.header.version & 0x80;
+        self.header.version =
+            NakamotoBlockHeader::expected_version_for_epoch(clarity_tx.get_epoch()) | shadow_flag;
 
         let block = NakamotoBlock {
             header: self.header.clone(),
@@ -689,7 +660,6 @@ impl NakamotoBlockBuilder {
         settings: BlockBuilderSettings,
         event_observer: Option<&dyn MemPoolEventDispatcher>,
         signer_bitvec_len: u16,
-        replay_transactions: &[StacksTransaction],
     ) -> Result<BlockMetadata, Error> {
         let (tip_consensus_hash, tip_block_hash, tip_height) = (
             parent_stacks_header.consensus_hash.clone(),
@@ -756,9 +726,6 @@ impl NakamotoBlockBuilder {
         }
 
         builder.soft_limit = soft_limit;
-        // Bound the analysis phase of each mined tx by the miner's
-        // configured analysis deadline (constant for this builder's lifetime).
-        builder.max_analysis_time = settings.max_analysis_time;
 
         let initial_txs: Vec<_> = [
             tenure_info.tenure_change_tx.clone(),
@@ -777,7 +744,6 @@ impl NakamotoBlockBuilder {
             &initial_txs,
             settings,
             event_observer,
-            replay_transactions,
         ) {
             Ok(x) => x,
             Err(e) => {
@@ -847,7 +813,7 @@ impl BlockBuilder for NakamotoBlockBuilder {
         tx: &StacksTransaction,
         tx_len: u64,
         limit_behavior: &BlockLimitFunction,
-        max_execution_time: Option<std::time::Duration>,
+        resource_budgets: &TransactionResourceBudgets,
         total_receipts_size: &mut u64,
     ) -> TransactionResult {
         if self.bytes_so_far + tx_len >= u64::from(MAX_EPOCH_SIZE) {
@@ -912,8 +878,7 @@ impl BlockBuilder for NakamotoBlockBuilder {
                 clarity_tx,
                 tx,
                 quiet,
-                max_execution_time,
-                self.max_analysis_time,
+                resource_budgets,
                 |receipt| {
                     if !receipt.post_condition_aborted {
                         let all_events_valid = receipt.events.iter().all(|event| {
@@ -991,18 +956,19 @@ fn parse_process_transaction_error(
         TransactionResult::problematic(tx, e)
     } else {
         match e {
-            Error::CostOverflowError(cost_before, cost_after, total_budget) => {
-                clarity_tx.reset_cost(cost_before.clone());
+            Error::CostOverflowError(context) => {
+                clarity_tx.reset_cost(context.before.clone());
                 let cost_so_far_percentage =
-                    total_budget.proportion_largest_dimension(&cost_before);
+                    context.budget.proportion_largest_dimension(&context.before);
                 if cost_so_far_percentage < TX_BLOCK_LIMIT_PROPORTION_HEURISTIC {
                     warn!(
-                            "Transaction {} consumed over {}% of block budget, marking as invalid; budget was {total_budget}",
+                            "Transaction {} consumed over {}% of block budget, marking as invalid; budget was {}",
                             tx.txid(),
-                            100 - TX_BLOCK_LIMIT_PROPORTION_HEURISTIC
+                            100 - TX_BLOCK_LIMIT_PROPORTION_HEURISTIC,
+                            context.budget,
                     );
-                    let mut measured_cost = cost_after;
-                    let measured_cost = if measured_cost.sub(&cost_before).is_ok() {
+                    let mut measured_cost = context.after;
+                    let measured_cost = if measured_cost.sub(&context.before).is_ok() {
                         Some(measured_cost)
                     } else {
                         warn!("Failed to compute measured cost of a too big transaction");
@@ -1013,13 +979,15 @@ fn parse_process_transaction_error(
                     warn!(
                         "Transaction {} would exceed the tenure budget, but only {cost_so_far_percentage}% of total budget currently consumed. Skipping tx for this block.", tx.txid();
                         "contract_limit_percentage" => contract_limit_percentage,
-                        "total_budget" => %total_budget
+                        "total_budget" => %context.budget
                     );
                     TransactionResult::skipped_due_to_error(tx, Error::BlockCostLimitError)
                 } else {
                     warn!(
-                        "Transaction {} reached block cost {cost_after}; budget was {total_budget}",
+                        "Transaction {} reached block cost {}; budget was {}",
                         tx.txid(),
+                        context.after,
+                        context.budget,
                     );
                     TransactionResult::skipped_due_to_error(tx, Error::BlockTooBigError)
                 }

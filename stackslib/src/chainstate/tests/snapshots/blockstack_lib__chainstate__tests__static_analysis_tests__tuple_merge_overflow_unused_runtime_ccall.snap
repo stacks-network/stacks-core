@@ -1,0 +1,676 @@
+---
+source: stackslib/src/chainstate/tests/static_analysis_tests.rs
+expression: result.get_expected_results()
+---
+[
+  Success(ExpectedBlockOutput(
+    marf_hash: "1aa237e6da60d040555eb82e83e0629b580345487f3eb54fa8c3d5fe4bfbbc33",
+    evaluated_epoch: Epoch34,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: merge-unused-Epoch3_4-Clarity1, code_body: [..], clarity_version: Some(Clarity1))",
+        vm_error: "None [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: true,
+          data: Bool(true),
+        )),
+        cost: ExecutionCost(
+          write_length: 1541,
+          write_count: 2,
+          read_length: 1,
+          read_count: 1,
+          runtime: 74017,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 1541,
+      write_count: 2,
+      read_length: 1,
+      read_count: 1,
+      runtime: 74017,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "b149cbd66b481e3a9d650543b9a18ca64ce7c4ea22a526c6c914e24e5062f3b3",
+    evaluated_epoch: Epoch34,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: merge-unused-Epoch3_4-Clarity2, code_body: [..], clarity_version: Some(Clarity2))",
+        vm_error: "None [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: true,
+          data: Bool(true),
+        )),
+        cost: ExecutionCost(
+          write_length: 1541,
+          write_count: 2,
+          read_length: 1,
+          read_count: 1,
+          runtime: 74017,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 1541,
+      write_count: 2,
+      read_length: 1,
+      read_count: 1,
+      runtime: 74017,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "1993ec6092f270cffc224a28ec5b9e0529bbce3fbad3ceeb18ee423c18357a00",
+    evaluated_epoch: Epoch34,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: merge-unused-Epoch3_4-Clarity3, code_body: [..], clarity_version: Some(Clarity3))",
+        vm_error: "None [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: true,
+          data: Bool(true),
+        )),
+        cost: ExecutionCost(
+          write_length: 1541,
+          write_count: 2,
+          read_length: 1,
+          read_count: 1,
+          runtime: 74017,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 1541,
+      write_count: 2,
+      read_length: 1,
+      read_count: 1,
+      runtime: 74017,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "6495e3022455f46ab2e6662f57f7082ad3459af627c58b0343460fe662a51d96",
+    evaluated_epoch: Epoch34,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: merge-unused-Epoch3_4-Clarity4, code_body: [..], clarity_version: Some(Clarity4))",
+        vm_error: "None [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: true,
+          data: Bool(true),
+        )),
+        cost: ExecutionCost(
+          write_length: 1541,
+          write_count: 2,
+          read_length: 1,
+          read_count: 1,
+          runtime: 74017,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 1541,
+      write_count: 2,
+      read_length: 1,
+      read_count: 1,
+      runtime: 74017,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "13a9c756fa0915707a53e05fdb4bad0e3cc068af6912fb252aff074f32eeaadd",
+    evaluated_epoch: Epoch34,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: merge-unused-Epoch3_4-Clarity5, code_body: [..], clarity_version: Some(Clarity5))",
+        vm_error: "None [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: true,
+          data: Bool(true),
+        )),
+        cost: ExecutionCost(
+          write_length: 1541,
+          write_count: 2,
+          read_length: 1,
+          read_count: 1,
+          runtime: 74017,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 1541,
+      write_count: 2,
+      read_length: 1,
+      read_count: 1,
+      runtime: 74017,
+    ),
+  )),
+  Failure(ExpectedFailureOutput(
+    evaluated_epoch: Epoch34,
+    error: "Invalid Stacks block 64e8c46f993406e9d1dc7c11ba47fa0da09c375bef0c2631a4b579314a75eab8: ClarityError(Interpreter(Internal(Expect(\"Interpreter failure during cost calculation\"))))",
+  )),
+  Failure(ExpectedFailureOutput(
+    evaluated_epoch: Epoch34,
+    error: "Invalid Stacks block 17c6d655d8bc1c7cc8f5269a5c8169a59cb9f36ff6d09557fbee2cf8643379de: ClarityError(Interpreter(Internal(Expect(\"Interpreter failure during cost calculation\"))))",
+  )),
+  Failure(ExpectedFailureOutput(
+    evaluated_epoch: Epoch34,
+    error: "Invalid Stacks block 6f571464e162a2777692f850e1f007d86de80cdd0e86048d3c527ba34ecb2130: ClarityError(Interpreter(Internal(Expect(\"Interpreter failure during cost calculation\"))))",
+  )),
+  Failure(ExpectedFailureOutput(
+    evaluated_epoch: Epoch34,
+    error: "Invalid Stacks block 8e1ce68c567d2203bc1dcf26088f70da4e28e575c3a29772ba84ae062e6ff341: ClarityError(Interpreter(Internal(Expect(\"Interpreter failure during cost calculation\"))))",
+  )),
+  Failure(ExpectedFailureOutput(
+    evaluated_epoch: Epoch34,
+    error: "Invalid Stacks block 432036b1cd68af79c476449450f257914844fbeef0065f8a0a9c3171b3553274: ClarityError(Interpreter(Internal(Expect(\"Interpreter failure during cost calculation\"))))",
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "7a9ac4444beb2d2720e514def0d686c6fd2bc54174ecaf1845a896c42da8c6a5",
+    evaluated_epoch: Epoch40,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: merge-unused-Epoch4_0-Clarity1, code_body: [..], clarity_version: Some(Clarity1))",
+        vm_error: "Some(:0:0: created a type which was greater than maximum allowed value size) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 174,
+          write_count: 1,
+          read_length: 1,
+          read_count: 1,
+          runtime: 50516,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 174,
+      write_count: 1,
+      read_length: 1,
+      read_count: 1,
+      runtime: 50516,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "eece83dfd890d91f8a635b42adce32d478f4973947e95fd0f7fd0434171db3e0",
+    evaluated_epoch: Epoch40,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: merge-unused-Epoch4_0-Clarity2, code_body: [..], clarity_version: Some(Clarity2))",
+        vm_error: "Some(:0:0: created a type which was greater than maximum allowed value size) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 174,
+          write_count: 1,
+          read_length: 1,
+          read_count: 1,
+          runtime: 50516,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 174,
+      write_count: 1,
+      read_length: 1,
+      read_count: 1,
+      runtime: 50516,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "5874eba5b18234825a37b79079db2f887bc4be3d2c6bf9eb3d6d6acee773f8ed",
+    evaluated_epoch: Epoch40,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: merge-unused-Epoch4_0-Clarity3, code_body: [..], clarity_version: Some(Clarity3))",
+        vm_error: "Some(:0:0: created a type which was greater than maximum allowed value size) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 174,
+          write_count: 1,
+          read_length: 1,
+          read_count: 1,
+          runtime: 50516,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 174,
+      write_count: 1,
+      read_length: 1,
+      read_count: 1,
+      runtime: 50516,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "bafdf69856d08db4fdb8ddd6737d7e4f1b12af29d739e171c1d27d646caf416e",
+    evaluated_epoch: Epoch40,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: merge-unused-Epoch4_0-Clarity4, code_body: [..], clarity_version: Some(Clarity4))",
+        vm_error: "Some(:0:0: created a type which was greater than maximum allowed value size) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 174,
+          write_count: 1,
+          read_length: 1,
+          read_count: 1,
+          runtime: 50516,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 174,
+      write_count: 1,
+      read_length: 1,
+      read_count: 1,
+      runtime: 50516,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "820cd9de7ee9466c9cd68ca0150fa509204d0945c44ea9bcf05cec7106eb3ffa",
+    evaluated_epoch: Epoch40,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: merge-unused-Epoch4_0-Clarity5, code_body: [..], clarity_version: Some(Clarity5))",
+        vm_error: "Some(:0:0: created a type which was greater than maximum allowed value size) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 174,
+          write_count: 1,
+          read_length: 1,
+          read_count: 1,
+          runtime: 50516,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 174,
+      write_count: 1,
+      read_length: 1,
+      read_count: 1,
+      runtime: 50516,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "633962799acdeea4d8eab8dac640d80d14e11b0985133eb69e6b8fafde4772d0",
+    evaluated_epoch: Epoch40,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: merge-unused-Epoch4_0-Clarity6, code_body: [..], clarity_version: Some(Clarity6))",
+        vm_error: "Some(:0:0: created a type which was greater than maximum allowed value size) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 174,
+          write_count: 1,
+          read_length: 1,
+          read_count: 1,
+          runtime: 50516,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 174,
+      write_count: 1,
+      read_length: 1,
+      read_count: 1,
+      runtime: 50516,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "9ceafadf272e5140af5b05d01216fb8ca6c0c1ebacec583ca0720fe499ca2da1",
+    evaluated_epoch: Epoch40,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: merge-unused-Epoch3_4-Clarity1, function_name: run, function_args: [[]])",
+        vm_error: "Some(ValueTooLarge) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 0,
+          write_count: 0,
+          read_length: 1367,
+          read_count: 3,
+          runtime: 5648927,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 0,
+      write_count: 0,
+      read_length: 1367,
+      read_count: 3,
+      runtime: 5648927,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "a7d7d88cd3d1eb5fcabd98bcf07374aca23c5d97580c20d37cc6d93d09759d67",
+    evaluated_epoch: Epoch40,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: merge-unused-Epoch3_4-Clarity2, function_name: run, function_args: [[]])",
+        vm_error: "Some(ValueTooLarge) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 0,
+          write_count: 0,
+          read_length: 1367,
+          read_count: 3,
+          runtime: 5648927,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 0,
+      write_count: 0,
+      read_length: 1367,
+      read_count: 3,
+      runtime: 5648927,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "e9238f00156c1938556eb14009266ffdd618722a2a5b106f6d70526dd36d8d47",
+    evaluated_epoch: Epoch40,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: merge-unused-Epoch3_4-Clarity3, function_name: run, function_args: [[]])",
+        vm_error: "Some(ValueTooLarge) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 0,
+          write_count: 0,
+          read_length: 1367,
+          read_count: 3,
+          runtime: 5648927,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 0,
+      write_count: 0,
+      read_length: 1367,
+      read_count: 3,
+      runtime: 5648927,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "d52e0227f58fc9393aaaa2a3c6eeb234e1d47bb074f8f30a627ec3a36566e5df",
+    evaluated_epoch: Epoch40,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: merge-unused-Epoch3_4-Clarity4, function_name: run, function_args: [[]])",
+        vm_error: "Some(ValueTooLarge) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 0,
+          write_count: 0,
+          read_length: 1367,
+          read_count: 3,
+          runtime: 5648927,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 0,
+      write_count: 0,
+      read_length: 1367,
+      read_count: 3,
+      runtime: 5648927,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "36de8718879a3335a839040cee1e82788fb08d5b65679b95f56101650bfd8049",
+    evaluated_epoch: Epoch40,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: merge-unused-Epoch3_4-Clarity5, function_name: run, function_args: [[]])",
+        vm_error: "Some(ValueTooLarge) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 0,
+          write_count: 0,
+          read_length: 1367,
+          read_count: 3,
+          runtime: 5648927,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 0,
+      write_count: 0,
+      read_length: 1367,
+      read_count: 3,
+      runtime: 5648927,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "d2d19875ff47f95afe08819f849df6eaf39ed691649feea762d64df026e45e37",
+    evaluated_epoch: Epoch40,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: merge-unused-Epoch4_0-Clarity1, function_name: run, function_args: [[]])",
+        vm_error: "Some(NoSuchContract(\"ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP.merge-unused-Epoch4_0-Clarity1\")) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 0,
+          write_count: 0,
+          read_length: 0,
+          read_count: 0,
+          runtime: 0,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 0,
+      write_count: 0,
+      read_length: 0,
+      read_count: 0,
+      runtime: 0,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "2476132368535d5200ff9698c780cdbba57306fe398476ef9c7a363a97fcce61",
+    evaluated_epoch: Epoch40,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: merge-unused-Epoch4_0-Clarity2, function_name: run, function_args: [[]])",
+        vm_error: "Some(NoSuchContract(\"ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP.merge-unused-Epoch4_0-Clarity2\")) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 0,
+          write_count: 0,
+          read_length: 0,
+          read_count: 0,
+          runtime: 0,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 0,
+      write_count: 0,
+      read_length: 0,
+      read_count: 0,
+      runtime: 0,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "a87de11273bd2571e5f87dd960b7737b7c0b2b0558e0a132c91126872225298a",
+    evaluated_epoch: Epoch40,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: merge-unused-Epoch4_0-Clarity3, function_name: run, function_args: [[]])",
+        vm_error: "Some(NoSuchContract(\"ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP.merge-unused-Epoch4_0-Clarity3\")) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 0,
+          write_count: 0,
+          read_length: 0,
+          read_count: 0,
+          runtime: 0,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 0,
+      write_count: 0,
+      read_length: 0,
+      read_count: 0,
+      runtime: 0,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "876cb57e1a778878cf9c6754c8f85eae8e65fed00a2bd47422ec9c67c5cab17b",
+    evaluated_epoch: Epoch40,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: merge-unused-Epoch4_0-Clarity4, function_name: run, function_args: [[]])",
+        vm_error: "Some(NoSuchContract(\"ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP.merge-unused-Epoch4_0-Clarity4\")) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 0,
+          write_count: 0,
+          read_length: 0,
+          read_count: 0,
+          runtime: 0,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 0,
+      write_count: 0,
+      read_length: 0,
+      read_count: 0,
+      runtime: 0,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "a1452d018dde4ccb0aaaf60bd0447114b7d8715d03944901c6c4a53f5957ea93",
+    evaluated_epoch: Epoch40,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: merge-unused-Epoch4_0-Clarity5, function_name: run, function_args: [[]])",
+        vm_error: "Some(NoSuchContract(\"ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP.merge-unused-Epoch4_0-Clarity5\")) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 0,
+          write_count: 0,
+          read_length: 0,
+          read_count: 0,
+          runtime: 0,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 0,
+      write_count: 0,
+      read_length: 0,
+      read_count: 0,
+      runtime: 0,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "c28c976f6655c2706d6d3f6ff1981dfee3aad317b4cd837ee43087e6fe745bb9",
+    evaluated_epoch: Epoch40,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: merge-unused-Epoch4_0-Clarity6, function_name: run, function_args: [[]])",
+        vm_error: "Some(NoSuchContract(\"ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP.merge-unused-Epoch4_0-Clarity6\")) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 0,
+          write_count: 0,
+          read_length: 0,
+          read_count: 0,
+          runtime: 0,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 0,
+      write_count: 0,
+      read_length: 0,
+      read_count: 0,
+      runtime: 0,
+    ),
+  )),
+]

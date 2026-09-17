@@ -17,12 +17,12 @@ use stacks_common::types::StacksEpochId;
 
 use crate::vm::analysis::errors::{StaticCheckError, StaticCheckErrorKind};
 use crate::vm::analysis::types::{AnalysisPass, ContractAnalysis};
-use crate::vm::analysis::{AnalysisDatabase, check_analysis_timeout};
-use crate::vm::time_tracker::TimeTracker;
+use crate::vm::analysis::{AnalysisDatabase, check_analysis_resource_limits};
+use crate::vm::resource_limiter::ResourceLimiter;
 
 pub struct TraitChecker {
     epoch: StacksEpochId,
-    time_tracker: TimeTracker,
+    resource_limiter: ResourceLimiter,
 }
 
 impl AnalysisPass for TraitChecker {
@@ -30,19 +30,19 @@ impl AnalysisPass for TraitChecker {
         epoch: &StacksEpochId,
         contract_analysis: &mut ContractAnalysis,
         analysis_db: &mut AnalysisDatabase,
-        time_tracker: TimeTracker,
+        resource_limiter: ResourceLimiter,
     ) -> Result<(), StaticCheckError> {
-        let mut command = TraitChecker::new(epoch, time_tracker);
+        let mut command = TraitChecker::new(epoch, resource_limiter);
         command.run(contract_analysis, analysis_db)?;
         Ok(())
     }
 }
 
 impl TraitChecker {
-    fn new(epoch: &StacksEpochId, time_tracker: TimeTracker) -> Self {
+    fn new(epoch: &StacksEpochId, resource_limiter: ResourceLimiter) -> Self {
         Self {
             epoch: *epoch,
-            time_tracker,
+            resource_limiter,
         }
     }
 
@@ -53,7 +53,7 @@ impl TraitChecker {
     ) -> Result<(), StaticCheckError> {
         for trait_identifier in &contract_analysis.implemented_traits {
             // per-trait analysis deadline check
-            check_analysis_timeout(&self.time_tracker)?;
+            check_analysis_resource_limits(&self.resource_limiter)?;
 
             let trait_name = trait_identifier.name.to_string();
             let contract_defining_trait = analysis_db

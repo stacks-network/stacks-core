@@ -250,9 +250,12 @@ pub struct LeaderBlockCommitOp {
     pub sunset_burn: u64,
 
     // common to all transactions
-    pub txid: Txid,                            // transaction ID
-    pub vtxindex: u32,                         // index in the block where this tx occurs
-    pub block_height: u64,                     // block height at which this tx occurs
+    /// transaction ID
+    pub txid: Txid,
+    /// index in the block where this tx occurs
+    pub vtxindex: u32,
+    /// burn block height at which this TX occurs
+    pub block_height: u64,
     pub burn_header_hash: BurnchainHeaderHash, // hash of the burn chain block header
 }
 
@@ -662,7 +665,7 @@ impl BlockstackOperationType {
         if let Some(serde_json::Value::Array(arr)) = map.get("reward_addr") {
             if arr.len() == 2 {
                 let index = arr
-                    .get(0)
+                    .first()
                     .unwrap()
                     .as_u64()
                     .ok_or_else(|| DeError::custom("Expected u64 index"))?

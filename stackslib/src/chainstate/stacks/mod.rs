@@ -63,6 +63,7 @@ pub mod db;
 pub mod events;
 pub mod index;
 pub mod miner;
+pub mod sbtc;
 pub mod transaction;
 
 #[cfg(test)]
@@ -78,6 +79,17 @@ pub const STACKS_BLOCK_VERSION: u8 = 7;
 pub const STACKS_BLOCK_VERSION_AST_PRECHECK_SIZE: u8 = 1;
 
 pub use stacks_codec::transaction::{MAX_BLOCK_LEN, MAX_TRANSACTION_LEN};
+
+/// Cost measurements captured when transaction execution exceeds its budget.
+#[derive(Debug)]
+pub struct CostOverflowContext {
+    /// Cost consumed before executing the transaction.
+    pub before: ExecutionCost,
+    /// Cost consumed after executing the transaction.
+    pub after: ExecutionCost,
+    /// Maximum cost permitted for the block.
+    pub budget: ExecutionCost,
+}
 
 #[derive(Debug)]
 pub enum Error {
@@ -104,7 +116,7 @@ pub enum Error {
     NoTransactionsToMine,
     MicroblockStreamTooLongError,
     IncompatibleSpendingConditionError,
-    CostOverflowError(ExecutionCost, ExecutionCost, ExecutionCost),
+    CostOverflowError(Box<CostOverflowContext>),
     /// Errors that occur during clarity contract processing and execution
     ClarityError(ClarityError),
     DBError(db_error),
@@ -131,11 +143,11 @@ pub enum Error {
     TxWouldNotFitError,
     /// This error indicates an internal state or condition that should never actually happen
     Expects(String),
-    /// This error indicates that a transaction execution was aborted because it exceeded the maximum allowed execution time.
-    ExecutionTimeExpired,
-    /// This error indicates that contract analysis was aborted because it exceeded the maximum allowed analysis time.
-    /// Distinct from `ExecutionTimeExpired` so an analysis-phase timeout is separable in logs/metrics and in `is_problematic`.
-    AnalysisTimeExpired,
+    /// This error indicates that a transaction execution was aborted because it exceeded the maximum allowed execution time or memory use.
+    ExecutionResourceBudgetExceeded(String),
+    /// This error indicates that contract analysis was aborted because it exceeded the maximum allowed analysis time or memory use.
+    /// Distinct from `ExecutionResourceBudgetExceeded` so an analysis-phase issue is separable in logs/metrics and in `is_problematic`.
+    AnalysisResourceBudgetExceeded(String),
 }
 
 impl From<marf_error> for Error {
@@ -193,12 +205,12 @@ impl fmt::Display for Error {
             Error::IncompatibleSpendingConditionError => {
                 write!(f, "Spending condition is incompatible with this operation")
             }
-            Error::CostOverflowError(ref c1, ref c2, ref c3) => write!(
+            Error::CostOverflowError(ref context) => write!(
                 f,
                 "{}",
                 &format!(
                     "Cost overflow: before={:?}, after={:?}, budget={:?}",
-                    c1, c2, c3
+                    context.before, context.after, context.budget
                 )
             ),
             Error::ClarityError(ref e) => fmt::Display::fmt(e, f),
@@ -251,8 +263,12 @@ impl fmt::Display for Error {
             }
             Error::TenureTooBigError => write!(f, "Too much data in tenure"),
             Error::TxWouldNotFitError => write!(f, "Transaction would not fit in this block"),
-            Error::ExecutionTimeExpired => write!(f, "Transaction execution time expired"),
-            Error::AnalysisTimeExpired => write!(f, "Transaction analysis time expired"),
+            Error::ExecutionResourceBudgetExceeded(ref s) => {
+                write!(f, "Transaction execution resource budget exceeded: {s}")
+            }
+            Error::AnalysisResourceBudgetExceeded(ref s) => {
+                write!(f, "Transaction analysis resource budget exceeded: {s}")
+            }
             Error::Expects(ref msg) => write!(f, "Unexpected state: {msg}"),
         }
     }
@@ -302,8 +318,8 @@ impl error::Error for Error {
             Error::NotInSameFork => None,
             Error::TenureTooBigError => None,
             Error::TxWouldNotFitError => None,
-            Error::ExecutionTimeExpired => None,
-            Error::AnalysisTimeExpired => None,
+            Error::ExecutionResourceBudgetExceeded(_) => None,
+            Error::AnalysisResourceBudgetExceeded(_) => None,
             Error::Expects(ref _msg) => None,
         }
     }
@@ -353,8 +369,8 @@ impl Error {
             Error::NotInSameFork => "NotInSameFork",
             Error::TenureTooBigError => "TenureTooBigError",
             Error::TxWouldNotFitError => "TxWouldNotFitError",
-            Error::ExecutionTimeExpired => "ExecutionTimeExpired",
-            Error::AnalysisTimeExpired => "AnalysisTimeExpired",
+            Error::ExecutionResourceBudgetExceeded(_) => "ExecutionResourceBudgetExceeded",
+            Error::AnalysisResourceBudgetExceeded(_) => "AnalysisResourceBudgetExceeded",
             Error::Expects(_) => "Expects",
         }
     }
@@ -398,12 +414,20 @@ impl Error {
     ) -> Error {
         match err {
             CostErrors::CostBalanceExceeded(used, budget) => {
-                Error::CostOverflowError(cost_before, used, budget)
+                Error::CostOverflowError(Box::new(CostOverflowContext {
+                    before: cost_before,
+                    after: used,
+                    budget,
+                }))
             }
             _ => {
                 let cur_cost = context.cost_track.get_total();
                 let budget = context.cost_track.get_limit();
-                Error::CostOverflowError(cost_before, cur_cost, budget)
+                Error::CostOverflowError(Box::new(CostOverflowContext {
+                    before: cost_before,
+                    after: cur_cost,
+                    budget,
+                }))
             }
         }
     }
@@ -413,11 +437,11 @@ pub use stacks_codec::transaction::{
     AssetInfo, AssetInfoID, AuthError, CoinbasePayload, FungibleConditionCode, MultisigHashMode,
     MultisigSpendingCondition, NonfungibleConditionCode, OrderIndependentMultisigHashMode,
     OrderIndependentMultisigSpendingCondition, PostConditionPrincipal, PostConditionPrincipalID,
-    SinglesigHashMode, SinglesigSpendingCondition, StacksMicroblockHeader, StacksTransaction,
-    TenureChangeCause, TenureChangeError, TenureChangePayload, TokenTransferMemo,
-    TransactionAnchorMode, TransactionAuth, TransactionAuthField, TransactionAuthFieldID,
-    TransactionAuthFlags, TransactionAuthVerificationMode, TransactionContractCall,
-    TransactionPayload, TransactionPayloadID, TransactionPostCondition,
+    PoxConditionCode, SinglesigHashMode, SinglesigSpendingCondition, StacksMicroblockHeader,
+    StacksTransaction, TenureChangeCause, TenureChangeError, TenureChangePayload,
+    TokenTransferMemo, TransactionAnchorMode, TransactionAuth, TransactionAuthField,
+    TransactionAuthFieldID, TransactionAuthFlags, TransactionAuthVerificationMode,
+    TransactionContractCall, TransactionPayload, TransactionPayloadID, TransactionPostCondition,
     TransactionPostConditionMode, TransactionPublicKeyEncoding, TransactionSmartContract,
     TransactionSpendingCondition, TransactionVersion,
 };
@@ -1057,6 +1081,7 @@ pub mod test {
             miner_signature: MessageSignature::empty(),
             signer_signature: Vec::new(),
             pox_treatment: BitVec::ones(8).unwrap(),
+            problematic_txs: vec![],
         };
 
         NakamotoBlock {

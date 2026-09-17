@@ -107,7 +107,7 @@ impl PreStxOp {
         assert!(!outputs.is_empty());
 
         let output = outputs
-            .get(0)
+            .first()
             .ok_or_else(|| {
                 warn!("Invalid tx: first output not found");
                 op_error::InvalidInput
@@ -310,7 +310,7 @@ impl StackStxOp {
         assert!(!outputs.is_empty());
 
         let first_output = outputs
-            .get(0)
+            .first()
             .ok_or_else(|| {
                 warn!("Invalid tx: no first output");
                 op_error::InvalidInput
@@ -842,7 +842,7 @@ mod tests {
             auth_id: Some(0u32),
         };
         let op_bytes = {
-            let mut bytes = [b'T', b'3'].to_vec();
+            let mut bytes = b"T3".to_vec();
             op.consensus_serialize(&mut bytes)
                 .expect("Expected to be able to serialize op into bytes");
             bytes

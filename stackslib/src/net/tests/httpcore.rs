@@ -105,23 +105,39 @@ fn test_parse_stacks_http_preamble_request_err() {
 
 #[test]
 fn test_parse_stacks_http_preamble_response_err() {
-    let tests = vec![
-        ("HTTP/1.1 200",
-        "Not enough bytes to form a HTTP request or response"),
-        ("HTTP/1.1 200 OK\r\nfoo: \u{2764}\r\n\r\n",
-         "Failed to decode HTTP request or HTTP response"),
-        ("HTTP/1.1 200 OK\r\nfoo: bar\r\nfoo: bar\r\n\r\n",
-         "Failed to decode HTTP request or HTTP response"),
-        ("HTTP/1.1 200 OK\r\nContent-Type: image/png\r\n\r\n",
-         "Failed to decode HTTP request or HTTP response"),
-        ("HTTP/1.1 200 OK\r\nContent-Length: foo\r\n\r\n",
-         "Failed to decode HTTP request or HTTP response"),
-        ("HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\n\r\n",
-         "Failed to decode HTTP request or HTTP response"),
-        ("HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: 123\r\nTransfer-Encoding: chunked\r\n\r\n",
-         "Failed to decode HTTP request or HTTP response"),
-        ("HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: 123\r\nConnection: foo\r\n\r\n",
-         "Failed to decode HTTP request or HTTP response"),
+    let tests = [
+        (
+            "HTTP/1.1 200",
+            "Not enough bytes to form a HTTP request or response",
+        ),
+        (
+            "HTTP/1.1 200 OK\r\nfoo: \u{2764}\r\n\r\n",
+            "Failed to decode HTTP request or HTTP response",
+        ),
+        (
+            "HTTP/1.1 200 OK\r\nfoo: bar\r\nfoo: bar\r\n\r\n",
+            "Failed to decode HTTP request or HTTP response",
+        ),
+        (
+            "HTTP/1.1 200 OK\r\nContent-Type: image/png\r\n\r\n",
+            "Failed to decode HTTP request or HTTP response",
+        ),
+        (
+            "HTTP/1.1 200 OK\r\nContent-Length: foo\r\n\r\n",
+            "Failed to decode HTTP request or HTTP response",
+        ),
+        (
+            "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\n\r\n",
+            "Failed to decode HTTP request or HTTP response",
+        ),
+        (
+            "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: 123\r\nTransfer-Encoding: chunked\r\n\r\n",
+            "Failed to decode HTTP request or HTTP response",
+        ),
+        (
+            "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: 123\r\nConnection: foo\r\n\r\n",
+            "Failed to decode HTTP request or HTTP response",
+        ),
     ];
 
     for (data, errstr) in tests.iter() {
@@ -1156,7 +1172,8 @@ fn start_mock_server(response: String, client_done_signal: Receiver<()>) -> Stri
 
     // Start the server in a new thread
     thread::spawn(move || {
-        for stream in listener.incoming() {
+        // Serve exactly one request, then close.
+        if let Some(stream) = listener.incoming().next() {
             debug!("Mock server accepted connection");
             let mut stream = stream.expect("Failed to accept connection");
 
@@ -1183,8 +1200,6 @@ fn start_mock_server(response: String, client_done_signal: Receiver<()>) -> Stri
             drop(stream);
 
             debug!("Mock server closing connection");
-
-            break; // Close after the first request
         }
     });
 

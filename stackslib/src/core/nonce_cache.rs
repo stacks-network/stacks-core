@@ -29,10 +29,10 @@ use crate::util_lib::db::{query_row, u64_to_sql, DBConn, Error as db_error};
 /// 1. MARF - source of truth for nonces
 /// 2. Nonce DB - table in mempool sqlite database
 /// 3. HashMap - in-memory cache for nonces
-/// The in-memory cache is restricted to a maximum size to avoid memory
-/// exhaustion. When the cache is full, it should be flushed to the database
-/// and cleared. It is recommended to do this in between batches of candidate
-/// transactions from the mempool.
+///    The in-memory cache is restricted to a maximum size to avoid memory
+///    exhaustion. When the cache is full, it should be flushed to the database
+///    and cleared. It is recommended to do this in between batches of candidate
+///    transactions from the mempool.
 pub struct NonceCache {
     /// In-memory LRU cache of nonces.
     cache: LruCache<StacksAddress, u64>,
@@ -224,7 +224,7 @@ mod tests {
     use clarity::vm::tests::{TEST_BURN_STATE_DB, TEST_HEADER_DB};
 
     use super::*;
-    use crate::chainstate::stacks::db::test::{chainstate_path, instantiate_chainstate};
+    use crate::chainstate::stacks::db::testing::{chainstate_path, TestChainstateBuilder};
     use crate::chainstate::stacks::index::ClarityMarfTrieId;
     use crate::clarity_vm::clarity::ClarityInstance;
     use crate::clarity_vm::database::marf::MarfedKV;
@@ -232,7 +232,7 @@ mod tests {
 
     #[test]
     fn test_nonce_cache() {
-        let _chainstate = instantiate_chainstate(false, 0x80000000, function_name!());
+        let _chainstate = TestChainstateBuilder::new_testnet(function_name!()).build();
         let chainstate_path = chainstate_path(function_name!());
         let mut mempool = MemPoolDB::open_test(false, CHAIN_ID_TESTNET, &chainstate_path).unwrap();
         let mut cache = NonceCache::new(2);
@@ -259,8 +259,8 @@ mod tests {
             )
             .commit_block();
         let mut clarity_conn = clarity_instance.begin_block(
-            &StacksBlockId([0 as u8; 32]),
-            &StacksBlockId([1 as u8; 32]),
+            &StacksBlockId([0_u8; 32]),
+            &StacksBlockId([1_u8; 32]),
             &TEST_HEADER_DB,
             &TEST_BURN_STATE_DB,
         );
@@ -276,7 +276,7 @@ mod tests {
 
     #[test]
     fn test_db_set_nonce() {
-        let _chainstate = instantiate_chainstate(false, 0x80000000, function_name!());
+        let _chainstate = TestChainstateBuilder::new_testnet(function_name!()).build();
         let chainstate_path = chainstate_path(function_name!());
         let mut mempool = MemPoolDB::open_test(false, CHAIN_ID_TESTNET, &chainstate_path).unwrap();
         let conn = &mut mempool.db;
@@ -287,7 +287,7 @@ mod tests {
 
     #[test]
     fn test_nonce_cache_eviction() {
-        let _chainstate = instantiate_chainstate(false, 0x80000000, function_name!());
+        let _chainstate = TestChainstateBuilder::new_testnet(function_name!()).build();
         let chainstate_path = chainstate_path(function_name!());
         let mut mempool = MemPoolDB::open_test(false, CHAIN_ID_TESTNET, &chainstate_path).unwrap();
         let mut cache = NonceCache::new(2); // Cache size of 2
@@ -314,7 +314,7 @@ mod tests {
 
     #[test]
     fn test_nonce_cache_flush() {
-        let _chainstate = instantiate_chainstate(false, 0x80000000, function_name!());
+        let _chainstate = TestChainstateBuilder::new_testnet(function_name!()).build();
         let chainstate_path = chainstate_path(function_name!());
         let mut mempool = MemPoolDB::open_test(false, CHAIN_ID_TESTNET, &chainstate_path).unwrap();
         let mut cache = NonceCache::new(3);
@@ -339,7 +339,7 @@ mod tests {
 
     #[test]
     fn test_db_nonce_overwrite() {
-        let _chainstate = instantiate_chainstate(false, 0x80000000, function_name!());
+        let _chainstate = TestChainstateBuilder::new_testnet(function_name!()).build();
         let chainstate_path = chainstate_path(function_name!());
         let mut mempool = MemPoolDB::open_test(false, CHAIN_ID_TESTNET, &chainstate_path).unwrap();
         let conn = &mut mempool.db;

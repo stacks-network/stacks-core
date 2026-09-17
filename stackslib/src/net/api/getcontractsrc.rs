@@ -44,7 +44,7 @@ pub struct ContractSrcResponse {
     pub marf_proof: Option<String>,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Default)]
 pub struct RPCGetContractSrcRequestHandler {
     pub contract_identifier: Option<QualifiedContractIdentifier>,
 }

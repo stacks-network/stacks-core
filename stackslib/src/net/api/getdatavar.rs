@@ -44,7 +44,7 @@ pub struct DataVarResponse {
     pub marf_proof: Option<String>,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Default)]
 pub struct RPCGetDataVarRequestHandler {
     pub contract_identifier: Option<QualifiedContractIdentifier>,
     pub varname: Option<ClarityName>,

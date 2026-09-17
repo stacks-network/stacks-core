@@ -25,7 +25,9 @@ use stacks::chainstate::burn::db::sortdb::SortitionDB;
 use stacks::chainstate::nakamoto::miner::NakamotoBlockBuilder;
 use stacks::chainstate::nakamoto::NakamotoChainState;
 use stacks::chainstate::stacks::db::StacksChainState;
-use stacks::chainstate::stacks::miner::{BlockBuilder, BlockLimitFunction};
+use stacks::chainstate::stacks::miner::{
+    BlockBuilder, BlockLimitFunction, TransactionResourceBudgets,
+};
 use stacks::chainstate::stacks::{TenureChangeCause, TenureChangePayload};
 use stacks::codec::StacksMessageCodec;
 use stacks::config::DEFAULT_MAX_TENURE_BYTES;
@@ -43,7 +45,6 @@ use stacks_common::bitvec::BitVec;
 use stacks_common::util::sleep_ms;
 use stacks_signer::chainstate::v1::SortitionsView;
 use stacks_signer::chainstate::ProposalEvalConfig;
-use stacks_signer::config::DEFAULT_RESET_REPLAY_SET_AFTER_FORK_BLOCKS;
 use stacks_signer::v0::SpawnedSigner;
 use stdext::prelude::DurationExt;
 use tracing_subscriber::{fmt, EnvFilter};
@@ -585,6 +586,7 @@ fn stx_transfers_dont_effect_idle_timeout() {
 
     let slot_id = 0_u32;
 
+    // This response predates global acceptance and reports an estimated idle time.
     let initial_acceptance = signer_test.get_latest_block_acceptance(slot_id);
     assert_eq!(initial_acceptance.signer_signature_hash, last_block_hash);
 
@@ -597,8 +599,6 @@ fn stx_transfers_dont_effect_idle_timeout() {
 
     let mut sender_nonce = 0;
 
-    // Note that this response was BEFORE the block was globally accepted. it will report a guestimated idle time
-    let initial_acceptance = initial_acceptance;
     let mut first_global_acceptance = None;
     for i in 0..num_txs {
         info!("---- Mining interim block {} ----", i + 1);
@@ -1053,7 +1053,6 @@ fn sip034_tenure_extend_proposal(allow: bool, extend_types: &[TenureChangeCause]
         tenure_idle_timeout: Duration::from_secs(300),
         tenure_idle_timeout_buffer: Duration::from_secs(2),
         reorg_attempts_activity_timeout: Duration::from_secs(30),
-        reset_replay_set_after_fork_blocks: DEFAULT_RESET_REPLAY_SET_AFTER_FORK_BLOCKS,
         read_count_idle_timeout: Duration::from_secs(12000),
     };
 
@@ -1125,7 +1124,7 @@ fn sip034_tenure_extend_proposal(allow: bool, extend_types: &[TenureChangeCause]
                     &tenure_change,
                     tenure_change.serialize_to_vec().len() as u64,
                     &BlockLimitFunction::NO_LIMIT_HIT,
-                    None,
+                    &TransactionResourceBudgets::unlimited(),
                     &mut 0,
                 )
                 .unwrap();
@@ -1402,7 +1401,9 @@ fn tenure_extend_after_stale_commit_same_miner() {
 
     let Counters {
         skip_commit_op,
+        naka_submitted_commits: commits_submitted,
         naka_submitted_commit_last_burn_height: last_commit_burn_height,
+        naka_submitted_commit_last_stacks_tip: last_commit_stacks_tip,
         ..
     } = signer_test.running_nodes.counters.clone();
 
@@ -1432,13 +1433,15 @@ fn tenure_extend_after_stale_commit_same_miner() {
         .wait_for_nonce_increase(&sender_addr, transfer_nonce)
         .unwrap();
 
+    let commits_before = commits_submitted.get();
     skip_commit_op.set(false);
 
     info!("---- Waiting for block commit to N-1 ----");
 
     wait_for(30, || {
-        let last_height = last_commit_burn_height.get();
-        Ok(last_height == prev_tip.burn_block_height)
+        let commits_after = commits_submitted.get();
+        let last_commit_tip = last_commit_stacks_tip.get();
+        Ok(commits_after > commits_before && last_commit_tip == prev_tip.stacks_tip_height)
     })
     .expect("Timed out waiting for block commit to N-1");
 
@@ -1536,7 +1539,9 @@ fn tenure_extend_after_stale_commit_same_miner_then_no_winner() {
 
     let Counters {
         skip_commit_op,
+        naka_submitted_commits: commits_submitted,
         naka_submitted_commit_last_burn_height: last_commit_burn_height,
+        naka_submitted_commit_last_stacks_tip: last_commit_stacks_tip,
         ..
     } = signer_test.running_nodes.counters.clone();
 
@@ -1566,13 +1571,15 @@ fn tenure_extend_after_stale_commit_same_miner_then_no_winner() {
         .wait_for_nonce_increase(&sender_addr, transfer_nonce)
         .unwrap();
 
+    let commits_before = commits_submitted.get();
     skip_commit_op.set(false);
 
     info!("---- Waiting for block commit to N-1 ----");
 
     wait_for(30, || {
-        let last_height = last_commit_burn_height.get();
-        Ok(last_height == prev_tip.burn_block_height)
+        let commits_after = commits_submitted.get();
+        let last_commit_tip = last_commit_stacks_tip.get();
+        Ok(commits_after > commits_before && last_commit_tip == prev_tip.stacks_tip_height)
     })
     .expect("Timed out waiting for block commit to N-1");
 
@@ -4402,10 +4409,7 @@ fn continue_after_fast_block_no_sortition() {
             miners.get_peer_info().stacks_tip
         })
         .expect("Did not mine Miner 2's Block N+3");
-    assert!(block_n_3
-        .txs
-        .iter()
-        .any(|tx| { tx.txid().to_string() == txid }));
+    assert!(block_n_3.txs().any(|tx| { tx.txid().to_string() == txid }));
 
     info!("------------------------- Mine An Empty Sortition -------------------------");
     miners

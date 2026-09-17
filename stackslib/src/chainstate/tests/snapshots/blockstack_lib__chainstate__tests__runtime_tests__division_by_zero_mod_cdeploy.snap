@@ -4,127 +4,7 @@ expression: result.get_expected_results()
 ---
 [
   Success(ExpectedBlockOutput(
-    marf_hash: "ad7b35bd5f4d466320e32b1d4deec893bd88df67602d5c130420cbc5cdc3d678",
-    evaluated_epoch: Epoch33,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "SmartContract(name: division-by-zero-mod-Epoch3_3-Clarity1, code_body: [..], clarity_version: Some(Clarity1))",
-        vm_error: "Some(DivisionByZero) [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: false,
-          data: Optional(OptionalData(
-            data: None,
-          )),
-        )),
-        cost: ExecutionCost(
-          write_length: 46,
-          write_count: 2,
-          read_length: 1,
-          read_count: 1,
-          runtime: 9310,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 46,
-      write_count: 2,
-      read_length: 1,
-      read_count: 1,
-      runtime: 9310,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "2f17b685a1cd6c8411457b9c7a285a0ab253972be2d9cf7769410ab0ab71f598",
-    evaluated_epoch: Epoch33,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "SmartContract(name: division-by-zero-mod-Epoch3_3-Clarity2, code_body: [..], clarity_version: Some(Clarity2))",
-        vm_error: "Some(DivisionByZero) [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: false,
-          data: Optional(OptionalData(
-            data: None,
-          )),
-        )),
-        cost: ExecutionCost(
-          write_length: 46,
-          write_count: 2,
-          read_length: 1,
-          read_count: 1,
-          runtime: 9310,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 46,
-      write_count: 2,
-      read_length: 1,
-      read_count: 1,
-      runtime: 9310,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "82615c90c952f60807b837179f49f4a0bd566cbf73ed9f86f1e5acc2b39fe18d",
-    evaluated_epoch: Epoch33,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "SmartContract(name: division-by-zero-mod-Epoch3_3-Clarity3, code_body: [..], clarity_version: Some(Clarity3))",
-        vm_error: "Some(DivisionByZero) [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: false,
-          data: Optional(OptionalData(
-            data: None,
-          )),
-        )),
-        cost: ExecutionCost(
-          write_length: 46,
-          write_count: 2,
-          read_length: 1,
-          read_count: 1,
-          runtime: 9310,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 46,
-      write_count: 2,
-      read_length: 1,
-      read_count: 1,
-      runtime: 9310,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "e01489126295aa0ad895c2f32faf8865cdbdc447856d94f02238a03e18fcec28",
-    evaluated_epoch: Epoch33,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "SmartContract(name: division-by-zero-mod-Epoch3_3-Clarity4, code_body: [..], clarity_version: Some(Clarity4))",
-        vm_error: "Some(DivisionByZero) [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: false,
-          data: Optional(OptionalData(
-            data: None,
-          )),
-        )),
-        cost: ExecutionCost(
-          write_length: 46,
-          write_count: 2,
-          read_length: 1,
-          read_count: 1,
-          runtime: 9310,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 46,
-      write_count: 2,
-      read_length: 1,
-      read_count: 1,
-      runtime: 9310,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "aaa9bc19d5cfa807f52abddfd0e810b08313f7a72f245664e2f272a209d89e4d",
+    marf_hash: "c1d760c86f67b319182de28bdd233dce6346a3acaa84127d8ff5880754359f91",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -154,7 +34,7 @@ expression: result.get_expected_results()
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "dec7671537f59ecdb588d2f15088854b70bb6e5da5224a1916100591783fed1b",
+    marf_hash: "c8ac3aa5015d73d6798bc30493845556212acf77073434ba8971407020bc64d2",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -184,7 +64,7 @@ expression: result.get_expected_results()
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "0f0eb41d57d21aa2183d33d45860e8f51f9e49cb6657bd2668959c128684bf17",
+    marf_hash: "c5b255b902e73f868a0f9859569ff7d8ff535d88894522ea6cbd912c3aadefb7",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -214,7 +94,7 @@ expression: result.get_expected_results()
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "7b1d1e8d8483f9af4f5dc9477f0bd6026786e822df7ec7acc96066561391960c",
+    marf_hash: "6c8b06c90b4837b40824e7d90f36dbfe5823a2743b4bdc15cc868fc40c6ea60b",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -244,7 +124,7 @@ expression: result.get_expected_results()
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "0ffa0a2136bcd4eb73627281f36bfa801008f24b73e0e64cd6ac9a4a207f8257",
+    marf_hash: "84dcbd44ba16d23df1016129603c6d02fa13abc3b6789fa28d39750e27881c4b",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -271,6 +151,186 @@ expression: result.get_expected_results()
       read_length: 1,
       read_count: 1,
       runtime: 9310,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "6eb4d77cbe3f1dbd8fc25c9038c5b6b088a76b1729cca87f7aa084e500c817a5",
+    evaluated_epoch: Epoch40,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: division-by-zero-mod-Epoch4_0-Clarity1, code_body: [..], clarity_version: Some(Clarity1))",
+        vm_error: "Some(DivisionByZero) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 46,
+          write_count: 2,
+          read_length: 1,
+          read_count: 1,
+          runtime: 9200,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 46,
+      write_count: 2,
+      read_length: 1,
+      read_count: 1,
+      runtime: 9200,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "016e6a93e1a9fe0a5c9a62923632d803910f34e41226d976bd639b2ad97bd31b",
+    evaluated_epoch: Epoch40,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: division-by-zero-mod-Epoch4_0-Clarity2, code_body: [..], clarity_version: Some(Clarity2))",
+        vm_error: "Some(DivisionByZero) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 46,
+          write_count: 2,
+          read_length: 1,
+          read_count: 1,
+          runtime: 9200,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 46,
+      write_count: 2,
+      read_length: 1,
+      read_count: 1,
+      runtime: 9200,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "c40cf8d631f47fbaf94ed7813ccfaa3345989b3f4441b298b7803f7367db2313",
+    evaluated_epoch: Epoch40,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: division-by-zero-mod-Epoch4_0-Clarity3, code_body: [..], clarity_version: Some(Clarity3))",
+        vm_error: "Some(DivisionByZero) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 46,
+          write_count: 2,
+          read_length: 1,
+          read_count: 1,
+          runtime: 9200,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 46,
+      write_count: 2,
+      read_length: 1,
+      read_count: 1,
+      runtime: 9200,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "4f6edea070b09d7e312c5f26eb5b85ff4e0cee69e6f4489d0dc45202a26a7fc0",
+    evaluated_epoch: Epoch40,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: division-by-zero-mod-Epoch4_0-Clarity4, code_body: [..], clarity_version: Some(Clarity4))",
+        vm_error: "Some(DivisionByZero) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 46,
+          write_count: 2,
+          read_length: 1,
+          read_count: 1,
+          runtime: 9200,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 46,
+      write_count: 2,
+      read_length: 1,
+      read_count: 1,
+      runtime: 9200,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "9ad63e94ec4e4d88d01b6bd11ab6f7ca67d6651018cbe1d27b676be94fa1e71b",
+    evaluated_epoch: Epoch40,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: division-by-zero-mod-Epoch4_0-Clarity5, code_body: [..], clarity_version: Some(Clarity5))",
+        vm_error: "Some(DivisionByZero) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 46,
+          write_count: 2,
+          read_length: 1,
+          read_count: 1,
+          runtime: 9200,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 46,
+      write_count: 2,
+      read_length: 1,
+      read_count: 1,
+      runtime: 9200,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "494d86521c9170a8691c2539f97646f095c4be539d2a8b6884e38c15865370e6",
+    evaluated_epoch: Epoch40,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: division-by-zero-mod-Epoch4_0-Clarity6, code_body: [..], clarity_version: Some(Clarity6))",
+        vm_error: "Some(DivisionByZero) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 46,
+          write_count: 2,
+          read_length: 1,
+          read_count: 1,
+          runtime: 9200,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 46,
+      write_count: 2,
+      read_length: 1,
+      read_count: 1,
+      runtime: 9200,
     ),
   )),
 ]

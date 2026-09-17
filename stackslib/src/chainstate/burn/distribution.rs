@@ -16,14 +16,30 @@
 
 use std::cmp;
 use std::collections::HashMap;
+#[cfg(any(test, feature = "testing"))]
+use std::sync::LazyLock;
 
 use stacks_common::util::hash::Hash160;
+#[cfg(any(test, feature = "testing"))]
+use stacks_common::util::tests::TestFlag;
 use stacks_common::util::uint::{BitArray, Uint256, Uint512};
 
 use crate::burnchains::Txid;
 use crate::chainstate::burn::operations::leader_block_commit::MissedBlockCommit;
 use crate::chainstate::burn::operations::LeaderBlockCommitOp;
 use crate::monitoring;
+
+/// Test-only capture of the most recent `Vec<BurnSamplePoint>` produced by
+/// `make_min_median_distribution`. Tests reading this can assert deterministic
+/// properties of the windowing/chaining math (per-miner `burns`, `frequency`,
+/// etc.) without re-implementing the linker.
+///
+/// Each call to `make_min_median_distribution` overwrites this with the
+/// distribution it just produced; reads are best done immediately after a
+/// sortition has been processed.
+#[cfg(any(test, feature = "testing"))]
+pub static LATEST_BURN_DISTRIBUTION: LazyLock<TestFlag<Vec<BurnSamplePoint>>> =
+    LazyLock::new(TestFlag::default);
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct BurnSamplePoint {
@@ -149,26 +165,26 @@ impl BurnSamplePoint {
     /// Returns the distribution, which consumes the given lists of operations.
     ///
     /// * `block_commits`: this is a mapping from relative block_height to the block
-    ///     commits that occurred at that height. These relative block heights start
-    ///     at 0 and increment towards the present. When the mining window is 6, the
-    ///     "current" sortition's block commits would be in index 5.
+    ///   commits that occurred at that height. These relative block heights start
+    ///   at 0 and increment towards the present. When the mining window is 6, the
+    ///   "current" sortition's block commits would be in index 5.
     /// * `missed_commits`: this is a mapping from relative block_height to the
-    ///     block commits that were intended to be included at that height. These
-    ///     relative block heights start at 0 and increment towards the present. There
-    ///     will be no such commits for the current sortition, so this vec will have
-    ///     `missed_commits.len() = block_commits.len() - 1`
+    ///   block commits that were intended to be included at that height. These
+    ///   relative block heights start at 0 and increment towards the present. There
+    ///   will be no such commits for the current sortition, so this vec will have
+    ///   `missed_commits.len() = block_commits.len() - 1`
     /// * `burn_blocks`: this is a vector of booleans that indicate whether or not a block-commit
-    ///     occurred during a PoB-only sortition or a possibly-PoX sortition.  The former occurs
-    ///     during either a prepare phase or after PoX sunset, and must have only one (burn) output.
-    ///     The latter occurs everywhere else, and must have `OUTPUTS_PER_COMMIT` outputs after the
-    ///     `OP_RETURN` payload.  The length of this vector must be equal to the length of the
-    ///     `block_commits` vector.  `burn_blocks[i]` is `true` if the `ith` block-commit must be PoB.
+    ///   occurred during a PoB-only sortition or a possibly-PoX sortition.  The former occurs
+    ///   during either a prepare phase or after PoX sunset, and must have only one (burn) output.
+    ///   The latter occurs everywhere else, and must have `OUTPUTS_PER_COMMIT` outputs after the
+    ///   `OP_RETURN` payload.  The length of this vector must be equal to the length of the
+    ///   `block_commits` vector.  `burn_blocks[i]` is `true` if the `ith` block-commit must be PoB.
     #[allow(clippy::indexing_slicing)] // this method panics on bad inputs, it should panic on bad indexes as well
     pub fn make_min_median_distribution(
         mining_commitment_window: u8,
         mut block_commits: Vec<Vec<LeaderBlockCommitOp>>,
         mut missed_commits: Vec<Vec<MissedBlockCommit>>,
-        burn_blocks: Vec<bool>,
+        expects_single_commit: Vec<bool>,
     ) -> Vec<BurnSamplePoint> {
         // sanity check
         let window_size = block_commits.len() as u8;
@@ -178,7 +194,7 @@ impl BurnSamplePoint {
             &block_commits,
             &missed_commits,
         );
-        assert_eq!(burn_blocks.len(), block_commits.len());
+        assert_eq!(expects_single_commit.len(), block_commits.len());
 
         // first, let's link all of the current block commits to the priors
         let mut commits_with_priors: Vec<_> =
@@ -213,8 +229,8 @@ impl BurnSamplePoint {
 
             // find the UTXO index that each last linked_commit must have spent in order to be
             // chained to the block-commit (or missed-commit) at this relative block height
-            let commit_is_burn = burn_blocks[rel_block_height as usize];
-            let expected_index = LeaderBlockCommitOp::expected_chained_utxo(commit_is_burn);
+            let expect_single_commit = expects_single_commit[rel_block_height as usize];
+            let expected_index = LeaderBlockCommitOp::expected_chained_utxo(expect_single_commit);
 
             for linked_commit in commits_with_priors.iter_mut() {
                 let end = linked_commit.iter().rev().find_map(|o| o.as_ref()).unwrap(); // guaranteed to be at least 1 non-none entry
@@ -259,7 +275,7 @@ impl BurnSamplePoint {
 
         // now, commits_with_priors has the burn amounts for each
         //   linked commitment, we can now generate the burn sample points.
-        let mut burn_sample = commits_with_priors
+        let mut burn_sample: Vec<BurnSamplePoint> = commits_with_priors
             .into_iter()
             .map(|mut linked_commits| {
                 let all_burns: Vec<_> = linked_commits
@@ -278,7 +294,7 @@ impl BurnSamplePoint {
 
                 let mut sorted_burns = all_burns.clone();
                 sorted_burns.sort();
-                let median_burn = if window_size % 2 == 0 {
+                let median_burn = if window_size.is_multiple_of(2) {
                     (sorted_burns[(window_size / 2) as usize]
                         + sorted_burns[(window_size / 2 - 1) as usize])
                         / 2
@@ -327,6 +343,10 @@ impl BurnSamplePoint {
 
         // calculate burn ranges
         BurnSamplePoint::make_sortition_ranges(&mut burn_sample);
+
+        #[cfg(any(test, feature = "testing"))]
+        LATEST_BURN_DISTRIBUTION.set(burn_sample.clone());
+
         burn_sample
     }
 
@@ -358,7 +378,7 @@ impl BurnSamplePoint {
 
     /// Calculate the ranges between 0 and 2**256 - 1 over which each point in the burn sample
     /// applies, so we can later select which block to use.
-    fn make_sortition_ranges(burn_sample: &mut Vec<BurnSamplePoint>) {
+    fn make_sortition_ranges(burn_sample: &mut [BurnSamplePoint]) {
         if burn_sample.is_empty() {
             // empty sample
             return;

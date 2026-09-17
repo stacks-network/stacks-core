@@ -37,7 +37,7 @@ pub struct TransactionResponse {
     pub is_canonical: bool,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Default)]
 pub struct RPCGetTransactionRequestHandler {
     pub txid: Option<Txid>,
 }

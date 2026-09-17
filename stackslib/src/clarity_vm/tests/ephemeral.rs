@@ -35,7 +35,9 @@ use crate::chainstate::stacks::db::StacksChainState;
 use crate::chainstate::stacks::index::marf::MARFOpenOpts;
 use crate::chainstate::stacks::index::storage::TrieHashCalculationMode;
 use crate::chainstate::stacks::index::ClarityMarfTrieId;
-use crate::chainstate::stacks::miner::{BlockBuilder, BlockLimitFunction, TransactionResult};
+use crate::chainstate::stacks::miner::{
+    BlockBuilder, BlockLimitFunction, TransactionResourceBudgets, TransactionResult,
+};
 use crate::chainstate::stacks::{
     StacksTransaction, StacksTransactionSigner, TransactionAnchorMode, TransactionAuth,
     TransactionContractCall, TransactionPayload, TransactionPostConditionMode,
@@ -54,9 +56,9 @@ use crate::util_lib::strings::StacksString;
 /// MARF.
 /// * Verify that keys inserted into the ephemeral MARF land in the RAM-backed MARF
 /// * Verify that the ephemeral MARF store can read all keys inserted into the RAM-backed MARF, as
-/// well as all keys in the disk-backed MARF.
+///   well as all keys in the disk-backed MARF.
 /// * Verify that discarding the ephemeral MARF store leaves the disk-backed MARF unaltered (no new
-/// keys)
+///   keys)
 #[test]
 fn test_ephemeral_marf_store() {
     let path = format!("/tmp/{}.marf", function_name!());
@@ -67,11 +69,7 @@ fn test_ephemeral_marf_store() {
     let mut marfed_kv = MarfedKV::open(
         &path,
         None,
-        Some(MARFOpenOpts::new(
-            TrieHashCalculationMode::Deferred,
-            "noop",
-            false,
-        )),
+        Some(MARFOpenOpts::new(TrieHashCalculationMode::Deferred, false)),
     )
     .unwrap();
 
@@ -226,11 +224,8 @@ fn test_ephemeral_marf_store() {
         }
 
         // can read all ephemeral values and all disk-backed values up to base_tip in random order
-        let mut all_keys_and_values: Vec<(String, String)> = block_data[0..=i]
-            .iter()
-            .map(|keys_and_values| keys_and_values.clone())
-            .flatten()
-            .collect();
+        let mut all_keys_and_values: Vec<(String, String)> =
+            block_data[0..=i].iter().flatten().cloned().collect();
 
         all_keys_and_values.append(&mut keys_and_values.clone());
         all_keys_and_values.shuffle(&mut thread_rng());
@@ -369,7 +364,7 @@ fn replay_block(
             tx,
             tx_len,
             &BlockLimitFunction::NO_LIMIT_HIT,
-            None,
+            &TransactionResourceBudgets::unlimited(),
             &mut total_receipts,
         );
         let err = match &tx_result {
@@ -759,8 +754,7 @@ fn test_ephemeral_nakamoto_block_replay_smart_contract() {
         all_nakamoto_blocks.append(&mut nakamoto_blocks);
     }
 
-    all_nakamoto_blocks
-        .sort_by(|blk1, blk2| blk1.header.chain_length.cmp(&blk2.header.chain_length));
+    all_nakamoto_blocks.sort_by_key(|blk1| blk1.header.chain_length);
 
     for naka_block in all_nakamoto_blocks {
         replay_block(&sortdb, &mut stacks_node.chainstate, naka_block, &observer);
@@ -779,11 +773,7 @@ fn prop_ephemeral_tip_height_matches_current() {
         let mut marfed_kv = MarfedKV::open(
             &path,
             None,
-            Some(MARFOpenOpts::new(
-                TrieHashCalculationMode::Deferred,
-                "noop",
-                false,
-            )),
+            Some(MARFOpenOpts::new(TrieHashCalculationMode::Deferred, false)),
         )
         .unwrap();
 

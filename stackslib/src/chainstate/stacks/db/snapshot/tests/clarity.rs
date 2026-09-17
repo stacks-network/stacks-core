@@ -127,7 +127,7 @@ fn squash_clarity_marf(
     let src_db = clarity_marf_db_path(src_dir);
     let dst_db = dst_dir.join("marf.sqlite");
 
-    let open_opts = MARFOpenOpts::new(TrieHashCalculationMode::Deferred, "noop", true);
+    let open_opts = MARFOpenOpts::new(TrieHashCalculationMode::Deferred, true);
     MARF::<StacksBlockId>::squash_to_path(
         src_db.to_str().unwrap(),
         dst_db.to_str().unwrap(),
@@ -331,7 +331,7 @@ fn test_malformed_metadata_key_is_corruption() {
     let src_db = clarity_marf_db_path(&src_dir);
     let dst_db = squashed_dir.join("marf.sqlite");
 
-    let open_opts = MARFOpenOpts::new(TrieHashCalculationMode::Deferred, "noop", true);
+    let open_opts = MARFOpenOpts::new(TrieHashCalculationMode::Deferred, true);
     MARF::<StacksBlockId>::squash_to_path(
         src_db.to_str().unwrap(),
         dst_db.to_str().unwrap(),
@@ -368,7 +368,7 @@ fn test_squashed_clarity_marf_extend_hash_equality() {
     );
 
     // Open both MARFs at the raw MARF level for hash comparison.
-    let open_opts = MARFOpenOpts::new(TrieHashCalculationMode::Deferred, "noop", true);
+    let open_opts = MARFOpenOpts::new(TrieHashCalculationMode::Deferred, true);
     let src_db = clarity_marf_db_path(&src_dir);
     let mut archival =
         MARF::<StacksBlockId>::from_path(src_db.to_str().unwrap(), open_opts.clone()).unwrap();
@@ -420,7 +420,7 @@ fn test_mismatched_clarity_db_causes_data_read_failure() {
     let src_db = clarity_marf_db_path(&src_dir);
     let dst_db = squashed_dir.join("marf.sqlite");
 
-    let open_opts = MARFOpenOpts::new(TrieHashCalculationMode::Deferred, "noop", true);
+    let open_opts = MARFOpenOpts::new(TrieHashCalculationMode::Deferred, true);
     MARF::<StacksBlockId>::squash_to_path(
         src_db.to_str().unwrap(),
         dst_db.to_str().unwrap(),

@@ -1,1 +1,0 @@
-Performance improvement that prevents unnecessary work in the block downloader if nothing has changed.

@@ -87,9 +87,9 @@ impl GetStackersResponse {
             .active_pox_contract(cycle_start_height);
         let pox_version = PoxVersions::lookup_by_name(pox_contract_name)
             .ok_or("Failed to lookup PoX contract version at tip")?;
-        if !matches!(pox_version, PoxVersions::Pox4) {
+        if pox_version < PoxVersions::Pox4 {
             return Err(
-                "Active PoX contract version at tip is Pre-PoX-4, the signer set is not fetchable"
+                "Active PoX contract version at tip is pre-PoX-4, the signer set is not fetchable"
                     .into(),
             );
         }
@@ -137,7 +137,9 @@ impl HttpRequest for GetStackersRequestHandler {
                 "Missing in request path: `cycle_num`".into(),
             ));
         };
-        let cycle_num = u64::from_str_radix(cycle_num_str.into(), 10)
+        let cycle_num = cycle_num_str
+            .as_str()
+            .parse::<u64>()
             .map_err(|e| Error::DecodeError(format!("Failed to parse cycle number: {e}")))?;
 
         self.cycle_number = Some(cycle_num);

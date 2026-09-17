@@ -126,9 +126,11 @@ replay-mock-mining <CHAINSTATE_PATH> <MOCK_MINING_OUTPUT_PATH>
 Block validation and integrity checks.
 
 ```
-validate-block <DATABASE_PATH> [--early-exit] [MODE]
+validate-block <DATABASE_PATH> [--early-exit] [--ignore-costs] [MODE]
     Validate Stacks blocks (Epoch2 and Nakamoto) from chainstate database
     --early-exit: Stop on first error (default: collect all errors)
+    --ignore-costs: Don't fail a block whose only mismatch is its execution cost.
+        The mismatch is logged and the block counts as valid.
 
     MODE options:
       prefix <HASH_PREFIX>           Validate blocks matching hash prefix

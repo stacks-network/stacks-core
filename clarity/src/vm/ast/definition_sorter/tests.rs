@@ -38,13 +38,11 @@ fn test_clarity_versions_definition_sorter(#[case] version: ClarityVersion) {}
 
 fn run_scoped_parsing_helper(contract: &str, version: ClarityVersion) -> ParseResult<ContractAST> {
     let contract_identifier = QualifiedContractIdentifier::transient();
-    let pre_expressions = parser::v1::parse(
-        contract,
-        StackDepthLimits::for_epoch(StacksEpochId::Epoch2_05),
-    )?;
+    let epoch = StacksEpochId::Epoch2_05;
+    let pre_expressions = parser::v1::parse(contract, StackDepthLimits::for_epoch(epoch))?;
     let mut contract_ast = ContractAST::new(contract_identifier, pre_expressions);
     ExpressionIdentifier::run_pre_expression_pass(&mut contract_ast, version)?;
-    DefinitionSorter::run_pass(&mut contract_ast, &mut (), version)?;
+    DefinitionSorter::run_pass(&mut contract_ast, &mut (), version, epoch)?;
     Ok(contract_ast)
 }
 

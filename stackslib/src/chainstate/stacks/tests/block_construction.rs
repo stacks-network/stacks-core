@@ -44,7 +44,7 @@ use crate::chainstate::burn::*;
 use crate::chainstate::coordinator::Error as CoordinatorError;
 use crate::chainstate::stacks::db::blocks::test::store_staging_block;
 use crate::chainstate::stacks::db::blocks::MemPoolRejection;
-use crate::chainstate::stacks::db::test::*;
+use crate::chainstate::stacks::db::testing::*;
 use crate::chainstate::stacks::db::*;
 use crate::chainstate::stacks::events::{StacksTransactionEvent, StacksTransactionReceipt};
 use crate::chainstate::stacks::miner::*;
@@ -2923,7 +2923,9 @@ fn test_build_anchored_blocks_multiple_chaintips() {
 
     // make a blank chainstate and mempool so we can mine empty blocks
     //  without punishing the correspondingly "too expensive" transactions
-    let blank_chainstate = instantiate_chainstate(false, 1, function_name!());
+    let blank_chainstate = TestChainstateBuilder::new_testnet(function_name!())
+        .with_chain_id(1)
+        .build();
     let mut blank_mempool = MemPoolDB::open_test(false, 1, &blank_chainstate.root_path).unwrap();
 
     let first_stacks_block_height = {
@@ -5766,9 +5768,10 @@ fn mempool_incorporate_pox_unlocks() {
                          let v1_unlock_height = db.get_v1_unlock_height();
                          let v2_unlock_height = db.get_v2_unlock_height().unwrap();
                          let v3_unlock_height = db.get_v3_unlock_height().unwrap();
+                         let v4_unlock_height = db.get_v4_unlock_height().unwrap();
                          let balance = db.get_account_stx_balance(&principal).unwrap();
                          info!("Checking balance"; "v1_unlock_height" => v1_unlock_height, "burn_block_height" => burn_block_height);
-                         balance.get_available_balance_at_burn_block(burn_block_height, v1_unlock_height, v2_unlock_height, v3_unlock_height).unwrap()
+                         balance.get_available_balance_at_burn_block(burn_block_height, v1_unlock_height, v2_unlock_height, v3_unlock_height, v4_unlock_height).unwrap()
                      })
                  }).unwrap();
 
@@ -6084,8 +6087,7 @@ fn paramaterized_mempool_walk_test(
     let recipient_addr_str = "ST1RFD5Q2QPK3E0F08HG9XDX7SSC7CNRS0QR0SGEV";
     let recipient = StacksAddress::from_string(recipient_addr_str).unwrap();
 
-    let mut chainstate =
-        instantiate_chainstate_with_balances(false, 0x80000000, &test_name, vec![]);
+    let mut chainstate = TestChainstateBuilder::new_testnet(&test_name).build();
     let chainstate_path = chainstate_path(&test_name);
     let mut mempool = MemPoolDB::open_test(false, 0x80000000, &chainstate_path).unwrap();
     let b_1 = make_block(
@@ -6266,8 +6268,7 @@ fn mempool_walk_test_next_nonce_with_highest_fee_rate_strategy() {
     let recipient =
         StacksAddress::from_string("ST1RFD5Q2QPK3E0F08HG9XDX7SSC7CNRS0QR0SGEV").unwrap();
 
-    let mut chainstate =
-        instantiate_chainstate_with_balances(false, 0x80000000, &test_name, vec![]);
+    let mut chainstate = TestChainstateBuilder::new_testnet(&test_name).build();
     let chainstate_path = chainstate_path(&test_name);
     let mut mempool = MemPoolDB::open_test(false, 0x80000000, &chainstate_path).unwrap();
     let b_1 = make_block(
@@ -6393,8 +6394,10 @@ fn mempool_walk_test_next_nonce_with_highest_fee_rate_strategy() {
 
     // Visit transactions using the `NextNonceWithHighestFeeRate` strategy. Keep a record of the order of visits so we can compare
     // at the end.
-    let mut mempool_settings = MemPoolWalkSettings::default();
-    mempool_settings.strategy = MemPoolWalkStrategy::NextNonceWithHighestFeeRate;
+    let mempool_settings = MemPoolWalkSettings {
+        strategy: MemPoolWalkStrategy::NextNonceWithHighestFeeRate,
+        ..Default::default()
+    };
     let mut considered_txs = vec![];
     let deadline = get_epoch_time_ms() + 30000;
     chainstate.with_read_only_clarity_tx(

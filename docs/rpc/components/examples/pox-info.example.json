@@ -73,6 +73,8 @@
                 },
                 "network_epoch": 1
             }
-        ]
+        ],
+        "pox_5_sbtc_contract": "SM3VDXK3WZZSA84XXFKAFAF15NNZX32CTSG82JFQ4.sbtc-token",
+        "pox_5_sbtc_registry_contract": "SM3VDXK3WZZSA84XXFKAFAF15NNZX32CTSG82JFQ4.sbtc-registry"
     }
 }

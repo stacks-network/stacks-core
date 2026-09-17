@@ -72,7 +72,7 @@ fn test_try_parse_request() {
     let (preamble, contents) = parsed_request.destruct();
 
     assert_eq!(&preamble, request.preamble());
-    assert_eq!(handler.profiler, false);
+    assert!(!handler.profiler);
 }
 
 #[test]
@@ -108,7 +108,7 @@ fn test_try_parse_request_with_profiler() {
 
     let (preamble, contents) = parsed_request.destruct();
 
-    assert_eq!(handler.profiler, true);
+    assert!(handler.profiler);
 }
 
 #[test]
@@ -406,7 +406,7 @@ fn test_try_make_response_with_unsuccessful_transaction() {
     }
 
     assert_eq!(
-        resp.transactions.last().unwrap().vm_error.clone().unwrap(),
-        ":0:0: use of unresolved function 'broken'"
+        resp.transactions.last().unwrap().vm_error.as_deref(),
+        Some(":0:0: use of unresolved function 'broken'")
     );
 }

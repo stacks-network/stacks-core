@@ -59,8 +59,8 @@ use crate::chainstate::stacks::db::{
     ChainstateTx, ClarityTx, StacksAccount, StacksChainState, StacksHeaderInfo,
 };
 use crate::chainstate::stacks::miner::{
-    BlockBuilder, BlockLimitFunction, TransactionError, TransactionProblematic, TransactionResult,
-    TransactionSkipped,
+    BlockBuilder, BlockLimitFunction, TransactionError, TransactionProblematic,
+    TransactionResourceBudgets, TransactionResult, TransactionSkipped,
 };
 use crate::chainstate::stacks::{
     CoinbasePayload, Error, StacksTransaction, StacksTransactionSigner, TenureChangeCause,
@@ -94,7 +94,7 @@ impl NakamotoBlockHeader {
 
     /// Get the signing weight of a shadow block
     pub fn get_shadow_signer_weight(&self, reward_set: &RewardSet) -> Result<u32, Error> {
-        let Some(signers) = &reward_set.signers else {
+        let Some(signers) = reward_set.signers() else {
             return Err(ChainstateError::InvalidStacksBlock(
                 "No signers in the reward set".to_string(),
             ));
@@ -537,7 +537,7 @@ impl NakamotoBlockBuilder {
                 &tx,
                 tx_len,
                 &BlockLimitFunction::NO_LIMIT_HIT,
-                None,
+                &TransactionResourceBudgets::unlimited(),
                 &mut receipts_total,
             ) {
                 TransactionResult::Success(..) => {

@@ -329,8 +329,6 @@ impl<Signer: SignerTrait<T>, T: StacksMessageCodec + Clone + Send + Debug> RunLo
             block_proposal_max_age_secs: self.config.block_proposal_max_age_secs,
             reorg_attempts_activity_timeout: self.config.reorg_attempts_activity_timeout,
             proposal_wait_for_parent_time: self.config.proposal_wait_for_parent_time,
-            validate_with_replay_tx: self.config.validate_with_replay_tx,
-            reset_replay_set_after_fork_blocks: self.config.reset_replay_set_after_fork_blocks,
             capitulate_miner_view_timeout: self.config.capitulate_miner_view_timeout,
             stackerdb_timeout: self.config.stackerdb_timeout,
             #[cfg(any(test, feature = "testing"))]

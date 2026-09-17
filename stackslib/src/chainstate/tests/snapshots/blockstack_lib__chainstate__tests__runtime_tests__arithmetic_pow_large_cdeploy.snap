@@ -4,127 +4,7 @@ expression: result.get_expected_results()
 ---
 [
   Success(ExpectedBlockOutput(
-    marf_hash: "3788e4a44bb5456fb51e555c02e247691d0de64ba6bccd65f1a8bbf070e12813",
-    evaluated_epoch: Epoch33,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "SmartContract(name: pow-large-deploy-Epoch3_3-Clarity1, code_body: [..], clarity_version: Some(Clarity1))",
-        vm_error: "Some(Arithmetic(\"Power argument to (pow ...) must be a u32 integer\")) [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: false,
-          data: Optional(OptionalData(
-            data: None,
-          )),
-        )),
-        cost: ExecutionCost(
-          write_length: 54,
-          write_count: 2,
-          read_length: 1,
-          read_count: 1,
-          runtime: 9616,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 54,
-      write_count: 2,
-      read_length: 1,
-      read_count: 1,
-      runtime: 9616,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "6e6bf6f17955f01614fe5eaf3e609eac93b092e81fbe7fbcd92d3abef529ef8c",
-    evaluated_epoch: Epoch33,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "SmartContract(name: pow-large-deploy-Epoch3_3-Clarity2, code_body: [..], clarity_version: Some(Clarity2))",
-        vm_error: "Some(Arithmetic(\"Power argument to (pow ...) must be a u32 integer\")) [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: false,
-          data: Optional(OptionalData(
-            data: None,
-          )),
-        )),
-        cost: ExecutionCost(
-          write_length: 54,
-          write_count: 2,
-          read_length: 1,
-          read_count: 1,
-          runtime: 9616,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 54,
-      write_count: 2,
-      read_length: 1,
-      read_count: 1,
-      runtime: 9616,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "ca8ae365a8324ee80d14a33265843644474ada804d74014ac74ceb223854baf1",
-    evaluated_epoch: Epoch33,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "SmartContract(name: pow-large-deploy-Epoch3_3-Clarity3, code_body: [..], clarity_version: Some(Clarity3))",
-        vm_error: "Some(Arithmetic(\"Power argument to (pow ...) must be a u32 integer\")) [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: false,
-          data: Optional(OptionalData(
-            data: None,
-          )),
-        )),
-        cost: ExecutionCost(
-          write_length: 54,
-          write_count: 2,
-          read_length: 1,
-          read_count: 1,
-          runtime: 9616,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 54,
-      write_count: 2,
-      read_length: 1,
-      read_count: 1,
-      runtime: 9616,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "3beb0581e6ccc07682715f51744308edba6ee4d47bcbbe60a86261cc595409e0",
-    evaluated_epoch: Epoch33,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "SmartContract(name: pow-large-deploy-Epoch3_3-Clarity4, code_body: [..], clarity_version: Some(Clarity4))",
-        vm_error: "Some(Arithmetic(\"Power argument to (pow ...) must be a u32 integer\")) [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: false,
-          data: Optional(OptionalData(
-            data: None,
-          )),
-        )),
-        cost: ExecutionCost(
-          write_length: 54,
-          write_count: 2,
-          read_length: 1,
-          read_count: 1,
-          runtime: 9616,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 54,
-      write_count: 2,
-      read_length: 1,
-      read_count: 1,
-      runtime: 9616,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "614e65d6fa26e0cc60f5a2add4485d761ca689b099dc23c6a0eec0fbe3aef7b2",
+    marf_hash: "5cf507954fcef3782eb164728e9cbc97fc50c4a1af05bd7a8a6b01629acf3226",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -154,7 +34,7 @@ expression: result.get_expected_results()
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "aebf8f2754b7e5e75f89c1c9f60354da5c6bc72ff64934a0adf1c63d6b34359a",
+    marf_hash: "7c2946309e5f65349146734ad3f33c6b1880a9737b91ad1e3aefc137d5452fa1",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -184,7 +64,7 @@ expression: result.get_expected_results()
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "e8ebacc872990ca01255094e2ff9955f37e0d5407fa89f7d945493fa4cbe0653",
+    marf_hash: "9ef1f7c70fedbd9b6bfeb99505d920589f9c736d511d59a4be5076dcb40dee75",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -214,7 +94,7 @@ expression: result.get_expected_results()
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "1353ec310cf225d786214303019ae15372eb467b60fbd3ed7bdf9c6cf8ae1192",
+    marf_hash: "90603fa40d0a70ea199d817bbd4bdedc65e482d1d567fb4ab0b9908fa209bcdb",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -244,7 +124,7 @@ expression: result.get_expected_results()
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "888550f4f50be68cc9bce3e7c11118cd1446f1350002d4d48f60d911ffd0ff6c",
+    marf_hash: "84af65f49bc9dc6d244bd7471a38de7f83d296270418d0a7d101cc32cb879c84",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -271,6 +151,186 @@ expression: result.get_expected_results()
       read_length: 1,
       read_count: 1,
       runtime: 9616,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "28515bd491a96dc81f7e067dc8d519cf1b1d4c6c3ec8f48a9f07d360cf0efaff",
+    evaluated_epoch: Epoch40,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: pow-large-deploy-Epoch4_0-Clarity1, code_body: [..], clarity_version: Some(Clarity1))",
+        vm_error: "Some(Arithmetic(\"Power argument to (pow ...) must be a u32 integer\")) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 54,
+          write_count: 2,
+          read_length: 1,
+          read_count: 1,
+          runtime: 9504,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 54,
+      write_count: 2,
+      read_length: 1,
+      read_count: 1,
+      runtime: 9504,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "ae9a8adc0b615d2956fdfd7b8f25a4ba91a9085a9d7ca8a888ad97badd6ace6b",
+    evaluated_epoch: Epoch40,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: pow-large-deploy-Epoch4_0-Clarity2, code_body: [..], clarity_version: Some(Clarity2))",
+        vm_error: "Some(Arithmetic(\"Power argument to (pow ...) must be a u32 integer\")) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 54,
+          write_count: 2,
+          read_length: 1,
+          read_count: 1,
+          runtime: 9504,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 54,
+      write_count: 2,
+      read_length: 1,
+      read_count: 1,
+      runtime: 9504,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "4fee923ac82bb8b8419f879545c3070cb581eac3b1487402a09626de6d62c040",
+    evaluated_epoch: Epoch40,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: pow-large-deploy-Epoch4_0-Clarity3, code_body: [..], clarity_version: Some(Clarity3))",
+        vm_error: "Some(Arithmetic(\"Power argument to (pow ...) must be a u32 integer\")) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 54,
+          write_count: 2,
+          read_length: 1,
+          read_count: 1,
+          runtime: 9504,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 54,
+      write_count: 2,
+      read_length: 1,
+      read_count: 1,
+      runtime: 9504,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "8c009f05188a7b22b1dc48e831bf03bc3206699b28b7602d8a651d58e8610489",
+    evaluated_epoch: Epoch40,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: pow-large-deploy-Epoch4_0-Clarity4, code_body: [..], clarity_version: Some(Clarity4))",
+        vm_error: "Some(Arithmetic(\"Power argument to (pow ...) must be a u32 integer\")) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 54,
+          write_count: 2,
+          read_length: 1,
+          read_count: 1,
+          runtime: 9504,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 54,
+      write_count: 2,
+      read_length: 1,
+      read_count: 1,
+      runtime: 9504,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "9d2ef3a6774dee3cd680abd45805732de38d764533a394e8635faebe35d4bf0f",
+    evaluated_epoch: Epoch40,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: pow-large-deploy-Epoch4_0-Clarity5, code_body: [..], clarity_version: Some(Clarity5))",
+        vm_error: "Some(Arithmetic(\"Power argument to (pow ...) must be a u32 integer\")) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 54,
+          write_count: 2,
+          read_length: 1,
+          read_count: 1,
+          runtime: 9504,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 54,
+      write_count: 2,
+      read_length: 1,
+      read_count: 1,
+      runtime: 9504,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "e63f6563065363b2bfcb0144da23e93f9859fef4a7da4d0fb63b44e0cad2e09a",
+    evaluated_epoch: Epoch40,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: pow-large-deploy-Epoch4_0-Clarity6, code_body: [..], clarity_version: Some(Clarity6))",
+        vm_error: "Some(Arithmetic(\"Power argument to (pow ...) must be a u32 integer\")) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 54,
+          write_count: 2,
+          read_length: 1,
+          read_count: 1,
+          runtime: 9504,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 54,
+      write_count: 2,
+      read_length: 1,
+      read_count: 1,
+      runtime: 9504,
     ),
   )),
 ]

@@ -1,1 +1,0 @@
-Connections opened through `sqlite_open` (including all MARF and Clarity side-store connections) now use SQLite multi-thread (`SQLITE_OPEN_NO_MUTEX`) mode instead of serialized mode; the redundant per-connection mutex measurably slowed hot paths (~11% Nakamoto catch-up throughput improvement measured on a mainnet follower).

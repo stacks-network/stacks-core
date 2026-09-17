@@ -18,12 +18,13 @@
 use std::collections::HashSet;
 use std::path::Path;
 
+use clarity::types::StacksEpochId;
 use rusqlite::{params, Connection};
 use stacks_common::types::chainstate::BurnchainHeaderHash;
 use tempfile::tempdir;
 
 use super::super::burnchain::{
-    assert_source_tables_classified, burnchain_copy_specs, copy_burnchain_db, COPIED_TABLES,
+    assert_source_tables_classified, burnchain_copy_specs, copy_burnchain_db,
 };
 use crate::burnchains::db::BurnchainDB;
 use crate::burnchains::{Burnchain, PoxConstants};
@@ -77,16 +78,15 @@ fn test_unclassified_source_table_is_rejected() {
     );
 }
 
-/// Every cloned table (`COPIED_TABLES`) must have a row-copy spec and vice versa,
-/// else it would be cloned but never populated (present-but-empty).
+/// Copy-spec coverage guard: no table appears twice. Set completeness is covered
+/// by `test_no_unclassified_burnchain_tables`, which derives the recognized set
+/// from these specs and runs the guard against a fresh schema, so re-listing the
+/// table names here would just duplicate the spec list.
 #[test]
-fn test_copy_specs_match_copied_tables() {
-    let copied: HashSet<&str> = COPIED_TABLES.iter().copied().collect();
-
-    let specs: Vec<&str> = burnchain_copy_specs().iter().map(|s| s.table).collect();
-    let spec_set: HashSet<&str> = specs.iter().copied().collect();
-    assert_eq!(specs.len(), spec_set.len(), "duplicate spec tables");
-    assert_eq!(spec_set, copied);
+fn test_burnchain_copy_specs_well_formed() {
+    let tables = burnchain_copy_specs().table_names();
+    let unique: HashSet<&str> = tables.iter().copied().collect();
+    assert_eq!(tables.len(), unique.len(), "duplicate spec tables");
 }
 
 /// Create a burnchain.sqlite source via the production initializer
@@ -120,7 +120,7 @@ fn create_squashed_sortition(dir: &Path, hashes: &[BurnchainHeaderHash]) -> std:
         0,
         &GENESIS_BHH,
         0,
-        &StacksEpoch::unit_test_3_4(0),
+        &StacksEpoch::unit_test_epoch_only(0, StacksEpochId::Epoch34),
         PoxConstants::test_default(),
         None,
         true,
@@ -359,8 +359,8 @@ fn test_burnchain_db_block_ops_follow_canonical_headers() {
     assert_eq!(op, "op_c");
 }
 
-/// `anchor_blocks` and `overrides` are restricted to reward cycles
-/// referenced by the copied commit metadata.
+/// `anchor_blocks` are restricted to reward cycles referenced by the copied
+/// commit metadata; `overrides` is schema-only.
 #[test]
 fn test_burnchain_db_anchor_blocks_filtered() {
     let dir = tempdir().unwrap();
@@ -401,12 +401,17 @@ fn test_burnchain_db_anchor_blocks_filtered() {
         .query_row("SELECT reward_cycle FROM anchor_blocks", [], |r| r.get(0))
         .unwrap();
     assert_eq!(cycle, 1);
-    // `overrides` is schema-only: the table exists in the dst, but no rows are
-    // copied -- not even for a canonical reward cycle.
-    let override_rows: i64 = dst
-        .query_row("SELECT COUNT(*) FROM overrides", [], |r| r.get(0))
-        .unwrap();
-    assert_eq!(override_rows, 0, "overrides must not be row-copied");
+    // Every schema-only table (`overrides`) is cloned into the dst but receives
+    // no rows. The COUNT also fails if a table was never cloned.
+    for table in burnchain_copy_specs().schema_only() {
+        let rows: i64 = dst
+            .query_row(&format!("SELECT COUNT(*) FROM {table}"), [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(
+            rows, 0,
+            "schema-only table `{table}` must not be row-copied"
+        );
+    }
     let anchor99: i64 = dst
         .query_row(
             "SELECT COUNT(*) FROM anchor_blocks WHERE reward_cycle = 99",

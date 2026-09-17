@@ -220,7 +220,7 @@ impl Command<Epoch33ToEpoch34TestState, Epoch33ToEpoch34TestContext> for CallRes
 /// but the combined total exceeds it: `max(transfer, burn) <= allowance <
 /// transfer + burn`.
 ///
-/// Pre-Epoch34: `VmInternalError::Expect` -> `Rejectable` -> block rejected.
+/// Pre-Epoch34: `VmInternalError::Expect` -> `RejectedRuntimeTxError::Clarity` -> block rejected.
 ///
 /// Epoch34: clean `(err u0)` Clarity response, effects rolled back.
 pub struct CallRestrictWithStxCombinedExceeds {

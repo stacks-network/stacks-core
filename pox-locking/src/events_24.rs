@@ -120,10 +120,10 @@ fn create_event_info_data_code(function_name: &str, args: &[Value]) -> String {
                     }}
                 }}
                 "#,
-                lock_amount = &args[0],
-                lock_period = &args[3],
-                pox_addr = &args[1],
-                start_burn_height = &args[2],
+                lock_amount = args[0],
+                lock_period = args[3],
+                pox_addr = args[1],
+                start_burn_height = args[2],
             )
         }
         "delegate-stack-stx" => {
@@ -154,11 +154,11 @@ fn create_event_info_data_code(function_name: &str, args: &[Value]) -> String {
                     }}
                 }}
                 "#,
-                stacker = &args[0],
-                lock_amount = &args[1],
-                pox_addr = &args[2],
-                start_burn_height = &args[3],
-                lock_period = &args[4],
+                stacker = args[0],
+                lock_amount = args[1],
+                pox_addr = args[2],
+                start_burn_height = args[3],
+                lock_period = args[4],
             )
         }
         "stack-increase" => {
@@ -178,7 +178,7 @@ fn create_event_info_data_code(function_name: &str, args: &[Value]) -> String {
                     }}
                 }}
                 "#,
-                increase_by = &args[0]
+                increase_by = args[0]
             )
         }
         "delegate-stack-increase" => {
@@ -204,9 +204,9 @@ fn create_event_info_data_code(function_name: &str, args: &[Value]) -> String {
                     }}
                 }}
                 "#,
-                stacker = &args[0],
-                pox_addr = &args[1],
-                increase_by = &args[2],
+                stacker = args[0],
+                pox_addr = args[1],
+                increase_by = args[2],
             )
         }
         "stack-extend" => {
@@ -237,8 +237,8 @@ fn create_event_info_data_code(function_name: &str, args: &[Value]) -> String {
                     }}
                 }})
                 "#,
-                extend_count = &args[0],
-                pox_addr = &args[1],
+                extend_count = args[0],
+                pox_addr = args[1],
             )
         }
         "delegate-stack-extend" => {
@@ -273,9 +273,9 @@ fn create_event_info_data_code(function_name: &str, args: &[Value]) -> String {
                     }}
                 }})
                 "#,
-                stacker = &args[0],
-                pox_addr = &args[1],
-                extend_count = &args[2]
+                stacker = args[0],
+                pox_addr = args[1],
+                extend_count = args[2]
             )
         }
         "stack-aggregation-commit"
@@ -300,8 +300,8 @@ fn create_event_info_data_code(function_name: &str, args: &[Value]) -> String {
                     }}
                 }}
                 "#,
-                pox_addr = &args[0],
-                reward_cycle = &args[1]
+                pox_addr = args[0],
+                reward_cycle = args[1]
             )
         }
         "delegate-stx" => {
@@ -324,10 +324,10 @@ fn create_event_info_data_code(function_name: &str, args: &[Value]) -> String {
                     }}
                 }}
                 "#,
-                amount_ustx = &args[0],
-                delegate_to = &args[1],
-                until_burn_height = &args[2],
-                pox_addr = &args[3],
+                amount_ustx = args[0],
+                delegate_to = args[1],
+                until_burn_height = args[2],
+                pox_addr = args[3],
             )
         }
         _ => "{{ data: {{ unimplemented: true }} }}".into(),

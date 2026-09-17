@@ -14,7 +14,6 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use clarity::vm::clarity::TransactionConnection;
 use clarity::vm::contexts::{AssetMap, OwnedEnvironment};
 use clarity::vm::costs::cost_functions::ClarityCostFunction;
 use clarity::vm::costs::{
@@ -27,30 +26,19 @@ use clarity::vm::events::StacksTransactionEvent;
 use clarity::vm::functions::NativeFunctions;
 use clarity::vm::representations::SymbolicExpression;
 use clarity::vm::test_util::{
-    execute, execute_on_network, generate_test_burn_state_db, symbols_from_values,
-    TEST_BURN_STATE_DB, TEST_BURN_STATE_DB_21, TEST_HEADER_DB,
+    execute, generate_test_burn_state_db, symbols_from_values, TEST_HEADER_DB,
 };
-use clarity::vm::tests::test_only_mainnet_to_chain_id;
 use clarity::vm::types::{
     PrincipalData, QualifiedContractIdentifier, StandardPrincipalData, Value,
 };
-use clarity::vm::{ClarityName, ClarityVersion, ContractName};
-use lazy_static::lazy_static;
-use stacks_common::types::chainstate::StacksBlockId;
+use clarity::vm::{ClarityVersion, ContractName};
 use stacks_common::types::StacksEpochId;
 
-use crate::chainstate::stacks::index::ClarityMarfTrieId;
-use crate::clarity_vm::clarity::{ClarityInstance, ClarityMarfStore, ClarityMarfStoreTransaction};
-use crate::clarity_vm::database::marf::MarfedKV;
-use crate::core::{FIRST_BURNCHAIN_CONSENSUS_HASH, FIRST_STACKS_BLOCK_HASH};
+use crate::clarity_vm::clarity::ClarityMarfStore;
+use crate::clarity_vm::tests::utils::{
+    new_cost_test_clarity_instance, next_test_block_id, setup_cost_test_epochs_through,
+};
 use crate::util_lib::boot::boot_code_id;
-
-lazy_static! {
-    static ref COST_VOTING_MAINNET_CONTRACT: QualifiedContractIdentifier =
-        boot_code_id("cost-voting", true);
-    static ref COST_VOTING_TESTNET_CONTRACT: QualifiedContractIdentifier =
-        boot_code_id("cost-voting", false);
-}
 
 pub fn get_simple_test(function: &NativeFunctions) -> Option<&'static str> {
     use clarity::vm::functions::NativeFunctions::*;
@@ -188,12 +176,18 @@ pub fn get_simple_test(function: &NativeFunctions) -> Option<&'static str> {
         RestrictAssets => "(restrict-assets? tx-sender () (+ u1 u2))",
         AsContractSafe => "(as-contract? () (+ u1 u2))",
         Secp256r1Verify => "(secp256r1-verify 0xc3abef6a775793dfbc8e0719e7a1de1fc2f90d37a7912b1ce8e300a5a03b06a8 0xf2b8c0645caa7250e3b96d633cf40a88456e4ffbddffb69200c4e019039dfd310eac59293c23e6d6aa8b0c5d9e4e48fa4c4fdf1ace2ba618dc0263b5e90a0903 0x031e18532fd4754c02f3041d9c75ceb33b83ffd81ac7ce4fe882ccb1c98bc5896e)",
+        VerifyMerkleProof => "(verify-merkle-proof 0x0000000000000000000000000000000000000000000000000000000000000000 0x0000000000000000000000000000000000000000000000000000000000000000 u0 u1 (list))",
+        GetBitcoinTxOutput => "(get-bitcoin-tx-output? 0x0100000001000000000000000000000000000000000000000000000000000000000000000000000000ffffffff01e80300000000000016001400000000000000000000000000000000000000000000000000 u0)",
+        Ed25519Verify => "(ed25519-verify 0xaf82 0x6291d657deec24024827e69c3abe01a30ce548a284743a445e3680d7db5ac3ac18ff9b538d16f290ae67f760984dc6594a7c15e9716ed28dc027beceea1ec40a 0xfc51cd8e6218a1a38da47ed00230f0580816ed13ba3303ac5deb911548908025)",
+        Secp256k1Decompress => "(secp256k1-decompress? 0x03adb8de4bfb65db2cfd6120d55c6526ae9c52e675db7e47308636534ba7786110)",
         // These expressions are not usable in this context, since they are
         // only allowed within `restrict-assets?` or `as-contract?`
         AllowanceWithStx
         | AllowanceWithFt
         | AllowanceWithNft
         | AllowanceWithStacking
+        | AllowanceWithStaking
+        | AllowanceWithPox
         | AllowanceAll => return None,
     };
     Some(s)
@@ -213,66 +207,15 @@ fn with_owned_env<F, R>(epoch: StacksEpochId, use_mainnet: bool, to_do: F) -> R
 where
     F: Fn(OwnedEnvironment) -> R,
 {
-    let marf_kv = MarfedKV::temporary();
-    let chain_id = test_only_mainnet_to_chain_id(use_mainnet);
-    let mut clarity_instance = ClarityInstance::new(use_mainnet, chain_id, marf_kv);
+    let (mut clarity_instance, mut tip, mut block_id_byte) =
+        new_cost_test_clarity_instance(use_mainnet);
 
-    let first_block = StacksBlockId::new(&FIRST_BURNCHAIN_CONSENSUS_HASH, &FIRST_STACKS_BLOCK_HASH);
-    clarity_instance
-        .begin_test_genesis_block(
-            &StacksBlockId::sentinel(),
-            &first_block,
-            &TEST_HEADER_DB,
-            &TEST_BURN_STATE_DB,
-        )
-        .commit_block();
-
-    let mut tip = first_block.clone();
-
-    if epoch >= StacksEpochId::Epoch2_05 {
-        let burn_state_db = generate_test_burn_state_db(StacksEpochId::Epoch2_05);
-        let next_block = StacksBlockId([1; 32]);
-        let mut clarity_conn =
-            clarity_instance.begin_block(&tip, &next_block, &TEST_HEADER_DB, &burn_state_db);
-        clarity_conn.initialize_epoch_2_05().unwrap();
-        clarity_conn.commit_block();
-        tip = next_block.clone();
-    }
-
-    if epoch >= StacksEpochId::Epoch21 {
-        let burn_state_db = generate_test_burn_state_db(StacksEpochId::Epoch21);
-        let next_block = StacksBlockId([2; 32]);
-        let mut clarity_conn =
-            clarity_instance.begin_block(&tip, &next_block, &TEST_HEADER_DB, &burn_state_db);
-        clarity_conn.initialize_epoch_2_1().unwrap();
-        clarity_conn.commit_block();
-        tip = next_block.clone();
-    }
-
-    if epoch >= StacksEpochId::Epoch30 {
-        let burn_state_db = generate_test_burn_state_db(StacksEpochId::Epoch30);
-        let next_block = StacksBlockId([3; 32]);
-        let mut clarity_conn =
-            clarity_instance.begin_block(&tip, &next_block, &TEST_HEADER_DB, &burn_state_db);
-        clarity_conn.initialize_epoch_3_0().unwrap();
-        clarity_conn.commit_block();
-        tip = next_block.clone();
-    }
-
-    if epoch >= StacksEpochId::Epoch33 {
-        let burn_state_db = generate_test_burn_state_db(StacksEpochId::Epoch33);
-        let next_block = StacksBlockId([4; 32]);
-        let mut clarity_conn =
-            clarity_instance.begin_block(&tip, &next_block, &TEST_HEADER_DB, &burn_state_db);
-        clarity_conn.initialize_epoch_3_3().unwrap();
-        clarity_conn.commit_block();
-        tip = next_block.clone();
-    }
+    setup_cost_test_epochs_through(&mut clarity_instance, &mut tip, &mut block_id_byte, epoch);
 
     let mut marf_kv = clarity_instance.destroy();
-
     let burn_state_db = generate_test_burn_state_db(epoch);
-    let mut store = marf_kv.begin(&tip, &StacksBlockId([5; 32]));
+    let final_block = next_test_block_id(&mut block_id_byte);
+    let mut store = marf_kv.begin(&tip, &final_block);
 
     to_do(OwnedEnvironment::new_max_limit(
         store.as_clarity_db(&TEST_HEADER_DB, &burn_state_db),
@@ -1220,694 +1163,24 @@ fn epoch_33_test_all_testnet() {
     epoch_33_test_all(false)
 }
 
-fn test_cost_contract_short_circuits(use_mainnet: bool, clarity_version: ClarityVersion) {
-    let marf_kv = MarfedKV::temporary();
-    let chain_id = test_only_mainnet_to_chain_id(use_mainnet);
-    let mut clarity_instance = ClarityInstance::new(use_mainnet, chain_id, marf_kv);
-    let burn_db = if clarity_version == ClarityVersion::Clarity2 {
-        &TEST_BURN_STATE_DB_21
-    } else {
-        &TEST_BURN_STATE_DB
-    };
-
-    clarity_instance
-        .begin_test_genesis_block(
-            &StacksBlockId::sentinel(),
-            &StacksBlockId::new(&FIRST_BURNCHAIN_CONSENSUS_HASH, &FIRST_STACKS_BLOCK_HASH),
-            &TEST_HEADER_DB,
-            burn_db,
-        )
-        .commit_block();
-
-    let marf_kv = clarity_instance.destroy();
-
-    let p1 = execute_on_network("'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR", use_mainnet);
-    let p2 = execute_on_network("'SM2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQVX8X0G", use_mainnet);
-
-    let Value::Principal(PrincipalData::Standard(p1_principal)) = p1.clone() else {
-        panic!("Expected a standard principal data");
-    };
-
-    let Value::Principal(p2_principal) = p2.clone() else {
-        panic!("Expected a principal data");
-    };
-
-    let cost_definer = QualifiedContractIdentifier::new(
-        p1_principal.clone(),
-        ContractName::from_literal("cost-definer"),
-    );
-    let intercepted = QualifiedContractIdentifier::new(
-        p1_principal.clone(),
-        ContractName::from_literal("intercepted"),
-    );
-    let caller =
-        QualifiedContractIdentifier::new(p1_principal, ContractName::from_literal("caller"));
-
-    let mut marf_kv = {
-        let mut clarity_inst = ClarityInstance::new(use_mainnet, chain_id, marf_kv);
-        let mut block_conn = clarity_inst.begin_block(
-            &StacksBlockId::new(&FIRST_BURNCHAIN_CONSENSUS_HASH, &FIRST_STACKS_BLOCK_HASH),
-            &StacksBlockId([1; 32]),
-            &TEST_HEADER_DB,
-            burn_db,
-        );
-
-        let cost_definer_src = "
-    (define-read-only (cost-definition (size uint))
-       {
-         runtime: u1, write_length: u1, write_count: u1, read_count: u1, read_length: u1
-       })
-    ";
-
-        let intercepted_src = "
-    (define-read-only (intercepted-function (a uint))
-       (if (>= a u10)
-           (+ (+ a a) (+ a a)
-              (+ a a) (+ a a))
-           u0))
-    ";
-
-        let caller_src = "
-    (define-public (execute (a uint))
-       (ok (contract-call? .intercepted intercepted-function a)))
-    ";
-
-        for (contract_name, contract_src) in [
-            (&cost_definer, cost_definer_src),
-            (&intercepted, intercepted_src),
-            (&caller, caller_src),
-        ]
-        .iter()
-        {
-            block_conn.as_transaction(|tx| {
-                let (ast, analysis) = tx
-                    .analyze_smart_contract(contract_name, clarity_version, contract_src, None)
-                    .unwrap();
-                tx.initialize_smart_contract(
-                    contract_name,
-                    clarity_version,
-                    &ast,
-                    contract_src,
-                    None,
-                    |_, _| None,
-                    None,
-                )
-                .unwrap();
-                tx.save_analysis(contract_name, &analysis).unwrap();
-            });
-        }
-
-        block_conn.commit_block();
-        clarity_inst.destroy()
-    };
-
-    let without_interposing_5 = {
-        let mut store = marf_kv.begin(&StacksBlockId([1; 32]), &StacksBlockId([2; 32]));
-        let mut owned_env = OwnedEnvironment::new_max_limit(
-            store.as_clarity_db(&TEST_HEADER_DB, burn_db),
-            StacksEpochId::Epoch20,
-            use_mainnet,
-        );
-
-        execute_transaction(
-            &mut owned_env,
-            p2_principal.clone(),
-            &caller,
-            "execute",
-            &symbols_from_values(vec![Value::UInt(5)]),
-        )
-        .unwrap();
-
+/// Epoch 4.0 uses native Rust costs without a deployed `costs-5` contract.
+#[rstest::rstest]
+#[case::mainnet(true)]
+#[case::testnet(false)]
+fn epoch_40_uses_native_costs(#[case] use_mainnet: bool) {
+    with_owned_env(StacksEpochId::Epoch40, use_mainnet, |owned_env| {
         let (_db, tracker) = owned_env.destruct().unwrap();
+        let cost_function_references = tracker.cost_function_references();
 
-        store.test_commit();
-        tracker.get_total()
-    };
-
-    let without_interposing_10 = {
-        let mut store = marf_kv.begin(&StacksBlockId([2; 32]), &StacksBlockId([3; 32]));
-        let mut owned_env = OwnedEnvironment::new_max_limit(
-            store.as_clarity_db(&TEST_HEADER_DB, burn_db),
-            StacksEpochId::Epoch20,
-            use_mainnet,
+        assert_eq!(
+            cost_function_references.len(),
+            ClarityCostFunction::ALL.len()
         );
-
-        execute_transaction(
-            &mut owned_env,
-            p2_principal.clone(),
-            &caller,
-            "execute",
-            &symbols_from_values(vec![Value::UInt(10)]),
-        )
-        .unwrap();
-
-        let (_db, tracker) = owned_env.destruct().unwrap();
-
-        store.test_commit();
-        tracker.get_total()
-    };
-
-    let voting_contract_to_use: &QualifiedContractIdentifier = if use_mainnet {
-        &COST_VOTING_MAINNET_CONTRACT
-    } else {
-        &COST_VOTING_TESTNET_CONTRACT
-    };
-
-    {
-        let mut store = marf_kv.begin(&StacksBlockId([3; 32]), &StacksBlockId([4; 32]));
-        let mut db = store.as_clarity_db(&TEST_HEADER_DB, burn_db);
-        db.begin();
-        db.set_variable_unknown_descriptor(
-            voting_contract_to_use,
-            "confirmed-proposal-count",
-            Value::UInt(1),
-        )
-        .unwrap();
-        let value = format!(
-            "{{  function-contract: '{},
-                 function-name: {},
-                 cost-function-contract: '{},
-                 cost-function-name: {},
-                 confirmed-height: u1 }}",
-            intercepted, "\"intercepted-function\"", cost_definer, "\"cost-definition\""
-        );
-        let epoch = db.get_clarity_epoch_version().unwrap();
-        db.set_entry_unknown_descriptor(
-            voting_contract_to_use,
-            "confirmed-proposals",
-            execute_on_network("{ confirmed-id: u0 }", use_mainnet),
-            execute_on_network(&value, use_mainnet),
-            &epoch,
-        )
-        .unwrap();
-        db.commit().unwrap();
-        store.test_commit();
-    }
-
-    let with_interposing_5 = {
-        let mut store = marf_kv.begin(&StacksBlockId([4; 32]), &StacksBlockId([5; 32]));
-
-        let mut owned_env = OwnedEnvironment::new_max_limit(
-            store.as_clarity_db(&TEST_HEADER_DB, burn_db),
-            StacksEpochId::Epoch20,
-            use_mainnet,
-        );
-
-        execute_transaction(
-            &mut owned_env,
-            p2_principal.clone(),
-            &caller,
-            "execute",
-            &symbols_from_values(vec![Value::UInt(5)]),
-        )
-        .unwrap();
-
-        let (_db, tracker) = owned_env.destruct().unwrap();
-
-        store.test_commit();
-        tracker.get_total()
-    };
-
-    let with_interposing_10 = {
-        let mut store = marf_kv.begin(&StacksBlockId([5; 32]), &StacksBlockId([6; 32]));
-        let mut owned_env = OwnedEnvironment::new_max_limit(
-            store.as_clarity_db(&TEST_HEADER_DB, burn_db),
-            StacksEpochId::Epoch20,
-            use_mainnet,
-        );
-
-        execute_transaction(
-            &mut owned_env,
-            p2_principal,
-            &caller,
-            "execute",
-            &symbols_from_values(vec![Value::UInt(10)]),
-        )
-        .unwrap();
-
-        let (_db, tracker) = owned_env.destruct().unwrap();
-
-        tracker.get_total()
-    };
-
-    assert!(without_interposing_5.exceeds(&with_interposing_5));
-    assert!(without_interposing_10.exceeds(&with_interposing_10));
-
-    assert_eq!(with_interposing_5, with_interposing_10);
-    assert!(without_interposing_5 != without_interposing_10);
-}
-
-#[test]
-fn test_cost_contract_short_circuits_mainnet() {
-    test_cost_contract_short_circuits(true, ClarityVersion::Clarity1);
-    test_cost_contract_short_circuits(true, ClarityVersion::Clarity2);
-}
-
-#[test]
-fn test_cost_contract_short_circuits_testnet() {
-    test_cost_contract_short_circuits(false, ClarityVersion::Clarity1);
-    test_cost_contract_short_circuits(false, ClarityVersion::Clarity2);
-}
-
-fn test_cost_voting_integration(use_mainnet: bool, clarity_version: ClarityVersion) {
-    let marf_kv = MarfedKV::temporary();
-    let chain_id = test_only_mainnet_to_chain_id(use_mainnet);
-    let mut clarity_instance = ClarityInstance::new(use_mainnet, chain_id, marf_kv);
-    let burn_db = if clarity_version == ClarityVersion::Clarity2 {
-        &TEST_BURN_STATE_DB_21
-    } else {
-        &TEST_BURN_STATE_DB
-    };
-
-    clarity_instance
-        .begin_test_genesis_block(
-            &StacksBlockId::sentinel(),
-            &StacksBlockId::new(&FIRST_BURNCHAIN_CONSENSUS_HASH, &FIRST_STACKS_BLOCK_HASH),
-            &TEST_HEADER_DB,
-            burn_db,
-        )
-        .commit_block();
-
-    let marf_kv = clarity_instance.destroy();
-
-    let p1 = execute("'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR");
-    let p2 = execute("'SM2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQVX8X0G");
-
-    let Value::Principal(PrincipalData::Standard(p1_principal)) = p1.clone() else {
-        panic!("Expected a standard principal data");
-    };
-
-    let Value::Principal(p2_principal) = p2.clone() else {
-        panic!("Expected a principal data");
-    };
-
-    let cost_definer = QualifiedContractIdentifier::new(
-        p1_principal.clone(),
-        ContractName::from_literal("cost-definer"),
-    );
-    let bad_cost_definer = QualifiedContractIdentifier::new(
-        p1_principal.clone(),
-        ContractName::from_literal("bad-cost-definer"),
-    );
-    let bad_cost_args_definer = QualifiedContractIdentifier::new(
-        p1_principal.clone(),
-        ContractName::from_literal("bad-cost-args-definer"),
-    );
-    let intercepted = QualifiedContractIdentifier::new(
-        p1_principal.clone(),
-        ContractName::from_literal("intercepted"),
-    );
-    let caller = QualifiedContractIdentifier::new(
-        p1_principal.clone(),
-        ContractName::from_literal("caller"),
-    );
-
-    let mut marf_kv = {
-        let mut clarity_inst = ClarityInstance::new(use_mainnet, chain_id, marf_kv);
-        let mut block_conn = clarity_inst.begin_block(
-            &StacksBlockId::new(&FIRST_BURNCHAIN_CONSENSUS_HASH, &FIRST_STACKS_BLOCK_HASH),
-            &StacksBlockId([1; 32]),
-            &TEST_HEADER_DB,
-            burn_db,
-        );
-
-        let cost_definer_src = "
-    (define-read-only (cost-definition (size uint))
-       {
-         runtime: u1, write_length: u1, write_count: u1, read_count: u1, read_length: u1
-       })
-    (define-read-only (cost-definition-le (size uint))
-       {
-         runtime: u0, write_length: u0, write_count: u0, read_count: u0, read_length: u0
-       })
-    (define-read-only (cost-definition-multi-arg (a uint) (b uint) (c uint))
-       {
-         runtime: u1, write_length: u0, write_count: u0, read_count: u0, read_length: u0
-       })
-
-    ";
-
-        let bad_cost_definer_src = "
-    (define-data-var my-var uint u10)
-    (define-read-only (cost-definition (size uint))
-       {
-         runtime: (var-get my-var), write_length: u1, write_count: u1, read_count: u1, read_length: u1
-       })
-    ";
-
-        let bad_cost_args_definer_src = "
-    (define-read-only (cost-definition (a uint) (b uint))
-       {
-         runtime: u1, write_length: u1, write_count: u1, read_count: u1, read_length: u1
-       })
-    ";
-
-        let intercepted_src = "
-    (define-read-only (intercepted-function (a uint))
-       (if (>= a u10)
-           (+ (+ a a) (+ a a)
-              (+ a a) (+ a a))
-           u0))
-
-    (define-read-only (intercepted-function2 (a uint) (b uint) (c uint))
-       (- (+ a b) c))
-
-    (define-public (non-read-only) (ok (+ 1 2 3)))
-    ";
-
-        let caller_src = "
-    (define-public (execute (a uint))
-       (ok (contract-call? .intercepted intercepted-function a)))
-    (define-public (execute-2 (a uint))
-       (ok (< a a)))
-    ";
-
-        for (contract_name, contract_src) in [
-            (&cost_definer, cost_definer_src),
-            (&intercepted, intercepted_src),
-            (&caller, caller_src),
-            (&bad_cost_definer, bad_cost_definer_src),
-            (&bad_cost_args_definer, bad_cost_args_definer_src),
-        ]
-        .iter()
-        {
-            block_conn.as_transaction(|tx| {
-                let (ast, analysis) = tx
-                    .analyze_smart_contract(contract_name, clarity_version, contract_src, None)
-                    .unwrap();
-                tx.initialize_smart_contract(
-                    contract_name,
-                    clarity_version,
-                    &ast,
-                    contract_src,
-                    None,
-                    |_, _| None,
-                    None,
-                )
-                .unwrap();
-                tx.save_analysis(contract_name, &analysis).unwrap();
-            });
-        }
-
-        block_conn.commit_block();
-        clarity_inst.destroy()
-    };
-
-    let bad_cases = vec![
-        // non existent "replacement target"
-        (
-            PrincipalData::from(QualifiedContractIdentifier::local("non-existent").unwrap()),
-            "non-existent-func",
-            PrincipalData::from(cost_definer.clone()),
-            "cost-definition",
-        ),
-        // replacement target isn't a contract principal
-        (
-            p1_principal.clone().into(),
-            "non-existent-func",
-            cost_definer.clone().into(),
-            "cost-definition",
-        ),
-        // cost defining contract isn't a contract principal
-        (
-            intercepted.clone().into(),
-            "intercepted-function",
-            p1_principal.into(),
-            "cost-definition",
-        ),
-        // replacement function doesn't exist
-        (
-            intercepted.clone().into(),
-            "non-existent-func",
-            cost_definer.clone().into(),
-            "cost-definition",
-        ),
-        // replacement function isn't read-only
-        (
-            intercepted.clone().into(),
-            "non-read-only",
-            cost_definer.clone().into(),
-            "cost-definition",
-        ),
-        // "boot cost" function doesn't exist
-        (
-            boot_code_id("costs", false).into(),
-            "non-existent-func",
-            cost_definer.clone().into(),
-            "cost-definition",
-        ),
-        // cost defining contract doesn't exist
-        (
-            intercepted.clone().into(),
-            "intercepted-function",
-            QualifiedContractIdentifier::local("non-existent")
-                .unwrap()
-                .into(),
-            "cost-definition",
-        ),
-        // cost defining function doesn't exist
-        (
-            intercepted.clone().into(),
-            "intercepted-function",
-            cost_definer.clone().into(),
-            "cost-definition-2",
-        ),
-        // cost defining contract isn't arithmetic-only
-        (
-            intercepted.clone().into(),
-            "intercepted-function",
-            bad_cost_definer.into(),
-            "cost-definition",
-        ),
-        // cost defining contract has incorrect number of arguments
-        (
-            intercepted.clone().into(),
-            "intercepted-function",
-            bad_cost_args_definer.into(),
-            "cost-definition",
-        ),
-    ];
-
-    let bad_proposals = bad_cases.len();
-
-    let voting_contract_to_use: &QualifiedContractIdentifier = if use_mainnet {
-        &COST_VOTING_MAINNET_CONTRACT
-    } else {
-        &COST_VOTING_TESTNET_CONTRACT
-    };
-
-    {
-        let mut store = marf_kv.begin(&StacksBlockId([1; 32]), &StacksBlockId([2; 32]));
-
-        let mut db = store.as_clarity_db(&TEST_HEADER_DB, burn_db);
-        db.begin();
-
-        db.set_variable_unknown_descriptor(
-            voting_contract_to_use,
-            "confirmed-proposal-count",
-            Value::UInt(bad_proposals as u128),
-        )
-        .unwrap();
-
-        for (ix, (intercepted_ct, intercepted_f, cost_ct, cost_f)) in
-            bad_cases.into_iter().enumerate()
-        {
-            let value = format!(
-                "{{  function-contract: '{},
-                     function-name: \"{}\",
-                     cost-function-contract: '{},
-                     cost-function-name: \"{}\",
-                     confirmed-height: u1 }}",
-                intercepted_ct, intercepted_f, cost_ct, cost_f
-            );
-            let epoch = db.get_clarity_epoch_version().unwrap();
-            db.set_entry_unknown_descriptor(
-                voting_contract_to_use,
-                "confirmed-proposals",
-                execute(&format!("{{ confirmed-id: u{} }}", ix)),
-                execute(&value),
-                &epoch,
-            )
-            .unwrap();
-        }
-        db.commit().unwrap();
-        store.test_commit();
-    }
-
-    let le_cost_without_interception = {
-        let mut store = marf_kv.begin(&StacksBlockId([2; 32]), &StacksBlockId([3; 32]));
-        let mut owned_env = OwnedEnvironment::new_max_limit(
-            store.as_clarity_db(&TEST_HEADER_DB, burn_db),
-            StacksEpochId::Epoch20,
-            use_mainnet,
-        );
-
-        execute_transaction(
-            &mut owned_env,
-            p2_principal.clone(),
-            &caller,
-            "execute-2",
-            &symbols_from_values(vec![Value::UInt(5)]),
-        )
-        .unwrap();
-
-        let (_db, tracker) = owned_env.destruct().unwrap();
-
-        assert!(
-            tracker.contract_call_circuits().is_empty(),
-            "No contract call circuits should have been processed"
-        );
-        for (target, referenced_function) in tracker.cost_function_references().into_iter() {
-            assert!(
-                matches!(
-                    referenced_function,
-                    ClarityCostFunctionEvaluator::Default(_, _, DefaultVersion::Costs1)
-                ),
-                "All cost functions should still point to the boot costs"
-            );
-        }
-        store.test_commit();
-
-        tracker.get_total()
-    };
-
-    let good_cases = vec![
-        (
-            intercepted.clone(),
-            "intercepted-function",
-            cost_definer.clone(),
-            "cost-definition",
-        ),
-        (
-            boot_code_id("costs", use_mainnet),
-            "cost_le",
-            cost_definer.clone(),
-            "cost-definition-le",
-        ),
-        (
-            intercepted.clone(),
-            "intercepted-function2",
-            cost_definer.clone(),
-            "cost-definition-multi-arg",
-        ),
-    ];
-
-    {
-        let mut store = marf_kv.begin(&StacksBlockId([3; 32]), &StacksBlockId([4; 32]));
-
-        let mut db = store.as_clarity_db(&TEST_HEADER_DB, burn_db);
-        db.begin();
-
-        let good_proposals = good_cases.len() as u128;
-        db.set_variable_unknown_descriptor(
-            voting_contract_to_use,
-            "confirmed-proposal-count",
-            Value::UInt(bad_proposals as u128 + good_proposals),
-        )
-        .unwrap();
-
-        for (ix, (intercepted_ct, intercepted_f, cost_ct, cost_f)) in
-            good_cases.into_iter().enumerate()
-        {
-            let value = format!(
-                "{{ function-contract: '{},
-                    function-name: \"{}\",
-                    cost-function-contract: '{},
-                    cost-function-name: \"{}\",
-                    confirmed-height: u1 }}",
-                intercepted_ct, intercepted_f, cost_ct, cost_f
-            );
-            let epoch = db.get_clarity_epoch_version().unwrap();
-            db.set_entry_unknown_descriptor(
-                voting_contract_to_use,
-                "confirmed-proposals",
-                execute(&format!("{{ confirmed-id: u{} }}", ix + bad_proposals)),
-                execute(&value),
-                &epoch,
-            )
-            .unwrap();
-        }
-        db.commit().unwrap();
-
-        store.test_commit();
-    }
-
-    {
-        let mut store = marf_kv.begin(&StacksBlockId([4; 32]), &StacksBlockId([5; 32]));
-        let mut owned_env = OwnedEnvironment::new_max_limit(
-            store.as_clarity_db(&TEST_HEADER_DB, burn_db),
-            StacksEpochId::Epoch20,
-            use_mainnet,
-        );
-
-        execute_transaction(
-            &mut owned_env,
-            p2_principal,
-            &caller,
-            "execute-2",
-            &symbols_from_values(vec![Value::UInt(5)]),
-        )
-        .unwrap();
-
-        let (_db, tracker) = owned_env.destruct().unwrap();
-
-        // cost of `le` should be less now, because the proposal made it free
-        assert!(le_cost_without_interception.exceeds(&tracker.get_total()));
-
-        let circuits = tracker.contract_call_circuits();
-        assert_eq!(circuits.len(), 2);
-
-        let circuit1 = circuits.get(&(
-            intercepted.clone(),
-            ClarityName::from_literal("intercepted-function"),
-        ));
-        let circuit2 = circuits.get(&(
-            intercepted,
-            ClarityName::from_literal("intercepted-function2"),
-        ));
-
-        assert!(circuit1.is_some());
-        assert!(circuit2.is_some());
-
-        assert_eq!(circuit1.unwrap().contract_id, cost_definer);
-        assert_eq!(circuit1.unwrap().function_name, "cost-definition");
-
-        assert_eq!(circuit2.unwrap().contract_id, cost_definer);
-        assert_eq!(circuit2.unwrap().function_name, "cost-definition-multi-arg");
-
-        for (target, referenced_function) in tracker.cost_function_references().into_iter() {
-            if target == &ClarityCostFunction::Le {
-                let ClarityCostFunctionEvaluator::Clarity(referenced_function) =
-                    referenced_function
-                else {
-                    panic!("Replaced function should be evaluated in Clarity");
-                };
-                assert_eq!(&referenced_function.contract_id, &cost_definer);
-                assert_eq!(&referenced_function.function_name, "cost-definition-le");
-            } else {
-                assert!(
-                    matches!(
-                        referenced_function,
-                        ClarityCostFunctionEvaluator::Default(_, _, DefaultVersion::Costs1)
-                    ),
-                    "Cost function should still point to the boot costs"
-                );
-            }
-        }
-        store.test_commit();
-    };
-}
-
-#[test]
-fn test_cost_voting_integration_mainnet() {
-    test_cost_voting_integration(true, ClarityVersion::Clarity1);
-    test_cost_voting_integration(true, ClarityVersion::Clarity2);
-}
-
-#[test]
-fn test_cost_voting_integration_testnet() {
-    test_cost_voting_integration(false, ClarityVersion::Clarity1);
-    test_cost_voting_integration(false, ClarityVersion::Clarity2);
+        assert!(cost_function_references.values().all(|evaluator| matches!(
+            evaluator,
+            ClarityCostFunctionEvaluator::Default(_, _, DefaultVersion::Costs5)
+        )));
+    });
 }
 
 #[test]

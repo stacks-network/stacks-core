@@ -29,8 +29,8 @@ use crate::vm::analysis::{
 use crate::vm::ast::parse;
 use crate::vm::costs::LimitedCostTracker;
 use crate::vm::database::MemoryBackingStore;
+use crate::vm::resource_limiter::ResourceLimiter;
 use crate::vm::tests::test_clarity_versions;
-use crate::vm::time_tracker::TimeTracker;
 use crate::vm::types::signatures::CallableSubtype;
 use crate::vm::types::{
     BufferLength, ListTypeData, QualifiedContractIdentifier, SequenceSubtype, StringSubtype,
@@ -84,7 +84,7 @@ pub fn type_check_version(
         epoch,
         version,
         false,
-        TimeTracker::unlimited(),
+        ResourceLimiter::unlimited(),
     )
     .map_err(|e| e.0)
 }
@@ -574,7 +574,6 @@ fn test_contract_call_with_constant_variants_type_check(
 ) {
     let run_case = |contract_name: &str, contract_source: &str| -> Result<(), StaticCheckError> {
         let contract_a_id = QualifiedContractIdentifier::local("contract-a").unwrap();
-        let contract_b_id = QualifiedContractIdentifier::local("contract-b").unwrap();
         let contract_id = QualifiedContractIdentifier::local(contract_name).unwrap();
 
         let mut contract_a = parse(
@@ -2611,16 +2610,10 @@ fn clarity_trait_experiments_downcast_literal_2(
             load_versioned(db, "downcast-literal-2", version, epoch)
         })
         .unwrap_err();
-    match version {
-        ClarityVersion::Clarity2
-        | ClarityVersion::Clarity3
-        | ClarityVersion::Clarity4
-        | ClarityVersion::Clarity5 => {
-            assert!(err.starts_with("ExpectedCallableType(PrincipalType)"))
-        }
-        ClarityVersion::Clarity1 => {
-            assert!(err.starts_with("TraitReferenceUnknown(\"principal-value\")"))
-        }
+    if version == ClarityVersion::Clarity1 {
+        assert!(err.starts_with("TraitReferenceUnknown(\"principal-value\")"));
+    } else {
+        assert!(err.starts_with("ExpectedCallableType(PrincipalType)"));
     }
 }
 
@@ -2841,20 +2834,14 @@ fn clarity_trait_experiments_trait_cast_incompatible(
             load_versioned(db, "trait-cast-incompatible", version, epoch)
         })
         .unwrap_err();
-    match version {
-        ClarityVersion::Clarity1 => {
-            if epoch <= StacksEpochId::Epoch2_05 {
-                assert!(err.starts_with("TypeError(TraitReferenceType(TraitIdentifier"))
-            } else {
-                assert!(err.starts_with("TypeError(CallableType(Trait(TraitIdentifier"))
-            }
+    if version == ClarityVersion::Clarity1 {
+        if epoch <= StacksEpochId::Epoch2_05 {
+            assert!(err.starts_with("TypeError(TraitReferenceType(TraitIdentifier"));
+        } else {
+            assert!(err.starts_with("TypeError(CallableType(Trait(TraitIdentifier"));
         }
-        ClarityVersion::Clarity2
-        | ClarityVersion::Clarity3
-        | ClarityVersion::Clarity4
-        | ClarityVersion::Clarity5 => {
-            assert!(err.starts_with("IncompatibleTrait"))
-        }
+    } else {
+        assert!(err.starts_with("IncompatibleTrait"));
     }
 }
 
@@ -2927,7 +2914,7 @@ fn clarity_trait_experiments_readonly_call_trait(
     // Can we dynamically call a trait in a read-only function?
     let err = db
         .execute(|db| {
-            load_versioned(db, "empty-trait", version, epoch)?;
+            load_versioned(db, "math-trait", version, epoch)?;
             load_versioned(db, "readonly-call-trait", version, epoch)
         })
         .unwrap_err();
@@ -3265,8 +3252,8 @@ fn clarity_trait_experiments_mixed_list_to_traits_list(
 
 #[apply(test_clarity_versions)]
 fn clarity_trait_experiments_double_trait_method1_v1(
-    #[case] version: ClarityVersion,
-    #[case] epoch: StacksEpochId,
+    #[case] _version: ClarityVersion,
+    #[case] _epoch: StacksEpochId,
 ) {
     let mut marf = MemoryBackingStore::new();
     let mut db = marf.as_analysis_db();
@@ -3300,8 +3287,8 @@ fn clarity_trait_experiments_double_trait_method1_v1(
 
 #[apply(test_clarity_versions)]
 fn clarity_trait_experiments_double_trait_method2_v1(
-    #[case] version: ClarityVersion,
-    #[case] epoch: StacksEpochId,
+    #[case] _version: ClarityVersion,
+    #[case] _epoch: StacksEpochId,
 ) {
     let mut marf = MemoryBackingStore::new();
     let mut db = marf.as_analysis_db();
@@ -3336,8 +3323,8 @@ fn clarity_trait_experiments_double_trait_method2_v1(
 
 #[apply(test_clarity_versions)]
 fn clarity_trait_experiments_double_trait_method1_v1_v2(
-    #[case] version: ClarityVersion,
-    #[case] epoch: StacksEpochId,
+    #[case] _version: ClarityVersion,
+    #[case] _epoch: StacksEpochId,
 ) {
     let mut marf = MemoryBackingStore::new();
     let mut db = marf.as_analysis_db();
@@ -3371,8 +3358,8 @@ fn clarity_trait_experiments_double_trait_method1_v1_v2(
 
 #[apply(test_clarity_versions)]
 fn clarity_trait_experiments_double_trait_method2_v1_v2(
-    #[case] version: ClarityVersion,
-    #[case] epoch: StacksEpochId,
+    #[case] _version: ClarityVersion,
+    #[case] _epoch: StacksEpochId,
 ) {
     let mut marf = MemoryBackingStore::new();
     let mut db = marf.as_analysis_db();

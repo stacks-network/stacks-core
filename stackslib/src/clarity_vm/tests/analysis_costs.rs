@@ -18,6 +18,7 @@ use clarity::vm::clarity::{ClarityError, TransactionConnection};
 use clarity::vm::costs::ExecutionCost;
 use clarity::vm::errors::StaticCheckErrorKind;
 use clarity::vm::functions::NativeFunctions;
+use clarity::vm::resource_limiter::ResourceBudget;
 use clarity::vm::test_util::TEST_HEADER_DB;
 use clarity::vm::tests::{test_only_mainnet_to_chain_id, UnitTestBurnStateDB};
 use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier, Value};
@@ -30,6 +31,7 @@ use crate::chainstate::stacks::index::ClarityMarfTrieId;
 use crate::clarity_vm::clarity::{ClarityConnection, ClarityInstance};
 use crate::clarity_vm::database::marf::MarfedKV;
 use crate::clarity_vm::tests::costs::get_simple_test;
+use crate::core::GENESIS_EPOCH;
 
 fn setup_tracked_cost_test(
     use_mainnet: bool,
@@ -64,13 +66,20 @@ fn setup_tracked_cost_test(
         ContractName::from_literal("contract-trait"),
     );
 
+    let genesis_burn_state_db = UnitTestBurnStateDB {
+        epoch_id: GENESIS_EPOCH,
+    };
     let burn_state_db = UnitTestBurnStateDB { epoch_id: epoch };
+
+    // Open the genesis block at GENESIS_EPOCH (Epoch20) so the cost
+    // tracker can load `costs` v1 from the MARF; the later cost contracts are
+    // deployed in the next block by `initialize_epoch_2_05/2_1`.
     clarity_instance
         .begin_test_genesis_block(
             &StacksBlockId::sentinel(),
             &StacksBlockId([0; 32]),
             &TEST_HEADER_DB,
-            &burn_state_db,
+            &genesis_burn_state_db,
         )
         .commit_block();
 
@@ -79,7 +88,7 @@ fn setup_tracked_cost_test(
             &StacksBlockId([0; 32]),
             &StacksBlockId([1; 32]),
             &TEST_HEADER_DB,
-            &burn_state_db,
+            &genesis_burn_state_db,
         );
 
         if epoch > StacksEpochId::Epoch20 {
@@ -107,7 +116,12 @@ fn setup_tracked_cost_test(
 
         conn.as_transaction(|conn| {
             let (ct_ast, ct_analysis) = conn
-                .analyze_smart_contract(&trait_contract_id, version, contract_trait, None)
+                .analyze_smart_contract(
+                    &trait_contract_id,
+                    version,
+                    contract_trait,
+                    &ResourceBudget::unlimited(),
+                )
                 .unwrap();
             conn.initialize_smart_contract(
                 &trait_contract_id,
@@ -116,7 +130,7 @@ fn setup_tracked_cost_test(
                 contract_trait,
                 None,
                 |_, _| None,
-                None,
+                &ResourceBudget::unlimited(),
             )
             .unwrap();
             conn.save_analysis(&trait_contract_id, &ct_analysis)
@@ -136,7 +150,12 @@ fn setup_tracked_cost_test(
 
         conn.as_transaction(|conn| {
             let (ct_ast, ct_analysis) = conn
-                .analyze_smart_contract(&other_contract_id, version, contract_other, None)
+                .analyze_smart_contract(
+                    &other_contract_id,
+                    version,
+                    contract_other,
+                    &ResourceBudget::unlimited(),
+                )
                 .unwrap();
             conn.initialize_smart_contract(
                 &other_contract_id,
@@ -145,7 +164,7 @@ fn setup_tracked_cost_test(
                 contract_other,
                 None,
                 |_, _| None,
-                None,
+                &ResourceBudget::unlimited(),
             )
             .unwrap();
             conn.save_analysis(&other_contract_id, &ct_analysis)
@@ -204,7 +223,12 @@ fn test_tracked_costs(
 
         conn.as_transaction(|conn| {
             let (ct_ast, ct_analysis) = conn
-                .analyze_smart_contract(&self_contract_id, version, &contract_self, None)
+                .analyze_smart_contract(
+                    &self_contract_id,
+                    version,
+                    &contract_self,
+                    &ResourceBudget::unlimited(),
+                )
                 .unwrap();
             conn.initialize_smart_contract(
                 &self_contract_id,
@@ -213,7 +237,7 @@ fn test_tracked_costs(
                 &contract_self,
                 None,
                 |_, _| None,
-                None,
+                &ResourceBudget::unlimited(),
             )
             .unwrap();
             conn.save_analysis(&self_contract_id, &ct_analysis).unwrap();
@@ -321,7 +345,7 @@ fn undefined_top_variable_error(#[case] use_mainnet: bool, #[case] epoch: Stacks
                 &self_contract_id,
                 ClarityVersion::Clarity1,
                 &contract_self,
-                None,
+                &ResourceBudget::unlimited(),
             );
             let Err(ClarityError::StaticCheck(static_check_error)) = analysis_result else {
                 panic!("Bad analysis result: {analysis_result:?}");

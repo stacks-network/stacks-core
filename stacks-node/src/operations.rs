@@ -70,7 +70,7 @@ impl BurnchainOpSigner {
     /// # Arguments
     ///
     /// * `hash` - A byte slice representing the hash of the message to sign.
-    ///            This must be exactly **32 bytes** long, as required by the Secp256k1 signing algorithm.
+    ///   This must be exactly **32 bytes** long, as required by the Secp256k1 signing algorithm.
     /// # Returns
     ///
     /// `Some(MessageSignature)` if signing was successful, or `None` if the signer

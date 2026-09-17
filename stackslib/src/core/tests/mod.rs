@@ -14,6 +14,8 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+mod nakamoto_transition_schedule;
+
 use std::cmp;
 use std::collections::{HashMap, HashSet};
 use std::time::Duration;
@@ -40,9 +42,7 @@ use super::MemPoolDB;
 use crate::burnchains::Txid;
 use crate::chainstate::burn::ConsensusHash;
 use crate::chainstate::stacks::db::blocks::MemPoolRejection;
-use crate::chainstate::stacks::db::test::{
-    chainstate_path, instantiate_chainstate, instantiate_chainstate_with_balances,
-};
+use crate::chainstate::stacks::db::testing::{chainstate_path, TestChainstateBuilder};
 use crate::chainstate::stacks::db::{StacksChainState, StacksHeaderInfo};
 use crate::chainstate::stacks::events::StacksTransactionReceipt;
 use crate::chainstate::stacks::miner::TransactionResult;
@@ -71,7 +71,7 @@ const SK_3: &str = "cb95ddd0fe18ec57f4f3533b95ae564b3f1ae063dbf75b46334bd86245ae
 
 #[test]
 fn mempool_db_init() {
-    let _chainstate = instantiate_chainstate(false, 0x80000000, function_name!());
+    let _chainstate = TestChainstateBuilder::new_testnet(function_name!()).build();
     let chainstate_path = chainstate_path(function_name!());
     let _mempool = MemPoolDB::open_test(false, 0x80000000, &chainstate_path).unwrap();
 }
@@ -155,8 +155,7 @@ pub fn make_block(
 
 #[test]
 fn mempool_walk_over_fork() {
-    let mut chainstate =
-        instantiate_chainstate_with_balances(false, 0x80000000, function_name!(), vec![]);
+    let mut chainstate = TestChainstateBuilder::new_testnet(function_name!()).build();
 
     // genesis -> b_1* -> b_2*
     //               \-> b_3 -> b_4
@@ -550,8 +549,7 @@ fn mempool_walk_over_fork() {
 /// This test verifies that all transactions are visited, regardless of the
 /// setting for `consider_no_estimate_tx_prob`.
 fn test_iterate_candidates_consider_no_estimate_tx_prob() {
-    let mut chainstate =
-        instantiate_chainstate_with_balances(false, 0x80000000, function_name!(), vec![]);
+    let mut chainstate = TestChainstateBuilder::new_testnet(function_name!()).build();
     let chainstate_path = chainstate_path(function_name!());
     let mut mempool = MemPoolDB::open_test(false, 0x80000000, &chainstate_path).unwrap();
     let b_1 = make_block(
@@ -741,8 +739,7 @@ fn test_iterate_candidates_consider_no_estimate_tx_prob() {
 /// This test verifies that when a transaction is skipped, other transactions
 /// from the same address with higher nonces are not considered for inclusion in a block.
 fn test_iterate_candidates_skipped_transaction() {
-    let mut chainstate =
-        instantiate_chainstate_with_balances(false, 0x80000000, function_name!(), vec![]);
+    let mut chainstate = TestChainstateBuilder::new_testnet(function_name!()).build();
     let chainstate_path = chainstate_path(function_name!());
     let mut mempool = MemPoolDB::open_test(false, 0x80000000, &chainstate_path).unwrap();
     let b_1 = make_block(
@@ -853,8 +850,7 @@ fn test_iterate_candidates_skipped_transaction() {
 /// This test verifies that when a transaction reports a processing error, other transactions
 /// from the same address with higher nonces are not considered for inclusion in a block.
 fn test_iterate_candidates_processing_error_transaction() {
-    let mut chainstate =
-        instantiate_chainstate_with_balances(false, 0x80000000, function_name!(), vec![]);
+    let mut chainstate = TestChainstateBuilder::new_testnet(function_name!()).build();
     let chainstate_path = chainstate_path(function_name!());
     let mut mempool = MemPoolDB::open_test(false, 0x80000000, &chainstate_path).unwrap();
     let b_1 = make_block(
@@ -967,8 +963,7 @@ fn test_iterate_candidates_processing_error_transaction() {
 /// This test verifies that when a transaction is skipped, other transactions
 /// from the same address with higher nonces are not considered for inclusion in a block.
 fn test_iterate_candidates_problematic_transaction() {
-    let mut chainstate =
-        instantiate_chainstate_with_balances(false, 0x80000000, function_name!(), vec![]);
+    let mut chainstate = TestChainstateBuilder::new_testnet(function_name!()).build();
     let chainstate_path = chainstate_path(function_name!());
     let mut mempool = MemPoolDB::open_test(false, 0x80000000, &chainstate_path).unwrap();
     let b_1 = make_block(
@@ -1081,8 +1076,7 @@ fn test_iterate_candidates_problematic_transaction() {
 /// This test verifies that all transactions are visited, and nonce cache on disk updated, even if
 /// there's a concurrent write-lock on the mempool DB.
 fn test_iterate_candidates_concurrent_write_lock() {
-    let mut chainstate =
-        instantiate_chainstate_with_balances(false, 0x80000000, function_name!(), vec![]);
+    let mut chainstate = TestChainstateBuilder::new_testnet(function_name!()).build();
     let chainstate_path = chainstate_path(function_name!());
     let mut mempool = MemPoolDB::open_test(false, 0x80000000, &chainstate_path).unwrap();
     let b_1 = make_block(
@@ -1236,8 +1230,7 @@ fn test_iterate_candidates_concurrent_write_lock() {
 
 #[test]
 fn test_iterate_candidates_nonce_gap_hold_and_release() {
-    let mut chainstate =
-        instantiate_chainstate_with_balances(false, 0x80000000, function_name!(), vec![]);
+    let mut chainstate = TestChainstateBuilder::new_testnet(function_name!()).build();
     let chainstate_path = chainstate_path(function_name!());
     let mut mempool = MemPoolDB::open_test(false, 0x80000000, &chainstate_path).unwrap();
     let b_1 = make_block(
@@ -1357,8 +1350,7 @@ fn test_iterate_candidates_nonce_gap_hold_and_release() {
 
 #[test]
 fn mempool_do_not_replace_tx() {
-    let mut chainstate =
-        instantiate_chainstate_with_balances(false, 0x80000000, function_name!(), vec![]);
+    let mut chainstate = TestChainstateBuilder::new_testnet(function_name!()).build();
 
     // genesis -> b_1 -> b_2
     //      \-> b_3
@@ -1471,7 +1463,7 @@ fn mempool_do_not_replace_tx() {
 #[case(MempoolCollectionBehavior::ByReceiveTime)]
 fn mempool_db_load_store_replace_tx(#[case] behavior: MempoolCollectionBehavior) {
     let path_name = format!("{}::{:?}", function_name!(), behavior);
-    let mut chainstate = instantiate_chainstate(false, 0x80000000, &path_name);
+    let mut chainstate = TestChainstateBuilder::new_testnet(&path_name).build();
     let chainstate_path = chainstate_path(&path_name);
     let mut mempool = MemPoolDB::open_test(false, 0x80000000, &chainstate_path).unwrap();
 
@@ -1727,7 +1719,7 @@ fn mempool_db_load_store_replace_tx(#[case] behavior: MempoolCollectionBehavior)
 
 #[test]
 fn mempool_db_test_rbf() {
-    let mut chainstate = instantiate_chainstate(false, 0x80000000, function_name!());
+    let mut chainstate = TestChainstateBuilder::new_testnet(function_name!()).build();
     let chainstate_path = chainstate_path(function_name!());
     let mut mempool = MemPoolDB::open_test(false, 0x80000000, &chainstate_path).unwrap();
 
@@ -1868,7 +1860,7 @@ fn mempool_db_test_rbf() {
 
 #[test]
 fn test_add_txs_bloom_filter() {
-    let mut chainstate = instantiate_chainstate(false, 0x80000000, function_name!());
+    let mut chainstate = TestChainstateBuilder::new_testnet(function_name!()).build();
     let chainstate_path = chainstate_path(function_name!());
     let mut mempool = MemPoolDB::open_test(false, 0x80000000, &chainstate_path).unwrap();
 
@@ -1974,7 +1966,7 @@ fn test_add_txs_bloom_filter() {
 
 #[test]
 fn test_txtags() {
-    let mut chainstate = instantiate_chainstate(false, 0x80000000, function_name!());
+    let mut chainstate = TestChainstateBuilder::new_testnet(function_name!()).build();
     let chainstate_path = chainstate_path(function_name!());
     let mut mempool = MemPoolDB::open_test(false, 0x80000000, &chainstate_path).unwrap();
 
@@ -2070,7 +2062,7 @@ fn test_txtags() {
 #[test]
 #[ignore]
 fn test_make_mempool_sync_data() {
-    let mut chainstate = instantiate_chainstate(false, 0x80000000, function_name!());
+    let mut chainstate = TestChainstateBuilder::new_testnet(function_name!()).build();
     let chainstate_path = chainstate_path(function_name!());
     let mut mempool = MemPoolDB::open_test(false, 0x80000000, &chainstate_path).unwrap();
 
@@ -2244,7 +2236,7 @@ fn test_make_mempool_sync_data() {
 
 #[test]
 fn test_find_next_missing_transactions() {
-    let mut chainstate = instantiate_chainstate(false, 0x80000000, function_name!());
+    let mut chainstate = TestChainstateBuilder::new_testnet(function_name!()).build();
     let chainstate_path = chainstate_path(function_name!());
     let mut mempool = MemPoolDB::open_test(false, 0x80000000, &chainstate_path).unwrap();
 
@@ -2512,7 +2504,7 @@ fn test_find_next_missing_transactions() {
 
 #[test]
 fn test_drop_and_blacklist_txs_by_time() {
-    let mut chainstate = instantiate_chainstate(false, 0x80000000, function_name!());
+    let mut chainstate = TestChainstateBuilder::new_testnet(function_name!()).build();
     let chainstate_path = chainstate_path(function_name!());
     let mut mempool = MemPoolDB::open_test(false, 0x80000000, &chainstate_path).unwrap();
 
@@ -2629,7 +2621,7 @@ fn test_drop_and_blacklist_txs_by_time() {
 
 #[test]
 fn test_drop_and_blacklist_txs_by_size() {
-    let mut chainstate = instantiate_chainstate(false, 0x80000000, function_name!());
+    let mut chainstate = TestChainstateBuilder::new_testnet(function_name!()).build();
     let chainstate_path = chainstate_path(function_name!());
     let mut mempool = MemPoolDB::open_test(false, 0x80000000, &chainstate_path).unwrap();
 
@@ -2729,7 +2721,7 @@ fn test_drop_and_blacklist_txs_by_size() {
 
 #[test]
 fn test_filter_txs_by_type() {
-    let mut chainstate = instantiate_chainstate(false, 0x80000000, function_name!());
+    let mut chainstate = TestChainstateBuilder::new_testnet(function_name!()).build();
     let chainstate_path = chainstate_path(function_name!());
     let mut mempool = MemPoolDB::open_test(false, 0x80000000, &chainstate_path).unwrap();
 
@@ -2886,7 +2878,7 @@ fn test_filter_txs_by_type() {
 
 #[test]
 fn large_mempool() {
-    let mut chainstate = instantiate_chainstate(false, 0x80000000, function_name!());
+    let mut chainstate = TestChainstateBuilder::new_testnet(function_name!()).build();
     let chainstate_path = chainstate_path(function_name!());
     let mut mempool = MemPoolDB::open_test(false, 0x80000000, &chainstate_path).unwrap();
 
@@ -2929,8 +2921,10 @@ fn large_mempool() {
     }
     mempool_tx.commit().unwrap();
 
-    let mut mempool_settings = MemPoolWalkSettings::default();
-    mempool_settings.strategy = MemPoolWalkStrategy::NextNonceWithHighestFeeRate;
+    let mempool_settings = MemPoolWalkSettings {
+        strategy: MemPoolWalkStrategy::NextNonceWithHighestFeeRate,
+        ..Default::default()
+    };
     let mut tx_events = Vec::new();
 
     println!("Iterating mempool");

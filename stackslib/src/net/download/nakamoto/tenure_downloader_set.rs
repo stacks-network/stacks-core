@@ -17,10 +17,12 @@ use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
 use std::hash::Hash;
 
 use stacks_common::types::chainstate::{ConsensusHash, StacksBlockId};
+use stacks_common::types::StacksEpochId;
 use stacks_common::util::get_epoch_time_secs;
 
 use crate::chainstate::nakamoto::NakamotoBlock;
 use crate::chainstate::stacks::db::StacksChainState;
+use crate::core::EpochList;
 use crate::net::download::nakamoto::{AvailableTenures, NakamotoTenureDownloader, TenureStartEnd};
 use crate::net::neighbors::rpc::NeighborRPC;
 use crate::net::p2p::{CurrentRewardSet, DropReason, DropSource, PeerNetwork};
@@ -64,6 +66,7 @@ pub const PEER_DEPRIORITIZATION_TIME_SECS: u64 = 60;
 /// can make progress even if there is only one available peer (in which case, that peer will get
 /// scheduled across multiple machines to drive their progress in the right sequence such that
 /// tenures will be incrementally fetched and yielded by the p2p state machine to the relayer).
+#[derive(Default)]
 pub struct NakamotoTenureDownloaderSet {
     /// A list of instantiated downloaders that are in progress
     pub(crate) downloaders: Vec<Option<NakamotoTenureDownloader>>,
@@ -315,22 +318,6 @@ impl NakamotoTenureDownloaderSet {
         }
     }
 
-    /// Find the downloaders that have obtained their tenure-start blocks, and extract them.  These
-    /// will be fed into other downloaders which are blocked on needing their tenure-end blocks.
-    pub(crate) fn find_new_tenure_start_blocks(&self) -> HashMap<StacksBlockId, NakamotoBlock> {
-        let mut ret = HashMap::new();
-        for downloader_opt in self.downloaders.iter() {
-            let Some(downloader) = downloader_opt else {
-                continue;
-            };
-            let Some(block) = downloader.tenure_start_block.as_ref() else {
-                continue;
-            };
-            ret.insert(block.block_id(), block.clone());
-        }
-        ret
-    }
-
     /// Does there exist a downloader (possibly unscheduled) for the given tenure?
     pub(crate) fn has_downloader_for_tenure(&self, tenure_id: &ConsensusHash) -> bool {
         for downloader_opt in self.downloaders.iter() {
@@ -358,6 +345,7 @@ impl NakamotoTenureDownloaderSet {
         tenure_block_ids: &HashMap<NeighborAddress, AvailableTenures>,
         count: usize,
         current_reward_cycles: &BTreeMap<u64, CurrentRewardSet>,
+        epochs: &EpochList,
     ) {
         test_debug!("make_tenure_downloaders";
                "schedule" => ?schedule,
@@ -479,6 +467,15 @@ impl NakamotoTenureDownloaderSet {
                 "tenure_end_reward_cycle" => tenure_info.end_reward_cycle,
                 "tenure_burn_height" => tenure_info.tenure_id_burn_block_height);
 
+            // The signer-signature ordering rule is set based on the epoch of
+            // this sortition (strict ordering is enforced from Epoch 4.0).
+            // A tenure always has a known burn height, so the fallback is
+            // unreachable.
+            let epoch_id = epochs
+                .epoch_at_height(tenure_info.tenure_id_burn_block_height)
+                .map(|epoch| epoch.epoch_id)
+                .unwrap_or(StacksEpochId::Epoch34);
+
             let tenure_download = NakamotoTenureDownloader::new(
                 ch.clone(),
                 tenure_info.start_block_snapshot_consensus_hash.clone(),
@@ -488,6 +485,7 @@ impl NakamotoTenureDownloaderSet {
                 naddr.clone(),
                 start_reward_set.clone(),
                 end_reward_set.clone(),
+                epoch_id,
                 false,
             );
 
@@ -500,9 +498,9 @@ impl NakamotoTenureDownloaderSet {
     /// Run all confirmed downloaders.
     /// * Identify neighbors for which we do not have an inflight request
     /// * Get each such neighbor's downloader, and generate its next HTTP reqeust. Send that
-    /// request to the neighbor and begin driving the underlying socket I/O.
+    ///   request to the neighbor and begin driving the underlying socket I/O.
     /// * Get each HTTP reply, and pass it into the corresponding downloader's handler to advance
-    /// its state.
+    ///   its state.
     /// * Identify and remove misbehaving neighbors and neighbors whose connections have broken.
     ///
     /// Returns the set of downloaded blocks obtained for completed downloaders.  These will be

@@ -628,6 +628,11 @@ macro_rules! impl_byte_array_newtype {
                 f.write_str(&self.to_hex())
             }
         }
+        impl $crate::util::HexSer for $thing {
+            fn fmt_hex(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
+                std::fmt::LowerHex::fmt(self, f)
+            }
+        }
         impl std::fmt::Display for $thing {
             fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
                 f.write_str(&self.to_hex())
@@ -815,6 +820,9 @@ mod tests {
             Variant2("variant2"),
         });
 
+        assert_eq!(MyEnum::ALL, &[MyEnum::Variant1, MyEnum::Variant2]);
+        assert_eq!(MyEnum::ALL_NAMES, &["variant1", "variant2"]);
+
         assert_eq!("variant1", MyEnum::Variant1.get_name());
         assert_eq!("variant2", MyEnum::Variant2.get_name());
 
@@ -836,6 +844,9 @@ mod tests {
             /// Variant2 doc
             Variant2("variant2"),
         });
+
+        assert_eq!(MyEnum::ALL, &[MyEnum::Variant1, MyEnum::Variant2]);
+        assert_eq!(MyEnum::ALL_NAMES, &["variant1", "variant2"]);
 
         assert_eq!("variant1", MyEnum::Variant1.get_name());
         assert_eq!("variant2", MyEnum::Variant2.get_name());

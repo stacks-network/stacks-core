@@ -31,9 +31,10 @@ use stacks_common::util::serde_serializers::prefix_hex;
 pub use self::comm::CoordinatorCommunication;
 use super::stacks::boot::{RewardSet, RewardSetData};
 use super::stacks::db::blocks::DummyEventDispatcher;
-use crate::burnchains::db::{BurnchainBlockData, BurnchainDB, BurnchainHeaderReader};
+use crate::burnchains::db::{BurnchainBlockData, BurnchainDB};
 use crate::burnchains::{
-    Burnchain, BurnchainBlockHeader, Error as BurnchainError, PoxConstants, Txid,
+    Burnchain, BurnchainBlockHeader, BurnchainSignerKind, Error as BurnchainError, PoxConstants,
+    Txid,
 };
 use crate::chainstate::burn::db::sortdb::{SortitionDB, SortitionHandleTx};
 use crate::chainstate::burn::operations::leader_block_commit::RewardSetInfo;
@@ -184,6 +185,7 @@ pub trait BlockEventDispatcher {
     );
 }
 
+#[derive(Default)]
 pub struct ChainsCoordinatorConfig {
     /// true: enable transactions indexing
     /// false: no transactions indexing
@@ -200,6 +202,7 @@ impl ChainsCoordinatorConfig {
     }
 }
 
+/// Processes burnchain and Stacks blocks using the coordinator's databases.
 pub struct ChainsCoordinator<
     'a,
     T: BlockEventDispatcher,
@@ -207,7 +210,6 @@ pub struct ChainsCoordinator<
     R: RewardSetProvider,
     CE: CostEstimator + ?Sized,
     FE: FeeEstimator + ?Sized,
-    B: BurnchainHeaderReader,
 > {
     pub canonical_sortition_tip: Option<SortitionId>,
     pub burnchain_blocks_db: BurnchainDB,
@@ -222,12 +224,12 @@ pub struct ChainsCoordinator<
     pub notifier: N,
     pub atlas_config: AtlasConfig,
     pub config: ChainsCoordinatorConfig,
-    burnchain_indexer: B,
     /// Used to tell the P2P thread that the stackerdb
     ///  needs to be refreshed.
     pub refresh_stacker_db: Arc<AtomicBool>,
     /// whether or not the canonical tip is now a Nakamoto header
     pub in_nakamoto_epoch: bool,
+    pub comms: CoordinatorReceivers,
 }
 
 #[derive(Debug)]
@@ -293,6 +295,12 @@ pub trait RewardSetProvider {
 
 pub struct OnChainRewardSetProvider<'a, T: BlockEventDispatcher>(pub Option<&'a T>);
 
+impl Default for OnChainRewardSetProvider<'static, DummyEventDispatcher> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl OnChainRewardSetProvider<'static, DummyEventDispatcher> {
     pub fn new() -> Self {
         Self(None)
@@ -346,9 +354,7 @@ impl<T: BlockEventDispatcher> RewardSetProvider for OnChainRewardSetProvider<'_,
             cur_epoch,
         )?;
 
-        if is_nakamoto_reward_set
-            && (reward_set.signers.is_none() || reward_set.signers == Some(vec![]))
-        {
+        if is_nakamoto_reward_set && reward_set.signers().map_or(true, |s| s.is_empty()) {
             error!("FATAL: Signer sets are empty in a reward set that will be used in nakamoto"; "reward_set" => ?reward_set);
             return Err(Error::PoXAnchorBlockRequired);
         }
@@ -378,57 +384,44 @@ impl<T: BlockEventDispatcher> OnChainRewardSetProvider<'_, T> {
         block_id: &StacksBlockId,
         cur_epoch: StacksEpoch,
     ) -> Result<RewardSet, Error> {
-        match cur_epoch.epoch_id {
-            StacksEpochId::Epoch10
-            | StacksEpochId::Epoch20
-            | StacksEpochId::Epoch2_05
-            | StacksEpochId::Epoch21 => {
-                // Epochs 1.0 - 2.1 compute reward sets
-            }
-            StacksEpochId::Epoch22 | StacksEpochId::Epoch23 => {
-                info!("PoX reward cycle defaulting to burn in Epochs 2.2 and 2.3");
-                return Ok(RewardSet::empty());
-            }
-            StacksEpochId::Epoch24 => {
-                // Epoch 2.4 computes reward sets, but *only* if PoX-3 is active
-                if burnchain
-                    .pox_constants
-                    .active_pox_contract(current_burn_height)
-                    != POX_3_NAME
-                {
-                    // Note: this should not happen in mainnet or testnet, because the no reward cycle start height
-                    //        exists between Epoch 2.4's instantiation height and the pox-3 activation height.
-                    //  However, this *will* happen in testing if Epoch 2.4's instantiation height is set == a reward cycle
-                    //   start height
-                    info!(
-                        "PoX reward cycle defaulting to burn in Epoch 2.4 because cycle start is before PoX-3 activation"
-                    );
-                    return Ok(RewardSet::empty());
-                }
-            }
-            StacksEpochId::Epoch25
-            | StacksEpochId::Epoch30
-            | StacksEpochId::Epoch31
-            | StacksEpochId::Epoch32
-            | StacksEpochId::Epoch33
-            | StacksEpochId::Epoch34 => {
-                // Epoch 2.5 and up compute reward sets, but *only* if PoX-4 is active
-                if burnchain
-                    .pox_constants
-                    .active_pox_contract(current_burn_height)
-                    != POX_4_NAME
-                {
-                    // Note: this should not happen in mainnet or testnet, because the no reward cycle start height
-                    //        exists between Epoch 2.5's instantiation height and the pox-4 activation height.
-                    //  However, this *will* happen in testing if Epoch 2.5's instantiation height is set == a reward cycle
-                    //   start height
-                    info!(
+        let epoch = cur_epoch.epoch_id;
+        if epoch >= StacksEpochId::Epoch25 {
+            // Epoch 2.5 and up compute reward sets, but *only* if PoX-4 is active
+            if burnchain
+                .pox_constants
+                .active_pox_contract(current_burn_height)
+                != POX_4_NAME
+            {
+                // Note: this should not happen in mainnet or testnet, because the no reward cycle start height
+                //        exists between Epoch 2.5's instantiation height and the pox-4 activation height.
+                //  However, this *will* happen in testing if Epoch 2.5's instantiation height is set == a reward cycle
+                //   start height
+                info!(
                         "PoX reward cycle defaulting to burn in Epoch 2.5 because cycle start is before PoX-4 activation"
                     );
-                    return Ok(RewardSet::empty());
-                }
+                return Ok(RewardSet::empty());
             }
-        };
+        } else if epoch == StacksEpochId::Epoch24 {
+            // Epoch 2.4 computes reward sets, but *only* if PoX-3 is active
+            if burnchain
+                .pox_constants
+                .active_pox_contract(current_burn_height)
+                != POX_3_NAME
+            {
+                // Note: this should not happen in mainnet or testnet, because the no reward cycle start height
+                //        exists between Epoch 2.4's instantiation height and the pox-3 activation height.
+                //  However, this *will* happen in testing if Epoch 2.4's instantiation height is set == a reward cycle
+                //   start height
+                info!(
+                        "PoX reward cycle defaulting to burn in Epoch 2.4 because cycle start is before PoX-3 activation"
+                    );
+                return Ok(RewardSet::empty());
+            }
+        } else if epoch >= StacksEpochId::Epoch22 {
+            info!("PoX reward cycle defaulting to burn in Epochs 2.2 and 2.3");
+            return Ok(RewardSet::empty());
+        }
+        // else: 1.0–2.1, fall through and compute
 
         let registered_addrs =
             chainstate.get_reward_addresses(burnchain, sortdb, current_burn_height, block_id)?;
@@ -468,23 +461,10 @@ impl<T: BlockEventDispatcher> OnChainRewardSetProvider<'_, T> {
     }
 }
 
-impl<
-        'a,
-        T: BlockEventDispatcher,
-        CE: CostEstimator + ?Sized,
-        FE: FeeEstimator + ?Sized,
-        B: BurnchainHeaderReader,
-    >
-    ChainsCoordinator<
-        'a,
-        T,
-        ArcCounterCoordinatorNotices,
-        OnChainRewardSetProvider<'a, T>,
-        CE,
-        FE,
-        B,
-    >
+impl<'a, T: BlockEventDispatcher, CE: CostEstimator + ?Sized, FE: FeeEstimator + ?Sized>
+    ChainsCoordinator<'a, T, ArcCounterCoordinatorNotices, OnChainRewardSetProvider<'a, T>, CE, FE>
 {
+    /// Process block notifications until the coordinator receives a stop event.
     pub fn run(
         config: ChainsCoordinatorConfig,
         chain_state_db: StacksChainState,
@@ -495,7 +475,6 @@ impl<
         cost_estimator: Option<&'a mut CE>,
         fee_estimator: Option<&'a mut FE>,
         miner_status: Arc<Mutex<MinerStatus>>,
-        burnchain_indexer: B,
         atlas_db: AtlasDB,
     ) where
         T: BlockEventDispatcher,
@@ -528,29 +507,35 @@ impl<
             atlas_config,
             atlas_db: Some(atlas_db),
             config,
-            burnchain_indexer,
             refresh_stacker_db: comms.refresh_stacker_db.clone(),
             in_nakamoto_epoch: false,
+            comms,
         };
 
+        inst.comms_loop(miner_status)
+    }
+
+    /// Continuously polls the [`CoordinatorReceivers`] and handles any incoming signals.
+    /// Returns when any of the handlers has indicated that the coordinator should stop.
+    fn comms_loop(&mut self, miner_status: Arc<Mutex<MinerStatus>>) {
         loop {
-            let bits = comms.wait_on();
-            if inst.in_subsequent_nakamoto_reward_cycle() {
+            let bits = self.comms.wait_on();
+            if self.in_subsequent_nakamoto_reward_cycle() {
                 debug!("Coordinator: in subsequent Nakamoto reward cycle");
-                if !inst.handle_comms_nakamoto(bits, miner_status.clone()) {
+                if !self.handle_comms_nakamoto(bits, miner_status.clone()) {
                     return;
                 }
-            } else if inst.in_first_nakamoto_reward_cycle() {
+            } else if self.in_first_nakamoto_reward_cycle() {
                 debug!("Coordinator: in first Nakamoto reward cycle");
-                if !inst.handle_comms_nakamoto(bits, miner_status.clone()) {
+                if !self.handle_comms_nakamoto(bits, miner_status.clone()) {
                     return;
                 }
-                if !inst.handle_comms_epoch2(bits, miner_status.clone()) {
+                if !self.handle_comms_epoch2(bits, miner_status.clone()) {
                     return;
                 }
             } else {
                 debug!("Coordinator: in epoch2 reward cycle");
-                if !inst.handle_comms_epoch2(bits, miner_status.clone()) {
+                if !self.handle_comms_epoch2(bits, miner_status.clone()) {
                     return;
                 }
             }
@@ -610,9 +595,7 @@ impl<
     }
 }
 
-impl<T: BlockEventDispatcher, U: RewardSetProvider, B: BurnchainHeaderReader>
-    ChainsCoordinator<'_, T, (), U, (), (), B>
-{
+impl<T: BlockEventDispatcher, U: RewardSetProvider> ChainsCoordinator<'_, T, (), U, (), ()> {
     /// Create a coordinator for testing, with some parameters defaulted to None
     #[cfg(test)]
     pub fn test_new<'a>(
@@ -620,16 +603,14 @@ impl<T: BlockEventDispatcher, U: RewardSetProvider, B: BurnchainHeaderReader>
         chain_id: u32,
         path: &str,
         reward_set_provider: U,
-        indexer: B,
         txindex: bool,
-    ) -> ChainsCoordinator<'a, T, (), U, (), (), B> {
+    ) -> ChainsCoordinator<'a, T, (), U, (), ()> {
         ChainsCoordinator::test_new_full(
             burnchain,
             chain_id,
             path,
             reward_set_provider,
             None,
-            indexer,
             None,
             txindex,
         )
@@ -643,10 +624,9 @@ impl<T: BlockEventDispatcher, U: RewardSetProvider, B: BurnchainHeaderReader>
         path: &str,
         reward_set_provider: U,
         dispatcher: Option<&'a T>,
-        burnchain_indexer: B,
         atlas_config: Option<AtlasConfig>,
         txindex: bool,
-    ) -> ChainsCoordinator<'a, T, (), U, (), (), B> {
+    ) -> ChainsCoordinator<'a, T, (), U, (), ()> {
         let burnchain = burnchain.clone();
 
         let mut boot_data = ChainStateBootData::new(&burnchain, vec![], None);
@@ -679,6 +659,8 @@ impl<T: BlockEventDispatcher, U: RewardSetProvider, B: BurnchainHeaderReader>
         )
         .unwrap();
 
+        let (comms, _channels) = CoordinatorCommunication::instantiate();
+
         ChainsCoordinator {
             canonical_sortition_tip: Some(canonical_sortition_tip),
             burnchain_blocks_db,
@@ -693,9 +675,9 @@ impl<T: BlockEventDispatcher, U: RewardSetProvider, B: BurnchainHeaderReader>
             atlas_config,
             atlas_db: Some(atlas_db),
             config: ChainsCoordinatorConfig::test_new(txindex),
-            burnchain_indexer,
             refresh_stacker_db: Arc::new(AtomicBool::new(false)),
             in_nakamoto_epoch: false,
+            comms,
         }
     }
 }
@@ -876,6 +858,7 @@ pub struct PoxTransactionRewardRecipient {
 pub struct PoxTransactionReward {
     #[serde(with = "prefix_hex")]
     pub txid: Txid,
+    pub apparent_sender: Option<String>,
     pub reward_recipients: Vec<PoxTransactionRewardRecipient>,
 }
 
@@ -918,6 +901,11 @@ pub fn calculate_paid_rewards(ops: &[BlockstackOperationType]) -> PaidRewards {
             if !tx_reward_recipients.is_empty() {
                 pox_transactions.push(PoxTransactionReward {
                     txid: commit.txid.clone(),
+                    apparent_sender: match commit.apparent_sender.kind() {
+                        BurnchainSignerKind::Signer(signer) => Some(signer.to_string()),
+                        BurnchainSignerKind::NoChangeOutput
+                        | BurnchainSignerKind::UndecodableOutput => None,
+                    },
                     reward_recipients: tx_reward_recipients,
                 });
             }
@@ -937,14 +925,12 @@ pub fn dispatcher_announce_burn_ops<T: BlockEventDispatcher>(
     reward_recipient_info: Option<RewardSetInfo>,
     consensus_hash: &ConsensusHash,
 ) {
-    let recipients = if let Some(recip_info) = reward_recipient_info {
-        recip_info
-            .recipients
-            .into_iter()
-            .map(|(addr, ..)| addr)
-            .collect()
-    } else {
-        vec![]
+    let recipients = match reward_recipient_info {
+        Some(RewardSetInfo::V0(v0)) => v0.recipients.into_iter().map(|(addr, ..)| addr).collect(),
+        Some(RewardSetInfo::Waterfall(wf)) => {
+            vec![wf.sbtc_address]
+        }
+        None => vec![],
     };
 
     dispatcher.announce_burn_block(
@@ -989,8 +975,7 @@ impl<
         U: RewardSetProvider,
         CE: CostEstimator + ?Sized,
         FE: FeeEstimator + ?Sized,
-        B: BurnchainHeaderReader,
-    > ChainsCoordinator<'_, T, N, U, CE, FE, B>
+    > ChainsCoordinator<'_, T, N, U, CE, FE>
 {
     /// Process new Stacks blocks.  If we get stuck for want of a missing PoX anchor block, return
     /// its hash.
