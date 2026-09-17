@@ -929,10 +929,10 @@ impl LeaderBlockCommitOp {
         let directly_descended_from_anchor =
             epoch_id.block_commits_to_parent() && self.block_header_hash == v0.anchor_block;
 
-        // second, Nakamoto epochs assume that a commit whose parent has vtxindex 0 (i.e. the
-        // burnchain coinbase) built atop a shadow block, and so descends from the anchor block.
-        // Shadow blocks are gone, but the commits this admitted are part of sortition history,
-        // so the rule must be preserved.
+        // second, epochs 3.0 through 4.0 assume that a commit whose parent has vtxindex 0 (i.e.
+        // the burnchain coinbase) built atop a shadow block, and so descends from the anchor
+        // block.  Shadow blocks are gone, but the commits this admitted are part of sortition
+        // history, so those epochs must preserve it.
         let assumed_shadow_parent = epoch_id.allows_missing_vtxindex_zero_commit_parent()
             && self.parent_block_ptr != 0
             && self.parent_vtxindex == 0;
@@ -1245,10 +1245,10 @@ impl LeaderBlockCommitOp {
             return Err(op_error::BlockCommitNoParent);
         } else if self.parent_block_ptr != 0 || self.parent_vtxindex != 0 {
             // not building off of genesis, so the parent block-commit must exist.
-            // Nakamoto epochs accept a missing parent at `parent_vtxindex == 0` (an assumed
-            // shadow parent) if a burnchain block was processed at that height in this fork,
-            // sortition or not.  The commits this admitted are part of sortition history, so the
-            // rule must be preserved.
+            // Epochs 3.0 through 4.0 accept a missing parent at `parent_vtxindex == 0` (an
+            // assumed shadow parent) if a burnchain block was processed at that height in this
+            // fork, sortition or not.  The commits this admitted are part of sortition history,
+            // so those epochs must preserve it.
             let has_parent = tx
                 .get_block_commit_parent(parent_block_height, self.parent_vtxindex.into(), &tx_tip)?
                 .is_some();
@@ -2864,9 +2864,10 @@ mod tests {
         commit.check(&burnchain, &mut ic, None)
     }
 
-    /// Nakamoto epochs accept a block-commit whose parent is `(height > 0, vtxindex 0)` even
-    /// though no block-commit exists there (an assumed shadow-block parent); 2.x did not.  A
-    /// block-commit that does exist at vtxindex 0 is a valid parent in every epoch.
+    /// Epochs 3.0 through 4.0 accept a block-commit whose parent is `(height > 0, vtxindex 0)`
+    /// even though no block-commit exists there (an assumed shadow-block parent).  Those epochs
+    /// must preserve this; from 4.1 the parent block-commit must exist, as in 2.x.  A block-commit
+    /// that does exist at vtxindex 0 is a valid parent in every epoch.
     #[test]
     fn test_check_vtxindex_zero_parent() {
         let first_block_height = 121;
@@ -2878,7 +2879,7 @@ mod tests {
             (epoch_2_1(), false),
             (nakamoto(StacksEpochId::Epoch30), true),
             (nakamoto(StacksEpochId::Epoch40), true),
-            (nakamoto(StacksEpochId::Epoch41), true),
+            (nakamoto(StacksEpochId::Epoch41), false),
         ] {
             let res = check_commit_with_vtxindex_zero_parent(epochs, 444);
             if accepted {
@@ -2901,8 +2902,9 @@ mod tests {
     }
 
     /// Before the PoX waterfall, a block-commit that pays the reward set must descend from the
-    /// anchor block.  Nakamoto epochs assume that a commit whose parent is
-    /// `(height > 0, vtxindex 0)` built atop a shadow block and skip that check; 2.x did not.
+    /// anchor block.  Epochs 3.0 through 4.0 assume that a commit whose parent is
+    /// `(height > 0, vtxindex 0)` built atop a shadow block and skip that check.  Those epochs
+    /// must preserve the assumption; it is absent before 3.0 and from 4.1 on.
     #[test]
     fn test_check_pox_vtxindex_zero_parent_skips_descent() {
         let burnchain = Burnchain {
@@ -2968,16 +2970,12 @@ mod tests {
         };
 
         // the assumed shadow parent stands in for anchor descent...
-        for epoch_id in [
-            StacksEpochId::Epoch30,
-            StacksEpochId::Epoch40,
-            StacksEpochId::Epoch41,
-        ] {
+        for epoch_id in [StacksEpochId::Epoch30, StacksEpochId::Epoch40] {
             let res = check_pox(&commit, epoch_id);
             assert!(res.is_ok(), "{epoch_id}: {res:?}");
         }
-        // ...but only in Nakamoto epochs...
-        for epoch_id in [StacksEpochId::Epoch25] {
+        // ...but only in those epochs...
+        for epoch_id in [StacksEpochId::Epoch25, StacksEpochId::Epoch41] {
             let res = check_pox(&commit, epoch_id);
             assert!(
                 matches!(res, Err(op_error::BlockCommitBadOutputs)),
