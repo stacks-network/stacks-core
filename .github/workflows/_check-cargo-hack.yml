@@ -113,8 +113,9 @@ jobs:
             -p stacks-common \
             --each-feature \
             --no-dev-deps \
-            --include-features=wasm-deterministic,slog_json \
-            --features=wasm-deterministic
+            --include-features=wasm-deterministic,slog_json,testing \
+            --features=wasm-deterministic \
+            --target wasm32-unknown-unknown
 
   # Fuzz targets with nightly toolchain
   fuzz-targets:
