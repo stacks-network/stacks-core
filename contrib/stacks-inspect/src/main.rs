@@ -79,14 +79,15 @@ use stackslib::chainstate::burn::db::sortdb::{
 use stackslib::chainstate::burn::operations::BlockstackOperationType;
 use stackslib::chainstate::burn::{BlockSnapshot, ConsensusHash};
 use stackslib::chainstate::coordinator::{OnChainRewardSetProvider, get_reward_cycle_info};
-use stackslib::chainstate::nakamoto::miner::NakamotoBlockBuilder;
-use stackslib::chainstate::nakamoto::shadow::{process_shadow_block, shadow_chainstate_repair};
 use stackslib::chainstate::nakamoto::{NakamotoBlock, NakamotoChainState};
 use stackslib::chainstate::stacks::StacksBlockHeader;
-use stackslib::chainstate::stacks::db::{StacksBlockHeaderTypes, StacksChainState};
+use stackslib::chainstate::stacks::db::{
+    StacksAccount, StacksBlockHeaderTypes, StacksChainState, StacksHeaderInfo,
+};
 use stackslib::chainstate::stacks::index::marf::{MARF, MARFOpenOpts, MarfConnection};
 use stackslib::clarity::vm::ClarityVersion;
 use stackslib::clarity::vm::costs::ExecutionCost;
+use stackslib::clarity::vm::types::StacksAddressExtensions;
 use stackslib::core::MemPoolDB;
 use stackslib::cost_estimates::UnitEstimator;
 use stackslib::cost_estimates::metrics::UnitMetric;
@@ -303,7 +304,23 @@ fn open_nakamoto_chainstate_dbs(
     (sort_db, chain_state)
 }
 
-fn check_shadow_network(network: &str) {
+/// Look up `addr`'s account as of the Stacks block `tip`.
+fn get_nakamoto_account(
+    chain_state: &mut StacksChainState,
+    sort_db: &SortitionDB,
+    addr: &StacksAddress,
+    tip: &StacksHeaderInfo,
+) -> Option<StacksAccount> {
+    let snapshot = SortitionDB::get_block_snapshot_consensus(sort_db.conn(), &tip.consensus_hash)
+        .expect("Failed to query the sortition DB")?;
+    chain_state.with_read_only_clarity_tx(
+        &sort_db.index_handle(&snapshot.sortition_id),
+        &tip.index_block_hash(),
+        |clarity_conn| StacksChainState::get_account(clarity_conn, &addr.to_account_principal()),
+    )
+}
+
+fn check_nakamoto_network(network: &str) {
     if network != "mainnet" && network != "krypton" && network != "naka3" {
         eprintln!("Unknown network '{network}': only support 'mainnet', 'krypton', or 'naka3'");
         process::exit(1);
@@ -701,121 +718,12 @@ fn main() {
             process::exit(0);
         }
 
-        // Shadow Block Commands
-        Command::MakeShadowBlock {
-            chainstate_dir,
-            network,
-            chain_tip,
-            txs,
-        } => {
-            let chain_tip_id = StacksBlockId::from_hex(&chain_tip).unwrap();
-            let txs: Vec<StacksTransaction> = txs
-                .iter()
-                .map(|tx_str| {
-                    let tx_bytes = hex_bytes(tx_str).unwrap();
-                    StacksTransaction::consensus_deserialize(&mut &tx_bytes[..]).unwrap()
-                })
-                .collect();
-
-            check_shadow_network(&network);
-            let (sort_db, mut chain_state) =
-                open_nakamoto_chainstate_dbs(&chainstate_dir, &network);
-            let header = NakamotoChainState::get_block_header(chain_state.db(), &chain_tip_id)
-                .unwrap()
-                .unwrap();
-
-            let shadow_block = NakamotoBlockBuilder::make_shadow_tenure(
-                &mut chain_state,
-                &sort_db,
-                &chain_tip_id,
-                &header.consensus_hash,
-                txs,
-            )
-            .unwrap();
-
-            println!("{}", to_hex(&shadow_block.serialize_to_vec()));
-            process::exit(0);
-        }
-
-        Command::ShadowChainstateRepair {
-            chainstate_dir,
-            network,
-        } => {
-            check_shadow_network(&network);
-
-            let (mut sort_db, mut chain_state) =
-                open_nakamoto_chainstate_dbs(&chainstate_dir, &network);
-            let shadow_blocks = shadow_chainstate_repair(&mut chain_state, &mut sort_db).unwrap();
-
-            let shadow_blocks_hex: Vec<_> = shadow_blocks
-                .into_iter()
-                .map(|blk| to_hex(&blk.serialize_to_vec()))
-                .collect();
-
-            println!("{}", serde_json::to_string(&shadow_blocks_hex).unwrap());
-            process::exit(0);
-        }
-
-        Command::ShadowChainstatePatch {
-            chainstate_dir,
-            network,
-            shadow_blocks_path,
-        } => {
-            let shadow_blocks_hex = {
-                let buffer = read_file_or_stdin_bytes(&shadow_blocks_path);
-                let shadow_blocks_hex: Vec<String> = serde_json::from_slice(&buffer).unwrap();
-                shadow_blocks_hex
-            };
-
-            let shadow_blocks: Vec<_> = shadow_blocks_hex
-                .into_iter()
-                .map(|blk_hex| {
-                    NakamotoBlock::consensus_deserialize(
-                        &mut hex_bytes(&blk_hex).unwrap().as_slice(),
-                    )
-                    .unwrap()
-                })
-                .collect();
-
-            check_shadow_network(&network);
-
-            let (mut sort_db, mut chain_state) =
-                open_nakamoto_chainstate_dbs(&chainstate_dir, &network);
-            for shadow_block in shadow_blocks.into_iter() {
-                process_shadow_block(&mut chain_state, &mut sort_db, shadow_block).unwrap();
-            }
-
-            process::exit(0);
-        }
-
-        Command::AddShadowBlock {
-            chainstate_dir,
-            network,
-            shadow_block_hex,
-        } => {
-            let shadow_block = NakamotoBlock::consensus_deserialize(
-                &mut hex_bytes(&shadow_block_hex).unwrap().as_slice(),
-            )
-            .unwrap();
-
-            assert!(shadow_block.is_shadow_block());
-
-            check_shadow_network(&network);
-            let (_, mut chain_state) = open_nakamoto_chainstate_dbs(&chainstate_dir, &network);
-
-            let tx = chain_state.staging_db_tx_begin().unwrap();
-            tx.add_shadow_block(&shadow_block).unwrap();
-            tx.commit().unwrap();
-
-            process::exit(0);
-        }
-
         // Nakamoto Commands
         Command::GetNakamotoTip {
             chainstate_dir,
             network,
         } => {
-            check_shadow_network(&network);
+            check_nakamoto_network(&network);
             let (sort_db, chain_state) = open_nakamoto_chainstate_dbs(&chainstate_dir, &network);
 
             let header = NakamotoChainState::get_canonical_block_header(chain_state.db(), &sort_db)
@@ -835,7 +743,7 @@ fn main() {
             let chain_tip_id: Option<StacksBlockId> =
                 chain_tip.map(|tip| StacksBlockId::from_hex(&tip).unwrap());
 
-            check_shadow_network(&network);
+            check_nakamoto_network(&network);
             let (sort_db, mut chain_state) =
                 open_nakamoto_chainstate_dbs(&chainstate_dir, &network);
 
@@ -851,13 +759,9 @@ fn main() {
                         .unwrap()
                 });
 
-            let account = NakamotoBlockBuilder::get_account(
-                &mut chain_state,
-                &sort_db,
-                &addr,
-                &chain_tip_header,
-            )
-            .unwrap();
+            let account =
+                get_nakamoto_account(&mut chain_state, &sort_db, &addr, &chain_tip_header)
+                    .expect("Failed to load the account at the chain tip");
             println!("{account:#?}");
             process::exit(0);
         }

@@ -73,7 +73,7 @@ use crate::chainstate::nakamoto::signer_set::{
 use crate::chainstate::nakamoto::tests::get_account;
 use crate::chainstate::nakamoto::tests::node::{get_nakamoto_parent, TestStacker};
 use crate::chainstate::nakamoto::{
-    NakamotoBlock, NakamotoBlockHeader, NakamotoChainState, StacksDBIndexed, TxToProcess,
+    NakamotoBlock, NakamotoBlockHeader, NakamotoChainState, TxToProcess,
 };
 use crate::chainstate::stacks::address::PoxAddress;
 use crate::chainstate::stacks::boot::test::{key_to_stacks_addr, make_pox_4_lockup_chain_id};
@@ -2237,45 +2237,20 @@ impl<'a> TestChainstate<'a> {
         let (ch, parent_tenure_start_block_id) = parent_consensus_hash_and_tenure_start_id_opt
             .clone()
             .expect("No leader key");
-        // it's possible that the parent was a shadow block.
-        // if so, find the highest non-shadow ancestor's block-commit, so we can
-        let mut cursor = ch;
-        let (tenure_sn, tenure_block_commit) = loop {
-            let tenure_sn = SortitionDB::get_block_snapshot_consensus(sortdb.conn(), &cursor)
-                .unwrap()
-                .unwrap();
-
-            let Some(tenure_block_commit) = get_block_commit_by_txid(
-                sortdb.conn(),
-                &tenure_sn.sortition_id,
-                &tenure_sn.winning_block_txid,
+        let tenure_sn = SortitionDB::get_block_snapshot_consensus(sortdb.conn(), &ch)
+            .unwrap()
+            .unwrap();
+        let tenure_block_commit = get_block_commit_by_txid(
+            sortdb.conn(),
+            &tenure_sn.sortition_id,
+            &tenure_sn.winning_block_txid,
+        )
+        .unwrap()
+        .unwrap_or_else(|| {
+            panic!(
+                "Parent tenure start block ID {parent_tenure_start_block_id} has no block-commit"
             )
-            .unwrap() else {
-                // parent must be a shadow block
-                let header = NakamotoChainState::get_block_header_nakamoto(
-                    stacks_node.chainstate.db(),
-                    &parent_tenure_start_block_id,
-                )
-                .unwrap()
-                .unwrap()
-                .anchored_header
-                .as_stacks_nakamoto()
-                .cloned()
-                .unwrap();
-
-                assert!(header.is_shadow_block(), "Parent tenure start block ID {parent_tenure_start_block_id} has no block-commit and is not a shadow block");
-
-                cursor = stacks_node
-                    .chainstate
-                    .index_conn()
-                    .get_parent_tenure_consensus_hash(&parent_tenure_start_block_id, &cursor)
-                    .unwrap()
-                    .unwrap();
-
-                continue;
-            };
-            break (tenure_sn, tenure_block_commit);
-        };
+        });
 
         let last_key = SortitionDB::get_leader_key_at(
             &sortdb.index_conn(),

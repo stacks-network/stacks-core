@@ -850,8 +850,8 @@ impl StacksChainState {
             burn_total
         );
 
-        // in the case of shadow blocks, there will be zero burns.
-        // the coinbase is still generated, but it's rendered unspendable
+        // every block-commit burns a non-zero amount, so this is unreachable for valid blocks;
+        // it only guards the division below
         let (this_burn_total, burn_total) = if burn_total == 0 {
             (1, 1)
         } else {

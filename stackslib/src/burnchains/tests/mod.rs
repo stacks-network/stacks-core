@@ -401,7 +401,6 @@ impl TestBurnchainBlock {
         parent_block_snapshot: Option<&BlockSnapshot>,
         new_seed: Option<VRFSeed>,
         epoch_marker: u8,
-        parent_is_shadow: bool,
     ) -> LeaderBlockCommitOp {
         let pubks = miner
             .privks
@@ -437,13 +436,6 @@ impl TestBurnchainBlock {
         )
         .expect("FATAL: failed to read block commit");
 
-        if parent_is_shadow {
-            assert!(
-                get_commit_res.is_none(),
-                "FATAL: shadow parent should not have a block-commit"
-            );
-        }
-
         let input = SortitionDB::get_last_block_commit_by_sender(ic.conn(), &apparent_sender)
             .unwrap()
             .map(|commit| (commit.txid.clone(), 1 + (commit.commit_outs.len() as u32)))
@@ -474,43 +466,21 @@ impl TestBurnchainBlock {
                 txop
             }
             None => {
-                let txop = if parent_is_shadow {
-                    test_debug!(
-                        "Block-commit for {} (burn height {}) builds on shadow sortition",
-                        block_hash,
-                        self.block_height
-                    );
-
-                    LeaderBlockCommitOp::new(
-                        block_hash,
-                        self.block_height,
-                        &new_seed,
-                        last_snapshot_with_sortition.block_height as u32,
-                        0,
-                        leader_key.block_height as u32,
-                        leader_key.vtxindex as u16,
-                        burn_fee,
-                        &input,
-                        &apparent_sender,
-                    )
-                } else {
-                    // initial
-                    test_debug!(
-                        "Block-commit for {} (burn height {}) builds on genesis",
-                        block_hash,
-                        self.block_height,
-                    );
-                    LeaderBlockCommitOp::initial(
-                        block_hash,
-                        self.block_height,
-                        &new_seed,
-                        leader_key,
-                        burn_fee,
-                        &input,
-                        &apparent_sender,
-                    )
-                };
-                txop
+                // initial
+                test_debug!(
+                    "Block-commit for {} (burn height {}) builds on genesis",
+                    block_hash,
+                    self.block_height,
+                );
+                LeaderBlockCommitOp::initial(
+                    block_hash,
+                    self.block_height,
+                    &new_seed,
+                    leader_key,
+                    burn_fee,
+                    &input,
+                    &apparent_sender,
+                )
             }
         };
 
@@ -553,7 +523,6 @@ impl TestBurnchainBlock {
             parent_block_snapshot,
             None,
             STACKS_EPOCH_2_4_MARKER,
-            false,
         )
     }
 

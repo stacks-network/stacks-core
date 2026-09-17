@@ -929,17 +929,16 @@ impl LeaderBlockCommitOp {
         let directly_descended_from_anchor =
             epoch_id.block_commits_to_parent() && self.block_header_hash == v0.anchor_block;
 
-        // second, if we're in a nakamoto epoch, and the parent block has vtxindex 0 (i.e. the
-        // coinbase of the burnchain block), then assume that this block descends from the anchor
-        // block for the purposes of validating its PoX payouts.  The block validation logic will
-        // check that the parent block is indeed a shadow block, and that `self.parent_block_ptr`
-        // points to the shadow block's tenure's burnchain block.
-        let maybe_shadow_parent = epoch_id.supports_shadow_blocks()
+        // second, Nakamoto epochs assume that a commit whose parent has vtxindex 0 (i.e. the
+        // burnchain coinbase) built atop a shadow block, and so descends from the anchor block.
+        // Shadow blocks are gone, but the commits this admitted are part of sortition history,
+        // so the rule must be preserved.
+        let assumed_shadow_parent = epoch_id.allows_missing_vtxindex_zero_commit_parent()
             && self.parent_block_ptr != 0
             && self.parent_vtxindex == 0;
 
         let descended_from_anchor = directly_descended_from_anchor
-            || maybe_shadow_parent
+            || assumed_shadow_parent
             || tx.descended_from(parent_block_height, &v0.anchor_block)
             .map_err(|e| {
                 error!("Failed to check whether parent (height={}) is descendent of anchor block={}: {}",
@@ -1245,20 +1244,24 @@ impl LeaderBlockCommitOp {
             );
             return Err(op_error::BlockCommitNoParent);
         } else if self.parent_block_ptr != 0 || self.parent_vtxindex != 0 {
-            // not building off of genesis, so the parent block must exist
-            // unless the parent is a shadow block
+            // not building off of genesis, so the parent block-commit must exist.
+            // Nakamoto epochs accept a missing parent at `parent_vtxindex == 0` (an assumed
+            // shadow parent) if a burnchain block was processed at that height in this fork,
+            // sortition or not.  The commits this admitted are part of sortition history, so the
+            // rule must be preserved.
             let has_parent = tx
                 .get_block_commit_parent(parent_block_height, self.parent_vtxindex.into(), &tx_tip)?
                 .is_some();
-            let maybe_shadow_block = self.parent_vtxindex == 0 && epoch_id.supports_shadow_blocks();
-            if !has_parent && !maybe_shadow_block {
+            let assumed_shadow_parent =
+                self.parent_vtxindex == 0 && epoch_id.allows_missing_vtxindex_zero_commit_parent();
+            if !has_parent && !assumed_shadow_parent {
                 warn!("Invalid block commit: no parent block in this fork";
                       "apparent_sender" => %apparent_sender_repr
                 );
                 return Err(op_error::BlockCommitNoParent);
             }
             if !has_parent
-                && maybe_shadow_block
+                && assumed_shadow_parent
                 && tx
                     .get_block_snapshot_by_height(parent_block_height)?
                     .is_none()
@@ -1397,7 +1400,8 @@ mod tests {
     use crate::core::{
         StacksEpoch, StacksEpochExtension, StacksEpochId, PEER_VERSION_EPOCH_1_0,
         PEER_VERSION_EPOCH_2_0, PEER_VERSION_EPOCH_2_05, PEER_VERSION_EPOCH_2_1,
-        STACKS_EPOCH_2_05_MARKER, STACKS_EPOCH_2_1_MARKER, STACKS_EPOCH_MAX,
+        STACKS_EPOCH_2_05_MARKER, STACKS_EPOCH_2_1_MARKER, STACKS_EPOCH_LATEST_MARKER,
+        STACKS_EPOCH_MAX,
     };
 
     struct OpFixture {
@@ -2737,6 +2741,258 @@ mod tests {
             assert_eq!(
                 format!("{:?}", &fixture.res),
                 format!("{:?}", &fixture.op.check(&burnchain, &mut ic, None))
+            );
+        }
+    }
+
+    /// Build a sortition DB under `epochs` whose first block is 121, with a leader key at height
+    /// 124 and a block-commit at height 125 with the given `vtxindex`, then `check()` a commit at
+    /// height 126 whose parent pointer is `(125, 0)`.
+    fn check_commit_with_vtxindex_zero_parent(
+        epochs: stacks_common::types::EpochList<ExecutionCost>,
+        parent_commit_vtxindex: u32,
+    ) -> Result<(), op_error> {
+        let first_block_height = 121;
+        let first_burn_hash = BurnchainHeaderHash([0x79; 32]);
+        let block_hashes: Vec<_> = (0x7au8..=0x7e)
+            .map(|b| BurnchainHeaderHash([b; 32]))
+            .collect();
+
+        let burnchain = Burnchain {
+            pox_constants: pox_constants(),
+            peer_version: 0x012345678,
+            network_id: 0x9abcdef0,
+            chain_name: "bitcoin".to_string(),
+            network_name: "testnet".to_string(),
+            working_dir: "/nope".to_string(),
+            consensus_hash_lifetime: 24,
+            stable_confirmations: 7,
+            first_block_height,
+            initial_reward_start_block: first_block_height,
+            first_block_timestamp: 0,
+            first_block_hash: first_burn_hash.clone(),
+            marf_opts: None,
+        };
+
+        let apparent_sender = BurnchainSigner::mock_parts(
+            AddressHashMode::SerializeP2PKH,
+            1,
+            vec![StacksPublicKey::from_hex(
+                "02d8015134d9db8178ac93acbc43170a2f20febba5087a5b0437058765ad5133d0",
+            )
+            .unwrap()],
+        );
+
+        // height 124
+        let leader_key = LeaderKeyRegisterOp {
+            consensus_hash: ConsensusHash([0x22; 20]),
+            public_key: VRFPublicKey::from_bytes(
+                &hex_bytes("a366b51292bef4edd64063d9145c617fec373bceb0758e98cd72becd84d54c7a")
+                    .unwrap(),
+            )
+            .unwrap(),
+            memo: vec![],
+            txid: Txid([0x11; 32]),
+            vtxindex: 456,
+            block_height: 124,
+            burn_header_hash: block_hashes[2].clone(),
+        };
+
+        // height 125; the only block-commit the commit under test could build on
+        let parent_commit = LeaderBlockCommitOp {
+            treatment: vec![],
+            sunset_burn: 0,
+            block_header_hash: BlockHeaderHash([0x22; 32]),
+            new_seed: VRFSeed([0x33; 32]),
+            parent_block_ptr: 0,
+            parent_vtxindex: 0,
+            key_block_ptr: 124,
+            key_vtxindex: 456,
+            memo: vec![STACKS_EPOCH_LATEST_MARKER],
+            commit_outs: vec![],
+            burn_fee: 12345,
+            input: (Txid([0; 32]), 0),
+            apparent_sender: apparent_sender.clone(),
+            txid: Txid([0x44; 32]),
+            vtxindex: parent_commit_vtxindex,
+            block_height: 125,
+            burn_parent_modulus: (124 % BURN_BLOCK_MINED_AT_MODULUS) as u8,
+            burn_header_hash: block_hashes[3].clone(),
+        };
+
+        let mut db =
+            SortitionDB::connect_test_with_epochs(first_block_height, &first_burn_hash, epochs)
+                .unwrap();
+        // heights 122 through 126
+        test_append_snapshot(&mut db, block_hashes[0].clone(), &[]);
+        test_append_snapshot(&mut db, block_hashes[1].clone(), &[]);
+        test_append_snapshot(
+            &mut db,
+            block_hashes[2].clone(),
+            &[BlockstackOperationType::LeaderKeyRegister(leader_key)],
+        );
+        test_append_snapshot(
+            &mut db,
+            block_hashes[3].clone(),
+            &[BlockstackOperationType::LeaderBlockCommit(parent_commit)],
+        );
+        let tip = test_append_snapshot(&mut db, block_hashes[4].clone(), &[]);
+
+        // height 126, claiming a parent at (125, 0)
+        let mut commit = LeaderBlockCommitOp {
+            treatment: vec![],
+            sunset_burn: 0,
+            block_header_hash: BlockHeaderHash([0x55; 32]),
+            new_seed: VRFSeed([0x66; 32]),
+            parent_block_ptr: 125,
+            parent_vtxindex: 0,
+            key_block_ptr: 124,
+            key_vtxindex: 456,
+            memo: vec![STACKS_EPOCH_LATEST_MARKER],
+            commit_outs: vec![],
+            burn_fee: 12345,
+            input: (Txid([0; 32]), 0),
+            apparent_sender,
+            txid: Txid([0x77; 32]),
+            vtxindex: 1,
+            block_height: 126,
+            burn_parent_modulus: (125 % BURN_BLOCK_MINED_AT_MODULUS) as u8,
+            burn_header_hash: tip.burn_header_hash.clone(),
+        };
+
+        let mut ic = SortitionHandleTx::begin(&mut db, &tip.sortition_id).unwrap();
+        commit.check(&burnchain, &mut ic, None)
+    }
+
+    /// Nakamoto epochs accept a block-commit whose parent is `(height > 0, vtxindex 0)` even
+    /// though no block-commit exists there (an assumed shadow-block parent); 2.x did not.  A
+    /// block-commit that does exist at vtxindex 0 is a valid parent in every epoch.
+    #[test]
+    fn test_check_vtxindex_zero_parent() {
+        let first_block_height = 121;
+        let epoch_2_1 = || StacksEpoch::unit_test_2_1_with_heights(0, 0, first_block_height);
+        let nakamoto = |epoch_id| StacksEpoch::unit_test_epoch_only(first_block_height, epoch_id);
+
+        // no block-commit at (125, 0)
+        for (epochs, accepted) in [
+            (epoch_2_1(), false),
+            (nakamoto(StacksEpochId::Epoch30), true),
+            (nakamoto(StacksEpochId::Epoch40), true),
+            (nakamoto(StacksEpochId::Epoch41), true),
+        ] {
+            let res = check_commit_with_vtxindex_zero_parent(epochs, 444);
+            if accepted {
+                assert!(res.is_ok(), "{res:?}");
+            } else {
+                assert!(matches!(res, Err(op_error::BlockCommitNoParent)), "{res:?}");
+            }
+        }
+
+        // a block-commit does exist at (125, 0)
+        for epochs in [
+            epoch_2_1(),
+            nakamoto(StacksEpochId::Epoch30),
+            nakamoto(StacksEpochId::Epoch40),
+            nakamoto(StacksEpochId::Epoch41),
+        ] {
+            let res = check_commit_with_vtxindex_zero_parent(epochs, 0);
+            assert!(res.is_ok(), "{res:?}");
+        }
+    }
+
+    /// Before the PoX waterfall, a block-commit that pays the reward set must descend from the
+    /// anchor block.  Nakamoto epochs assume that a commit whose parent is
+    /// `(height > 0, vtxindex 0)` built atop a shadow block and skip that check; 2.x did not.
+    #[test]
+    fn test_check_pox_vtxindex_zero_parent_skips_descent() {
+        let burnchain = Burnchain {
+            pox_constants: pox_constants(),
+            peer_version: 0x012345678,
+            network_id: 0x9abcdef0,
+            chain_name: "bitcoin".to_string(),
+            network_name: "testnet".to_string(),
+            working_dir: "/nope".to_string(),
+            consensus_hash_lifetime: 24,
+            stable_confirmations: 7,
+            initial_reward_start_block: 0,
+            first_block_height: 0,
+            first_block_timestamp: 0,
+            first_block_hash: BurnchainHeaderHash([0x05; 32]),
+            marf_opts: None,
+        };
+
+        let recipient =
+            PoxAddress::Standard(StacksAddress::new(1, Hash160([0x11; 20])).unwrap(), None);
+        let reward_set_info = RewardSetInfo::V0(RewardSetInfoV0 {
+            anchor_block: BlockHeaderHash([0xaa; 32]),
+            recipients: vec![(recipient.clone(), 0), (recipient.clone(), 1)],
+            allow_nakamoto_punishment: true,
+        });
+
+        // pays the reward set, does not commit to the anchor block itself, and claims a parent at
+        // vtxindex 0.  The stubbed handle reports that the parent does not descend from the anchor.
+        let commit = LeaderBlockCommitOp {
+            treatment: vec![],
+            sunset_burn: 0,
+            block_header_hash: BlockHeaderHash([0x22; 32]),
+            new_seed: VRFSeed([0x33; 32]),
+            parent_block_ptr: 125,
+            parent_vtxindex: 0,
+            key_block_ptr: 124,
+            key_vtxindex: 456,
+            memo: vec![STACKS_EPOCH_LATEST_MARKER],
+            commit_outs: vec![recipient.clone(), recipient],
+            burn_fee: 12345,
+            input: (Txid([0; 32]), 0),
+            apparent_sender: BurnchainSigner::mock_parts(
+                AddressHashMode::SerializeP2PKH,
+                1,
+                vec![StacksPublicKey::from_hex(
+                    "02d8015134d9db8178ac93acbc43170a2f20febba5087a5b0437058765ad5133d0",
+                )
+                .unwrap()],
+            ),
+            txid: Txid([0x55; 32]),
+            vtxindex: 1,
+            block_height: 200,
+            burn_parent_modulus: (199 % BURN_BLOCK_MINED_AT_MODULUS) as u8,
+            burn_header_hash: BurnchainHeaderHash([0x06; 32]),
+        };
+        let check_pox = |commit: &LeaderBlockCommitOp, epoch_id| {
+            commit.check_pox(
+                epoch_id,
+                &burnchain,
+                &mut DescendencyStubbedSortitionHandle::NotDescended,
+                Some(&reward_set_info),
+            )
+        };
+
+        // the assumed shadow parent stands in for anchor descent...
+        for epoch_id in [
+            StacksEpochId::Epoch30,
+            StacksEpochId::Epoch40,
+            StacksEpochId::Epoch41,
+        ] {
+            let res = check_pox(&commit, epoch_id);
+            assert!(res.is_ok(), "{epoch_id}: {res:?}");
+        }
+        // ...but only in Nakamoto epochs...
+        for epoch_id in [StacksEpochId::Epoch25] {
+            let res = check_pox(&commit, epoch_id);
+            assert!(
+                matches!(res, Err(op_error::BlockCommitBadOutputs)),
+                "{epoch_id}: {res:?}"
+            );
+        }
+        // ...and only for a parent at vtxindex 0 with a non-zero height
+        for (parent_block_ptr, parent_vtxindex) in [(125, 1), (0, 0)] {
+            let mut other_parent = commit.clone();
+            other_parent.parent_block_ptr = parent_block_ptr;
+            other_parent.parent_vtxindex = parent_vtxindex;
+            let res = check_pox(&other_parent, StacksEpochId::Epoch30);
+            assert!(
+                matches!(res, Err(op_error::BlockCommitBadOutputs)),
+                "({parent_block_ptr}, {parent_vtxindex}): {res:?}"
             );
         }
     }
