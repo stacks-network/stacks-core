@@ -1254,6 +1254,45 @@ fn test_http_delivery_non_blocking() {
     mock.assert();
 }
 
+/// How long the counter helpers below are willing to wait. Generous on
+/// purpose: these tests drive a mock server that sleeps for whole seconds at a
+/// time, and a tight bound on a loaded CI runner is just a flake.
+const COUNTER_TIMEOUT: Duration = Duration::from_secs(30);
+
+/// Block until `counter` has reached `expected`, polling often enough that the
+/// caller sees the transition without having to guess at a sleep duration.
+fn wait_for_count(counter: &AtomicU32, expected: u32, name: &str) {
+    let start = Instant::now();
+    loop {
+        let actual = counter.load(Ordering::SeqCst);
+        if actual >= expected {
+            return;
+        }
+        assert!(
+            start.elapsed() < COUNTER_TIMEOUT,
+            "timed out waiting for {name} to reach {expected}, last observed {actual}"
+        );
+        thread::sleep(Duration::from_millis(10));
+    }
+}
+
+/// Check that the observer only ever has one request in flight: the number of
+/// requests that have started can never run more than one ahead of the number
+/// that have finished.
+///
+/// `start_count` is loaded first on purpose. A stale read there can only make
+/// this check stricter, never falsely lenient, so it holds without having to
+/// read both counters atomically.
+fn assert_deliveries_are_serialized(start_count: &AtomicU32, end_count: &AtomicU32) -> (u32, u32) {
+    let started = start_count.load(Ordering::SeqCst);
+    let ended = end_count.load(Ordering::SeqCst);
+    assert!(
+        started <= ended + 1,
+        "observer started {started} requests with only {ended} finished, deliveries are not serialized"
+    );
+    (started, ended)
+}
+
 #[test]
 fn test_http_delivery_blocks_once_queue_is_full() {
     let mut slow_server = mockito::Server::new();
@@ -1311,21 +1350,21 @@ fn test_http_delivery_blocks_once_queue_is_full() {
         );
     }
 
-    let elapsed = start.elapsed();
-    // this shouldn't block because they fit in the queue
+    // this shouldn't block because they fit in the queue. Had any of them
+    // waited on the observer, it would have taken at least the two seconds the
+    // server sleeps for
     assert!(
-        elapsed < Duration::from_millis(500),
+        start.elapsed() < Duration::from_secs(1),
         "dispatcher blocked while sending first three events"
     );
 
-    thread::sleep(Duration::from_millis(500) - elapsed);
+    // the worker takes the first payload straight off the queue; the other two
+    // wait their turn
+    wait_for_count(&start_count, 1, "start_count");
+    assert_deliveries_are_serialized(&start_count, &end_count);
 
-    assert_eq!(start_count.load(Ordering::SeqCst), 1);
-    assert_eq!(end_count.load(Ordering::SeqCst), 0);
-
-    let start = Instant::now();
-
-    // send the fourth request -- this should now block until the first request is complete
+    // send the fourth request -- the queue is full, so this blocks until the
+    // first request completes and the worker frees up a slot
     dispatcher.process_mined_nakamoto_block_event(
         0,
         &nakamoto_block,
@@ -1334,37 +1373,28 @@ fn test_http_delivery_blocks_once_queue_is_full() {
         vec![],
     );
 
-    // we waited 500ms previously, so it should take on the order of 1.5s until
-    // the first request is complete
+    // deliberately not a wall-clock assertion: the send can only have returned
+    // once a slot freed up, and a slot only frees up once the first request has
+    // finished. That holds however slow the machine is.
     assert!(
-        start.elapsed() > Duration::from_millis(1000),
+        end_count.load(Ordering::SeqCst) >= 1,
         "dispatcher did not block when sending fourth event"
     );
 
-    assert!(
-        start.elapsed() < Duration::from_millis(2000),
-        "dispatcher blocked unexpectedly long after sending fourth event"
-    );
-
-    thread::sleep(Duration::from_millis(100));
-
-    assert_eq!(start_count.load(Ordering::SeqCst), 2);
-    assert_eq!(end_count.load(Ordering::SeqCst), 1);
-
-    thread::sleep(Duration::from_secs(2));
-
-    assert_eq!(start_count.load(Ordering::SeqCst), 3);
-    assert_eq!(end_count.load(Ordering::SeqCst), 2);
-
-    thread::sleep(Duration::from_secs(2));
-
-    assert_eq!(start_count.load(Ordering::SeqCst), 4);
-    assert_eq!(end_count.load(Ordering::SeqCst), 3);
-
-    thread::sleep(Duration::from_secs(2));
-
-    assert_eq!(start_count.load(Ordering::SeqCst), 4);
-    assert_eq!(end_count.load(Ordering::SeqCst), 4);
+    // let the rest of the queue drain, checking as it goes that the observer
+    // never has more than one request in flight
+    let start = Instant::now();
+    loop {
+        let (started, ended) = assert_deliveries_are_serialized(&start_count, &end_count);
+        if ended >= 4 {
+            break;
+        }
+        assert!(
+            start.elapsed() < COUNTER_TIMEOUT,
+            "timed out waiting for all four events to be delivered, {started} started and {ended} finished"
+        );
+        thread::sleep(Duration::from_millis(10));
+    }
 
     mock.assert();
 }
