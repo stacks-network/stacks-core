@@ -2016,9 +2016,9 @@ impl RelayerThread {
         };
         // reset timer so we can try again if for some reason a miner was already running (e.g. a
         // blockfound from earlier).
-        self.tenure_extend_time
-            .as_mut()
-            .map(|t| t.refresh(self.config.miner.tenure_extend_poll_timeout));
+        if let Some(t) = self.tenure_extend_time.as_mut() {
+            t.refresh(self.config.miner.tenure_extend_poll_timeout);
+        }
         // try to extend, but only if we aren't already running a thread for the current or newer
         // burnchain view
         let Ok(burn_tip) = SortitionDB::get_canonical_burn_chain_tip(self.sortdb.conn())
