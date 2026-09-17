@@ -244,9 +244,9 @@ jobs:
 
             // 4. Action Extraction Engine (Group by User)
             const userActionsMap = {}; // login -> { mention, actions: [] }
-            const actionablePrs = new Set(); // <-- NEW: Tracks unique PRs that generated a nag
+            const actionablePrs = new Set();
 
-            const addAction = (login, actionText, prNumber) => { // <-- NEW: Added prNumber parameter
+            const addAction = (login, actionText, prNumber) => {
               const cleanLogin = login.toLowerCase();
               if (!userActionsMap[cleanLogin]) {
                 userActionsMap[cleanLogin] = {
@@ -255,7 +255,7 @@ jobs:
                 };
               }
               userActionsMap[cleanLogin].actions.push(actionText);
-              if (prNumber) actionablePrs.add(prNumber); // <-- NEW: Record the PR
+              if (prNumber) actionablePrs.add(prNumber);
             };
 
             for (const item of reviewsGroup) {
