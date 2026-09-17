@@ -313,7 +313,7 @@ fn build_ast_at(
 
 /// Calling the native inside the same-named implementation is not a cycle.
 #[test]
-fn clarity7_native_application_in_same_named_function_is_not_a_cycle() {
+fn epoch41_native_application_in_same_named_function_is_not_a_cycle() {
     let contract = "(define-read-only (slice? (a int) (b int))
                         (len (unwrap-panic (slice? (list a b) u0 u1))))";
     build_ast_at(contract, ClarityVersion::Clarity7, StacksEpochId::Epoch41).unwrap();
@@ -331,7 +331,7 @@ fn clarity7_native_application_in_same_named_function_is_not_a_cycle() {
 
 /// Same for reading a keyword inside the same-named implementation.
 #[test]
-fn clarity7_native_keyword_in_same_named_function_is_not_a_cycle() {
+fn epoch41_native_keyword_in_same_named_function_is_not_a_cycle() {
     let contract = "(define-read-only (stacks-block-height) (ok stacks-block-height))";
     build_ast_at(contract, ClarityVersion::Clarity7, StacksEpochId::Epoch41).unwrap();
 
@@ -341,7 +341,7 @@ fn clarity7_native_keyword_in_same_named_function_is_not_a_cycle() {
 
 /// Only native names are affected: user-definition cycles are still detected.
 #[test]
-fn clarity7_user_function_cycle_is_still_detected() {
+fn epoch41_user_function_cycle_is_still_detected() {
     let contract = "(define-private (a (x int)) (b x))
                     (define-private (b (x int)) (a x))";
     let err = build_ast_at(contract, ClarityVersion::Clarity7, StacksEpochId::Epoch41).unwrap_err();
@@ -377,7 +377,7 @@ fn sorted_definition_names(ast: &ContractAST) -> Vec<String> {
 #[case::map("(map stacks-block-height (list u1 u2))")]
 #[case::fold("(fold stacks-block-height (list u1 u2) u0)")]
 #[case::filter("(filter stacks-block-height (list u1 u2))")]
-fn clarity7_keyword_named_function_is_a_dependency_in_function_position(#[case] call: &str) {
+fn epoch41_keyword_named_function_is_a_dependency_in_function_position(#[case] call: &str) {
     let contract = format!(
         "(define-read-only (caller) {call})
          (define-read-only (stacks-block-height (x uint)) (ok x))"
@@ -393,7 +393,7 @@ fn clarity7_keyword_named_function_is_a_dependency_in_function_position(#[case] 
 
 /// The remaining `fold` arguments are still probed: the seed is a dependency.
 #[test]
-fn clarity7_fold_seed_is_still_a_dependency() {
+fn epoch41_fold_seed_is_still_a_dependency() {
     let contract = "(define-read-only (fold-seed) (fold + (list u1 u2) seed))
                     (define-constant seed u0)";
     let ast = build_ast_at(contract, ClarityVersion::Clarity7, StacksEpochId::Epoch41).unwrap();
@@ -401,9 +401,9 @@ fn clarity7_fold_seed_is_still_a_dependency() {
     assert_eq!(names, ["seed", "fold-seed"], "sorted: {names:?}");
 }
 
-/// A native function name in function position still means the native.
+/// A native function name used as a callback still means the native.
 #[test]
-fn clarity7_native_function_name_in_function_position_is_not_a_dependency() {
+fn epoch41_native_function_name_in_function_position_is_not_a_dependency() {
     let contract =
         "(define-read-only (use-native) (map slice? (list (list 1 2)) (list u0) (list u1)))
                     (define-read-only (slice? (a int) (b int)) (ok (+ a b)))";

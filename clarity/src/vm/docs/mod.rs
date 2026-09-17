@@ -2270,10 +2270,10 @@ contracts via `contract-call?`.
 
 Function names may not collide with a native function or keyword. Beginning in Epoch 4.1, one exception applies:
 a public function may take a reserved name (e.g. `slice?`) to implement a method of a trait listed in `impl-trait`,
-provided the name was still free in the trait's Clarity version. The native keeps winning inside the contract
-wherever one exists, so the function is reachable via `contract-call?` and trait dispatch, plus function position
-(call head, `map`/`fold`/`filter` callback) for keyword names, which have no native function. Any other definition
-under a reserved name fails with `NameAlreadyUsed`.",
+provided the name was still free in the trait's Clarity version. Inside the contract the native function or keyword
+keeps its meaning, so the implementation is reached through `contract-call?` and trait dispatch; a keyword-named one
+can also be applied directly or passed to `map`/`fold`/`filter`, since no native function has that name. A function
+under a reserved name that matches no such trait method fails with `NameAlreadyUsed`.",
     example: "
 (define-public (hello-world (input int))
   (begin (print (+ 2 input))
@@ -2420,7 +2420,7 @@ and trait value with matching type allowed in Clarity 1, Clarity 2 also supports
 compatible trait, meaning that a value of type `trait-a` may be passed to a parameter with type `trait-b` if `trait-a`
 includes all of the requirements of `trait-b` (and optionally additional functions).
 
-Beginning in Epoch 4.1 (Clarity 7), a trait method may not take a name reserved in the contract's Clarity version;
+Beginning in Epoch 4.1, a trait method may not take a name reserved in the contract's Clarity version;
 `define-trait` rejects it with `NameAlreadyUsed`. Traits from versions where the name was still free stay
 implementable: see `define-public`.
 

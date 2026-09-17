@@ -312,8 +312,8 @@ impl DefinitionSorter {
                                 _ => {}
                             }
                         } else if self.epoch.allows_shadowable_reserved_names() {
-                            // A user function, possibly keyword-named: head
-                            // position resolves to it.
+                            // Not a native function, so applying the name resolves
+                            // to the user function even when it is a keyword.
                             self.probe_function_reference(head, tle_index, version)?;
                             for expr in function_args.iter() {
                                 self.probe_for_dependencies(expr, tle_index, version)?;

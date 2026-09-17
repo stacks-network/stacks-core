@@ -84,7 +84,7 @@ fn setup_contract_principal(name: &'static str) -> Value {
 /// at Clarity 1, allowed again from Epoch 4.1, rejected at initialization in
 /// between.
 #[test]
-fn test_clarity7_shadow_deploy() {
+fn test_epoch41_shadow_deploy() {
     let report = contract_deploy_consensus_unit_test!(
         contract_name: "shadow_slice",
         contract_code: "
@@ -124,9 +124,9 @@ fn test_clarity7_shadow_deploy() {
     }
 }
 
-/// Without a legacy trait method the name stays illegal at Clarity 7.
+/// Without a legacy trait method the name stays illegal from Epoch 4.1.
 #[test]
-fn test_clarity7_unscoped_shadow_deploy_rejected() {
+fn test_epoch41_unscoped_shadow_deploy_rejected() {
     let report = contract_deploy_consensus_unit_test!(
         contract_name: "unscoped_shadow",
         contract_code: "(define-public (slice? (a int) (b int)) (ok (+ a b)))",
@@ -203,7 +203,7 @@ fn test_clarity7_unscoped_shadow_deploy_rejected() {
     (StacksEpochId::Epoch34..).as_slice(),
     &[legacy_ops_setup(), c7_shadow_target_setup()]
 )]
-fn test_clarity7_legacy_trait_interop(
+fn test_epoch41_legacy_trait_interop(
     #[case] contract_name: &str,
     #[case] contract_code: &str,
     #[case] function_name: &str,
@@ -229,7 +229,7 @@ fn test_clarity7_legacy_trait_interop(
 /// at every version. Deploys start at Epoch 3.4 because pre-2.1 epochs reject
 /// analysis failures outright instead of including them.
 #[test]
-fn test_clarity7_shadow_impl_wrong_signature_rejected() {
+fn test_epoch41_shadow_impl_wrong_signature_rejected() {
     let report = contract_deploy_consensus_unit_test!(
         contract_name: "bad_signature",
         contract_code: "
@@ -257,7 +257,7 @@ fn test_clarity7_shadow_impl_wrong_signature_rejected() {
 /// read-only caller must be classified by the callee's actual function, so
 /// this deploy must fail the read-only check.
 #[test]
-fn test_clarity7_shadowed_writer_rejected_in_read_only() {
+fn test_epoch41_shadowed_writer_rejected_in_read_only() {
     let report = contract_deploy_consensus_unit_test!(
         contract_name: "ro_probe",
         contract_code: "

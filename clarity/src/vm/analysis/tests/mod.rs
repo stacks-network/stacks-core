@@ -740,7 +740,7 @@ fn test_definition_sorting_of_contract_call() {
     );
 }
 
-// Clarity 7 reserved-name defines at analysis: the rule is documented on
+// Epoch 4.1 reserved-name defines at analysis: the rule is documented on
 // `is_shadowable_reserved`.
 
 /// A Clarity 1 trait whose method name is a native since Clarity 2.
@@ -800,8 +800,10 @@ fn assert_name_already_used(result: Result<ContractAnalysis, StaticCheckError>, 
     );
 }
 
+/// A shadowable name needs an implemented trait whose version still had it
+/// free: no trait, or a trait from a later version, is rejected.
 #[test]
-fn clarity7_shadowable_define_requires_legacy_trait_method() {
+fn epoch41_shadowable_define_requires_legacy_trait_method() {
     let implementation = "(impl-trait .ops-def.ops)
                           (define-public (slice? (a int) (b int)) (ok (+ a b)))";
 
@@ -875,7 +877,7 @@ fn clarity6_at_epoch41_shadowable_define_is_accepted() {
 
 /// The reported name is the lexicographically first, not the first defined.
 #[test]
-fn clarity7_multiple_unmatched_names_report_deterministically() {
+fn epoch41_multiple_unmatched_names_report_deterministically() {
     assert_name_already_used(
         run_clarity7_analysis(
             &[],
@@ -886,8 +888,10 @@ fn clarity7_multiple_unmatched_names_report_deterministically() {
     );
 }
 
+/// From Epoch 4.1 `define-trait` rejects currently reserved method names;
+/// earlier epochs leave them unchecked.
 #[test]
-fn clarity7_trait_cannot_declare_reserved_method_name() {
+fn epoch41_trait_cannot_declare_reserved_method_name() {
     let trait_def = "(define-trait t ((slice? (int int) (response int int))))";
     assert_name_already_used(run_clarity7_analysis(&[], trait_def), "slice?");
 
@@ -901,8 +905,10 @@ fn clarity7_trait_cannot_declare_reserved_method_name() {
     .unwrap();
 }
 
+/// A bare reference to the shadowed name still types as the native, inside
+/// the implementation and elsewhere.
 #[test]
-fn clarity7_shadowable_define_keeps_native_for_bare_references() {
+fn epoch41_shadowable_define_keeps_native_for_bare_references() {
     // Uses the native `slice?` both elsewhere and inside the implementation.
     let analysis = run_clarity7_analysis(
         &[LEGACY_OPS],
@@ -933,7 +939,7 @@ fn clarity7_shadowable_define_keeps_native_for_bare_references() {
 /// sorter orders them after it. Applying the name types against the function;
 /// the bare atom is still the keyword.
 #[test]
-fn clarity7_keyword_named_function_callable_regardless_of_definition_order() {
+fn epoch41_keyword_named_function_callable_regardless_of_definition_order() {
     let heights = (
         "heights-def",
         ClarityVersion::Clarity1,

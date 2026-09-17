@@ -1993,7 +1993,7 @@ fn make_epoch41_env<'a>(
     owned_env
 }
 
-// Clarity 7 reserved-name defines: the rule these tests pin is documented on
+// Epoch 4.1 reserved-name defines: the rule these tests pin is documented on
 // `is_shadowable_reserved`.
 
 /// A transient Clarity 7 contract context for `get_exec_environment`.
@@ -2094,7 +2094,7 @@ fn shadowable_reserved_names_at_clarity7() {
 /// The implementing function is reachable from outside by its literal name,
 /// while a bare reference inside the contract still resolves to the native.
 #[test]
-fn clarity7_external_call_reaches_shadowed_function_and_native_is_kept() {
+fn epoch41_external_call_reaches_shadowed_function_and_native_is_kept() {
     let mut tl_env_factory = tl_env_factory();
     let mut owned_env = make_epoch41_env(
         &mut tl_env_factory,
@@ -2143,7 +2143,7 @@ fn clarity7_external_call_reaches_shadowed_function_and_native_is_kept() {
 
 /// Read-only functions qualify too.
 #[test]
-fn clarity7_read_only_implementation_of_legacy_trait_method() {
+fn epoch41_read_only_implementation_of_legacy_trait_method() {
     let mut tl_env_factory = tl_env_factory();
     let mut owned_env = make_epoch41_env(
         &mut tl_env_factory,
@@ -2218,10 +2218,10 @@ fn clarity6_at_epoch41_implements_legacy_trait_method() {
     );
 }
 
-/// A keyword-named implementation splits by position: head position calls it
-/// (no native function has that name); the bare atom reads the keyword.
+/// A keyword-named implementation splits by use: applying it calls the
+/// function (no native function has that name); the bare atom reads the keyword.
 #[test]
-fn clarity7_keyword_name_implementation_splits_by_position() {
+fn epoch41_keyword_name_implementation_splits_by_position() {
     let mut tl_env_factory = tl_env_factory();
     let mut owned_env = make_epoch41_env(
         &mut tl_env_factory,
@@ -2266,8 +2266,9 @@ fn clarity7_keyword_name_implementation_splits_by_position() {
     );
 }
 
+/// Defining a shadowable name twice is an ordinary collision, trait or not.
 #[test]
-fn clarity7_duplicate_shadowable_define_rejected() {
+fn epoch41_duplicate_shadowable_define_rejected() {
     let mut tl_env_factory = tl_env_factory();
     let trait_def = "(define-trait ops ((slice? (int int) (response int int))))";
     // A second definition is a plain collision, trait or not.
@@ -2291,8 +2292,10 @@ fn clarity7_duplicate_shadowable_define_rejected() {
     );
 }
 
+/// VM side of the `define-trait` rule: reserved method names are rejected
+/// from Epoch 4.1 and unchecked before.
 #[test]
-fn clarity7_trait_cannot_declare_reserved_method_name() {
+fn epoch41_trait_cannot_declare_reserved_method_name() {
     let trait_def = "(define-trait t ((slice? (int int) (response int int))))";
 
     // Unchecked before Epoch 4.1.
@@ -2385,7 +2388,7 @@ fn reserved_define_rejected(
 /// A legacy dispatcher dynamically dispatches its trait into a Clarity 7
 /// implementation whose method name is now reserved.
 #[test]
-fn clarity7_implements_legacy_trait_with_reserved_method_name() {
+fn epoch41_implements_legacy_trait_with_reserved_method_name() {
     let mut tl_env_factory = tl_env_factory();
     let mut owned_env = make_epoch41_env(
         &mut tl_env_factory,
@@ -2431,7 +2434,7 @@ fn clarity7_implements_legacy_trait_with_reserved_method_name() {
 /// A static `contract-call?` from another contract reaches the shadowed
 /// function by its literal name.
 #[test]
-fn clarity7_cross_contract_call_resolves_shadowed_function() {
+fn epoch41_cross_contract_call_resolves_shadowed_function() {
     let mut tl_env_factory = tl_env_factory();
     let mut owned_env = make_epoch41_env(
         &mut tl_env_factory,
