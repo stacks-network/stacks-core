@@ -1730,12 +1730,16 @@ impl ContractContext {
         self.implemented_traits.contains(trait_identifier)
     }
 
-    pub fn is_name_used(&self, name: &str) -> bool {
-        is_reserved(name, self.get_clarity_version())
-            || self.variables.contains_key(name)
+    /// Whether the contract itself defines `name`, ignoring reserved natives.
+    pub fn is_name_defined_by_contract(&self, name: &str) -> bool {
+        self.variables.contains_key(name)
             || self.functions.contains_key(name)
             || self.persisted_names.contains(name)
             || self.defined_traits.contains_key(name)
+    }
+
+    pub fn is_name_used(&self, name: &str) -> bool {
+        is_reserved(name, self.get_clarity_version()) || self.is_name_defined_by_contract(name)
     }
 
     pub fn get_clarity_version(&self) -> &ClarityVersion {
@@ -1763,7 +1767,7 @@ impl ContractContext {
                 let owned = std::mem::replace(value, Value::none());
                 let (sanitized, _) =
                     Value::sanitize_value(epoch, &TypeSignature::type_of(&owned)?, owned)
-                        .ok_or_else(|| RuntimeCheckErrorKind::CouldNotDetermineType)?;
+                        .ok_or(RuntimeCheckErrorKind::CouldNotDetermineType)?;
                 *value = sanitized;
             }
         }

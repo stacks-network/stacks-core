@@ -592,7 +592,7 @@ impl NeighborComms for PeerNetworkComms {
     }
 
     fn clear_pinned_connections(&mut self) -> HashSet<usize> {
-        let events = mem::replace(&mut self.events, HashSet::new());
+        let events = mem::take(&mut self.events);
         events
     }
 
@@ -651,11 +651,11 @@ impl NeighborComms for PeerNetworkComms {
     }
 
     fn take_dead_neighbors(&mut self) -> HashSet<DropNeighbor> {
-        mem::replace(&mut self.dead_connections, HashSet::new())
+        mem::take(&mut self.dead_connections)
     }
 
     fn take_broken_neighbors(&mut self) -> HashSet<DropNeighbor> {
-        mem::replace(&mut self.broken_connections, HashSet::new())
+        mem::take(&mut self.broken_connections)
     }
 }
 

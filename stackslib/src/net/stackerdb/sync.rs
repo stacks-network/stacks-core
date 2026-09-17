@@ -181,25 +181,25 @@ impl<NC: NeighborComms> StackerDBSync<NC> {
             &self.smart_contract_id, config
         );
         let mut chunks = vec![];
-        let downloaded_chunks = mem::replace(&mut self.downloaded_chunks, HashMap::new());
+        let downloaded_chunks = mem::take(&mut self.downloaded_chunks);
         for (naddr, data) in downloaded_chunks.into_iter() {
             for chunk in data {
                 chunks.push((StackerDBChunkOrigin::Poll(naddr.clone()), chunk));
             }
         }
 
-        let chunk_invs = mem::replace(&mut self.chunk_invs, HashMap::new());
+        let chunk_invs = mem::take(&mut self.chunk_invs);
         let result = StackerDBSyncResult {
             contract_id: self.smart_contract_id.clone(),
             chunk_invs,
             chunks_to_store: chunks,
-            stale: std::mem::replace(&mut self.stale_neighbors, HashSet::new()),
+            stale: mem::take(&mut self.stale_neighbors),
             num_connections: self.num_connections,
             num_attempted_connections: self.num_attempted_connections,
         };
 
         // keep all connected replicas, and replenish from config hints and the DB as needed
-        let connected_replicas = mem::replace(&mut self.connected_replicas, HashSet::new());
+        let connected_replicas = mem::take(&mut self.connected_replicas);
         let next_connected_replicas =
             if let Ok(new_replicas) = self.find_new_replicas(connected_replicas, network, config) {
                 new_replicas
@@ -736,7 +736,7 @@ impl<NC: NeighborComms> StackerDBSync<NC> {
             return Err(net_error::NoSuchNeighbor);
         }
 
-        let naddrs = mem::replace(&mut self.replicas, HashSet::new());
+        let naddrs = mem::take(&mut self.replicas);
         for naddr in naddrs.into_iter() {
             if self.comms.is_neighbor_connecting(network, &naddr) {
                 debug!(
@@ -906,7 +906,7 @@ impl<NC: NeighborComms> StackerDBSync<NC> {
     /// StackerDBGetChunksInv
     /// Always succeeds; does not block.
     pub fn getchunksinv_begin(&mut self, network: &mut PeerNetwork) {
-        let naddrs = mem::replace(&mut self.connected_replicas, HashSet::new());
+        let naddrs = mem::take(&mut self.connected_replicas);
         let mut already_sent = vec![];
         debug!(
             "{:?}: {}: getchunksinv_begin: Send StackerDBGetChunksInv to {} replicas",
