@@ -880,15 +880,6 @@ impl StacksChainState {
         StacksChainState::inner_load_block_header(&block_path)
     }
 
-    /// Closure for defaulting to an empty microblock stream if a microblock stream file is not found
-    fn empty_stream(e: Error) -> Result<Option<Vec<StacksMicroblock>>, Error> {
-        if matches!(e, Error::DBError(db_error::NotFoundError)) {
-            Ok(Some(vec![]))
-        } else {
-            Err(e)
-        }
-    }
-
     /// Load up a blob of data.
     /// Query should be structured to return rows of BLOBs
     fn load_block_data_blobs<P>(
@@ -955,20 +946,6 @@ impl StacksChainState {
             "staging_microblocks_data",
             block_hash,
         )
-    }
-
-    fn has_blocks_with_microblock_pubkh(
-        block_conn: &DBConn,
-        pubkey_hash: &Hash160,
-        minimum_block_height: i64,
-    ) -> bool {
-        let sql = "SELECT 1 FROM staging_blocks WHERE microblock_pubkey_hash = ?1 AND height >= ?2";
-        let args = params![pubkey_hash, minimum_block_height];
-        block_conn
-            .query_row(sql, args, |_r| Ok(()))
-            .optional()
-            .expect("DB CORRUPTION: block header DB corrupted!")
-            .is_some()
     }
 
     /// Load up a preprocessed (queued) but still unprocessed block.
@@ -2176,18 +2153,6 @@ impl StacksChainState {
         let qry = "SELECT consensus_hash FROM staging_blocks WHERE anchored_block_hash = ?1";
         let args = params![block_hash];
         query_rows(conn, qry, args).map_err(|e| e.into())
-    }
-
-    /// Determine if we have the block data for a given block-commit.
-    /// Used to see if we have the block data for an unaffirmed PoX anchor block
-    /// (hence the test_debug! macros referring to PoX anchor blocks)
-    fn has_stacks_block_for(chainstate_conn: &DBConn, block_commit: LeaderBlockCommitOp) -> bool {
-        !StacksChainState::get_known_consensus_hashes_for_block(
-            chainstate_conn,
-            &block_commit.block_header_hash,
-        )
-        .expect("FATAL: failed to query staging blocks DB")
-        .is_empty()
     }
 
     /// Delete a microblock's data from the DB

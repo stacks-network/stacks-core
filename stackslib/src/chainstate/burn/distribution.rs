@@ -19,7 +19,6 @@ use std::collections::HashMap;
 #[cfg(any(test, feature = "testing"))]
 use std::sync::LazyLock;
 
-use stacks_common::util::hash::Hash160;
 #[cfg(any(test, feature = "testing"))]
 use stacks_common::util::tests::TestFlag;
 use stacks_common::util::uint::{BitArray, Uint256, Uint512};
@@ -66,16 +65,7 @@ enum LinkedCommitIdentifier {
 
 #[derive(Debug, Clone)]
 struct LinkedCommitmentScore {
-    rel_block_height: u8,
     op: LinkedCommitIdentifier,
-}
-
-#[derive(Debug, PartialEq, Eq, Hash)]
-struct UserBurnIdentifier {
-    rel_block_height: u8,
-    key_vtxindex: u16,
-    key_block_ptr: u32,
-    block_hash: Hash160,
 }
 
 impl LinkedCommitIdentifier {
@@ -100,6 +90,8 @@ impl LinkedCommitIdentifier {
         }
     }
 
+    /// Transaction ID for diagnostic logging.
+    #[cfg(any(test, feature = "testing"))]
     fn txid(&self) -> &Txid {
         match self {
             LinkedCommitIdentifier::Missed(ref op) => &op.txid,
@@ -205,7 +197,6 @@ impl BurnSamplePoint {
             .map(|op| {
                 let mut linked_commits = vec![None; window_size as usize];
                 linked_commits[0] = Some(LinkedCommitmentScore {
-                        rel_block_height: window_size - 1,
                         op: LinkedCommitIdentifier::Valid(op),
                     });
                 linked_commits
@@ -265,10 +256,7 @@ impl BurnSamplePoint {
                 // if we found a referenced op, connect it
                 if let Some(referenced_op) = referenced_op {
                     linked_commit[(window_size - 1 - rel_block_height) as usize] =
-                        Some(LinkedCommitmentScore {
-                            op: referenced_op,
-                            rel_block_height,
-                        });
+                        Some(LinkedCommitmentScore { op: referenced_op });
                 }
             }
         }
