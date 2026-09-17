@@ -113,7 +113,7 @@ jobs:
             -p stacks-common \
             --each-feature \
             --no-dev-deps \
-            --include-features=wasm-deterministic,slog_json,testing \
+            --include-features=wasm-deterministic,slog_json \
             --features=wasm-deterministic \
             --target wasm32-unknown-unknown
 

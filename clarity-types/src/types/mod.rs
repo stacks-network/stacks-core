@@ -28,7 +28,7 @@ use stacks_common::address::{
 };
 use stacks_common::types::StacksEpochId;
 use stacks_common::types::chainstate::StacksAddress;
-#[cfg(all(any(test, feature = "testing"), not(feature = "wasm-deterministic")))]
+#[cfg(any(test, feature = "testing"))]
 use stacks_common::types::chainstate::StacksPrivateKey;
 pub use stacks_common::util::bounded_string::{
     BoundedErrorString, BoundedString, MAX_ERROR_MESSAGE_LEN,
@@ -157,9 +157,7 @@ impl fmt::Debug for StandardPrincipalData {
     }
 }
 
-// Needs `StacksPublicKey::from_private`, which the Wasm backend leaves out
-// under `wasm-deterministic`.
-#[cfg(all(any(test, feature = "testing"), not(feature = "wasm-deterministic")))]
+#[cfg(any(test, feature = "testing"))]
 impl From<&StacksPrivateKey> for StandardPrincipalData {
     fn from(o: &StacksPrivateKey) -> StandardPrincipalData {
         use stacks_common::address::{AddressHashMode, C32_ADDRESS_VERSION_TESTNET_SINGLESIG};
@@ -229,7 +227,7 @@ pub enum PrincipalData {
     Contract(QualifiedContractIdentifier),
 }
 
-#[cfg(all(any(test, feature = "testing"), not(feature = "wasm-deterministic")))]
+#[cfg(any(test, feature = "testing"))]
 impl From<&StacksPrivateKey> for PrincipalData {
     fn from(o: &StacksPrivateKey) -> PrincipalData {
         PrincipalData::Standard(StandardPrincipalData::from(o))
@@ -1556,7 +1554,7 @@ impl fmt::Display for Value {
     }
 }
 
-#[cfg(all(any(test, feature = "testing"), not(feature = "wasm-deterministic")))]
+#[cfg(any(test, feature = "testing"))]
 impl From<&StacksPrivateKey> for Value {
     fn from(o: &StacksPrivateKey) -> Value {
         Value::from(StandardPrincipalData::from(o))

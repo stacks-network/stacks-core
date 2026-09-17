@@ -1,1 +1,1 @@
-Fixed the deterministic WebAssembly CI check to actually compile for `wasm32-unknown-unknown` and to cover the `testing` feature, and made `clarity-types` and `stacks-common` build with `wasm-deterministic` and `testing` enabled together.
+Fixed the deterministic WebAssembly CI check to compile for `wasm32-unknown-unknown`, and resolved the unused import and argument warnings it surfaced.
