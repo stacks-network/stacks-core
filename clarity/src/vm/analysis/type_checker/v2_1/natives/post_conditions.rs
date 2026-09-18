@@ -84,7 +84,7 @@ pub fn check_restrict_assets(
         last_return = Some(type_return);
     }
 
-    let ok_type = last_return.ok_or_else(|| StaticCheckErrorKind::CheckerImplementationFailure)?;
+    let ok_type = last_return.ok_or(StaticCheckErrorKind::CheckerImplementationFailure)?;
 
     Ok(TypeSignature::new_response(
         ok_type,
@@ -139,7 +139,7 @@ pub fn check_as_contract(
         last_return = Some(type_return);
     }
 
-    let ok_type = last_return.ok_or_else(|| StaticCheckErrorKind::CheckerImplementationFailure)?;
+    let ok_type = last_return.ok_or(StaticCheckErrorKind::CheckerImplementationFailure)?;
     Ok(TypeSignature::new_response(
         ok_type,
         TypeSignature::UIntType,

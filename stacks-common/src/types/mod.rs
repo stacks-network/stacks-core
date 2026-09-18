@@ -821,6 +821,12 @@ impl StacksEpochId {
         self >= &StacksEpochId::Epoch41
     }
 
+    /// Gate for `clarity::vm::is_shadowable_reserved`. From Epoch 4.1 deploys
+    /// cannot pin a version, so the epoch is the single switch.
+    pub fn allows_shadowable_reserved_names(&self) -> bool {
+        self >= &StacksEpochId::Epoch41
+    }
+
     /// Does this epoch sum stacking entries in the assetmap or just replace
     ///  and error-on-replace?
     pub fn sums_stacking_assetmap(&self) -> bool {

@@ -852,8 +852,8 @@ fn test_classify_delegate_stx() {
     // Set up the data field for the delegate stx transactions
     let mut data = vec![1; 80];
     // Make it so that reward_addr_index = Some(1)
-    for i in 17..20 {
-        data[i] = 0;
+    for byte in data[..20].iter_mut().skip(17) {
+        *byte = 0;
     }
 
     // this one will not have a corresponding pre_stx tx.

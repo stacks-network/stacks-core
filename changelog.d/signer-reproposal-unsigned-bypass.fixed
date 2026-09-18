@@ -1,0 +1,1 @@
+Fixed signers signing re-proposed blocks from cached validation without pre-commit and conflict checks. Post-validation checks now exclude the block itself from the local signed-tip comparison and preserve rejection reasons so transient failures can be retried.

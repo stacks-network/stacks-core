@@ -291,8 +291,8 @@ mod tests {
     fn test_parse_delegate_stx_height_is_none() {
         let mut data = vec![1; 22];
         // Set the reward addr to be the 2nd output
-        for i in 17..=19 {
-            data[i] = 0;
+        for byte in data[..20].iter_mut().skip(17) {
+            *byte = 0;
         }
         // Set the 21th byte to none, which signifies that `until_burn_height` is None.
         data[21] = 0;
