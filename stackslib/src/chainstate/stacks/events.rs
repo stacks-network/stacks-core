@@ -1,6 +1,6 @@
 use clarity::vm::analysis::ContractAnalysis;
 use clarity::vm::costs::ExecutionCost;
-pub use clarity::vm::events::StacksTransactionEvent;
+pub use clarity::vm::events::{StacksTransactionEvent, VmTraceEvent};
 pub use clarity::vm::types::BoundedErrorString;
 use clarity::vm::types::{QualifiedContractIdentifier, Value};
 use libstackerdb::StackerDBChunkData;
@@ -66,6 +66,8 @@ pub struct StacksTransactionReceipt {
     /// NOT executed; only the precheck, fee debit, and nonce update were
     /// applied.
     pub problematic_skipped: Option<u8>,
+    /// Opt-in storage / nested-call trace. Isolated from `events`.
+    pub vm_events: Vec<VmTraceEvent>,
 }
 
 #[derive(Clone)]
@@ -86,6 +88,15 @@ impl StacksTransactionReceipt {
         }
         out = out.saturating_add(self.result.size().ok()?.into());
         Some(out)
+    }
+
+    pub fn with_vm_events(mut self, vm_events: Vec<VmTraceEvent>) -> Self {
+        if self.post_condition_aborted || self.problematic_skipped.is_some() {
+            self.vm_events = vec![];
+        } else {
+            self.vm_events = vm_events;
+        }
+        self
     }
 }
 

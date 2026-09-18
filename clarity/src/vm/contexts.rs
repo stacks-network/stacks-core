@@ -190,11 +190,15 @@ pub struct ExecutionState<'a, 'b, 'hooks> {
 pub struct OwnedEnvironment<'a, 'hooks> {
     pub(crate) context: GlobalContext<'a, 'hooks>,
     call_stack: CallStack,
+    /// Last committed VM trace. Empty unless `emit_vm_trace`.
+    last_vm_events: Vec<VmTraceEvent>,
 }
 
 #[derive(Debug, Clone, Default)]
 pub struct EventBatch {
     pub events: Vec<StacksTransactionEvent>,
+    /// Opt-in storage / nested-call trace. Isolated from `events`.
+    pub vm_events: Vec<VmTraceEvent>,
 }
 
 /** GlobalContext represents the outermost context for a single transaction's
@@ -218,6 +222,9 @@ pub struct GlobalContext<'a, 'hooks> {
     /// A resource limiter that will be polled on every `eval` to check that execution
     /// time and heap allocation don't exceed configured maximums
     pub execution_resource_limiter: ResourceLimiter,
+    /// Collect into `EventBatch.vm_events`. Default off. No additional
+    /// consensus-metered cost; no classic batch cap.
+    pub emit_vm_trace: bool,
 }
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -288,6 +295,7 @@ impl<'a, 'hooks> OwnedEnvironment<'a, 'hooks> {
                 epoch,
             ),
             call_stack: CallStack::new(),
+            last_vm_events: Vec::new(),
         }
     }
 
@@ -308,6 +316,7 @@ impl<'a, 'hooks> OwnedEnvironment<'a, 'hooks> {
                 epoch,
             ),
             call_stack: CallStack::new(),
+            last_vm_events: Vec::new(),
         }
     }
 
@@ -325,6 +334,7 @@ impl<'a, 'hooks> OwnedEnvironment<'a, 'hooks> {
         OwnedEnvironment {
             context: GlobalContext::new(use_mainnet, chain_id, database, cost_track, epoch),
             call_stack: CallStack::new(),
+            last_vm_events: Vec::new(),
         }
     }
 
@@ -343,6 +353,7 @@ impl<'a, 'hooks> OwnedEnvironment<'a, 'hooks> {
                 epoch_id,
             ),
             call_stack: CallStack::new(),
+            last_vm_events: Vec::new(),
         }
     }
 
@@ -356,6 +367,7 @@ impl<'a, 'hooks> OwnedEnvironment<'a, 'hooks> {
         OwnedEnvironment {
             context: GlobalContext::new(mainnet, chain_id, database, cost_tracker, epoch_id),
             call_stack: CallStack::new(),
+            last_vm_events: Vec::new(),
         }
     }
 
@@ -372,6 +384,18 @@ impl<'a, 'hooks> OwnedEnvironment<'a, 'hooks> {
     pub fn set_execution_resource_limiter(&mut self, resource_limiter: ResourceLimiter) {
         self.context
             .set_execution_resource_limiter(resource_limiter);
+    }
+
+    pub fn set_emit_vm_trace(&mut self, on: bool) {
+        self.context.emit_vm_trace = on;
+    }
+
+    pub fn vm_trace_events(&self) -> &[VmTraceEvent] {
+        &self.last_vm_events
+    }
+
+    pub fn take_vm_trace_events(&mut self) -> Vec<VmTraceEvent> {
+        std::mem::take(&mut self.last_vm_events)
     }
 
     pub fn get_exec_environment<'b>(
@@ -431,9 +455,11 @@ impl<'a, 'hooks> OwnedEnvironment<'a, 'hooks> {
         match result {
             Ok(return_value) => {
                 let (asset_map, event_batch) = self.commit()?;
+                self.last_vm_events = event_batch.vm_events;
                 Ok((return_value, asset_map, event_batch.events))
             }
             Err(e) => {
+                self.last_vm_events.clear();
                 self.context.roll_back()?;
                 Err(e)
             }
@@ -1302,6 +1328,16 @@ impl<'a, 'b, 'hooks> ExecutionState<'a, 'b, 'hooks> {
         self.push_to_event_batch(event)?;
         Ok(())
     }
+
+    pub fn vm_trace_collecting(&self) -> bool {
+        self.global_context.emit_vm_trace
+    }
+
+    pub fn push_vm_trace(&mut self, event: VmTraceEvent) {
+        if let Some((batch, _)) = self.global_context.event_batches.last_mut() {
+            batch.vm_events.push(event);
+        }
+    }
 }
 
 impl ExecutionState<'_, '_, '_> {
@@ -1398,6 +1434,7 @@ impl<'a, 'hooks> GlobalContext<'a, 'hooks> {
             chain_id,
             eval_hooks: None,
             execution_resource_limiter: ResourceLimiter::unlimited(),
+            emit_vm_trace: false,
         }
     }
 
@@ -1616,6 +1653,7 @@ impl<'a, 'hooks> GlobalContext<'a, 'hooks> {
         let out_batch = match self.event_batches.last_mut() {
             Some((tail_back, total_size)) => {
                 tail_back.events.append(&mut event_batch.events);
+                tail_back.vm_events.append(&mut event_batch.vm_events);
                 *total_size = new_total_size;
                 None
             }
@@ -1631,13 +1669,20 @@ impl<'a, 'hooks> GlobalContext<'a, 'hooks> {
         if popped.is_none() {
             return Err(VmInternalError::Expect("Expected entry to rollback".into()).into());
         }
-        let popped = self.read_only.pop();
-        if popped.is_none() {
-            return Err(VmInternalError::Expect("Expected entry to rollback".into()).into());
-        }
-        let popped = self.event_batches.pop();
-        if popped.is_none() {
-            return Err(VmInternalError::Expect("Expected entry to rollback".into()).into());
+        let was_read_only = self
+            .read_only
+            .pop()
+            .ok_or_else(|| VmInternalError::Expect("Expected entry to rollback".into()))?;
+        let (mut batch, _) = self
+            .event_batches
+            .pop()
+            .ok_or_else(|| VmInternalError::Expect("Expected entry to rollback".into()))?;
+        // Read-only callees always roll back, including successful nested
+        // `contract-call?` traces recorded on their batch. Promote those
+        // traces (not classic events) so A → read-only B → read-only C
+        // still reports C then B.
+        if was_read_only && let Some((parent, _)) = self.event_batches.last_mut() {
+            parent.vm_events.append(&mut batch.vm_events);
         }
 
         self.database.roll_back()

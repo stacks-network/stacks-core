@@ -4097,8 +4097,8 @@ impl StacksChainState {
                     }
                 }
             }
-            let result = clarity_tx.connection().as_transaction(|tx| {
-                tx.run_contract_call(
+            let (result, vm_events) = clarity_tx.connection().as_transaction(|tx| {
+                let result = tx.run_contract_call(
                     &sender.clone().into(),
                     None,
                     &boot_code_id(active_pox_contract, mainnet),
@@ -4106,7 +4106,9 @@ impl StacksChainState {
                     &args,
                     |_, _| None,
                     &ResourceBudget::unlimited(),
-                )
+                );
+                let vm_events = tx.take_vm_trace_events();
+                (result, vm_events)
             });
             match result {
                 Ok((value, _, events)) => {
@@ -4144,6 +4146,7 @@ impl StacksChainState {
                             microblock_header: None,
                             tx_index: 0,
                             vm_error: None,
+                            vm_events,
                             problematic_skipped: None,
                         };
 
@@ -4241,6 +4244,7 @@ impl StacksChainState {
                                     microblock_header: None,
                                     tx_index: 0,
                                     vm_error: None,
+                                    vm_events: vec![],
                                     problematic_skipped: None,
                                 })
                             }
@@ -4303,8 +4307,8 @@ impl StacksChainState {
             } else {
                 Value::none()
             };
-            let result = clarity_tx.connection().as_transaction(|tx| {
-                tx.run_contract_call(
+            let (result, vm_events) = clarity_tx.connection().as_transaction(|tx| {
+                let result = tx.run_contract_call(
                     &sender.clone().into(),
                     None,
                     &boot_code_id(active_pox_contract, mainnet),
@@ -4317,7 +4321,9 @@ impl StacksChainState {
                     ],
                     |_, _| None,
                     &ResourceBudget::unlimited(),
-                )
+                );
+                let vm_events = tx.take_vm_trace_events();
+                (result, vm_events)
             });
             match result {
                 Ok((value, _, events)) => {
@@ -4359,6 +4365,7 @@ impl StacksChainState {
                             microblock_header: None,
                             tx_index: 0,
                             vm_error: None,
+                            vm_events,
                             problematic_skipped: None,
                         };
 
@@ -4411,8 +4418,8 @@ impl StacksChainState {
                 "aggregate_key" => aggregate_key.to_hex(),
                 "txid" => %txid
             );
-            let result = clarity_tx.connection().as_transaction(|tx| {
-                tx.run_contract_call(
+            let (result, vm_events) = clarity_tx.connection().as_transaction(|tx| {
+                let result = tx.run_contract_call(
                     &sender.clone().into(),
                     None,
                     &boot_code_id(SIGNERS_VOTING_NAME, mainnet),
@@ -4425,7 +4432,9 @@ impl StacksChainState {
                     ],
                     |_, _| None,
                     &ResourceBudget::unlimited(),
-                )
+                );
+                let vm_events = tx.take_vm_trace_events();
+                (result, vm_events)
             });
             match result {
                 Ok((value, _, events)) => {
@@ -4469,6 +4478,7 @@ impl StacksChainState {
                             microblock_header: None,
                             tx_index: 0,
                             vm_error: None,
+                            vm_events,
                             problematic_skipped: None,
                         };
 

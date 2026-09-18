@@ -437,11 +437,12 @@ pub trait TransactionConnection: ClarityConnection {
     /// * the generic term `R`
     /// * the asset changes during `to_do` in an `AssetMap`
     /// * the Stacks events during the transaction
-    ///
-    /// and an optional string value which is the result of `abort_call_back`,
-    /// containing a human-readable reason for aborting the transaction.
+    /// * an optional string value which is the result of `abort_call_back`,
+    ///   containing a human-readable reason for aborting the transaction
     ///
     /// If `to_do` returns an `Err` variant, then the changes are aborted.
+    /// VM trace events (when `emit_vm_trace` is on) are stashed on the connection
+    /// and taken with `take_vm_trace_events`.
     fn with_abort_callback<'hooks, F, A, R, E>(
         &'hooks mut self,
         to_do: F,
@@ -461,6 +462,10 @@ pub trait TransactionConnection: ClarityConnection {
             &mut OwnedEnvironment<'_, 'hooks>,
         ) -> Result<(R, AssetMap, Vec<StacksTransactionEvent>), E>,
         E: From<VmExecutionError>;
+
+    fn take_vm_trace_events(&mut self) -> Vec<crate::vm::events::VmTraceEvent> {
+        vec![]
+    }
 
     /// Do something with the analysis database and cost tracker
     ///  instance of this transaction connection. This is a low-level

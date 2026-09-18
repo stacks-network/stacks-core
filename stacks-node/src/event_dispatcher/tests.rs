@@ -16,13 +16,16 @@
 
 use std::net::TcpListener;
 use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::mpsc::channel;
 use std::thread;
-use std::time::{Instant, SystemTime};
+use std::time::{Duration, Instant, SystemTime};
 
 use clarity::boot_util::boot_code_id;
 use clarity::vm::costs::ExecutionCost;
-use clarity::vm::events::SmartContractEventData;
-use clarity::vm::types::StacksAddressExtensions;
+use clarity::vm::events::{
+    ContractCallEventData, SmartContractEventData, StorageEvent, VarSetEventData, VmTraceEvent,
+};
+use clarity::vm::types::{PrincipalData, StacksAddressExtensions};
 use clarity::vm::{ClarityName, ContractName, Value};
 use rusqlite::Connection;
 use serial_test::serial;
@@ -31,7 +34,9 @@ use stacks::burnchains::{PoxConstants, Txid};
 use stacks::chainstate::burn::operations::{BlockstackOperationType, PreStxOp};
 use stacks::chainstate::nakamoto::{NakamotoBlock, NakamotoBlockHeader};
 use stacks::chainstate::stacks::db::{StacksBlockHeaderTypes, StacksHeaderInfo};
-use stacks::chainstate::stacks::events::{StacksBlockEventData, TransactionOrigin};
+use stacks::chainstate::stacks::events::{
+    StacksBlockEventData, StacksTransactionReceipt, TransactionOrigin,
+};
 use stacks::chainstate::stacks::{
     SinglesigHashMode, SinglesigSpendingCondition, StacksBlock, StacksTransactionSigner,
     TenureChangeCause, TenureChangePayload, TokenTransferMemo, TransactionAnchorMode,
@@ -109,6 +114,7 @@ fn test_post_condition_aborted_transaction_does_not_emit_events() {
         microblock_header: None,
         tx_index: 0,
         vm_error: None,
+        vm_events: vec![],
         problematic_skipped: None,
     };
 
@@ -200,6 +206,10 @@ fn build_block_processed_event() {
         block_timestamp,
         coinbase_height,
         true,
+    );
+    assert!(
+        payload.get("vm_events").is_none(),
+        "`*` / default payload must not grow a vm_events field"
     );
     assert_eq!(
         payload
@@ -973,6 +983,7 @@ fn make_new_block_txs_payload_vm_error() {
         },
         microblock_header: None,
         vm_error: None,
+        vm_events: vec![],
         problematic_skipped: None,
         stx_burned: 0u128,
         tx_index: 0,
@@ -1023,6 +1034,7 @@ fn make_new_block_txs_payload_contract_interface_toggle() {
         execution_cost: ExecutionCost::ZERO,
         microblock_header: None,
         vm_error: None,
+        vm_events: vec![],
         problematic_skipped: None,
         stx_burned: 0u128,
         tx_index: 0,
@@ -1101,6 +1113,7 @@ fn backwards_compatibility_transaction_event_payload() {
         microblock_header: None,
         tx_index: 1,
         vm_error: None,
+        vm_events: vec![],
         problematic_skipped: None,
     };
     let payload = make_new_block_txs_payload(&receipt, 0, true);
@@ -1429,4 +1442,350 @@ fn test_http_delivery_always_blocks_if_queue_size_is_zero() {
     assert!(end_count.load(Ordering::SeqCst) == 1);
 
     mock.assert();
+}
+
+fn dummy_observer(endpoint: String, keys: Vec<EventKeyType>) -> EventObserverConfig {
+    EventObserverConfig {
+        endpoint,
+        events_keys: keys,
+        timeout_ms: 1000,
+        disable_retries: true,
+        disable_contract_interface: false,
+    }
+}
+
+#[test]
+fn vm_events_opt_in_not_included_in_star() {
+    let dir = tempdir().unwrap();
+    let mut dispatcher = EventDispatcher::new(dir.path().to_path_buf());
+
+    dispatcher.register_observer(&dummy_observer(
+        "star-observer".into(),
+        vec![EventKeyType::AnyEvent],
+    ));
+    assert!(
+        !dispatcher.emit_vm_trace(),
+        "`*` must not enable VM trace collection"
+    );
+    assert!(!dispatcher.observer_wants_vm_events(0));
+
+    dispatcher.register_observer(&dummy_observer(
+        "storage-observer".into(),
+        vec![EventKeyType::StorageEvent],
+    ));
+    assert!(dispatcher.emit_vm_trace());
+    assert!(
+        !dispatcher.observer_wants_vm_events(0),
+        "`*` observer must not receive vm_events"
+    );
+    assert!(dispatcher.observer_wants_vm_events(1));
+
+    dispatcher.register_observer(&dummy_observer(
+        "calls-observer".into(),
+        vec![EventKeyType::ContractCallEvent],
+    ));
+    assert!(!dispatcher.observer_wants_vm_events(0));
+    assert!(dispatcher.observer_wants_vm_events(2));
+}
+
+#[test]
+fn process_chain_tip_vm_events_only_on_opt_in_observer() {
+    let (star_json, vm_json) = dispatch_chain_tip_to_star_and_vm(&[]);
+    assert!(
+        star_json.get("vm_events").is_none(),
+        "`*` /new_block must not include vm_events"
+    );
+    assert_eq!(
+        vm_json.get("vm_events").expect("vm_events field"),
+        &serde_json::json!([])
+    );
+}
+
+fn dummy_var_set_event() -> VmTraceEvent {
+    VmTraceEvent::Storage(StorageEvent::VarSet(
+        VarSetEventData::try_from_value(boot_code_id("dummy", false), "n".into(), &Value::UInt(7))
+            .unwrap(),
+    ))
+}
+
+fn dummy_nested_call_event() -> VmTraceEvent {
+    let id = boot_code_id("dummy", false);
+    VmTraceEvent::ContractCall(
+        ContractCallEventData::try_from_values(
+            id.clone(),
+            None,
+            PrincipalData::Contract(id),
+            "f".into(),
+            &[] as &[Value],
+            &Value::okay_true(),
+        )
+        .unwrap(),
+    )
+}
+
+fn dummy_cc_receipt(
+    vm_events: Vec<VmTraceEvent>,
+    post_condition_aborted: bool,
+) -> StacksTransactionReceipt {
+    let private_key = StacksPrivateKey::from_seed("vm-events-receipt".as_bytes());
+    let addr = to_addr(&private_key);
+    let payload = TransactionContractCall {
+        address: addr.clone(),
+        contract_name: ContractName::from_literal("c"),
+        function_name: ClarityName::from_literal("f"),
+        function_args: vec![],
+    };
+    let mut unsigned_tx = make_unsigned_tx(
+        TransactionPayload::ContractCall(payload),
+        &private_key,
+        None,
+        1,
+        None,
+        1000,
+        CHAIN_ID_TESTNET,
+        TransactionAnchorMode::Any,
+        TransactionVersion::Testnet,
+    );
+    unsigned_tx.post_condition_mode = TransactionPostConditionMode::Allow;
+    let mut tx_signer = StacksTransactionSigner::new(&unsigned_tx);
+    tx_signer.sign_origin(&private_key).unwrap();
+    let tx = tx_signer.get_tx().unwrap();
+    StacksTransactionReceipt {
+        transaction: TransactionOrigin::Stacks(tx),
+        events: vec![],
+        post_condition_aborted,
+        result: Value::okay_true(),
+        stx_burned: 0,
+        contract_analysis: None,
+        execution_cost: ExecutionCost::ZERO,
+        microblock_header: None,
+        tx_index: 0,
+        vm_error: None,
+        vm_events,
+        problematic_skipped: None,
+    }
+}
+
+fn dispatch_chain_tip_to_star_and_vm(
+    receipts: &[StacksTransactionReceipt],
+) -> (serde_json::Value, serde_json::Value) {
+    let dir = tempdir().unwrap();
+    let star_port = get_random_port();
+    let vm_port = get_random_port();
+    let (star_tx, star_rx) = channel();
+    let (vm_tx, vm_rx) = channel();
+
+    let star_server = Server::http(format!("127.0.0.1:{star_port}")).unwrap();
+    thread::spawn(move || {
+        let mut request = star_server.recv().unwrap();
+        let mut body = String::new();
+        request.as_reader().read_to_string(&mut body).unwrap();
+        request.respond(Response::from_string("ok")).unwrap();
+        star_tx.send(body).unwrap();
+    });
+    let vm_server = Server::http(format!("127.0.0.1:{vm_port}")).unwrap();
+    thread::spawn(move || {
+        let mut request = vm_server.recv().unwrap();
+        let mut body = String::new();
+        request.as_reader().read_to_string(&mut body).unwrap();
+        request.respond(Response::from_string("ok")).unwrap();
+        vm_tx.send(body).unwrap();
+    });
+
+    let mut dispatcher = EventDispatcher::new_with_custom_queue_size(dir.path().to_path_buf(), 0);
+    dispatcher.register_observer(&dummy_observer(
+        format!("127.0.0.1:{star_port}"),
+        vec![EventKeyType::AnyEvent],
+    ));
+    dispatcher.register_observer(&dummy_observer(
+        format!("127.0.0.1:{vm_port}"),
+        vec![EventKeyType::StorageEvent, EventKeyType::ContractCallEvent],
+    ));
+
+    let block = StacksBlock::genesis_block();
+    let metadata = StacksHeaderInfo::regtest_genesis();
+    dispatcher.process_chain_tip(
+        &block.into(),
+        &metadata,
+        receipts,
+        &StacksBlockId([0; 32]),
+        &Txid([0; 32]),
+        &[],
+        None,
+        &BurnchainHeaderHash([0; 32]),
+        0,
+        0,
+        &ExecutionCost::ZERO,
+        &ExecutionCost::ZERO,
+        &PoxConstants::testnet_default(),
+        &None,
+        &Some(BitVec::zeros(2).expect("bitvec")),
+        Some(123456),
+        1,
+    );
+    dispatcher.catch_up();
+
+    let star_body = star_rx
+        .recv_timeout(Duration::from_secs(10))
+        .expect("star observer /new_block");
+    let vm_body = vm_rx
+        .recv_timeout(Duration::from_secs(10))
+        .expect("vm observer /new_block");
+    (
+        serde_json::from_str(&star_body).unwrap(),
+        serde_json::from_str(&vm_body).unwrap(),
+    )
+}
+
+#[test]
+fn process_chain_tip_serializes_vm_events_for_opt_in_only() {
+    let receipt = dummy_cc_receipt(vec![dummy_var_set_event()], false);
+    let (star_json, vm_json) = dispatch_chain_tip_to_star_and_vm(&[receipt]);
+
+    assert!(
+        star_json.get("vm_events").is_none(),
+        "`*` /new_block must not include vm_events"
+    );
+    let vm_events = vm_json.get("vm_events").expect("vm_events field");
+    assert_eq!(vm_events.as_array().unwrap().len(), 1);
+    assert_eq!(vm_events[0]["type"], "var_set_event");
+    assert_eq!(vm_events[0]["vm_event_index"], 0);
+    assert!(vm_events[0].get("event_index").is_none());
+    assert_eq!(vm_events[0]["var_set_event"]["var_name"], "n");
+}
+
+#[test]
+fn process_chain_tip_skips_vm_events_on_aborted_receipt() {
+    let receipt = dummy_cc_receipt(vec![dummy_var_set_event()], true);
+    let (_star_json, vm_json) = dispatch_chain_tip_to_star_and_vm(&[receipt]);
+    assert_eq!(
+        vm_json.get("vm_events").expect("vm_events field"),
+        &serde_json::json!([])
+    );
+}
+
+#[test]
+fn serialize_block_vm_events_dense_index_across_receipts() {
+    let a = dummy_cc_receipt(vec![dummy_var_set_event()], false);
+    let b = dummy_cc_receipt(vec![dummy_var_set_event(), dummy_var_set_event()], false);
+    let json = super::serialize_block_vm_events(&[a, b], true, true);
+    let arr = json.as_array().unwrap();
+    assert_eq!(arr.len(), 3);
+    assert_eq!(arr[0]["vm_event_index"], 0);
+    assert_eq!(arr[1]["vm_event_index"], 1);
+    assert_eq!(arr[2]["vm_event_index"], 2);
+}
+
+#[test]
+fn serialize_block_vm_events_filters_by_key() {
+    let receipt = dummy_cc_receipt(
+        vec![
+            dummy_var_set_event(),
+            dummy_nested_call_event(),
+            dummy_var_set_event(),
+        ],
+        false,
+    );
+    let storage = super::serialize_block_vm_events(&[receipt.clone()], true, false);
+    let storage_arr = storage.as_array().unwrap();
+    assert_eq!(storage_arr.len(), 2);
+    assert_eq!(storage_arr[0]["type"], "var_set_event");
+    assert_eq!(storage_arr[0]["vm_event_index"], 0);
+    assert_eq!(storage_arr[1]["type"], "var_set_event");
+    assert_eq!(storage_arr[1]["vm_event_index"], 2);
+
+    let calls = super::serialize_block_vm_events(&[receipt.clone()], false, true);
+    let calls_arr = calls.as_array().unwrap();
+    assert_eq!(calls_arr.len(), 1);
+    assert_eq!(calls_arr[0]["type"], "contract_call_event");
+    assert_eq!(calls_arr[0]["vm_event_index"], 1);
+
+    let both = super::serialize_block_vm_events(&[receipt], true, true);
+    assert_eq!(both.as_array().unwrap().len(), 3);
+}
+
+#[test]
+fn process_chain_tip_filters_vm_events_by_key() {
+    let dir = tempdir().unwrap();
+    let storage_port = get_random_port();
+    let calls_port = get_random_port();
+    let (storage_tx, storage_rx) = channel();
+    let (calls_tx, calls_rx) = channel();
+
+    let storage_server = Server::http(format!("127.0.0.1:{storage_port}")).unwrap();
+    thread::spawn(move || {
+        let mut request = storage_server.recv().unwrap();
+        let mut body = String::new();
+        request.as_reader().read_to_string(&mut body).unwrap();
+        request.respond(Response::from_string("ok")).unwrap();
+        storage_tx.send(body).unwrap();
+    });
+    let calls_server = Server::http(format!("127.0.0.1:{calls_port}")).unwrap();
+    thread::spawn(move || {
+        let mut request = calls_server.recv().unwrap();
+        let mut body = String::new();
+        request.as_reader().read_to_string(&mut body).unwrap();
+        request.respond(Response::from_string("ok")).unwrap();
+        calls_tx.send(body).unwrap();
+    });
+
+    let mut dispatcher = EventDispatcher::new_with_custom_queue_size(dir.path().to_path_buf(), 0);
+    dispatcher.register_observer(&dummy_observer(
+        format!("127.0.0.1:{storage_port}"),
+        vec![EventKeyType::StorageEvent],
+    ));
+    dispatcher.register_observer(&dummy_observer(
+        format!("127.0.0.1:{calls_port}"),
+        vec![EventKeyType::ContractCallEvent],
+    ));
+
+    let receipt = dummy_cc_receipt(
+        vec![dummy_var_set_event(), dummy_nested_call_event()],
+        false,
+    );
+    let block = StacksBlock::genesis_block();
+    let metadata = StacksHeaderInfo::regtest_genesis();
+    dispatcher.process_chain_tip(
+        &block.into(),
+        &metadata,
+        &[receipt],
+        &StacksBlockId([0; 32]),
+        &Txid([0; 32]),
+        &[],
+        None,
+        &BurnchainHeaderHash([0; 32]),
+        0,
+        0,
+        &ExecutionCost::ZERO,
+        &ExecutionCost::ZERO,
+        &PoxConstants::testnet_default(),
+        &None,
+        &Some(BitVec::zeros(2).expect("bitvec")),
+        Some(123456),
+        1,
+    );
+    dispatcher.catch_up();
+
+    let storage_json: serde_json::Value = serde_json::from_str(
+        &storage_rx
+            .recv_timeout(Duration::from_secs(10))
+            .expect("storage observer"),
+    )
+    .unwrap();
+    let calls_json: serde_json::Value = serde_json::from_str(
+        &calls_rx
+            .recv_timeout(Duration::from_secs(10))
+            .expect("calls observer"),
+    )
+    .unwrap();
+
+    let storage_events = storage_json.get("vm_events").unwrap().as_array().unwrap();
+    assert_eq!(storage_events.len(), 1);
+    assert_eq!(storage_events[0]["type"], "var_set_event");
+    assert_eq!(storage_events[0]["vm_event_index"], 0);
+
+    let call_events = calls_json.get("vm_events").unwrap().as_array().unwrap();
+    assert_eq!(call_events.len(), 1);
+    assert_eq!(call_events[0]["type"], "contract_call_event");
+    assert_eq!(call_events[0]["vm_event_index"], 1);
 }

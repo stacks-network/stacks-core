@@ -29,6 +29,10 @@ use crate::vm::errors::{
     RuntimeCheckErrorKind, RuntimeError, VmExecutionError, VmInternalError, check_argument_count,
     check_arguments_at_least,
 };
+use crate::vm::events::{
+    ContractCallEventData, MapDeleteEventData, MapWriteEventData, StorageEvent, VarSetEventData,
+    VmTraceEvent,
+};
 use crate::vm::representations::{SymbolicExpression, SymbolicExpressionType};
 use crate::vm::types::{
     BlockInfoProperty, BuffData, BurnBlockInfoProperty, PrincipalData, SequenceData,
@@ -261,6 +265,20 @@ pub fn special_contract_call(
         }
     }
 
+    // After return. Encode already-eval'd `rest_args`; do not clone Values.
+    if exec_state.vm_trace_collecting()
+        && let Ok(data) = ContractCallEventData::try_from_values(
+            contract_identifier,
+            invoke_ctx.sender.clone(),
+            PrincipalData::Contract(invoke_ctx.contract_context.contract_identifier.clone()),
+            function_name.to_string(),
+            rest_args.iter().filter_map(|expr| expr.match_atom_value()),
+            &result,
+        )
+    {
+        exec_state.push_vm_trace(VmTraceEvent::ContractCall(data));
+    }
+
     Ok(result)
 }
 
@@ -379,11 +397,19 @@ pub fn special_set_variable_v200(
 
     let value = value.clone_with_cost(exec_state)?;
     let epoch = *exec_state.epoch();
-    exec_state
+    let encoded = if exec_state.vm_trace_collecting() {
+        VarSetEventData::try_from_value(contract.clone(), var_name.to_string(), &value).ok()
+    } else {
+        None
+    };
+    let result = exec_state
         .global_context
         .database
-        .set_variable(contract, var_name, value, data_types, &epoch)
-        .map(|data| data.value)
+        .set_variable(contract, var_name, value, data_types, &epoch)?;
+    if let Some(data) = encoded {
+        exec_state.push_vm_trace(VmTraceEvent::Storage(StorageEvent::VarSet(data)));
+    }
+    Ok(result.value)
 }
 
 /// The Stacks v205 version of set_variable uses the actual stored size of the
@@ -420,6 +446,11 @@ pub fn special_set_variable_v205(
 
     let value = value.clone_with_cost(exec_state)?;
     let epoch = *exec_state.epoch();
+    let encoded = if exec_state.vm_trace_collecting() {
+        VarSetEventData::try_from_value(contract.clone(), var_name.to_string(), &value).ok()
+    } else {
+        None
+    };
     let result = exec_state
         .global_context
         .database
@@ -434,7 +465,11 @@ pub fn special_set_variable_v205(
 
     exec_state.add_memory(result_size)?;
 
-    result.map(|data| data.value)
+    let result = result?;
+    if let Some(data) = encoded {
+        exec_state.push_vm_trace(VmTraceEvent::Storage(StorageEvent::VarSet(data)));
+    }
+    Ok(result.value)
 }
 
 pub fn special_fetch_entry_v200(
@@ -605,11 +640,20 @@ pub fn special_set_entry_v200(
     let key = key.clone_with_cost(exec_state)?;
     let value = value.clone_with_cost(exec_state)?;
     let epoch = *exec_state.epoch();
-    exec_state
+    let encoded = if exec_state.vm_trace_collecting() {
+        MapWriteEventData::try_from_values(contract.clone(), map_name.to_string(), &key, &value)
+            .ok()
+    } else {
+        None
+    };
+    let result = exec_state
         .global_context
         .database
-        .set_entry(contract, map_name, key, value, data_types, &epoch)
-        .map(|data| data.value)
+        .set_entry(contract, map_name, key, value, data_types, &epoch)?;
+    if let Some(data) = encoded {
+        exec_state.push_vm_trace(VmTraceEvent::Storage(StorageEvent::MapSet(data)));
+    }
+    Ok(result.value)
 }
 
 /// The Stacks v205 version of set_entry uses the actual stored size of the
@@ -649,6 +693,12 @@ pub fn special_set_entry_v205(
     let key = key.clone_with_cost(exec_state)?;
     let value = value.clone_with_cost(exec_state)?;
     let epoch = *exec_state.epoch();
+    let encoded = if exec_state.vm_trace_collecting() {
+        MapWriteEventData::try_from_values(contract.clone(), map_name.to_string(), &key, &value)
+            .ok()
+    } else {
+        None
+    };
     let result = exec_state
         .global_context
         .database
@@ -663,7 +713,11 @@ pub fn special_set_entry_v205(
 
     exec_state.add_memory(result_size)?;
 
-    result.map(|data| data.value)
+    let result = result?;
+    if let Some(data) = encoded {
+        exec_state.push_vm_trace(VmTraceEvent::Storage(StorageEvent::MapSet(data)));
+    }
+    Ok(result.value)
 }
 
 pub fn special_insert_entry_v200(
@@ -711,11 +765,22 @@ pub fn special_insert_entry_v200(
 
     let key = key.clone_with_cost(exec_state)?;
     let value = value.clone_with_cost(exec_state)?;
-    exec_state
+    let encoded = if exec_state.vm_trace_collecting() {
+        MapWriteEventData::try_from_values(contract.clone(), map_name.to_string(), &key, &value)
+            .ok()
+    } else {
+        None
+    };
+    let result = exec_state
         .global_context
         .database
-        .insert_entry(contract, map_name, key, value, data_types, &epoch)
-        .map(|data| data.value)
+        .insert_entry(contract, map_name, key, value, data_types, &epoch)?;
+    if result.value == Value::Bool(true)
+        && let Some(data) = encoded
+    {
+        exec_state.push_vm_trace(VmTraceEvent::Storage(StorageEvent::MapInsert(data)));
+    }
+    Ok(result.value)
 }
 
 /// The Stacks v205 version of insert_entry uses the actual stored size of the
@@ -755,6 +820,12 @@ pub fn special_insert_entry_v205(
     let key = key.clone_with_cost(exec_state)?;
     let value = value.clone_with_cost(exec_state)?;
     let epoch = *exec_state.epoch();
+    let encoded = if exec_state.vm_trace_collecting() {
+        MapWriteEventData::try_from_values(contract.clone(), map_name.to_string(), &key, &value)
+            .ok()
+    } else {
+        None
+    };
     let result = exec_state
         .global_context
         .database
@@ -769,7 +840,13 @@ pub fn special_insert_entry_v205(
 
     exec_state.add_memory(result_size)?;
 
-    result.map(|data| data.value)
+    let result = result?;
+    if result.value == Value::Bool(true)
+        && let Some(data) = encoded
+    {
+        exec_state.push_vm_trace(VmTraceEvent::Storage(StorageEvent::MapInsert(data)));
+    }
+    Ok(result.value)
 }
 
 pub fn special_delete_entry_v200(
@@ -811,11 +888,25 @@ pub fn special_delete_entry_v200(
     exec_state.add_memory(key.as_ref().get_memory_use()?)?;
 
     let epoch = *exec_state.epoch();
-    exec_state
-        .global_context
-        .database
-        .delete_entry(contract, map_name, key.as_ref(), data_types, &epoch)
-        .map(|data| data.value)
+    let encoded = if exec_state.vm_trace_collecting() {
+        MapDeleteEventData::try_from_value(contract.clone(), map_name.to_string(), key.as_ref())
+            .ok()
+    } else {
+        None
+    };
+    let result = exec_state.global_context.database.delete_entry(
+        contract,
+        map_name,
+        key.as_ref(),
+        data_types,
+        &epoch,
+    )?;
+    if result.value == Value::Bool(true)
+        && let Some(data) = encoded
+    {
+        exec_state.push_vm_trace(VmTraceEvent::Storage(StorageEvent::MapDelete(data)));
+    }
+    Ok(result.value)
 }
 
 /// The Stacks v205 version of delete_entry uses the actual stored size of the
@@ -851,6 +942,12 @@ pub fn special_delete_entry_v205(
         )))?;
 
     let epoch = *exec_state.epoch();
+    let encoded = if exec_state.vm_trace_collecting() {
+        MapDeleteEventData::try_from_value(contract.clone(), map_name.to_string(), key.as_ref())
+            .ok()
+    } else {
+        None
+    };
     let result = exec_state.global_context.database.delete_entry(
         contract,
         map_name,
@@ -868,7 +965,13 @@ pub fn special_delete_entry_v205(
 
     exec_state.add_memory(result_size)?;
 
-    result.map(|data| data.value)
+    let result = result?;
+    if result.value == Value::Bool(true)
+        && let Some(data) = encoded
+    {
+        exec_state.push_vm_trace(VmTraceEvent::Storage(StorageEvent::MapDelete(data)));
+    }
+    Ok(result.value)
 }
 
 /// Handles the `get-block-info?` special function.
