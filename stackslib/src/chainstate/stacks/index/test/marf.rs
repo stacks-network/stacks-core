@@ -1536,11 +1536,12 @@ fn marf_insert_get_128_fork_256() {
 
     for i in 1..8 {
         let parent_row = &fork_headers[i - 1];
-        for j in 0..parent_row.len() {
-            let parent_hash = &parent_row[j];
-            for k in (2 * j)..(2 * j + 2) {
-                let child_hash = &fork_headers[i][k];
-
+        for (j, parent_hash) in parent_row.iter().enumerate() {
+            for (k, child_hash) in fork_headers[i][..(2 * j + 2)]
+                .iter()
+                .enumerate()
+                .skip(2 * j)
+            {
                 debug!("Branch from {:?} to {:?}", parent_hash, child_hash);
                 m.begin(parent_hash, child_hash).unwrap();
 
@@ -1590,7 +1591,7 @@ fn marf_insert_get_128_fork_256() {
 
     let mut block_table = None;
 
-    for k in 0..expected_chain_tips.len() {
+    for (k, expected_chain_tip) in expected_chain_tips.iter().enumerate() {
         for l in 0..128 {
             let raw_value = [
                 7u8,
@@ -1631,12 +1632,12 @@ fn marf_insert_get_128_fork_256() {
             let expected_value = to_hex(&raw_value);
             let key = format!("{}-{}-{}-{}", 7, (k / 2), k, l);
 
-            let marf_value = m.get(&expected_chain_tips[k], &key).unwrap().unwrap();
+            let marf_value = m.get(expected_chain_tip, &key).unwrap().unwrap();
             assert_eq!(marf_value, MARFValue::from_value(&expected_value));
 
             block_table = Some(merkle_test_marf_key_value(
                 &mut m.borrow_storage_backend(),
-                &expected_chain_tips[k],
+                expected_chain_tip,
                 &key,
                 &expected_value,
                 block_table,

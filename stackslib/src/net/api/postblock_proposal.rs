@@ -169,15 +169,22 @@ pub struct BlockValidateOk {
     pub cost: ExecutionCost,
     pub size: u64,
     pub validation_time_ms: u64,
-    /// Deprecated: transaction replay was removed, so this is always `None`.
+    /// Deprecated. Always `None`. It will be removed in a future release.
     ///
-    /// Retained because `BlockValidateOk` has no `#[serde(default)]`: a signer running an
-    /// older binary treats these as required fields and would fail to deserialize the whole
-    /// response without them. Remove only in a release that need not interoperate with
-    /// pre-removal signers.
+    /// Existed to support the signer's tx-replay feature, which has been removed. The key is
+    /// still emitted because a signer built before that removal declares these fields without
+    /// `#[serde(default)]`, which makes them *required*: omitting them would make such a signer
+    /// fail to deserialize the whole block-proposal validation response, and so silently stop
+    /// acting on validation results.
+    ///
+    /// The `#[serde(default)]` below is what lets these fields be deleted outright in a later
+    /// release: it makes signers from this release onward tolerate the keys' absence. Do not
+    /// remove it before the fields themselves go.
+    #[serde(default)]
     pub replay_tx_hash: Option<u64>,
-    /// Deprecated: transaction replay was removed, so this is always `false`.
+    /// Deprecated. Always `false`. It will be removed in a future release.
     /// See `replay_tx_hash` above.
+    #[serde(default)]
     pub replay_tx_exhausted: bool,
 }
 
@@ -667,7 +674,7 @@ impl NakamotoBlockProposal {
                 TransactionPayload::TenureChange(tc) => Some(MinerTenureInfoCause::from(tc)),
                 _ => None,
             })
-            .unwrap_or_else(|| MinerTenureInfoCause::NoTenureChange);
+            .unwrap_or(MinerTenureInfoCause::NoTenureChange);
 
         let mut builder = NakamotoBlockBuilder::new(
             &parent_stacks_header,

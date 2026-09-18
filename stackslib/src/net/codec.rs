@@ -1603,7 +1603,6 @@ pub mod test {
     use stacks_common::bitvec::BitVec;
     use stacks_common::codec::NEIGHBOR_ADDRESS_ENCODED_SIZE;
     use stacks_common::util::hash::hex_bytes;
-    use stacks_common::util::secp256k1::*;
 
     use super::*;
     use crate::net::{GetNakamotoInvData, NakamotoInvData};

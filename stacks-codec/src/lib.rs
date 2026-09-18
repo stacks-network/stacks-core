@@ -24,6 +24,9 @@
 pub mod strings;
 pub mod transaction;
 
+#[cfg(test)]
+mod signature_verification_tests;
+
 pub use stacks_common::codec::*;
 pub use stacks_common::{
     impl_byte_array_message_codec, impl_stacks_message_codec_for_int, BITVEC_LEN,

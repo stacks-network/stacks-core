@@ -125,13 +125,13 @@ fn setup_stackerdb(peer: &mut TestPeer, idx: usize, fill: bool, num_slots: usize
     tx.reconfigure_stackerdb(contract_id, &slots).unwrap();
 
     if fill {
-        for i in 0..num_slots {
+        for (i, pk) in pks[..num_slots].iter().enumerate() {
             // deterministically generate chunk data
             let mut inner_data = vec![0x00; chunk_size as usize];
             thread_rng().fill(&mut inner_data[..]);
 
             let mut chunk_data = StackerDBChunkData::new(i as u32, 1, inner_data);
-            chunk_data.sign(&pks[i]).unwrap();
+            chunk_data.sign(pk).unwrap();
 
             let chunk_md = chunk_data.get_slot_metadata();
             tx.try_replace_chunk(contract_id, &chunk_md, &chunk_data.data)
@@ -586,19 +586,19 @@ fn inner_test_stackerdb_replica_2_neighbors_10_chunks(push_only: bool, base_port
         // verify that peer 1 got the data
         let peer_1_db_chunks = load_stackerdb(&peer_1, idx_1);
         assert_eq!(peer_1_db_chunks.len(), 10);
-        for i in 0..10 {
-            assert_eq!(peer_1_db_chunks[i].0.slot_id, i as u32);
-            assert_eq!(peer_1_db_chunks[i].0.slot_version, 1);
-            assert!(!peer_1_db_chunks[i].1.is_empty());
+        for (i, peer_1_db_chunk) in peer_1_db_chunks[..10].iter().enumerate() {
+            assert_eq!(peer_1_db_chunk.0.slot_id, i as u32);
+            assert_eq!(peer_1_db_chunk.0.slot_version, 1);
+            assert!(!peer_1_db_chunk.1.is_empty());
         }
 
         // verify that peer 2 did NOT get the data
         let peer_2_db_chunks = load_stackerdb(&peer_2, idx_2);
         assert_eq!(peer_2_db_chunks.len(), 10);
-        for i in 0..10 {
-            assert_eq!(peer_2_db_chunks[i].0.slot_id, i as u32);
-            assert_eq!(peer_2_db_chunks[i].0.slot_version, 0);
-            assert!(peer_2_db_chunks[i].1.is_empty());
+        for (i, peer_2_db_chunk) in peer_2_db_chunks[..10].iter().enumerate() {
+            assert_eq!(peer_2_db_chunk.0.slot_id, i as u32);
+            assert_eq!(peer_2_db_chunk.0.slot_version, 0);
+            assert!(peer_2_db_chunk.1.is_empty());
         }
 
         let peer_1_db_configs = peer_1.config.get_stacker_db_configs();
@@ -718,27 +718,27 @@ fn test_stackerdb_push_relayer() {
         // verify that peer 1 got the data
         let peer_1_db_chunks = load_stackerdb(&peer_1, idx_1);
         assert_eq!(peer_1_db_chunks.len(), 10);
-        for i in 0..10 {
-            assert_eq!(peer_1_db_chunks[i].0.slot_id, i as u32);
-            assert_eq!(peer_1_db_chunks[i].0.slot_version, 1);
-            assert!(!peer_1_db_chunks[i].1.is_empty());
+        for (i, peer_1_db_chunk) in peer_1_db_chunks[..10].iter().enumerate() {
+            assert_eq!(peer_1_db_chunk.0.slot_id, i as u32);
+            assert_eq!(peer_1_db_chunk.0.slot_version, 1);
+            assert!(!peer_1_db_chunk.1.is_empty());
         }
 
         // verify that peer 2 and 3 did NOT get the data
         let peer_2_db_chunks = load_stackerdb(&peer_2, idx_2);
         assert_eq!(peer_2_db_chunks.len(), 10);
-        for i in 0..10 {
-            assert_eq!(peer_2_db_chunks[i].0.slot_id, i as u32);
-            assert_eq!(peer_2_db_chunks[i].0.slot_version, 0);
-            assert!(peer_2_db_chunks[i].1.is_empty());
+        for (i, peer_2_db_chunk) in peer_2_db_chunks[..10].iter().enumerate() {
+            assert_eq!(peer_2_db_chunk.0.slot_id, i as u32);
+            assert_eq!(peer_2_db_chunk.0.slot_version, 0);
+            assert!(peer_2_db_chunk.1.is_empty());
         }
 
         let peer_3_db_chunks = load_stackerdb(&peer_3, idx_2);
         assert_eq!(peer_3_db_chunks.len(), 10);
-        for i in 0..10 {
-            assert_eq!(peer_3_db_chunks[i].0.slot_id, i as u32);
-            assert_eq!(peer_3_db_chunks[i].0.slot_version, 0);
-            assert!(peer_3_db_chunks[i].1.is_empty());
+        for (i, peer_3_db_chunk) in peer_3_db_chunks[..10].iter().enumerate() {
+            assert_eq!(peer_3_db_chunk.0.slot_id, i as u32);
+            assert_eq!(peer_3_db_chunk.0.slot_version, 0);
+            assert!(peer_3_db_chunk.1.is_empty());
         }
 
         let peer_1_db_configs = peer_1.config.get_stacker_db_configs();
@@ -914,27 +914,27 @@ fn test_stackerdb_push_relayer_late_chunks() {
         // verify that peer 1 got the data
         let peer_1_db_chunks = load_stackerdb(&peer_1, idx_1);
         assert_eq!(peer_1_db_chunks.len(), 10);
-        for i in 0..10 {
-            assert_eq!(peer_1_db_chunks[i].0.slot_id, i as u32);
-            assert_eq!(peer_1_db_chunks[i].0.slot_version, 1);
-            assert!(!peer_1_db_chunks[i].1.is_empty());
+        for (i, peer_1_db_chunk) in peer_1_db_chunks[..10].iter().enumerate() {
+            assert_eq!(peer_1_db_chunk.0.slot_id, i as u32);
+            assert_eq!(peer_1_db_chunk.0.slot_version, 1);
+            assert!(!peer_1_db_chunk.1.is_empty());
         }
 
         // verify that peer 2 and 3 did NOT get the data
         let peer_2_db_chunks = load_stackerdb(&peer_2, idx_2);
         assert_eq!(peer_2_db_chunks.len(), 10);
-        for i in 0..10 {
-            assert_eq!(peer_2_db_chunks[i].0.slot_id, i as u32);
-            assert_eq!(peer_2_db_chunks[i].0.slot_version, 0);
-            assert!(peer_2_db_chunks[i].1.is_empty());
+        for (i, peer_2_db_chunk) in peer_2_db_chunks[..10].iter().enumerate() {
+            assert_eq!(peer_2_db_chunk.0.slot_id, i as u32);
+            assert_eq!(peer_2_db_chunk.0.slot_version, 0);
+            assert!(peer_2_db_chunk.1.is_empty());
         }
 
         let peer_3_db_chunks = load_stackerdb(&peer_3, idx_2);
         assert_eq!(peer_3_db_chunks.len(), 10);
-        for i in 0..10 {
-            assert_eq!(peer_3_db_chunks[i].0.slot_id, i as u32);
-            assert_eq!(peer_3_db_chunks[i].0.slot_version, 0);
-            assert!(peer_3_db_chunks[i].1.is_empty());
+        for (i, peer_3_db_chunk) in peer_3_db_chunks[..10].iter().enumerate() {
+            assert_eq!(peer_3_db_chunk.0.slot_id, i as u32);
+            assert_eq!(peer_3_db_chunk.0.slot_version, 0);
+            assert!(peer_3_db_chunk.1.is_empty());
         }
 
         let peer_1_db_configs = peer_1.config.get_stacker_db_configs();
@@ -1117,10 +1117,10 @@ fn inner_test_stackerdb_10_replicas_10_neighbors_line_10_chunks(push_only: bool,
                 // verify instantiation
                 let peer_db_chunks = load_stackerdb(&peer, peer_db_idxs[i]);
                 assert_eq!(peer_db_chunks.len(), 10);
-                for j in 0..10 {
-                    assert_eq!(peer_db_chunks[j].0.slot_id, j as u32);
-                    assert_eq!(peer_db_chunks[j].0.slot_version, 1);
-                    assert!(!peer_db_chunks[j].1.is_empty());
+                for (j, peer_db_chunk) in peer_db_chunks[..10].iter().enumerate() {
+                    assert_eq!(peer_db_chunk.0.slot_id, j as u32);
+                    assert_eq!(peer_db_chunk.0.slot_version, 1);
+                    assert!(!peer_db_chunk.1.is_empty());
                 }
             } else {
                 // everyone else gets nothing
@@ -1129,10 +1129,10 @@ fn inner_test_stackerdb_10_replicas_10_neighbors_line_10_chunks(push_only: bool,
                 // verify instantiation
                 let peer_db_chunks = load_stackerdb(&peer, peer_db_idxs[i]);
                 assert_eq!(peer_db_chunks.len(), 10);
-                for j in 0..10 {
-                    assert_eq!(peer_db_chunks[j].0.slot_id, j as u32);
-                    assert_eq!(peer_db_chunks[j].0.slot_version, 0);
-                    assert!(peer_db_chunks[j].1.is_empty());
+                for (j, peer_db_chunk) in peer_db_chunks[..10].iter().enumerate() {
+                    assert_eq!(peer_db_chunk.0.slot_id, j as u32);
+                    assert_eq!(peer_db_chunk.0.slot_version, 0);
+                    assert!(peer_db_chunk.1.is_empty());
                 }
             }
 
