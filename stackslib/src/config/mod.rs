@@ -2024,18 +2024,15 @@ impl BurnchainConfigFile {
             socket_timeout: self
                 .socket_timeout
                 .unwrap_or(default_burnchain_config.socket_timeout),
-            magic_bytes: self
-                .magic_bytes
-                .map(|magic_ascii| {
+            magic_bytes: match self.magic_bytes {
+                Some(magic_ascii) => {
                     assert_eq!(magic_ascii.len(), 2, "Magic bytes must be length-2");
                     assert!(magic_ascii.is_ascii(), "Magic bytes must be ASCII");
                     MagicBytes::from(magic_ascii.as_bytes())
-                })
-                .unwrap_or(if mode == "signet" {
-                    BLOCKSTACK_MAGIC_SIGNET
-                } else {
-                    default_burnchain_config.magic_bytes
-                }),
+                }
+                None if mode == "signet" => BLOCKSTACK_MAGIC_SIGNET,
+                None => default_burnchain_config.magic_bytes,
+            },
             mode,
             local_mining_public_key: self.local_mining_public_key,
             process_exit_at_block_height: self.process_exit_at_block_height,
