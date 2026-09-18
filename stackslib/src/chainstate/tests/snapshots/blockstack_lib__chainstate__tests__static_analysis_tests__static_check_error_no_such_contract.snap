@@ -1,131 +1,10 @@
 ---
 source: stackslib/src/chainstate/tests/static_analysis_tests.rs
-expression: result
-snapshot_kind: text
+expression: result.get_expected_results()
 ---
 [
   Success(ExpectedBlockOutput(
-    marf_hash: "2ea0538efac9b7f4d9dc32ce111c27159270cb63911c91b8f15331ec15422a25",
-    evaluated_epoch: Epoch33,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "SmartContract(name: no-such-contract-Epoch3_3-Clarity1, code_body: [..], clarity_version: Some(Clarity1))",
-        vm_error: "Some(:0:0: use of unresolved contract \'S1G2081040G2081040G2081040G208105NK8PE5.contract-name\') [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: false,
-          data: Optional(OptionalData(
-            data: None,
-          )),
-        )),
-        cost: ExecutionCost(
-          write_length: 0,
-          write_count: 0,
-          read_length: 0,
-          read_count: 0,
-          runtime: 2313,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 0,
-      write_count: 0,
-      read_length: 0,
-      read_count: 0,
-      runtime: 2313,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "7631c2e5f15f99957e76b71161fb096681d13c2cb34ffc839841b3f3e3f05326",
-    evaluated_epoch: Epoch33,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "SmartContract(name: no-such-contract-Epoch3_3-Clarity2, code_body: [..], clarity_version: Some(Clarity2))",
-        vm_error: "Some(:0:0: use of unresolved contract \'S1G2081040G2081040G2081040G208105NK8PE5.contract-name\') [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: false,
-          data: Optional(OptionalData(
-            data: None,
-          )),
-        )),
-        cost: ExecutionCost(
-          write_length: 0,
-          write_count: 0,
-          read_length: 0,
-          read_count: 0,
-          runtime: 2313,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 0,
-      write_count: 0,
-      read_length: 0,
-      read_count: 0,
-      runtime: 2313,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "705dd1e0730049ac010ca76cec06c5d1ed313d21c21eb0becc510a3cae0baa24",
-    evaluated_epoch: Epoch33,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "SmartContract(name: no-such-contract-Epoch3_3-Clarity3, code_body: [..], clarity_version: Some(Clarity3))",
-        vm_error: "Some(:0:0: use of unresolved contract \'S1G2081040G2081040G2081040G208105NK8PE5.contract-name\') [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: false,
-          data: Optional(OptionalData(
-            data: None,
-          )),
-        )),
-        cost: ExecutionCost(
-          write_length: 0,
-          write_count: 0,
-          read_length: 0,
-          read_count: 0,
-          runtime: 2313,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 0,
-      write_count: 0,
-      read_length: 0,
-      read_count: 0,
-      runtime: 2313,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "afc7061148b79cdcf1b3dfddd2d146c10256631b86b0e80b6c1c3cc7c3400d31",
-    evaluated_epoch: Epoch33,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "SmartContract(name: no-such-contract-Epoch3_3-Clarity4, code_body: [..], clarity_version: Some(Clarity4))",
-        vm_error: "Some(:0:0: use of unresolved contract \'S1G2081040G2081040G2081040G208105NK8PE5.contract-name\') [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: false,
-          data: Optional(OptionalData(
-            data: None,
-          )),
-        )),
-        cost: ExecutionCost(
-          write_length: 0,
-          write_count: 0,
-          read_length: 0,
-          read_count: 0,
-          runtime: 2313,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 0,
-      write_count: 0,
-      read_length: 0,
-      read_count: 0,
-      runtime: 2313,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "ad27ca9a93a5c76a10208baac94e1e70b7c07926bd811f30bef1e5b218b8d35e",
+    marf_hash: "9991fcac171c767b6cfccc75542272e7e9835a1d9dac7e4c9a916688080ab7dc",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -155,7 +34,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "4556946b59f0a60d5f355adc3d78b48bb40147cde3c4acf6c1d9f64e7e2cfb85",
+    marf_hash: "014c6498aafc7c3eec9a3ed4fb1982d0eedec44281d5fea8d5fef55d8888648f",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -185,7 +64,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "adea693e1a22e08946ee36b2e56f2671e78730f038b8108748e02f189943622c",
+    marf_hash: "8341a1350698b1ab2914b1fffd2a0a163e2cb9839a7ece4613cbab00eeafbdff",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -215,7 +94,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "dd645e3a998bc7ee4c7d9ff774cb49d401bab3c644e3c3ba6ac17777d45df703",
+    marf_hash: "9e0df1665ea54958d7366d8a58a4304261793bca50446c05fdd0085418b76663",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -245,11 +124,191 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "2b8ebc67b7e842dcc0989b475a42db1f9683b13afdf467b2a3b73cda442b98ff",
+    marf_hash: "cb367c8fdab7c8be3e26df4c3fb633cc64c5afe39ebb884a0cf11b10e124d7ee",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
         tx: "SmartContract(name: no-such-contract-Epoch3_4-Clarity5, code_body: [..], clarity_version: Some(Clarity5))",
+        vm_error: "Some(:0:0: use of unresolved contract \'S1G2081040G2081040G2081040G208105NK8PE5.contract-name\') [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 0,
+          write_count: 0,
+          read_length: 0,
+          read_count: 0,
+          runtime: 2313,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 0,
+      write_count: 0,
+      read_length: 0,
+      read_count: 0,
+      runtime: 2313,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "92fb34f08abe5d1f2c7f3ff3d954fcbf3e8c42e6323651c6e43fd79d5aa4c16c",
+    evaluated_epoch: Epoch40,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: no-such-contract-Epoch4_0-Clarity1, code_body: [..], clarity_version: Some(Clarity1))",
+        vm_error: "Some(:0:0: use of unresolved contract \'S1G2081040G2081040G2081040G208105NK8PE5.contract-name\') [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 0,
+          write_count: 0,
+          read_length: 0,
+          read_count: 0,
+          runtime: 2313,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 0,
+      write_count: 0,
+      read_length: 0,
+      read_count: 0,
+      runtime: 2313,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "3584239bbd9cb540f1d0761209efcc83f6551a66b3c21888bf8c66e7b9c0c079",
+    evaluated_epoch: Epoch40,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: no-such-contract-Epoch4_0-Clarity2, code_body: [..], clarity_version: Some(Clarity2))",
+        vm_error: "Some(:0:0: use of unresolved contract \'S1G2081040G2081040G2081040G208105NK8PE5.contract-name\') [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 0,
+          write_count: 0,
+          read_length: 0,
+          read_count: 0,
+          runtime: 2313,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 0,
+      write_count: 0,
+      read_length: 0,
+      read_count: 0,
+      runtime: 2313,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "f8babbae9333d69d69629334cc5a6e4dfa3e286fa9f8f6060e8747cfdde72302",
+    evaluated_epoch: Epoch40,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: no-such-contract-Epoch4_0-Clarity3, code_body: [..], clarity_version: Some(Clarity3))",
+        vm_error: "Some(:0:0: use of unresolved contract \'S1G2081040G2081040G2081040G208105NK8PE5.contract-name\') [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 0,
+          write_count: 0,
+          read_length: 0,
+          read_count: 0,
+          runtime: 2313,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 0,
+      write_count: 0,
+      read_length: 0,
+      read_count: 0,
+      runtime: 2313,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "4bc41ea7490e168e73e71037795a652020cb03b439dae0a3662b9551770c0a25",
+    evaluated_epoch: Epoch40,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: no-such-contract-Epoch4_0-Clarity4, code_body: [..], clarity_version: Some(Clarity4))",
+        vm_error: "Some(:0:0: use of unresolved contract \'S1G2081040G2081040G2081040G208105NK8PE5.contract-name\') [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 0,
+          write_count: 0,
+          read_length: 0,
+          read_count: 0,
+          runtime: 2313,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 0,
+      write_count: 0,
+      read_length: 0,
+      read_count: 0,
+      runtime: 2313,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "3473974890c8049ba740bdd813d2ea95c8ba4c80b013af2a1a02aa1471351654",
+    evaluated_epoch: Epoch40,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: no-such-contract-Epoch4_0-Clarity5, code_body: [..], clarity_version: Some(Clarity5))",
+        vm_error: "Some(:0:0: use of unresolved contract \'S1G2081040G2081040G2081040G208105NK8PE5.contract-name\') [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 0,
+          write_count: 0,
+          read_length: 0,
+          read_count: 0,
+          runtime: 2313,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 0,
+      write_count: 0,
+      read_length: 0,
+      read_count: 0,
+      runtime: 2313,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "3467337f5d1590feb7e6c97c2558140adb30b673a5bfc31d10a02167a4ce7d19",
+    evaluated_epoch: Epoch40,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: no-such-contract-Epoch4_0-Clarity6, code_body: [..], clarity_version: Some(Clarity6))",
         vm_error: "Some(:0:0: use of unresolved contract \'S1G2081040G2081040G2081040G208105NK8PE5.contract-name\') [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,

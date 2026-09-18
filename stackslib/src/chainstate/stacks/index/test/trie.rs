@@ -55,7 +55,7 @@ fn walk_to_insertion_point(
     panic!("Encountered a loop in the trie");
 }
 
-#[apply(opts::tpl_all_opts_noop)]
+#[apply(opts::tpl_all_opts)]
 fn trie_cursor_try_attach_leaf(marf_opts: &MARFOpenOpts) {
     test_debug!("With MARF opts {marf_opts:?}");
     for node_id in [
@@ -195,8 +195,7 @@ fn trie_cursor_try_attach_leaf(marf_opts: &MARFOpenOpts) {
         }
 
         // each ptr must be a node with two children
-        for i in 0..32 {
-            let ptr = &ptrs[i];
+        for ptr in &ptrs[..32] {
             let (node, hash) = f.read_nodetype(ptr).unwrap();
             match node {
                 TrieNodeType::Node4(ref data) => assert_eq!(count_children(&data.ptrs), 2),
@@ -213,7 +212,7 @@ fn trie_cursor_try_attach_leaf(marf_opts: &MARFOpenOpts) {
     }
 }
 
-#[apply(opts::tpl_all_opts_noop)]
+#[apply(opts::tpl_all_opts)]
 fn trie_cursor_promote_leaf_to_node4(marf_opts: &MARFOpenOpts) {
     let mut f_store = TrieFileStorage::new_memory(marf_opts.clone()).unwrap();
     let mut f = f_store.transaction().unwrap();
@@ -375,7 +374,7 @@ fn trie_cursor_promote_leaf_to_node4(marf_opts: &MARFOpenOpts) {
     dump_trie(&mut f);
 }
 
-#[apply(opts::tpl_all_opts_noop)]
+#[apply(opts::tpl_all_opts)]
 fn trie_cursor_promote_node4_to_node16(marf_opts: &MARFOpenOpts) {
     let mut f_store = TrieFileStorage::new_memory(marf_opts.clone()).unwrap();
     let mut f = f_store.transaction().unwrap();
@@ -528,7 +527,7 @@ fn trie_cursor_promote_node4_to_node16(marf_opts: &MARFOpenOpts) {
     dump_trie(&mut f);
 }
 
-#[apply(opts::tpl_all_opts_noop)]
+#[apply(opts::tpl_all_opts)]
 fn trie_cursor_promote_node16_to_node48(marf_opts: &MARFOpenOpts) {
     let mut f_store = TrieFileStorage::new_memory(marf_opts.clone()).unwrap();
     let mut f = f_store.transaction().unwrap();
@@ -787,7 +786,7 @@ fn trie_cursor_promote_node16_to_node48(marf_opts: &MARFOpenOpts) {
     dump_trie(&mut f);
 }
 
-#[apply(opts::tpl_all_opts_noop)]
+#[apply(opts::tpl_all_opts)]
 fn trie_cursor_promote_node48_to_node256(marf_opts: &MARFOpenOpts) {
     let mut f_store = TrieFileStorage::new_memory(marf_opts.clone()).unwrap();
     let mut f = f_store.transaction().unwrap();
@@ -1147,7 +1146,7 @@ fn trie_cursor_promote_node48_to_node256(marf_opts: &MARFOpenOpts) {
     dump_trie(&mut f);
 }
 
-#[apply(opts::tpl_all_opts_noop)]
+#[apply(opts::tpl_all_opts)]
 fn trie_cursor_splice_leaf_4(marf_opts: &MARFOpenOpts) {
     for node_id in [
         TrieNodeID::Node4,
@@ -1232,7 +1231,7 @@ fn trie_cursor_splice_leaf_4(marf_opts: &MARFOpenOpts) {
     }
 }
 
-#[apply(opts::tpl_all_opts_noop)]
+#[apply(opts::tpl_all_opts)]
 fn trie_cursor_splice_leaf_2(marf_opts: &MARFOpenOpts) {
     for node_id in [
         TrieNodeID::Node4,
@@ -1548,7 +1547,7 @@ where
     }
 }
 
-#[apply(opts::tpl_all_opts_noop)]
+#[apply(opts::tpl_all_opts)]
 fn insert_1024_seq_low(marf_opts: &MARFOpenOpts) {
     insert_n_test(marf_opts, true, 1024, |i| {
         [
@@ -1588,7 +1587,7 @@ fn insert_1024_seq_low(marf_opts: &MARFOpenOpts) {
     })
 }
 
-#[apply(opts::tpl_all_opts_noop)]
+#[apply(opts::tpl_all_opts)]
 fn insert_1024_seq_high(marf_opts: &MARFOpenOpts) {
     insert_n_test(marf_opts, true, 1024, |i| {
         [
@@ -1628,7 +1627,7 @@ fn insert_1024_seq_high(marf_opts: &MARFOpenOpts) {
     })
 }
 
-#[apply(opts::tpl_all_opts_noop)]
+#[apply(opts::tpl_all_opts)]
 fn insert_1024_seq_mid(marf_opts: &MARFOpenOpts) {
     insert_n_test(marf_opts, true, 1024, |i| {
         let i0 = i / 256;
@@ -1642,7 +1641,7 @@ fn insert_1024_seq_mid(marf_opts: &MARFOpenOpts) {
     })
 }
 
-#[apply(opts::tpl_all_opts_noop)]
+#[apply(opts::tpl_all_opts)]
 #[ignore]
 fn insert_65536_random_deterministic(marf_opts: &MARFOpenOpts) {
     // deterministic random insert of 65536 keys
@@ -1659,7 +1658,7 @@ fn insert_65536_random_deterministic(marf_opts: &MARFOpenOpts) {
     })
 }
 
-#[apply(opts::tpl_all_opts_noop)]
+#[apply(opts::tpl_all_opts)]
 fn insert_1024_random_deterministic_merkle_proof(marf_opts: &MARFOpenOpts) {
     // deterministic random insert of 1024 keys
     let mut seed = TrieHash::EMPTY.as_bytes().to_vec();

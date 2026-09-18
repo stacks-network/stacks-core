@@ -1522,14 +1522,14 @@ fn test_contract_of_wrong_type(#[case] version: ClarityVersion, #[case] epoch: S
     let def_contract_id = QualifiedContractIdentifier::local("defun").unwrap();
     let disp_contract_id = QualifiedContractIdentifier::local("dispatch").unwrap();
     let mut c_trait = parse(&def_contract_id, contract_defining_trait, version, epoch).unwrap();
-    let mut c_principal = parse(
+    let c_principal = parse(
         &disp_contract_id,
         dispatching_contract_principal,
         version,
         epoch,
     )
     .unwrap();
-    let mut c_int = parse(&disp_contract_id, dispatching_contract_int, version, epoch).unwrap();
+    let c_int = parse(&disp_contract_id, dispatching_contract_int, version, epoch).unwrap();
     let c_uint = parse(&disp_contract_id, dispatching_contract_uint, version, epoch).unwrap();
     let c_bool = parse(&disp_contract_id, dispatching_contract_bool, version, epoch).unwrap();
     let c_list = parse(&disp_contract_id, dispatching_contract_list, version, epoch).unwrap();
@@ -1544,82 +1544,27 @@ fn test_contract_of_wrong_type(#[case] version: ClarityVersion, #[case] epoch: S
     let mut marf = MemoryBackingStore::new();
     let mut db = marf.as_analysis_db();
 
-    let err_principal = db
-        .execute(|db| {
-            type_check(&def_contract_id, &mut c_trait, db, true, &epoch, &version).unwrap();
-            type_check(
-                &disp_contract_id,
-                &mut c_principal,
-                db,
-                true,
-                &epoch,
-                &version,
-            )
-        })
-        .unwrap_err();
-    match *err_principal.err {
-        StaticCheckErrorKind::TraitReferenceUnknown(_) => {}
-        _ => panic!("{err_principal:?}"),
-    }
-    let err_int = db
-        .execute(|db| {
-            type_check(&def_contract_id, &mut c_trait, db, true, &epoch, &version).unwrap();
-            type_check(&disp_contract_id, &mut c_int, db, true, &epoch, &version)
-        })
-        .unwrap_err();
-    match *err_int.err {
-        StaticCheckErrorKind::TraitReferenceUnknown(_) => {}
-        _ => panic!("{err_int:?}"),
-    }
-    let err_uint = db
-        .execute(|db| {
-            type_check(&def_contract_id, &mut c_trait, db, true, &epoch, &version).unwrap();
-            type_check(&disp_contract_id, &mut c_int, db, true, &epoch, &version)
-        })
-        .unwrap_err();
-    match *err_uint.err {
-        StaticCheckErrorKind::TraitReferenceUnknown(_) => {}
-        _ => panic!("{err_uint:?}"),
-    }
-    let err_bool = db
-        .execute(|db| {
-            type_check(&def_contract_id, &mut c_trait, db, true, &epoch, &version).unwrap();
-            type_check(&disp_contract_id, &mut c_int, db, true, &epoch, &version)
-        })
-        .unwrap_err();
-    match *err_bool.err {
-        StaticCheckErrorKind::TraitReferenceUnknown(_) => {}
-        _ => panic!("{err_bool:?}"),
-    }
-    let err_list = db
-        .execute(|db| {
-            type_check(&def_contract_id, &mut c_trait, db, true, &epoch, &version).unwrap();
-            type_check(&disp_contract_id, &mut c_int, db, true, &epoch, &version)
-        })
-        .unwrap_err();
-    match *err_list.err {
-        StaticCheckErrorKind::TraitReferenceUnknown(_) => {}
-        _ => panic!("{err_list:?}"),
-    }
-    let err_buff = db
-        .execute(|db| {
-            type_check(&def_contract_id, &mut c_trait, db, true, &epoch, &version).unwrap();
-            type_check(&disp_contract_id, &mut c_int, db, true, &epoch, &version)
-        })
-        .unwrap_err();
-    match *err_buff.err {
-        StaticCheckErrorKind::TraitReferenceUnknown(_) => {}
-        _ => panic!("{err_buff:?}"),
-    }
-    let err_tuple = db
-        .execute(|db| {
-            type_check(&def_contract_id, &mut c_trait, db, true, &epoch, &version).unwrap();
-            type_check(&disp_contract_id, &mut c_int, db, true, &epoch, &version)
-        })
-        .unwrap_err();
-    match *err_tuple.err {
-        StaticCheckErrorKind::TraitReferenceUnknown(_) => {}
-        _ => panic!("{err_tuple:?}"),
+    // Each non-trait argument type must be rejected independently.
+    for (name, mut contract) in [
+        ("principal", c_principal),
+        ("int", c_int),
+        ("uint", c_uint),
+        ("bool", c_bool),
+        ("list", c_list),
+        ("buff", c_buff),
+        ("tuple", c_tuple),
+    ] {
+        let err = db
+            .execute(|db| {
+                type_check(&def_contract_id, &mut c_trait, db, true, &epoch, &version).unwrap();
+                type_check(&disp_contract_id, &mut contract, db, true, &epoch, &version)
+            })
+            .unwrap_err();
+        std::assert_matches!(
+            *err.err,
+            StaticCheckErrorKind::TraitReferenceUnknown(_),
+            "unexpected error for {name}: {err:?}"
+        );
     }
 }
 

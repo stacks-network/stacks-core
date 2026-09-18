@@ -95,6 +95,12 @@ impl NetworkHandle {
         NetworkHandle { chan_in }
     }
 
+    #[cfg(test)]
+    pub(crate) fn test_channel(bufsz: usize) -> (Receiver<NetworkRequest>, NetworkHandle) {
+        let (msg_send, msg_recv) = sync_channel(bufsz);
+        (msg_recv, NetworkHandle::new(msg_send))
+    }
+
     /// Send out a command to the p2p thread.  Do not bother waiting for the response.
     /// Error out if the channel buffer is out of space
     fn send_request(&mut self, req: NetworkRequest) -> Result<(), net_error> {
@@ -183,7 +189,25 @@ pub enum PeerNetworkWorkState {
 }
 
 pub type PeerMap = HashMap<usize, ConversationP2P>;
-pub type PendingMessages = HashMap<(usize, NeighborKey), Vec<StacksMessage>>;
+
+/// Unsolicited messages from one authenticated peer, plus that peer's address
+/// (IP + node public-key hash).
+#[derive(Clone, Debug)]
+pub struct PendingMessagesFrom {
+    pub neighbor_addr: NeighborAddress,
+    pub messages: Vec<StacksMessage>,
+}
+
+impl PendingMessagesFrom {
+    pub fn new(neighbor_addr: NeighborAddress, messages: Vec<StacksMessage>) -> Self {
+        Self {
+            neighbor_addr,
+            messages,
+        }
+    }
+}
+
+pub type PendingMessages = HashMap<(usize, NeighborKey), PendingMessagesFrom>;
 
 pub struct ConnectingPeer {
     socket: mio_net::TcpStream,
@@ -2814,7 +2838,7 @@ impl PeerNetwork {
         let mut drained = vec![];
 
         // flush each outgoing conversation
-        let mut relay_handles = std::mem::replace(&mut self.relay_handles, HashMap::new());
+        let mut relay_handles = mem::take(&mut self.relay_handles);
         for (event_id, handle_list) in relay_handles.iter_mut() {
             if handle_list.is_empty() {
                 debug!("No handles for event {}", event_id);
@@ -2940,7 +2964,7 @@ impl PeerNetwork {
         // pick a random outbound conversation to one of the initial neighbors
         let mut idx = thread_rng().gen::<usize>() % self.peers.len();
         for _ in 0..self.peers.len() + 1 {
-            let event_id = match self.peers.keys().skip(idx).next() {
+            let event_id = match self.peers.keys().nth(idx) {
                 Some(eid) => *eid,
                 None => {
                     idx = 0;
@@ -4348,7 +4372,7 @@ impl PeerNetwork {
                     if self.walk_pingbacks.len() > MAX_NEIGHBORS_DATA_LEN as usize {
                         // drop one at random
                         let idx = thread_rng().gen::<usize>() % self.walk_pingbacks.len();
-                        let drop_addr = match self.walk_pingbacks.keys().skip(idx).next() {
+                        let drop_addr = match self.walk_pingbacks.keys().nth(idx) {
                             Some(addr) => (*addr).clone(),
                             None => {
                                 continue;
@@ -4443,7 +4467,7 @@ impl PeerNetwork {
         sortdb: &SortitionDB,
         chainstate: &mut StacksChainState,
     ) -> Result<(), net_error> {
-        let stacker_db_configs = mem::replace(&mut self.stacker_db_configs, HashMap::new());
+        let stacker_db_configs = mem::take(&mut self.stacker_db_configs);
         self.stacker_db_configs = self.stackerdbs.create_or_reconfigure_stackerdbs(
             chainstate,
             sortdb,
@@ -4530,9 +4554,13 @@ impl PeerNetwork {
             &parent_tenure_start_header.consensus_hash,
             &parent_stacks_tip_block_hash,
         );
-        let parent_coinbase_height = NakamotoChainState::get_coinbase_height(
+        // Anchor the read at the canonical stacks tip rather than the parent tenure-start block:
+        // the parent may be below a squashed node's snapshot height and thus pruned, while the
+        // immutable coinbase-height mapping reads identically from any descendant of it.
+        let parent_coinbase_height = NakamotoChainState::get_coinbase_height_at_tip(
             &mut chainstate.index_conn(),
             &parent_stacks_tip_block_id,
+            stacks_tip_block_id,
         )?;
 
         let coinbase_height = match parent_coinbase_height {
@@ -4722,9 +4750,9 @@ impl PeerNetwork {
     /// Refresh view of burnchain, if needed.
     /// If the burnchain view changes, then take the following additional steps:
     /// * hint to the inventory sync state-machine to restart, since we potentially have a new
-    /// block to go fetch
+    ///   block to go fetch
     /// * hint to the download state machine to start looking for the new block at the new
-    /// stable sortition height
+    ///   stable sortition height
     /// * hint to the antientropy protocol to reset to the latest reward cycle
     pub fn refresh_burnchain_view(
         &mut self,
@@ -4757,7 +4785,7 @@ impl PeerNetwork {
             self.stacks_tip.is_nakamoto
         };
 
-        let stacks_tip_cbh = NakamotoChainState::get_coinbase_height(
+        let stacks_tip_cbh = NakamotoChainState::get_coinbase_height_at(
             &mut chainstate.index_conn(),
             &new_stacks_tip_block_id,
         )?;
@@ -4917,14 +4945,13 @@ impl PeerNetwork {
                 &canonical_sn.consensus_hash,
                 self.pending_messages
                     .iter()
-                    .fold(0, |acc, (_, msgs)| acc + msgs.len())
+                    .fold(0, |acc, (_, inbox)| acc + inbox.messages.len())
             );
-            let buffered_messages = mem::replace(&mut self.pending_messages, HashMap::new());
+            let buffered_messages = mem::take(&mut self.pending_messages);
             let unhandled = self.handle_unsolicited_sortition_messages(
                 sortdb,
                 chainstate,
                 buffered_messages,
-                ibd,
                 false,
             );
             ret.extend(unhandled);
@@ -4939,10 +4966,9 @@ impl PeerNetwork {
                 &canonical_sn.consensus_hash,
                 self.pending_stacks_messages
                     .iter()
-                    .fold(0, |acc, (_, msgs)| acc + msgs.len())
+                    .fold(0, |acc, (_, inbox)| acc + inbox.messages.len())
             );
-            let buffered_stacks_messages =
-                mem::replace(&mut self.pending_stacks_messages, HashMap::new());
+            let buffered_stacks_messages = mem::take(&mut self.pending_stacks_messages);
             let unhandled = self.handle_unsolicited_stacks_messages(
                 chainstate,
                 buffered_stacks_messages,
@@ -5035,7 +5061,6 @@ impl PeerNetwork {
             sortdb,
             chainstate,
             unhandled_messages,
-            ibd,
             true,
         );
         let unhandled_messages =
@@ -5568,7 +5593,6 @@ mod test {
     use std::{thread, time};
 
     use clarity::util::sleep_ms;
-    use rand::{self, RngCore};
     use stacks_common::types::chainstate::BurnchainHeaderHash;
 
     use super::*;
@@ -5579,13 +5603,6 @@ mod test {
     use crate::net::test::*;
     use crate::net::*;
     use crate::util_lib::test::*;
-
-    fn make_random_peer_address() -> PeerAddress {
-        let mut rng = rand::thread_rng();
-        let mut bytes = [0u8; 16];
-        rng.fill_bytes(&mut bytes);
-        PeerAddress(bytes)
-    }
 
     fn make_test_neighbor(port: u16) -> Neighbor {
         let neighbor = Neighbor {
@@ -5615,7 +5632,7 @@ mod test {
     }
 
     fn make_test_p2p_network(initial_neighbors: &[Neighbor]) -> PeerNetwork {
-        let mut conn_opts = ConnectionOptions::default();
+        let mut conn_opts = ConnectionOptions::default().with_private_neighbors();
         conn_opts.inbox_maxlen = 5;
         conn_opts.outbox_maxlen = 5;
 
@@ -5676,7 +5693,7 @@ mod test {
             burnchain_view,
             conn_opts,
             HashMap::new(),
-            StacksEpoch::unit_test_pre_2_05(0),
+            StacksEpoch::unit_test_up_to(0, StacksEpochId::Epoch20),
         );
         p2p
     }

@@ -25,7 +25,9 @@ use stacks::chainstate::burn::db::sortdb::SortitionDB;
 use stacks::chainstate::nakamoto::miner::NakamotoBlockBuilder;
 use stacks::chainstate::nakamoto::NakamotoChainState;
 use stacks::chainstate::stacks::db::StacksChainState;
-use stacks::chainstate::stacks::miner::{BlockBuilder, BlockLimitFunction};
+use stacks::chainstate::stacks::miner::{
+    BlockBuilder, BlockLimitFunction, TransactionResourceBudgets,
+};
 use stacks::chainstate::stacks::{TenureChangeCause, TenureChangePayload};
 use stacks::codec::StacksMessageCodec;
 use stacks::config::DEFAULT_MAX_TENURE_BYTES;
@@ -43,7 +45,6 @@ use stacks_common::bitvec::BitVec;
 use stacks_common::util::sleep_ms;
 use stacks_signer::chainstate::v1::SortitionsView;
 use stacks_signer::chainstate::ProposalEvalConfig;
-use stacks_signer::config::DEFAULT_RESET_REPLAY_SET_AFTER_FORK_BLOCKS;
 use stacks_signer::v0::SpawnedSigner;
 use stdext::prelude::DurationExt;
 use tracing_subscriber::{fmt, EnvFilter};
@@ -585,6 +586,7 @@ fn stx_transfers_dont_effect_idle_timeout() {
 
     let slot_id = 0_u32;
 
+    // This response predates global acceptance and reports an estimated idle time.
     let initial_acceptance = signer_test.get_latest_block_acceptance(slot_id);
     assert_eq!(initial_acceptance.signer_signature_hash, last_block_hash);
 
@@ -597,8 +599,6 @@ fn stx_transfers_dont_effect_idle_timeout() {
 
     let mut sender_nonce = 0;
 
-    // Note that this response was BEFORE the block was globally accepted. it will report a guestimated idle time
-    let initial_acceptance = initial_acceptance;
     let mut first_global_acceptance = None;
     for i in 0..num_txs {
         info!("---- Mining interim block {} ----", i + 1);
@@ -845,11 +845,25 @@ fn idle_tenure_extend_active_mining() {
                 &get_last_block_hash(),
                 "Expected the latest block response to be for the latest block"
             );
-            assert_ne!(
-                last_response.get_tenure_extend_timestamp(),
-                latest_response.get_tenure_extend_timestamp(),
-                "Tenure extend timestamp should change with each block"
-            );
+            // Tenure-change blocks (BlockFound/Extended) roll the timestamp over to
+            // `now + idle_timeout`, while regular blocks derive it from tenure start plus
+            // accumulated processing time (see `SignerDb::calculate_full_extend_timestamp`).
+            // With second-level granularity these two formulas can produce equal timestamps,
+            // so only assert strict advancement between consecutive regular blocks (where the
+            // injected validation delay guarantees it advances). Skip the first block of each
+            // tenure and any tenure-change block. In this scenario tenures advance via idle
+            // timeout, so only `Extended` blocks are expected here; the `BlockFound` check is
+            // defensive against unexpected tenure-change blocks (e.g. from CI timing).
+            let latest_block_is_tenure_change =
+                last_block_contains_tenure_change_tx(TenureChangeCause::Extended)
+                    || last_block_contains_tenure_change_tx(TenureChangeCause::BlockFound);
+            if i != 1 && !latest_block_is_tenure_change {
+                assert_ne!(
+                    last_response.get_tenure_extend_timestamp(),
+                    latest_response.get_tenure_extend_timestamp(),
+                    "Tenure extend timestamp should change with each block"
+                );
+            }
             last_response = latest_response;
         }
 
@@ -1039,7 +1053,6 @@ fn sip034_tenure_extend_proposal(allow: bool, extend_types: &[TenureChangeCause]
         tenure_idle_timeout: Duration::from_secs(300),
         tenure_idle_timeout_buffer: Duration::from_secs(2),
         reorg_attempts_activity_timeout: Duration::from_secs(30),
-        reset_replay_set_after_fork_blocks: DEFAULT_RESET_REPLAY_SET_AFTER_FORK_BLOCKS,
         read_count_idle_timeout: Duration::from_secs(12000),
     };
 
@@ -1111,7 +1124,7 @@ fn sip034_tenure_extend_proposal(allow: bool, extend_types: &[TenureChangeCause]
                     &tenure_change,
                     tenure_change.serialize_to_vec().len() as u64,
                     &BlockLimitFunction::NO_LIMIT_HIT,
-                    None,
+                    &TransactionResourceBudgets::unlimited(),
                     &mut 0,
                 )
                 .unwrap();
@@ -1388,7 +1401,9 @@ fn tenure_extend_after_stale_commit_same_miner() {
 
     let Counters {
         skip_commit_op,
+        naka_submitted_commits: commits_submitted,
         naka_submitted_commit_last_burn_height: last_commit_burn_height,
+        naka_submitted_commit_last_stacks_tip: last_commit_stacks_tip,
         ..
     } = signer_test.running_nodes.counters.clone();
 
@@ -1418,13 +1433,15 @@ fn tenure_extend_after_stale_commit_same_miner() {
         .wait_for_nonce_increase(&sender_addr, transfer_nonce)
         .unwrap();
 
+    let commits_before = commits_submitted.get();
     skip_commit_op.set(false);
 
     info!("---- Waiting for block commit to N-1 ----");
 
     wait_for(30, || {
-        let last_height = last_commit_burn_height.get();
-        Ok(last_height == prev_tip.burn_block_height)
+        let commits_after = commits_submitted.get();
+        let last_commit_tip = last_commit_stacks_tip.get();
+        Ok(commits_after > commits_before && last_commit_tip == prev_tip.stacks_tip_height)
     })
     .expect("Timed out waiting for block commit to N-1");
 
@@ -1522,7 +1539,9 @@ fn tenure_extend_after_stale_commit_same_miner_then_no_winner() {
 
     let Counters {
         skip_commit_op,
+        naka_submitted_commits: commits_submitted,
         naka_submitted_commit_last_burn_height: last_commit_burn_height,
+        naka_submitted_commit_last_stacks_tip: last_commit_stacks_tip,
         ..
     } = signer_test.running_nodes.counters.clone();
 
@@ -1552,13 +1571,15 @@ fn tenure_extend_after_stale_commit_same_miner_then_no_winner() {
         .wait_for_nonce_increase(&sender_addr, transfer_nonce)
         .unwrap();
 
+    let commits_before = commits_submitted.get();
     skip_commit_op.set(false);
 
     info!("---- Waiting for block commit to N-1 ----");
 
     wait_for(30, || {
-        let last_height = last_commit_burn_height.get();
-        Ok(last_height == prev_tip.burn_block_height)
+        let commits_after = commits_submitted.get();
+        let last_commit_tip = last_commit_stacks_tip.get();
+        Ok(commits_after > commits_before && last_commit_tip == prev_tip.stacks_tip_height)
     })
     .expect("Timed out waiting for block commit to N-1");
 
@@ -3550,26 +3571,55 @@ fn non_blocking_minority_configured_to_favour_test(variant: NonBlockingMinorityV
         "------------------------- Wait for Signers to Mark Incoming Miner as Invalid -------------------------"
     );
 
+    // Drop stale stackerdb chunks BEFORE sleeping so the wait below can only be
+    // satisfied by state machine updates broadcast at or after the switch-back.
+    // The short-timeout signers switch back to miner 1 and broadcast DURING the
+    // sleep (their proposal timeout is shorter than the sleep by design), so
+    // clearing after the sleep would erase those broadcasts; with no new burn
+    // block or proposal to trigger re-broadcasts, the wait could then never
+    // reach the 70% threshold. Clearing here still drops the stale pre-switch
+    // chunks that would otherwise satisfy the wait immediately.
+    test_observer::clear();
+
     // Sleep to let the short-timeout signers mark the incoming miner as invalid
     std::thread::sleep(tenure_extend_wait_timeout.add(Duration::from_secs(1)));
 
-    // Verify the short-timeout signers have updated their state machine.
-    // In the latest protocol, the minority reports miner 1 as the active miner (extending).
-    // In v1 / FavourIncoming, signers still report miner 2 as the winning miner.
-    let (expected_pkh, stacks_tip_height) =
-        if matches!(variant, NonBlockingMinorityVariant::FavourPrevMiner) {
-            (miner_pkh_1.clone(), stacks_height_before - 1)
-        } else {
-            (miner_pkh_2.clone(), stacks_height_before)
-        };
+    // What we expect the short-timeout signers to broadcast after switching back
+    // to miner 1, and which signer set must reach 70% agreement for the wait to
+    // succeed. For FavourIncomingMiner the short-timeout signers are the
+    // majority, and we need their switched-back broadcasts to flip the *global*
+    // state to miner 1 BEFORE we unstall miner 2 - otherwise miner 2's
+    // BlockFound is evaluated against stale global state and gets accepted
+    // instead of rejected. The long-timeout minority signer never switches back
+    // within this window, so waiting against the full signer set (5) with the
+    // 70% threshold (>= 4) is exactly the threshold the GlobalStateEvaluator
+    // uses to flip the global state.
+    let all_signers_versions = miners.signer_test.signer_addresses_versions();
+    let (expected_pkh, stacks_tip_height, expected_signers) = match variant {
+        NonBlockingMinorityVariant::FavourPrevMiner => (
+            miner_pkh_1.clone(),
+            stacks_height_before - 1,
+            short_timeout_signers.as_slice(),
+        ),
+        NonBlockingMinorityVariant::FavourPrevMinerV1 => (
+            miner_pkh_2.clone(),
+            stacks_height_before,
+            short_timeout_signers.as_slice(),
+        ),
+        NonBlockingMinorityVariant::FavourIncomingMiner => (
+            miner_pkh_1.clone(),
+            stacks_height_before - 1,
+            all_signers_versions.as_slice(),
+        ),
+    };
     wait_for_state_machine_update(
         30,
         &get_chain_info(&conf_1).pox_consensus,
         burn_height_before + 1,
         Some((expected_pkh, stacks_tip_height)),
-        &short_timeout_signers,
+        expected_signers,
     )
-    .expect("Short-timeout signers failed to update state machine");
+    .expect("Signers failed to reach expected state machine update after timeout");
 
     if minority_favours_incoming {
         // FavourIncomingMiner: miner 2 proposes first and gets rejected,
@@ -4359,10 +4409,7 @@ fn continue_after_fast_block_no_sortition() {
             miners.get_peer_info().stacks_tip
         })
         .expect("Did not mine Miner 2's Block N+3");
-    assert!(block_n_3
-        .txs
-        .iter()
-        .any(|tx| { tx.txid().to_string() == txid }));
+    assert!(block_n_3.txs().any(|tx| { tx.txid().to_string() == txid }));
 
     info!("------------------------- Mine An Empty Sortition -------------------------");
     miners

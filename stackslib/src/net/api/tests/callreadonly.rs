@@ -19,10 +19,11 @@ use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use clarity::types::chainstate::StacksBlockId;
 use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier, StacksAddressExtensions};
 use clarity::vm::ClarityName;
+use rstest::rstest;
 use stacks_common::types::chainstate::StacksAddress;
 use stacks_common::types::Address;
 
-use super::test_rpc;
+use super::{bool_list_hex, test_rpc};
 use crate::core::BLOCK_LIMIT_MAINNET_21;
 use crate::net::api::*;
 use crate::net::connection::ConnectionOptions;
@@ -30,6 +31,87 @@ use crate::net::httpcore::{
     HttpRequestContentsExtensions as _, RPCRequestHandler, StacksHttp, StacksHttpRequest,
 };
 use crate::net::{ProtocolFamily, TipRequest};
+
+fn new_call_read_request_with_hex_args(
+    addr: SocketAddr,
+    arguments: Vec<String>,
+) -> StacksHttpRequest {
+    let contract_addr =
+        StacksAddress::from_string("ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R").unwrap();
+    StacksHttpRequest::new_for_peer(
+        addr.into(),
+        "POST".into(),
+        format!("/v2/contracts/call-read/{contract_addr}/flood/f"),
+        crate::net::http::HttpRequestContents::new().payload_json(
+            serde_json::to_value(callreadonly::CallReadOnlyRequestBody {
+                sender: contract_addr.to_account_principal().to_string(),
+                sponsor: None,
+                arguments,
+            })
+            .unwrap(),
+        ),
+    )
+    .unwrap()
+}
+
+/// Preflight rejections only: the retention checkpoints need the tracking
+/// allocator and are covered in `mem_abort`.
+#[rstest]
+// argument count * size_of::<Value>() exceeds the limit before any value is read.
+#[case::argument_vector_reservation(vec!["03".into(); 1024], 16 * 1024, "exceeds parse memory limit")]
+// the body's wire size alone exceeds the limit, before JSON parsing.
+#[case::body_wire_size(vec![bool_list_hex(2048)], 1024, "exceeds parse memory limit")]
+// the argument-count cap holds even with the byte budget disabled.
+#[case::argument_count(
+    vec!["03".into(); read_only::parse::MAX_READ_ONLY_CALL_ARGUMENTS + 1],
+    0,
+    "Too many argument values"
+)]
+fn test_try_parse_request_rejects_invalid_arguments(
+    #[case] arguments: Vec<String>,
+    #[case] read_only_call_max_mem_bytes: u64,
+    #[case] expected_err: &str,
+) {
+    let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 33333);
+    let mut http = StacksHttp::new(addr, &ConnectionOptions::default());
+    let request = new_call_read_request_with_hex_args(addr, arguments);
+    let bytes = request.try_serialize().unwrap();
+
+    let (parsed_preamble, offset) = http.read_preamble(&bytes).unwrap();
+    let conn_opts = ConnectionOptions::default();
+    let mut handler = callreadonly::RPCCallReadOnlyRequestHandler::new(
+        conn_opts.maximum_call_argument_size,
+        BLOCK_LIMIT_MAINNET_21,
+        std::time::Duration::from_secs(conn_opts.read_only_max_execution_time_secs),
+        read_only_call_max_mem_bytes,
+    );
+
+    let error = format!(
+        "{:?}",
+        http.handle_try_parse_request(
+            &mut handler,
+            &parsed_preamble.expect_request(),
+            &bytes[offset..],
+        )
+        .unwrap_err()
+    );
+    assert!(error.contains(expected_err), "unexpected error: {error}");
+    assert!(handler.arguments.is_none());
+}
+
+#[test]
+fn test_restart_clears_parse_retained_mem() {
+    let conn_opts = ConnectionOptions::default();
+    let mut handler = callreadonly::RPCCallReadOnlyRequestHandler::new(
+        conn_opts.maximum_call_argument_size,
+        BLOCK_LIMIT_MAINNET_21,
+        std::time::Duration::from_secs(conn_opts.read_only_max_execution_time_secs),
+        conn_opts.read_only_call_max_mem_bytes,
+    );
+    handler.parse_retained_mem_bytes = 123;
+    handler.restart();
+    assert_eq!(handler.parse_retained_mem_bytes, 0);
+}
 
 #[test]
 fn test_try_parse_request() {
@@ -58,8 +140,13 @@ fn test_try_parse_request() {
     debug!("Request:\n{}\n", std::str::from_utf8(&bytes).unwrap());
 
     let (parsed_preamble, offset) = http.read_preamble(&bytes).unwrap();
-    let mut handler =
-        callreadonly::RPCCallReadOnlyRequestHandler::new(4096, BLOCK_LIMIT_MAINNET_21);
+    let conn_opts = ConnectionOptions::default();
+    let mut handler = callreadonly::RPCCallReadOnlyRequestHandler::new(
+        4096,
+        BLOCK_LIMIT_MAINNET_21,
+        std::time::Duration::from_secs(conn_opts.read_only_max_execution_time_secs),
+        conn_opts.read_only_call_max_mem_bytes,
+    );
     let mut parsed_request = http
         .handle_try_parse_request(
             &mut handler,

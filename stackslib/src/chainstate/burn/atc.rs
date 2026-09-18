@@ -29,7 +29,7 @@ use crate::stacks_common::util::uint::BitArray;
 /// * This avoids unrepresentable states, like NaN or +/- INF
 /// * This avoids ambiguous states, like +0.0 and -0.0.
 /// * This integrates better into the sortition-sampling system, which uses a u256 to represent a
-/// probability range (which is what this is going to be used for)
+///   probability range (which is what this is going to be used for)
 #[derive(Debug, Clone, PartialEq, Copy, Eq, Hash)]
 pub(crate) struct AtcRational(pub(crate) Uint256);
 impl AtcRational {
@@ -1410,6 +1410,9 @@ mod test {
     #[ignore]
     fn print_functions() {
         let mut grid: Vec<Vec<char>> = vec![vec![' '; 100]; 102];
+        // `i` is the column index into each row of `grid`, not an index into
+        // `grid` itself, so there is no iterator to replace it with.
+        #[allow(clippy::needless_range_loop)]
         for i in 0..100 {
             let f_atc = (i as f64) / 100.0;
             let atc = AtcRational::frac(i as u64, 100);
@@ -1424,11 +1427,11 @@ mod test {
             grid[l_atc_100][i] = '#';
             grid[p_atc_100][i] = '^';
         }
-        for j in 0..100 {
-            grid[101][j] = '_';
+        for cell in grid[101][..100].iter_mut() {
+            *cell = '_';
         }
 
-        println!("");
+        println!();
         for row in grid.iter() {
             let grid_str: String = row.clone().into_iter().collect();
             println!("|{}", &grid_str);
@@ -1438,13 +1441,13 @@ mod test {
     /// Calculate the logic advantage curve for the null miner.
     /// This function's parameters are chosen such that:
     /// * if the ATC carryover has diminished by less than 20%, the null miner has negligible
-    /// chances of winning.  This is to avoid punishing honest miners when there are flash blocks.
+    ///   chances of winning.  This is to avoid punishing honest miners when there are flash blocks.
     /// * If the ATC carryover has diminished by between 20% and 80%, the null miner has a
-    /// better-than-linear probability of winning.  That is, if the burnchain MEV miner pays less
-    /// than X% of the expected carryover (20% <= X < 80%), then their probability of winning is
-    /// (1) strictly less than X%, and (2) strictly less than any Pr[X% - c] for 0 < c < X.
+    ///   better-than-linear probability of winning.  That is, if the burnchain MEV miner pays less
+    ///   than X% of the expected carryover (20% <= X < 80%), then their probability of winning is
+    ///   (1) strictly less than X%, and (2) strictly less than any Pr[X% - c] for 0 < c < X.
     /// * If the ATC carryover is less than 20%, the null miner has an overwhelmingly likely chance
-    /// of winning (>95%).
+    ///   of winning (>95%).
     ///
     /// The logistic curve fits the points (atc=0.2, null_prob=0.75) and (atc=0.8, null_prob=0.01).
     fn null_miner_logistic(atc: f64) -> f64 {
@@ -1510,12 +1513,12 @@ mod test {
     fn make_null_miner_lookup_table() {
         use crate::chainstate::burn::atc::ATC_LOOKUP;
         let mut lookup_table = Vec::with_capacity(1024);
-        for atc in 0..1024 {
+        for (atc, entry) in ATC_LOOKUP.iter().enumerate() {
             let fatc = (atc as f64) / 1024.0;
             let lgst_fatc = null_miner_logistic(fatc);
             let lgst_rational = AtcRational::from_f64_unit(lgst_fatc);
-            assert_eq!(ATC_LOOKUP[atc], lgst_rational);
-            assert_eq!(ATC_LOOKUP[atc].to_f64(), lgst_fatc);
+            assert_eq!(*entry, lgst_rational);
+            assert_eq!(entry.to_f64(), lgst_fatc);
             lookup_table.push(lgst_rational);
         }
         println!("[");

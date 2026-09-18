@@ -14,6 +14,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use stacks_common::bounded_format;
 use stacks_common::consts::{
     BITCOIN_REGTEST_FIRST_BLOCK_HASH, BITCOIN_REGTEST_FIRST_BLOCK_HEIGHT,
     BITCOIN_REGTEST_FIRST_BLOCK_TIMESTAMP, FIRST_BURNCHAIN_CONSENSUS_HASH, FIRST_STACKS_BLOCK_HASH,
@@ -171,6 +172,7 @@ pub trait HeadersDB {
     fn get_vrf_seed_for_block(
         &self,
         id_bhh: &StacksBlockId,
+        tip: &StacksBlockId,
         epoch: &StacksEpochId,
     ) -> Option<VRFSeed>;
     fn get_stacks_block_time_for_block(&self, id_bhh: &StacksBlockId) -> Option<u64>;
@@ -183,21 +185,25 @@ pub trait HeadersDB {
     fn get_miner_address(
         &self,
         id_bhh: &StacksBlockId,
+        tip: &StacksBlockId,
         epoch: &StacksEpochId,
     ) -> Option<StacksAddress>;
     fn get_burnchain_tokens_spent_for_block(
         &self,
         id_bhh: &StacksBlockId,
+        tip: &StacksBlockId,
         epoch: &StacksEpochId,
     ) -> Option<u128>;
     fn get_burnchain_tokens_spent_for_winning_block(
         &self,
         id_bhh: &StacksBlockId,
+        tip: &StacksBlockId,
         epoch: &StacksEpochId,
     ) -> Option<u128>;
     fn get_tokens_earned_for_block(
         &self,
         id_bhh: &StacksBlockId,
+        tip: &StacksBlockId,
         epoch: &StacksEpochId,
     ) -> Option<u128>;
     fn get_stacks_height_for_tenure_height(
@@ -218,6 +224,7 @@ pub trait BurnStateDB {
     fn get_v3_unlock_height(&self) -> u32;
     fn get_pox_3_activation_height(&self) -> u32;
     fn get_pox_4_activation_height(&self) -> u32;
+    fn get_pox_5_activation_height(&self) -> u32;
 
     /// Returns the *burnchain block height* for the `sortition_id` is associated with.
     fn get_burn_block_height(&self, sortition_id: &SortitionId) -> Option<u32>;
@@ -287,6 +294,7 @@ impl HeadersDB for NullHeadersDB {
     fn get_vrf_seed_for_block(
         &self,
         _bhh: &StacksBlockId,
+        _tip: &StacksBlockId,
         _epoch: &StacksEpochId,
     ) -> Option<VRFSeed> {
         None
@@ -336,6 +344,7 @@ impl HeadersDB for NullHeadersDB {
     fn get_miner_address(
         &self,
         _id_bhh: &StacksBlockId,
+        _tip: &StacksBlockId,
         _epoch: &StacksEpochId,
     ) -> Option<StacksAddress> {
         None
@@ -343,6 +352,7 @@ impl HeadersDB for NullHeadersDB {
     fn get_burnchain_tokens_spent_for_block(
         &self,
         _id_bhh: &StacksBlockId,
+        _tip: &StacksBlockId,
         _epoch: &StacksEpochId,
     ) -> Option<u128> {
         None
@@ -350,6 +360,7 @@ impl HeadersDB for NullHeadersDB {
     fn get_burnchain_tokens_spent_for_winning_block(
         &self,
         _id_bhh: &StacksBlockId,
+        _tip: &StacksBlockId,
         _epoch: &StacksEpochId,
     ) -> Option<u128> {
         None
@@ -357,6 +368,7 @@ impl HeadersDB for NullHeadersDB {
     fn get_tokens_earned_for_block(
         &self,
         _id_bhh: &StacksBlockId,
+        _tip: &StacksBlockId,
         _epoch: &StacksEpochId,
     ) -> Option<u128> {
         None
@@ -433,6 +445,10 @@ impl BurnStateDB for NullBurnStateDB {
     }
 
     fn get_pox_4_activation_height(&self) -> u32 {
+        u32::MAX
+    }
+
+    fn get_pox_5_activation_height(&self) -> u32 {
         u32::MAX
     }
 
@@ -578,7 +594,7 @@ impl<'a> ClarityDatabase<'a> {
 
             let (sanitized_value, did_sanitize) =
                 Value::sanitize_value(epoch, &TypeSignature::type_of(&value)?, value)
-                    .ok_or_else(|| RuntimeCheckErrorKind::CouldNotDetermineType)?;
+                    .ok_or(RuntimeCheckErrorKind::CouldNotDetermineType)?;
             // if data needed to be sanitized *charge* for the unsanitized cost
             if did_sanitize {
                 pre_sanitized_size = Some(value_size);
@@ -1172,6 +1188,13 @@ impl ClarityDatabase<'_> {
         self.store.get_current_block_height()
     }
 
+    /// The canonical evaluation tip (parent of the block being constructed), used to anchor
+    /// immutable tenure-start reads (see `HeadersDB`) instead of a possibly-pruned historical block.
+    fn eval_tip_block_id(&mut self) -> Result<StacksBlockId, VmExecutionError> {
+        let current_height = self.get_current_block_height();
+        self.get_index_block_header_hash(current_height.saturating_sub(1))
+    }
+
     /// Return the height for PoX v1 -> v2 auto unlocks
     ///   from the burn state db
     pub fn get_v1_unlock_height(&self) -> u32 {
@@ -1208,6 +1231,16 @@ impl ClarityDatabase<'_> {
         }
     }
 
+    /// Return the height for PoX v4 -> v5 auto unlocks
+    ///   from the burn state db
+    pub fn get_v4_unlock_height(&mut self) -> Result<u32, VmExecutionError> {
+        if self.get_clarity_epoch_version()? >= StacksEpochId::Epoch40 {
+            Ok(self.burn_state_db.get_pox_5_activation_height())
+        } else {
+            Ok(u32::MAX)
+        }
+    }
+
     /// Return the block height for a given tenure height
     ///   if the block information is queryable for the tenure height.
     /// The block information for a given tenure height is queryable iff:
@@ -1235,7 +1268,7 @@ impl ClarityDatabase<'_> {
             return Ok(Some(tenure_height));
         }
         // query from the parent
-        let query_tip = self.get_index_block_header_hash(current_height.saturating_sub(1))?;
+        let query_tip = self.eval_tip_block_id()?;
         Ok(self
             .headers_db
             .get_stacks_height_for_tenure_height(&query_tip, tenure_height))
@@ -1418,9 +1451,10 @@ impl ClarityDatabase<'_> {
 
     pub fn get_block_vrf_seed(&mut self, block_height: u32) -> Result<VRFSeed, VmExecutionError> {
         let id_bhh = self.get_index_block_header_hash(block_height)?;
+        let query_tip = self.eval_tip_block_id()?;
         let epoch = self.get_stacks_epoch_for_block(&id_bhh)?;
         self.headers_db
-            .get_vrf_seed_for_block(&id_bhh, &epoch)
+            .get_vrf_seed_for_block(&id_bhh, &query_tip, &epoch)
             .ok_or_else(|| VmInternalError::Expect("Failed to get block data.".into()).into())
     }
 
@@ -1429,10 +1463,11 @@ impl ClarityDatabase<'_> {
         block_height: u32,
     ) -> Result<StandardPrincipalData, VmExecutionError> {
         let id_bhh = self.get_index_block_header_hash(block_height)?;
+        let query_tip = self.eval_tip_block_id()?;
         let epoch = self.get_stacks_epoch_for_block(&id_bhh)?;
         Ok(self
             .headers_db
-            .get_miner_address(&id_bhh, &epoch)
+            .get_miner_address(&id_bhh, &query_tip, &epoch)
             .ok_or_else(|| VmInternalError::Expect("Failed to get block data.".into()))?
             .into())
     }
@@ -1443,10 +1478,11 @@ impl ClarityDatabase<'_> {
         }
 
         let id_bhh = self.get_index_block_header_hash(block_height)?;
+        let query_tip = self.eval_tip_block_id()?;
         let epoch = self.get_stacks_epoch_for_block(&id_bhh)?;
         Ok(self
             .headers_db
-            .get_burnchain_tokens_spent_for_winning_block(&id_bhh, &epoch)
+            .get_burnchain_tokens_spent_for_winning_block(&id_bhh, &query_tip, &epoch)
             .ok_or_else(|| {
                 VmInternalError::Expect(
                     "FATAL: no winning burnchain token spend record for block".into(),
@@ -1460,10 +1496,11 @@ impl ClarityDatabase<'_> {
         }
 
         let id_bhh = self.get_index_block_header_hash(block_height)?;
+        let query_tip = self.eval_tip_block_id()?;
         let epoch = self.get_stacks_epoch_for_block(&id_bhh)?;
         Ok(self
             .headers_db
-            .get_burnchain_tokens_spent_for_block(&id_bhh, &epoch)
+            .get_burnchain_tokens_spent_for_block(&id_bhh, &query_tip, &epoch)
             .ok_or_else(|| {
                 VmInternalError::Expect(
                     "FATAL: no total burnchain token spend record for block".into(),
@@ -1488,10 +1525,11 @@ impl ClarityDatabase<'_> {
         }
 
         let id_bhh = self.get_index_block_header_hash(block_height)?;
+        let query_tip = self.eval_tip_block_id()?;
         let epoch = self.get_stacks_epoch_for_block(&id_bhh)?;
         let reward: u128 = self
             .headers_db
-            .get_tokens_earned_for_block(&id_bhh, &epoch)
+            .get_tokens_earned_for_block(&id_bhh, &query_tip, &epoch)
             .ok_or_else(|| {
                 VmInternalError::Expect("FATAL: matured block has no recorded reward".into())
             })?;
@@ -1678,8 +1716,10 @@ impl ClarityDatabase<'_> {
         let key = ClarityDatabase::make_metadata_key(StoreType::VariableMeta, variable_name);
 
         map_no_contract_as_none(self.fetch_metadata(contract_identifier, &key))?.ok_or(
-            RuntimeCheckErrorKind::Unreachable(format!("No such data variable: {variable_name}"))
-                .into(),
+            RuntimeCheckErrorKind::Unreachable(bounded_format!(
+                "No such data variable: {variable_name}"
+            ))
+            .into(),
         )
     }
 
@@ -1820,8 +1860,9 @@ impl ClarityDatabase<'_> {
     ) -> Result<DataMapMetadata, VmExecutionError> {
         let key = ClarityDatabase::make_metadata_key(StoreType::DataMapMeta, map_name);
 
-        map_no_contract_as_none(self.fetch_metadata(contract_identifier, &key))?
-            .ok_or(RuntimeCheckErrorKind::Unreachable(format!("No such map: {map_name}")).into())
+        map_no_contract_as_none(self.fetch_metadata(contract_identifier, &key))?.ok_or(
+            RuntimeCheckErrorKind::Unreachable(bounded_format!("No such map: {map_name}")).into(),
+        )
     }
 
     pub fn make_key_for_data_map_entry(
@@ -2184,8 +2225,9 @@ impl ClarityDatabase<'_> {
     ) -> Result<FungibleTokenMetadata, VmExecutionError> {
         let key = ClarityDatabase::make_metadata_key(StoreType::FungibleTokenMeta, token_name);
 
-        map_no_contract_as_none(self.fetch_metadata(contract_identifier, &key))?
-            .ok_or(RuntimeCheckErrorKind::Unreachable(format!("No such FT: {token_name}")).into())
+        map_no_contract_as_none(self.fetch_metadata(contract_identifier, &key))?.ok_or(
+            RuntimeCheckErrorKind::Unreachable(bounded_format!("No such FT: {token_name}")).into(),
+        )
     }
 
     pub fn create_non_fungible_token(
@@ -2210,8 +2252,9 @@ impl ClarityDatabase<'_> {
     ) -> Result<NonFungibleTokenMetadata, VmExecutionError> {
         let key = ClarityDatabase::make_metadata_key(StoreType::NonFungibleTokenMeta, token_name);
 
-        map_no_contract_as_none(self.fetch_metadata(contract_identifier, &key))?
-            .ok_or(RuntimeCheckErrorKind::Unreachable(format!("No such NFT: {token_name}")).into())
+        map_no_contract_as_none(self.fetch_metadata(contract_identifier, &key))?.ok_or(
+            RuntimeCheckErrorKind::Unreachable(bounded_format!("No such NFT: {token_name}")).into(),
+        )
     }
 
     pub fn checked_increase_token_supply(
@@ -2486,13 +2529,15 @@ impl<'a> ClarityDatabase<'a> {
                 cur_burn_height,
                 self.get_v1_unlock_height(),
                 self.get_v2_unlock_height()?,
-                self.get_v3_unlock_height()?
+                self.get_v3_unlock_height()?,
+                self.get_v4_unlock_height()?,
             )?,
             stx_balance.has_unlockable_tokens_at_burn_block(
                 cur_burn_height,
                 self.get_v1_unlock_height(),
                 self.get_v2_unlock_height()?,
-                self.get_v3_unlock_height()?
+                self.get_v3_unlock_height()?,
+                self.get_v4_unlock_height()?,
             )
         );
 
@@ -2520,13 +2565,15 @@ impl<'a> ClarityDatabase<'a> {
                 cur_burn_height,
                 self.get_v1_unlock_height(),
                 self.get_v2_unlock_height()?,
-                self.get_v3_unlock_height()?
+                self.get_v3_unlock_height()?,
+                self.get_v4_unlock_height()?,
             )?,
             stx_balance.has_unlockable_tokens_at_burn_block(
                 cur_burn_height,
                 self.get_v1_unlock_height(),
                 self.get_v2_unlock_height()?,
-                self.get_v3_unlock_height()?
+                self.get_v3_unlock_height()?,
+                self.get_v4_unlock_height()?,
             )
         );
 
@@ -2704,7 +2751,7 @@ fn checked_decrease_token_supply_underflow() {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::vm::database::MemoryBackingStore;
+    use crate::vm::database::{MemoryBackingStore, StoreType};
     use crate::vm::version::ClarityVersion;
 
     /// Deploy a minimal stub contract under `id` in its own committed db transaction.
@@ -2847,6 +2894,53 @@ mod tests {
             );
             db.roll_back().unwrap();
         }
+    }
+
+    /// Guards that the DB read path applies the epoch gate, never returning a
+    /// type-unsound tuple from Epoch 4.1.
+    #[test]
+    fn get_value_epoch_gates_typed_tuple_fields() {
+        // `{a:int,b:int}` buffer with a duplicate `a` field; collapses to `{a: 2}`.
+        const DUPLICATE_FIELDS: &str = "0c000000020161000000000000000000000000000000000101610000000000000000000000000000000002";
+        const REDUCED_TUPLE: &str = "0c0000000101610000000000000000000000000000000002";
+
+        let mut store = MemoryBackingStore::new();
+        let mut db = store.as_clarity_db();
+        db.begin();
+
+        let contract = QualifiedContractIdentifier::transient();
+        let key = ClarityDatabase::make_key_for_trip(&contract, StoreType::Variable, "corrupt");
+        // Store raw bytes to bypass write-path sanitization and isolate the read path.
+        db.put_data(&key, &DUPLICATE_FIELDS.to_string())
+            .expect("failed to store raw value");
+
+        let expected_type = TypeSignature::type_of(&Value::from(
+            TupleData::from_data(vec![
+                (ClarityName::from_literal("a"), Value::Int(1)),
+                (ClarityName::from_literal("b"), Value::Int(2)),
+            ])
+            .unwrap(),
+        ))
+        .unwrap();
+
+        // Pre-Epoch 4.1: historical handling reduces the duplicate to one field.
+        // Epoch40 pins the activation boundary.
+        for epoch in [StacksEpochId::Epoch34, StacksEpochId::Epoch40] {
+            let legacy = db
+                .get_value(&key, &expected_type, &epoch)
+                .expect("legacy read should not error")
+                .expect("value should be present");
+            assert_eq!(legacy.value.serialize_to_hex().unwrap(), REDUCED_TUPLE);
+        }
+
+        // Epoch 4.1+: the read is rejected instead of returning a type-unsound tuple.
+        let strict = db.get_value(&key, &expected_type, &StacksEpochId::Epoch41);
+        assert!(
+            strict.is_err(),
+            "strict read should reject the malformed tuple, got {strict:?}"
+        );
+
+        db.commit().unwrap();
     }
 }
 

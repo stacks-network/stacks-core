@@ -13,6 +13,8 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use stacks_common::bounded_format;
+
 use crate::vm::contexts::{ExecutionState, InvocationContext};
 use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::costs::runtime_cost;
@@ -60,9 +62,7 @@ pub fn tuple_get(
 
     let arg_name = args[0]
         .match_atom()
-        .ok_or(RuntimeCheckErrorKind::Unreachable(
-            "Expected name".to_string(),
-        ))?;
+        .ok_or(RuntimeCheckErrorKind::Unreachable("Expected name".into()))?;
 
     let value = eval(&args[1], exec_state, invoke_ctx, context)?;
 
@@ -78,7 +78,7 @@ pub fn tuple_get(
                             )
                         })?)
                     } else {
-                        Err(RuntimeCheckErrorKind::Unreachable(format!(
+                        Err(RuntimeCheckErrorKind::Unreachable(bounded_format!(
                             "Expected tuple: {}",
                             TypeSignature::type_of(&data)?
                         ))
@@ -92,7 +92,7 @@ pub fn tuple_get(
             runtime_cost(ClarityCostFunction::TupleGet, exec_state, tuple_data.len())?;
             Ok(tuple_data.get_owned(arg_name)?)
         }
-        other_value => Err(RuntimeCheckErrorKind::Unreachable(format!(
+        other_value => Err(RuntimeCheckErrorKind::Unreachable(bounded_format!(
             "Expected tuple: {}",
             TypeSignature::type_of(&other_value)?
         ))
@@ -100,10 +100,23 @@ pub fn tuple_get(
     }
 }
 
-pub fn tuple_merge(base: Value, update: Value) -> Result<Value, VmExecutionError> {
+pub fn tuple_merge(
+    mut args: Vec<Value>,
+    exec_state: &mut ExecutionState,
+    _invoke_ctx: &InvocationContext,
+) -> Result<Value, VmExecutionError> {
+    check_argument_count(2, &args)?;
+    // `merge` is dispatched with two evaluated arguments; extract them in order.
+    let update = args
+        .pop()
+        .ok_or_else(|| VmInternalError::Expect("Unexpected list length".into()))?;
+    let base = args
+        .pop()
+        .ok_or_else(|| VmInternalError::Expect("Unexpected list length".into()))?;
+
     let initial_values = match base {
         Value::Tuple(initial_values) => Ok(initial_values),
-        _ => Err(RuntimeCheckErrorKind::Unreachable(format!(
+        _ => Err(RuntimeCheckErrorKind::Unreachable(bounded_format!(
             "Expected tuple: {}",
             TypeSignature::type_of(&base)?
         ))),
@@ -111,12 +124,19 @@ pub fn tuple_merge(base: Value, update: Value) -> Result<Value, VmExecutionError
 
     let new_values = match update {
         Value::Tuple(new_values) => Ok(new_values),
-        _ => Err(RuntimeCheckErrorKind::Unreachable(format!(
+        _ => Err(RuntimeCheckErrorKind::Unreachable(bounded_format!(
             "Expected tuple: {}",
             TypeSignature::type_of(&update)?
         ))),
     }?;
 
     let combined = TupleData::shallow_merge(initial_values, new_values);
+    if exec_state.epoch().fixes_tuple_merge_size_check() {
+        // 4.0+: reject an oversized merged tuple cleanly with `ValueTooLarge` instead of
+        // block-invalidating later (the pre-4.0 behavior: the oversized value propagates and
+        // fails during cost calculation with an `InvariantViolation`). This mirrors the
+        // static-analysis gate in `check_special_merge` so no oversized tuple can exist at 4.0+.
+        combined.type_signature.checked_value_size()?;
+    }
     Ok(Value::Tuple(combined))
 }

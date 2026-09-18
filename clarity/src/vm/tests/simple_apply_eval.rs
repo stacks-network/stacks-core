@@ -14,6 +14,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use std::assert_matches;
 use std::time::Duration;
 
 use clarity_types::ClarityName;
@@ -22,6 +23,7 @@ use rstest_reuse::{self, *};
 use stacks_common::address::{
     AddressHashMode, C32_ADDRESS_VERSION_MAINNET_SINGLESIG, C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
 };
+use stacks_common::bounded_format;
 use stacks_common::consts::{CHAIN_ID_MAINNET, CHAIN_ID_TESTNET};
 use stacks_common::types::StacksEpochId;
 use stacks_common::types::chainstate::{StacksAddress, StacksPrivateKey, StacksPublicKey};
@@ -34,6 +36,7 @@ use crate::vm::costs::LimitedCostTracker;
 use crate::vm::database::MemoryBackingStore;
 use crate::vm::errors::{
     ClarityEvalError, EarlyReturnError, RuntimeCheckErrorKind, RuntimeError, VmExecutionError,
+    VmInternalError,
 };
 use crate::vm::tests::{execute, test_clarity_versions};
 use crate::vm::types::signatures::*;
@@ -42,8 +45,8 @@ use crate::vm::types::{
     TypeSignature,
 };
 use crate::vm::{
-    CallStack, ClarityVersion, ContractContext, CostErrors, GlobalContext, LocalContext, Value,
-    ValueRef, eval, execute as vm_execute, execute_v2 as vm_execute_v2,
+    CallStack, ClarityVersion, ContractContext, GlobalContext, LocalContext, Value, ValueRef, eval,
+    execute as vm_execute, execute_v2 as vm_execute_v2,
     execute_with_limited_execution_time as vm_execute_with_limited_execution_time,
     execute_with_parameters,
 };
@@ -462,7 +465,7 @@ fn test_secp256k1() {
     )
     .unwrap(); // need the "compressed extra 0x01 to match, as this changes the address"
     eprintln!("privk {privk:?}");
-    eprintln!("from_private {:?}", &StacksPublicKey::from_private(&privk));
+    eprintln!("from_private {:?}", StacksPublicKey::from_private(&privk));
     let addr = StacksAddress::from_public_keys(
         C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
         &AddressHashMode::SerializeP2PKH,
@@ -1251,33 +1254,48 @@ fn test_options_errors() {
 
     let expectations: &[ClarityEvalError] = &[
         RuntimeCheckErrorKind::IncorrectArgumentCount(1, 2).into(),
-        RuntimeCheckErrorKind::Unreachable(format!("Expected option value: {}", Value::Bool(true)))
-            .into(),
+        RuntimeCheckErrorKind::Unreachable(bounded_format!(
+            "Expected option value: {}",
+            Value::Bool(true)
+        ))
+        .into(),
         RuntimeCheckErrorKind::IncorrectArgumentCount(1, 2).into(),
-        RuntimeCheckErrorKind::Unreachable(format!(
+        RuntimeCheckErrorKind::Unreachable(bounded_format!(
             "Expected response value: {}",
             Value::Bool(true)
         ))
         .into(),
         RuntimeCheckErrorKind::IncorrectArgumentCount(1, 2).into(),
-        RuntimeCheckErrorKind::Unreachable(format!(
+        RuntimeCheckErrorKind::Unreachable(bounded_format!(
             "Expected response value: {}",
             Value::Bool(true)
         ))
         .into(),
         RuntimeCheckErrorKind::IncorrectArgumentCount(1, 2).into(),
-        RuntimeCheckErrorKind::Unreachable(format!("Expected option value: {}", Value::Bool(true)))
-            .into(),
+        RuntimeCheckErrorKind::Unreachable(bounded_format!(
+            "Expected option value: {}",
+            Value::Bool(true)
+        ))
+        .into(),
         RuntimeCheckErrorKind::IncorrectArgumentCount(1, 2).into(),
         RuntimeCheckErrorKind::IncorrectArgumentCount(1, 2).into(),
         RuntimeCheckErrorKind::IncorrectArgumentCount(1, 2).into(),
         RuntimeCheckErrorKind::IncorrectArgumentCount(2, 3).into(),
-        RuntimeCheckErrorKind::Unreachable(format!("Expected option value: {}", Value::Bool(true)))
-            .into(),
-        RuntimeCheckErrorKind::Unreachable(format!("Expected tuple: {}", TypeSignature::IntType))
-            .into(),
-        RuntimeCheckErrorKind::Unreachable(format!("Expected tuple: {}", TypeSignature::IntType))
-            .into(),
+        RuntimeCheckErrorKind::Unreachable(bounded_format!(
+            "Expected option value: {}",
+            Value::Bool(true)
+        ))
+        .into(),
+        RuntimeCheckErrorKind::Unreachable(bounded_format!(
+            "Expected tuple: {}",
+            TypeSignature::IntType
+        ))
+        .into(),
+        RuntimeCheckErrorKind::Unreachable(bounded_format!(
+            "Expected tuple: {}",
+            TypeSignature::IntType
+        ))
+        .into(),
     ];
 
     for (program, expectation) in tests.iter().zip(expectations.iter()) {
@@ -1302,15 +1320,15 @@ fn test_stx_ops_errors() {
 
     let expectations: &[ClarityEvalError] = &[
         RuntimeCheckErrorKind::IncorrectArgumentCount(3, 2).into(),
-        RuntimeCheckErrorKind::Unreachable("Bad transfer STX args".to_string()).into(),
-        RuntimeCheckErrorKind::Unreachable("Bad transfer STX args".to_string()).into(),
-        RuntimeCheckErrorKind::Unreachable("Bad transfer STX args".to_string()).into(),
+        RuntimeCheckErrorKind::Unreachable("Bad transfer STX args".into()).into(),
+        RuntimeCheckErrorKind::Unreachable("Bad transfer STX args".into()).into(),
+        RuntimeCheckErrorKind::Unreachable("Bad transfer STX args".into()).into(),
         RuntimeCheckErrorKind::IncorrectArgumentCount(4, 3).into(),
-        RuntimeCheckErrorKind::Unreachable("Bad transfer STX args".to_string()).into(),
-        RuntimeCheckErrorKind::Unreachable("Bad transfer STX args".to_string()).into(),
-        RuntimeCheckErrorKind::Unreachable("Bad transfer STX args".to_string()).into(),
+        RuntimeCheckErrorKind::Unreachable("Bad transfer STX args".into()).into(),
+        RuntimeCheckErrorKind::Unreachable("Bad transfer STX args".into()).into(),
+        RuntimeCheckErrorKind::Unreachable("Bad transfer STX args".into()).into(),
         RuntimeCheckErrorKind::IncorrectArgumentCount(2, 1).into(),
-        RuntimeCheckErrorKind::Unreachable("Bad transfer STX args".to_string()).into(),
+        RuntimeCheckErrorKind::Unreachable("Bad transfer STX args".into()).into(),
     ];
 
     for (program, expectation) in tests.iter().zip(expectations.iter()) {
@@ -1481,7 +1499,7 @@ fn test_option_destructs() {
     let expectations: &[Result<Value, ClarityEvalError>] = &[
         Ok(Value::Int(1)),
         Ok(Value::Int(1)),
-        Err(RuntimeCheckErrorKind::Unreachable(format!(
+        Err(RuntimeCheckErrorKind::Unreachable(bounded_format!(
             "Expected response value: {}",
             Value::some(Value::Int(2)).unwrap()
         ))
@@ -1501,12 +1519,12 @@ fn test_option_destructs() {
         Ok(Value::Int(9)),
         Ok(Value::Int(2)),
         Ok(Value::Int(8)),
-        Err(RuntimeCheckErrorKind::Unreachable(format!(
+        Err(RuntimeCheckErrorKind::Unreachable(bounded_format!(
             "Bad match input: {}",
             TypeSignature::IntType
         ))
         .into()),
-        Err(RuntimeCheckErrorKind::Unreachable(format!(
+        Err(RuntimeCheckErrorKind::Unreachable(bounded_format!(
             "Bad match input: {}",
             TypeSignature::IntType
         ))
@@ -1524,7 +1542,7 @@ fn test_option_destructs() {
         ),
         Ok(Value::Bool(true)),
         Err(RuntimeCheckErrorKind::IncorrectArgumentCount(1, 2).into()),
-        Err(RuntimeCheckErrorKind::Unreachable(format!(
+        Err(RuntimeCheckErrorKind::Unreachable(bounded_format!(
             "Expected optional or response value: {}",
             Value::Int(1)
         ))
@@ -1656,7 +1674,7 @@ fn test_bad_lets() {
         RuntimeCheckErrorKind::NameAlreadyUsed("tx-sender".to_string()).into(),
         RuntimeCheckErrorKind::NameAlreadyUsed("*".to_string()).into(),
         RuntimeCheckErrorKind::NameAlreadyUsed("a".to_string()).into(),
-        RuntimeCheckErrorKind::Unreachable("No such data variable: cursor".to_string()).into(),
+        RuntimeCheckErrorKind::Unreachable("No such data variable: cursor".into()).into(),
         RuntimeCheckErrorKind::NameAlreadyUsed("true".to_string()).into(),
         RuntimeCheckErrorKind::NameAlreadyUsed("false".to_string()).into(),
     ];
@@ -1715,6 +1733,76 @@ fn merge_update_type_signature_2239() {
         .for_each(|(program, expectation)| {
             assert_eq!(expectation.to_string(), execute(program).to_string())
         });
+}
+
+/// Runtime epoch gate for an oversized tuple `merge`.
+///
+/// Builds two individually-valid ~512 KiB tuples whose combined size exceeds `MAX_VALUE_SIZE`
+/// and merges them at runtime.
+/// The merge result is bound in a `let` but never sized, isolating the merge itself:
+/// - epoch < 4.0: `merge` is infallible (legacy), so the program returns `true`.
+/// - epoch >= 4.0: `merge` rejects the oversized result cleanly with `ValueTooLarge`.
+#[test]
+fn tuple_merge_runtime_size_gate_epoch40() {
+    let program = r#"
+        (define-private (make-buff-256)
+            (let ((b16 0x00112233445566778899aabbccddeeff)
+                  (b32 (concat b16 b16))
+                  (b64 (concat b32 b32))
+                  (b128 (concat b64 b64))
+                  (b256 (concat b128 b128)))
+              b256))
+        (define-private (make-buff-4096)
+            (let ((b256 (make-buff-256))
+                  (b512 (concat b256 b256))
+                  (b1024 (concat b512 b512))
+                  (b2048 (concat b1024 b1024))
+                  (b4096 (concat b2048 b2048)))
+              b4096))
+        (define-private (make-buff-65536)
+            (let ((b4096 (make-buff-4096))
+                  (b8192 (concat b4096 b4096))
+                  (b16384 (concat b8192 b8192))
+                  (b32768 (concat b16384 b16384))
+                  (b65536 (concat b32768 b32768)))
+              b65536))
+        (define-private (make-buff-524288)
+            (let ((b65536 (make-buff-65536))
+                  (b131072 (concat b65536 b65536))
+                  (b262144 (concat b131072 b131072))
+                  (b524288 (concat b262144 b262144)))
+              b524288))
+        (let ((big (unwrap-panic (as-max-len? (make-buff-524288) u524288))))
+            (let ((m (merge (tuple (a big)) (tuple (b big)))))
+                true))
+    "#;
+
+    // epoch < 4.0 (legacy): the infallible merge yields an oversized value that later fails
+    // during cost calculation with a block-invalidating internal `Expect`.
+    let legacy_err = execute_with_parameters(
+        program,
+        ClarityVersion::Clarity3,
+        StacksEpochId::Epoch34,
+        false,
+    )
+    .unwrap_err();
+    assert!(
+        matches!(
+            legacy_err,
+            ClarityEvalError::Vm(VmExecutionError::Internal(VmInternalError::Expect(_)))
+        ),
+        "expected a pre-4.0 Expect failure, got {legacy_err:?}"
+    );
+
+    // epoch >= 4.0: the oversized merge is rejected cleanly with `ValueTooLarge`.
+    let gated_err = execute_with_parameters(
+        program,
+        ClarityVersion::Clarity3,
+        StacksEpochId::Epoch40,
+        false,
+    )
+    .unwrap_err();
+    assert_eq!(gated_err, RuntimeCheckErrorKind::ValueTooLarge.into());
 }
 
 #[test]
@@ -1862,40 +1950,12 @@ fn test_chain_id() {
 
 #[test]
 fn test_execution_time_expiration() {
-    assert_eq!(
+    assert_matches!(
         vm_execute_with_limited_execution_time("(+ 1 1)", Duration::from_secs(0))
             .err()
             .unwrap(),
-        ClarityEvalError::Vm(CostErrors::ExecutionTimeExpired.into())
+        ClarityEvalError::Vm(VmExecutionError::RuntimeCheck(
+            RuntimeCheckErrorKind::ExecutionResourceBudgetExceeded(_)
+        ))
     );
-}
-
-#[test]
-fn test_abort_callback_stops_execution() {
-    use crate::vm::contexts::AbortCallback;
-    use crate::vm::execute_with_parameters_and_call_in_global_context;
-    let abort_msg = "abort callback fired";
-
-    // An abort callback that always fires
-    let result = execute_with_parameters_and_call_in_global_context(
-        "(+ 1 1)",
-        ClarityVersion::Clarity1,
-        StacksEpochId::Epoch20,
-        false,
-        clarity_types::types::StandardPrincipalData::transient(),
-        |g| {
-            g.abort_callback = AbortCallback::AlwaysAbort(abort_msg.into());
-            Ok(())
-        },
-        |_| Ok(()),
-    );
-    match result {
-        Err(ClarityEvalError::Vm(e)) => {
-            let expected = VmExecutionError::RuntimeCheck(
-                RuntimeCheckErrorKind::AbortedByExecutionHook(abort_msg.into()),
-            );
-            assert_eq!(e, expected);
-        }
-        other => panic!("Expected aborted-by-execution-hook error, got: {other:?}"),
-    }
 }

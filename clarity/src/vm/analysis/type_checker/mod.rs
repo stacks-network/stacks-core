@@ -21,7 +21,7 @@ pub mod v2_1;
 use stacks_common::types::StacksEpochId;
 
 use super::AnalysisDatabase;
-use super::errors::{StaticCheckError, StaticCheckErrorKind};
+use super::errors::StaticCheckError;
 pub use super::types::{AnalysisPass, ContractAnalysis};
 use crate::vm::costs::CostTracker;
 use crate::vm::types::{FunctionType, TypeSignature};
@@ -35,23 +35,10 @@ impl FunctionType {
         epoch: StacksEpochId,
         clarity_version: ClarityVersion,
     ) -> Result<TypeSignature, StaticCheckError> {
-        match epoch {
-            StacksEpochId::Epoch20 | StacksEpochId::Epoch2_05 => {
-                self.check_args_2_05(accounting, args)
-            }
-            StacksEpochId::Epoch21
-            | StacksEpochId::Epoch22
-            | StacksEpochId::Epoch23
-            | StacksEpochId::Epoch24
-            | StacksEpochId::Epoch25
-            | StacksEpochId::Epoch30
-            | StacksEpochId::Epoch31
-            | StacksEpochId::Epoch32
-            | StacksEpochId::Epoch33
-            | StacksEpochId::Epoch34 => self.check_args_2_1(accounting, args, clarity_version),
-            StacksEpochId::Epoch10 => {
-                Err(StaticCheckErrorKind::Unreachable("Epoch10 is not supported".into()).into())
-            }
+        if epoch >= StacksEpochId::Epoch21 {
+            self.check_args_2_1(accounting, args, clarity_version)
+        } else {
+            self.check_args_2_05(accounting, args)
         }
     }
 
@@ -62,25 +49,10 @@ impl FunctionType {
         epoch: StacksEpochId,
         clarity_version: ClarityVersion,
     ) -> Result<TypeSignature, StaticCheckError> {
-        match epoch {
-            StacksEpochId::Epoch20 | StacksEpochId::Epoch2_05 => {
-                self.check_args_by_allowing_trait_cast_2_05(db, func_args)
-            }
-            StacksEpochId::Epoch21
-            | StacksEpochId::Epoch22
-            | StacksEpochId::Epoch23
-            | StacksEpochId::Epoch24
-            | StacksEpochId::Epoch25
-            | StacksEpochId::Epoch30
-            | StacksEpochId::Epoch31
-            | StacksEpochId::Epoch32
-            | StacksEpochId::Epoch33
-            | StacksEpochId::Epoch34 => {
-                self.check_args_by_allowing_trait_cast_2_1(db, clarity_version, func_args)
-            }
-            StacksEpochId::Epoch10 => {
-                Err(StaticCheckErrorKind::Unreachable("Epoch10 is not supported".into()).into())
-            }
+        if epoch >= StacksEpochId::Epoch21 {
+            self.check_args_by_allowing_trait_cast_2_1(db, clarity_version, func_args)
+        } else {
+            self.check_args_by_allowing_trait_cast_2_05(db, func_args)
         }
     }
 }
@@ -94,10 +66,5 @@ fn is_reserved_word_v3(word: &str) -> bool {
 /// analysis error, but will trigger an error at runtime. This should likely be
 /// changed in a future Clarity version.
 pub fn is_reserved_word(word: &str, version: ClarityVersion) -> bool {
-    match version {
-        ClarityVersion::Clarity1 | ClarityVersion::Clarity2 => false,
-        ClarityVersion::Clarity3 | ClarityVersion::Clarity4 | ClarityVersion::Clarity5 => {
-            is_reserved_word_v3(word)
-        }
-    }
+    version >= ClarityVersion::Clarity3 && is_reserved_word_v3(word)
 }

@@ -44,7 +44,6 @@ use crate::vm::{ClarityVersion, execute_with_parameters_and_call_in_global_conte
 const DEFAULT_EPOCH: StacksEpochId = StacksEpochId::latest();
 const DEFAULT_CLARITY_VERSION: ClarityVersion = ClarityVersion::latest();
 const INITIAL_BALANCE: u128 = 1_000_000_000;
-const UTF8_SNIPPET_MAX_SEGMENTS: usize = 16;
 const UTF8_SIMPLE_ESCAPES: [&str; 6] = ["\\\"", "\\\\", "\\n", "\\t", "\\r", "\\0"];
 
 fn initialize_balances(
@@ -92,8 +91,6 @@ pub fn execute_versioned(
 ) -> Result<Option<Value>, ClarityEvalError> {
     let sender_pk = StacksPrivateKey::random();
     let sender: StandardPrincipalData = (&sender_pk).into();
-    let contract_id =
-        QualifiedContractIdentifier::new(sender.clone(), ContractName::from_literal("contract"));
     let sender_for_init = sender.clone();
     execute_with_parameters_and_call_in_global_context(
         snippet,
@@ -622,9 +619,19 @@ pub fn nft_allowance_snippets() -> impl Strategy<Value = String> {
     })
 }
 
-/// A strategy that generates Clarity code snippets for stacking allowances.
+/// A strategy that generates Clarity code snippets for staking allowances.
+/// Emits the Clarity 6+ spelling (`with-staking`); these proptests run at
+/// `ClarityVersion::latest()`.
 pub fn stacking_allowance_snippets() -> impl Strategy<Value = String> {
-    any::<u128>().prop_map(|amount| format!("(with-stacking u{amount})"))
+    any::<u128>().prop_map(|amount| format!("(with-staking u{amount})"))
+}
+
+/// A strategy that generates Clarity code snippets for PoX-action allowances.
+/// `with-pox` takes no amount; its presence simply permits position-altering
+/// PoX actions (`unstake`, `unstake-sbtc`, `update-bond-registration`,
+/// `announce-l1-early-exit`).
+pub fn pox_allowance_snippets() -> impl Strategy<Value = String> {
+    Just("(with-pox)".to_string())
 }
 
 /// A strategy that generates Clarity code snippets for allowances.
@@ -633,11 +640,13 @@ pub fn allowance_snippets() -> impl Strategy<Value = String> {
     let ft_allowance = ft_allowance_snippets();
     let nft_allowance = nft_allowance_snippets();
     let stacking_allowance = stacking_allowance_snippets();
+    let pox_allowance = pox_allowance_snippets();
     prop_oneof![
         stx_allowance,
         ft_allowance,
         nft_allowance,
-        stacking_allowance
+        stacking_allowance,
+        pox_allowance
     ]
 }
 

@@ -1,207 +1,10 @@
 ---
 source: stackslib/src/chainstate/tests/runtime_analysis_tests.rs
-expression: result
-snapshot_kind: text
+expression: result.get_expected_results()
 ---
 [
   Success(ExpectedBlockOutput(
-    marf_hash: "0a776f4084874fc4a6628c1da7e03b695435460e304d5e33eaa4a18549726abe",
-    evaluated_epoch: Epoch24,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "SmartContract(name: memory-test-contract-Epoch2_4-Clarity1, code_body: [..], clarity_version: Some(Clarity1))",
-        vm_error: "None [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: true,
-          data: Bool(true),
-        )),
-        cost: ExecutionCost(
-          write_length: 2135,
-          write_count: 2,
-          read_length: 1,
-          read_count: 1,
-          runtime: 81972006,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 2135,
-      write_count: 2,
-      read_length: 1,
-      read_count: 1,
-      runtime: 81972006,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "76a7b63fcfa1b97f09974aab259eb44a89622ed930f0dbbde7dde271005196f8",
-    evaluated_epoch: Epoch24,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "SmartContract(name: memory-test-contract-Epoch2_4-Clarity2, code_body: [..], clarity_version: Some(Clarity2))",
-        vm_error: "None [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: true,
-          data: Bool(true),
-        )),
-        cost: ExecutionCost(
-          write_length: 2135,
-          write_count: 2,
-          read_length: 1,
-          read_count: 1,
-          runtime: 81972006,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 2135,
-      write_count: 2,
-      read_length: 1,
-      read_count: 1,
-      runtime: 81972006,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "b143e93177cd8351231d98e1b93b577679a75f2c9ead6d4a27981ebc5e35df34",
-    evaluated_epoch: Epoch25,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "SmartContract(name: memory-test-contract-Epoch2_5-Clarity1, code_body: [..], clarity_version: Some(Clarity1))",
-        vm_error: "None [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: true,
-          data: Bool(true),
-        )),
-        cost: ExecutionCost(
-          write_length: 2135,
-          write_count: 2,
-          read_length: 1,
-          read_count: 1,
-          runtime: 81972006,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 2135,
-      write_count: 2,
-      read_length: 1,
-      read_count: 1,
-      runtime: 81972006,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "c151315bd39985c2961c91158ee7b553ca71ff0b0c40e8cb537bfdc301bdde0a",
-    evaluated_epoch: Epoch25,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "SmartContract(name: memory-test-contract-Epoch2_5-Clarity2, code_body: [..], clarity_version: Some(Clarity2))",
-        vm_error: "None [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: true,
-          data: Bool(true),
-        )),
-        cost: ExecutionCost(
-          write_length: 2135,
-          write_count: 2,
-          read_length: 1,
-          read_count: 1,
-          runtime: 81972006,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 2135,
-      write_count: 2,
-      read_length: 1,
-      read_count: 1,
-      runtime: 81972006,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "166db22a5226736572228754a3bae2b0cdc9df1c12c349230a3e1e7626c194c1",
-    evaluated_epoch: Epoch30,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "SmartContract(name: memory-test-contract-Epoch3_0-Clarity1, code_body: [..], clarity_version: Some(Clarity1))",
-        vm_error: "None [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: true,
-          data: Bool(true),
-        )),
-        cost: ExecutionCost(
-          write_length: 2135,
-          write_count: 2,
-          read_length: 1,
-          read_count: 1,
-          runtime: 81972006,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 2135,
-      write_count: 2,
-      read_length: 1,
-      read_count: 1,
-      runtime: 81972006,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "8176700c58319c2153abc5a7967b2c9b62108baf57f9f37e60d5128fc28bfc1a",
-    evaluated_epoch: Epoch30,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "SmartContract(name: memory-test-contract-Epoch3_0-Clarity2, code_body: [..], clarity_version: Some(Clarity2))",
-        vm_error: "None [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: true,
-          data: Bool(true),
-        )),
-        cost: ExecutionCost(
-          write_length: 2135,
-          write_count: 2,
-          read_length: 1,
-          read_count: 1,
-          runtime: 81972006,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 2135,
-      write_count: 2,
-      read_length: 1,
-      read_count: 1,
-      runtime: 81972006,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "209b1e584556863dcb9216c6878c1aaed714138b00d3ff5a48a6ec85e49bb363",
-    evaluated_epoch: Epoch30,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "SmartContract(name: memory-test-contract-Epoch3_0-Clarity3, code_body: [..], clarity_version: Some(Clarity3))",
-        vm_error: "None [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: true,
-          data: Bool(true),
-        )),
-        cost: ExecutionCost(
-          write_length: 2135,
-          write_count: 2,
-          read_length: 1,
-          read_count: 1,
-          runtime: 81972006,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 2135,
-      write_count: 2,
-      read_length: 1,
-      read_count: 1,
-      runtime: 81972006,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "9fa836f555bc15a74eec9d832164a8574a59a2bf7b3eb113e25e98a834747c60",
+    marf_hash: "25c11874000a6aca90da0adfcf09fc8245eae593f140945539741c40424dc745",
     evaluated_epoch: Epoch31,
     transactions: [
       ExpectedTransactionOutput(
@@ -229,7 +32,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "b1492103acefa22d3d4cb66bab0d10bfdefe2a7e5b43f6fda3a92a675c32cc4f",
+    marf_hash: "4fc7fb021e9fa43c6bf849403556111d8855c82f2fa77c53e3f8d5f943b73780",
     evaluated_epoch: Epoch31,
     transactions: [
       ExpectedTransactionOutput(
@@ -257,7 +60,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "f3d44f08d7c53497bcbf86ce21d3a2d5320183e67ad0b47910fe8973c24832df",
+    marf_hash: "6dbe554193ac560632c29593ff4fc9d762c2089a9ed05240ff5c8dc7e53c27ef",
     evaluated_epoch: Epoch31,
     transactions: [
       ExpectedTransactionOutput(
@@ -285,7 +88,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "f7395864ccda78560cfa8560186828883a7f938e792d4208695689b6b0884afe",
+    marf_hash: "2657285ceac777e8011dfbe78433b9e4aa39d3975f3fb548dd1e8887a855595f",
     evaluated_epoch: Epoch32,
     transactions: [
       ExpectedTransactionOutput(
@@ -313,7 +116,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "7872373fd3e67e47193f3b4deb99dd49088d9803a59c0c82bab5793e6cc80716",
+    marf_hash: "53c3d45d2b3c8fe431fa255ec53fb53ad17ec50e4bba0c5cd5d13ebc6376fc40",
     evaluated_epoch: Epoch32,
     transactions: [
       ExpectedTransactionOutput(
@@ -341,7 +144,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "4dc0c7782c26664186acd57de5755204d17a66a962e30b3c827400fce4f42559",
+    marf_hash: "0fd8bc13b4cbc4c08bd53dfd9fde953fb2706d0b36ea7e2b65744f53c7d09ea9",
     evaluated_epoch: Epoch32,
     transactions: [
       ExpectedTransactionOutput(
@@ -369,7 +172,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "295a9a8f4cf233ed17c33cc0f2a24721b9f3544d554d6eacf58a8fc685439a72",
+    marf_hash: "27a7ff626a95f05411cc11ea5ba8e987294ebe0a3ad924bdbf1d2580a707dc6f",
     evaluated_epoch: Epoch33,
     transactions: [
       ExpectedTransactionOutput(
@@ -397,7 +200,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "8926131cfa5dd4769cc7ed9214076f5c6fcc95dc0f85310ca700008eb7d5aed0",
+    marf_hash: "6ebeec86126cc805e7531321c0f66166343bd8a4792ea5cc4f311f7f9c5040a4",
     evaluated_epoch: Epoch33,
     transactions: [
       ExpectedTransactionOutput(
@@ -425,7 +228,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "6be02ea8bfdcae450545824812e81554932f5933c9e7bee38435faaff3b09cef",
+    marf_hash: "0483d37859cb55d3d8abab8d7e0514fd681515a2faa9bc4ea9e152faa6cd74ae",
     evaluated_epoch: Epoch33,
     transactions: [
       ExpectedTransactionOutput(
@@ -453,7 +256,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "cc9c3f9dc8f3be20ba3ac83cbafbdf8c65237149cec83fee7d3e55ae8a5f9494",
+    marf_hash: "d37f3dbf85742733a5bcbaef766ff9cc4782cc7b02f6a10d17a95bfebff5e66b",
     evaluated_epoch: Epoch33,
     transactions: [
       ExpectedTransactionOutput(
@@ -481,517 +284,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "7ba899210a967ace1a2e2dfaf7495ddfb9a694bdee2f85ac6162f51830ae504a",
-    evaluated_epoch: Epoch33,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: memory-test-contract-Epoch2_4-Clarity1, function_name: create-many-references, function_args: [[]])",
-        vm_error: "Some(MemoryBalanceExceeded(100665636, 100000000)) [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: false,
-          data: Optional(OptionalData(
-            data: None,
-          )),
-        )),
-        cost: ExecutionCost(
-          write_length: 0,
-          write_count: 0,
-          read_length: 2099117,
-          read_count: 3,
-          runtime: 199232461,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 0,
-      write_count: 0,
-      read_length: 2099117,
-      read_count: 3,
-      runtime: 199232461,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "9fa55debce292cd597a41952623cc8594dbb1ac0a42d1591851149987a8e35a1",
-    evaluated_epoch: Epoch33,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: memory-test-contract-Epoch2_4-Clarity2, function_name: create-many-references, function_args: [[]])",
-        vm_error: "Some(MemoryBalanceExceeded(100665636, 100000000)) [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: false,
-          data: Optional(OptionalData(
-            data: None,
-          )),
-        )),
-        cost: ExecutionCost(
-          write_length: 0,
-          write_count: 0,
-          read_length: 2099117,
-          read_count: 3,
-          runtime: 199232461,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 0,
-      write_count: 0,
-      read_length: 2099117,
-      read_count: 3,
-      runtime: 199232461,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "7da1359d7a7caff96f4c7aefa7e7aa9c9e6cc427a4b89705b6f7e74b4a8f552e",
-    evaluated_epoch: Epoch33,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: memory-test-contract-Epoch2_5-Clarity1, function_name: create-many-references, function_args: [[]])",
-        vm_error: "Some(MemoryBalanceExceeded(100665636, 100000000)) [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: false,
-          data: Optional(OptionalData(
-            data: None,
-          )),
-        )),
-        cost: ExecutionCost(
-          write_length: 0,
-          write_count: 0,
-          read_length: 2099117,
-          read_count: 3,
-          runtime: 199232461,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 0,
-      write_count: 0,
-      read_length: 2099117,
-      read_count: 3,
-      runtime: 199232461,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "10e2010614ec7b32a3e23baa79e949e5c88cd5877ce30d4d9571713036ef5b10",
-    evaluated_epoch: Epoch33,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: memory-test-contract-Epoch2_5-Clarity2, function_name: create-many-references, function_args: [[]])",
-        vm_error: "Some(MemoryBalanceExceeded(100665636, 100000000)) [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: false,
-          data: Optional(OptionalData(
-            data: None,
-          )),
-        )),
-        cost: ExecutionCost(
-          write_length: 0,
-          write_count: 0,
-          read_length: 2099117,
-          read_count: 3,
-          runtime: 199232461,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 0,
-      write_count: 0,
-      read_length: 2099117,
-      read_count: 3,
-      runtime: 199232461,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "b3836fc78758874caca5c906fb64c4602682faf904c21e4a4dffd32a5aec8cac",
-    evaluated_epoch: Epoch33,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: memory-test-contract-Epoch3_0-Clarity1, function_name: create-many-references, function_args: [[]])",
-        vm_error: "Some(MemoryBalanceExceeded(100665636, 100000000)) [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: false,
-          data: Optional(OptionalData(
-            data: None,
-          )),
-        )),
-        cost: ExecutionCost(
-          write_length: 0,
-          write_count: 0,
-          read_length: 2099117,
-          read_count: 3,
-          runtime: 199232461,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 0,
-      write_count: 0,
-      read_length: 2099117,
-      read_count: 3,
-      runtime: 199232461,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "1b5abfe0f6b23637d3876e4cd26e0102c6f506c93a17c9bfa77a5b8d68d3e0c7",
-    evaluated_epoch: Epoch33,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: memory-test-contract-Epoch3_0-Clarity2, function_name: create-many-references, function_args: [[]])",
-        vm_error: "Some(MemoryBalanceExceeded(100665636, 100000000)) [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: false,
-          data: Optional(OptionalData(
-            data: None,
-          )),
-        )),
-        cost: ExecutionCost(
-          write_length: 0,
-          write_count: 0,
-          read_length: 2099117,
-          read_count: 3,
-          runtime: 199232461,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 0,
-      write_count: 0,
-      read_length: 2099117,
-      read_count: 3,
-      runtime: 199232461,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "a1fb43747c2c0f0c956ef18bdb7c8569b2828b3501d2493c08f036d1b44442b1",
-    evaluated_epoch: Epoch33,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: memory-test-contract-Epoch3_0-Clarity3, function_name: create-many-references, function_args: [[]])",
-        vm_error: "Some(MemoryBalanceExceeded(100665636, 100000000)) [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: false,
-          data: Optional(OptionalData(
-            data: None,
-          )),
-        )),
-        cost: ExecutionCost(
-          write_length: 0,
-          write_count: 0,
-          read_length: 2099117,
-          read_count: 3,
-          runtime: 199232461,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 0,
-      write_count: 0,
-      read_length: 2099117,
-      read_count: 3,
-      runtime: 199232461,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "20322e72ed550e20779fbf06a07a62f55e91cc30008d65997c1a3b50133686fb",
-    evaluated_epoch: Epoch33,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: memory-test-contract-Epoch3_1-Clarity1, function_name: create-many-references, function_args: [[]])",
-        vm_error: "Some(MemoryBalanceExceeded(100665636, 100000000)) [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: false,
-          data: Optional(OptionalData(
-            data: None,
-          )),
-        )),
-        cost: ExecutionCost(
-          write_length: 0,
-          write_count: 0,
-          read_length: 2099117,
-          read_count: 3,
-          runtime: 199232461,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 0,
-      write_count: 0,
-      read_length: 2099117,
-      read_count: 3,
-      runtime: 199232461,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "ab1edc38dae196f16552617f6c41bb02e8cf1b2984fa622d76b74546de444ccc",
-    evaluated_epoch: Epoch33,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: memory-test-contract-Epoch3_1-Clarity2, function_name: create-many-references, function_args: [[]])",
-        vm_error: "Some(MemoryBalanceExceeded(100665636, 100000000)) [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: false,
-          data: Optional(OptionalData(
-            data: None,
-          )),
-        )),
-        cost: ExecutionCost(
-          write_length: 0,
-          write_count: 0,
-          read_length: 2099117,
-          read_count: 3,
-          runtime: 199232461,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 0,
-      write_count: 0,
-      read_length: 2099117,
-      read_count: 3,
-      runtime: 199232461,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "ad41b30f56c366bad2450f509a7352f7cde742a053855fa054d4599d248ef171",
-    evaluated_epoch: Epoch33,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: memory-test-contract-Epoch3_1-Clarity3, function_name: create-many-references, function_args: [[]])",
-        vm_error: "Some(MemoryBalanceExceeded(100665636, 100000000)) [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: false,
-          data: Optional(OptionalData(
-            data: None,
-          )),
-        )),
-        cost: ExecutionCost(
-          write_length: 0,
-          write_count: 0,
-          read_length: 2099117,
-          read_count: 3,
-          runtime: 199232461,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 0,
-      write_count: 0,
-      read_length: 2099117,
-      read_count: 3,
-      runtime: 199232461,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "242b26f10f807e038bae4e4e921cdda77c108f86b8cd44a84b9a4518c151053f",
-    evaluated_epoch: Epoch33,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: memory-test-contract-Epoch3_2-Clarity1, function_name: create-many-references, function_args: [[]])",
-        vm_error: "Some(MemoryBalanceExceeded(100665636, 100000000)) [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: false,
-          data: Optional(OptionalData(
-            data: None,
-          )),
-        )),
-        cost: ExecutionCost(
-          write_length: 0,
-          write_count: 0,
-          read_length: 2099117,
-          read_count: 3,
-          runtime: 199232461,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 0,
-      write_count: 0,
-      read_length: 2099117,
-      read_count: 3,
-      runtime: 199232461,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "6c439010f9020e37149d6d734c3cd104c01ae516a171ecbb9550f0660439bb8e",
-    evaluated_epoch: Epoch33,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: memory-test-contract-Epoch3_2-Clarity2, function_name: create-many-references, function_args: [[]])",
-        vm_error: "Some(MemoryBalanceExceeded(100665636, 100000000)) [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: false,
-          data: Optional(OptionalData(
-            data: None,
-          )),
-        )),
-        cost: ExecutionCost(
-          write_length: 0,
-          write_count: 0,
-          read_length: 2099117,
-          read_count: 3,
-          runtime: 199232461,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 0,
-      write_count: 0,
-      read_length: 2099117,
-      read_count: 3,
-      runtime: 199232461,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "a9bd724087dd4db081598f859d60f4b846483ad00b327634b4fa665b661a2bcc",
-    evaluated_epoch: Epoch33,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: memory-test-contract-Epoch3_2-Clarity3, function_name: create-many-references, function_args: [[]])",
-        vm_error: "Some(MemoryBalanceExceeded(100665636, 100000000)) [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: false,
-          data: Optional(OptionalData(
-            data: None,
-          )),
-        )),
-        cost: ExecutionCost(
-          write_length: 0,
-          write_count: 0,
-          read_length: 2099117,
-          read_count: 3,
-          runtime: 199232461,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 0,
-      write_count: 0,
-      read_length: 2099117,
-      read_count: 3,
-      runtime: 199232461,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "a9533345128ce69ac20a4ee6ecbf6040e2cf5174b6791aac7ff4549027712ad4",
-    evaluated_epoch: Epoch33,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: memory-test-contract-Epoch3_3-Clarity1, function_name: create-many-references, function_args: [[]])",
-        vm_error: "Some(MemoryBalanceExceeded(100665636, 100000000)) [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: false,
-          data: Optional(OptionalData(
-            data: None,
-          )),
-        )),
-        cost: ExecutionCost(
-          write_length: 0,
-          write_count: 0,
-          read_length: 2099117,
-          read_count: 3,
-          runtime: 199232461,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 0,
-      write_count: 0,
-      read_length: 2099117,
-      read_count: 3,
-      runtime: 199232461,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "387a6d792b7eccb67027bf67fd8ed8032d825e71257536e8f4b13bb6f978b511",
-    evaluated_epoch: Epoch33,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: memory-test-contract-Epoch3_3-Clarity2, function_name: create-many-references, function_args: [[]])",
-        vm_error: "Some(MemoryBalanceExceeded(100665636, 100000000)) [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: false,
-          data: Optional(OptionalData(
-            data: None,
-          )),
-        )),
-        cost: ExecutionCost(
-          write_length: 0,
-          write_count: 0,
-          read_length: 2099117,
-          read_count: 3,
-          runtime: 199232461,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 0,
-      write_count: 0,
-      read_length: 2099117,
-      read_count: 3,
-      runtime: 199232461,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "0cd2d1250bc556f78046bd58457d67f5d1883711f69294084149ce68a21a2759",
-    evaluated_epoch: Epoch33,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: memory-test-contract-Epoch3_3-Clarity3, function_name: create-many-references, function_args: [[]])",
-        vm_error: "Some(MemoryBalanceExceeded(100665636, 100000000)) [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: false,
-          data: Optional(OptionalData(
-            data: None,
-          )),
-        )),
-        cost: ExecutionCost(
-          write_length: 0,
-          write_count: 0,
-          read_length: 2099117,
-          read_count: 3,
-          runtime: 199232461,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 0,
-      write_count: 0,
-      read_length: 2099117,
-      read_count: 3,
-      runtime: 199232461,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "8d8c5cbd0755f8f2c7a6a92f201490509e02a69ed7b683c50f6be74369d9750b",
-    evaluated_epoch: Epoch33,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: memory-test-contract-Epoch3_3-Clarity4, function_name: create-many-references, function_args: [[]])",
-        vm_error: "Some(MemoryBalanceExceeded(100665636, 100000000)) [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: false,
-          data: Optional(OptionalData(
-            data: None,
-          )),
-        )),
-        cost: ExecutionCost(
-          write_length: 0,
-          write_count: 0,
-          read_length: 2099117,
-          read_count: 3,
-          runtime: 199232461,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 0,
-      write_count: 0,
-      read_length: 2099117,
-      read_count: 3,
-      runtime: 199232461,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "22a0869c177edab9de590b4dad366fc08909683c86d040223f22049f96dde325",
+    marf_hash: "f4a8f5afb30f67b3fa39fed819054abdcacdb84670da5568b7318acdf80289b0",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -1019,7 +312,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "ce7685d7eb2ef97286bb7b544b35beefba9e22c809cffb9eca51170d1403ee76",
+    marf_hash: "a88b8665baa97e9acfdaccd229772c5ff3b1a2d7d495a769c8a3628188652266",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -1047,7 +340,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "bf9c1794b039eac7cd0976807cc5de48019ba8663014310f09d5ae53ad41f0e2",
+    marf_hash: "86c0db044be42540521d8d608604b1bdfed245e70fbc84652aa7d647121d8ee3",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -1075,7 +368,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "af05b7f06e6a6ffd301aa881be2bf975a70aa79959f1e55167e7195d4bf42f46",
+    marf_hash: "db44a057642cc7b0dbf21a34edd4a35a42b0a976a37efb0ce6db80dc1bd19578",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -1103,7 +396,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "ee30f2a46208b8f21343853bdf949025cc9e87eebdcf0a98b964d5241048fb54",
+    marf_hash: "368fd7b548a62d44a491a62405f641bb8bbb1b59d3f04a7d47620346cae7031e",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -1131,217 +424,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "bbffa897e915305626f8ddb6fbf058dc2f63d562c1f82fe3ef4a4da07dcf3405",
-    evaluated_epoch: Epoch34,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: memory-test-contract-Epoch2_4-Clarity1, function_name: create-many-references, function_args: [[]])",
-        vm_error: "Some(MemoryBalanceExceeded(100665636, 100000000)) [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: false,
-          data: Optional(OptionalData(
-            data: None,
-          )),
-        )),
-        cost: ExecutionCost(
-          write_length: 0,
-          write_count: 0,
-          read_length: 2099117,
-          read_count: 3,
-          runtime: 199232461,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 0,
-      write_count: 0,
-      read_length: 2099117,
-      read_count: 3,
-      runtime: 199232461,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "a07037cfed6d70cec05acba8539d4171f475a58dd4b9f63b041d19457bb4d472",
-    evaluated_epoch: Epoch34,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: memory-test-contract-Epoch2_4-Clarity2, function_name: create-many-references, function_args: [[]])",
-        vm_error: "Some(MemoryBalanceExceeded(100665636, 100000000)) [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: false,
-          data: Optional(OptionalData(
-            data: None,
-          )),
-        )),
-        cost: ExecutionCost(
-          write_length: 0,
-          write_count: 0,
-          read_length: 2099117,
-          read_count: 3,
-          runtime: 199232461,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 0,
-      write_count: 0,
-      read_length: 2099117,
-      read_count: 3,
-      runtime: 199232461,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "fe28f6046c236369aec9459243086f39bc0e020472cc33b7f6bc56d8c41ec4ec",
-    evaluated_epoch: Epoch34,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: memory-test-contract-Epoch2_5-Clarity1, function_name: create-many-references, function_args: [[]])",
-        vm_error: "Some(MemoryBalanceExceeded(100665636, 100000000)) [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: false,
-          data: Optional(OptionalData(
-            data: None,
-          )),
-        )),
-        cost: ExecutionCost(
-          write_length: 0,
-          write_count: 0,
-          read_length: 2099117,
-          read_count: 3,
-          runtime: 199232461,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 0,
-      write_count: 0,
-      read_length: 2099117,
-      read_count: 3,
-      runtime: 199232461,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "bd0d199a2f4828a9ae19602d483c8a8944222b93a4f3f55f7054e58933381a64",
-    evaluated_epoch: Epoch34,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: memory-test-contract-Epoch2_5-Clarity2, function_name: create-many-references, function_args: [[]])",
-        vm_error: "Some(MemoryBalanceExceeded(100665636, 100000000)) [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: false,
-          data: Optional(OptionalData(
-            data: None,
-          )),
-        )),
-        cost: ExecutionCost(
-          write_length: 0,
-          write_count: 0,
-          read_length: 2099117,
-          read_count: 3,
-          runtime: 199232461,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 0,
-      write_count: 0,
-      read_length: 2099117,
-      read_count: 3,
-      runtime: 199232461,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "31cc1a15fda52e0603ab96ecc592a6bbdfc33a497877febf83e52f1eb6948d6b",
-    evaluated_epoch: Epoch34,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: memory-test-contract-Epoch3_0-Clarity1, function_name: create-many-references, function_args: [[]])",
-        vm_error: "Some(MemoryBalanceExceeded(100665636, 100000000)) [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: false,
-          data: Optional(OptionalData(
-            data: None,
-          )),
-        )),
-        cost: ExecutionCost(
-          write_length: 0,
-          write_count: 0,
-          read_length: 2099117,
-          read_count: 3,
-          runtime: 199232461,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 0,
-      write_count: 0,
-      read_length: 2099117,
-      read_count: 3,
-      runtime: 199232461,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "f2cf73b09dba5b37c6a18b4379cb9d50e82eea5d423e59c8c982e90c49328ab0",
-    evaluated_epoch: Epoch34,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: memory-test-contract-Epoch3_0-Clarity2, function_name: create-many-references, function_args: [[]])",
-        vm_error: "Some(MemoryBalanceExceeded(100665636, 100000000)) [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: false,
-          data: Optional(OptionalData(
-            data: None,
-          )),
-        )),
-        cost: ExecutionCost(
-          write_length: 0,
-          write_count: 0,
-          read_length: 2099117,
-          read_count: 3,
-          runtime: 199232461,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 0,
-      write_count: 0,
-      read_length: 2099117,
-      read_count: 3,
-      runtime: 199232461,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "0f2dabf6d8cfa12b3708971688273e6c8f0caf8ef39e42df631e83adfbed6595",
-    evaluated_epoch: Epoch34,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: memory-test-contract-Epoch3_0-Clarity3, function_name: create-many-references, function_args: [[]])",
-        vm_error: "Some(MemoryBalanceExceeded(100665636, 100000000)) [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: false,
-          data: Optional(OptionalData(
-            data: None,
-          )),
-        )),
-        cost: ExecutionCost(
-          write_length: 0,
-          write_count: 0,
-          read_length: 2099117,
-          read_count: 3,
-          runtime: 199232461,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 0,
-      write_count: 0,
-      read_length: 2099117,
-      read_count: 3,
-      runtime: 199232461,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "1fe29264f9cbe945249f2db3a1878a00a1beeda83d618f49812232e5b3b3edec",
+    marf_hash: "878ad7ed8c4dc7f5c10989b58c064a4f0be9937237b2e97485a9b434f96f241f",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -1371,7 +454,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "0f1c36aa8e151cce70d659f598779a4a7df0f9ea9b73248bbab6e08a6171de26",
+    marf_hash: "c2bbe9a050f33e379df4a297a1964fbedc4d853db6bca5799a88cb9118c58620",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -1401,7 +484,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "e00e94ce98842298d39820fe81125b449652190328fc7f52cc81e4bcdbf43f41",
+    marf_hash: "d3888b3e8b94ecbab531c573f385a5bbfee8f58c0265f6bfff8281cce3907bef",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -1431,7 +514,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "f97e366320cbb2ff9624a80715f239165cddc8457a65c7247e2f5eb7aa799b32",
+    marf_hash: "e883a50aab6b5886a40cf2007285dd56eb30a2bdb881bc2730c51a1e8f39b746",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -1461,7 +544,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "540a91f00c1cd1a6ab6e83e572080346d5026bf1a5a80b36ea1b40d189ae9c31",
+    marf_hash: "fd83699e13398abc6247427eb37b255c2dbac6ed3713689b163dda1c6eb773b3",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -1491,7 +574,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "6d7c964230009afd516964f4205481615da276cb07184a6effc0fa791db0904a",
+    marf_hash: "6da40c4060e08dd865c3774099c3368a9184d94b7f1da1605b8f25cc935ca8a4",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -1521,7 +604,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "23c9e74f0e8b5b2680b0b57c4c5613222af7b42ac359c4aafb4f35d815036aa1",
+    marf_hash: "d9084bc2bd11f99acc842e7f2a46b103ed7ce6866b90b60bf1affd06f7a1de81",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -1551,7 +634,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "b3a3f52e36a2f8d274d4eefe058469fe1387afdbd5e1793f14193be592c8bdf4",
+    marf_hash: "0d147cf67663b435fc540b1946b870f8b3cd691ca579d0c0cdf212f7dc52d3e7",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -1581,7 +664,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "392b61d5874c9c5464c39693e98e83cb63beb18fd21652a881584fb5841dffb2",
+    marf_hash: "eb35a777431f899f506213ec18d52d3cebc0f2c9e6eb4c8b5ca5d5811aa79219",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -1611,7 +694,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "7f224e5bdeeca729ab8f61fac5e12259f04634db3e06951478f5274963f3cf03",
+    marf_hash: "4d3a111ae5c1f537f1a0338bb0bcf2d5757e81f6a535448a0295f228f013d81f",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -1641,7 +724,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "720464d312bd4881d79081d4f5e6adda3c0c464aa02be4ea49627d76186bd96e",
+    marf_hash: "655fa32ddc6dccc22c4bb45b83b5648a6d5b28fbe67b4ee50442f43eded3454f",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -1671,7 +754,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "dbfff1460fc006e9b4322dd0d4f4414ff9f89e97f03a77101493126fe4348234",
+    marf_hash: "5a71da4d950e8f95d433ddd67e0a51664f07384132bb902f3173ec3481944d34",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -1701,7 +784,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "5d0a26a7e657f8ebf5334588aa229d84a561c73306daa141cad7a831a3fa9501",
+    marf_hash: "a71e979f0c26666071d7158a5683b34a20d368292e1c95bc6e4060c6479f4002",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -1731,7 +814,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "a0965d18cfbe2c713314018922697a22e8d8b7cb9df2383c7d28a283969fe88e",
+    marf_hash: "2a6a264950ec4d2401694cab6e1056053f8b2de0ee7f9c459c77883d6872cc8b",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -1761,11 +844,809 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "6b8b97535963f3eef4fdfbcaed0a567a90d18b1b6ee4a295378244c86e313355",
+    marf_hash: "88b78262a2ebb026dba054f0219fbfcdc62da6b9bb4a85985a6a7508bde478f3",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
         tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: memory-test-contract-Epoch3_4-Clarity5, function_name: create-many-references, function_args: [[]])",
+        vm_error: "Some(MemoryBalanceExceeded(100665636, 100000000)) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 0,
+          write_count: 0,
+          read_length: 2099117,
+          read_count: 3,
+          runtime: 199232461,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 0,
+      write_count: 0,
+      read_length: 2099117,
+      read_count: 3,
+      runtime: 199232461,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "805b4a5907d72e8b3cbfdab18921a07f64e8f69c60b497f68d41f37718e5889e",
+    evaluated_epoch: Epoch40,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: memory-test-contract-Epoch4_0-Clarity1, code_body: [..], clarity_version: Some(Clarity1))",
+        vm_error: "None [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: true,
+          data: Bool(true),
+        )),
+        cost: ExecutionCost(
+          write_length: 2135,
+          write_count: 2,
+          read_length: 1,
+          read_count: 1,
+          runtime: 4375723,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 2135,
+      write_count: 2,
+      read_length: 1,
+      read_count: 1,
+      runtime: 4375723,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "40e0d100b4af4d4a43dc39d3c750021c84e0580b702262dc95f4295c1514227d",
+    evaluated_epoch: Epoch40,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: memory-test-contract-Epoch4_0-Clarity2, code_body: [..], clarity_version: Some(Clarity2))",
+        vm_error: "None [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: true,
+          data: Bool(true),
+        )),
+        cost: ExecutionCost(
+          write_length: 2135,
+          write_count: 2,
+          read_length: 1,
+          read_count: 1,
+          runtime: 4375723,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 2135,
+      write_count: 2,
+      read_length: 1,
+      read_count: 1,
+      runtime: 4375723,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "f0cb38f4bae50e3d14bc78aa116f65eca93068b0cf9e6bafa0bb9609d843cee5",
+    evaluated_epoch: Epoch40,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: memory-test-contract-Epoch4_0-Clarity3, code_body: [..], clarity_version: Some(Clarity3))",
+        vm_error: "None [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: true,
+          data: Bool(true),
+        )),
+        cost: ExecutionCost(
+          write_length: 2135,
+          write_count: 2,
+          read_length: 1,
+          read_count: 1,
+          runtime: 4375723,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 2135,
+      write_count: 2,
+      read_length: 1,
+      read_count: 1,
+      runtime: 4375723,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "7acfa4820bf210fff4ad29c1dbb6b0037f2cd4624642ed87ffaa18aaebc31fdc",
+    evaluated_epoch: Epoch40,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: memory-test-contract-Epoch4_0-Clarity4, code_body: [..], clarity_version: Some(Clarity4))",
+        vm_error: "None [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: true,
+          data: Bool(true),
+        )),
+        cost: ExecutionCost(
+          write_length: 2135,
+          write_count: 2,
+          read_length: 1,
+          read_count: 1,
+          runtime: 4375723,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 2135,
+      write_count: 2,
+      read_length: 1,
+      read_count: 1,
+      runtime: 4375723,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "da4122d5243a75199e54f02a069f39f2206fb9d24de9608cf64eb11d227ec4a5",
+    evaluated_epoch: Epoch40,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: memory-test-contract-Epoch4_0-Clarity5, code_body: [..], clarity_version: Some(Clarity5))",
+        vm_error: "None [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: true,
+          data: Bool(true),
+        )),
+        cost: ExecutionCost(
+          write_length: 2135,
+          write_count: 2,
+          read_length: 1,
+          read_count: 1,
+          runtime: 4375723,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 2135,
+      write_count: 2,
+      read_length: 1,
+      read_count: 1,
+      runtime: 4375723,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "9c06c4c520a754fd9edcfda2da829ce76ff6b542226961aaa7dd9e85ff1115e6",
+    evaluated_epoch: Epoch40,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: memory-test-contract-Epoch4_0-Clarity6, code_body: [..], clarity_version: Some(Clarity6))",
+        vm_error: "None [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: true,
+          data: Bool(true),
+        )),
+        cost: ExecutionCost(
+          write_length: 2135,
+          write_count: 2,
+          read_length: 1,
+          read_count: 1,
+          runtime: 4375723,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 2135,
+      write_count: 2,
+      read_length: 1,
+      read_count: 1,
+      runtime: 4375723,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "1a851972b5ec5393f4430364433497dad5b254eb4ec5f2ef5699a697082cbca4",
+    evaluated_epoch: Epoch40,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: memory-test-contract-Epoch3_1-Clarity1, function_name: create-many-references, function_args: [[]])",
+        vm_error: "Some(MemoryBalanceExceeded(100665636, 100000000)) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 0,
+          write_count: 0,
+          read_length: 2099117,
+          read_count: 3,
+          runtime: 199232461,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 0,
+      write_count: 0,
+      read_length: 2099117,
+      read_count: 3,
+      runtime: 199232461,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "e9f09d18e657dcecc572aad47a63009b95163a28c1e0d3ce047cb7f81df0c3af",
+    evaluated_epoch: Epoch40,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: memory-test-contract-Epoch3_1-Clarity2, function_name: create-many-references, function_args: [[]])",
+        vm_error: "Some(MemoryBalanceExceeded(100665636, 100000000)) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 0,
+          write_count: 0,
+          read_length: 2099117,
+          read_count: 3,
+          runtime: 199232461,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 0,
+      write_count: 0,
+      read_length: 2099117,
+      read_count: 3,
+      runtime: 199232461,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "56014afaf6dff73f755551d5ca15d0c5d0d254235815b9aa0d905b3359148290",
+    evaluated_epoch: Epoch40,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: memory-test-contract-Epoch3_1-Clarity3, function_name: create-many-references, function_args: [[]])",
+        vm_error: "Some(MemoryBalanceExceeded(100665636, 100000000)) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 0,
+          write_count: 0,
+          read_length: 2099117,
+          read_count: 3,
+          runtime: 199232461,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 0,
+      write_count: 0,
+      read_length: 2099117,
+      read_count: 3,
+      runtime: 199232461,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "b7adccd239332cfefe19b129b5196306a30543029cf552de5d467d658cce9087",
+    evaluated_epoch: Epoch40,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: memory-test-contract-Epoch3_2-Clarity1, function_name: create-many-references, function_args: [[]])",
+        vm_error: "Some(MemoryBalanceExceeded(100665636, 100000000)) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 0,
+          write_count: 0,
+          read_length: 2099117,
+          read_count: 3,
+          runtime: 199232461,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 0,
+      write_count: 0,
+      read_length: 2099117,
+      read_count: 3,
+      runtime: 199232461,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "ada059089f6ea2aa507bdd9913292c8d15203469f2b9a96512e88eb5e9fa95a2",
+    evaluated_epoch: Epoch40,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: memory-test-contract-Epoch3_2-Clarity2, function_name: create-many-references, function_args: [[]])",
+        vm_error: "Some(MemoryBalanceExceeded(100665636, 100000000)) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 0,
+          write_count: 0,
+          read_length: 2099117,
+          read_count: 3,
+          runtime: 199232461,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 0,
+      write_count: 0,
+      read_length: 2099117,
+      read_count: 3,
+      runtime: 199232461,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "17478879a41dbced1545c9793bef70b856514f8d98a212c8de1fe958099ad0a2",
+    evaluated_epoch: Epoch40,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: memory-test-contract-Epoch3_2-Clarity3, function_name: create-many-references, function_args: [[]])",
+        vm_error: "Some(MemoryBalanceExceeded(100665636, 100000000)) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 0,
+          write_count: 0,
+          read_length: 2099117,
+          read_count: 3,
+          runtime: 199232461,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 0,
+      write_count: 0,
+      read_length: 2099117,
+      read_count: 3,
+      runtime: 199232461,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "1a62ec1a985c7e51e11da3250d7314bb82d57b69d94274c9ea08b8dda94f1644",
+    evaluated_epoch: Epoch40,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: memory-test-contract-Epoch3_3-Clarity1, function_name: create-many-references, function_args: [[]])",
+        vm_error: "Some(MemoryBalanceExceeded(100665636, 100000000)) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 0,
+          write_count: 0,
+          read_length: 2099117,
+          read_count: 3,
+          runtime: 199232461,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 0,
+      write_count: 0,
+      read_length: 2099117,
+      read_count: 3,
+      runtime: 199232461,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "4329ea8fa38e16aff4ff860b98964ce994f407443897e1c845ec6481009390ea",
+    evaluated_epoch: Epoch40,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: memory-test-contract-Epoch3_3-Clarity2, function_name: create-many-references, function_args: [[]])",
+        vm_error: "Some(MemoryBalanceExceeded(100665636, 100000000)) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 0,
+          write_count: 0,
+          read_length: 2099117,
+          read_count: 3,
+          runtime: 199232461,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 0,
+      write_count: 0,
+      read_length: 2099117,
+      read_count: 3,
+      runtime: 199232461,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "1a210eed4251fe9d8afeefc0139c32be4fcb96968d40e03ab665bc15a9189ce8",
+    evaluated_epoch: Epoch40,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: memory-test-contract-Epoch3_3-Clarity3, function_name: create-many-references, function_args: [[]])",
+        vm_error: "Some(MemoryBalanceExceeded(100665636, 100000000)) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 0,
+          write_count: 0,
+          read_length: 2099117,
+          read_count: 3,
+          runtime: 199232461,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 0,
+      write_count: 0,
+      read_length: 2099117,
+      read_count: 3,
+      runtime: 199232461,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "c2586bcebda868d26c58a242fd518c6fda80eec005c5d4c86c7305f7c5e8dda3",
+    evaluated_epoch: Epoch40,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: memory-test-contract-Epoch3_3-Clarity4, function_name: create-many-references, function_args: [[]])",
+        vm_error: "Some(MemoryBalanceExceeded(100665636, 100000000)) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 0,
+          write_count: 0,
+          read_length: 2099117,
+          read_count: 3,
+          runtime: 199232461,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 0,
+      write_count: 0,
+      read_length: 2099117,
+      read_count: 3,
+      runtime: 199232461,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "bafd157bf6215803c55e092b36ddb7bbb40e831a567087ac84fe0726a2e8e4e2",
+    evaluated_epoch: Epoch40,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: memory-test-contract-Epoch3_4-Clarity1, function_name: create-many-references, function_args: [[]])",
+        vm_error: "Some(MemoryBalanceExceeded(100665636, 100000000)) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 0,
+          write_count: 0,
+          read_length: 2099117,
+          read_count: 3,
+          runtime: 199232461,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 0,
+      write_count: 0,
+      read_length: 2099117,
+      read_count: 3,
+      runtime: 199232461,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "7d60ea05beb53573b029845ac6ac9d3a9fc65c90924bf8c07fc429d892ecc1cc",
+    evaluated_epoch: Epoch40,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: memory-test-contract-Epoch3_4-Clarity2, function_name: create-many-references, function_args: [[]])",
+        vm_error: "Some(MemoryBalanceExceeded(100665636, 100000000)) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 0,
+          write_count: 0,
+          read_length: 2099117,
+          read_count: 3,
+          runtime: 199232461,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 0,
+      write_count: 0,
+      read_length: 2099117,
+      read_count: 3,
+      runtime: 199232461,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "5fceab997bc1b1184bf0316cf6eae2ce9bea81de753d2eaef9e89b43f387a297",
+    evaluated_epoch: Epoch40,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: memory-test-contract-Epoch3_4-Clarity3, function_name: create-many-references, function_args: [[]])",
+        vm_error: "Some(MemoryBalanceExceeded(100665636, 100000000)) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 0,
+          write_count: 0,
+          read_length: 2099117,
+          read_count: 3,
+          runtime: 199232461,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 0,
+      write_count: 0,
+      read_length: 2099117,
+      read_count: 3,
+      runtime: 199232461,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "7071797cb9ca88a9009aedc56004e3c0fba03ca65df58d48e485b4fadaceeb4c",
+    evaluated_epoch: Epoch40,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: memory-test-contract-Epoch3_4-Clarity4, function_name: create-many-references, function_args: [[]])",
+        vm_error: "Some(MemoryBalanceExceeded(100665636, 100000000)) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 0,
+          write_count: 0,
+          read_length: 2099117,
+          read_count: 3,
+          runtime: 199232461,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 0,
+      write_count: 0,
+      read_length: 2099117,
+      read_count: 3,
+      runtime: 199232461,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "3e16e6efc16d696eb97ca052711db902d6079ffc25b28430bdba34f58c85c312",
+    evaluated_epoch: Epoch40,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: memory-test-contract-Epoch3_4-Clarity5, function_name: create-many-references, function_args: [[]])",
+        vm_error: "Some(MemoryBalanceExceeded(100665636, 100000000)) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 0,
+          write_count: 0,
+          read_length: 2099117,
+          read_count: 3,
+          runtime: 199232461,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 0,
+      write_count: 0,
+      read_length: 2099117,
+      read_count: 3,
+      runtime: 199232461,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "122c2e9f27f06d2e87b64c9b08d8888aaa862e23385a1918c2bc7b2786130318",
+    evaluated_epoch: Epoch40,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: memory-test-contract-Epoch4_0-Clarity1, function_name: create-many-references, function_args: [[]])",
+        vm_error: "Some(MemoryBalanceExceeded(100665636, 100000000)) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 0,
+          write_count: 0,
+          read_length: 2099117,
+          read_count: 3,
+          runtime: 199232461,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 0,
+      write_count: 0,
+      read_length: 2099117,
+      read_count: 3,
+      runtime: 199232461,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "2c8e82f8c0adead481e4d3c57c7406fcc49e13bf9c7cc08699086c49e7fd43ab",
+    evaluated_epoch: Epoch40,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: memory-test-contract-Epoch4_0-Clarity2, function_name: create-many-references, function_args: [[]])",
+        vm_error: "Some(MemoryBalanceExceeded(100665636, 100000000)) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 0,
+          write_count: 0,
+          read_length: 2099117,
+          read_count: 3,
+          runtime: 199232461,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 0,
+      write_count: 0,
+      read_length: 2099117,
+      read_count: 3,
+      runtime: 199232461,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "25286cb3b383c7bab694476495818e25bb7fa9a0c2f15b71a32b1e17885c9782",
+    evaluated_epoch: Epoch40,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: memory-test-contract-Epoch4_0-Clarity3, function_name: create-many-references, function_args: [[]])",
+        vm_error: "Some(MemoryBalanceExceeded(100665636, 100000000)) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 0,
+          write_count: 0,
+          read_length: 2099117,
+          read_count: 3,
+          runtime: 199232461,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 0,
+      write_count: 0,
+      read_length: 2099117,
+      read_count: 3,
+      runtime: 199232461,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "732ae7d259569261687d3d2093720ef66b4073b0f582bfc80f4638b6cdf0dcf5",
+    evaluated_epoch: Epoch40,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: memory-test-contract-Epoch4_0-Clarity4, function_name: create-many-references, function_args: [[]])",
+        vm_error: "Some(MemoryBalanceExceeded(100665636, 100000000)) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 0,
+          write_count: 0,
+          read_length: 2099117,
+          read_count: 3,
+          runtime: 199232461,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 0,
+      write_count: 0,
+      read_length: 2099117,
+      read_count: 3,
+      runtime: 199232461,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "72db909cf8a3b93a1cc37a50f83ea65b39b729625e71e8b202be5a5dca221b6f",
+    evaluated_epoch: Epoch40,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: memory-test-contract-Epoch4_0-Clarity5, function_name: create-many-references, function_args: [[]])",
+        vm_error: "Some(MemoryBalanceExceeded(100665636, 100000000)) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 0,
+          write_count: 0,
+          read_length: 2099117,
+          read_count: 3,
+          runtime: 199232461,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 0,
+      write_count: 0,
+      read_length: 2099117,
+      read_count: 3,
+      runtime: 199232461,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "133ca2e7a29770d427af1b8ac6c84b19ff8fb774115a5f41f7e7e9333fd778ef",
+    evaluated_epoch: Epoch40,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: memory-test-contract-Epoch4_0-Clarity6, function_name: create-many-references, function_args: [[]])",
         vm_error: "Some(MemoryBalanceExceeded(100665636, 100000000)) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,

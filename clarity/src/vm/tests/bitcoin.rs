@@ -1,0 +1,351 @@
+// Copyright (C) 2026 Stacks Open Internet Foundation
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program.  If not, see <http://www.gnu.org/licenses/>.
+
+//! Property tests for the Clarity-language-level `verify-merkle-proof` and
+//! `get-bitcoin-tx-output?` builtins. These complement the Rust-helper
+//! property tests in `vm::functions::bitcoin::tests`: they exercise the
+//! lowering from Clarity-source arguments through the special-form
+//! dispatcher into the underlying Rust helpers, and back into Clarity
+//! `Value`s.
+
+use clarity_types::ClarityName;
+use pinny::tag;
+use proptest::prelude::*;
+use stacks_common::deps_common::bitcoin::blockdata::script::Script;
+use stacks_common::deps_common::bitcoin::blockdata::transaction::{
+    OutPoint, Transaction, TxIn, TxOut,
+};
+use stacks_common::deps_common::bitcoin::network::serialize::{
+    deserialize as btc_deserialize, serialize as btc_serialize,
+};
+use stacks_common::deps_common::bitcoin::util::hash::Sha256dHash;
+use stacks_common::types::StacksEpochId;
+use stacks_common::util::hash::to_hex;
+
+use crate::vm::functions::bitcoin::{
+    GET_BITCOIN_TX_OUTPUT_MAX_SCRIPT_LEN, VERIFY_MERKLE_PROOF_MAX_DEPTH,
+};
+use crate::vm::tests::proptest_strategies::{arb_simple_tx, synth_canonical_proof};
+use crate::vm::types::{TupleData, Value};
+use crate::vm::{ClarityVersion, execute_with_parameters};
+
+/// The bitcoin builtins are gated on Clarity 6 / Epoch 4.0.
+const TEST_CLARITY: ClarityVersion = ClarityVersion::Clarity6;
+const TEST_EPOCH: StacksEpochId = StacksEpochId::Epoch40;
+
+fn buff_literal(bytes: &[u8]) -> String {
+    format!("0x{}", to_hex(bytes))
+}
+
+/// Render a list of 32-byte buffers as a Clarity `(list ...)` source literal.
+fn buff_list_literal(items: &[[u8; 32]]) -> String {
+    if items.is_empty() {
+        // Empty literal — the runtime accepts an empty `(list)` for the
+        // single-leaf "depth 0" case.
+        "(list)".to_string()
+    } else {
+        let inner: Vec<String> = items.iter().map(|b| buff_literal(b)).collect();
+        format!("(list {})", inner.join(" "))
+    }
+}
+
+fn execute(snippet: &str) -> Value {
+    execute_with_parameters(snippet, TEST_CLARITY, TEST_EPOCH, false)
+        .expect("execution should succeed")
+        .expect("should return a value")
+}
+
+/// `ceil(log2(n))` for `n >= 2`, 0 for `n <= 1`. Local copy of the helper in
+/// `vm::functions::bitcoin`.
+fn canonical_merkle_depth(tx_count: u128) -> u32 {
+    if tx_count <= 1 {
+        0
+    } else {
+        (tx_count - 1).ilog2() + 1
+    }
+}
+
+prop_compose! {
+    /// Synthesize a valid merkle proof spanning the full supported range:
+    /// `tx_count` ranges over `1..=2^24` (depths 0..=24, the cap enforced by
+    /// the `(list 24 (buff 32))` sibling type). Returns
+    /// `(leaf, root, tx_index, tx_count, siblings)` where `siblings` matches
+    /// the canonical Bitcoin tree shape for `(tx_index, tx_count)` and `root`
+    /// is the synthesized root, so the proof verifies by construction.
+    fn arb_merkle_proof()(
+        tx_count in 1u128..=(1u128 << VERIFY_MERKLE_PROOF_MAX_DEPTH),
+        leaf in any::<[u8; 32]>(),
+    )(
+        tx_index in 0u128..tx_count,
+        leaf in Just(leaf),
+        tx_count in Just(tx_count),
+        raw_siblings in prop::collection::vec(
+            any::<[u8; 32]>(),
+            canonical_merkle_depth(tx_count) as usize,
+        ),
+    ) -> ([u8; 32], [u8; 32], u128, u128, Vec<[u8; 32]>) {
+        let (siblings, root) = synth_canonical_proof(leaf, tx_index, tx_count, &raw_siblings);
+        (leaf, root, tx_index, tx_count, siblings)
+    }
+}
+
+fn merkle_proof_snippet(
+    leaf: &[u8; 32],
+    root: &[u8; 32],
+    tx_index: u128,
+    tx_count: u128,
+    siblings: &[[u8; 32]],
+) -> String {
+    format!(
+        "(verify-merkle-proof {leaf} {root} u{idx} u{count} {sibs})",
+        leaf = buff_literal(leaf),
+        root = buff_literal(root),
+        idx = tx_index,
+        count = tx_count,
+        sibs = buff_list_literal(siblings),
+    )
+}
+
+proptest! {
+    /// A canonical proof generated at the Rust level must verify when passed
+    /// to the Clarity builtin as source literals, at any depth up to 24.
+    #[tag(t_prop)]
+    #[test]
+    fn prop_clarity_verify_merkle_proof_roundtrip(
+        (leaf, root, tx_index, tx_count, siblings) in arb_merkle_proof(),
+    ) {
+        let snippet = merkle_proof_snippet(
+            &leaf, &root, tx_index, tx_count, &siblings,
+        );
+        prop_assert_eq!(Value::Bool(true), execute(&snippet));
+    }
+
+    /// Tampering the root at the Clarity layer must surface as `false`, not
+    /// as a runtime error. This covers the contract-author expectation that
+    /// "bad proof" is a boolean signal.
+    #[tag(t_prop)]
+    #[test]
+    fn prop_clarity_verify_merkle_proof_tampered_root_returns_false(
+        (leaf, root, tx_index, tx_count, siblings) in arb_merkle_proof(),
+        byte_idx in 0usize..32,
+        bit in 0u8..8,
+    ) {
+        let mut tampered = root;
+        tampered[byte_idx] ^= 1u8 << bit;
+        // XOR by a non-zero single-bit mask always flips one bit, so
+        // `tampered != root` holds by construction — no `prop_assume!` needed.
+        let snippet = merkle_proof_snippet(
+            &leaf, &tampered, tx_index, tx_count, &siblings,
+        );
+        prop_assert_eq!(Value::Bool(false), execute(&snippet));
+    }
+
+    /// `get-bitcoin-tx-output?` must round-trip a freshly-built tx: for each
+    /// vout we get back the original amount and script, plus the canonical
+    /// (witness-stripped) txid — invariant across segwit and non-segwit
+    /// encodings.
+    #[tag(t_prop)]
+    #[test]
+    fn prop_clarity_get_bitcoin_tx_output_roundtrip(
+        (tx, outputs) in arb_simple_tx(),
+    ) {
+        let bytes = btc_serialize(&tx).expect("serialize tx");
+        let expected_txid = tx.txid().0;
+        for (vout, (amount, script)) in outputs.iter().enumerate() {
+            let snippet = format!(
+                "(get-bitcoin-tx-output? {tx_bytes} u{vout})",
+                tx_bytes = buff_literal(&bytes),
+                vout = vout,
+            );
+            let expected_inner = TupleData::from_data(vec![
+                (
+                    ClarityName::from_literal("script"),
+                    Value::buff_from(script.clone()).expect("script fits in (buff 1024)"),
+                ),
+                (
+                    ClarityName::from_literal("amount"),
+                    Value::UInt(u128::from(*amount)),
+                ),
+                (
+                    ClarityName::from_literal("txid"),
+                    Value::buff_from(expected_txid.to_vec())
+                        .expect("32-byte txid is a valid (buff 32)"),
+                ),
+            ])
+            .expect("ok-tuple should construct");
+            let expected = Value::okay(Value::Tuple(expected_inner))
+                .expect("response wrapping should succeed");
+            prop_assert_eq!(expected, execute(&snippet));
+        }
+    }
+
+    /// `vout >= n_outputs` must surface as `(err u2)` (the VoutOutOfRange
+    /// code) — confirming the runtime path correctly maps the underlying
+    /// error to a Clarity response.
+    #[tag(t_prop)]
+    #[test]
+    fn prop_clarity_get_bitcoin_tx_output_vout_oob_returns_err_u2(
+        (tx, outputs) in arb_simple_tx(),
+        slop in 0u64..8,
+    ) {
+        let bytes = btc_serialize(&tx).expect("serialize tx");
+        let bad_vout = outputs.len() as u64 + slop;
+        let snippet = format!(
+            "(get-bitcoin-tx-output? {tx_bytes} u{vout})",
+            tx_bytes = buff_literal(&bytes),
+            vout = bad_vout,
+        );
+        let expected = Value::err_uint(2);
+        prop_assert_eq!(expected, execute(&snippet));
+    }
+
+    /// `vout > u64::MAX` must surface as `(err u2)` (the VoutOutOfRange
+    /// code) — the `u64::try_from` overflow guard, a path distinct from the
+    /// in-range `vout >= n_outputs` rejection above.
+    #[tag(t_prop)]
+    #[test]
+    fn prop_clarity_get_bitcoin_tx_output_vout_exceeds_u64_returns_err_u2(
+        (tx, _outputs) in arb_simple_tx(),
+        vout in (u64::MAX as u128 + 1)..=u128::MAX,
+    ) {
+        let bytes = btc_serialize(&tx).expect("serialize tx");
+        let snippet = format!(
+            "(get-bitcoin-tx-output? {tx_bytes} u{vout})",
+            tx_bytes = buff_literal(&bytes),
+            vout = vout,
+        );
+        let expected = Value::err_uint(2);
+        prop_assert_eq!(expected, execute(&snippet));
+    }
+
+    /// Tx-bytes that do not deserialize as a Bitcoin transaction must surface
+    /// as `(err u1)` (`InvalidTx`) — never a panic, never a spurious `(ok …)`.
+    /// The `prop_filter` discards the vanishingly rare random byte string that
+    /// happens to parse (negligible rejection); it uses the same
+    /// `btc_deserialize::<Transaction>` the builtin's parse path does, so the
+    /// kept inputs are exactly those the builtin rejects as `InvalidTx`. `vout`
+    /// is left arbitrary (any in-range `u64`) to show the parse failure
+    /// short-circuits before any vout handling; the happy "valid parse" path is
+    /// covered by `_roundtrip`.
+    #[tag(t_prop)]
+    #[test]
+    fn prop_clarity_get_bitcoin_tx_output_garbage_bytes(
+        tx_bytes in prop::collection::vec(any::<u8>(), 0..=2048)
+            .prop_filter("must not parse as a tx", |b| {
+                btc_deserialize::<Transaction>(b).is_err()
+            }),
+        vout in any::<u64>(),
+    ) {
+        let snippet = format!(
+            "(get-bitcoin-tx-output? {tx_bytes} u{vout})",
+            tx_bytes = buff_literal(&tx_bytes),
+            vout = vout,
+        );
+        prop_assert_eq!(Value::err_uint(1), execute(&snippet));
+    }
+
+    /// At the `GET_BITCOIN_TX_OUTPUT_MAX_SCRIPT_LEN` (1024-byte) cap, the
+    /// output must be returned as an exact `(ok {script, amount, txid})`. The
+    /// randomized script body and amount catch any content-dependent
+    /// regression in the boundary check.
+    #[tag(t_prop)]
+    #[test]
+    fn prop_clarity_get_bitcoin_tx_output_script_at_cap(
+        script in prop::collection::vec(
+            any::<u8>(),
+            GET_BITCOIN_TX_OUTPUT_MAX_SCRIPT_LEN..=GET_BITCOIN_TX_OUTPUT_MAX_SCRIPT_LEN,
+        ),
+        amount in any::<u64>(),
+    ) {
+        let tx = Transaction {
+            version: 1,
+            lock_time: 0,
+            input: vec![TxIn {
+                previous_output: OutPoint {
+                    txid: Sha256dHash([0u8; 32]),
+                    vout: 0,
+                },
+                script_sig: Script::from(Vec::<u8>::new()),
+                sequence: 0xffffffff,
+                witness: vec![],
+            }],
+            output: vec![TxOut {
+                value: amount,
+                script_pubkey: Script::from(script.clone()),
+            }],
+        };
+        let expected_txid = tx.txid().0;
+        let bytes = btc_serialize(&tx).expect("serialize tx");
+        let snippet = format!(
+            "(get-bitcoin-tx-output? {tx_bytes} u0)",
+            tx_bytes = buff_literal(&bytes),
+        );
+        let expected_inner = TupleData::from_data(vec![
+            (
+                ClarityName::from_literal("script"),
+                Value::buff_from(script.clone()).expect("1024-byte script fits in (buff 1024)"),
+            ),
+            (
+                ClarityName::from_literal("amount"),
+                Value::UInt(u128::from(amount)),
+            ),
+            (
+                ClarityName::from_literal("txid"),
+                Value::buff_from(expected_txid.to_vec())
+                    .expect("32-byte txid is a valid (buff 32)"),
+            ),
+        ])
+        .expect("ok-tuple should construct");
+        let expected = Value::okay(Value::Tuple(expected_inner))
+            .expect("response wrapping should succeed");
+        prop_assert_eq!(expected, execute(&snippet));
+    }
+
+    /// One byte over the `GET_BITCOIN_TX_OUTPUT_MAX_SCRIPT_LEN` cap (1025
+    /// bytes) must always be rejected as `(err u3)` (`ScriptTooLarge`).
+    #[tag(t_prop)]
+    #[test]
+    fn prop_clarity_get_bitcoin_tx_output_script_over_cap(
+        script in prop::collection::vec(
+            any::<u8>(),
+            GET_BITCOIN_TX_OUTPUT_MAX_SCRIPT_LEN + 1,
+        ),
+        amount in any::<u64>(),
+    ) {
+        let tx = Transaction {
+            version: 1,
+            lock_time: 0,
+            input: vec![TxIn {
+                previous_output: OutPoint {
+                    txid: Sha256dHash([0u8; 32]),
+                    vout: 0,
+                },
+                script_sig: Script::from(Vec::<u8>::new()),
+                sequence: 0xffffffff,
+                witness: vec![],
+            }],
+            output: vec![TxOut {
+                value: amount,
+                script_pubkey: Script::from(script.clone()),
+            }],
+        };
+        let bytes = btc_serialize(&tx).expect("serialize tx");
+        let snippet = format!(
+            "(get-bitcoin-tx-output? {tx_bytes} u0)",
+            tx_bytes = buff_literal(&bytes),
+        );
+        prop_assert_eq!(Value::err_uint(3), execute(&snippet));
+    }
+}

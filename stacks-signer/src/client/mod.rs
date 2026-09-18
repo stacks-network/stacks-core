@@ -351,6 +351,8 @@ pub(crate) mod tests {
             rejection_votes_left_required: None,
             next_reward_cycle_in: thread_rng().next_u64(),
             contract_versions: vec![],
+            pox_5_sbtc_contract: "ST000000000000000000002AMW42H.sbtc-token".to_string(),
+            pox_5_sbtc_registry_contract: "ST000000000000000000002AMW42H.sbtc-registry".to_string(),
         };
         let pox_info_json = serde_json::to_string(&pox_info).expect("Failed to serialize pox info");
         (format!("HTTP/1.1 200 Ok\n\n{pox_info_json}"), pox_info)
@@ -479,8 +481,6 @@ pub(crate) mod tests {
             block_proposal_max_age_secs: config.block_proposal_max_age_secs,
             reorg_attempts_activity_timeout: config.reorg_attempts_activity_timeout,
             proposal_wait_for_parent_time: config.proposal_wait_for_parent_time,
-            validate_with_replay_tx: config.validate_with_replay_tx,
-            reset_replay_set_after_fork_blocks: config.reset_replay_set_after_fork_blocks,
             capitulate_miner_view_timeout: config.capitulate_miner_view_timeout,
             #[cfg(any(test, feature = "testing"))]
             supported_signer_protocol_version: SUPPORTED_SIGNER_PROTOCOL_VERSION,

@@ -60,18 +60,18 @@ impl StacksMessageCodec for UrlString {
     fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), codec_error> {
         // UrlString can't be longer than vm::representations::MAX_STRING_LEN, which itself is
         // a u8, so we should be good here.
-        if self.as_bytes().len() > CLARITY_MAX_STRING_LENGTH as usize {
+        if self.as_str().len() > CLARITY_MAX_STRING_LENGTH as usize {
             return Err(codec_error::SerializeError(
                 "Failed to serialize URL string: too long".to_string(),
             ));
         }
 
         // must be a valid block URL, or empty string
-        if !self.as_bytes().is_empty() {
+        if !self.as_str().is_empty() {
             let _ = self.parse_to_block_url()?;
         }
 
-        write_next(fd, &(self.as_bytes().len() as u8))?;
+        write_next(fd, &(self.as_str().len() as u8))?;
         fd.write_all(self.as_bytes())
             .map_err(codec_error::WriteError)?;
         Ok(())
@@ -189,48 +189,9 @@ impl UrlString {
 
 #[cfg(test)]
 mod test {
-    use clarity::vm::representations::{ClarityName, ContractName, CONTRACT_MAX_NAME_LENGTH};
+    use clarity::vm::representations::{ContractName, CONTRACT_MAX_NAME_LENGTH};
 
     use super::*;
-    use crate::net::codec::test::check_codec_and_corruption;
-
-    #[test]
-    fn tx_stacks_strings_codec() {
-        let s = "hello-world";
-        let stacks_str = StacksString::from_str(s).unwrap();
-        let clarity_str = ClarityName::try_from(s).unwrap();
-        let contract_str = ContractName::try_from(s).unwrap();
-
-        assert_eq!(stacks_str[..], s.as_bytes().to_vec()[..]);
-        let s2 = stacks_str.to_string();
-        assert_eq!(s2, s.to_string());
-
-        // stacks strings have a 4-byte length prefix
-        let mut b = vec![];
-        stacks_str.consensus_serialize(&mut b).unwrap();
-        let mut bytes = vec![0x00, 0x00, 0x00, s.len() as u8];
-        bytes.extend_from_slice(s.as_bytes());
-
-        check_codec_and_corruption::<StacksString>(&stacks_str, &bytes);
-
-        // clarity names and contract names have a 1-byte length prefix
-        let mut clarity_bytes = vec![s.len() as u8];
-        clarity_bytes.extend_from_slice(clarity_str.as_bytes());
-        check_codec_and_corruption::<ClarityName>(&clarity_str, &clarity_bytes);
-
-        let mut contract_bytes = vec![s.len() as u8];
-        contract_bytes.extend_from_slice(contract_str.as_bytes());
-        check_codec_and_corruption::<ContractName>(&contract_str, &contract_bytes);
-    }
-
-    #[test]
-    fn tx_stacks_string_invalid() {
-        let s = "hello\rworld";
-        assert!(StacksString::from_str(s).is_none());
-
-        let s = "hello\x01world";
-        assert!(StacksString::from_str(s).is_none());
-    }
 
     #[test]
     fn test_contract_name_invalid() {

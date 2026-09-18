@@ -54,6 +54,14 @@ pub const BITCOIN_GENESIS_BLOCK_HASH_REGTEST: &str =
 pub const BLOCK_DIFFICULTY_CHUNK_SIZE: u64 = 2016;
 const BLOCK_DIFFICULTY_INTERVAL: u32 = 14 * 24 * 60 * 60; // two weeks, in seconds
 
+/// Number of complete difficulty intervals at `burn_height`: interval `k`
+/// is complete iff its last header height,
+/// `(k + 1) * BLOCK_DIFFICULTY_CHUNK_SIZE - 1`, is at or below
+/// `burn_height`.
+pub fn num_complete_chain_work_intervals(burn_height: u64) -> u64 {
+    burn_height.saturating_add(1) / BLOCK_DIFFICULTY_CHUNK_SIZE
+}
+
 pub const SPV_DB_VERSION: &str = "3";
 
 const SPV_INITIAL_SCHEMA: &[&str] = &[
@@ -277,8 +285,7 @@ impl SpvClient {
     }
 
     fn db_migrate(conn: &mut DBConn) -> Result<(), btc_error> {
-        let version = SpvClient::db_get_version(conn)?;
-        while version != SPV_DB_VERSION {
+        loop {
             let version = SpvClient::db_get_version(conn)?;
             match version.as_str() {
                 "1" => {
@@ -743,7 +750,7 @@ impl SpvClient {
         header: BlockHeader,
         height: u64,
     ) -> Result<(), btc_error> {
-        let sql = "INSERT OR REPLACE INTO headers 
+        let sql = "INSERT OR REPLACE INTO headers
         (version, prev_blockhash, merkle_root, time, bits, nonce, height, hash)
         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)";
         let args = params![
@@ -852,7 +859,7 @@ impl SpvClient {
                 .inspect_err(|e| error!("Failed to insert block headers: {e:?}"))?;
 
             // check work
-            let interval_start = if insert_height % BLOCK_DIFFICULTY_CHUNK_SIZE == 0 {
+            let interval_start = if insert_height.is_multiple_of(BLOCK_DIFFICULTY_CHUNK_SIZE) {
                 insert_height / BLOCK_DIFFICULTY_CHUNK_SIZE
             } else {
                 insert_height / BLOCK_DIFFICULTY_CHUNK_SIZE + 1
@@ -913,6 +920,22 @@ impl SpvClient {
         headers: Vec<LoneBlockHeader>,
     ) -> Result<(), btc_error> {
         self.write_block_headers(height, headers)
+    }
+
+    /// Insert a `chain_work` interval row directly (test fixtures only;
+    /// production rows go through [`SpvClient::update_chain_work`]).
+    #[cfg(test)]
+    pub fn test_insert_chain_work(
+        conn: &DBConn,
+        interval: u64,
+        work: &str,
+    ) -> Result<(), btc_error> {
+        conn.execute(
+            "INSERT INTO chain_work (interval, work) VALUES (?1, ?2)",
+            params![u64_to_sql(interval)?, work],
+        )
+        .map_err(|e| btc_error::from(db_error::SqliteError(e)))?;
+        Ok(())
     }
 
     /// Insert block headers into the headers DB.
@@ -994,7 +1017,7 @@ impl SpvClient {
             Some(child_header) => {
                 // contiguous?
                 if last_block_header.header.bitcoin_hash() != child_header.header.prev_blockhash {
-                    warn!("Received discontiguous headers at height {}: we have child {:?} ({}), but were given {:?} ({})", 
+                    warn!("Received discontiguous headers at height {}: we have child {:?} ({}), but were given {:?} ({})",
                           end_height, &child_header, child_header.header.bitcoin_hash(), &last_block_header, &last_block_header.header.bitcoin_hash());
                     return Err(btc_error::NoncontiguousHeader);
                 }
@@ -1067,8 +1090,9 @@ impl SpvClient {
     /// Determine the target difficult over a given difficulty adjustment interval
     /// the `interval` parameter is the difficulty interval -- a 2016-block interval.
     /// * On mainnet, `headers_in_range` can be empty. If it's not empty, then the 0th element is
-    /// treated as the parent of `current_header`.  On testnet, `headers_in_range` must be a range
-    /// of headers in the given `interval`.
+    ///   treated as the parent of `current_header`.  On testnet, `headers_in_range` must be a range
+    ///   of headers in the given `interval`.
+    ///
     /// Returns (new bits, new target)
     pub fn get_target(
         &self,
@@ -1115,7 +1139,7 @@ impl SpvClient {
             }
         };
 
-        if current_header_height % BLOCK_DIFFICULTY_CHUNK_SIZE != 0
+        if !current_header_height.is_multiple_of(BLOCK_DIFFICULTY_CHUNK_SIZE)
             && self.network_id == BitcoinNetworkType::Testnet
         {
             // In Testnet mode, if the new block's timestamp is more than 2 * 60 * 10 minutes
@@ -1269,7 +1293,7 @@ impl BitcoinMessageHandler for SpvClient {
                 self.send_next_getheaders(indexer, block_height)
                     .map(|_| true)
             }
-            x => Err(btc_error::UnhandledMessage(x)),
+            x => Err(btc_error::UnhandledMessage(x.into())),
         }
     }
 }
@@ -1287,6 +1311,7 @@ mod test {
 
     use super::*;
     use crate::burnchains::bitcoin::{Error as btc_error, *};
+    use crate::util_lib::db::table_exists;
 
     fn get_genesis_regtest_header() -> LoneBlockHeader {
         let genesis_regtest_header = LoneBlockHeader {
@@ -1307,6 +1332,31 @@ mod test {
             tx_count: VarInt(0),
         };
         genesis_regtest_header
+    }
+
+    /// Exercises the complete SPV schema migration from version 1 to version 3.
+    #[test]
+    fn test_spv_db_migrate_v1_to_v3() {
+        let mut conn = DBConn::open_in_memory().unwrap();
+        for statement in SPV_INITIAL_SCHEMA {
+            conn.execute_batch(statement).unwrap();
+        }
+        conn.execute_batch("INSERT INTO db_config (version) VALUES ('1')")
+            .unwrap();
+
+        SpvClient::db_migrate(&mut conn).unwrap();
+
+        assert_eq!(SpvClient::db_get_version(&conn).unwrap(), SPV_DB_VERSION);
+        assert!(table_exists(&conn, "chain_work").unwrap());
+
+        let header_columns = conn
+            .prepare("PRAGMA table_info(headers)")
+            .unwrap()
+            .query_map(NO_PARAMS, |row| row.get::<_, String>(1))
+            .unwrap()
+            .collect::<Result<Vec<_>, _>>()
+            .unwrap();
+        assert!(header_columns.iter().any(|column| column == "hash"));
     }
 
     #[test]

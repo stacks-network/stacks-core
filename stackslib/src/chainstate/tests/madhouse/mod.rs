@@ -20,13 +20,12 @@ mod state;
 use std::sync::Arc;
 
 use madhouse::{execute_commands, prop_allof, scenario, Command};
-use pinny::tag;
 use proptest::prelude::Strategy;
 
 use self::commands::*;
 use self::context::Epoch33ToEpoch34TestContext;
 
-/// Pre-Epoch34 returns a block-invalidating `Rejectable` error; Epoch34
+/// Pre-Epoch34 returns a block-invalidating error; Epoch34
 /// returns `(err u0)` with effects rolled back. Both "safe" (within allowance)
 /// and "combined-exceeds" (each op passes individually, combined total exceeds)
 /// are exercised in each epoch.
@@ -38,7 +37,7 @@ fn scenario_with_stx_postconditions() {
         ctx,
         // -- Deploy (Epoch33) --
         DeployContractLvlPostCondContract,
-        // -- Epoch33: combined-exceeds -> Rejectable --
+        // -- Epoch33: combined-exceeds -> rejected --
         CallRestrictWithStxSafe,
         CallRestrictWithStxCombinedExceeds,
         CallAsContractWithStxSafe,

@@ -18,8 +18,8 @@ use stacks_common::types::StacksEpochId;
 
 use super::{SimpleNativeFunction, TypedNativeFunction};
 use crate::vm::analysis::type_checker::v2_1::{
-    StaticCheckError, StaticCheckErrorKind, TypeChecker, TypingContext, check_argument_count,
-    check_arguments_at_least,
+    ArgumentCheckOutcome, StaticCheckError, StaticCheckErrorKind, TypeChecker, TypingContext,
+    check_argument_count, check_arguments_at_least,
 };
 use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::costs::{CostTracker, analysis_typecheck_cost, runtime_cost};
@@ -113,7 +113,10 @@ pub fn check_special_map(
         };
 
         if check_result.is_ok() {
-            let (costs, result) = function_type.check_args_visitor_2_1(
+            let ArgumentCheckOutcome {
+                cost: costs,
+                result,
+            } = function_type.check_args_visitor_2_1(
                 checker,
                 &entry_type,
                 arg_ix,
@@ -263,64 +266,100 @@ pub fn check_special_concat(
     args: &[SymbolicExpression],
     context: &TypingContext,
 ) -> Result<TypeSignature, StaticCheckError> {
-    check_argument_count(2, args)?;
+    // Clarity 6 makes `concat` variadic. Earlier versions require exactly 2 args.
+    if context.clarity_version.supports_variadic_concat() {
+        check_arguments_at_least(2, args)?;
+    } else {
+        check_argument_count(2, args)?;
+    }
 
+    // The first two args follow the exact ordering of the original 2-arg
+    // implementation: type-check both, then charge `AnalysisIterableFunc`,
+    // then `analysis_typecheck_cost`. This keeps cost-charging byte-identical
+    // for Clarity 1-5 contracts.
     let lhs_type = checker.type_check(&args[0], context)?;
     let rhs_type = checker.type_check(&args[1], context)?;
 
     runtime_cost(ClarityCostFunction::AnalysisIterableFunc, checker, 0)?;
-
     analysis_typecheck_cost(checker, &lhs_type, &rhs_type)?;
 
-    let res = match (&lhs_type, &rhs_type) {
-        (TypeSignature::SequenceType(lhs_seq), TypeSignature::SequenceType(rhs_seq)) => {
-            match (lhs_seq, rhs_seq) {
-                (ListType(lhs_list), ListType(rhs_list)) => {
-                    let (lhs_entry_type, lhs_max_len) =
-                        (lhs_list.get_list_item_type(), lhs_list.get_max_len());
-                    let (rhs_entry_type, rhs_max_len) =
-                        (rhs_list.get_list_item_type(), rhs_list.get_max_len());
+    let mut acc_type = combine_concat_types(&lhs_type, &rhs_type)?;
 
-                    let list_entry_type = TypeSignature::least_supertype(
-                        &StacksEpochId::Epoch21,
-                        lhs_entry_type,
-                        rhs_entry_type,
-                    )?;
-                    let new_len = lhs_max_len
-                        .checked_add(rhs_max_len)
-                        .ok_or(StaticCheckErrorKind::MaxLengthOverflow)?;
-                    TypeSignature::list_of(list_entry_type, new_len)?
-                }
-                (BufferType(lhs_len), BufferType(rhs_len)) => {
-                    let size: u32 = u32::from(lhs_len)
-                        .checked_add(u32::from(rhs_len))
-                        .ok_or(StaticCheckErrorKind::MaxLengthOverflow)?;
-                    TypeSignature::SequenceType(BufferType(size.try_into()?))
-                }
-                (StringType(ASCII(lhs_len)), StringType(ASCII(rhs_len))) => {
-                    let size: u32 = u32::from(lhs_len)
-                        .checked_add(u32::from(rhs_len))
-                        .ok_or(StaticCheckErrorKind::MaxLengthOverflow)?;
-                    TypeSignature::SequenceType(StringType(ASCII(size.try_into()?)))
-                }
-                (StringType(UTF8(lhs_len)), StringType(UTF8(rhs_len))) => {
-                    let size: u32 = u32::from(lhs_len)
-                        .checked_add(u32::from(rhs_len))
-                        .ok_or(StaticCheckErrorKind::MaxLengthOverflow)?;
-                    TypeSignature::SequenceType(StringType(UTF8(size.try_into()?)))
-                }
-                (_, _) => {
-                    return Err(StaticCheckErrorKind::TypeError(
-                        Box::new(lhs_type.clone()),
-                        Box::new(rhs_type.clone()),
-                    )
-                    .into());
-                }
-            }
-        }
-        _ => return Err(StaticCheckErrorKind::ExpectedSequence(Box::new(lhs_type.clone())).into()),
+    // Any additional args (Clarity 6+ only — the arity check above rejects
+    // them otherwise) are folded into the accumulator. We charge
+    // `analysis_typecheck_cost` per pair to cover the `least_supertype` work
+    // that `combine_concat_types` performs on each fold step. This is NOT
+    // quadratic in N: `analysis_typecheck_cost` is charged on `type_size`,
+    // which measures element-type complexity (K) and is independent of the
+    // accumulator's `max_len` — so even though the accumulated list length
+    // grows with each arg, the per-pair charge stays ~K, for K * N total
+    // (linear in N).
+    for arg in &args[2..] {
+        let rhs_type = checker.type_check(arg, context)?;
+        analysis_typecheck_cost(checker, &acc_type, &rhs_type)?;
+        acc_type = combine_concat_types(&acc_type, &rhs_type)?;
+    }
+
+    Ok(acc_type)
+}
+
+/// Combine two sequence types as if they were concatenated. Returns an error if
+/// either operand isn't a sequence, or if the two sequences have incompatible
+/// element types (e.g. buffer vs. string).
+fn combine_concat_types(
+    lhs_type: &TypeSignature,
+    rhs_type: &TypeSignature,
+) -> Result<TypeSignature, StaticCheckError> {
+    let (TypeSignature::SequenceType(lhs_seq), TypeSignature::SequenceType(rhs_seq)) =
+        (lhs_type, rhs_type)
+    else {
+        return Err(StaticCheckErrorKind::ExpectedSequence(Box::new(lhs_type.clone())).into());
     };
-    Ok(res)
+
+    let result = match (lhs_seq, rhs_seq) {
+        (ListType(lhs_list), ListType(rhs_list)) => {
+            let (lhs_entry_type, lhs_max_len) =
+                (lhs_list.get_list_item_type(), lhs_list.get_max_len());
+            let (rhs_entry_type, rhs_max_len) =
+                (rhs_list.get_list_item_type(), rhs_list.get_max_len());
+
+            let list_entry_type = TypeSignature::least_supertype(
+                &StacksEpochId::Epoch21,
+                lhs_entry_type,
+                rhs_entry_type,
+            )?;
+            let new_len = lhs_max_len
+                .checked_add(rhs_max_len)
+                .ok_or(StaticCheckErrorKind::MaxLengthOverflow)?;
+            TypeSignature::list_of(list_entry_type, new_len)?
+        }
+        (BufferType(lhs_len), BufferType(rhs_len)) => {
+            let size: u32 = u32::from(lhs_len)
+                .checked_add(u32::from(rhs_len))
+                .ok_or(StaticCheckErrorKind::MaxLengthOverflow)?;
+            TypeSignature::SequenceType(BufferType(size.try_into()?))
+        }
+        (StringType(ASCII(lhs_len)), StringType(ASCII(rhs_len))) => {
+            let size: u32 = u32::from(lhs_len)
+                .checked_add(u32::from(rhs_len))
+                .ok_or(StaticCheckErrorKind::MaxLengthOverflow)?;
+            TypeSignature::SequenceType(StringType(ASCII(size.try_into()?)))
+        }
+        (StringType(UTF8(lhs_len)), StringType(UTF8(rhs_len))) => {
+            let size: u32 = u32::from(lhs_len)
+                .checked_add(u32::from(rhs_len))
+                .ok_or(StaticCheckErrorKind::MaxLengthOverflow)?;
+            TypeSignature::SequenceType(StringType(UTF8(size.try_into()?)))
+        }
+        (_, _) => {
+            return Err(StaticCheckErrorKind::TypeError(
+                Box::new(lhs_type.clone()),
+                Box::new(rhs_type.clone()),
+            )
+            .into());
+        }
+    };
+    Ok(result)
 }
 
 pub fn check_special_append(
@@ -531,10 +570,25 @@ pub fn check_special_replace_at(
         _ => return Err(StaticCheckErrorKind::ExpectedSequence(Box::new(input_type)).into()),
     };
     let unit_seq = seq_type.unit_type();
+    let seq_is_list = seq_type.is_list_type();
     // Check index argument
     checker.type_check_expects(&args[1], context, &TypeSignature::UIntType)?;
     // Check element argument
-    checker.type_check_expects(&args[2], context, &unit_seq)?;
+    if checker.epoch.fixes_replace_at_element_arity() && !seq_is_list {
+        // 4.1+: require exactly the unit type — `type_check_expects` admits by max
+        // length, so it would accept a statically empty element (e.g. `0x`) that
+        // fails the runtime arity check. Lists are exempt, as at runtime.
+        let elem_type = checker.type_check(&args[2], context)?;
+        analysis_typecheck_cost(checker, &unit_seq, &elem_type)?;
+        if elem_type != TypeSignature::NoType && elem_type != unit_seq {
+            let mut err: StaticCheckError =
+                StaticCheckErrorKind::TypeError(Box::new(unit_seq), Box::new(elem_type)).into();
+            err.set_expression(&args[2]);
+            return Err(err);
+        }
+    } else {
+        checker.type_check_expects(&args[2], context, &unit_seq)?;
+    }
 
     let final_type = TypeSignature::new_option(input_type)?;
     Ok(final_type)

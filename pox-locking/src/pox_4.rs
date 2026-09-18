@@ -19,7 +19,7 @@ use clarity::vm::contexts::{ExecutionState, GlobalContext};
 use clarity::vm::costs::cost_functions::ClarityCostFunction;
 use clarity::vm::costs::runtime_cost;
 use clarity::vm::database::{ClarityDatabase, STXBalance};
-use clarity::vm::errors::{RuntimeError, VmExecutionError, VmInternalError};
+use clarity::vm::errors::{RuntimeCheckErrorKind, RuntimeError, VmExecutionError, VmInternalError};
 use clarity::vm::events::{STXEventType, STXLockEventData, StacksTransactionEvent};
 use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier};
 use clarity::vm::Value;
@@ -31,6 +31,32 @@ use crate::pox_2::{parse_pox_extend_result, parse_pox_increase, parse_pox_stacki
 use crate::{LockingError, POX_4_NAME};
 
 /////////////////////// PoX-4 /////////////////////////////////
+
+/// is a PoX-4 function call read only?
+pub(crate) fn is_read_only(func_name: &str) -> bool {
+    "burn-height-to-reward-cycle" == func_name
+        || "reward-cycle-to-burn-height" == func_name
+        || "current-pox-reward-cycle" == func_name
+        || "get-stacker-info" == func_name
+        || "check-caller-allowed" == func_name
+        || "get-check-delegation" == func_name
+        || "get-reward-set-size" == func_name
+        || "get-total-ustx-stacked" == func_name
+        || "get-reward-set-pox-address" == func_name
+        || "get-stacking-minimum" == func_name
+        || "check-pox-addr-version" == func_name
+        || "check-pox-addr-hashbytes" == func_name
+        || "check-pox-lock-period" == func_name
+        || "can-stack-stx" == func_name
+        || "minimal-can-stack-stx" == func_name
+        || "get-signer-key-message-hash" == func_name
+        || "verify-signer-key-sig" == func_name
+        || "get-pox-info" == func_name
+        || "get-delegation-info" == func_name
+        || "get-allowance-contract-callers" == func_name
+        || "get-num-reward-set-pox-addresses" == func_name
+        || "get-partial-stacked-by-cycle" == func_name
+}
 
 /// Lock up STX for PoX for a time.  Does NOT touch the account nonce.
 pub fn pox_lock_v4(
@@ -400,6 +426,17 @@ pub fn handle_contract_call(
         // Update the asset map to reflect the delegation
         match (sender_opt, args.first()) {
             (Some(sender), Some(Value::UInt(amount))) => {
+                // Reject any transaction that would overwrite an
+                // existing asset-map stacking entry for `sender`.
+                if global_context
+                    .get_readonly_asset_map()?
+                    .get_stacking(sender)
+                    .is_some()
+                {
+                    return Err(VmExecutionError::from(
+                        RuntimeCheckErrorKind::PoxStxAssetMapOverwrite,
+                    ));
+                }
                 global_context.log_stacking(sender, *amount)?;
             }
             _ => {

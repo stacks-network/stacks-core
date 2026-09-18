@@ -185,6 +185,7 @@ dependencies = [
  "serde_json",
  "slog",
  "stacks-common",
+ "variant_count",
 ]
 
 [[package]]
@@ -1338,7 +1339,7 @@ dependencies = [
 
 [[package]]
 name = "stacks-common"
-version = "0.0.1"
+version = "4.0.3"
 dependencies = [
  "chrono",
  "curve25519-dalek",
@@ -1360,7 +1361,6 @@ dependencies = [
  "slog",
  "slog-term",
  "thiserror",
- "toml",
  "winapi",
 ]
 
@@ -1464,15 +1464,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "toml"
-version = "0.5.11"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f4f7f0dd8d50a853a531c426359045b1998f04219d88799810762cd4ad314234"
-dependencies = [
- "serde",
-]
-
-[[package]]
 name = "typenum"
 version = "1.18.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1483,6 +1474,17 @@ name = "unicode-ident"
 version = "1.0.18"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5a5f39404a5da50712a4c1eecf25e90dd62b613502b7e925fd4e4d19b5c96512"
+
+[[package]]
+name = "variant_count"
+version = "1.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a1935e10c6f04d22688d07c0790f2fc0e1b1c5c2c55bc0cc87ed67656e587dd8"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.104",
+]
 
 [[package]]
 name = "vcpkg"

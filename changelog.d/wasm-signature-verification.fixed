@@ -1,0 +1,6 @@
+Fixed Wasm signature recovery to decode `MessageSignature` in VRS order, restoring transaction, public-key, and microblock-signature verification.
+Fixed `Secp256k1PublicKey::verify()` on Wasm rejecting every valid signature for an uncompressed public key.
+Fixed `secp256k1_verify()` on Wasm accepting high-S signatures, which made Clarity's `secp256k1-verify` return `true` in simnet for signatures that are rejected on chain.
+Fixed Wasm low-S validation rejecting `s == (n - 1) / 2`, the largest canonical low-S value, which the native backend accepts.
+Fixed Wasm signing producing high-S signatures at the low-S boundary, preserving the recovery ID when normalizing signatures.
+Fixed Wasm public-key verification to return `Ok(false)` for a key mismatch before rejecting high-S signatures, matching the native backend.

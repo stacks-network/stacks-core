@@ -44,7 +44,7 @@ use stacks::chainstate::stacks::events::{
 };
 use stacks::chainstate::stacks::miner::TransactionEvent;
 use stacks::chainstate::stacks::{StacksBlock, StacksMicroblock, StacksTransaction};
-use stacks::config::{EventKeyType, EventObserverConfig};
+use stacks::config::{Config, EventKeyType, EventObserverConfig};
 use stacks::core::mempool::{MemPoolDropReason, MemPoolEventDispatcher, ProposalCallbackReceiver};
 use stacks::libstackerdb::StackerDBChunkData;
 use stacks::net::api::postblock_proposal::{
@@ -86,20 +86,20 @@ lazy_static! {
 #[derive(Debug, thiserror::Error)]
 enum EventDispatcherError {
     #[error("Serialization error: {0}")]
-    SerializationError(#[from] serde_json::Error),
+    Serialization(#[from] serde_json::Error),
     #[error("HTTP error: {0}")]
-    HttpError(#[from] std::io::Error),
+    Http(#[from] std::io::Error),
     #[error("Database error: {0}")]
-    DbError(#[from] stacks::util_lib::db::Error),
+    Db(#[from] stacks::util_lib::db::Error),
     #[error("Channel receive error: {0}")]
-    RecvError(#[from] std::sync::mpsc::RecvError),
+    Recv(#[from] std::sync::mpsc::RecvError),
     #[error("Channel send error: {0}")]
-    SendError(String), // not capturing the underlying because it's a generic type
+    Send(String), // not capturing the underlying because it's a generic type
 }
 
 impl<T> From<std::sync::mpsc::SendError<T>> for EventDispatcherError {
     fn from(value: std::sync::mpsc::SendError<T>) -> Self {
-        EventDispatcherError::SendError(format!("{value}"))
+        EventDispatcherError::Send(format!("{value}"))
     }
 }
 
@@ -112,6 +112,10 @@ struct EventObserver {
     /// If true, the stacks-node will not retry if event delivery fails for any reason.
     /// WARNING: This should not be set on observers that require successful delivery of all events.
     disable_retries: bool,
+    /// If true, the `contract_interface` (ABI) field of transaction payloads in
+    /// `new_block` / `new_microblocks` events sent to this observer is always
+    /// emitted as `None`, regardless of whether the transaction deployed a contract.
+    disable_contract_interface: bool,
 }
 
 /// Update `serve()` in `neon_integrations.rs` with any new paths that need to be tested
@@ -131,11 +135,17 @@ pub const PATH_PROPOSAL_RESPONSE: &str = "proposal_response";
 static TEST_EVENT_OBSERVER_SKIP_RETRY: LazyLock<TestFlag<bool>> = LazyLock::new(TestFlag::default);
 
 impl EventObserver {
-    fn new(endpoint: String, timeout: Duration, disable_retries: bool) -> Self {
+    fn new(
+        endpoint: String,
+        timeout: Duration,
+        disable_retries: bool,
+        disable_contract_interface: bool,
+    ) -> Self {
         EventObserver {
             endpoint,
             timeout,
             disable_retries,
+            disable_contract_interface,
         }
     }
 }
@@ -397,6 +407,19 @@ impl EventDispatcher {
     pub fn new(working_dir: PathBuf) -> EventDispatcher {
         Self::new_with_custom_queue_size(working_dir, 1_000)
     }
+    /// Build a dispatcher wired up from the node config: queue size,
+    /// registered observers, and event payload options.
+    pub fn from_config(config: &Config) -> EventDispatcher {
+        let mut dispatcher = Self::new_with_custom_queue_size(
+            config.get_working_dir(),
+            config.node.effective_event_dispatcher_queue_size(),
+        );
+        for observer in &config.events_observers {
+            dispatcher.register_observer(observer);
+        }
+        dispatcher
+    }
+
     /// The queue size specifies how many events may be in-flight without
     /// blocking the calling thread when sending additional events. A value
     /// of 0 means they always block.
@@ -474,7 +497,7 @@ impl EventDispatcher {
     ///
     /// # Returns
     /// - dispatch_matrix: a vector where each index corresponds to the hashset of event indexes
-    ///     that each respective event observer is subscribed to
+    ///   that each respective event observer is subscribed to
     /// - events: a vector of all events from all the tx receipts
     #[allow(clippy::type_complexity)]
     fn create_dispatch_matrix_and_event_vector<'a>(
@@ -646,6 +669,7 @@ impl EventDispatcher {
                     signer_bitvec,
                     block_timestamp,
                     coinbase_height,
+                    !self.registered_observers[observer_id].disable_contract_interface,
                 );
 
                 // Send payload
@@ -690,20 +714,21 @@ impl EventDispatcher {
         let (dispatch_matrix, events) =
             self.create_dispatch_matrix_and_event_vector(&flattened_receipts);
 
-        // Serialize receipts
-        let mut tx_index;
-        let mut serialized_txs = Vec::new();
-
-        for (_, _, receipts) in processed_unconfirmed_state.receipts.iter() {
-            tx_index = 0;
-            for receipt in receipts.iter() {
-                let payload = make_new_block_txs_payload(receipt, tx_index);
-                serialized_txs.push(payload);
-                tx_index += 1;
-            }
-        }
-
         for (obs_id, observer) in interested_observers.iter() {
+            // Serialize receipts. The payloads are built per observer because
+            // `disable_contract_interface` may differ between observers.
+            let mut serialized_txs = Vec::new();
+            for (_, _, receipts) in processed_unconfirmed_state.receipts.iter() {
+                for (tx_index, receipt) in receipts.iter().enumerate() {
+                    let payload = make_new_block_txs_payload(
+                        receipt,
+                        tx_index as u32,
+                        !observer.disable_contract_interface,
+                    );
+                    serialized_txs.push(payload);
+                }
+            }
+
             let filtered_events_ids = &dispatch_matrix[*obs_id];
             let filtered_events: Vec<_> = filtered_events_ids
                 .iter()
@@ -976,6 +1001,7 @@ impl EventDispatcher {
             conf.endpoint.clone(),
             Duration::from_millis(conf.timeout_ms),
             conf.disable_retries,
+            conf.disable_contract_interface,
         );
 
         if conf.disable_retries {

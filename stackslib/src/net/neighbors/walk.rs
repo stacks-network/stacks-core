@@ -178,8 +178,7 @@ pub struct NeighborWalk<DB: NeighborWalkDB, NC: NeighborComms> {
     /// neighbor walk result we build up incrementally
     pub result: NeighborWalkResult,
 
-    /// time that we started/finished the last walk
-    walk_start_time: u64,
+    /// Time that we finished the last walk.
     walk_end_time: u64,
 
     /// walk random-restart parameters
@@ -237,7 +236,6 @@ impl<DB: NeighborWalkDB, NC: NeighborComms> NeighborWalk<DB, NC> {
 
             result: NeighborWalkResult::new(),
 
-            walk_start_time: get_epoch_time_secs(),
             walk_end_time: 0,
 
             walk_step_count: 0,
@@ -442,7 +440,7 @@ impl<DB: NeighborWalkDB, NC: NeighborComms> NeighborWalk<DB, NC> {
             idx
         );
 
-        let (addr, pingback_peer) = match network.get_walk_pingbacks().iter().skip(idx).next() {
+        let (addr, pingback_peer) = match network.get_walk_pingbacks().iter().nth(idx) {
             Some((addr, pingback_peer)) => (addr, pingback_peer),
             None => {
                 return Err(net_error::NoSuchNeighbor);
@@ -1281,7 +1279,7 @@ impl<DB: NeighborWalkDB, NC: NeighborComms> NeighborWalk<DB, NC> {
     ) -> Result<bool, net_error> {
         assert!(self.state == NeighborWalkState::GetNeighborsNeighborsBegin);
 
-        let handshake_neighbor_addrs = mem::replace(&mut self.handshake_neighbor_addrs, vec![]);
+        let handshake_neighbor_addrs = mem::take(&mut self.handshake_neighbor_addrs);
         for naddr in handshake_neighbor_addrs.into_iter() {
             let nk = naddr.to_neighbor_key(network);
             if !network.is_registered(&nk) {
@@ -1478,11 +1476,11 @@ impl<DB: NeighborWalkDB, NC: NeighborComms> NeighborWalk<DB, NC> {
     ///
     /// This is a slightly modified MHRWDA algorithm.  The following differences are described:
     /// * The Stacks peer network is a _directed_ graph, whereas MHRWDA is desigend to operate
-    /// on _undirected_ graphs.  As such, we calculate a separate peer graph with undirected edges
-    /// with the same peers.  We estimate a peer's undirected degree with Neighbor::degree().
+    ///   on _undirected_ graphs.  As such, we calculate a separate peer graph with undirected edges
+    ///   with the same peers.  We estimate a peer's undirected degree with Neighbor::degree().
     /// * The probability of transitioning to a new peer is proportional not only to the ratio of
-    /// the current peer's degree to the new peer's degree, but also to the ratio of the new
-    /// peer's AS's node count to the current peer's AS's node count.
+    ///   the current peer's degree to the new peer's degree, but also to the ratio of the new
+    ///   peer's AS's node count to the current peer's AS's node count.
     ///
     /// This method updates self.next_neighbor with a new neighbor to step to, or None to restart.
     pub fn step(&mut self, network: &PeerNetwork) {
@@ -1593,7 +1591,7 @@ impl<DB: NeighborWalkDB, NC: NeighborComms> NeighborWalk<DB, NC> {
         // caller will have already populated the pending_pingback_handshakes hashmap
         assert!(self.state == NeighborWalkState::PingbackHandshakesBegin);
 
-        let network_pingbacks = mem::replace(&mut self.network_pingbacks, HashMap::new());
+        let network_pingbacks = mem::take(&mut self.network_pingbacks);
         let mut still_pending: HashMap<NeighborAddress, _> = HashMap::new();
 
         for (naddr, pingback) in network_pingbacks.into_iter() {

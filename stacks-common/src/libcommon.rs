@@ -1,5 +1,4 @@
 #![allow(unused_macros)]
-#![allow(dead_code)]
 #![allow(non_camel_case_types)]
 #![allow(non_snake_case)]
 #![allow(non_upper_case_globals)]
@@ -91,10 +90,12 @@ pub mod consts {
     pub const PEER_VERSION_EPOCH_3_2: u8 = 0x0d;
     pub const PEER_VERSION_EPOCH_3_3: u8 = 0x0e;
     pub const PEER_VERSION_EPOCH_3_4: u8 = 0x0f;
+    pub const PEER_VERSION_EPOCH_4_0: u8 = 0x10;
+    pub const PEER_VERSION_EPOCH_4_1: u8 = 0x11;
 
     /// this should be updated to the latest network epoch version supported by
     ///  this node. this will be checked by the `validate_epochs()` method.
-    pub const PEER_NETWORK_EPOCH: u32 = PEER_VERSION_EPOCH_3_4 as u32;
+    pub const PEER_NETWORK_EPOCH: u32 = PEER_VERSION_EPOCH_4_0 as u32;
 
     /// set the fourth byte of the peer version
     pub const PEER_VERSION_MAINNET: u32 = PEER_VERSION_MAINNET_MAJOR | PEER_NETWORK_EPOCH;
@@ -109,6 +110,8 @@ pub mod consts {
 }
 
 pub mod versions {
+    pub const STACKS_NODE_VERSION: &str = env!("CARGO_PKG_VERSION");
+
     include!(concat!(env!("OUT_DIR"), "/versions.rs"));
 }
 

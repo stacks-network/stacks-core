@@ -46,8 +46,6 @@ use crate::core::*;
 use crate::net::test::{TestEventObserver, TestPeer};
 use crate::util_lib::boot::boot_code_id;
 
-const USTX_PER_HOLDER: u128 = 1_000_000;
-
 /// Return the BlockSnapshot for the latest sortition in the provided
 ///  SortitionDB option-reference. Panics on any errors.
 fn get_tip(sortdb: Option<&SortitionDB>) -> BlockSnapshot {
@@ -735,7 +733,7 @@ fn test_simple_pox_lockup_transition_pox_2() {
 
     eprintln!("First v2 cycle = {}", first_v2_cycle);
 
-    let epochs = StacksEpoch::all(0, 0, EMPTY_SORTITIONS as u64 + 10);
+    let epochs = StacksEpoch::unit_test_2_1_with_heights(0, 0, EMPTY_SORTITIONS as u64 + 10);
 
     let observer = TestEventObserver::new();
 
@@ -830,7 +828,7 @@ fn test_simple_pox_lockup_transition_pox_2() {
 
     // our "tenure counter" is now at 0
     let tip = get_tip(peer.chain.sortdb.as_ref());
-    assert_eq!(tip.block_height, 0 + EMPTY_SORTITIONS as u64);
+    assert_eq!(tip.block_height, (EMPTY_SORTITIONS as u64));
 
     // first tenure is empty
     peer.tenure_with_txs(&[], &mut coinbase_nonce);
@@ -1196,7 +1194,7 @@ fn test_simple_pox_2_auto_unlock(alice_first: bool) {
 
     eprintln!("First v2 cycle = {}", first_v2_cycle);
 
-    let epochs = StacksEpoch::all(0, 0, EMPTY_SORTITIONS as u64 + 10);
+    let epochs = StacksEpoch::unit_test_2_1_with_heights(0, 0, EMPTY_SORTITIONS as u64 + 10);
 
     let observer = TestEventObserver::new();
 
@@ -1244,7 +1242,7 @@ fn test_simple_pox_2_auto_unlock(alice_first: bool) {
     let bob_lockup = make_pox_2_lockup(
         &bob,
         0,
-        1 * POX_THRESHOLD_STEPS_USTX,
+        POX_THRESHOLD_STEPS_USTX,
         PoxAddress::from_legacy(
             AddressHashMode::SerializeP2PKH,
             key_to_stacks_addr(&bob).destruct().1,
@@ -1294,6 +1292,7 @@ fn test_simple_pox_2_auto_unlock(alice_first: bool) {
         burnchain.pox_constants.v1_unlock_height,
         burnchain.pox_constants.v2_unlock_height,
         burnchain.pox_constants.v3_unlock_height,
+        burnchain.pox_constants.pox_5_activation_height,
     )
     .unwrap();
     assert_eq!(bob_bal.amount_locked(), POX_THRESHOLD_STEPS_USTX);
@@ -1325,6 +1324,7 @@ fn test_simple_pox_2_auto_unlock(alice_first: bool) {
         burnchain.pox_constants.v1_unlock_height,
         burnchain.pox_constants.v2_unlock_height,
         burnchain.pox_constants.v3_unlock_height,
+        burnchain.pox_constants.pox_5_activation_height,
     )
     .unwrap();
     assert_eq!(bob_bal.amount_locked(), 0);
@@ -1340,6 +1340,7 @@ fn test_simple_pox_2_auto_unlock(alice_first: bool) {
         burnchain.pox_constants.v1_unlock_height,
         burnchain.pox_constants.v2_unlock_height,
         burnchain.pox_constants.v3_unlock_height,
+        burnchain.pox_constants.pox_5_activation_height,
     )
     .unwrap();
     assert_eq!(bob_bal.amount_locked(), 0);
@@ -1486,7 +1487,7 @@ fn delegate_stack_increase() {
 
     eprintln!("First v2 cycle = {first_v2_cycle}");
 
-    let epochs = StacksEpoch::all(0, 0, EMPTY_SORTITIONS as u64 + 10);
+    let epochs = StacksEpoch::unit_test_2_1_with_heights(0, 0, EMPTY_SORTITIONS as u64 + 10);
 
     let observer = TestEventObserver::new();
 
@@ -1842,7 +1843,7 @@ fn stack_increase() {
 
     eprintln!("First v2 cycle = {}", first_v2_cycle);
 
-    let epochs = StacksEpoch::all(0, 0, EMPTY_SORTITIONS as u64 + 10);
+    let epochs = StacksEpoch::unit_test_2_1_with_heights(0, 0, EMPTY_SORTITIONS as u64 + 10);
 
     let observer = TestEventObserver::new();
 
@@ -2087,7 +2088,7 @@ fn test_lock_period_invariant_extend_transition() {
     eprintln!("First v2 cycle = {first_v2_cycle}");
     assert_eq!(first_v2_cycle, EXPECTED_FIRST_V2_CYCLE);
 
-    let epochs = StacksEpoch::all(0, 0, EMPTY_SORTITIONS as u64 + 10);
+    let epochs = StacksEpoch::unit_test_2_1_with_heights(0, 0, EMPTY_SORTITIONS as u64 + 10);
 
     let observer = TestEventObserver::new();
 
@@ -2113,7 +2114,7 @@ fn test_lock_period_invariant_extend_transition() {
 
     // our "tenure counter" is now at 0
     let tip = get_tip(peer.chain.sortdb.as_ref());
-    assert_eq!(tip.block_height, 0 + EMPTY_SORTITIONS as u64);
+    assert_eq!(tip.block_height, (EMPTY_SORTITIONS as u64));
 
     // first tenure is empty
     peer.tenure_with_txs(&[], &mut coinbase_nonce);
@@ -2249,7 +2250,7 @@ fn test_pox_extend_transition_pox_2() {
     eprintln!("First v2 cycle = {}", first_v2_cycle);
     assert_eq!(first_v2_cycle, EXPECTED_FIRST_V2_CYCLE);
 
-    let epochs = StacksEpoch::all(0, 0, EMPTY_SORTITIONS as u64 + 10);
+    let epochs = StacksEpoch::unit_test_2_1_with_heights(0, 0, EMPTY_SORTITIONS as u64 + 10);
 
     let observer = TestEventObserver::new();
 
@@ -2365,7 +2366,7 @@ fn test_pox_extend_transition_pox_2() {
 
     // our "tenure counter" is now at 0
     let tip = get_tip(peer.chain.sortdb.as_ref());
-    assert_eq!(tip.block_height, 0 + EMPTY_SORTITIONS as u64);
+    assert_eq!(tip.block_height, (EMPTY_SORTITIONS as u64));
 
     // first tenure is empty
     peer.tenure_with_txs(&[], &mut coinbase_nonce);
@@ -2692,7 +2693,7 @@ fn test_delegate_extend_transition_pox_2() {
     eprintln!("First v2 cycle = {}", first_v2_cycle);
     assert_eq!(first_v2_cycle, EXPECTED_FIRST_V2_CYCLE);
 
-    let epochs = StacksEpoch::all(0, 0, EMPTY_SORTITIONS as u64 + 10);
+    let epochs = StacksEpoch::unit_test_2_1_with_heights(0, 0, EMPTY_SORTITIONS as u64 + 10);
 
     let observer = TestEventObserver::new();
 
@@ -2751,7 +2752,7 @@ fn test_delegate_extend_transition_pox_2() {
         );
         assert_eq!(&(reward_addrs[0].0).hash160(), charlie_address.bytes());
         // 1 lockup was done between alice's first cycle and the start of v2 cycles
-        assert_eq!(reward_addrs[0].1, 1 * LOCKUP_AMT);
+        assert_eq!(reward_addrs[0].1, LOCKUP_AMT);
     };
 
     // these checks should pass after the start of V2 reward cycles
@@ -2790,7 +2791,7 @@ fn test_delegate_extend_transition_pox_2() {
 
     // our "tenure counter" is now at 0
     let tip = get_tip(peer.chain.sortdb.as_ref());
-    assert_eq!(tip.block_height, 0 + EMPTY_SORTITIONS as u64);
+    assert_eq!(tip.block_height, (EMPTY_SORTITIONS as u64));
 
     // first tenure is empty
     peer.tenure_with_txs(&[], &mut coinbase_nonce);
@@ -3406,7 +3407,7 @@ fn test_pox_2_getters() {
     eprintln!("First v2 cycle = {}", first_v2_cycle);
     assert_eq!(first_v2_cycle, EXPECTED_FIRST_V2_CYCLE);
 
-    let epochs = StacksEpoch::all(0, 0, EMPTY_SORTITIONS as u64 + 10);
+    let epochs = StacksEpoch::unit_test_2_1_with_heights(0, 0, EMPTY_SORTITIONS as u64 + 10);
 
     let (mut peer, mut keys) =
         instantiate_pox_peer_with_epoch(&burnchain, "test-pox-2-getters", Some(epochs), None);
@@ -3545,7 +3546,7 @@ fn test_pox_2_getters() {
     }}", &alice_address,
         &bob_address,
         &bob_address, &format!("{}.hello-world", &charlie_address), cur_reward_cycle + 1,
-        charlie_address.bytes(), cur_reward_cycle + 0, &charlie_address,
+        charlie_address.bytes(), cur_reward_cycle, &charlie_address,
         charlie_address.bytes(), cur_reward_cycle + 1, &charlie_address,
         charlie_address.bytes(), cur_reward_cycle + 2, &charlie_address,
         charlie_address.bytes(), cur_reward_cycle + 3, &charlie_address,
@@ -3682,7 +3683,7 @@ fn test_get_pox_addrs() {
 
     assert_eq!(burnchain.pox_constants.reward_slots(), 4);
 
-    let epochs = StacksEpoch::all(1, 2, 3);
+    let epochs = StacksEpoch::unit_test_2_1_with_heights(1, 2, 3);
 
     let (mut peer, keys) =
         instantiate_pox_peer_with_epoch(&burnchain, "test-get-pox-addrs", Some(epochs), None);
@@ -3960,7 +3961,7 @@ fn test_stack_with_segwit() {
 
     assert_eq!(burnchain.pox_constants.reward_slots(), 4);
 
-    let epochs = StacksEpoch::all(1, 2, 3);
+    let epochs = StacksEpoch::unit_test_2_1_with_heights(1, 2, 3);
 
     let (mut peer, all_keys) =
         instantiate_pox_peer_with_epoch(&burnchain, "test-stack-with-segwit", Some(epochs), None);
@@ -4288,7 +4289,7 @@ fn test_pox_2_delegate_stx_addr_validation() {
     eprintln!("First v2 cycle = {}", first_v2_cycle);
     assert_eq!(first_v2_cycle, EXPECTED_FIRST_V2_CYCLE);
 
-    let epochs = StacksEpoch::all(0, 0, EMPTY_SORTITIONS as u64 + 10);
+    let epochs = StacksEpoch::unit_test_2_1_with_heights(0, 0, EMPTY_SORTITIONS as u64 + 10);
 
     let (mut peer, mut keys) = instantiate_pox_peer_with_epoch(
         &burnchain,
@@ -4472,7 +4473,7 @@ fn stack_aggregation_increase() {
 
     eprintln!("First v2 cycle = {}", first_v2_cycle);
 
-    let epochs = StacksEpoch::all(0, 0, EMPTY_SORTITIONS as u64 + 10);
+    let epochs = StacksEpoch::unit_test_2_1_with_heights(0, 0, EMPTY_SORTITIONS as u64 + 10);
 
     let observer = TestEventObserver::new();
 
@@ -4919,7 +4920,7 @@ fn stack_in_both_pox1_and_pox2() {
 
     eprintln!("First v2 cycle = {}", first_v2_cycle);
 
-    let epochs = StacksEpoch::all(0, 0, EMPTY_SORTITIONS as u64 + 10);
+    let epochs = StacksEpoch::unit_test_2_1_with_heights(0, 0, EMPTY_SORTITIONS as u64 + 10);
 
     let observer = TestEventObserver::new();
 

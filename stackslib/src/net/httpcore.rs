@@ -915,7 +915,7 @@ impl StacksHttpRecvStream {
         // did we get a message?
         if self.state.is_eof() {
             // reset
-            let message_data = mem::replace(&mut self.data, vec![]);
+            let message_data = mem::take(&mut self.data);
             let total_consumed = self.total_consumed;
 
             self.state = HttpChunkedTransferReaderState::new(self.state.max_size);
@@ -993,8 +993,6 @@ pub struct StacksHttp {
     last_four_preamble_bytes: [u8; 4],
     /// Incoming reply state
     reply: Option<StacksHttpReplyData>,
-    /// Size of HTTP chunks to write
-    chunk_size: usize,
     /// Which request handler is active.
     /// This is only used if this state-machine is used by a client to issue a request and then
     /// parse a reply.  If instead this state-machine is used by the server to parse a request and
@@ -1013,6 +1011,8 @@ pub struct StacksHttp {
     allow_arbitrary_response: bool,
     /// Maximum execution time of a read-only call when in zero cost-tracking mode
     pub read_only_max_execution_time: Duration,
+    /// Maximum heap allocation for a single read-only call before it is aborted
+    pub read_only_call_max_mem_bytes: u64,
 }
 
 impl StacksHttp {
@@ -1025,7 +1025,6 @@ impl StacksHttp {
             num_preamble_bytes: 0,
             last_four_preamble_bytes: [0u8; 4],
             reply: None,
-            chunk_size: 8192,
             request_handler_index: None,
             request_handlers: vec![],
             maximum_call_argument_size: conn_opts.maximum_call_argument_size,
@@ -1035,6 +1034,7 @@ impl StacksHttp {
             read_only_max_execution_time: Duration::from_secs(
                 conn_opts.read_only_max_execution_time_secs,
             ),
+            read_only_call_max_mem_bytes: conn_opts.read_only_call_max_mem_bytes,
         };
         http.register_rpc_methods();
         http
@@ -1049,7 +1049,6 @@ impl StacksHttp {
             num_preamble_bytes: 0,
             last_four_preamble_bytes: [0u8; 4],
             reply: None,
-            chunk_size: 8192,
             request_handler_index: None,
             request_handlers: vec![],
             maximum_call_argument_size: conn_opts.maximum_call_argument_size,
@@ -1059,6 +1058,7 @@ impl StacksHttp {
             read_only_max_execution_time: Duration::from_secs(
                 conn_opts.read_only_max_execution_time_secs,
             ),
+            read_only_call_max_mem_bytes: conn_opts.read_only_call_max_mem_bytes,
         }
     }
 
@@ -1562,7 +1562,7 @@ impl ProtocolFamily for StacksHttp {
         if self.body_start.is_none() {
             for i in 0..=buf.len() {
                 let window = self.body_start_search_window(i, buf);
-                if window == [b'\r', b'\n', b'\r', b'\n'] {
+                if window == *b"\r\n\r\n" {
                     self.body_start = Some(self.num_preamble_bytes + i);
                 }
             }

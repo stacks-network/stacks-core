@@ -39,14 +39,14 @@ pub enum TypedNativeFunction {
     Simple(SimpleNativeFunction),
 }
 
-#[allow(clippy::type_complexity)]
-pub struct SpecialNativeFunction(
-    &'static dyn Fn(
-        &mut TypeChecker,
-        &[SymbolicExpression],
-        &TypingContext,
-    ) -> Result<TypeSignature, StaticCheckError>,
-);
+/// Type-checks a special native function in this epoch's checker.
+type SpecialNativeFn = dyn Fn(
+    &mut TypeChecker,
+    &[SymbolicExpression],
+    &TypingContext,
+) -> Result<TypeSignature, StaticCheckError>;
+
+pub struct SpecialNativeFunction(&'static SpecialNativeFn);
 pub struct SimpleNativeFunction(pub FunctionType);
 
 fn check_special_list_cons(
@@ -838,8 +838,14 @@ impl TypedNativeFunction {
             | AllowanceWithFt
             | AllowanceWithNft
             | AllowanceWithStacking
+            | AllowanceWithStaking
+            | AllowanceWithPox
             | AllowanceAll
-            | Secp256r1Verify => {
+            | Secp256r1Verify
+            | VerifyMerkleProof
+            | GetBitcoinTxOutput
+            | Ed25519Verify
+            | Secp256k1Decompress => {
                 return Err(StaticCheckErrorKind::Unreachable(
                     "Clarity 2+ keywords should not show up in 2.05".into(),
                 ));

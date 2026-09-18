@@ -98,7 +98,7 @@ fn test_valid_and_invalid_stackerdb_configs() {
 
     assert_eq!(first_v2_cycle, EXPECTED_FIRST_V2_CYCLE);
 
-    let epochs = StacksEpoch::all(0, 0, EMPTY_SORTITIONS as u64 + 10);
+    let epochs = StacksEpoch::unit_test_2_1_with_heights(0, 0, EMPTY_SORTITIONS as u64 + 10);
 
     let observer = TestEventObserver::new();
 
@@ -573,7 +573,7 @@ fn test_hint_replicas_override() {
 
     assert_eq!(first_v2_cycle, EXPECTED_FIRST_V2_CYCLE);
 
-    let epochs = StacksEpoch::all(0, 0, EMPTY_SORTITIONS as u64 + 10);
+    let epochs = StacksEpoch::unit_test_2_1_with_heights(0, 0, EMPTY_SORTITIONS as u64 + 10);
 
     let observer = TestEventObserver::new();
 

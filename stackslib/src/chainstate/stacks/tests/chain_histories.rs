@@ -22,26 +22,12 @@
 /// test anything about block construction from mempool state.
 use std::collections::HashMap;
 
-use clarity::vm::types::*;
 use rand::seq::SliceRandom;
 use rand::thread_rng;
-use stacks_common::address::*;
 use stacks_common::types::chainstate::SortitionId;
 
-use crate::burnchains::db::BurnchainDB;
-use crate::burnchains::tests::*;
-use crate::chainstate::burn::db::sortdb::*;
-use crate::chainstate::stacks::db::test::*;
-use crate::chainstate::stacks::db::*;
-use crate::chainstate::stacks::miner::*;
 use crate::chainstate::stacks::tests::*;
 use crate::chainstate::stacks::C32_ADDRESS_VERSION_TESTNET_SINGLESIG;
-
-fn connect_burnchain_db(burnchain: &Burnchain) -> BurnchainDB {
-    let burnchain_db =
-        BurnchainDB::connect(&burnchain.get_burnchaindb_path(), burnchain, true).unwrap();
-    burnchain_db
-}
 
 /// Simplest end-to-end test: create 1 fork of N Stacks epochs, mined on 1 burn chain fork,
 /// all from the same miner.
@@ -2695,7 +2681,12 @@ pub fn mine_empty_anchored_block(
     let tx_coinbase_signed = make_coinbase(miner, burnchain_height);
 
     builder
-        .try_mine_tx(clarity_tx, &tx_coinbase_signed, None, &mut 0)
+        .try_mine_tx(
+            clarity_tx,
+            &tx_coinbase_signed,
+            &TransactionResourceBudgets::unlimited(),
+            &mut 0,
+        )
         .unwrap();
 
     let stacks_block = builder.mine_anchored_block(clarity_tx);
@@ -2730,7 +2721,12 @@ pub fn mine_empty_anchored_block_with_burn_height_pubkh(
     let tx_coinbase_signed = make_coinbase(miner, burnchain_height);
 
     builder
-        .try_mine_tx(clarity_tx, &tx_coinbase_signed, None, &mut 0)
+        .try_mine_tx(
+            clarity_tx,
+            &tx_coinbase_signed,
+            &TransactionResourceBudgets::unlimited(),
+            &mut 0,
+        )
         .unwrap();
 
     let stacks_block = builder.mine_anchored_block(clarity_tx);
@@ -2765,7 +2761,12 @@ pub fn mine_empty_anchored_block_with_stacks_height_pubkh(
     let tx_coinbase_signed = make_coinbase(miner, burnchain_height);
 
     builder
-        .try_mine_tx(clarity_tx, &tx_coinbase_signed, None, &mut 0)
+        .try_mine_tx(
+            clarity_tx,
+            &tx_coinbase_signed,
+            &TransactionResourceBudgets::unlimited(),
+            &mut 0,
+        )
         .unwrap();
 
     let stacks_block = builder.mine_anchored_block(clarity_tx);
@@ -2796,7 +2797,12 @@ pub fn mine_invalid_token_transfers_block(
     // make a coinbase for this miner
     let tx_coinbase_signed = make_coinbase(miner, burnchain_height);
     builder
-        .try_mine_tx(clarity_tx, &tx_coinbase_signed, None, &mut 0)
+        .try_mine_tx(
+            clarity_tx,
+            &tx_coinbase_signed,
+            &TransactionResourceBudgets::unlimited(),
+            &mut 0,
+        )
         .unwrap();
 
     let recipient =
@@ -2870,7 +2876,12 @@ pub fn mine_smart_contract_contract_call_block(
     // make a coinbase for this miner
     let tx_coinbase_signed = make_coinbase(miner, burnchain_height);
     builder
-        .try_mine_tx(clarity_tx, &tx_coinbase_signed, None, &mut 0)
+        .try_mine_tx(
+            clarity_tx,
+            &tx_coinbase_signed,
+            &TransactionResourceBudgets::unlimited(),
+            &mut 0,
+        )
         .unwrap();
 
     // make a smart contract
@@ -2880,7 +2891,12 @@ pub fn mine_smart_contract_contract_call_block(
         builder.header.total_work.work as usize,
     );
     builder
-        .try_mine_tx(clarity_tx, &tx_contract_signed, None, &mut 0)
+        .try_mine_tx(
+            clarity_tx,
+            &tx_contract_signed,
+            &TransactionResourceBudgets::unlimited(),
+            &mut 0,
+        )
         .unwrap();
 
     // make a contract call
@@ -2892,7 +2908,12 @@ pub fn mine_smart_contract_contract_call_block(
         2,
     );
     builder
-        .try_mine_tx(clarity_tx, &tx_contract_call_signed, None, &mut 0)
+        .try_mine_tx(
+            clarity_tx,
+            &tx_contract_call_signed,
+            &TransactionResourceBudgets::unlimited(),
+            &mut 0,
+        )
         .unwrap();
 
     let stacks_block = builder.mine_anchored_block(clarity_tx);
@@ -2947,7 +2968,12 @@ pub fn mine_smart_contract_block_contract_call_microblock(
     // make a coinbase for this miner
     let tx_coinbase_signed = make_coinbase(miner, burnchain_height);
     builder
-        .try_mine_tx(clarity_tx, &tx_coinbase_signed, None, &mut 0)
+        .try_mine_tx(
+            clarity_tx,
+            &tx_coinbase_signed,
+            &TransactionResourceBudgets::unlimited(),
+            &mut 0,
+        )
         .unwrap();
 
     // make a smart contract
@@ -2957,7 +2983,12 @@ pub fn mine_smart_contract_block_contract_call_microblock(
         builder.header.total_work.work as usize,
     );
     builder
-        .try_mine_tx(clarity_tx, &tx_contract_signed, None, &mut 0)
+        .try_mine_tx(
+            clarity_tx,
+            &tx_contract_signed,
+            &TransactionResourceBudgets::unlimited(),
+            &mut 0,
+        )
         .unwrap();
 
     let stacks_block = builder.mine_anchored_block(clarity_tx);
@@ -3034,7 +3065,12 @@ pub fn mine_smart_contract_block_contract_call_microblock_exception(
     // make a coinbase for this miner
     let tx_coinbase_signed = make_coinbase(miner, burnchain_height);
     builder
-        .try_mine_tx(clarity_tx, &tx_coinbase_signed, None, &mut 0)
+        .try_mine_tx(
+            clarity_tx,
+            &tx_coinbase_signed,
+            &TransactionResourceBudgets::unlimited(),
+            &mut 0,
+        )
         .unwrap();
 
     // make a smart contract
@@ -3044,7 +3080,12 @@ pub fn mine_smart_contract_block_contract_call_microblock_exception(
         builder.header.total_work.work as usize,
     );
     builder
-        .try_mine_tx(clarity_tx, &tx_contract_signed, None, &mut 0)
+        .try_mine_tx(
+            clarity_tx,
+            &tx_contract_signed,
+            &TransactionResourceBudgets::unlimited(),
+            &mut 0,
+        )
         .unwrap();
 
     let stacks_block = builder.mine_anchored_block(clarity_tx);

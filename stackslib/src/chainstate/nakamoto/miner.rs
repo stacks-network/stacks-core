@@ -1,5 +1,5 @@
 // Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
-// Copyright (C) 2020 Stacks Open Internet Foundation
+// Copyright (C) 2020-2026 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -15,9 +15,7 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use clarity::vm::clarity::ClarityError;
-use clarity::vm::contexts::AbortCallback;
 use clarity::vm::costs::ExecutionCost;
-use stacks_common::alloc_tracker::{thread_allocated, tracking_allocator_installed};
 use stacks_common::types::chainstate::{
     BlockHeaderHash, BurnchainHeaderHash, ConsensusHash, StacksBlockId,
 };
@@ -36,7 +34,8 @@ use crate::chainstate::stacks::db::{
     ChainstateTx, ClarityTx, StacksBlockHeaderTypes, StacksChainState, StacksHeaderInfo,
 };
 use crate::chainstate::stacks::miner::{
-    BlockBuilder, BlockBuilderSettings, BlockLimitFunction, TransactionEvent, TransactionResult,
+    BlockBuilder, BlockBuilderSettings, BlockLimitFunction, TransactionEvent,
+    TransactionResourceBudgets, TransactionResult,
 };
 use crate::chainstate::stacks::{Error, StacksBlockHeader, *};
 use crate::clarity_vm::clarity::ClarityInstance;
@@ -47,34 +46,6 @@ use crate::monitoring::{
     set_last_mined_block_transaction_count, set_last_mined_execution_cost_observed,
 };
 use crate::net::relay::Relayer;
-
-/// Build an [`AbortCallback`] that aborts when per-thread net heap
-/// allocation exceeds `limit_bytes`. Should be called once per
-/// transaction so each transaction gets a fresh baseline.
-///
-/// Returns `AbortCallback::None` when `limit_bytes` is 0 (disabled).
-///
-/// This is only called from block assembly and proposal validation contexts,
-/// and *not* during normal block append or block replay.
-///
-/// Requires a [`TrackingAllocator`](stacks_common::alloc_tracker::TrackingAllocator)
-/// to be set as the `#[global_allocator]` in the binary crate. If no
-/// tracking allocator is active the counters remain at 0 and the callback
-/// will never trigger (safe degradation).
-pub fn make_mem_abort_callback(limit_bytes: u64) -> AbortCallback {
-    if limit_bytes == 0 {
-        return AbortCallback::None;
-    }
-    if !tracking_allocator_installed() {
-        error!(
-            "TrackingAllocator is not installed as the global allocator; any miner or signer configured memory limits will never trigger"
-        );
-    }
-    AbortCallback::MemAbort {
-        baseline: thread_allocated(),
-        limit_bytes,
-    }
-}
 
 /// Nakamoto tenure information
 #[derive(Debug, Default)]
@@ -110,10 +81,6 @@ pub struct NakamotoBlockBuilder {
     parent_header: Option<StacksHeaderInfo>,
     /// Signed coinbase tx, if starting a new tenure
     coinbase_tx: Option<StacksTransaction>,
-    /// Tenure change tx, if starting or extending a tenure
-    tenure_tx: Option<StacksTransaction>,
-    /// Total burn this block represents
-    total_burn: u64,
     /// Matured miner rewards to process, if any.
     pub(crate) matured_miner_rewards_opt: Option<MaturedMinerRewards>,
     /// bytes of space consumed so far
@@ -253,15 +220,10 @@ pub struct BlockMetadata {
 
 impl NakamotoBlockBuilder {
     /// Make a block builder from genesis (testing only)
-    pub fn new_first_block(
-        tenure_change: &StacksTransaction,
-        coinbase: &StacksTransaction,
-    ) -> NakamotoBlockBuilder {
+    pub fn new_first_block(coinbase: &StacksTransaction) -> NakamotoBlockBuilder {
         NakamotoBlockBuilder {
             parent_header: None,
-            total_burn: 0,
             coinbase_tx: Some(coinbase.clone()),
-            tenure_tx: Some(tenure_change.clone()),
             matured_miner_rewards_opt: None,
             bytes_so_far: 0,
             txs: vec![],
@@ -277,12 +239,12 @@ impl NakamotoBlockBuilder {
     /// * `parent_stacker_header` - the stacks header this builder's block will build off
     ///
     /// * `tenure_id_consensus_hash` - consensus hash of this tenure's burnchain block.
-    ///    This is the consensus hash that goes into the block header.
+    ///   This is the consensus hash that goes into the block header.
     ///
     /// * `total_burn` - total BTC burnt so far in this fork.
     ///
     /// * `tenure_change` - the TenureChange tx if this is going to start or
-    ///    extend a tenure
+    ///   extend a tenure
     ///
     /// * `coinbase` - the coinbase tx if this is going to start a new tenure
     ///
@@ -322,9 +284,7 @@ impl NakamotoBlockBuilder {
 
         Ok(NakamotoBlockBuilder {
             parent_header: Some(parent_stacks_header.clone()),
-            total_burn,
             coinbase_tx: coinbase.cloned(),
-            tenure_tx: tenure_change.cloned(),
             matured_miner_rewards_opt: None,
             bytes_so_far: 0,
             txs: vec![],
@@ -488,11 +448,13 @@ impl NakamotoBlockBuilder {
         };
 
         let parent_block_id = StacksBlockId::new(&parent_consensus_hash, &parent_header_hash);
-        let parent_coinbase_height =
-            NakamotoChainState::get_coinbase_height(&mut chainstate.index_conn(), &parent_block_id)
-                .ok()
-                .flatten()
-                .unwrap_or(0);
+        let parent_coinbase_height = NakamotoChainState::get_coinbase_height_at(
+            &mut chainstate.index_conn(),
+            &parent_block_id,
+        )
+        .ok()
+        .flatten()
+        .unwrap_or(0);
 
         let is_new_tenure = cause.is_new_tenure();
         let coinbase_height = if is_new_tenure {
@@ -621,6 +583,11 @@ impl NakamotoBlockBuilder {
 
         self.header.tx_merkle_root = tx_merkle_root;
         self.header.state_index_root = state_root_hash;
+        // Keep the shadow bit, but set the version to the expected version for
+        // this epoch.
+        let shadow_flag = self.header.version & 0x80;
+        self.header.version =
+            NakamotoBlockHeader::expected_version_for_epoch(clarity_tx.get_epoch()) | shadow_flag;
 
         let block = NakamotoBlock {
             header: self.header.clone(),
@@ -682,7 +649,6 @@ impl NakamotoBlockBuilder {
         settings: BlockBuilderSettings,
         event_observer: Option<&dyn MemPoolEventDispatcher>,
         signer_bitvec_len: u16,
-        replay_transactions: &[StacksTransaction],
     ) -> Result<BlockMetadata, Error> {
         let (tip_consensus_hash, tip_block_hash, tip_height) = (
             parent_stacks_header.consensus_hash.clone(),
@@ -767,7 +733,6 @@ impl NakamotoBlockBuilder {
             &initial_txs,
             settings,
             event_observer,
-            replay_transactions,
         ) {
             Ok(x) => x,
             Err(e) => {
@@ -837,7 +802,7 @@ impl BlockBuilder for NakamotoBlockBuilder {
         tx: &StacksTransaction,
         tx_len: u64,
         limit_behavior: &BlockLimitFunction,
-        max_execution_time: Option<std::time::Duration>,
+        resource_budgets: &TransactionResourceBudgets,
         total_receipts_size: &mut u64,
     ) -> TransactionResult {
         if self.bytes_so_far + tx_len >= u64::from(MAX_EPOCH_SIZE) {
@@ -902,7 +867,7 @@ impl BlockBuilder for NakamotoBlockBuilder {
                 clarity_tx,
                 tx,
                 quiet,
-                max_execution_time,
+                resource_budgets,
                 |receipt| {
                     if !receipt.post_condition_aborted {
                         let all_events_valid = receipt.events.iter().all(|event| {
@@ -980,18 +945,19 @@ fn parse_process_transaction_error(
         TransactionResult::problematic(tx, e)
     } else {
         match e {
-            Error::CostOverflowError(cost_before, cost_after, total_budget) => {
-                clarity_tx.reset_cost(cost_before.clone());
+            Error::CostOverflowError(context) => {
+                clarity_tx.reset_cost(context.before.clone());
                 let cost_so_far_percentage =
-                    total_budget.proportion_largest_dimension(&cost_before);
+                    context.budget.proportion_largest_dimension(&context.before);
                 if cost_so_far_percentage < TX_BLOCK_LIMIT_PROPORTION_HEURISTIC {
                     warn!(
-                            "Transaction {} consumed over {}% of block budget, marking as invalid; budget was {total_budget}",
+                            "Transaction {} consumed over {}% of block budget, marking as invalid; budget was {}",
                             tx.txid(),
-                            100 - TX_BLOCK_LIMIT_PROPORTION_HEURISTIC
+                            100 - TX_BLOCK_LIMIT_PROPORTION_HEURISTIC,
+                            context.budget,
                     );
-                    let mut measured_cost = cost_after;
-                    let measured_cost = if measured_cost.sub(&cost_before).is_ok() {
+                    let mut measured_cost = context.after;
+                    let measured_cost = if measured_cost.sub(&context.before).is_ok() {
                         Some(measured_cost)
                     } else {
                         warn!("Failed to compute measured cost of a too big transaction");
@@ -1002,13 +968,15 @@ fn parse_process_transaction_error(
                     warn!(
                         "Transaction {} would exceed the tenure budget, but only {cost_so_far_percentage}% of total budget currently consumed. Skipping tx for this block.", tx.txid();
                         "contract_limit_percentage" => contract_limit_percentage,
-                        "total_budget" => %total_budget
+                        "total_budget" => %context.budget
                     );
                     TransactionResult::skipped_due_to_error(tx, Error::BlockCostLimitError)
                 } else {
                     warn!(
-                        "Transaction {} reached block cost {cost_after}; budget was {total_budget}",
+                        "Transaction {} reached block cost {}; budget was {}",
                         tx.txid(),
+                        context.after,
+                        context.budget,
                     );
                     TransactionResult::skipped_due_to_error(tx, Error::BlockTooBigError)
                 }

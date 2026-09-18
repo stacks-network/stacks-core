@@ -15,7 +15,6 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use clarity::types::chainstate::TenureBlockId;
-use clarity::vm::types::*;
 use rusqlite::{params, Row};
 use stacks_common::types::chainstate::{StacksAddress, StacksBlockId};
 
@@ -665,7 +664,7 @@ impl StacksChainState {
         )?;
         if ret.len() == 2 {
             // unwrap, because we do a len check above.
-            let ret_0 = ret.get(0).unwrap();
+            let ret_0 = ret.first().unwrap();
             let ret_1 = ret.get(1).unwrap();
             let reward = if ret_0.is_child() {
                 ret_0
@@ -1082,11 +1081,10 @@ mod test {
     use clarity::vm::costs::ExecutionCost;
     use clarity::vm::types::StacksAddressExtensions;
     use stacks_common::types::chainstate::BurnchainHeaderHash;
-    use stacks_common::util::hash::*;
 
     use super::*;
     use crate::burnchains::*;
-    use crate::chainstate::stacks::db::test::*;
+    use crate::chainstate::stacks::db::testing::*;
     use crate::core::StacksEpochId;
 
     fn make_dummy_miner_payment_schedule(
@@ -1201,7 +1199,7 @@ mod test {
 
     #[test]
     fn get_tip_ancestor() {
-        let mut chainstate = instantiate_chainstate(false, 0x80000000, function_name!());
+        let mut chainstate = TestChainstateBuilder::new_testnet(function_name!()).build();
         let miner_1 =
             StacksAddress::from_string("SP1A2K3ENNA6QQ7G8DVJXM24T6QMBDVS7D0TRTAR5").unwrap();
         let user_1 =
@@ -1266,7 +1264,7 @@ mod test {
 
     #[test]
     fn load_store_miner_payment_schedule() {
-        let mut chainstate = instantiate_chainstate(false, 0x80000000, function_name!());
+        let mut chainstate = TestChainstateBuilder::new_testnet(function_name!()).build();
         let miner_1 =
             StacksAddress::from_string("SP1A2K3ENNA6QQ7G8DVJXM24T6QMBDVS7D0TRTAR5").unwrap();
 
@@ -1311,7 +1309,7 @@ mod test {
 
     #[test]
     fn load_store_miner_payment_schedule_pay_contract() {
-        let mut chainstate = instantiate_chainstate(false, 0x80000000, function_name!());
+        let mut chainstate = TestChainstateBuilder::new_testnet(function_name!()).build();
         let miner_1 =
             StacksAddress::from_string("SP1A2K3ENNA6QQ7G8DVJXM24T6QMBDVS7D0TRTAR5").unwrap();
 

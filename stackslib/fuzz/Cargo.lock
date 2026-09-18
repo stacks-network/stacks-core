@@ -176,6 +176,7 @@ dependencies = [
  "serde_json",
  "slog",
  "stacks-common",
+ "variant_count",
 ]
 
 [[package]]
@@ -1422,11 +1423,12 @@ dependencies = [
  "clarity-types",
  "serde",
  "stacks-common",
+ "variant_count",
 ]
 
 [[package]]
 name = "stacks-common"
-version = "0.0.1"
+version = "4.0.3"
 dependencies = [
  "chrono",
  "curve25519-dalek",
@@ -1448,8 +1450,16 @@ dependencies = [
  "slog",
  "slog-term",
  "thiserror",
- "toml",
  "winapi 0.3.9",
+]
+
+[[package]]
+name = "stacks-transactions"
+version = "0.1.0"
+dependencies = [
+ "clarity-types",
+ "stacks-codec",
+ "stacks-common",
 ]
 
 [[package]]
@@ -1470,6 +1480,7 @@ dependencies = [
  "regex",
  "ripemd",
  "rusqlite",
+ "secp256k1",
  "serde",
  "serde_derive",
  "serde_json",
@@ -1478,6 +1489,7 @@ dependencies = [
  "slog",
  "stacks-codec",
  "stacks-common",
+ "stacks-transactions",
  "time",
  "toml",
  "url",
@@ -1637,6 +1649,17 @@ name = "utf8_iter"
 version = "1.0.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b6c140620e7ffbb22c2dee59cafe6084a59b5ffc27a8859a5f0d494b5d52b6be"
+
+[[package]]
+name = "variant_count"
+version = "1.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a1935e10c6f04d22688d07c0790f2fc0e1b1c5c2c55bc0cc87ed67656e587dd8"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn",
+]
 
 [[package]]
 name = "vcpkg"

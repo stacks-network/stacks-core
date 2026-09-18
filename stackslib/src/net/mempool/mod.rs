@@ -64,6 +64,12 @@ pub struct MempoolSync {
     api_endpoint: String,
 }
 
+impl Default for MempoolSync {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl MempoolSync {
     pub fn new() -> Self {
         Self {
@@ -154,7 +160,7 @@ impl MempoolSync {
         let mut mempool_sync_data_url = None;
         let mut mempool_sync_data_url_and_sockaddr = None;
         for _ in 0..num_peers {
-            let Some((_event_id, convo)) = network.iter_peer_convos().skip(idx).next() else {
+            let Some((_event_id, convo)) = network.iter_peer_convos().nth(idx) else {
                 idx = 0;
                 continue;
             };

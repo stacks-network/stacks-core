@@ -1,0 +1,2 @@
+Error messages (receipt `vm_error`, block-proposal and signer rejection reasons, read-only call `cause`, Clarity diagnostics, related logs) are now clamped to 4096 bytes at construction, bounding the size of receipts, event payloads, and logs.
+Tuple and list values embedded in those messages now render their contents in Clarity syntax, e.g. `Tuple((tuple (a u1)))` instead of `Tuple(TupleData { type_signature: ..., data_map: {...} })`; the type signature is no longer included.

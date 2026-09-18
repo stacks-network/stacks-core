@@ -28,7 +28,8 @@ use crate::net::neighbors::comms::ToNeighborKey;
 use crate::net::neighbors::NeighborComms;
 use crate::net::p2p::PeerNetwork;
 use crate::net::stackerdb::{
-    StackerDBConfig, StackerDBSync, StackerDBSyncResult, StackerDBSyncState, StackerDBs,
+    StackerDBChunkOrigin, StackerDBConfig, StackerDBSync, StackerDBSyncResult, StackerDBSyncState,
+    StackerDBs,
 };
 use crate::net::{
     Error as net_error, NackErrorCodes, NeighborAddress, StackerDBChunkData, StackerDBChunkInvData,
@@ -180,23 +181,25 @@ impl<NC: NeighborComms> StackerDBSync<NC> {
             &self.smart_contract_id, config
         );
         let mut chunks = vec![];
-        let downloaded_chunks = mem::replace(&mut self.downloaded_chunks, HashMap::new());
-        for (_, mut data) in downloaded_chunks.into_iter() {
-            chunks.append(&mut data);
+        let downloaded_chunks = mem::take(&mut self.downloaded_chunks);
+        for (naddr, data) in downloaded_chunks.into_iter() {
+            for chunk in data {
+                chunks.push((StackerDBChunkOrigin::Poll(naddr.clone()), chunk));
+            }
         }
 
-        let chunk_invs = mem::replace(&mut self.chunk_invs, HashMap::new());
+        let chunk_invs = mem::take(&mut self.chunk_invs);
         let result = StackerDBSyncResult {
             contract_id: self.smart_contract_id.clone(),
             chunk_invs,
             chunks_to_store: chunks,
-            stale: std::mem::replace(&mut self.stale_neighbors, HashSet::new()),
+            stale: mem::take(&mut self.stale_neighbors),
             num_connections: self.num_connections,
             num_attempted_connections: self.num_attempted_connections,
         };
 
         // keep all connected replicas, and replenish from config hints and the DB as needed
-        let connected_replicas = mem::replace(&mut self.connected_replicas, HashSet::new());
+        let connected_replicas = mem::take(&mut self.connected_replicas);
         let next_connected_replicas =
             if let Ok(new_replicas) = self.find_new_replicas(connected_replicas, network, config) {
                 new_replicas
@@ -299,6 +302,7 @@ impl<NC: NeighborComms> StackerDBSync<NC> {
     /// Given the downloaded set of chunk inventories, identify:
     /// * which chunks we need to fetch, because they're newer than ours.
     /// * what order to fetch chunks in, in rarest-first order
+    ///
     /// Returns a list of (chunk requests, list of neighbors that can service them), which is
     /// ordered from rarest chunk to most-common chunk.
     pub fn make_chunk_request_schedule(
@@ -411,7 +415,7 @@ impl<NC: NeighborComms> StackerDBSync<NC> {
             })
             .collect();
 
-        schedule.sort_by(|item_1, item_2| item_1.1.len().cmp(&item_2.1.len()));
+        schedule.sort_by_key(|item_1| item_1.1.len());
         schedule.reverse();
 
         debug!(
@@ -520,7 +524,7 @@ impl<NC: NeighborComms> StackerDBSync<NC> {
             .map(|(_, (stackerdb_chunkdata, neighbors))| (stackerdb_chunkdata, neighbors))
             .collect();
 
-        schedule.sort_by(|item_1, item_2| item_1.1.len().cmp(&item_2.1.len()));
+        schedule.sort_by_key(|item_1| item_1.1.len());
         debug!(
             "{:?}: {}: Will push up to {} chunks",
             network.get_local_peer(),
@@ -732,7 +736,7 @@ impl<NC: NeighborComms> StackerDBSync<NC> {
             return Err(net_error::NoSuchNeighbor);
         }
 
-        let naddrs = mem::replace(&mut self.replicas, HashSet::new());
+        let naddrs = mem::take(&mut self.replicas);
         for naddr in naddrs.into_iter() {
             if self.comms.is_neighbor_connecting(network, &naddr) {
                 debug!(
@@ -902,7 +906,7 @@ impl<NC: NeighborComms> StackerDBSync<NC> {
     /// StackerDBGetChunksInv
     /// Always succeeds; does not block.
     pub fn getchunksinv_begin(&mut self, network: &mut PeerNetwork) {
-        let naddrs = mem::replace(&mut self.connected_replicas, HashSet::new());
+        let naddrs = mem::take(&mut self.connected_replicas);
         let mut already_sent = vec![];
         debug!(
             "{:?}: {}: getchunksinv_begin: Send StackerDBGetChunksInv to {} replicas",
@@ -1105,9 +1109,9 @@ impl<NC: NeighborComms> StackerDBSync<NC> {
             .map(|naddr| self.unpin_connected_replica(network, &naddr));
 
         if requested == 0 && self.comms.count_inflight() == 0 {
-            return Err(net_error::PeerNotConnected(format!(
-                "StackerDB getchunks_begin: no chunks to request"
-            )));
+            return Err(net_error::PeerNotConnected(
+                "StackerDB getchunks_begin: no chunks to request".to_string(),
+            ));
         }
 
         self.next_chunk_fetch_priority = cur_priority;
@@ -1212,8 +1216,7 @@ impl<NC: NeighborComms> StackerDBSync<NC> {
             "chunk_push_priorities" => ?self.chunk_push_priorities
         );
 
-        // fill up our comms with $capacity requests
-        let mut num_sent = 0;
+        // Try each chunk once, stopping when the request capacity is full.
         for _i in 0..self.chunk_push_priorities.len() {
             if self.comms.count_inflight() >= self.request_capacity {
                 break;
@@ -1229,65 +1232,59 @@ impl<NC: NeighborComms> StackerDBSync<NC> {
                     net_error::InvalidState
                 })?;
 
-            let chunk_push = cur_push_priority.0.clone();
-            // try the first neighbor in the chunk_push_priorities list
-            let selected_neighbor_opt = cur_push_priority.1.first().map(|neighbor| (0, neighbor));
+            loop {
+                let chunk_push = cur_push_priority.0.clone();
+                let Some(selected_neighbor) = cur_push_priority.1.first().cloned() else {
+                    debug!("{:?}: {}: pushchunks_begin: no available neighbor to send StackerDBChunk(id={},ver={}) to",
+                        &network.get_local_peer(),
+                        &self.smart_contract_id,
+                        chunk_push.chunk_data.slot_id,
+                        chunk_push.chunk_data.slot_version,
+                    );
+                    break;
+                };
 
-            let Some((idx, selected_neighbor)) = selected_neighbor_opt else {
-                debug!("{:?}: {}: pushchunks_begin: no available neighbor to send StackerDBChunk(id={},ver={}) to",
+                debug!(
+                    "{:?}: {}: pushchunks_begin: Send StackerDBChunk(id={},ver={}) at {} to {}",
                     &network.get_local_peer(),
                     &self.smart_contract_id,
                     chunk_push.chunk_data.slot_id,
                     chunk_push.chunk_data.slot_version,
+                    &chunk_push.rc_consensus_hash,
+                    &selected_neighbor
                 );
 
-                // next-prioritized chunk
-                cur_priority = (cur_priority + 1) % self.chunk_push_priorities.len();
-                continue;
-            };
-
-            debug!(
-                "{:?}: {}: pushchunks_begin: Send StackerDBChunk(id={},ver={}) at {} to {}",
-                &network.get_local_peer(),
-                &self.smart_contract_id,
-                chunk_push.chunk_data.slot_id,
-                chunk_push.chunk_data.slot_version,
-                &chunk_push.rc_consensus_hash,
-                &selected_neighbor
-            );
-
-            let slot_id = chunk_push.chunk_data.slot_id;
-            let slot_version = chunk_push.chunk_data.slot_version;
-            if let Err(e) = self.comms.neighbor_send(
-                network,
-                selected_neighbor,
-                StacksMessageType::StackerDBPushChunk(chunk_push),
-            ) {
-                info!(
-                    "{:?}: {}: Failed to send chunk {} from {:?}: {:?}",
-                    network.get_local_peer(),
-                    &self.smart_contract_id,
-                    slot_id,
-                    selected_neighbor,
-                    &e
+                let slot_id = chunk_push.chunk_data.slot_id;
+                let slot_version = chunk_push.chunk_data.slot_version;
+                let send_result = self.comms.neighbor_send(
+                    network,
+                    &selected_neighbor,
+                    StacksMessageType::StackerDBPushChunk(chunk_push),
                 );
-                continue;
+
+                // Do not try this same neighbor again for this chunk.
+                cur_push_priority.1.remove(0);
+
+                if let Err(e) = send_result {
+                    info!(
+                        "{:?}: {}: Failed to send chunk {} from {:?}: {:?}",
+                        network.get_local_peer(),
+                        &self.smart_contract_id,
+                        slot_id,
+                        &selected_neighbor,
+                        &e
+                    );
+                    // neighbor_send is non-blocking, so try the next receiver for this chunk.
+                    continue;
+                }
+
+                self.chunk_push_receipts
+                    .insert(selected_neighbor, (slot_id, slot_version));
+                break;
             }
-
-            // record what we just sent
-            self.chunk_push_receipts
-                .insert(selected_neighbor.clone(), (slot_id, slot_version));
-
-            // don't send to this neighbor again
-            cur_push_priority.1.remove(idx);
 
             // next-prioritized chunk
             cur_priority = (cur_priority + 1) % self.chunk_push_priorities.len();
-
-            num_sent += 1;
-            if num_sent > self.request_capacity {
-                break;
-            }
         }
         self.next_chunk_push_priority = cur_priority;
         Ok(self
