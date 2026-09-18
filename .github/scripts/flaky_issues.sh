@@ -226,7 +226,7 @@ ensure_flaky_label() {
 # one reopened alongside it.
 load_existing_issues() {
     local target="$1"
-    local open_issues closed_issues fetched
+    local open_issues closed_issues fetched number full
     local fields="number,state,body,comments,createdAt"
 
     open_issues="$(mktemp)"
@@ -261,6 +261,23 @@ load_existing_issues() {
 
     jq -s 'add' "${open_issues}" "${closed_issues}" > "${target}"
     rm -f "${open_issues}" "${closed_issues}"
+
+    # Special case: issues with 100+ comments.
+    # `gh issue list` returns the OLDEST 100 comments per issue and says nothing
+    # about it, so on a long-lived issue the recent failures fall out of view,
+    # last_failure goes stale, and the close phase reads a still-failing test as
+    # quiet. `gh issue view` pages internally and returns all of them, so any
+    # issue sitting at the cap is re-fetched in full. One extra call each, and it
+    # takes a hundred failing runs on one test to earn one.
+    while read -r number; do
+        [[ -z "${number}" ]] && continue
+        warn "Issue #${number} is at the comment list cap - re-fetching it in full"
+        full=$(gh issue view "${number}" --repo "${CFG_REPO}" --json comments)
+        jq --argjson number "${number}" --argjson full "${full}" \
+            'map(if .number == $number then .comments = $full.comments else . end)' \
+            "${target}" > "${target}.full"
+        mv "${target}.full" "${target}"
+    done < <(jq -r '.[] | select((.comments | length) >= 100) | .number' "${target}")
 
     info "Found $(hl "$(jq 'length' "${target}")") existing $(hl "${CFG_FLAKY_LABEL}") issue(s)"
 }
