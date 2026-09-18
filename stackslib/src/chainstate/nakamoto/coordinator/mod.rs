@@ -23,7 +23,7 @@ use stacks_common::types::chainstate::{
 };
 use stacks_common::types::StacksEpochId;
 
-use crate::burnchains::db::{BurnchainBlockData, BurnchainDB, BurnchainHeaderReader};
+use crate::burnchains::db::{BurnchainBlockData, BurnchainDB};
 use crate::burnchains::{self, Burnchain};
 use crate::chainstate::burn::db::sortdb::{
     get_ancestor_sort_id, SortitionDB, SortitionHandle, SortitionHandleConn,
@@ -220,7 +220,7 @@ impl<T: BlockEventDispatcher> OnChainRewardSetProvider<'_, T> {
         //  Non participation is fatal.
         if reward_set
             .rewarded_addresses()
-            .map_or(false, |addrs| addrs.is_empty())
+            .is_some_and(|addrs| addrs.is_empty())
         {
             // no one is stacking (V0 with empty rewarded_addresses)
             err_or_debug!(debug_log, "No PoX participation");
@@ -689,8 +689,7 @@ impl<
         U: RewardSetProvider,
         CE: CostEstimator + ?Sized,
         FE: FeeEstimator + ?Sized,
-        B: BurnchainHeaderReader,
-    > ChainsCoordinator<'_, T, N, U, CE, FE, B>
+    > ChainsCoordinator<'_, T, N, U, CE, FE>
 {
     /// Get the first nakamoto reward cycle
     fn get_first_nakamoto_reward_cycle(&self) -> u64 {
@@ -993,7 +992,9 @@ impl<
                 .burnchain
                 .block_height_to_reward_cycle(stacks_sn.block_height)
                 .ok_or_else(|| {
-                    ChainstateError::Expects(format!("burnchain block height has no reward cycle"))
+                    ChainstateError::Expects(
+                        "burnchain block height has no reward cycle".to_string(),
+                    )
                 })?;
 
             let last_processed_reward_cycle = {

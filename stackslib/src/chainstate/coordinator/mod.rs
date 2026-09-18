@@ -31,9 +31,10 @@ use stacks_common::util::serde_serializers::prefix_hex;
 pub use self::comm::CoordinatorCommunication;
 use super::stacks::boot::{RewardSet, RewardSetData};
 use super::stacks::db::blocks::DummyEventDispatcher;
-use crate::burnchains::db::{BurnchainBlockData, BurnchainDB, BurnchainHeaderReader};
+use crate::burnchains::db::{BurnchainBlockData, BurnchainDB};
 use crate::burnchains::{
-    Burnchain, BurnchainBlockHeader, Error as BurnchainError, PoxConstants, Txid,
+    Burnchain, BurnchainBlockHeader, BurnchainSignerKind, Error as BurnchainError, PoxConstants,
+    Txid,
 };
 use crate::chainstate::burn::db::sortdb::{SortitionDB, SortitionHandleTx};
 use crate::chainstate::burn::operations::leader_block_commit::RewardSetInfo;
@@ -201,6 +202,7 @@ impl ChainsCoordinatorConfig {
     }
 }
 
+/// Processes burnchain and Stacks blocks using the coordinator's databases.
 pub struct ChainsCoordinator<
     'a,
     T: BlockEventDispatcher,
@@ -208,7 +210,6 @@ pub struct ChainsCoordinator<
     R: RewardSetProvider,
     CE: CostEstimator + ?Sized,
     FE: FeeEstimator + ?Sized,
-    B: BurnchainHeaderReader,
 > {
     pub canonical_sortition_tip: Option<SortitionId>,
     pub burnchain_blocks_db: BurnchainDB,
@@ -223,7 +224,6 @@ pub struct ChainsCoordinator<
     pub notifier: N,
     pub atlas_config: AtlasConfig,
     pub config: ChainsCoordinatorConfig,
-    burnchain_indexer: B,
     /// Used to tell the P2P thread that the stackerdb
     ///  needs to be refreshed.
     pub refresh_stacker_db: Arc<AtomicBool>,
@@ -354,7 +354,7 @@ impl<T: BlockEventDispatcher> RewardSetProvider for OnChainRewardSetProvider<'_,
             cur_epoch,
         )?;
 
-        if is_nakamoto_reward_set && reward_set.signers().map_or(true, |s| s.is_empty()) {
+        if is_nakamoto_reward_set && reward_set.signers().is_none_or(|s| s.is_empty()) {
             error!("FATAL: Signer sets are empty in a reward set that will be used in nakamoto"; "reward_set" => ?reward_set);
             return Err(Error::PoXAnchorBlockRequired);
         }
@@ -461,23 +461,10 @@ impl<T: BlockEventDispatcher> OnChainRewardSetProvider<'_, T> {
     }
 }
 
-impl<
-        'a,
-        T: BlockEventDispatcher,
-        CE: CostEstimator + ?Sized,
-        FE: FeeEstimator + ?Sized,
-        B: BurnchainHeaderReader,
-    >
-    ChainsCoordinator<
-        'a,
-        T,
-        ArcCounterCoordinatorNotices,
-        OnChainRewardSetProvider<'a, T>,
-        CE,
-        FE,
-        B,
-    >
+impl<'a, T: BlockEventDispatcher, CE: CostEstimator + ?Sized, FE: FeeEstimator + ?Sized>
+    ChainsCoordinator<'a, T, ArcCounterCoordinatorNotices, OnChainRewardSetProvider<'a, T>, CE, FE>
 {
+    /// Process block notifications until the coordinator receives a stop event.
     pub fn run(
         config: ChainsCoordinatorConfig,
         chain_state_db: StacksChainState,
@@ -488,7 +475,6 @@ impl<
         cost_estimator: Option<&'a mut CE>,
         fee_estimator: Option<&'a mut FE>,
         miner_status: Arc<Mutex<MinerStatus>>,
-        burnchain_indexer: B,
         atlas_db: AtlasDB,
     ) where
         T: BlockEventDispatcher,
@@ -521,7 +507,6 @@ impl<
             atlas_config,
             atlas_db: Some(atlas_db),
             config,
-            burnchain_indexer,
             refresh_stacker_db: comms.refresh_stacker_db.clone(),
             in_nakamoto_epoch: false,
             comms,
@@ -610,9 +595,7 @@ impl<
     }
 }
 
-impl<T: BlockEventDispatcher, U: RewardSetProvider, B: BurnchainHeaderReader>
-    ChainsCoordinator<'_, T, (), U, (), (), B>
-{
+impl<T: BlockEventDispatcher, U: RewardSetProvider> ChainsCoordinator<'_, T, (), U, (), ()> {
     /// Create a coordinator for testing, with some parameters defaulted to None
     #[cfg(test)]
     pub fn test_new<'a>(
@@ -620,16 +603,14 @@ impl<T: BlockEventDispatcher, U: RewardSetProvider, B: BurnchainHeaderReader>
         chain_id: u32,
         path: &str,
         reward_set_provider: U,
-        indexer: B,
         txindex: bool,
-    ) -> ChainsCoordinator<'a, T, (), U, (), (), B> {
+    ) -> ChainsCoordinator<'a, T, (), U, (), ()> {
         ChainsCoordinator::test_new_full(
             burnchain,
             chain_id,
             path,
             reward_set_provider,
             None,
-            indexer,
             None,
             txindex,
         )
@@ -643,10 +624,9 @@ impl<T: BlockEventDispatcher, U: RewardSetProvider, B: BurnchainHeaderReader>
         path: &str,
         reward_set_provider: U,
         dispatcher: Option<&'a T>,
-        burnchain_indexer: B,
         atlas_config: Option<AtlasConfig>,
         txindex: bool,
-    ) -> ChainsCoordinator<'a, T, (), U, (), (), B> {
+    ) -> ChainsCoordinator<'a, T, (), U, (), ()> {
         let burnchain = burnchain.clone();
 
         let mut boot_data = ChainStateBootData::new(&burnchain, vec![], None);
@@ -695,7 +675,6 @@ impl<T: BlockEventDispatcher, U: RewardSetProvider, B: BurnchainHeaderReader>
             atlas_config,
             atlas_db: Some(atlas_db),
             config: ChainsCoordinatorConfig::test_new(txindex),
-            burnchain_indexer,
             refresh_stacker_db: Arc::new(AtomicBool::new(false)),
             in_nakamoto_epoch: false,
             comms,
@@ -879,6 +858,7 @@ pub struct PoxTransactionRewardRecipient {
 pub struct PoxTransactionReward {
     #[serde(with = "prefix_hex")]
     pub txid: Txid,
+    pub apparent_sender: Option<String>,
     pub reward_recipients: Vec<PoxTransactionRewardRecipient>,
 }
 
@@ -921,6 +901,11 @@ pub fn calculate_paid_rewards(ops: &[BlockstackOperationType]) -> PaidRewards {
             if !tx_reward_recipients.is_empty() {
                 pox_transactions.push(PoxTransactionReward {
                     txid: commit.txid.clone(),
+                    apparent_sender: match commit.apparent_sender.kind() {
+                        BurnchainSignerKind::Signer(signer) => Some(signer.to_string()),
+                        BurnchainSignerKind::NoChangeOutput
+                        | BurnchainSignerKind::UndecodableOutput => None,
+                    },
                     reward_recipients: tx_reward_recipients,
                 });
             }
@@ -990,8 +975,7 @@ impl<
         U: RewardSetProvider,
         CE: CostEstimator + ?Sized,
         FE: FeeEstimator + ?Sized,
-        B: BurnchainHeaderReader,
-    > ChainsCoordinator<'_, T, N, U, CE, FE, B>
+    > ChainsCoordinator<'_, T, N, U, CE, FE>
 {
     /// Process new Stacks blocks.  If we get stuck for want of a missing PoX anchor block, return
     /// its hash.
@@ -1900,12 +1884,11 @@ pub fn check_chainstate_db_versions(
 pub struct SortitionDBMigrator {
     chainstate: Option<StacksChainState>,
     burnchain: Burnchain,
-    burnchain_db: BurnchainDB,
 }
 
 impl SortitionDBMigrator {
     /// Instantiate the migrator.
-    /// The chainstate must already exist
+    /// The chainstate must already exist.
     pub fn new(
         burnchain: Burnchain,
         chainstate_path: &str,
@@ -1918,12 +1901,10 @@ impl SortitionDBMigrator {
             chainstate_path,
             marf_opts,
         )?;
-        let burnchain_db = BurnchainDB::open(&burnchain.get_burnchaindb_path(), false)?;
 
         Ok(Self {
             chainstate: Some(chainstate),
             burnchain,
-            burnchain_db,
         })
     }
 

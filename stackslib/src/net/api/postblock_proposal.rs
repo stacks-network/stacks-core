@@ -667,7 +667,7 @@ impl NakamotoBlockProposal {
                 TransactionPayload::TenureChange(tc) => Some(MinerTenureInfoCause::from(tc)),
                 _ => None,
             })
-            .unwrap_or_else(|| MinerTenureInfoCause::NoTenureChange);
+            .unwrap_or(MinerTenureInfoCause::NoTenureChange);
 
         let mut builder = NakamotoBlockBuilder::new(
             &parent_stacks_header,
@@ -938,12 +938,6 @@ impl HttpRequest for RPCBlockProposalRequestHandler {
         self.block_proposal = Some(block_proposal);
         Ok(HttpRequestContents::new().query_string(query))
     }
-}
-
-struct ProposalThreadInfo {
-    sortdb: SortitionDB,
-    chainstate: StacksChainState,
-    receiver: Box<dyn ProposalCallbackReceiver>,
 }
 
 impl RPCRequestHandler for RPCBlockProposalRequestHandler {

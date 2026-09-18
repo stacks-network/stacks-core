@@ -26,8 +26,6 @@ use stacks_common::types::chainstate::{
 };
 use stacks_common::util::hash::{MerkleTree, Sha512Trunc256Sum};
 use stacks_common::util::retry::BoundReader;
-#[cfg(test)]
-use stacks_common::util::secp256k1::MessageSignature;
 use stacks_common::util::vrf::*;
 
 use crate::chainstate::burn::operations::*;
@@ -791,7 +789,6 @@ impl StacksMicroblock {
 mod test {
     use clarity::types::PublicKey;
     use rstest::rstest;
-    use stacks_common::address::*;
     use stacks_common::types::chainstate::StacksAddress;
     use stacks_common::util::hash::*;
 
@@ -1337,7 +1334,7 @@ mod test {
         let mut block_header_empty = header;
         block_header_empty.tx_merkle_root = get_tx_root(&[]);
 
-        let invalid_blocks = vec![
+        let invalid_blocks = [
             (
                 StacksBlock {
                     header: block_header_no_coinbase,
@@ -1458,7 +1455,7 @@ mod test {
         let mut block_header_empty = header;
         block_header_empty.tx_merkle_root = get_tx_root(&[]);
 
-        let invalid_blocks = vec![
+        let invalid_blocks = [
             (
                 StacksMicroblock {
                     header: block_header_offchain_coinbase,

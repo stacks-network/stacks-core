@@ -222,10 +222,8 @@ impl TestMiner {
         match self.vrf_key_map.get(vrf_pubkey) {
             Some(prover_key) => {
                 let proof = VRF::prove(prover_key, last_sortition_hash.as_bytes())?;
-                let valid = match VRF::verify(vrf_pubkey, &proof, last_sortition_hash.as_bytes()) {
-                    Ok(v) => v,
-                    Err(e) => false,
-                };
+                let valid = VRF::verify(vrf_pubkey, &proof, last_sortition_hash.as_bytes())
+                    .unwrap_or_default();
                 assert!(valid);
                 Some(proof)
             }
@@ -627,12 +625,11 @@ impl TestBurnchainBlock {
         R: RewardSetProvider,
         CE: CostEstimator,
         FE: FeeEstimator,
-        B: BurnchainHeaderReader,
     >(
         &self,
         db: &mut SortitionDB,
         burnchain: &Burnchain,
-        coord: &mut ChainsCoordinator<'_, T, N, R, CE, FE, B>,
+        coord: &mut ChainsCoordinator<'_, T, N, R, CE, FE>,
     ) -> BlockSnapshot {
         let mut indexer = BitcoinIndexer::new_unit_test(&burnchain.working_dir);
         let parent_hdr = indexer
@@ -767,12 +764,11 @@ impl TestBurnchainFork {
         R: RewardSetProvider,
         CE: CostEstimator,
         FE: FeeEstimator,
-        B: BurnchainHeaderReader,
     >(
         &mut self,
         db: &mut SortitionDB,
         burnchain: &Burnchain,
-        coord: &mut ChainsCoordinator<'_, T, N, R, CE, FE, B>,
+        coord: &mut ChainsCoordinator<'_, T, N, R, CE, FE>,
     ) -> BlockSnapshot {
         let mut snapshot = {
             let ic = db.index_conn();
@@ -861,8 +857,8 @@ fn process_next_sortition(
     }
 
     // have each leader register a VRF key
-    for j in 0..miners.len() {
-        let key_register_op = block.add_leader_key_register(&mut miners[j]);
+    for miner in miners.iter_mut() {
+        let key_register_op = block.add_leader_key_register(miner);
         next_prev_keys.push(key_register_op);
     }
 

@@ -1194,7 +1194,7 @@ impl NakamotoBlockHeader {
     pub fn compute_voting_weight_threshold(total_weight: u32) -> Result<u32, ChainstateError> {
         let threshold = NAKAMOTO_SIGNER_BLOCK_APPROVAL_THRESHOLD;
         let total_weight = u64::from(total_weight);
-        let ceil = if (total_weight * threshold) % 10 == 0 {
+        let ceil = if (total_weight * threshold).is_multiple_of(10) {
             0
         } else {
             1
@@ -1273,21 +1273,6 @@ impl NakamotoBlockHeader {
 }
 
 impl NakamotoBlock {
-    /// Find all positionally-valid tenure changes in this block.
-    /// They must be the first transactions.
-    /// Return their indexes into self.txs
-    fn find_tenure_changes(&self) -> Vec<usize> {
-        let mut ret = vec![];
-        for (i, tx) in self.txs.iter().enumerate() {
-            if let TransactionPayload::TenureChange(..) = &tx.payload {
-                ret.push(i);
-            } else {
-                break;
-            }
-        }
-        ret
-    }
-
     pub fn is_first_mined(&self) -> bool {
         self.header.is_first_mined()
     }
@@ -1580,7 +1565,7 @@ impl NakamotoBlock {
 
             // must be a non-sortition-triggered tenure change
             let Some(TransactionPayload::TenureChange(tc_payload)) =
-                self.txs.get(0).map(|x| &x.payload)
+                self.txs.first().map(|x| &x.payload)
             else {
                 // this transaction is not a tenure change
                 // (should be unreachable)
