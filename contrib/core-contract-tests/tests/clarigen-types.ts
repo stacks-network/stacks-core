@@ -11302,6 +11302,21 @@ export const contracts = {
           bigint
         >
       >,
+      setAllowlisted: {
+        name: 'set-allowlisted',
+        access: 'public',
+        args: [
+          { name: 'staker', type: 'principal' },
+          { name: 'allowed', type: 'bool' },
+        ],
+        outputs: { type: { response: { ok: 'bool', error: 'uint128' } } },
+      } as TypedAbiFunction<
+        [
+          staker: TypedAbiArg<string, 'staker'>,
+          allowed: TypedAbiArg<boolean, 'allowed'>,
+        ],
+        Response<boolean, bigint>
+      >,
       setModule: {
         name: 'set-module',
         access: 'public',
@@ -11370,6 +11385,15 @@ export const contracts = {
             'config'
           >,
         ],
+        Response<boolean, bigint>
+      >,
+      setUseAllowlist: {
+        name: 'set-use-allowlist',
+        access: 'public',
+        args: [{ name: 'enabled', type: 'bool' }],
+        outputs: { type: { response: { ok: 'bool', error: 'uint128' } } },
+      } as TypedAbiFunction<
+        [enabled: TypedAbiArg<boolean, 'enabled'>],
         Response<boolean, bigint>
       >,
       settleAcceptedWithdrawal: {
@@ -11601,6 +11625,12 @@ export const contracts = {
         ],
         bigint
       >,
+      getUseAllowlist: {
+        name: 'get-use-allowlist',
+        access: 'read_only',
+        args: [],
+        outputs: { type: 'bool' },
+      } as TypedAbiFunction<[], boolean>,
       getWithdrawalLiability: {
         name: 'get-withdrawal-liability',
         access: 'read_only',
@@ -11616,6 +11646,12 @@ export const contracts = {
         [requestId: TypedAbiArg<number | bigint, 'requestId'>],
         string | null
       >,
+      isAllowlisted: {
+        name: 'is-allowlisted',
+        access: 'read_only',
+        args: [{ name: 'staker', type: 'principal' }],
+        outputs: { type: 'bool' },
+      } as TypedAbiFunction<[staker: TypedAbiArg<string, 'staker'>], boolean>,
       parsePayoutConfig: {
         name: 'parse-payout-config',
         access: 'read_only',
@@ -11677,6 +11713,11 @@ export const contracts = {
       >,
     },
     maps: {
+      allowlist: {
+        name: 'allowlist',
+        key: 'principal',
+        value: 'bool',
+      } as TypedAbiMap<string, boolean>,
       payoutConfigs: {
         name: 'payout-configs',
         key: 'principal',
@@ -11825,6 +11866,16 @@ export const contracts = {
         },
         access: 'constant',
       } as TypedAbiVariable<Response<null, bigint>>,
+      ERR_NOT_ALLOWLISTED: {
+        name: 'ERR_NOT_ALLOWLISTED',
+        type: {
+          response: {
+            ok: 'none',
+            error: 'uint128',
+          },
+        },
+        access: 'constant',
+      } as TypedAbiVariable<Response<null, bigint>>,
       ERR_NO_CLAIMABLE_REWARDS: {
         name: 'ERR_NO_CLAIMABLE_REWARDS',
         type: {
@@ -11915,6 +11966,11 @@ export const contracts = {
         type: 'uint128',
         access: 'variable',
       } as TypedAbiVariable<bigint>,
+      useAllowlist: {
+        name: 'use-allowlist',
+        type: 'bool',
+        access: 'variable',
+      } as TypedAbiVariable<boolean>,
       withdrawalLiability: {
         name: 'withdrawal-liability',
         type: 'uint128',
@@ -11951,6 +12007,10 @@ export const contracts = {
         isOk: false,
         value: 1_004n,
       },
+      ERR_NOT_ALLOWLISTED: {
+        isOk: false,
+        value: 1_015n,
+      },
       ERR_NO_CLAIMABLE_REWARDS: {
         isOk: false,
         value: 1_005n,
@@ -11983,6 +12043,7 @@ export const contracts = {
       earnedFees: 0n,
       totalPending: 0n,
       totalReserved: 0n,
+      useAllowlist: false,
       withdrawalLiability: 0n,
     },
     non_fungible_tokens: [],
@@ -12246,6 +12307,21 @@ export const contracts = {
           bigint
         >
       >,
+      setAllowlisted: {
+        name: 'set-allowlisted',
+        access: 'public',
+        args: [
+          { name: 'staker', type: 'principal' },
+          { name: 'allowed', type: 'bool' },
+        ],
+        outputs: { type: { response: { ok: 'bool', error: 'uint128' } } },
+      } as TypedAbiFunction<
+        [
+          staker: TypedAbiArg<string, 'staker'>,
+          allowed: TypedAbiArg<boolean, 'allowed'>,
+        ],
+        Response<boolean, bigint>
+      >,
       setModule: {
         name: 'set-module',
         access: 'public',
@@ -12297,6 +12373,15 @@ export const contracts = {
           >,
           sbtcRecipient: TypedAbiArg<string | null, 'sbtcRecipient'>,
         ],
+        Response<boolean, bigint>
+      >,
+      setUseAllowlist: {
+        name: 'set-use-allowlist',
+        access: 'public',
+        args: [{ name: 'enabled', type: 'bool' }],
+        outputs: { type: { response: { ok: 'bool', error: 'uint128' } } },
+      } as TypedAbiFunction<
+        [enabled: TypedAbiArg<boolean, 'enabled'>],
         Response<boolean, bigint>
       >,
       settleAcceptedWithdrawal: {

@@ -213,6 +213,25 @@
     )
 )
 
+;; Turn the staker allowlist on or off. Off by default, so anyone may stake.
+(define-public (set-use-allowlist (enabled bool))
+    (begin
+        (try! (authorize-admin))
+        (contract-call? .signer-manager-core set-use-allowlist enabled)
+    )
+)
+
+;; Add or remove a staker from the allowlist.
+(define-public (set-allowlisted
+        (staker principal)
+        (allowed bool)
+    )
+    (begin
+        (try! (authorize-admin))
+        (contract-call? .signer-manager-core set-allowlisted staker allowed)
+    )
+)
+
 ;; Withdraw accrued fees from staker rewards.
 (define-public (withdraw-fees
         (amount uint)

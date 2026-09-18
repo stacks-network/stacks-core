@@ -18,6 +18,7 @@ import {
 const deployer = accounts.deployer.address;
 const alice = accounts.wallet_1.address;
 const bob = accounts.wallet_2.address;
+const charlie = accounts.wallet_3.address;
 
 beforeEach(() => {
   initPox5();
@@ -136,11 +137,66 @@ test('stakers set and clear their payout config through the module', () => {
   expect(rov(signerManagerCore.getPayoutConfig(alice))).toBeNull();
 });
 
+test('the allowlist is off by default and gates staking once enabled', () => {
+  expect(rov(signerManagerCore.getUseAllowlist())).toBe(false);
+  txOk(stake(), alice);
+
+  expect(txErr(signerManagerV1.setUseAllowlist(true), alice).value).toBe(
+    signerManagerV1Errors.ERR_UNAUTHORIZED_ADMIN,
+  );
+  expect(
+    txErr(signerManagerV1.setAllowlisted({ staker: bob, allowed: true }), alice)
+      .value,
+  ).toBe(signerManagerV1Errors.ERR_UNAUTHORIZED_ADMIN);
+
+  txOk(signerManagerV1.setUseAllowlist(true), deployer);
+  expect(txErr(stake(), bob).value).toBe(
+    signerManagerCoreErrors.ERR_NOT_ALLOWLISTED,
+  );
+  // Existing positions are checked again on their next pox-5 call.
+  expect(
+    txErr(
+      pox5.stakeUpdate({
+        signerManager: signerManagerCore.identifier,
+        oldSignerManager: signerManagerCore.identifier,
+        cyclesToExtend: 1n,
+        amountIncrease: 0n,
+        signerCalldata: null,
+      }),
+      alice,
+    ).value,
+  ).toBe(signerManagerCoreErrors.ERR_NOT_ALLOWLISTED);
+
+  txOk(
+    signerManagerV1.setAllowlisted({ staker: bob, allowed: true }),
+    deployer,
+  );
+  expect(rov(signerManagerCore.isAllowlisted(bob))).toBe(true);
+  txOk(stake(), bob);
+
+  txOk(
+    signerManagerV1.setAllowlisted({ staker: bob, allowed: false }),
+    deployer,
+  );
+  expect(rov(signerManagerCore.isAllowlisted(bob))).toBe(false);
+  txOk(signerManagerV1.setUseAllowlist(false), deployer);
+  txOk(stake(), charlie);
+});
+
 test('core functions reject callers other than the module', () => {
   const config = randomPayoutConfig({ maxFee: 100n, minClaim: 0n });
   expect(
     txErr(signerManagerCore.setPayoutConfig({ staker: alice, config }), alice)
       .value,
+  ).toBe(signerManagerCoreErrors.ERR_UNAUTHORIZED_MODULE);
+  expect(txErr(signerManagerCore.setUseAllowlist(true), deployer).value).toBe(
+    signerManagerCoreErrors.ERR_UNAUTHORIZED_MODULE,
+  );
+  expect(
+    txErr(
+      signerManagerCore.setAllowlisted({ staker: alice, allowed: true }),
+      deployer,
+    ).value,
   ).toBe(signerManagerCoreErrors.ERR_UNAUTHORIZED_MODULE);
   expect(
     txErr(signerManagerCore.clearPayoutConfig(alice), deployer).value,

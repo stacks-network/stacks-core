@@ -40,12 +40,21 @@
 (define-constant ERR_NO_REFUNDS (err u1013))
 ;; `set-module` was given a principal that is not a deployed contract.
 (define-constant ERR_INVALID_MODULE (err u1014))
+;; The allowlist is enabled and the staker is not on it.
+(define-constant ERR_NOT_ALLOWLISTED (err u1015))
 
 ;; sBTC rejects withdrawals of `DUST_LIMIT` sats or less (`sbtc-withdrawal`).
 (define-constant DUST_LIMIT u546)
 
 ;; The module contract allowed to drive this contract's privileged functions.
 (define-data-var current-module principal tx-sender)
+
+;; When enabled, only allowlisted stakers pass `validate-stake!`.
+(define-data-var use-allowlist bool false)
+(define-map allowlist
+    principal
+    bool
+)
 
 ;; How each staker wants rewards paid out. `min-claim` is the smallest payout
 ;; a third party may trigger on the staker's behalf.
@@ -101,9 +110,10 @@
 
 ;; Callback function from a `stake` transaction.
 ;;
-;; If `signer-calldata` is provided, it must decode to a payout config, which
-;; is saved for the staker. Without calldata the staker's existing config (if
-;; any) is left untouched; use the module's `clear-payout-config` to remove it.
+;; If the allowlist is enabled, the staker must be on it. If `signer-calldata` is
+;; provided, it must decode to a payout config, which is saved for the staker.
+;; Without calldata the staker's existing config (if any) is left untouched;
+;; use the module's `clear-payout-config` to remove it.
 (define-public (validate-stake!
         (staker principal)
         ;; #[allow(unused_binding)]
@@ -120,6 +130,9 @@
     )
     (begin
         (try! (authorize-pox-5))
+        (asserts! (or (not (var-get use-allowlist)) (is-allowlisted staker))
+            ERR_NOT_ALLOWLISTED
+        )
         (match signer-calldata
             calldata (let ((config (try! (parse-payout-config calldata))))
                 (try! (check-payout-config config))
@@ -131,6 +144,34 @@
 )
 
 ;;; Module functions
+
+;; Turn the staker allowlist on or off.
+(define-public (set-use-allowlist (enabled bool))
+    (begin
+        (try! (authorize-module))
+        (print {
+            topic: "set-use-allowlist",
+            enabled: enabled,
+        })
+        (ok (var-set use-allowlist enabled))
+    )
+)
+
+;; Add or remove `staker` from the allowlist.
+(define-public (set-allowlisted
+        (staker principal)
+        (allowed bool)
+    )
+    (begin
+        (try! (authorize-module))
+        (print {
+            topic: "set-allowlisted",
+            staker: staker,
+            allowed: allowed,
+        })
+        (ok (map-set allowlist staker allowed))
+    )
+)
 
 ;; Store a payout config for `staker`.
 (define-public (set-payout-config
@@ -611,6 +652,14 @@
 
 (define-read-only (get-payout-config (staker principal))
     (map-get? payout-configs staker)
+)
+
+(define-read-only (get-use-allowlist)
+    (var-get use-allowlist)
+)
+
+(define-read-only (is-allowlisted (staker principal))
+    (default-to false (map-get? allowlist staker))
 )
 
 (define-read-only (get-pending-payout (staker principal))
