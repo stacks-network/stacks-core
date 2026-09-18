@@ -455,6 +455,10 @@ pub type TransactionOutput<R> = (
 /// callback aborts roll back. The returned cost tracker retains its memory usage for the
 /// surrounding transaction to reset. Register evaluation hooks inside `to_do` before
 /// execution; hooks must not run on consensus paths.
+///
+/// Hook outcomes describe execution, not transaction commitment: hooks are notified of a
+/// successful execution before `abort_callback` runs, so a `Success` outcome does not mean
+/// the changes were committed.
 pub fn execute_with_abort_callback<'db, 'hooks, F, A, R, E>(
     mut db: ClarityDatabase<'db>,
     cost_tracker: LimitedCostTracker,
@@ -831,6 +835,7 @@ mod unit_tests {
     fn shared_transaction_frame_rolls_back_callback_abort() {
         let mut store = MemoryBackingStore::new();
         let db = store.as_clarity_db();
+        let mut hook = ExecutionLifecycleHook::default();
 
         let (mut db, _, result) = execute_with_abort_callback(
             db,
@@ -841,16 +846,38 @@ mod unit_tests {
                 epoch: StacksEpochId::Epoch33,
             },
             |vm_env| {
-                vm_env.context.database.put_data("shared-frame", &1_u64)?;
-                Ok::<_, VmExecutionError>(((), AssetMap::new(), vec![]))
+                vm_env.add_eval_hook(&mut hook);
+                // Also write outside execute_in_env's frame to verify the helper's rollback.
+                vm_env.context.database.put_data("outer-frame", &2_u64)?;
+                vm_env.execute_in_env(
+                    PrincipalData::Standard(StandardPrincipalData::transient()),
+                    None,
+                    None,
+                    |exec_state, _| {
+                        exec_state
+                            .global_context
+                            .database
+                            .put_data("shared-frame", &1_u64)?;
+                        Ok::<_, VmExecutionError>(())
+                    },
+                )
             },
             |_, _| Some("abort".into()),
         );
 
         let (_, _, _, abort_reason) = result.unwrap();
         assert_eq!(abort_reason, Some("abort".into()));
+        // Execution succeeds before the abort callback rolls back the transaction frame.
+        assert_eq!(
+            hook.events,
+            vec![
+                ExecutionLifecycleEvent::Begin,
+                ExecutionLifecycleEvent::Finish(ExecutionOutcome::Success),
+            ]
+        );
         db.begin();
         assert_eq!(db.get_data::<u64>("shared-frame").unwrap(), None);
+        assert_eq!(db.get_data::<u64>("outer-frame").unwrap(), None);
         db.roll_back().unwrap();
     }
 
