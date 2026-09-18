@@ -136,6 +136,14 @@ pub struct Signer {
     pub capitulate_miner_view_timeout: Duration,
     /// The last time we capitulated our miner viewpoint
     pub last_capitulate_miner_view: SystemTime,
+    /// The reward cycle of the latest sortition on the canonical burnchain fork, as
+    /// reported by the runloop on the last pass. `None` when the runloop could not
+    /// confirm the node's sortition view is current. See `is_reward_cycle_retired`.
+    latest_sortition_reward_cycle: Option<u64>,
+    /// The reward cycle of the burnchain tip, as reported by the runloop on the last
+    /// pass. Starts equal to our own cycle, which is the state in which a signer has
+    /// clearly not been superseded.
+    current_reward_cycle: u64,
     /// The signer supported protocol version. used only in testing
     #[cfg(any(test, feature = "testing"))]
     pub supported_signer_protocol_version: u64,
@@ -315,6 +323,8 @@ impl SignerTrait<SignerMessage> for Signer {
             global_state_evaluator,
             capitulate_miner_view_timeout: signer_config.capitulate_miner_view_timeout,
             last_capitulate_miner_view: SystemTime::now(),
+            latest_sortition_reward_cycle: None,
+            current_reward_cycle: signer_config.reward_cycle,
             #[cfg(any(test, feature = "testing"))]
             supported_signer_protocol_version: signer_config.supported_signer_protocol_version,
             #[cfg(test)]
@@ -335,7 +345,14 @@ impl SignerTrait<SignerMessage> for Signer {
         event: Option<&SignerEvent<SignerMessage>>,
         _res: &Sender<SignerResult>,
         current_reward_cycle: u64,
+        latest_sortition_reward_cycle: Option<u64>,
     ) {
+        // Record these before anything else in the pass can act on a proposal, so that
+        // `is_reward_cycle_retired` reflects the burn block we are processing. The
+        // sortition view is taken as given, including when it is unknown: latching the
+        // last confirmed value would hide exactly the staleness we need to react to.
+        self.latest_sortition_reward_cycle = latest_sortition_reward_cycle;
+        self.current_reward_cycle = current_reward_cycle;
         self.check_submitted_block_proposal();
         self.check_pending_block_validations(stacks_client);
 
@@ -735,6 +752,39 @@ impl Signer {
                     }
                 }
             }
+        }
+    }
+
+    /// Whether this signer set has been retired by a sortition in a
+    /// later reward cycle and must no longer sign.
+    ///
+    /// A tenure is signed by the reward set that was active when it
+    /// was elected, (see `load_nakamoto_reward_set_for_tenure` in
+    /// stackslib).
+    ///
+    /// The moment a sortition does occur in cycle N+1, responsibility
+    /// passes to N+1's signer set -- whether or not that set
+    /// considers the winning miner valid. If the winner is
+    /// unresponsive or otherwise rejected, the correct outcome is
+    /// that no one signs until the next sortition; it is *not* that
+    /// cycle N's miner resumes. Without this check the cycle N
+    /// signer's own state machine would fall back to the last
+    /// sortition winner -- the cycle N miner -- and approve exactly
+    /// that takeover.
+    ///
+    /// When the latest sortition state is unknown, this function
+    /// answers using the burn event information directly: if the burn
+    /// block events haven't passed the current tenure, there is no
+    /// risk to stay active, so an unknown sortition state should not
+    /// halt signing. If, however, the burn event indicates the cycle
+    /// is passed, the signer should halt until it can determine the
+    /// sortition state.
+    fn is_reward_cycle_retired(&self) -> bool {
+        match self.latest_sortition_reward_cycle {
+            Some(latest_sortition_reward_cycle) => {
+                latest_sortition_reward_cycle > self.reward_cycle
+            }
+            None => self.current_reward_cycle > self.reward_cycle,
         }
     }
 
@@ -1659,6 +1709,23 @@ impl Signer {
             }
         }
 
+        // Checked after the prior-decision handling above, so that a block we have already
+        // decided on keeps that decision: contradicting our own signature on an accepted
+        // block would be worse than staying quiet. Anything still undecided is refused.
+        if self.is_reward_cycle_retired() {
+            warn!(
+                "{self}: Received a block proposal, but a sortition has occurred in a later reward cycle. Rejecting...";
+                "latest_sortition_reward_cycle" => ?self.latest_sortition_reward_cycle,
+                "signer_signature_hash" => %signer_signature_hash,
+                "block_id" => %block_proposal.block.block_id(),
+                "consensus_hash" => %block_proposal.block.header.consensus_hash,
+            );
+            let rejection = self
+                .create_block_rejection(RejectReason::RewardCycleRetired, &block_proposal.block);
+            self.send_block_response(&block_proposal.block, rejection.into());
+            return;
+        }
+
         if block_proposal
             .block
             .header
@@ -1862,6 +1929,21 @@ impl Signer {
         proposed_block: &NakamotoBlock,
     ) -> Option<BlockRejection> {
         let signer_signature_hash = proposed_block.header.signer_signature_hash();
+        // Re-check the retirement gate here as well as at proposal intake: a block
+        // submitted to the node's validator before a sortition landed in the next
+        // reward cycle can have its validation response arrive after, and this is the
+        // last point before we would pre-commit and broadcast a signature.
+        if self.is_reward_cycle_retired() {
+            warn!(
+                "{self}: A sortition has occurred in a later reward cycle. Rejecting block...";
+                "latest_sortition_reward_cycle" => ?self.latest_sortition_reward_cycle,
+                "signer_signature_hash" => %signer_signature_hash,
+                "block_id" => %proposed_block.block_id(),
+            );
+            return Some(
+                self.create_block_rejection(RejectReason::RewardCycleRetired, proposed_block),
+            );
+        }
         // If this is a tenure change block, ensure that it confirms the correct number of blocks from the parent tenure.
         if let Some(tenure_change) = proposed_block.get_tenure_change_tx_payload() {
             // Ensure that the tenure change block confirms the expected parent block
@@ -1996,6 +2078,7 @@ impl Signer {
                     warn!("{self}: Failed to mark block as locally rejected: {e:?}");
                 }
             };
+            block_info.reject_reason = Some(block_rejection.response_data.reject_reason.clone());
             self.signer_db
                 .insert_block(&block_info)
                 .unwrap_or_else(|e| self.handle_insert_block_error(e));
@@ -2749,6 +2832,9 @@ fn should_reevaluate_reject_reason(block_info: &BlockInfo) -> bool {
             | RejectReason::ConsensusHashMismatch { .. }
             | RejectReason::NoSignerConsensus
             | RejectReason::NotRejected
+            // A burnchain reorg can orphan the later-cycle sortition that retired
+            // this signer set, which re-opens the gate.
+            | RejectReason::RewardCycleRetired
             | RejectReason::Unknown(_) => true,
             RejectReason::ValidationFailed(_)
             | RejectReason::RejectedInPriorRound
