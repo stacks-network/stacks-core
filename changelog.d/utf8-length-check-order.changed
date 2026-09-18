@@ -1,0 +1,1 @@
+`Value::string_utf8_from_bytes` now validates the UTF-8 codepoint-count limit before encoding the string, so oversized input is rejected without first building one `Vec<u8>` per codepoint. Which inputs are accepted and the error returned for oversized input are unchanged.
