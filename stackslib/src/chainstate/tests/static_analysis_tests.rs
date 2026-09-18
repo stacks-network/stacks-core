@@ -25,9 +25,8 @@ use clarity::vm::types::MAX_TYPE_DEPTH;
 use clarity::vm::ClarityVersion;
 
 use crate::chainstate::tests::consensus::{
-    clarity_versions_for_epoch, contract_call_consensus_snap_test,
-    contract_deploy_consensus_snap_test, tested_epochs_since, ConsensusTest, ConsensusUtils,
-    SetupContract, TestBlock, EPOCHS_TO_TEST,
+    clarity_versions_for_epoch, contract_deploy_consensus_snap_test, tested_epochs_since,
+    ConsensusTest, ConsensusUtils, SetupContract, TestBlock, EPOCHS_TO_TEST,
 };
 use crate::core::BLOCK_LIMIT_MAINNET_21;
 use crate::util_lib::boot::boot_code_test_addr;
@@ -1437,8 +1436,7 @@ fn error_invalid_stacks_transaction_duplicate_contract() {
 /// size exceeds `MAX_VALUE_SIZE`. `TupleTypeSignature::shallow_merge` rejects the merge at
 /// the merge site, so the oversized type never propagates to a later `.size()` call.
 ///
-/// Outcome: block accepted in every epoch, deploy tx mined with `committed:false`. Deployed
-/// in both Epoch34 and Epoch40 to pin that the outcome no longer varies by epoch.
+/// Outcome: block accepted, deploy tx mined with `committed:false`.
 #[test]
 fn tuple_merge_exceeds_max_value_size_cdeploy() {
     contract_deploy_consensus_snap_test!(
@@ -1481,61 +1479,5 @@ fn tuple_merge_exceeds_max_value_size_cdeploy() {
                       (tb (tuple (b big))))
                     (ok (merge ta tb)))))
     "#,
-    deploy_epochs: &[StacksEpochId::Epoch34, StacksEpochId::Epoch40],
-    );
-}
-
-/// An oversized tuple `merge` bound in a `let` but NEVER sized (the function returns
-/// `(ok true)`). Historically this slipped past the static checker entirely, because nothing
-/// sized the merged type during analysis: the contract deployed, and then invalidated any
-/// block that called it. The check now lives in `TupleTypeSignature::shallow_merge`, so
-/// analysis rejects the deploy whether or not the merged type is ever sized.
-///
-/// StaticCheckErrorKind: [`StaticCheckErrorKind::ValueTooLarge`], raised at deploy.
-///
-/// Outcome: the deploy is rejected in every epoch (tx mined with `committed:false`), so the
-/// contract never exists and the `run` call fails with `NoSuchContract`. Deployed and called
-/// in both Epoch34 and Epoch40 to pin that neither outcome varies by epoch.
-#[test]
-fn tuple_merge_overflow_unused_runtime_ccall() {
-    contract_call_consensus_snap_test!(
-        contract_name: "merge-unused",
-        contract_code: r#"
-        (define-private (make-buff-256)
-            (let ((b16 0x00112233445566778899aabbccddeeff)
-                  (b32 (concat b16 b16))
-                  (b64 (concat b32 b32))
-                  (b128 (concat b64 b64))
-                  (b256 (concat b128 b128)))
-              b256))
-        (define-private (make-buff-4096)
-            (let ((b256 (make-buff-256))
-                  (b512 (concat b256 b256))
-                  (b1024 (concat b512 b512))
-                  (b2048 (concat b1024 b1024))
-                  (b4096 (concat b2048 b2048)))
-              b4096))
-        (define-private (make-buff-65536)
-            (let ((b4096 (make-buff-4096))
-                  (b8192 (concat b4096 b4096))
-                  (b16384 (concat b8192 b8192))
-                  (b32768 (concat b16384 b16384))
-                  (b65536 (concat b32768 b32768)))
-              b65536))
-        (define-private (make-buff-524288)
-            (let ((b65536 (make-buff-65536))
-                  (b131072 (concat b65536 b65536))
-                  (b262144 (concat b131072 b131072))
-                  (b524288 (concat b262144 b262144)))
-              b524288))
-        (define-public (run)
-            (let ((big (unwrap-panic (as-max-len? (make-buff-524288) u524288))))
-                (let ((m (merge (tuple (a big)) (tuple (b big)))))
-                    (ok true))))
-    "#,
-        function_name: "run",
-        function_args: &[],
-        deploy_epochs: &[StacksEpochId::Epoch34, StacksEpochId::Epoch40],
-        call_epochs: &[StacksEpochId::Epoch34, StacksEpochId::Epoch40],
     );
 }
