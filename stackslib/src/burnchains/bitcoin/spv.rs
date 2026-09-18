@@ -1062,18 +1062,6 @@ impl SpvClient {
         Ok(())
     }
 
-    /// Determine the (bits, target) between two headers
-    pub fn get_target_between_headers(
-        first_header: &LoneBlockHeader,
-        last_header: &LoneBlockHeader,
-    ) -> (u32, Uint256) {
-        Self::get_target_between_headers_for_network(
-            BitcoinNetworkType::Mainnet,
-            first_header,
-            last_header,
-        )
-    }
-
     /// Retarget using the selected network's PoW limit and timestamp rules.
     fn get_target_between_headers_for_network(
         network: BitcoinNetworkType,
