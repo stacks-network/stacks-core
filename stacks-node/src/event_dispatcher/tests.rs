@@ -1187,6 +1187,28 @@ fn test_block_proposal_validation_event() {
     mock.assert();
 }
 
+/// Upper bound on how long the HTTP delivery tests wait for the event
+/// dispatcher's worker to make progress.
+const MAX_WAIT: Duration = Duration::from_secs(30);
+
+/// Block until `counter` reaches `expected`, panicking if it has not done so
+/// within `timeout`.
+#[track_caller]
+fn wait_for_count(counter: &AtomicU32, expected: u32, timeout: Duration) {
+    let start = Instant::now();
+    loop {
+        let observed = counter.load(Ordering::SeqCst);
+        if observed >= expected {
+            return;
+        }
+        assert!(
+            start.elapsed() < timeout,
+            "timed out waiting for count to reach {expected}, got {observed}"
+        );
+        thread::sleep(Duration::from_millis(20));
+    }
+}
+
 #[test]
 fn test_http_delivery_non_blocking() {
     let mut slow_server = mockito::Server::new();
@@ -1245,39 +1267,15 @@ fn test_http_delivery_non_blocking() {
         "dispatcher blocked while sending event"
     );
 
-    thread::sleep(Duration::from_secs(1));
+    // the worker picks the event up, but the server has not responded yet
+    wait_for_count(&start_count, 1, MAX_WAIT);
+    assert_eq!(end_count.load(Ordering::SeqCst), 0);
 
-    assert!(start_count.load(Ordering::SeqCst) == 1);
-    assert!(end_count.load(Ordering::SeqCst) == 0);
-
-    thread::sleep(Duration::from_secs(2));
-
-    assert!(start_count.load(Ordering::SeqCst) == 1);
-    assert!(end_count.load(Ordering::SeqCst) == 1);
+    // the request eventually completes, and it was the only one sent
+    wait_for_count(&end_count, 1, MAX_WAIT);
+    assert_eq!(start_count.load(Ordering::SeqCst), 1);
 
     mock.assert();
-}
-
-/// Upper bound on how long the HTTP delivery tests wait for the event
-/// dispatcher's worker to make progress.
-const MAX_WAIT: Duration = Duration::from_secs(30);
-
-/// Block until `counter` reaches `expected`, panicking if it has not done so
-/// within `timeout`.
-#[track_caller]
-fn wait_for_count(counter: &AtomicU32, expected: u32, timeout: Duration) {
-    let start = Instant::now();
-    loop {
-        let observed = counter.load(Ordering::SeqCst);
-        if observed >= expected {
-            return;
-        }
-        assert!(
-            start.elapsed() < timeout,
-            "timed out waiting for count to reach {expected}, got {observed}"
-        );
-        thread::sleep(Duration::from_millis(20));
-    }
 }
 
 #[test]
@@ -1337,16 +1335,14 @@ fn test_http_delivery_blocks_once_queue_is_full() {
         );
     }
 
-    let elapsed = start.elapsed();
     // this shouldn't block because they fit in the queue
     assert!(
-        elapsed < Duration::from_millis(500),
+        start.elapsed() < Duration::from_millis(500),
         "dispatcher blocked while sending first three events"
     );
 
-    thread::sleep(Duration::from_millis(500) - elapsed);
-
-    assert_eq!(start_count.load(Ordering::SeqCst), 1);
+    // the worker picks the first event up, but the server has not responded yet
+    wait_for_count(&start_count, 1, MAX_WAIT);
     assert_eq!(end_count.load(Ordering::SeqCst), 0);
 
     let start = Instant::now();
@@ -1360,19 +1356,16 @@ fn test_http_delivery_blocks_once_queue_is_full() {
         vec![],
     );
 
-    // we waited 500ms previously, so it should take on the order of 1.5s until
-    // the first request is complete
+    // the first request was already in flight, so this had to wait out the
+    // remainder of the server's 2s delay
     assert!(
         start.elapsed() > Duration::from_millis(1000),
         "dispatcher did not block when sending fourth event"
     );
 
-    // if the queue were smaller than three, we would have had to wait for the
-    // *second* request as well, i.e. on the order of 3.5s
-    assert!(
-        start.elapsed() < Duration::from_millis(2500),
-        "dispatcher blocked unexpectedly long after sending fourth event"
-    );
+    // it only waited for the *first* request: if the queue were smaller than
+    // three, the second request would have had to complete as well
+    assert_eq!(end_count.load(Ordering::SeqCst), 1);
 
     // The worker delivers the remaining requests strictly one at a time: each
     // one only starts once its predecessor has completed.
@@ -1389,7 +1382,7 @@ fn test_http_delivery_blocks_once_queue_is_full() {
 
     // the fourth request completes with nothing left to start
     wait_for_count(&end_count, 4, MAX_WAIT);
-    thread::sleep(Duration::from_millis(100));
+    dispatcher.catch_up();
     assert_eq!(start_count.load(Ordering::SeqCst), 4);
     assert_eq!(end_count.load(Ordering::SeqCst), 4);
 
