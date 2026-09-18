@@ -130,7 +130,11 @@ pub struct RollbackWrapper<'a> {
     //   to indicate a given contexts "start depth".
     stack: Vec<RollbackContext>,
     query_pending_data: bool,
-    cache: HashMap<String, ValueResult>,
+    // A very simple cache around the underlying store, meant to handle repeated loads of
+    // the same contract state when performing nested contract calls in a loop.
+    // Only accepts a limited number of small values.
+    // Cleared on set_block_hash() and when committing to the store.
+    clarity_value_cache: HashMap<String, ValueResult>,
 }
 
 // This is used for preserving rollback data longer
@@ -211,7 +215,7 @@ impl<'a> RollbackWrapper<'a> {
             metadata_lookup_map: HashMap::new(),
             stack: Vec::new(),
             query_pending_data: true,
-            cache: HashMap::new(),
+            clarity_value_cache: HashMap::new(),
         }
     }
 
@@ -225,7 +229,9 @@ impl<'a> RollbackWrapper<'a> {
             metadata_lookup_map: log.metadata_lookup_map,
             stack: log.stack,
             query_pending_data: true,
-            cache: HashMap::new(),
+            // The cache is not persisted. It'll rarely be interesting across
+            // transactions, so we're keeping its scope tight for simplicity.
+            clarity_value_cache: HashMap::new(),
         }
     }
 
@@ -281,8 +287,8 @@ impl<'a> RollbackWrapper<'a> {
                 next_up.metadata_edits.push((key, value));
             }
         } else {
-            self.cache.clear();
             // stack is empty, committing to the backing store
+            self.clarity_value_cache.clear();
             let all_edits =
                 rollback_check_pre_bottom_commit(last_item.edits, &mut self.lookup_map)?;
             if !all_edits.is_empty() {
@@ -353,7 +359,7 @@ impl RollbackWrapper<'_> {
         bhh: StacksBlockId,
         query_pending_data: bool,
     ) -> Result<StacksBlockId, VmExecutionError> {
-        self.cache.clear();
+        self.clarity_value_cache.clear();
         self.store.set_block_hash(bhh).inspect(|_| {
             // use and_then so that query_pending_data is only set once set_block_hash succeeds
             //  this doesn't matter in practice, because a set_block_hash failure always aborts
@@ -465,7 +471,7 @@ impl RollbackWrapper<'_> {
             return Ok(Some(Self::deserialize_value(x, expected, epoch)?));
         }
 
-        let cached = self.cache.get(key);
+        let cached = self.clarity_value_cache.get(key);
         if let Some(cached_result) = cached {
             return Ok(Some(cached_result.clone()));
         }
@@ -479,17 +485,26 @@ impl RollbackWrapper<'_> {
         match stored_data {
             Some(x) => {
                 let to_return = Self::deserialize_value(&x, expected, epoch)?;
-                if key.len() < 1024
-                    && to_return.serialized_byte_len < 1024
-                    && self.cache.len() < 1024
-                {
-                    // Just a very dumb cache: No LRU, simply a hard limit on the size.
-                    // Cleared on set_block_hash() and when committing to the store.
-                    self.cache.insert(key.into(), to_return.clone());
-                }
+                self.maybe_add_to_value_cache(key, &to_return);
                 Ok(Some(to_return))
             }
             None => Ok(None),
+        }
+    }
+
+    // Adds the result to the Clarity value cache if it's eligible. No-op if
+    // too large or the cache is full.
+    fn maybe_add_to_value_cache(&mut self, key: &str, result: &ValueResult) {
+        // The purpose of the value cache is primarily to prevent some unnecessary reads
+        // from the backing store when a repeated nested contract call needs to
+        // load some configuration state on each call. As such, we make this extremely
+        // simple: A hard limit on the number of entries and their sizes, nothing
+        // more.
+        if key.len() < 1024
+            && result.serialized_byte_len < 1024
+            && self.clarity_value_cache.len() < 1024
+        {
+            self.clarity_value_cache.insert(key.into(), result.clone());
         }
     }
 
@@ -644,5 +659,246 @@ impl RollbackWrapper<'_> {
             let metadata_key = (contract.clone(), (*key).to_string());
             self.metadata_lookup_map.contains_key(&metadata_key)
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::cell::RefCell;
+    use std::rc::Rc;
+
+    use stacks_common::util::hash::to_hex;
+
+    use super::*;
+    use crate::vm::database::MemoryBackingStore;
+
+    #[test]
+    fn test_subsequent_reads_are_fulfilled_from_the_cache() {
+        let mut store = MemoryBackingStore::new();
+        let read_tracker = Rc::new(RefCell::new(vec![]));
+        let mut store = AccessTrackingStoreWrapper::new(&mut store, read_tracker.clone());
+        let mut rollback_wrapper = RollbackWrapper::new(&mut store);
+
+        rollback_wrapper.nest();
+        write(&mut rollback_wrapper, "one", &Value::Int(1));
+        rollback_wrapper.commit().unwrap();
+
+        rollback_wrapper.nest();
+
+        assert!(read_tracker.borrow().is_empty());
+
+        assert_value(&mut rollback_wrapper, "one", &Value::Int(1));
+        // first time was deferred to the underlying store, so there was a read
+        assert!(read_tracker.borrow().len() == 1);
+
+        assert_value(&mut rollback_wrapper, "one", &Value::Int(1));
+        // second time was fulfilled from the cache, thus no additional read
+        assert!(read_tracker.borrow().len() == 1);
+
+        rollback_wrapper.commit().unwrap(); // no changes, but this clears the cache
+        rollback_wrapper.nest();
+
+        assert_value(&mut rollback_wrapper, "one", &Value::Int(1));
+        // cache was empty, so we needed another read from the store
+        assert!(read_tracker.borrow().len() == 2);
+    }
+
+    #[test]
+    fn test_pending_values_overrule_cache() {
+        let mut store = MemoryBackingStore::new();
+        let mut rollback_wrapper = RollbackWrapper::new(&mut store);
+
+        // write a value to the store
+        rollback_wrapper.nest();
+        write(&mut rollback_wrapper, "account-balance", &Value::UInt(42));
+        rollback_wrapper.commit().unwrap();
+
+        assert!(rollback_wrapper.clarity_value_cache.is_empty());
+
+        rollback_wrapper.nest();
+        // read the value
+        assert_value(&mut rollback_wrapper, "account-balance", &Value::UInt(42));
+        // it should now be cached
+        assert!(rollback_wrapper.clarity_value_cache.len() == 1);
+        // write a new value, but do not commit it to the store yet
+        write(&mut rollback_wrapper, "account-balance", &Value::UInt(666));
+        // reading should retrieve the new value, not the old cached one
+        assert_value(&mut rollback_wrapper, "account-balance", &Value::UInt(666));
+        rollback_wrapper.rollback().unwrap();
+
+        rollback_wrapper.nest();
+
+        // after rolling back, the old value is back
+        assert_value(&mut rollback_wrapper, "account-balance", &Value::UInt(42));
+    }
+
+    #[test]
+    fn test_committing_to_store_evacuates_cache() {
+        let mut store = MemoryBackingStore::new();
+        let mut rollback_wrapper = RollbackWrapper::new(&mut store);
+
+        // write a value to the store
+        rollback_wrapper.nest();
+        write(&mut rollback_wrapper, "account-balance", &Value::UInt(42));
+        rollback_wrapper.commit().unwrap();
+
+        assert!(rollback_wrapper.clarity_value_cache.is_empty());
+
+        rollback_wrapper.nest();
+        // read the value
+        assert_value(&mut rollback_wrapper, "account-balance", &Value::UInt(42));
+        // it should now be cached
+        assert!(rollback_wrapper.clarity_value_cache.len() == 1);
+        // write a new value and commit to the store
+        write(&mut rollback_wrapper, "account-balance", &Value::UInt(666));
+        rollback_wrapper.commit().unwrap();
+
+        rollback_wrapper.nest();
+
+        // the old value should no longer be cached
+        assert!(rollback_wrapper.clarity_value_cache.is_empty());
+        assert_value(&mut rollback_wrapper, "account-balance", &Value::UInt(666));
+    }
+
+    fn read(
+        rollback_wrapper: &mut RollbackWrapper,
+        key: &str,
+        type_sig: &TypeSignature,
+    ) -> Option<Value> {
+        rollback_wrapper
+            .get_value(key, type_sig, &StacksEpochId::latest())
+            .unwrap()
+            .map(|o| o.value)
+    }
+
+    fn assert_value(rollback_wrapper: &mut RollbackWrapper, key: &str, value: &Value) {
+        let typesig = TypeSignature::type_of(value).unwrap();
+        let result = read(rollback_wrapper, key, &typesig);
+        assert_eq!(
+            result,
+            Some(value.clone()),
+            "expected to read {value} under {key} but found {result:#?}"
+        );
+    }
+
+    fn write(rollback_wrapper: &mut RollbackWrapper, key: &str, value: &Value) {
+        let serialized = to_hex(value.serialize_to_vec().unwrap().as_slice());
+        rollback_wrapper.put_data(key, &serialized).unwrap();
+    }
+
+    /// A [`ClarityBackingStore`] that simply wraps another store, but that
+    /// tracks calls to [`ClarityBackingStore::get_data`].
+    struct AccessTrackingStoreWrapper<'a> {
+        keys_read: Rc<RefCell<Vec<String>>>,
+        wrapped_store: &'a mut dyn ClarityBackingStore,
+    }
+
+    impl<'a> AccessTrackingStoreWrapper<'a> {
+        /// Creates an [`AccessTrackingStoreWrapper`] that adds any reads
+        /// via [`AccessTrackingStoreWrapper::get_data`] to the passed-in vec.
+        /// Make sure to not hold any RefCell borrows while the store might
+        /// be getting accessed.
+        pub fn new(
+            wrapped_store: &'a mut dyn ClarityBackingStore,
+            keys_read: Rc<RefCell<Vec<String>>>,
+        ) -> AccessTrackingStoreWrapper<'a> {
+            AccessTrackingStoreWrapper {
+                keys_read,
+                wrapped_store,
+            }
+        }
+    }
+
+    impl<'a> ClarityBackingStore for AccessTrackingStoreWrapper<'a> {
+        fn put_all_data(&mut self, items: Vec<(String, String)>) -> Result<(), VmExecutionError> {
+            self.wrapped_store.put_all_data(items)
+        }
+
+        fn get_data(&mut self, key: &str) -> Result<Option<String>, VmExecutionError> {
+            self.keys_read.borrow_mut().push(key.to_string());
+            self.wrapped_store.get_data(key)
+        }
+
+        fn get_data_from_path(
+            &mut self,
+            hash: &TrieHash,
+        ) -> Result<Option<String>, VmExecutionError> {
+            self.wrapped_store.get_data_from_path(hash)
+        }
+
+        fn get_data_with_proof(
+            &mut self,
+            key: &str,
+        ) -> Result<Option<(String, Vec<u8>)>, VmExecutionError> {
+            self.wrapped_store.get_data_with_proof(key)
+        }
+
+        fn get_data_with_proof_from_path(
+            &mut self,
+            hash: &TrieHash,
+        ) -> Result<Option<(String, Vec<u8>)>, VmExecutionError> {
+            self.wrapped_store.get_data_with_proof_from_path(hash)
+        }
+
+        fn set_block_hash(
+            &mut self,
+            bhh: StacksBlockId,
+        ) -> Result<StacksBlockId, VmExecutionError> {
+            self.wrapped_store.set_block_hash(bhh)
+        }
+
+        fn get_block_at_height(&mut self, height: u32) -> Option<StacksBlockId> {
+            self.wrapped_store.get_block_at_height(height)
+        }
+
+        fn get_current_block_height(&mut self) -> u32 {
+            self.wrapped_store.get_current_block_height()
+        }
+
+        fn get_open_chain_tip_height(&mut self) -> u32 {
+            self.wrapped_store.get_open_chain_tip_height()
+        }
+
+        fn get_open_chain_tip(&mut self) -> StacksBlockId {
+            self.wrapped_store.get_open_chain_tip()
+        }
+
+        fn get_side_store(&mut self) -> &rusqlite::Connection {
+            self.wrapped_store.get_side_store()
+        }
+
+        fn get_contract_hash(
+            &mut self,
+            contract: &QualifiedContractIdentifier,
+        ) -> Result<(StacksBlockId, Sha512Trunc256Sum), VmExecutionError> {
+            self.wrapped_store.get_contract_hash(contract)
+        }
+
+        fn insert_metadata(
+            &mut self,
+            contract: &QualifiedContractIdentifier,
+            key: &str,
+            value: &str,
+        ) -> Result<(), VmExecutionError> {
+            self.wrapped_store.insert_metadata(contract, key, value)
+        }
+
+        fn get_metadata(
+            &mut self,
+            contract: &QualifiedContractIdentifier,
+            key: &str,
+        ) -> Result<Option<String>, VmExecutionError> {
+            self.wrapped_store.get_metadata(contract, key)
+        }
+
+        fn get_metadata_manual(
+            &mut self,
+            at_height: u32,
+            contract: &QualifiedContractIdentifier,
+            key: &str,
+        ) -> Result<Option<String>, VmExecutionError> {
+            self.wrapped_store
+                .get_metadata_manual(at_height, contract, key)
+        }
     }
 }
