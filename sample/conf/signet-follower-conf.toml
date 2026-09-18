@@ -14,6 +14,9 @@ stacker = false
 
 [burnchain]
 mode = "signet"
+# Default Stacks chain ID: 0x80000001. Independent deployments can override it.
+# All nodes, signers, and transaction clients must use the same chain ID.
+# chain_id = 0x80000100
 peer_host = "127.0.0.1"
 peer_port = 38333
 rpc_port = 38332

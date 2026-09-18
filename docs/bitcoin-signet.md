@@ -66,6 +66,24 @@ password = "replace-with-a-local-password"
 # signet_challenge = "51"
 ```
 
+Signet defaults to Stacks chain ID `0x80000001` (`2147483649`), distinct from
+mainnet (`0x00000001`) and testnet/regtest (`0x80000000`). Nodes advertise this ID
+in `/v2/info` as `network_id` and reject transactions and P2P messages for other
+IDs. Independent deployments should override `[burnchain].chain_id` with their
+own agreed ID; the Bitcoin signet challenge does not assign a Stacks chain ID.
+
+Configure signers with `network = "signet"` to use the same default. If the node
+uses a custom chain ID, set the signer's `chain_id` to that value too. Wallets,
+transaction builders, and PoX signing tools must use the deployment's chain ID,
+including when signing PoX authorizations; selecting an ordinary testnet client
+alone is insufficient.
+
+Signet retains testnet's Stacks address prefixes, transaction version, peer
+protocol version, genesis data, and boot contracts. No new genesis package is
+required. Launch with fresh chainstate when changing the chain ID; existing
+pre-default signet deployments can explicitly retain `chain_id = 0x80000000` in
+both node and signer configurations.
+
 `magic_bytes` sets Stacks' **two-byte burn-operation prefix**, default `S2`.
 All participants in a Stacks network must use the same prefix. Bitcoin's separate
 four-byte P2P magic is derived from the signet challenge. Signet addresses use
@@ -123,8 +141,9 @@ Use the repository's Rust toolchain, `cargo-nextest`, and native Bitcoin Core
 `bitcoind` on `PATH` (tested with Core 31.1). Run one signer integration test at a
 time because the harness uses a shared event observer.
 
-Routine CI checks custom-signet startup, a new signed tenure, successful STX
-transfer execution, and agreement between two miners backed by five signers.
+Routine CI checks custom-signet startup, rejection of testnet transactions, a
+new signed tenure, successful STX transfer execution, and agreement between two
+miners backed by five signers.
 It uses a shorter test-only epoch schedule with mature Bitcoin funding and
 inherits the standard CI timeout and retry settings:
 
@@ -153,7 +172,8 @@ outside its scope. The harness shuts down its processes when the test completes.
 Focused offline checks:
 
 ```bash
-cargo nextest run -p stackslib -p stacks-node --locked -E 'test(signet)'
+cargo nextest run -p stackslib -p stacks-node -p stacks-signer --locked \
+  -E 'test(signet) | test(test_network_identity_defaults)'
 ```
 
 Opt-in public/private P2P tests against your already synchronized local

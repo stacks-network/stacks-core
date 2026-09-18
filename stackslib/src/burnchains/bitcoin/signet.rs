@@ -130,7 +130,7 @@ mod tests {
     use crate::burnchains::BITCOIN_NETWORK_ID_MAINNET;
     use crate::chainstate::burn::db::sortdb::SortitionDB;
     use crate::config::{Config, ConfigFile};
-    use crate::core::StacksEpochId;
+    use crate::core::{StacksEpochId, CHAIN_ID_SIGNET, CHAIN_ID_TESTNET, PEER_VERSION_TESTNET};
     use crate::util_lib::db::Error as DBError;
 
     /// Check public and custom message magic against Bitcoin Core and BIP 325 vectors.
@@ -218,8 +218,12 @@ mod tests {
         assert_eq!(public.burnchain.peer_port, P2P_PORT);
         assert_eq!(public.burnchain.rpc_port, RPC_PORT);
         assert_eq!(public.burnchain.magic_bytes.as_bytes(), b"S2");
+        assert_eq!(public.burnchain.chain_id, CHAIN_ID_SIGNET);
+        assert_ne!(public.burnchain.chain_id, CHAIN_ID_TESTNET);
+        assert_eq!(public.burnchain.peer_version, PEER_VERSION_TESTNET);
         assert!(!public.is_mainnet());
         let burnchain = public.get_burnchain();
+        assert_eq!(burnchain.peer_version, public.burnchain.peer_version);
         assert_eq!(burnchain.pox_constants.reward_cycle_length, 20);
         assert_eq!(burnchain.pox_constants.prepare_length, 5);
         assert!(
@@ -250,10 +254,16 @@ mod tests {
             explicit_public.get_chainstate_path()
         );
         let custom = config(
-            "signet_challenge = '51'\npeer_port = 39333\nrpc_port = 39332\nmagic_bytes = 'Q2'",
+            "signet_challenge = '51'\npeer_port = 39333\nrpc_port = 39332\nmagic_bytes = 'Q2'\nchain_id = 0x80000100",
         );
         assert_eq!(custom.burnchain.peer_port, 39333);
         assert_eq!(custom.burnchain.rpc_port, 39332);
+        assert_eq!(custom.burnchain.chain_id, 0x80000100);
+        assert_eq!(custom.burnchain.magic_bytes.as_bytes(), b"Q2");
+        assert_eq!(
+            config("signet_challenge = '51'").burnchain.chain_id,
+            CHAIN_ID_SIGNET
+        );
         for (public_path, custom_path) in [
             (
                 public.get_chainstate_path_str(),

@@ -1,1 +1,1 @@
-Added public and custom Bitcoin signet support with challenge-specific chain and event storage. See [Bitcoin signet](docs/bitcoin-signet.md).
+Added public and custom Bitcoin signet support with chain ID `0x80000001`, signer `network = "signet"`, and challenge-specific chain and event storage. See [Bitcoin signet](docs/bitcoin-signet.md).

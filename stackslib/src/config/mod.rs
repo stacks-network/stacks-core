@@ -47,7 +47,7 @@ use stacks_common::util::hash::hex_bytes;
 use stacks_common::util::secp256k1::{Secp256k1PrivateKey, Secp256k1PublicKey};
 
 use crate::burnchains::bitcoin::{signet, BitcoinNetworkType};
-use crate::burnchains::{Burnchain, MagicBytes, BLOCKSTACK_MAGIC_MAINNET};
+use crate::burnchains::{Burnchain, MagicBytes, BLOCKSTACK_MAGIC_MAINNET, BLOCKSTACK_MAGIC_SIGNET};
 use crate::chainstate::nakamoto::signer_set::{
     set_pox_5_bond_admin, set_pox_5_pause_admin, set_pox_5_sbtc_contract,
     set_pox_5_sbtc_registry_contract, NakamotoSigners,
@@ -60,7 +60,7 @@ use crate::chainstate::stacks::MAX_BLOCK_LEN;
 use crate::config::chain_data::MinerStats;
 use crate::core::mempool::{MemPoolWalkSettings, MemPoolWalkStrategy, MemPoolWalkTxTypes};
 use crate::core::{
-    MemPoolDB, StacksEpoch, StacksEpochExtension, StacksEpochId, CHAIN_ID_MAINNET,
+    MemPoolDB, StacksEpoch, StacksEpochExtension, StacksEpochId, CHAIN_ID_MAINNET, CHAIN_ID_SIGNET,
     CHAIN_ID_TESTNET, PEER_VERSION_MAINNET, PEER_VERSION_TESTNET, STACKS_EPOCHS_REGTEST,
     STACKS_EPOCHS_TESTNET,
 };
@@ -1457,10 +1457,12 @@ pub struct BurnchainConfig {
     /// ---
     /// @default: |
     ///   - if [`BurnchainConfig::mode`] is `"mainnet"`: [`CHAIN_ID_MAINNET`]
+    ///   - if [`BurnchainConfig::mode`] is `"signet"`: [`CHAIN_ID_SIGNET`]
     ///   - else: [`CHAIN_ID_TESTNET`]
     /// @notes:
-    ///   - **Warning:** Do not modify this unless you really know what you're doing.
-    ///   - This is intended strictly for testing purposes.
+    ///   - All nodes, signers, and transaction clients in a deployment must agree.
+    ///   - Choose a distinct ID for independent non-mainnet deployments.
+    ///   - The ID is fixed when chainstate is initialized; changing it requires fresh chainstate.
     pub chain_id: u32,
     /// The peer protocol version number used in P2P communication.
     /// This parameter cannot be set via the configuration file.
@@ -1983,7 +1985,6 @@ impl BurnchainConfigFile {
             self.peer_host.get_or_insert_with(|| "127.0.0.1".into());
             self.peer_port.get_or_insert(signet::P2P_PORT);
             self.rpc_port.get_or_insert(signet::RPC_PORT);
-            self.magic_bytes.get_or_insert_with(|| "S2".into());
         }
         if is_mainnet {
             // check magic bytes and set if not defined
@@ -2011,20 +2012,17 @@ impl BurnchainConfigFile {
                     }
                     chain_id
                 }
-                None => {
-                    if is_mainnet {
-                        CHAIN_ID_MAINNET
-                    } else {
-                        CHAIN_ID_TESTNET
-                    }
-                }
+                None => match mode.as_str() {
+                    "mainnet" => CHAIN_ID_MAINNET,
+                    "signet" => CHAIN_ID_SIGNET,
+                    _ => CHAIN_ID_TESTNET,
+                },
             },
             peer_version: if is_mainnet {
                 PEER_VERSION_MAINNET
             } else {
                 PEER_VERSION_TESTNET
             },
-            mode,
             burn_fee_cap: self
                 .burn_fee_cap
                 .unwrap_or(default_burnchain_config.burn_fee_cap),
@@ -2061,7 +2059,12 @@ impl BurnchainConfigFile {
                     assert!(magic_ascii.is_ascii(), "Magic bytes must be ASCII");
                     MagicBytes::from(magic_ascii.as_bytes())
                 })
-                .unwrap_or(default_burnchain_config.magic_bytes),
+                .unwrap_or(if mode == "signet" {
+                    BLOCKSTACK_MAGIC_SIGNET
+                } else {
+                    default_burnchain_config.magic_bytes
+                }),
+            mode,
             local_mining_public_key: self.local_mining_public_key,
             process_exit_at_block_height: self.process_exit_at_block_height,
             poll_time_secs: self
@@ -5612,6 +5615,26 @@ mod tests {
                 .into_config_default(default_burnchain_config)
                 .expect("Should not panic");
             assert_eq!(config.chain_id, CHAIN_ID_TESTNET);
+        }
+    }
+
+    /// Network profiles select independent chain identities without changing other defaults.
+    #[test]
+    fn test_network_identity_defaults() {
+        for (mode, chain_id, peer_version) in [
+            ("mainnet", CHAIN_ID_MAINNET, PEER_VERSION_MAINNET),
+            ("xenon", CHAIN_ID_TESTNET, PEER_VERSION_TESTNET),
+            ("krypton", CHAIN_ID_TESTNET, PEER_VERSION_TESTNET),
+            ("signet", CHAIN_ID_SIGNET, PEER_VERSION_TESTNET),
+        ] {
+            let config = BurnchainConfigFile {
+                mode: Some(mode.into()),
+                ..Default::default()
+            }
+            .into_config_default(BurnchainConfig::default())
+            .unwrap();
+            assert_eq!(config.chain_id, chain_id, "{mode}");
+            assert_eq!(config.peer_version, peer_version, "{mode}");
         }
     }
 

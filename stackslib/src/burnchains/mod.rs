@@ -67,6 +67,8 @@ impl MagicBytes {
 }
 
 pub const BLOCKSTACK_MAGIC_MAINNET: MagicBytes = MagicBytes([105, 100]); // 'id'
+/// Default two-byte Stacks burn-operation prefix on Bitcoin signet.
+pub const BLOCKSTACK_MAGIC_SIGNET: MagicBytes = MagicBytes(*b"S2");
 
 #[derive(Debug, PartialEq, Clone)]
 pub struct BurnchainParameters {

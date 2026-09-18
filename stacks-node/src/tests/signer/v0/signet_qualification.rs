@@ -22,18 +22,23 @@ use std::{env, thread};
 use clarity::vm::types::QualifiedContractIdentifier;
 use pinny::tag;
 use stacks::burnchains::bitcoin::{signet, BitcoinNetworkType};
-use stacks::burnchains::MagicBytes;
+use stacks::burnchains::BLOCKSTACK_MAGIC_SIGNET;
 use stacks::chainstate::burn::db::sortdb::SortitionDB;
 use stacks::config::Config;
-use stacks::core::{StacksEpochId, STACKS_EPOCH_MAX};
-use stacks::types::chainstate::StacksPrivateKey;
+use stacks::core::test_util::make_stacks_transfer_serialized;
+use stacks::core::{
+    StacksEpochId, CHAIN_ID_SIGNET, CHAIN_ID_TESTNET, PEER_VERSION_TESTNET, STACKS_EPOCH_MAX,
+};
+use stacks::types::chainstate::{StacksAddress, StacksPrivateKey};
 use stacks::util::secp256k1::Secp256k1PublicKey;
+use stacks_signer::config::{GlobalConfig as SignerConfig, Network};
 
 use super::MultipleMinerTest;
 use crate::run_loop::boot_nakamoto::BootRunLoop;
 use crate::tests::nakamoto_integrations::wait_for;
 use crate::tests::neon_integrations::{
-    get_account, get_chain_info, get_chain_info_opt, get_pox_info, test_observer,
+    get_account, get_chain_info, get_chain_info_opt, get_pox_info, submit_tx_fallible,
+    test_observer,
 };
 use crate::tests::signer::wait_for_node_commit;
 use crate::tests::{gen_random_port, to_addr};
@@ -42,7 +47,9 @@ use crate::tests::{gen_random_port, to_addr};
 fn configure_signet(config: &mut Config, rpc_port: u16, peer_port: u16) {
     config.burnchain.mode = "signet".into();
     config.burnchain.signet_challenge = Some(vec![0x51]);
-    config.burnchain.magic_bytes = MagicBytes::from(b"S2".as_ref());
+    config.burnchain.chain_id = CHAIN_ID_SIGNET;
+    config.burnchain.peer_version = PEER_VERSION_TESTNET;
+    config.burnchain.magic_bytes = BLOCKSTACK_MAGIC_SIGNET;
     config.burnchain.rpc_port = rpc_port;
     config.burnchain.peer_port = peer_port;
     config.burnchain.timeout = 600;
@@ -50,6 +57,12 @@ fn configure_signet(config: &mut Config, rpc_port: u16, peer_port: u16) {
     config.burnchain.pox_reward_length = None;
     config.burnchain.pox_prepare_length = None;
     config.miner.block_commit_delay = Duration::from_secs(1);
+}
+
+/// Exercise the signer's signet default rather than an explicit chain-ID override.
+fn configure_signet_signer(config: &mut SignerConfig) {
+    config.network = Network::Signet;
+    config.chain_id = None;
 }
 
 /// Wait for agreement on the burn view and the full Stacks tip identity.
@@ -119,7 +132,7 @@ fn signet_signed_transfer_smoke() {
     let mut miners = MultipleMinerTest::new_with_signer_dist(
         5,
         2,
-        |_| {},
+        configure_signet_signer,
         |config| configure_signet_smoke(config, rpc_port, peer_port),
         |config| configure_signet_smoke(config, rpc_port, peer_port),
         |_| 0,
@@ -138,6 +151,21 @@ fn signet_signed_transfer_smoke() {
         );
     }
     assert_node_agreement(&first, &second);
+    let wrong_chain_tx = make_stacks_transfer_serialized(
+        &miners.sender_sk,
+        0,
+        miners.send_fee,
+        CHAIN_ID_TESTNET,
+        &StacksAddress::burn_address(false).into(),
+        miners.send_amt,
+    );
+    for config in [&first, &second] {
+        assert_eq!(get_chain_info(config).network_id, CHAIN_ID_SIGNET);
+        let error =
+            submit_tx_fallible(&format!("http://{}", config.node.rpc_bind), &wrong_chain_tx)
+                .expect_err("A testnet transaction must not be accepted on signet");
+        assert!(error.contains("invalid chain ID"), "{error}");
+    }
     let sortdb = first.get_burnchain().open_sortition_db(true).unwrap();
     let before = get_chain_info(&first);
     miners
@@ -191,7 +219,7 @@ fn signet_pox5_epoch40_stability_and_restart() {
     let mut miners = MultipleMinerTest::new_with_signer_dist(
         5,
         100,
-        |_| {},
+        configure_signet_signer,
         |config| {
             configure_signet(config, rpc_port, peer_port);
             config.node.pox_5_sbtc_contract = Some(token_id.clone());
