@@ -160,6 +160,10 @@ initialize() {
     # Applied only when creating the label; matches the upstream `flaky` label.
     CFG_FLAKY_LABEL_COLOR="58BCF1"
 
+    # How many issues to load per state. Fetched as limit+1 so a full page is
+    # distinguishable from a page that happens to hold exactly the limit.
+    CFG_ISSUE_LIMIT=500
+
     # Long enough that captured output containing triple backticks cannot break out
     CFG_FENCE='`````'
 
@@ -207,11 +211,56 @@ ensure_flaky_label() {
 # Write every issue we have already filed to the given file. `comments` and
 # `createdAt` are needed because the close phase dates each issue's last
 # failure from them.
+#
+# Open and closed are fetched separately, because truncating one is far worse
+# than truncating the other. An issue missing from the list has no marker to
+# match, so the next failure files a duplicate instead of updating it - and if
+# the missing issue was OPEN, phase 2 can never close it either, leaving a pair
+# that no run can reconcile. A missing CLOSED issue only means a recurrence
+# after a long silence starts a fresh issue, which is reasonable on its own
+# terms. So a full page of open issues stops the run, and a full page of closed
+# ones is merely noted.
+#
+# Open is merged first: the marker lookup takes the first match, so where a
+# duplicate pair already exists the open one is updated rather than the closed
+# one reopened alongside it.
 load_existing_issues() {
     local target="$1"
+    local open_issues closed_issues fetched
+    local fields="number,state,body,comments,createdAt"
 
-    gh issue list --repo "${CFG_REPO}" --label "${CFG_FLAKY_LABEL}" --state all \
-        --limit 500 --json number,state,body,comments,createdAt > "${target}"
+    open_issues="$(mktemp)"
+    closed_issues="$(mktemp)"
+
+    gh issue list --repo "${CFG_REPO}" --label "${CFG_FLAKY_LABEL}" --state open \
+        --limit $(( CFG_ISSUE_LIMIT + 1 )) --json "${fields}" > "${open_issues}"
+
+    # Refused rather than warned: triaging a truncated list of open issues files
+    # duplicates, so every further run makes the pile worse. The report job fails,
+    # which is what puts it in front of someone via the Slack alert.
+    fetched=$(jq 'length' "${open_issues}")
+    if (( fetched > CFG_ISSUE_LIMIT )); then
+        error "More than $(hl "${CFG_ISSUE_LIMIT}") open $(hl "${CFG_FLAKY_LABEL}") issue(s)"
+        error "The list would be truncated, and triaging a truncated list files duplicates"
+        error "Close the stale ones, or raise $(hl "CFG_ISSUE_LIMIT")"
+        rm -f "${open_issues}" "${closed_issues}"
+        exit 1
+    fi
+
+    # Sorted by last touched, not by age: a closed issue nothing has touched in
+    # months is the one that can be dropped safely, whereas one closed recently
+    # is the likeliest to need reopening.
+    gh issue list --repo "${CFG_REPO}" --label "${CFG_FLAKY_LABEL}" --state closed \
+        --search "sort:updated-desc" \
+        --limit $(( CFG_ISSUE_LIMIT + 1 )) --json "${fields}" > "${closed_issues}"
+
+    if (( $(jq 'length' "${closed_issues}") > CFG_ISSUE_LIMIT )); then
+        warn "More than $(hl "${CFG_ISSUE_LIMIT}") closed $(hl "${CFG_FLAKY_LABEL}") issue(s)"
+        warn "The oldest are out of view, so a recurrence there files a new issue"
+    fi
+
+    jq -s 'add' "${open_issues}" "${closed_issues}" > "${target}"
+    rm -f "${open_issues}" "${closed_issues}"
 
     info "Found $(hl "$(jq 'length' "${target}")") existing $(hl "${CFG_FLAKY_LABEL}") issue(s)"
 }
