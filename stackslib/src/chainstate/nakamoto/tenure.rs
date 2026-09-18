@@ -38,21 +38,21 @@
 //! Tenures are created and extended via `TenureChange` transactions.  These come in two flavors:
 //!
 //! * A `BlockFound` tenure change, which is induced by a winning sortition.  This causes the new
-//! miner to start producing blocks, and stops the current miner from producing more blocks.
+//!   miner to start producing blocks, and stops the current miner from producing more blocks.
 //!
 //! * An `Extended` tenure change, which is induced by Stackers. This resets the tenure's ongoing
-//! execution budget, thereby allowing the miner to continue producing blocks.
+//!   execution budget, thereby allowing the miner to continue producing blocks.
 //!
 //! A tenure may be extended at any time by Stackers, and may span multiple Bitcoin blocks (such
 //! as if there was no sortition winner, or the winning miner never comes online).
 //!
 //! `TenureChanges` contain three pointers to chainstate:
 //! * The _tenure consensus hash_: this is the consensus hash of the sortition that chose the last
-//! winning miner.  Note that due to the above, it may not be the highest sortition processed.
+//!   winning miner.  Note that due to the above, it may not be the highest sortition processed.
 //! * The _previous tenure consensus hash_: this is the consensus hash of the sortition that chose
-//! the miner who produced the parent tenure of the current ongoing tenure.
-//! * The _sortition consensus hash: this is the tip of the sortition history that Stackers knew
-//! about when they created the `TenureChange.
+//!   the miner who produced the parent tenure of the current ongoing tenure.
+//! * The _sortition consensus hash_: this is the tip of the sortition history that Stackers knew
+//!   about when they created the `TenureChange`.
 //!
 //! The Nakamoto system uses this module to track the set of all tenures.  It does so within a
 //! (derived-state) table called `nakamoto_tenure_events`.  Whenever a `TenureChange` transaction is
@@ -927,12 +927,12 @@ impl NakamotoChainState {
     /// - burn_dbconn: the sortition fork tx open against the sortition DB
     /// - block: the block being processed
     /// - parent_coinbase_height: the number of tenures represented by the parent of this block
-    /// (equivalent to the number of coinbases)
+    ///   (equivalent to the number of coinbases)
     /// - chain_tip_burn_header_height: the height of the burnchain block mined when this block was
-    /// produced
+    ///   produced
     /// - burnchain_commit_burn: how many burnchain tokens were spent by this block's tenure's block-commit
     /// - burnchain_sortition_burn: total burnchain tokens spent by all miners for this block's
-    /// tenure
+    ///   tenure
     ///
     /// Returns the scheduled reward for this block's miner, subject to:
     /// - accumulated STX from missed sortitions

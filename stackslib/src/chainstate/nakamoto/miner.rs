@@ -81,10 +81,6 @@ pub struct NakamotoBlockBuilder {
     parent_header: Option<StacksHeaderInfo>,
     /// Signed coinbase tx, if starting a new tenure
     coinbase_tx: Option<StacksTransaction>,
-    /// Tenure change tx, if starting or extending a tenure
-    tenure_tx: Option<StacksTransaction>,
-    /// Total burn this block represents
-    total_burn: u64,
     /// Matured miner rewards to process, if any.
     pub(crate) matured_miner_rewards_opt: Option<MaturedMinerRewards>,
     /// bytes of space consumed so far
@@ -224,15 +220,10 @@ pub struct BlockMetadata {
 
 impl NakamotoBlockBuilder {
     /// Make a block builder from genesis (testing only)
-    pub fn new_first_block(
-        tenure_change: &StacksTransaction,
-        coinbase: &StacksTransaction,
-    ) -> NakamotoBlockBuilder {
+    pub fn new_first_block(coinbase: &StacksTransaction) -> NakamotoBlockBuilder {
         NakamotoBlockBuilder {
             parent_header: None,
-            total_burn: 0,
             coinbase_tx: Some(coinbase.clone()),
-            tenure_tx: Some(tenure_change.clone()),
             matured_miner_rewards_opt: None,
             bytes_so_far: 0,
             txs: vec![],
@@ -248,12 +239,12 @@ impl NakamotoBlockBuilder {
     /// * `parent_stacker_header` - the stacks header this builder's block will build off
     ///
     /// * `tenure_id_consensus_hash` - consensus hash of this tenure's burnchain block.
-    ///    This is the consensus hash that goes into the block header.
+    ///   This is the consensus hash that goes into the block header.
     ///
     /// * `total_burn` - total BTC burnt so far in this fork.
     ///
     /// * `tenure_change` - the TenureChange tx if this is going to start or
-    ///    extend a tenure
+    ///   extend a tenure
     ///
     /// * `coinbase` - the coinbase tx if this is going to start a new tenure
     ///
@@ -293,9 +284,7 @@ impl NakamotoBlockBuilder {
 
         Ok(NakamotoBlockBuilder {
             parent_header: Some(parent_stacks_header.clone()),
-            total_burn,
             coinbase_tx: coinbase.cloned(),
-            tenure_tx: tenure_change.cloned(),
             matured_miner_rewards_opt: None,
             bytes_so_far: 0,
             txs: vec![],
@@ -660,7 +649,6 @@ impl NakamotoBlockBuilder {
         settings: BlockBuilderSettings,
         event_observer: Option<&dyn MemPoolEventDispatcher>,
         signer_bitvec_len: u16,
-        replay_transactions: &[StacksTransaction],
     ) -> Result<BlockMetadata, Error> {
         let (tip_consensus_hash, tip_block_hash, tip_height) = (
             parent_stacks_header.consensus_hash.clone(),
@@ -745,7 +733,6 @@ impl NakamotoBlockBuilder {
             &initial_txs,
             settings,
             event_observer,
-            replay_transactions,
         ) {
             Ok(x) => x,
             Err(e) => {
@@ -958,18 +945,19 @@ fn parse_process_transaction_error(
         TransactionResult::problematic(tx, e)
     } else {
         match e {
-            Error::CostOverflowError(cost_before, cost_after, total_budget) => {
-                clarity_tx.reset_cost(cost_before.clone());
+            Error::CostOverflowError(context) => {
+                clarity_tx.reset_cost(context.before.clone());
                 let cost_so_far_percentage =
-                    total_budget.proportion_largest_dimension(&cost_before);
+                    context.budget.proportion_largest_dimension(&context.before);
                 if cost_so_far_percentage < TX_BLOCK_LIMIT_PROPORTION_HEURISTIC {
                     warn!(
-                            "Transaction {} consumed over {}% of block budget, marking as invalid; budget was {total_budget}",
+                            "Transaction {} consumed over {}% of block budget, marking as invalid; budget was {}",
                             tx.txid(),
-                            100 - TX_BLOCK_LIMIT_PROPORTION_HEURISTIC
+                            100 - TX_BLOCK_LIMIT_PROPORTION_HEURISTIC,
+                            context.budget,
                     );
-                    let mut measured_cost = cost_after;
-                    let measured_cost = if measured_cost.sub(&cost_before).is_ok() {
+                    let mut measured_cost = context.after;
+                    let measured_cost = if measured_cost.sub(&context.before).is_ok() {
                         Some(measured_cost)
                     } else {
                         warn!("Failed to compute measured cost of a too big transaction");
@@ -980,13 +968,15 @@ fn parse_process_transaction_error(
                     warn!(
                         "Transaction {} would exceed the tenure budget, but only {cost_so_far_percentage}% of total budget currently consumed. Skipping tx for this block.", tx.txid();
                         "contract_limit_percentage" => contract_limit_percentage,
-                        "total_budget" => %total_budget
+                        "total_budget" => %context.budget
                     );
                     TransactionResult::skipped_due_to_error(tx, Error::BlockCostLimitError)
                 } else {
                     warn!(
-                        "Transaction {} reached block cost {cost_after}; budget was {total_budget}",
+                        "Transaction {} reached block cost {}; budget was {}",
                         tx.txid(),
+                        context.after,
+                        context.budget,
                     );
                     TransactionResult::skipped_due_to_error(tx, Error::BlockTooBigError)
                 }

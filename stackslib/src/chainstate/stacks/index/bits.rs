@@ -183,9 +183,9 @@ pub fn get_ptrs_byte_len_compressed(id: u8, ptrs: &[TriePtr]) -> usize {
 ///
 /// Where
 /// * 0xff ([`SPARSE_PTR_BITMAP_MARKER`]) is a marker bit that cannot be the first byte of a `TriePtr`, and indicates that a
-/// bitmap follows
+///   bitmap follows
 /// * `bitmap` is a bit field in which the ith bit is set if the ith `TriePtr` is not empty.  All
-/// other `TriePtr`s in `ptrs_buf` will be considered empty, and initialized as such.
+///   other `TriePtr`s in `ptrs_buf` will be considered empty, and initialized as such.
 ///
 /// The remaining bytes 1+B through 1+B+N contain the list of compressed `TriePtr`s -- one for each
 /// set bit in `bitmap`.
@@ -324,7 +324,7 @@ pub fn ptrs_from_bytes<R: Read + Seek>(
 
     if is_compressed(*nid) {
         trace!("Node {} has compressed ptrs", cleared_nid);
-        let sparse_flag = ptr_bytes.get(0).ok_or_else(|| {
+        let sparse_flag = ptr_bytes.first().ok_or_else(|| {
             Error::CorruptionError("Failed to read 2nd byte from bytes array".into())
         })?;
 
@@ -362,17 +362,16 @@ pub fn ptrs_from_bytes<R: Read + Seek>(
                 Error::CorruptionError("Failed to read bitmap_size bytes from bytes array".into())
             })?;
 
-            let mut nextptr = 0;
             let mut cursor = 0;
             for i in 0..(8 * bitmap_size) {
-                if nextptr >= ptrs_buf.len() {
+                if i >= ptrs_buf.len() {
                     break;
                 }
                 let bi = i / 8;
                 let bt = i % 8;
                 let mask = 1u8 << bt;
-                let next_ptrs_buf = ptrs_buf.get_mut(nextptr).ok_or_else(|| {
-                    Error::CorruptionError("infallible: nextptr < ptrs_buf.len()".into())
+                let next_ptrs_buf = ptrs_buf.get_mut(i).ok_or_else(|| {
+                    Error::CorruptionError("infallible: i < ptrs_buf.len()".into())
                 })?;
                 let byte = *bitmap.get(bi).ok_or_else(|| {
                     Error::CorruptionError("infallible: i / 8 < bitmap.len()".into())
@@ -406,7 +405,6 @@ pub fn ptrs_from_bytes<R: Read + Seek>(
                         .checked_add(next_ptrs_buf.compressed_size())
                         .ok_or_else(|| Error::OverflowError)?;
                 }
-                nextptr += 1;
             }
             trace!(
                 "Node {} sparse compressed ptrs ({} bytes): {}",

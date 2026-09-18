@@ -119,7 +119,7 @@ pub struct Relayer {
     recently_sent_nakamoto_blocks: HashMap<StacksBlockId, (ConsensusHash, u128)>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct RelayerStats {
     /// Relayer statistics for the p2p network's ongoing conversations.
     /// Note that we key on (addr, port), not the full NeighborAddress.
@@ -913,13 +913,6 @@ impl Relayer {
         obtained_method: NakamotoBlockObtainMethod,
         force_broadcast: bool,
     ) -> Result<BlockAcceptResponse, chainstate_error> {
-        info!(
-            "Handle incoming Nakamoto block {}/{} obtained via {}",
-            &block.header.consensus_hash,
-            &block.header.block_hash(),
-            &obtained_method;
-            "block_id" => %block.header.block_id(),
-        );
         if block.is_shadow_block() {
             // drop, since we can get these from ourselves when downloading a tenure that ends in
             // a shadow block.
@@ -957,6 +950,13 @@ impl Relayer {
                 return Ok(BlockAcceptResponse::AlreadyStored);
             }
         }
+
+        info!(
+            "Handle incoming Nakamoto block {}/{} obtained via {obtained_method}",
+            &block.header.consensus_hash,
+            &block.header.block_hash();
+            "block_id" => %block.header.block_id(),
+        );
 
         let block_sn =
             SortitionDB::get_block_snapshot_consensus(sort_handle, &block.header.consensus_hash)?
@@ -2022,8 +2022,7 @@ impl Relayer {
     ) -> Result<(Vec<AcceptedNakamotoBlocks>, Vec<NeighborKey>), net_error> {
         // process downloaded Nakamoto blocks.
         // We treat them as singleton blocks fetched via zero relayers
-        let nakamoto_blocks =
-            std::mem::replace(&mut network_result.nakamoto_blocks, HashMap::new());
+        let nakamoto_blocks = mem::take(&mut network_result.nakamoto_blocks);
         let mut accepted_nakamoto_blocks_and_relayers =
             match Self::process_downloaded_nakamoto_blocks(
                 burnchain,
@@ -2853,6 +2852,7 @@ impl Relayer {
     /// * Add all transactions to the mempool.
     /// * Forward transactions we didn't already have.
     /// * Reload the unconfirmed state, if necessary.
+    ///
     /// Mask errors from invalid data -- all errors due to invalid blocks and invalid data should be captured, and
     /// turned into peer bans.
     pub fn process_network_result(
@@ -2911,7 +2911,7 @@ impl Relayer {
         // push events for HTTP-uploaded stacker DB chunks
         self.process_uploaded_stackerdb_chunks(
             &network_result.rc_consensus_hash,
-            mem::replace(&mut network_result.uploaded_stackerdb_chunks, vec![]),
+            mem::take(&mut network_result.uploaded_stackerdb_chunks),
             event_observer.map(|obs| obs.as_stackerdb_event_dispatcher()),
         );
 
@@ -2919,7 +2919,7 @@ impl Relayer {
         self.process_stacker_db_chunks(
             &network_result.rc_consensus_hash,
             &network_result.stacker_db_configs,
-            mem::replace(&mut network_result.stacker_db_sync_results, vec![]),
+            mem::take(&mut network_result.stacker_db_sync_results),
             event_observer.map(|obs| obs.as_stackerdb_event_dispatcher()),
         )?;
 
@@ -2927,7 +2927,7 @@ impl Relayer {
         self.process_pushed_stacker_db_chunks(
             &network_result.rc_consensus_hash,
             &network_result.stacker_db_configs,
-            mem::replace(&mut network_result.pushed_stackerdb_chunks, vec![]),
+            mem::take(&mut network_result.pushed_stackerdb_chunks),
             event_observer.map(|obs| obs.as_stackerdb_event_dispatcher()),
         )?;
 
@@ -3231,10 +3231,11 @@ impl PeerNetwork {
 
     /// Announce blocks that we have to a subset of inbound and outbound peers.
     /// * Outbound peers receive announcements for blocks that we know they don't have, based on
-    /// the inv state we synchronized from them.  We send the blocks themselves, if we have them.
+    ///   the inv state we synchronized from them.  We send the blocks themselves, if we have them.
     /// * Inbound peers are chosen uniformly at random to receive a full announcement, since we
-    /// don't track their inventory state.  We send blocks-available messages to them, since they
-    /// can turn around and ask us for the block data.
+    ///   don't track their inventory state.  We send blocks-available messages to them, since they
+    ///   can turn around and ask us for the block data.
+    ///
     /// Return the number of inbound and outbound neighbors that have received it
     pub fn advertize_blocks(
         &mut self,
@@ -3283,9 +3284,10 @@ impl PeerNetwork {
 
     /// Announce confirmed microblocks that we have to a subset of inbound and outbound peers.
     /// * Outbound peers receive announcements for confirmed microblocks that we know they don't have, based on
-    /// the inv state we synchronized from them.
+    ///   the inv state we synchronized from them.
     /// * Inbound peers are chosen uniformly at random to receive a full announcement, since we
-    /// don't track their inventory state.
+    ///   don't track their inventory state.
+    ///
     /// Return the number of inbound and outbound neighbors that have received it
     pub fn advertize_microblocks(
         &mut self,

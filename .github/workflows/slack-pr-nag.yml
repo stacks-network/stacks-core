@@ -11,35 +11,24 @@ permissions:
   pull-requests: read
 
 jobs:
-  # Execute only on our official repo, because it manages Slack PR nags for us
-  check-ci-enabled:
+  # Check if CI is enabled
+  check-ci:
     name: "Check: CI Enabled"
-    runs-on: ubuntu-latest
-    outputs:
-      enabled: ${{ steps.check.outputs.enabled }}
-    steps:
-      - id: check
-        run: |
-          echo "=== CI Enablement Check ==="
-          echo "github.repository:   '${{ github.repository }}'"
-    
-          if [[ "${{ github.repository }}" == "stacks-network/stacks-core" ]]; then
-            echo "Result: CI is ENABLED"
-            echo "enabled=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "Result: CI is DISABLED"
-            echo "enabled=false" >> "$GITHUB_OUTPUT"
-          fi
+    uses: ./.github/workflows/__check-ci.yml
+    with:
+      allow-fork-runs: false
 
+  # Execute only on our official repo, because it manages Slack PR nags for us
   nag-slack:
     name: "Slack: Nag Team"
     needs:
-      - check-ci-enabled
-    if: needs.check-ci-enabled.outputs.enabled == 'true'
+      - check-ci
+    if: >-
+      needs.check-ci.outputs.enabled == 'true'
     runs-on: ubuntu-latest
     steps:
       - name: Fetch PRs and Post Nags to Slack
-        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        uses: $/.github/wrappers/github-script
         env:
           SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_CORE_PR_NAG_BOT }}
           
@@ -68,9 +57,8 @@ jobs:
               "federico-stacks":   { "name": "Federico",  "slack": "U08ASJ1LKEV", "triage": true  },
               "francesco-stacks":  { "name": "Francesco", "slack": "U07MCETKTKN", "triage": true  },
               "hstove-stacks":     { "name": "Hank",      "slack": "U068W8VBSQM", "triage": true  },
-              "radu-stacks":       { "name": "Radu",      "slack": "U0ANRRXD080", "triage": true  },
               "rob-stacks":        { "name": "Roberto",   "slack": "U07UNFAS4BD", "triage": true  },
-              "simone-stacks":     { "name": "Simone",    "slack": "U09NA1TP8PK", "triage": true  }
+              "simone-stacks":     { "name": "Simone",    "slack": "U09NA1TP8PK", "triage": false }
             }
           # ------------------------------
           
@@ -244,7 +232,6 @@ jobs:
               }
             
               // Package structural models back up for the line builder to scan
-              pr.unresolved_comment_threads = unresolvedComments;
               pr.requested_reviewers = allReviewersSuperset.map(login => ({
                 login,
                 state: reviewerStateMap[login.toLowerCase()] || 'AWAITING_REVIEW'
@@ -252,150 +239,133 @@ jobs:
               pr.merge_conflict_present = mergeableState === 'CONFLICTING';
               pr.out_of_date_with_base = mergeStateStatus === 'BEHIND';
             
-              // 4. Classify the PRs locally (Hierarchical Triage Engine)
-              let explanation = '';
-              let sortWeight = 7;
-              let statusIcon = '👀';
+              return { pr, unresolvedComments, approvedCount, allReviewersSuperset };
+            }));
 
-              const changesRequested = pr.requested_reviewers
-                .some(r => r.state === 'CHANGES_REQUESTED');
-              const resolveCount = unresolvedComments.length;
+            // 4. Action Extraction Engine (Group by User)
+            const userActionsMap = {}; // login -> { mention, actions: [] }
+            const actionablePrs = new Set();
 
-              // External PRs (author not in the registry) with no assignee need
-              // a team member to triage them. Pick one deterministically from the
-              // PR number so the same person is nagged on every run. Once someone
-              // is assigned, the PR flows through the normal classification below.
-              const isExternal = !allowedUsers.has(pr.user.login.toLowerCase());
+            const addAction = (login, actionText, prNumber) => {
+              const cleanLogin = login.toLowerCase();
+              if (!userActionsMap[cleanLogin]) {
+                userActionsMap[cleanLogin] = {
+                  mention: getSlackMention(cleanLogin),
+                  actions: []
+                };
+              }
+              userActionsMap[cleanLogin].actions.push(actionText);
+              if (prNumber) actionablePrs.add(prNumber);
+            };
+
+            for (const item of reviewsGroup) {
+              const pr = item.pr;
+              const link = `<${pr.html_url}|${sanitizeTitle(pr.title)}>`;
+              const changesRequested = pr.requested_reviewers.some(r => r.state === 'CHANGES_REQUESTED');
+              const resolveCount = item.unresolvedComments.length;
+              const authorLogin = pr.user.login.toLowerCase();
+              
+              const isExternal = !allowedUsers.has(authorLogin);
               const needsTriage = isExternal && (pr.assignees || []).length === 0;
 
               if (needsTriage) {
-                const triager = triagerPool.length > 0
-                  ? getSlackMention(triagerPool[pr.number % triagerPool.length])
-                  : 'Someone';
-                explanation = `External PR — ${triager} to triage (assign yourself/someone + request reviewers)`;
-                sortWeight = -1;
-                statusIcon = '🆕';
-              } else if (changesRequested) {
-                explanation = `Changes requested`;
-                sortWeight = 1;
-                statusIcon = '🛑';
-              } else if (resolveCount > 0) {
-                explanation = `${resolveCount} ${resolveCount === 1 ? 'comment' : 'comments'} to resolve`;
-                sortWeight = 2;
-                statusIcon = '💬';
-              } else if (pr.merge_conflict_present) {
-                explanation = `Needs merge conflicts fixed`;
-                sortWeight = 3;
-                statusIcon = '⚠️';
-              } else if (pr.out_of_date_with_base) {
-                explanation = `Needs rebase/merge`;
-                sortWeight = 4;
-                statusIcon = '⏩';
-              } else if (approvedCount >= 2) {
-                explanation = `Ready for merge`;
-                sortWeight = 0;
-                statusIcon = '✅';
-              } else if (allReviewersSuperset.length === 0) {
-                explanation = `Needs reviewers assigned`;
-                sortWeight = 6;
-                statusIcon = '👥';
-              } else {
-                explanation = `Needs reviews`;
-                sortWeight = 5;
-                statusIcon = '⏳';
-              }
-            
-              return { pr, explanation, sortWeight, statusIcon };
-            }));
-
-            // 5. Programmatic Priority Sort Engine
-            reviewsGroup.sort((a, b) => {
-              if (a.sortWeight !== b.sortWeight) {
-                return a.sortWeight - b.sortWeight;
+                const triagerLogin = triagerPool.length > 0 
+                  ? triagerPool[pr.number % triagerPool.length] 
+                  : null;
+                if (triagerLogin) {
+                  addAction(triagerLogin, `🆕 External PR to triage: ${link}`, pr.number);
+                }
               }
 
-              // Alphabetical tie-breaker by Author display name
-              const authorA = getSlackMention(a.pr.user.login).toLowerCase();
-              const authorB = getSlackMention(b.pr.user.login).toLowerCase();
-              if (authorA !== authorB) {
-                return authorA.localeCompare(authorB);
+              // Assign whomever owns the next step: the author on internal PRs, the assignee(s) on external ones.
+              // An unassigned external PR has no owner here - the triage branch above already nagged the rotation.
+              const owners = isExternal ? (pr.assignees || []).map(a => a.login.toLowerCase()) : [authorLogin];
+              // A review already sitting in someone's queue is not the owner's problem.
+              const someoneOwesReview = pr.requested_reviewers.some(r => r.state === 'AWAITING_REVIEW');
+              for (const ownerLogin of owners) {
+                if (changesRequested) {
+                  addAction(ownerLogin, `🛑 Changes requested: ${link}`, pr.number);
+                } else if (resolveCount > 0) {
+                  addAction(ownerLogin, `💬 ${resolveCount} ${resolveCount === 1 ? 'comment' : 'comments'} to resolve: ${link}`, pr.number);
+                } else if (pr.merge_conflict_present) {
+                  addAction(ownerLogin, `⚠️ Needs merge conflicts fixed: ${link}`, pr.number);
+                } else if (pr.out_of_date_with_base) {
+                  addAction(ownerLogin, `⏩ Needs rebase/merge: ${link}`, pr.number);
+                } else if (item.approvedCount >= 2) {
+                  addAction(ownerLogin, `✅ Ready for merge: ${link}`, pr.number);
+                } else if (item.allReviewersSuperset.length === 0) {
+                  addAction(ownerLogin, `👥 Needs reviewers assigned: ${link}`, pr.number);
+                } else if (!someoneOwesReview) {
+                  addAction(ownerLogin, `⏳ Need reviews: ${link}`, pr.number);
+                }
               }
-              return new Date(a.pr.created_at) - new Date(b.pr.created_at);
-            });
 
-            // 6. Construct Slack payload blocks
+              // Reviewer actions
+              pr.requested_reviewers.forEach(r => {
+                // Skip if they already approved OR if they are an external user
+                if (r.state === 'APPROVED' || !allowedUsers.has(r.login.toLowerCase())) return;
+                
+                if (r.state === 'AWAITING_REVIEW') {
+                  addAction(r.login, `⏳ Need to review: ${link}`, pr.number);
+                }
+              });
+            }
+
+            // Helper to extract the plain display name for consistent sorting
+            const getPlainName = (login) => {
+              const clean = login.toLowerCase();
+              if (registry[clean]?.name) return registry[clean].name;
+              const base = clean.replace('-stacks', '');
+              return base.charAt(0).toUpperCase() + base.slice(1);
+            };
+
+            // 5. Construct Slack payload blocks
             const payload = { blocks: [] };
             payload.blocks.push({
               type: 'section',
               text: {
                 type: 'mrkdwn',
-                text: `*📋 Open PR Status Report (${filteredSortedPrs.length} Total)*${manualRun ? ' | _(Manual Run)_' : ''}\n`
+                text: `*📋 Open PR Status Report (${actionablePrs.size} Actionable PRs)*${manualRun ? ' | _(Manual Run)_' : ''}\n`
               }
             });
-          
-            const buildPrLine = (item) => {
-              const pr = item.pr;
-              const author = getSlackMention(pr.user.login);
-              const title = sanitizeTitle(pr.title);
             
-              // Helper to extract the plain display name for consistent sorting
-              const getPlainName = (login) => {
-                const clean = login.toLowerCase();
-                if (registry[clean]?.name) return registry[clean].name;
-                const base = clean.replace('-stacks', '');
-                return base.charAt(0).toUpperCase() + base.slice(1);
-              };
-            
-              const reviewers = pr.requested_reviewers
-                .slice() // Clone to prevent mutation
-                .sort((a, b) => {
-                  // 1. Alphabetize by Plain Display Name
-                  return getPlainName(a.login).localeCompare(getPlainName(b.login));
-                })
-                .map(r => {
-                  // 2. Use Slack Ping/Mention for the final output
-                  const name = getSlackMention(r.login);
-                  
-                  switch (r.state) {
-                    case 'APPROVED':
-                      return `${name} ✅`;
-                    case 'CHANGES_REQUESTED':
-                      return `${name} 🛑`;
-                    case 'COMMENTED':
-                      return `${name} 💬`;
-                    case 'AWAITING_REVIEW':
-                    default:
-                      return `${name} ⏳`;
-                  }
-                }).join(', ') || 'Anyone';
-              
-              let line = `\`${item.statusIcon} ${author}\` <${pr.html_url}|${title}> (\`${reviewers}\`)`;
-              if (item.explanation) {
-                line += ` _${item.explanation}_`;
-              }
-              return line;
-            };
+            // Sort users alphabetically by display name
+            const sortedLogins = Object.keys(userActionsMap).sort((a, b) => {
+              return getPlainName(a).localeCompare(getPlainName(b));
+            });
 
-            // Build payload list chunks
-            let currentLines = [];
-            for (const item of reviewsGroup) {
-              currentLines.push(buildPrLine(item));
-              if (currentLines.length === 6) {
-                payload.blocks.push({
-                  type: 'section',
-                  text: { type: 'mrkdwn', text: currentLines.join('\n') }
-                });
-                currentLines = [];
+            for (const login of sortedLogins) {
+              const userData = userActionsMap[login];
+              if (userData.actions.length === 0) continue;
+              
+              let actionText = userData.mention;
+              for (const action of userData.actions) {
+                const candidate = `${actionText}\n${action}`;
+                if (candidate.length > 2900) {
+                  payload.blocks.push({
+                    type: 'section',
+                    text: { type: 'mrkdwn', text: actionText }
+                  });
+                  actionText = action;
+                } else {
+                  actionText = candidate;
+                }
               }
-            }
-            if (currentLines.length > 0) {
+              
               payload.blocks.push({
                 type: 'section',
-                text: { type: 'mrkdwn', text: currentLines.join('\n') }
+                text: { type: 'mrkdwn', text: actionText }
               });
             }
 
-            // 7. Send payload via Webhook
+            if (sortedLogins.length === 0) {
+              payload.blocks.push({
+                type: 'section',
+                text: { type: 'mrkdwn', text: "_All caught up! No actions required._" }
+              });
+            }
+
+            // 6. Send payload via Webhook
             const response = await fetch(webhookUrl, {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
@@ -405,5 +375,5 @@ jobs:
             if (!response.ok) {
               core.setFailed(`Slack API responded with status ${response.status}`);
             } else {
-              console.log(`Successfully posted real-time PR triage lines to Slack.`);
+              console.log(`Successfully posted PR Nags to Slack.`);
             }

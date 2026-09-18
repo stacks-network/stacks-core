@@ -23,6 +23,7 @@ use rstest_reuse::{self, *};
 use stacks_common::address::{
     AddressHashMode, C32_ADDRESS_VERSION_MAINNET_SINGLESIG, C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
 };
+use stacks_common::bounded_format;
 use stacks_common::consts::{CHAIN_ID_MAINNET, CHAIN_ID_TESTNET};
 use stacks_common::types::StacksEpochId;
 use stacks_common::types::chainstate::{StacksAddress, StacksPrivateKey, StacksPublicKey};
@@ -1253,33 +1254,48 @@ fn test_options_errors() {
 
     let expectations: &[ClarityEvalError] = &[
         RuntimeCheckErrorKind::IncorrectArgumentCount(1, 2).into(),
-        RuntimeCheckErrorKind::Unreachable(format!("Expected option value: {}", Value::Bool(true)))
-            .into(),
+        RuntimeCheckErrorKind::Unreachable(bounded_format!(
+            "Expected option value: {}",
+            Value::Bool(true)
+        ))
+        .into(),
         RuntimeCheckErrorKind::IncorrectArgumentCount(1, 2).into(),
-        RuntimeCheckErrorKind::Unreachable(format!(
+        RuntimeCheckErrorKind::Unreachable(bounded_format!(
             "Expected response value: {}",
             Value::Bool(true)
         ))
         .into(),
         RuntimeCheckErrorKind::IncorrectArgumentCount(1, 2).into(),
-        RuntimeCheckErrorKind::Unreachable(format!(
+        RuntimeCheckErrorKind::Unreachable(bounded_format!(
             "Expected response value: {}",
             Value::Bool(true)
         ))
         .into(),
         RuntimeCheckErrorKind::IncorrectArgumentCount(1, 2).into(),
-        RuntimeCheckErrorKind::Unreachable(format!("Expected option value: {}", Value::Bool(true)))
-            .into(),
+        RuntimeCheckErrorKind::Unreachable(bounded_format!(
+            "Expected option value: {}",
+            Value::Bool(true)
+        ))
+        .into(),
         RuntimeCheckErrorKind::IncorrectArgumentCount(1, 2).into(),
         RuntimeCheckErrorKind::IncorrectArgumentCount(1, 2).into(),
         RuntimeCheckErrorKind::IncorrectArgumentCount(1, 2).into(),
         RuntimeCheckErrorKind::IncorrectArgumentCount(2, 3).into(),
-        RuntimeCheckErrorKind::Unreachable(format!("Expected option value: {}", Value::Bool(true)))
-            .into(),
-        RuntimeCheckErrorKind::Unreachable(format!("Expected tuple: {}", TypeSignature::IntType))
-            .into(),
-        RuntimeCheckErrorKind::Unreachable(format!("Expected tuple: {}", TypeSignature::IntType))
-            .into(),
+        RuntimeCheckErrorKind::Unreachable(bounded_format!(
+            "Expected option value: {}",
+            Value::Bool(true)
+        ))
+        .into(),
+        RuntimeCheckErrorKind::Unreachable(bounded_format!(
+            "Expected tuple: {}",
+            TypeSignature::IntType
+        ))
+        .into(),
+        RuntimeCheckErrorKind::Unreachable(bounded_format!(
+            "Expected tuple: {}",
+            TypeSignature::IntType
+        ))
+        .into(),
     ];
 
     for (program, expectation) in tests.iter().zip(expectations.iter()) {
@@ -1304,15 +1320,15 @@ fn test_stx_ops_errors() {
 
     let expectations: &[ClarityEvalError] = &[
         RuntimeCheckErrorKind::IncorrectArgumentCount(3, 2).into(),
-        RuntimeCheckErrorKind::Unreachable("Bad transfer STX args".to_string()).into(),
-        RuntimeCheckErrorKind::Unreachable("Bad transfer STX args".to_string()).into(),
-        RuntimeCheckErrorKind::Unreachable("Bad transfer STX args".to_string()).into(),
+        RuntimeCheckErrorKind::Unreachable("Bad transfer STX args".into()).into(),
+        RuntimeCheckErrorKind::Unreachable("Bad transfer STX args".into()).into(),
+        RuntimeCheckErrorKind::Unreachable("Bad transfer STX args".into()).into(),
         RuntimeCheckErrorKind::IncorrectArgumentCount(4, 3).into(),
-        RuntimeCheckErrorKind::Unreachable("Bad transfer STX args".to_string()).into(),
-        RuntimeCheckErrorKind::Unreachable("Bad transfer STX args".to_string()).into(),
-        RuntimeCheckErrorKind::Unreachable("Bad transfer STX args".to_string()).into(),
+        RuntimeCheckErrorKind::Unreachable("Bad transfer STX args".into()).into(),
+        RuntimeCheckErrorKind::Unreachable("Bad transfer STX args".into()).into(),
+        RuntimeCheckErrorKind::Unreachable("Bad transfer STX args".into()).into(),
         RuntimeCheckErrorKind::IncorrectArgumentCount(2, 1).into(),
-        RuntimeCheckErrorKind::Unreachable("Bad transfer STX args".to_string()).into(),
+        RuntimeCheckErrorKind::Unreachable("Bad transfer STX args".into()).into(),
     ];
 
     for (program, expectation) in tests.iter().zip(expectations.iter()) {
@@ -1483,7 +1499,7 @@ fn test_option_destructs() {
     let expectations: &[Result<Value, ClarityEvalError>] = &[
         Ok(Value::Int(1)),
         Ok(Value::Int(1)),
-        Err(RuntimeCheckErrorKind::Unreachable(format!(
+        Err(RuntimeCheckErrorKind::Unreachable(bounded_format!(
             "Expected response value: {}",
             Value::some(Value::Int(2)).unwrap()
         ))
@@ -1503,12 +1519,12 @@ fn test_option_destructs() {
         Ok(Value::Int(9)),
         Ok(Value::Int(2)),
         Ok(Value::Int(8)),
-        Err(RuntimeCheckErrorKind::Unreachable(format!(
+        Err(RuntimeCheckErrorKind::Unreachable(bounded_format!(
             "Bad match input: {}",
             TypeSignature::IntType
         ))
         .into()),
-        Err(RuntimeCheckErrorKind::Unreachable(format!(
+        Err(RuntimeCheckErrorKind::Unreachable(bounded_format!(
             "Bad match input: {}",
             TypeSignature::IntType
         ))
@@ -1526,7 +1542,7 @@ fn test_option_destructs() {
         ),
         Ok(Value::Bool(true)),
         Err(RuntimeCheckErrorKind::IncorrectArgumentCount(1, 2).into()),
-        Err(RuntimeCheckErrorKind::Unreachable(format!(
+        Err(RuntimeCheckErrorKind::Unreachable(bounded_format!(
             "Expected optional or response value: {}",
             Value::Int(1)
         ))
@@ -1658,7 +1674,7 @@ fn test_bad_lets() {
         RuntimeCheckErrorKind::NameAlreadyUsed("tx-sender".to_string()).into(),
         RuntimeCheckErrorKind::NameAlreadyUsed("*".to_string()).into(),
         RuntimeCheckErrorKind::NameAlreadyUsed("a".to_string()).into(),
-        RuntimeCheckErrorKind::Unreachable("No such data variable: cursor".to_string()).into(),
+        RuntimeCheckErrorKind::Unreachable("No such data variable: cursor".into()).into(),
         RuntimeCheckErrorKind::NameAlreadyUsed("true".to_string()).into(),
         RuntimeCheckErrorKind::NameAlreadyUsed("false".to_string()).into(),
     ];

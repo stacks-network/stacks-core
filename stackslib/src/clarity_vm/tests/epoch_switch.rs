@@ -68,7 +68,7 @@ fn test_vm_epoch_switch() {
         3,
         &BurnchainHeaderHash([0u8; 32]),
         0,
-        &vec![
+        &[
             StacksEpoch {
                 epoch_id: StacksEpochId::Epoch10,
                 start_height: 0,

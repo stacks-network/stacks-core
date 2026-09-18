@@ -1,0 +1,1 @@
+`/v3/tenures/fork_info` no longer returns the Nakamoto blocks of each tenure: `nakamoto_blocks` is now always `null`. The field is deprecated and will be removed in a future release.

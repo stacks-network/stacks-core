@@ -9,10 +9,6 @@ on:
         description: "The test archive file"
         required: true
         type: string
-      debug-binary-path:
-        description: "Debug binary path"
-        required: true
-        type: string
       upload-junit-xml:
         description: "Whether or not to upload the nextest JUnit XML artifact"
         required: true
@@ -70,7 +66,7 @@ jobs:
       # Checkout the code
       #   - only .github is required for this job
       - name: Checkout the latest code
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: $/.github/wrappers/checkout
         with:
           ref: ${{ github.event.pull_request.head.sha || github.ref }}
           sparse-checkout: |
@@ -83,7 +79,6 @@ jobs:
         with:
           test-names: ${{ matrix.test-name }}
           archive-file: ${{ inputs.archive-file }}
-          debug-binary-path: ${{ inputs.debug-binary-path }}
           codecov-test-name: ${{ matrix.test-name }}
           upload-junit-xml: ${{ inputs.upload-junit-xml }}
           upload-code-coverage: ${{ inputs.upload-code-coverage }}
@@ -102,7 +97,7 @@ jobs:
       # Checkout the code
       #   - only .github is required for this job
       - name: Checkout the latest code
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: $/.github/wrappers/checkout
         with:
           ref: ${{ github.event.pull_request.head.sha || github.ref }}
           sparse-checkout: |

@@ -412,11 +412,11 @@ where
         if !done {
             done = !peers_behind_burnchain;
 
-            for i in 0..num_peers {
-                for b in 0..num_blocks {
-                    if !peer_invs[i].has_ith_block(
+            for (i, peer_inv) in peer_invs[..num_peers].iter().enumerate() {
+                for (b, block) in block_data[..num_blocks].iter().enumerate() {
+                    if !peer_inv.has_ith_block(
                         ((b as u64) + first_stacks_block_height - first_sortition_height) as u16,
-                    ) && block_data[b].1.is_some()
+                    ) && block.1.is_some()
                     {
                         test_debug!(
                             "Peer {} is missing block {} at sortition height {} (between {} and {})",
@@ -430,10 +430,10 @@ where
                         done = false;
                     }
                 }
-                for b in 1..(num_blocks - 1) {
-                    if !peer_invs[i].has_ith_microblock_stream(
+                for (b, block) in block_data[..num_blocks - 1].iter().enumerate().skip(1) {
+                    if !peer_inv.has_ith_microblock_stream(
                         ((b as u64) + first_stacks_block_height - first_sortition_height) as u16,
-                    ) && block_data[b].2.is_some()
+                    ) && block.2.is_some()
                     {
                         test_debug!(
                             "Peer {} is missing microblock stream {} (between {} and {})",

@@ -24,7 +24,7 @@ use clarity::vm::errors::ClarityEvalError;
 use clarity::vm::errors::VmExecutionError::{self, RuntimeCheck};
 use clarity::vm::representations::{CONTRACT_NAME_REGEX_STRING, STANDARD_PRINCIPAL_REGEX_STRING};
 use clarity::vm::resource_limiter::{ResourceBudget, ResourceLimiter};
-use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier};
+use clarity::vm::types::{BoundedErrorString, PrincipalData, QualifiedContractIdentifier};
 use clarity::vm::{ClarityName, ContractName, SymbolicExpression, Value};
 use regex::{Captures, Regex};
 use stacks_common::types::chainstate::StacksAddress;
@@ -53,7 +53,7 @@ pub struct CallReadOnlyResponse {
     pub result: Option<String>,
     #[serde(default)]
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub cause: Option<String>,
+    pub cause: Option<BoundedErrorString>,
 }
 
 #[derive(Clone)]
@@ -289,7 +289,7 @@ impl RPCRequestHandler for RPCCallReadOnlyRequestHandler {
                 ))) if actual_cost.write_count > 0 => CallReadOnlyResponse {
                     okay: false,
                     result: None,
-                    cause: Some("NotReadOnly".to_string()),
+                    cause: Some("NotReadOnly".into()),
                 },
                 ClarityEvalError::Vm(RuntimeCheck(
                     RuntimeCheckErrorKind::ExecutionResourceBudgetExceeded(_),
@@ -304,7 +304,7 @@ impl RPCRequestHandler for RPCCallReadOnlyRequestHandler {
                 _ => CallReadOnlyResponse {
                     okay: false,
                     result: None,
-                    cause: Some(e.to_string()),
+                    cause: Some(BoundedErrorString::from_display(&e)),
                 },
             },
             Ok(None) | Err(_) => {

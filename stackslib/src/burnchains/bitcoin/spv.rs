@@ -859,7 +859,7 @@ impl SpvClient {
                 .inspect_err(|e| error!("Failed to insert block headers: {e:?}"))?;
 
             // check work
-            let interval_start = if insert_height % BLOCK_DIFFICULTY_CHUNK_SIZE == 0 {
+            let interval_start = if insert_height.is_multiple_of(BLOCK_DIFFICULTY_CHUNK_SIZE) {
                 insert_height / BLOCK_DIFFICULTY_CHUNK_SIZE
             } else {
                 insert_height / BLOCK_DIFFICULTY_CHUNK_SIZE + 1
@@ -1090,8 +1090,9 @@ impl SpvClient {
     /// Determine the target difficult over a given difficulty adjustment interval
     /// the `interval` parameter is the difficulty interval -- a 2016-block interval.
     /// * On mainnet, `headers_in_range` can be empty. If it's not empty, then the 0th element is
-    /// treated as the parent of `current_header`.  On testnet, `headers_in_range` must be a range
-    /// of headers in the given `interval`.
+    ///   treated as the parent of `current_header`.  On testnet, `headers_in_range` must be a range
+    ///   of headers in the given `interval`.
+    ///
     /// Returns (new bits, new target)
     pub fn get_target(
         &self,
@@ -1138,7 +1139,7 @@ impl SpvClient {
             }
         };
 
-        if current_header_height % BLOCK_DIFFICULTY_CHUNK_SIZE != 0
+        if !current_header_height.is_multiple_of(BLOCK_DIFFICULTY_CHUNK_SIZE)
             && self.network_id == BitcoinNetworkType::Testnet
         {
             // In Testnet mode, if the new block's timestamp is more than 2 * 60 * 10 minutes
@@ -1292,7 +1293,7 @@ impl BitcoinMessageHandler for SpvClient {
                 self.send_next_getheaders(indexer, block_height)
                     .map(|_| true)
             }
-            x => Err(btc_error::UnhandledMessage(x)),
+            x => Err(btc_error::UnhandledMessage(x.into())),
         }
     }
 }

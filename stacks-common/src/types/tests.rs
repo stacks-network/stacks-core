@@ -26,25 +26,6 @@ use super::{
 use crate::types::StacksEpochRangeTestExt as _;
 
 #[test]
-fn test_epoch40_cost_voting_contract_support_gate() {
-    // Up to (excluding) Epoch 4.0 = enabled.
-    for epoch in (..StacksEpochId::Epoch40).iter() {
-        assert!(
-            epoch.supports_cost_voting_contract(),
-            "cost-voting gate must remain active before Epoch 4.0 for {epoch}"
-        );
-    }
-
-    // Epoch 4.0 and onward = disabled.
-    for epoch in (StacksEpochId::Epoch40..).iter() {
-        assert!(
-            !epoch.supports_cost_voting_contract(),
-            "cost-voting gate must be inactive from Epoch 4.0 onward for {epoch}"
-        );
-    }
-}
-
-#[test]
 fn test_epoch_range_ext_iter() {
     // Alias to keep the below cleaner
     fn epoch_index(epoch: StacksEpochId) -> usize {

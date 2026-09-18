@@ -1,1 +1,0 @@
-Do not revert to the prior sortition's miner on inactivity timeout unless the canonical Stacks tip is in that miner's tenure. A miner only extends a tenure it won, so after a Bitcoin reorg orphaned the prior tenure, signers could demote a slow-but-live sortition winner to a miner that had already stopped mining, rejecting all of the winner's proposals until the next burn block.

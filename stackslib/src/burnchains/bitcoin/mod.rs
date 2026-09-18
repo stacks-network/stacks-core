@@ -51,13 +51,13 @@ pub enum Error {
     /// Serialization error
     SerializationError(btc_serialize_error),
     /// Invalid Message to peer
-    InvalidMessage(PeerMessage),
+    InvalidMessage(Box<PeerMessage>),
     /// Invalid Reply from peer
     InvalidReply,
     /// Invalid magic
     InvalidMagic,
     /// Unhandled message
-    UnhandledMessage(PeerMessage),
+    UnhandledMessage(Box<PeerMessage>),
     /// Connection is broken and ought to be re-established
     ConnectionBroken,
     /// Connection could not be (re-)established

@@ -62,9 +62,9 @@
 //! keeps track of:
 //!
 //! * The ongoing and prior reward cycle's sortitions' tenure IDs and winning block hashes
-//! (implemented as lists of `WantedTenure`s)
+//!   (implemented as lists of `WantedTenure`s)
 //! * Which sortitions correspond to tenure start and end blocks (implemented as a table of
-//! `TenureStartEnd`s)
+//!   `TenureStartEnd`s)
 //! * Which neighbors can serve which full tenures
 //! * What order to request tenures in
 //!

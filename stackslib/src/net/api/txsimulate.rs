@@ -31,7 +31,7 @@ use crate::chainstate::burn::db::sortdb::SortitionDB;
 use crate::chainstate::nakamoto::miner::{MinerTenureInfoCause, NakamotoBlockBuilder};
 use crate::chainstate::nakamoto::NakamotoChainState;
 use crate::chainstate::stacks::db::StacksChainState;
-use crate::chainstate::stacks::events::StacksTransactionReceipt;
+use crate::chainstate::stacks::events::{BoundedErrorString, StacksTransactionReceipt};
 use crate::chainstate::stacks::miner::{
     BlockBuilder, BlockLimitFunction, TransactionResourceBudgets, TransactionResult,
 };
@@ -279,7 +279,7 @@ pub struct RPCSimulatedTransaction {
     /// whether the tx was aborted by a post-condition
     pub post_condition_aborted: bool,
     /// optional vm error
-    pub vm_error: Option<String>,
+    pub vm_error: Option<BoundedErrorString>,
 }
 
 impl RPCSimulatedTransaction {

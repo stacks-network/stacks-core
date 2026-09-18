@@ -557,8 +557,8 @@ impl RewardSet {
     ///
     /// * V0: one bit per reward-slot recipient.
     /// * Waterfall: always 1 => there is a single sBTC output. This treatment vec
-    ///    is no longer used in consensus, but the miner includes it for deserialization
-    ///    compatibility
+    ///   is no longer used in consensus, but the miner includes it for deserialization
+    ///   compatibility
     pub fn pox_treatment_bitvec_len(&self) -> u16 {
         match self {
             RewardSet::V0(v0) => v0.rewarded_addresses.len().try_into().unwrap_or(u16::MAX),
@@ -2982,72 +2982,6 @@ pub mod test {
         .unwrap();
 
         make_tx(key, nonce, 0, payload)
-    }
-
-    // make a stream of invalid pox-lockup transactions
-    fn make_invalid_pox_lockups(key: &StacksPrivateKey, mut nonce: u64) -> Vec<StacksTransaction> {
-        let mut ret = vec![];
-
-        let amount = 1;
-        let lock_period = 1;
-        let addr_bytes = Hash160([0u8; 20]);
-
-        let bad_pox_addr_version = Value::Tuple(
-            TupleData::from_data(vec![
-                (
-                    ClarityName::try_from("version".to_owned()).unwrap(),
-                    Value::UInt(100),
-                ),
-                (
-                    ClarityName::try_from("hashbytes".to_owned()).unwrap(),
-                    Value::Sequence(SequenceData::Buffer(BuffData {
-                        data: addr_bytes.as_bytes().to_vec(),
-                    })),
-                ),
-            ])
-            .unwrap(),
-        );
-
-        let generator = |amount, pox_addr, lock_period, nonce| {
-            make_pox_contract_call(
-                key,
-                nonce,
-                "stack-stx",
-                vec![Value::UInt(amount), pox_addr, Value::UInt(lock_period)],
-            )
-        };
-
-        let bad_pox_addr_tx = generator(amount, bad_pox_addr_version, lock_period, nonce);
-        ret.push(bad_pox_addr_tx);
-        nonce += 1;
-
-        let bad_lock_period_short = generator(
-            amount,
-            make_pox_addr(AddressHashMode::SerializeP2PKH, &addr_bytes),
-            0,
-            nonce,
-        );
-        ret.push(bad_lock_period_short);
-        nonce += 1;
-
-        let bad_lock_period_long = generator(
-            amount,
-            make_pox_addr(AddressHashMode::SerializeP2PKH, &addr_bytes),
-            13,
-            nonce,
-        );
-        ret.push(bad_lock_period_long);
-        nonce += 1;
-
-        let bad_amount = generator(
-            0,
-            make_pox_addr(AddressHashMode::SerializeP2PKH, &addr_bytes),
-            1,
-            nonce,
-        );
-        ret.push(bad_amount);
-
-        ret
     }
 
     fn make_bare_contract(
@@ -5697,7 +5631,7 @@ pub mod test {
                             1,
                         );
                         block_txs.push(alice_stack);
-                    } else if tenure_id >= 2 && tenure_id <= 8 {
+                    } else if (2..=8).contains(&tenure_id) {
                         // try to spend tokens -- they should all fail with short-return
                         let alice_spend = make_bare_contract(
                             &alice,
@@ -5911,7 +5845,7 @@ pub mod test {
 
                 assert!(reward_cycle > cur_reward_cycle);
                 test_before_first_reward_cycle = true;
-            } else if tenure_id >= 2 && tenure_id <= 8 {
+            } else if (2..=8).contains(&tenure_id) {
                 // alice did _NOT_ spend
                 assert!(get_contract(
                     &mut peer,
