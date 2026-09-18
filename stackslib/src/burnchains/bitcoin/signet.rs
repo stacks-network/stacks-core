@@ -111,7 +111,7 @@ pub fn default_epochs() -> EpochList {
 
 #[cfg(test)]
 mod tests {
-    use std::{env, fs};
+    use std::env;
 
     use stacks_common::deps_common::bitcoin::blockdata::block::BlockHeader;
     use stacks_common::deps_common::bitcoin::network::message::NetworkMessage;
@@ -206,9 +206,9 @@ mod tests {
         Config::from_config_file(ConfigFile::from_str(&contents).unwrap(), false).unwrap()
     }
 
-    /// Defaults, epoch configuration, and every chain database must agree on network identity.
+    /// Public defaults and custom overrides select the expected network and epoch configuration.
     #[test]
-    fn signet_config_defaults_and_isolation() {
+    fn signet_config_defaults_and_overrides() {
         let public = config("");
         assert_eq!(
             public.burnchain.get_bitcoin_network().1,
@@ -250,8 +250,8 @@ mod tests {
         Config::assert_valid_epoch_settings(&burnchain, &public.burnchain.get_epoch_list());
         let explicit_public = config(&format!("signet_challenge = '{DEFAULT_CHALLENGE}'"));
         assert_eq!(
-            public.get_chainstate_path(),
-            explicit_public.get_chainstate_path()
+            explicit_public.burnchain.signet_challenge,
+            Some(default_challenge())
         );
         let custom = config(
             "signet_challenge = '51'\npeer_port = 39333\nrpc_port = 39332\nmagic_bytes = 'Q2'\nchain_id = 0x80000100",
@@ -264,62 +264,6 @@ mod tests {
             config("signet_challenge = '51'").burnchain.chain_id,
             CHAIN_ID_SIGNET
         );
-        for (public_path, custom_path) in [
-            (
-                public.get_chainstate_path_str(),
-                custom.get_chainstate_path_str(),
-            ),
-            (public.get_burn_db_path(), custom.get_burn_db_path()),
-            (
-                public.get_spv_headers_file_path(),
-                custom.get_spv_headers_file_path(),
-            ),
-            (
-                public.get_peer_db_file_path(),
-                custom.get_peer_db_file_path(),
-            ),
-            (
-                public.get_atlas_db_file_path(),
-                custom.get_atlas_db_file_path(),
-            ),
-            (
-                public.get_stacker_db_file_path(),
-                custom.get_stacker_db_file_path(),
-            ),
-        ] {
-            assert_ne!(public_path, custom_path);
-        }
-    }
-
-    /// Queued observer events survive switching away and back without crossing challenges.
-    #[test]
-    fn signet_event_queue_directory_isolation() {
-        let dir = tempdir().unwrap();
-        let mut public = config("");
-        public.node.working_dir = dir.path().to_str().unwrap().to_owned();
-        let mut custom = public.clone();
-        custom.burnchain.signet_challenge = Some(vec![0x51]);
-        let public_path = public
-            .get_event_observer_dir()
-            .join("event_observers.sqlite");
-        fs::write(&public_path, b"public pending events").unwrap();
-        let custom_path = custom
-            .get_event_observer_dir()
-            .join("event_observers.sqlite");
-        assert_ne!(public_path, custom_path);
-        assert!(!custom_path.exists());
-        fs::write(&custom_path, b"private pending events").unwrap();
-        assert_eq!(fs::read(&public_path).unwrap(), b"public pending events");
-        public.burnchain.signet_challenge = Some(default_challenge());
-        assert_eq!(
-            public
-                .get_event_observer_dir()
-                .join("event_observers.sqlite"),
-            public_path
-        );
-        public.burnchain.mode = "neon".into();
-        public.burnchain.signet_challenge = None;
-        assert_eq!(public.get_event_observer_dir(), dir.path());
     }
 
     /// Keep the shipped follower template parseable with the runtime configuration schema.

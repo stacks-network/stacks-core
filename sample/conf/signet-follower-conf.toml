@@ -3,6 +3,7 @@
 # See docs/bitcoin-signet.md before launching on an existing Bitcoin signet.
 
 [node]
+# Use a new working directory for a different deployment or signet challenge.
 working_dir = "/tmp/stacks-signet-follower"
 rpc_bind = "127.0.0.1:20443"
 p2p_bind = "127.0.0.1:20444"

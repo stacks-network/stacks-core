@@ -3,7 +3,6 @@
 Stacks nodes support Bitcoin Core's public signet and custom signets through
 `burnchain.mode = "signet"`. Omit `signet_challenge` for public signet; set it to
 the exact hex script used by Core's `signetchallenge` for a custom signet.
-Switching between them uses the same implementation.
 
 This selects the Bitcoin backing network. It does not create a Stacks network,
 join the existing Stacks testnet, or supply miners, signers, initial balances,
@@ -90,12 +89,13 @@ four-byte P2P magic is derived from the signet challenge. Signet addresses use
 testnet's legacy prefixes and `tb` SegWit/Taproot encoding. An address alone cannot
 distinguish signet from testnet.
 
-Persistent chain data and pending observer events are stored below
-`<working_dir>/signet/<full-challenge-hash>/`. Switching challenges selects a
-separate directory; explicitly specifying the public challenge selects the same
-directory as omitting it. Independent Stacks deployments on the same Bitcoin
-signet still need separate working directories and agreed Stacks chain IDs,
-operation prefixes, genesis state, and peer configuration.
+Use a dedicated `node.working_dir` for each Stacks deployment. Changing the
+signet challenge requires a new working directory; reusing existing data across
+signets is unsupported. Chain data lives under `<working_dir>/signet/`, and the
+pending observer queue remains at `<working_dir>/event_observers.sqlite`.
+Independent Stacks deployments on the same Bitcoin signet also need separate
+working directories and agreed Stacks chain IDs, operation prefixes, genesis
+state, and peer configuration.
 
 ## Launch epochs and PoX
 

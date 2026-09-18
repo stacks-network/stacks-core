@@ -1158,44 +1158,16 @@ impl Config {
         path
     }
 
-    /// Return and create the event queue directory, scoped to the signet challenge.
-    pub fn get_event_observer_dir(&self) -> PathBuf {
-        if self.burnchain.mode != "signet" {
-            return self.get_working_dir();
-        }
-        let path = self.get_network_path();
-        fs::create_dir_all(&path).unwrap_or_else(|e| {
-            panic!(
-                "Failed to create event observer directory {}: {e}",
-                path.display()
-            )
-        });
-        path
-    }
-
-    /// Separate all persistent chain data by the complete signet challenge hash.
-    fn get_network_path(&self) -> PathBuf {
+    fn get_burnchain_path(&self) -> PathBuf {
         let mut path = PathBuf::from(&self.node.working_dir);
         path.push(&self.burnchain.mode);
-        if self.burnchain.mode == "signet" {
-            let challenge = self
-                .burnchain
-                .signet_challenge
-                .clone()
-                .unwrap_or_else(signet::default_challenge);
-            path.push(signet::challenge_hash(&challenge).to_string());
-        }
-        path
-    }
-
-    fn get_burnchain_path(&self) -> PathBuf {
-        let mut path = self.get_network_path();
         path.push("burnchain");
         path
     }
 
     pub fn get_chainstate_path(&self) -> PathBuf {
-        let mut path = self.get_network_path();
+        let mut path = PathBuf::from(&self.node.working_dir);
+        path.push(&self.burnchain.mode);
         path.push("chainstate");
         path
     }
@@ -1566,7 +1538,7 @@ pub struct BurnchainConfig {
     /// @default: `None` (Bitcoin Core's public signet challenge)
     /// @notes:
     ///   - Set `signet_challenge` to the same hex script as Bitcoin Core's `signetchallenge`.
-    ///   - Valid only in `signet` mode; changing the challenge selects separate chain data.
+    ///   - Valid only in `signet` mode; changing the challenge requires a new working directory.
     pub signet_challenge: Option<Vec<u8>>,
     /// The public key associated with the local mining address for the underlying
     /// Bitcoin regtest node. Provided as a hex string representing an uncompressed

@@ -939,7 +939,7 @@ capitulate_miner_view_timeout_secs = 1000
         let key = StacksPrivateKey::from_seed(b"signet-signer-config");
         for chain_id in [None, Some(0x80000100)] {
             let configs = build_signer_config_tomls(
-                &[key.clone()],
+                std::slice::from_ref(&key),
                 "127.0.0.1:20443",
                 None,
                 &Network::Signet,
