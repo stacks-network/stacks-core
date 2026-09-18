@@ -894,7 +894,11 @@ fn clar2wasm_ty(ty: &TypeSignature) -> Vec<ValType> {
             ValType::I32, // length
         ],
         TypeSignature::BoolType => vec![ValType::I32],
-        TypeSignature::PrincipalType | TypeSignature::CallableType(_) => vec![
+        // `TraitReferenceType` is the Clarity 1 representation of a trait
+        // value; like every callable it is a principal at runtime.
+        TypeSignature::PrincipalType
+        | TypeSignature::CallableType(_)
+        | TypeSignature::TraitReferenceType(_) => vec![
             ValType::I32, // offset
             ValType::I32, // length
         ],
