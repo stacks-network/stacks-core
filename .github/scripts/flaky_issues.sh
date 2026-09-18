@@ -414,7 +414,18 @@ close_quiet_issues() {
     # query per run or a marker persisted between runs, and a premature close is
     # self-correcting. The next observed failure reopens the issue with its
     # evidence attached, which is what the closing comment promises.
+    #
+    # Narrow server-side where we can, so the 200 applies to runs that could
+    # qualify rather than to every run of this workflow. Without it, a burst of
+    # manual dispatches pushes the scheduled runs out of the window and
+    # quiet_count collapses toward zero, so nothing ever closes. Skipped when
+    # manual runs count, because then both events qualify and --event takes a
+    # single value; the jq below states the whole rule either way.
+    local -a run_filter=()
+    [[ "${CFG_COUNT_MANUAL_RUNS}" == "true" ]] || run_filter=(--event schedule)
+
     quiet_runs=$(gh run list --repo "${CFG_REPO}" --workflow "${CFG_WORKFLOW_NAME}" \
+        "${run_filter[@]}" \
         --limit 200 --json event,createdAt,conclusion \
         | jq -c --arg manual "${CFG_COUNT_MANUAL_RUNS}" '
             [ .[]
