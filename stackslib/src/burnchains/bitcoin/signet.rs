@@ -266,19 +266,42 @@ mod tests {
         );
     }
 
-    /// Keep the shipped follower template parseable with the runtime configuration schema.
+    /// Validate the shipped templates after supplying the miner's required seed.
     #[test]
     fn signet_sample_config() {
-        let file = ConfigFile::from_str(include_str!(
-            "../../../../sample/conf/signet-follower-conf.toml"
-        ))
-        .unwrap();
-        let parsed = Config::from_config_file(file, false).unwrap();
-        assert_eq!(
-            parsed.burnchain.get_bitcoin_network().1,
-            BitcoinNetworkType::Signet
-        );
-        assert_eq!(parsed.burnchain.peer_port, P2P_PORT);
+        for (contents, is_miner) in [
+            (
+                include_str!("../../../../sample/conf/signet-follower-conf.toml"),
+                false,
+            ),
+            (
+                include_str!("../../../../sample/conf/signet-miner-conf.toml"),
+                true,
+            ),
+        ] {
+            let mut file = ConfigFile::from_str(contents).unwrap();
+            if is_miner {
+                let node = file.node.as_mut().unwrap();
+                assert_eq!(node.seed.as_deref(), Some("<YOUR_SEED>"));
+                node.seed = Some("11".repeat(32));
+            }
+            let parsed = Config::from_config_file(file, false).unwrap();
+            assert_eq!(
+                parsed.burnchain.get_bitcoin_network().1,
+                BitcoinNetworkType::Signet
+            );
+            assert_eq!(parsed.burnchain.peer_port, P2P_PORT);
+            assert_eq!(parsed.burnchain.chain_id, CHAIN_ID_SIGNET);
+            assert_eq!(parsed.node.miner, is_miner);
+            if is_miner {
+                assert!(parsed.miner.segwit);
+                assert!(parsed.miner.mining_key.is_some());
+                assert_eq!(
+                    parsed.burnchain.wallet_name.as_deref(),
+                    Some("stacks-signet-miner")
+                );
+            }
+        }
     }
 
     /// A public-signet deployment can anchor its chain and epoch schedule after genesis.

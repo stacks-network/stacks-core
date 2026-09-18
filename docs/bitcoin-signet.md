@@ -44,8 +44,18 @@ signet ports are 38333 (P2P) and 38332 (RPC).
 
 ## Stacks configuration
 
-Start from [the follower template](../sample/conf/signet-follower-conf.toml),
-then add your Stacks network's peers and agreed launch configuration.
+Start from the [follower template](../sample/conf/signet-follower-conf.toml) or
+[miner template](../sample/conf/signet-miner-conf.toml), then add your Stacks
+network's peers and agreed launch configuration. For mining, replace the seed,
+RPC credentials, and signer authentication token; configure the wallet and
+funding described below. Use persistent paths for `node.working_dir` and
+`miner.activated_vrf_key_path` when retaining the deployment.
+
+Run the completed miner configuration with:
+
+```bash
+stacks-node start --config /path/to/signet-miner-conf.toml
+```
 
 ```toml
 [node]
