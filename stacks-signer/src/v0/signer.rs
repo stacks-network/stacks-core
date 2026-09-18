@@ -48,7 +48,7 @@ use stacks_common::{debug, error, info, warn};
 use super::signer_state::LocalStateMachine;
 use crate::chainstate::v1::{SortitionMinerStatus, SortitionsView};
 use crate::chainstate::v2::GlobalStateView;
-use crate::chainstate::{ProposalEvalConfig, SortitionData, SortitionStateVersion};
+use crate::chainstate::{ProposalEvalConfig, SelfAsTip, SortitionData, SortitionStateVersion};
 use crate::client::{ClientError, SignerSlotID, StackerDB, StacksClient};
 use crate::config::{SignerConfig, SignerConfigMode};
 use crate::runloop::SignerResult;
@@ -56,6 +56,8 @@ use crate::signerdb::{BlockInfo, BlockState, PendingBlockResponses, SignedConfli
 use crate::v0::signer_state::NewBurnBlock;
 #[cfg(not(any(test, feature = "testing")))]
 use crate::v0::signer_state::SUPPORTED_SIGNER_PROTOCOL_VERSION;
+#[cfg(test)]
+use crate::v0::tests::BlockMessageRecorder;
 use crate::Signer as SignerTrait;
 
 /// How far below the burnchain tip the signer keeps a record that it sanctioned the reorg of
@@ -137,6 +139,9 @@ pub struct Signer {
     /// The signer supported protocol version. used only in testing
     #[cfg(any(test, feature = "testing"))]
     pub supported_signer_protocol_version: u64,
+    /// Optional capture for one block during a unit-test assertion window.
+    #[cfg(test)]
+    pub test_block_messages: Option<BlockMessageRecorder>,
 }
 
 impl std::fmt::Display for SignerMode {
@@ -312,6 +317,8 @@ impl SignerTrait<SignerMessage> for Signer {
             last_capitulate_miner_view: SystemTime::now(),
             #[cfg(any(test, feature = "testing"))]
             supported_signer_protocol_version: signer_config.supported_signer_protocol_version,
+            #[cfg(test)]
+            test_block_messages: None,
         }
     }
 
@@ -451,6 +458,19 @@ impl Signer {
         // against our stacks-node/local state.
         let valid = block_info.valid?;
         let response = if valid {
+            if block_info.signed_self.is_none() {
+                // A first signature must only come out of `handle_block_pre_commit`, where the
+                // threshold and conflict checks run. `should_reevaluate_block` routes every
+                // validated-but-unsigned block there, so reaching this means a caller skipped it.
+                error!(
+                    "{self}: Refusing to recreate an acceptance for a block we never signed";
+                    "signer_signature_hash" => %block_info.signer_signature_hash(),
+                    "block_id" => %block_info.block.block_id(),
+                    "state" => %block_info.state,
+                    "signed_group" => block_info.signed_group,
+                );
+                return None;
+            }
             debug!("{self}: Accepting block {}", block_info.block.block_id());
             self.create_block_acceptance(&block_info.block).into()
         } else {
@@ -1009,6 +1029,10 @@ impl Signer {
 
     #[cfg(any(test, feature = "testing"))]
     fn send_block_response(&mut self, block: &NakamotoBlock, block_response: BlockResponse) {
+        #[cfg(test)]
+        if let Some(recorder) = self.test_block_messages.as_mut() {
+            recorder.record_response(&block_response);
+        }
         if self.test_skip_block_response_broadcast(&block_response) {
             return;
         }
@@ -1038,6 +1062,10 @@ impl Signer {
 
     /// Send a pre block commit message to signers to indicate that we will be signing the proposed block
     fn send_block_pre_commit(&mut self, signer_signature_hash: Sha512Trunc256Sum) {
+        #[cfg(test)]
+        if let Some(recorder) = self.test_block_messages.as_mut() {
+            recorder.record_pre_commit(&signer_signature_hash);
+        }
         info!(
             "{self}: Broadcasting block pre-commit to stacks node for {signer_signature_hash}";
         );
@@ -1330,6 +1358,9 @@ impl Signer {
                 "reject_code" => %block_rejection.reason_code,
                 "reject_reason" => %block_rejection.reason,
             );
+            // Record the reason like the other rejection paths do: a `ConnectivityIssues`
+            // from a failed lookup must stay reconsiderable on re-proposal.
+            block_info.reject_reason = Some(block_rejection.response_data.reject_reason.clone());
             if let Err(e) = block_info.mark_locally_rejected() {
                 if !block_info.has_reached_consensus() {
                     warn!("{self}: Failed to mark block as locally rejected: {e:?}");
@@ -1481,59 +1512,25 @@ impl Signer {
             return false;
         }
         if !should_reevaluate_reject_reason(block_info) {
-            if block_info.state == BlockState::PreCommitted {
-                // We validated this block but haven't signed it. Signing requires the
-                // pre-commit threshold and the conflict checks in `handle_block_pre_commit`.
-                // Re-broadcast our pre-commit and re-run that evaluation instead of
-                // responding with a signature directly, so a re-proposed block can't
-                // bypass those checks.
-                info!(
-                    "{self}: received a block proposal for a block we have pre-committed to but not signed. Re-evaluating the pre-commit.";
-                    "signer_signature_hash" => %signer_signature_hash,
-                    "block_id" => %block_info.block.block_id(),
-                    "block_height" => block_info.block.header.chain_length,
-                    "burn_height" => block_proposal.burn_height,
-                    "consensus_hash" => %block_info.block.header.consensus_hash
-                );
-                self.send_block_pre_commit(signer_signature_hash.clone());
-                let address = self.stacks_address.clone();
-                self.handle_block_pre_commit(
+            // Recreating an acceptance from the cached verdict is only safe for a block we
+            // already signed; keyed on the signature fields, not the state, because a block can
+            // leave `PreCommitted` for `GloballyRejected` on peers' rejections while keeping
+            // `valid = true`.
+            if block_info.valid == Some(true) && block_info.signed_self.is_none() {
+                self.reevaluate_validated_unsigned_block(
                     stacks_client,
                     sortition_state,
-                    &address,
-                    &signer_signature_hash,
+                    block_info,
+                    block_proposal,
                 );
                 return false;
             }
             if let Some(block_response) = self.determine_response(block_info) {
                 self.send_block_response(&block_info.block, block_response);
                 return false;
-            } else {
-                let is_pending = self
-                    .signer_db
-                    .has_pending_block_validation(&signer_signature_hash)
-                    .unwrap_or_else(|e| {
-                        warn!("{self}: Failed to load pending block validations: {e:?}");
-                        false
-                    });
-                if is_pending {
-                    debug!(
-                        "{self}: received a block proposal for a block for which we is already pending validation. Do nothing.";
-                        "signer_signature_hash" => %block_info.block.header.signer_signature_hash(),
-                        "block_id" => %block_info.block.block_id()
-                    );
-                    return false;
-                } else {
-                    info!(
-                        "{self}: received a block proposal for this block before, but we do not have a pending validation for it.";
-                        "reject_reason" => ?block_info.reject_reason,
-                        "signer_signature_hash" => %signer_signature_hash,
-                        "block_id" => %block_info.block.block_id(),
-                        "block_height" => block_info.block.header.chain_length,
-                        "burn_height" => block_proposal.burn_height,
-                        "consensus_hash" => %block_info.block.header.consensus_hash
-                    );
-                }
+            }
+            if self.is_awaiting_validation(block_info, block_proposal) {
+                return false;
             }
         } else {
             info!(
@@ -1547,6 +1544,87 @@ impl Signer {
             );
         }
         true
+    }
+
+    /// Answer a re-proposal of a block we validated but never signed. A first signature has to
+    /// go through the pre-commit threshold and the conflict checks in `handle_block_pre_commit`,
+    /// whatever state the block is in; a block that is already globally accepted needs nothing
+    /// from us.
+    fn reevaluate_validated_unsigned_block(
+        &mut self,
+        stacks_client: &StacksClient,
+        sortition_state: &mut Option<SortitionsView>,
+        block_info: &BlockInfo,
+        block_proposal: &BlockProposal,
+    ) {
+        let signer_signature_hash = block_info.block.header.signer_signature_hash();
+        if block_info.state == BlockState::GloballyAccepted {
+            // Canonical and already threshold-signed: nothing left to add.
+            info!(
+                "{self}: received a block proposal for a globally accepted block we validated but never signed. Nothing to add. Ignoring.";
+                "signer_signature_hash" => %signer_signature_hash,
+                "block_id" => %block_info.block.block_id(),
+                "block_height" => block_info.block.header.chain_length,
+                "burn_height" => block_proposal.burn_height,
+                "consensus_hash" => %block_info.block.header.consensus_hash
+            );
+            return;
+        }
+        // This also covers a block the group already signed without us: our late
+        // acceptance is the visible response a late signer owes, and it still has to
+        // earn its way through the checks below.
+        info!(
+            "{self}: received a block proposal for a block we validated but have not signed. Re-evaluating the pre-commit.";
+            "signer_signature_hash" => %signer_signature_hash,
+            "block_id" => %block_info.block.block_id(),
+            "block_height" => block_info.block.header.chain_length,
+            "burn_height" => block_proposal.burn_height,
+            "consensus_hash" => %block_info.block.header.consensus_hash,
+            "state" => %block_info.state
+        );
+        self.send_block_pre_commit(signer_signature_hash.clone());
+        let address = self.stacks_address.clone();
+        self.handle_block_pre_commit(
+            stacks_client,
+            sortition_state,
+            &address,
+            &signer_signature_hash,
+        );
+    }
+
+    /// Whether a re-proposed block we have no verdict for yet is still waiting on our node's
+    /// validation. If it is not, the caller evaluates the proposal afresh.
+    fn is_awaiting_validation(
+        &self,
+        block_info: &BlockInfo,
+        block_proposal: &BlockProposal,
+    ) -> bool {
+        let signer_signature_hash = block_info.block.header.signer_signature_hash();
+        let is_pending = self
+            .signer_db
+            .has_pending_block_validation(&signer_signature_hash)
+            .unwrap_or_else(|e| {
+                warn!("{self}: Failed to load pending block validations: {e:?}");
+                false
+            });
+        if is_pending {
+            debug!(
+                "{self}: received a block proposal for a block for which we is already pending validation. Do nothing.";
+                "signer_signature_hash" => %signer_signature_hash,
+                "block_id" => %block_info.block.block_id()
+            );
+        } else {
+            info!(
+                "{self}: received a block proposal for this block before, but we do not have a pending validation for it.";
+                "reject_reason" => ?block_info.reject_reason,
+                "signer_signature_hash" => %signer_signature_hash,
+                "block_id" => %block_info.block.block_id(),
+                "block_height" => block_info.block.header.chain_length,
+                "burn_height" => block_proposal.burn_height,
+                "consensus_hash" => %block_info.block.header.consensus_hash
+            );
+        }
+        is_pending
     }
 
     /// Handle block proposal messages submitted to signers stackerdb
@@ -1815,7 +1893,8 @@ impl Signer {
             }
         }
 
-        // Ensure that the block is the last block in the chain of its current tenure.
+        // Ensure that the block is the last block in the chain of its current tenure. The block
+        // itself may already be that tip if the group signed it before our validation returned.
         match SortitionData::check_latest_block_in_tenure(
             &proposed_block.header.consensus_hash,
             proposed_block,
@@ -1823,6 +1902,7 @@ impl Signer {
             stacks_client,
             self.proposal_config.tenure_last_block_proposal_timeout,
             self.proposal_config.reorg_attempts_activity_timeout,
+            SelfAsTip::Ignored,
         ) {
             Ok(is_latest) => {
                 if !is_latest {
@@ -1908,6 +1988,9 @@ impl Signer {
             self.check_block_against_signer_db_state(stacks_client, &block_info.block)
         {
             // The signer db state has changed. We no longer view this block as valid. Override the validation response.
+            // Record the reason like the other rejection paths do: a `ConnectivityIssues`
+            // from a failed lookup must stay reconsiderable on re-proposal.
+            block_info.reject_reason = Some(block_rejection.response_data.reject_reason.clone());
             if let Err(e) = block_info.mark_locally_rejected() {
                 if !block_info.has_reached_consensus() {
                     warn!("{self}: Failed to mark block as locally rejected: {e:?}");

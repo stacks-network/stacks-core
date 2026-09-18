@@ -256,12 +256,12 @@ impl std::fmt::Display for MinerReason {
     }
 }
 
-impl Into<MiningReason> for MinerReason {
-    fn into(self) -> MiningReason {
-        match self {
-            Self::BlockFound { .. } => MiningReason::BlockFound,
-            Self::Extended { .. } => MiningReason::Extended,
-            Self::ReadCountExtend { .. } => MiningReason::ReadCountExtend,
+impl From<MinerReason> for MiningReason {
+    fn from(reason: MinerReason) -> Self {
+        match reason {
+            MinerReason::BlockFound { .. } => MiningReason::BlockFound,
+            MinerReason::Extended { .. } => MiningReason::Extended,
+            MinerReason::ReadCountExtend { .. } => MiningReason::ReadCountExtend,
         }
     }
 }
@@ -777,7 +777,7 @@ impl BlockMinerThread {
                 if self.is_aborted() {
                     info!("Miner interrupted while mining in order to shut down");
                     self.globals
-                        .raise_initiative(format!("MiningFailure: aborted by node"));
+                        .raise_initiative("MiningFailure: aborted by node".to_string());
                     return Err(ChainstateError::MinerAborted.into());
                 }
 
@@ -800,7 +800,7 @@ impl BlockMinerThread {
                     if self.is_aborted() {
                         info!("Miner interrupted while mining in order to shut down");
                         self.globals
-                            .raise_initiative(format!("MiningFailure: aborted by node"));
+                            .raise_initiative("MiningFailure: aborted by node".to_string());
                         return Err(ChainstateError::MinerAborted.into());
                     }
 
@@ -1056,7 +1056,7 @@ impl BlockMinerThread {
             if self.is_aborted() {
                 info!("Miner interrupted while mining in order to shut down");
                 self.globals
-                    .raise_initiative(format!("MiningFailure: aborted by node"));
+                    .raise_initiative("MiningFailure: aborted by node".to_string());
                 return Err(ChainstateError::MinerAborted.into());
             }
 
@@ -2357,9 +2357,8 @@ fn should_read_count_extend_units() {
         runtime: 1000,
     };
 
-    assert_eq!(
-        miner.should_read_count_extend(&()).unwrap(),
-        false,
+    assert!(
+        !miner.should_read_count_extend(&()).unwrap(),
         "When read_count is below the configured threshold, we shouldn't try to extend"
     );
 
@@ -2379,9 +2378,8 @@ fn should_read_count_extend_units() {
         runtime: 1000,
     };
 
-    assert_eq!(
+    assert!(
         miner.should_read_count_extend(&()).unwrap(),
-        true,
         "When read_count is at the configured threshhold, we should try to extend"
     );
 }

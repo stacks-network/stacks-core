@@ -1540,7 +1540,7 @@ impl TrieNodePatch {
         let ptr_diff = Self::make_ptr_diff(&old_node_ptr, old_node.ptrs(), new_node.ptrs());
         Self {
             ptr: old_node_ptr,
-            ptr_diff: ptr_diff,
+            ptr_diff,
         }
     }
 
@@ -1553,7 +1553,7 @@ impl TrieNodePatch {
         let ptr_diff = Self::make_ptr_diff(&old_node_ptr, old_node.ptrs(), new_node.ptrs());
         Self {
             ptr: old_node_ptr,
-            ptr_diff: ptr_diff,
+            ptr_diff,
         }
     }
 
@@ -1566,7 +1566,7 @@ impl TrieNodePatch {
         let ptr_diff = Self::make_ptr_diff(&old_node_ptr, old_node.ptrs(), new_node.ptrs());
         Self {
             ptr: old_node_ptr,
-            ptr_diff: ptr_diff,
+            ptr_diff,
         }
     }
 
@@ -1579,7 +1579,7 @@ impl TrieNodePatch {
         let ptr_diff = Self::make_ptr_diff(&old_node_ptr, old_node.ptrs(), new_node.ptrs());
         Self {
             ptr: old_node_ptr,
-            ptr_diff: ptr_diff,
+            ptr_diff,
         }
     }
 
@@ -1614,7 +1614,7 @@ impl TrieNodePatch {
             trace!("Cannot produce TrieNodePatch: old node and new node are type leaf!");
             return None;
         };
-        if patch.ptr_diff.len() == 0 {
+        if patch.ptr_diff.is_empty() {
             trace!("Cannot produce TrieNodePatch: patch has no diffs!");
             return None;
         }
@@ -1637,7 +1637,7 @@ impl TrieNodePatch {
             ptr: old_patch_ptr,
             ptr_diff,
         };
-        if patch.ptr_diff.len() == 0 {
+        if patch.ptr_diff.is_empty() {
             trace!("Cannot produce TrieNodePatch: patch has no diffs!");
             return None;
         }

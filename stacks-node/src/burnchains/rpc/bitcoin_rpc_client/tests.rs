@@ -749,7 +749,7 @@ fn test_send_raw_transaction_ok_with_custom_params() {
 
 #[test]
 fn test_get_descriptor_info_ok() {
-    let descriptor = format!("addr(bc1_address)");
+    let descriptor = "addr(bc1_address)".to_string();
     let expected_checksum = "mychecksum";
     let expected_descriptor = format!("{descriptor}#{expected_checksum}");
 

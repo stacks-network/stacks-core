@@ -53,10 +53,6 @@ use crate::net::tests::NakamotoBootPlan;
 use crate::util_lib::boot::boot_code_id;
 use crate::util_lib::signed_structured_data::pox4::Pox4SignatureTopic;
 
-const USTX_PER_HOLDER: u128 = 1_000_000;
-
-const ERR_REUSED_SIGNER_KEY: i128 = 33;
-
 /// Return the BlockSnapshot for the latest sortition in the provided
 ///  SortitionDB option-reference. Panics on any errors.
 pub fn get_tip(sortdb: Option<&SortitionDB>) -> BlockSnapshot {
@@ -5291,7 +5287,7 @@ fn stack_stx_signer_key(use_nakamoto: bool) {
     let stacker_txs =
         get_last_block_sender_transactions(&observer, key_to_stacks_addr(stacker_key));
 
-    let stacking_tx = stacker_txs.get(0).unwrap();
+    let stacking_tx = stacker_txs.first().unwrap();
     let events: Vec<&STXLockEventData> = stacking_tx
         .events
         .iter()
@@ -5301,7 +5297,7 @@ fn stack_stx_signer_key(use_nakamoto: bool) {
         })
         .collect();
 
-    assert_eq!(events.get(0).unwrap().locked_amount, min_ustx);
+    assert_eq!(events.first().unwrap().locked_amount, min_ustx);
 
     let next_reward_cycle = 1 + burnchain
         .block_height_to_reward_cycle(block_height)
@@ -6808,9 +6804,9 @@ pub fn pox_4_scenario_test_setup<'a>(
         peer,
         peer_nonce,
         burn_block_height,
-        reward_cycle as u128,
-        next_reward_cycle as u128,
-        min_ustx as u128,
+        reward_cycle,
+        next_reward_cycle,
+        min_ustx,
         peer_config.clone(),
         None,
     )
@@ -6851,7 +6847,7 @@ pub fn pox_4_scenario_test_setup_nakamoto<'a>(
     let test_signers = TestSigners::new(test_keys.clone());
     let addrs: Vec<StacksAddress> = test_keys.iter().map(key_to_stacks_addr).collect();
     let initial_stacker_balance = initial_balances
-        .get(0)
+        .first()
         .expect("Expected at least 1 initial balance")
         .1;
     let test_stackers = vec![TestStacker {
@@ -9567,7 +9563,7 @@ fn missed_slots_no_unlock() {
     let alice_lockup =
         make_simple_pox_4_lock(&alice, &mut peer, 1024 * POX_THRESHOLD_STEPS_USTX, 6);
 
-    let bob_lockup = make_simple_pox_4_lock(&bob, &mut peer, 1 * POX_THRESHOLD_STEPS_USTX, 6);
+    let bob_lockup = make_simple_pox_4_lock(&bob, &mut peer, POX_THRESHOLD_STEPS_USTX, 6);
 
     let txs = [alice_lockup, bob_lockup];
     let mut latest_block = peer.tenure_with_txs(&txs, &mut coinbase_nonce);
@@ -9815,7 +9811,7 @@ fn no_lockups_2_5() {
 
     let tip = get_tip(peer.chain.sortdb.as_ref());
 
-    let bob_lockup = make_simple_pox_4_lock(&bob, &mut peer, 1 * POX_THRESHOLD_STEPS_USTX, 6);
+    let bob_lockup = make_simple_pox_4_lock(&bob, &mut peer, POX_THRESHOLD_STEPS_USTX, 6);
 
     let txs = [bob_lockup];
     let mut latest_block = peer.tenure_with_txs(&txs, &mut coinbase_nonce);
