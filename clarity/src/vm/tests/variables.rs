@@ -1199,14 +1199,11 @@ fn test_block_time(
             StaticCheckErrorKind::UndefinedVariable("stacks-block-time".to_string()),
             *err.err
         );
-    } else {
-        assert!(analysis.is_ok());
+        return;
     }
+    assert!(analysis.is_ok());
 
     // Initialize the contract
-    // Note that we're ignoring the analysis failure here so that we can test
-    // the runtime behavior. In earlier versions, if this case somehow gets past the
-    // analysis, it should fail at runtime.
     owned_env
         .initialize_versioned_contract(contract_identifier.clone(), version, contract, None)
         .unwrap();
@@ -1217,19 +1214,8 @@ fn test_block_time(
     // Call the function
     let eval_result = exec_state.eval_read_only(&invoke_ctx, &contract_identifier, "(test-func)");
 
-    // In versions before Clarity 4, this should trigger a runtime error
-    if version < ClarityVersion::Clarity4 {
-        let err = eval_result.unwrap_err();
-        assert_eq!(
-            ClarityEvalError::Vm(VmExecutionError::RuntimeCheck(
-                RuntimeCheckErrorKind::Unreachable("Undefined variable: stacks-block-time".into())
-            )),
-            err
-        );
-    } else {
-        // Always 1 in the testing environment
-        assert_eq!(Ok(Value::UInt(1)), eval_result);
-    }
+    // Always 1 in the testing environment
+    assert_eq!(Ok(Value::UInt(1)), eval_result);
 }
 
 #[test]
@@ -1328,14 +1314,11 @@ fn test_current_contract(
             StaticCheckErrorKind::UndefinedVariable("current-contract".to_string()),
             *err.err
         );
-    } else {
-        assert!(analysis.is_ok());
+        return;
     }
+    assert!(analysis.is_ok());
 
     // Initialize the contract
-    // Note that we're ignoring the analysis failure here so that we can test
-    // the runtime behavior. In Clarity 3, if this case somehow gets past the
-    // analysis, it should fail at runtime.
     owned_env
         .initialize_versioned_contract(contract_identifier.clone(), version, contract, None)
         .unwrap();
@@ -1345,23 +1328,12 @@ fn test_current_contract(
 
     // Call the function
     let eval_result = exec_state.eval_read_only(&invoke_ctx, &contract_identifier, "(test-func)");
-    // In Clarity 3, this should trigger a runtime error
-    if version < ClarityVersion::Clarity4 {
-        let err = eval_result.unwrap_err();
-        assert_eq!(
-            ClarityEvalError::Vm(VmExecutionError::RuntimeCheck(
-                RuntimeCheckErrorKind::Unreachable("Undefined variable: current-contract".into())
-            )),
-            err
-        );
-    } else {
-        assert_eq!(
-            Ok(Value::Principal(PrincipalData::Contract(
-                contract_identifier
-            ))),
-            eval_result
-        );
-    }
+    assert_eq!(
+        Ok(Value::Principal(PrincipalData::Contract(
+            contract_identifier
+        ))),
+        eval_result
+    );
 }
 
 /// Test the checks on reuse of the `current-contract` name

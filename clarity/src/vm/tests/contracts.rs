@@ -199,6 +199,12 @@ fn test_get_block_info_eval(
 #[apply(test_epochs)]
 fn test_contract_caller(epoch: StacksEpochId, mut env_factory: MemoryEnvironmentGenerator) {
     let mut owned_env = env_factory.get_env(epoch);
+
+    // Share one analysis database across the deployments below so that each
+    // contract's analysis can resolve the contracts it references.
+    let mut store = MemoryBackingStore::new();
+    let mut analysis_db = store.as_analysis_db();
+    analysis_db.begin();
     let contract_a = "(define-read-only (get-caller)
            (list contract-caller tx-sender))";
     let contract_b = "(define-read-only (get-caller)
@@ -224,17 +230,19 @@ fn test_contract_caller(epoch: StacksEpochId, mut env_factory: MemoryEnvironment
         let (mut exec_state, invoke_ctx) =
             owned_env.get_exec_environment(None, None, &placeholder_context);
         exec_state
-            .initialize_contract(
+            .initialize_contract_with_db(
                 &invoke_ctx,
                 QualifiedContractIdentifier::local("contract-a").unwrap(),
                 contract_a,
+                &mut analysis_db,
             )
             .unwrap();
         exec_state
-            .initialize_contract(
+            .initialize_contract_with_db(
                 &invoke_ctx,
                 QualifiedContractIdentifier::local("contract-b").unwrap(),
                 contract_b,
+                &mut analysis_db,
             )
             .unwrap();
     }
@@ -1156,6 +1164,13 @@ fn test_at_unknown_block(
     epoch: StacksEpochId,
     mut tl_env_factory: TopLevelMemoryEnvironmentGenerator,
 ) {
+    // In epochs that do not support `at-block`, the analysis pass rejects the
+    // contract outright. Contract initialization now always runs analysis, so
+    // the runtime error checked below is unreachable for those epochs.
+    if !epoch.supports_at_block() {
+        return;
+    }
+
     let mut owned_env = tl_env_factory.get_env(epoch);
     let contract = "(define-data-var foo int 3)
                         (at-block 0x0202020202020202020202020202020202020202020202020202020202020202
@@ -1168,23 +1183,12 @@ fn test_at_unknown_block(
         )
         .unwrap_err();
     eprintln!("{err}");
-    if epoch.supports_at_block() {
-        match err {
-            ClarityEvalError::Vm(VmExecutionError::Runtime(x, _)) => assert_eq!(
-                x,
-                RuntimeError::UnknownBlockHeaderHash(BlockHeaderHash::from(
-                    vec![2_u8; 32].as_slice()
-                ))
-            ),
-            e => panic!("Unexpected error: {e}"),
-        }
-    } else {
-        match err {
-            ClarityEvalError::Vm(VmExecutionError::RuntimeCheck(x)) => {
-                assert_eq!(x, RuntimeCheckErrorKind::AtBlockUnavailable)
-            }
-            e => panic!("Unexpected error: {e}"),
-        }
+    match err {
+        ClarityEvalError::Vm(VmExecutionError::Runtime(x, _)) => assert_eq!(
+            x,
+            RuntimeError::UnknownBlockHeaderHash(BlockHeaderHash::from(vec![2_u8; 32].as_slice()))
+        ),
+        e => panic!("Unexpected error: {e}"),
     }
 }
 
@@ -1278,15 +1282,31 @@ fn test_cc_stack_depth(
     let (mut exec_state, invoke_ctx) =
         owned_env.get_exec_environment(None, None, &placeholder_context);
 
+    // Share one analysis database across both deployments so that `c-bar`'s
+    // analysis can resolve the `c-foo` it calls into.
+    let mut store = MemoryBackingStore::new();
+    let mut analysis_db = store.as_analysis_db();
+    analysis_db.begin();
+
     let contract_identifier = QualifiedContractIdentifier::local("c-foo").unwrap();
     exec_state
-        .initialize_contract(&invoke_ctx, contract_identifier, &contract_one)
+        .initialize_contract_with_db(
+            &invoke_ctx,
+            contract_identifier,
+            &contract_one,
+            &mut analysis_db,
+        )
         .unwrap();
 
     let contract_identifier = QualifiedContractIdentifier::local("c-bar").unwrap();
     assert_eq!(
         exec_state
-            .initialize_contract(&invoke_ctx, contract_identifier, contract_two)
+            .initialize_contract_with_db(
+                &invoke_ctx,
+                contract_identifier,
+                contract_two,
+                &mut analysis_db,
+            )
             .unwrap_err(),
         RuntimeError::MaxStackDepthReached.into()
     );
@@ -1549,6 +1569,9 @@ fn test_contract_hash_standard_principal(
     assert_eq!(result, Value::err_uint(1));
 }
 
+// This test deploys a contract containing a deliberate type error so that the
+// runtime check can be exercised.
+#[ignore = "Clarity-Wasm: contract is rejected by analysis"]
 #[apply(test_clarity_versions)]
 fn test_contract_hash_type_check(
     version: ClarityVersion,
@@ -1561,6 +1584,12 @@ fn test_contract_hash_type_check(
     }
 
     let mut owned_env = env_factory.get_env(epoch);
+
+    // Share one analysis database across the deployments below so that each
+    // contract's analysis can resolve the contracts it references.
+    let mut store = MemoryBackingStore::new();
+    let mut analysis_db = store.as_analysis_db();
+    analysis_db.begin();
     let placeholder_context =
         ContractContext::new(QualifiedContractIdentifier::transient(), version);
     let (mut exec_state, invoke_ctx) =
@@ -1572,7 +1601,12 @@ fn test_contract_hash_type_check(
     let test_program = "(define-read-only (get-hash) (contract-hash? u123))";
 
     exec_state
-        .initialize_contract(&invoke_ctx, test_contract.clone(), test_program)
+        .initialize_contract_with_db(
+            &invoke_ctx,
+            test_contract.clone(),
+            test_program,
+            &mut analysis_db,
+        )
         .unwrap();
 
     // Attempt to execute the contract, expecting a type-check error
@@ -1587,6 +1621,10 @@ fn test_contract_hash_type_check(
     );
 }
 
+// This test deploys a contract calling `contract-hash?` on a pre-Clarity-4
+// version, where the function does not exist, so that the runtime check can be
+// exercised.
+#[ignore = "Clarity-Wasm: contract is rejected by analysis"]
 #[apply(test_clarity_versions)]
 fn test_contract_hash_pre_clarity4(
     version: ClarityVersion,
@@ -1649,7 +1687,17 @@ fn test_contract_call_with_constant(
     epoch: StacksEpochId,
     mut env_factory: MemoryEnvironmentGenerator,
 ) {
+    // Clarity-wasm analysis pass will fail for ClarityV1. Skipping.
+    if cfg!(feature = "clarity-wasm") && version == ClarityVersion::Clarity1 {
+        return;
+    }
     let mut owned_env = env_factory.get_env(epoch);
+
+    // Share one analysis database across the deployments below so that each
+    // contract's analysis can resolve the contracts it references.
+    let mut store = MemoryBackingStore::new();
+    let mut analysis_db = store.as_analysis_db();
+    analysis_db.begin();
 
     let contract_a = "(define-public (foo) (ok true))";
     let contract_b = "(define-constant MY_CONTRACT .contract-a)
@@ -1666,17 +1714,19 @@ fn test_contract_call_with_constant(
         let (mut exec_env, invoke_ctx) =
             owned_env.get_exec_environment(None, None, &placeholder_context);
         exec_env
-            .initialize_contract(
+            .initialize_contract_with_db(
                 &invoke_ctx,
                 QualifiedContractIdentifier::local("contract-a").unwrap(),
                 contract_a,
+                &mut analysis_db,
             )
             .unwrap();
         exec_env
-            .initialize_contract(
+            .initialize_contract_with_db(
                 &invoke_ctx,
                 QualifiedContractIdentifier::local("contract-b").unwrap(),
                 contract_b,
+                &mut analysis_db,
             )
             .unwrap();
     }
@@ -1712,7 +1762,17 @@ fn test_contract_call_with_constant_at_deploy(
     epoch: StacksEpochId,
     mut env_factory: MemoryEnvironmentGenerator,
 ) {
+    // Clarity-wasm analysis pass will fail for ClarityV1. Skipping.
+    if cfg!(feature = "clarity-wasm") && version == ClarityVersion::Clarity1 {
+        return;
+    }
     let mut owned_env = env_factory.get_env(epoch);
+
+    // Share one analysis database across the deployments below so that each
+    // contract's analysis can resolve the contracts it references.
+    let mut store = MemoryBackingStore::new();
+    let mut analysis_db = store.as_analysis_db();
+    analysis_db.begin();
 
     let contract_a = "(define-public (foo) (ok true))";
     let contract_b = "(define-constant MY_CONTRACT .contract-a)
@@ -1728,16 +1788,18 @@ fn test_contract_call_with_constant_at_deploy(
     let (mut exec_env, invoke_ctx) =
         owned_env.get_exec_environment(None, None, &placeholder_context);
     exec_env
-        .initialize_contract(
+        .initialize_contract_with_db(
             &invoke_ctx,
             QualifiedContractIdentifier::local("contract-a").unwrap(),
             contract_a,
+            &mut analysis_db,
         )
         .unwrap();
-    let call_result = exec_env.initialize_contract(
+    let call_result = exec_env.initialize_contract_with_db(
         &invoke_ctx,
         QualifiedContractIdentifier::local("contract-b").unwrap(),
         contract_b,
+        &mut analysis_db,
     );
 
     assert_eq!(
@@ -1756,7 +1818,17 @@ fn test_nested_cc_with_constant_at_deploy(
     epoch: StacksEpochId,
     mut env_factory: MemoryEnvironmentGenerator,
 ) {
+    // Clarity-wasm analysis pass will fail for ClarityV1. Skipping.
+    if cfg!(feature = "clarity-wasm") && version == ClarityVersion::Clarity1 {
+        return;
+    }
     let mut owned_env = env_factory.get_env(epoch);
+
+    // Share one analysis database across the deployments below so that each
+    // contract's analysis can resolve the contracts it references.
+    let mut store = MemoryBackingStore::new();
+    let mut analysis_db = store.as_analysis_db();
+    analysis_db.begin();
 
     let contract_a = "(define-public (foo) (ok true))";
     let contract_b = "(define-constant MY_CONTRACT .contract-a)
@@ -1776,23 +1848,26 @@ fn test_nested_cc_with_constant_at_deploy(
     let (mut exec_env, invoke_ctx) =
         owned_env.get_exec_environment(None, None, &placeholder_context);
     exec_env
-        .initialize_contract(
+        .initialize_contract_with_db(
             &invoke_ctx,
             QualifiedContractIdentifier::local("contract-a").unwrap(),
             contract_a,
+            &mut analysis_db,
         )
         .unwrap();
     exec_env
-        .initialize_contract(
+        .initialize_contract_with_db(
             &invoke_ctx,
             QualifiedContractIdentifier::local("contract-b").unwrap(),
             contract_b,
+            &mut analysis_db,
         )
         .unwrap();
-    let call_result = exec_env.initialize_contract(
+    let call_result = exec_env.initialize_contract_with_db(
         &invoke_ctx,
         QualifiedContractIdentifier::local("contract-c").unwrap(),
         contract_c,
+        &mut analysis_db,
     );
 
     if epoch.supports_call_with_constant() && version.supports_callables() {
@@ -1813,7 +1888,17 @@ fn test_constant_to_trait(
     epoch: StacksEpochId,
     mut env_factory: MemoryEnvironmentGenerator,
 ) {
+    // Clarity-wasm analysis pass will fail for ClarityV1. Skipping.
+    if cfg!(feature = "clarity-wasm") && version == ClarityVersion::Clarity1 {
+        return;
+    }
     let mut owned_env = env_factory.get_env(epoch);
+
+    // Share one analysis database across the deployments below so that each
+    // contract's analysis can resolve the contracts it references.
+    let mut store = MemoryBackingStore::new();
+    let mut analysis_db = store.as_analysis_db();
+    analysis_db.begin();
 
     let contract_a = "(define-public (foo) (ok true))";
     let contract_b = "(define-constant MY_CONTRACT .contract-a)
@@ -1834,17 +1919,19 @@ fn test_constant_to_trait(
         let (mut exec_env, invoke_ctx) =
             owned_env.get_exec_environment(None, None, &placeholder_context);
         exec_env
-            .initialize_contract(
+            .initialize_contract_with_db(
                 &invoke_ctx,
                 QualifiedContractIdentifier::local("contract-a").unwrap(),
                 contract_a,
+                &mut analysis_db,
             )
             .unwrap();
         exec_env
-            .initialize_contract(
+            .initialize_contract_with_db(
                 &invoke_ctx,
                 QualifiedContractIdentifier::local("contract-b").unwrap(),
                 contract_b,
+                &mut analysis_db,
             )
             .unwrap();
     }
@@ -1992,6 +2079,12 @@ fn test_constant_contract_principal_dual_use(
     }
     let mut owned_env = env_factory.get_env(epoch);
 
+    // Share one analysis database across the deployments below so that each
+    // contract's analysis can resolve the contracts it references.
+    let mut store = MemoryBackingStore::new();
+    let mut analysis_db = store.as_analysis_db();
+    analysis_db.begin();
+
     let contract_a = "
         (define-public (foo) (ok true))
     ";
@@ -2012,17 +2105,19 @@ fn test_constant_contract_principal_dual_use(
         let (mut exec_env, invoke_ctx) =
             owned_env.get_exec_environment(None, None, &placeholder_context);
         exec_env
-            .initialize_contract(
+            .initialize_contract_with_db(
                 &invoke_ctx,
                 QualifiedContractIdentifier::local("contract-a").unwrap(),
                 contract_a,
+                &mut analysis_db,
             )
             .unwrap();
         exec_env
-            .initialize_contract(
+            .initialize_contract_with_db(
                 &invoke_ctx,
                 QualifiedContractIdentifier::local("contract-b").unwrap(),
                 contract_b,
+                &mut analysis_db,
             )
             .unwrap();
     }

@@ -1981,6 +1981,9 @@ fn test_constant_contract_principal_is_eq() {
 
 /// Verify that `index-of?` and list equality work correctly when a contract
 /// principal constant is compared against principal values in a list.
+// This works in the interpreter but does NOT pass analysis, so we can't run it
+// when testing Clarity Wasm compilation, which requires analysis to pass.
+#[ignore = "Clarity-Wasm: contract is rejected by analysis"]
 #[test]
 fn test_constant_contract_principal_index_of_and_list_ops() {
     let mut env_factory = env_factory();

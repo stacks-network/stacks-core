@@ -96,8 +96,40 @@
             inherit version;
             pname = name;
             src = fileSetForCrate ../..;
+            # None of the packages below run tests, so there is no point
+            # compiling test targets (and their dev-dependencies) here.
+            doCheck = false;
+            # `clar2wasm` is a git dependency, but .cargo/config.toml patches its
+            # own `clarity`/`clarity-types`/`stacks-common` dependencies over to
+            # this workspace. It therefore cannot be built against the stub
+            # sources crane generates for workspace members, so put the real
+            # sources for those three crates back before building the deps.
+            extraDummyScript = ''
+              for crate in clarity clarity-types stacks-common; do
+                rm -rf "$out/$crate"
+                cp --recursive --no-preserve=ownership ${patchedGitDepCrates}/$crate "$out/$crate"
+              done
+              chmod +w -R $out
+            '';
           }
         );
+
+        # Kept deliberately narrow: whatever is listed here invalidates the
+        # cached dependency build whenever it changes.
+        patchedGitDepCrates = lib.fileset.toSource {
+          root = ../..;
+          fileset = lib.fileset.unions (
+            map craneLib.fileset.commonCargoSources [
+              ../../clarity
+              ../../clarity-types
+              ../../stacks-common
+            ]
+            ++ [
+              # clarity-types includes this file in its crate-level documentation.
+              ../../clarity-types/README.md
+            ]
+          );
+        };
 
         individualCrateArgs = commonArgs // {
           inherit cargoArtifacts;
