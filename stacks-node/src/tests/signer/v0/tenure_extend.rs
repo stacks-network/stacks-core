@@ -5183,6 +5183,12 @@ fn tenure_extend_across_reward_cycle_boundary() {
 /// machine falls back to the last sortition winner once miner 2 is marked invalid -- so miner
 /// 1 does attempt the extend. Refusing it is the retirement check's job, not the miner view's.
 ///
+/// The runloop normally tears cycle N's signers down as soon as the cycle N+1 sortition is
+/// resolved, in which case the extend simply gets no response (cycle N+1's signers ignore
+/// proposals for another reward cycle). To exercise the retirement check itself, this test
+/// disables that cleanup around the boundary so cycle N's signers are still present to
+/// reject the proposal explicitly.
+///
 /// Test Setup:
 /// Two miners and five signers boot to Nakamoto. Miner 2's commits are paused so that miner 1
 /// wins every sortition up to the boundary.
@@ -5242,6 +5248,11 @@ fn no_tenure_extend_across_cycle_boundary_when_new_cycle_has_a_sortition() {
         last_cycle_n_height - 1
     );
     while get_chain_info(&conf_1).burn_block_height < last_cycle_n_height - 1 {
+        // Wait for miner 1's commit to target the tenure just mined before mining the next
+        // burn block. Otherwise a stale commit can win the sortition, in which case the
+        // node extends the prior tenure instead of starting a new one and the signers
+        // reject the extend, stalling the loop.
+        miners.ensure_commit_miner_1(&sortdb);
         miners
             .mine_bitcoin_block_and_tenure_change_tx(&sortdb, TenureChangeCause::BlockFound, 60)
             .expect("Failed to mine a tenure while advancing to the cycle boundary");
@@ -5272,6 +5283,9 @@ fn no_tenure_extend_across_cycle_boundary_when_new_cycle_has_a_sortition() {
     );
 
     info!("------------------------- Miner 2 Wins the Mod-0 Sortition of Cycle {next_reward_cycle} But Does Not Mine -------------------------");
+    // Keep cycle N's signers alive past the sortition that retires them, so that miner 1's
+    // extend is rejected explicitly rather than left unanswered (see the test doc comment).
+    TEST_SKIP_SIGNER_CLEANUP.set(true);
     miners.ensure_commit_miner_2(&sortdb);
     // Stall miner 2's proposal broadcast so it misses `block_proposal_timeout` and the
     // signers mark it invalid, which is what makes miner 1 attempt the extend.
@@ -5317,6 +5331,7 @@ fn no_tenure_extend_across_cycle_boundary_when_new_cycle_has_a_sortition() {
         Some(RejectReason::RewardCycleRetired),
     )
     .expect("Timed out waiting for miner 1's extend to be rejected as RewardCycleRetired");
+    TEST_SKIP_SIGNER_CLEANUP.set(false);
 
     assert_eq!(
         miners.get_peer_stacks_tip_height(),
