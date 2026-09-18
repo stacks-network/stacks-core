@@ -23,7 +23,6 @@ use stacks_common::util::get_epoch_time_ms;
 use crate::chainstate::nakamoto::NakamotoBlock;
 use crate::chainstate::stacks::boot::RewardSet;
 use crate::chainstate::stacks::db::StacksChainState;
-use crate::chainstate::stacks::TransactionPayload;
 use crate::net::httpcore::{StacksHttpRequest, StacksHttpResponse};
 use crate::net::neighbors::rpc::NeighborRPC;
 use crate::net::p2p::{DropReason, DropSource, PeerNetwork};
@@ -84,13 +83,9 @@ impl fmt::Display for NakamotoTenureDownloadState {
 pub struct NakamotoTenureDownloader {
     /// Consensus hash that identifies this tenure
     pub tenure_id_consensus_hash: ConsensusHash,
-    /// Consensus hash that identifies the snapshot from whence we obtained tenure_start_block_id
-    pub start_block_snapshot_consensus_hash: ConsensusHash,
     /// Stacks block ID of the tenure-start block.  Learned from the inventory state machine and
     /// sortition DB.
     pub tenure_start_block_id: StacksBlockId,
-    /// Consensus hash that identifies the snapshot from whence we obtained tenure_end_block_id
-    pub end_block_snapshot_consensus_hash: ConsensusHash,
     /// Stacks block ID of the last block in this tenure (this will be the tenure-start block ID
     /// for some other tenure).  Learned from the inventory state machine and sortition DB.
     pub tenure_end_block_id: StacksBlockId,
@@ -123,9 +118,7 @@ pub struct NakamotoTenureDownloader {
 impl NakamotoTenureDownloader {
     pub fn new(
         tenure_id_consensus_hash: ConsensusHash,
-        start_block_snapshot_consensus_hash: ConsensusHash,
         tenure_start_block_id: StacksBlockId,
-        end_block_snapshot_consensus_hash: ConsensusHash,
         tenure_end_block_id: StacksBlockId,
         naddr: NeighborAddress,
         start_signer_keys: RewardSet,
@@ -134,18 +127,12 @@ impl NakamotoTenureDownloader {
         is_tenure_unconfirmed: bool,
     ) -> Self {
         debug!(
-            "Instantiate downloader to {}-{} for tenure {}: {}-{}",
-            &naddr,
-            &tenure_id_consensus_hash,
-            &start_block_snapshot_consensus_hash,
-            &tenure_start_block_id,
-            &tenure_end_block_id,
+            "Instantiate downloader to {} for tenure {}: {}-{}",
+            &naddr, &tenure_id_consensus_hash, &tenure_start_block_id, &tenure_end_block_id,
         );
         Self {
             tenure_id_consensus_hash,
-            start_block_snapshot_consensus_hash,
             tenure_start_block_id: tenure_start_block_id.clone(),
-            end_block_snapshot_consensus_hash,
             tenure_end_block_id,
             naddr,
             start_signer_keys,
@@ -526,77 +513,15 @@ impl NakamotoTenureDownloader {
     }
 
     /// Advance the state of the downloader from chainstate, if possible.
-    /// For example, a tenure-start or tenure-end block may have been pushed to us already (or they
-    /// may be shadow blocks)
+    /// For example, a tenure-start or tenure-end block may have been pushed to us already.
     pub fn try_advance_from_chainstate(
         &mut self,
         chainstate: &mut StacksChainState,
     ) -> Result<(), NetError> {
         loop {
             match &self.state {
-                NakamotoTenureDownloadState::GetTenureStartBlock(
-                    start_block_id,
-                    start_request_time,
-                ) => {
-                    if chainstate
-                        .nakamoto_blocks_db()
-                        .is_shadow_tenure(&self.start_block_snapshot_consensus_hash)?
-                    {
-                        debug!(
-                            "Tenure {} start-block confirmed by shadow tenure {}",
-                            &self.tenure_id_consensus_hash,
-                            &self.start_block_snapshot_consensus_hash
-                        );
-                        let Some(shadow_block) = chainstate
-                            .nakamoto_blocks_db()
-                            .get_shadow_tenure_start_block(
-                                &self.start_block_snapshot_consensus_hash,
-                            )?
-                        else {
-                            warn!(
-                                "No tenure-start block for shadow tenure {}",
-                                &self.start_block_snapshot_consensus_hash
-                            );
-                            break;
-                        };
-
-                        // the coinbase of a tenure-start block of a shadow tenure contains the
-                        // block-id of the parent tenure's start block (i.e. the information that
-                        // would have been gleaned from a block-commit, if there was one).
-                        let Some(shadow_coinbase) = shadow_block.get_coinbase_tx() else {
-                            warn!("Shadow block {} has no coinbase", &shadow_block.block_id());
-                            break;
-                        };
-
-                        let TransactionPayload::Coinbase(coinbase_payload, ..) =
-                            &shadow_coinbase.payload
-                        else {
-                            warn!(
-                                "Shadow block {} coinbase tx is not a Coinbase",
-                                &shadow_block.block_id()
-                            );
-                            break;
-                        };
-
-                        let tenure_start_block_id = StacksBlockId(coinbase_payload.0);
-
-                        info!(
-                            "Tenure {} starts at shadow tenure-start {}, not {}",
-                            &self.tenure_id_consensus_hash, &tenure_start_block_id, &start_block_id
-                        );
-                        self.tenure_start_block_id = tenure_start_block_id.clone();
-                        self.state = NakamotoTenureDownloadState::GetTenureStartBlock(
-                            tenure_start_block_id,
-                            *start_request_time,
-                        );
-                        if let Some((tenure_start_block, _sz)) = chainstate
-                            .nakamoto_blocks_db()
-                            .get_nakamoto_block(&self.tenure_start_block_id)?
-                        {
-                            // normal block on disk
-                            self.try_accept_tenure_start_block(tenure_start_block)?;
-                        }
-                    } else if let Some((tenure_start_block, _sz)) = chainstate
+                NakamotoTenureDownloadState::GetTenureStartBlock(start_block_id, ..) => {
+                    if let Some((tenure_start_block, _sz)) = chainstate
                         .nakamoto_blocks_db()
                         .get_nakamoto_block(&start_block_id)?
                     {
@@ -609,68 +534,8 @@ impl NakamotoTenureDownloader {
                         break;
                     }
                 }
-                NakamotoTenureDownloadState::GetTenureEndBlock(
-                    end_block_id,
-                    start_request_time,
-                ) => {
-                    if chainstate
-                        .nakamoto_blocks_db()
-                        .is_shadow_tenure(&self.end_block_snapshot_consensus_hash)?
-                    {
-                        debug!(
-                            "Tenure {} end-block confirmed by shadow tenure {}",
-                            &self.tenure_id_consensus_hash, &self.end_block_snapshot_consensus_hash
-                        );
-                        let Some(shadow_block) = chainstate
-                            .nakamoto_blocks_db()
-                            .get_shadow_tenure_start_block(
-                                &self.end_block_snapshot_consensus_hash,
-                            )?
-                        else {
-                            warn!(
-                                "No tenure-start block for shadow tenure {}",
-                                &self.end_block_snapshot_consensus_hash
-                            );
-                            break;
-                        };
-
-                        // the coinbase of a tenure-start block of a shadow tenure contains the
-                        // block-id of the parent tenure's start block (i.e. the information that
-                        // would have been gleaned from a block-commit, if there was one).
-                        let Some(shadow_coinbase) = shadow_block.get_coinbase_tx() else {
-                            warn!("Shadow block {} has no coinbase", &shadow_block.block_id());
-                            break;
-                        };
-
-                        let TransactionPayload::Coinbase(coinbase_payload, ..) =
-                            &shadow_coinbase.payload
-                        else {
-                            warn!(
-                                "Shadow block {} coinbase tx is not a Coinbase",
-                                &shadow_block.block_id()
-                            );
-                            break;
-                        };
-
-                        let tenure_end_block_id = StacksBlockId(coinbase_payload.0);
-
-                        info!(
-                            "Tenure {} ends at shadow tenure-start {}, not {}",
-                            &self.tenure_id_consensus_hash, &tenure_end_block_id, &end_block_id
-                        );
-                        self.tenure_end_block_id = tenure_end_block_id.clone();
-                        self.state = NakamotoTenureDownloadState::GetTenureEndBlock(
-                            tenure_end_block_id,
-                            *start_request_time,
-                        );
-                        if let Some((tenure_end_block, _sz)) = chainstate
-                            .nakamoto_blocks_db()
-                            .get_nakamoto_block(&self.tenure_end_block_id)?
-                        {
-                            // normal block on disk
-                            self.try_accept_tenure_end_block(&tenure_end_block)?;
-                        }
-                    } else if let Some((tenure_end_block, _sz)) = chainstate
+                NakamotoTenureDownloadState::GetTenureEndBlock(end_block_id, ..) => {
+                    if let Some((tenure_end_block, _sz)) = chainstate
                         .nakamoto_blocks_db()
                         .get_nakamoto_block(&end_block_id)?
                     {
@@ -685,7 +550,6 @@ impl NakamotoTenureDownloader {
                 }
                 NakamotoTenureDownloadState::GetTenureBlocks(..) => {
                     // TODO: look at the chainstate and find out what we don't have to download
-                    // TODO: skip shadow tenures
                     break;
                 }
                 NakamotoTenureDownloadState::Done => {
