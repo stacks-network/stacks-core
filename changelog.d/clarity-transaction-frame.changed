@@ -1,0 +1,1 @@
+Moved Clarity transaction framing into the `clarity` crate for reuse by external consumers with evaluation hooks.
