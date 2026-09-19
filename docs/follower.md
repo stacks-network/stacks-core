@@ -69,17 +69,9 @@ events_keys = ["stackerdb", "block_proposal", "burn_blocks"]
 auth_token = "your-secret-token"
 ```
 
-## Local Development (Mocknet)
+## Local Development
 
-For local development without a Bitcoin node, use mocknet mode:
-
-```bash
-stacks-node start --config=mocknet.toml
-```
-
-Mocknet runs a simulated burnchain in-process, removes execution cost limits,
-and requires pre-funded test accounts via `[[ustx_balance]]` entries.
-See [`mocknet.toml`](../sample/conf/mocknet.toml).
+For local development, use [Clarinet](https://github.com/hirosystems/clarinet) for contract development, or run a private testnet with `nakamoto-neon` mode and a local bitcoind regtest node.
 
 ## Environment Variables
 
@@ -99,7 +91,6 @@ These environment variables affect node behavior and cannot be set via TOML:
 | --- | --- |
 | [`mainnet-follower-conf.toml`](../sample/conf/mainnet-follower-conf.toml) | Mainnet follower |
 | [`testnet-follower-conf.toml`](../sample/conf/testnet-follower-conf.toml) | Testnet follower |
-| [`mocknet.toml`](../sample/conf/mocknet.toml) | Local mocknet development |
 
 ## Further Reading
 

@@ -2,10 +2,8 @@ use stacks::chainstate::stacks::db::ClarityTx;
 use stacks_common::types::chainstate::BurnchainHeaderHash;
 
 use super::RunLoopCallbacks;
-use crate::burnchains::Error as BurnchainControllerError;
-use crate::{
-    BitcoinRegtestController, BurnchainController, ChainTip, Config, MocknetController, Node,
-};
+use crate::burnchains::Error as BurnchainsError;
+use crate::{BitcoinRegtestController, ChainTip, Config, Node};
 
 /// RunLoop is coordinating a simulated burnchain and some simulated nodes
 /// taking turns in producing blocks.
@@ -42,13 +40,17 @@ impl RunLoop {
     /// It will start the burnchain (separate thread), set-up a channel in
     /// charge of coordinating the new blocks coming from the burnchain and
     /// the nodes, taking turns on tenures.  
-    pub fn start(&mut self, expected_num_rounds: u64) -> Result<(), BurnchainControllerError> {
+    pub fn start(&mut self, expected_num_rounds: u64) -> Result<(), BurnchainsError> {
+        // Mode is already constrained upstream (config validation + the dispatch in main.rs);
+        // this run loop only handles helium. Assert it so a future dispatch mistake fails fast
+        // instead of silently running helium under the wrong mode.
+        assert_eq!(
+            self.config.burnchain.mode, "helium",
+            "helium run loop requires burnchain.mode = \"helium\""
+        );
+
         // Initialize and start the burnchain.
-        let mut burnchain: Box<dyn BurnchainController> = match &self.config.burnchain.mode[..] {
-            "helium" => Box::new(BitcoinRegtestController::new(self.config.clone(), None)),
-            "mocknet" => MocknetController::generic(self.config.clone()),
-            _ => unreachable!(),
-        };
+        let mut burnchain = BitcoinRegtestController::new(self.config.clone(), None);
 
         self.callbacks.invoke_burn_chain_initialized(&mut burnchain);
 

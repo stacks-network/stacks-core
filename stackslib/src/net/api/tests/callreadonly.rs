@@ -17,16 +17,20 @@
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 
 use clarity::types::chainstate::StacksBlockId;
-use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier, StacksAddressExtensions};
+use clarity::vm::costs::ExecutionCost;
+use clarity::vm::types::{
+    PrincipalData, QualifiedContractIdentifier, StacksAddressExtensions, Value,
+};
 use clarity::vm::ClarityName;
 use rstest::rstest;
 use stacks_common::types::chainstate::StacksAddress;
 use stacks_common::types::Address;
 
-use super::{bool_list_hex, test_rpc};
+use super::{bool_list_hex, TestRPC};
 use crate::core::BLOCK_LIMIT_MAINNET_21;
 use crate::net::api::*;
 use crate::net::connection::ConnectionOptions;
+use crate::net::http::HttpRequestContents;
 use crate::net::httpcore::{
     HttpRequestContentsExtensions as _, RPCRequestHandler, StacksHttp, StacksHttpRequest,
 };
@@ -112,6 +116,13 @@ fn test_restart_clears_parse_retained_mem() {
     handler.restart();
     assert_eq!(handler.parse_retained_mem_bytes, 0);
 }
+const CALL_READ_ONLY_CONTRACT: &str = "
+(define-read-only (ro-test) (ok 1))
+(define-public (public-no-write)
+  (ok (contract-call? .hello-world do-test)))
+(define-public (public-write)
+  (ok (contract-call? .hello-world add-unit)))
+";
 
 #[test]
 fn test_try_parse_request() {
@@ -209,6 +220,69 @@ fn test_try_make_response() {
     );
     requests.push(request);
 
+    let request = StacksHttpRequest::new_callreadonlyfunction(
+        addr.into(),
+        StacksAddress::from_string("ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R").unwrap(),
+        "hello-world-unconfirmed".try_into().unwrap(),
+        StacksAddress::from_string("ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R")
+            .unwrap()
+            .to_account_principal(),
+        None,
+        "public-no-write".try_into().unwrap(),
+        vec![],
+        TipRequest::UseLatestUnconfirmedTip,
+    );
+    requests.push(request);
+
+    let request = StacksHttpRequest::new_callreadonlyfunction(
+        addr.into(),
+        StacksAddress::from_string("ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R").unwrap(),
+        "hello-world-unconfirmed".try_into().unwrap(),
+        StacksAddress::from_string("ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R")
+            .unwrap()
+            .to_account_principal(),
+        None,
+        "public-write".try_into().unwrap(),
+        vec![],
+        TipRequest::UseLatestUnconfirmedTip,
+    );
+    requests.push(request);
+
+    let mut request = StacksHttpRequest::new_for_peer(
+        addr.into(),
+        "POST".into(),
+        format!(
+            "/v2/contracts/call-read/{}/hello-world/ro-confirmed",
+            StacksAddress::from_string("ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R").unwrap()
+        ),
+        HttpRequestContents::new()
+            .for_tip(TipRequest::UseLatestAnchoredTip)
+            .payload_json(serde_json::json!({
+                "sender": "ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R",
+                "arguments": [Value::UInt(3).serialize_to_hex().unwrap()],
+            })),
+    )
+    .unwrap();
+    request.preamble_mut().path_and_query_str = format!(
+        "/v2/contracts/call-read/{}/hello-world/ro-confirmed%3F",
+        StacksAddress::from_string("ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R").unwrap()
+    );
+    requests.push(request);
+
+    let request = StacksHttpRequest::new_callreadonlyfunction(
+        addr.into(),
+        StacksAddress::from_string("ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R").unwrap(),
+        "hello-world".try_into().unwrap(),
+        StacksAddress::from_string("ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R")
+            .unwrap()
+            .to_account_principal(),
+        None,
+        "get-missing".try_into().unwrap(),
+        vec![],
+        TipRequest::UseLatestAnchoredTip,
+    );
+    requests.push(request);
+
     // query unconfirmed tip
     let request = StacksHttpRequest::new_callreadonlyfunction(
         addr.into(),
@@ -269,7 +343,16 @@ fn test_try_make_response() {
     );
     requests.push(request);
 
-    let mut responses = test_rpc(function_name!(), requests);
+    let test = TestRPC::setup_ex_with_unconfirmed_contract(
+        function_name!(),
+        true,
+        None,
+        None,
+        CALL_READ_ONLY_CONTRACT,
+        |config| config.connection_opts.read_only_call_limit = ExecutionCost::max_value(),
+        |config| config.connection_opts.read_only_call_limit = ExecutionCost::max_value(),
+    );
+    let mut responses = test.run(requests);
 
     // confirmed tip
     let response = responses.remove(0);
@@ -286,6 +369,42 @@ fn test_try_make_response() {
 
     // u1
     assert_eq!(resp.result.unwrap(), "0x0100000000000000000000000000000001");
+
+    let response = responses.remove(0);
+    let resp = response.decode_call_readonly_response().unwrap();
+    assert!(resp.okay, "{resp:?}");
+    assert_eq!(
+        resp.result.unwrap(),
+        format!(
+            "0x{}",
+            Value::okay(Value::okay(Value::UInt(0)).unwrap())
+                .unwrap()
+                .serialize_to_hex()
+                .unwrap()
+        )
+    );
+    assert!(resp.cause.is_none());
+
+    let response = responses.remove(0);
+    let resp = response.decode_call_readonly_response().unwrap();
+    assert!(!resp.okay);
+    assert!(resp.result.is_none());
+    assert!(resp.cause.unwrap().contains("NotReadOnly"));
+
+    let response = responses.remove(0);
+    let resp = response.decode_call_readonly_response().unwrap();
+    assert!(resp.okay);
+    assert_eq!(
+        resp.result.unwrap(),
+        format!("0x{}", Value::UInt(3).serialize_to_hex().unwrap())
+    );
+    assert!(resp.cause.is_none());
+
+    let response = responses.remove(0);
+    let resp = response.decode_call_readonly_response().unwrap();
+    assert!(!resp.okay);
+    assert!(resp.result.is_none());
+    assert!(resp.cause.unwrap().contains("UnwrapFailure"));
 
     // unconfirmed tip
     let response = responses.remove(0);

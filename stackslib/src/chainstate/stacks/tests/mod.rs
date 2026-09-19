@@ -19,6 +19,7 @@ use std::path::PathBuf;
 use std::{fs, io};
 
 use clarity::vm::clarity::ClarityConnection;
+use clarity::vm::costs::ExecutionCost;
 use clarity::vm::types::*;
 use stacks_common::consts::FIRST_BURNCHAIN_CONSENSUS_HASH;
 use stacks_common::types::chainstate::SortitionId;
@@ -34,6 +35,10 @@ use crate::chainstate::stacks::db::testing::*;
 use crate::chainstate::stacks::db::*;
 use crate::chainstate::stacks::miner::*;
 use crate::chainstate::stacks::*;
+use crate::core::{
+    EpochList, StacksEpoch, StacksEpochId, PEER_VERSION_EPOCH_1_0, PEER_VERSION_EPOCH_2_0,
+    PEER_VERSION_EPOCH_2_05, PEER_VERSION_EPOCH_2_1, STACKS_EPOCH_MAX,
+};
 use crate::net::test::*;
 
 pub mod accounting;
@@ -42,6 +47,42 @@ pub mod chain_histories;
 pub mod reward_set;
 
 pub const COINBASE: u128 = 500 * 1_000_000;
+
+/// Epoch 2.1 from the first burn block, with `block_limit` as the only cost
+/// ceiling. Mempool admission and block assembly are epoch-dependent, so
+/// fixtures replacing tests that ran on a 2.1 chain must run in 2.1 too.
+pub fn epoch_21_test_epochs(block_limit: ExecutionCost) -> EpochList {
+    EpochList::new(&[
+        StacksEpoch {
+            epoch_id: StacksEpochId::Epoch10,
+            start_height: 0,
+            end_height: 0,
+            block_limit: ExecutionCost::max_value(),
+            network_epoch: PEER_VERSION_EPOCH_1_0,
+        },
+        StacksEpoch {
+            epoch_id: StacksEpochId::Epoch20,
+            start_height: 0,
+            end_height: 0,
+            block_limit: ExecutionCost::max_value(),
+            network_epoch: PEER_VERSION_EPOCH_2_0,
+        },
+        StacksEpoch {
+            epoch_id: StacksEpochId::Epoch2_05,
+            start_height: 0,
+            end_height: 0,
+            block_limit: ExecutionCost::max_value(),
+            network_epoch: PEER_VERSION_EPOCH_2_05,
+        },
+        StacksEpoch {
+            epoch_id: StacksEpochId::Epoch21,
+            start_height: 0,
+            end_height: STACKS_EPOCH_MAX,
+            block_limit,
+            network_epoch: PEER_VERSION_EPOCH_2_1,
+        },
+    ])
+}
 
 pub fn coinbase_total_at(stacks_height: u64) -> u128 {
     if stacks_height > MINER_REWARD_MATURITY {
