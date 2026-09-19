@@ -368,7 +368,7 @@ pub fn lookup_reserved_functions(name: &str, version: &ClarityVersion) -> Option
             TupleGet => Special("special_get-tuple", &tuples::tuple_get),
             TupleMerge => Native205(
                 "native_merge-tuple",
-                NativeHandle::MoreArgEnv(&tuples::tuple_merge),
+                NativeHandle::DoubleArg(&tuples::tuple_merge),
                 ClarityCostFunction::TupleMerge,
                 &cost_input_sized_vararg,
             ),

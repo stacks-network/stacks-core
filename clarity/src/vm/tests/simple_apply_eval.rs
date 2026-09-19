@@ -25,8 +25,8 @@ use stacks_common::address::{
 };
 use stacks_common::bounded_format;
 use stacks_common::consts::{CHAIN_ID_MAINNET, CHAIN_ID_TESTNET};
-use stacks_common::types::StacksEpochId;
 use stacks_common::types::chainstate::{StacksAddress, StacksPrivateKey, StacksPublicKey};
+use stacks_common::types::{StacksEpochId, StacksEpochRangeTestExt as _};
 use stacks_common::util::hash::{hex_bytes, to_hex};
 
 use crate::vm::ast::parse;
@@ -36,7 +36,6 @@ use crate::vm::costs::LimitedCostTracker;
 use crate::vm::database::MemoryBackingStore;
 use crate::vm::errors::{
     ClarityEvalError, EarlyReturnError, RuntimeCheckErrorKind, RuntimeError, VmExecutionError,
-    VmInternalError,
 };
 use crate::vm::tests::{execute, test_clarity_versions};
 use crate::vm::types::signatures::*;
@@ -1735,15 +1734,17 @@ fn merge_update_type_signature_2239() {
         });
 }
 
-/// Runtime epoch gate for an oversized tuple `merge`.
+/// Runtime rejection of an oversized tuple `merge`, in every epoch.
 ///
 /// Builds two individually-valid ~512 KiB tuples whose combined size exceeds `MAX_VALUE_SIZE`
-/// and merges them at runtime.
-/// The merge result is bound in a `let` but never sized, isolating the merge itself:
-/// - epoch < 4.0: `merge` is infallible (legacy), so the program returns `true`.
-/// - epoch >= 4.0: `merge` rejects the oversized result cleanly with `ValueTooLarge`.
+/// and merges them at runtime. The merge result is bound in a `let` but never sized, so this
+/// isolates the merge itself: the rejection comes from `shallow_merge`, not from some later
+/// site that happens to size the value.
+///
+/// `merge` rejects the oversized result cleanly with `ValueTooLarge` and the error does not
+/// vary by epoch — the check lives in `shallow_merge`.
 #[test]
-fn tuple_merge_runtime_size_gate_epoch40() {
+fn tuple_merge_runtime_rejects_oversized() {
     let program = r#"
         (define-private (make-buff-256)
             (let ((b16 0x00112233445566778899aabbccddeeff)
@@ -1777,32 +1778,15 @@ fn tuple_merge_runtime_size_gate_epoch40() {
                 true))
     "#;
 
-    // epoch < 4.0 (legacy): the infallible merge yields an oversized value that later fails
-    // during cost calculation with a block-invalidating internal `Expect`.
-    let legacy_err = execute_with_parameters(
-        program,
-        ClarityVersion::Clarity3,
-        StacksEpochId::Epoch34,
-        false,
-    )
-    .unwrap_err();
-    assert!(
-        matches!(
-            legacy_err,
-            ClarityEvalError::Vm(VmExecutionError::Internal(VmInternalError::Expect(_)))
-        ),
-        "expected a pre-4.0 Expect failure, got {legacy_err:?}"
-    );
-
-    // epoch >= 4.0: the oversized merge is rejected cleanly with `ValueTooLarge`.
-    let gated_err = execute_with_parameters(
-        program,
-        ClarityVersion::Clarity3,
-        StacksEpochId::Epoch40,
-        false,
-    )
-    .unwrap_err();
-    assert_eq!(gated_err, RuntimeCheckErrorKind::ValueTooLarge.into());
+    for &epoch in (StacksEpochId::Epoch20..).as_slice() {
+        let version = ClarityVersion::default_for_epoch(epoch);
+        let err = execute_with_parameters(program, version, epoch, false).unwrap_err();
+        assert_eq!(
+            err,
+            RuntimeCheckErrorKind::ValueTooLarge.into(),
+            "expected ValueTooLarge at {epoch} ({version})"
+        );
+    }
 }
 
 #[test]
