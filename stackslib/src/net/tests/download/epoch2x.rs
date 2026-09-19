@@ -29,6 +29,7 @@ use crate::chainstate::stacks::db::blocks::MINIMUM_TX_FEE_RATE_PER_BYTE;
 use crate::chainstate::stacks::miner::*;
 use crate::chainstate::stacks::tests::*;
 use crate::chainstate::stacks::*;
+use crate::net::download::epoch2x::BlockAvailability;
 use crate::net::download::BlockDownloader;
 use crate::net::test::*;
 use crate::net::*;
@@ -40,7 +41,7 @@ fn get_peer_availability(
     peer: &mut TestPeer,
     start_height: u64,
     end_height: u64,
-) -> Vec<(ConsensusHash, Option<BlockHeaderHash>, Vec<NeighborKey>)> {
+) -> Vec<BlockAvailability> {
     let inv_state = peer.network.inv_state.take().unwrap();
     let availability = peer
         .with_network_state(
@@ -150,7 +151,10 @@ fn test_get_block_availability() {
                     );
 
                     let mut all_availability = true;
-                    for (_, _, neighbors) in peer_1_availability.iter() {
+                    for BlockAvailability {
+                        peers: neighbors, ..
+                    } in peer_1_availability.iter()
+                    {
                         if neighbors.len() != 1 {
                             // not done yet
                             count = 0;
@@ -202,7 +206,11 @@ fn test_get_block_availability() {
 
         for (
             (sn_consensus_hash, stacks_block, microblocks),
-            (consensus_hash, stacks_block_hash_opt, neighbors),
+            BlockAvailability {
+                consensus_hash,
+                block_hash: stacks_block_hash_opt,
+                peers: neighbors,
+            },
         ) in block_data.iter().zip(availability.iter())
         {
             assert_eq!(*consensus_hash, *sn_consensus_hash);
@@ -482,7 +490,11 @@ where
 
         for (
             (sn_consensus_hash, stacks_block_opt, microblocks_opt),
-            (consensus_hash, stacks_block_hash_opt, neighbors),
+            BlockAvailability {
+                consensus_hash,
+                block_hash: stacks_block_hash_opt,
+                peers: neighbors,
+            },
         ) in block_data.iter().zip(availability.iter())
         {
             assert_eq!(*consensus_hash, *sn_consensus_hash);

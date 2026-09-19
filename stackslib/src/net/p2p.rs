@@ -48,6 +48,7 @@ use crate::net::atlas::{AtlasDB, AttachmentsDownloader};
 use crate::net::chat::{ConversationP2P, NeighborStats};
 use crate::net::connection::{ConnectionOptions, ReplyHandleP2P};
 use crate::net::db::{LocalPeer, PeerDB};
+use crate::net::download::epoch2x::{BlockDownloadOutcome, DownloadProgress};
 use crate::net::download::nakamoto::NakamotoDownloadStateMachine;
 use crate::net::download::BlockDownloader;
 use crate::net::inv::inv2x::*;
@@ -3242,15 +3243,18 @@ impl PeerNetwork {
             self.init_block_downloader();
         }
 
-        let (
-            done,
-            at_chain_tip,
-            old_pox_id,
-            mut blocks,
-            mut microblocks,
+        let BlockDownloadOutcome {
+            progress:
+                DownloadProgress {
+                    done,
+                    at_chain_tip,
+                    old_pox_id,
+                    mut blocks,
+                    mut microblocks,
+                },
             broken_http_peers,
             broken_p2p_peers,
-        ) = match self.download_blocks(sortdb, chainstate, dns_client, ibd) {
+        } = match self.download_blocks(sortdb, chainstate, dns_client, ibd) {
             Ok(x) => x,
             Err(net_error::NotConnected) => {
                 // there was simply nothing to do
@@ -4146,9 +4150,9 @@ impl PeerNetwork {
                     |network, attachments_downloader| {
                         let mut dead_events = vec![];
                         match attachments_downloader.run(dns_client, network) {
-                            Ok((ref mut attachments, ref mut events_to_deregister)) => {
-                                network_result.attachments.append(attachments);
-                                dead_events.append(events_to_deregister);
+                            Ok(mut progress) => {
+                                network_result.attachments.append(&mut progress.resolved_attachments);
+                                dead_events.append(&mut progress.events_to_deregister);
                             }
                             Err(e) => {
                                 warn!(
