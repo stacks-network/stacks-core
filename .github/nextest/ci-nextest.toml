@@ -48,3 +48,16 @@ inherits = "ci"
 # The number of tests to run simultaneously
 # Options: A positive integer (e.g., 4), "num-cpus", or a negative integer (e.g., -1)
 test-threads = "num-cpus"
+
+# Profile for the flakiness scan workflow (`tests-flaky-scan-nightly.yml`).
+#
+# This scan exists to *measure* flakiness, so it deliberately diverges from
+# the `ci` profile.
+[profile.flaky-scan]
+inherits = "ci"
+# No retries to gather any test failure.
+retries = 0
+# One failing test must never suppress results for the rest of its partition.
+fail-fast = false
+# Run tests sequentially in a job.
+test-threads = 1

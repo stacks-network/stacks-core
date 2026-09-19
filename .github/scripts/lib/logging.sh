@@ -1,6 +1,10 @@
 #!/usr/bin/env bash
-set -euo pipefail
 
+# Include guard
+[[ -n "${_LIB_LOGGING:-}" ]] && return 0
+_LIB_LOGGING=1
+
+set -euo pipefail
 
 ## ── ANSI color codes and logging helpers ────────────────────────────────────
 COLRED=$'\033[31m'    # Red
@@ -29,5 +33,16 @@ error() {
     echo "${COLRED}ERROR:${COLRESET}   $*" >&2
     if [[ -n "${GITHUB_STEP_SUMMARY:-}" ]]; then
         echo "$(strip_ansi "$*")" >> "${GITHUB_STEP_SUMMARY}"
+    fi
+}
+
+# Append a line to the job summary.
+#
+# Outside Actions there is no summary file, so the line goes to stdout instead (for local testing)
+summary() {
+    if [[ -n "${GITHUB_STEP_SUMMARY:-}" ]]; then
+        printf '%s\n' "$*" >> "${GITHUB_STEP_SUMMARY}"
+    else
+        printf '%s\n' "$*"
     fi
 }
