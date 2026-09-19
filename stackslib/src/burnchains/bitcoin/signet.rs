@@ -113,7 +113,6 @@ pub fn default_epochs() -> EpochList {
 mod tests {
     use std::env;
 
-    use stacks_common::deps_common::bitcoin::blockdata::block::BlockHeader;
     use stacks_common::deps_common::bitcoin::network::serialize::BitcoinHash;
     use tempfile::tempdir;
 
@@ -123,7 +122,7 @@ mod tests {
         BitcoinIndexer, BitcoinIndexerConfig, BitcoinIndexerRuntime, BITCOIN_SIGNET,
     };
     use crate::burnchains::bitcoin::spv::SpvClient;
-    use crate::burnchains::bitcoin::BitcoinNetworkType;
+    use crate::burnchains::bitcoin::{testdata, BitcoinNetworkType};
     use crate::burnchains::indexer::BurnchainIndexer;
     use crate::burnchains::BITCOIN_NETWORK_ID_MAINNET;
     use crate::chainstate::burn::db::sortdb::SortitionDB;
@@ -306,13 +305,13 @@ mod tests {
     #[test]
     fn signet_public_launch_at_nonzero_height() {
         let anchor_height = 4000u64;
-        let raw = include_bytes!("testdata/signet-headers-0-4033.bin");
-        let offset = anchor_height as usize * 80;
-        let header: BlockHeader = serialize::deserialize(&raw[offset..offset + 80]).unwrap();
+        let headers = testdata::signet_headers();
+        let header = &headers[anchor_height as usize];
         let mut settings = format!(
             "first_burn_block_height = {anchor_height}\nfirst_burn_block_hash = '{}'\nfirst_burn_block_timestamp = {}\n",
             header.bitcoin_hash(), header.time
         );
+
         let epochs = [
             ("1.0", 0),
             ("2.0", anchor_height),
@@ -329,13 +328,16 @@ mod tests {
             ("3.4", anchor_height + 46),
             ("4.0", anchor_height + 62),
         ];
+
         for (name, height) in epochs {
             settings.push_str(&format!(
                 "\n[[burnchain.epochs]]\nepoch_name = '{name}'\nstart_height = {height}\n"
             ));
         }
+
         let config = config(&settings);
         let burnchain = config.get_burnchain();
+
         assert!(config.burnchain.signet_challenge.is_none());
         assert_eq!(burnchain.first_block_height, anchor_height);
         assert_eq!(burnchain.initial_reward_start_block, anchor_height);

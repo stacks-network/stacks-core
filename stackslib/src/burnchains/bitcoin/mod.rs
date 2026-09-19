@@ -37,6 +37,8 @@ pub mod messages;
 pub mod network;
 pub mod signet;
 pub mod spv;
+#[cfg(test)]
+mod testdata;
 
 pub type PeerMessage = stacks_common::deps_common::bitcoin::network::message::NetworkMessage;
 

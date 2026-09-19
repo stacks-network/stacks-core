@@ -1336,19 +1336,18 @@ mod test {
     /// Replay Core-validated public headers across two retargets and a persisted rewind.
     #[test]
     fn signet_public_headers_retarget_and_restart() {
-        let raw = include_bytes!("testdata/signet-headers-0-4033.bin");
-        let (chunks, remainder) = raw.as_chunks::<80>();
-        assert!(remainder.is_empty());
-        let headers: Vec<LoneBlockHeader> = chunks
-            .iter()
-            .map(|bytes| LoneBlockHeader {
-                header: deserialize(bytes).unwrap(),
+        let headers = testdata::signet_headers()
+            .into_iter()
+            .map(|header| LoneBlockHeader {
+                header,
                 tx_count: VarInt(0),
             })
-            .collect();
+            .collect::<Vec<_>>();
         assert_eq!(headers.len(), 4034);
+
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("public-signet.sqlite");
+
         let mut client = SpvClient::new(
             path.to_str().unwrap(),
             0,
@@ -1358,13 +1357,16 @@ mod test {
             false,
         )
         .unwrap();
+
         for start in [1usize, 2001, 4001] {
             let end = (start + 2000).min(headers.len());
             client
                 .handle_headers((start - 1) as u64, headers[start..end].to_vec())
                 .unwrap();
         }
+
         assert_eq!(client.get_highest_header_height().unwrap(), 4033);
+
         let tip = client.read_block_header(4033).unwrap().unwrap().header;
         assert_eq!(
             tip.bitcoin_hash(),
@@ -1373,11 +1375,14 @@ mod test {
             )
             .unwrap()
         );
+
         let work = client.update_chain_work().unwrap();
         assert!(work > Uint256::from_u64(0));
+
         // Rewind across a retarget boundary, then restore the same canonical headers.
         client.drop_headers(2014).unwrap();
         drop(client);
+
         let mut restarted = SpvClient::new(
             path.to_str().unwrap(),
             0,
@@ -1387,9 +1392,11 @@ mod test {
             false,
         )
         .unwrap();
+
         restarted
             .handle_headers(2014, headers[2015..].to_vec())
             .unwrap();
+
         assert_eq!(restarted.update_chain_work().unwrap(), work);
         assert_eq!(
             restarted.read_block_header(4033).unwrap().unwrap().header,
@@ -1411,10 +1418,12 @@ mod test {
             false,
         )
         .unwrap();
+
         let first = LoneBlockHeader {
             header: signet::genesis().header,
             tx_count: VarInt(0),
         };
+
         let mut last = first.clone();
         last.header.time += BLOCK_DIFFICULTY_INTERVAL;
         let calculate = |last: &LoneBlockHeader| {
@@ -1425,14 +1434,17 @@ mod test {
             )
         };
         assert_eq!(calculate(&last).0, signet::POW_LIMIT_BITS);
+
         last.header.time = first.header.time + BLOCK_DIFFICULTY_INTERVAL * 8;
         assert_eq!(calculate(&last).0, signet::POW_LIMIT_BITS);
+
         last.header.time = first.header.time - 1;
         let quarter = first.header.target() / Uint256::from_u64(4);
         assert_eq!(
             calculate(&last).0,
             BlockHeader::compact_target_from_u256(&quarter)
         );
+
         last.header.time = first.header.time + BLOCK_DIFFICULTY_INTERVAL / 4;
         assert_eq!(
             calculate(&last).0,
@@ -1449,10 +1461,12 @@ mod test {
                 .0,
             signet::POW_LIMIT_BITS
         );
+
         let mut tx = client.tx_begin().unwrap();
         SpvClient::insert_block_header(&mut tx, last.header, BLOCK_DIFFICULTY_CHUNK_SIZE - 1)
             .unwrap();
         tx.commit().unwrap();
+
         assert_eq!(
             client
                 .get_target(
