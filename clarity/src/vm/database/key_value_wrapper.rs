@@ -102,7 +102,7 @@ where
 
 /// Result structure for fetched values from the
 ///  underlying store.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct ValueResult {
     pub value: Value,
     pub serialized_byte_len: u64,
@@ -130,6 +130,7 @@ pub struct RollbackWrapper<'a> {
     //   to indicate a given contexts "start depth".
     stack: Vec<RollbackContext>,
     query_pending_data: bool,
+    cache: HashMap<String, ValueResult>,
 }
 
 // This is used for preserving rollback data longer
@@ -210,6 +211,7 @@ impl<'a> RollbackWrapper<'a> {
             metadata_lookup_map: HashMap::new(),
             stack: Vec::new(),
             query_pending_data: true,
+            cache: HashMap::new(),
         }
     }
 
@@ -223,6 +225,7 @@ impl<'a> RollbackWrapper<'a> {
             metadata_lookup_map: log.metadata_lookup_map,
             stack: log.stack,
             query_pending_data: true,
+            cache: HashMap::new(),
         }
     }
 
@@ -278,6 +281,7 @@ impl<'a> RollbackWrapper<'a> {
                 next_up.metadata_edits.push((key, value));
             }
         } else {
+            self.cache.clear();
             // stack is empty, committing to the backing store
             let all_edits =
                 rollback_check_pre_bottom_commit(last_item.edits, &mut self.lookup_map)?;
@@ -349,6 +353,7 @@ impl RollbackWrapper<'_> {
         bhh: StacksBlockId,
         query_pending_data: bool,
     ) -> Result<StacksBlockId, VmExecutionError> {
+        self.cache.clear();
         self.store.set_block_hash(bhh).inspect(|_| {
             // use and_then so that query_pending_data is only set once set_block_hash succeeds
             //  this doesn't matter in practice, because a set_block_hash failure always aborts
@@ -459,13 +464,31 @@ impl RollbackWrapper<'_> {
         {
             return Ok(Some(Self::deserialize_value(x, expected, epoch)?));
         }
+
+        let cached = self.cache.get(key);
+        if let Some(cached_result) = cached {
+            return Ok(Some(cached_result.clone()));
+        }
+
         let stored_data = self.store.get_data(key).map_err(|_| {
             SerializationError::DeserializationFailure(
                 "ERROR: Clarity backing store failure".into(),
             )
         })?;
+
         match stored_data {
-            Some(x) => Ok(Some(Self::deserialize_value(&x, expected, epoch)?)),
+            Some(x) => {
+                let to_return = Self::deserialize_value(&x, expected, epoch)?;
+                if key.len() < 1024
+                    && to_return.serialized_byte_len < 1024
+                    && self.cache.len() < 1024
+                {
+                    // Just a very dumb cache: No LRU, simply a hard limit on the size.
+                    // Cleared on set_block_hash() and when committing to the store.
+                    self.cache.insert(key.into(), to_return.clone());
+                }
+                Ok(Some(to_return))
+            }
             None => Ok(None),
         }
     }
