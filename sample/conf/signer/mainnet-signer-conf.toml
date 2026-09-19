@@ -39,7 +39,7 @@ node_host = "127.0.0.1:20443"
 endpoint = "0.0.0.0:30000"
 
 # REQUIRED: Network selection.
-# Valid values: "mainnet", "testnet", "mocknet"
+# Valid values: "mainnet", "testnet", "signet", "mocknet"
 network = "mainnet"
 
 # REQUIRED: Authorization password for the node's block proposal endpoint.
@@ -222,9 +222,10 @@ db_path = "/var/lib/stacks-signer/signerdb.sqlite"
 # Units: milliseconds
 # event_timeout_ms = 5000
 
-# Custom Chain ID (only for private/custom networks).
-# Default: 0x00000001 (mainnet) or 0x80000000 (testnet)
-# chain_id = 1
+# Custom Chain ID: use this override only when adapting this sample to a
+# non-mainnet private network. Set `network` accordingly and match the node's chain ID.
+# Default: 0x00000001 (mainnet), 0x80000001 (signet), or 0x80000000 (testnet/mocknet)
+# chain_id = 0x80000100
 
 # Prometheus metrics endpoint. Uncomment to enable.
 # Format: "host:port"

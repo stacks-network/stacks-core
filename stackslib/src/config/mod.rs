@@ -46,8 +46,8 @@ use stacks_common::util::get_epoch_time_ms;
 use stacks_common::util::hash::hex_bytes;
 use stacks_common::util::secp256k1::{Secp256k1PrivateKey, Secp256k1PublicKey};
 
-use crate::burnchains::bitcoin::BitcoinNetworkType;
-use crate::burnchains::{Burnchain, MagicBytes, BLOCKSTACK_MAGIC_MAINNET};
+use crate::burnchains::bitcoin::{signet, BitcoinNetworkType};
+use crate::burnchains::{Burnchain, MagicBytes, BLOCKSTACK_MAGIC_MAINNET, BLOCKSTACK_MAGIC_SIGNET};
 use crate::chainstate::nakamoto::signer_set::{
     set_pox_5_bond_admin, set_pox_5_pause_admin, set_pox_5_sbtc_contract,
     set_pox_5_sbtc_registry_contract, NakamotoSigners,
@@ -60,7 +60,7 @@ use crate::chainstate::stacks::MAX_BLOCK_LEN;
 use crate::config::chain_data::MinerStats;
 use crate::core::mempool::{MemPoolWalkSettings, MemPoolWalkStrategy, MemPoolWalkTxTypes};
 use crate::core::{
-    MemPoolDB, StacksEpoch, StacksEpochExtension, StacksEpochId, CHAIN_ID_MAINNET,
+    MemPoolDB, StacksEpoch, StacksEpochExtension, StacksEpochId, CHAIN_ID_MAINNET, CHAIN_ID_SIGNET,
     CHAIN_ID_TESTNET, PEER_VERSION_MAINNET, PEER_VERSION_TESTNET, STACKS_EPOCHS_REGTEST,
     STACKS_EPOCHS_TESTNET,
 };
@@ -505,6 +505,10 @@ impl Config {
                 burnchain.first_block_height
             );
             burnchain.first_block_height = first_burn_block_height;
+            if self.burnchain.get_bitcoin_network().1 == BitcoinNetworkType::Signet {
+                // A new signet-backed Stacks chain has no rewards before its launch anchor.
+                burnchain.initial_reward_start_block = first_burn_block_height;
+            }
         }
 
         if let Some(first_burn_block_timestamp) = self.burnchain.first_burn_block_timestamp {
@@ -741,6 +745,7 @@ impl Config {
             }
             BitcoinNetworkType::Testnet => Ok(STACKS_EPOCHS_TESTNET.clone().to_vec()),
             BitcoinNetworkType::Regtest => Ok(STACKS_EPOCHS_REGTEST.clone().to_vec()),
+            BitcoinNetworkType::Signet => Ok(signet::default_epochs().to_vec()),
         }?;
         let mut matched_epochs = vec![];
         for configured_epoch in conf_epochs.iter() {
@@ -948,6 +953,7 @@ impl Config {
             "xenon",
             "mainnet",
             "nakamoto-neon",
+            "signet",
         ];
 
         if !supported_modes.contains(&burnchain.mode.as_str()) {
@@ -1409,6 +1415,7 @@ pub struct BurnchainConfig {
     /// Supported values:
     /// - `"mainnet"`: mainnet
     /// - `"xenon"`: testnet
+    /// - `"signet"`: public or custom Bitcoin signet through a trusted Bitcoin Core peer
     /// - `"mocknet"`: regtest
     /// - `"helium"`: regtest
     /// - `"neon"`: regtest
@@ -1422,10 +1429,12 @@ pub struct BurnchainConfig {
     /// ---
     /// @default: |
     ///   - if [`BurnchainConfig::mode`] is `"mainnet"`: [`CHAIN_ID_MAINNET`]
+    ///   - if [`BurnchainConfig::mode`] is `"signet"`: [`CHAIN_ID_SIGNET`]
     ///   - else: [`CHAIN_ID_TESTNET`]
     /// @notes:
-    ///   - **Warning:** Do not modify this unless you really know what you're doing.
-    ///   - This is intended strictly for testing purposes.
+    ///   - All nodes, signers, and transaction clients in a deployment must agree.
+    ///   - Choose a distinct ID for independent non-mainnet deployments.
+    ///   - The ID is fixed when chainstate is initialized; changing it requires fresh chainstate.
     pub chain_id: u32,
     /// The peer protocol version number used in P2P communication.
     /// This parameter cannot be set via the configuration file.
@@ -1465,15 +1474,15 @@ pub struct BurnchainConfig {
     /// find the underlying bitcoin node to interact with for PoX operations,
     /// block validation, and mining.
     /// ---
-    /// @default: `"0.0.0.0"`
+    /// @default: `"127.0.0.1"` for signet; `"0.0.0.0"` otherwise
     pub peer_host: String,
     /// The P2P network port of the bitcoin node specified by [`BurnchainConfig::peer_host`].
     /// ---
-    /// @default: `8333`
+    /// @default: `38333` for signet; `8333` otherwise
     pub peer_port: u16,
     /// The RPC port of the bitcoin node specified by [`BurnchainConfig::peer_host`].
     /// ---
-    /// @default: `8332`
+    /// @default: `38332` for signet; `8332` otherwise
     pub rpc_port: u16,
     /// Flag indicating whether to use SSL/TLS when connecting to the bitcoin node's
     /// RPC interface.
@@ -1520,8 +1529,17 @@ pub struct BurnchainConfig {
     /// ---
     /// @default: |
     ///   - if [`BurnchainConfig::mode`] is `"xenon"`: `"T2"`
+    ///   - if [`BurnchainConfig::mode`] is `"signet"`: `"S2"`
     ///   - else: `"X2"`
     pub magic_bytes: MagicBytes,
+    /// Bitcoin signet challenge script, distinct from Stacks operation magic bytes.
+    /// The configured Bitcoin Core peer must fully validate this challenge.
+    /// ---
+    /// @default: `None` (Bitcoin Core's public signet challenge)
+    /// @notes:
+    ///   - Set `signet_challenge` to the same hex script as Bitcoin Core's `signetchallenge`.
+    ///   - Valid only in `signet` mode; changing the challenge requires a new working directory.
+    pub signet_challenge: Option<Vec<u8>>,
     /// The public key associated with the local mining address for the underlying
     /// Bitcoin regtest node. Provided as a hex string representing an uncompressed
     /// public key.
@@ -1789,6 +1807,7 @@ impl BurnchainConfig {
             timeout: 300,
             socket_timeout: 30,
             magic_bytes: BLOCKSTACK_MAGIC_MAINNET,
+            signet_challenge: None,
             local_mining_public_key: None,
             process_exit_at_block_height: None,
             poll_time_secs: 10, // TODO: this is a testnet specific value.
@@ -1835,6 +1854,7 @@ impl BurnchainConfig {
         match self.mode.as_str() {
             "mainnet" => ("mainnet".to_string(), BitcoinNetworkType::Mainnet),
             "xenon" => ("testnet".to_string(), BitcoinNetworkType::Testnet),
+            "signet" => ("signet".to_string(), BitcoinNetworkType::Signet),
             "helium" | "neon" | "argon" | "krypton" | "mocknet" | "nakamoto-neon" => {
                 ("regtest".to_string(), BitcoinNetworkType::Regtest)
             }
@@ -1888,6 +1908,8 @@ pub struct BurnchainConfigFile {
     /// Socket timeout, in seconds, for socket operations with bitcoind
     pub socket_timeout: Option<u64>,
     pub magic_bytes: Option<String>,
+    /// Hex-encoded BIP 325 challenge; omitted for public signet.
+    pub signet_challenge: Option<String>,
     pub local_mining_public_key: Option<String>,
     pub process_exit_at_block_height: Option<u64>,
     pub poll_time_secs: Option<u64>,
@@ -1923,6 +1945,19 @@ impl BurnchainConfigFile {
 
         let mode = self.mode.unwrap_or(default_burnchain_config.mode);
         let is_mainnet = mode == "mainnet";
+        if self.signet_challenge.is_some() && mode != "signet" {
+            return Err("signet_challenge is only valid in signet mode".into());
+        }
+        let signet_challenge = self
+            .signet_challenge
+            .as_deref()
+            .map(signet::parse_challenge)
+            .transpose()?;
+        if mode == "signet" {
+            self.peer_host.get_or_insert_with(|| "127.0.0.1".into());
+            self.peer_port.get_or_insert(signet::P2P_PORT);
+            self.rpc_port.get_or_insert(signet::RPC_PORT);
+        }
         if is_mainnet {
             // check magic bytes and set if not defined
             let mainnet_magic = ConfigFile::mainnet().burnchain.unwrap().magic_bytes;
@@ -1938,6 +1973,7 @@ impl BurnchainConfigFile {
         }
 
         let mut config = BurnchainConfig {
+            signet_challenge,
             chain: self.chain.unwrap_or(default_burnchain_config.chain),
             chain_id: match self.chain_id {
                 Some(chain_id) => {
@@ -1948,20 +1984,17 @@ impl BurnchainConfigFile {
                     }
                     chain_id
                 }
-                None => {
-                    if is_mainnet {
-                        CHAIN_ID_MAINNET
-                    } else {
-                        CHAIN_ID_TESTNET
-                    }
-                }
+                None => match mode.as_str() {
+                    "mainnet" => CHAIN_ID_MAINNET,
+                    "signet" => CHAIN_ID_SIGNET,
+                    _ => CHAIN_ID_TESTNET,
+                },
             },
             peer_version: if is_mainnet {
                 PEER_VERSION_MAINNET
             } else {
                 PEER_VERSION_TESTNET
             },
-            mode,
             burn_fee_cap: self
                 .burn_fee_cap
                 .unwrap_or(default_burnchain_config.burn_fee_cap),
@@ -1991,14 +2024,16 @@ impl BurnchainConfigFile {
             socket_timeout: self
                 .socket_timeout
                 .unwrap_or(default_burnchain_config.socket_timeout),
-            magic_bytes: self
-                .magic_bytes
-                .map(|magic_ascii| {
+            magic_bytes: match self.magic_bytes {
+                Some(magic_ascii) => {
                     assert_eq!(magic_ascii.len(), 2, "Magic bytes must be length-2");
                     assert!(magic_ascii.is_ascii(), "Magic bytes must be ASCII");
                     MagicBytes::from(magic_ascii.as_bytes())
-                })
-                .unwrap_or(default_burnchain_config.magic_bytes),
+                }
+                None if mode == "signet" => BLOCKSTACK_MAGIC_SIGNET,
+                None => default_burnchain_config.magic_bytes,
+            },
+            mode,
             local_mining_public_key: self.local_mining_public_key,
             process_exit_at_block_height: self.process_exit_at_block_height,
             poll_time_secs: self
@@ -2076,6 +2111,9 @@ impl BurnchainConfigFile {
             }
         }
 
+        if config.mode == "signet" && self.epochs.is_none() {
+            config.epochs = Some(signet::default_epochs());
+        }
         if let Some(ref conf_epochs) = self.epochs {
             config.epochs = Some(Config::make_epochs(
                 conf_epochs,
@@ -5546,6 +5584,26 @@ mod tests {
                 .into_config_default(default_burnchain_config)
                 .expect("Should not panic");
             assert_eq!(config.chain_id, CHAIN_ID_TESTNET);
+        }
+    }
+
+    /// Network profiles select independent chain identities without changing other defaults.
+    #[test]
+    fn test_network_identity_defaults() {
+        for (mode, chain_id, peer_version) in [
+            ("mainnet", CHAIN_ID_MAINNET, PEER_VERSION_MAINNET),
+            ("xenon", CHAIN_ID_TESTNET, PEER_VERSION_TESTNET),
+            ("krypton", CHAIN_ID_TESTNET, PEER_VERSION_TESTNET),
+            ("signet", CHAIN_ID_SIGNET, PEER_VERSION_TESTNET),
+        ] {
+            let config = BurnchainConfigFile {
+                mode: Some(mode.into()),
+                ..Default::default()
+            }
+            .into_config_default(BurnchainConfig::default())
+            .unwrap();
+            assert_eq!(config.chain_id, chain_id, "{mode}");
+            assert_eq!(config.peer_version, peer_version, "{mode}");
         }
     }
 

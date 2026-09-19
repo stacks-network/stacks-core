@@ -494,6 +494,11 @@ impl Burnchain {
                 PoxConstants::testnet_default(),
                 PEER_VERSION_TESTNET,
             ),
+            ("bitcoin", "signet") => (
+                BurnchainParameters::bitcoin_signet(),
+                PoxConstants::signet_default(),
+                PEER_VERSION_TESTNET,
+            ),
             ("bitcoin", "regtest") => (
                 BurnchainParameters::bitcoin_regtest(),
                 PoxConstants::regtest_default(),

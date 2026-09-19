@@ -155,6 +155,7 @@ pub fn make_bitcoin_indexer(
             first_block: burnchain_params.first_block_height,
             magic_bytes: burnchain_config.magic_bytes,
             epochs: burnchain_config.epochs,
+            signet_challenge: burnchain_config.signet_challenge,
         }
     };
 
@@ -386,6 +387,7 @@ impl BitcoinRegtestController {
                 first_block: burnchain_params.first_block_height,
                 magic_bytes: burnchain_config.magic_bytes,
                 epochs: burnchain_config.epochs,
+                signet_challenge: burnchain_config.signet_challenge,
             }
         };
 
@@ -435,6 +437,7 @@ impl BitcoinRegtestController {
                 first_block: burnchain_params.first_block_height,
                 magic_bytes: burnchain_config.magic_bytes,
                 epochs: burnchain_config.epochs,
+                signet_challenge: burnchain_config.signet_challenge,
             }
         };
 
@@ -2025,6 +2028,31 @@ impl BitcoinRegtestController {
         }
     }
 
+    /// Use a bounded hash budget sufficient for signet's higher development mining difficulty.
+    fn generate_blocks_to_address(
+        &self,
+        num_blocks: u64,
+        address: &BitcoinAddress,
+    ) -> Result<Vec<BurnchainHeaderHash>, BitcoinRpcClientError> {
+        if self.config.burnchain.get_bitcoin_network().1 == BitcoinNetworkType::Signet {
+            // Core parses maxtries as a signed 32-bit JSON integer.
+            let maxtries = num_blocks.saturating_mul(100_000_000).min(i32::MAX as u64) as i32;
+            let blocks = self
+                .get_rpc_client()
+                .generate_to_address_with_maxtries(num_blocks, address, maxtries)?;
+            if blocks.len() as u64 != num_blocks {
+                return Err(BitcoinRpcClientError::IncompleteGeneration {
+                    requested: num_blocks,
+                    actual: blocks.len(),
+                });
+            }
+            Ok(blocks)
+        } else {
+            self.get_rpc_client()
+                .generate_to_address(num_blocks, address)
+        }
+    }
+
     /// Instruct a regtest Bitcoin node to build the next block.
     pub fn build_next_block(&self, num_blocks: u64) {
         debug!("Generate {num_blocks} block(s)");
@@ -2038,9 +2066,7 @@ impl BitcoinRegtestController {
             .expect("FATAL: invalid public key bytes");
         let address = self.get_miner_address(StacksEpochId::Epoch21, &public_key);
 
-        let result = self
-            .get_rpc_client()
-            .generate_to_address(num_blocks, &address);
+        let result = self.generate_blocks_to_address(num_blocks, &address);
         /*
             Temporary: not using `BitcoinRpcClientResultExt::ok_or_log_panic` (test code related),
             because we need this logic available outside `#[cfg(test)]` due to Helium network.
@@ -2254,8 +2280,7 @@ impl BitcoinRegtestController {
                 "Generate to address '{address}' for public key '{}'",
                 &pks[0].to_hex()
             );
-            self.get_rpc_client()
-                .generate_to_address(num_blocks, &address)
+            self.generate_blocks_to_address(num_blocks, &address)
                 .ok_or_log_panic("generating block");
             return;
         }
@@ -2272,8 +2297,7 @@ impl BitcoinRegtestController {
                     &pk.to_hex(),
                 );
             }
-            self.get_rpc_client()
-                .generate_to_address(1, &address)
+            self.generate_blocks_to_address(1, &address)
                 .ok_or_log_panic("generating block");
         }
     }
