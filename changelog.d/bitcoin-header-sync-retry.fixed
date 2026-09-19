@@ -1,1 +1,0 @@
-Throttle Bitcoin header-sync retries when a peer returns no headers before its advertised tip, preventing rapid reconnects while the peer catches up and allowing prompt shutdown.

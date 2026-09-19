@@ -15,9 +15,7 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use std::collections::VecDeque;
-use std::sync::atomic::Ordering;
-use std::time::{Duration, Instant};
-use std::{cmp, fs, thread};
+use std::{cmp, fs};
 
 use rusqlite::{params, OpenFlags, OptionalExtension, Row, Transaction};
 use stacks_common::deps_common::bitcoin::blockdata::block::{BlockHeader, LoneBlockHeader};
@@ -41,8 +39,6 @@ use crate::util_lib::db::{
 };
 
 const BLOCK_HEADER_SIZE: u64 = 81;
-/// Minimum delay before retrying a peer that advertises headers it cannot yet serve.
-const EMPTY_HEADERS_RETRY_DELAY: Duration = Duration::from_secs(5);
 
 pub const BITCOIN_GENESIS_BLOCK_HASH_MAINNET: &str =
     "000000000019d6689c085ae165831e934ff763ae46a2a6c172b3f1b60a8ce26f";
@@ -1267,28 +1263,6 @@ impl BitcoinMessageHandler for SpvClient {
                 if self.cur_block_height >= end_block_height {
                     // done
                     return Ok(false);
-                }
-
-                // Core can return no headers while it is still in initial block download.
-                if block_headers.is_empty() {
-                    warn!(
-                        "Bitcoin peer returned no headers before its advertised tip; retrying sync in {} seconds",
-                        EMPTY_HEADERS_RETRY_DELAY.as_secs()
-                    );
-                    let retry_started = Instant::now();
-                    while retry_started.elapsed() < EMPTY_HEADERS_RETRY_DELAY {
-                        if indexer
-                            .should_keep_running
-                            .as_ref()
-                            .is_some_and(|running| !running.load(Ordering::SeqCst))
-                        {
-                            return Err(btc_error::TimedOut);
-                        }
-                        thread::sleep(Duration::from_millis(100).min(
-                            EMPTY_HEADERS_RETRY_DELAY.saturating_sub(retry_started.elapsed()),
-                        ));
-                    }
-                    return Err(btc_error::TimedOut);
                 }
 
                 // only handle headers we asked for

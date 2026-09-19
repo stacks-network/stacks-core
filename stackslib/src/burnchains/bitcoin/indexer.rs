@@ -1220,13 +1220,10 @@ impl BurnchainHeaderReader for BitcoinIndexer {
 #[cfg(test)]
 mod test {
     use std::sync::atomic::Ordering;
-    use std::sync::mpsc;
-    use std::time::Instant;
     use std::{env, thread};
 
     use stacks_common::deps_common::bitcoin::blockdata::block::{BlockHeader, LoneBlockHeader};
     use stacks_common::deps_common::bitcoin::network::encodable::VarInt;
-    use stacks_common::deps_common::bitcoin::network::serialize;
     use stacks_common::deps_common::bitcoin::util::hash::Sha256dHash;
     use stacks_common::util::get_epoch_time_secs;
     use stacks_common::util::uint::Uint256;
@@ -1234,140 +1231,6 @@ mod test {
     use super::*;
     use crate::burnchains::bitcoin::*;
     use crate::burnchains::{Error as burnchain_error, *};
-
-    /// Empty replies must throttle actual reconnects, then permit validated header progress.
-    #[test]
-    fn signet_empty_headers_retry_and_recover() {
-        let dir = tempfile::tempdir().unwrap();
-        let path = dir
-            .path()
-            .join("headers.sqlite")
-            .to_str()
-            .unwrap()
-            .to_owned();
-        let listener = net::TcpListener::bind("127.0.0.1:0").unwrap();
-        let mut config = BitcoinIndexerConfig::default_regtest(path.clone());
-        config.peer_port = listener.local_addr().unwrap().port();
-        config.socket_timeout = 10;
-        let mut indexer = BitcoinIndexer::new(
-            config.clone(),
-            BitcoinIndexerRuntime::new(BitcoinNetworkType::Signet, 30),
-            None,
-        );
-        let header = LoneBlockHeader {
-            header: serialize::deserialize(
-                &include_bytes!("testdata/signet-headers-0-4033.bin")[80..160],
-            )
-            .unwrap(),
-            tx_count: VarInt(0),
-        };
-        let expected_hash = header.header.bitcoin_hash();
-        let peer = thread::spawn(move || {
-            let mut last_empty_response = None;
-            let mut retry_intervals = Vec::new();
-            for attempt in 0..3 {
-                let (socket, _) = listener.accept().unwrap();
-                if let Some(sent_at) = last_empty_response {
-                    retry_intervals.push(Instant::now().duration_since(sent_at));
-                }
-                socket
-                    .set_read_timeout(Some(Duration::from_secs(10)))
-                    .unwrap();
-                socket
-                    .set_write_timeout(Some(Duration::from_secs(10)))
-                    .unwrap();
-                let mut peer = BitcoinIndexer::new(
-                    config.clone(),
-                    BitcoinIndexerRuntime::new(BitcoinNetworkType::Signet, 30),
-                    None,
-                );
-                peer.runtime.sock = Some(socket);
-                let NetworkMessage::Version(mut version) = peer.recv_message().unwrap() else {
-                    panic!("Expected a version handshake");
-                };
-                version.start_height = 1;
-                peer.send_message(NetworkMessage::Version(version)).unwrap();
-                peer.send_verack().unwrap();
-                std::assert_matches!(peer.recv_message().unwrap(), NetworkMessage::Verack);
-                std::assert_matches!(peer.recv_message().unwrap(), NetworkMessage::GetHeaders(_));
-                if attempt < 2 {
-                    last_empty_response = Some(Instant::now());
-                    peer.send_message(NetworkMessage::Headers(vec![])).unwrap();
-                } else {
-                    peer.send_message(NetworkMessage::Headers(vec![header.clone()]))
-                        .unwrap();
-                    std::assert_matches!(
-                        peer.recv_message().unwrap(),
-                        NetworkMessage::GetHeaders(_)
-                    );
-                    peer.send_message(NetworkMessage::Headers(vec![])).unwrap();
-                }
-            }
-            retry_intervals
-        });
-        // Request beyond the genesis-only store, whose header count is already one.
-        for _ in 0..2 {
-            std::assert_matches!(
-                indexer.sync_headers(0, Some(2)),
-                Err(burnchain_error::TrySyncAgain)
-            );
-            assert_eq!(indexer.get_highest_header_height().unwrap(), 0);
-        }
-        let recovery_started = Instant::now();
-        assert_eq!(indexer.sync_headers(0, Some(2)).unwrap(), 1);
-        assert!(
-            recovery_started.elapsed() < Duration::from_secs(5),
-            "Caught-up peers must not incur the empty-header retry delay"
-        );
-        assert_eq!(indexer.get_highest_header_height().unwrap(), 1);
-        let stored = indexer.read_headers(1, 2).unwrap();
-        assert_eq!(stored[0].block_header.header.bitcoin_hash(), expected_hash);
-        let retry_intervals = peer.join().unwrap();
-        assert_eq!(retry_intervals.len(), 2);
-        for interval in retry_intervals {
-            assert!(
-                interval >= Duration::from_secs(5),
-                "Reconnect was too soon: {interval:?}"
-            );
-        }
-    }
-
-    /// Shutdown interrupts the empty-header delay instead of waiting for its full duration.
-    #[test]
-    fn signet_empty_headers_retry_stops_on_shutdown() {
-        let dir = tempfile::tempdir().unwrap();
-        let path = dir
-            .path()
-            .join("headers.sqlite")
-            .to_str()
-            .unwrap()
-            .to_owned();
-        let mut client =
-            SpvClient::new(&path, 0, Some(1), BitcoinNetworkType::Signet, true, false).unwrap();
-        let running = Arc::new(AtomicBool::new(true));
-        let mut indexer = BitcoinIndexer::new(
-            BitcoinIndexerConfig::default_regtest(path),
-            BitcoinIndexerRuntime::new(BitcoinNetworkType::Signet, 30),
-            Some(running.clone()),
-        );
-        let (started_tx, started_rx) = mpsc::channel();
-        let (done_tx, done_rx) = mpsc::channel();
-        let worker = thread::spawn(move || {
-            started_tx.send(()).unwrap();
-            std::assert_matches!(
-                client.handle_message(&mut indexer, NetworkMessage::Headers(vec![])),
-                Err(btc_error::TimedOut)
-            );
-            done_tx.send(()).unwrap();
-        });
-        started_rx.recv_timeout(Duration::from_secs(2)).unwrap();
-        thread::sleep(Duration::from_millis(200));
-        running.store(false, Ordering::SeqCst);
-        done_rx
-            .recv_timeout(Duration::from_secs(2))
-            .expect("Shutdown must interrupt the retry wait");
-        worker.join().unwrap();
-    }
 
     #[test]
     fn test_indexer_find_bitcoin_reorg_genesis() {

@@ -114,7 +114,6 @@ mod tests {
     use std::env;
 
     use stacks_common::deps_common::bitcoin::blockdata::block::BlockHeader;
-    use stacks_common::deps_common::bitcoin::network::message::NetworkMessage;
     use stacks_common::deps_common::bitcoin::network::serialize::BitcoinHash;
     use tempfile::tempdir;
 
@@ -123,9 +122,8 @@ mod tests {
     use crate::burnchains::bitcoin::indexer::{
         BitcoinIndexer, BitcoinIndexerConfig, BitcoinIndexerRuntime, BITCOIN_SIGNET,
     };
-    use crate::burnchains::bitcoin::messages::BitcoinMessageHandler;
     use crate::burnchains::bitcoin::spv::SpvClient;
-    use crate::burnchains::bitcoin::{BitcoinNetworkType, Error as BitcoinError};
+    use crate::burnchains::bitcoin::BitcoinNetworkType;
     use crate::burnchains::indexer::BurnchainIndexer;
     use crate::burnchains::BITCOIN_NETWORK_ID_MAINNET;
     use crate::chainstate::burn::db::sortdb::SortitionDB;
@@ -395,30 +393,6 @@ mod tests {
             SortitionDB::get_burnchain_view(&db.index_conn(), &burnchain, &tip),
             Err(DBError::Corruption)
         );
-    }
-
-    /// A Core peer still syncing must leave an empty local chain retryable.
-    #[test]
-    fn signet_initial_sync_waits_for_core() {
-        let dir = tempdir().unwrap();
-        let path = dir
-            .path()
-            .join("headers.sqlite")
-            .to_str()
-            .unwrap()
-            .to_owned();
-        let mut client =
-            SpvClient::new(&path, 0, Some(1), BitcoinNetworkType::Signet, true, false).unwrap();
-        let mut indexer = BitcoinIndexer::new(
-            BitcoinIndexerConfig::default_regtest(path),
-            BitcoinIndexerRuntime::new(BitcoinNetworkType::Signet, 30),
-            None,
-        );
-        std::assert_matches!(
-            client.handle_message(&mut indexer, NetworkMessage::Headers(vec![])),
-            Err(BitcoinError::TimedOut)
-        );
-        assert_eq!(client.get_highest_header_height().unwrap(), 0);
     }
 
     /// Exercise real P2P handshake, header validation, persistence, and restart against Core.
