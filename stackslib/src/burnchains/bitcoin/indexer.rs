@@ -233,12 +233,14 @@ impl BitcoinIndexerRuntime {
 impl BitcoinIndexer {
     /// Select the wire magic for the configured Bitcoin network and signet challenge.
     pub fn network_magic(&self) -> u32 {
-        if self.runtime.network_id == BitcoinNetworkType::Signet {
-            if let Some(challenge) = &self.config.signet_challenge {
-                return signet::network_magic(challenge);
-            }
+        match self.runtime.network_id {
+            BitcoinNetworkType::Signet => self
+                .config
+                .signet_challenge
+                .as_deref()
+                .map_or(BITCOIN_SIGNET, signet::network_magic),
+            other_networks => network_id_to_bytes(other_networks),
         }
-        network_id_to_bytes(self.runtime.network_id)
     }
 
     #[cfg(test)]
