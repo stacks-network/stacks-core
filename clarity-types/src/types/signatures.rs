@@ -337,10 +337,30 @@ use self::TypeSignature::{
     ResponseType, SequenceType, TraitReferenceType, TupleType, UIntType,
 };
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct ListTypeData {
     max_len: u32,
     entry_type: Box<TypeSignature>,
+    /// Value size, computed at construction time.
+    #[serde(skip)]
+    size: u32,
+}
+
+/// Custom deserializer for [`ListTypeData`].
+///
+/// [`ListTypeData::size`] is not serialized: it is recomputed from
+/// [`ListTypeData::max_len`] and [`ListTypeData::entry_type`] on deserialization. This avoids
+/// trusting an untrusted value for a field used in [`MAX_VALUE_SIZE`] enforcement.
+impl<'de> Deserialize<'de> for ListTypeData {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        #[derive(Deserialize)]
+        struct Raw {
+            max_len: u32,
+            entry_type: Box<TypeSignature>,
+        }
+        let raw = Raw::deserialize(deserializer)?;
+        Self::new_list(*raw.entry_type, raw.max_len).map_err(serde::de::Error::custom)
+    }
 }
 
 impl From<ListTypeData> for TypeSignature {
@@ -365,30 +385,38 @@ impl ListTypeData {
             return Err(ClarityTypeError::TypeSignatureTooDeep);
         }
 
-        let list_data = ListTypeData {
+        // `compute_inner_size` already returns `None` when the size exceeds `MAX_VALUE_SIZE`.
+        let size = Self::compute_inner_size(&entry_type, max_len)?
+            .ok_or(ClarityTypeError::ValueTooLarge)?;
+        Ok(ListTypeData {
             entry_type: Box::new(entry_type),
             max_len,
-        };
-        let would_be_size = list_data
-            .inner_size()?
-            .ok_or(ClarityTypeError::ValueTooLarge)?;
-        if would_be_size > MAX_VALUE_SIZE {
-            Err(ClarityTypeError::ValueTooLarge)
-        } else {
-            Ok(list_data)
-        }
+            size,
+        })
     }
 
     pub fn destruct(self) -> (TypeSignature, u32) {
         (*self.entry_type, self.max_len)
     }
 
-    // if checks like as-max-len pass, they may _reduce_
-    //   but should not increase the type signatures max length
-    pub fn reduce_max_len(&mut self, new_max_len: u32) {
+    /// if checks like `as-max-len` pass, they may _reduce_
+    /// but should not increase the type signatures max length
+    ///
+    /// The error branch is unreachable: `max_len` only ever shrinks, `entry_type` is
+    /// unchanged, and the list was already valid at construction, so the recomputed size is
+    /// necessarily `<=` the old one and cannot overflow. It is reported as an
+    /// `InvariantViolation` rather than `ValueTooLarge` because reaching it would mean the
+    /// construction invariant itself broke.
+    pub fn reduce_max_len(&mut self, new_max_len: u32) -> Result<(), ClarityTypeError> {
         if new_max_len <= self.max_len {
             self.max_len = new_max_len;
+            self.size = self.inner_size()?.ok_or_else(|| {
+                ClarityTypeError::InvariantViolation(
+                    "reduce_max_len produced a list whose size overflows".into(),
+                )
+            })?;
         }
+        Ok(())
     }
 
     pub fn get_max_len(&self) -> u32 {
@@ -654,9 +682,11 @@ impl TypeSignature {
     pub fn canonicalize_v2_1(&self) -> TypeSignature {
         match self {
             SequenceType(SequenceSubtype::ListType(list_type)) => {
+                // Canonicalization is size-preserving, so the cached size carries over unchanged.
                 SequenceType(SequenceSubtype::ListType(ListTypeData {
                     max_len: list_type.max_len,
                     entry_type: Box::new(list_type.entry_type.canonicalize_v2_1()),
+                    size: list_type.size,
                 }))
             }
             OptionalType(inner_type) => OptionalType(Box::new(inner_type.canonicalize_v2_1())),
@@ -1019,10 +1049,12 @@ impl TypeSignature {
                 SequenceType(SequenceSubtype::ListType(ListTypeData {
                     max_len: len_a,
                     entry_type: entry_a,
+                    ..
                 })),
                 SequenceType(SequenceSubtype::ListType(ListTypeData {
                     max_len: len_b,
                     entry_type: entry_b,
+                    ..
                 })),
             ) => {
                 let entry_type = if *len_a == 0 {
@@ -1128,10 +1160,12 @@ impl TypeSignature {
                 SequenceType(SequenceSubtype::ListType(ListTypeData {
                     max_len: len_a,
                     entry_type: entry_a,
+                    ..
                 })),
                 SequenceType(SequenceSubtype::ListType(ListTypeData {
                     max_len: len_b,
                     entry_type: entry_b,
+                    ..
                 })),
             ) => {
                 let entry_type = if *len_a == 0 {
@@ -1253,11 +1287,15 @@ impl TypeSignature {
         ListTypeData::new_list(item_type, max_len).map(|x| x.into())
     }
 
+    /// The type of the empty list, `(list 0 NoType)`.
+    ///
+    /// Built through [`ListTypeData::new_list`] so the size computation stays in one place
+    /// rather than being duplicated as a literal here. The `expect` is unreachable and takes
+    /// no inputs, so it cannot vary by caller: `NoType` has depth 0 and the resulting size is
+    /// a fixed 6 bytes.
     pub fn empty_list() -> ListTypeData {
-        ListTypeData {
-            entry_type: Box::new(TypeSignature::NoType),
-            max_len: 0,
-        }
+        ListTypeData::new_list(TypeSignature::NoType, 0)
+            .expect("infallible: the empty list is always valid")
     }
 
     pub fn type_of(x: &Value) -> Result<TypeSignature, ClarityTypeError> {
@@ -1492,13 +1530,34 @@ impl TypeSignature {
 }
 
 impl ListTypeData {
-    /// List Size: type_signature_size + max_len * entry_type.size()
+    /// Returns the cached value size, computed at construction time.
+    pub fn size(&self) -> u32 {
+        self.size
+    }
+
+    /// Value size of this list instance.
     fn inner_size(&self) -> Result<Option<u32>, ClarityTypeError> {
-        let total_size = self
-            .entry_type
+        Self::compute_inner_size(&self.entry_type, self.max_len)
+    }
+
+    /// Type-signature size of this list instance.
+    fn type_size(&self) -> Option<u32> {
+        Self::compute_type_size(&self.entry_type)
+    }
+
+    /// Compute the value size of a list from its entry type and max length.
+    ///
+    /// List Size: type_signature_size + max_len * entry_type.size()
+    ///
+    /// Returns `Ok(None)` when the result overflows or exceeds [`MAX_VALUE_SIZE`].
+    fn compute_inner_size(
+        entry_type: &TypeSignature,
+        max_len: u32,
+    ) -> Result<Option<u32>, ClarityTypeError> {
+        let total_size = entry_type
             .size()?
-            .checked_mul(self.max_len)
-            .and_then(|x| x.checked_add(self.type_size()?));
+            .checked_mul(max_len)
+            .and_then(|x| x.checked_add(Self::compute_type_size(entry_type)?));
         match total_size {
             Some(total_size) => {
                 if total_size > MAX_VALUE_SIZE {
@@ -1511,8 +1570,10 @@ impl ListTypeData {
         }
     }
 
-    fn type_size(&self) -> Option<u32> {
-        let total_size = self.entry_type.inner_type_size()?.checked_add(4 + 1)?; // 1 byte for Type enum, 4 for max_len.
+    /// Compute the type-signature size of a list from its entry type.
+    fn compute_type_size(entry_type: &TypeSignature) -> Option<u32> {
+        // 1 byte for Type enum, 4 for max_len.
+        let total_size = entry_type.inner_type_size()?.checked_add(4 + 1)?;
         if total_size > MAX_VALUE_SIZE {
             None
         } else {

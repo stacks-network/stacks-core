@@ -22,10 +22,10 @@ use crate::representations::CONTRACT_MAX_NAME_LENGTH;
 use crate::types::TypeSignature::{BoolType, IntType, ListUnionType, UIntType};
 use crate::types::signatures::{CallableSubtype, TypeSignature};
 use crate::types::{
-    BufferLength, CallableData, MAX_TO_ASCII_BUFFER_LEN, MAX_TO_ASCII_RESULT_LEN, MAX_TYPE_DEPTH,
-    MAX_UTF8_VALUE_SIZE, MAX_VALUE_SIZE, QualifiedContractIdentifier, SequenceSubtype,
-    StandardPrincipalData, StringSubtype, StringUTF8Length, TraitIdentifier, TupleData,
-    TupleTypeSignature, WRAPPER_VALUE_SIZE,
+    BufferLength, CallableData, ListTypeData, MAX_TO_ASCII_BUFFER_LEN, MAX_TO_ASCII_RESULT_LEN,
+    MAX_TYPE_DEPTH, MAX_UTF8_VALUE_SIZE, MAX_VALUE_SIZE, QualifiedContractIdentifier,
+    SequenceSubtype, StandardPrincipalData, StringSubtype, StringUTF8Length, TraitIdentifier,
+    TupleData, TupleTypeSignature, WRAPPER_VALUE_SIZE,
 };
 use crate::{ClarityName, Value};
 
@@ -1221,4 +1221,26 @@ fn test_construct_parent_list_type_matches_parent_list_type(#[case] values: Vec<
         streamed, collected,
         "construct_parent_list_type diverged from parent_list_type for {values:?}"
     );
+}
+
+/// Pins the empty list type and, by calling it at all, proves the `expect` inside
+/// [`TypeSignature::empty_list`] is dead: the function takes no inputs, so if it constructs
+/// successfully once it can never panic.
+///
+/// The size is the list type signature with zero entries: 1 byte for the `NoType` entry type
+/// enum + 4 bytes for `max_len` + 1 byte for the list type enum.
+#[test]
+fn test_type_signature_empty_list_type_data() {
+    let result = TypeSignature::empty_list();
+    assert_eq!(&TypeSignature::NoType, result.get_list_item_type());
+    assert_eq!(0, result.get_max_len());
+    assert_eq!(6, result.size());
+}
+
+/// The cached size must equal what `new_list` computes for the same shape
+#[test]
+fn test_type_signature_empty_list_matches_new_list() {
+    let built = ListTypeData::new_list(TypeSignature::NoType, 0).unwrap();
+    assert_eq!(built, TypeSignature::empty_list());
+    assert_eq!(built.size(), TypeSignature::empty_list().size());
 }
