@@ -80,6 +80,15 @@ use crate::burnchains::rpc::rpc_transport::RpcError;
 const UTXO_CACHE_STALENESS_LIMIT: u64 = 6;
 const DUST_UTXO_LIMIT: u64 = 5500;
 
+/// Hash-attempt allowance per requested block for custom-signet development/test mining.
+///
+/// The value 100M is about 20.7x the initial expected work (~4.84M hashes), versus Core's 1M
+/// default.
+///
+/// This budget neither sets block cadence nor guarantees success after difficulty increases, but it
+/// provides ample headroom against unlucky nonce searches at the initial difficulty.
+const SIGNET_MINING_MAX_TRIES_PER_BLOCK: u64 = 100_000_000;
+
 #[cfg(test)]
 // Used to inject invalid block commits during testing.
 pub static TEST_MAGIC_BYTES: std::sync::Mutex<Option<[u8; 2]>> = std::sync::Mutex::new(None);
@@ -2028,15 +2037,18 @@ impl BitcoinRegtestController {
         }
     }
 
-    /// Use a bounded hash budget sufficient for signet's higher development mining difficulty.
+    /// Ask Bitcoin Core to generate blocks for development and tests.
     fn generate_blocks_to_address(
         &self,
         num_blocks: u64,
         address: &BitcoinAddress,
     ) -> Result<Vec<BurnchainHeaderHash>, BitcoinRpcClientError> {
         if self.config.burnchain.get_bitcoin_network().1 == BitcoinNetworkType::Signet {
+            // Normal signet operation waits for externally mined blocks.
             // Core parses maxtries as a signed 32-bit JSON integer.
-            let maxtries = num_blocks.saturating_mul(100_000_000).min(i32::MAX as u64) as i32;
+            let maxtries = num_blocks
+                .saturating_mul(SIGNET_MINING_MAX_TRIES_PER_BLOCK)
+                .min(i32::MAX as u64) as i32;
             let blocks = self
                 .get_rpc_client()
                 .generate_to_address_with_maxtries(num_blocks, address, maxtries)?;
