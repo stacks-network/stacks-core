@@ -17,11 +17,14 @@
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 
 use clarity::codec::StacksMessageCodec;
+use clarity::vm::costs::ExecutionCost;
+use clarity::vm::types::StacksAddressExtensions;
 use stacks_common::types::chainstate::StacksAddress;
 use stacks_common::types::Address;
 use stacks_common::util::hash::to_hex;
 
-use crate::chainstate::stacks::TransactionPayload;
+use crate::chainstate::stacks::db::blocks::MINIMUM_TX_FEE_RATE_PER_BYTE;
+use crate::chainstate::stacks::{TokenTransferMemo, TransactionPayload};
 use crate::net::api::tests::TestRPC;
 use crate::net::api::*;
 use crate::net::connection::ConnectionOptions;
@@ -81,9 +84,13 @@ fn test_try_make_response() {
 
     let sender_addr =
         StacksAddress::from_string("ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R").unwrap();
-    let tx_payload =
-        TransactionPayload::new_contract_call(sender_addr, "hello-world", "add-unit", vec![])
-            .unwrap();
+    let tx_payload = TransactionPayload::new_contract_call(
+        sender_addr.clone(),
+        "hello-world",
+        "add-unit",
+        vec![],
+    )
+    .unwrap();
 
     // case 1: no fee estimates
     let mut requests = vec![];
@@ -149,34 +156,79 @@ fn test_try_make_response() {
     assert!(body_json.get("error").is_some());
     assert!(body_json.get("reason_data").is_some());
 
-    // case 3: get an estimate
-    let mut requests = vec![];
-    let request = StacksHttpRequest::new_post_fee_rate(
+    // case 3: get estimates for transfer and contract-call payloads
+    let transfer_payload = TransactionPayload::TokenTransfer(
+        sender_addr.clone().to_account_principal(),
+        1,
+        TokenTransferMemo([0; 34]),
+    );
+    let transfer_request = StacksHttpRequest::new_post_fee_rate(
         addr.into(),
         postfeerate::FeeRateEstimateRequestBody {
-            estimated_len: Some(123),
+            estimated_len: None,
+            transaction_payload: to_hex(&transfer_payload.serialize_to_vec()),
+        },
+    );
+    let contract_request = StacksHttpRequest::new_post_fee_rate(
+        addr.into(),
+        postfeerate::FeeRateEstimateRequestBody {
+            estimated_len: None,
             transaction_payload: to_hex(&tx_payload.serialize_to_vec()),
         },
     );
-    requests.push(request);
+    let estimated_len = 1550;
+    let long_contract_request = StacksHttpRequest::new_post_fee_rate(
+        addr.into(),
+        postfeerate::FeeRateEstimateRequestBody {
+            estimated_len: Some(estimated_len),
+            transaction_payload: to_hex(&tx_payload.serialize_to_vec()),
+        },
+    );
 
     let test_rpc = TestRPC::setup_with_rpc_args(
         function_name!(),
-        Some(RPCHandlerArgsType::Unit),
-        Some(RPCHandlerArgsType::Unit),
+        Some(RPCHandlerArgsType::FeeResponse),
+        Some(RPCHandlerArgsType::FeeResponse),
     );
-    let mut responses = test_rpc.run(requests);
+    let mut responses = test_rpc.run(vec![
+        transfer_request,
+        contract_request,
+        long_contract_request,
+    ]);
 
-    let response = responses.remove(0);
-    debug!(
-        "Response:\n{}\n",
-        std::str::from_utf8(&response.try_serialize().unwrap()).unwrap()
+    let transfer_response = responses.remove(0).decode_fee_estimate().unwrap();
+    assert_eq!(transfer_response.estimated_cost, ExecutionCost::ZERO);
+    assert!(transfer_response.estimated_cost_scalar > 0);
+    assert_eq!(transfer_response.estimations.len(), 3);
+    assert!(transfer_response
+        .estimations
+        .iter()
+        .all(|estimate| estimate.fee_rate > 0.0 && estimate.fee > 0));
+
+    let contract_response = responses.remove(0).decode_fee_estimate().unwrap();
+    assert!(contract_response.estimated_cost.runtime > 0);
+    assert!(contract_response.estimated_cost.read_count > 0);
+    assert!(contract_response.estimated_cost.read_length > 0);
+    assert!(contract_response.estimated_cost.write_count > 0);
+    assert!(contract_response.estimated_cost.write_length > 0);
+    assert!(contract_response.estimated_cost_scalar > 0);
+    assert_eq!(contract_response.estimations.len(), 3);
+
+    let long_contract_response = responses.remove(0).decode_fee_estimate().unwrap();
+    assert_eq!(
+        long_contract_response.estimated_cost,
+        contract_response.estimated_cost
     );
+    assert!(long_contract_response.estimated_cost_scalar > contract_response.estimated_cost_scalar);
+    assert_eq!(long_contract_response.estimations.len(), 3);
 
-    let (preamble, body) = response.destruct();
-    let body_json: serde_json::Value = body.try_into().unwrap();
-
-    // get back a JSON object and a 200
-    assert_eq!(preamble.status_code, 200);
-    debug!("Response JSON success: {}", &body_json);
+    let minimum_fee = estimated_len * MINIMUM_TX_FEE_RATE_PER_BYTE;
+    for (base, with_length) in contract_response
+        .estimations
+        .iter()
+        .zip(&long_contract_response.estimations)
+    {
+        assert!(with_length.fee >= base.fee);
+        assert!(with_length.fee >= minimum_fee);
+    }
 }

@@ -2354,9 +2354,9 @@ pub mod test {
     use crate::chainstate::stacks::{StacksMicroblockHeader, *};
     use crate::chainstate::tests::{TestChainstate, TestChainstateConfig};
     use crate::core::{StacksEpoch, StacksEpochExtension};
-    use crate::cost_estimates::metrics::UnitMetric;
+    use crate::cost_estimates::metrics::{ProportionalDotProduct, UnitMetric};
     use crate::cost_estimates::tests::fee_rate_fuzzer::ConstantFeeEstimator;
-    use crate::cost_estimates::UnitEstimator;
+    use crate::cost_estimates::{CostEstimator, EstimatorError, UnitEstimator};
     use crate::net::asn::*;
     use crate::net::atlas::*;
     use crate::net::chat::*;
@@ -2663,11 +2663,57 @@ pub mod test {
         coord_comms: None,
     };
 
+    struct FeeResponseEstimator;
+
+    impl CostEstimator for FeeResponseEstimator {
+        fn notify_event(
+            &mut self,
+            _tx: &TransactionPayload,
+            _actual_cost: &ExecutionCost,
+            _block_limit: &ExecutionCost,
+            _evaluated_epoch: &StacksEpochId,
+        ) -> Result<(), EstimatorError> {
+            Ok(())
+        }
+
+        fn estimate_cost(
+            &self,
+            tx: &TransactionPayload,
+            _evaluated_epoch: &StacksEpochId,
+        ) -> Result<ExecutionCost, EstimatorError> {
+            match tx {
+                TransactionPayload::TokenTransfer(..) => Ok(ExecutionCost::ZERO),
+                TransactionPayload::ContractCall(..) => Ok(ExecutionCost {
+                    write_length: 1,
+                    write_count: 1,
+                    read_length: 1,
+                    read_count: 1,
+                    runtime: 1,
+                }),
+                _ => Err(EstimatorError::NoEstimateAvailable),
+            }
+        }
+    }
+
+    const FEE_RESPONSE_COST_ESTIMATOR: FeeResponseEstimator = FeeResponseEstimator {};
+    const FEE_RESPONSE_COST_METRIC: ProportionalDotProduct =
+        ProportionalDotProduct::new(MAX_BLOCK_LEN as u64);
+    const FEE_RESPONSE_RPC_HANDLER_ARGS: RPCHandlerArgs<'static> = RPCHandlerArgs {
+        exit_at_block_height: None,
+        genesis_chainstate_hash: Sha256Sum([0x00; 32]),
+        event_observer: None,
+        cost_estimator: Some(&FEE_RESPONSE_COST_ESTIMATOR),
+        fee_estimator: Some(&CONSTANT_FEE_ESTIMATOR),
+        cost_metric: Some(&FEE_RESPONSE_COST_METRIC),
+        coord_comms: None,
+    };
+
     /// Templates for RPC Handler Args (which must be owned by the TestPeer, and cannot be a bare
     /// RPCHandlerArgs since references to the inner members cannot be made thread-safe).
     #[derive(Clone, Debug, PartialEq)]
     pub enum RPCHandlerArgsType {
         Default,
+        FeeResponse,
         Null,
         Unit,
     }
@@ -2678,6 +2724,10 @@ pub mod test {
                 Self::Default => {
                     debug!("Default RPC Handler Args");
                     DEFAULT_RPC_HANDLER_ARGS.clone()
+                }
+                Self::FeeResponse => {
+                    debug!("Fee Response RPC Handler Args");
+                    FEE_RESPONSE_RPC_HANDLER_ARGS.clone()
                 }
                 Self::Null => {
                     debug!("Null RPC Handler Args");

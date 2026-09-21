@@ -42,7 +42,7 @@ use stacks_common::util::hash::hex_bytes;
 use crate::burnchains::bitcoin::core_controller::BitcoinCoreController;
 use crate::tests::neon_integrations::*;
 use crate::tests::{run_until_burnchain_height, select_transactions_where};
-use crate::{neon, BitcoinRegtestController, BurnchainController, Keychain};
+use crate::{neon, BitcoinRegtestController, Keychain};
 
 #[test]
 #[ignore]

@@ -216,11 +216,11 @@ use stacks_common::util::secp256k1::Secp256k1PrivateKey;
 use stacks_common::util::vrf::{VRFProof, VRFPublicKey};
 use stacks_common::util::{get_epoch_time_ms, get_epoch_time_secs};
 
-use super::{BurnchainController, Config, EventDispatcher, Keychain};
+use super::{Config, EventDispatcher, Keychain};
 use crate::burnchains::bitcoin_regtest_controller::{
     burnchain_params_from_config, BitcoinRegtestController, OngoingBlockCommit,
 };
-use crate::burnchains::{make_bitcoin_indexer, Error as BurnchainControllerError};
+use crate::burnchains::{make_bitcoin_indexer, Error as BurnchainsError};
 use crate::globals::{NeonGlobals as Globals, RelayerDirective};
 use crate::nakamoto_node::miner_db::MinerDB;
 use crate::nakamoto_node::signer_coordinator::SignerCoordinator;
@@ -2762,7 +2762,7 @@ impl BlockMinerThread {
                 debug!("Relayer: Mock-mining enabled; not sending Bitcoin transaction");
                 self.failed_to_submit_last_attempt = true;
             }
-            Err(BurnchainControllerError::IdenticalOperation) => {
+            Err(BurnchainsError::IdenticalOperation) => {
                 info!("Relayer: Block-commit already submitted");
                 self.failed_to_submit_last_attempt = true;
                 return None;

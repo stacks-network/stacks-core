@@ -1037,6 +1037,112 @@ fn make_new_block_txs_payload_contract_interface_toggle() {
     assert!(omitted.contract_interface.is_none());
 }
 
+#[test]
+/// `disable_contract_interface` is applied per observer when a processed block is
+/// dispatched: the same contract-publish receipt reaches the opted-out observer
+/// with `contract_interface` null and every other observer with the ABI.
+fn new_block_event_omits_contract_interface_only_for_opted_out_observer() {
+    fn spawn_capturing_server() -> (u16, std::sync::mpsc::Receiver<serde_json::Value>) {
+        let port = get_random_port();
+        let (tx, rx) = channel();
+        let server = Server::http(format!("127.0.0.1:{port}")).unwrap();
+        thread::spawn(move || {
+            let mut request = server.recv().unwrap();
+            assert_eq!(request.url(), format!("/{PATH_BLOCK_PROCESSED}"));
+            let payload = serde_json::from_reader(request.as_reader()).unwrap();
+            request
+                .respond(Response::from_string("HTTP/1.1 200 OK"))
+                .unwrap();
+            tx.send(payload).unwrap();
+        });
+        (port, rx)
+    }
+
+    let (abi_port, abi_rx) = spawn_capturing_server();
+    let (no_abi_port, no_abi_rx) = spawn_capturing_server();
+
+    let dir = tempdir().unwrap();
+    let mut dispatcher = EventDispatcher::new(dir.path().to_path_buf());
+    for (port, disable_contract_interface) in [(abi_port, false), (no_abi_port, true)] {
+        dispatcher.register_observer(&EventObserverConfig {
+            endpoint: format!("127.0.0.1:{port}"),
+            events_keys: vec![EventKeyType::AnyEvent],
+            timeout_ms: 3_000,
+            disable_retries: false,
+            disable_contract_interface,
+        });
+    }
+
+    let publish = StacksTransaction {
+        version: TransactionVersion::Testnet,
+        chain_id: CHAIN_ID_TESTNET,
+        auth: TransactionAuth::from_p2pkh(&StacksPrivateKey::random()).unwrap(),
+        anchor_mode: TransactionAnchorMode::Any,
+        post_condition_mode: TransactionPostConditionMode::Allow,
+        post_conditions: vec![],
+        payload: TransactionPayload::new_smart_contract(
+            "faucet",
+            "(define-public (spout) (ok true))",
+            None,
+        )
+        .unwrap(),
+    };
+    let analysis = clarity::vm::analysis::ContractAnalysis::new(
+        clarity::vm::types::QualifiedContractIdentifier::transient(),
+        vec![],
+        clarity::vm::costs::LimitedCostTracker::new_free(),
+        stacks_common::types::StacksEpochId::Epoch21,
+        clarity::vm::ClarityVersion::Clarity1,
+    );
+    let receipt = StacksTransactionReceipt {
+        transaction: TransactionOrigin::Stacks(publish),
+        events: vec![],
+        post_condition_aborted: false,
+        result: Value::okay_true(),
+        contract_analysis: Some(analysis),
+        execution_cost: ExecutionCost::ZERO,
+        microblock_header: None,
+        vm_error: None,
+        problematic_skipped: None,
+        stx_burned: 0,
+        tx_index: 0,
+    };
+
+    dispatcher.process_chain_tip(
+        &StacksBlock::genesis_block().into(),
+        &StacksHeaderInfo::regtest_genesis(),
+        &[receipt],
+        &StacksBlockId([0; 32]),
+        &Txid([0; 32]),
+        &[],
+        None,
+        &BurnchainHeaderHash([0; 32]),
+        0,
+        0,
+        &ExecutionCost::ZERO,
+        &ExecutionCost::ZERO,
+        &PoxConstants::testnet_default(),
+        &None,
+        &None,
+        None,
+        1,
+    );
+
+    let contract_interface = |payload: serde_json::Value| {
+        let transactions = payload["transactions"].as_array().unwrap().clone();
+        assert_eq!(transactions.len(), 1);
+        transactions[0]["contract_interface"].clone()
+    };
+    let with_abi = abi_rx
+        .recv_timeout(Duration::from_secs(5))
+        .expect("observer with the ABI enabled did not receive the block");
+    assert!(contract_interface(with_abi).is_object());
+    let without_abi = no_abi_rx
+        .recv_timeout(Duration::from_secs(5))
+        .expect("opted-out observer did not receive the block");
+    assert!(contract_interface(without_abi).is_null());
+}
+
 fn make_tenure_change_payload() -> TenureChangePayload {
     TenureChangePayload {
         tenure_consensus_hash: ConsensusHash([0; 20]),
