@@ -1,0 +1,1 @@
+Optimized `Value::size()`: it now computes the size directly per variant instead of building a throwaway `TypeSignature` through `TypeSignature::type_of`, and `TupleTypeSignature` and `ListTypeData` now cache their value size at construction rather than recomputing it on every call. The cached field is not serialized, so the wire format is unchanged.
