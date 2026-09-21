@@ -263,6 +263,12 @@ impl TryFrom<i128> for StringUTF8Length {
     }
 }
 
+/// Width of the enum discriminant in a type signature.
+const TYPE_ENUM_SIZE: u32 = 1;
+/// Width of the length field a sequence type signature carries: `max_len` for lists, the
+/// length bound for buffers and strings.
+const TYPE_LENGTH_FIELD_SIZE: u32 = 4;
+
 // INVARIANTS enforced by the Type Signatures.
 //   1. A TypeSignature constructor will always fail rather than construct a
 //        type signature for a too large or invalid type. This is why any variable length
@@ -1456,22 +1462,27 @@ impl TypeSignature {
         match self {
             // NoType's may be asked for their size at runtime --
             //  legal constructions like `(ok 1)` have NoType parts (if they have unknown error variant types).
-            // These types all only use ~1 byte for their type enum
-            NoType | IntType | UIntType | BoolType | PrincipalType => Some(1),
-            // u32 length + type enum
+            // These types carry no payload, so they cost only their discriminant.
+            NoType | IntType | UIntType | BoolType | PrincipalType => Some(TYPE_ENUM_SIZE),
             TupleType(tuple_sig) => tuple_sig.type_size(),
-            SequenceType(SequenceSubtype::BufferType(_)) => Some(1 + 4),
+            SequenceType(SequenceSubtype::BufferType(_)) => {
+                Some(TYPE_ENUM_SIZE + TYPE_LENGTH_FIELD_SIZE)
+            }
             SequenceType(SequenceSubtype::ListType(list_type)) => list_type.type_size(),
-            SequenceType(SequenceSubtype::StringType(StringSubtype::ASCII(_))) => Some(1 + 4),
-            SequenceType(SequenceSubtype::StringType(StringSubtype::UTF8(_))) => Some(1 + 4),
-            OptionalType(t) => t.inner_type_size()?.checked_add(1),
+            SequenceType(SequenceSubtype::StringType(StringSubtype::ASCII(_))) => {
+                Some(TYPE_ENUM_SIZE + TYPE_LENGTH_FIELD_SIZE)
+            }
+            SequenceType(SequenceSubtype::StringType(StringSubtype::UTF8(_))) => {
+                Some(TYPE_ENUM_SIZE + TYPE_LENGTH_FIELD_SIZE)
+            }
+            OptionalType(t) => t.inner_type_size()?.checked_add(TYPE_ENUM_SIZE),
             ResponseType(v) => {
                 let (t, s) = (&v.0, &v.1);
                 t.inner_type_size()?
                     .checked_add(s.inner_type_size()?)?
-                    .checked_add(1)
+                    .checked_add(TYPE_ENUM_SIZE)
             }
-            CallableType(_) | TraitReferenceType(_) | ListUnionType(_) => Some(1),
+            CallableType(_) | TraitReferenceType(_) | ListUnionType(_) => Some(TYPE_ENUM_SIZE),
         }
     }
 
@@ -1572,8 +1583,9 @@ impl ListTypeData {
 
     /// Compute the type-signature size of a list from its entry type.
     fn compute_type_size(entry_type: &TypeSignature) -> Option<u32> {
-        // 1 byte for Type enum, 4 for max_len.
-        let total_size = entry_type.inner_type_size()?.checked_add(4 + 1)?;
+        let total_size = entry_type
+            .inner_type_size()?
+            .checked_add(TYPE_LENGTH_FIELD_SIZE + TYPE_ENUM_SIZE)?;
         if total_size > MAX_VALUE_SIZE {
             None
         } else {
