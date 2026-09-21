@@ -117,10 +117,7 @@ mod tests {
     use crate::burnchains::bitcoin::spv::SpvClient;
     use crate::burnchains::bitcoin::BitcoinNetworkType;
     use crate::burnchains::indexer::BurnchainIndexer;
-    use crate::burnchains::{Burnchain, BITCOIN_NETWORK_ID_MAINNET};
-    use crate::chainstate::burn::db::sortdb::SortitionDB;
     use crate::config::DEFAULT_SIGNET_CHALLENGE;
-    use crate::util_lib::db::Error as DBError;
 
     /// Check public and custom message magic against Bitcoin Core and BIP 325 vectors.
     #[test]
@@ -216,37 +213,6 @@ mod tests {
             assert_eq!(signet.to_string(), testnet.to_string());
             assert_ne!(signet.to_string(), mainnet.to_string());
         }
-    }
-
-    /// A fresh signet's stable view stays at genesis until seven confirmations exist.
-    #[test]
-    fn signet_fresh_chain_stable_view() {
-        let dir = tempdir().unwrap();
-        let mut burnchain =
-            Burnchain::new(dir.path().to_str().unwrap(), "bitcoin", "signet", None).unwrap();
-        let db = SortitionDB::connect(
-            dir.path().join("sortition").to_str().unwrap(),
-            burnchain.first_block_height,
-            &burnchain.first_block_hash,
-            u64::from(burnchain.first_block_timestamp),
-            &default_epochs(),
-            burnchain.pox_constants.clone(),
-            None,
-            true,
-            None,
-        )
-        .unwrap();
-        let tip = SortitionDB::get_canonical_burn_chain_tip(db.conn()).unwrap();
-        let view = SortitionDB::get_burnchain_view(&db.index_conn(), &burnchain, &tip).unwrap();
-        assert_eq!(view.burn_block_height, 0);
-        assert_eq!(view.burn_stable_block_height, 0);
-        assert_eq!(view.burn_stable_block_hash, burnchain.first_block_hash);
-        assert_eq!(burnchain.stable_confirmations, 7);
-        burnchain.network_id = BITCOIN_NETWORK_ID_MAINNET;
-        std::assert_matches!(
-            SortitionDB::get_burnchain_view(&db.index_conn(), &burnchain, &tip),
-            Err(DBError::Corruption)
-        );
     }
 
     /// Exercise real P2P handshake, header validation, persistence, and restart against Core.

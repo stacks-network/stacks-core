@@ -136,10 +136,10 @@ agreed sBTC token and registry contracts and configure
 PoX-5 signer registration and staking must continue across reward cycles.
 
 For a new Stacks chain on an existing public or private signet, coordinate a
-recent Bitcoin anchor (`first_burn_block_height`, `first_burn_block_hash`,
+recent first burn block (`first_burn_block_height`, `first_burn_block_hash`,
 `first_burn_block_timestamp`) and an explicit `[[burnchain.epochs]]` schedule.
-The epoch 2.0 start must equal the anchor height. Initial mining rewards
-also start at that anchor; preceding Bitcoin history earns no Stacks rewards.
+The epoch 2.0 start must equal the first burn block height. Initial mining rewards
+also start at that block; preceding Bitcoin history earns no Stacks rewards.
 Include all preceding epochs when overriding later ones, preserve valid
 reward/prepare-phase boundaries,
 and allow time for funding, contract deployment, and signer enrollment. Do not
@@ -183,7 +183,7 @@ Focused offline checks:
 
 ```bash
 cargo nextest run -p stackslib -p stacks-node -p stacks-signer --locked \
-  -E 'test(signet) | test(test_network_identity_defaults)'
+  -E 'test(signet) | test(test_network_identity_defaults) | test(burnchain_view_clamps_stable_tip_to_first_burn_block)'
 ```
 
 Opt-in public/private P2P tests against your already synchronized local
