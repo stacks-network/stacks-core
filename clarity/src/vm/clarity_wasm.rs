@@ -5,6 +5,7 @@ use std::sync::Mutex;
 
 use clarity_types::types::MAX_VALUE_SIZE;
 use stacks_common::bounded_format;
+use stacks_common::consts::CHAIN_ID_TESTNET;
 use stacks_common::types::StacksEpochId;
 use stacks_common::types::chainstate::StacksBlockId;
 use stacks_common::util::ed25519::ed25519_verify;
@@ -6155,30 +6156,74 @@ fn handle_vm_execution_errors(
     }
 }
 
-fn check_height_valid(
+/// Write a `none` result into the return buffer.
+fn write_none_to_wasm(
+    caller: &mut Caller<'_, ClarityWasmContext>,
+    memory: Memory,
+    return_offset: i32,
+) -> Result<(), VmExecutionError> {
+    write_to_wasm(
+        caller,
+        memory,
+        &TypeSignature::BoolType,
+        return_offset,
+        return_offset + get_type_size(&TypeSignature::BoolType),
+        &Value::Bool(false),
+        true,
+    )
+    .map(|_| ())
+}
+
+/// Resolve the height argument of a `get-*-info?` host function into a Stacks
+/// block height, writing `none` into the return buffer and returning
+/// `Ok(None)` if it cannot be resolved.
+///
+/// When `interpret_as_tenure_height` is set, a height that the interpreter
+/// would treat as a tenure height is mapped onto the corresponding Stacks
+/// block height.
+fn check_height_valid_inner(
     caller: &mut Caller<'_, ClarityWasmContext>,
     memory: Memory,
     height_lo: i64,
     height_hi: i64,
     return_offset: i32,
+    interpret_as_tenure_height: bool,
 ) -> Result<Option<u32>, VmExecutionError> {
     let height = (height_hi as u128) << 64 | ((height_lo as u64) as u128);
 
     let height_value = match u32::try_from(height) {
         Ok(result) => result,
         _ => {
-            // Write a 0 to the return buffer for `none`
-            write_to_wasm(
-                caller,
-                memory,
-                &TypeSignature::BoolType,
-                return_offset,
-                return_offset + get_type_size(&TypeSignature::BoolType),
-                &Value::Bool(false),
-                true,
-            )?;
+            write_none_to_wasm(caller, memory, return_offset)?;
             return Ok(None);
         }
+    };
+
+    // Interpret the height as a tenure height IFF
+    // * the caller is a `get-block-info?` host function
+    // * clarity version is less than Clarity3
+    // * the evaluated epoch is geq 3.0
+    // * we are not on (classic) primary testnet
+    let interpret_as_tenure_height = interpret_as_tenure_height
+        && caller.data().contract_context().get_clarity_version() < &ClarityVersion::Clarity3
+        && caller.data().global_context.epoch_id >= StacksEpochId::Epoch30
+        && caller.data().global_context.chain_id != CHAIN_ID_TESTNET;
+
+    let height_value = if interpret_as_tenure_height {
+        match caller
+            .data_mut()
+            .global_context
+            .database
+            .get_block_height_for_tenure_height(height_value)?
+        {
+            Some(block_height) => block_height,
+            None => {
+                write_none_to_wasm(caller, memory, return_offset)?;
+                return Ok(None);
+            }
+        }
+    } else {
+        height_value
     };
 
     let current_block_height = caller
@@ -6187,19 +6232,35 @@ fn check_height_valid(
         .database
         .get_current_block_height();
     if height_value >= current_block_height {
-        // Write a 0 to the return buffer for `none`
-        write_to_wasm(
-            caller,
-            memory,
-            &TypeSignature::BoolType,
-            return_offset,
-            return_offset + get_type_size(&TypeSignature::BoolType),
-            &Value::Bool(false),
-            true,
-        )?;
+        write_none_to_wasm(caller, memory, return_offset)?;
         return Ok(None);
     }
     Ok(Some(height_value))
+}
+
+/// Resolve the height argument of a `get-stacks-block-info?` or
+/// `get-tenure-info?` host function. These exist only in Clarity 3 and later,
+/// where the argument is always a Stacks block height.
+fn check_height_valid(
+    caller: &mut Caller<'_, ClarityWasmContext>,
+    memory: Memory,
+    height_lo: i64,
+    height_hi: i64,
+    return_offset: i32,
+) -> Result<Option<u32>, VmExecutionError> {
+    check_height_valid_inner(caller, memory, height_lo, height_hi, return_offset, false)
+}
+
+/// Resolve the height argument of a `get-block-info?` host function, which for
+/// Clarity 1 and 2 contracts may be a tenure height.
+fn check_block_info_height_valid(
+    caller: &mut Caller<'_, ClarityWasmContext>,
+    memory: Memory,
+    height_lo: i64,
+    height_hi: i64,
+    return_offset: i32,
+) -> Result<Option<u32>, VmExecutionError> {
+    check_height_valid_inner(caller, memory, height_lo, height_hi, return_offset, true)
 }
 
 /// Link host interface function, `get_block_info_time`, into the Wasm module.
@@ -6221,14 +6282,21 @@ fn link_get_block_info_time_property_fn(
                     .and_then(|export| export.into_memory())
                     .ok_or(VmExecutionError::Wasm(WasmError::MemoryNotFound))?;
 
-                if let Some(height_value) =
-                    check_height_valid(&mut caller, memory, height_lo, height_hi, return_offset)?
-                {
+                if let Some(height_value) = check_block_info_height_valid(
+                    &mut caller,
+                    memory,
+                    height_lo,
+                    height_hi,
+                    return_offset,
+                )? {
+                    // `get-block-info? time` reports the *burn* block time,
+                    // unlike `get-stacks-block-info? time`. Must match
+                    // `BlockInfoProperty::Time` in the interpreter.
                     let block_time = caller
                         .data_mut()
                         .global_context
                         .database
-                        .get_block_time(height_value)?;
+                        .get_burn_block_time(height_value, None)?;
                     let (result, result_ty) =
                         (Value::UInt(block_time as u128), TypeSignature::UIntType);
                     let ty = TypeSignature::OptionalType(Box::new(result_ty));
@@ -6273,9 +6341,13 @@ fn link_get_block_info_vrf_seed_property_fn(
                     .and_then(|export| export.into_memory())
                     .ok_or(VmExecutionError::Wasm(WasmError::MemoryNotFound))?;
 
-                if let Some(height_value) =
-                    check_height_valid(&mut caller, memory, height_lo, height_hi, return_offset)?
-                {
+                if let Some(height_value) = check_block_info_height_valid(
+                    &mut caller,
+                    memory,
+                    height_lo,
+                    height_hi,
+                    return_offset,
+                )? {
                     let vrf_seed = caller
                         .data_mut()
                         .global_context
@@ -6332,9 +6404,13 @@ fn link_get_block_info_header_hash_property_fn(
                     .and_then(|export| export.into_memory())
                     .ok_or(VmExecutionError::Wasm(WasmError::MemoryNotFound))?;
 
-                if let Some(height_value) =
-                    check_height_valid(&mut caller, memory, height_lo, height_hi, return_offset)?
-                {
+                if let Some(height_value) = check_block_info_height_valid(
+                    &mut caller,
+                    memory,
+                    height_lo,
+                    height_hi,
+                    return_offset,
+                )? {
                     let header_hash = caller
                         .data_mut()
                         .global_context
@@ -6391,9 +6467,13 @@ fn link_get_block_info_burnchain_header_hash_property_fn(
                     .and_then(|export| export.into_memory())
                     .ok_or(VmExecutionError::Wasm(WasmError::MemoryNotFound))?;
 
-                if let Some(height_value) =
-                    check_height_valid(&mut caller, memory, height_lo, height_hi, return_offset)?
-                {
+                if let Some(height_value) = check_block_info_height_valid(
+                    &mut caller,
+                    memory,
+                    height_lo,
+                    height_hi,
+                    return_offset,
+                )? {
                     let burnchain_header_hash = caller
                         .data_mut()
                         .global_context
@@ -6450,9 +6530,13 @@ fn link_get_block_info_identity_header_hash_property_fn(
                     .and_then(|export| export.into_memory())
                     .ok_or(VmExecutionError::Wasm(WasmError::MemoryNotFound))?;
 
-                if let Some(height_value) =
-                    check_height_valid(&mut caller, memory, height_lo, height_hi, return_offset)?
-                {
+                if let Some(height_value) = check_block_info_height_valid(
+                    &mut caller,
+                    memory,
+                    height_lo,
+                    height_hi,
+                    return_offset,
+                )? {
                     let id_header_hash = caller
                         .data_mut()
                         .global_context
@@ -6509,9 +6593,13 @@ fn link_get_block_info_miner_address_property_fn(
                     .and_then(|export| export.into_memory())
                     .ok_or(VmExecutionError::Wasm(WasmError::MemoryNotFound))?;
 
-                if let Some(height_value) =
-                    check_height_valid(&mut caller, memory, height_lo, height_hi, return_offset)?
-                {
+                if let Some(height_value) = check_block_info_height_valid(
+                    &mut caller,
+                    memory,
+                    height_lo,
+                    height_hi,
+                    return_offset,
+                )? {
                     let miner_address = caller
                         .data_mut()
                         .global_context
@@ -6562,9 +6650,13 @@ fn link_get_block_info_miner_spend_winner_property_fn(
                     .and_then(|export| export.into_memory())
                     .ok_or(VmExecutionError::Wasm(WasmError::MemoryNotFound))?;
 
-                if let Some(height_value) =
-                    check_height_valid(&mut caller, memory, height_lo, height_hi, return_offset)?
-                {
+                if let Some(height_value) = check_block_info_height_valid(
+                    &mut caller,
+                    memory,
+                    height_lo,
+                    height_hi,
+                    return_offset,
+                )? {
                     let winner_spend = caller
                         .data_mut()
                         .global_context
@@ -6614,9 +6706,13 @@ fn link_get_block_info_miner_spend_total_property_fn(
                     .and_then(|export| export.into_memory())
                     .ok_or(VmExecutionError::Wasm(WasmError::MemoryNotFound))?;
 
-                if let Some(height_value) =
-                    check_height_valid(&mut caller, memory, height_lo, height_hi, return_offset)?
-                {
+                if let Some(height_value) = check_block_info_height_valid(
+                    &mut caller,
+                    memory,
+                    height_lo,
+                    height_hi,
+                    return_offset,
+                )? {
                     let total_spend = caller
                         .data_mut()
                         .global_context
@@ -6666,9 +6762,13 @@ fn link_get_block_info_block_reward_property_fn(
                     .and_then(|export| export.into_memory())
                     .ok_or(VmExecutionError::Wasm(WasmError::MemoryNotFound))?;
 
-                if let Some(height_value) =
-                    check_height_valid(&mut caller, memory, height_lo, height_hi, return_offset)?
-                {
+                if let Some(height_value) = check_block_info_height_valid(
+                    &mut caller,
+                    memory,
+                    height_lo,
+                    height_hi,
+                    return_offset,
+                )? {
                     let block_reward_opt = caller
                         .data_mut()
                         .global_context
