@@ -133,7 +133,7 @@ pub struct BitcoinIndexerConfig {
     pub magic_bytes: MagicBytes,
     /// The epochs for this network
     pub epochs: Option<EpochList>,
-    /// Custom BIP 325 challenge; None selects the public signet challenge.
+    /// Resolved BIP 325 challenge; required on signet and unused on other networks.
     pub signet_challenge: Option<Vec<u8>>,
 }
 
@@ -193,6 +193,23 @@ impl BitcoinIndexerConfig {
         }
     }
 
+    /// Configure a local public-signet Core peer; replace the challenge for custom signets.
+    #[cfg(test)]
+    pub fn default_signet(spv_headers_path: String) -> Self {
+        use crate::config::{DEFAULT_SIGNET_CHALLENGE, DEFAULT_SIGNET_MAGIC_BYTES};
+
+        Self {
+            peer_port: signet::P2P_PORT,
+            rpc_port: signet::RPC_PORT,
+            magic_bytes: DEFAULT_SIGNET_MAGIC_BYTES,
+            signet_challenge: Some(
+                signet::parse_challenge(DEFAULT_SIGNET_CHALLENGE)
+                    .expect("Valid public signet challenge"),
+            ),
+            ..Self::default_regtest(spv_headers_path)
+        }
+    }
+
     #[cfg(test)]
     pub fn test_default(spv_headers_path: String) -> BitcoinIndexerConfig {
         BitcoinIndexerConfig {
@@ -231,14 +248,17 @@ impl BitcoinIndexerRuntime {
 }
 
 impl BitcoinIndexer {
-    /// Select the wire magic for the configured Bitcoin network and signet challenge.
+    /// Select the wire magic bytes for the configured Bitcoin network.
+    ///
+    /// Signet derives them from the configured challenge; other networks use fixed values.
     pub fn network_magic(&self) -> u32 {
         match self.runtime.network_id {
-            BitcoinNetworkType::Signet => self
-                .config
-                .signet_challenge
-                .as_deref()
-                .map_or(BITCOIN_SIGNET, signet::network_magic),
+            BitcoinNetworkType::Signet => signet::network_magic(
+                self.config
+                    .signet_challenge
+                    .as_deref()
+                    .expect("BUG: signet configuration must include its resolved challenge"),
+            ),
             other_networks => network_id_to_bytes(other_networks),
         }
     }

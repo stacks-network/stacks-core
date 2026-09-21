@@ -61,14 +61,17 @@ pub const MAGIC_BYTES_LENGTH: usize = 2;
 pub struct MagicBytes([u8; MAGIC_BYTES_LENGTH]);
 impl_array_newtype!(MagicBytes, u8, MAGIC_BYTES_LENGTH);
 impl MagicBytes {
+    /// Construct a burn-operation prefix from an array of the required length.
+    pub const fn new(bytes: [u8; MAGIC_BYTES_LENGTH]) -> Self {
+        Self(bytes)
+    }
+
     pub fn default() -> MagicBytes {
         BLOCKSTACK_MAGIC_MAINNET
     }
 }
 
 pub const BLOCKSTACK_MAGIC_MAINNET: MagicBytes = MagicBytes([105, 100]); // 'id'
-/// Default two-byte Stacks burn-operation prefix on Bitcoin signet.
-pub const BLOCKSTACK_MAGIC_SIGNET: MagicBytes = MagicBytes(*b"S2");
 
 #[derive(Debug, PartialEq, Clone)]
 pub struct BurnchainParameters {

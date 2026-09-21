@@ -22,9 +22,8 @@ use std::{env, thread};
 use clarity::vm::types::QualifiedContractIdentifier;
 use pinny::tag;
 use stacks::burnchains::bitcoin::{signet, BitcoinNetworkType};
-use stacks::burnchains::BLOCKSTACK_MAGIC_SIGNET;
 use stacks::chainstate::burn::db::sortdb::SortitionDB;
-use stacks::config::Config;
+use stacks::config::{Config, DEFAULT_SIGNET_MAGIC_BYTES};
 use stacks::core::test_util::make_stacks_transfer_serialized;
 use stacks::core::{
     StacksEpochId, CHAIN_ID_SIGNET, CHAIN_ID_TESTNET, PEER_VERSION_TESTNET, STACKS_EPOCH_MAX,
@@ -49,7 +48,7 @@ fn configure_signet(config: &mut Config, rpc_port: u16, peer_port: u16) {
     config.burnchain.signet_challenge = Some(vec![0x51]);
     config.burnchain.chain_id = CHAIN_ID_SIGNET;
     config.burnchain.peer_version = PEER_VERSION_TESTNET;
-    config.burnchain.magic_bytes = BLOCKSTACK_MAGIC_SIGNET;
+    config.burnchain.magic_bytes = DEFAULT_SIGNET_MAGIC_BYTES;
     config.burnchain.rpc_port = rpc_port;
     config.burnchain.peer_port = peer_port;
     config.burnchain.timeout = 600;

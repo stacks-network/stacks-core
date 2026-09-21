@@ -47,7 +47,7 @@ use stacks_common::util::hash::hex_bytes;
 use stacks_common::util::secp256k1::{Secp256k1PrivateKey, Secp256k1PublicKey};
 
 use crate::burnchains::bitcoin::{signet, BitcoinNetworkType};
-use crate::burnchains::{Burnchain, MagicBytes, BLOCKSTACK_MAGIC_MAINNET, BLOCKSTACK_MAGIC_SIGNET};
+use crate::burnchains::{Burnchain, MagicBytes, BLOCKSTACK_MAGIC_MAINNET};
 use crate::chainstate::nakamoto::signer_set::{
     set_pox_5_bond_admin, set_pox_5_pause_admin, set_pox_5_sbtc_contract,
     set_pox_5_sbtc_registry_contract, NakamotoSigners,
@@ -85,6 +85,10 @@ use crate::util_lib::boot::boot_code_id;
 use crate::util_lib::db::Error as DBError;
 
 pub const DEFAULT_SATS_PER_VB: u64 = 50;
+/// Default two-byte Stacks burn-operation prefix on Bitcoin signet.
+pub const DEFAULT_SIGNET_MAGIC_BYTES: MagicBytes = MagicBytes::new(*b"S2");
+/// Bitcoin Core's public signet challenge, as hexadecimal script bytes.
+pub const DEFAULT_SIGNET_CHALLENGE: &str = "512103ad5e0edad18cb1f0fc0d28a3d4f1f3e445640337489abb10404f2d1e086be430210359ef5021964fe22d6f8e05b2463c9540ce96883fe3b278760f048f5189f2e6c452ae";
 pub const OP_TX_BLOCK_COMMIT_ESTIM_SIZE: u64 = 380;
 pub const OP_TX_DELEGATE_STACKS_ESTIM_SIZE: u64 = 230;
 pub const OP_TX_LEADER_KEY_ESTIM_SIZE: u64 = 290;
@@ -1535,7 +1539,7 @@ pub struct BurnchainConfig {
     /// Bitcoin signet challenge script, distinct from Stacks operation magic bytes.
     /// The configured Bitcoin Core peer must fully validate this challenge.
     /// ---
-    /// @default: `None` (Bitcoin Core's public signet challenge)
+    /// @default: Public signet challenge in signet mode; `None` otherwise.
     /// @notes:
     ///   - Set `signet_challenge` to the same hex script as Bitcoin Core's `signetchallenge`.
     ///   - Valid only in `signet` mode; changing the challenge requires a new working directory.
@@ -1945,19 +1949,23 @@ impl BurnchainConfigFile {
 
         let mode = self.mode.unwrap_or(default_burnchain_config.mode);
         let is_mainnet = mode == "mainnet";
-        if self.signet_challenge.is_some() && mode != "signet" {
-            return Err("signet_challenge is only valid in signet mode".into());
+        if mode == "signet" {
+            self.signet_challenge
+                .get_or_insert_with(|| DEFAULT_SIGNET_CHALLENGE.into());
+            self.peer_host.get_or_insert_with(|| "127.0.0.1".into());
+            self.peer_port.get_or_insert(signet::P2P_PORT);
+            self.rpc_port.get_or_insert(signet::RPC_PORT);
+        } else if self.signet_challenge.is_some() {
+            return Err(
+                "burnchain.signet_challenge is only valid when burnchain.mode = \"signet\"".into(),
+            );
         }
         let signet_challenge = self
             .signet_challenge
             .as_deref()
             .map(signet::parse_challenge)
-            .transpose()?;
-        if mode == "signet" {
-            self.peer_host.get_or_insert_with(|| "127.0.0.1".into());
-            self.peer_port.get_or_insert(signet::P2P_PORT);
-            self.rpc_port.get_or_insert(signet::RPC_PORT);
-        }
+            .transpose()
+            .map_err(|e| format!("Invalid burnchain.signet_challenge: {e}"))?;
         if is_mainnet {
             // check magic bytes and set if not defined
             let mainnet_magic = ConfigFile::mainnet().burnchain.unwrap().magic_bytes;
@@ -2030,7 +2038,7 @@ impl BurnchainConfigFile {
                     assert!(magic_ascii.is_ascii(), "Magic bytes must be ASCII");
                     MagicBytes::from(magic_ascii.as_bytes())
                 }
-                None if mode == "signet" => BLOCKSTACK_MAGIC_SIGNET,
+                None if mode == "signet" => DEFAULT_SIGNET_MAGIC_BYTES,
                 None => default_burnchain_config.magic_bytes,
             },
             mode,
@@ -5011,6 +5019,7 @@ mod tests {
     use rstest::rstest;
 
     use super::*;
+    use crate::core::STACKS_EPOCH_MAX;
 
     mod utils {
         use super::*;
@@ -5019,6 +5028,224 @@ mod tests {
         pub fn config_from_valid_string(valid_config: &str) -> Config {
             Config::from_config_file(ConfigFile::from_str(valid_config).unwrap(), false).unwrap()
         }
+    }
+
+    /// Resolve signet defaults and overrides without parsing TOML or resolving bootstrap peers.
+    fn signet_config(burnchain: BurnchainConfigFile) -> Config {
+        Config::from_config_file(
+            ConfigFile {
+                burnchain: Some(BurnchainConfigFile {
+                    mode: Some("signet".into()),
+                    ..burnchain
+                }),
+                ..ConfigFile::default()
+            },
+            false,
+        )
+        .unwrap()
+    }
+
+    /// Public and custom challenges select the expected network and epoch defaults.
+    #[test]
+    fn signet_config_defaults() {
+        let public = signet_config(BurnchainConfigFile::default());
+        assert_eq!(
+            public.burnchain.get_bitcoin_network().1,
+            BitcoinNetworkType::Signet
+        );
+        assert_eq!(public.burnchain.peer_host, "127.0.0.1");
+        assert_eq!(public.burnchain.peer_port, signet::P2P_PORT);
+        assert_eq!(public.burnchain.rpc_port, signet::RPC_PORT);
+        assert_eq!(public.burnchain.magic_bytes.as_bytes(), b"S2");
+        assert_eq!(public.burnchain.chain_id, CHAIN_ID_SIGNET);
+        assert_eq!(public.burnchain.peer_version, PEER_VERSION_TESTNET);
+        assert!(!public.is_mainnet());
+        let burnchain = public.get_burnchain();
+        assert_eq!(burnchain.peer_version, public.burnchain.peer_version);
+        assert_eq!(burnchain.pox_constants.reward_cycle_length, 20);
+        assert_eq!(burnchain.pox_constants.prepare_length, 5);
+        assert!(
+            burnchain.pox_constants.anchor_threshold > burnchain.pox_constants.prepare_length / 2
+        );
+        let epochs = public.burnchain.get_epoch_list();
+        assert_eq!(
+            epochs.get(StacksEpochId::Epoch30).unwrap().start_height,
+            231
+        );
+        assert_eq!(
+            epochs.get(StacksEpochId::Epoch40).unwrap().start_height,
+            262
+        );
+        assert_eq!(
+            epochs.get(StacksEpochId::Epoch40).unwrap().end_height,
+            STACKS_EPOCH_MAX
+        );
+        assert_eq!(
+            epochs.get(StacksEpochId::Epoch41).unwrap().start_height,
+            STACKS_EPOCH_MAX
+        );
+        assert_eq!(burnchain.first_block_hash.to_hex(), signet::GENESIS_HASH);
+        Config::assert_valid_epoch_settings(&burnchain, &public.burnchain.get_epoch_list());
+        let explicit_public = signet_config(BurnchainConfigFile {
+            signet_challenge: Some(DEFAULT_SIGNET_CHALLENGE.into()),
+            ..BurnchainConfigFile::default()
+        });
+        assert_eq!(
+            public.burnchain.signet_challenge,
+            Some(signet::parse_challenge(DEFAULT_SIGNET_CHALLENGE).unwrap())
+        );
+        assert_eq!(
+            explicit_public.burnchain.signet_challenge,
+            public.burnchain.signet_challenge
+        );
+        assert_eq!(
+            signet_config(BurnchainConfigFile {
+                signet_challenge: Some("51".into()),
+                ..BurnchainConfigFile::default()
+            })
+            .burnchain
+            .chain_id,
+            CHAIN_ID_SIGNET
+        );
+    }
+
+    /// Validate the shipped templates after supplying the miner's required seed.
+    #[test]
+    fn signet_sample_config() {
+        for (contents, is_miner) in [
+            (
+                include_str!("../../../sample/conf/signet-follower-conf.toml"),
+                false,
+            ),
+            (
+                include_str!("../../../sample/conf/signet-miner-conf.toml"),
+                true,
+            ),
+        ] {
+            let mut file = ConfigFile::from_str(contents).unwrap();
+            if is_miner {
+                let node = file.node.as_mut().unwrap();
+                assert_eq!(node.seed.as_deref(), Some("<YOUR_SEED>"));
+                node.seed = Some("11".repeat(32));
+            }
+            let parsed = Config::from_config_file(file, false).unwrap();
+            assert_eq!(
+                parsed.burnchain.get_bitcoin_network().1,
+                BitcoinNetworkType::Signet
+            );
+            assert_eq!(parsed.burnchain.peer_port, signet::P2P_PORT);
+            assert_eq!(parsed.burnchain.chain_id, CHAIN_ID_SIGNET);
+            assert_eq!(parsed.node.miner, is_miner);
+            if is_miner {
+                assert!(parsed.miner.segwit);
+                assert!(parsed.miner.mining_key.is_some());
+                assert_eq!(
+                    parsed.burnchain.wallet_name.as_deref(),
+                    Some("stacks-signet-miner")
+                );
+            }
+        }
+    }
+
+    /// A public-signet deployment can anchor its chain and epoch schedule after genesis.
+    #[test]
+    fn signet_public_launch_at_nonzero_height() {
+        let anchor_height = 4000u64;
+        // Public signet block 4000, also present in the offline SPV header fixture.
+        let anchor_hash = "000001161700ffd5935f85b23fa160d767e6bd35c563b1b51937e189586a81e8";
+        let anchor_timestamp = 1600572600;
+
+        let epochs = [
+            ("1.0", 0),
+            ("2.0", anchor_height),
+            ("2.05", anchor_height + 1),
+            ("2.1", anchor_height + 2),
+            ("2.2", anchor_height + 3),
+            ("2.3", anchor_height + 4),
+            ("2.4", anchor_height + 5),
+            ("2.5", anchor_height + 6),
+            ("3.0", anchor_height + 42),
+            ("3.1", anchor_height + 43),
+            ("3.2", anchor_height + 44),
+            ("3.3", anchor_height + 45),
+            ("3.4", anchor_height + 46),
+            ("4.0", anchor_height + 62),
+        ];
+
+        let config = signet_config(BurnchainConfigFile {
+            first_burn_block_height: Some(anchor_height),
+            first_burn_block_hash: Some(anchor_hash.into()),
+            first_burn_block_timestamp: Some(anchor_timestamp),
+            epochs: Some(
+                epochs
+                    .into_iter()
+                    .map(|(name, height)| StacksEpochConfigFile {
+                        epoch_name: name.into(),
+                        start_height: i64::try_from(height).unwrap(),
+                    })
+                    .collect(),
+            ),
+            ..BurnchainConfigFile::default()
+        });
+        let burnchain = config.get_burnchain();
+
+        assert_eq!(burnchain.first_block_height, anchor_height);
+        assert_eq!(burnchain.initial_reward_start_block, anchor_height);
+        assert_eq!(burnchain.first_block_hash.to_hex(), anchor_hash);
+        assert_eq!(burnchain.first_block_timestamp, anchor_timestamp);
+        assert_eq!(
+            burnchain.block_height_to_reward_cycle(anchor_height + 42),
+            Some(2)
+        );
+        assert_eq!(
+            burnchain.pox_constants.pox_5_activation_height,
+            (anchor_height + 62) as u32
+        );
+        Config::assert_valid_epoch_settings(&burnchain, &config.burnchain.get_epoch_list());
+    }
+
+    /// A signet-only setting must not silently alter another network.
+    #[test]
+    fn signet_config_rejects_other_modes() {
+        for mode in ["mainnet", "xenon", "neon", "mocknet"] {
+            let file = ConfigFile {
+                burnchain: Some(BurnchainConfigFile {
+                    mode: Some(mode.into()),
+                    signet_challenge: Some("51".into()),
+                    ..BurnchainConfigFile::default()
+                }),
+                ..ConfigFile::default()
+            };
+            assert_eq!(
+                Config::from_config_file(file, false).unwrap_err(),
+                "burnchain.signet_challenge is only valid when burnchain.mode = \"signet\""
+            );
+        }
+    }
+
+    /// TOML signet settings are decoded and resolved into the runtime configuration.
+    #[test]
+    fn signet_config_parses_custom_settings() {
+        let config = utils::config_from_valid_string(
+            r#"
+            [burnchain]
+            mode = "signet"
+            signet_challenge = "51"
+            peer_port = 39333
+            rpc_port = 39332
+            magic_bytes = "Q2"
+            chain_id = 0x80000100
+            "#,
+        );
+        assert_eq!(
+            config.burnchain.get_bitcoin_network().1,
+            BitcoinNetworkType::Signet
+        );
+        assert_eq!(config.burnchain.signet_challenge, Some(vec![0x51]));
+        assert_eq!(config.burnchain.peer_port, 39333);
+        assert_eq!(config.burnchain.rpc_port, 39332);
+        assert_eq!(config.burnchain.magic_bytes.as_bytes(), b"Q2");
+        assert_eq!(config.burnchain.chain_id, 0x80000100);
     }
 
     #[test]
