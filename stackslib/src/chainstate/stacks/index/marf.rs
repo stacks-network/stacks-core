@@ -18,11 +18,11 @@ use std::ops::DerefMut;
 use std::sync::LazyLock;
 use std::time::Instant;
 
-#[cfg(any(test, feature = "testing"))]
-use clarity::util::tests::TestFlag;
 use rusqlite::{Connection, Transaction};
 use stacks_common::types::chainstate::{TrieHash, TRIEHASH_ENCODED_SIZE};
 use stacks_common::util::hash::Sha512Trunc256Sum;
+#[cfg(any(test, feature = "testing"))]
+use stacks_common::util::tests::TestFlag;
 
 pub use super::squash::SquashStats;
 use super::storage::ReopenedTrieStorageConnection;
