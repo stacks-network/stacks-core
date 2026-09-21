@@ -2534,7 +2534,7 @@ impl<T: MarfTrieId> TrieStorageConnection<'_, T> {
     }
 
     /// Read the Trie root node's hash from the block table.
-    #[cfg(test)]
+    #[cfg(any(test, feature = "testing"))]
     pub fn read_block_root_hash(&mut self, bhh: &T) -> Result<TrieHash, Error> {
         let root_hash_ptr = TriePtr::new(
             TrieNodeID::Node256 as u8,

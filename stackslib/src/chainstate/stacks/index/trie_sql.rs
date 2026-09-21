@@ -357,7 +357,7 @@ pub fn bulk_read_squashed_blocks<T: MarfTrieId>(
 /// would. Lets test fixtures outside the MARF module populate squash
 /// metadata without writing MARF-internal SQL. The table itself is created
 /// by the schema-3 migration.
-#[cfg(test)]
+#[cfg(any(test, feature = "testing"))]
 pub fn test_insert_squashed_block<T: MarfTrieId>(
     conn: &Connection,
     height: u32,
@@ -378,7 +378,7 @@ pub fn test_insert_squashed_block<T: MarfTrieId>(
 
 /// Test-only: append a `marf_squashed_blocks` row one above the current
 /// maximum height.
-#[cfg(test)]
+#[cfg(any(test, feature = "testing"))]
 pub fn test_append_squashed_block<T: MarfTrieId>(
     conn: &Connection,
     block_hash: &T,

@@ -557,7 +557,7 @@ impl TrieFile {
     }
 
     /// Obtain a TrieHash for a node, given the node's block's hash (used only in testing)
-    #[cfg(test)]
+    #[cfg(any(test, feature = "testing"))]
     pub fn get_node_hash_bytes_by_bhh<T: MarfTrieId>(
         &mut self,
         db: &Connection,

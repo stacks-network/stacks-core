@@ -403,7 +403,7 @@ impl<'a, T: MarfTrieId> MarfTransaction<'a, T> {
         }
     }
 
-    #[cfg(test)]
+    #[cfg(any(test, feature = "testing"))]
     fn commit_tx(self) {
         self.storage.commit_tx()
     }
@@ -719,7 +719,7 @@ impl<T: MarfTrieId> MARF<T> {
         }
     }
 
-    #[cfg(test)]
+    #[cfg(any(test, feature = "testing"))]
     pub fn begin(&mut self, chain_tip: &T, next_chain_tip: &T) -> Result<(), Error> {
         let mut tx = self.begin_tx()?;
         tx.begin(chain_tip, next_chain_tip)?;
@@ -1736,7 +1736,7 @@ impl<T: MarfTrieId> MARF<T> {
     }
 
     /// Access internal storage
-    #[cfg(test)]
+    #[cfg(any(test, feature = "testing"))]
     pub fn borrow_storage_backend(&mut self) -> TrieStorageConnection<'_, T> {
         self.storage.connection()
     }
@@ -1815,7 +1815,7 @@ impl<T: MarfTrieId> MARF<T> {
     ///
     /// Follows backpointers to resolve nodes living in earlier blocks, so the
     /// returned set represents the complete state visible at `block_hash`.
-    pub(crate) fn for_each_leaf<F>(
+    pub fn for_each_leaf<F>(
         storage: &mut TrieStorageConnection<T>,
         block_hash: &T,
         mut handle_leaf: F,
