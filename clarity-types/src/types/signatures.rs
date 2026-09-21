@@ -1394,12 +1394,16 @@ impl TypeSignature {
     }
 }
 
-/// These implement the size calculations in TypeSignatures
-///    in constructors of TypeSignatures, only `.inner_size()` may be called.
-///    .inner_size is a failable method to compute the size of the type signature,
-///    Failures indicate that a type signature represents _too large_ of a value.
-/// TypeSignature constructors will fail instead of constructing such a type.
-///   because of this, the public interface to size is infallible.
+/// These implement the size calculations in TypeSignatures.
+///
+/// Constructors compute the size through the associated `compute_inner_size` functions, which
+/// do not need a constructed value. Those are failable: a failure means the type signature
+/// would represent a _too large_ value, and the constructor fails instead of building it.
+///
+/// Because a constructed tuple or list therefore always has a valid size, it is cached at
+/// construction and [`TupleTypeSignature::size`] / [`ListTypeData::size`] return it
+/// infallibly. [`TypeSignature::size`] stays failable: the wrapper variants it composes
+/// (`Optional`, `Response`) can still overflow when summed.
 impl TypeSignature {
     pub fn depth(&self) -> u8 {
         // unlike inner_size, depth will never threaten to overflow,
@@ -1443,18 +1447,20 @@ impl TypeSignature {
             IntType | UIntType => Some(INT_SIZE),
             BoolType => Some(BOOL_SIZE),
             PrincipalType => Some(PRINCIPAL_SIZE),
-            TupleType(tuple_sig) => tuple_sig.inner_size()?,
+            // Cached at construction; never oversized (see the note above this impl).
+            TupleType(tuple_sig) => Some(tuple_sig.size()),
             SequenceType(SequenceSubtype::BufferType(len))
             | SequenceType(SequenceSubtype::StringType(StringSubtype::ASCII(len))) => {
                 Some(SEQUENCE_LENGTH_PREFIX + u32::from(len))
             }
-            SequenceType(SequenceSubtype::ListType(list_type)) => list_type.inner_size()?,
+            // Cached at construction; never oversized (see the note above this impl).
+            SequenceType(SequenceSubtype::ListType(list_type)) => Some(list_type.size()),
             SequenceType(SequenceSubtype::StringType(StringSubtype::UTF8(len))) => {
                 Some(SEQUENCE_LENGTH_PREFIX + UTF8_CHAR_SIZE * u32::from(len))
             }
             OptionalType(t) => t.size()?.checked_add(WRAPPER_VALUE_SIZE),
             ResponseType(v) => {
-                // ResponseTypes are 1 byte for the committed bool,
+                // ResponseTypes charge WRAPPER_VALUE_SIZE for the `committed` discriminant,
                 //   plus max(err_type, ok_type)
                 let (t, s) = (&v.0, &v.1);
                 let t_size = t.size()?;
