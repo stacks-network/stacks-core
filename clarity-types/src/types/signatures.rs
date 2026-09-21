@@ -67,10 +67,29 @@ impl AssetIdentifier {
     }
 }
 
-#[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, PartialEq, Eq, Serialize)]
 pub struct TupleTypeSignature {
-    #[serde(with = "tuple_type_map_serde")]
+    #[serde(serialize_with = "tuple_type_map_serde::serialize")]
     type_map: Arc<BTreeMap<ClarityName, TypeSignature>>,
+    /// Value size, computed at construction time.
+    #[serde(skip)]
+    size: u32,
+}
+
+/// Custom deserializer for [`TupleTypeSignature`].
+///
+/// [`TupleTypeSignature::size`] is not serialized: it is recomputed from the type map on
+/// deserialization. This avoids trusting an untrusted value for a field used in
+/// [`MAX_VALUE_SIZE`] enforcement.
+impl<'de> Deserialize<'de> for TupleTypeSignature {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        #[derive(Deserialize)]
+        struct Raw {
+            type_map: BTreeMap<ClarityName, TypeSignature>,
+        }
+        let raw = Raw::deserialize(deserializer)?;
+        TupleTypeSignature::try_from(raw.type_map).map_err(serde::de::Error::custom)
+    }
 }
 
 mod tuple_type_map_serde {
@@ -78,7 +97,7 @@ mod tuple_type_map_serde {
     use std::ops::Deref;
     use std::sync::Arc;
 
-    use serde::{Deserializer, Serializer};
+    use serde::Serializer;
 
     use super::TypeSignature;
     use crate::representations::ClarityName;
@@ -88,16 +107,6 @@ mod tuple_type_map_serde {
         ser: S,
     ) -> Result<S::Ok, S::Error> {
         serde::Serialize::serialize(map.deref(), ser)
-    }
-
-    pub fn deserialize<'de, D>(
-        deser: D,
-    ) -> Result<Arc<BTreeMap<ClarityName, TypeSignature>>, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        let map: BTreeMap<ClarityName, TypeSignature> = serde::Deserialize::deserialize(deser)?;
-        Ok(Arc::new(map))
     }
 }
 
@@ -705,8 +714,10 @@ impl TypeSignature {
                 for (field_name, field_type) in tuple_sig.get_type_map() {
                     canonicalized_fields.insert(field_name.clone(), field_type.canonicalize_v2_1());
                 }
+                // Canonicalization is size-preserving, so the cached size carries over.
                 TypeSignature::from(TupleTypeSignature {
                     type_map: Arc::new(canonicalized_fields),
+                    size: tuple_sig.size,
                 })
             }
             TraitReferenceType(trait_id) => CallableType(CallableSubtype::Trait(trait_id.clone())),
@@ -792,16 +803,12 @@ impl TryFrom<BTreeMap<ClarityName, TypeSignature>> for TupleTypeSignature {
                 return Err(ClarityTypeError::TypeSignatureTooDeep);
             }
         }
-        let type_map = Arc::new(type_map.into_iter().collect());
-        let result = TupleTypeSignature { type_map };
-        let would_be_size = result
-            .inner_size()?
-            .ok_or(ClarityTypeError::ValueTooLarge)?;
-        if would_be_size > MAX_VALUE_SIZE {
-            Err(ClarityTypeError::ValueTooLarge)
-        } else {
-            Ok(result)
-        }
+        // `compute_inner_size` already returns `None` when the size exceeds `MAX_VALUE_SIZE`.
+        let size = Self::compute_inner_size(&type_map)?.ok_or(ClarityTypeError::ValueTooLarge)?;
+        Ok(TupleTypeSignature {
+            type_map: Arc::new(type_map),
+            size,
+        })
     }
 }
 
@@ -854,7 +861,7 @@ impl TupleTypeSignature {
     ) -> Result<(), ClarityTypeError> {
         Arc::make_mut(&mut self.type_map).append(Arc::make_mut(&mut update.type_map));
         // inner_size() returns Ok(None) exactly when the tuple is oversized.
-        self.inner_size()?.ok_or(ClarityTypeError::ValueTooLarge)?;
+        self.size = self.inner_size()?.ok_or(ClarityTypeError::ValueTooLarge)?;
         Ok(())
     }
 }
@@ -1035,8 +1042,12 @@ impl TypeSignature {
     ) -> Result<TypeSignature, ClarityTypeError> {
         match (a, b) {
             (
-                TupleType(TupleTypeSignature { type_map: types_a }),
-                TupleType(TupleTypeSignature { type_map: types_b }),
+                TupleType(TupleTypeSignature {
+                    type_map: types_a, ..
+                }),
+                TupleType(TupleTypeSignature {
+                    type_map: types_b, ..
+                }),
             ) => {
                 let mut type_map_out = BTreeMap::new();
                 for (name, entry_a) in types_a.iter() {
@@ -1146,8 +1157,12 @@ impl TypeSignature {
     ) -> Result<TypeSignature, ClarityTypeError> {
         match (a, b) {
             (
-                TupleType(TupleTypeSignature { type_map: types_a }),
-                TupleType(TupleTypeSignature { type_map: types_b }),
+                TupleType(TupleTypeSignature {
+                    type_map: types_a, ..
+                }),
+                TupleType(TupleTypeSignature {
+                    type_map: types_b, ..
+                }),
             ) => {
                 let mut type_map_out = BTreeMap::new();
                 for (name, entry_a) in types_a.iter() {
@@ -1595,12 +1610,19 @@ impl ListTypeData {
 }
 
 impl TupleTypeSignature {
+    /// Type-signature size of this tuple instance.
+    pub fn type_size(&self) -> Option<u32> {
+        Self::compute_type_size(&self.type_map)
+    }
+
+    /// Compute the type-signature size of a tuple from its type map.
+    ///
     /// Tuple Size:
     ///    size( btreemap<name, type> ) = 2*map.len() + sum(names) + sum(values)
-    pub fn type_size(&self) -> Option<u32> {
-        let mut type_map_size = u32::try_from(self.type_map.len()).ok()?.checked_mul(2)?;
+    fn compute_type_size(type_map: &BTreeMap<ClarityName, TypeSignature>) -> Option<u32> {
+        let mut type_map_size = u32::try_from(type_map.len()).ok()?.checked_mul(2)?;
 
-        for (name, type_signature) in self.type_map.iter() {
+        for (name, type_signature) in type_map.iter() {
             // we only accept ascii names, so 1 char = 1 byte.
             type_map_size = type_map_size
                 .checked_add(type_signature.inner_type_size()?)?
@@ -1615,10 +1637,9 @@ impl TupleTypeSignature {
         }
     }
 
-    pub fn size(&self) -> Result<u32, ClarityTypeError> {
-        self.inner_size()?.ok_or_else(|| {
-            ClarityTypeError::InvariantViolation("size() overflowed on a constructed type.".into())
-        })
+    /// Returns the cached value size, computed at construction time.
+    pub fn size(&self) -> u32 {
+        self.size
     }
 
     fn max_depth(&self) -> u8 {
@@ -1629,19 +1650,30 @@ impl TupleTypeSignature {
         max
     }
 
+    /// Value size of this tuple instance.
+    fn inner_size(&self) -> Result<Option<u32>, ClarityTypeError> {
+        Self::compute_inner_size(&self.type_map)
+    }
+
+    /// Compute the value size of a tuple from its type map.
+    ///
     /// Tuple Size:
     ///    size( btreemap<name, value> ) + type_size
     ///    size( btreemap<name, value> ) = 2*map.len() + sum(names) + sum(values)
-    fn inner_size(&self) -> Result<Option<u32>, ClarityTypeError> {
-        let Some(mut total_size) = u32::try_from(self.type_map.len())
+    ///
+    /// Returns `Ok(None)` when the result overflows or exceeds [`MAX_VALUE_SIZE`].
+    fn compute_inner_size(
+        type_map: &BTreeMap<ClarityName, TypeSignature>,
+    ) -> Result<Option<u32>, ClarityTypeError> {
+        let Some(mut total_size) = u32::try_from(type_map.len())
             .ok()
             .and_then(|x| x.checked_mul(2))
-            .and_then(|x| x.checked_add(self.type_size()?))
+            .and_then(|x| x.checked_add(Self::compute_type_size(type_map)?))
         else {
             return Ok(None);
         };
 
-        for (name, type_signature) in self.type_map.iter() {
+        for (name, type_signature) in type_map.iter() {
             // we only accept ascii names, so 1 char = 1 byte.
             total_size = if let Some(new_size) = total_size.checked_add(type_signature.size()?) {
                 new_size
