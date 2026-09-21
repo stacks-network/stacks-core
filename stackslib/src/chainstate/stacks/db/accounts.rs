@@ -850,21 +850,23 @@ impl StacksChainState {
             burn_total
         );
 
-        // every block-commit burns a non-zero amount, so this is unreachable for valid blocks;
-        // it only guards the division below
-        let (this_burn_total, burn_total) = if burn_total == 0 {
-            (1, 1)
+        // LeaderBlockCommitOp::check rejects zero-burn commits.
+        // If a schedule still has zero total burn, warn and skip coinbase without panicking.
+        let coinbase_reward = if burn_total == 0 {
+            warn!("Cannot award coinbase: total burn is zero";
+                "consensus_hash" => %participant.consensus_hash,
+                "stacks_block_hash" => %participant.block_hash,
+                "participant" => %participant.address
+            );
+            0
         } else {
-            (this_burn_total, burn_total)
+            // Split coinbase in proportion to each participant's burn.
+            participant
+                .coinbase
+                .checked_mul(this_burn_total)
+                .expect("FATAL: STX coinbase reward overflow")
+                / burn_total
         };
-
-        // each participant gets a share of the coinbase proportional to the fraction it burned out
-        // of all participants' burns.
-        let coinbase_reward = participant
-            .coinbase
-            .checked_mul(this_burn_total)
-            .expect("FATAL: STX coinbase reward overflow")
-            / burn_total;
 
         // process poison -- someone can steal a fraction of the total coinbase if they can present
         // evidence that the miner forked the microblock stream.  The remainder of the coinbase is
@@ -1380,6 +1382,67 @@ mod test {
         assert_eq!(parent_reward.tx_fees_anchored, 0);
         assert_eq!(parent_reward.tx_fees_streamed_produced, 0);
         assert_eq!(parent_reward.tx_fees_streamed_confirmed, 0);
+    }
+
+    /// Zero burn pays no coinbase while preserving miner and parent transaction fees.
+    #[test]
+    fn miner_reward_zero_burn() {
+        let miner_address =
+            StacksAddress::from_string("SP1A2K3ENNA6QQ7G8DVJXM24T6QMBDVS7D0TRTAR5").unwrap();
+        let parent_address =
+            StacksAddress::from_string("SP2QDF700V0FWXVNQJJ4XFGBWE6R2Y4APTSFQNBVE").unwrap();
+        let parent = make_dummy_miner_payment_schedule(&parent_address, 500, 100, 395, 1000, 1000);
+
+        for (epoch, tx_fees, anchored_fees, parent_fees, confirmed_fees) in [
+            (
+                StacksEpochId::Epoch2_05,
+                MinerPaymentTxFees::Epoch2 {
+                    anchored: 100,
+                    streamed: 105,
+                },
+                100,
+                // Before epoch 2.1, use the parent's own streamed fees.
+                (395 * 2) / 5,
+                // Miner's share of confirmed stream fees.
+                (105 * 3) / 5,
+            ),
+            (
+                StacksEpochId::Epoch30,
+                MinerPaymentTxFees::Nakamoto { parent_fees: 105 },
+                0,
+                105,
+                0,
+            ),
+        ] {
+            let mut participant =
+                make_dummy_miner_payment_schedule(&miner_address, 500, 0, 0, 0, 0);
+            participant.tx_fees = tx_fees;
+
+            let (parent_reward, miner_reward) = StacksChainState::calculate_miner_reward(
+                false,
+                epoch,
+                &participant,
+                &participant,
+                &[],
+                &parent,
+                None,
+            );
+
+            assert_eq!(miner_reward.coinbase, 0, "{epoch}: miner coinbase");
+            assert_eq!(miner_reward.tx_fees_anchored, anchored_fees, "{epoch}");
+            assert_eq!(miner_reward.tx_fees_streamed_produced, 0, "{epoch}");
+            assert_eq!(
+                miner_reward.tx_fees_streamed_confirmed, confirmed_fees,
+                "{epoch}"
+            );
+            assert_eq!(parent_reward.coinbase, 0, "{epoch}: parent coinbase");
+            assert_eq!(parent_reward.tx_fees_anchored, 0, "{epoch}");
+            assert_eq!(
+                parent_reward.tx_fees_streamed_produced, parent_fees,
+                "{epoch}"
+            );
+            assert_eq!(parent_reward.tx_fees_streamed_confirmed, 0, "{epoch}");
+        }
     }
 
     #[test]

@@ -1908,8 +1908,7 @@ impl NakamotoBlock {
     /// Verifies:
     /// * the header version matches the epoch. The header version is fixed per
     ///   epoch and is what gates the `problematic_txs` field in the block hash,
-    ///   so a block whose version doesn't match its epoch is rejected.  This
-    ///   includes the high bit, which used to flag shadow blocks.
+    ///   so a block whose version doesn't match its epoch is rejected.
     pub fn validate_header_static(&self, epoch_id: StacksEpochId) -> bool {
         let expected_version = NakamotoBlockHeader::expected_version_for_epoch(epoch_id);
         if self.header.version != expected_version {
