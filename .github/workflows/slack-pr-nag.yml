@@ -268,8 +268,9 @@ jobs:
               const isExternal = !allowedUsers.has(authorLogin);
               const needsTriage = isExternal && (pr.assignees || []).length === 0;
 
+              let triagerLogin = null;
               if (needsTriage) {
-                const triagerLogin = triagerPool.length > 0 
+                triagerLogin = triagerPool.length > 0 
                   ? triagerPool[pr.number % triagerPool.length] 
                   : null;
                 if (triagerLogin) {
@@ -282,33 +283,43 @@ jobs:
               const owners = isExternal ? (pr.assignees || []).map(a => a.login.toLowerCase()) : [authorLogin];
               // A review already sitting in someone's queue is not the owner's problem.
               const someoneOwesReview = pr.requested_reviewers.some(r => r.state === 'AWAITING_REVIEW');
-              for (const ownerLogin of owners) {
-                if (changesRequested) {
-                  addAction(ownerLogin, `🛑 Changes requested: ${link}`, pr.number);
-                } else if (resolveCount > 0) {
-                  addAction(ownerLogin, `💬 ${resolveCount} ${resolveCount === 1 ? 'comment' : 'comments'} to resolve: ${link}`, pr.number);
-                } else if (pr.merge_conflict_present) {
-                  addAction(ownerLogin, `⚠️ Needs merge conflicts fixed: ${link}`, pr.number);
-                } else if (pr.out_of_date_with_base) {
-                  addAction(ownerLogin, `⏩ Needs rebase/merge: ${link}`, pr.number);
-                } else if (item.approvedCount >= 2) {
-                  addAction(ownerLogin, `✅ Ready for merge: ${link}`, pr.number);
-                } else if (item.allReviewersSuperset.length === 0) {
-                  addAction(ownerLogin, `👥 Needs reviewers assigned: ${link}`, pr.number);
-                } else if (!someoneOwesReview) {
-                  addAction(ownerLogin, `⏳ Need reviews: ${link}`, pr.number);
+              
+              // Tasks that strictly belong to the PR author, regardless of internal/external
+              if (changesRequested) {
+                addAction(authorLogin, `🛑 Changes requested: ${link}`, pr.number);
+              } else if (resolveCount > 0) {
+                addAction(authorLogin, `💬 ${resolveCount} ${resolveCount === 1 ? 'comment' : 'comments'} to resolve: ${link}`, pr.number);
+              } else if (pr.merge_conflict_present) {
+                addAction(authorLogin, `⚠️ Needs merge conflicts fixed: ${link}`, pr.number);
+              } else if (pr.out_of_date_with_base) {
+                addAction(authorLogin, `⏩ Needs rebase/merge: ${link}`, pr.number);
+              } else {
+                // Tasks that belong to the PR manager (the author for internal, or the assignee for external)
+                for (const ownerLogin of owners) {
+                  if (item.approvedCount >= 2) {
+                    addAction(ownerLogin, `✅ Ready for merge: ${link}`, pr.number);
+                  } else if (item.allReviewersSuperset.length === 0) {
+                    addAction(ownerLogin, `👥 Needs reviewers assigned: ${link}`, pr.number);
+                  } else if (!someoneOwesReview) {
+                    addAction(ownerLogin, `⏳ Need reviews: ${link}`, pr.number);
+                  }
                 }
               }
 
               // Reviewer actions
-              pr.requested_reviewers.forEach(r => {
-                // Skip if they already approved OR if they are an external user
-                if (r.state === 'APPROVED' || !allowedUsers.has(r.login.toLowerCase())) return;
-                
-                if (r.state === 'AWAITING_REVIEW') {
-                  addAction(r.login, `⏳ Need to review: ${link}`, pr.number);
-                }
-              });
+              if (!pr.merge_conflict_present) {
+                pr.requested_reviewers.forEach(r => {
+                  // Skip if they already approved OR if they are an external user
+                  if (r.state === 'APPROVED' || !allowedUsers.has(r.login.toLowerCase())) return;
+                  
+                  // Skip if they are already assigned to triage this specific external PR
+                  if (needsTriage && triagerLogin === r.login.toLowerCase()) return;
+                  
+                  if (r.state === 'AWAITING_REVIEW') {
+                    addAction(r.login, `⏳ Need to review: ${link}`, pr.number);
+                  }
+                });
+              }
             }
 
             // Helper to extract the plain display name for consistent sorting
