@@ -345,6 +345,7 @@ impl TraitIdentifier {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(variant_count::VariantCount))]
 pub enum Value {
     Int(i128),
     UInt(u128),
@@ -361,6 +362,7 @@ pub enum Value {
 }
 
 #[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(variant_count::VariantCount))]
 pub enum SequenceData {
     Buffer(BuffData),
     List(ListData),
@@ -769,6 +771,7 @@ impl SequenceData {
 }
 
 #[derive(Clone, Eq, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(variant_count::VariantCount))]
 pub enum CharType {
     UTF8(UTF8Data),
     ASCII(ASCIIData),
@@ -1065,8 +1068,52 @@ impl Value {
         }
     }
 
+    /// Serialized size charged for this value.
+    ///
+    /// Computed directly per variant rather than via [`TypeSignature::type_of`]
+    /// as `TypeSignature::type_of(self)?.size()`.
+    /// The size lookup is cached either way (see [`TypeSignature::inner_size`]); what this avoids
+    /// is constructing a `TypeSignature` only to throw it away.
+    ///
+    /// Result is identical to the `TypeSignature::type_of(self)?.size()`computation.
     pub fn size(&self) -> Result<u32, ClarityTypeError> {
-        TypeSignature::type_of(self)?.size()
+        match self {
+            Value::Int(_) | Value::UInt(_) => Ok(INT_SIZE),
+            Value::Bool(_) => Ok(BOOL_SIZE),
+            Value::Principal(_) => Ok(PRINCIPAL_SIZE),
+            Value::CallableContract(v) => {
+                if v.trait_identifier.is_some() {
+                    Ok(TRAIT_SIZE)
+                } else {
+                    Ok(PRINCIPAL_SIZE)
+                }
+            }
+            Value::Tuple(data) => Ok(data.type_signature.size()),
+            Value::Sequence(SequenceData::List(data)) => Ok(data.type_signature.size()),
+            Value::Sequence(SequenceData::Buffer(data)) => Ok(SEQUENCE_LENGTH_PREFIX
+                + u32::try_from(data.data.len()).map_err(|_| ClarityTypeError::ValueTooLarge)?),
+            Value::Sequence(SequenceData::String(CharType::ASCII(data))) => {
+                Ok(SEQUENCE_LENGTH_PREFIX
+                    + u32::try_from(data.data.len())
+                        .map_err(|_| ClarityTypeError::ValueTooLarge)?)
+            }
+            Value::Sequence(SequenceData::String(CharType::UTF8(data))) => {
+                Ok(SEQUENCE_LENGTH_PREFIX
+                    + UTF8_CHAR_SIZE
+                        * u32::try_from(data.data.len())
+                            .map_err(|_| ClarityTypeError::ValueTooLarge)?)
+            }
+            Value::Optional(opt) => match &opt.data {
+                Some(v) => Ok(v.size()? + WRAPPER_VALUE_SIZE),
+                // `none` types as `(optional NoType)`, so it is charged the wrapper plus
+                // `NoType`'s size.
+                None => Ok(NO_TYPE_SIZE + WRAPPER_VALUE_SIZE),
+            },
+            // `ResponseType`'s size is `max(ok, err) + wrapper`, and the unused arm is always
+            // `NoType` (size 1) for a concrete value. No `Value` sizes below 1, so the max is
+            // always the present arm.
+            Value::Response(resp) => Ok(resp.data.size()? + WRAPPER_VALUE_SIZE),
+        }
     }
 
     pub fn depth(&self) -> Result<u8, ClarityTypeError> {
