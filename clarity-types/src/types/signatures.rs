@@ -24,9 +24,11 @@ use stacks_common::types::StacksEpochId;
 
 use crate::representations::{CONTRACT_MAX_NAME_LENGTH, ClarityName, ContractName};
 use crate::types::{
-    CharType, ClarityTypeError, MAX_TO_ASCII_BUFFER_LEN, MAX_TO_ASCII_RESULT_LEN, MAX_TYPE_DEPTH,
-    MAX_UTF8_VALUE_SIZE, MAX_VALUE_SIZE, PrincipalData, QualifiedContractIdentifier, SequenceData,
-    SequencedValue, StandardPrincipalData, TraitIdentifier, Value, WRAPPER_VALUE_SIZE,
+    BOOL_SIZE, CharType, ClarityTypeError, INT_SIZE, MAX_TO_ASCII_BUFFER_LEN,
+    MAX_TO_ASCII_RESULT_LEN, MAX_TYPE_DEPTH, MAX_UTF8_VALUE_SIZE, MAX_VALUE_SIZE, NO_TYPE_SIZE,
+    PRINCIPAL_SIZE, PrincipalData, QualifiedContractIdentifier, SEQUENCE_LENGTH_PREFIX,
+    SequenceData, SequencedValue, StandardPrincipalData, TRAIT_SIZE, TraitIdentifier,
+    UTF8_CHAR_SIZE, Value, WRAPPER_VALUE_SIZE,
 };
 
 #[derive(Debug, Clone, PartialEq, PartialOrd, Eq, Serialize, Deserialize, Hash)]
@@ -1378,19 +1380,18 @@ impl TypeSignature {
         let out = match self {
             // NoType's may be asked for their size at runtime --
             //  legal constructions like `(ok 1)` have NoType parts (if they have unknown error variant types).
-            NoType => Some(1),
-            IntType => Some(16),
-            UIntType => Some(16),
-            BoolType => Some(1),
-            PrincipalType => Some(148), // 20+128
+            NoType => Some(NO_TYPE_SIZE),
+            IntType | UIntType => Some(INT_SIZE),
+            BoolType => Some(BOOL_SIZE),
+            PrincipalType => Some(PRINCIPAL_SIZE),
             TupleType(tuple_sig) => tuple_sig.inner_size()?,
             SequenceType(SequenceSubtype::BufferType(len))
             | SequenceType(SequenceSubtype::StringType(StringSubtype::ASCII(len))) => {
-                Some(4 + u32::from(len))
+                Some(SEQUENCE_LENGTH_PREFIX + u32::from(len))
             }
             SequenceType(SequenceSubtype::ListType(list_type)) => list_type.inner_size()?,
             SequenceType(SequenceSubtype::StringType(StringSubtype::UTF8(len))) => {
-                Some(4 + 4 * u32::from(len))
+                Some(SEQUENCE_LENGTH_PREFIX + UTF8_CHAR_SIZE * u32::from(len))
             }
             OptionalType(t) => t.size()?.checked_add(WRAPPER_VALUE_SIZE),
             ResponseType(v) => {
@@ -1401,8 +1402,8 @@ impl TypeSignature {
                 let s_size = s.size()?;
                 cmp::max(t_size, s_size).checked_add(WRAPPER_VALUE_SIZE)
             }
-            CallableType(CallableSubtype::Principal(_)) | ListUnionType(_) => Some(148), // 20+128
-            CallableType(CallableSubtype::Trait(_)) | TraitReferenceType(_) => Some(276), // 20+128+128
+            CallableType(CallableSubtype::Principal(_)) | ListUnionType(_) => Some(PRINCIPAL_SIZE),
+            CallableType(CallableSubtype::Trait(_)) | TraitReferenceType(_) => Some(TRAIT_SIZE),
         };
         Ok(out)
     }
@@ -1449,19 +1450,22 @@ impl TypeSignature {
         let out = match self {
             // NoType's may be asked for their size at runtime --
             //  legal constructions like `(ok 1)` have NoType parts (if they have unknown error variant types).
-            NoType => Some(1),
-            IntType => Some(16),
-            UIntType => Some(16),
-            BoolType => Some(1),
+            NoType => Some(NO_TYPE_SIZE),
+            IntType | UIntType => Some(INT_SIZE),
+            BoolType => Some(BOOL_SIZE),
             TupleType(tuple_sig) => tuple_sig.inner_min_size()?,
             SequenceType(SequenceSubtype::BufferType(_))
-            | SequenceType(SequenceSubtype::StringType(StringSubtype::ASCII(_))) => Some(4),
+            | SequenceType(SequenceSubtype::StringType(StringSubtype::ASCII(_))) => {
+                Some(SEQUENCE_LENGTH_PREFIX)
+            }
             // Minimal list value is an empty list, which still carries list type metadata.
             SequenceType(SequenceSubtype::ListType(list_type)) => list_type.type_size(),
-            SequenceType(SequenceSubtype::StringType(StringSubtype::UTF8(_))) => Some(4),
+            SequenceType(SequenceSubtype::StringType(StringSubtype::UTF8(_))) => {
+                Some(SEQUENCE_LENGTH_PREFIX)
+            }
             // Optional types always admit `none`, so minimum size is fixed:
             // 1 byte for NoType plus wrapper.
-            OptionalType(_) => Some(WRAPPER_VALUE_SIZE + 1),
+            OptionalType(_) => Some(WRAPPER_VALUE_SIZE + NO_TYPE_SIZE),
             ResponseType(v) => {
                 // ResponseTypes are 1 byte for the committed bool,
                 //   plus min(err_type, ok_type)
@@ -1474,13 +1478,13 @@ impl TypeSignature {
                 // The actual value size is not computed for these types, so we need to just always
                 // return the size that `size()` returns for them, which is the maximum size of a
                 // contract principal with a 128 byte contract name.
-                Some(148)
+                Some(PRINCIPAL_SIZE)
             }
             CallableType(CallableSubtype::Trait(_)) | TraitReferenceType(_) => {
                 // The actual value size is not computed for these types, so we need to just always
                 // return the size that `size()` returns for them, which is the maximum size of a
                 // trait reference with a 128 byte contract name and 128 byte trait name.
-                Some(276)
+                Some(TRAIT_SIZE)
             }
         };
         Ok(out)
