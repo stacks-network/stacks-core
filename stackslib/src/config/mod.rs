@@ -1478,7 +1478,7 @@ pub struct BurnchainConfig {
     /// find the underlying bitcoin node to interact with for PoX operations,
     /// block validation, and mining.
     /// ---
-    /// @default: `"127.0.0.1"` for signet; `"0.0.0.0"` otherwise
+    /// @default: `"0.0.0.0"`
     pub peer_host: String,
     /// The P2P network port of the bitcoin node specified by [`BurnchainConfig::peer_host`].
     /// ---
@@ -1952,7 +1952,6 @@ impl BurnchainConfigFile {
         if mode == "signet" {
             self.signet_challenge
                 .get_or_insert_with(|| DEFAULT_SIGNET_CHALLENGE.into());
-            self.peer_host.get_or_insert_with(|| "127.0.0.1".into());
             self.peer_port.get_or_insert(signet::P2P_PORT);
             self.rpc_port.get_or_insert(signet::RPC_PORT);
         } else if self.signet_challenge.is_some() {
@@ -5053,7 +5052,7 @@ mod tests {
             public.burnchain.get_bitcoin_network().1,
             BitcoinNetworkType::Signet
         );
-        assert_eq!(public.burnchain.peer_host, "127.0.0.1");
+        assert_eq!(public.burnchain.peer_host, "0.0.0.0");
         assert_eq!(public.burnchain.peer_port, signet::P2P_PORT);
         assert_eq!(public.burnchain.rpc_port, signet::RPC_PORT);
         assert_eq!(public.burnchain.magic_bytes.as_bytes(), b"S2");
