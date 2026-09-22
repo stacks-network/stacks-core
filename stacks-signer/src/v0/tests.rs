@@ -413,6 +413,7 @@ mod async_sibling_validation {
         tenure: &ConsensusHash,
         parent_tenure: &ConsensusHash,
         parent: &StacksBlockId,
+        height: u64,
         timestamp: u64,
     ) -> NakamotoBlock {
         let payload = TenureChangePayload {
@@ -452,7 +453,7 @@ mod async_sibling_validation {
         let tx_merkle_root = MerkleTree::<Sha512Trunc256Sum>::new(&txid_vecs).root();
         let header = NakamotoBlockHeader {
             version: 1,
-            chain_length: 10,
+            chain_length: height,
             burn_spent: 10,
             consensus_hash: tenure.clone(),
             parent_block_id: parent.clone(),
@@ -465,6 +466,34 @@ mod async_sibling_validation {
             problematic_txs: vec![],
         };
         let mut block = NakamotoBlock::new(header, txs);
+        block.header.sign_miner(miner).unwrap();
+        block
+    }
+
+    /// Build a plain (non tenure-start) block for `tenure`, i.e. one a miner mines after its
+    /// tenure has already begun.
+    fn mid_tenure_block(
+        miner: &StacksPrivateKey,
+        tenure: &ConsensusHash,
+        parent: &StacksBlockId,
+        height: u64,
+        timestamp: u64,
+    ) -> NakamotoBlock {
+        let header = NakamotoBlockHeader {
+            version: 1,
+            chain_length: height,
+            burn_spent: 10,
+            consensus_hash: tenure.clone(),
+            parent_block_id: parent.clone(),
+            tx_merkle_root: Sha512Trunc256Sum([0; 32]),
+            state_index_root: TrieHash([0; 32]),
+            timestamp,
+            miner_signature: MessageSignature::empty(),
+            signer_signature: vec![],
+            pox_treatment: BitVec::ones(1).unwrap(),
+            problematic_txs: vec![],
+        };
+        let mut block = NakamotoBlock::new(header, vec![]);
         block.header.sign_miner(miner).unwrap();
         block
     }
@@ -666,8 +695,15 @@ mod async_sibling_validation {
         // Two conflicting sibling tenure-start blocks: same tenure, parent, and height; the only
         // difference is the timestamp (hence the hash). The timestamps are current so that a
         // re-proposal of B passes the proposal age check.
-        let block_a = tenure_start(&miner, &tenure, &parent_tenure, &parent_id, timestamp);
-        let block_b = tenure_start(&miner, &tenure, &parent_tenure, &parent_id, timestamp + 1);
+        let block_a = tenure_start(&miner, &tenure, &parent_tenure, &parent_id, 10, timestamp);
+        let block_b = tenure_start(
+            &miner,
+            &tenure,
+            &parent_tenure,
+            &parent_id,
+            10,
+            timestamp + 1,
+        );
         let hash_a = block_a.header.signer_signature_hash();
         let hash_b = block_b.header.signer_signature_hash();
         assert_ne!(hash_a, hash_b);
@@ -726,10 +762,16 @@ mod async_sibling_validation {
     /// is what the signer consults once the signature has timed out. If `re_propose_b_after` is
     /// set, the miner re-submits B's proposal after that delay (as it does after a signature
     /// timeout) and B's `BlockInfo` is captured again as the third element.
+    ///
+    /// `permit_reorg_of_tenure` records a reorg permit over the siblings' own tenure, naming a
+    /// third tenure as the one allowed to replace it (as `check_parent_tenure_choice` does when
+    /// the next sortition builds off the siblings' parent because the node saw no block here).
+    /// Neither sibling is that replacement, so the permit must not excuse either of them.
     fn run_sibling_scenario(
         tenure_last_block_proposal_timeout: Duration,
         serve_sibling_as_tip: bool,
         re_propose_b_after: Option<Duration>,
+        permit_reorg_of_tenure: bool,
     ) -> (BlockInfo, BlockInfo, Option<BlockInfo>) {
         let now = get_epoch_time_secs();
         let (block_a, block_b, tips) = sibling_fixture(now, serve_sibling_as_tip);
@@ -747,6 +789,29 @@ mod async_sibling_validation {
                 block_proposal_data: BlockProposalData::empty(),
             });
             node.signer.signer_db.insert_block(&info).unwrap();
+        }
+
+        if permit_reorg_of_tenure {
+            // The next sortition committed to the siblings' parent, because the node has been
+            // handed no block in this tenure (neither sibling has reached the threshold), so we
+            // sanctioned that tenure replacing this one. The permitting sortition is canonical
+            // throughout, so the permit itself is live: the only reason it must not excuse a
+            // sibling is that a sibling is not the replacement it was granted for.
+            let permitting_tenure = ConsensusHash([2; 20]);
+            let permitting_burn_hash = BurnchainHeaderHash([0xbb; 32]);
+            node.signer
+                .signer_db
+                .mark_tenure_superseded(
+                    &block_a.header.consensus_hash,
+                    1,
+                    &permitting_tenure,
+                    &permitting_burn_hash,
+                )
+                .unwrap();
+            node.tips.lock().unwrap().push((
+                format!("/v3/sortitions/burn/{}", permitting_burn_hash.to_hex()),
+                canonical_sortition_response(&permitting_burn_hash, 2),
+            ));
         }
 
         let (result_tx, _result_rx) = mpsc::channel();
@@ -824,23 +889,7 @@ mod async_sibling_validation {
         parent: &StacksBlockId,
         timestamp: u64,
     ) -> NakamotoBlock {
-        let header = NakamotoBlockHeader {
-            version: 1,
-            chain_length: 10,
-            burn_spent: 10,
-            consensus_hash: tenure.clone(),
-            parent_block_id: parent.clone(),
-            tx_merkle_root: Sha512Trunc256Sum([0; 32]),
-            state_index_root: TrieHash([0; 32]),
-            timestamp,
-            miner_signature: MessageSignature::empty(),
-            signer_signature: vec![],
-            pox_treatment: BitVec::ones(1).unwrap(),
-            problematic_txs: vec![],
-        };
-        let mut block = NakamotoBlock::new(header, vec![]);
-        block.header.sign_miner(&fixture_miner()).unwrap();
-        block
+        mid_tenure_block(&fixture_miner(), tenure, parent, 10, timestamp)
     }
 
     fn proposal_of(block: &NakamotoBlock) -> BlockProposal {
@@ -1355,7 +1404,8 @@ mod async_sibling_validation {
     fn signer_refuses_to_sign_second_sibling_tenure_start() {
         // Pin the fresh window far beyond the test's runtime so the guard can only take the
         // fresh branch; the stale branch is covered by the tests below.
-        let (info_a, info_b, _) = run_sibling_scenario(Duration::from_secs(100_000), false, None);
+        let (info_a, info_b, _) =
+            run_sibling_scenario(Duration::from_secs(100_000), false, None, false);
         assert_a_signed(&info_a);
         // B is still pre-committed (the sibling is allowed to reach pre-commit), but the signer
         // must refuse to place a second signature on a conflicting same-height block in this
@@ -1373,10 +1423,33 @@ mod async_sibling_validation {
     }
 
     #[test]
+    fn reorg_permit_does_not_excuse_a_sibling_in_the_superseded_tenure() {
+        // Identical to the test above, except that we have sanctioned a later tenure reorging
+        // this one. The permit exists so that our signature over A does not block the
+        // replacement we permitted -- a block in the permitting tenure. B is not that block:
+        // it is a second tenure-start block alongside one we already signed, which is
+        // equivocation rather than a reorg, so the permit must not excuse it. Signing both
+        // would hand one miner two threshold certificates at the same height in one tenure.
+        let (info_a, info_b, _) =
+            run_sibling_scenario(Duration::from_secs(100_000), false, None, true);
+        assert_a_signed(&info_a);
+        assert_eq!(
+            info_b.state,
+            BlockState::PreCommitted,
+            "block B should be pre-committed but not promoted, got: {}",
+            info_b.state
+        );
+        assert!(
+            info_b.signed_self.is_none(),
+            "block B must NOT be signed: a permit to reorg this tenure does not sanction a second block inside it"
+        );
+    }
+
+    #[test]
     fn stale_sibling_still_refused_when_canonical_tip_at_height() {
         // A zero timeout makes A's signature stale immediately, but the node reports A as the
         // canonical tip at the same height, so the replacement must still be refused.
-        let (info_a, info_b, _) = run_sibling_scenario(Duration::ZERO, true, None);
+        let (info_a, info_b, _) = run_sibling_scenario(Duration::ZERO, true, None, false);
         assert_a_signed(&info_a);
         assert_eq!(
             info_b.state,
@@ -1395,7 +1468,7 @@ mod async_sibling_validation {
         // A zero timeout makes A's signature stale immediately, and the node's canonical tip
         // is still the parent (height 9): A failed to be confirmed, so the signer must sign
         // the replacement rather than stall the tenure (the reorg-recovery case).
-        let (info_a, info_b, _) = run_sibling_scenario(Duration::ZERO, false, None);
+        let (info_a, info_b, _) = run_sibling_scenario(Duration::ZERO, false, None, false);
         assert_a_signed(&info_a);
         assert_eq!(
             info_b.state,
@@ -1429,8 +1502,12 @@ mod async_sibling_validation {
         // while the signature is STILL fresh. The re-proposal must go back through the
         // pre-commit evaluation and be refused again, not be signed directly off the tracked
         // `valid` flag.
-        let (info_a, info_b, info_b_reproposed) =
-            run_sibling_scenario(Duration::from_secs(100_000), false, Some(Duration::ZERO));
+        let (info_a, info_b, info_b_reproposed) = run_sibling_scenario(
+            Duration::from_secs(100_000),
+            false,
+            Some(Duration::ZERO),
+            false,
+        );
         assert_a_signed(&info_a);
         assert_b_refused(&info_b, "after validation");
         assert_b_refused(
@@ -1444,8 +1521,12 @@ mod async_sibling_validation {
         // B is refused while A's signature is fresh. After the signature times out the miner
         // re-submits B's proposal, but the node reports A as the canonical tip at the same
         // height, so B must still be refused.
-        let (info_a, info_b, info_b_reproposed) =
-            run_sibling_scenario(Duration::from_secs(3), true, Some(Duration::from_secs(4)));
+        let (info_a, info_b, info_b_reproposed) = run_sibling_scenario(
+            Duration::from_secs(3),
+            true,
+            Some(Duration::from_secs(4)),
+            false,
+        );
         assert_a_signed(&info_a);
         assert_b_refused(&info_b, "after validation");
         assert_b_refused(
@@ -1481,6 +1562,10 @@ mod async_sibling_validation {
         /// We permitted a reorg of tenure 1, but the permitting sortition was itself orphaned
         /// by a burnchain fork: the permit is void.
         SupersededPermitOrphaned,
+        /// We permitted a reorg of tenure 1, and the permitting sortition is still canonical,
+        /// but the permit names a third tenure rather than tenure 2. B is not the replacement
+        /// that permit sanctioned.
+        SupersededPermitForOtherTenure,
     }
 
     /// Drive the cross-tenure race: block A starts tenure 1 and block B starts tenure 2, both
@@ -1491,7 +1576,7 @@ mod async_sibling_validation {
     /// whether tenure 1's sortition is still canonical, and whether A was ever handed over.
     /// Returns the resulting `BlockInfo` for A and for B.
     fn run_cross_tenure_scenario(fate: TenureAFate) -> (BlockInfo, BlockInfo) {
-        let miner = StacksPrivateKey::from_seed(&[0, 1]);
+        let miner = fixture_miner();
         let parent_tenure = ConsensusHash([0; 20]);
         let tenure_a = ConsensusHash([1; 20]);
         let tenure_b = ConsensusHash([2; 20]);
@@ -1514,8 +1599,8 @@ mod async_sibling_validation {
         let parent_id = parent_header.block_id();
 
         let now = get_epoch_time_secs();
-        let block_a = tenure_start(&miner, &tenure_a, &parent_tenure, &parent_id, now);
-        let block_b = tenure_start(&miner, &tenure_b, &parent_tenure, &parent_id, now + 1);
+        let block_a = tenure_start(&miner, &tenure_a, &parent_tenure, &parent_id, 10, now);
+        let block_b = tenure_start(&miner, &tenure_b, &parent_tenure, &parent_id, 10, now + 1);
         let hash_a = block_a.header.signer_signature_hash();
         let hash_b = block_b.header.signer_signature_hash();
         assert_ne!(block_a.header.consensus_hash, block_b.header.consensus_hash);
@@ -1601,18 +1686,28 @@ mod async_sibling_validation {
                     _ => unreachable!(),
                 }
             }
-            TenureAFate::SupersededPermitCanonical | TenureAFate::SupersededPermitOrphaned => {
+            TenureAFate::SupersededPermitCanonical
+            | TenureAFate::SupersededPermitOrphaned
+            | TenureAFate::SupersededPermitForOtherTenure => {
                 // We sanctioned tenure 2 reorging tenure 1 under the reorg-timing rules; the
                 // record names the permitting sortition, and the permit is honored only while
                 // that sortition is still canonical. The mock node answers only for the burn
                 // hash it serves: everything else 404s (= the permitting sortition was
                 // orphaned).
                 let permitting_burn_hash = BurnchainHeaderHash([0xbb; 32]);
+                // Which tenure the permit names is the point of the third fate: only a block
+                // in that tenure is the replacement it sanctioned.
+                let permitting_tenure =
+                    if matches!(fate, TenureAFate::SupersededPermitForOtherTenure) {
+                        ConsensusHash([3; 20])
+                    } else {
+                        tenure_b.clone()
+                    };
                 node.signer
                     .signer_db
-                    .mark_tenure_superseded(&tenure_a, 1, &tenure_b, &permitting_burn_hash)
+                    .mark_tenure_superseded(&tenure_a, 1, &permitting_tenure, &permitting_burn_hash)
                     .unwrap();
-                if matches!(fate, TenureAFate::SupersededPermitCanonical) {
+                if !matches!(fate, TenureAFate::SupersededPermitOrphaned) {
                     let mut tips = node.tips.lock().unwrap();
                     tips.push((
                         format!("/v3/sortitions/burn/{}", permitting_burn_hash.to_hex()),
@@ -1808,6 +1903,21 @@ mod async_sibling_validation {
     }
 
     #[test]
+    fn reorg_permit_does_not_excuse_a_block_in_an_unpermitted_tenure() {
+        // The permit sanctions one specific tenure replacing tenure 1, and it is honored only
+        // for that tenure's blocks. Here the permitting sortition is perfectly canonical, but
+        // it names a third tenure: B belongs to neither the superseded nor the permitting
+        // tenure, so it claims a reorg we never sanctioned and the conflict keeps blocking.
+        let (info_a, info_b) =
+            run_cross_tenure_scenario(TenureAFate::SupersededPermitForOtherTenure);
+        assert_a_signed(&info_a);
+        assert_b_refused(
+            &info_b,
+            "the reorg permit was granted to a different tenure than the proposed block's",
+        );
+    }
+
+    #[test]
     fn conflict_whose_sortition_is_canonical_still_blocks_signing() {
         // The burn chain question must cut both ways: when the node serves tenure 1's
         // sortition as canonical, the tenure is provably live, and the fresh sibling keeps
@@ -1830,8 +1940,12 @@ mod async_sibling_validation {
         // re-submits B's proposal, and the node's canonical tip is still the parent: A failed
         // to be confirmed, so the re-proposal must lead to B being signed (the stall-recovery
         // case; the re-proposal is what re-triggers the pre-commit evaluation).
-        let (info_a, info_b, info_b_reproposed) =
-            run_sibling_scenario(Duration::from_secs(3), false, Some(Duration::from_secs(4)));
+        let (info_a, info_b, info_b_reproposed) = run_sibling_scenario(
+            Duration::from_secs(3),
+            false,
+            Some(Duration::from_secs(4)),
+            false,
+        );
         assert_a_signed(&info_a);
         assert_b_refused(&info_b, "after validation");
         let info_b_reproposed = info_b_reproposed.unwrap();
@@ -1844,6 +1958,233 @@ mod async_sibling_validation {
         assert!(
             info_b_reproposed.signed_self.is_some(),
             "block B should carry our signature after the re-proposal"
+        );
+    }
+
+    /// The chain shape a descendant-tenure scenario builds, i.e. what the proposal is and what
+    /// the reorg permit over tenure 1 names.
+    #[derive(Clone, Copy)]
+    enum DescendantCase {
+        /// The permit names tenure 2, and the proposal's tenure builds on tenure 2: the
+        /// proposal continues the very replacement we sanctioned, one tenure change further
+        /// along, so the permit has to cover it.
+        ContinuesPermittedBranch,
+        /// The permit names tenure 2, but the proposal's tenure builds back onto tenure 1 --
+        /// the branch the conflict is on. The proposal is then a sibling of the block we
+        /// signed rather than a continuation of the replacement, and must stay blocked.
+        ForksBackToSupersededBranch,
+        /// The proposal's tenure builds on tenure 2, but the permit names a fourth tenure that
+        /// the proposal neither belongs to nor builds on: a reorg we never sanctioned.
+        PermitNamesUnrelatedTenure,
+    }
+
+    /// Drive the descendant-tenure race: the conflict is no longer in the tenure the proposal
+    /// belongs to *or* replaces, but one tenure further back, because the replacement we
+    /// sanctioned has itself been built upon.
+    ///
+    ///   T0: P  (height 9)
+    ///   T1: A1 (height 10, off P), A2 (height 11) -- we signed A2; the node was never handed it
+    ///   T2: B1 (height 10, off P) -- the replacement we permitted for T1
+    ///   T3: C1 (height 11, off B1) -- the proposal, a plain tenure change on top of B1
+    ///
+    /// A2 and C1 are siblings at height 11, so A2 is a conflict for C1, and the permit over T1
+    /// names T2 rather than C1's own tenure. Returns C1's resulting `BlockInfo`.
+    fn run_descendant_tenure_scenario(case: DescendantCase) -> BlockInfo {
+        let miner = fixture_miner();
+        let tenure_0 = ConsensusHash([0; 20]);
+        let tenure_1 = ConsensusHash([1; 20]);
+        let tenure_2 = ConsensusHash([2; 20]);
+        let tenure_3 = ConsensusHash([3; 20]);
+        let unrelated_tenure = ConsensusHash([4; 20]);
+
+        let mut parent_header = NakamotoBlockHeader {
+            version: 1,
+            chain_length: 9,
+            burn_spent: 10,
+            consensus_hash: tenure_0.clone(),
+            parent_block_id: StacksBlockId([9; 32]),
+            tx_merkle_root: Sha512Trunc256Sum([0; 32]),
+            state_index_root: TrieHash([0; 32]),
+            timestamp: 9,
+            miner_signature: MessageSignature::empty(),
+            signer_signature: vec![],
+            pox_treatment: BitVec::ones(1).unwrap(),
+            problematic_txs: vec![],
+        };
+        parent_header.sign_miner(&miner).unwrap();
+        let parent_id = parent_header.block_id();
+
+        let now = get_epoch_time_secs();
+        let block_a1 = tenure_start(&miner, &tenure_1, &tenure_0, &parent_id, 10, now);
+        let block_a2 = mid_tenure_block(&miner, &tenure_1, &block_a1.block_id(), 11, now + 1);
+        let block_b1 = tenure_start(&miner, &tenure_2, &tenure_0, &parent_id, 10, now + 2);
+        // Whichever branch the proposal builds on, it is a tenure change: its
+        // `prev_tenure_consensus_hash` is the tenure of its parent, as consensus requires.
+        let (proposal_parent_tenure, proposal_parent_id) = match case {
+            DescendantCase::ForksBackToSupersededBranch => (&tenure_1, block_a1.block_id()),
+            DescendantCase::ContinuesPermittedBranch
+            | DescendantCase::PermitNamesUnrelatedTenure => (&tenure_2, block_b1.block_id()),
+        };
+        let block_c1 = tenure_start(
+            &miner,
+            &tenure_3,
+            proposal_parent_tenure,
+            &proposal_parent_id,
+            11,
+            now + 3,
+        );
+        let hash_a2 = block_a2.header.signer_signature_hash();
+        let hash_c1 = block_c1.header.signer_signature_hash();
+        assert_eq!(
+            block_a2.header.chain_length, block_c1.header.chain_length,
+            "A2 and C1 must be siblings for A2 to be a conflict"
+        );
+
+        // The node serves the tip of each tenure the proposal's tenure-change parent check can
+        // land on. Tenure 1 is served at A1 (height 10) rather than A2: A2 was only ever
+        // locally accepted, so the node was never handed it -- which is also what leaves A2
+        // blocking in the first place.
+        let tip = |header: &NakamotoBlockHeader, burn_view: &ConsensusHash| {
+            serde_json::to_string(&BlockHeaderWithMetadata {
+                anchored_header: header.clone().into(),
+                burn_view: Some(burn_view.clone()),
+            })
+            .unwrap()
+        };
+        let tips = vec![
+            (
+                format!("/v3/tenures/tip_metadata/{tenure_1}"),
+                tip(&block_a1.header, &tenure_1),
+            ),
+            (
+                format!("/v3/tenures/tip_metadata/{tenure_2}"),
+                tip(&block_b1.header, &tenure_2),
+            ),
+            (
+                "/v3/blocks/upload".to_string(),
+                format!(r#"{{"stacks_block_id":"{parent_id}","accepted":true}}"#),
+            ),
+        ];
+
+        // The freshness window is wide open, so only the permit can decide whether our
+        // signature over A2 still blocks C1.
+        let mut node = MockNode::new(tips, Duration::from_secs(100_000));
+
+        // We already signed A2, as the signer would have during tenure 1. Recorded directly:
+        // what tenure 1's own signing looked like is not what is under test here.
+        let mut info_a2 = BlockInfo::from(BlockProposal {
+            block: block_a2,
+            burn_height: 1,
+            reward_cycle: 1,
+            block_proposal_data: BlockProposalData::empty(),
+        });
+        info_a2.mark_locally_accepted(false).unwrap();
+        node.signer.signer_db.insert_block(&info_a2).unwrap();
+
+        let info_c1 = BlockInfo::from(BlockProposal {
+            block: block_c1,
+            burn_height: 1,
+            reward_cycle: 1,
+            block_proposal_data: BlockProposalData::empty(),
+        });
+        node.signer.signer_db.insert_block(&info_c1).unwrap();
+
+        // We sanctioned a reorg of tenure 1 under the reorg-timing rules. The permitting
+        // sortition is canonical throughout, so the only thing that varies is which tenure the
+        // permit names.
+        let permitting_burn_hash = BurnchainHeaderHash([0xbb; 32]);
+        let permitting_tenure = match case {
+            DescendantCase::PermitNamesUnrelatedTenure => &unrelated_tenure,
+            DescendantCase::ContinuesPermittedBranch
+            | DescendantCase::ForksBackToSupersededBranch => &tenure_2,
+        };
+        node.signer
+            .signer_db
+            .mark_tenure_superseded(&tenure_1, 1, permitting_tenure, &permitting_burn_hash)
+            .unwrap();
+        node.tips.lock().unwrap().push((
+            format!("/v3/sortitions/burn/{}", permitting_burn_hash.to_hex()),
+            canonical_sortition_response(&permitting_burn_hash, 2),
+        ));
+
+        let (result_tx, _result_rx) = mpsc::channel();
+        let mut sortition = None;
+        node.signer.process_event(
+            &node.client,
+            &mut sortition,
+            Some(&validate_ok(&hash_c1)),
+            &result_tx,
+            1,
+        );
+        let info_c1 = node
+            .signer
+            .signer_db
+            .block_lookup(&hash_c1)
+            .unwrap()
+            .unwrap();
+        // A2 must still be the block we signed: nothing here may quietly retract it.
+        let info_a2 = node
+            .signer
+            .signer_db
+            .block_lookup(&hash_a2)
+            .unwrap()
+            .unwrap();
+        assert!(
+            info_a2.signed_self.is_some(),
+            "the conflicting block A2 should still carry our signature"
+        );
+
+        node.shutdown();
+
+        info_c1
+    }
+
+    #[test]
+    fn reorg_permit_covers_a_tenure_built_on_the_permitting_tenure() {
+        // Having sanctioned tenure 2 reorging tenure 1, we signed tenure 2's block. Tenure 3
+        // then builds on it in the ordinary way -- no new reorg, just the next tenure. Our
+        // signature over A2, on the branch we already agreed to abandon, must not stand in the
+        // way: the permit covers the branch it sanctioned, not only its first tenure. Before
+        // this was so, C1 was refused until the signature over A2 went stale, and the recovery
+        // was gated on the miner re-proposing rather than on the staleness itself.
+        let info_c1 = run_descendant_tenure_scenario(DescendantCase::ContinuesPermittedBranch);
+        assert_eq!(
+            info_c1.state,
+            BlockState::LocallyAccepted,
+            "block C1 should be signed: it continues the reorg we permitted, got: {}",
+            info_c1.state
+        );
+        assert!(
+            info_c1.signed_self.is_some(),
+            "block C1 should carry our signature while the reorg permit stands"
+        );
+    }
+
+    #[test]
+    fn reorg_permit_does_not_cover_a_tenure_built_on_the_superseded_tenure() {
+        // The permit is not a licence to sign anything in a later tenure: tenure 3 here builds
+        // back onto tenure 1, the branch our signature over A2 is on, so C1 is a sibling of A2
+        // rather than a continuation of the replacement. (The chainstate checks catch this one
+        // first, since A2 is the highest block we know of in the tenure C1 claims to confirm;
+        // the permit scope is the second line of defense behind them.)
+        let info_c1 = run_descendant_tenure_scenario(DescendantCase::ForksBackToSupersededBranch);
+        assert!(
+            info_c1.signed_self.is_none(),
+            "block C1 must NOT be signed: it forks back onto the branch we already signed a block on, got: {}",
+            info_c1.state
+        );
+    }
+
+    #[test]
+    fn reorg_permit_for_an_unrelated_tenure_does_not_cover_the_proposal() {
+        // The permitting sortition is canonical and tenure 3 builds on tenure 2 as before, but
+        // the permit names a fourth tenure. C1 is then neither the replacement we sanctioned
+        // nor built on it, so it claims a reorg we never permitted and the conflict keeps
+        // blocking.
+        let info_c1 = run_descendant_tenure_scenario(DescendantCase::PermitNamesUnrelatedTenure);
+        assert_b_refused(
+            &info_c1,
+            "the reorg permit was granted to a tenure the proposal neither belongs to nor builds on",
         );
     }
 }
