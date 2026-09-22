@@ -959,7 +959,9 @@ mod tests {
             }
         );
 
-        view.latest_sortition = LatestSortition::Known { reward_cycle: 1 };
+        view.latest_sortition = LatestSortition::Known {
+            latest_sortition_height: 119,
+        };
         assert_eq!(view.latest_sortition_reward_cycle(), Some(1));
 
         // Re-setting the same tip keeps the resolved answer.
@@ -976,7 +978,9 @@ mod tests {
         assert_eq!(view.latest_sortition, LatestSortition::Pending);
 
         // So does the same height on a different fork.
-        view.latest_sortition = LatestSortition::Known { reward_cycle: 2 };
+        view.latest_sortition = LatestSortition::Known {
+            latest_sortition_height: 127,
+        };
         view.set_tip(BurnBlock {
             height: 127,
             consensus_hash: ConsensusHash([3; 20]),

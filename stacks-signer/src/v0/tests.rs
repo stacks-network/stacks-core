@@ -956,6 +956,7 @@ mod async_sibling_validation {
                 Some(&validate_ok(&hash_a)),
                 &result_tx,
                 1,
+                Some(1),
             );
             let info_a = node
                 .signer
@@ -980,6 +981,7 @@ mod async_sibling_validation {
             Some(&reproposal),
             &result_tx,
             1,
+            Some(1),
         );
         let outcome = RecordedOutcome::collect(&mut node, &hash_b);
         node.shutdown();
@@ -1016,6 +1018,7 @@ mod async_sibling_validation {
                 Some(&validate_ok(&hash_a)),
                 &result_tx,
                 1,
+                Some(1),
             );
             assert_a_signed(
                 &node
@@ -1038,6 +1041,7 @@ mod async_sibling_validation {
             Some(&validate_ok(&hash_c)),
             &result_tx,
             1,
+            Some(1),
         );
         let outcome = RecordedOutcome::collect(&mut node, &hash_c);
         node.shutdown();
