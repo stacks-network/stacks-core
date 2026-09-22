@@ -226,7 +226,7 @@ ensure_flaky_label() {
 # one reopened alongside it.
 load_existing_issues() {
     local target="$1"
-    local open_issues closed_issues fetched number full
+    local open_issues closed_issues fetched number full_comments
     local fields="number,state,body,comments,createdAt"
 
     open_issues="$(mktemp)"
@@ -269,15 +269,21 @@ load_existing_issues() {
     # quiet. `gh issue view` pages internally and returns all of them, so any
     # issue sitting at the cap is re-fetched in full. One extra call each, and it
     # takes a hundred failing runs on one test to earn one.
+    full_comments="$(mktemp)"
     while read -r number; do
         [[ -z "${number}" ]] && continue
         warn "Issue #${number} is at the comment list cap - re-fetching it in full"
-        full=$(gh issue view "${number}" --repo "${CFG_REPO}" --json comments)
-        jq --argjson number "${number}" --argjson full "${full}" \
-            'map(if .number == $number then .comments = $full.comments else . end)' \
+
+        # Its own statement, so a failed fetch trips `set -e`. Inside a process
+        # substitution it would not, and jq would quietly replace the comments
+        # with nothing - ageing last_failure into a premature close.
+        gh issue view "${number}" --repo "${CFG_REPO}" --json comments > "${full_comments}"
+        jq --argjson number "${number}" --slurpfile full "${full_comments}" \
+            'map(if .number == $number then .comments = $full[0].comments else . end)' \
             "${target}" > "${target}.full"
         mv "${target}.full" "${target}"
     done < <(jq -r '.[] | select((.comments | length) >= 100) | .number' "${target}")
+    rm -f "${full_comments}"
 
     info "Found $(hl "$(jq 'length' "${target}")") existing $(hl "${CFG_FLAKY_LABEL}") issue(s)"
 }
