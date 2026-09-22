@@ -178,8 +178,11 @@ initialize() {
     CFG_OBSERVED_TESTS_FILE="${OBSERVED_TESTS_FILE}"
 
     # Enough of the output to recognize the failure, without pasting a whole
-    # backtrace into an issue body later. Read by excerpt() below.
+    # backtrace into an issue body later. Used by excerpt().
     CFG_EXCERPT_LINES=10
+
+    # The same bound above but in bytes. Used by excerpt().
+    CFG_EXCERPT_BYTES=8000
 }
 
 
@@ -201,9 +204,9 @@ test_names() {
 
 # The part of the captured output that says why the test failed. Prefers the
 # panic line and what follows; otherwise keeps the tail, which is where nextest
-# prints the reason.
+# prints the reason. Bounded in lines and in bytes.
 excerpt() {
-    local text="$1"
+    local text="$1" out
 
     # An empty failure element carries no diagnostic at all: nextest emits
     # a bare <failure type="test failure"/> in some versions when output
@@ -215,15 +218,31 @@ excerpt() {
         return 0
     fi
 
-    if grep -qi 'panicked at' <<< "${text}"; then
-        grep -i -A"$(( CFG_EXCERPT_LINES - 1 ))" 'panicked at' <<< "${text}" \
-            | sed '/[Ss]tack backtrace:/Q' \
-            | head -n "${CFG_EXCERPT_LINES}"
+    # Extract the part of the failure that is most likely to help triage it, 
+    # bounded to a few lines. The grep/sed pipeline below is a best-effort heuristic:
+    # - If the failure contains a panic, keep the panic line and the following lines 
+    #   up to the stack backtrace, or CFG_EXCERPT_LINES if the backtrace is not present.   
+    # - Otherwise, keep the last CFG_EXCERPT_LINES lines of the failure text, 
+    #   which is where nextest prints the reason for a test failure.
+    out=$(
+        if grep -qi 'panicked at' <<< "${text}"; then
+            grep -i -A"$(( CFG_EXCERPT_LINES - 1 ))" 'panicked at' <<< "${text}" \
+                | sed '/[Ss]tack backtrace:/Q' \
+                | head -n "${CFG_EXCERPT_LINES}"
+        else
+            grep -v '^[[:space:]]*$' <<< "${text}" | tail -n "${CFG_EXCERPT_LINES}"
+        # A trailing `|| true` because this helper is best-effort by design: no
+        # shape of failure output should be able to fail the run.
+        fi | sed 's/[[:space:]]*$//' || true
+    )
+
+    # Furthermore bounds the amount of text, in case of a very long lines
+    # that could exceed the 65536-character limit on an issue comment.
+    if (( ${#out} > CFG_EXCERPT_BYTES )); then
+        printf '%s\n%s' "${out:0:CFG_EXCERPT_BYTES}" '[... truncated]'
     else
-        grep -v '^[[:space:]]*$' <<< "${text}" | tail -n 15
-    # A trailing `|| true` because this helper is best-effort by design: no
-    # shape of failure output should be able to fail the run.
-    fi | sed 's/[[:space:]]*$//' || true
+        printf '%s' "${out}"
+    fi
 }
 
 
