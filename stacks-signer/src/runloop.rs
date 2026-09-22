@@ -190,6 +190,16 @@ pub struct BurnchainView {
     pub tip: BurnBlock,
     /// The latest sortition at or before `tip`
     pub latest_sortition: LatestSortition,
+    /// The height of the most recent sortition this view has ever
+    /// resolved, on any tip.
+    ///
+    /// Unlike `latest_sortition`, this survives `set_tip`. It exists
+    /// only to tell "we have never had an answer" apart from "we had
+    /// one and are about to ask for a new tip", which
+    /// `latest_sortition` alone cannot express. This should only be
+    /// used to decide on retaining / respawning a signer. It should
+    /// never feed the signing gate.
+    last_resolved_sortition_height: Option<u64>,
 }
 
 impl BurnchainView {
@@ -199,6 +209,7 @@ impl BurnchainView {
             geometry,
             tip,
             latest_sortition: LatestSortition::Pending,
+            last_resolved_sortition_height: None,
         }
     }
 
@@ -227,8 +238,33 @@ impl BurnchainView {
         }
     }
 
+    /// The reward cycle that signer retention is decided against: the latest sortition's
+    /// cycle for this tip, or, while that is still pending, the last one this view resolved
+    /// on any tip.
+    ///
+    /// The fallback is what stops the prior cycle's signer from being
+    /// torn down and rebuilt on every burn block. This is a resource
+    /// allocation answer, not a signing answer: it can name a
+    /// sortition from a tip we have moved off, so whether a block may
+    /// be signed must keep using `latest_sortition_reward_cycle`.
+    pub fn retention_sortition_reward_cycle(&self) -> Option<u64> {
+        self.latest_sortition_reward_cycle().or_else(|| {
+            self.last_resolved_sortition_height
+                .map(|height| self.geometry.reward_cycle_of(height))
+        })
+    }
+
+    /// Record the latest sortition at or before the current tip.
+    pub fn set_latest_sortition(&mut self, latest_sortition_height: u64) {
+        self.latest_sortition = LatestSortition::Known {
+            latest_sortition_height,
+        };
+        self.last_resolved_sortition_height = Some(latest_sortition_height);
+    }
+
     /// Move the view to a new tip. The latest sortition is re-resolved for the new tip
-    /// unless the tip is unchanged.
+    /// unless the tip is unchanged. `last_resolved_sortition_height` deliberately survives:
+    /// it is what the new tip's pending answer falls back on.
     pub fn set_tip(&mut self, tip: BurnBlock) {
         if self.tip != tip {
             self.tip = tip;
@@ -265,11 +301,13 @@ fn oldest_active_reward_cycle(
     let Some(prior_reward_cycle) = current_reward_cycle.checked_sub(1) else {
         return current_reward_cycle;
     };
-    // `None` means the latest sortition could not be confirmed. Keep the prior cycle's
-    // signer configured anyway: retention is a liveness question, and the safety question
-    // is settled separately by `Signer::is_reward_cycle_retired`, which refuses to sign on
-    // an unconfirmed view. Tearing the signer down here instead would make an unconfirmed
-    // view permanent for that cycle, since it could no longer act once the view recovers.
+    // `None` means no sortition has ever been confirmed on this view (callers pass
+    // `BurnchainView::retention_sortition_reward_cycle`, which falls back to the last
+    // resolved answer, so a merely-pending tip does not land here). Keep the prior cycle's
+    // signer configured: retention is a liveness question, and the safety question is
+    // settled separately by `Signer::is_reward_cycle_retired`, which refuses to sign on an
+    // unconfirmed view. Tearing the signer down here instead would make an unconfirmed view
+    // permanent for that cycle, since it could no longer act once the view recovers.
     if latest_sortition_reward_cycle.is_none_or(|latest| latest <= prior_reward_cycle) {
         prior_reward_cycle
     } else {
@@ -562,9 +600,7 @@ impl<Signer: SignerTrait<T>, T: StacksMessageCodec + Clone + Send + Debug> RunLo
             "burn_block_consensus_hash" => %view.tip.consensus_hash,
         );
         if let Some(view) = &mut self.burnchain_view {
-            view.latest_sortition = LatestSortition::Known {
-                latest_sortition_height,
-            };
+            view.set_latest_sortition(latest_sortition_height);
         }
         true
     }
@@ -640,7 +676,7 @@ impl<Signer: SignerTrait<T>, T: StacksMessageCodec + Clone + Send + Debug> RunLo
         let latest_sortition_reward_cycle = self
             .burnchain_view
             .as_ref()
-            .and_then(BurnchainView::latest_sortition_reward_cycle);
+            .and_then(BurnchainView::retention_sortition_reward_cycle);
         let oldest_active =
             oldest_active_reward_cycle(current_reward_cycle, latest_sortition_reward_cycle);
         if oldest_active < current_reward_cycle {
@@ -959,9 +995,10 @@ mod tests {
             }
         );
 
-        view.latest_sortition = LatestSortition::Known {
-            latest_sortition_height: 119,
-        };
+        // Nothing resolved yet, so retention has no answer to fall back on either.
+        assert_eq!(view.retention_sortition_reward_cycle(), None);
+
+        view.set_latest_sortition(119);
         assert_eq!(view.latest_sortition_reward_cycle(), Some(1));
 
         // Re-setting the same tip keeps the resolved answer.
@@ -978,14 +1015,65 @@ mod tests {
         assert_eq!(view.latest_sortition, LatestSortition::Pending);
 
         // So does the same height on a different fork.
-        view.latest_sortition = LatestSortition::Known {
-            latest_sortition_height: 127,
-        };
+        view.set_latest_sortition(127);
         view.set_tip(BurnBlock {
             height: 127,
             consensus_hash: ConsensusHash([3; 20]),
         });
         assert_eq!(view.latest_sortition, LatestSortition::Pending);
+    }
+
+    #[test]
+    fn retention_falls_back_to_the_last_resolved_sortition_across_tips() {
+        let geometry = PoxGeometry {
+            reward_cycle_length: 10,
+            prepare_phase_block_length: 3,
+            first_burnchain_block_height: 100,
+        };
+        // Mid cycle 2, with cycle 2's own sortition already resolved: cycle 1 is retired.
+        let mut view = BurnchainView::new(
+            geometry,
+            BurnBlock {
+                height: 124,
+                consensus_hash: ConsensusHash([1; 20]),
+            },
+        );
+        view.set_latest_sortition(124);
+        assert_eq!(view.retention_sortition_reward_cycle(), Some(2));
+        assert_eq!(oldest_active_reward_cycle(2, Some(2)), 2);
+
+        // A new burn block re-opens the per-tip question, so the signing gate closes...
+        view.set_tip(BurnBlock {
+            height: 125,
+            consensus_hash: ConsensusHash([2; 20]),
+        });
+        assert_eq!(view.latest_sortition_reward_cycle(), None);
+        // ...but retention still answers cycle 2, so cycle 1's signer is not rebuilt only to
+        // be torn down again when this tip resolves.
+        assert_eq!(view.retention_sortition_reward_cycle(), Some(2));
+        assert_eq!(oldest_active_reward_cycle(2, Some(2)), 2);
+
+        // A reorg that puts the latest sortition back in cycle 1 is answered by the resolved
+        // value, not by the stale fallback, so cycle 1 is held open again.
+        view.set_tip(BurnBlock {
+            height: 125,
+            consensus_hash: ConsensusHash([3; 20]),
+        });
+        view.set_latest_sortition(119);
+        assert_eq!(view.retention_sortition_reward_cycle(), Some(1));
+        assert_eq!(oldest_active_reward_cycle(2, Some(1)), 1);
+
+        // A view that has never resolved anything (e.g. a signer that just restarted) has no
+        // fallback, and holds the prior cycle open as before.
+        let restarted = BurnchainView::new(
+            geometry,
+            BurnBlock {
+                height: 125,
+                consensus_hash: ConsensusHash([4; 20]),
+            },
+        );
+        assert_eq!(restarted.retention_sortition_reward_cycle(), None);
+        assert_eq!(oldest_active_reward_cycle(2, None), 1);
     }
 
     #[test]
