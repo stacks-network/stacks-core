@@ -475,6 +475,7 @@ fn main() {
     } else if conf.burnchain.mode == "neon"
         || conf.burnchain.mode == "nakamoto-neon"
         || conf.burnchain.mode == "xenon"
+        || conf.burnchain.mode == "signet"
         || conf.burnchain.mode == "krypton"
         || conf.burnchain.mode == "mainnet"
     {
