@@ -246,7 +246,7 @@ pub fn special_contract_call(
     // sanitize contract-call outputs in epochs >= 2.4
     let result_type = TypeSignature::type_of(&result)?;
     let (result, _) = Value::sanitize_value(exec_state.epoch(), &result_type, result)
-        .ok_or_else(|| RuntimeCheckErrorKind::CouldNotDetermineType)?;
+        .ok_or(RuntimeCheckErrorKind::CouldNotDetermineType)?;
 
     // Ensure that the expected type from the trait spec admits
     // the type of the value returned by the dynamic dispatch.

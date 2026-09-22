@@ -78,14 +78,29 @@ use crate::tests::nakamoto_integrations::{
     naka_neon_integration_conf, next_block_and_wait_for_commits, POX_DEFAULT_STACKER_BALANCE,
 };
 use crate::tests::neon_integrations::{
-    get_chain_info, next_block_and_wait, run_until_burnchain_height, test_observer,
-    wait_for_runloop,
+    get_chain_info, get_chain_info_opt, next_block_and_wait, run_until_burnchain_height,
+    test_observer, wait_for_runloop,
 };
 use crate::tests::signer::v0::{
     wait_for_state_machine_update, wait_for_state_machine_update_by_miner_tenure_id,
 };
 use crate::tests::to_addr;
 use crate::BitcoinRegtestController;
+
+/// Wait for a commit referencing the node's latest Stacks tenure at the current burn height.
+fn wait_for_node_commit(config: &NeonConfig, counters: &Counters, timeout_secs: u64) {
+    wait_for(timeout_secs, || {
+        let Some(info) = get_chain_info_opt(config) else {
+            return Ok(false);
+        };
+        Ok(
+            counters.naka_submitted_commit_last_burn_height.get() >= info.burn_block_height
+                && counters.naka_submitted_commit_last_parent_tenure_id.get()
+                    == info.stacks_tip_consensus_hash,
+        )
+    })
+    .expect("Node must commit to its latest Stacks tenure before Bitcoin mining advances");
+}
 
 // Helper struct for holding the btc and stx neon nodes
 #[allow(dead_code)]
@@ -395,7 +410,7 @@ impl<Z: SpawnedSignerTrait> SignerTest<Z> {
             let duration = now.duration_since(created_at).unwrap();
             // Regtest doesn't like if the last block is > 2 hours old, so
             // don't use this snapshot.
-            if duration > Duration::from_secs(3600 * 1) {
+            if duration > Duration::from_secs(3600) {
                 // Bitcoin regtest node is too old, act like no snapshot exists
                 warn!("Bitcoin regtest node is too old, not restoring snapshot");
                 std::fs::remove_dir_all(snapshot_path.clone()).unwrap();
@@ -1229,7 +1244,7 @@ impl<Z: SpawnedSignerTrait> SignerTest<Z> {
     /// Chain information is captured before `f` is called, and then again after `f`
     /// to ensure that the block was mined.
     /// Note: this function does _not_ mine a BTC block.
-    fn wait_for_nakamoto_block(&self, timeout_secs: u64, f: impl FnOnce() -> ()) {
+    fn wait_for_nakamoto_block(&self, timeout_secs: u64, f: impl FnOnce()) {
         let blocks_before = self.running_nodes.counters.naka_mined_blocks.get();
         let info_before = self.get_peer_info();
 
