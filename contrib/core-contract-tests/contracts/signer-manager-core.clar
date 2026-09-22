@@ -56,6 +56,10 @@
     bool
 )
 
+;; URI of off-chain signer metadata (name, description, logo, website), in
+;; the SIP-016 metadata format.
+(define-data-var token-uri (optional (string-utf8 256)) none)
+
 ;; How each staker wants rewards paid out. `min-claim` is the smallest payout
 ;; a third party may trigger on the staker's behalf.
 (define-map payout-configs
@@ -170,6 +174,18 @@
             allowed: allowed,
         })
         (ok (map-set allowlist staker allowed))
+    )
+)
+
+;; Set or clear the signer metadata URI returned by `get-token-uri`.
+(define-public (set-token-uri (uri (optional (string-utf8 256))))
+    (begin
+        (try! (authorize-module))
+        (print {
+            topic: "set-token-uri",
+            uri: uri,
+        })
+        (ok (var-set token-uri uri))
     )
 )
 
@@ -660,6 +676,10 @@
 
 (define-read-only (is-allowlisted (staker principal))
     (default-to false (map-get? allowlist staker))
+)
+
+(define-read-only (get-token-uri)
+    (ok (var-get token-uri))
 )
 
 (define-read-only (get-pending-payout (staker principal))

@@ -1,4 +1,4 @@
-import { rov, txErr, txOk } from '@clarigen/test';
+import { rov, rovOk, txErr, txOk } from '@clarigen/test';
 import { beforeEach, expect, test } from 'vitest';
 import { accounts } from '../clarigen-types';
 import { randomPoxAddress, stxToUStx } from '../test-helpers';
@@ -183,6 +183,21 @@ test('the allowlist is off by default and gates staking once enabled', () => {
   txOk(stake(), charlie);
 });
 
+test('admins set and clear the signer metadata uri', () => {
+  const uri = 'https://example.com/signer.json';
+  expect(rovOk(signerManagerCore.getTokenUri())).toBeNull();
+
+  expect(txErr(signerManagerV1.setTokenUri(uri), alice).value).toBe(
+    signerManagerV1Errors.ERR_UNAUTHORIZED_ADMIN,
+  );
+
+  txOk(signerManagerV1.setTokenUri(uri), deployer);
+  expect(rovOk(signerManagerCore.getTokenUri())).toBe(uri);
+
+  txOk(signerManagerV1.setTokenUri(null), deployer);
+  expect(rovOk(signerManagerCore.getTokenUri())).toBeNull();
+});
+
 test('core functions reject callers other than the module', () => {
   const config = randomPayoutConfig({ maxFee: 100n, minClaim: 0n });
   expect(
@@ -198,6 +213,9 @@ test('core functions reject callers other than the module', () => {
       deployer,
     ).value,
   ).toBe(signerManagerCoreErrors.ERR_UNAUTHORIZED_MODULE);
+  expect(txErr(signerManagerCore.setTokenUri(null), deployer).value).toBe(
+    signerManagerCoreErrors.ERR_UNAUTHORIZED_MODULE,
+  );
   expect(
     txErr(signerManagerCore.clearPayoutConfig(alice), deployer).value,
   ).toBe(signerManagerCoreErrors.ERR_UNAUTHORIZED_MODULE);

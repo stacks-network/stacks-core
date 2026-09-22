@@ -232,6 +232,14 @@
     )
 )
 
+;; Set or clear the signer metadata URI exposed by core's `get-token-uri`.
+(define-public (set-token-uri (uri (optional (string-utf8 256))))
+    (begin
+        (try! (authorize-admin))
+        (contract-call? .signer-manager-core set-token-uri uri)
+    )
+)
+
 ;; Withdraw accrued fees from staker rewards.
 (define-public (withdraw-fees
         (amount uint)

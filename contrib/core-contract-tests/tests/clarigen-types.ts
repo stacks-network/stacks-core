@@ -11387,6 +11387,20 @@ export const contracts = {
         ],
         Response<boolean, bigint>
       >,
+      setTokenUri: {
+        name: 'set-token-uri',
+        access: 'public',
+        args: [
+          {
+            name: 'uri',
+            type: { optional: { 'string-utf8': { length: 256 } } },
+          },
+        ],
+        outputs: { type: { response: { ok: 'bool', error: 'uint128' } } },
+      } as TypedAbiFunction<
+        [uri: TypedAbiArg<string | null, 'uri'>],
+        Response<boolean, bigint>
+      >,
       setUseAllowlist: {
         name: 'set-use-allowlist',
         access: 'public',
@@ -11625,6 +11639,19 @@ export const contracts = {
         ],
         bigint
       >,
+      getTokenUri: {
+        name: 'get-token-uri',
+        access: 'read_only',
+        args: [],
+        outputs: {
+          type: {
+            response: {
+              ok: { optional: { 'string-utf8': { length: 256 } } },
+              error: 'none',
+            },
+          },
+        },
+      } as TypedAbiFunction<[], Response<string | null, null>>,
       getUseAllowlist: {
         name: 'get-use-allowlist',
         access: 'read_only',
@@ -11956,6 +11983,17 @@ export const contracts = {
         type: 'uint128',
         access: 'variable',
       } as TypedAbiVariable<bigint>,
+      tokenUri: {
+        name: 'token-uri',
+        type: {
+          optional: {
+            'string-utf8': {
+              length: 256,
+            },
+          },
+        },
+        access: 'variable',
+      } as TypedAbiVariable<string | null>,
       totalPending: {
         name: 'total-pending',
         type: 'uint128',
@@ -12041,6 +12079,7 @@ export const contracts = {
       },
       currentModule: 'ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM',
       earnedFees: 0n,
+      tokenUri: null,
       totalPending: 0n,
       totalReserved: 0n,
       useAllowlist: false,
@@ -12373,6 +12412,20 @@ export const contracts = {
           >,
           sbtcRecipient: TypedAbiArg<string | null, 'sbtcRecipient'>,
         ],
+        Response<boolean, bigint>
+      >,
+      setTokenUri: {
+        name: 'set-token-uri',
+        access: 'public',
+        args: [
+          {
+            name: 'uri',
+            type: { optional: { 'string-utf8': { length: 256 } } },
+          },
+        ],
+        outputs: { type: { response: { ok: 'bool', error: 'uint128' } } },
+      } as TypedAbiFunction<
+        [uri: TypedAbiArg<string | null, 'uri'>],
         Response<boolean, bigint>
       >,
       setUseAllowlist: {
