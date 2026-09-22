@@ -2078,7 +2078,6 @@ impl Signer {
                     warn!("{self}: Failed to mark block as locally rejected: {e:?}");
                 }
             };
-            block_info.reject_reason = Some(block_rejection.response_data.reject_reason.clone());
             self.signer_db
                 .insert_block(&block_info)
                 .unwrap_or_else(|e| self.handle_insert_block_error(e));
