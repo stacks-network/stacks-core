@@ -424,12 +424,13 @@ impl ListTypeData {
     /// construction invariant itself broke.
     pub fn reduce_max_len(&mut self, new_max_len: u32) -> Result<(), ClarityTypeError> {
         if new_max_len <= self.max_len {
+            self.size =
+                Self::compute_inner_size(&self.entry_type, new_max_len)?.ok_or_else(|| {
+                    ClarityTypeError::InvariantViolation(
+                        "reduce_max_len produced a list whose size overflows".into(),
+                    )
+                })?;
             self.max_len = new_max_len;
-            self.size = self.inner_size()?.ok_or_else(|| {
-                ClarityTypeError::InvariantViolation(
-                    "reduce_max_len produced a list whose size overflows".into(),
-                )
-            })?;
         }
         Ok(())
     }
