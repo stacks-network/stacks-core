@@ -1951,14 +1951,8 @@ impl TupleData {
         mut base: TupleData,
         updates: TupleData,
     ) -> Result<TupleData, ClarityTypeError> {
-        let TupleData {
-            data_map,
-            mut type_signature,
-        } = updates;
-        for (name, value) in data_map.into_iter() {
-            base.data_map.insert(name, value);
-        }
-        base.type_signature.shallow_merge(&mut type_signature)?;
+        base.data_map.extend(updates.data_map);
+        base.type_signature = base.type_signature.shallow_merge(updates.type_signature)?;
         Ok(base)
     }
 }

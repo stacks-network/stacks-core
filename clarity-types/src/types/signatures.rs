@@ -855,14 +855,15 @@ impl TupleTypeSignature {
 
     /// Merge `update`'s fields into `self`, rejecting a merged tuple whose value size
     /// exceeds [`MAX_VALUE_SIZE`] with [`ClarityTypeError::ValueTooLarge`].
+    /// Consumes both tuples and returns the merged one.
     pub fn shallow_merge(
-        &mut self,
-        update: &mut TupleTypeSignature,
-    ) -> Result<(), ClarityTypeError> {
+        mut self,
+        mut update: TupleTypeSignature,
+    ) -> Result<Self, ClarityTypeError> {
         Arc::make_mut(&mut self.type_map).append(Arc::make_mut(&mut update.type_map));
         // inner_size() returns Ok(None) exactly when the tuple is oversized.
         self.size = self.inner_size()?.ok_or(ClarityTypeError::ValueTooLarge)?;
-        Ok(())
+        Ok(self)
     }
 }
 

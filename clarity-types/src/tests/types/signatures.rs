@@ -1631,24 +1631,22 @@ fn test_list_type_data_reduce_max_len_ignores_growth() {
     assert_eq!(before, list.size());
 }
 
-/// The non-overflowing `shallow_merge` path had no coverage — the existing tests only exercise
-/// the oversized rejection. The merged tuple must be indistinguishable from one built directly
-/// from the combined fields, cached size included.
+/// A valid merge (non-overflowing) updates fields and cached size.
 #[test]
 fn test_tuple_type_signature_shallow_merge_updates_cached_size() {
-    let mut base = TupleTypeSignature::try_from(vec![
+    let base = TupleTypeSignature::try_from(vec![
         (ClarityName::from_literal("a"), TypeSignature::IntType),
         (ClarityName::from_literal("b"), TypeSignature::BoolType),
     ])
     .unwrap();
     let before = base.size();
-    let mut update = TupleTypeSignature::try_from(vec![(
+    let update = TupleTypeSignature::try_from(vec![(
         ClarityName::from_literal("c"),
         TypeSignature::UIntType,
     )])
     .unwrap();
 
-    base.shallow_merge(&mut update).unwrap();
+    let merged = base.shallow_merge(update).unwrap();
 
     let expected = TupleTypeSignature::try_from(vec![
         (ClarityName::from_literal("a"), TypeSignature::IntType),
@@ -1656,33 +1654,33 @@ fn test_tuple_type_signature_shallow_merge_updates_cached_size() {
         (ClarityName::from_literal("c"), TypeSignature::UIntType),
     ])
     .unwrap();
-    assert_eq!(expected, base);
-    assert_eq!(expected.size(), base.size());
-    assert!(base.size() > before, "adding a field must grow the size");
+    assert_eq!(expected, merged);
+    assert_eq!(expected.size(), merged.size());
+    assert!(merged.size() > before, "adding a field must grow the size");
 }
 
 /// A field present in both sides takes the update's type, and the cached size follows that
 /// type rather than the one it replaced.
 #[test]
 fn test_tuple_type_signature_shallow_merge_overrides_field_type() {
-    let mut base = TupleTypeSignature::try_from(vec![(
+    let base = TupleTypeSignature::try_from(vec![(
         ClarityName::from_literal("a"),
         TypeSignature::BoolType,
     )])
     .unwrap();
-    let mut update = TupleTypeSignature::try_from(vec![(
+    let update = TupleTypeSignature::try_from(vec![(
         ClarityName::from_literal("a"),
         TypeSignature::IntType,
     )])
     .unwrap();
 
-    base.shallow_merge(&mut update).unwrap();
+    let merged = base.shallow_merge(update).unwrap();
 
     let expected = TupleTypeSignature::try_from(vec![(
         ClarityName::from_literal("a"),
         TypeSignature::IntType,
     )])
     .unwrap();
-    assert_eq!(expected, base);
-    assert_eq!(expected.size(), base.size());
+    assert_eq!(expected, merged);
+    assert_eq!(expected.size(), merged.size());
 }
