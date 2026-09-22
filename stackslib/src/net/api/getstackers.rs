@@ -137,7 +137,9 @@ impl HttpRequest for GetStackersRequestHandler {
                 "Missing in request path: `cycle_num`".into(),
             ));
         };
-        let cycle_num = u64::from_str_radix(cycle_num_str.into(), 10)
+        let cycle_num = cycle_num_str
+            .as_str()
+            .parse::<u64>()
             .map_err(|e| Error::DecodeError(format!("Failed to parse cycle number: {e}")))?;
 
         self.cycle_number = Some(cycle_num);

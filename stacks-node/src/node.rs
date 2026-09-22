@@ -309,6 +309,7 @@ impl Node {
             (_, BitcoinNetworkType::Mainnet) => PoxConstants::mainnet_default(),
             (_, BitcoinNetworkType::Testnet) => PoxConstants::testnet_default(),
             (_, BitcoinNetworkType::Regtest) => PoxConstants::regtest_default(),
+            (_, BitcoinNetworkType::Signet) => PoxConstants::signet_default(),
         };
 
         let mut boot_data = ChainStateBootData {
@@ -359,14 +360,7 @@ impl Node {
         )
         .expect("FATAL: failed to initiate mempool");
 
-        let mut event_dispatcher = EventDispatcher::new_with_custom_queue_size(
-            config.get_working_dir(),
-            config.node.effective_event_dispatcher_queue_size(),
-        );
-
-        for observer in &config.events_observers {
-            event_dispatcher.register_observer(observer);
-        }
+        let mut event_dispatcher = EventDispatcher::from_config(&config);
 
         let burnchain_config = config.get_burnchain();
 

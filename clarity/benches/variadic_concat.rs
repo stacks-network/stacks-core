@@ -14,7 +14,7 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 //! End-to-end benchmarks for Clarity 6's variadic `concat` runtime
-//! (`special_concat_v600`).
+//! (`special_concat_v400`).
 //!
 //! `concat` reuses the existing `ClarityCostFunction::Concat` cost
 //! function with `linear(total_len, 37, 220)` — i.e., 37 cost units per
@@ -25,7 +25,7 @@
 //!
 //! These benchmarks measure actual runtime cost so that the calibration
 //! of `linear(n, 37, 220)` can be validated against real execution time,
-//! and so regressions in `special_concat_v600` (the two-pass evaluate /
+//! and so regressions in `special_concat_v400` (the two-pass evaluate /
 //! reserve / append path) get caught.
 //!
 //! Three groups:
@@ -36,6 +36,7 @@
 //!                                          variadic-is-cheaper property.
 
 use std::hint::black_box;
+use std::iter;
 
 use clarity::vm::contexts::{ContractContext, GlobalContext};
 use clarity::vm::costs::LimitedCostTracker;
@@ -100,7 +101,7 @@ fn buff_literal(bytes_per_arg: usize) -> String {
 /// `(concat <arg> <arg> ... <arg>)` with `n_args` copies of the same arg.
 fn make_variadic_concat_program(n_args: usize, bytes_per_arg: usize) -> String {
     let arg = buff_literal(bytes_per_arg);
-    let args: Vec<&str> = std::iter::repeat(arg.as_str()).take(n_args).collect();
+    let args: Vec<&str> = iter::repeat_n(arg.as_str(), n_args).collect();
     format!("(concat {})", args.join(" "))
 }
 

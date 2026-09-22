@@ -1,0 +1,223 @@
+name: "Create GitHub App Token"
+description: "Wraps actions/create-github-app-token with standardized defaults"
+
+inputs:
+  client-id:
+    description: "GitHub App Client ID"
+    required: false
+  app-id:
+    description: "GitHub App ID"
+    required: false
+    deprecationMessage: "Use 'client-id' instead."
+  private-key:
+    description: "GitHub App private key"
+    required: true
+  owner:
+    description: "The owner of the GitHub App installation (defaults to current repository owner)"
+    required: false
+  repositories:
+    description: "Comma or newline-separated list of repositories to grant the token access to (defaults to current repository if owner is unset)"
+    required: false
+  enterprise:
+    description: "The slug of the enterprise account where the GitHub App is installed (cannot be used with 'owner' or 'repositories')"
+    required: false
+  skip-token-revoke:
+    description: "If true, the token will not be revoked when the current job is complete"
+    required: false
+    default: "false"
+  # Make GitHub API configurable to support non-GitHub Cloud use cases
+  # see https://github.com/actions/create-github-app-token/issues/77
+  github-api-url:
+    description: The URL of the GitHub REST API.
+    default: ${{ github.api_url }}
+  # <START GENERATED PERMISSIONS INPUTS>
+  permission-actions:
+    description: "The level of permission to grant the access token for GitHub Actions workflows, workflow runs, and artifacts. Can be set to 'read' or 'write'."
+  permission-administration:
+    description: "The level of permission to grant the access token for repository creation, deletion, settings, teams, and collaborators creation. Can be set to 'read' or 'write'."
+  permission-artifact-metadata:
+    description: "The level of permission to grant the access token to create and retrieve build artifact metadata records. Can be set to 'read' or 'write'."
+  permission-attestations:
+    description: "The level of permission to create and retrieve the access token for repository attestations. Can be set to 'read' or 'write'."
+  permission-checks:
+    description: "The level of permission to grant the access token for checks on code. Can be set to 'read' or 'write'."
+  permission-codespaces:
+    description: "The level of permission to grant the access token to create, edit, delete, and list Codespaces. Can be set to 'read' or 'write'."
+  permission-contents:
+    description: "The level of permission to grant the access token for repository contents, commits, branches, downloads, releases, and merges. Can be set to 'read' or 'write'."
+  permission-custom-properties-for-organizations:
+    description: "The level of permission to grant the access token to view and edit custom properties for an organization, when allowed by the property. Can be set to 'read' or 'write'."
+  permission-dependabot-secrets:
+    description: "The level of permission to grant the access token to manage Dependabot secrets. Can be set to 'read' or 'write'."
+  permission-deployments:
+    description: "The level of permission to grant the access token for deployments and deployment statuses. Can be set to 'read' or 'write'."
+  permission-discussions:
+    description: "The level of permission to grant the access token for discussions and related comments and labels. Can be set to 'read' or 'write'."
+  permission-email-addresses:
+    description: "The level of permission to grant the access token to manage the email addresses belonging to a user. Can be set to 'read' or 'write'."
+  permission-enterprise-custom-properties-for-organizations:
+    description: "The level of permission to grant the access token for organization custom properties management at the enterprise level. Can be set to 'read', 'write', or 'admin'."
+  permission-environments:
+    description: "The level of permission to grant the access token for managing repository environments. Can be set to 'read' or 'write'."
+  permission-followers:
+    description: "The level of permission to grant the access token to manage the followers belonging to a user. Can be set to 'read' or 'write'."
+  permission-git-ssh-keys:
+    description: "The level of permission to grant the access token to manage git SSH keys. Can be set to 'read' or 'write'."
+  permission-gpg-keys:
+    description: "The level of permission to grant the access token to view and manage GPG keys belonging to a user. Can be set to 'read' or 'write'."
+  permission-interaction-limits:
+    description: "The level of permission to grant the access token to view and manage interaction limits on a repository. Can be set to 'read' or 'write'."
+  permission-issues:
+    description: "The level of permission to grant the access token for issues and related comments, assignees, labels, and milestones. Can be set to 'read' or 'write'."
+  permission-members:
+    description: "The level of permission to grant the access token for organization teams and members. Can be set to 'read' or 'write'."
+  permission-merge-queues:
+    description: "The level of permission to grant the access token to manage the merge queues for a repository. Can be set to 'read' or 'write'."
+  permission-metadata:
+    description: "The level of permission to grant the access token to search repositories, list collaborators, and access repository metadata. Can be set to 'read' or 'write'."
+  permission-organization-administration:
+    description: "The level of permission to grant the access token to manage access to an organization. Can be set to 'read' or 'write'."
+  permission-organization-announcement-banners:
+    description: "The level of permission to grant the access token to view and manage announcement banners for an organization. Can be set to 'read' or 'write'."
+  permission-organization-copilot-seat-management:
+    description: "The level of permission to grant the access token for managing access to GitHub Copilot for members of an organization with a Copilot Business subscription. This property is in public preview and is subject to change. Can be set to 'write'."
+  permission-organization-custom-org-roles:
+    description: "The level of permission to grant the access token for custom organization roles management. Can be set to 'read' or 'write'."
+  permission-organization-custom-properties:
+    description: "The level of permission to grant the access token for repository custom properties management at the organization level. Can be set to 'read', 'write', or 'admin'."
+  permission-organization-custom-roles:
+    description: "The level of permission to grant the access token for custom repository roles management. Can be set to 'read' or 'write'."
+  permission-organization-events:
+    description: "The level of permission to grant the access token to view events triggered by an activity in an organization. Can be set to 'read'."
+  permission-organization-hooks:
+    description: "The level of permission to grant the access token to manage the post-receive hooks for an organization. Can be set to 'read' or 'write'."
+  permission-organization-packages:
+    description: "The level of permission to grant the access token for organization packages published to GitHub Packages. Can be set to 'read' or 'write'."
+  permission-organization-personal-access-token-requests:
+    description: "The level of permission to grant the access token for viewing and managing fine-grained personal access tokens that have been approved by an organization. Can be set to 'read' or 'write'."
+  permission-organization-personal-access-tokens:
+    description: "The level of permission to grant the access token for viewing and managing fine-grained personal access token requests to an organization. Can be set to 'read' or 'write'."
+  permission-organization-plan:
+    description: "The level of permission to grant the access token for viewing an organization's plan. Can be set to 'read'."
+  permission-organization-projects:
+    description: "The level of permission to grant the access token to manage organization projects and projects public preview (where available). Can be set to 'read', 'write', or 'admin'."
+  permission-organization-secrets:
+    description: "The level of permission to grant the access token to manage organization secrets. Can be set to 'read' or 'write'."
+  permission-organization-self-hosted-runners:
+    description: "The level of permission to grant the access token to view and manage GitHub Actions self-hosted runners available to an organization. Can be set to 'read' or 'write'."
+  permission-organization-user-blocking:
+    description: "The level of permission to grant the access token to view and manage users blocked by the organization. Can be set to 'read' or 'write'."
+  permission-packages:
+    description: "The level of permission to grant the access token for packages published to GitHub Packages. Can be set to 'read' or 'write'."
+  permission-pages:
+    description: "The level of permission to grant the access token to retrieve Pages statuses, configuration, and builds, as well as create new builds. Can be set to 'read' or 'write'."
+  permission-profile:
+    description: "The level of permission to grant the access token to manage the profile settings belonging to a user. Can be set to 'write'."
+  permission-pull-requests:
+    description: "The level of permission to grant the access token for pull requests and related comments, assignees, labels, milestones, and merges. Can be set to 'read' or 'write'."
+  permission-repository-custom-properties:
+    description: "The level of permission to grant the access token to view and edit custom properties for a repository, when allowed by the property. Can be set to 'read' or 'write'."
+  permission-repository-hooks:
+    description: "The level of permission to grant the access token to manage the post-receive hooks for a repository. Can be set to 'read' or 'write'."
+  permission-repository-projects:
+    description: "The level of permission to grant the access token to manage repository projects, columns, and cards. Can be set to 'read', 'write', or 'admin'."
+  permission-secret-scanning-alerts:
+    description: "The level of permission to grant the access token to view and manage secret scanning alerts. Can be set to 'read' or 'write'."
+  permission-secrets:
+    description: "The level of permission to grant the access token to manage repository secrets. Can be set to 'read' or 'write'."
+  permission-security-events:
+    description: "The level of permission to grant the access token to view and manage security events like code scanning alerts. Can be set to 'read' or 'write'."
+  permission-single-file:
+    description: "The level of permission to grant the access token to manage just a single file. Can be set to 'read' or 'write'."
+  permission-starring:
+    description: "The level of permission to grant the access token to list and manage repositories a user is starring. Can be set to 'read' or 'write'."
+  permission-statuses:
+    description: "The level of permission to grant the access token for commit statuses. Can be set to 'read' or 'write'."
+  permission-team-discussions:
+    description: "The level of permission to grant the access token to manage team discussions and related comments. Can be set to 'read' or 'write'."
+  permission-vulnerability-alerts:
+    description: "The level of permission to grant the access token to manage Dependabot alerts. Can be set to 'read' or 'write'."
+  permission-workflows:
+    description: "The level of permission to grant the access token to update GitHub Actions workflow files. Can be set to 'write'."
+  # <END GENERATED PERMISSIONS INPUTS>
+
+outputs:
+  token:
+    description: "GitHub installation access token"
+    value: ${{ steps.create-token.outputs.token }}
+  installation-id:
+    description: "GitHub App installation ID"
+    value: ${{ steps.create-token.outputs.installation-id }}
+  app-slug:
+    description: "GitHub App slug"
+    value: ${{ steps.create-token.outputs.app-slug }}
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Create GitHub App Token
+      id: create-token
+      uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+      with:
+        client-id: ${{ inputs.client-id }}
+        app-id: ${{ inputs.app-id }}
+        private-key: ${{ inputs.private-key }}
+        owner: ${{ inputs.owner }}
+        repositories: ${{ inputs.repositories }}
+        enterprise: ${{ inputs.enterprise }}
+        skip-token-revoke: ${{ inputs.skip-token-revoke }}
+        github-api-url: ${{ inputs.github-api-url }}
+        permission-actions: ${{ inputs.permission-actions }}
+        permission-administration: ${{ inputs.permission-administration }}
+        permission-artifact-metadata: ${{ inputs.permission-artifact-metadata }}
+        permission-attestations: ${{ inputs.permission-attestations }}
+        permission-checks: ${{ inputs.permission-checks }}
+        permission-codespaces: ${{ inputs.permission-codespaces }}
+        permission-contents: ${{ inputs.permission-contents }}
+        permission-custom-properties-for-organizations: ${{ inputs.permission-custom-properties-for-organizations }}
+        permission-dependabot-secrets: ${{ inputs.permission-dependabot-secrets }}
+        permission-deployments: ${{ inputs.permission-deployments }}
+        permission-discussions: ${{ inputs.permission-discussions }}
+        permission-email-addresses: ${{ inputs.permission-email-addresses }}
+        permission-enterprise-custom-properties-for-organizations: ${{ inputs.permission-enterprise-custom-properties-for-organizations }}
+        permission-environments: ${{ inputs.permission-environments }}
+        permission-followers: ${{ inputs.permission-followers }}
+        permission-git-ssh-keys: ${{ inputs.permission-git-ssh-keys }}
+        permission-gpg-keys: ${{ inputs.permission-gpg-keys }}
+        permission-interaction-limits: ${{ inputs.permission-interaction-limits }}
+        permission-issues: ${{ inputs.permission-issues }}
+        permission-members: ${{ inputs.permission-members }}
+        permission-merge-queues: ${{ inputs.permission-merge-queues }}
+        permission-metadata: ${{ inputs.permission-metadata }}
+        permission-organization-administration: ${{ inputs.permission-organization-administration }}
+        permission-organization-announcement-banners: ${{ inputs.permission-organization-announcement-banners }}
+        permission-organization-copilot-seat-management: ${{ inputs.permission-organization-copilot-seat-management }}
+        permission-organization-custom-org-roles: ${{ inputs.permission-organization-custom-org-roles }}
+        permission-organization-custom-properties: ${{ inputs.permission-organization-custom-properties }}
+        permission-organization-custom-roles: ${{ inputs.permission-organization-custom-roles }}
+        permission-organization-events: ${{ inputs.permission-organization-events }}
+        permission-organization-hooks: ${{ inputs.permission-organization-hooks }}
+        permission-organization-packages: ${{ inputs.permission-organization-packages }}
+        permission-organization-personal-access-token-requests: ${{ inputs.permission-organization-personal-access-token-requests }}
+        permission-organization-personal-access-tokens: ${{ inputs.permission-organization-personal-access-tokens }}
+        permission-organization-plan: ${{ inputs.permission-organization-plan }}
+        permission-organization-projects: ${{ inputs.permission-organization-projects }}
+        permission-organization-secrets: ${{ inputs.permission-organization-secrets }}
+        permission-organization-self-hosted-runners: ${{ inputs.permission-organization-self-hosted-runners }}
+        permission-organization-user-blocking: ${{ inputs.permission-organization-user-blocking }}
+        permission-packages: ${{ inputs.permission-packages }}
+        permission-pages: ${{ inputs.permission-pages }}
+        permission-profile: ${{ inputs.permission-profile }}
+        permission-pull-requests: ${{ inputs.permission-pull-requests }}
+        permission-repository-custom-properties: ${{ inputs.permission-repository-custom-properties }}
+        permission-repository-hooks: ${{ inputs.permission-repository-hooks }}
+        permission-repository-projects: ${{ inputs.permission-repository-projects }}
+        permission-secret-scanning-alerts: ${{ inputs.permission-secret-scanning-alerts }}
+        permission-secrets: ${{ inputs.permission-secrets }}
+        permission-security-events: ${{ inputs.permission-security-events }}
+        permission-single-file: ${{ inputs.permission-single-file }}
+        permission-starring: ${{ inputs.permission-starring }}
+        permission-statuses: ${{ inputs.permission-statuses }}
+        permission-team-discussions: ${{ inputs.permission-team-discussions }}
+        permission-vulnerability-alerts: ${{ inputs.permission-vulnerability-alerts }}
+        permission-workflows: ${{ inputs.permission-workflows }}

@@ -19,7 +19,7 @@ use std::collections::hash_map::Entry;
 use std::collections::{BinaryHeap, HashMap, HashSet, VecDeque};
 use std::hash::{Hash, Hasher};
 use std::net::{IpAddr, SocketAddr};
-use std::{cmp, fmt};
+use std::{cmp, fmt, mem};
 
 use clarity::vm::types::QualifiedContractIdentifier;
 use rand::{thread_rng, Rng};
@@ -43,7 +43,6 @@ pub struct AttachmentsDownloader {
     priority_queue: BinaryHeap<AttachmentsBatch>,
     initial_batch: Vec<AttachmentInstance>,
     ongoing_batch: Option<AttachmentsBatchStateMachine>,
-    processed_batches: Vec<AttachmentsBatch>,
     reliability_reports: HashMap<UrlString, ReliabilityReport>,
 }
 
@@ -52,7 +51,6 @@ impl AttachmentsDownloader {
         AttachmentsDownloader {
             priority_queue: BinaryHeap::new(),
             ongoing_batch: None,
-            processed_batches: vec![],
             reliability_reports: HashMap::new(),
             initial_batch,
         }
@@ -320,9 +318,8 @@ impl AttachmentsDownloader {
             return Ok(vec![]);
         }
 
-        // we're draining the initial batch, so to avoid angering The Borrow Checker
-        //  use mem replace to just take the whole vec.
-        let initial_batch = std::mem::replace(&mut self.initial_batch, vec![]);
+        // Move the batch out so we can process it while borrowing `self` mutably.
+        let initial_batch = mem::take(&mut self.initial_batch);
 
         self.check_attachment_instances(
             atlas_db,
@@ -950,11 +947,6 @@ pub struct BatchedDNSLookupsResults {
     pub errors: HashMap<UrlString, net_error>,
 }
 
-#[derive(Debug, Clone)]
-struct BatchedRequestsInitializedState<T: Ord + Requestable> {
-    pub queue: BinaryHeap<T>,
-}
-
 #[derive(Debug, Default)]
 pub struct BatchedRequestsResult<T: Requestable> {
     pub remaining: HashMap<usize, T>,
@@ -1133,6 +1125,12 @@ pub struct AttachmentsBatch {
     pub attachments_instances: HashMap<QualifiedContractIdentifier, HashMap<u32, Hash160>>,
     pub retry_count: u64,
     pub retry_deadline: u64,
+}
+
+impl Default for AttachmentsBatch {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl AttachmentsBatch {

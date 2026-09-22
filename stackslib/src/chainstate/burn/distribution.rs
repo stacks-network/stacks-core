@@ -19,7 +19,6 @@ use std::collections::HashMap;
 #[cfg(any(test, feature = "testing"))]
 use std::sync::LazyLock;
 
-use stacks_common::util::hash::Hash160;
 #[cfg(any(test, feature = "testing"))]
 use stacks_common::util::tests::TestFlag;
 use stacks_common::util::uint::{BitArray, Uint256, Uint512};
@@ -66,16 +65,7 @@ enum LinkedCommitIdentifier {
 
 #[derive(Debug, Clone)]
 struct LinkedCommitmentScore {
-    rel_block_height: u8,
     op: LinkedCommitIdentifier,
-}
-
-#[derive(Debug, PartialEq, Eq, Hash)]
-struct UserBurnIdentifier {
-    rel_block_height: u8,
-    key_vtxindex: u16,
-    key_block_ptr: u32,
-    block_hash: Hash160,
 }
 
 impl LinkedCommitIdentifier {
@@ -100,6 +90,8 @@ impl LinkedCommitIdentifier {
         }
     }
 
+    /// Transaction ID for diagnostic logging.
+    #[cfg(any(test, feature = "testing"))]
     fn txid(&self) -> &Txid {
         match self {
             LinkedCommitIdentifier::Missed(ref op) => &op.txid,
@@ -165,20 +157,20 @@ impl BurnSamplePoint {
     /// Returns the distribution, which consumes the given lists of operations.
     ///
     /// * `block_commits`: this is a mapping from relative block_height to the block
-    ///     commits that occurred at that height. These relative block heights start
-    ///     at 0 and increment towards the present. When the mining window is 6, the
-    ///     "current" sortition's block commits would be in index 5.
+    ///   commits that occurred at that height. These relative block heights start
+    ///   at 0 and increment towards the present. When the mining window is 6, the
+    ///   "current" sortition's block commits would be in index 5.
     /// * `missed_commits`: this is a mapping from relative block_height to the
-    ///     block commits that were intended to be included at that height. These
-    ///     relative block heights start at 0 and increment towards the present. There
-    ///     will be no such commits for the current sortition, so this vec will have
-    ///     `missed_commits.len() = block_commits.len() - 1`
+    ///   block commits that were intended to be included at that height. These
+    ///   relative block heights start at 0 and increment towards the present. There
+    ///   will be no such commits for the current sortition, so this vec will have
+    ///   `missed_commits.len() = block_commits.len() - 1`
     /// * `burn_blocks`: this is a vector of booleans that indicate whether or not a block-commit
-    ///     occurred during a PoB-only sortition or a possibly-PoX sortition.  The former occurs
-    ///     during either a prepare phase or after PoX sunset, and must have only one (burn) output.
-    ///     The latter occurs everywhere else, and must have `OUTPUTS_PER_COMMIT` outputs after the
-    ///     `OP_RETURN` payload.  The length of this vector must be equal to the length of the
-    ///     `block_commits` vector.  `burn_blocks[i]` is `true` if the `ith` block-commit must be PoB.
+    ///   occurred during a PoB-only sortition or a possibly-PoX sortition.  The former occurs
+    ///   during either a prepare phase or after PoX sunset, and must have only one (burn) output.
+    ///   The latter occurs everywhere else, and must have `OUTPUTS_PER_COMMIT` outputs after the
+    ///   `OP_RETURN` payload.  The length of this vector must be equal to the length of the
+    ///   `block_commits` vector.  `burn_blocks[i]` is `true` if the `ith` block-commit must be PoB.
     #[allow(clippy::indexing_slicing)] // this method panics on bad inputs, it should panic on bad indexes as well
     pub fn make_min_median_distribution(
         mining_commitment_window: u8,
@@ -205,7 +197,6 @@ impl BurnSamplePoint {
             .map(|op| {
                 let mut linked_commits = vec![None; window_size as usize];
                 linked_commits[0] = Some(LinkedCommitmentScore {
-                        rel_block_height: window_size - 1,
                         op: LinkedCommitIdentifier::Valid(op),
                     });
                 linked_commits
@@ -265,17 +256,14 @@ impl BurnSamplePoint {
                 // if we found a referenced op, connect it
                 if let Some(referenced_op) = referenced_op {
                     linked_commit[(window_size - 1 - rel_block_height) as usize] =
-                        Some(LinkedCommitmentScore {
-                            op: referenced_op,
-                            rel_block_height,
-                        });
+                        Some(LinkedCommitmentScore { op: referenced_op });
                 }
             }
         }
 
         // now, commits_with_priors has the burn amounts for each
         //   linked commitment, we can now generate the burn sample points.
-        let mut burn_sample = commits_with_priors
+        let mut burn_sample: Vec<BurnSamplePoint> = commits_with_priors
             .into_iter()
             .map(|mut linked_commits| {
                 let all_burns: Vec<_> = linked_commits
@@ -294,7 +282,7 @@ impl BurnSamplePoint {
 
                 let mut sorted_burns = all_burns.clone();
                 sorted_burns.sort();
-                let median_burn = if window_size % 2 == 0 {
+                let median_burn = if window_size.is_multiple_of(2) {
                     (sorted_burns[(window_size / 2) as usize]
                         + sorted_burns[(window_size / 2 - 1) as usize])
                         / 2
@@ -378,7 +366,7 @@ impl BurnSamplePoint {
 
     /// Calculate the ranges between 0 and 2**256 - 1 over which each point in the burn sample
     /// applies, so we can later select which block to use.
-    fn make_sortition_ranges(burn_sample: &mut Vec<BurnSamplePoint>) {
+    fn make_sortition_ranges(burn_sample: &mut [BurnSamplePoint]) {
         if burn_sample.is_empty() {
             // empty sample
             return;
@@ -1321,15 +1309,14 @@ mod tests {
             },
         ];
 
-        for i in 0..fixtures.len() {
-            let f = &fixtures[i];
+        for (i, fixture) in fixtures.iter().enumerate() {
             eprintln!("Fixture #{}", i);
             let dist = BurnSamplePoint::make_distribution(
                 MINING_COMMITMENT_WINDOW,
-                f.block_commits.iter().cloned().collect(),
-                f.consumed_leader_keys.iter().cloned().collect(),
+                fixture.block_commits.iter().cloned().collect(),
+                fixture.consumed_leader_keys.iter().cloned().collect(),
             );
-            assert_eq!(dist, f.res);
+            assert_eq!(dist, fixture.res);
         }
     }
 }

@@ -15,6 +15,7 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use std::collections::{HashMap, HashSet};
+use std::mem;
 
 use stacks_common::types::net::PeerHost;
 
@@ -28,7 +29,7 @@ use crate::net::{
 
 /// This struct represents a batch of in-flight RPCs to a set of peers, identified by a
 /// neighbor key (or something that converts to it)
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct NeighborRPC {
     state: HashMap<NeighborAddress, (usize, Option<StacksHttpRequest>)>,
     dead: HashSet<DropNeighbor>,
@@ -107,12 +108,12 @@ impl NeighborRPC {
 
     /// Extract the list of dead neighbors
     pub fn take_dead(&mut self) -> HashSet<DropNeighbor> {
-        std::mem::replace(&mut self.dead, HashSet::new())
+        mem::take(&mut self.dead)
     }
 
     /// Extract the list of broken neighbors
     pub fn take_broken(&mut self) -> HashSet<DropNeighbor> {
-        std::mem::replace(&mut self.broken, HashSet::new())
+        mem::take(&mut self.broken)
     }
 
     /// Collect all in-flight replies into a vec.

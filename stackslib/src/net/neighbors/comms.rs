@@ -446,6 +446,7 @@ pub trait NeighborComms {
 
 /// Transport-level API for peer network state machines.
 /// Prod implementation of NeighborComms.
+#[derive(Default)]
 pub struct PeerNetworkComms {
     /// Set of PeerNetwork event IDs that this walk is tracking (so they won't get pruned)
     events: HashSet<usize>,
@@ -591,7 +592,7 @@ impl NeighborComms for PeerNetworkComms {
     }
 
     fn clear_pinned_connections(&mut self) -> HashSet<usize> {
-        let events = mem::replace(&mut self.events, HashSet::new());
+        let events = mem::take(&mut self.events);
         events
     }
 
@@ -650,11 +651,11 @@ impl NeighborComms for PeerNetworkComms {
     }
 
     fn take_dead_neighbors(&mut self) -> HashSet<DropNeighbor> {
-        mem::replace(&mut self.dead_connections, HashSet::new())
+        mem::take(&mut self.dead_connections)
     }
 
     fn take_broken_neighbors(&mut self) -> HashSet<DropNeighbor> {
-        mem::replace(&mut self.broken_connections, HashSet::new())
+        mem::take(&mut self.broken_connections)
     }
 }
 
@@ -687,7 +688,7 @@ impl ToNeighborKey for NeighborAddress {
 
 /// This struct represents a batch of in-flight requests to a set of peers, identified by a
 /// neighbor key (or something that converts to it)
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct NeighborCommsRequest {
     state: HashMap<NeighborAddress, ReplyHandleP2P>,
 }

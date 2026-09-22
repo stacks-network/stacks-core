@@ -120,10 +120,11 @@ pre_input_config() {
     REPO="stacks-core"                         # --repo value: known label, git URL, or path to an existing checkout.
     REPO_REV="develop"                         # default git revision (branch, tag, or commit) to build stacks-inspect from
     PR=""                                      # optional pull request to validate: number (repo-relative) or full PR URL
-    GH_TOKEN="${GH_TOKEN:-}"                    # optional token for authenticated PR fetches (env-provided value is preserved)
+    GH_TOKEN="${GH_TOKEN:-}"                   # optional token for authenticated PR fetches (env-provided value is preserved)
     CORES=""                                   # cores to use for validation; resolved in post_input_config
     NETWORK="mainnet"                          # network to validate
     RANGE="full"                               # block range to validate: scenario or numeric range
+    IGNORE_COSTS_ARG=""                        # holds "--ignore-costs" when cost-only mismatches must not fail blocks
     LAST_ERROR=""                              # last error_and_exit message; surfaced by on_exit in status.json
 
     if [[ -t 1 ]]; then
@@ -178,6 +179,7 @@ post_input_config() {
     #   - commit: the resolved HEAD (set after checkout in build_stacks_inspect)
     #   - range : left empty until the numeric block bounds are resolved
     #             (set per phase in validate_block_range)
+    #   - ignore_costs: whether --ignore-costs was requested ("true"/"false")
     STATUS_REPO="${REPO_URL:-LOCAL}"
     if [ -n "${PR_NUMBER}" ]; then
         STATUS_REF="PR #${PR_NUMBER}"
@@ -186,6 +188,7 @@ post_input_config() {
     fi
     STATUS_COMMIT=""
     STATUS_RANGE=""
+    STATUS_IGNORE_COSTS=$([ -n "${IGNORE_COSTS_ARG}" ] && echo "true" || echo "false")
 }
 
 # Resolve the --repo argument into REPO_URL, REPO_DIR, and TRACK_REV.
@@ -305,6 +308,9 @@ Options:
           $(cyan "<start>:<end>")   - inclusive range; auto-splits at the epoch2/3 boundary
           $(cyan "<start>+<count>") - <count> blocks starting at <start>
         Default: $(cyan "full")
+    $(yellow "--ignore-costs")
+        Don't fail blocks whose only mismatch is their execution cost.
+        Default: $(cyan "disabled")
 
 Example: full block validation, auto-downloading the chainstate using stacks-core public repo at develop
     $(bold "${0} --workdir /data/workdir")
@@ -691,12 +697,15 @@ declare -r STATUS_STATE_ERROR="ERROR"       # unexpected abort (see LAST_ERROR /
 #
 #   { "state": <s>, "message": <str>,
 #     "repo": <url|LOCAL>, "commit": <sha>, "ref": <str>, "range": <str>,
+#     "ignore_costs": <"true"|"false">,
 #     "started_at": <iso8601 UTC>, "updated_at": <iso8601 UTC> }
 #
 #   state    ONGOING (preparing/validating) | SUCCESS | FAILURE (validation
 #            failed; per-block detail in results.log) | ERROR (unexpected abort)
 #   message  human-readable current activity
 #   range    empty until the numeric block bounds are resolved
+#   ignore_costs  "true" when --ignore-costs was passed: blocks failing only
+#            their cost check were not counted as failures
 #
 # status_write <state> <message>
 # Builds the JSON with jq (guaranteed valid + correctly escaped) and swaps it in
@@ -709,15 +718,16 @@ status_write() {
     : "${STATUS_STARTED_AT:=$(date -u +%Y-%m-%dT%H:%M:%SZ)}"
     local tmp="${STATUS_FILE}.tmp"
     jq -n \
-        --arg     state      "${state}" \
-        --arg     message    "${message}" \
-        --arg     repo       "${STATUS_REPO:-}" \
-        --arg     commit     "${STATUS_COMMIT:-}" \
-        --arg     ref        "${STATUS_REF:-}" \
-        --arg     range      "${STATUS_RANGE:-}" \
-        --arg     started_at "${STATUS_STARTED_AT}" \
-        --arg     updated_at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
-        '{state: $state, message: $message, repo: $repo, commit: $commit, ref: $ref, range: $range, started_at: $started_at, updated_at: $updated_at}' \
+        --arg     state        "${state}" \
+        --arg     message      "${message}" \
+        --arg     repo         "${STATUS_REPO:-}" \
+        --arg     commit       "${STATUS_COMMIT:-}" \
+        --arg     ref          "${STATUS_REF:-}" \
+        --arg     range        "${STATUS_RANGE:-}" \
+        --arg     ignore_costs "${STATUS_IGNORE_COSTS:-}" \
+        --arg     started_at   "${STATUS_STARTED_AT}" \
+        --arg     updated_at   "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+        '{state: $state, message: $message, repo: $repo, commit: $commit, ref: $ref, range: $range, ignore_costs: $ignore_costs, started_at: $started_at, updated_at: $updated_at}' \
         > "${tmp}" || {
         error_and_exit "writing status file ${tmp}"
     }
@@ -932,7 +942,7 @@ validate_block_range() {
         slice_progress_files+=("${progress_file}")
         # tmux send-keys re-parses this string as shell source in the target window,
         # so quote the paths so spaces / shell metacharacters survive re-parsing.
-        local inspect_cmd="\"${inspect_bin}\" --config \"${inspect_config}\" validate-block \"${slice_path}\" ${range_command} ${start_block_count} ${end_block_count} 2>/dev/null"
+        local inspect_cmd="\"${inspect_bin}\" --config \"${inspect_config}\" validate-block ${IGNORE_COSTS_ARG} \"${slice_path}\" ${range_command} ${start_block_count} ${end_block_count} 2>/dev/null"
         local cmd="${inspect_cmd} | ${tee_stage}stdbuf -oL tr '\\r' '\\n' | while IFS= read -r line; do if [[ \"\$line\" =~ ^Validating:[[:space:]]+[0-9]+% ]]; then printf '%s\\n' \"\$line\" > '${progress_file}'; elif [[ -n \"\$line\" ]]; then printf '%s\\n' \"\$line\" >> '${log_file}'; fi; done"
         info "  $(highlight "${TMUX_SESSION}:slice${slice_counter}") :: Blocks: $(highlight "${global_slice_start}-${global_slice_end}") :: Logs: ${log_file}"
         echo "Command: ${inspect_cmd}" > "${log_file}"
@@ -1308,6 +1318,10 @@ parse_input() {
                 require_value "${1}" "${2:-}"
                 NETWORK=${2}
                 shift
+                ;;
+            --ignore-costs)
+                # Don't treat a cost-only mismatch as a block validation failure
+                IGNORE_COSTS_ARG="--ignore-costs"
                 ;;
             --rev)
                 # Build from a specific git revision (branch, tag, or commit SHA)

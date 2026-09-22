@@ -27,8 +27,8 @@
 mod blocks;
 mod burnchain;
 mod clarity;
-pub(crate) mod common;
-pub(crate) mod fork_storage;
+mod common;
+mod fork_storage;
 mod index;
 mod sortition;
 mod spv;
@@ -45,6 +45,5 @@ pub use clarity::{copy_clarity_side_tables, ClaritySideTableStats};
 pub use index::{copy_index_side_tables, IndexSideTableStats};
 pub use sortition::{
     copy_sortition_side_tables, copy_sortition_side_tables_with_boundary, SortitionSideTableStats,
-    SortitionTipCopyBoundary,
 };
 pub use spv::{copy_spv_headers, SpvHeadersCopyStats};

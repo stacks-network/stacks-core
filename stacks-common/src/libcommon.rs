@@ -1,5 +1,4 @@
 #![allow(unused_macros)]
-#![allow(dead_code)]
 #![allow(non_camel_case_types)]
 #![allow(non_snake_case)]
 #![allow(non_upper_case_globals)]
@@ -58,6 +57,8 @@ pub mod consts {
 
     pub const CHAIN_ID_MAINNET: u32 = 0x00000001;
     pub const CHAIN_ID_TESTNET: u32 = 0x80000000;
+    /// Default Stacks transaction and P2P network identity for signet deployments.
+    pub const CHAIN_ID_SIGNET: u32 = 0x80000001;
 
     #[cfg(any(test, feature = "testing"))]
     pub const MINER_REWARD_MATURITY: u64 = 2; // small for testing purposes
@@ -92,6 +93,7 @@ pub mod consts {
     pub const PEER_VERSION_EPOCH_3_3: u8 = 0x0e;
     pub const PEER_VERSION_EPOCH_3_4: u8 = 0x0f;
     pub const PEER_VERSION_EPOCH_4_0: u8 = 0x10;
+    pub const PEER_VERSION_EPOCH_4_1: u8 = 0x11;
 
     /// this should be updated to the latest network epoch version supported by
     ///  this node. this will be checked by the `validate_epochs()` method.
@@ -110,6 +112,8 @@ pub mod consts {
 }
 
 pub mod versions {
+    pub const STACKS_NODE_VERSION: &str = env!("CARGO_PKG_VERSION");
+
     include!(concat!(env!("OUT_DIR"), "/versions.rs"));
 }
 

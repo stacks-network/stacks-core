@@ -19,8 +19,8 @@ use std::thread;
 #[cfg(test)]
 use clarity::consts::CHAIN_ID_TESTNET;
 use clarity::vm::analysis::AnalysisDatabase;
-use clarity::vm::clarity::TransactionConnection;
 pub use clarity::vm::clarity::{ClarityConnection, ClarityError};
+use clarity::vm::clarity::{TransactionConfig, TransactionConnection, TransactionOutput};
 use clarity::vm::contexts::{AssetMap, OwnedEnvironment};
 use clarity::vm::costs::{CostTracker, ExecutionCost, LimitedCostTracker};
 use clarity::vm::database::{
@@ -31,7 +31,7 @@ use clarity::vm::errors::VmExecutionError;
 use clarity::vm::events::{STXEventType, STXMintEventData};
 use clarity::vm::representations::SymbolicExpression;
 use clarity::vm::resource_limiter::ResourceBudget;
-use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier, Value};
+use clarity::vm::types::{BoundedErrorString, PrincipalData, QualifiedContractIdentifier, Value};
 use clarity::vm::{ClarityVersion, ContractName};
 use stacks_common::consts::SIGNER_SLOTS_PER_USER;
 use stacks_common::types::chainstate::{StacksBlockId, TrieHash};
@@ -189,10 +189,10 @@ pub trait WritableMarfStore:
 /// The Stacks node commits tries for one of three purposes:
 /// * It processed a block, and needs to persist its trie in the chainstate proper.
 /// * It mined a block, and needs to persist its trie outside of the chainstate proper. The miner
-/// may build on it later.
+///   may build on it later.
 /// * It processed an unconfirmed microblock (Stacks 2.x only), and needs to persist the
-/// unconfirmed chainstate outside of the chainstate proper so that the microblock miner can
-/// continue to build on it and the network can service RPC requests on its state.
+///   unconfirmed chainstate outside of the chainstate proper so that the microblock miner can
+///   continue to build on it and the network can service RPC requests on its state.
 ///
 /// These needs are each captured in distinct methods for committing this transaction.
 pub trait ClarityMarfStoreTransaction {
@@ -292,8 +292,8 @@ impl From<ChainstateError> for ClarityError {
     fn from(e: ChainstateError) -> Self {
         match e {
             ChainstateError::InvalidStacksTransaction(msg, _) => ClarityError::BadTransaction(msg),
-            ChainstateError::CostOverflowError(_, after, budget) => {
-                ClarityError::CostError(after, budget)
+            ChainstateError::CostOverflowError(context) => {
+                ClarityError::CostError(context.after, context.budget)
             }
             ChainstateError::ClarityError(x) => x,
             x => ClarityError::BadTransaction(x.to_string()),
@@ -1140,42 +1140,6 @@ impl<'a, 'b> ClarityBlockConnection<'a, 'b> {
             boot_code_account,
             StacksTransaction::new(tx_version, boot_code_auth, payload),
         ))
-    }
-
-    /// Instantiates a boot contract by:
-    ///
-    /// 1. Preparing a [`StacksTransaction`] with the appropriate version, payload and auth,
-    /// 2. Executing it using the boot account within a cost-free transaction, and
-    /// 3. Asserting the receipt for success.
-    ///
-    /// Panics if any of the above steps fail.
-    fn instantiate_boot_contract(
-        &mut self,
-        contract_name: &str,
-        code_body: &str,
-        clarity_version: Option<ClarityVersion>,
-    ) -> Result<StacksTransactionReceipt, ClarityError> {
-        let contract_id = boot_code_id(contract_name, self.mainnet);
-
-        let (boot_code_account, contract_tx) =
-            self.make_boot_code_smart_contract_tx(contract_name, code_body, clarity_version)?;
-
-        let receipt = self.as_free_transaction(|tx_conn| {
-            info!("Instantiate {} contract", &contract_id);
-            StacksChainState::process_transaction_payload(
-                tx_conn,
-                &contract_tx,
-                &boot_code_account,
-                &TransactionResourceBudgets::unlimited(),
-            )
-            .expect("FATAL: Failed to process boot contract initialization")
-        });
-
-        if receipt.result != Value::okay_true() || receipt.post_condition_aborted {
-            panic!("FATAL: Failure processing {contract_id} contract initialization: {receipt:#?}");
-        }
-
-        Ok(receipt)
     }
 
     pub fn initialize_epoch_2_05(&mut self) -> Result<StacksTransactionReceipt, ClarityError> {
@@ -2236,6 +2200,32 @@ impl<'a, 'b> ClarityBlockConnection<'a, 'b> {
         })
     }
 
+    pub fn initialize_epoch_4_1(&mut self) -> Result<Vec<StacksTransactionReceipt>, ClarityError> {
+        // use the `using!` statement to ensure that the old cost_tracker is placed
+        //  back in all branches after initialization
+        using!(self.cost_track, "cost tracker", |old_cost_tracker| {
+            // epoch initialization is *free*.
+            // NOTE: this also means that cost functions won't be evaluated.
+            self.cost_track.replace(LimitedCostTracker::new_free());
+            self.epoch = StacksEpochId::Epoch41;
+            self.as_transaction(|tx_conn| {
+                // bump the epoch in the Clarity DB
+                tx_conn
+                    .with_clarity_db(|db| {
+                        db.set_clarity_epoch_version(StacksEpochId::Epoch41)?;
+                        Ok(())
+                    })
+                    .unwrap();
+
+                // require 4.1 rules henceforth in this connection as well
+                tx_conn.epoch = StacksEpochId::Epoch41;
+            });
+
+            info!("Epoch 4.1 initialized");
+            (old_cost_tracker, Ok(vec![]))
+        })
+    }
+
     pub fn start_transaction_processing(&mut self) -> ClarityTransactionConnection<'_, '_> {
         ClarityTransactionConnection::new(
             &mut self.datastore,
@@ -2361,64 +2351,41 @@ impl Drop for ClarityTransactionConnection<'_, '_> {
 }
 
 impl TransactionConnection for ClarityTransactionConnection<'_, '_> {
-    fn with_abort_callback<F, A, R, E>(
-        &mut self,
+    fn with_abort_callback<'hooks, F, A, R, E>(
+        &'hooks mut self,
         to_do: F,
         abort_call_back: A,
-    ) -> Result<(R, AssetMap, Vec<StacksTransactionEvent>, Option<String>), E>
+    ) -> Result<TransactionOutput<R>, E>
     where
-        A: FnOnce(&AssetMap, &mut ClarityDatabase) -> Option<String>,
-        F: FnOnce(&mut OwnedEnvironment) -> Result<(R, AssetMap, Vec<StacksTransactionEvent>), E>,
+        A: FnOnce(&AssetMap, &mut ClarityDatabase) -> Option<BoundedErrorString>,
+        F: FnOnce(
+            &mut OwnedEnvironment<'_, 'hooks>,
+        ) -> Result<(R, AssetMap, Vec<StacksTransactionEvent>), E>,
         E: From<VmExecutionError>,
     {
         using!(self.log, "log", |log| {
             using!(self.cost_track, "cost tracker", |cost_track| {
                 let rollback_wrapper = RollbackWrapper::from_persisted_log(self.store, log);
-                let mut db = ClarityDatabase::new_with_rollback_wrapper(
+                let db = ClarityDatabase::new_with_rollback_wrapper(
                     rollback_wrapper,
                     self.header_db,
                     self.burn_state_db,
                 )
                 .with_cache(&mut self.cache);
 
-                // wrap the whole contract-call in a claritydb transaction,
-                //   so we can abort on call_back's boolean retun
-                db.begin();
-                let mut vm_env = OwnedEnvironment::new_cost_limited(
-                    self.mainnet,
-                    self.chain_id,
+                // The returned cost tracker keeps its memory usage: it is reset only when the
+                // surrounding transaction commits.
+                let (db, cost_track, result) = clarity::vm::clarity::execute_with_abort_callback(
                     db,
                     cost_track,
-                    self.epoch,
+                    TransactionConfig {
+                        mainnet: self.mainnet,
+                        chain_id: self.chain_id,
+                        epoch: self.epoch,
+                    },
+                    to_do,
+                    abort_call_back,
                 );
-
-                let result = to_do(&mut vm_env);
-                let (mut db, cost_track) = vm_env
-                    .destruct()
-                    .expect("Failed to recover database reference after executing transaction");
-                // DO NOT reset memory usage yet -- that should happen only when the TX commits.
-
-                let result = match result {
-                    Ok((value, asset_map, events)) => {
-                        let aborted = abort_call_back(&asset_map, &mut db);
-                        let db_result = if aborted.is_some() {
-                            db.roll_back()
-                        } else {
-                            db.commit()
-                        };
-                        match db_result {
-                            Ok(_) => Ok((value, asset_map, events, aborted)),
-                            Err(e) => Err(e.into()),
-                        }
-                    }
-                    Err(e) => {
-                        let db_result = db.roll_back();
-                        match db_result {
-                            Ok(_) => Err(e),
-                            Err(db_err) => Err(db_err.into()),
-                        }
-                    }
-                };
 
                 (cost_track, (db.destroy().into(), result))
             })
@@ -2562,7 +2529,7 @@ impl ClarityTransactionConnection<'_, '_> {
                     )
                     .map_err(ClarityError::from)
             },
-            |_, _| Some("read-only".to_string()),
+            |_, _| Some("read-only".into()),
         )?;
         Ok(result)
     }
@@ -3266,7 +3233,7 @@ mod tests {
                         &contract_identifier,
                         "set-bar",
                         &[Value::Int(10), Value::Int(1)],
-                        |_, _| Some("testing rollback".to_string()),
+                        |_, _| Some("testing rollback".into()),
                         &ResourceBudget::unlimited(),
                     )
                 })
@@ -3303,7 +3270,7 @@ mod tests {
                     &contract_identifier,
                     "set-bar",
                     &[Value::Int(10), Value::Int(0)],
-                    |_, _| Some("testing rollback".to_string()),
+                    |_, _| Some("testing rollback".into()),
                     &ResourceBudget::unlimited()
                 ))
                 .unwrap_err()

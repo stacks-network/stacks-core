@@ -81,6 +81,45 @@ pub static TEST_SIGNERS_INSERT_BLOCK_PROPOSAL_WITHOUT_PROCESSING: LazyLock<
     TestFlag<Vec<StacksPublicKey>>,
 > = LazyLock::new(TestFlag::default);
 
+/// Opt-in capture owned by one signer for one block. Retains only the first response and
+/// message counts, so unexpected repeated responses fail assertions without growing storage.
+/// Capture happens before broadcast suppression, since dry-run StackerDB only logs messages.
+#[cfg(test)]
+#[derive(Debug)]
+pub struct BlockMessageRecorder {
+    signer_signature_hash: Sha512Trunc256Sum,
+    first_response: Option<BlockResponse>,
+    response_count: usize,
+    pre_commits: usize,
+}
+
+#[cfg(test)]
+impl BlockMessageRecorder {
+    fn new(signer_signature_hash: Sha512Trunc256Sum) -> Self {
+        Self {
+            signer_signature_hash,
+            first_response: None,
+            response_count: 0,
+            pre_commits: 0,
+        }
+    }
+
+    /// Count matching responses, retaining only the first.
+    pub fn record_response(&mut self, response: &BlockResponse) {
+        if response.get_signer_signature_hash() == &self.signer_signature_hash {
+            self.first_response.get_or_insert_with(|| response.clone());
+            self.response_count += 1;
+        }
+    }
+
+    /// Count pre-commits for the selected block.
+    pub fn record_pre_commit(&mut self, signer_signature_hash: &Sha512Trunc256Sum) {
+        if signer_signature_hash == &self.signer_signature_hash {
+            self.pre_commits += 1;
+        }
+    }
+}
+
 impl Signer {
     /// Skip the block broadcast if the TEST_SKIP_BLOCK_BROADCAST flag is set
     pub fn test_skip_block_broadcast(&self, block: &NakamotoBlock) -> bool {
@@ -313,5 +352,1827 @@ impl Signer {
             return true;
         }
         false
+    }
+}
+
+/// Tests for the asynchronous-validation tenure-start timing gap.
+///
+/// `check_proposal` rejects a second tenure-start block for a tenure, but it runs before the
+/// node's async validation, so two sibling tenure-start blocks proposed within the validation
+/// window can both be pre-committed. A signer must still refuse to place a *signature* on a
+/// second sibling while its signature on the first is fresh, so a single winning miner cannot
+/// obtain two signer certificates for one sortition. Once the signature has timed out, the
+/// signer consults the node and signs the replacement only if the signed sibling is not
+/// canonical at that height, so a sibling that failed to be confirmed can still be replaced.
+#[cfg(test)]
+mod async_sibling_validation {
+    use std::io::{Read, Write};
+    use std::net::{Ipv4Addr, SocketAddrV4, TcpListener};
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::{mpsc, Arc, Mutex};
+    use std::thread;
+    use std::time::{Duration, SystemTime};
+
+    use blockstack_lib::chainstate::nakamoto::{NakamotoBlock, NakamotoBlockHeader};
+    use blockstack_lib::chainstate::stacks::{
+        CoinbasePayload, SinglesigHashMode, SinglesigSpendingCondition, StacksTransaction,
+        TenureChangeCause, TenureChangePayload, TransactionAnchorMode, TransactionAuth,
+        TransactionPayload, TransactionPostConditionMode, TransactionPublicKeyEncoding,
+        TransactionSpendingCondition, TransactionVersion,
+    };
+    use blockstack_lib::net::api::get_tenure_tip_meta::BlockHeaderWithMetadata;
+    use blockstack_lib::net::api::getsortition::SortitionInfo;
+    use blockstack_lib::net::api::postblock_proposal::{BlockValidateOk, BlockValidateResponse};
+    use clarity::util::hash::{Hash160, Sha512Trunc256Sum};
+    use clarity::util::vrf::VRFProof;
+    use clarity::vm::costs::ExecutionCost;
+    use libsigner::v0::messages::{PeerInfo, RejectReason, SignerMessage};
+    use libsigner::{BlockProposal, BlockProposalData, SignerEntries, SignerEvent};
+    use stacks_common::bitvec::BitVec;
+    use stacks_common::consts::CHAIN_ID_TESTNET;
+    use stacks_common::types::chainstate::{
+        BlockHeaderHash, BurnchainHeaderHash, ConsensusHash, SortitionId, StacksAddress,
+        StacksBlockId, StacksPrivateKey, StacksPublicKey, TrieHash,
+    };
+    use stacks_common::util::get_epoch_time_secs;
+    use stacks_common::util::hash::MerkleTree;
+    use stacks_common::util::secp256k1::MessageSignature;
+
+    use super::BlockMessageRecorder;
+    use crate::chainstate::{SelfAsTip, SortitionData};
+    use crate::client::{SignerSlotID, StacksClient};
+    use crate::config::{SignerConfig, SignerConfigMode};
+    use crate::signerdb::{BlockInfo, BlockState};
+    use crate::v0::signer::Signer;
+    use crate::Signer as SignerTrait;
+
+    /// Build a tenure-start block for `tenure` with the mandatory tenure-change (idx 0) and
+    /// coinbase (idx 1). `timestamp` is varied to produce distinct-hash siblings.
+    fn tenure_start(
+        miner: &StacksPrivateKey,
+        tenure: &ConsensusHash,
+        parent_tenure: &ConsensusHash,
+        parent: &StacksBlockId,
+        height: u64,
+        timestamp: u64,
+    ) -> NakamotoBlock {
+        let payload = TenureChangePayload {
+            tenure_consensus_hash: tenure.clone(),
+            prev_tenure_consensus_hash: parent_tenure.clone(),
+            burn_view_consensus_hash: tenure.clone(),
+            previous_tenure_end: parent.clone(),
+            previous_tenure_blocks: 1,
+            cause: TenureChangeCause::BlockFound,
+            pubkey_hash: Hash160::from_node_public_key(&StacksPublicKey::from_private(miner)),
+        };
+        let tenure_tx = StacksTransaction {
+            version: TransactionVersion::Testnet,
+            chain_id: CHAIN_ID_TESTNET,
+            auth: TransactionAuth::Standard(TransactionSpendingCondition::Singlesig(
+                SinglesigSpendingCondition {
+                    hash_mode: SinglesigHashMode::P2PKH,
+                    signer: Hash160([0; 20]),
+                    nonce: 0,
+                    tx_fee: 0,
+                    key_encoding: TransactionPublicKeyEncoding::Compressed,
+                    signature: MessageSignature::empty(),
+                },
+            )),
+            anchor_mode: TransactionAnchorMode::Any,
+            post_condition_mode: TransactionPostConditionMode::Allow,
+            post_conditions: vec![],
+            payload: TransactionPayload::TenureChange(payload),
+        };
+        let coinbase = StacksTransaction::new(
+            TransactionVersion::Testnet,
+            TransactionAuth::Standard(TransactionSpendingCondition::new_initial_sighash()),
+            TransactionPayload::Coinbase(CoinbasePayload([0; 32]), None, Some(VRFProof::empty())),
+        );
+        let txs = vec![tenure_tx, coinbase];
+        let txid_vecs: Vec<_> = txs.iter().map(|tx| tx.txid().as_bytes().to_vec()).collect();
+        let tx_merkle_root = MerkleTree::<Sha512Trunc256Sum>::new(&txid_vecs).root();
+        let header = NakamotoBlockHeader {
+            version: 1,
+            chain_length: height,
+            burn_spent: 10,
+            consensus_hash: tenure.clone(),
+            parent_block_id: parent.clone(),
+            tx_merkle_root,
+            state_index_root: TrieHash([0; 32]),
+            timestamp,
+            miner_signature: MessageSignature::empty(),
+            signer_signature: vec![],
+            pox_treatment: BitVec::ones(1).unwrap(),
+            problematic_txs: vec![],
+        };
+        let mut block = NakamotoBlock::new(header, txs);
+        block.header.sign_miner(miner).unwrap();
+        block
+    }
+
+    /// Build a plain (non tenure-start) block for `tenure`, i.e. one a miner mines after its
+    /// tenure has already begun.
+    fn mid_tenure_block(
+        miner: &StacksPrivateKey,
+        tenure: &ConsensusHash,
+        parent: &StacksBlockId,
+        height: u64,
+        timestamp: u64,
+    ) -> NakamotoBlock {
+        let header = NakamotoBlockHeader {
+            version: 1,
+            chain_length: height,
+            burn_spent: 10,
+            consensus_hash: tenure.clone(),
+            parent_block_id: parent.clone(),
+            tx_merkle_root: Sha512Trunc256Sum([0; 32]),
+            state_index_root: TrieHash([0; 32]),
+            timestamp,
+            miner_signature: MessageSignature::empty(),
+            signer_signature: vec![],
+            pox_treatment: BitVec::ones(1).unwrap(),
+            problematic_txs: vec![],
+        };
+        let mut block = NakamotoBlock::new(header, vec![]);
+        block.header.sign_miner(miner).unwrap();
+        block
+    }
+
+    /// A mock stacks-node that serves a tenure tip per consensus hash (so the tenure-change
+    /// parent check and the signing-time tip check each see their own tenure's tip) and an
+    /// empty `/v2/info`; everything else 404s. `tips` maps a path fragment to a response body,
+    /// first match wins.
+    fn serve_node(
+        listener: TcpListener,
+        tips: Arc<Mutex<Vec<(String, String)>>>,
+        exit: Arc<AtomicBool>,
+    ) {
+        listener.set_nonblocking(true).unwrap();
+        while !exit.load(Ordering::SeqCst) {
+            let Ok((mut stream, _)) = listener.accept() else {
+                thread::sleep(Duration::from_millis(2));
+                continue;
+            };
+            let _ = stream.set_nonblocking(false);
+            let _ = stream.set_read_timeout(Some(Duration::from_millis(100)));
+            // Read until the request head is complete (or the peer stalls); the path we
+            // dispatch on is in the request line.
+            let mut request = Vec::new();
+            let mut buf = [0u8; 4096];
+            while !request.windows(4).any(|window| window == b"\r\n\r\n") {
+                match stream.read(&mut buf) {
+                    Ok(0) | Err(_) => break,
+                    Ok(bytes_read) => request.extend_from_slice(&buf[..bytes_read]),
+                }
+            }
+            let request = String::from_utf8_lossy(&request);
+            let tip_body = tips
+                .lock()
+                .unwrap()
+                .iter()
+                .find(|(fragment, _)| request.contains(fragment.as_str()))
+                .map(|(_, body)| body.clone());
+            let (status, body) = if let Some(body) = tip_body.as_deref() {
+                ("200 OK", body)
+            } else if request.contains("/v2/info") {
+                ("200 OK", "{}")
+            } else {
+                ("404 Not Found", "")
+            };
+            let response = format!(
+                "HTTP/1.1 {status}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                body.len()
+            );
+            let _ = stream.write_all(response.as_bytes());
+        }
+    }
+
+    /// A mock stacks-node (see [`serve_node`]) with a single registered signer of weight 1
+    /// pointed at it, so the pre-commit threshold is met by our own pre-commit alone.
+    struct MockNode {
+        signer: Signer,
+        client: StacksClient,
+        exit: Arc<AtomicBool>,
+        server: Option<thread::JoinHandle<()>>,
+        db_path: std::path::PathBuf,
+        /// What the node currently answers, as `(path fragment, body)`; anything unmatched
+        /// 404s. Replaceable so a test can change the node's view between events.
+        tips: Arc<Mutex<Vec<(String, String)>>>,
+    }
+
+    impl MockNode {
+        fn new(tips: Vec<(String, String)>, tenure_last_block_proposal_timeout: Duration) -> Self {
+            let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).unwrap();
+            let port = listener.local_addr().unwrap().port();
+            let exit = Arc::new(AtomicBool::new(false));
+            let server_exit = exit.clone();
+            let tips = Arc::new(Mutex::new(tips));
+            let served_tips = tips.clone();
+            let server = thread::spawn(move || serve_node(listener, served_tips, server_exit));
+
+            let client = StacksClient::new(
+                &StacksPrivateKey::random(),
+                SocketAddrV4::new(Ipv4Addr::LOCALHOST, port).to_string(),
+                "regression-auth".into(),
+                false,
+                CHAIN_ID_TESTNET,
+            );
+
+            let signer_key = StacksPrivateKey::from_seed(&[9, 1]);
+            let signer_pk = StacksPublicKey::from_private(&signer_key);
+            let signer_addr = StacksAddress::p2pkh(false, &signer_pk);
+            let signer_entries = SignerEntries {
+                signer_addr_to_id: [(signer_addr.clone(), 0)].into_iter().collect(),
+                signer_id_to_addr: [(0, signer_addr.clone())].into_iter().collect(),
+                signer_id_to_pk: [(0, signer_pk.clone())].into_iter().collect(),
+                signer_pk_to_id: [(signer_pk.clone(), 0)].into_iter().collect(),
+                signer_pks: vec![signer_pk.clone()],
+                signer_addresses: vec![signer_addr.clone()],
+                signer_addr_to_weight: [(signer_addr.clone(), 1)].into_iter().collect(),
+            };
+
+            let db_path = std::env::temp_dir().join(format!(
+                "stacks-signer-sibling-regression-{}-{port}.sqlite",
+                std::process::id()
+            ));
+            let _ = std::fs::remove_file(&db_path);
+
+            let signer_config = SignerConfig {
+                reward_cycle: 1,
+                supported_signer_protocol_version: 2,
+                signer_entries,
+                signer_slot_ids: vec![SignerSlotID(0)],
+                stacks_private_key: signer_key,
+                node_host: SocketAddrV4::new(Ipv4Addr::LOCALHOST, port).to_string(),
+                mainnet: false,
+                db_path: db_path.clone(),
+                first_proposal_burn_block_timing: Duration::from_secs(30),
+                block_proposal_timeout: Duration::from_secs(5),
+                tenure_last_block_proposal_timeout,
+                block_proposal_validation_timeout: Duration::from_secs(30),
+                tenure_idle_timeout: Duration::from_secs(300),
+                read_count_idle_timeout: Duration::from_secs(12_000),
+                tenure_idle_timeout_buffer: Duration::from_secs(2),
+                block_proposal_max_age_secs: 30,
+                reorg_attempts_activity_timeout: Duration::from_secs(3),
+                signer_mode: SignerConfigMode::DryRun,
+                proposal_wait_for_parent_time: Duration::ZERO,
+                capitulate_miner_view_timeout: Duration::from_secs(30),
+                stackerdb_timeout: Duration::from_secs(2),
+            };
+
+            let signer = <Signer as SignerTrait<SignerMessage>>::new(&client, signer_config);
+            Self {
+                signer,
+                client,
+                exit,
+                server: Some(server),
+                db_path,
+                tips,
+            }
+        }
+
+        /// Stop the mock node and remove the signer db. Called before the caller asserts, so a
+        /// failure does not leak the db file.
+        fn shutdown(&mut self) {
+            self.exit.store(true, Ordering::SeqCst);
+            if let Some(server) = self.server.take() {
+                let _ = server.join();
+            }
+            let _ = std::fs::remove_file(&self.db_path);
+        }
+    }
+
+    fn validate_ok(hash: &Sha512Trunc256Sum) -> SignerEvent<SignerMessage> {
+        SignerEvent::BlockValidationResponse(BlockValidateResponse::Ok(BlockValidateOk {
+            signer_signature_hash: hash.clone(),
+            cost: ExecutionCost::ZERO,
+            size: 0,
+            validation_time_ms: 1,
+            replay_tx_hash: None,
+            replay_tx_exhausted: false,
+        }))
+    }
+
+    /// The miner key every fixture block is signed with.
+    fn fixture_miner() -> StacksPrivateKey {
+        StacksPrivateKey::from_seed(&[0, 1])
+    }
+
+    /// Two conflicting sibling tenure-start blocks A and B (same tenure, parent and height,
+    /// hashes differing by `timestamp`) plus the mock node's responses: the parent tenure's tip
+    /// is the parent block, the current tenure's tip is A if `serve_sibling_as_tip` else the
+    /// parent.
+    fn sibling_fixture(
+        timestamp: u64,
+        serve_sibling_as_tip: bool,
+    ) -> (NakamotoBlock, NakamotoBlock, Vec<(String, String)>) {
+        let miner = fixture_miner();
+        let tenure = ConsensusHash([1; 20]);
+        let parent_tenure = ConsensusHash([0; 20]);
+
+        // The parent block of the tenure (height 9); both siblings build on it at height 10.
+        let mut parent_header = NakamotoBlockHeader {
+            version: 1,
+            chain_length: 9,
+            burn_spent: 10,
+            consensus_hash: parent_tenure.clone(),
+            parent_block_id: StacksBlockId([9; 32]),
+            tx_merkle_root: Sha512Trunc256Sum([0; 32]),
+            state_index_root: TrieHash([0; 32]),
+            timestamp: 9,
+            miner_signature: MessageSignature::empty(),
+            signer_signature: vec![],
+            pox_treatment: BitVec::ones(1).unwrap(),
+            problematic_txs: vec![],
+        };
+        parent_header.sign_miner(&miner).unwrap();
+        let parent_id = parent_header.block_id();
+
+        // Two conflicting sibling tenure-start blocks: same tenure, parent, and height; the only
+        // difference is the timestamp (hence the hash). The timestamps are current so that a
+        // re-proposal of B passes the proposal age check.
+        let block_a = tenure_start(&miner, &tenure, &parent_tenure, &parent_id, 10, timestamp);
+        let block_b = tenure_start(
+            &miner,
+            &tenure,
+            &parent_tenure,
+            &parent_id,
+            10,
+            timestamp + 1,
+        );
+        let hash_a = block_a.header.signer_signature_hash();
+        let hash_b = block_b.header.signer_signature_hash();
+        assert_ne!(hash_a, hash_b);
+        assert_eq!(block_a.header.consensus_hash, block_b.header.consensus_hash);
+        assert_eq!(block_a.header.chain_length, block_b.header.chain_length);
+
+        // The parent tenure's tip is always the parent block, so the tenure-change parent
+        // check passes for both siblings. The current tenure's tip is what the signing-time
+        // check consults once a conflicting signature has timed out: either A itself (it
+        // became canonical) or still the parent (it did not).
+        let parent_tip = BlockHeaderWithMetadata {
+            anchored_header: parent_header.clone().into(),
+            burn_view: Some(tenure.clone()),
+        };
+        let tenure_tip = if serve_sibling_as_tip {
+            BlockHeaderWithMetadata {
+                anchored_header: block_a.header.clone().into(),
+                burn_view: Some(tenure.clone()),
+            }
+        } else {
+            BlockHeaderWithMetadata {
+                anchored_header: parent_header.into(),
+                burn_view: Some(tenure.clone()),
+            }
+        };
+        let tips = vec![
+            (
+                format!("/v3/tenures/tip_metadata/{parent_tenure}"),
+                serde_json::to_string(&parent_tip).unwrap(),
+            ),
+            (
+                format!("/v3/tenures/tip_metadata/{tenure}"),
+                serde_json::to_string(&tenure_tip).unwrap(),
+            ),
+            // Accept signed-block uploads immediately, so the broadcast after a signing does
+            // not spend seconds in retry backoff (which would let fresh signatures go stale
+            // mid-test and make the freshness-window timing unreliable).
+            (
+                "/v3/blocks/upload".to_string(),
+                format!(r#"{{"stacks_block_id":"{parent_id}","accepted":true}}"#),
+            ),
+        ];
+
+        (block_a, block_b, tips)
+    }
+
+    /// Drive the sibling race: two conflicting tenure-start blocks A and B are both tracked
+    /// (as they would be after screening two proposals within the async-validation window),
+    /// A's validation returns first and is signed, then B's validation returns. Returns the
+    /// resulting `BlockInfo` for A (captured right after its own validation), for B (captured
+    /// right after its validation), and for B after an optional re-proposal.
+    ///
+    /// `tenure_last_block_proposal_timeout` controls whether A's signature is still fresh when
+    /// B crosses the pre-commit threshold. `serve_sibling_as_tip` controls whether the mock
+    /// node reports A (height 10) or the parent (height 9) as the canonical tenure tip, which
+    /// is what the signer consults once the signature has timed out. If `re_propose_b_after` is
+    /// set, the miner re-submits B's proposal after that delay (as it does after a signature
+    /// timeout) and B's `BlockInfo` is captured again as the third element.
+    ///
+    /// `permit_reorg_of_tenure` records a reorg permit over the siblings' own tenure, naming a
+    /// third tenure as the one allowed to replace it (as `check_parent_tenure_choice` does when
+    /// the next sortition builds off the siblings' parent because the node saw no block here).
+    /// Neither sibling is that replacement, so the permit must not excuse either of them.
+    fn run_sibling_scenario(
+        tenure_last_block_proposal_timeout: Duration,
+        serve_sibling_as_tip: bool,
+        re_propose_b_after: Option<Duration>,
+        permit_reorg_of_tenure: bool,
+    ) -> (BlockInfo, BlockInfo, Option<BlockInfo>) {
+        let now = get_epoch_time_secs();
+        let (block_a, block_b, tips) = sibling_fixture(now, serve_sibling_as_tip);
+        let hash_a = block_a.header.signer_signature_hash();
+        let hash_b = block_b.header.signer_signature_hash();
+
+        let mut node = MockNode::new(tips, tenure_last_block_proposal_timeout);
+
+        // Track both blocks (Unprocessed), as the signer would after screening the two proposals.
+        for block in [&block_a, &block_b] {
+            let info = BlockInfo::from(BlockProposal {
+                block: block.clone(),
+                burn_height: 1,
+                reward_cycle: 1,
+                block_proposal_data: BlockProposalData::empty(),
+            });
+            node.signer.signer_db.insert_block(&info).unwrap();
+        }
+
+        if permit_reorg_of_tenure {
+            // The next sortition committed to the siblings' parent, because the node has been
+            // handed no block in this tenure (neither sibling has reached the threshold), so we
+            // sanctioned that tenure replacing this one. The permitting sortition is canonical
+            // throughout, so the permit itself is live: the only reason it must not excuse a
+            // sibling is that a sibling is not the replacement it was granted for.
+            let permitting_tenure = ConsensusHash([2; 20]);
+            let permitting_burn_hash = BurnchainHeaderHash([0xbb; 32]);
+            node.signer
+                .signer_db
+                .mark_tenure_superseded(
+                    &block_a.header.consensus_hash,
+                    1,
+                    &permitting_tenure,
+                    &permitting_burn_hash,
+                )
+                .unwrap();
+            node.tips.lock().unwrap().push((
+                format!("/v3/sortitions/burn/{}", permitting_burn_hash.to_hex()),
+                canonical_sortition_response(&permitting_burn_hash, 2),
+            ));
+        }
+
+        let (result_tx, _result_rx) = mpsc::channel();
+        let mut sortition = None;
+
+        // A's validation returns first. (With a single weight-1 signer the pre-commit threshold
+        // is met immediately, so A can promote past PreCommitted in a single event.)
+        node.signer.process_event(
+            &node.client,
+            &mut sortition,
+            Some(&validate_ok(&hash_a)),
+            &result_tx,
+            1,
+        );
+        let info_a = node
+            .signer
+            .signer_db
+            .block_lookup(&hash_a)
+            .unwrap()
+            .unwrap();
+
+        // B's validation returns while A is already signed.
+        node.signer.process_event(
+            &node.client,
+            &mut sortition,
+            Some(&validate_ok(&hash_b)),
+            &result_tx,
+            1,
+        );
+        let info_b = node
+            .signer
+            .signer_db
+            .block_lookup(&hash_b)
+            .unwrap()
+            .unwrap();
+
+        // The miner re-submits B's proposal, as it does after a signature timeout. The signer
+        // must re-run the pre-commit evaluation (threshold + conflict checks) rather than
+        // responding with a signature directly off the tracked `valid` flag.
+        let info_b_reproposed = re_propose_b_after.map(|delay| {
+            thread::sleep(delay);
+            let proposal_b = SignerMessage::BlockProposal(BlockProposal {
+                block: block_b.clone(),
+                burn_height: 1,
+                reward_cycle: 1,
+                block_proposal_data: BlockProposalData::empty(),
+            });
+            node.signer.process_event(
+                &node.client,
+                &mut sortition,
+                Some(&SignerEvent::MinerMessages(vec![proposal_b])),
+                &result_tx,
+                1,
+            );
+            node.signer
+                .signer_db
+                .block_lookup(&hash_b)
+                .unwrap()
+                .unwrap()
+        });
+
+        // Clean up before the callers assert, so failures do not leak the db file.
+        node.shutdown();
+
+        (info_a, info_b, info_b_reproposed)
+    }
+
+    /// An ordinary (non tenure-change) block in `tenure` at height 10 on `parent`, so the
+    /// signing-time re-check consults the block's own tenure rather than its parent's.
+    fn plain_block(
+        tenure: &ConsensusHash,
+        parent: &StacksBlockId,
+        timestamp: u64,
+    ) -> NakamotoBlock {
+        mid_tenure_block(&fixture_miner(), tenure, parent, 10, timestamp)
+    }
+
+    fn proposal_of(block: &NakamotoBlock) -> BlockProposal {
+        BlockProposal {
+            block: block.clone(),
+            burn_height: 1,
+            reward_cycle: 1,
+            block_proposal_data: BlockProposalData::empty(),
+        }
+    }
+
+    /// What the signer did for one block: the messages it sent, whether its own pre-commit was
+    /// persisted (which only `handle_block_pre_commit` does), and the row it left behind.
+    struct RecordedOutcome {
+        info: BlockInfo,
+        messages: BlockMessageRecorder,
+        own_pre_commit_persisted: bool,
+    }
+
+    /// The block responses recorded for one block, reduced to what the tests care about.
+    #[derive(Debug, PartialEq)]
+    enum Responses {
+        None,
+        Accepted,
+        Rejected(RejectReason),
+        Several(usize),
+    }
+
+    /// The observable outcome for one block, comparable in a single assertion.
+    #[derive(Debug, PartialEq)]
+    struct Outcome {
+        responses: Responses,
+        pre_commits: usize,
+        own_pre_commit_persisted: bool,
+        signed_self: bool,
+        valid: Option<bool>,
+        reject_reason: Option<RejectReason>,
+        state: BlockState,
+    }
+
+    impl RecordedOutcome {
+        /// Stop capture and collect the block's row, message counts, and persisted pre-commit.
+        fn collect(node: &mut MockNode, hash: &Sha512Trunc256Sum) -> Self {
+            let info = node.signer.signer_db.block_lookup(hash).unwrap().unwrap();
+            let messages = node.signer.test_block_messages.take().unwrap();
+            assert_eq!(&messages.signer_signature_hash, hash);
+            let own_pre_commit_persisted = node
+                .signer
+                .signer_db
+                .get_block_pre_committers(hash)
+                .unwrap()
+                .contains(&node.signer.stacks_address);
+            Self {
+                info,
+                messages,
+                own_pre_commit_persisted,
+            }
+        }
+
+        fn summary(&self) -> Outcome {
+            let responses = match self.messages.response_count {
+                0 => Responses::None,
+                1 => match self
+                    .messages
+                    .first_response
+                    .as_ref()
+                    .unwrap()
+                    .as_block_rejection()
+                {
+                    Some(rejection) => {
+                        Responses::Rejected(rejection.response_data.reject_reason.clone())
+                    }
+                    None => Responses::Accepted,
+                },
+                several => Responses::Several(several),
+            };
+            Outcome {
+                responses,
+                pre_commits: self.messages.pre_commits,
+                own_pre_commit_persisted: self.own_pre_commit_persisted,
+                signed_self: self.info.signed_self.is_some(),
+                valid: self.info.valid,
+                reject_reason: self.info.reject_reason.clone(),
+                state: self.info.state,
+            }
+        }
+    }
+
+    /// Track siblings A and B, optionally sign A, shape B's stored row, then re-propose B and
+    /// report what the signer did for B.
+    fn run_reproposal_case(
+        timestamp: u64,
+        sign_a: bool,
+        shape_b: impl FnOnce(&mut BlockInfo),
+    ) -> RecordedOutcome {
+        let (block_a, block_b, tips) = sibling_fixture(timestamp, false);
+        let hash_a = block_a.header.signer_signature_hash();
+        let hash_b = block_b.header.signer_signature_hash();
+        let mut node = MockNode::new(tips, Duration::from_secs(100_000));
+        for block in [&block_a, &block_b] {
+            node.signer
+                .signer_db
+                .insert_block(&BlockInfo::from(proposal_of(block)))
+                .unwrap();
+        }
+
+        let (result_tx, _result_rx) = mpsc::channel();
+        let mut sortition = None;
+        if sign_a {
+            node.signer.process_event(
+                &node.client,
+                &mut sortition,
+                Some(&validate_ok(&hash_a)),
+                &result_tx,
+                1,
+            );
+            let info_a = node
+                .signer
+                .signer_db
+                .block_lookup(&hash_a)
+                .unwrap()
+                .unwrap();
+            assert_a_signed(&info_a);
+        }
+        // Shape B's row only now: a B that already carried a signature would (correctly) stop
+        // A from being signed above.
+        let mut info_b = BlockInfo::from(proposal_of(&block_b));
+        shape_b(&mut info_b);
+        node.signer.signer_db.insert_block(&info_b).unwrap();
+        // Only what the re-proposal of B produces is under test.
+        node.signer.test_block_messages = Some(BlockMessageRecorder::new(hash_b.clone()));
+        let reproposal =
+            SignerEvent::MinerMessages(vec![SignerMessage::BlockProposal(proposal_of(&block_b))]);
+        node.signer.process_event(
+            &node.client,
+            &mut sortition,
+            Some(&reproposal),
+            &result_tx,
+            1,
+        );
+        let outcome = RecordedOutcome::collect(&mut node, &hash_b);
+        node.shutdown();
+        outcome
+    }
+
+    /// Validate an ordinary block C (same tenure and height as A) whose row was shaped by
+    /// `shape_c`, after optionally signing A first, and report what the signer did for C.
+    fn run_late_validation_case(
+        timestamp: u64,
+        serve_sibling_as_tip: bool,
+        sign_a: bool,
+        shape_c: impl FnOnce(&mut BlockInfo),
+    ) -> RecordedOutcome {
+        let (block_a, _block_b, tips) = sibling_fixture(timestamp, serve_sibling_as_tip);
+        let block_c = plain_block(
+            &block_a.header.consensus_hash,
+            &block_a.header.parent_block_id,
+            timestamp + 2,
+        );
+        let hash_a = block_a.header.signer_signature_hash();
+        let hash_c = block_c.header.signer_signature_hash();
+        let mut node = MockNode::new(tips, Duration::from_secs(100_000));
+        node.signer
+            .signer_db
+            .insert_block(&BlockInfo::from(proposal_of(&block_a)))
+            .unwrap();
+        let (result_tx, _result_rx) = mpsc::channel();
+        let mut sortition = None;
+        if sign_a {
+            node.signer.process_event(
+                &node.client,
+                &mut sortition,
+                Some(&validate_ok(&hash_a)),
+                &result_tx,
+                1,
+            );
+            assert_a_signed(
+                &node
+                    .signer
+                    .signer_db
+                    .block_lookup(&hash_a)
+                    .unwrap()
+                    .unwrap(),
+            );
+        }
+        // Shape C's row only now: a C that already carried a group signature would (correctly)
+        // stop A from being signed above.
+        let mut info_c = BlockInfo::from(proposal_of(&block_c));
+        shape_c(&mut info_c);
+        node.signer.signer_db.insert_block(&info_c).unwrap();
+        node.signer.test_block_messages = Some(BlockMessageRecorder::new(hash_c.clone()));
+        node.signer.process_event(
+            &node.client,
+            &mut sortition,
+            Some(&validate_ok(&hash_c)),
+            &result_tx,
+            1,
+        );
+        let outcome = RecordedOutcome::collect(&mut node, &hash_c);
+        node.shutdown();
+        outcome
+    }
+
+    #[test]
+    fn reproposal_of_globally_rejected_validated_block_is_not_signed_directly() {
+        // B was validated (pre-committed) and then driven to GloballyRejected by peers, leaving
+        // valid = true with no signature. A is signed and fresh. Re-proposing B must go back
+        // through the pre-commit evaluation, where the fresh conflict refuses it, rather than
+        // being signed off the cached verdict.
+        let outcome = run_reproposal_case(get_epoch_time_secs(), true, |b| {
+            b.mark_pre_committed().unwrap();
+            b.mark_globally_rejected().unwrap();
+        });
+        assert_eq!(
+            outcome.summary(),
+            Outcome {
+                responses: Responses::None,
+                pre_commits: 1,
+                own_pre_commit_persisted: true,
+                signed_self: false,
+                valid: Some(true),
+                reject_reason: None,
+                state: BlockState::GloballyRejected,
+            }
+        );
+    }
+
+    #[test]
+    fn reproposal_of_globally_rejected_validated_block_signs_when_unconflicted() {
+        // Same row, but nothing else is signed: the pre-commit path signs it and records the
+        // signature even though the terminal state cannot change.
+        let outcome = run_reproposal_case(get_epoch_time_secs(), false, |b| {
+            b.mark_pre_committed().unwrap();
+            b.mark_globally_rejected().unwrap();
+        });
+        assert_eq!(
+            outcome.summary(),
+            Outcome {
+                responses: Responses::Accepted,
+                pre_commits: 1,
+                own_pre_commit_persisted: true,
+                signed_self: true,
+                valid: Some(true),
+                reject_reason: None,
+                state: BlockState::GloballyRejected,
+            }
+        );
+    }
+
+    #[test]
+    fn reproposal_of_permanently_rejected_block_reissues_rejection() {
+        let outcome = run_reproposal_case(get_epoch_time_secs(), false, |b| {
+            b.mark_locally_rejected().unwrap();
+            b.reject_reason = Some(RejectReason::SortitionViewMismatch);
+        });
+        assert_eq!(
+            outcome.summary(),
+            Outcome {
+                responses: Responses::Rejected(RejectReason::RejectedInPriorRound),
+                pre_commits: 0,
+                own_pre_commit_persisted: false,
+                signed_self: false,
+                valid: Some(false),
+                reject_reason: Some(RejectReason::SortitionViewMismatch),
+                state: BlockState::LocallyRejected,
+            }
+        );
+    }
+
+    #[test]
+    fn reproposal_of_signed_block_recreates_acceptance() {
+        let outcome = run_reproposal_case(get_epoch_time_secs(), false, |b| {
+            b.mark_locally_accepted(false).unwrap();
+            b.signed_self = Some(1_000);
+        });
+        assert_eq!(
+            outcome.summary(),
+            Outcome {
+                responses: Responses::Accepted,
+                pre_commits: 0,
+                own_pre_commit_persisted: false,
+                signed_self: true,
+                valid: Some(true),
+                reject_reason: None,
+                state: BlockState::LocallyAccepted,
+            }
+        );
+        assert_eq!(
+            outcome.info.signed_self,
+            Some(1_000),
+            "recreating the acceptance must not refresh the signature timestamp"
+        );
+    }
+
+    #[test]
+    fn reproposal_of_group_signed_unsigned_block_signs_through_pre_commit_path() {
+        // The group reached the threshold without us. The re-proposal still earns our late
+        // acceptance through the pre-commit checks rather than off the cached verdict.
+        let outcome = run_reproposal_case(get_epoch_time_secs(), false, |b| {
+            b.mark_pre_committed().unwrap();
+            b.mark_locally_accepted(true).unwrap();
+        });
+        assert_eq!(
+            outcome.summary(),
+            Outcome {
+                responses: Responses::Accepted,
+                pre_commits: 1,
+                own_pre_commit_persisted: true,
+                signed_self: true,
+                valid: Some(true),
+                reject_reason: None,
+                state: BlockState::LocallyAccepted,
+            }
+        );
+    }
+
+    #[test]
+    fn reproposal_of_group_signed_unsigned_block_refused_while_sibling_is_fresh() {
+        // Same row, but we hold a fresh signature on sibling A. A and B are tenure-start
+        // blocks, whose chainstate re-check looks at the parent tenure, so it passes; the
+        // conflict guard then sees A and holds silently, without signing B.
+        let outcome = run_reproposal_case(get_epoch_time_secs(), true, |b| {
+            b.mark_pre_committed().unwrap();
+            b.mark_locally_accepted(true).unwrap();
+        });
+        assert_eq!(
+            outcome.summary(),
+            Outcome {
+                responses: Responses::None,
+                pre_commits: 1,
+                own_pre_commit_persisted: true,
+                signed_self: false,
+                valid: Some(true),
+                reject_reason: None,
+                state: BlockState::LocallyAccepted,
+            }
+        );
+    }
+
+    #[test]
+    fn late_validation_of_group_signed_block_signs_instead_of_rejecting_itself() {
+        // An ordinary block C is group-signed before our validation returns. The re-check
+        // consults C's own tenure, where C itself is the signed tip; it must not be treated as
+        // a reorg of itself, so we pre-commit and sign rather than reject.
+        let outcome = run_late_validation_case(get_epoch_time_secs(), false, false, |c| {
+            c.mark_locally_accepted(true).unwrap();
+        });
+        assert_eq!(
+            outcome.summary(),
+            Outcome {
+                responses: Responses::Accepted,
+                pre_commits: 1,
+                own_pre_commit_persisted: true,
+                signed_self: true,
+                valid: Some(true),
+                reject_reason: None,
+                state: BlockState::LocallyAccepted,
+            }
+        );
+    }
+
+    #[test]
+    fn reproposal_of_globally_accepted_unsigned_block_is_ignored() {
+        let outcome = run_reproposal_case(get_epoch_time_secs(), false, |b| {
+            b.mark_pre_committed().unwrap();
+            b.mark_locally_accepted(true).unwrap();
+            b.mark_globally_accepted().unwrap();
+        });
+        assert_eq!(
+            outcome.summary(),
+            Outcome {
+                responses: Responses::None,
+                pre_commits: 0,
+                own_pre_commit_persisted: false,
+                signed_self: false,
+                valid: Some(true),
+                reject_reason: None,
+                state: BlockState::GloballyAccepted,
+            }
+        );
+    }
+
+    #[test]
+    fn chainstate_recheck_rejection_records_reject_reason() {
+        // A is signed at height 10. An ordinary block C at the same height in the same tenure
+        // is validated afterwards: the re-check finds A as the tenure's fresh signed tip and
+        // rejects C. The reason must be persisted like the other rejection paths do. With a
+        // single weight-1 signer our own rejection also crosses the rejection threshold, so the
+        // row ends globally rather than locally rejected.
+        let outcome = run_late_validation_case(get_epoch_time_secs(), false, true, |_| {});
+        assert_eq!(
+            outcome.summary(),
+            Outcome {
+                responses: Responses::Rejected(RejectReason::SortitionViewMismatch),
+                pre_commits: 0,
+                own_pre_commit_persisted: false,
+                signed_self: false,
+                valid: Some(false),
+                reject_reason: Some(RejectReason::SortitionViewMismatch),
+                state: BlockState::GloballyRejected,
+            }
+        );
+    }
+
+    #[test]
+    fn late_validation_of_group_signed_block_rejected_when_we_hold_a_fresh_sibling() {
+        // The group signed C before our validation returned, but we hold a fresh signature on
+        // sibling A at the same height. Leaving C out of the tip query must still surface A, so
+        // C is rejected explicitly rather than pre-committed and silently held.
+        let outcome = run_late_validation_case(get_epoch_time_secs(), false, true, |c| {
+            c.mark_locally_accepted(true).unwrap();
+        });
+        assert_eq!(
+            outcome.summary(),
+            Outcome {
+                responses: Responses::Rejected(RejectReason::SortitionViewMismatch),
+                pre_commits: 0,
+                own_pre_commit_persisted: false,
+                signed_self: false,
+                valid: Some(false),
+                reject_reason: Some(RejectReason::SortitionViewMismatch),
+                state: BlockState::GloballyRejected,
+            }
+        );
+    }
+
+    #[test]
+    fn late_validation_of_group_signed_block_still_rejected_when_node_tip_is_at_height() {
+        // Same as the late-validation case above, but the node already reports the tenure tip
+        // at height 10. Ignoring the block itself in the signed-tip comparison must not disable
+        // the node-tip check.
+        let outcome = run_late_validation_case(get_epoch_time_secs(), true, false, |c| {
+            c.mark_locally_accepted(true).unwrap();
+        });
+        assert_eq!(
+            outcome.summary(),
+            Outcome {
+                responses: Responses::Rejected(RejectReason::SortitionViewMismatch),
+                pre_commits: 0,
+                own_pre_commit_persisted: false,
+                signed_self: false,
+                valid: Some(false),
+                reject_reason: Some(RejectReason::SortitionViewMismatch),
+                state: BlockState::GloballyRejected,
+            }
+        );
+    }
+
+    #[test]
+    fn proposal_time_check_still_compares_a_group_signed_block_against_itself() {
+        // Only the post-validation re-check ignores the block itself. The proposal-time check
+        // must keep rejecting a duplicate proposal of a block we hold signature evidence for,
+        // otherwise a fresh evaluation would overwrite that evidence.
+        let now = get_epoch_time_secs();
+        let (block_a, _block_b, tips) = sibling_fixture(now, false);
+        let block_c = plain_block(
+            &block_a.header.consensus_hash,
+            &block_a.header.parent_block_id,
+            now + 2,
+        );
+        let mut node = MockNode::new(tips, Duration::from_secs(100_000));
+        let mut info_c = BlockInfo::from(proposal_of(&block_c));
+        info_c.mark_locally_accepted(true).unwrap();
+        node.signer.signer_db.insert_block(&info_c).unwrap();
+        let plain = SortitionData::check_latest_block_in_tenure(
+            &block_c.header.consensus_hash,
+            &block_c,
+            &mut node.signer.signer_db,
+            &node.client,
+            Duration::from_secs(100_000),
+            Duration::from_secs(3),
+            SelfAsTip::Counts,
+        );
+        let ignoring_self = SortitionData::check_latest_block_in_tenure(
+            &block_c.header.consensus_hash,
+            &block_c,
+            &mut node.signer.signer_db,
+            &node.client,
+            Duration::from_secs(100_000),
+            Duration::from_secs(3),
+            SelfAsTip::Ignored,
+        );
+        node.shutdown();
+        assert!(
+            matches!(plain, Ok(false)),
+            "proposal-time check must still see the block as its own tip, got {plain:?}"
+        );
+        assert!(
+            matches!(ignoring_self, Ok(true)),
+            "re-check must ignore the block itself and defer to the node tip, got {ignoring_self:?}"
+        );
+    }
+
+    /// Assert that A was signed as soon as its validation returned.
+    fn assert_a_signed(info_a: &BlockInfo) {
+        assert_eq!(
+            info_a.state,
+            BlockState::LocallyAccepted,
+            "block A should be signed once its validation returns"
+        );
+        assert!(
+            info_a.signed_self.is_some(),
+            "block A should carry our signature"
+        );
+    }
+
+    #[test]
+    fn signer_refuses_to_sign_second_sibling_tenure_start() {
+        // Pin the fresh window far beyond the test's runtime so the guard can only take the
+        // fresh branch; the stale branch is covered by the tests below.
+        let (info_a, info_b, _) =
+            run_sibling_scenario(Duration::from_secs(100_000), false, None, false);
+        assert_a_signed(&info_a);
+        // B is still pre-committed (the sibling is allowed to reach pre-commit), but the signer
+        // must refuse to place a second signature on a conflicting same-height block in this
+        // tenure while its signature on A is fresh.
+        assert_eq!(
+            info_b.state,
+            BlockState::PreCommitted,
+            "block B should be pre-committed but not promoted, got: {}",
+            info_b.state
+        );
+        assert!(
+            info_b.signed_self.is_none(),
+            "block B must NOT be signed: the signer already signed a conflicting sibling in this tenure"
+        );
+    }
+
+    #[test]
+    fn reorg_permit_does_not_excuse_a_sibling_in_the_superseded_tenure() {
+        // Identical to the test above, except that we have sanctioned a later tenure reorging
+        // this one. The permit exists so that our signature over A does not block the
+        // replacement we permitted -- a block in the permitting tenure. B is not that block:
+        // it is a second tenure-start block alongside one we already signed, which is
+        // equivocation rather than a reorg, so the permit must not excuse it. Signing both
+        // would hand one miner two threshold certificates at the same height in one tenure.
+        let (info_a, info_b, _) =
+            run_sibling_scenario(Duration::from_secs(100_000), false, None, true);
+        assert_a_signed(&info_a);
+        assert_eq!(
+            info_b.state,
+            BlockState::PreCommitted,
+            "block B should be pre-committed but not promoted, got: {}",
+            info_b.state
+        );
+        assert!(
+            info_b.signed_self.is_none(),
+            "block B must NOT be signed: a permit to reorg this tenure does not sanction a second block inside it"
+        );
+    }
+
+    #[test]
+    fn stale_sibling_still_refused_when_canonical_tip_at_height() {
+        // A zero timeout makes A's signature stale immediately, but the node reports A as the
+        // canonical tip at the same height, so the replacement must still be refused.
+        let (info_a, info_b, _) = run_sibling_scenario(Duration::ZERO, true, None, false);
+        assert_a_signed(&info_a);
+        assert_eq!(
+            info_b.state,
+            BlockState::PreCommitted,
+            "block B should be pre-committed but not promoted, got: {}",
+            info_b.state
+        );
+        assert!(
+            info_b.signed_self.is_none(),
+            "block B must NOT be signed: the conflicting sibling is canonical at this height"
+        );
+    }
+
+    #[test]
+    fn stale_sibling_replaced_when_canonical_tip_below() {
+        // A zero timeout makes A's signature stale immediately, and the node's canonical tip
+        // is still the parent (height 9): A failed to be confirmed, so the signer must sign
+        // the replacement rather than stall the tenure (the reorg-recovery case).
+        let (info_a, info_b, _) = run_sibling_scenario(Duration::ZERO, false, None, false);
+        assert_a_signed(&info_a);
+        assert_eq!(
+            info_b.state,
+            BlockState::LocallyAccepted,
+            "block B should be signed: the conflicting sibling timed out and is not canonical, got: {}",
+            info_b.state
+        );
+        assert!(
+            info_b.signed_self.is_some(),
+            "block B should carry our signature after the conflict timed out unconfirmed"
+        );
+    }
+
+    /// Assert that B was refused while A's signature was fresh: pre-committed but not signed.
+    fn assert_b_refused(info_b: &BlockInfo, context: &str) {
+        assert_eq!(
+            info_b.state,
+            BlockState::PreCommitted,
+            "block B should be pre-committed but not promoted ({context}), got: {}",
+            info_b.state
+        );
+        assert!(
+            info_b.signed_self.is_none(),
+            "block B must NOT be signed ({context})"
+        );
+    }
+
+    #[test]
+    fn reproposal_cannot_bypass_fresh_conflict() {
+        // B is refused while A's signature is fresh, then the miner re-submits B's proposal
+        // while the signature is STILL fresh. The re-proposal must go back through the
+        // pre-commit evaluation and be refused again, not be signed directly off the tracked
+        // `valid` flag.
+        let (info_a, info_b, info_b_reproposed) = run_sibling_scenario(
+            Duration::from_secs(100_000),
+            false,
+            Some(Duration::ZERO),
+            false,
+        );
+        assert_a_signed(&info_a);
+        assert_b_refused(&info_b, "after validation");
+        assert_b_refused(
+            &info_b_reproposed.unwrap(),
+            "after re-proposal while the conflicting signature is fresh",
+        );
+    }
+
+    #[test]
+    fn reproposal_still_refused_when_canonical_tip_at_height() {
+        // B is refused while A's signature is fresh. After the signature times out the miner
+        // re-submits B's proposal, but the node reports A as the canonical tip at the same
+        // height, so B must still be refused.
+        let (info_a, info_b, info_b_reproposed) = run_sibling_scenario(
+            Duration::from_secs(3),
+            true,
+            Some(Duration::from_secs(4)),
+            false,
+        );
+        assert_a_signed(&info_a);
+        assert_b_refused(&info_b, "after validation");
+        assert_b_refused(
+            &info_b_reproposed.unwrap(),
+            "after re-proposal: the conflicting sibling is canonical at this height",
+        );
+    }
+
+    /// What has become of tenure 1 (the tenure holding the conflicting block A) by the time
+    /// block B is evaluated.
+    #[derive(Clone, Copy)]
+    enum TenureAFate {
+        /// Nothing: we hold a fresh signature over A and have no evidence it is dead. We never
+        /// saw tenure 1's burn block, so the burn chain question cannot be asked either.
+        Live,
+        /// We saw tenure 1's burn block arrive, and the node still serves its sortition as
+        /// canonical: the tenure is provably live at the burn chain level.
+        SortitionStillCanonical,
+        /// We saw tenure 1's burn block arrive, and the node now 404s its sortition: a
+        /// burnchain fork orphaned the tenure. The node's burnchain tip has reached the burn
+        /// block's height, so the 404 is trusted.
+        SortitionOrphaned,
+        /// We saw tenure 1's burn block arrive and the node 404s its sortition, but its
+        /// burnchain tip has not reached the burn block's height: the node is still catching
+        /// up, so the 404 proves nothing.
+        SortitionOrphanedNodeBehind,
+        /// A was globally accepted -- so the node had it -- and the node has since reorged
+        /// past it.
+        GloballyAcceptedThenReorged,
+        /// We permitted tenure 2 to reorg tenure 1 under the reorg-timing rules, and the
+        /// permitting sortition is still canonical: the permit stands.
+        SupersededPermitCanonical,
+        /// We permitted a reorg of tenure 1, but the permitting sortition was itself orphaned
+        /// by a burnchain fork: the permit is void.
+        SupersededPermitOrphaned,
+        /// We permitted a reorg of tenure 1, and the permitting sortition is still canonical,
+        /// but the permit names a third tenure rather than tenure 2. B is not the replacement
+        /// that permit sanctioned.
+        SupersededPermitForOtherTenure,
+    }
+
+    /// Drive the cross-tenure race: block A starts tenure 1 and block B starts tenure 2, both
+    /// at height 10 off the same parent, so they are siblings in different tenures. A is signed
+    /// first, then B's validation returns. Neither tenure's Stacks blocks are known to the mock
+    /// node (the realistic case: a block we accepted locally is not handed to the node until
+    /// the whole signer set has signed it), so what the node can answer is decided by `fate`:
+    /// whether tenure 1's sortition is still canonical, and whether A was ever handed over.
+    /// Returns the resulting `BlockInfo` for A and for B.
+    fn run_cross_tenure_scenario(fate: TenureAFate) -> (BlockInfo, BlockInfo) {
+        let miner = fixture_miner();
+        let parent_tenure = ConsensusHash([0; 20]);
+        let tenure_a = ConsensusHash([1; 20]);
+        let tenure_b = ConsensusHash([2; 20]);
+
+        let mut parent_header = NakamotoBlockHeader {
+            version: 1,
+            chain_length: 9,
+            burn_spent: 10,
+            consensus_hash: parent_tenure.clone(),
+            parent_block_id: StacksBlockId([9; 32]),
+            tx_merkle_root: Sha512Trunc256Sum([0; 32]),
+            state_index_root: TrieHash([0; 32]),
+            timestamp: 9,
+            miner_signature: MessageSignature::empty(),
+            signer_signature: vec![],
+            pox_treatment: BitVec::ones(1).unwrap(),
+            problematic_txs: vec![],
+        };
+        parent_header.sign_miner(&miner).unwrap();
+        let parent_id = parent_header.block_id();
+
+        let now = get_epoch_time_secs();
+        let block_a = tenure_start(&miner, &tenure_a, &parent_tenure, &parent_id, 10, now);
+        let block_b = tenure_start(&miner, &tenure_b, &parent_tenure, &parent_id, 10, now + 1);
+        let hash_a = block_a.header.signer_signature_hash();
+        let hash_b = block_b.header.signer_signature_hash();
+        assert_ne!(block_a.header.consensus_hash, block_b.header.consensus_hash);
+        assert_eq!(block_a.header.chain_length, block_b.header.chain_length);
+
+        // Only the shared parent tenure has a tip, so the tenure-change parent check passes for
+        // both blocks. Tenures 1 and 2 are unknown to the node (404).
+        let parent_tip = BlockHeaderWithMetadata {
+            anchored_header: parent_header.into(),
+            burn_view: Some(parent_tenure.clone()),
+        };
+        let tips = vec![
+            (
+                format!("/v3/tenures/tip_metadata/{parent_tenure}"),
+                serde_json::to_string(&parent_tip).unwrap(),
+            ),
+            (
+                "/v3/blocks/upload".to_string(),
+                format!(r#"{{"stacks_block_id":"{parent_id}","accepted":true}}"#),
+            ),
+        ];
+
+        // The freshness window is wide open: A's signature is fresh throughout, so only the
+        // orphan record can decide whether it still blocks B.
+        let mut node = MockNode::new(tips, Duration::from_secs(100_000));
+
+        for block in [&block_a, &block_b] {
+            let info = BlockInfo::from(BlockProposal {
+                block: block.clone(),
+                burn_height: 1,
+                reward_cycle: 1,
+                block_proposal_data: BlockProposalData::empty(),
+            });
+            node.signer.signer_db.insert_block(&info).unwrap();
+        }
+
+        let (result_tx, _result_rx) = mpsc::channel();
+        let mut sortition = None;
+
+        node.signer.process_event(
+            &node.client,
+            &mut sortition,
+            Some(&validate_ok(&hash_a)),
+            &result_tx,
+            1,
+        );
+        match fate {
+            TenureAFate::Live => {}
+            TenureAFate::SortitionStillCanonical
+            | TenureAFate::SortitionOrphaned
+            | TenureAFate::SortitionOrphanedNodeBehind => {
+                // We heard tenure 1's burn block arrive, so the signing path can ask the node
+                // whether its sortition is still canonical. The mock node answers only for
+                // the burn hash it serves: everything else 404s (= orphaned). A 404 is only
+                // trusted once the node's burnchain tip (`/v2/info`) has reached the burn
+                // block's height, so the orphan fates also decide what that reports.
+                let tenure_a_burn_hash = BurnchainHeaderHash([0xaa; 32]);
+                node.signer
+                    .signer_db
+                    .insert_burn_block(
+                        &tenure_a_burn_hash,
+                        &tenure_a,
+                        1,
+                        &SystemTime::now(),
+                        &BurnchainHeaderHash([0xa9; 32]),
+                    )
+                    .unwrap();
+                let mut tips = node.tips.lock().unwrap();
+                match fate {
+                    TenureAFate::SortitionStillCanonical => {
+                        tips.push((
+                            format!("/v3/sortitions/burn/{}", tenure_a_burn_hash.to_hex()),
+                            canonical_sortition_response(&tenure_a_burn_hash, 1),
+                        ));
+                    }
+                    TenureAFate::SortitionOrphaned => {
+                        tips.push(("/v2/info".to_string(), peer_info_response(1)));
+                    }
+                    TenureAFate::SortitionOrphanedNodeBehind => {
+                        tips.push(("/v2/info".to_string(), peer_info_response(0)));
+                    }
+                    _ => unreachable!(),
+                }
+            }
+            TenureAFate::SupersededPermitCanonical
+            | TenureAFate::SupersededPermitOrphaned
+            | TenureAFate::SupersededPermitForOtherTenure => {
+                // We sanctioned tenure 2 reorging tenure 1 under the reorg-timing rules; the
+                // record names the permitting sortition, and the permit is honored only while
+                // that sortition is still canonical. The mock node answers only for the burn
+                // hash it serves: everything else 404s (= the permitting sortition was
+                // orphaned).
+                let permitting_burn_hash = BurnchainHeaderHash([0xbb; 32]);
+                // Which tenure the permit names is the point of the third fate: only a block
+                // in that tenure is the replacement it sanctioned.
+                let permitting_tenure =
+                    if matches!(fate, TenureAFate::SupersededPermitForOtherTenure) {
+                        ConsensusHash([3; 20])
+                    } else {
+                        tenure_b.clone()
+                    };
+                node.signer
+                    .signer_db
+                    .mark_tenure_superseded(&tenure_a, 1, &permitting_tenure, &permitting_burn_hash)
+                    .unwrap();
+                if !matches!(fate, TenureAFate::SupersededPermitOrphaned) {
+                    let mut tips = node.tips.lock().unwrap();
+                    tips.push((
+                        format!("/v3/sortitions/burn/{}", permitting_burn_hash.to_hex()),
+                        canonical_sortition_response(&permitting_burn_hash, 2),
+                    ));
+                }
+            }
+            TenureAFate::GloballyAcceptedThenReorged => {
+                // A reached global acceptance, so it WAS handed to the node. The mock node
+                // does not serve tenure 1, which now means the chain has moved past it rather
+                // than that it was never seen.
+                let mut accepted = node
+                    .signer
+                    .signer_db
+                    .block_lookup(&hash_a)
+                    .unwrap()
+                    .unwrap();
+                accepted.mark_globally_accepted().unwrap();
+                node.signer.signer_db.insert_block(&accepted).unwrap();
+            }
+        }
+
+        node.signer.process_event(
+            &node.client,
+            &mut sortition,
+            Some(&validate_ok(&hash_b)),
+            &result_tx,
+            1,
+        );
+        // Read A's final state, i.e. after `fate` was applied, so each caller sees what the
+        // conflict actually looked like when B was evaluated.
+        let info_a = node
+            .signer
+            .signer_db
+            .block_lookup(&hash_a)
+            .unwrap()
+            .unwrap();
+        let info_b = node
+            .signer
+            .signer_db
+            .block_lookup(&hash_b)
+            .unwrap()
+            .unwrap();
+
+        node.shutdown();
+
+        (info_a, info_b)
+    }
+
+    /// Build the JSON the node serves for a burn block that IS on its canonical chain. Only
+    /// the fact that the request succeeded matters to the caller under test.
+    fn canonical_sortition_response(burn_hash: &BurnchainHeaderHash, height: u64) -> String {
+        let info = SortitionInfo {
+            burn_block_hash: burn_hash.clone(),
+            burn_block_height: height,
+            burn_header_timestamp: 0,
+            sortition_id: SortitionId([0; 32]),
+            parent_sortition_id: SortitionId([0; 32]),
+            consensus_hash: ConsensusHash([0; 20]),
+            was_sortition: true,
+            miner_pk_hash160: None,
+            stacks_parent_ch: None,
+            last_sortition_ch: None,
+            committed_block_hash: None,
+            vrf_seed: None,
+        };
+        serde_json::to_string(&vec![info]).unwrap()
+    }
+
+    /// Build the JSON the node serves for `/v2/info` with the given burnchain tip height. A
+    /// 404 orphan verdict is only trusted once this tip is at or past the conflict's burn
+    /// block.
+    fn peer_info_response(burn_block_height: u64) -> String {
+        let info = PeerInfo {
+            burn_block_height,
+            stacks_tip_consensus_hash: ConsensusHash([0; 20]),
+            stacks_tip: BlockHeaderHash([0; 32]),
+            stacks_tip_height: 9,
+            pox_consensus: ConsensusHash([0; 20]),
+            server_version: "test".into(),
+            network_id: CHAIN_ID_TESTNET,
+        };
+        serde_json::to_string(&info).unwrap()
+    }
+
+    #[test]
+    fn fresh_conflict_in_another_tenure_blocks_signing() {
+        // A sibling at the same height in a DIFFERENT tenure is just as much a double-sign as
+        // one in the same tenure. The node knows nothing about either tenure, which must not be
+        // read as "tenure 1 is orphaned": a locally accepted block is unknown to the node until
+        // the whole signer set has signed it.
+        let (info_a, info_b) = run_cross_tenure_scenario(TenureAFate::Live);
+        assert_a_signed(&info_a);
+        assert_b_refused(
+            &info_b,
+            "the conflicting sibling in another tenure is fresh",
+        );
+    }
+
+    #[test]
+    fn conflict_the_node_reorged_past_does_not_block_signing() {
+        // A Bitcoin reorg can rewind a block we signed while leaving its tenure's sortition
+        // canonical, so no orphan record is written for it. Our signature over it is dead all
+        // the same, and must not stall the chain restarting beneath it.
+        //
+        // What separates this from the case above is that A reached GLOBAL acceptance, so it
+        // was handed to the node. The node not having it therefore means the chain moved past
+        // it, rather than that it was never seen -- the ambiguity that keeps a merely locally
+        // accepted sibling blocking.
+        let (info_a, info_b) = run_cross_tenure_scenario(TenureAFate::GloballyAcceptedThenReorged);
+        assert_eq!(
+            info_a.state,
+            BlockState::GloballyAccepted,
+            "block A should be globally accepted in this scenario, got: {}",
+            info_a.state
+        );
+        assert_eq!(
+            info_b.state,
+            BlockState::LocallyAccepted,
+            "block B should be signed: the node has reorged past the conflicting sibling, got: {}",
+            info_b.state
+        );
+        assert!(
+            info_b.signed_self.is_some(),
+            "block B should carry our signature once the conflict is provably dead"
+        );
+    }
+
+    #[test]
+    fn conflict_in_an_orphaned_tenure_does_not_block_signing() {
+        // Once a burnchain fork has orphaned tenure 1's sortition, the canonical chain
+        // legitimately replaces its blocks, so our fresh signature over one of them must not
+        // stand in the way of the replacement in tenure 2. The signer derives this at signing
+        // time: it saved tenure 1's burn block when it arrived, and the node 404s it.
+        let (info_a, info_b) = run_cross_tenure_scenario(TenureAFate::SortitionOrphaned);
+        assert_a_signed(&info_a);
+        assert_eq!(
+            info_b.state,
+            BlockState::LocallyAccepted,
+            "block B should be signed: the conflicting sibling's tenure was orphaned by a burnchain fork, got: {}",
+            info_b.state
+        );
+        assert!(
+            info_b.signed_self.is_some(),
+            "block B should carry our signature once the conflicting tenure was orphaned"
+        );
+    }
+
+    #[test]
+    fn orphan_404_not_trusted_while_node_is_behind() {
+        // A 404 for the conflict's burn block only proves a burnchain fork if the node's
+        // burnchain view covers that height: a node still catching up 404s canonical burn
+        // blocks it has not processed yet. With the node's tip below the conflict's burn
+        // block, the conflict must keep blocking.
+        let (info_a, info_b) = run_cross_tenure_scenario(TenureAFate::SortitionOrphanedNodeBehind);
+        assert_a_signed(&info_a);
+        assert_b_refused(
+            &info_b,
+            "the node's burnchain tip has not reached the conflict's burn block",
+        );
+    }
+
+    #[test]
+    fn standing_reorg_permit_clears_conflict() {
+        // Having sanctioned tenure 2 reorging tenure 1, our fresh signature over A must not
+        // stand in the way of the replacement we permitted: B is signed immediately.
+        let (info_a, info_b) = run_cross_tenure_scenario(TenureAFate::SupersededPermitCanonical);
+        assert_a_signed(&info_a);
+        assert_eq!(
+            info_b.state,
+            BlockState::LocallyAccepted,
+            "block B should be signed: we permitted the reorg that replaces the conflicting sibling, got: {}",
+            info_b.state
+        );
+        assert!(
+            info_b.signed_self.is_some(),
+            "block B should carry our signature while the reorg permit stands"
+        );
+    }
+
+    #[test]
+    fn orphaned_reorg_permit_restores_conflict() {
+        // The permit is only as alive as the sortition it was granted to. Once a burnchain
+        // fork orphans the permitting sortition, the reorg we sanctioned can no longer
+        // happen, so the record must stop suppressing the conflict and B is refused again.
+        let (info_a, info_b) = run_cross_tenure_scenario(TenureAFate::SupersededPermitOrphaned);
+        assert_a_signed(&info_a);
+        assert_b_refused(
+            &info_b,
+            "the sortition that permitted the reorg was itself orphaned",
+        );
+    }
+
+    #[test]
+    fn reorg_permit_does_not_excuse_a_block_in_an_unpermitted_tenure() {
+        // The permit sanctions one specific tenure replacing tenure 1, and it is honored only
+        // for that tenure's blocks. Here the permitting sortition is perfectly canonical, but
+        // it names a third tenure: B belongs to neither the superseded nor the permitting
+        // tenure, so it claims a reorg we never sanctioned and the conflict keeps blocking.
+        let (info_a, info_b) =
+            run_cross_tenure_scenario(TenureAFate::SupersededPermitForOtherTenure);
+        assert_a_signed(&info_a);
+        assert_b_refused(
+            &info_b,
+            "the reorg permit was granted to a different tenure than the proposed block's",
+        );
+    }
+
+    #[test]
+    fn conflict_whose_sortition_is_canonical_still_blocks_signing() {
+        // The burn chain question must cut both ways: when the node serves tenure 1's
+        // sortition as canonical, the tenure is provably live, and the fresh sibling keeps
+        // blocking exactly as if we had never asked. This is also what defers signing while a
+        // mid-reorg node still serves the old branch (each later evaluation asks again), and
+        // what makes a fork BACK onto an abandoned branch restore its conflicts: the sortition
+        // is canonical again, so the very next evaluation sees the conflict as live -- there
+        // is no stale orphan record to clear.
+        let (info_a, info_b) = run_cross_tenure_scenario(TenureAFate::SortitionStillCanonical);
+        assert_a_signed(&info_a);
+        assert_b_refused(
+            &info_b,
+            "the conflicting sibling's tenure is still on the canonical burn chain",
+        );
+    }
+
+    #[test]
+    fn reproposal_signs_replacement_after_conflict_times_out() {
+        // B is refused while A's signature is fresh. After the signature times out the miner
+        // re-submits B's proposal, and the node's canonical tip is still the parent: A failed
+        // to be confirmed, so the re-proposal must lead to B being signed (the stall-recovery
+        // case; the re-proposal is what re-triggers the pre-commit evaluation).
+        let (info_a, info_b, info_b_reproposed) = run_sibling_scenario(
+            Duration::from_secs(3),
+            false,
+            Some(Duration::from_secs(4)),
+            false,
+        );
+        assert_a_signed(&info_a);
+        assert_b_refused(&info_b, "after validation");
+        let info_b_reproposed = info_b_reproposed.unwrap();
+        assert_eq!(
+            info_b_reproposed.state,
+            BlockState::LocallyAccepted,
+            "block B should be signed on re-proposal: the conflicting signature timed out and the sibling is not canonical, got: {}",
+            info_b_reproposed.state
+        );
+        assert!(
+            info_b_reproposed.signed_self.is_some(),
+            "block B should carry our signature after the re-proposal"
+        );
+    }
+
+    /// The chain shape a descendant-tenure scenario builds, i.e. what the proposal is and what
+    /// the reorg permit over tenure 1 names.
+    #[derive(Clone, Copy)]
+    enum DescendantCase {
+        /// The permit names tenure 2, and the proposal's tenure builds on tenure 2: the
+        /// proposal continues the very replacement we sanctioned, one tenure change further
+        /// along, so the permit has to cover it.
+        ContinuesPermittedBranch,
+        /// The permit names tenure 2, but the proposal's tenure builds back onto tenure 1 --
+        /// the branch the conflict is on. The proposal is then a sibling of the block we
+        /// signed rather than a continuation of the replacement, and must stay blocked.
+        ForksBackToSupersededBranch,
+        /// The proposal's tenure builds on tenure 2, but the permit names a fourth tenure that
+        /// the proposal neither belongs to nor builds on: a reorg we never sanctioned.
+        PermitNamesUnrelatedTenure,
+    }
+
+    /// Drive the descendant-tenure race: the conflict is no longer in the tenure the proposal
+    /// belongs to *or* replaces, but one tenure further back, because the replacement we
+    /// sanctioned has itself been built upon.
+    ///
+    ///   T0: P  (height 9)
+    ///   T1: A1 (height 10, off P), A2 (height 11) -- we signed A2; the node was never handed it
+    ///   T2: B1 (height 10, off P) -- the replacement we permitted for T1
+    ///   T3: C1 (height 11, off B1) -- the proposal, a plain tenure change on top of B1
+    ///
+    /// A2 and C1 are siblings at height 11, so A2 is a conflict for C1, and the permit over T1
+    /// names T2 rather than C1's own tenure. Returns C1's resulting `BlockInfo`.
+    fn run_descendant_tenure_scenario(case: DescendantCase) -> BlockInfo {
+        let miner = fixture_miner();
+        let tenure_0 = ConsensusHash([0; 20]);
+        let tenure_1 = ConsensusHash([1; 20]);
+        let tenure_2 = ConsensusHash([2; 20]);
+        let tenure_3 = ConsensusHash([3; 20]);
+        let unrelated_tenure = ConsensusHash([4; 20]);
+
+        let mut parent_header = NakamotoBlockHeader {
+            version: 1,
+            chain_length: 9,
+            burn_spent: 10,
+            consensus_hash: tenure_0.clone(),
+            parent_block_id: StacksBlockId([9; 32]),
+            tx_merkle_root: Sha512Trunc256Sum([0; 32]),
+            state_index_root: TrieHash([0; 32]),
+            timestamp: 9,
+            miner_signature: MessageSignature::empty(),
+            signer_signature: vec![],
+            pox_treatment: BitVec::ones(1).unwrap(),
+            problematic_txs: vec![],
+        };
+        parent_header.sign_miner(&miner).unwrap();
+        let parent_id = parent_header.block_id();
+
+        let now = get_epoch_time_secs();
+        let block_a1 = tenure_start(&miner, &tenure_1, &tenure_0, &parent_id, 10, now);
+        let block_a2 = mid_tenure_block(&miner, &tenure_1, &block_a1.block_id(), 11, now + 1);
+        let block_b1 = tenure_start(&miner, &tenure_2, &tenure_0, &parent_id, 10, now + 2);
+        // Whichever branch the proposal builds on, it is a tenure change: its
+        // `prev_tenure_consensus_hash` is the tenure of its parent, as consensus requires.
+        let (proposal_parent_tenure, proposal_parent_id) = match case {
+            DescendantCase::ForksBackToSupersededBranch => (&tenure_1, block_a1.block_id()),
+            DescendantCase::ContinuesPermittedBranch
+            | DescendantCase::PermitNamesUnrelatedTenure => (&tenure_2, block_b1.block_id()),
+        };
+        let block_c1 = tenure_start(
+            &miner,
+            &tenure_3,
+            proposal_parent_tenure,
+            &proposal_parent_id,
+            11,
+            now + 3,
+        );
+        let hash_a2 = block_a2.header.signer_signature_hash();
+        let hash_c1 = block_c1.header.signer_signature_hash();
+        assert_eq!(
+            block_a2.header.chain_length, block_c1.header.chain_length,
+            "A2 and C1 must be siblings for A2 to be a conflict"
+        );
+
+        // The node serves the tip of each tenure the proposal's tenure-change parent check can
+        // land on. Tenure 1 is served at A1 (height 10) rather than A2: A2 was only ever
+        // locally accepted, so the node was never handed it -- which is also what leaves A2
+        // blocking in the first place.
+        let tip = |header: &NakamotoBlockHeader, burn_view: &ConsensusHash| {
+            serde_json::to_string(&BlockHeaderWithMetadata {
+                anchored_header: header.clone().into(),
+                burn_view: Some(burn_view.clone()),
+            })
+            .unwrap()
+        };
+        let tips = vec![
+            (
+                format!("/v3/tenures/tip_metadata/{tenure_1}"),
+                tip(&block_a1.header, &tenure_1),
+            ),
+            (
+                format!("/v3/tenures/tip_metadata/{tenure_2}"),
+                tip(&block_b1.header, &tenure_2),
+            ),
+            (
+                "/v3/blocks/upload".to_string(),
+                format!(r#"{{"stacks_block_id":"{parent_id}","accepted":true}}"#),
+            ),
+        ];
+
+        // The freshness window is wide open, so only the permit can decide whether our
+        // signature over A2 still blocks C1.
+        let mut node = MockNode::new(tips, Duration::from_secs(100_000));
+
+        // We already signed A2, as the signer would have during tenure 1. Recorded directly:
+        // what tenure 1's own signing looked like is not what is under test here.
+        let mut info_a2 = BlockInfo::from(BlockProposal {
+            block: block_a2,
+            burn_height: 1,
+            reward_cycle: 1,
+            block_proposal_data: BlockProposalData::empty(),
+        });
+        info_a2.mark_locally_accepted(false).unwrap();
+        node.signer.signer_db.insert_block(&info_a2).unwrap();
+
+        let info_c1 = BlockInfo::from(BlockProposal {
+            block: block_c1,
+            burn_height: 1,
+            reward_cycle: 1,
+            block_proposal_data: BlockProposalData::empty(),
+        });
+        node.signer.signer_db.insert_block(&info_c1).unwrap();
+
+        // We sanctioned a reorg of tenure 1 under the reorg-timing rules. The permitting
+        // sortition is canonical throughout, so the only thing that varies is which tenure the
+        // permit names.
+        let permitting_burn_hash = BurnchainHeaderHash([0xbb; 32]);
+        let permitting_tenure = match case {
+            DescendantCase::PermitNamesUnrelatedTenure => &unrelated_tenure,
+            DescendantCase::ContinuesPermittedBranch
+            | DescendantCase::ForksBackToSupersededBranch => &tenure_2,
+        };
+        node.signer
+            .signer_db
+            .mark_tenure_superseded(&tenure_1, 1, permitting_tenure, &permitting_burn_hash)
+            .unwrap();
+        node.tips.lock().unwrap().push((
+            format!("/v3/sortitions/burn/{}", permitting_burn_hash.to_hex()),
+            canonical_sortition_response(&permitting_burn_hash, 2),
+        ));
+
+        let (result_tx, _result_rx) = mpsc::channel();
+        let mut sortition = None;
+        node.signer.process_event(
+            &node.client,
+            &mut sortition,
+            Some(&validate_ok(&hash_c1)),
+            &result_tx,
+            1,
+        );
+        let info_c1 = node
+            .signer
+            .signer_db
+            .block_lookup(&hash_c1)
+            .unwrap()
+            .unwrap();
+        // A2 must still be the block we signed: nothing here may quietly retract it.
+        let info_a2 = node
+            .signer
+            .signer_db
+            .block_lookup(&hash_a2)
+            .unwrap()
+            .unwrap();
+        assert!(
+            info_a2.signed_self.is_some(),
+            "the conflicting block A2 should still carry our signature"
+        );
+
+        node.shutdown();
+
+        info_c1
+    }
+
+    #[test]
+    fn reorg_permit_covers_a_tenure_built_on_the_permitting_tenure() {
+        // Having sanctioned tenure 2 reorging tenure 1, we signed tenure 2's block. Tenure 3
+        // then builds on it in the ordinary way -- no new reorg, just the next tenure. Our
+        // signature over A2, on the branch we already agreed to abandon, must not stand in the
+        // way: the permit covers the branch it sanctioned, not only its first tenure. Before
+        // this was so, C1 was refused until the signature over A2 went stale, and the recovery
+        // was gated on the miner re-proposing rather than on the staleness itself.
+        let info_c1 = run_descendant_tenure_scenario(DescendantCase::ContinuesPermittedBranch);
+        assert_eq!(
+            info_c1.state,
+            BlockState::LocallyAccepted,
+            "block C1 should be signed: it continues the reorg we permitted, got: {}",
+            info_c1.state
+        );
+        assert!(
+            info_c1.signed_self.is_some(),
+            "block C1 should carry our signature while the reorg permit stands"
+        );
+    }
+
+    #[test]
+    fn reorg_permit_does_not_cover_a_tenure_built_on_the_superseded_tenure() {
+        // The permit is not a licence to sign anything in a later tenure: tenure 3 here builds
+        // back onto tenure 1, the branch our signature over A2 is on, so C1 is a sibling of A2
+        // rather than a continuation of the replacement. (The chainstate checks catch this one
+        // first, since A2 is the highest block we know of in the tenure C1 claims to confirm;
+        // the permit scope is the second line of defense behind them.)
+        let info_c1 = run_descendant_tenure_scenario(DescendantCase::ForksBackToSupersededBranch);
+        assert!(
+            info_c1.signed_self.is_none(),
+            "block C1 must NOT be signed: it forks back onto the branch we already signed a block on, got: {}",
+            info_c1.state
+        );
+    }
+
+    #[test]
+    fn reorg_permit_for_an_unrelated_tenure_does_not_cover_the_proposal() {
+        // The permitting sortition is canonical and tenure 3 builds on tenure 2 as before, but
+        // the permit names a fourth tenure. C1 is then neither the replacement we sanctioned
+        // nor built on it, so it claims a reorg we never permitted and the conflict keeps
+        // blocking.
+        let info_c1 = run_descendant_tenure_scenario(DescendantCase::PermitNamesUnrelatedTenure);
+        assert_b_refused(
+            &info_c1,
+            "the reorg permit was granted to a tenure the proposal neither belongs to nor builds on",
+        );
     }
 }

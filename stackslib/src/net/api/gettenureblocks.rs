@@ -254,7 +254,7 @@ pub fn encode_tenure_reply(
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Default)]
 pub struct RPCNakamotoTenureBlocksRequestHandler {
     pub(crate) consensus_hash: Option<ConsensusHash>,
 }
@@ -438,7 +438,7 @@ impl HttpChunkGenerator for RPCTenureStream {
         // end of blocks?
         if send_more.is_empty() {
             self.last_chunk = true;
-            return Ok(format!("]}}").into_bytes());
+            return Ok("]}".to_string().into_bytes());
         }
 
         if !self.first_block {

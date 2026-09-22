@@ -103,7 +103,9 @@ impl Command<SignerTestState, SignerTestContext> for ChainExpectNakaBlock {
 
                 let miner_block =
                     wait_for_block_pushed_by_miner_key(30, expected_height, &miner_pk)
-                        .expect(&format!("Failed to get block {}", expected_height));
+                        .unwrap_or_else(|error| {
+                            panic!("Failed to get block {expected_height}: {error:?}")
+                        });
 
                 let mined_block_height = miner_block.header.chain_length;
 
@@ -124,12 +126,13 @@ impl Command<SignerTestState, SignerTestContext> for ChainExpectNakaBlock {
                 let expected_height = state.last_stacks_block_height.unwrap() + 1;
 
                 let miner_block =
-                    wait_for_block_pushed_by_miner_key(30, expected_height, &miner_pk).expect(
-                        &format!(
-                            "Failed to get block for miner {} - Strategy: {:?}",
-                            self.miner_index, self.height_strategy
-                        ),
-                    );
+                    wait_for_block_pushed_by_miner_key(30, expected_height, &miner_pk)
+                        .unwrap_or_else(|error| {
+                            panic!(
+                                "Failed to get block for miner {} - Strategy: {:?}: {error:?}",
+                                self.miner_index, self.height_strategy
+                            )
+                        });
 
                 let mined_block_height = miner_block.header.chain_length;
 
@@ -311,6 +314,7 @@ impl Command<SignerTestState, SignerTestContext> for ChainExpectNakaBlockProposa
 /// This command waits for a block that contains:
 /// 1. A TenureChange transaction with cause BlockFound
 /// 2. A Coinbase transaction
+///
 /// This verifies that a proper tenure change has occurred.
 pub struct ChainExpectStacksTenureChange {
     ctx: Arc<SignerTestContext>,
@@ -345,11 +349,13 @@ impl Command<SignerTestState, SignerTestContext> for ChainExpectStacksTenureChan
             self.miner_index
         );
 
-        let block =
-            wait_for_block_pushed_by_miner_key(30, expected_height, &miner_pk).expect(&format!(
-                "Failed to get tenure change block for miner {} at height {expected_height}",
-                self.miner_index
-            ));
+        let block = wait_for_block_pushed_by_miner_key(30, expected_height, &miner_pk)
+            .unwrap_or_else(|error| {
+                panic!(
+                    "Failed to get tenure change block for miner {} at height {expected_height}: {error:?}",
+                    self.miner_index,
+                )
+            });
 
         // Verify this is a tenure change block
         let is_tenure_change_block_found = block.tx_count() == 2

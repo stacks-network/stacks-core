@@ -1,0 +1,1 @@
+Apply the pox-5 overrides from the config in stacks-inspect, ensuring that block replay has the correct settings and can properly match the node's behavior in epoch 4.0+.

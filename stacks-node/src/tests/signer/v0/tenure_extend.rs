@@ -45,7 +45,6 @@ use stacks_common::bitvec::BitVec;
 use stacks_common::util::sleep_ms;
 use stacks_signer::chainstate::v1::SortitionsView;
 use stacks_signer::chainstate::ProposalEvalConfig;
-use stacks_signer::config::DEFAULT_RESET_REPLAY_SET_AFTER_FORK_BLOCKS;
 use stacks_signer::v0::SpawnedSigner;
 use stdext::prelude::DurationExt;
 use tracing_subscriber::{fmt, EnvFilter};
@@ -587,6 +586,7 @@ fn stx_transfers_dont_effect_idle_timeout() {
 
     let slot_id = 0_u32;
 
+    // This response predates global acceptance and reports an estimated idle time.
     let initial_acceptance = signer_test.get_latest_block_acceptance(slot_id);
     assert_eq!(initial_acceptance.signer_signature_hash, last_block_hash);
 
@@ -599,8 +599,6 @@ fn stx_transfers_dont_effect_idle_timeout() {
 
     let mut sender_nonce = 0;
 
-    // Note that this response was BEFORE the block was globally accepted. it will report a guestimated idle time
-    let initial_acceptance = initial_acceptance;
     let mut first_global_acceptance = None;
     for i in 0..num_txs {
         info!("---- Mining interim block {} ----", i + 1);
@@ -708,14 +706,6 @@ fn idle_tenure_extend_active_mining() {
 
     info!("---- Getting current idle timeout ----");
 
-    let get_last_block_hash = || {
-        let blocks = test_observer::get_blocks();
-        let last_block = blocks.last().unwrap();
-        let block_hash =
-            hex_bytes(&last_block.get("block_hash").unwrap().as_str().unwrap()[2..]).unwrap();
-        Sha512Trunc256Sum::from_vec(&block_hash).unwrap()
-    };
-
     let slot_id = 0_u32;
 
     let log_idle_diff = |timestamp: u64| {
@@ -725,9 +715,9 @@ fn idle_tenure_extend_active_mining() {
     };
 
     let initial_response = signer_test.get_latest_block_response(slot_id);
-    assert_eq!(
+    signer_test.wait_for_confirmed_block_with_hash(
         initial_response.get_signer_signature_hash(),
-        &get_last_block_hash()
+        Duration::from_secs(30),
     );
 
     info!(
@@ -825,13 +815,20 @@ fn idle_tenure_extend_active_mining() {
                 fault_injection_unstall_miner();
             });
 
-            // We must actually have a new block response to ensure its tenure extend timestamp advances
+            // A response update for the same block does not indicate block progress.
+            let mut latest_response = last_response.clone();
             wait_for(30, || {
-                Ok(signer_test.get_latest_block_response(slot_id) != last_response)
+                latest_response = signer_test.get_latest_block_response(slot_id);
+                Ok(latest_response.get_signer_signature_hash()
+                    != last_response.get_signer_signature_hash())
             })
             .expect("Failed to find a new block response");
 
-            let latest_response = signer_test.get_latest_block_response(slot_id);
+            // Observer delivery can lag the RPC tip and signer response.
+            let confirmed_block = signer_test.wait_for_confirmed_block_with_hash(
+                latest_response.get_signer_signature_hash(),
+                Duration::from_secs(30),
+            );
             let naka_blocks = test_observer::get_mined_nakamoto_blocks();
             info!(
                 "----- Latest tenure extend timestamp: {} -----",
@@ -841,11 +838,6 @@ fn idle_tenure_extend_active_mining() {
             info!(
                 "----- Latest block transaction events: {} -----",
                 naka_blocks.last().unwrap().tx_events.len()
-            );
-            assert_eq!(
-                latest_response.get_signer_signature_hash(),
-                &get_last_block_hash(),
-                "Expected the latest block response to be for the latest block"
             );
             // Tenure-change blocks (BlockFound/Extended) roll the timestamp over to
             // `now + idle_timeout`, while regular blocks derive it from tenure start plus
@@ -857,8 +849,11 @@ fn idle_tenure_extend_active_mining() {
             // timeout, so only `Extended` blocks are expected here; the `BlockFound` check is
             // defensive against unexpected tenure-change blocks (e.g. from CI timing).
             let latest_block_is_tenure_change =
-                last_block_contains_tenure_change_tx(TenureChangeCause::Extended)
-                    || last_block_contains_tenure_change_tx(TenureChangeCause::BlockFound);
+                block_contains_tenure_change_tx(&confirmed_block, TenureChangeCause::Extended)
+                    || block_contains_tenure_change_tx(
+                        &confirmed_block,
+                        TenureChangeCause::BlockFound,
+                    );
             if i != 1 && !latest_block_is_tenure_change {
                 assert_ne!(
                     last_response.get_tenure_extend_timestamp(),
@@ -1055,7 +1050,6 @@ fn sip034_tenure_extend_proposal(allow: bool, extend_types: &[TenureChangeCause]
         tenure_idle_timeout: Duration::from_secs(300),
         tenure_idle_timeout_buffer: Duration::from_secs(2),
         reorg_attempts_activity_timeout: Duration::from_secs(30),
-        reset_replay_set_after_fork_blocks: DEFAULT_RESET_REPLAY_SET_AFTER_FORK_BLOCKS,
         read_count_idle_timeout: Duration::from_secs(12000),
     };
 
@@ -1404,7 +1398,9 @@ fn tenure_extend_after_stale_commit_same_miner() {
 
     let Counters {
         skip_commit_op,
+        naka_submitted_commits: commits_submitted,
         naka_submitted_commit_last_burn_height: last_commit_burn_height,
+        naka_submitted_commit_last_stacks_tip: last_commit_stacks_tip,
         ..
     } = signer_test.running_nodes.counters.clone();
 
@@ -1434,13 +1430,15 @@ fn tenure_extend_after_stale_commit_same_miner() {
         .wait_for_nonce_increase(&sender_addr, transfer_nonce)
         .unwrap();
 
+    let commits_before = commits_submitted.get();
     skip_commit_op.set(false);
 
     info!("---- Waiting for block commit to N-1 ----");
 
     wait_for(30, || {
-        let last_height = last_commit_burn_height.get();
-        Ok(last_height == prev_tip.burn_block_height)
+        let commits_after = commits_submitted.get();
+        let last_commit_tip = last_commit_stacks_tip.get();
+        Ok(commits_after > commits_before && last_commit_tip == prev_tip.stacks_tip_height)
     })
     .expect("Timed out waiting for block commit to N-1");
 
@@ -1538,7 +1536,9 @@ fn tenure_extend_after_stale_commit_same_miner_then_no_winner() {
 
     let Counters {
         skip_commit_op,
+        naka_submitted_commits: commits_submitted,
         naka_submitted_commit_last_burn_height: last_commit_burn_height,
+        naka_submitted_commit_last_stacks_tip: last_commit_stacks_tip,
         ..
     } = signer_test.running_nodes.counters.clone();
 
@@ -1568,13 +1568,15 @@ fn tenure_extend_after_stale_commit_same_miner_then_no_winner() {
         .wait_for_nonce_increase(&sender_addr, transfer_nonce)
         .unwrap();
 
+    let commits_before = commits_submitted.get();
     skip_commit_op.set(false);
 
     info!("---- Waiting for block commit to N-1 ----");
 
     wait_for(30, || {
-        let last_height = last_commit_burn_height.get();
-        Ok(last_height == prev_tip.burn_block_height)
+        let commits_after = commits_submitted.get();
+        let last_commit_tip = last_commit_stacks_tip.get();
+        Ok(commits_after > commits_before && last_commit_tip == prev_tip.stacks_tip_height)
     })
     .expect("Timed out waiting for block commit to N-1");
 

@@ -33,7 +33,7 @@ use crate::chainstate::stacks::index::Error;
 use crate::util_lib::db::sqlite_open;
 
 /// Clarity side-storage tables copied by [`copy_clarity_side_tables`].
-pub(super) const CLARITY_SIDE_TABLES: &[&str] = &[DATA_TABLE_NAME, METADATA_TABLE_NAME];
+const CLARITY_SIDE_TABLES: &[&str] = &[DATA_TABLE_NAME, METADATA_TABLE_NAME];
 
 /// Every table the Clarity snapshot accounts for: side-storage copied by
 /// [`copy_clarity_side_tables`] ([`CLARITY_SIDE_TABLES`]) or owned by the MARF
@@ -48,7 +48,7 @@ fn known_clarity_tables() -> Vec<&'static str> {
 
 /// The clarity snapshot's source-schema guard (see [`assert_source_schema`]);
 /// `test_no_unclassified_clarity_source_tables` runs it against a fresh schema.
-pub(super) fn assert_source_tables_classified(src_conn: &Connection) -> Result<(), Error> {
+pub fn assert_source_tables_classified(src_conn: &Connection) -> Result<(), Error> {
     assert_source_schema(
         src_conn,
         &known_clarity_tables(),

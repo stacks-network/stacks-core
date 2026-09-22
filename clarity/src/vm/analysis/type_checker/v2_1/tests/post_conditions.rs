@@ -80,7 +80,7 @@ fn test_restrict_assets(#[case] version: ClarityVersion, #[case] epoch: StacksEp
         // no asset-owner, 3 args
         (
             "(restrict-assets? ((with-stx u5000)) true true)",
-            StaticCheckErrorKind::NonFunctionApplication,
+            StaticCheckErrorKind::ExpectedListOfAllowances("restrict-assets?".into(), 2),
         ),
         // bad asset-owner type
         (
@@ -113,7 +113,7 @@ fn test_restrict_assets(#[case] version: ClarityVersion, #[case] epoch: StacksEp
         // empty list in allowance list
         (
             "(restrict-assets? tx-sender (()) true)",
-            StaticCheckErrorKind::NonFunctionApplication,
+            StaticCheckErrorKind::ExpectedListApplication,
         ),
         // list with literal in allowance list
         (
@@ -123,7 +123,7 @@ fn test_restrict_assets(#[case] version: ClarityVersion, #[case] epoch: StacksEp
         // non-allowance function in allowance list
         (
             "(restrict-assets? tx-sender ((foo)) true)",
-            StaticCheckErrorKind::UnknownFunction("foo".into()),
+            StaticCheckErrorKind::ExpectedAllowanceExpr("foo".into()),
         ),
         // no body expressions
         (
@@ -271,7 +271,7 @@ fn test_as_contract(#[case] version: ClarityVersion, #[case] epoch: StacksEpochI
         // empty list in allowance list
         (
             "(as-contract? (()) true)",
-            StaticCheckErrorKind::NonFunctionApplication,
+            StaticCheckErrorKind::ExpectedListApplication,
         ),
         // list with literal in allowance list
         (
@@ -281,7 +281,7 @@ fn test_as_contract(#[case] version: ClarityVersion, #[case] epoch: StacksEpochI
         // non-allowance function in allowance list
         (
             "(as-contract? ((foo)) true)",
-            StaticCheckErrorKind::UnknownFunction("foo".into()),
+            StaticCheckErrorKind::ExpectedAllowanceExpr("foo".into()),
         ),
         // no body expressions
         (
@@ -833,7 +833,7 @@ fn test_with_stacking_allowance(#[case] version: ClarityVersion, #[case] epoch: 
         } else if version >= ClarityVersion::Clarity6 {
             // `with-stacking` was renamed to `with-staking` in Clarity 6.
             assert_eq!(
-                StaticCheckErrorKind::UnknownFunction("with-stacking".to_string()),
+                StaticCheckErrorKind::ExpectedAllowanceExpr("with-stacking".to_string()),
                 *type_check_helper_version(code, version, epoch)
                     .unwrap_err()
                     .err,
@@ -859,7 +859,7 @@ fn test_with_stacking_allowance(#[case] version: ClarityVersion, #[case] epoch: 
             );
         } else if version >= ClarityVersion::Clarity6 {
             assert_eq!(
-                StaticCheckErrorKind::UnknownFunction("with-stacking".to_string()),
+                StaticCheckErrorKind::ExpectedAllowanceExpr("with-stacking".to_string()),
                 *type_check_helper_version(code, version, epoch)
                     .unwrap_err()
                     .err,
@@ -943,7 +943,7 @@ fn test_with_staking_allowance(#[case] version: ClarityVersion, #[case] epoch: S
             // `with-staking` was introduced in Clarity 6; before that the
             // allowance was spelled `with-stacking`.
             assert_eq!(
-                StaticCheckErrorKind::UnknownFunction("with-staking".to_string()),
+                StaticCheckErrorKind::ExpectedAllowanceExpr("with-staking".to_string()),
                 *type_check_helper_version(code, version, epoch)
                     .unwrap_err()
                     .err,
@@ -969,7 +969,7 @@ fn test_with_staking_allowance(#[case] version: ClarityVersion, #[case] epoch: S
             );
         } else if version < ClarityVersion::Clarity6 {
             assert_eq!(
-                StaticCheckErrorKind::UnknownFunction("with-staking".to_string()),
+                StaticCheckErrorKind::ExpectedAllowanceExpr("with-staking".to_string()),
                 *type_check_helper_version(code, version, epoch)
                     .unwrap_err()
                     .err,
@@ -1021,7 +1021,7 @@ fn test_with_pox_allowance(#[case] version: ClarityVersion, #[case] epoch: Stack
             // `restrict-assets?` exists, but `with-pox` was added in
             // Clarity 6, so it is not a recognized allowance expression yet.
             assert_eq!(
-                StaticCheckErrorKind::UnknownFunction("with-pox".to_string()),
+                StaticCheckErrorKind::ExpectedAllowanceExpr("with-pox".to_string()),
                 *type_check_helper_version(code, version, epoch)
                     .unwrap_err()
                     .err,
@@ -1047,7 +1047,7 @@ fn test_with_pox_allowance(#[case] version: ClarityVersion, #[case] epoch: Stack
             );
         } else if version < ClarityVersion::Clarity6 {
             assert_eq!(
-                StaticCheckErrorKind::UnknownFunction("with-pox".to_string()),
+                StaticCheckErrorKind::ExpectedAllowanceExpr("with-pox".to_string()),
                 *type_check_helper_version(code, version, epoch)
                     .unwrap_err()
                     .err,

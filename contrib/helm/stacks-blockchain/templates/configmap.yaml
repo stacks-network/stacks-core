@@ -14,6 +14,9 @@ data:
   {{- if and (empty .Values.config.node.seed) (.Values.config.node.miner) }}
     {{- fail "Please enter a private key under config.node.seed" }}
   {{- end }}
+  {{- if and (.Values.config.node.miner) (not .Values.config.node.mock_mining) (empty .Values.config.burnchain.wallet_name) }}
+    {{- fail "Please enter a Bitcoin wallet name under config.burnchain.wallet_name" }}
+  {{- end }}
   config.toml: |
     [node]
   {{- range $key, $val := .Values.config.node }}

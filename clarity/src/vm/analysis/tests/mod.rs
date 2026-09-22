@@ -14,24 +14,30 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+mod bounded_message;
+
 use std::time::Duration;
 
 use stacks_common::types::StacksEpochId;
 
 use crate::vm::ClarityVersion;
+use crate::vm::analysis::read_only_checker::ReadOnlyChecker;
+use crate::vm::analysis::type_checker::v2_1::TypeChecker as TypeChecker2_1;
 use crate::vm::analysis::type_checker::v2_1::tests::mem_type_check;
+use crate::vm::analysis::type_checker::v2_05::TypeChecker as TypeChecker2_05;
 use crate::vm::analysis::{
     ContractAnalysis, StaticCheckError, StaticCheckErrorKind, mem_type_check as mem_run_analysis,
-    run_analysis,
+    run_analysis, type_check,
 };
-use crate::vm::ast::build_ast;
+use crate::vm::ast::{build_ast, parse};
 use crate::vm::costs::LimitedCostTracker;
 use crate::vm::database::MemoryBackingStore;
 use crate::vm::resource_limiter::{ResourceBudget, ResourceLimiter};
-use crate::vm::types::QualifiedContractIdentifier;
+use crate::vm::types::{FunctionType, QualifiedContractIdentifier, TypeSignature};
 
-mod utils {
+pub mod utils {
     use super::*;
+    use crate::vm::analysis::AnalysisPass;
 
     /// Run the full analysis pipeline on `snippet` at the latest epoch / Clarity
     /// version with the given `resource_limiter`, returning the analysis error (if any).
@@ -62,6 +68,56 @@ mod utils {
             resource_limiter,
         )
         .map_err(|e| e.0)
+    }
+
+    pub enum SingleAnalysisPass {
+        ReadOnlyChecker,
+        TypeChecker2_05,
+        TypeChecker2_1,
+    }
+
+    /// Given a Clarity snippet (which is assumed to be syntactically correct), parse it and
+    /// hand it to the given analysis pass.
+    pub fn run_single_analysis_pass(
+        pass: SingleAnalysisPass,
+        snippet: &str,
+        version: ClarityVersion,
+        epoch: StacksEpochId,
+    ) -> Result<ContractAnalysis, StaticCheckError> {
+        let contract_identifier = QualifiedContractIdentifier::transient();
+        let contract = build_ast(&contract_identifier, snippet, &mut (), version, epoch)
+            .unwrap()
+            .expressions;
+
+        let mut marf = MemoryBackingStore::new();
+        let mut analysis_db = marf.as_analysis_db();
+        let cost_tracker = LimitedCostTracker::new_free();
+        let mut contract_analysis = ContractAnalysis::new(
+            contract_identifier.clone(),
+            contract,
+            cost_tracker,
+            epoch,
+            version,
+        );
+        let result = analysis_db.execute(|db| match pass {
+            SingleAnalysisPass::ReadOnlyChecker => ReadOnlyChecker::run_pass(
+                &epoch,
+                &mut contract_analysis,
+                db,
+                ResourceLimiter::unlimited(),
+            ),
+            SingleAnalysisPass::TypeChecker2_1 => TypeChecker2_1::run_pass(
+                &epoch,
+                &mut contract_analysis,
+                db,
+                true,
+                ResourceLimiter::unlimited(),
+            ),
+            SingleAnalysisPass::TypeChecker2_05 => {
+                TypeChecker2_05::run_pass(&epoch, &mut contract_analysis, db, true)
+            }
+        });
+        result.map(|_| contract_analysis)
     }
 }
 
@@ -155,7 +211,7 @@ fn test_bad_function_name_2() {
     // outside of the legal "implicit" tuple structures,
     //    things that look like ((value 100)) are evaluated as
     //    _function applications_, so this should error, since (value 100) isn't a function.
-    let snippet = "(get 1 ((value 100)))";
+    let snippet = "(ok ((value 100)))";
     let err = mem_type_check(snippet).unwrap_err();
     println!("{}", err.diagnostic);
     assert!(format!("{}", err.diagnostic).contains("expecting expression of type function"));
@@ -503,4 +559,409 @@ fn test_run_analysis_generous_deadline_succeeds() {
         "analysis deadline should not trip on a trivial contract, got {:?}",
         result.map(|_| ())
     );
+}
+
+/// Test that up to epoch 4.0, the read-only checker runs first during contract
+/// analysis, then the type checker, and in epoch 4.1 and later, the order is
+/// reversed.
+#[test]
+fn test_order_of_readonly_check_and_type_check() {
+    // This contract contains a read-only error (can't use `stx-transfer?` inside a
+    // read-only function) and a type error (can't use the special function `stx-transfer?`
+    // as the mapping function).
+    // Which of the two errors is returned by the analysis depends on which of the
+    // two checks run first.
+    let snippet = r#"
+            (define-read-only (do-illegal-stuff)
+                (map stx-transfer? (list u100) (list tx-sender) (list 'S12XR70XVZ0ZXQ35GKDH2VJ3ZDJJGNMW8XCQRYE6F))
+            )
+        "#;
+
+    let expected_read_only_error = "WriteAttemptedInReadOnly";
+    let expected_type_error = "IllegalOrUnknownFunctionApplication";
+
+    let last_epoch_with_read_only_checker_first = StacksEpochId::Epoch40;
+    let first_epoch_with_type_checker_first = StacksEpochId::Epoch41;
+
+    // In epoch 4.0, the read-only checker runs first, and thus its error should
+    // be the result that we get.
+    let err = mem_run_analysis(
+        snippet,
+        ClarityVersion::latest(),
+        last_epoch_with_read_only_checker_first,
+    )
+    .unwrap_err();
+    assert!(
+        err.to_string().contains(expected_read_only_error),
+        "expected error to contain \"{expected_read_only_error}\" but got {}",
+        err
+    );
+
+    // Starting in epoch 4.1, the type checker runs first, and we should get
+    // a different error.
+
+    let err = mem_run_analysis(
+        snippet,
+        ClarityVersion::latest(),
+        first_epoch_with_type_checker_first,
+    )
+    .unwrap_err();
+    assert!(
+        err.to_string().contains(expected_type_error),
+        "expected error to contain \"{expected_type_error}\" but got {}",
+        err
+    );
+}
+
+/// Checks that the analysis succeeds in 4.0 but fails in 4.1 with an error that
+/// contains the given substring. Helper for [`test_definition_sorting_of_contract_call`]`.
+fn assert_contract_starts_failing_in_epoch_41(snippet: &str, expected_error_41: &str) {
+    let result = mem_run_analysis(snippet, ClarityVersion::latest(), StacksEpochId::Epoch40);
+    assert!(
+        result.is_ok(),
+        "expected to pass in Epoch 4.0 but got {}; contract: {snippet}",
+        result.unwrap_err()
+    );
+
+    let result = mem_run_analysis(snippet, ClarityVersion::latest(), StacksEpochId::Epoch41);
+    match result {
+        Err(e) => assert!(
+            e.to_string().contains(expected_error_41),
+            "expected error to contain \"{expected_error_41}\" in Epoch 4.1 but got {e}; contract: {snippet}"
+        ),
+        Ok(_) => panic!("should not succeed in Epoch 4.1"),
+    };
+}
+
+/// Checks that the analysis fails in both 4.0 and 4.1 with an error that
+/// contains the given substring. Helper for [`test_definition_sorting_of_contract_call`]`.
+fn assert_contract_fails_even_before_epoch_41(snippet: &str, expected_error: &str) {
+    let result = mem_run_analysis(snippet, ClarityVersion::latest(), StacksEpochId::Epoch40);
+    match result {
+        Err(e) => assert!(
+            e.to_string().contains(expected_error),
+            "expected error to contain \"{expected_error}\" in Epoch 4.0 but got {e}; contract: {snippet}"
+        ),
+        Ok(_) => panic!("should not succeed in Epoch 4.0"),
+    };
+
+    let result = mem_run_analysis(snippet, ClarityVersion::latest(), StacksEpochId::Epoch41);
+    match result {
+        Err(e) => assert!(
+            e.to_string().contains(expected_error),
+            "expected error to contain \"{expected_error}\" Epoch 4.1 but got {e}; contract: {snippet}"
+        ),
+        Ok(_) => panic!("should not succeed in Epoch 4.1"),
+    };
+}
+
+#[test]
+/// Until Epoch 4.0, the definition sorter ignored the first argument to `contract-call?`,
+/// which means it didn't prevent a local binding (e.g. function parameter) and a global
+/// object (e.g. a data-var) from having the same name, if the global was defined after
+/// the function. This is inconsistent (this shouldn't depend on the order), and it can
+/// cause cryptic failures at runtime, and was therefore fixed in Epoch 4.1.
+/// Even for non-broken contracts, this fix can change cost, which is why we
+/// have to preserve the legacy behavior for all earlier epochs. That is what this test
+/// ensures: Until 4.0, such contracts pass analysis, but from 4.1 on, they fail. It also
+/// ensures that the cases that have previously been rejected still are.
+fn test_definition_sorting_of_contract_call() {
+    // Function name matches parameter name. Even though that works as expected by
+    // accident, it is invalid.
+    assert_contract_starts_failing_in_epoch_41(
+        "(define-trait my-trait ((trait-func () (response uint uint))))
+         (define-public (stuff (stuff <my-trait>)) (contract-call? stuff trait-func))",
+        "CircularReference",
+    );
+
+    // These contracts define a global `thing` *after* a function with a parameter
+    // called `thing` that was passed to `contract-call?`. This passed analysis until
+    // epoch 4.0, but should be rejected starting in 4.1
+
+    assert_contract_starts_failing_in_epoch_41(
+        "(define-trait my-trait ((trait-func () (response uint uint))))
+         (define-public (stuff (thing <my-trait>)) (contract-call? thing trait-func))
+         (define-constant thing (unwrap-panic (as-contract? () tx-sender)))",
+        "NameAlreadyUsed",
+    );
+
+    assert_contract_starts_failing_in_epoch_41(
+        "(define-trait my-trait ((trait-func () (response uint uint))))
+         (define-public (stuff (thing <my-trait>)) (contract-call? thing trait-func))
+         (define-data-var thing principal (unwrap-panic (as-contract? () tx-sender)))",
+        "NameAlreadyUsed",
+    );
+
+    assert_contract_starts_failing_in_epoch_41(
+        "(define-trait my-trait ((trait-func () (response uint uint))))
+         (define-public (stuff (thing <my-trait>)) (contract-call? thing trait-func))
+         (define-private (thing) 42)",
+        "NameAlreadyUsed",
+    );
+
+    // same as above, except that the function parameter is fine -- it's the
+    // `let` binding that uses the duplicate name
+    assert_contract_starts_failing_in_epoch_41(
+        "(define-trait my-trait ((trait-func () (response uint uint))))
+         (define-public (stuff (target <my-trait>)) (let ((thing target)) (contract-call? thing trait-func)))
+         (define-private (thing) 42)",
+        "NameAlreadyUsed",
+    );
+
+    // These contracts are identical to the previous four, except that the global
+    // `thing` is defined *before* the function. This was always prevented.
+
+    assert_contract_fails_even_before_epoch_41(
+        "(define-trait my-trait ((trait-func () (response uint uint))))
+         (define-constant thing (unwrap-panic (as-contract? () tx-sender)))
+         (define-public (stuff (thing <my-trait>)) (contract-call? thing trait-func))",
+        "NameAlreadyUsed",
+    );
+
+    assert_contract_fails_even_before_epoch_41(
+        "(define-trait my-trait ((trait-func () (response uint uint))))
+         (define-data-var thing principal (unwrap-panic (as-contract? () tx-sender)))
+         (define-public (stuff (thing <my-trait>)) (contract-call? thing trait-func))",
+        "NameAlreadyUsed",
+    );
+
+    assert_contract_fails_even_before_epoch_41(
+        "(define-trait my-trait ((trait-func () (response uint uint))))
+        (define-private (thing) 42)
+         (define-public (stuff (thing <my-trait>)) (contract-call? thing trait-func))",
+        "NameAlreadyUsed",
+    );
+
+    assert_contract_fails_even_before_epoch_41(
+        "(define-trait my-trait ((trait-func () (response uint uint))))
+         (define-private (thing) 42)
+         (define-public (stuff (target <my-trait>)) (let ((thing target)) (contract-call? thing trait-func)))",
+        "NameAlreadyUsed",
+    );
+}
+
+// Epoch 4.1 reserved-name defines at analysis: the rule is documented on
+// `is_shadowable_reserved`.
+
+/// A Clarity 1 trait whose method name is a native since Clarity 2.
+const LEGACY_OPS: (&str, ClarityVersion, StacksEpochId, &str) = (
+    "ops-def",
+    ClarityVersion::Clarity1,
+    StacksEpochId::Epoch34,
+    "(define-trait ops ((slice? (int int) (response int int))))",
+);
+
+/// Analyzes and stores `contracts` (name, version, epoch, source) in order;
+/// returns the last analysis.
+fn run_analyses(
+    contracts: &[(&str, ClarityVersion, StacksEpochId, &str)],
+) -> Result<ContractAnalysis, StaticCheckError> {
+    let mut marf = MemoryBackingStore::new();
+    let mut db = marf.as_analysis_db();
+    db.execute(|db| {
+        let mut last = None;
+        for &(name, version, epoch, source) in contracts {
+            let contract_id = QualifiedContractIdentifier::local(name).unwrap();
+            let mut exprs =
+                parse(&contract_id, source, version, epoch).expect("test contract should parse");
+            last = Some(type_check(
+                &contract_id,
+                &mut exprs,
+                db,
+                true,
+                &epoch,
+                &version,
+            )?);
+        }
+        Ok(last.expect("at least one contract"))
+    })
+}
+
+/// Analyzes a single Clarity 7 contract at Epoch 4.1 after `setup`.
+fn run_clarity7_analysis(
+    setup: &[(&str, ClarityVersion, StacksEpochId, &str)],
+    contract: &str,
+) -> Result<ContractAnalysis, StaticCheckError> {
+    let mut contracts = setup.to_vec();
+    contracts.push((
+        "subject",
+        ClarityVersion::Clarity7,
+        StacksEpochId::Epoch41,
+        contract,
+    ));
+    run_analyses(&contracts)
+}
+
+fn assert_name_already_used(result: Result<ContractAnalysis, StaticCheckError>, name: &str) {
+    let err = result.expect_err("expected the analysis to fail");
+    assert_eq!(
+        StaticCheckErrorKind::NameAlreadyUsed(name.to_string()),
+        *err.err
+    );
+}
+
+/// A shadowable name needs an implemented trait whose version still had it
+/// free: no trait, or a trait from a later version, is rejected.
+#[test]
+fn epoch41_shadowable_define_requires_legacy_trait_method() {
+    let implementation = "(impl-trait .ops-def.ops)
+                          (define-public (slice? (a int) (b int)) (ok (+ a b)))";
+
+    // No trait: rejected as in every earlier version.
+    assert_name_already_used(
+        run_clarity7_analysis(&[], "(define-public (slice? (a int) (b int)) (ok (+ a b)))"),
+        "slice?",
+    );
+
+    // A legacy trait unlocks the name; the signature is recorded under it.
+    let analysis = run_clarity7_analysis(&[LEGACY_OPS], implementation).unwrap();
+    assert!(analysis.public_function_types.contains_key("slice?"));
+
+    // A trait that already had the name reserved does not unlock it.
+    let later_ops = (
+        "ops-def",
+        ClarityVersion::Clarity5,
+        StacksEpochId::Epoch34,
+        "(define-trait ops ((slice? (int int) (response int int))))",
+    );
+    assert_name_already_used(
+        run_clarity7_analysis(&[later_ops], implementation),
+        "slice?",
+    );
+
+    // An implemented trait that does not declare the name does not either.
+    let other = (
+        "other-def",
+        ClarityVersion::Clarity1,
+        StacksEpochId::Epoch34,
+        "(define-trait other ((foo (int) (response int int))))",
+    );
+    assert_name_already_used(
+        run_clarity7_analysis(
+            &[other],
+            "(impl-trait .other-def.other)
+             (define-public (foo (x int)) (ok x))
+             (define-public (slice? (a int) (b int)) (ok (+ a b)))",
+        ),
+        "slice?",
+    );
+
+    // Private functions are never trait methods.
+    assert_name_already_used(
+        run_clarity7_analysis(
+            &[LEGACY_OPS],
+            "(impl-trait .ops-def.ops)
+             (define-private (slice? (a int) (b int)) (ok (+ a b)))",
+        ),
+        "slice?",
+    );
+}
+
+/// The gate is the epoch, not the version: tooling may analyze a pinned
+/// Clarity 6 contract at Epoch 4.1 (on chain such pins are rejected).
+#[test]
+fn clarity6_at_epoch41_shadowable_define_is_accepted() {
+    let analysis = run_analyses(&[
+        LEGACY_OPS,
+        (
+            "subject",
+            ClarityVersion::Clarity6,
+            StacksEpochId::Epoch41,
+            "(impl-trait .ops-def.ops)
+             (define-public (slice? (a int) (b int)) (ok (+ a b)))",
+        ),
+    ])
+    .unwrap();
+    assert!(analysis.public_function_types.contains_key("slice?"));
+}
+
+/// The reported name is the lexicographically first, not the first defined.
+#[test]
+fn epoch41_multiple_unmatched_names_report_deterministically() {
+    assert_name_already_used(
+        run_clarity7_analysis(
+            &[],
+            "(define-public (slice? (a int) (b int)) (ok (+ a b)))
+             (define-public (element-at? (a int)) (ok a))",
+        ),
+        "element-at?",
+    );
+}
+
+/// From Epoch 4.1 `define-trait` rejects currently reserved method names;
+/// earlier epochs leave them unchecked.
+#[test]
+fn epoch41_trait_cannot_declare_reserved_method_name() {
+    let trait_def = "(define-trait t ((slice? (int int) (response int int))))";
+    assert_name_already_used(run_clarity7_analysis(&[], trait_def), "slice?");
+
+    // Unchecked before Epoch 4.1.
+    run_analyses(&[(
+        "t-c6",
+        ClarityVersion::Clarity6,
+        StacksEpochId::Epoch40,
+        trait_def,
+    )])
+    .unwrap();
+}
+
+/// A bare reference to the shadowed name still types as the native, inside
+/// the implementation and elsewhere.
+#[test]
+fn epoch41_shadowable_define_keeps_native_for_bare_references() {
+    // Uses the native `slice?` both elsewhere and inside the implementation.
+    let analysis = run_clarity7_analysis(
+        &[LEGACY_OPS],
+        "(impl-trait .ops-def.ops)
+         (define-read-only (slice? (a int) (b int))
+            (ok (to-int (len (unwrap-panic (slice? (list a b) u0 u1))))))
+         (define-read-only (use-native) (slice? (list 1 2 3) u0 u2))",
+    )
+    .unwrap();
+    assert!(analysis.read_only_function_types.contains_key("slice?"));
+
+    // A bare call still types against the native: a type error, not a name
+    // conflict.
+    let err = run_clarity7_analysis(
+        &[LEGACY_OPS],
+        "(impl-trait .ops-def.ops)
+         (define-read-only (slice? (a int) (b int)) (ok (+ a b)))
+         (define-read-only (use-mine) (slice? 2 3))",
+    )
+    .unwrap_err();
+    assert!(
+        !matches!(*err.err, StaticCheckErrorKind::NameAlreadyUsed(_)),
+        "expected a type error against the native, got {err}"
+    );
+}
+
+/// Callers defined before a keyword-named implementation still resolve: the
+/// sorter orders them after it. Applying the name types against the function;
+/// the bare atom is still the keyword.
+#[test]
+fn epoch41_keyword_named_function_callable_regardless_of_definition_order() {
+    let heights = (
+        "heights-def",
+        ClarityVersion::Clarity1,
+        StacksEpochId::Epoch34,
+        "(define-trait heights ((stacks-block-height (uint) (response uint uint))))",
+    );
+    let analysis = run_clarity7_analysis(
+        &[heights],
+        "(impl-trait .heights-def.heights)
+         (define-read-only (call-mine) (stacks-block-height u7))
+         (define-read-only (map-mine) (map stacks-block-height (list u1 u2)))
+         (define-read-only (read-keyword) stacks-block-height)
+         (define-read-only (stacks-block-height (x uint)) (ok x))",
+    )
+    .unwrap();
+    let returns = |name: &str| match analysis.get_read_only_function_type(name) {
+        Some(FunctionType::Fixed(f)) => f.returns.clone(),
+        other => panic!("unexpected type for `{name}`: {other:?}"),
+    };
+    assert!(matches!(
+        returns("call-mine"),
+        TypeSignature::ResponseType(_)
+    ));
+    assert_eq!(returns("read-keyword"), TypeSignature::UIntType);
 }

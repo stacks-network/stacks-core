@@ -32,8 +32,6 @@ use crate::net::test::*;
 use crate::net::*;
 use crate::util_lib::test::*;
 
-const TEST_IN_OUT_DEGREES: u64 = 0x1;
-
 #[test]
 fn test_step_walk_1_neighbor_plain() {
     with_timeout(600, || {
@@ -718,8 +716,8 @@ fn test_step_walk_10_neighbors_of_neighbor_plain() {
                 let _ = peer_1.step();
                 let _ = peer_2.step();
 
-                for j in 0..10 {
-                    let _ = peer_2_neighbors[j].step();
+                for peer_2_neighbor in &mut peer_2_neighbors[..10] {
+                    let _ = peer_2_neighbor.step();
                 }
 
                 walk_1_count = peer_1.network.walk_total_step_count;
@@ -850,8 +848,8 @@ fn test_step_walk_10_neighbors_of_neighbor_bootstrapping() {
         for i in 0..MAX_NEIGHBOR_BLOCK_DELAY + 1 {
             peer_1.add_empty_burnchain_block();
             peer_2.add_empty_burnchain_block();
-            for j in 0..5 {
-                peer_2_neighbors[j].add_empty_burnchain_block();
+            for peer_2_neighbor in &mut peer_2_neighbors[..5] {
+                peer_2_neighbor.add_empty_burnchain_block();
             }
         }
 
@@ -865,8 +863,8 @@ fn test_step_walk_10_neighbors_of_neighbor_bootstrapping() {
                 let _ = peer_1.step();
                 let _ = peer_2.step();
 
-                for j in 0..10 {
-                    let _ = peer_2_neighbors[j].step();
+                for peer_2_neighbor in &mut peer_2_neighbors[..10] {
+                    let _ = peer_2_neighbor.step();
                 }
 
                 walk_1_count = peer_1.network.walk_total_step_count;
@@ -1592,12 +1590,15 @@ fn test_issue_concurrent_requests_in_different_state_machines() {
                     .unwrap();
             }
             let _ = peer_client.step();
-            for (_, reply) in comms.collect_replies(&mut peer_client.network) {
+            if let Some((_, reply)) = comms
+                .collect_replies(&mut peer_client.network)
+                .into_iter()
+                .next()
+            {
                 match reply.payload {
                     StacksMessageType::HandshakeAccept(..)
                     | StacksMessageType::StackerDBHandshakeAccept(..) => {
                         connected = true;
-                        break;
                     }
                     _ => {
                         panic!("Did not get handshake accept, but got {:?}", &reply);

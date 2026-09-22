@@ -15,10 +15,10 @@
 
 use std::path::{Path, PathBuf};
 
+use stackslib::chainstate::burn::db::sortdb::SortitionTipCopyBoundary;
 use stackslib::chainstate::stacks::db::snapshot::{
     Epoch2BlockFileCopyStats, Epoch2MicroblockCopyStats, NakamotoBlockCopyStats,
-    SortitionTipCopyBoundary, copy_confirmed_epoch2_microblocks, copy_epoch2_block_files,
-    copy_nakamoto_staging_blocks,
+    copy_confirmed_epoch2_microblocks, copy_epoch2_block_files, copy_nakamoto_staging_blocks,
 };
 
 use crate::cli::SquashArgs;

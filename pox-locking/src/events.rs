@@ -161,14 +161,14 @@ fn create_event_info_data_code(
                     }}
                 }})
                 "#,
-                lock_amount = &args[0],
-                lock_period = &args[3],
-                pox_addr = &args[1],
-                start_burn_height = &args[2],
-                signer_sig = &args.get(4).unwrap_or(&Value::none()),
-                signer_key = &args.get(5).unwrap_or(&Value::none()),
-                max_amount = &args.get(6).unwrap_or(&Value::none()),
-                auth_id = &args.get(7).unwrap_or(&Value::none()),
+                lock_amount = args[0],
+                lock_period = args[3],
+                pox_addr = args[1],
+                start_burn_height = args[2],
+                signer_sig = args.get(4).unwrap_or(&Value::none()),
+                signer_key = args.get(5).unwrap_or(&Value::none()),
+                max_amount = args.get(6).unwrap_or(&Value::none()),
+                auth_id = args.get(7).unwrap_or(&Value::none()),
                 pox_set_offset = pox_set_offset.replace("%height%", "burn-block-height"),
             )
         }
@@ -208,11 +208,11 @@ fn create_event_info_data_code(
                     }}
                 }})
                 "#,
-                stacker = &args[0],
-                lock_amount = &args[1],
-                pox_addr = &args[2],
-                start_burn_height = &args[3],
-                lock_period = &args[4],
+                stacker = args[0],
+                lock_amount = args[1],
+                pox_addr = args[2],
+                start_burn_height = args[3],
+                lock_period = args[4],
                 pox_set_offset = pox_set_offset.replace("%height%", "burn-block-height"),
             )
         }
@@ -249,11 +249,11 @@ fn create_event_info_data_code(
                     }}
                 }})
                 "#,
-                increase_by = &args[0],
-                signer_sig = &args.get(1).unwrap_or(&Value::none()),
-                signer_key = &args.get(2).unwrap_or(&Value::none()),
-                max_amount = &args.get(3).unwrap_or(&Value::none()),
-                auth_id = &args.get(4).unwrap_or(&Value::none()),
+                increase_by = args[0],
+                signer_sig = args.get(1).unwrap_or(&Value::none()),
+                signer_key = args.get(2).unwrap_or(&Value::none()),
+                max_amount = args.get(3).unwrap_or(&Value::none()),
+                auth_id = args.get(4).unwrap_or(&Value::none()),
                 pox_set_offset = pox_set_offset.replace("%height%", "burn-block-height"),
             )
         }
@@ -288,9 +288,9 @@ fn create_event_info_data_code(
                     }}
                 }})
                 "#,
-                stacker = &args[0],
-                pox_addr = &args[1],
-                increase_by = &args[2],
+                stacker = args[0],
+                pox_addr = args[1],
+                increase_by = args[2],
                 pox_set_offset = pox_set_offset.replace("%height%", "burn-block-height"),
             )
         }
@@ -335,12 +335,12 @@ fn create_event_info_data_code(
                     }}
                 }})
                 "#,
-                extend_count = &args[0],
-                pox_addr = &args[1],
-                signer_sig = &args.get(2).unwrap_or(&Value::none()),
-                signer_key = &args.get(3).map_or("none".to_string(), |v| v.to_string()),
-                max_amount = &args.get(4).unwrap_or(&Value::none()),
-                auth_id = &args.get(5).unwrap_or(&Value::none()),
+                extend_count = args[0],
+                pox_addr = args[1],
+                signer_sig = args.get(2).unwrap_or(&Value::none()),
+                signer_key = args.get(3).map_or("none".to_string(), |v| v.to_string()),
+                max_amount = args.get(4).unwrap_or(&Value::none()),
+                auth_id = args.get(5).unwrap_or(&Value::none()),
                 pox_set_offset = pox_set_offset.replace("%height%", "burn-block-height"),
             )
         }
@@ -381,9 +381,9 @@ fn create_event_info_data_code(
                     }}
                 }})
                 "#,
-                stacker = &args[0],
-                pox_addr = &args[1],
-                extend_count = &args[2],
+                stacker = args[0],
+                pox_addr = args[1],
+                extend_count = args[2],
                 pox_set_offset = pox_set_offset.replace("%height%", "burn-block-height"),
             )
         }
@@ -426,12 +426,12 @@ fn create_event_info_data_code(
                     }}
                 }})
                 "#,
-                pox_addr = &args[0],
-                reward_cycle = &args[1],
-                signer_sig = &args.get(2).unwrap_or(&Value::none()),
-                signer_key = &args.get(3).unwrap_or(&Value::none()),
-                max_amount = &args.get(4).unwrap_or(&Value::none()),
-                auth_id = &args.get(5).unwrap_or(&Value::none()),
+                pox_addr = args[0],
+                reward_cycle = args[1],
+                signer_sig = args.get(2).unwrap_or(&Value::none()),
+                signer_key = args.get(3).unwrap_or(&Value::none()),
+                max_amount = args.get(4).unwrap_or(&Value::none()),
+                auth_id = args.get(5).unwrap_or(&Value::none()),
                 pox_set_offset = pox_set_offset.replace("%height%", "burn-block-height"),
             )
         }
@@ -476,14 +476,14 @@ fn create_event_info_data_code(
                     }}
                 }})
                 "#,
-                pox_addr = &args[0],
-                reward_cycle = &args[1],
-                reward_cycle_index = &args.get(2).unwrap_or(&Value::none()),
+                pox_addr = args[0],
+                reward_cycle = args[1],
+                reward_cycle_index = args.get(2).unwrap_or(&Value::none()),
                 pox_set_offset = pox_set_offset.replace("%height%", "burn-block-height"),
-                signer_sig = &args.get(3).unwrap_or(&Value::none()),
-                signer_key = &args.get(4).unwrap_or(&Value::none()),
-                max_amount = &args.get(5).unwrap_or(&Value::none()),
-                auth_id = &args.get(6).unwrap_or(&Value::none()),
+                signer_sig = args.get(3).unwrap_or(&Value::none()),
+                signer_key = args.get(4).unwrap_or(&Value::none()),
+                max_amount = args.get(5).unwrap_or(&Value::none()),
+                auth_id = args.get(6).unwrap_or(&Value::none()),
             )
         }
         "delegate-stx" => {
@@ -516,10 +516,10 @@ fn create_event_info_data_code(
                     }}
                 }})
                 "#,
-                amount_ustx = &args[0],
-                delegate_to = &args[1],
-                until_burn_height = &args[2],
-                pox_addr = &args[3],
+                amount_ustx = args[0],
+                delegate_to = args[1],
+                until_burn_height = args[2],
+                pox_addr = args[3],
                 pox_set_offset = pox_set_offset.replace("%height%", "burn-block-height"),
             )
         }

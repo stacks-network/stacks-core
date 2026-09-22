@@ -15,7 +15,6 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 pub mod analysis_db;
-pub mod arithmetic_checker;
 pub mod contract_interface_builder;
 pub mod errors;
 pub mod read_only_checker;
@@ -23,10 +22,11 @@ pub mod trait_checker;
 pub mod type_checker;
 pub mod types;
 
+#[cfg(feature = "rusqlite")]
+use stacks_common::bounded_format;
 use stacks_common::types::StacksEpochId;
 
 pub use self::analysis_db::AnalysisDatabase;
-use self::arithmetic_checker::ArithmeticOnlyChecker;
 use self::contract_interface_builder::build_contract_interface;
 pub use self::errors::{
     CommonCheckErrorKind, RuntimeCheckErrorKind, StaticCheckError, StaticCheckErrorKind,
@@ -86,7 +86,9 @@ pub fn mem_type_check(
 ) -> Result<(Option<TypeSignature>, ContractAnalysis), StaticCheckError> {
     let contract_identifier = QualifiedContractIdentifier::transient();
     let contract = build_ast(&contract_identifier, snippet, &mut (), version, epoch)
-        .map_err(|e| StaticCheckErrorKind::Unreachable(format!("Failed to build AST: {e}")))?
+        .map_err(|e| {
+            StaticCheckErrorKind::Unreachable(bounded_format!("Failed to build AST: {e}"))
+        })?
         .expressions;
 
     let mut marf = MemoryBackingStore::new();
@@ -103,19 +105,7 @@ pub fn mem_type_check(
         true,
         ResourceLimiter::unlimited(),
     ) {
-        Ok(x) => {
-            // return the first type result of the type checker
-
-            let first_type = x
-                .type_map
-                .as_ref()
-                .ok_or_else(|| StaticCheckErrorKind::Unreachable("Should be non-empty".into()))?
-                .get_type_expected(x.expressions.last().ok_or_else(|| {
-                    StaticCheckErrorKind::Unreachable("Should be non-empty".into())
-                })?)
-                .cloned();
-            Ok((first_type, x))
-        }
+        Ok(analysis) => Ok((analysis.type_of_final_expression()?, analysis)),
         Err(e) => Err(e.0),
     }
 }
@@ -147,8 +137,8 @@ pub fn type_check(
     .map_err(|e| e.0)
 }
 
-/// Run the full static-analysis pipeline (read-only, type, trait and arithmetic
-/// passes) over a parsed contract, optionally persisting the result.
+/// Run the full static-analysis pipeline (read-only, type, and trait passes)
+/// over a parsed contract, optionally persisting the result.
 ///
 /// # Arguments
 ///
@@ -199,7 +189,12 @@ pub fn run_analysis(
         version,
     );
     let result = analysis_db.execute(|db| {
-        ReadOnlyChecker::run_pass(&epoch, &mut contract_analysis, db, resource_limiter)?;
+        let read_only_before_types = epoch.performs_read_only_checks_before_type_checks();
+        let read_only_after_types = !read_only_before_types;
+
+        if read_only_before_types {
+            ReadOnlyChecker::run_pass(&epoch, &mut contract_analysis, db, resource_limiter)?;
+        }
         if epoch >= StacksEpochId::Epoch21 {
             TypeChecker2_1::run_pass(
                 &epoch,
@@ -211,8 +206,10 @@ pub fn run_analysis(
         } else {
             TypeChecker2_05::run_pass(&epoch, &mut contract_analysis, db, build_type_map)?;
         }
+        if read_only_after_types {
+            ReadOnlyChecker::run_pass(&epoch, &mut contract_analysis, db, resource_limiter)?;
+        }
         TraitChecker::run_pass(&epoch, &mut contract_analysis, db, resource_limiter)?;
-        ArithmeticOnlyChecker::check_contract_cost_eligible(&mut contract_analysis);
 
         // Final boundary check on the analysis passes
         check_analysis_resource_limits(&resource_limiter)?;

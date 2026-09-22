@@ -24,6 +24,7 @@ use rstest_reuse::{self, *};
 use stacks_common::types::StacksEpochId;
 
 use crate::vm::analysis::errors::{StaticCheckError, StaticCheckErrorKind, SyntaxBindingError};
+use crate::vm::analysis::tests::utils::{SingleAnalysisPass, run_single_analysis_pass};
 use crate::vm::analysis::type_checker::v2_1::{MAX_FUNCTION_PARAMETERS, MAX_TRAIT_METHODS};
 use crate::vm::analysis::types::ContractAnalysis;
 use crate::vm::analysis::{mem_type_check as mem_run_analysis, run_analysis};
@@ -74,7 +75,7 @@ pub fn mem_type_check(
 
 /// NOTE: runs at latest Clarity version
 fn type_check_helper(exp: &str) -> Result<TypeSignature, StaticCheckError> {
-    mem_type_check(exp).map(|(type_sig_opt, _)| type_sig_opt.unwrap())
+    type_check_helper_version(exp, ClarityVersion::latest(), StacksEpochId::latest())
 }
 
 fn type_check_helper_version(
@@ -82,7 +83,15 @@ fn type_check_helper_version(
     version: ClarityVersion,
     epoch: StacksEpochId,
 ) -> Result<TypeSignature, StaticCheckError> {
-    mem_run_analysis(exp, version, epoch).map(|(type_sig_opt, _)| type_sig_opt.unwrap())
+    let pass = if epoch < StacksEpochId::Epoch21 {
+        SingleAnalysisPass::TypeChecker2_05
+    } else {
+        SingleAnalysisPass::TypeChecker2_1
+    };
+    match run_single_analysis_pass(pass, exp, version, epoch) {
+        Ok(analysis) => Ok(analysis.type_of_final_expression()?.unwrap()),
+        Err(e) => Err(e),
+    }
 }
 
 fn type_check_helper_v1(exp: &str) -> Result<TypeSignature, StaticCheckError> {
@@ -513,7 +522,7 @@ fn test_define_trait(#[case] version: ClarityVersion, #[case] epoch: StacksEpoch
         format!(
             "(define-trait trait-1 ((method ({}) (response uint uint))))",
             (0..(MAX_FUNCTION_PARAMETERS + 1))
-                .map(|i| "uint".to_string())
+                .map(|_| "uint".to_string())
                 .collect::<Vec<String>>()
                 .join(" ")
         ),
@@ -1540,7 +1549,7 @@ fn test_lists() {
         StaticCheckErrorKind::TypeError(Box::new(BoolType), Box::new(buff_type(20))),
         StaticCheckErrorKind::TypeError(Box::new(BoolType), Box::new(IntType)),
         StaticCheckErrorKind::IncorrectArgumentCount(2, 3),
-        StaticCheckErrorKind::UnknownFunction("ynot".to_string()),
+        StaticCheckErrorKind::IllegalOrUnknownFunctionApplication("ynot".to_string()),
         StaticCheckErrorKind::IllegalOrUnknownFunctionApplication("if".to_string()),
         StaticCheckErrorKind::IncorrectArgumentCount(2, 1),
         StaticCheckErrorKind::UnionTypeError(vec![IntType, UIntType], Box::new(BoolType)),
@@ -1595,7 +1604,7 @@ fn test_buff() {
         StaticCheckErrorKind::TypeError(Box::new(BoolType), Box::new(buff_type(20))),
         StaticCheckErrorKind::TypeError(Box::new(BoolType), Box::new(IntType)),
         StaticCheckErrorKind::IncorrectArgumentCount(2, 3),
-        StaticCheckErrorKind::UnknownFunction("ynot".to_string()),
+        StaticCheckErrorKind::IllegalOrUnknownFunctionApplication("ynot".to_string()),
         StaticCheckErrorKind::IllegalOrUnknownFunctionApplication("if".to_string()),
         StaticCheckErrorKind::IncorrectArgumentCount(2, 1),
         StaticCheckErrorKind::UnionTypeError(vec![IntType, UIntType], Box::new(BoolType)),
@@ -2095,6 +2104,90 @@ fn test_replace_at_utf8() {
     }
 }
 
+/// From epoch 4.1, `replace-at?` rejects a statically empty buff/string element,
+/// which earlier epochs admit only to fail at runtime.
+#[test]
+fn test_replace_at_empty_element() {
+    let empty_elem = [
+        "(replace-at? 0x0011 u0 0x)",
+        "(replace-at? \"ab\" u0 \"\")",
+        "(replace-at? u\"ab\" u0 u\"\")",
+    ];
+
+    let buff_len = BufferLength::try_from(1u32).unwrap();
+    let buff_len_zero = BufferLength::try_from(0u32).unwrap();
+    let str_len = StringUTF8Length::try_from(1u32).unwrap();
+    let str_len_zero = StringUTF8Length::try_from(0u32).unwrap();
+    let expected_err = [
+        StaticCheckErrorKind::TypeError(
+            Box::new(SequenceType(BufferType(buff_len.clone()))),
+            Box::new(SequenceType(BufferType(buff_len_zero.clone()))),
+        ),
+        StaticCheckErrorKind::TypeError(
+            Box::new(SequenceType(StringType(ASCII(buff_len)))),
+            Box::new(SequenceType(StringType(ASCII(buff_len_zero)))),
+        ),
+        StaticCheckErrorKind::TypeError(
+            Box::new(SequenceType(StringType(UTF8(str_len)))),
+            Box::new(SequenceType(StringType(UTF8(str_len_zero)))),
+        ),
+    ];
+    for (test, expected) in empty_elem.iter().zip(expected_err.iter()) {
+        assert_eq!(*expected, *type_check_helper(test).unwrap_err().err);
+    }
+
+    // Pre-4.1 epochs accept the same expressions unchanged.
+    let expected_pre41 = [
+        "(optional (buff 2))",
+        "(optional (string-ascii 2))",
+        "(optional (string-utf8 2))",
+    ];
+    for (test, expected) in empty_elem.iter().zip(expected_pre41.iter()) {
+        assert_eq!(
+            expected,
+            &format!(
+                "{}",
+                type_check_helper_version(test, ClarityVersion::latest(), StacksEpochId::Epoch40)
+                    .unwrap()
+            )
+        );
+    }
+
+    // A `(buff 1)`-typed element passes even if its runtime value is empty; that
+    // case is caught at runtime (see `vm::tests::sequences`).
+    assert_eq!(
+        "(optional (buff 2))",
+        &format!(
+            "{}",
+            type_check_helper("(replace-at? 0x0011 u0 (unwrap-panic (as-max-len? 0x u1)))")
+                .unwrap()
+        )
+    );
+
+    // Rejected even when the input is statically empty too (runtime would return
+    // `none` for the always out-of-bounds index).
+    assert_eq!(
+        StaticCheckErrorKind::TypeError(
+            Box::new(SequenceType(BufferType(
+                BufferLength::try_from(1u32).unwrap()
+            ))),
+            Box::new(SequenceType(BufferType(
+                BufferLength::try_from(0u32).unwrap()
+            ))),
+        ),
+        *type_check_helper("(replace-at? 0x u0 0x)").unwrap_err().err
+    );
+
+    // Lists are exempt, matching the runtime arity check.
+    assert_eq!(
+        "(optional (list 2 (list 1 int)))",
+        &format!(
+            "{}",
+            type_check_helper("(replace-at? (list (list 1) (list 2)) u0 (list))").unwrap()
+        )
+    );
+}
+
 #[test]
 fn test_native_concat() {
     let good = ["(concat (list 2 3) (list 4 5))"];
@@ -2246,6 +2339,7 @@ fn test_variadic_concat_pre_clarity_6_rejected() {
             ClarityVersion::Clarity4 => StacksEpochId::Epoch33,
             ClarityVersion::Clarity5 => StacksEpochId::Epoch34,
             ClarityVersion::Clarity6 => unreachable!(),
+            ClarityVersion::Clarity7 => unreachable!(),
         };
         for (snippet, expected) in &snippets_and_expected {
             let err = type_check_helper_version(snippet, version, epoch).unwrap_err();
@@ -4691,4 +4785,32 @@ fn test_in_contract_trait_entry_metered_from_epoch40() {
     assert_eq!(post_cost.read_length, pre_cost.read_length);
     assert_eq!(post_cost.write_count, pre_cost.write_count);
     assert_eq!(post_cost.write_length, pre_cost.write_length);
+}
+
+/// Argument errors retain any computed cost, while arity-only checks omit costs.
+#[test]
+fn test_argument_visitor_retains_cost_on_type_error() {
+    let first = FunctionType::ArithmeticVariadic.check_args_visitor_2_1(&mut (), &IntType, 0, None);
+    assert!(matches!(first.cost, Some(Ok(_))));
+    assert_eq!(first.result.unwrap(), Some(IntType));
+
+    let mismatch = FunctionType::ArithmeticVariadic.check_args_visitor_2_1(
+        &mut (),
+        &UIntType,
+        1,
+        Some(&IntType),
+    );
+    assert!(matches!(mismatch.cost, Some(Ok(_))));
+    assert!(matches!(
+        *mismatch.result.unwrap_err().err,
+        StaticCheckErrorKind::TypeError(expected, actual) if *expected == IntType && *actual == UIntType
+    ));
+
+    let extra_argument =
+        FunctionType::ArithmeticUnary.check_args_visitor_2_1(&mut (), &IntType, 1, None);
+    assert!(extra_argument.cost.is_none());
+    assert!(matches!(
+        *extra_argument.result.unwrap_err().err,
+        StaticCheckErrorKind::IncorrectArgumentCount(1, 1)
+    ));
 }

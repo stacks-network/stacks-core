@@ -26,10 +26,10 @@ use stacks_common::types::chainstate::{
 use stacks_common::types::StacksEpochId;
 use tempfile::tempdir;
 
+use super::super::common::TableCopySource;
 use super::super::sortition::{
     assert_source_tables_classified, copy_sortition_side_tables,
-    copy_sortition_side_tables_with_boundary, sortition_copy_specs, SortitionTipCopyBoundary,
-    REQUIRED_TABLES,
+    copy_sortition_side_tables_with_boundary, sortition_copy_specs,
 };
 use super::{hex_id, label_block_id};
 use crate::burnchains::PoxConstants;
@@ -42,7 +42,7 @@ use crate::chainstate::burn::db::sortdb::tests::{
     test_insert_transfer_stx_row, test_insert_vote_for_aggregate_key_row,
     test_set_snapshot_consensus_hash,
 };
-use crate::chainstate::burn::db::sortdb::SortitionDB;
+use crate::chainstate::burn::db::sortdb::{SortitionDB, SortitionTipCopyBoundary};
 use crate::chainstate::stacks::index::marf::{MARFOpenOpts, MARF};
 use crate::chainstate::stacks::index::{trie_sql, ClarityMarfTrieId, Error, MARFValue};
 use crate::core::{StacksEpoch, StacksEpochExtension};
@@ -664,25 +664,67 @@ fn test_no_unclassified_sortition_tables() {
         .expect("fresh production sortition schema must be fully classified");
 }
 
-/// Every table whose schema is cloned ([`REQUIRED_TABLES`]) must also have a
-/// row-copy spec, and vice versa. Without this, a table could pass the
-/// classification guard and be cloned into the dst yet never populated —
-/// recreated-empty inconsistency one level below the unclassified-table check.
+/// Copy-spec coverage guard: no duplicate spec tables, and every sortition spec
+/// row-copies (none accidentally schema-only). A schema-only sortition table
+/// would be cloned into the dst yet never populated (present-but-empty) - the
+/// `known_*` set now derives from the specs, so a dropped spec is instead caught
+/// by the unclassified-table guard.
 #[test]
-fn test_sortition_copy_specs_match_required_tables() {
-    let spec_tables: Vec<&str> = sortition_copy_specs(None).iter().map(|s| s.table).collect();
-    let spec_set: HashSet<&str> = spec_tables.iter().copied().collect();
+fn test_sortition_copy_specs_well_formed() {
+    let tables = sortition_copy_specs(false).table_names();
+    let spec_set: HashSet<&str> = tables.iter().copied().collect();
     assert_eq!(
-        spec_tables.len(),
+        tables.len(),
         spec_set.len(),
         "duplicate table in sortition_copy_specs"
     );
-    let required_set: HashSet<&str> = REQUIRED_TABLES.iter().copied().collect();
-    assert_eq!(
-        spec_set, required_set,
-        "every REQUIRED_TABLES entry must have exactly one copy spec (and vice versa); \
-         a cloned-but-uncopied table would be present-but-empty in the squash"
+    assert!(
+        sortition_copy_specs(false).schema_only().is_empty(),
+        "sortition has no schema-only tables; every spec must row-copy"
     );
+}
+
+/// The boundary only selects per-table SQL templates (plain vs anchor-rewrite for
+/// the `stacks_chain_tips*` memo tables); it must never change which tables are
+/// copied. The plain and rewrite spec lists therefore expose an identical
+/// table-name set, and differ only in the SQL of the two memo tables.
+#[test]
+fn test_sortition_copy_specs_boundary_invariant_table_set() {
+    let plain = sortition_copy_specs(false);
+    let rewrite = sortition_copy_specs(true);
+
+    assert_eq!(
+        plain.table_names(),
+        rewrite.table_names(),
+        "boundary must not change the set of copied tables"
+    );
+
+    let memo_tables: HashSet<&str> = ["stacks_chain_tips", "stacks_chain_tips_by_burn_view"]
+        .into_iter()
+        .collect();
+    for (p, r) in plain.iter().zip(rewrite.iter()) {
+        assert_eq!(
+            p.table, r.table,
+            "spec order must be stable across boundary"
+        );
+        let (TableCopySource::Sql(p_sql), TableCopySource::Sql(r_sql)) = (&p.source, &r.source)
+        else {
+            panic!("sortition specs are all SQL-sourced");
+        };
+        if memo_tables.contains(p.table) {
+            assert_ne!(
+                p_sql, r_sql,
+                "{} must use a boundary-specific template",
+                p.table
+            );
+        } else {
+            assert_eq!(
+                p_sql, r_sql,
+                "{} SQL must not depend on the boundary",
+                p.table
+            );
+        }
+    }
 }
 
 /// Runtime guard: a source DB carrying a table the copy lists don't classify

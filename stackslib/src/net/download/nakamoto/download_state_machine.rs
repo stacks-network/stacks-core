@@ -43,8 +43,8 @@ const CHECK_UNCONFIRMED_TENURES_MS: u128 = 1_000;
 
 /// The overall downloader can operate in one of two states:
 /// * it's doing IBD, in which case it's downloading tenures using neighbor inventories and
-/// the start/end block ID hashes obtained from block-commits.  This works up until the last two
-/// tenures.
+///   the start/end block ID hashes obtained from block-commits.  This works up until the last two
+///   tenures.
 /// * it's in steady-state, in which case it's downloading the last two tenures from its neighbors.
 #[derive(Debug, Clone, PartialEq)]
 pub enum NakamotoDownloadState {
@@ -561,14 +561,14 @@ impl NakamotoDownloadStateMachine {
     pub(crate) fn find_available_tenures<'a>(
         reward_cycle: u64,
         wanted_tenures: &[WantedTenure],
-        mut inventory_iter: impl Iterator<Item = (&'a NeighborAddress, &'a NakamotoTenureInv)>,
+        inventory_iter: impl Iterator<Item = (&'a NeighborAddress, &'a NakamotoTenureInv)>,
     ) -> HashMap<ConsensusHash, Vec<NeighborAddress>> {
         let mut available: HashMap<ConsensusHash, Vec<NeighborAddress>> = HashMap::new();
         for wt in wanted_tenures.iter() {
             available.insert(wt.tenure_id_consensus_hash.clone(), vec![]);
         }
 
-        while let Some((naddr, inv)) = inventory_iter.next() {
+        for (naddr, inv) in inventory_iter {
             let Some(rc_inv) = inv.tenures_inv.get(&reward_cycle) else {
                 // this peer has no inventory data for this reward cycle
                 debug!(
@@ -618,10 +618,10 @@ impl NakamotoDownloadStateMachine {
         next_wanted_tenures: Option<&[WantedTenure]>,
         pox_constants: &PoxConstants,
         first_burn_height: u64,
-        mut inventory_iter: impl Iterator<Item = (&'a NeighborAddress, &'a NakamotoTenureInv)>,
+        inventory_iter: impl Iterator<Item = (&'a NeighborAddress, &'a NakamotoTenureInv)>,
     ) -> HashMap<NeighborAddress, AvailableTenures> {
         let mut tenure_block_ids = HashMap::new();
-        while let Some((naddr, tenure_inv)) = inventory_iter.next() {
+        for (naddr, tenure_inv) in inventory_iter {
             let Some(peer_tenure_block_ids) = TenureStartEnd::from_inventory(
                 rc,
                 wanted_tenures,
@@ -684,7 +684,7 @@ impl NakamotoDownloadStateMachine {
         }
 
         // order by fewest neighbors first
-        schedule.sort_by(|a, b| a.0.cmp(&b.0));
+        schedule.sort_by_key(|a| a.0);
         schedule.into_iter().map(|(_count, ch)| ch).collect()
     }
 
@@ -706,12 +706,12 @@ impl NakamotoDownloadStateMachine {
     /// `self.prev_wanted_tenures`, and calculates the following:
     ///
     /// * The set of `TenureStartEnd`s for both `self.wanted_tenures` and
-    /// `self.prev_wanted_tenures`, given the peers' inventory vectors.
+    ///   `self.prev_wanted_tenures`, given the peers' inventory vectors.
     ///
     /// * The set of which tenures are available from which neighbors
     ///
     /// * The order in which to fetch tenure data, based on whether or not we're in IBD or
-    /// steady-state.
+    ///   steady-state.
     ///
     /// This function should be called immediately after `update_wanted_tenures()`.
     pub(crate) fn update_available_tenures(
@@ -926,7 +926,7 @@ impl NakamotoDownloadStateMachine {
     /// additionally ensure that there are no in-flight confirmed tenure downloads.
     ///
     /// This method is static to facilitate testing.
-    pub(crate) fn need_unconfirmed_tenures<'a>(
+    pub(crate) fn need_unconfirmed_tenures(
         burnchain_height: u64,
         sort_tip: &BlockSnapshot,
         wanted_tenures: &[WantedTenure],
@@ -1109,13 +1109,13 @@ impl NakamotoDownloadStateMachine {
     /// Run unconfirmed tenure download state machines.
     /// * Update the highest-processed block in each downloader to our highest-processed block
     /// * Send any HTTP requests that the downloaders indicate are needed (if they are not blocked
-    /// waiting for a response)
+    ///   waiting for a response)
     /// * Obtain any HTTP responses and pass them into the downloaders, thereby advancing their
-    /// states
+    ///   states
     /// * Obtain downloaded blocks, and create new confirmed tenure downloaders for the
-    /// highest-complete tenure downloader.
+    ///   highest-complete tenure downloader.
     /// * Clear out downloader state for peers who have disconnected or have finished processing
-    /// their machines.
+    ///   their machines.
     ///
     /// As the local node processes blocks, update each downloader's view of the highest-processed
     /// block so it can cancel itself early if it finds that we've already got the blocks, or if

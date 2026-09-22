@@ -69,7 +69,7 @@ pub mod utils {
             .collect::<Vec<_>>();
         let initial_sender_addrs = initial_sender_sks
             .iter()
-            .map(|sk| tests::to_addr(sk))
+            .map(tests::to_addr)
             .collect::<Vec<_>>();
 
         // These 10 accounts will send to 25 accounts each, then those 260 accounts
@@ -253,7 +253,7 @@ pub mod utils {
             for (sender_sk, nonce) in senders.iter_mut() {
                 let sender_addr = tests::to_addr(sender_sk);
                 let fee = set_fee();
-                assert!(fee >= 180 && fee <= 2000);
+                assert!((180..=2000).contains(&fee));
                 let transfer_tx = make_stacks_transfer_serialized(
                     sender_sk, *nonce, fee, chain_id, &recipient, 1,
                 );

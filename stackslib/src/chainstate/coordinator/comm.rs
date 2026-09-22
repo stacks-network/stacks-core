@@ -131,6 +131,10 @@ impl CoordinatorReceivers {
         }
         signal_bools.receive_signal()
     }
+
+    pub fn has_pending_stop_signal(&self) -> bool {
+        self.signal_bools.lock().unwrap().stop
+    }
 }
 
 impl CoordinatorChannels {

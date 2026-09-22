@@ -14,10 +14,11 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-#[cfg(test)]
 use rstest::rstest;
 #[cfg(test)]
 use rstest_reuse::{self, *};
+#[cfg(test)]
+use stacks_common::bounded_format;
 #[cfg(test)]
 use stacks_common::types::StacksEpochId;
 
@@ -85,7 +86,7 @@ fn test_accept_options(#[case] version: ClarityVersion, #[case] epoch: StacksEpo
     assert_eq!(
         execute(bad_defun).unwrap_err(),
         RuntimeCheckErrorKind::Unreachable(
-            "Unexpected error type during runtime analysis: InvalidTypeDescription".to_string()
+            "Unexpected error type during runtime analysis: InvalidTypeDescription".into()
         )
         .into()
     );
@@ -112,7 +113,7 @@ fn test_bad_define_names() {
         execute(test1).unwrap_err(),
     );
     assert_eq_err(
-        RuntimeCheckErrorKind::Unreachable("Expected name".to_string()),
+        RuntimeCheckErrorKind::Unreachable("Expected name".into()),
         execute(test2).unwrap_err(),
     );
     assert_eq_err(
@@ -136,14 +137,17 @@ fn test_unwrap_ret() {
         execute(test1).unwrap_err(),
     );
     assert_eq_err(
-        RuntimeCheckErrorKind::Unreachable(format!(
+        RuntimeCheckErrorKind::Unreachable(bounded_format!(
             "Expected optional or response value: {}",
             Value::Int(1)
         )),
         execute(test2).unwrap_err(),
     );
     assert_eq_err(
-        RuntimeCheckErrorKind::Unreachable(format!("Expected response value: {}", Value::Int(1))),
+        RuntimeCheckErrorKind::Unreachable(bounded_format!(
+            "Expected response value: {}",
+            Value::Int(1)
+        )),
         execute(test3).unwrap_err(),
     );
     assert_eq!(Ok(Some(Value::Int(1))), execute(test4));
@@ -163,15 +167,15 @@ fn test_define_read_only() {
 
     assert_eq!(Ok(Some(Value::Int(1))), execute(test0));
     assert_eq_err(
-        RuntimeCheckErrorKind::Unreachable("Write attempted in read-only".to_string()),
+        RuntimeCheckErrorKind::Unreachable("Write attempted in read-only".into()),
         execute(test1).unwrap_err(),
     );
     assert_eq_err(
-        RuntimeCheckErrorKind::Unreachable("Write attempted in read-only".to_string()),
+        RuntimeCheckErrorKind::Unreachable("Write attempted in read-only".into()),
         execute(test2).unwrap_err(),
     );
     assert_eq_err(
-        RuntimeCheckErrorKind::Unreachable("Write attempted in read-only".to_string()),
+        RuntimeCheckErrorKind::Unreachable("Write attempted in read-only".into()),
         execute(test3).unwrap_err(),
     );
 }
@@ -224,7 +228,7 @@ fn test_recursive_panic(#[case] version: ClarityVersion, #[case] epoch: StacksEp
 #[test]
 fn test_bad_variables() {
     let test0 = "(+ a 1)";
-    let expected = RuntimeCheckErrorKind::Unreachable("Undefined variable: a".to_string());
+    let expected = RuntimeCheckErrorKind::Unreachable("Undefined variable: a".into());
     assert_eq_err(expected, execute(test0).unwrap_err());
 
     let test1 = "(foo 2 1)";
@@ -232,11 +236,11 @@ fn test_bad_variables() {
     assert_eq_err(expected, execute(test1).unwrap_err());
 
     let test2 = "((lambda (x y) 1) 2 1)";
-    let expected = RuntimeCheckErrorKind::Unreachable("Bad function name".to_string());
+    let expected = RuntimeCheckErrorKind::Unreachable("Bad function name".into());
     assert_eq_err(expected, execute(test2).unwrap_err());
 
     let test4 = "()";
-    let expected = RuntimeCheckErrorKind::Unreachable("Non functional application".to_string());
+    let expected = RuntimeCheckErrorKind::Unreachable("Non functional application".into());
     assert_eq_err(expected, execute(test4).unwrap_err());
 }
 
@@ -280,7 +284,7 @@ fn test_variable_shadowing() {
 #[test]
 fn test_define_parse_panic() {
     let tests = "(define-private () 1)";
-    let expected = RuntimeCheckErrorKind::Unreachable("Define function bad signature".to_string());
+    let expected = RuntimeCheckErrorKind::Unreachable("Define function bad signature".into());
     assert_eq_err(expected, execute(tests).unwrap_err());
 }
 
@@ -288,7 +292,7 @@ fn test_define_parse_panic() {
 fn test_define_parse_panic_2() {
     let tests = "(define-private (a b (d)) 1)";
     assert_eq_err(
-        RuntimeCheckErrorKind::Unreachable(format!(
+        RuntimeCheckErrorKind::Unreachable(bounded_format!(
             "Bad syntax binding: {}",
             SyntaxBindingError::eval_binding_not_list(0)
         )),
@@ -446,7 +450,7 @@ fn test_define_fungible_token_arg_count() {
     let test3 = "(define-fungible-token foo u2 u3)";
 
     assert_eq_err(
-        RuntimeCheckErrorKind::Unreachable("Requires at least args: 1 got 0".to_string()),
+        RuntimeCheckErrorKind::Unreachable("Requires at least args: 1 got 0".into()),
         execute(test0).unwrap_err(),
     );
     execute(test1).unwrap();
