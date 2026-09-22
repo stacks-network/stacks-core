@@ -5,6 +5,65 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to the versioning scheme outlined in the [README.md](README.md).
 
+## [4.0.4]
+
+### ⚠️ Breaking Changes
+
+* Removed `reset_replay_set_after_fork_blocks` and `validate_with_replay_tx` config from signer toml.
+* removed `replay_transactions` config from miner toml.
+* From Epoch 4.1, versioned smart-contract deploys (the `VersionedSmartContract` payload, which pins a Clarity version) are rejected as statically invalid: deploy new contracts with the unversioned `SmartContract` payload, which uses the epoch's default Clarity version (Clarity 7 in Epoch 4.1).
+
+### Added
+
+* Added public and custom Bitcoin signet support with chain ID `0x80000001` and signer `network = "signet"`. Each deployment requires its own working directory. See [Bitcoin signet](docs/bitcoin-signet.md).
+* Add a self-contained Docker source build with node and signer image targets, the repository toolchain, cargo-chef dependency caching, and selectable release profiles.
+* Adds a new Clarity version, Clarity 7, which is the default Clarity version from Epoch 4.1, along with related boilerplate code.
+* From Epoch 4.1: a public or read-only function may take a reserved name to implement a method of an `impl-trait`'d trait whose Clarity version still had the name free, keeping legacy traits (e.g. `slice?`, `stacks-block-height`) implementable. Inside the contract the native keeps its meaning; the implementation is reached through `contract-call?` and trait dispatch, and a keyword-named one can also be applied directly. A function under a reserved name that matches no such method fails with `NameAlreadyUsed`.
+* From Epoch 4.1: `define-trait` rejects method names that are currently reserved; only traits from a Clarity version where the name was still free can make it implementable.
+* Added the apparent sender to each PoX transaction in the `/new_burn_block` event payload.
+* Added a stacks-marf crate
+
+### Changed
+
+* Bumped Rust to 1.98.0
+* Shrank a number of root error types through `Box`ing of large variants to satisfy the `clippy::result_large_err` lint, which may be API-breaking for some downstream library consumers.
+* Accept slices and borrowed paths in Rust helper APIs and use standard conversion and formatting traits.
+* Error messages (receipt `vm_error`, block-proposal and signer rejection reasons, read-only call `cause`, Clarity diagnostics, related logs) are now clamped to 4096 bytes at construction, bounding the size of receipts, event payloads, and logs.
+* Tuple and list values embedded in those messages now render their contents in Clarity syntax, e.g. `Tuple((tuple (a u1)))` instead of `Tuple(TupleData { type_signature: ..., data_map: {...} })`; the type signature is no longer included.
+* Cargo, Nix, and the release tooling now use `workspace.package.version` in `Cargo.toml` as the single node and signer release version.
+* Removed `versions.toml`; external tooling should read the workspace package version from `Cargo.toml`, and the `stacks-node`, `stacks-signer`, and `stacks-inspect` Cargo package versions, including `stacks-signer -V`, now report the release version instead of placeholder values.
+* Remove the unused reader type parameter from `ChainsCoordinator` and the indexer argument from `ChainsCoordinator::run`, and update downstream callers' type annotations and calls.
+* Remove broad dead-code and test-only unused-code allowances, obsolete helpers, unused imports, and unused state from Clarity, restrict internal fixtures to test builds while retaining downstream test utilities, and strengthen principal, trait, parser, and contract-initialization test coverage.
+* Moved Clarity transaction framing into the `clarity` crate for reuse by external consumers with evaluation hooks.
+* Drop tx-replay behavior from signer logic.
+* Drop tx-replay behaviour from node/miner
+* `/v3/tenures/fork_info` no longer returns the Nakamoto blocks of each tenure: `nakamoto_blocks` is now always `null`. The field is deprecated and will be removed in a future release.
+* Remove obsolete private HTTP request decoding and signal-handler code from libsigner, including its direct libc dependency, broad dead-code allowances, and redundant crate imports, while preserving block-event deserialization validation.
+* The chainstate snapshot module now converts `util_lib::db` errors into MARF errors explicitly rather than through a `From` impl, in preparation for moving the MARF into its own crate. No behaviour change.
+* Remove the crate-wide dead-code allowance and unused Windows signal alias from stacks-common, retain C32 decoding coverage through a test-only helper, and expand named-enum macro tests to cover variant and name enumeration.
+* Remove unused stackslib chainstate and core helpers and test fixtures, clean up unused imports across stackslib, scope test-only helpers to tests, and restore the PoX sunset regression test.
+* Remove unused internal networking and mempool code and obsolete test helpers from stackslib.
+* Replace complex Clarity callback signatures with documented aliases and return argument-check costs and results through the named ArgumentCheckOutcome type.
+
+### Fixed
+
+* Fixed long delay between shutdown signal (Ctrl-C or SIGTERM) and actual stop while the node was working on catching up to chain tip.
+* `clarity-cli` and `stacks-inspect` now print an error and exit with status 1 when a file they were asked to read is missing or unreadable, instead of panicking with a backtrace. This covers `stacks-inspect` commands such as `decode-block` and `post-stackerdb`, which share the same read helpers.
+* Fixed `replace-at?` with a zero-length buffer or string element making the transaction rejectable. Starting in epoch 4.1, a statically empty element is rejected at type-check time and a runtime-empty element fails with an includable error.
+* Signers now honor a superseded-tenure reorg permit only for blocks on the branch the permit was granted to: the permitting tenure, or a tenure built directly on it.
+* Fixed signers signing re-proposed blocks from cached validation without pre-commit and conflict checks. Post-validation checks now exclude the block itself from the local signed-tip comparison and preserve rejection reasons so transient failures can be retried.
+* Apply the pox-5 overrides from the config in stacks-inspect, ensuring that block replay has the correct settings and can properly match the node's behavior in epoch 4.0+.
+* Fixed Wasm signature recovery to decode `MessageSignature` in VRS order, restoring transaction, public-key, and microblock-signature verification.
+* Fixed `Secp256k1PublicKey::verify()` on Wasm rejecting every valid signature for an uncompressed public key.
+* Fixed `secp256k1_verify()` on Wasm accepting high-S signatures, which made Clarity's `secp256k1-verify` return `true` in simnet for signatures that are rejected on chain.
+* Fixed Wasm low-S validation rejecting `s == (n - 1) / 2`, the largest canonical low-S value, which the native backend accepts.
+* Fixed Wasm signing producing high-S signatures at the low-S boundary, preserving the recovery ID when normalizing signatures.
+* Fixed Wasm public-key verification to return `Ok(false)` for a key mismatch before rejecting high-S signatures, matching the native backend.
+
+### Removed
+
+* Removed the deprecated `.cost-voting` execution machinery following its Epoch 4.0 disablement by SIP-044.
+
 ## [4.0.3]
 
 ### Added
