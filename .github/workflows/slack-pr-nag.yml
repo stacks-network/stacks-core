@@ -284,17 +284,25 @@ jobs:
               // A review already sitting in someone's queue is not the owner's problem.
               const someoneOwesReview = pr.requested_reviewers.some(r => r.state === 'AWAITING_REVIEW');
               
-              // Tasks that strictly belong to the PR author, regardless of internal/external
-              if (changesRequested) {
-                addAction(authorLogin, `🛑 Changes requested: ${link}`, pr.number);
-              } else if (resolveCount > 0) {
-                addAction(authorLogin, `💬 ${resolveCount} ${resolveCount === 1 ? 'comment' : 'comments'} to resolve: ${link}`, pr.number);
-              } else if (pr.merge_conflict_present) {
-                addAction(authorLogin, `⚠️ Needs merge conflicts fixed: ${link}`, pr.number);
-              } else if (pr.out_of_date_with_base) {
-                addAction(authorLogin, `⏩ Needs rebase/merge: ${link}`, pr.number);
+              // Group the author-blocking states
+              const needsAuthorAction = changesRequested || resolveCount > 0 || pr.merge_conflict_present || pr.out_of_date_with_base;
+
+              if (needsAuthorAction) {
+                // Tasks that strictly belong to the PR author (only nag if they are internal)
+                if (allowedUsers.has(authorLogin)) {
+                  if (changesRequested) {
+                    addAction(authorLogin, `🛑 Changes requested: ${link}`, pr.number);
+                  } else if (resolveCount > 0) {
+                    addAction(authorLogin, `💬 ${resolveCount} ${resolveCount === 1 ? 'comment' : 'comments'} to resolve: ${link}`, pr.number);
+                  } else if (pr.merge_conflict_present) {
+                    addAction(authorLogin, `⚠️ Needs merge conflicts fixed: ${link}`, pr.number);
+                  } else if (pr.out_of_date_with_base) {
+                    addAction(authorLogin, `⏩ Needs rebase/merge: ${link}`, pr.number);
+                  }
+                }
               } else {
-                // Tasks that belong to the PR manager (the author for internal, or the assignee for external)
+                // If the PR is NOT blocked by the author, check PR management tasks
+                // These belong to the PR manager (the author for internal, or the assignee for external)
                 for (const ownerLogin of owners) {
                   if (item.approvedCount >= 2) {
                     addAction(ownerLogin, `✅ Ready for merge: ${link}`, pr.number);
