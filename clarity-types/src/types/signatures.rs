@@ -1435,7 +1435,7 @@ impl TypeSignature {
     }
 
     pub fn size(&self) -> Result<u32, ClarityTypeError> {
-        self.inner_size()?.ok_or_else(|| {
+        self.inner_size().ok_or_else(|| {
             ClarityTypeError::InvariantViolation(
                 "FAIL: .size() overflowed on too large of a type. Construction should have failed!"
                     .into(),
@@ -1443,8 +1443,8 @@ impl TypeSignature {
         })
     }
 
-    fn inner_size(&self) -> Result<Option<u32>, ClarityTypeError> {
-        let out = match self {
+    fn inner_size(&self) -> Option<u32> {
+        match self {
             // NoType's may be asked for their size at runtime --
             //  legal constructions like `(ok 1)` have NoType parts (if they have unknown error variant types).
             NoType => Some(NO_TYPE_SIZE),
@@ -1455,26 +1455,28 @@ impl TypeSignature {
             TupleType(tuple_sig) => Some(tuple_sig.size()),
             SequenceType(SequenceSubtype::BufferType(len))
             | SequenceType(SequenceSubtype::StringType(StringSubtype::ASCII(len))) => {
-                Some(SEQUENCE_LENGTH_PREFIX + u32::from(len))
+                SEQUENCE_LENGTH_PREFIX.checked_add(u32::from(len))
             }
             // Cached at construction; never oversized (see the note above this impl).
             SequenceType(SequenceSubtype::ListType(list_type)) => Some(list_type.size()),
             SequenceType(SequenceSubtype::StringType(StringSubtype::UTF8(len))) => {
-                Some(SEQUENCE_LENGTH_PREFIX + UTF8_CHAR_SIZE * u32::from(len))
+                // seq_prefix + char_size * len
+                UTF8_CHAR_SIZE
+                    .checked_mul(u32::from(len))?
+                    .checked_add(SEQUENCE_LENGTH_PREFIX)
             }
-            OptionalType(t) => t.size()?.checked_add(WRAPPER_VALUE_SIZE),
+            OptionalType(t) => t.inner_size()?.checked_add(WRAPPER_VALUE_SIZE),
             ResponseType(v) => {
                 // ResponseTypes charge WRAPPER_VALUE_SIZE for the `committed` discriminant,
                 //   plus max(err_type, ok_type)
                 let (t, s) = (&v.0, &v.1);
-                let t_size = t.size()?;
-                let s_size = s.size()?;
+                let t_size = t.inner_size()?;
+                let s_size = s.inner_size()?;
                 cmp::max(t_size, s_size).checked_add(WRAPPER_VALUE_SIZE)
             }
             CallableType(CallableSubtype::Principal(_)) | ListUnionType(_) => Some(PRINCIPAL_SIZE),
             CallableType(CallableSubtype::Trait(_)) | TraitReferenceType(_) => Some(TRAIT_SIZE),
-        };
-        Ok(out)
+        }
     }
 
     pub fn type_size(&self) -> Result<u32, ClarityTypeError> {
@@ -1512,7 +1514,7 @@ impl TypeSignature {
     }
 
     pub fn min_size(&self) -> Result<u32, ClarityTypeError> {
-        self.inner_min_size()?.ok_or_else(|| {
+        self.inner_min_size().ok_or_else(|| {
             ClarityTypeError::InvariantViolation(
                 "FAIL: .min_size() overflowed on too large of a type. Construction should have failed!"
                     .into(),
@@ -1520,14 +1522,14 @@ impl TypeSignature {
         })
     }
 
-    fn inner_min_size(&self) -> Result<Option<u32>, ClarityTypeError> {
-        let out = match self {
+    fn inner_min_size(&self) -> Option<u32> {
+        match self {
             // NoType's may be asked for their size at runtime --
             //  legal constructions like `(ok 1)` have NoType parts (if they have unknown error variant types).
             NoType => Some(NO_TYPE_SIZE),
             IntType | UIntType => Some(INT_SIZE),
             BoolType => Some(BOOL_SIZE),
-            TupleType(tuple_sig) => tuple_sig.inner_min_size()?,
+            TupleType(tuple_sig) => tuple_sig.inner_min_size(),
             SequenceType(SequenceSubtype::BufferType(_))
             | SequenceType(SequenceSubtype::StringType(StringSubtype::ASCII(_))) => {
                 Some(SEQUENCE_LENGTH_PREFIX)
@@ -1544,8 +1546,8 @@ impl TypeSignature {
                 // ResponseTypes are 1 byte for the committed bool,
                 //   plus min(err_type, ok_type)
                 let (t, s) = (&v.0, &v.1);
-                let t_size = t.min_size()?;
-                let s_size = s.min_size()?;
+                let t_size = t.inner_min_size()?;
+                let s_size = s.inner_min_size()?;
                 cmp::min(t_size, s_size).checked_add(WRAPPER_VALUE_SIZE)
             }
             PrincipalType | CallableType(CallableSubtype::Principal(_)) | ListUnionType(_) => {
@@ -1560,8 +1562,7 @@ impl TypeSignature {
                 // trait reference with a 128 byte contract name and 128 byte trait name.
                 Some(TRAIT_SIZE)
             }
-        };
-        Ok(out)
+        }
     }
 }
 
@@ -1697,32 +1698,20 @@ impl TupleTypeSignature {
     /// Tuple Size:
     ///    size( btreemap<name, value> ) + type_size
     ///    size( btreemap<name, value> ) = 2*map.len() + sum(names) + sum(values)
-    fn inner_min_size(&self) -> Result<Option<u32>, ClarityTypeError> {
-        let Some(mut total_size) = u32::try_from(self.type_map.len())
+    fn inner_min_size(&self) -> Option<u32> {
+        let mut total_size = u32::try_from(self.type_map.len())
             .ok()
             .and_then(|x| x.checked_mul(2))
-            .and_then(|x| x.checked_add(self.type_size()?))
-        else {
-            return Ok(None);
-        };
+            .and_then(|x| x.checked_add(self.type_size()?))?;
         for (name, type_signature) in self.type_map.iter() {
             // we only accept ascii names, so 1 char = 1 byte.
-            total_size = if let Some(new_size) = total_size.checked_add(type_signature.min_size()?)
-            {
-                new_size
-            } else {
-                return Ok(None);
-            };
-            total_size = if let Some(new_size) = total_size.checked_add(name.len() as u32) {
-                new_size
-            } else {
-                return Ok(None);
-            };
+            total_size = total_size.checked_add(type_signature.inner_min_size()?)?;
+            total_size = total_size.checked_add(name.len() as u32)?;
         }
         if total_size > MAX_VALUE_SIZE {
-            Ok(None)
+            None
         } else {
-            Ok(Some(total_size))
+            Some(total_size)
         }
     }
 }
