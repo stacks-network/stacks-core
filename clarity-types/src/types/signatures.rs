@@ -862,8 +862,10 @@ impl TupleTypeSignature {
         mut update: TupleTypeSignature,
     ) -> Result<Self, ClarityTypeError> {
         Arc::make_mut(&mut self.type_map).append(Arc::make_mut(&mut update.type_map));
-        // inner_size() returns Ok(None) exactly when the tuple is oversized.
-        self.size = self.inner_size()?.ok_or(ClarityTypeError::ValueTooLarge)?;
+        // Derived from the merged map, so the merge has to happen first: that ordering is why
+        // this method consumes its operands rather than borrowing them.
+        self.size =
+            Self::compute_inner_size(&self.type_map)?.ok_or(ClarityTypeError::ValueTooLarge)?;
         Ok(self)
     }
 }
@@ -1569,11 +1571,6 @@ impl ListTypeData {
         self.size
     }
 
-    /// Value size of this list instance.
-    fn inner_size(&self) -> Result<Option<u32>, ClarityTypeError> {
-        Self::compute_inner_size(&self.entry_type, self.max_len)
-    }
-
     /// Type-signature size of this list instance.
     fn type_size(&self) -> Option<u32> {
         Self::compute_type_size(&self.entry_type)
@@ -1656,11 +1653,6 @@ impl TupleTypeSignature {
             max = cmp::max(max, type_signature.depth())
         }
         max
-    }
-
-    /// Value size of this tuple instance.
-    fn inner_size(&self) -> Result<Option<u32>, ClarityTypeError> {
-        Self::compute_inner_size(&self.type_map)
     }
 
     /// Compute the value size of a tuple from its type map.
