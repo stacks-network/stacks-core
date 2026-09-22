@@ -2115,6 +2115,7 @@ mod async_sibling_validation {
             Some(&validate_ok(&hash_c1)),
             &result_tx,
             1,
+            Some(1),
         );
         let info_c1 = node
             .signer
@@ -2248,6 +2249,7 @@ mod reward_cycle_retirement {
             &tenure,
             &parent_tenure,
             &parent_id,
+            10,
             get_epoch_time_secs(),
         );
         let hash = block.header.signer_signature_hash();
@@ -2417,10 +2419,22 @@ mod reward_cycle_retirement {
         let parent_id = parent_header.block_id();
 
         let now = get_epoch_time_secs();
-        let deferred_block =
-            tenure_start(&miner, &deferred_tenure, &parent_tenure, &parent_id, now);
-        let resolved_block =
-            tenure_start(&miner, &resolved_tenure, &parent_tenure, &parent_id, now);
+        let deferred_block = tenure_start(
+            &miner,
+            &deferred_tenure,
+            &parent_tenure,
+            &parent_id,
+            10,
+            now,
+        );
+        let resolved_block = tenure_start(
+            &miner,
+            &resolved_tenure,
+            &parent_tenure,
+            &parent_id,
+            10,
+            now,
+        );
         let deferred_hash = deferred_block.header.signer_signature_hash();
         let resolved_hash = resolved_block.header.signer_signature_hash();
 
