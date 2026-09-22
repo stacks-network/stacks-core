@@ -1068,68 +1068,8 @@ impl Value {
         }
     }
 
-    /// Serialized size charged for this value.
-    ///
-    /// Computed directly per variant rather than via [`TypeSignature::type_of`]
-    /// as `TypeSignature::type_of(self)?.size()`.
-    /// The size lookup is cached either way (see [`TypeSignature::inner_size`]); what this avoids
-    /// is constructing a [`TypeSignature`] only to throw it away.
-    ///
-    /// Result is identical to the `TypeSignature::type_of(self)?.size()` computation.
     pub fn size(&self) -> Result<u32, ClarityTypeError> {
-        match self {
-            Value::Int(_) | Value::UInt(_) => Ok(INT_SIZE),
-            Value::Bool(_) => Ok(BOOL_SIZE),
-            Value::Principal(_) => Ok(PRINCIPAL_SIZE),
-            Value::CallableContract(v) => {
-                if v.trait_identifier.is_some() {
-                    Ok(TRAIT_SIZE)
-                } else {
-                    Ok(PRINCIPAL_SIZE)
-                }
-            }
-            Value::Tuple(data) => Ok(data.type_signature.size()),
-            Value::Sequence(SequenceData::List(data)) => Ok(data.type_signature.size()),
-            // The length newtypes bound at `MAX_VALUE_SIZE` / `MAX_UTF8_VALUE_SIZE`, which is
-            // the same check `BuffData::type_signature` and friends made on the path this
-            // replaces — matching threshold, error kind and message. A bare `u32::try_from`
-            // would only catch lengths above `u32::MAX`, and the arithmetic below could then
-            // wrap silently. Once bounded here, it provably cannot.
-            Value::Sequence(SequenceData::Buffer(data)) => {
-                let len = BufferLength::try_from(data.data.len()).map_err(|_| {
-                    ClarityTypeError::InvariantViolation(
-                        "ERROR: too large of a buffer successfully constructed.".into(),
-                    )
-                })?;
-                Ok(SEQUENCE_LENGTH_PREFIX + u32::from(len))
-            }
-            Value::Sequence(SequenceData::String(CharType::ASCII(data))) => {
-                let len = BufferLength::try_from(data.data.len()).map_err(|_| {
-                    ClarityTypeError::InvariantViolation(
-                        "ERROR: too large of a buffer successfully constructed.".into(),
-                    )
-                })?;
-                Ok(SEQUENCE_LENGTH_PREFIX + u32::from(len))
-            }
-            Value::Sequence(SequenceData::String(CharType::UTF8(data))) => {
-                let len = StringUTF8Length::try_from(data.data.len()).map_err(|_| {
-                    ClarityTypeError::InvariantViolation(
-                        "ERROR: too large of a buffer successfully constructed.".into(),
-                    )
-                })?;
-                Ok(SEQUENCE_LENGTH_PREFIX + UTF8_CHAR_SIZE * u32::from(len))
-            }
-            Value::Optional(opt) => match &opt.data {
-                Some(v) => Ok(v.size()? + WRAPPER_VALUE_SIZE),
-                // `none` types as `(optional NoType)`, so it is charged the wrapper plus
-                // `NoType`'s size.
-                None => Ok(NO_TYPE_SIZE + WRAPPER_VALUE_SIZE),
-            },
-            // `ResponseType`'s size is `max(ok, err) + wrapper`, and the unused arm is always
-            // `NoType` (size 1) for a concrete value. No `Value` sizes below 1, so the max is
-            // always the present arm.
-            Value::Response(resp) => Ok(resp.data.size()? + WRAPPER_VALUE_SIZE),
-        }
+        TypeSignature::type_of(self)?.size()
     }
 
     pub fn depth(&self) -> Result<u8, ClarityTypeError> {
