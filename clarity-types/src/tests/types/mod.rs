@@ -23,8 +23,8 @@ use stacks_common::types::StacksEpochId;
 use crate::ClarityName;
 use crate::errors::ClarityTypeError;
 use crate::types::{
-    ASCIIData, BuffData, CallableData, CharType, ListTypeData, MAX_VALUE_SIZE, PrincipalData,
-    QualifiedContractIdentifier, RetainValuesError, SequenceData, SequenceSubtype,
+    ASCIIData, BuffData, CallableData, CharType, ListTypeData, MAX_UTF8_VALUE_SIZE, MAX_VALUE_SIZE,
+    PrincipalData, QualifiedContractIdentifier, RetainValuesError, SequenceData, SequenceSubtype,
     SequencedValue as _, StandardPrincipalData, TraitIdentifier, TupleData, TupleFieldsBehavior,
     TupleTypeSignature, TypeSignature, UTF8Data, Value,
 };
@@ -157,6 +157,84 @@ fn test_constructors() {
 #[test]
 fn simple_size_test() {
     assert_eq!(Value::Int(10).size().unwrap(), 16);
+}
+
+/// The three sequence arms of `Value::size()` must reject an oversized sequence the same way
+/// the `TypeSignature::type_of(self)?.size()` path did: at `MAX_VALUE_SIZE` /
+/// `MAX_UTF8_VALUE_SIZE` rather than `u32::MAX`, and with the same `InvariantViolation`.
+///
+/// These values cannot be built through the VM's constructors, which enforce the bound — the
+/// public fields on `BuffData` / `ASCIIData` / `UTF8Data` are what make the state reachable at
+/// all, and what makes the check worth keeping.
+#[test]
+fn test_value_size_oversized_sequences_match_type_signature_error() {
+    let oversized = usize::try_from(MAX_VALUE_SIZE).unwrap() + 1;
+
+    let buffer = Value::Sequence(SequenceData::Buffer(BuffData {
+        data: vec![0; oversized],
+    }));
+    let ascii = Value::Sequence(SequenceData::String(CharType::ASCII(ASCIIData {
+        data: vec![b'a'; oversized],
+    })));
+    let utf8 = Value::Sequence(SequenceData::String(CharType::UTF8(UTF8Data {
+        data: vec![vec![b'a']; usize::try_from(MAX_UTF8_VALUE_SIZE).unwrap() + 1],
+    })));
+
+    for (label, value) in [("buffer", buffer), ("ascii", ascii), ("utf8", utf8)] {
+        let from_value = value.size().unwrap_err();
+        let from_type = TypeSignature::type_of(&value).unwrap_err();
+        assert_eq!(
+            from_value, from_type,
+            "{label}: Value::size() and type_of() must fail identically"
+        );
+        assert!(
+            matches!(from_value, ClarityTypeError::InvariantViolation(_)),
+            "{label}: expected InvariantViolation, got {from_value:?}"
+        );
+    }
+}
+
+/// Asserts that `values` contains a case for every `Value`, `SequenceData` and `CharType`
+/// variant.
+///
+/// `SequenceData::String(CharType)` is a single variant, but ASCII and UTF-8 use different
+/// size formulas, so they are counted separately.
+fn assert_covers_all_value_variants(values: &[(&str, Value)]) {
+    let value_variants: HashSet<_> = values
+        .iter()
+        .map(|(_, v)| std::mem::discriminant(v))
+        .collect();
+    assert_eq!(
+        value_variants.len(),
+        Value::VARIANT_COUNT,
+        "every Value variant needs a case here"
+    );
+
+    let sequence_variants: HashSet<_> = values
+        .iter()
+        .filter_map(|(_, v)| match v {
+            Value::Sequence(seq) => Some(std::mem::discriminant(seq)),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        sequence_variants.len(),
+        SequenceData::VARIANT_COUNT,
+        "every SequenceData variant needs a case here"
+    );
+
+    let char_variants: HashSet<_> = values
+        .iter()
+        .filter_map(|(_, v)| match v {
+            Value::Sequence(SequenceData::String(c)) => Some(std::mem::discriminant(c)),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        char_variants.len(),
+        CharType::VARIANT_COUNT,
+        "every CharType variant needs a case here"
+    );
 }
 
 /// `Value::size()` computes per variant instead of going through
@@ -307,44 +385,7 @@ fn test_value_size_matches_type_signature_size() {
         ("err_uint", Value::error(Value::UInt(99)).unwrap()),
     ];
 
-    // Exhaustiveness: check full `Value` variant coverage.
-    {
-        let value_variants: HashSet<_> = values
-            .iter()
-            .map(|(_, v)| std::mem::discriminant(v))
-            .collect();
-        assert_eq!(
-            value_variants.len(),
-            Value::VARIANT_COUNT,
-            "every Value variant needs a case here, or the equivalence is only spot-checked"
-        );
-        let sequence_variants: HashSet<_> = values
-            .iter()
-            .filter_map(|(_, v)| match v {
-                Value::Sequence(seq) => Some(std::mem::discriminant(seq)),
-                _ => None,
-            })
-            .collect();
-        assert_eq!(
-            sequence_variants.len(),
-            SequenceData::VARIANT_COUNT,
-            "every SequenceData variant needs a case here"
-        );
-        // `SequenceData::String(CharType)` counts as one variant, but ASCII and UTF-8 use
-        // different size formulas, so they need separate coverage.
-        let char_variants: HashSet<_> = values
-            .iter()
-            .filter_map(|(_, v)| match v {
-                Value::Sequence(SequenceData::String(c)) => Some(std::mem::discriminant(c)),
-                _ => None,
-            })
-            .collect();
-        assert_eq!(
-            char_variants.len(),
-            CharType::VARIANT_COUNT,
-            "every CharType variant needs a case here"
-        );
-    }
+    assert_covers_all_value_variants(&values);
 
     // Value / TypeSignature comparison
     for (label, value) in &values {

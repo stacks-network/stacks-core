@@ -939,7 +939,7 @@ impl SequencedValue<Vec<u8>> for UTF8Data {
     fn type_signature(&self) -> std::result::Result<TypeSignature, ClarityTypeError> {
         let str_len = StringUTF8Length::try_from(self.data.len()).map_err(|_| {
             ClarityTypeError::InvariantViolation(
-                "ERROR: Too large of a buffer successfully constructed.".into(),
+                "ERROR: too large of a buffer successfully constructed.".into(),
             )
         })?;
         Ok(TypeSignature::SequenceType(SequenceSubtype::StringType(
@@ -1073,9 +1073,9 @@ impl Value {
     /// Computed directly per variant rather than via [`TypeSignature::type_of`]
     /// as `TypeSignature::type_of(self)?.size()`.
     /// The size lookup is cached either way (see [`TypeSignature::inner_size`]); what this avoids
-    /// is constructing a `TypeSignature` only to throw it away.
+    /// is constructing a [`TypeSignature`] only to throw it away.
     ///
-    /// Result is identical to the `TypeSignature::type_of(self)?.size()`computation.
+    /// Result is identical to the `TypeSignature::type_of(self)?.size()` computation.
     pub fn size(&self) -> Result<u32, ClarityTypeError> {
         match self {
             Value::Int(_) | Value::UInt(_) => Ok(INT_SIZE),
@@ -1090,18 +1090,34 @@ impl Value {
             }
             Value::Tuple(data) => Ok(data.type_signature.size()),
             Value::Sequence(SequenceData::List(data)) => Ok(data.type_signature.size()),
-            Value::Sequence(SequenceData::Buffer(data)) => Ok(SEQUENCE_LENGTH_PREFIX
-                + u32::try_from(data.data.len()).map_err(|_| ClarityTypeError::ValueTooLarge)?),
+            // The length newtypes bound at `MAX_VALUE_SIZE` / `MAX_UTF8_VALUE_SIZE`, which is
+            // the same check `BuffData::type_signature` and friends made on the path this
+            // replaces — matching threshold, error kind and message. A bare `u32::try_from`
+            // would only catch lengths above `u32::MAX`, and the arithmetic below could then
+            // wrap silently. Once bounded here, it provably cannot.
+            Value::Sequence(SequenceData::Buffer(data)) => {
+                let len = BufferLength::try_from(data.data.len()).map_err(|_| {
+                    ClarityTypeError::InvariantViolation(
+                        "ERROR: too large of a buffer successfully constructed.".into(),
+                    )
+                })?;
+                Ok(SEQUENCE_LENGTH_PREFIX + u32::from(len))
+            }
             Value::Sequence(SequenceData::String(CharType::ASCII(data))) => {
-                Ok(SEQUENCE_LENGTH_PREFIX
-                    + u32::try_from(data.data.len())
-                        .map_err(|_| ClarityTypeError::ValueTooLarge)?)
+                let len = BufferLength::try_from(data.data.len()).map_err(|_| {
+                    ClarityTypeError::InvariantViolation(
+                        "ERROR: too large of a buffer successfully constructed.".into(),
+                    )
+                })?;
+                Ok(SEQUENCE_LENGTH_PREFIX + u32::from(len))
             }
             Value::Sequence(SequenceData::String(CharType::UTF8(data))) => {
-                Ok(SEQUENCE_LENGTH_PREFIX
-                    + UTF8_CHAR_SIZE
-                        * u32::try_from(data.data.len())
-                            .map_err(|_| ClarityTypeError::ValueTooLarge)?)
+                let len = StringUTF8Length::try_from(data.data.len()).map_err(|_| {
+                    ClarityTypeError::InvariantViolation(
+                        "ERROR: too large of a buffer successfully constructed.".into(),
+                    )
+                })?;
+                Ok(SEQUENCE_LENGTH_PREFIX + UTF8_CHAR_SIZE * u32::from(len))
             }
             Value::Optional(opt) => match &opt.data {
                 Some(v) => Ok(v.size()? + WRAPPER_VALUE_SIZE),
