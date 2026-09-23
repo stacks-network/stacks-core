@@ -883,7 +883,6 @@ pub fn test_get_blocks_and_microblocks_5_peers_star() {
 
                 for p in peer_configs.iter_mut() {
                     p.connection_opts.disable_block_advertisement = true;
-                    p.connection_opts.max_clients_per_host = 30;
                 }
 
                 let peer_0 = peer_configs[0].to_neighbor();
@@ -955,7 +954,6 @@ pub fn test_get_blocks_and_microblocks_5_peers_line() {
 
                 for p in peer_configs.iter_mut() {
                     p.connection_opts.disable_block_advertisement = true;
-                    p.connection_opts.max_clients_per_host = 30;
                 }
 
                 for i in 0..peer_configs.len() {
@@ -1036,7 +1034,6 @@ pub fn test_get_blocks_and_microblocks_overwhelmed_connections() {
 
                     // severely restrict the number of allowed
                     // connections in each peer
-                    peer_configs[i].connection_opts.max_clients_per_host = 1;
                     peer_configs[i].connection_opts.num_clients = 1;
                     peer_configs[i].connection_opts.idle_timeout = 1;
                     peer_configs[i].connection_opts.max_http_clients = 1;

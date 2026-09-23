@@ -76,11 +76,8 @@ fn setup_peer_config(
     conf.connection_opts.max_http_clients = 1000;
     conf.connection_opts.max_neighbors_of_neighbor = neighbor_count as u64;
 
-    conf.connection_opts.max_clients_per_host = MAX_NEIGHBORS_DATA_LEN as u64;
     conf.connection_opts.soft_max_clients_per_host = peer_count as u64;
 
-    conf.connection_opts.max_neighbors_per_host = MAX_NEIGHBORS_DATA_LEN as u64;
-    conf.connection_opts.soft_max_neighbors_per_host = (neighbor_count / 2) as u64;
     conf.connection_opts.soft_max_neighbors_per_org = (neighbor_count / 2) as u64;
 
     conf.connection_opts.walk_interval = 0;
@@ -838,7 +835,6 @@ fn test_walk_inbound_line_15() {
             conf.connection_opts.timeout = 60000;
             conf.connection_opts.handshake_timeout = 60000;
             conf.connection_opts.soft_max_neighbors_per_org = (neighbor_count + 1) as u64;
-            conf.connection_opts.soft_max_neighbors_per_host = (neighbor_count + 1) as u64;
 
             peer_configs.push(conf);
         }
