@@ -730,7 +730,7 @@ impl<T: MarfTrieId> TrieRAM<T> {
 
             let node_hash = {
                 let mut buf = [0u8; 32];
-                buf.copy_from_slice(hasher.finalize().as_slice());
+                buf.copy_from_slice(&hasher.finalize());
                 TrieHash(buf)
             };
 

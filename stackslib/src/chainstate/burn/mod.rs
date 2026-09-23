@@ -124,7 +124,7 @@ impl SortitionHash {
         sha2.update(self.as_bytes());
         sha2.update(burn_header_hash.as_bytes());
         let mut ret = [0u8; 32];
-        ret.copy_from_slice(sha2.finalize().as_slice());
+        ret.copy_from_slice(&sha2.finalize());
         SortitionHash(ret)
     }
 
@@ -225,7 +225,7 @@ impl OpsHash {
             hasher.update(txid.as_bytes());
         }
         let mut result_32 = [0u8; 32];
-        result_32.copy_from_slice(hasher.finalize().as_slice());
+        result_32.copy_from_slice(&hasher.finalize());
         OpsHash(result_32)
     }
 }
@@ -325,7 +325,7 @@ impl ConsensusHashExtensions for ConsensusHash {
         r160.update(&result);
 
         let mut ch_bytes = [0u8; 20];
-        ch_bytes.copy_from_slice(r160.finalize().as_slice());
+        ch_bytes.copy_from_slice(&r160.finalize());
 
         ConsensusHash(ch_bytes)
     }
@@ -404,7 +404,7 @@ impl ConsensusHashExtensions for ConsensusHash {
         r160.update(&result);
 
         let mut ch_bytes = [0u8; 20];
-        ch_bytes.copy_from_slice(r160.finalize().as_slice());
+        ch_bytes.copy_from_slice(&r160.finalize());
         ConsensusHash(ch_bytes)
     }
 }
