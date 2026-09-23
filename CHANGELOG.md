@@ -59,6 +59,7 @@ and this project adheres to the versioning scheme outlined in the [README.md](RE
 * Fixed Wasm low-S validation rejecting `s == (n - 1) / 2`, the largest canonical low-S value, which the native backend accepts.
 * Fixed Wasm signing producing high-S signatures at the low-S boundary, preserving the recovery ID when normalizing signatures.
 * Fixed Wasm public-key verification to return `Ok(false)` for a key mismatch before rejecting high-S signatures, matching the native backend.
+* Signers now roll the reported tenure extend timestamp forward to `now + idle_timeout` when accepting a tenure extend block. Previously the rollover only fired on tenure start blocks, so accept responses for extend blocks carried an already-past timestamp and miners proposed the next extend early, which signers rejected with `InvalidTenureExtend` before accepting the retry.
 
 ### Removed
 
