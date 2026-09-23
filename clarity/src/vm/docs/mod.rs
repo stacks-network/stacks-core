@@ -3102,9 +3102,13 @@ the active PoX contract to `unstake`, `unstake-sbtc`, `update-bond-registration`
 or `announce-l1-early-exit`. `with-pox` is not allowed outside of
 `restrict-assets?` or `as-contract?` contexts. These actions are all-or-nothing
 for a position, so this allowance takes no amount: its presence simply permits
-them, and its absence forbids them within the protected scope. An *attempt* is
-gated whether or not the underlying call succeeds, so the absence of `with-pox`
-catches even a failed attempt to touch the position. Locking STX is covered by
+them, and its absence forbids them within the protected scope. A call to one
+of these functions counts as an attempt even when it returns `(err ...)`, so
+without `with-pox` the scope also rejects a failed attempt to touch the
+position. The record of an attempt is an effect like any other: if a public
+function between the PoX contract and the protected scope returns `(err ...)`,
+its effects are rolled back and the attempt is no longer visible to the scope.
+The position itself is unchanged in either case. Locking STX is covered by
 `with-staking`, not `with-pox`.
 ",
     example: r#"
