@@ -35,7 +35,10 @@ pub mod indexer;
 pub mod keys;
 pub mod messages;
 pub mod network;
+pub mod signet;
 pub mod spv;
+#[cfg(test)]
+mod testdata;
 
 pub type PeerMessage = stacks_common::deps_common::bitcoin::network::message::NetworkMessage;
 
@@ -151,6 +154,8 @@ pub enum BitcoinNetworkType {
     Mainnet,
     Testnet,
     Regtest,
+    /// Public or custom BIP 325 signet, validated by the configured Bitcoin peer.
+    Signet,
 }
 
 impl BitcoinNetworkType {

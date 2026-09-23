@@ -1616,10 +1616,11 @@ impl SignerDb {
     ///
     /// Blocks in tenures whose reorg we sanctioned under the reorg-timing rules (see
     /// [`SignerDb::mark_tenure_superseded`]) are still returned, but annotated with the
-    /// permitting tenure's sortition (`superseded_by_*`): the permit only holds while that
-    /// sortition is canonical, which the caller derives from the node per evaluation (see
-    /// `Signer::reorg_permit_stands`) -- like every other question about whether a conflict is
-    /// still *live* (`Signer::conflict_still_blocks`), it is not recorded.
+    /// permitting tenure (`superseded_by_*`). Whether that permit excuses the conflict is the
+    /// caller's to decide per evaluation (see `Signer::reorg_permit_stands`): it only covers a
+    /// block in the permitting tenure, and only while that tenure's sortition is canonical --
+    /// like every other question about whether a conflict is still *live*
+    /// (`Signer::conflict_still_blocks`), it is not recorded.
     pub fn get_signed_conflicts(
         &self,
         height: u64,
@@ -1645,16 +1646,20 @@ impl SignerDb {
     /// under the reorg-timing rules (`first_proposal_burn_block_timing`).
     ///
     /// Having sanctioned the replacement, our own signature over what this tenure built must not
-    /// then block it: its blocks stop counting as conflicts (see
-    /// [`SignerDb::get_signed_conflicts`]). Recorded when the reorg is permitted rather than
-    /// derived at signing time, because by the time a replacement reaches the pre-commit
-    /// threshold the sortition view that sanctioned the reorg may be long gone.
+    /// then block it: its blocks stop counting as conflicts against a block in
+    /// `superseded_by_consensus_hash` (see [`SignerDb::get_signed_conflicts`]). Recorded when
+    /// the reorg is permitted rather than derived at signing time, because by the time a
+    /// replacement reaches the pre-commit threshold the sortition view that sanctioned the
+    /// reorg may be long gone.
     ///
-    /// The permit is only honored while the permitting tenure's sortition is still canonical
-    /// (checked against the node when the record is applied): if a burnchain fork orphans it,
-    /// the reorg we sanctioned can no longer happen, so the record must not keep suppressing
-    /// this tenure's conflicts. A re-permit by a different tenure replaces the record, so the
-    /// latest permitting sortition is the one checked. Records age out via
+    /// Two things bound the permit when it is applied, both re-derived rather than recorded.
+    /// It covers only the branch it sanctioned -- blocks in the permitting tenure, and blocks
+    /// of a tenure built on top of it -- since only those continue the replacement: a block in
+    /// this tenure alongside one we already signed is equivocation, not a reorg. And it is only
+    /// honored while the permitting tenure's sortition is still canonical: if a burnchain fork
+    /// orphans it, the reorg we sanctioned can no longer happen, so the record must not keep
+    /// suppressing this tenure's conflicts. A re-permit by a different tenure replaces the
+    /// record, so the latest permitting sortition is the one checked. Records age out via
     /// [`SignerDb::prune_superseded_tenures`].
     pub fn mark_tenure_superseded(
         &mut self,
@@ -2230,7 +2235,7 @@ impl SignerDb {
         F: Fn(TenureChangeCause) -> bool,
     {
         if check_tenure_extend {
-            if let Some(tenure_change) = block.get_tenure_change_tx_payload() {
+            if let Some(tenure_change) = block.get_tenure_tx_payload() {
                 if tenure_change_match(tenure_change.cause) {
                     let tenure_extend_timestamp =
                         get_epoch_time_secs().wrapping_add(tenure_idle_timeout.as_secs());
@@ -2650,8 +2655,8 @@ pub struct SignedConflictInfo {
     pub globally_accepted: bool,
     /// The sortition of the tenure we permitted to reorg this block's tenure, if we recorded
     /// such a permit (see [`SignerDb::mark_tenure_superseded`]). The permit excludes this
-    /// conflict only while that sortition is still canonical, which the caller must derive
-    /// from the node.
+    /// conflict only for a proposal on the branch it sanctioned, and only while that sortition
+    /// is still canonical, both of which the caller must derive.
     pub superseded_by: Option<SupersededBy>,
 }
 
@@ -3958,6 +3963,74 @@ pub mod tests {
         assert!(
             timestamp_hash_3.saturating_add(tenure_idle_timeout.as_secs())
                 < block_infos[0].proposed_time
+        );
+
+        // Tenure extend blocks (an Extended* tenure change with no coinbase) must roll the
+        // timestamp over to now + idle timeout instead of deriving it from the globally
+        // accepted blocks in the tenure, which at this point only reach the previous extend
+        let consensus_hash_1 = block_infos[0].block.header.consensus_hash.clone();
+        let extend_block = |cause| {
+            let parent_block_id = StacksBlockId([0x05; 32]);
+            let payload = TenureChangePayload {
+                tenure_consensus_hash: consensus_hash_1.clone(),
+                prev_tenure_consensus_hash: consensus_hash_1.clone(),
+                burn_view_consensus_hash: consensus_hash_1.clone(),
+                previous_tenure_end: parent_block_id.clone(),
+                previous_tenure_blocks: 1,
+                cause,
+                pubkey_hash: Hash160([0x06; 20]),
+            };
+            let tx = StacksTransaction::new(
+                TransactionVersion::Testnet,
+                TransactionAuth::from_p2pkh(&StacksPrivateKey::random()).unwrap(),
+                TransactionPayload::TenureChange(payload),
+            );
+            let (mut block_info, _block_proposal) = create_block_override(|b| {
+                b.block.header.consensus_hash = consensus_hash_1.clone();
+                b.block.header.parent_block_id = parent_block_id;
+            });
+            block_info.block.executed_and_skipped_txs_mut().push(tx);
+            block_info.block
+        };
+        let assert_rolled_over = |timestamp: u64, before: u64| {
+            let after = get_epoch_time_secs();
+            assert!(
+                timestamp >= before.saturating_add(tenure_idle_timeout.as_secs())
+                    && timestamp <= after.saturating_add(tenure_idle_timeout.as_secs()),
+                "Expected timestamp {timestamp} to be rolled over to now + idle timeout"
+            );
+        };
+
+        let full_extend_block = extend_block(TenureChangeCause::Extended);
+        let before = get_epoch_time_secs();
+        assert_rolled_over(
+            db.calculate_full_extend_timestamp(tenure_idle_timeout, &full_extend_block, true),
+            before,
+        );
+        assert_rolled_over(
+            db.calculate_read_count_extend_timestamp(tenure_idle_timeout, &full_extend_block, true),
+            before,
+        );
+        // Rejections must not roll over, even for an extend block
+        assert_eq!(
+            db.calculate_full_extend_timestamp(tenure_idle_timeout, &full_extend_block, false),
+            timestamp_hash_1_after
+        );
+
+        // A read count extend rolls over the read count timestamp only
+        let read_count_extend_block = extend_block(TenureChangeCause::ExtendedReadCount);
+        let before = get_epoch_time_secs();
+        assert_rolled_over(
+            db.calculate_read_count_extend_timestamp(
+                tenure_idle_timeout,
+                &read_count_extend_block,
+                true,
+            ),
+            before,
+        );
+        assert_eq!(
+            db.calculate_full_extend_timestamp(tenure_idle_timeout, &read_count_extend_block, true),
+            timestamp_hash_1_after
         );
     }
 

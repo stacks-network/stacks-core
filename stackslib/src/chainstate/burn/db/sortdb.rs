@@ -4421,18 +4421,13 @@ impl SortitionDB {
             return Err(db_error::Corruption);
         }
 
-        if chain_tip.block_height < burnchain.stable_confirmations as u64 {
-            // should never happen, but don't panic since this is network-callable code
-            error!(
-                "Invalid block height from DB: {}: expected at least {}",
-                chain_tip.block_height, burnchain.stable_confirmations
-            );
-            return Err(db_error::Corruption);
-        }
-
+        // During startup the local processed tip can be near the first burn block, even when
+        // Bitcoin Core is fully synced. Clamp the stable view to the first burn block.
         let stable_block_height = cmp::max(
             burnchain.first_block_height,
-            chain_tip.block_height - (burnchain.stable_confirmations as u64),
+            chain_tip
+                .block_height
+                .saturating_sub(burnchain.stable_confirmations as u64),
         );
 
         // get all burn block hashes between the chain tip, and the stable height back
@@ -6708,6 +6703,8 @@ impl ChainstateDB for SortitionDB {
 
 #[cfg(test)]
 pub mod tests {
+    use std::assert_matches;
+
     use clarity::vm::costs::ExecutionCost;
     use rand::RngCore;
     use stacks_common::address::AddressHashMode;
@@ -6715,8 +6712,12 @@ pub mod tests {
     use stacks_common::types::sqlite::NO_PARAMS;
     use stacks_common::util::get_epoch_time_secs;
     use stacks_common::util::hash::{hex_bytes, Hash160};
+    use tempfile::tempdir;
 
     use super::*;
+    use crate::burnchains::bitcoin::indexer::{
+        BITCOIN_MAINNET, BITCOIN_REGTEST, BITCOIN_SIGNET, BITCOIN_TESTNET,
+    };
     use crate::burnchains::db::BurnchainDB;
     use crate::burnchains::tests::db::make_simple_block_commit;
     use crate::burnchains::*;
@@ -6731,6 +6732,76 @@ pub mod tests {
     use crate::chainstate::stacks::StacksPublicKey;
     use crate::core::{StacksEpochExtension, *};
     use crate::util_lib::db::Error as db_error;
+
+    /// Stable views clamp to the first burn block until enough local history exists, on every network.
+    #[test]
+    fn test_burnchain_view_clamps_stable_tip_to_first_burn_block() {
+        let vectors = [
+            (0, 7, [0, 0, 0, 0, 0, 0, 0, 0, 1]),
+            (3, 7, [0, 0, 0, 0, 0, 0, 0, 0, 1]),
+            (100, 7, [0, 0, 0, 0, 0, 0, 0, 0, 1]),
+            (0, 1, [0, 0, 1, 2, 3, 4, 5, 6, 7]),
+        ];
+
+        let all_networks = [
+            BITCOIN_MAINNET,
+            BITCOIN_TESTNET,
+            BITCOIN_REGTEST,
+            BITCOIN_SIGNET,
+        ];
+
+        for (first_burn_block_height, confirmations, stable_offsets) in vectors {
+            let dir = tempdir().unwrap();
+
+            let mut burnchain = Burnchain::regtest(dir.path().to_str().unwrap());
+            burnchain.first_block_height = first_burn_block_height;
+            burnchain.first_block_hash = BurnchainHeaderHash([0xfe; 32]);
+            burnchain.stable_confirmations = confirmations;
+
+            let epochs =
+                StacksEpoch::unit_test_up_to(first_burn_block_height, StacksEpochId::Epoch20);
+
+            let mut db = SortitionDB::connect(
+                dir.path().join("sortition").to_str().unwrap(),
+                first_burn_block_height,
+                &burnchain.first_block_hash,
+                u64::from(burnchain.first_block_timestamp),
+                &epochs,
+                burnchain.pox_constants.clone(),
+                None,
+                true,
+                None,
+            )
+            .unwrap();
+
+            let first = SortitionDB::get_first_block_snapshot(db.conn()).unwrap();
+            let mut snapshots = vec![first.clone()];
+            snapshots.extend(make_fork_run(&mut db, &first, 8, 0));
+
+            for network_id in all_networks {
+                burnchain.network_id = network_id;
+
+                for (tip, stable_offset) in snapshots.iter().zip(stable_offsets) {
+                    let view =
+                        SortitionDB::get_burnchain_view(&db.index_conn(), &burnchain, tip).unwrap();
+                    let expected = &snapshots[stable_offset];
+                    assert_eq!(view.burn_block_height, tip.block_height);
+                    assert_eq!(view.burn_block_hash, tip.burn_header_hash);
+                    assert_eq!(view.burn_stable_block_height, expected.block_height);
+                    assert_eq!(view.burn_stable_block_hash, expected.burn_header_hash);
+                }
+
+                if first_burn_block_height > 0 {
+                    let mut invalid_tip = first.clone();
+                    invalid_tip.block_height = first_burn_block_height - 1;
+                    assert_matches!(
+                        SortitionDB::get_burnchain_view(&db.index_conn(), &burnchain, &invalid_tip),
+                        Err(db_error::Corruption)
+                    );
+                }
+            }
+        }
+    }
 
     pub fn make_simple_key_register(
         burn_header_hash: &BurnchainHeaderHash,

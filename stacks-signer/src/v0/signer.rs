@@ -1211,15 +1211,23 @@ impl Signer {
             || (!conflict.globally_accepted && conflict.stacks_height <= proposed_height)
     }
 
-    /// Whether a reorg permit recorded for this conflict's tenure still stands.
+    /// Whether a reorg permit recorded for this conflict's tenure excludes it from blocking
+    /// `proposed_block`.
     ///
-    /// `check_parent_tenure_choice` records a permit when the reorg-timing rules sanction a
-    /// later tenure replacing what the conflict's tenure built (see
+    /// `check_parent_tenure_choice` records a permit when the reorg-timing rules sanction one
+    /// specific tenure replacing what the conflict's tenure built (see
     /// [`SignerDb::mark_tenure_superseded`]). A standing permit excludes the conflict entirely:
-    /// our signature must not stand in the way of a replacement we sanctioned. But the permit
-    /// is only as alive as the sortition it was granted to: if a burnchain fork orphaned the
-    /// permitting sortition, the reorg we sanctioned can no longer happen, and the record must
-    /// not keep suppressing the conflict.
+    /// our signature must not stand in the way of a replacement we sanctioned. Two things have
+    /// to hold for that to be the situation at hand:
+    ///
+    /// 1. The proposal has to be on the branch the permit was granted for, which is the
+    ///    permitting tenure or a tenure built on top of it. A block anywhere else is not a
+    ///    reorg we sanctioned. In the conflict's own tenure in particular it is a second block
+    ///    alongside one we already signed, which is equivocation rather than a replacement,
+    ///    and the permit must not excuse it.
+    /// 2. The permit is only as alive as the sortition it was granted to: if a burnchain fork
+    ///    orphaned the permitting sortition, the reorg we sanctioned can no longer happen, and
+    ///    the record must not keep suppressing the conflict.
     ///
     /// A false 404 here (e.g. from a node still catching up) only restores a conflict the
     /// permit could have excluded, which at worst delays the replacement, so unlike
@@ -1229,10 +1237,29 @@ impl Signer {
         &self,
         stacks_client: &StacksClient,
         conflict: &SignedConflictInfo,
+        proposed_block: &NakamotoBlock,
     ) -> bool {
         let Some(superseded_by) = &conflict.superseded_by else {
             return false;
         };
+        let proposed_consensus_hash = &proposed_block.header.consensus_hash;
+        let builds_on_permitting_tenure = proposed_block
+            .get_tenure_change_tx_payload()
+            .is_some_and(|tenure_change| {
+                tenure_change.prev_tenure_consensus_hash == superseded_by.consensus_hash
+            });
+        if proposed_consensus_hash != &superseded_by.consensus_hash && !builds_on_permitting_tenure
+        {
+            // Not on the branch this permit sanctioned. Checked before asking the node, so a
+            // permit that cannot apply costs no round trip.
+            info!("{self}: A conflicting block's tenure was permitted to be reorged, but this block is neither in the permitted tenure nor built on it. The permit does not exclude the conflict.";
+                "conflicting_consensus_hash" => %conflict.consensus_hash,
+                "conflicting_block_height" => conflict.stacks_height,
+                "proposed_consensus_hash" => %proposed_consensus_hash,
+                "superseded_by_consensus_hash" => %superseded_by.consensus_hash,
+            );
+            return false;
+        }
         match stacks_client.get_sortition_by_burn_hash(&superseded_by.burn_block_hash) {
             Ok(_) => true,
             Err(ClientError::RequestFailure(reqwest::StatusCode::NOT_FOUND)) => {
@@ -1379,12 +1406,13 @@ impl Signer {
         // signature must not be superseded while it's still "fresh". A signed block at the
         // same or higher height in ANY tenure is a conflict: two blocks at the same height are
         // siblings no matter which tenure they belong to (e.g. the next tenure's tenure-start
-        // block conflicts with the current tenure's block at the same height). Blocks in
-        // tenures whose reorg we sanctioned under the reorg-timing rules are excluded, but
-        // only while the sortition the permit was granted to is still canonical
+        // block conflicts with the current tenure's block at the same height). A block in a
+        // tenure whose reorg we sanctioned under the reorg-timing rules is excluded, but only
+        // for the branch that reorg was sanctioned for: the permitting tenure or a tenure
+        // built on top of it, and only while that tenure's sortition is still canonical
         // (`check_parent_tenure_choice` records the permit, `reorg_permit_stands` re-derives
-        // its validity from the node); every other question about whether a conflict is
-        // still live is derived from the node in `conflict_still_blocks`.
+        // both from the node and the proposal); every other question about whether a conflict
+        // is still live is derived from the node in `conflict_still_blocks`.
         //
         // Unlike the chainstate check above, a refusal here is "for now" rather than a
         // broadcast rejection: a later pre-commit re-evaluation may still sign the block once
@@ -1411,7 +1439,7 @@ impl Signer {
         // round-trips.
         if let Some(conflict) = conflicts.iter().find(|conflict| {
             conflict.last_endorsed > freshness_cutoff
-                && !self.reorg_permit_stands(stacks_client, conflict)
+                && !self.reorg_permit_stands(stacks_client, conflict, &block_info.block)
                 && self.conflict_still_blocks(
                     stacks_client,
                     conflict,
@@ -1437,11 +1465,17 @@ impl Signer {
         // tenure at or above the proposed height, since the proposal then duplicates state the
         // node has already built on. (The chainstate checks don't cover this for tenure-change
         // blocks: those check the parent tenure instead of their own.)
-        // The permit check is deferred to here so that only same-tenure conflicts pay for it.
-        if conflicts.iter().any(|conflict| {
-            conflict.consensus_hash == block_info.block.header.consensus_hash
-                && !self.reorg_permit_stands(stacks_client, conflict)
-        }) {
+        //
+        // A reorg permit never excuses a conflict here. The permit sanctions one tenure
+        // replacing another, and is claimed only by a block in the permitting tenure or one
+        // built on it; a conflict in this block's own tenure would need that tenure to have
+        // been superseded either by itself or by a tenure it in turn builds on, and
+        // `check_parent_tenure_choice` records neither: it names the reorging tenure, and
+        // skips the tenure that one builds off of.
+        if conflicts
+            .iter()
+            .any(|conflict| conflict.consensus_hash == block_info.block.header.consensus_hash)
+        {
             match stacks_client.get_tenure_tip(&block_info.block.header.consensus_hash) {
                 Ok(tip) => {
                     let tip_height = tip.anchored_header.height();
