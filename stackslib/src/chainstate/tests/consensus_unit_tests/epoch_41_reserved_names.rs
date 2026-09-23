@@ -17,13 +17,12 @@
 //! (see `is_shadowable_reserved`).
 
 use clarity::types::{StacksEpochId, StacksEpochRangeTestExt as _};
-use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier, StandardPrincipalData};
-use clarity::vm::{ClarityVersion, ContractName, Value};
+use clarity::vm::{ClarityVersion, Value};
 use rstest::rstest;
 
 use crate::chainstate::tests::consensus::{
     contract_call_consensus_unit_test, contract_deploy_consensus_unit_test,
-    ConsensusMacroUnitReport, SetupContract, FAUCET_ADDRESS,
+    setup_contract_principal, ConsensusMacroUnitReport, SetupContract,
 };
 
 /// Every block accepted and every contract call returned `expected`.
@@ -70,14 +69,6 @@ fn c7_shadow_target_setup() -> SetupContract {
         ",
     )
     .with_epoch(StacksEpochId::Epoch41)
-}
-
-/// Principal of a setup contract deployed by the faucet, for dynamic dispatch.
-fn setup_contract_principal(name: &'static str) -> Value {
-    Value::Principal(PrincipalData::Contract(QualifiedContractIdentifier::new(
-        StandardPrincipalData::from(FAUCET_ADDRESS.clone()),
-        ContractName::from_literal(name),
-    )))
 }
 
 /// Implementing a Clarity 1 trait's `slice?` (reserved since Clarity 2): free

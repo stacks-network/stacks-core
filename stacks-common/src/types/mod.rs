@@ -846,6 +846,12 @@ impl StacksEpochId {
         self >= &StacksEpochId::Epoch41
     }
 
+    /// Whether analysis requires matching tuple fields when inferring a least
+    /// supertype. Runtime inference is never gated; deployed contracts depend on it.
+    pub fn requires_matching_tuple_fields_in_analysis(&self) -> bool {
+        self >= &StacksEpochId::Epoch41
+    }
+
     /// Whether analysis types a `fold` result to admit its initial value, which an
     /// empty sequence returns unchanged.
     pub fn requires_fold_result_to_admit_initial_value(&self) -> bool {

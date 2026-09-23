@@ -934,9 +934,12 @@ impl TypeSignature {
         }
     }
 
-    /// Returns the most-restrictive type that admits _both_ A and B (something like a least common supertype),
-    /// or Errors if no such type exists. On error, it throws TypeError(A,B), unless a constructor error'ed,
-    /// in which case, it throws SupertypeTooLarge.
+    /// Returns the least supertype of `a` and `b`, as the runtime has always
+    /// computed it. For tuples this is asymmetric: extra fields in `b` are
+    /// dropped, so the result need not admit `b`. Deployed contracts depend on
+    /// it, so it holds in every epoch; analysis uses
+    /// [`Self::least_supertype_for_analysis`].
+    /// On error, returns `TypeMismatch`, or a type-construction error.
     ///
     /// The behavior varies by epoch:
     /// - Epoch 2.0/2.05: Uses [`TypeSignature::least_supertype_v2_0`]
@@ -981,6 +984,20 @@ impl TypeSignature {
         } else {
             Self::least_supertype_v2_1(a, b)
         }
+    }
+
+    /// Least supertype for the 2.1 type checker, using the deployment epoch.
+    ///
+    /// From Epoch 4.1, tuples must have identical field sets; an empty list
+    /// still takes the other list's entry type, since it holds no values.
+    /// Returns `TypeMismatch` for incompatible types, or a construction error
+    /// if the result exceeds the size or depth limits.
+    pub fn least_supertype_for_analysis(
+        epoch: &StacksEpochId,
+        a: &TypeSignature,
+        b: &TypeSignature,
+    ) -> Result<TypeSignature, ClarityTypeError> {
+        Self::least_supertype_v2_1_impl(a, b, epoch.requires_matching_tuple_fields_in_analysis())
     }
 
     fn least_supertype_v2_0(
@@ -1096,18 +1113,36 @@ impl TypeSignature {
         a: &TypeSignature,
         b: &TypeSignature,
     ) -> Result<TypeSignature, ClarityTypeError> {
+        Self::least_supertype_v2_1_impl(a, b, false)
+    }
+
+    /// The v2.1 rules with one knob: `exact_tuple_fields` requires identical
+    /// tuple field sets at every nesting level, which analysis needs from Epoch
+    /// 4.1. Without it, extra fields in `b` are dropped, as the runtime requires.
+    fn least_supertype_v2_1_impl(
+        a: &TypeSignature,
+        b: &TypeSignature,
+        exact_tuple_fields: bool,
+    ) -> Result<TypeSignature, ClarityTypeError> {
         match (a, b) {
             (
                 TupleType(TupleTypeSignature { type_map: types_a }),
                 TupleType(TupleTypeSignature { type_map: types_b }),
             ) => {
+                if exact_tuple_fields && types_a.len() != types_b.len() {
+                    return Err(ClarityTypeError::TypeMismatch(
+                        Box::new(a.clone()),
+                        Box::new(b.clone()),
+                    ));
+                }
                 let mut type_map_out = BTreeMap::new();
                 for (name, entry_a) in types_a.iter() {
                     let entry_b = types_b.get(name).ok_or(ClarityTypeError::TypeMismatch(
                         Box::new(a.clone()),
                         Box::new(b.clone()),
                     ))?;
-                    let entry_out = Self::least_supertype_v2_1(entry_a, entry_b)?;
+                    let entry_out =
+                        Self::least_supertype_v2_1_impl(entry_a, entry_b, exact_tuple_fields)?;
                     type_map_out.insert(name.clone(), entry_out);
                 }
                 Ok(TupleTypeSignature::try_from(type_map_out)
@@ -1129,7 +1164,7 @@ impl TypeSignature {
                 } else if *len_b == 0 {
                     *(entry_a.clone())
                 } else {
-                    Self::least_supertype_v2_1(entry_a, entry_b)?
+                    Self::least_supertype_v2_1_impl(entry_a, entry_b, exact_tuple_fields)?
                 };
                 let max_len = cmp::max(len_a, len_b);
                 Ok(Self::list_of(entry_type, *max_len)
@@ -1137,13 +1172,14 @@ impl TypeSignature {
             }
             (ResponseType(resp_a), ResponseType(resp_b)) => {
                 let ok_type =
-                    Self::factor_out_no_type(&StacksEpochId::Epoch21, &resp_a.0, &resp_b.0)?;
+                    Self::least_supertype_v2_1_impl(&resp_a.0, &resp_b.0, exact_tuple_fields)?;
                 let err_type =
-                    Self::factor_out_no_type(&StacksEpochId::Epoch21, &resp_a.1, &resp_b.1)?;
+                    Self::least_supertype_v2_1_impl(&resp_a.1, &resp_b.1, exact_tuple_fields)?;
                 Ok(Self::new_response(ok_type, err_type)?)
             }
             (OptionalType(some_a), OptionalType(some_b)) => {
-                let some_type = Self::factor_out_no_type(&StacksEpochId::Epoch21, some_a, some_b)?;
+                let some_type =
+                    Self::least_supertype_v2_1_impl(some_a, some_b, exact_tuple_fields)?;
                 Ok(Self::new_option(some_type)?)
             }
             (
@@ -1290,20 +1326,45 @@ impl TypeSignature {
 
     // Checks if resulting type signature is of valid size.
     pub fn construct_parent_list_type(args: &[Value]) -> Result<ListTypeData, ClarityTypeError> {
-        Self::parent_list_type_from_iter(args.len(), args.iter().map(TypeSignature::type_of))
+        Self::parent_list_type_from_iter(
+            args.len(),
+            args.iter().map(TypeSignature::type_of),
+            Self::least_supertype_v2_1,
+        )
     }
 
+    /// List inference for the 2.05 checker; runtime construction goes through
+    /// [`Self::construct_parent_list_type`] and the 2.1 checker through
+    /// [`Self::parent_list_type_for_analysis`].
     pub fn parent_list_type(children: &[TypeSignature]) -> Result<ListTypeData, ClarityTypeError> {
-        Self::parent_list_type_from_iter(children.len(), children.iter().cloned().map(Ok))
+        Self::parent_list_type_from_iter(
+            children.len(),
+            children.iter().cloned().map(Ok),
+            Self::least_supertype_v2_1,
+        )
     }
 
-    /// Left-to-right `least_supertype_v2_1` fold, shared so
-    /// `construct_parent_list_type` and `parent_list_type` cannot drift.
-    /// Deliberately not epoch-gated: this matches shipped behavior, and
-    /// pre-2.1 values cannot produce the types where v2_0 differs.
+    /// List type inference for analysis. Runtime list construction keeps the
+    /// un-gated rules for deployed contracts, so analysis gets its own entry point.
+    pub fn parent_list_type_for_analysis(
+        epoch: &StacksEpochId,
+        children: &[TypeSignature],
+    ) -> Result<ListTypeData, ClarityTypeError> {
+        Self::parent_list_type_from_iter(
+            children.len(),
+            children.iter().cloned().map(Ok),
+            |a, b| Self::least_supertype_for_analysis(epoch, a, b),
+        )
+    }
+
+    /// Left-to-right fold of `join` over the entry types, shared so the list
+    /// constructors cannot drift. The runtime and the 2.05 checker pass
+    /// `least_supertype_v2_1` without an epoch gate: this matches shipped
+    /// behavior, and pre-2.1 values cannot produce the types where v2_0 differs.
     fn parent_list_type_from_iter(
         len: usize,
         entry_types: impl Iterator<Item = Result<TypeSignature, ClarityTypeError>>,
+        join: impl Fn(&TypeSignature, &TypeSignature) -> Result<TypeSignature, ClarityTypeError>,
     ) -> Result<ListTypeData, ClarityTypeError> {
         let mut entry_type: Option<TypeSignature> = None;
         for next in entry_types {
@@ -1312,7 +1373,7 @@ impl TypeSignature {
                 None => next,
                 // Idempotent so equal types skip the fold.
                 Some(current) if current == next => current,
-                Some(current) => Self::least_supertype_v2_1(&current, &next)?,
+                Some(current) => join(&current, &next)?,
             });
         }
         match entry_type {

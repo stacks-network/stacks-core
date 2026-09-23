@@ -1386,7 +1386,10 @@ associated with the expressions' paired key name.
 There is a shorthand using curly brackets of the form {key0: expr0, key1: expr, ...}",
     example: "(tuple (name \"blockstack\") (id 1337)) ;; using tuple
     {name: \"blockstack\", id: 1337} ;; using curly brackets",
-    notices: &[],
+    notices: &[DocNotice {
+        level: "info",
+        body: "As of Epoch 4.1, tuples that must share one type, such as the two branches of `if`, the arguments of `is-eq` or the elements of a `list`, must have the same fields. Earlier epochs could drop fields that only one of the tuples had.",
+    }],
 };
 
 const TUPLE_GET_API: SpecialAPI = SpecialAPI {

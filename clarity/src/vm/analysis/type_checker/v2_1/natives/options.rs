@@ -16,7 +16,6 @@
 
 use clarity_types::representations::ClarityName;
 use clarity_types::types::TypeSignature;
-use stacks_common::types::StacksEpochId;
 
 use super::{
     StaticCheckError, StaticCheckErrorKind, TypeChecker, check_argument_count,
@@ -119,15 +118,14 @@ pub fn check_special_default_to(
 
     if let TypeSignature::OptionalType(input_type) = input {
         let contained_type = *input_type;
-        TypeSignature::least_supertype(&StacksEpochId::Epoch21, &default, &contained_type).map_err(
-            |_| {
+        TypeSignature::least_supertype_for_analysis(&checker.epoch, &default, &contained_type)
+            .map_err(|_| {
                 StaticCheckErrorKind::DefaultTypesMustMatch(
                     Box::new(default),
                     Box::new(contained_type),
                 )
                 .into()
-            },
-        )
+            })
     } else {
         Err(StaticCheckErrorKind::ExpectedOptionalType(Box::new(input)).into())
     }
@@ -352,8 +350,8 @@ fn check_special_match_opt(
 
     analysis_typecheck_cost(checker, &some_branch_type, &none_branch_type)?;
 
-    TypeSignature::least_supertype(
-        &StacksEpochId::Epoch21,
+    TypeSignature::least_supertype_for_analysis(
+        &checker.epoch,
         &some_branch_type,
         &none_branch_type,
     )
@@ -409,7 +407,7 @@ fn check_special_match_resp(
 
     analysis_typecheck_cost(checker, &ok_branch_type, &err_branch_type)?;
 
-    TypeSignature::least_supertype(&StacksEpochId::Epoch21, &ok_branch_type, &err_branch_type)
+    TypeSignature::least_supertype_for_analysis(&checker.epoch, &ok_branch_type, &err_branch_type)
         .map_err(|_| {
             StaticCheckErrorKind::MatchArmsMustMatch(
                 Box::new(ok_branch_type),

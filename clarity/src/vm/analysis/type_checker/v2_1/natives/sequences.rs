@@ -263,12 +263,11 @@ pub fn check_special_fold(
     }
     let [_, initial_value_type] = initial_args;
     analysis_typecheck_cost(checker, &initial_value_type, &return_type)?;
-    TypeSignature::least_supertype(&checker.epoch, &initial_value_type, &return_type).map_err(
-        |_| {
+    TypeSignature::least_supertype_for_analysis(&checker.epoch, &initial_value_type, &return_type)
+        .map_err(|_| {
             StaticCheckErrorKind::TypeError(Box::new(initial_value_type), Box::new(return_type))
                 .into()
-        },
-    )
+        })
 }
 
 pub fn check_special_concat(
@@ -293,7 +292,7 @@ pub fn check_special_concat(
     runtime_cost(ClarityCostFunction::AnalysisIterableFunc, checker, 0)?;
     analysis_typecheck_cost(checker, &lhs_type, &rhs_type)?;
 
-    let mut acc_type = combine_concat_types(&lhs_type, &rhs_type)?;
+    let mut acc_type = combine_concat_types(&checker.epoch, &lhs_type, &rhs_type)?;
 
     // Any additional args (Clarity 6+ only — the arity check above rejects
     // them otherwise) are folded into the accumulator. We charge
@@ -307,7 +306,7 @@ pub fn check_special_concat(
     for arg in &args[2..] {
         let rhs_type = checker.type_check(arg, context)?;
         analysis_typecheck_cost(checker, &acc_type, &rhs_type)?;
-        acc_type = combine_concat_types(&acc_type, &rhs_type)?;
+        acc_type = combine_concat_types(&checker.epoch, &acc_type, &rhs_type)?;
     }
 
     Ok(acc_type)
@@ -317,6 +316,7 @@ pub fn check_special_concat(
 /// either operand isn't a sequence, or if the two sequences have incompatible
 /// element types (e.g. buffer vs. string).
 fn combine_concat_types(
+    epoch: &StacksEpochId,
     lhs_type: &TypeSignature,
     rhs_type: &TypeSignature,
 ) -> Result<TypeSignature, StaticCheckError> {
@@ -333,11 +333,8 @@ fn combine_concat_types(
             let (rhs_entry_type, rhs_max_len) =
                 (rhs_list.get_list_item_type(), rhs_list.get_max_len());
 
-            let list_entry_type = TypeSignature::least_supertype(
-                &StacksEpochId::Epoch21,
-                lhs_entry_type,
-                rhs_entry_type,
-            )?;
+            let list_entry_type =
+                TypeSignature::least_supertype_for_analysis(epoch, lhs_entry_type, rhs_entry_type)?;
             let new_len = lhs_max_len
                 .checked_add(rhs_max_len)
                 .ok_or(StaticCheckErrorKind::MaxLengthOverflow)?;
@@ -389,8 +386,8 @@ pub fn check_special_append(
 
             analysis_typecheck_cost(checker, &lhs_entry_type, &rhs_type)?;
 
-            let list_entry_type = TypeSignature::least_supertype(
-                &StacksEpochId::Epoch21,
+            let list_entry_type = TypeSignature::least_supertype_for_analysis(
+                &checker.epoch,
                 &lhs_entry_type,
                 &rhs_type,
             )?;
