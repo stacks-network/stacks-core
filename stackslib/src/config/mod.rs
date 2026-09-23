@@ -179,13 +179,10 @@ static HELIUM_DEFAULT_CONNECTION_OPTIONS: LazyLock<ConnectionOptions> =
         heartbeat: 3600,
         // can't use u64::max, because sqlite stores as i64.
         private_key_lifetime: 9223372036854775807,
-        num_neighbors: 32,         // number of neighbors whose inventories we track
-        num_clients: 750,          // number of inbound p2p connections
+        num_neighbors: 32,      // number of neighbors whose inventories we track
+        num_clients: 750,       // number of inbound p2p connections
         soft_num_neighbors: 16, // soft-limit on the number of neighbors whose inventories we track
         soft_num_clients: 750,  // soft limit on the number of inbound p2p connections
-        max_neighbors_per_host: 1, // maximum number of neighbors per host we permit
-        max_clients_per_host: 4, // maximum number of inbound p2p connections per host we permit
-        soft_max_neighbors_per_host: 1, // soft limit on the number of neighbors per host we permit
         soft_max_neighbors_per_org: 32, // soft limit on the number of neighbors per AS we permit (TODO: for now it must be greater than num_neighbors)
         soft_max_clients_per_host: 4, // soft limit on how many inbound p2p connections per host we permit
         max_http_clients: 1000,       // maximum number of HTTP connections
@@ -3569,21 +3566,6 @@ pub struct ConnectionOptionsFile {
     /// ---
     /// @default: `750`
     pub soft_num_clients: Option<u64>,
-    /// Maximum number of neighbors per host we permit.
-    /// ---
-    /// @default: `1`
-    /// @deprecated: It does not have any effect on the node's behavior.
-    pub max_neighbors_per_host: Option<u64>,
-    /// Maximum number of inbound p2p connections per host we permit.
-    /// ---
-    /// @default: `4`
-    /// @deprecated: It does not have any effect on the node's behavior.
-    pub max_clients_per_host: Option<u64>,
-    /// Soft limit on the number of neighbors per host we permit.
-    /// ---
-    /// @default: `1`
-    /// @deprecated: It does not have any effect on the node's behavior.
-    pub soft_max_neighbors_per_host: Option<u64>,
     /// Soft limit on the number of outbound P2P connections per network organization (ASN).
     ///
     /// During connection pruning (when total outbound connections >
@@ -3742,11 +3724,6 @@ pub struct ConnectionOptionsFile {
     /// @default: `45`
     /// @units: seconds
     pub inv_sync_interval: Option<u64>,
-    /// Deprecated: it does not have any effect on the node's behavior.
-    /// ---
-    /// @default: `None`
-    /// @deprecated: It does not have any effect on the node's behavior.
-    pub full_inv_sync_interval: Option<u64>,
     /// Lookback depth (in PoX reward cycles) for Nakamoto inventory synchronization requests.
     ///
     /// When initiating an inventory sync cycle with a peer, the node requests data
@@ -4063,15 +4040,6 @@ impl ConnectionOptionsFile {
             soft_num_clients: self
                 .soft_num_clients
                 .unwrap_or_else(|| HELIUM_DEFAULT_CONNECTION_OPTIONS.soft_num_clients),
-            max_neighbors_per_host: self
-                .max_neighbors_per_host
-                .unwrap_or_else(|| HELIUM_DEFAULT_CONNECTION_OPTIONS.max_neighbors_per_host),
-            max_clients_per_host: self
-                .max_clients_per_host
-                .unwrap_or_else(|| HELIUM_DEFAULT_CONNECTION_OPTIONS.max_clients_per_host),
-            soft_max_neighbors_per_host: self
-                .soft_max_neighbors_per_host
-                .unwrap_or_else(|| HELIUM_DEFAULT_CONNECTION_OPTIONS.soft_max_neighbors_per_host),
             soft_max_neighbors_per_org: self
                 .soft_max_neighbors_per_org
                 .unwrap_or_else(|| HELIUM_DEFAULT_CONNECTION_OPTIONS.soft_max_neighbors_per_org),

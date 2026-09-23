@@ -1084,9 +1084,6 @@ fn inner_test_stackerdb_10_replicas_10_neighbors_line_10_chunks(push_only: bool,
             peer_config.connection_opts.num_clients = 5;
             peer_config.connection_opts.soft_num_neighbors = 5;
             peer_config.connection_opts.soft_num_clients = 5;
-            peer_config.connection_opts.max_neighbors_per_host = 5;
-            peer_config.connection_opts.max_clients_per_host = 5;
-            peer_config.connection_opts.soft_max_neighbors_per_host = 5;
             peer_config.connection_opts.soft_max_neighbors_per_org = 5;
             peer_config.connection_opts.soft_max_clients_per_host = 5;
             peer_config.connection_opts.max_neighbors_of_neighbor = 5;
