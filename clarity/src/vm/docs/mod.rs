@@ -3108,8 +3108,8 @@ without `with-pox` the scope also rejects a failed attempt to touch the
 position. The record of an attempt is an effect like any other: if a public
 function between the PoX contract and the protected scope returns `(err ...)`,
 its effects are rolled back and the attempt is no longer visible to the scope.
-The position itself is unchanged in either case. Locking STX is covered by
-`with-staking`, not `with-pox`.
+In both of these error cases, the position itself remains unchanged. Locking
+STX is covered by `with-staking`, not `with-pox`.
 ",
     example: r#"
 (restrict-assets? tx-sender

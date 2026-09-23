@@ -1,1 +1,1 @@
-Clarified the `with-pox` allowance and `Pox` post-condition documentation: a failed position-altering PoX-5 call is recorded in its caller's frame, so the record is discarded if an intermediate public function propagates the error.
+Clarified the `with-pox` allowance and `Pox` post-condition documentation.
