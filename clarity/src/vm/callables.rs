@@ -33,8 +33,8 @@ use crate::vm::errors::{RuntimeCheckErrorKind, VmExecutionError, check_argument_
 use crate::vm::hooks::CallHook;
 use crate::vm::representations::SymbolicExpression;
 use crate::vm::types::{
-    CallableData, ListData, ListTypeData, OptionalData, PrincipalData, ResponseData, SequenceData,
-    SequenceSubtype, TraitIdentifier, TupleData, TypeSignature,
+    CallableData, FunctionSignature, ListData, ListTypeData, OptionalData, PrincipalData,
+    ResponseData, SequenceData, SequenceSubtype, TraitIdentifier, TupleData, TypeSignature,
 };
 use crate::vm::{LocalContext, Value, eval};
 
@@ -47,13 +47,14 @@ type SpecialFunctionFn = &'static dyn Fn(
     &LocalContext,
 ) -> Result<Value, VmExecutionError>;
 
-#[allow(clippy::large_enum_variant)]
-pub enum CallableType {
+/// A function resolved for a call. User functions are borrowed for `'a` from the contract
+/// context that defines them; builtins are `'static`.
+pub enum CallableType<'a> {
     /// A function defined in a Clarity contract via `define-public`,
     /// `define-read-only`, or `define-private`. Arguments are evaluated by
     /// the caller and then bound into a fresh `LocalContext` before the
     /// body is interpreted.
-    UserFunction(DefinedFunction),
+    UserFunction(&'a DefinedFunction),
     /// A reserved (built-in or special-form) function. `clarity_name` is the
     /// source-level name (e.g. `"+"`, `"fold"`) and is uniform across every
     /// builtin; the per-function dispatch detail lives in `kind`.
@@ -386,28 +387,26 @@ impl DefinedFunction {
         }
     }
 
-    pub fn check_trait_expectations(
+    /// Checks that this function's arguments satisfy the trait method of the same name and
+    /// returns that method's signature, whose return type dispatch checks the result against.
+    /// Fails with `TraitReferenceUnknown` or `TraitMethodUnknown` when `contract_defining_trait`
+    /// lacks the trait or the method, and with `BadTraitImplementation` when the arguments do
+    /// not comply.
+    pub fn check_trait_expectations<'t>(
         &self,
         epoch: &StacksEpochId,
-        contract_defining_trait: &ContractContext,
+        contract_defining_trait: &'t ContractContext,
         trait_identifier: &TraitIdentifier,
-    ) -> Result<(), VmExecutionError> {
+    ) -> Result<&'t FunctionSignature, VmExecutionError> {
         let trait_name = trait_identifier.name.to_string();
         let constraining_trait = contract_defining_trait
             .lookup_trait_definition(&trait_name)
-            .ok_or(RuntimeCheckErrorKind::TraitReferenceUnknown(
-                trait_name.to_string(),
-            ))?;
-        let expected_sig =
-            constraining_trait
-                .get(&self.name)
-                .ok_or(RuntimeCheckErrorKind::TraitMethodUnknown(
-                    trait_name.to_string(),
-                    self.name.to_string(),
-                ))?;
+            .ok_or_else(|| RuntimeCheckErrorKind::TraitReferenceUnknown(trait_name.clone()))?;
+        let expected_sig = constraining_trait.get(&self.name).ok_or_else(|| {
+            RuntimeCheckErrorKind::TraitMethodUnknown(trait_name.clone(), self.name.to_string())
+        })?;
 
-        let args = self.arg_types.to_vec();
-        if !expected_sig.check_args_trait_compliance(epoch, args)? {
+        if !expected_sig.check_args_trait_compliance(epoch, self.arg_types.iter())? {
             return Err(RuntimeCheckErrorKind::BadTraitImplementation(
                 trait_name,
                 self.name.to_string(),
@@ -415,7 +414,7 @@ impl DefinedFunction {
             .into());
         }
 
-        Ok(())
+        Ok(expected_sig)
     }
 
     pub fn is_read_only(&self) -> bool {
@@ -474,7 +473,7 @@ impl DefinedFunction {
     }
 }
 
-impl CallableType {
+impl CallableType<'_> {
     pub fn get_identifier(&self) -> FunctionIdentifier {
         match self {
             CallableType::UserFunction(f) => f.get_identifier(),

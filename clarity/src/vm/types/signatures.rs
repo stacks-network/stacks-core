@@ -526,15 +526,17 @@ impl FunctionSignature {
         Ok(function_type_size)
     }
 
-    pub fn check_args_trait_compliance(
+    /// Whether a function taking `args` can implement this signature: same count, and each
+    /// argument type admits the corresponding declared type.
+    pub fn check_args_trait_compliance<'a>(
         &self,
         epoch: &StacksEpochId,
-        args: Vec<TypeSignature>,
+        args: impl ExactSizeIterator<Item = &'a TypeSignature>,
     ) -> Result<bool, CommonCheckErrorKind> {
         if args.len() != self.args.len() {
             return Ok(false);
         }
-        let args_iter = self.args.iter().zip(args.iter());
+        let args_iter = self.args.iter().zip(args);
         for (expected_arg, arg) in args_iter {
             if !arg.admits_type(epoch, expected_arg)? {
                 return Ok(false);

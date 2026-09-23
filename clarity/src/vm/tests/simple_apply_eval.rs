@@ -30,7 +30,7 @@ use stacks_common::types::chainstate::{StacksAddress, StacksPrivateKey, StacksPu
 use stacks_common::util::hash::{hex_bytes, to_hex};
 
 use crate::vm::ast::parse;
-use crate::vm::callables::DefinedFunction;
+use crate::vm::callables::{CallableType, DefinedFunction};
 use crate::vm::contexts::{ExecutionState, InvocationContext, OwnedEnvironment};
 use crate::vm::costs::LimitedCostTracker;
 use crate::vm::database::MemoryBackingStore;
@@ -45,11 +45,60 @@ use crate::vm::types::{
     TypeSignature,
 };
 use crate::vm::{
-    CallStack, ClarityVersion, ContractContext, GlobalContext, LocalContext, Value, ValueRef, eval,
-    execute as vm_execute, execute_v2 as vm_execute_v2,
+    CallStack, ClarityVersion, ContractContext, GlobalContext, LocalContext, Value, ValueRef,
+    apply_evaluated, eval, eval_all, execute as vm_execute, execute_v2 as vm_execute_v2,
     execute_with_limited_execution_time as vm_execute_with_limited_execution_time,
-    execute_with_parameters,
+    execute_with_parameters, lookup_function,
 };
+
+/// Lookup must alias the stored definition, and the callable must stay usable after the
+/// execution state used to resolve it is dropped. Independent of Clarity version.
+#[test]
+fn test_function_lookup_borrows_contract() {
+    let version = ClarityVersion::latest();
+    let epoch = StacksEpochId::latest();
+    let contract_id = QualifiedContractIdentifier::transient();
+    let mut contract = ContractContext::new(contract_id.clone(), version);
+    let definitions = parse(
+        &contract_id,
+        "(define-private (identity (x uint)) x)",
+        version,
+        epoch,
+    )
+    .unwrap();
+    let mut store = MemoryBackingStore::new();
+    let mut env = OwnedEnvironment::new(store.as_clarity_db(), epoch);
+    env.context
+        .execute(|global| eval_all(&definitions, &mut contract, global, None))
+        .unwrap();
+
+    let callable = {
+        let (mut state, invocation) = env.get_exec_environment(None, None, &contract);
+        lookup_function("identity", &mut state, &invocation).unwrap()
+    };
+    let CallableType::UserFunction(function) = &callable else {
+        panic!("expected a user-defined function");
+    };
+    assert!(std::ptr::eq(
+        contract.functions.get("identity").unwrap(),
+        *function
+    ));
+
+    let (mut state, invocation) = env.get_exec_environment(None, None, &contract);
+    for value in [1, 2] {
+        assert_eq!(
+            apply_evaluated(
+                &callable,
+                vec![Value::UInt(value)],
+                &mut state,
+                &invocation,
+                &LocalContext::new(),
+            )
+            .unwrap(),
+            Value::UInt(value)
+        );
+    }
+}
 
 #[test]
 fn test_doubly_defined_persisted_vars() {
