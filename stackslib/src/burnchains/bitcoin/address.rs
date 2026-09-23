@@ -99,10 +99,12 @@ pub fn legacy_address_type_to_version_byte(
             ADDRESS_VERSION_MAINNET_MULTISIG
         }
         (LegacyBitcoinAddressType::PublicKeyHash, BitcoinNetworkType::Testnet)
+        | (LegacyBitcoinAddressType::PublicKeyHash, BitcoinNetworkType::Signet)
         | (LegacyBitcoinAddressType::PublicKeyHash, BitcoinNetworkType::Regtest) => {
             ADDRESS_VERSION_TESTNET_SINGLESIG
         }
         (LegacyBitcoinAddressType::ScriptHash, BitcoinNetworkType::Testnet)
+        | (LegacyBitcoinAddressType::ScriptHash, BitcoinNetworkType::Signet)
         | (LegacyBitcoinAddressType::ScriptHash, BitcoinNetworkType::Regtest) => {
             ADDRESS_VERSION_TESTNET_MULTISIG
         }
@@ -209,7 +211,7 @@ impl LegacyBitcoinAddress {
             return Err(btc_error::InvalidByteSequence);
         }
 
-        let Some(version) = bytes.get(0) else {
+        let Some(version) = bytes.first() else {
             return Err(btc_error::InvalidByteSequence);
         };
 
@@ -279,7 +281,7 @@ impl SegwitBitcoinAddress {
     pub fn hrp(&self) -> &'static str {
         match self.network() {
             BitcoinNetworkType::Mainnet => SEGWIT_MAINNET_HRP,
-            BitcoinNetworkType::Testnet => SEGWIT_TESTNET_HRP,
+            BitcoinNetworkType::Testnet | BitcoinNetworkType::Signet => SEGWIT_TESTNET_HRP,
             BitcoinNetworkType::Regtest => SEGWIT_REGTEST_HRP,
         }
     }
@@ -327,7 +329,7 @@ impl SegwitBitcoinAddress {
             return None;
         }
 
-        let version = u8::from(*quintets.get(0)?);
+        let version = u8::from(*quintets.first()?);
         let mut prog = Vec::with_capacity(quintets.len());
         prog.append(&mut quintets.get(1..)?.to_vec());
 

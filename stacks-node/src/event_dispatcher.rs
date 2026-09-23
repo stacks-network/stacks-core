@@ -86,20 +86,20 @@ lazy_static! {
 #[derive(Debug, thiserror::Error)]
 enum EventDispatcherError {
     #[error("Serialization error: {0}")]
-    SerializationError(#[from] serde_json::Error),
+    Serialization(#[from] serde_json::Error),
     #[error("HTTP error: {0}")]
-    HttpError(#[from] std::io::Error),
+    Http(#[from] std::io::Error),
     #[error("Database error: {0}")]
-    DbError(#[from] stacks::util_lib::db::Error),
+    Db(#[from] stacks::util_lib::db::Error),
     #[error("Channel receive error: {0}")]
-    RecvError(#[from] std::sync::mpsc::RecvError),
+    Recv(#[from] std::sync::mpsc::RecvError),
     #[error("Channel send error: {0}")]
-    SendError(String), // not capturing the underlying because it's a generic type
+    Send(String), // not capturing the underlying because it's a generic type
 }
 
 impl<T> From<std::sync::mpsc::SendError<T>> for EventDispatcherError {
     fn from(value: std::sync::mpsc::SendError<T>) -> Self {
-        EventDispatcherError::SendError(format!("{value}"))
+        EventDispatcherError::Send(format!("{value}"))
     }
 }
 
@@ -719,15 +719,13 @@ impl EventDispatcher {
             // `disable_contract_interface` may differ between observers.
             let mut serialized_txs = Vec::new();
             for (_, _, receipts) in processed_unconfirmed_state.receipts.iter() {
-                let mut tx_index = 0;
-                for receipt in receipts.iter() {
+                for (tx_index, receipt) in receipts.iter().enumerate() {
                     let payload = make_new_block_txs_payload(
                         receipt,
-                        tx_index,
+                        tx_index as u32,
                         !observer.disable_contract_interface,
                     );
                     serialized_txs.push(payload);
-                    tx_index += 1;
                 }
             }
 

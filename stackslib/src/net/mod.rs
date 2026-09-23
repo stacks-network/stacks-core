@@ -2326,13 +2326,11 @@ pub mod test {
 
     use clarity::types::sqlite::NO_PARAMS;
     use clarity::vm::costs::ExecutionCost;
-    use clarity::vm::types::*;
     use mio;
     use rand::{self, RngCore};
     use stacks_common::codec::StacksMessageCodec;
     use stacks_common::deps_common::bitcoin::network::serialize::BitcoinHash;
     use stacks_common::types::StacksEpochId;
-    use stacks_common::util::hash::*;
     use stacks_common::util::secp256k1::*;
     use stacks_common::util::vrf::*;
 
@@ -3544,7 +3542,7 @@ pub mod test {
         }
 
         pub fn set_ops_consensus_hash(
-            blockstack_ops: &mut Vec<BlockstackOperationType>,
+            blockstack_ops: &mut [BlockstackOperationType],
             ch: &ConsensusHash,
         ) {
             for op in blockstack_ops.iter_mut() {
@@ -3555,7 +3553,7 @@ pub mod test {
         }
 
         pub fn set_ops_burn_header_hash(
-            blockstack_ops: &mut Vec<BlockstackOperationType>,
+            blockstack_ops: &mut [BlockstackOperationType],
             bhh: &BurnchainHeaderHash,
         ) {
             for op in blockstack_ops.iter_mut() {

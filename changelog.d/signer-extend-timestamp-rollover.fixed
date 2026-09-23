@@ -1,0 +1,1 @@
+Signers now roll the reported tenure extend timestamp forward to `now + idle_timeout` when accepting a tenure extend block. Previously the rollover only fired on tenure start blocks, so accept responses for extend blocks carried an already-past timestamp and miners proposed the next extend early, which signers rejected with `InvalidTenureExtend` before accepting the retry.

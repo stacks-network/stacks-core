@@ -267,8 +267,8 @@ impl StacksHttpRequest {
     pub fn new_block_simulate(
         host: PeerHost,
         block_id: &StacksBlockId,
-        transactions: &Vec<StacksTransaction>,
-        mint: &Vec<RPCNakamotoBlockSimulateMint>,
+        transactions: &[StacksTransaction],
+        mint: &[RPCNakamotoBlockSimulateMint],
     ) -> StacksHttpRequest {
         let transactions_hex = transactions
             .iter()
@@ -276,7 +276,7 @@ impl StacksHttpRequest {
             .collect();
 
         let block_simulate_body = RPCNakamotoBlockSimulateBody {
-            mint: mint.clone(),
+            mint: mint.to_owned(),
             transactions_hex,
         };
 
@@ -296,8 +296,8 @@ impl StacksHttpRequest {
         host: PeerHost,
         block_id: &StacksBlockId,
         profiler: bool,
-        transactions: &Vec<StacksTransaction>,
-        mint: &Vec<RPCNakamotoBlockSimulateMint>,
+        transactions: &[StacksTransaction],
+        mint: &[RPCNakamotoBlockSimulateMint],
     ) -> StacksHttpRequest {
         let transactions_hex = transactions
             .iter()
@@ -305,7 +305,7 @@ impl StacksHttpRequest {
             .collect();
 
         let block_simulate_body = RPCNakamotoBlockSimulateBody {
-            mint: mint.clone(),
+            mint: mint.to_owned(),
             transactions_hex,
         };
         StacksHttpRequest::new_for_peer(

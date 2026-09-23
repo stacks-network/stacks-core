@@ -915,7 +915,7 @@ impl StacksHttpRecvStream {
         // did we get a message?
         if self.state.is_eof() {
             // reset
-            let message_data = mem::replace(&mut self.data, vec![]);
+            let message_data = mem::take(&mut self.data);
             let total_consumed = self.total_consumed;
 
             self.state = HttpChunkedTransferReaderState::new(self.state.max_size);
@@ -1562,7 +1562,7 @@ impl ProtocolFamily for StacksHttp {
         if self.body_start.is_none() {
             for i in 0..=buf.len() {
                 let window = self.body_start_search_window(i, buf);
-                if window == [b'\r', b'\n', b'\r', b'\n'] {
+                if window == *b"\r\n\r\n" {
                     self.body_start = Some(self.num_preamble_bytes + i);
                 }
             }

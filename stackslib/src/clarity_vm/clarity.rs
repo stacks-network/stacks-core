@@ -19,8 +19,8 @@ use std::thread;
 #[cfg(test)]
 use clarity::consts::CHAIN_ID_TESTNET;
 use clarity::vm::analysis::AnalysisDatabase;
-use clarity::vm::clarity::TransactionConnection;
 pub use clarity::vm::clarity::{ClarityConnection, ClarityError};
+use clarity::vm::clarity::{TransactionConfig, TransactionConnection, TransactionOutput};
 use clarity::vm::contexts::{AssetMap, OwnedEnvironment};
 use clarity::vm::costs::{CostTracker, ExecutionCost, LimitedCostTracker};
 use clarity::vm::database::{
@@ -1140,42 +1140,6 @@ impl<'a, 'b> ClarityBlockConnection<'a, 'b> {
             boot_code_account,
             StacksTransaction::new(tx_version, boot_code_auth, payload),
         ))
-    }
-
-    /// Instantiates a boot contract by:
-    ///
-    /// 1. Preparing a [`StacksTransaction`] with the appropriate version, payload and auth,
-    /// 2. Executing it using the boot account within a cost-free transaction, and
-    /// 3. Asserting the receipt for success.
-    ///
-    /// Panics if any of the above steps fail.
-    fn instantiate_boot_contract(
-        &mut self,
-        contract_name: &str,
-        code_body: &str,
-        clarity_version: Option<ClarityVersion>,
-    ) -> Result<StacksTransactionReceipt, ClarityError> {
-        let contract_id = boot_code_id(contract_name, self.mainnet);
-
-        let (boot_code_account, contract_tx) =
-            self.make_boot_code_smart_contract_tx(contract_name, code_body, clarity_version)?;
-
-        let receipt = self.as_free_transaction(|tx_conn| {
-            info!("Instantiate {} contract", &contract_id);
-            StacksChainState::process_transaction_payload(
-                tx_conn,
-                &contract_tx,
-                &boot_code_account,
-                &TransactionResourceBudgets::unlimited(),
-            )
-            .expect("FATAL: Failed to process boot contract initialization")
-        });
-
-        if receipt.result != Value::okay_true() || receipt.post_condition_aborted {
-            panic!("FATAL: Failure processing {contract_id} contract initialization: {receipt:#?}");
-        }
-
-        Ok(receipt)
     }
 
     pub fn initialize_epoch_2_05(&mut self) -> Result<StacksTransactionReceipt, ClarityError> {
@@ -2391,15 +2355,7 @@ impl TransactionConnection for ClarityTransactionConnection<'_, '_> {
         &'hooks mut self,
         to_do: F,
         abort_call_back: A,
-    ) -> Result<
-        (
-            R,
-            AssetMap,
-            Vec<StacksTransactionEvent>,
-            Option<BoundedErrorString>,
-        ),
-        E,
-    >
+    ) -> Result<TransactionOutput<R>, E>
     where
         A: FnOnce(&AssetMap, &mut ClarityDatabase) -> Option<BoundedErrorString>,
         F: FnOnce(
@@ -2410,51 +2366,26 @@ impl TransactionConnection for ClarityTransactionConnection<'_, '_> {
         using!(self.log, "log", |log| {
             using!(self.cost_track, "cost tracker", |cost_track| {
                 let rollback_wrapper = RollbackWrapper::from_persisted_log(self.store, log);
-                let mut db = ClarityDatabase::new_with_rollback_wrapper(
+                let db = ClarityDatabase::new_with_rollback_wrapper(
                     rollback_wrapper,
                     self.header_db,
                     self.burn_state_db,
                 )
                 .with_cache(&mut self.cache);
 
-                // wrap the whole contract-call in a claritydb transaction,
-                //   so we can abort on call_back's boolean retun
-                db.begin();
-                let mut vm_env = OwnedEnvironment::new_cost_limited(
-                    self.mainnet,
-                    self.chain_id,
+                // The returned cost tracker keeps its memory usage: it is reset only when the
+                // surrounding transaction commits.
+                let (db, cost_track, result) = clarity::vm::clarity::execute_with_abort_callback(
                     db,
                     cost_track,
-                    self.epoch,
+                    TransactionConfig {
+                        mainnet: self.mainnet,
+                        chain_id: self.chain_id,
+                        epoch: self.epoch,
+                    },
+                    to_do,
+                    abort_call_back,
                 );
-
-                let result = to_do(&mut vm_env);
-                let (mut db, cost_track) = vm_env
-                    .destruct()
-                    .expect("Failed to recover database reference after executing transaction");
-                // DO NOT reset memory usage yet -- that should happen only when the TX commits.
-
-                let result = match result {
-                    Ok((value, asset_map, events)) => {
-                        let aborted = abort_call_back(&asset_map, &mut db);
-                        let db_result = if aborted.is_some() {
-                            db.roll_back()
-                        } else {
-                            db.commit()
-                        };
-                        match db_result {
-                            Ok(_) => Ok((value, asset_map, events, aborted)),
-                            Err(e) => Err(e.into()),
-                        }
-                    }
-                    Err(e) => {
-                        let db_result = db.roll_back();
-                        match db_result {
-                            Ok(_) => Err(e),
-                            Err(db_err) => Err(db_err.into()),
-                        }
-                    }
-                };
 
                 (cost_track, (db.destroy().into(), result))
             })

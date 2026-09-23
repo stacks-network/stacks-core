@@ -136,7 +136,7 @@ impl BurnchainStateTransition {
         if block_total_burns.is_empty() {
             return Some(0);
         } else if block_total_burns.len() == 1 {
-            return block_total_burns.get(0).copied();
+            return block_total_burns.first().copied();
         } else if block_total_burns.len() % 2 != 0 {
             let idx = block_total_burns.len() / 2;
             return block_total_burns.get(idx).copied();
@@ -492,6 +492,11 @@ impl Burnchain {
             ("bitcoin", "testnet") => (
                 BurnchainParameters::bitcoin_testnet(),
                 PoxConstants::testnet_default(),
+                PEER_VERSION_TESTNET,
+            ),
+            ("bitcoin", "signet") => (
+                BurnchainParameters::bitcoin_signet(),
+                PoxConstants::signet_default(),
                 PEER_VERSION_TESTNET,
             ),
             ("bitcoin", "regtest") => (
