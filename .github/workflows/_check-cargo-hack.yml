@@ -101,7 +101,7 @@ jobs:
             -p stacks-transactions \
             --each-feature \
             --no-dev-deps \
-            --exclude-features=default,rusqlite,ctrlc-handler,wasm-deterministic,testing \
+            --exclude-features=default,rusqlite,profile-sqlite,ctrlc-handler,wasm-deterministic,testing \
             --features=wasm-web \
             --target wasm32-unknown-unknown
 
