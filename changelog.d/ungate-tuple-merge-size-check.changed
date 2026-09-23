@@ -1,0 +1,1 @@
+Removed the `fixes_tuple_merge_size_check` epoch gate: an oversized tuple `merge` (combined size above `MAX_VALUE_SIZE`) is now rejected with `ValueTooLarge` at the merge site in every epoch, by `TupleTypeSignature::shallow_merge`.
