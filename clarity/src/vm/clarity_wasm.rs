@@ -3754,7 +3754,7 @@ fn link_exit_as_contract_safe_fn(
                     owner?
                 };
 
-                let allowances = AllowanceContext::extract(&caller, &allowance_ref)?;
+                let allowances = AllowanceContext::extract(&mut caller, &allowance_ref)?;
 
                 let asset_map = caller.data_mut().global_context.get_readonly_asset_map()?;
 
@@ -3860,7 +3860,7 @@ fn link_exit_restrict_assets_fn(
                     epoch,
                 )?
                 .expect_principal()?;
-                let allowances = AllowanceContext::extract(&caller, &allowance_ref)?;
+                let allowances = AllowanceContext::extract(&mut caller, &allowance_ref)?;
 
                 let asset_map = caller.data_mut().global_context.get_readonly_asset_map()?;
 
@@ -3911,20 +3911,14 @@ fn link_cleanup_restrict_assets_fn(
 
 /// Holds the list of allowances for an `as-contract?` block.
 /// Passed through WASM as an `ExternRef` handle.
-/// Needs a `Mutex` because `ExternRef` only gives us a shared
-/// reference, but we still need to mutate the list.
-struct AllowanceContext(std::sync::Mutex<Vec<Allowance>>);
+struct AllowanceContext(Vec<Allowance>);
 
 impl AllowanceContext {
-    fn new() -> Self {
-        Self(std::sync::Mutex::new(Vec::new()))
-    }
-
     /// Create a new, empty allowance context, and wrap it in an `ExternRef`.
     fn new_externref(
         store: impl AsContextMut<Data = ClarityWasmContext<'static, 'static>>,
     ) -> Result<Rooted<ExternRef>, VmExecutionError> {
-        ExternRef::new(store, Self::new()).map_err(|e| {
+        ExternRef::new(store, Self(Vec::new())).map_err(|e| {
             VmExecutionError::Wasm(WasmError::WasmGeneratorError(format!(
                 "unable to create allowance context: {e}"
             )))
@@ -3932,19 +3926,19 @@ impl AllowanceContext {
     }
 
     fn from_externref<'s>(
-        store: StoreContext<'s, ClarityWasmContext<'static, 'static>>,
+        store: StoreContextMut<'s, ClarityWasmContext<'static, 'static>>,
         externref: &Option<Rooted<ExternRef>>,
-    ) -> Result<&'s Self, VmExecutionError> {
+    ) -> Result<&'s mut Self, VmExecutionError> {
         let externref = externref.as_ref().ok_or_else(|| {
             VmExecutionError::Wasm(WasmError::WasmGeneratorError(
                 "allowance context is missing".to_string(),
             ))
         })?;
         externref
-            .data(store)
+            .data_mut(store)
             .ok()
             .flatten()
-            .and_then(|data| data.downcast_ref::<AllowanceContext>())
+            .and_then(|data| data.downcast_mut::<AllowanceContext>())
             .ok_or_else(|| {
                 VmExecutionError::Wasm(WasmError::WasmGeneratorError(
                     "allowance context has wrong type".to_string(),
@@ -3953,21 +3947,22 @@ impl AllowanceContext {
     }
 
     fn push(
-        store: impl AsContext<Data = ClarityWasmContext<'static, 'static>>,
+        mut store: impl AsContextMut<Data = ClarityWasmContext<'static, 'static>>,
         externref: &Option<Rooted<ExternRef>>,
         allowance: Allowance,
     ) -> Result<(), VmExecutionError> {
-        let ctx = Self::from_externref(store.as_context(), externref)?;
-        ctx.0.lock().unwrap().push(allowance);
+        Self::from_externref(store.as_context_mut(), externref)?
+            .0
+            .push(allowance);
         Ok(())
     }
 
     fn extract(
-        store: impl AsContext<Data = ClarityWasmContext<'static, 'static>>,
+        mut store: impl AsContextMut<Data = ClarityWasmContext<'static, 'static>>,
         externref: &Option<Rooted<ExternRef>>,
     ) -> Result<Vec<Allowance>, VmExecutionError> {
-        let ctx = Self::from_externref(store.as_context(), externref)?;
-        Ok(std::mem::take(&mut *ctx.0.lock().unwrap()))
+        let ctx = Self::from_externref(store.as_context_mut(), externref)?;
+        Ok(std::mem::take(&mut ctx.0))
     }
 }
 
@@ -3981,9 +3976,9 @@ fn link_with_all_assets_unsafe_fn(
         .func_wrap(
             "clarity",
             "with_all_assets_unsafe",
-            |caller: Caller<'_, ClarityWasmContext<'static, 'static>>,
+            |mut caller: Caller<'_, ClarityWasmContext<'static, 'static>>,
              allowance_ref: Option<Rooted<ExternRef>>| {
-                AllowanceContext::push(&caller, &allowance_ref, Allowance::All)?;
+                AllowanceContext::push(&mut caller, &allowance_ref, Allowance::All)?;
 
                 Ok(())
             },
@@ -4004,9 +3999,9 @@ fn link_with_pox_fn(
         .func_wrap(
             "clarity",
             "with_pox",
-            |caller: Caller<'_, ClarityWasmContext<'static, 'static>>,
+            |mut caller: Caller<'_, ClarityWasmContext<'static, 'static>>,
              allowance_ref: Option<Rooted<ExternRef>>| {
-                AllowanceContext::push(&caller, &allowance_ref, Allowance::Pox)?;
+                AllowanceContext::push(&mut caller, &allowance_ref, Allowance::Pox)?;
 
                 Ok(())
             },
@@ -4091,7 +4086,7 @@ fn link_with_ft_fn(
                 }
 
                 AllowanceContext::push(
-                    &caller,
+                    &mut caller,
                     &allowance_ref,
                     Allowance::Ft(FtAllowance {
                         asset: AssetIdentifier {
@@ -4247,7 +4242,7 @@ fn link_with_nft_fn(
                 };
 
                 AllowanceContext::push(
-                    &caller,
+                    &mut caller,
                     &allowance_ref,
                     Allowance::Nft(NftAllowance {
                         asset: asset_identifier,
@@ -4277,14 +4272,14 @@ fn link_with_stacking_fn(
         .func_wrap(
             "clarity",
             "with_stacking",
-            |caller: Caller<'_, ClarityWasmContext<'static, 'static>>,
+            |mut caller: Caller<'_, ClarityWasmContext<'static, 'static>>,
              allowance_ref: Option<Rooted<ExternRef>>,
              allowance_lo: i64,
              allowance_hi: i64| {
                 let allowance = ((allowance_hi as u128) << 64) | ((allowance_lo as u64) as u128);
 
                 AllowanceContext::push(
-                    &caller,
+                    &mut caller,
                     &allowance_ref,
                     Allowance::Stacking(StackingAllowance { amount: allowance }),
                 )?;
@@ -4311,14 +4306,14 @@ fn link_with_stx_fn(
         .func_wrap(
             "clarity",
             "with_stx",
-            |caller: Caller<'_, ClarityWasmContext<'static, 'static>>,
+            |mut caller: Caller<'_, ClarityWasmContext<'static, 'static>>,
              allowance_ref: Option<Rooted<ExternRef>>,
              amount_lo: i64,
              amount_hi: i64| {
                 let allowed_amount = ((amount_hi as u128) << 64) | ((amount_lo as u64) as u128);
 
                 AllowanceContext::push(
-                    &caller,
+                    &mut caller,
                     &allowance_ref,
                     Allowance::Stx(StxAllowance {
                         amount: allowed_amount,
@@ -6313,7 +6308,9 @@ fn handle_vm_execution_errors(
         .ok_or(VmExecutionError::Wasm(WasmError::GlobalNotFound(
             "runtime-error-linked".to_owned(),
         )))?;
-    let error_ref = ExternRef::new(caller.as_context_mut(), error)
+    // Wrapped in an `Option` so the error mapping can take ownership, since
+    // `VmExecutionError` is not `Clone`.
+    let error_ref = ExternRef::new(caller.as_context_mut(), Some(error))
         .map_err(|e| VmExecutionError::Wasm(WasmError::UnableToWriteMemory(e)))?;
     match linked_error.set(caller.as_context_mut(), Val::ExternRef(Some(error_ref))) {
         Err(error) => Err(VmExecutionError::Wasm(WasmError::UnableToWriteMemory(
@@ -10800,8 +10797,6 @@ mod tests {
 }
 
 mod error_mapping {
-    use std::sync::Mutex;
-
     use stacks_common::types::StacksEpochId;
     use wasmtime::{AsContextMut, Instance, Trap};
 
@@ -11174,20 +11169,19 @@ mod error_mapping {
                         )),
                         Some(linked_error) => {
                             match linked_error
-                                .data()
-                                .downcast_ref::<Mutex<Option<VmExecutionError>>>()
+                                .data_mut(store.as_context_mut())
+                                .ok()
+                                .flatten()
+                                .and_then(|data| data.downcast_mut::<Option<VmExecutionError>>())
                             {
                                 None => VmExecutionError::Wasm(WasmError::Expect(
                                     "linked-error should hold an error type".to_owned(),
                                 )),
-                                Some(slot) => {
-                                    let mut slot = slot.lock().unwrap_or_else(|e| e.into_inner());
-                                    slot.take().unwrap_or_else(|| {
-                                        VmExecutionError::Wasm(WasmError::Expect(
-                                            "linked-error had already been taken".to_owned(),
-                                        ))
-                                    })
-                                }
+                                Some(slot) => slot.take().unwrap_or_else(|| {
+                                    VmExecutionError::Wasm(WasmError::Expect(
+                                        "linked-error had already been taken".to_owned(),
+                                    ))
+                                }),
                             }
                         }
                     },
