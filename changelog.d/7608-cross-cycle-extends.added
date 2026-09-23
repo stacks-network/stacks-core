@@ -1,1 +1,1 @@
-Stacks signers will now allow a cross-cycle extend if the next cycle's first bitcoin block fails to elect a new miner. These extensions are only allowed for actual missed sortitions.
+Stacks signers will now allow a cross-cycle extend if the next cycle does not yet have a successful sortition. That is, if the next cycle only has empty sortitions (i.e., no miner elected yet), the prior cycle's miner will be allowed to extend. As soon as a miner is selected in the next cycle, the next cycle takes over.
