@@ -662,12 +662,12 @@ last sortition winner — its own miner — and approve exactly that takeover.
 flowchart TB
     EVT["NewBurnBlock event<br/>refresh_runloop"] --> TIP["set_tip: the higher of the event<br/>block and get_peer_info's tip"]
     TIP --> CUR["current_reward_cycle =<br/>reward_cycle_of(tip.height)"]
-    TIP --> PEND["latest_sortition := Pending<br/>(only if the tip actually moved)"]
+    TIP --> PEND["any resolved answer now names<br/>a superseded tip, so it stops<br/>answering for this one"]
     PEND --> RES["resolve_latest_sortition:<br/>every pass, before any event<br/>is dispatched to the signers"]
     RES --> Q{"/v3/sortitions/consensus/:tip<br/>sortition in that burn block?"}
-    Q -- yes --> KN["Known: the sortition's<br/>burn block height"]
+    Q -- yes --> KN["ResolvedSortition:<br/>{queried_tip, sortition_height}"]
     Q -- "no, but the block names<br/>last_sortition_ch — resolve that" --> KN
-    Q -- "node has not caught up (404),<br/>query failed, or no sortition has<br/>ever occurred on this fork" --> HOLD(["stays Pending —<br/>retried next pass"]):::hold
+    Q -- "node has not caught up (404),<br/>query failed, or no sortition has<br/>ever occurred on this fork" --> HOLD(["no answer for this tip —<br/>retried next pass"]):::hold
     KN --> GATE["signing gate (safety):<br/>latest_sortition_reward_cycle →<br/>process_event → is_reward_cycle_retired"]
     HOLD --> GATE
     CUR --> GATE
@@ -686,6 +686,16 @@ burn chain fork being reasoned about and makes an answer the node cannot yet giv
 recognizable as such. That also makes the view fork-correct for free: after a
 burn chain reorg the new events name the new fork and the answer follows it.
 
+A resolved answer is stored as a `ResolvedSortition`. This stores the
+`queried_tip` it was an answer to and the `sortition_height` that
+answers it. There is exactly one stored answer, and which consumer may
+use it falls out of that stamp: `latest_sortition_reward_cycle` uses
+it only when `queried_tip` matches the current tip,
+`retention_sortition_reward_cycle` takes it whatever tip it names, and
+`set_tip` is a plain assignment that invalidates nothing. Storing the
+query next to the response makes the staleness check structural rather
+than a rule the code has to remember.
+
 **The two consumers read an unresolved view differently, and that difference is
 the point.**
 
@@ -703,10 +713,10 @@ the point.**
   answer. `oldest_active_reward_cycle` decides how long the prior cycle's signer
   stays configured; `stacks_signers` is keyed by reward cycle parity, so only two
   cycles can be configured at once and it never looks back further than one.
-  It reads `retention_sortition_reward_cycle`, which falls back to the last
-  sortition this view resolved on **any** tip. `None` there means "never resolved
+  It reads `retention_sortition_reward_cycle`, which takes the stored answer
+  whichever tip it was resolved for. `None` there means "never resolved
   anything" — a signer that just started — which is the only case where holding
-  the prior cycle open is the right default. Without the fallback every burn
+  the prior cycle open is the right default. Without that tolerance every burn
   block would rebuild the long-retired prior cycle's signer (three node RPCs and
   a fresh `Signer`) only for the resolved answer to retire it again in the same
   pass.
@@ -724,8 +734,9 @@ Both halves of the boundary behavior are pinned by integration tests:
 > `query_latest_sortition`, `refresh_signer_retention`,
 > `refresh_active_reward_cycle_signers`,
 > `refresh_signer_config_if_not_superseded`, `cleanup_stale_signers`,
-> `oldest_active_reward_cycle`, `BurnchainView`, `LatestSortition`,
-> `set_tip`, `set_latest_sortition`, `latest_sortition_reward_cycle`,
+> `oldest_active_reward_cycle`, `BurnchainView`, `ResolvedSortition`,
+> `set_tip`, `set_latest_sortition`, `resolved_for_current_tip`,
+> `latest_sortition_reward_cycle`,
 > `retention_sortition_reward_cycle` (runloop.rs); `is_reward_cycle_retired`
 > (v0/signer.rs); `RejectReason::RewardCycleRetired` (libsigner/src/v0/messages.rs);
 > `get_sortition_by_consensus_hash`, `get_peer_info` (client/stacks_client.rs)
