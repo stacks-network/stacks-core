@@ -1,7 +1,7 @@
 use std::fmt::{self, Display};
 use std::io::{Cursor, Write as _};
-use std::ops::{AddAssign, SubAssign};
-use std::sync::Mutex;
+use std::marker::PhantomData;
+use std::ops::{AddAssign, Deref, DerefMut, SubAssign};
 
 use clarity_types::types::MAX_VALUE_SIZE;
 use stacks_common::bounded_format;
@@ -15,8 +15,8 @@ use stacks_common::util::secp256k1::{
 };
 use stacks_common::util::secp256r1::{secp256r1_verify, secp256r1_verify_digest};
 use wasmtime::{
-    AsContextMut, Caller, Extern, ExternRef, Global, GlobalType, Linker, Memory, Module, Store,
-    Val, ValType,
+    AsContext, AsContextMut, Caller, Engine, Extern, ExternRef, Global, GlobalType, Linker, Memory,
+    Module, Rooted, Store, StoreContext, StoreContextMut, Val, ValType,
 };
 
 use super::callables::{DefineType, DefinedFunction};
@@ -103,6 +103,67 @@ pub struct ClarityWasmContext<'a, 'b> {
     /// a contract, and `None` otherwise.
     pub contract_analysis: Option<&'a ContractAnalysis>,
     pub cost_globals: Option<CostGlobals>,
+}
+
+/// A wasmtime [`Store`] holding a [`ClarityWasmContext`] with erased lifetimes.
+///
+/// Wasmtime requires the data of a [`Store`] to be `'static`, while a
+/// [`ClarityWasmContext`] borrows the contexts it operates on.
+///
+/// The erased `'a` and `'b` lifetimes are kept in the type of this wrapper, so
+/// the contexts borrowed by the [`ClarityWasmContext`] stay borrowed for as
+/// long as the store is alive.
+pub struct ClarityWasmStore<'a, 'b> {
+    store: Store<ClarityWasmContext<'static, 'static>>,
+    _borrows: PhantomData<ClarityWasmContext<'a, 'b>>,
+}
+
+impl<'a, 'b> ClarityWasmStore<'a, 'b> {
+    pub fn new(engine: &Engine, context: ClarityWasmContext<'a, 'b>) -> Self {
+        // SAFETY: the two types only differ by their lifetimes, so they have the
+        // same layout. The resulting store is owned by `Self`, which carries `'a`
+        // and `'b`, so the borrow checker prevents the borrowed contexts from
+        // being used or dropped while the store can still access them. Host
+        // functions are `'static` closures, so they cannot keep a reference to
+        // the store data beyond a call.
+        let context = unsafe {
+            std::mem::transmute::<ClarityWasmContext<'a, 'b>, ClarityWasmContext<'static, 'static>>(
+                context,
+            )
+        };
+        Self {
+            store: Store::new(engine, context),
+            _borrows: PhantomData,
+        }
+    }
+}
+
+impl Deref for ClarityWasmStore<'_, '_> {
+    type Target = Store<ClarityWasmContext<'static, 'static>>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.store
+    }
+}
+
+impl DerefMut for ClarityWasmStore<'_, '_> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.store
+    }
+}
+
+impl AsContext for ClarityWasmStore<'_, '_> {
+    type Data = ClarityWasmContext<'static, 'static>;
+
+    fn as_context(&self) -> StoreContext<'_, ClarityWasmContext<'static, 'static>> {
+        self.store.as_context()
+    }
+}
+
+impl AsContextMut for ClarityWasmStore<'_, '_> {
+    fn as_context_mut(&mut self) -> StoreContextMut<'_, ClarityWasmContext<'static, 'static>> {
+        self.store.as_context_mut()
+    }
 }
 
 impl<'a, 'b> ClarityWasmContext<'a, 'b> {
@@ -411,8 +472,7 @@ fn placeholder_for_type(ty: ValType) -> Val {
         ValType::F32 => Val::F32(0),
         ValType::F64 => Val::F64(0),
         ValType::V128 => Val::V128(0.into()),
-        ValType::ExternRef => Val::ExternRef(None),
-        ValType::FuncRef => Val::FuncRef(None),
+        ValType::Ref(ref_ty) => Val::null_ref(ref_ty.heap_type()),
     }
 }
 
@@ -446,7 +506,7 @@ pub fn initialize_contract(
             Module::from_binary(&engine, wasm_module)
                 .map_err(|e| VmExecutionError::Wasm(WasmError::UnableToLoadModule(e)))
         })?;
-    let mut store = Store::new(&engine, init_context);
+    let mut store = ClarityWasmStore::new(&engine, init_context);
     let mut linker = Linker::new(&engine);
 
     // Link in the host interface functions.
@@ -548,7 +608,7 @@ pub fn call_function<'a>(
             Module::deserialize(&engine, wasm_module)
                 .map_err(|e| VmExecutionError::Wasm(WasmError::UnableToLoadModule(e)))
         })?;
-    let mut store = Store::new(&engine, context);
+    let mut store = ClarityWasmStore::new(&engine, context);
     let mut linker = Linker::new(&engine);
 
     // Link in the host interface functions.
@@ -2257,7 +2317,7 @@ fn wasm_to_clarity_value(
     }
 }
 
-pub fn link_cost_globals<T>(
+pub fn link_cost_globals<T: 'static>(
     linker: &mut Linker<T>,
     store: &mut impl AsContextMut<Data = T>,
 ) -> Result<CostGlobals, VmExecutionError> {
@@ -2280,7 +2340,7 @@ pub fn link_cost_globals<T>(
     })
 }
 
-fn link_global<T>(
+fn link_global<T: 'static>(
     linker: &mut Linker<T>,
     store: &mut impl AsContextMut<Data = T>,
     name: &str,
@@ -2300,7 +2360,9 @@ fn link_global<T>(
 }
 
 /// Link the host interface functions for into the Wasm module.
-fn link_host_functions(linker: &mut Linker<ClarityWasmContext>) -> Result<(), VmExecutionError> {
+fn link_host_functions(
+    linker: &mut Linker<ClarityWasmContext<'static, 'static>>,
+) -> Result<(), VmExecutionError> {
     link_define_function_fn(linker)?;
     link_define_variable_fn(linker)?;
     link_define_ft_fn(linker)?;
@@ -2409,13 +2471,13 @@ fn link_host_functions(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Vm
 /// Link host interface function, `define_variable`, into the Wasm module.
 /// This function is called for all variable definitions (`define-data-var`).
 fn link_define_variable_fn(
-    linker: &mut Linker<ClarityWasmContext>,
+    linker: &mut Linker<ClarityWasmContext<'static, 'static>>,
 ) -> Result<(), VmExecutionError> {
     linker
         .func_wrap(
             "clarity",
             "define_variable",
-            |mut caller: Caller<'_, ClarityWasmContext>,
+            |mut caller: Caller<'_, ClarityWasmContext<'static, 'static>>,
              name_offset: i32,
              name_length: i32,
              mut value_offset: i32,
@@ -2519,12 +2581,14 @@ fn link_define_variable_fn(
         })
 }
 
-fn link_define_ft_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), VmExecutionError> {
+fn link_define_ft_fn(
+    linker: &mut Linker<ClarityWasmContext<'static, 'static>>,
+) -> Result<(), VmExecutionError> {
     linker
         .func_wrap(
             "clarity",
             "define_ft",
-            |mut caller: Caller<'_, ClarityWasmContext>,
+            |mut caller: Caller<'_, ClarityWasmContext<'static, 'static>>,
              name_offset: i32,
              name_length: i32,
              supply_indicator: i32,
@@ -2595,12 +2659,16 @@ fn link_define_ft_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), VmEx
         })
 }
 
-fn link_define_nft_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), VmExecutionError> {
+fn link_define_nft_fn(
+    linker: &mut Linker<ClarityWasmContext<'static, 'static>>,
+) -> Result<(), VmExecutionError> {
     linker
         .func_wrap(
             "clarity",
             "define_nft",
-            |mut caller: Caller<'_, ClarityWasmContext>, name_offset: i32, name_length: i32| {
+            |mut caller: Caller<'_, ClarityWasmContext<'static, 'static>>,
+             name_offset: i32,
+             name_length: i32| {
                 // runtime_cost(ClarityCostFunction::CreateNft, global_context, asset_type.size())?;
 
                 // Get the memory from the caller
@@ -2674,12 +2742,16 @@ fn link_define_nft_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), VmE
         })
 }
 
-fn link_define_map_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), VmExecutionError> {
+fn link_define_map_fn(
+    linker: &mut Linker<ClarityWasmContext<'static, 'static>>,
+) -> Result<(), VmExecutionError> {
     linker
         .func_wrap(
             "clarity",
             "define_map",
-            |mut caller: Caller<'_, ClarityWasmContext>, name_offset: i32, name_length: i32| {
+            |mut caller: Caller<'_, ClarityWasmContext<'static, 'static>>,
+             name_offset: i32,
+             name_length: i32| {
                 // runtime_cost(
                 //     ClarityCostFunction::CreateMap,
                 //     global_context,
@@ -2770,13 +2842,13 @@ fn link_define_map_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), VmE
 /// Link host interface function, `define_function`, into the Wasm module.
 /// This function is called for all function definitions.
 fn link_define_function_fn(
-    linker: &mut Linker<ClarityWasmContext>,
+    linker: &mut Linker<ClarityWasmContext<'static, 'static>>,
 ) -> Result<(), VmExecutionError> {
     linker
         .func_wrap(
             "clarity",
             "define_function",
-            |mut caller: Caller<'_, ClarityWasmContext>,
+            |mut caller: Caller<'_, ClarityWasmContext<'static, 'static>>,
              kind: i32,
              name_offset: i32,
              name_length: i32| {
@@ -2884,12 +2956,16 @@ fn link_define_function_fn(
         })
 }
 
-fn link_define_trait_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), VmExecutionError> {
+fn link_define_trait_fn(
+    linker: &mut Linker<ClarityWasmContext<'static, 'static>>,
+) -> Result<(), VmExecutionError> {
     linker
         .func_wrap(
             "clarity",
             "define_trait",
-            |mut caller: Caller<'_, ClarityWasmContext>, name_offset: i32, name_length: i32| {
+            |mut caller: Caller<'_, ClarityWasmContext<'static, 'static>>,
+             name_offset: i32,
+             name_length: i32| {
                 // Get the memory from the caller
                 let memory = caller
                     .get_export("memory")
@@ -2929,12 +3005,16 @@ fn link_define_trait_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), V
         })
 }
 
-fn link_impl_trait_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), VmExecutionError> {
+fn link_impl_trait_fn(
+    linker: &mut Linker<ClarityWasmContext<'static, 'static>>,
+) -> Result<(), VmExecutionError> {
     linker
         .func_wrap(
             "clarity",
             "impl_trait",
-            |mut caller: Caller<'_, ClarityWasmContext>, name_offset: i32, name_length: i32| {
+            |mut caller: Caller<'_, ClarityWasmContext<'static, 'static>>,
+             name_offset: i32,
+             name_length: i32| {
                 // Get the memory from the caller
                 let memory = caller
                     .get_export("memory")
@@ -2965,12 +3045,14 @@ fn link_impl_trait_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), VmE
 
 /// Link host interface function, `get_variable`, into the Wasm module.
 /// This function is called for all variable lookups (`var-get`).
-fn link_get_variable_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), VmExecutionError> {
+fn link_get_variable_fn(
+    linker: &mut Linker<ClarityWasmContext<'static, 'static>>,
+) -> Result<(), VmExecutionError> {
     linker
         .func_wrap(
             "clarity",
             "get_variable",
-            |mut caller: Caller<'_, ClarityWasmContext>,
+            |mut caller: Caller<'_, ClarityWasmContext<'static, 'static>>,
              name_offset: i32,
              name_length: i32,
              return_offset: i32,
@@ -3044,12 +3126,14 @@ fn link_get_variable_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), V
 
 /// Link host interface function, `set_variable`, into the Wasm module.
 /// This function is called for all variable assignments (`var-set`).
-fn link_set_variable_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), VmExecutionError> {
+fn link_set_variable_fn(
+    linker: &mut Linker<ClarityWasmContext<'static, 'static>>,
+) -> Result<(), VmExecutionError> {
     linker
         .func_wrap(
             "clarity",
             "set_variable",
-            |mut caller: Caller<'_, ClarityWasmContext>,
+            |mut caller: Caller<'_, ClarityWasmContext<'static, 'static>>,
              name_offset: i32,
              name_length: i32,
              mut value_offset: i32,
@@ -3133,12 +3217,14 @@ fn link_set_variable_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), V
 
 /// Link host interface function, `tx_sender`, into the Wasm module.
 /// This function is called for use of the builtin variable, `tx-sender`.
-fn link_tx_sender_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), VmExecutionError> {
+fn link_tx_sender_fn(
+    linker: &mut Linker<ClarityWasmContext<'static, 'static>>,
+) -> Result<(), VmExecutionError> {
     linker
         .func_wrap(
             "clarity",
             "tx_sender",
-            |mut caller: Caller<'_, ClarityWasmContext>,
+            |mut caller: Caller<'_, ClarityWasmContext<'static, 'static>>,
              return_offset: i32,
              _return_length: i32| {
                 let sender = caller
@@ -3180,13 +3266,13 @@ fn link_tx_sender_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), VmEx
 /// Link host interface function, `contract_caller`, into the Wasm module.
 /// This function is called for use of the builtin variable, `contract-caller`.
 fn link_contract_caller_fn(
-    linker: &mut Linker<ClarityWasmContext>,
+    linker: &mut Linker<ClarityWasmContext<'static, 'static>>,
 ) -> Result<(), VmExecutionError> {
     linker
         .func_wrap(
             "clarity",
             "contract_caller",
-            |mut caller: Caller<'_, ClarityWasmContext>,
+            |mut caller: Caller<'_, ClarityWasmContext<'static, 'static>>,
              return_offset: i32,
              _return_length: i32| {
                 let contract_caller =
@@ -3229,13 +3315,13 @@ fn link_contract_caller_fn(
 /// Link host interface function, `current_contract`, into the Wasm module.
 /// This function is called for use of the builtin variable, `current-contract`.
 fn link_current_contract_fn(
-    linker: &mut Linker<ClarityWasmContext>,
+    linker: &mut Linker<ClarityWasmContext<'static, 'static>>,
 ) -> Result<(), VmExecutionError> {
     linker
         .func_wrap(
             "clarity",
             "current_contract",
-            |mut caller: Caller<'_, ClarityWasmContext>,
+            |mut caller: Caller<'_, ClarityWasmContext<'static, 'static>>,
              return_offset: i32,
              _return_length: i32| {
                 let contract = caller.data().contract_context().contract_identifier.clone();
@@ -3269,12 +3355,14 @@ fn link_current_contract_fn(
 
 /// Link host interface function, `tx_sponsor`, into the Wasm module.
 /// This function is called for use of the builtin variable, `tx-sponsor`.
-fn link_tx_sponsor_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), VmExecutionError> {
+fn link_tx_sponsor_fn(
+    linker: &mut Linker<ClarityWasmContext<'static, 'static>>,
+) -> Result<(), VmExecutionError> {
     linker
         .func_wrap(
             "clarity",
             "tx_sponsor",
-            |mut caller: Caller<'_, ClarityWasmContext>,
+            |mut caller: Caller<'_, ClarityWasmContext<'static, 'static>>,
              return_offset: i32,
              _return_length: i32| {
                 let opt_sponsor = caller.data().sponsor.clone();
@@ -3311,12 +3399,14 @@ fn link_tx_sponsor_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), VmE
 
 /// Link host interface function, `block_height`, into the Wasm module.
 /// This function is called for use of the builtin variable, `block-height`.
-fn link_block_height_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), VmExecutionError> {
+fn link_block_height_fn(
+    linker: &mut Linker<ClarityWasmContext<'static, 'static>>,
+) -> Result<(), VmExecutionError> {
     linker
         .func_wrap(
             "clarity",
             "block_height",
-            |mut caller: Caller<'_, ClarityWasmContext>| {
+            |mut caller: Caller<'_, ClarityWasmContext<'static, 'static>>| {
                 // In Epoch 2.x `block-height` is the Stacks block height, but for Clarity 1 and 2
                 // contracts executing in Epoch 3.0 and later it's the tenure height.
                 let global_context = &mut caller.data_mut().global_context;
@@ -3340,13 +3430,13 @@ fn link_block_height_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), V
 /// Link host interface function, `stacks_block_height`, into the Wasm module.
 /// This function is called for use of the builtin variable, `stacks_block-height`.
 fn link_stacks_block_height_fn(
-    linker: &mut Linker<ClarityWasmContext>,
+    linker: &mut Linker<ClarityWasmContext<'static, 'static>>,
 ) -> Result<(), VmExecutionError> {
     linker
         .func_wrap(
             "clarity",
             "stacks_block_height",
-            |mut caller: Caller<'_, ClarityWasmContext>| {
+            |mut caller: Caller<'_, ClarityWasmContext<'static, 'static>>| {
                 let height = caller
                     .data_mut()
                     .global_context
@@ -3367,13 +3457,13 @@ fn link_stacks_block_height_fn(
 /// Link host interface function, `stacks_block_time`, into the Wasm module.
 /// This function is called for use of the builtin variable, `stacks-block-time`.
 fn link_stacks_block_time_fn(
-    linker: &mut Linker<ClarityWasmContext>,
+    linker: &mut Linker<ClarityWasmContext<'static, 'static>>,
 ) -> Result<(), VmExecutionError> {
     linker
         .func_wrap(
             "clarity",
             "stacks_block_time",
-            |mut caller: Caller<'_, ClarityWasmContext>| {
+            |mut caller: Caller<'_, ClarityWasmContext<'static, 'static>>| {
                 let block_time = caller
                     .data_mut()
                     .global_context
@@ -3393,12 +3483,14 @@ fn link_stacks_block_time_fn(
 
 /// Link host interface function, `tenure_height`, into the Wasm module.
 /// This function is called for use of the builtin variable, `tenure-height`.
-fn link_tenure_height_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), VmExecutionError> {
+fn link_tenure_height_fn(
+    linker: &mut Linker<ClarityWasmContext<'static, 'static>>,
+) -> Result<(), VmExecutionError> {
     linker
         .func_wrap(
             "clarity",
             "tenure_height",
-            |mut caller: Caller<'_, ClarityWasmContext>| {
+            |mut caller: Caller<'_, ClarityWasmContext<'static, 'static>>| {
                 let height = caller
                     .data_mut()
                     .global_context
@@ -3420,13 +3512,13 @@ fn link_tenure_height_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), 
 /// This function is called for use of the builtin variable,
 /// `burn-block-height`.
 fn link_burn_block_height_fn(
-    linker: &mut Linker<ClarityWasmContext>,
+    linker: &mut Linker<ClarityWasmContext<'static, 'static>>,
 ) -> Result<(), VmExecutionError> {
     linker
         .func_wrap(
             "clarity",
             "burn_block_height",
-            |mut caller: Caller<'_, ClarityWasmContext>| {
+            |mut caller: Caller<'_, ClarityWasmContext<'static, 'static>>| {
                 let height = caller
                     .data_mut()
                     .global_context
@@ -3448,13 +3540,13 @@ fn link_burn_block_height_fn(
 /// This function is called for use of the builtin variable,
 /// `stx-liquid-supply`.
 fn link_stx_liquid_supply_fn(
-    linker: &mut Linker<ClarityWasmContext>,
+    linker: &mut Linker<ClarityWasmContext<'static, 'static>>,
 ) -> Result<(), VmExecutionError> {
     linker
         .func_wrap(
             "clarity",
             "stx_liquid_supply",
-            |mut caller: Caller<'_, ClarityWasmContext>| {
+            |mut caller: Caller<'_, ClarityWasmContext<'static, 'static>>| {
                 let supply = caller
                     .data_mut()
                     .global_context
@@ -3477,12 +3569,14 @@ fn link_stx_liquid_supply_fn(
 /// Link host interface function, `is_in_regtest`, into the Wasm module.
 /// This function is called for use of the builtin variable,
 /// `is-in-regtest`.
-fn link_is_in_regtest_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), VmExecutionError> {
+fn link_is_in_regtest_fn(
+    linker: &mut Linker<ClarityWasmContext<'static, 'static>>,
+) -> Result<(), VmExecutionError> {
     linker
         .func_wrap(
             "clarity",
             "is_in_regtest",
-            |caller: Caller<'_, ClarityWasmContext>| {
+            |caller: Caller<'_, ClarityWasmContext<'static, 'static>>| {
                 if caller.data().global_context.database.is_in_regtest() {
                     Ok(1i32)
                 } else {
@@ -3502,12 +3596,14 @@ fn link_is_in_regtest_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), 
 /// Link host interface function, `is_in_mainnet`, into the Wasm module.
 /// This function is called for use of the builtin variable,
 /// `is-in-mainnet`.
-fn link_is_in_mainnet_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), VmExecutionError> {
+fn link_is_in_mainnet_fn(
+    linker: &mut Linker<ClarityWasmContext<'static, 'static>>,
+) -> Result<(), VmExecutionError> {
     linker
         .func_wrap(
             "clarity",
             "is_in_mainnet",
-            |caller: Caller<'_, ClarityWasmContext>| {
+            |caller: Caller<'_, ClarityWasmContext<'static, 'static>>| {
                 if caller.data().global_context.mainnet {
                     Ok(1i32)
                 } else {
@@ -3527,12 +3623,14 @@ fn link_is_in_mainnet_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), 
 /// Link host interface function, `chain_id`, into the Wasm module.
 /// This function is called for use of the builtin variable,
 /// `chain-id`.
-fn link_chain_id_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), VmExecutionError> {
+fn link_chain_id_fn(
+    linker: &mut Linker<ClarityWasmContext<'static, 'static>>,
+) -> Result<(), VmExecutionError> {
     linker
         .func_wrap(
             "clarity",
             "chain_id",
-            |caller: Caller<'_, ClarityWasmContext>| {
+            |caller: Caller<'_, ClarityWasmContext<'static, 'static>>| {
                 let chain_id = caller.data().global_context.chain_id;
                 Ok((chain_id as i64, 0i64))
             },
@@ -3550,13 +3648,13 @@ fn link_chain_id_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), VmExe
 /// This function is called before processing the inner-expression of
 /// `as-contract`.
 fn link_enter_as_contract_fn(
-    linker: &mut Linker<ClarityWasmContext>,
+    linker: &mut Linker<ClarityWasmContext<'static, 'static>>,
 ) -> Result<(), VmExecutionError> {
     linker
         .func_wrap(
             "clarity",
             "enter_as_contract",
-            |mut caller: Caller<'_, ClarityWasmContext>| {
+            |mut caller: Caller<'_, ClarityWasmContext<'static, 'static>>| {
                 let contract_principal: PrincipalData = caller
                     .data()
                     .contract_context()
@@ -3580,13 +3678,13 @@ fn link_enter_as_contract_fn(
 /// This function is after before processing the inner-expression of
 /// `as-contract`, and is used to restore the caller and sender.
 fn link_exit_as_contract_fn(
-    linker: &mut Linker<ClarityWasmContext>,
+    linker: &mut Linker<ClarityWasmContext<'static, 'static>>,
 ) -> Result<(), VmExecutionError> {
     linker
         .func_wrap(
             "clarity",
             "exit_as_contract",
-            |mut caller: Caller<'_, ClarityWasmContext>| {
+            |mut caller: Caller<'_, ClarityWasmContext<'static, 'static>>| {
                 caller.data_mut().pop_sender()?;
                 caller.data_mut().pop_caller()?;
                 Ok(())
@@ -3605,13 +3703,13 @@ fn link_exit_as_contract_fn(
 /// This function is called before processing the allowances and inner-expressions of
 /// `as-contract?`.
 fn link_enter_as_contract_safe_fn(
-    linker: &mut Linker<ClarityWasmContext>,
+    linker: &mut Linker<ClarityWasmContext<'static, 'static>>,
 ) -> Result<(), VmExecutionError> {
     linker
         .func_wrap(
             "clarity",
             "enter_as_contract_safe",
-            |mut caller: Caller<'_, ClarityWasmContext>| -> Option<ExternRef> {
+            |mut caller: Caller<'_, ClarityWasmContext<'static, 'static>>| -> wasmtime::Result<Option<Rooted<ExternRef>>> {
                 let contract_principal: PrincipalData = caller
                     .data()
                     .contract_context()
@@ -3622,7 +3720,7 @@ fn link_enter_as_contract_safe_fn(
                 caller.data_mut().push_sender(contract_principal.clone());
                 caller.data_mut().push_caller(contract_principal);
 
-                Some(ExternRef::new(AllowanceContext::new()))
+                Ok(Some(AllowanceContext::new_externref(&mut caller)?))
             },
         )
         .map(|_| ())
@@ -3638,13 +3736,14 @@ fn link_enter_as_contract_safe_fn(
 /// This function is called after processing the inner-expressions of
 /// `as-contract?`, and is used to restore the caller, sender and check allowances.
 fn link_exit_as_contract_safe_fn(
-    linker: &mut Linker<ClarityWasmContext>,
+    linker: &mut Linker<ClarityWasmContext<'static, 'static>>,
 ) -> Result<(), VmExecutionError> {
     linker
         .func_wrap(
             "clarity",
             "exit_as_contract_safe",
-            |mut caller: Caller<'_, ClarityWasmContext>, allowance_ref: Option<ExternRef>| {
+            |mut caller: Caller<'_, ClarityWasmContext<'static, 'static>>,
+             allowance_ref: Option<Rooted<ExternRef>>| {
                 let epoch = caller.data().global_context.epoch_id;
 
                 // we need to restore the current caller and sender. We pop both and check if we did set
@@ -3656,7 +3755,7 @@ fn link_exit_as_contract_safe_fn(
                     owner?
                 };
 
-                let allowances = AllowanceContext::extract(&allowance_ref)?;
+                let allowances = AllowanceContext::extract(&mut caller, &allowance_ref)?;
 
                 let asset_map = caller.data_mut().global_context.get_readonly_asset_map()?;
 
@@ -3688,13 +3787,13 @@ fn link_exit_as_contract_safe_fn(
 /// `as-contract?`, and is used to restore the caller and sender in the case where
 /// an inner-expresion failed.
 fn link_cleanup_as_contract_safe_fn(
-    linker: &mut Linker<ClarityWasmContext>,
+    linker: &mut Linker<ClarityWasmContext<'static, 'static>>,
 ) -> Result<(), VmExecutionError> {
     linker
         .func_wrap(
             "clarity",
             "cleanup_as_contract_safe",
-            |mut caller: Caller<'_, ClarityWasmContext>| {
+            |mut caller: Caller<'_, ClarityWasmContext<'static, 'static>>| {
                 // we need to restore the current caller and sender. We pop both and check if we did set
                 // them correctly before.
                 let sender = caller.data_mut().pop_sender();
@@ -3716,16 +3815,16 @@ fn link_cleanup_as_contract_safe_fn(
 }
 
 fn link_enter_restrict_assets_fn(
-    linker: &mut Linker<ClarityWasmContext>,
+    linker: &mut Linker<ClarityWasmContext<'static, 'static>>,
 ) -> Result<(), VmExecutionError> {
     linker
         .func_wrap(
             "clarity",
             "enter_restrict_assets",
-            |mut caller: Caller<'_, ClarityWasmContext>| {
+            |mut caller: Caller<'_, ClarityWasmContext<'static, 'static>>| -> wasmtime::Result<Option<Rooted<ExternRef>>> {
                 caller.data_mut().global_context.begin();
 
-                Some(ExternRef::new(AllowanceContext::new()))
+                Ok(Some(AllowanceContext::new_externref(&mut caller)?))
             },
         )
         .map(|_| ())
@@ -3738,16 +3837,16 @@ fn link_enter_restrict_assets_fn(
 }
 
 fn link_exit_restrict_assets_fn(
-    linker: &mut Linker<ClarityWasmContext>,
+    linker: &mut Linker<ClarityWasmContext<'static, 'static>>,
 ) -> Result<(), VmExecutionError> {
     linker
         .func_wrap(
             "clarity",
             "exit_restrict_assets",
-            |mut caller: Caller<'_, ClarityWasmContext>,
+            |mut caller: Caller<'_, ClarityWasmContext<'static, 'static>>,
              asset_owner_offset: i32,
              asset_owner_length: i32,
-             allowance_ref: Option<ExternRef>| {
+             allowance_ref: Option<Rooted<ExternRef>>| {
                 let memory = caller
                     .get_export("memory")
                     .and_then(|export| export.into_memory())
@@ -3762,7 +3861,7 @@ fn link_exit_restrict_assets_fn(
                     epoch,
                 )?
                 .expect_principal()?;
-                let allowances = AllowanceContext::extract(&allowance_ref)?;
+                let allowances = AllowanceContext::extract(&mut caller, &allowance_ref)?;
 
                 let asset_map = caller.data_mut().global_context.get_readonly_asset_map()?;
 
@@ -3790,13 +3889,13 @@ fn link_exit_restrict_assets_fn(
 }
 
 fn link_cleanup_restrict_assets_fn(
-    linker: &mut Linker<ClarityWasmContext>,
+    linker: &mut Linker<ClarityWasmContext<'static, 'static>>,
 ) -> Result<(), VmExecutionError> {
     linker
         .func_wrap(
             "clarity",
             "cleanup_restrict_assets",
-            |mut caller: Caller<'_, ClarityWasmContext>| {
+            |mut caller: Caller<'_, ClarityWasmContext<'static, 'static>>| {
                 caller.data_mut().global_context.roll_back()?;
 
                 Ok(())
@@ -3813,24 +3912,34 @@ fn link_cleanup_restrict_assets_fn(
 
 /// Holds the list of allowances for an `as-contract?` block.
 /// Passed through WASM as an `ExternRef` handle.
-/// Needs a `Mutex` because `ExternRef` only gives us a shared
-/// reference, but we still need to mutate the list.
-struct AllowanceContext(std::sync::Mutex<Vec<Allowance>>);
+struct AllowanceContext(Vec<Allowance>);
 
 impl AllowanceContext {
-    fn new() -> Self {
-        Self(std::sync::Mutex::new(Vec::new()))
+    /// Create a new, empty allowance context, and wrap it in an `ExternRef`.
+    fn new_externref(
+        store: impl AsContextMut<Data = ClarityWasmContext<'static, 'static>>,
+    ) -> Result<Rooted<ExternRef>, VmExecutionError> {
+        ExternRef::new(store, Self(Vec::new())).map_err(|e| {
+            VmExecutionError::Wasm(WasmError::WasmGeneratorError(format!(
+                "unable to create allowance context: {e}"
+            )))
+        })
     }
 
-    fn from_externref(externref: &Option<ExternRef>) -> Result<&Self, VmExecutionError> {
+    fn from_externref<'s>(
+        store: StoreContextMut<'s, ClarityWasmContext<'static, 'static>>,
+        externref: &Option<Rooted<ExternRef>>,
+    ) -> Result<&'s mut Self, VmExecutionError> {
         let externref = externref.as_ref().ok_or_else(|| {
             VmExecutionError::Wasm(WasmError::WasmGeneratorError(
                 "allowance context is missing".to_string(),
             ))
         })?;
         externref
-            .data()
-            .downcast_ref::<AllowanceContext>()
+            .data_mut(store)
+            .ok()
+            .flatten()
+            .and_then(|data| data.downcast_mut::<AllowanceContext>())
             .ok_or_else(|| {
                 VmExecutionError::Wasm(WasmError::WasmGeneratorError(
                     "allowance context has wrong type".to_string(),
@@ -3838,15 +3947,23 @@ impl AllowanceContext {
             })
     }
 
-    fn push(externref: &Option<ExternRef>, allowance: Allowance) -> Result<(), VmExecutionError> {
-        let ctx = Self::from_externref(externref)?;
-        ctx.0.lock().unwrap().push(allowance);
+    fn push(
+        mut store: impl AsContextMut<Data = ClarityWasmContext<'static, 'static>>,
+        externref: &Option<Rooted<ExternRef>>,
+        allowance: Allowance,
+    ) -> Result<(), VmExecutionError> {
+        Self::from_externref(store.as_context_mut(), externref)?
+            .0
+            .push(allowance);
         Ok(())
     }
 
-    fn extract(externref: &Option<ExternRef>) -> Result<Vec<Allowance>, VmExecutionError> {
-        let ctx = Self::from_externref(externref)?;
-        Ok(std::mem::take(&mut *ctx.0.lock().unwrap()))
+    fn extract(
+        mut store: impl AsContextMut<Data = ClarityWasmContext<'static, 'static>>,
+        externref: &Option<Rooted<ExternRef>>,
+    ) -> Result<Vec<Allowance>, VmExecutionError> {
+        let ctx = Self::from_externref(store.as_context_mut(), externref)?;
+        Ok(std::mem::take(&mut ctx.0))
     }
 }
 
@@ -3854,14 +3971,15 @@ impl AllowanceContext {
 /// This function is called before processing the inner-expression of
 /// `with-all-assets-unsafe`.
 fn link_with_all_assets_unsafe_fn(
-    linker: &mut Linker<ClarityWasmContext>,
+    linker: &mut Linker<ClarityWasmContext<'static, 'static>>,
 ) -> Result<(), VmExecutionError> {
     linker
         .func_wrap(
             "clarity",
             "with_all_assets_unsafe",
-            |_caller: Caller<'_, ClarityWasmContext>, allowance_ref: Option<ExternRef>| {
-                AllowanceContext::push(&allowance_ref, Allowance::All)?;
+            |mut caller: Caller<'_, ClarityWasmContext<'static, 'static>>,
+             allowance_ref: Option<Rooted<ExternRef>>| {
+                AllowanceContext::push(&mut caller, &allowance_ref, Allowance::All)?;
 
                 Ok(())
             },
@@ -3875,13 +3993,16 @@ fn link_with_all_assets_unsafe_fn(
         })
 }
 
-fn link_with_pox_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), VmExecutionError> {
+fn link_with_pox_fn(
+    linker: &mut Linker<ClarityWasmContext<'static, 'static>>,
+) -> Result<(), VmExecutionError> {
     linker
         .func_wrap(
             "clarity",
             "with_pox",
-            |_caller: Caller<'_, ClarityWasmContext>, allowance_ref: Option<ExternRef>| {
-                AllowanceContext::push(&allowance_ref, Allowance::Pox)?;
+            |mut caller: Caller<'_, ClarityWasmContext<'static, 'static>>,
+             allowance_ref: Option<Rooted<ExternRef>>| {
+                AllowanceContext::push(&mut caller, &allowance_ref, Allowance::Pox)?;
 
                 Ok(())
             },
@@ -3898,13 +4019,15 @@ fn link_with_pox_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), VmExe
 /// Link host interface function, `with_ft`, into the Wasm module.
 /// This function is called before processing the inner-expression of
 /// `with-ft`. The asset identifier and allowance should already be written to memory.
-fn link_with_ft_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), VmExecutionError> {
+fn link_with_ft_fn(
+    linker: &mut Linker<ClarityWasmContext<'static, 'static>>,
+) -> Result<(), VmExecutionError> {
     linker
         .func_wrap(
             "clarity",
             "with_ft",
-            |mut caller: Caller<'_, ClarityWasmContext>,
-             allowance_ref: Option<ExternRef>,
+            |mut caller: Caller<'_, ClarityWasmContext<'static, 'static>>,
+             allowance_ref: Option<Rooted<ExternRef>>,
              contract_id_offset: i32,
              contract_id_length: i32,
              token_name_offset: i32,
@@ -3964,6 +4087,7 @@ fn link_with_ft_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), VmExec
                 }
 
                 AllowanceContext::push(
+                    &mut caller,
                     &allowance_ref,
                     Allowance::Ft(FtAllowance {
                         asset: AssetIdentifier {
@@ -3989,13 +4113,15 @@ fn link_with_ft_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), VmExec
 /// Link host interface function, `with_nft`, into the Wasm module.
 /// This function is called before processing the inner-expression of
 /// `with-nft`. The asset identifier and allowance should already be written to memory.
-fn link_with_nft_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), VmExecutionError> {
+fn link_with_nft_fn(
+    linker: &mut Linker<ClarityWasmContext<'static, 'static>>,
+) -> Result<(), VmExecutionError> {
     linker
         .func_wrap(
             "clarity",
             "with_nft",
-            |mut caller: Caller<'_, ClarityWasmContext>,
-             allowance_ref: Option<ExternRef>,
+            |mut caller: Caller<'_, ClarityWasmContext<'static, 'static>>,
+             allowance_ref: Option<Rooted<ExternRef>>,
              contract_id_offset: i32,
              contract_id_length: i32,
              token_name_offset: i32,
@@ -4117,6 +4243,7 @@ fn link_with_nft_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), VmExe
                 };
 
                 AllowanceContext::push(
+                    &mut caller,
                     &allowance_ref,
                     Allowance::Nft(NftAllowance {
                         asset: asset_identifier,
@@ -4139,18 +4266,21 @@ fn link_with_nft_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), VmExe
 /// Link host interface function, `with_stacking`, into the Wasm module.
 /// This function is called before processing the inner-expression of
 /// `with-stacking`. The allowance should already be written to memory.
-fn link_with_stacking_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), VmExecutionError> {
+fn link_with_stacking_fn(
+    linker: &mut Linker<ClarityWasmContext<'static, 'static>>,
+) -> Result<(), VmExecutionError> {
     linker
         .func_wrap(
             "clarity",
             "with_stacking",
-            |_caller: Caller<'_, ClarityWasmContext>,
-             allowance_ref: Option<ExternRef>,
+            |mut caller: Caller<'_, ClarityWasmContext<'static, 'static>>,
+             allowance_ref: Option<Rooted<ExternRef>>,
              allowance_lo: i64,
              allowance_hi: i64| {
                 let allowance = ((allowance_hi as u128) << 64) | ((allowance_lo as u64) as u128);
 
                 AllowanceContext::push(
+                    &mut caller,
                     &allowance_ref,
                     Allowance::Stacking(StackingAllowance { amount: allowance }),
                 )?;
@@ -4170,18 +4300,21 @@ fn link_with_stacking_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), 
 /// Link host interface function, `with_stx`, into the Wasm module.
 /// This function is called before processing the inner-expression of
 /// `with-stx`. The allowance should already be written to memory.
-fn link_with_stx_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), VmExecutionError> {
+fn link_with_stx_fn(
+    linker: &mut Linker<ClarityWasmContext<'static, 'static>>,
+) -> Result<(), VmExecutionError> {
     linker
         .func_wrap(
             "clarity",
             "with_stx",
-            |_caller: Caller<'_, ClarityWasmContext>,
-             allowance_ref: Option<ExternRef>,
+            |mut caller: Caller<'_, ClarityWasmContext<'static, 'static>>,
+             allowance_ref: Option<Rooted<ExternRef>>,
              amount_lo: i64,
              amount_hi: i64| {
                 let allowed_amount = ((amount_hi as u128) << 64) | ((amount_lo as u64) as u128);
 
                 AllowanceContext::push(
+                    &mut caller,
                     &allowance_ref,
                     Allowance::Stx(StxAllowance {
                         amount: allowed_amount,
@@ -4203,13 +4336,13 @@ fn link_with_stx_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), VmExe
 /// Link host interface function, `stx_get_balance`, into the Wasm module.
 /// This function is called for the clarity expression, `stx-get-balance`.
 fn link_stx_get_balance_fn(
-    linker: &mut Linker<ClarityWasmContext>,
+    linker: &mut Linker<ClarityWasmContext<'static, 'static>>,
 ) -> Result<(), VmExecutionError> {
     linker
         .func_wrap(
             "clarity",
             "stx_get_balance",
-            |mut caller: Caller<'_, ClarityWasmContext>,
+            |mut caller: Caller<'_, ClarityWasmContext<'static, 'static>>,
              principal_offset: i32,
              principal_length: i32| {
                 // Get the memory from the caller
@@ -4255,12 +4388,14 @@ fn link_stx_get_balance_fn(
 
 /// Link host interface function, `stx_account`, into the Wasm module.
 /// This function is called for the clarity expression, `stx-account`.
-fn link_stx_account_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), VmExecutionError> {
+fn link_stx_account_fn(
+    linker: &mut Linker<ClarityWasmContext<'static, 'static>>,
+) -> Result<(), VmExecutionError> {
     linker
         .func_wrap(
             "clarity",
             "stx_account",
-            |mut caller: Caller<'_, ClarityWasmContext>,
+            |mut caller: Caller<'_, ClarityWasmContext<'static, 'static>>,
              principal_offset: i32,
              principal_length: i32| {
                 // Get the memory from the caller
@@ -4344,12 +4479,14 @@ fn link_stx_account_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Vm
         })
 }
 
-fn link_stx_burn_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), VmExecutionError> {
+fn link_stx_burn_fn(
+    linker: &mut Linker<ClarityWasmContext<'static, 'static>>,
+) -> Result<(), VmExecutionError> {
     linker
         .func_wrap(
             "clarity",
             "stx_burn",
-            |mut caller: Caller<'_, ClarityWasmContext>,
+            |mut caller: Caller<'_, ClarityWasmContext<'static, 'static>>,
              amount_lo: i64,
              amount_hi: i64,
              principal_offset: i32,
@@ -4440,12 +4577,14 @@ fn link_stx_burn_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), VmExe
         })
 }
 
-fn link_stx_transfer_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), VmExecutionError> {
+fn link_stx_transfer_fn(
+    linker: &mut Linker<ClarityWasmContext<'static, 'static>>,
+) -> Result<(), VmExecutionError> {
     linker
         .func_wrap(
             "clarity",
             "stx_transfer",
-            |mut caller: Caller<'_, ClarityWasmContext>,
+            |mut caller: Caller<'_, ClarityWasmContext<'static, 'static>>,
              amount_lo: i64,
              amount_hi: i64,
              sender_offset: i32,
@@ -4582,12 +4721,16 @@ fn link_stx_transfer_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), V
         })
 }
 
-fn link_ft_get_supply_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), VmExecutionError> {
+fn link_ft_get_supply_fn(
+    linker: &mut Linker<ClarityWasmContext<'static, 'static>>,
+) -> Result<(), VmExecutionError> {
     linker
         .func_wrap(
             "clarity",
             "ft_get_supply",
-            |mut caller: Caller<'_, ClarityWasmContext>, name_offset: i32, name_length: i32| {
+            |mut caller: Caller<'_, ClarityWasmContext<'static, 'static>>,
+             name_offset: i32,
+             name_length: i32| {
                 let contract_identifier =
                     caller.data().contract_context().contract_identifier.clone();
 
@@ -4623,12 +4766,14 @@ fn link_ft_get_supply_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), 
         })
 }
 
-fn link_ft_get_balance_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), VmExecutionError> {
+fn link_ft_get_balance_fn(
+    linker: &mut Linker<ClarityWasmContext<'static, 'static>>,
+) -> Result<(), VmExecutionError> {
     linker
         .func_wrap(
             "clarity",
             "ft_get_balance",
-            |mut caller: Caller<'_, ClarityWasmContext>,
+            |mut caller: Caller<'_, ClarityWasmContext<'static, 'static>>,
              name_offset: i32,
              name_length: i32,
              owner_offset: i32,
@@ -4693,12 +4838,14 @@ fn link_ft_get_balance_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(),
         })
 }
 
-fn link_ft_burn_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), VmExecutionError> {
+fn link_ft_burn_fn(
+    linker: &mut Linker<ClarityWasmContext<'static, 'static>>,
+) -> Result<(), VmExecutionError> {
     linker
         .func_wrap(
             "clarity",
             "ft_burn",
-            |mut caller: Caller<'_, ClarityWasmContext>,
+            |mut caller: Caller<'_, ClarityWasmContext<'static, 'static>>,
              name_offset: i32,
              name_length: i32,
              amount_lo: i64,
@@ -4823,12 +4970,14 @@ fn link_ft_burn_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), VmExec
         })
 }
 
-fn link_ft_mint_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), VmExecutionError> {
+fn link_ft_mint_fn(
+    linker: &mut Linker<ClarityWasmContext<'static, 'static>>,
+) -> Result<(), VmExecutionError> {
     linker
         .func_wrap(
             "clarity",
             "ft_mint",
-            |mut caller: Caller<'_, ClarityWasmContext>,
+            |mut caller: Caller<'_, ClarityWasmContext<'static, 'static>>,
              name_offset: i32,
              name_length: i32,
              amount_lo: i64,
@@ -4954,12 +5103,14 @@ fn link_ft_mint_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), VmExec
         })
 }
 
-fn link_ft_transfer_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), VmExecutionError> {
+fn link_ft_transfer_fn(
+    linker: &mut Linker<ClarityWasmContext<'static, 'static>>,
+) -> Result<(), VmExecutionError> {
     linker
         .func_wrap(
             "clarity",
             "ft_transfer",
-            |mut caller: Caller<'_, ClarityWasmContext>,
+            |mut caller: Caller<'_, ClarityWasmContext<'static, 'static>>,
              name_offset: i32,
              name_length: i32,
              amount_lo: i64,
@@ -5134,12 +5285,14 @@ fn link_ft_transfer_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Vm
         })
 }
 
-fn link_nft_get_owner_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), VmExecutionError> {
+fn link_nft_get_owner_fn(
+    linker: &mut Linker<ClarityWasmContext<'static, 'static>>,
+) -> Result<(), VmExecutionError> {
     linker
         .func_wrap(
             "clarity",
             "nft_get_owner",
-            |mut caller: Caller<'_, ClarityWasmContext>,
+            |mut caller: Caller<'_, ClarityWasmContext<'static, 'static>>,
              name_offset: i32,
              name_length: i32,
              mut asset_offset: i32,
@@ -5243,12 +5396,14 @@ fn link_nft_get_owner_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), 
         })
 }
 
-fn link_nft_burn_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), VmExecutionError> {
+fn link_nft_burn_fn(
+    linker: &mut Linker<ClarityWasmContext<'static, 'static>>,
+) -> Result<(), VmExecutionError> {
     linker
         .func_wrap(
             "clarity",
             "nft_burn",
-            |mut caller: Caller<'_, ClarityWasmContext>,
+            |mut caller: Caller<'_, ClarityWasmContext<'static, 'static>>,
              name_offset: i32,
              name_length: i32,
              mut asset_offset: i32,
@@ -5387,12 +5542,14 @@ fn link_nft_burn_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), VmExe
         })
 }
 
-fn link_nft_mint_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), VmExecutionError> {
+fn link_nft_mint_fn(
+    linker: &mut Linker<ClarityWasmContext<'static, 'static>>,
+) -> Result<(), VmExecutionError> {
     linker
         .func_wrap(
             "clarity",
             "nft_mint",
-            |mut caller: Caller<'_, ClarityWasmContext>,
+            |mut caller: Caller<'_, ClarityWasmContext<'static, 'static>>,
              name_offset: i32,
              name_length: i32,
              mut asset_offset: i32,
@@ -5520,12 +5677,14 @@ fn link_nft_mint_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), VmExe
         })
 }
 
-fn link_nft_transfer_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), VmExecutionError> {
+fn link_nft_transfer_fn(
+    linker: &mut Linker<ClarityWasmContext<'static, 'static>>,
+) -> Result<(), VmExecutionError> {
     linker
         .func_wrap(
             "clarity",
             "nft_transfer",
-            |mut caller: Caller<'_, ClarityWasmContext>,
+            |mut caller: Caller<'_, ClarityWasmContext<'static, 'static>>,
              name_offset: i32,
              name_length: i32,
              mut asset_offset: i32,
@@ -5699,12 +5858,14 @@ fn link_nft_transfer_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), V
 
 /// Link host interface function, `map_get`, into the Wasm module.
 /// This function is called for the `map-get?` expression.
-fn link_map_get_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), VmExecutionError> {
+fn link_map_get_fn(
+    linker: &mut Linker<ClarityWasmContext<'static, 'static>>,
+) -> Result<(), VmExecutionError> {
     linker
         .func_wrap(
             "clarity",
             "map_get",
-            |mut caller: Caller<'_, ClarityWasmContext>,
+            |mut caller: Caller<'_, ClarityWasmContext<'static, 'static>>,
              name_offset: i32,
              name_length: i32,
              mut key_offset: i32,
@@ -5796,12 +5957,14 @@ fn link_map_get_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), VmExec
 
 /// Link host interface function, `map_set`, into the Wasm module.
 /// This function is called for the `map-set` expression.
-fn link_map_set_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), VmExecutionError> {
+fn link_map_set_fn(
+    linker: &mut Linker<ClarityWasmContext<'static, 'static>>,
+) -> Result<(), VmExecutionError> {
     linker
         .func_wrap(
             "clarity",
             "map_set",
-            |mut caller: Caller<'_, ClarityWasmContext>,
+            |mut caller: Caller<'_, ClarityWasmContext<'static, 'static>>,
              name_offset: i32,
              name_length: i32,
              mut key_offset: i32,
@@ -5914,12 +6077,14 @@ fn link_map_set_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), VmExec
 
 /// Link host interface function, `map_insert`, into the Wasm module.
 /// This function is called for the `map-insert` expression.
-fn link_map_insert_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), VmExecutionError> {
+fn link_map_insert_fn(
+    linker: &mut Linker<ClarityWasmContext<'static, 'static>>,
+) -> Result<(), VmExecutionError> {
     linker
         .func_wrap(
             "clarity",
             "map_insert",
-            |mut caller: Caller<'_, ClarityWasmContext>,
+            |mut caller: Caller<'_, ClarityWasmContext<'static, 'static>>,
              name_offset: i32,
              name_length: i32,
              mut key_offset: i32,
@@ -6031,12 +6196,14 @@ fn link_map_insert_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), VmE
 
 /// Link host interface function, `map_delete`, into the Wasm module.
 /// This function is called for the `map-delete` expression.
-fn link_map_delete_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), VmExecutionError> {
+fn link_map_delete_fn(
+    linker: &mut Linker<ClarityWasmContext<'static, 'static>>,
+) -> Result<(), VmExecutionError> {
     linker
         .func_wrap(
             "clarity",
             "map_delete",
-            |mut caller: Caller<'_, ClarityWasmContext>,
+            |mut caller: Caller<'_, ClarityWasmContext<'static, 'static>>,
              name_offset: i32,
              name_length: i32,
              mut key_offset: i32,
@@ -6130,7 +6297,7 @@ fn link_map_delete_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), VmE
 
 /// Set the linked error with the error returned
 fn handle_vm_execution_errors(
-    caller: &mut Caller<'_, ClarityWasmContext>,
+    caller: &mut Caller<'_, ClarityWasmContext<'static, 'static>>,
     error: VmExecutionError,
 ) -> Result<(), VmExecutionError> {
     let linked_error = caller
@@ -6142,13 +6309,11 @@ fn handle_vm_execution_errors(
         .ok_or(VmExecutionError::Wasm(WasmError::GlobalNotFound(
             "runtime-error-linked".to_owned(),
         )))?;
-    // Wrapped in a `Mutex<Option<..>>` so the error mapping can take ownership:
-    // `VmExecutionError` is not `Clone`, and an `ExternRef` payload is only
-    // reachable through a shared reference.
-    match linked_error.set(
-        caller.as_context_mut(),
-        Val::ExternRef(Some(ExternRef::new(Mutex::new(Some(error))))),
-    ) {
+    // Wrapped in an `Option` so the error mapping can take ownership, since
+    // `VmExecutionError` is not `Clone`.
+    let error_ref = ExternRef::new(caller.as_context_mut(), Some(error))
+        .map_err(|e| VmExecutionError::Wasm(WasmError::UnableToWriteMemory(e)))?;
+    match linked_error.set(caller.as_context_mut(), Val::ExternRef(Some(error_ref))) {
         Err(error) => Err(VmExecutionError::Wasm(WasmError::UnableToWriteMemory(
             error,
         ))),
@@ -6158,7 +6323,7 @@ fn handle_vm_execution_errors(
 
 /// Write a `none` result into the return buffer.
 fn write_none_to_wasm(
-    caller: &mut Caller<'_, ClarityWasmContext>,
+    caller: &mut Caller<'_, ClarityWasmContext<'static, 'static>>,
     memory: Memory,
     return_offset: i32,
 ) -> Result<(), VmExecutionError> {
@@ -6182,7 +6347,7 @@ fn write_none_to_wasm(
 /// would treat as a tenure height is mapped onto the corresponding Stacks
 /// block height.
 fn check_height_valid_inner(
-    caller: &mut Caller<'_, ClarityWasmContext>,
+    caller: &mut Caller<'_, ClarityWasmContext<'static, 'static>>,
     memory: Memory,
     height_lo: i64,
     height_hi: i64,
@@ -6242,7 +6407,7 @@ fn check_height_valid_inner(
 /// `get-tenure-info?` host function. These exist only in Clarity 3 and later,
 /// where the argument is always a Stacks block height.
 fn check_height_valid(
-    caller: &mut Caller<'_, ClarityWasmContext>,
+    caller: &mut Caller<'_, ClarityWasmContext<'static, 'static>>,
     memory: Memory,
     height_lo: i64,
     height_hi: i64,
@@ -6254,7 +6419,7 @@ fn check_height_valid(
 /// Resolve the height argument of a `get-block-info?` host function, which for
 /// Clarity 1 and 2 contracts may be a tenure height.
 fn check_block_info_height_valid(
-    caller: &mut Caller<'_, ClarityWasmContext>,
+    caller: &mut Caller<'_, ClarityWasmContext<'static, 'static>>,
     memory: Memory,
     height_lo: i64,
     height_hi: i64,
@@ -6266,13 +6431,13 @@ fn check_block_info_height_valid(
 /// Link host interface function, `get_block_info_time`, into the Wasm module.
 /// This function is called for the `get-block-info? time` expression.
 fn link_get_block_info_time_property_fn(
-    linker: &mut Linker<ClarityWasmContext>,
+    linker: &mut Linker<ClarityWasmContext<'static, 'static>>,
 ) -> Result<(), VmExecutionError> {
     linker
         .func_wrap(
             "clarity",
             "get_block_info_time_property",
-            |mut caller: Caller<'_, ClarityWasmContext>,
+            |mut caller: Caller<'_, ClarityWasmContext<'static, 'static>>,
              height_lo: i64,
              height_hi: i64,
              return_offset: i32,
@@ -6325,13 +6490,13 @@ fn link_get_block_info_time_property_fn(
 /// Link host interface function, `get_block_info_vrf_seed`, into the Wasm module.
 /// This function is called for the `get-block-info? vrf-seed` expression.
 fn link_get_block_info_vrf_seed_property_fn(
-    linker: &mut Linker<ClarityWasmContext>,
+    linker: &mut Linker<ClarityWasmContext<'static, 'static>>,
 ) -> Result<(), VmExecutionError> {
     linker
         .func_wrap(
             "clarity",
             "get_block_info_vrf_seed_property",
-            |mut caller: Caller<'_, ClarityWasmContext>,
+            |mut caller: Caller<'_, ClarityWasmContext<'static, 'static>>,
              height_lo: i64,
              height_hi: i64,
              return_offset: i32,
@@ -6388,13 +6553,13 @@ fn link_get_block_info_vrf_seed_property_fn(
 /// Link host interface function, `get_block_info_header_hash`, into the Wasm module.
 /// This function is called for the `get-block-info? header-hash` expression.
 fn link_get_block_info_header_hash_property_fn(
-    linker: &mut Linker<ClarityWasmContext>,
+    linker: &mut Linker<ClarityWasmContext<'static, 'static>>,
 ) -> Result<(), VmExecutionError> {
     linker
         .func_wrap(
             "clarity",
             "get_block_info_header_hash_property",
-            |mut caller: Caller<'_, ClarityWasmContext>,
+            |mut caller: Caller<'_, ClarityWasmContext<'static, 'static>>,
              height_lo: i64,
              height_hi: i64,
              return_offset: i32,
@@ -6451,13 +6616,13 @@ fn link_get_block_info_header_hash_property_fn(
 /// Link host interface function, `get_block_info_burnchain_header_hash`, into the Wasm module.
 /// This function is called for the `get-block-info? burnchain-header-hash` expression.
 fn link_get_block_info_burnchain_header_hash_property_fn(
-    linker: &mut Linker<ClarityWasmContext>,
+    linker: &mut Linker<ClarityWasmContext<'static, 'static>>,
 ) -> Result<(), VmExecutionError> {
     linker
         .func_wrap(
             "clarity",
             "get_block_info_burnchain_header_hash_property",
-            |mut caller: Caller<'_, ClarityWasmContext>,
+            |mut caller: Caller<'_, ClarityWasmContext<'static, 'static>>,
              height_lo: i64,
              height_hi: i64,
              return_offset: i32,
@@ -6514,13 +6679,13 @@ fn link_get_block_info_burnchain_header_hash_property_fn(
 /// Link host interface function, `get_block_info_id_header_hash`, into the Wasm module.
 /// This function is called for the `get-block-info? id-header-hash` expression.
 fn link_get_block_info_identity_header_hash_property_fn(
-    linker: &mut Linker<ClarityWasmContext>,
+    linker: &mut Linker<ClarityWasmContext<'static, 'static>>,
 ) -> Result<(), VmExecutionError> {
     linker
         .func_wrap(
             "clarity",
             "get_block_info_identity_header_hash_property",
-            |mut caller: Caller<'_, ClarityWasmContext>,
+            |mut caller: Caller<'_, ClarityWasmContext<'static, 'static>>,
              height_lo: i64,
              height_hi: i64,
              return_offset: i32,
@@ -6577,13 +6742,13 @@ fn link_get_block_info_identity_header_hash_property_fn(
 /// Link host interface function, `get_block_info_miner_address`, into the Wasm module.
 /// This function is called for the `get-block-info? miner-address` expression.
 fn link_get_block_info_miner_address_property_fn(
-    linker: &mut Linker<ClarityWasmContext>,
+    linker: &mut Linker<ClarityWasmContext<'static, 'static>>,
 ) -> Result<(), VmExecutionError> {
     linker
         .func_wrap(
             "clarity",
             "get_block_info_miner_address_property",
-            |mut caller: Caller<'_, ClarityWasmContext>,
+            |mut caller: Caller<'_, ClarityWasmContext<'static, 'static>>,
              height_lo: i64,
              height_hi: i64,
              return_offset: i32,
@@ -6634,13 +6799,13 @@ fn link_get_block_info_miner_address_property_fn(
 /// Link host interface function, `get_block_info_miner_spend_winner`, into the Wasm module.
 /// This function is called for the `get-block-info? miner-spend-winner` expression.
 fn link_get_block_info_miner_spend_winner_property_fn(
-    linker: &mut Linker<ClarityWasmContext>,
+    linker: &mut Linker<ClarityWasmContext<'static, 'static>>,
 ) -> Result<(), VmExecutionError> {
     linker
         .func_wrap(
             "clarity",
             "get_block_info_miner_spend_winner_property",
-            |mut caller: Caller<'_, ClarityWasmContext>,
+            |mut caller: Caller<'_, ClarityWasmContext<'static, 'static>>,
              height_lo: i64,
              height_hi: i64,
              return_offset: i32,
@@ -6690,13 +6855,13 @@ fn link_get_block_info_miner_spend_winner_property_fn(
 /// Link host interface function, `get_block_info_miner_spend_total`, into the Wasm module.
 /// This function is called for the `get-block-info? miner-spend-total` expression.
 fn link_get_block_info_miner_spend_total_property_fn(
-    linker: &mut Linker<ClarityWasmContext>,
+    linker: &mut Linker<ClarityWasmContext<'static, 'static>>,
 ) -> Result<(), VmExecutionError> {
     linker
         .func_wrap(
             "clarity",
             "get_block_info_miner_spend_total_property",
-            |mut caller: Caller<'_, ClarityWasmContext>,
+            |mut caller: Caller<'_, ClarityWasmContext<'static, 'static>>,
              height_lo: i64,
              height_hi: i64,
              return_offset: i32,
@@ -6746,13 +6911,13 @@ fn link_get_block_info_miner_spend_total_property_fn(
 /// Link host interface function, `get_block_info_block_reward`, into the Wasm module.
 /// This function is called for the `get-block-info? block-reward` expression.
 fn link_get_block_info_block_reward_property_fn(
-    linker: &mut Linker<ClarityWasmContext>,
+    linker: &mut Linker<ClarityWasmContext<'static, 'static>>,
 ) -> Result<(), VmExecutionError> {
     linker
         .func_wrap(
             "clarity",
             "get_block_info_block_reward_property",
-            |mut caller: Caller<'_, ClarityWasmContext>,
+            |mut caller: Caller<'_, ClarityWasmContext<'static, 'static>>,
              height_lo: i64,
              height_hi: i64,
              return_offset: i32,
@@ -6820,13 +6985,13 @@ fn link_get_block_info_block_reward_property_fn(
 /// Link host interface function, `get_burn_block_info_header_hash_property`, into the Wasm module.
 /// This function is called for the `get-burn-block-info? header-hash` expression.
 fn link_get_burn_block_info_header_hash_property_fn(
-    linker: &mut Linker<ClarityWasmContext>,
+    linker: &mut Linker<ClarityWasmContext<'static, 'static>>,
 ) -> Result<(), VmExecutionError> {
     linker
         .func_wrap(
             "clarity",
             "get_burn_block_info_header_hash_property",
-            |mut caller: Caller<'_, ClarityWasmContext>,
+            |mut caller: Caller<'_, ClarityWasmContext<'static, 'static>>,
              height_lo: i64,
              height_hi: i64,
              return_offset: i32,
@@ -6895,13 +7060,13 @@ fn link_get_burn_block_info_header_hash_property_fn(
 /// Link host interface function, `get_burn_block_info_pox_addrs_property`, into the Wasm module.
 /// This function is called for the `get-burn-block-info? pox-addrs` expression.
 fn link_get_burn_block_info_pox_addrs_property_fn(
-    linker: &mut Linker<ClarityWasmContext>,
+    linker: &mut Linker<ClarityWasmContext<'static, 'static>>,
 ) -> Result<(), VmExecutionError> {
     linker
         .func_wrap(
             "clarity",
             "get_burn_block_info_pox_addrs_property",
-            |mut caller: Caller<'_, ClarityWasmContext>,
+            |mut caller: Caller<'_, ClarityWasmContext<'static, 'static>>,
              height_lo: i64,
              height_hi: i64,
              return_offset: i32,
@@ -6994,13 +7159,13 @@ fn link_get_burn_block_info_pox_addrs_property_fn(
 /// Link host interface function, `get_stacks_block_info_time`, into the Wasm module.
 /// This function is called for the `get-stacks-block-info? id-header-hash` expression.
 fn link_get_stacks_block_info_time_property_fn(
-    linker: &mut Linker<ClarityWasmContext>,
+    linker: &mut Linker<ClarityWasmContext<'static, 'static>>,
 ) -> Result<(), VmExecutionError> {
     linker
         .func_wrap(
             "clarity",
             "get_stacks_block_info_time_property",
-            |mut caller: Caller<'_, ClarityWasmContext>,
+            |mut caller: Caller<'_, ClarityWasmContext<'static, 'static>>,
              height_lo: i64,
              height_hi: i64,
              return_offset: i32,
@@ -7047,13 +7212,13 @@ fn link_get_stacks_block_info_time_property_fn(
 /// Link host interface function, `get_stacks_block_info_header_hash`, into the Wasm module.
 /// This function is called for the `get-stacks-block-info? header-hash` expression.
 fn link_get_stacks_block_info_header_hash_property_fn(
-    linker: &mut Linker<ClarityWasmContext>,
+    linker: &mut Linker<ClarityWasmContext<'static, 'static>>,
 ) -> Result<(), VmExecutionError> {
     linker
         .func_wrap(
             "clarity",
             "get_stacks_block_info_header_hash_property",
-            |mut caller: Caller<'_, ClarityWasmContext>,
+            |mut caller: Caller<'_, ClarityWasmContext<'static, 'static>>,
              height_lo: i64,
              height_hi: i64,
              return_offset: i32,
@@ -7106,13 +7271,13 @@ fn link_get_stacks_block_info_header_hash_property_fn(
 /// Link host interface function, `get_stacks_block_info_identity_header_hash_`, into the Wasm module.
 /// This function is called for the `get-stacks-block-info? time` expression.
 fn link_get_stacks_block_info_identity_header_hash_property_fn(
-    linker: &mut Linker<ClarityWasmContext>,
+    linker: &mut Linker<ClarityWasmContext<'static, 'static>>,
 ) -> Result<(), VmExecutionError> {
     linker
         .func_wrap(
             "clarity",
             "get_stacks_block_info_identity_header_hash_property",
-            |mut caller: Caller<'_, ClarityWasmContext>,
+            |mut caller: Caller<'_, ClarityWasmContext<'static, 'static>>,
              height_lo: i64,
              height_hi: i64,
              return_offset: i32,
@@ -7165,13 +7330,13 @@ fn link_get_stacks_block_info_identity_header_hash_property_fn(
 /// Link host interface function, `get_tenure_info_burnchain_header_hash`, into the Wasm module.
 /// This function is called for the `get-tenure-info? burnchain-header-hash` expression.
 fn link_get_tenure_info_burnchain_header_hash_property_fn(
-    linker: &mut Linker<ClarityWasmContext>,
+    linker: &mut Linker<ClarityWasmContext<'static, 'static>>,
 ) -> Result<(), VmExecutionError> {
     linker
         .func_wrap(
             "clarity",
             "get_tenure_info_burnchain_header_hash_property",
-            |mut caller: Caller<'_, ClarityWasmContext>,
+            |mut caller: Caller<'_, ClarityWasmContext<'static, 'static>>,
              height_lo: i64,
              height_hi: i64,
              return_offset: i32,
@@ -7224,13 +7389,13 @@ fn link_get_tenure_info_burnchain_header_hash_property_fn(
 /// Link host interface function, `get_tenure_info_miner_address`, into the Wasm module.
 /// This function is called for the `get-tenure-info? miner-address` expression.
 fn link_get_tenure_info_miner_address_property_fn(
-    linker: &mut Linker<ClarityWasmContext>,
+    linker: &mut Linker<ClarityWasmContext<'static, 'static>>,
 ) -> Result<(), VmExecutionError> {
     linker
         .func_wrap(
             "clarity",
             "get_tenure_info_miner_address_property",
-            |mut caller: Caller<'_, ClarityWasmContext>,
+            |mut caller: Caller<'_, ClarityWasmContext<'static, 'static>>,
              height_lo: i64,
              height_hi: i64,
              return_offset: i32,
@@ -7277,13 +7442,13 @@ fn link_get_tenure_info_miner_address_property_fn(
 /// Link host interface function, `get_tenure_info_time`, into the Wasm module.
 /// This function is called for the `get-tenure-info? time` expression.
 fn link_get_tenure_info_time_property_fn(
-    linker: &mut Linker<ClarityWasmContext>,
+    linker: &mut Linker<ClarityWasmContext<'static, 'static>>,
 ) -> Result<(), VmExecutionError> {
     linker
         .func_wrap(
             "clarity",
             "get_tenure_info_time_property",
-            |mut caller: Caller<'_, ClarityWasmContext>,
+            |mut caller: Caller<'_, ClarityWasmContext<'static, 'static>>,
              height_lo: i64,
              height_hi: i64,
              return_offset: i32,
@@ -7329,13 +7494,13 @@ fn link_get_tenure_info_time_property_fn(
 /// Link host interface function, `get_tenure_info_vrf_seed_property`, into the Wasm module.
 /// This function is called for the `get-tenure-info? vrf-seed` expression.
 fn link_get_tenure_info_vrf_seed_property_fn(
-    linker: &mut Linker<ClarityWasmContext>,
+    linker: &mut Linker<ClarityWasmContext<'static, 'static>>,
 ) -> Result<(), VmExecutionError> {
     linker
         .func_wrap(
             "clarity",
             "get_tenure_info_vrf_seed_property",
-            |mut caller: Caller<'_, ClarityWasmContext>,
+            |mut caller: Caller<'_, ClarityWasmContext<'static, 'static>>,
              height_lo: i64,
              height_hi: i64,
              return_offset: i32,
@@ -7388,13 +7553,13 @@ fn link_get_tenure_info_vrf_seed_property_fn(
 /// Link host interface function, `get_tenure_info_block_reward`, into the Wasm module.
 /// This function is called for the `get-tenure-info? block-reward` expression.
 fn link_get_tenure_info_block_reward_property_fn(
-    linker: &mut Linker<ClarityWasmContext>,
+    linker: &mut Linker<ClarityWasmContext<'static, 'static>>,
 ) -> Result<(), VmExecutionError> {
     linker
         .func_wrap(
             "clarity",
             "get_tenure_info_block_reward_property",
-            |mut caller: Caller<'_, ClarityWasmContext>,
+            |mut caller: Caller<'_, ClarityWasmContext<'static, 'static>>,
              height_lo: i64,
              height_hi: i64,
              return_offset: i32,
@@ -7458,13 +7623,13 @@ fn link_get_tenure_info_block_reward_property_fn(
 /// Link host interface function, `get_tenure_info_miner_spend_total`, into the Wasm module.
 /// This function is called for the `get-tenure-info? miner-spend-total` expression.
 fn link_get_tenure_info_miner_spend_total_property_fn(
-    linker: &mut Linker<ClarityWasmContext>,
+    linker: &mut Linker<ClarityWasmContext<'static, 'static>>,
 ) -> Result<(), VmExecutionError> {
     linker
         .func_wrap(
             "clarity",
             "get_tenure_info_miner_spend_total_property",
-            |mut caller: Caller<'_, ClarityWasmContext>,
+            |mut caller: Caller<'_, ClarityWasmContext<'static, 'static>>,
              height_lo: i64,
              height_hi: i64,
              return_offset: i32,
@@ -7510,13 +7675,13 @@ fn link_get_tenure_info_miner_spend_total_property_fn(
 /// Link host interface function, `get_tenure_info_miner_spend_winner`, into the Wasm module.
 /// This function is called for the `get-tenure-info? miner-spend-winner` expression.
 fn link_get_tenure_info_miner_spend_winner_property_fn(
-    linker: &mut Linker<ClarityWasmContext>,
+    linker: &mut Linker<ClarityWasmContext<'static, 'static>>,
 ) -> Result<(), VmExecutionError> {
     linker
         .func_wrap(
             "clarity",
             "get_tenure_info_miner_spend_winner_property",
-            |mut caller: Caller<'_, ClarityWasmContext>,
+            |mut caller: Caller<'_, ClarityWasmContext<'static, 'static>>,
              height_lo: i64,
              height_hi: i64,
              return_offset: i32,
@@ -7561,12 +7726,14 @@ fn link_get_tenure_info_miner_spend_winner_property_fn(
 
 /// Link host interface function, `contract_call`, into the Wasm module.
 /// This function is called for `contract-call?`s.
-fn link_contract_call_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), VmExecutionError> {
+fn link_contract_call_fn(
+    linker: &mut Linker<ClarityWasmContext<'static, 'static>>,
+) -> Result<(), VmExecutionError> {
     linker
         .func_wrap(
             "clarity",
             "contract_call",
-            |mut caller: Caller<'_, ClarityWasmContext>,
+            |mut caller: Caller<'_, ClarityWasmContext<'static, 'static>>,
              trait_id_offset: i32,
              trait_id_length: i32,
              contract_offset: i32,
@@ -7897,12 +8064,14 @@ fn link_contract_call_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), 
         })
 }
 
-fn link_contract_hash_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), VmExecutionError> {
+fn link_contract_hash_fn(
+    linker: &mut Linker<ClarityWasmContext<'static, 'static>>,
+) -> Result<(), VmExecutionError> {
     linker
         .func_wrap(
             "clarity",
             "contract_hash",
-            |mut caller: Caller<'_, ClarityWasmContext>,
+            |mut caller: Caller<'_, ClarityWasmContext<'static, 'static>>,
              contract_offset: i32,
              contract_length: i32,
              return_offset: i32,
@@ -8003,13 +8172,13 @@ fn link_contract_hash_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), 
 /// Link host interface function, `begin_public_call`, into the Wasm module.
 /// This function is called before a local call to a public function.
 fn link_begin_public_call_fn(
-    linker: &mut Linker<ClarityWasmContext>,
+    linker: &mut Linker<ClarityWasmContext<'static, 'static>>,
 ) -> Result<(), VmExecutionError> {
     linker
         .func_wrap(
             "clarity",
             "begin_public_call",
-            |mut caller: Caller<'_, ClarityWasmContext>| {
+            |mut caller: Caller<'_, ClarityWasmContext<'static, 'static>>| {
                 caller.data_mut().global_context.begin();
                 Ok(())
             },
@@ -8026,13 +8195,13 @@ fn link_begin_public_call_fn(
 /// Link host interface function, `begin_read_only_call`, into the Wasm module.
 /// This function is called before a local call to a public function.
 fn link_begin_read_only_call_fn(
-    linker: &mut Linker<ClarityWasmContext>,
+    linker: &mut Linker<ClarityWasmContext<'static, 'static>>,
 ) -> Result<(), VmExecutionError> {
     linker
         .func_wrap(
             "clarity",
             "begin_read_only_call",
-            |mut caller: Caller<'_, ClarityWasmContext>| {
+            |mut caller: Caller<'_, ClarityWasmContext<'static, 'static>>| {
                 caller.data_mut().global_context.begin_read_only();
                 Ok(())
             },
@@ -8049,12 +8218,14 @@ fn link_begin_read_only_call_fn(
 /// Link host interface function, `commit_call`, into the Wasm module.
 /// This function is called after a local call to a public function to commit
 /// it's changes into the global context.
-fn link_commit_call_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), VmExecutionError> {
+fn link_commit_call_fn(
+    linker: &mut Linker<ClarityWasmContext<'static, 'static>>,
+) -> Result<(), VmExecutionError> {
     linker
         .func_wrap(
             "clarity",
             "commit_call",
-            |mut caller: Caller<'_, ClarityWasmContext>| {
+            |mut caller: Caller<'_, ClarityWasmContext<'static, 'static>>| {
                 caller.data_mut().global_context.commit()?;
                 Ok(())
             },
@@ -8072,12 +8243,14 @@ fn link_commit_call_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Vm
 /// This function is called after a local call to roll back it's changes from
 /// the global context. It is called when a public function errors, or a
 /// read-only call completes.
-fn link_roll_back_call_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), VmExecutionError> {
+fn link_roll_back_call_fn(
+    linker: &mut Linker<ClarityWasmContext<'static, 'static>>,
+) -> Result<(), VmExecutionError> {
     linker
         .func_wrap(
             "clarity",
             "roll_back_call",
-            |mut caller: Caller<'_, ClarityWasmContext>| {
+            |mut caller: Caller<'_, ClarityWasmContext<'static, 'static>>| {
                 caller.data_mut().global_context.roll_back()?;
                 Ok(())
             },
@@ -8093,12 +8266,14 @@ fn link_roll_back_call_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(),
 
 /// Link host interface function, `print`, into the Wasm module.
 /// This function is called for all contract print statements (`print`).
-fn link_print_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), VmExecutionError> {
+fn link_print_fn(
+    linker: &mut Linker<ClarityWasmContext<'static, 'static>>,
+) -> Result<(), VmExecutionError> {
     linker
         .func_wrap(
             "clarity",
             "print",
-            |mut caller: Caller<'_, ClarityWasmContext>,
+            |mut caller: Caller<'_, ClarityWasmContext<'static, 'static>>,
              value_offset: i32,
              _value_length: i32,
              serialized_ty_offset: i32,
@@ -8139,12 +8314,14 @@ fn link_print_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), VmExecut
 /// Link host interface function, `enter_at_block`, into the Wasm module.
 /// This function is called before evaluating the inner expression of an
 /// `at-block` expression.
-fn link_enter_at_block_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), VmExecutionError> {
+fn link_enter_at_block_fn(
+    linker: &mut Linker<ClarityWasmContext<'static, 'static>>,
+) -> Result<(), VmExecutionError> {
     linker
         .func_wrap(
             "clarity",
             "enter_at_block",
-            |mut caller: Caller<'_, ClarityWasmContext>,
+            |mut caller: Caller<'_, ClarityWasmContext<'static, 'static>>,
              block_hash_offset: i32,
              block_hash_length: i32| {
                 // runtime_cost(ClarityCostFunction::AtBlock, env, 0)?;
@@ -8211,12 +8388,14 @@ fn link_enter_at_block_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(),
 /// Link host interface function, `exit_at_block`, into the Wasm module.
 /// This function is called after evaluating the inner expression of an
 /// `at-block` expression, resetting the state back to the current block.
-fn link_exit_at_block_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), VmExecutionError> {
+fn link_exit_at_block_fn(
+    linker: &mut Linker<ClarityWasmContext<'static, 'static>>,
+) -> Result<(), VmExecutionError> {
     linker
         .func_wrap(
             "clarity",
             "exit_at_block",
-            |mut caller: Caller<'_, ClarityWasmContext>| {
+            |mut caller: Caller<'_, ClarityWasmContext<'static, 'static>>| {
                 // Pop back to the current block
                 let bhh = caller.data_mut().pop_at_block()?;
                 caller
@@ -8250,12 +8429,14 @@ fn link_exit_at_block_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), 
 
 /// Link host interface function, `keccak256`, into the Wasm module.
 /// This function is called for the Clarity expression, `keccak256`.
-fn link_keccak256_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), VmExecutionError> {
+fn link_keccak256_fn(
+    linker: &mut Linker<ClarityWasmContext<'static, 'static>>,
+) -> Result<(), VmExecutionError> {
     linker
         .func_wrap(
             "clarity",
             "keccak256",
-            |mut caller: Caller<'_, ClarityWasmContext>,
+            |mut caller: Caller<'_, ClarityWasmContext<'static, 'static>>,
              buffer_offset: i32,
              buffer_length: i32,
              return_offset: i32,
@@ -8289,12 +8470,14 @@ fn link_keccak256_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), VmEx
 
 /// Link host interface function, `sha512`, into the Wasm module.
 /// This function is called for the Clarity expression, `sha512`.
-fn link_sha512_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), VmExecutionError> {
+fn link_sha512_fn(
+    linker: &mut Linker<ClarityWasmContext<'static, 'static>>,
+) -> Result<(), VmExecutionError> {
     linker
         .func_wrap(
             "clarity",
             "sha512",
-            |mut caller: Caller<'_, ClarityWasmContext>,
+            |mut caller: Caller<'_, ClarityWasmContext<'static, 'static>>,
              buffer_offset: i32,
              buffer_length: i32,
              return_offset: i32,
@@ -8325,12 +8508,14 @@ fn link_sha512_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), VmExecu
 
 /// Link host interface function, `sha512_256`, into the Wasm module.
 /// This function is called for the Clarity expression, `sha512/256`.
-fn link_sha512_256_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), VmExecutionError> {
+fn link_sha512_256_fn(
+    linker: &mut Linker<ClarityWasmContext<'static, 'static>>,
+) -> Result<(), VmExecutionError> {
     linker
         .func_wrap(
             "clarity",
             "sha512_256",
-            |mut caller: Caller<'_, ClarityWasmContext>,
+            |mut caller: Caller<'_, ClarityWasmContext<'static, 'static>>,
              buffer_offset: i32,
              buffer_length: i32,
              return_offset: i32,
@@ -8365,13 +8550,13 @@ fn link_sha512_256_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), VmE
 /// Link host interface function, `secp256k1_recover`, into the Wasm module.
 /// This function is called for the Clarity expression, `secp256k1-recover?`.
 fn link_secp256k1_recover_fn(
-    linker: &mut Linker<ClarityWasmContext>,
+    linker: &mut Linker<ClarityWasmContext<'static, 'static>>,
 ) -> Result<(), VmExecutionError> {
     linker
         .func_wrap(
             "clarity",
             "secp256k1_recover",
-            |mut caller: Caller<'_, ClarityWasmContext>,
+            |mut caller: Caller<'_, ClarityWasmContext<'static, 'static>>,
              msg_offset: i32,
              msg_length: i32,
              sig_offset: i32,
@@ -8453,13 +8638,13 @@ fn link_secp256k1_recover_fn(
 /// Link host interface function, `secp256k1_verify`, into the Wasm module.
 /// This function is called for the Clarity expression, `secp256k1-verify`.
 fn link_secp256k1_verify_fn(
-    linker: &mut Linker<ClarityWasmContext>,
+    linker: &mut Linker<ClarityWasmContext<'static, 'static>>,
 ) -> Result<(), VmExecutionError> {
     linker
         .func_wrap(
             "clarity",
             "secp256k1_verify",
-            |mut caller: Caller<'_, ClarityWasmContext>,
+            |mut caller: Caller<'_, ClarityWasmContext<'static, 'static>>,
              msg_offset: i32,
              msg_length: i32,
              sig_offset: i32,
@@ -8524,13 +8709,13 @@ fn link_secp256k1_verify_fn(
 /// Link host interface function, `secp256k1_decompress`, into the Wasm module.
 /// This function is called for the Clarity expression, `secp256k1-decompress?`.
 fn link_secp256k1_decompress_fn(
-    linker: &mut Linker<ClarityWasmContext>,
+    linker: &mut Linker<ClarityWasmContext<'static, 'static>>,
 ) -> Result<(), VmExecutionError> {
     linker
         .func_wrap(
             "clarity",
             "secp256k1_decompress",
-            |mut caller: Caller<'_, ClarityWasmContext>,
+            |mut caller: Caller<'_, ClarityWasmContext<'static, 'static>>,
              msg_offset: i32,
              msg_length: i32,
              return_offset: i32,
@@ -8588,13 +8773,13 @@ fn link_secp256k1_decompress_fn(
 }
 
 fn link_secp256r1_verify_double_hash_fn(
-    linker: &mut Linker<ClarityWasmContext>,
+    linker: &mut Linker<ClarityWasmContext<'static, 'static>>,
 ) -> Result<(), VmExecutionError> {
     linker
         .func_wrap(
             "clarity",
             "secp256r1_verify_double_hash",
-            |mut caller: Caller<'_, ClarityWasmContext>,
+            |mut caller: Caller<'_, ClarityWasmContext<'static, 'static>>,
              msg_offset: i32,
              msg_length: i32,
              sig_offset: i32,
@@ -8629,13 +8814,13 @@ fn link_secp256r1_verify_double_hash_fn(
 }
 
 fn link_secp256r1_verify_simple_hash_fn(
-    linker: &mut Linker<ClarityWasmContext>,
+    linker: &mut Linker<ClarityWasmContext<'static, 'static>>,
 ) -> Result<(), VmExecutionError> {
     linker
         .func_wrap(
             "clarity",
             "secp256r1_verify_simple_hash",
-            |mut caller: Caller<'_, ClarityWasmContext>,
+            |mut caller: Caller<'_, ClarityWasmContext<'static, 'static>>,
              msg_offset: i32,
              msg_length: i32,
              sig_offset: i32,
@@ -8672,13 +8857,13 @@ fn link_secp256r1_verify_simple_hash_fn(
 /// Link host interface function, `verify_merkle_proof`, into the Wasm module.
 /// This function is called for the Clarity expression, `verify-merkle-proof`.
 fn link_verify_merkle_proof_fn(
-    linker: &mut Linker<ClarityWasmContext>,
+    linker: &mut Linker<ClarityWasmContext<'static, 'static>>,
 ) -> Result<(), VmExecutionError> {
     linker
         .func_wrap(
             "clarity",
             "verify_merkle_proof",
-            |mut caller: Caller<'_, ClarityWasmContext>,
+            |mut caller: Caller<'_, ClarityWasmContext<'static, 'static>>,
              leaf_offset: i32,
              leaf_length: i32,
              root_offset: i32,
@@ -8744,12 +8929,14 @@ fn link_verify_merkle_proof_fn(
 
 /// Link host interface function, `ed25519_verify`, into the Wasm module.
 /// This function is called for the Clarity expression, `ed25519-verify`.
-fn link_ed25519_verify_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), VmExecutionError> {
+fn link_ed25519_verify_fn(
+    linker: &mut Linker<ClarityWasmContext<'static, 'static>>,
+) -> Result<(), VmExecutionError> {
     linker
         .func_wrap(
             "clarity",
             "ed25519_verify",
-            |mut caller: Caller<'_, ClarityWasmContext>,
+            |mut caller: Caller<'_, ClarityWasmContext<'static, 'static>>,
              msg_offset: i32,
              msg_length: i32,
              sig_offset: i32,
@@ -8799,13 +8986,13 @@ fn link_ed25519_verify_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(),
 /// Link host interface function, `get_bitcoin_tx_output`, into the Wasm module.
 /// This function is called for the Clarity expression, `get-bitcoin-tx-output?`.
 fn link_get_bitcoin_tx_output_fn(
-    linker: &mut Linker<ClarityWasmContext>,
+    linker: &mut Linker<ClarityWasmContext<'static, 'static>>,
 ) -> Result<(), VmExecutionError> {
     linker
         .func_wrap(
             "clarity",
             "get_bitcoin_tx_output",
-            |mut caller: Caller<'_, ClarityWasmContext>,
+            |mut caller: Caller<'_, ClarityWasmContext<'static, 'static>>,
              tx_offset: i32,
              tx_length: i32,
              vout_lo: i64,
@@ -8865,12 +9052,14 @@ fn link_get_bitcoin_tx_output_fn(
 }
 /// Link host interface function, `principal_of`, into the Wasm module.
 /// This function is called for the Clarity expression, `principal-of?`.
-fn link_principal_of_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), VmExecutionError> {
+fn link_principal_of_fn(
+    linker: &mut Linker<ClarityWasmContext<'static, 'static>>,
+) -> Result<(), VmExecutionError> {
     linker
         .func_wrap(
             "clarity",
             "principal_of",
-            |mut caller: Caller<'_, ClarityWasmContext>,
+            |mut caller: Caller<'_, ClarityWasmContext<'static, 'static>>,
              key_offset: i32,
              key_length: i32,
              principal_offset: i32| {
@@ -8960,12 +9149,14 @@ fn link_principal_of_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), V
         })
 }
 
-fn link_save_constant_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), VmExecutionError> {
+fn link_save_constant_fn(
+    linker: &mut Linker<ClarityWasmContext<'static, 'static>>,
+) -> Result<(), VmExecutionError> {
     linker
         .func_wrap(
             "clarity",
             "save_constant",
-            |mut caller: Caller<'_, ClarityWasmContext>,
+            |mut caller: Caller<'_, ClarityWasmContext<'static, 'static>>,
              name_offset: i32,
              name_length: i32,
              value_offset: i32,
@@ -9012,12 +9203,14 @@ fn link_save_constant_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), 
         })
 }
 
-fn link_load_constant_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), VmExecutionError> {
+fn link_load_constant_fn(
+    linker: &mut Linker<ClarityWasmContext<'static, 'static>>,
+) -> Result<(), VmExecutionError> {
     linker
         .func_wrap(
             "clarity",
             "load_constant",
-            |mut caller: Caller<'_, ClarityWasmContext>,
+            |mut caller: Caller<'_, ClarityWasmContext<'static, 'static>>,
              name_offset: i32,
              name_length: i32,
              value_offset: i32,
@@ -9068,13 +9261,13 @@ fn link_load_constant_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), 
 }
 
 fn link_principal_to_string_ascii(
-    linker: &mut Linker<ClarityWasmContext>,
+    linker: &mut Linker<ClarityWasmContext<'static, 'static>>,
 ) -> Result<(), VmExecutionError> {
     linker
         .func_wrap(
             "clarity",
             "principal_to_string_ascii",
-            |mut caller: Caller<'_, ClarityWasmContext>,
+            |mut caller: Caller<'_, ClarityWasmContext<'static, 'static>>,
              principal_offset: i32,
              principal_length: i32,
              result_offset: i32,
@@ -9122,7 +9315,7 @@ fn link_principal_to_string_ascii(
         })
 }
 
-fn link_skip_list<T>(linker: &mut Linker<T>) -> Result<(), VmExecutionError> {
+fn link_skip_list<T: 'static>(linker: &mut Linker<T>) -> Result<(), VmExecutionError> {
     linker
         .func_wrap(
             "clarity",
@@ -9163,7 +9356,7 @@ fn link_skip_list<T>(linker: &mut Linker<T>) -> Result<(), VmExecutionError> {
 /// Link host-interface function, `log`, into the Wasm module.
 /// This function is used for debugging the Wasm, and should not be called in
 /// production.
-fn link_log<T>(linker: &mut Linker<T>) -> Result<(), VmExecutionError> {
+fn link_log<T: 'static>(linker: &mut Linker<T>) -> Result<(), VmExecutionError> {
     linker
         .func_wrap("", "log", |_: Caller<'_, T>, param: i64| {
             println!("log: {param}");
@@ -9177,7 +9370,7 @@ fn link_log<T>(linker: &mut Linker<T>) -> Result<(), VmExecutionError> {
 /// Link host-interface function, `debug_msg`, into the Wasm module.
 /// This function is used for debugging the Wasm, and should not be called in
 /// production.
-fn link_debug_msg<T>(linker: &mut Linker<T>) -> Result<(), VmExecutionError> {
+fn link_debug_msg<T: 'static>(linker: &mut Linker<T>) -> Result<(), VmExecutionError> {
     linker
         .func_wrap("", "debug_msg", |_caller: Caller<'_, T>, param: i32| {
             println!("debug messages are currently not supported in cross-contract calls ({param})")
@@ -10704,8 +10897,6 @@ mod tests {
 }
 
 mod error_mapping {
-    use std::sync::Mutex;
-
     use stacks_common::types::StacksEpochId;
     use wasmtime::{AsContextMut, Instance, Trap};
 
@@ -11078,20 +11269,19 @@ mod error_mapping {
                         )),
                         Some(linked_error) => {
                             match linked_error
-                                .data()
-                                .downcast_ref::<Mutex<Option<VmExecutionError>>>()
+                                .data_mut(store.as_context_mut())
+                                .ok()
+                                .flatten()
+                                .and_then(|data| data.downcast_mut::<Option<VmExecutionError>>())
                             {
                                 None => VmExecutionError::Wasm(WasmError::Expect(
                                     "linked-error should hold an error type".to_owned(),
                                 )),
-                                Some(slot) => {
-                                    let mut slot = slot.lock().unwrap_or_else(|e| e.into_inner());
-                                    slot.take().unwrap_or_else(|| {
-                                        VmExecutionError::Wasm(WasmError::Expect(
-                                            "linked-error had already been taken".to_owned(),
-                                        ))
-                                    })
-                                }
+                                Some(slot) => slot.take().unwrap_or_else(|| {
+                                    VmExecutionError::Wasm(WasmError::Expect(
+                                        "linked-error had already been taken".to_owned(),
+                                    ))
+                                }),
                             }
                         }
                     },
@@ -11254,7 +11444,7 @@ pub struct CostGlobals {
 }
 
 impl CostGlobals {
-    pub fn to_cost_meter<T>(
+    pub fn to_cost_meter<T: 'static>(
         &self,
         store: &mut impl AsContextMut<Data = T>,
     ) -> wasmtime::Result<CostMeter> {
@@ -11293,7 +11483,7 @@ impl CostGlobals {
         })
     }
 
-    pub fn from_cost_meter<T>(
+    pub fn from_cost_meter<T: 'static>(
         &mut self,
         store: &mut impl AsContextMut<Data = T>,
         cost_meter: &CostMeter,
@@ -11358,7 +11548,7 @@ impl CostMeter {
 }
 
 /// Trait for a `Linker` that can be used to retrieve the cost globals.
-pub trait CostLinker<T> {
+pub trait CostLinker<T: 'static> {
     /// Get the cost globals.
     fn get_cost_globals(&self, store: impl AsContextMut<Data = T>)
     -> wasmtime::Result<CostGlobals>;
@@ -11422,7 +11612,7 @@ impl SubAssign<CostMeter> for CostMeter {
 
 impl std::error::Error for GetCostGlobalsError {}
 
-impl<T> CostLinker<T> for wasmtime::Linker<T> {
+impl<T: 'static> CostLinker<T> for wasmtime::Linker<T> {
     fn get_cost_globals(
         &self,
         mut store: impl AsContextMut<Data = T>,
@@ -11438,11 +11628,11 @@ impl<T> CostLinker<T> for wasmtime::Linker<T> {
         use GetCostGlobalsError::*;
 
         fn unwrap_global_or(
-            ext: Option<Extern>,
+            ext: wasmtime::Result<Extern>,
             err: GetCostGlobalsError,
         ) -> Result<Global, GetCostGlobalsError> {
             match ext {
-                Some(Extern::Global(global)) => Ok(global),
+                Ok(Extern::Global(global)) => Ok(global),
                 _ => Err(err),
             }
         }
@@ -11458,7 +11648,7 @@ impl<T> CostLinker<T> for wasmtime::Linker<T> {
 }
 
 /// Trait to manipulate the values of a cost meter.
-pub trait AccessCostMeter<T>: CostLinker<T> {
+pub trait AccessCostMeter<T: 'static>: CostLinker<T> {
     /// Get the current value of the cost meter.
     fn get_cost_meter(
         &self,
@@ -11553,7 +11743,7 @@ impl From<ExecutionCost> for CostMeter {
     }
 }
 
-impl<D, T: CostLinker<D>> AccessCostMeter<D> for T {}
+impl<D: 'static, T: CostLinker<D>> AccessCostMeter<D> for T {}
 
 // Doing a contract call involves costs charges.
 // But these should not be conflated with a word cost.
