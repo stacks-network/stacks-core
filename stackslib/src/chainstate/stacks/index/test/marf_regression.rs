@@ -14,7 +14,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use clarity::types::chainstate::TrieHash;
+use stacks_common::types::chainstate::TrieHash;
 
 use crate::chainstate::stacks::index::marf::MARFOpenOpts;
 use crate::chainstate::stacks::index::test::{make_test_insert_data, opts};
@@ -24,7 +24,7 @@ mod utils {
     use std::fs;
     use std::time::SystemTime;
 
-    use clarity::types::chainstate::{BlockHeaderHash, TrieHash};
+    use stacks_common::types::chainstate::{BlockHeaderHash, TrieHash};
 
     use crate::chainstate::stacks::index::marf::{MARFOpenOpts, MARF};
     use crate::chainstate::stacks::index::storage::{TrieFileStorage, TrieHashCalculationMode};
