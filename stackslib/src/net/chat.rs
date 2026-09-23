@@ -309,6 +309,7 @@ impl NeighborStats {
     }
 
     /// Determine how many of a particular message this peer has received
+    #[cfg(test)]
     pub fn get_message_recv_count(&self, msg_id: StacksMessageID) -> u64 {
         *(self.msg_rx_counts.get(&msg_id).unwrap_or(&0))
     }
@@ -2483,6 +2484,7 @@ impl ConversationP2P {
     }
 
     /// How many pending outgoing messages are there
+    #[cfg(test)]
     pub fn num_pending_outbound(&self) -> usize {
         self.reply_handles.len()
     }
@@ -3027,6 +3029,7 @@ impl ConversationP2P {
     }
 
     /// Get a ref to the conversation stats
+    #[cfg(test)]
     pub fn get_stats(&self) -> &NeighborStats {
         &self.stats
     }

@@ -147,6 +147,7 @@ impl InvGenerator {
         }
     }
 
+    #[cfg(test)]
     pub fn with_tip_ancestor_search_depth(mut self, depth: u64) -> Self {
         self.tip_ancestor_search_depth = depth;
         self

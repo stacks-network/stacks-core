@@ -195,6 +195,7 @@ impl StackerDBTx<'_> {
 
     /// Delete a stacker DB table and its contents.
     /// Idempotent.
+    #[cfg(test)]
     pub fn delete_stackerdb(
         &self,
         smart_contract_id: &QualifiedContractIdentifier,
@@ -274,6 +275,7 @@ impl StackerDBTx<'_> {
     /// Clear a database's slots and its data.
     /// Idempotent.
     /// Fails if the DB doesn't exist
+    #[cfg(test)]
     pub fn clear_stackerdb_slots(
         &self,
         smart_contract: &QualifiedContractIdentifier,

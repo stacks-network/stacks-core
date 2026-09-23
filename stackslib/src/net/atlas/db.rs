@@ -447,6 +447,7 @@ impl AtlasDB {
         Ok(tx)
     }
 
+    #[cfg(test)]
     pub fn get_minmax_heights_window_for_page_index(
         &self,
         page_index: u32,
@@ -566,6 +567,7 @@ impl AtlasDB {
         Ok(count)
     }
 
+    #[cfg(test)]
     pub fn count_unresolved_attachment_instances(&self) -> Result<u32, db_error> {
         let qry = "SELECT COUNT(rowid) FROM attachment_instances
                    WHERE is_available = 0";

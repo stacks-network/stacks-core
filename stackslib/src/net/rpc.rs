@@ -126,6 +126,7 @@ impl ConversationHttp {
     }
 
     /// How many ongoing requests do we have on this conversation?
+    #[cfg(test)]
     pub fn num_pending_outbound(&self) -> usize {
         self.reply_streams.len()
     }

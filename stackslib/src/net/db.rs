@@ -810,6 +810,7 @@ impl PeerDB {
     }
 
     /// Set the local IP address and port
+    #[cfg(test)]
     pub fn set_local_ipaddr(
         tx: &Transaction,
         addrbytes: &PeerAddress,
@@ -1132,6 +1133,7 @@ impl PeerDB {
     }
 
     /// Remove a peer from the peer database, as well as its stacker DB contracts
+    #[cfg(test)]
     pub fn drop_peer(
         tx: &Transaction,
         network_id: u32,
@@ -1382,6 +1384,7 @@ impl PeerDB {
     }
 
     /// Get a peer's advertized stacker DBs by their IDs.
+    #[cfg(test)]
     pub fn get_peer_stacker_dbs(
         &self,
         neighbor: &Neighbor,
@@ -1576,6 +1579,7 @@ impl PeerDB {
     }
 
     /// Set a allowed CIDR prefix
+    #[cfg(test)]
     pub fn add_allow_cidr(
         tx: &Transaction,
         prefix: &PeerAddress,
@@ -1590,6 +1594,7 @@ impl PeerDB {
     }
 
     /// Set a denied CIDR prefix
+    #[cfg(test)]
     pub fn add_deny_cidr(
         tx: &Transaction,
         prefix: &PeerAddress,
@@ -1727,6 +1732,7 @@ impl PeerDB {
     /// -- always include all allowed neighbors
     /// -- never include denied neighbors
     /// -- for neighbors that are neither allowed nor denied, sample them randomly as long as they're fresh.
+    #[cfg(test)]
     pub fn get_initial_neighbors(
         conn: &DBConn,
         network_id: u32,

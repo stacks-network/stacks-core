@@ -1063,6 +1063,7 @@ impl InvState {
 
     /// How many sortitions do we know about from this neighbor?
     /// Ignores broken or diverged peers.
+    #[cfg(test)]
     pub fn get_inv_sortitions(&self, nk: &NeighborKey) -> u64 {
         if self.get_peer_status(nk) != NodeStatus::Online {
             return 0;
@@ -1076,6 +1077,7 @@ impl InvState {
 
     /// How many blocks do we know about from this neighbor?
     /// Ignores broken or diverged peers
+    #[cfg(test)]
     pub fn get_inv_num_blocks(&self, nk: &NeighborKey) -> u64 {
         if self.get_peer_status(nk) != NodeStatus::Online {
             return 0;
@@ -1123,6 +1125,7 @@ impl InvState {
     }
 
     /// Get the list of diverged peers
+    #[cfg(test)]
     pub fn get_diverged_peers(&self) -> Vec<NeighborKey> {
         let mut list = vec![];
         for (nk, stats) in self.block_stats.iter() {
@@ -1144,6 +1147,7 @@ impl InvState {
         list
     }
 
+    #[cfg(test)]
     pub fn get_stats(&self, nk: &NeighborKey) -> Option<&NeighborBlockStats> {
         self.block_stats.get(nk)
     }
@@ -1280,6 +1284,7 @@ impl InvState {
         }
     }
 
+    #[cfg(test)]
     pub fn set_block_available(
         &mut self,
         burnchain: &Burnchain,
@@ -1290,6 +1295,7 @@ impl InvState {
         self.set_data_available(burnchain, neighbor_key, sortdb, consensus_hash, false)
     }
 
+    #[cfg(test)]
     pub fn set_microblocks_available(
         &mut self,
         burnchain: &Burnchain,
