@@ -862,7 +862,7 @@ dependencies = [
 [[package]]
 name = "clarity"
 version = "2.3.0"
-source = "git+https://github.com/melcar-stacks/stacks-core?branch=wasmi#eae4ba83182b0dec36230aa24edb69e6909ad228"
+source = "git+https://github.com/melcar-stacks/stacks-core?branch=wasmi#26aa9915d315f7ab65fd9ae1231cd7f7c1d105f8"
 dependencies = [
  "clarity-types 0.0.1 (git+https://github.com/melcar-stacks/stacks-core?branch=wasmi)",
  "hashbrown 0.15.2",
@@ -918,7 +918,7 @@ dependencies = [
 [[package]]
 name = "clarity-types"
 version = "0.0.1"
-source = "git+https://github.com/melcar-stacks/stacks-core?branch=wasmi#eae4ba83182b0dec36230aa24edb69e6909ad228"
+source = "git+https://github.com/melcar-stacks/stacks-core?branch=wasmi#26aa9915d315f7ab65fd9ae1231cd7f7c1d105f8"
 dependencies = [
  "lazy_static",
  "regex",
@@ -4547,7 +4547,7 @@ dependencies = [
 [[package]]
 name = "stacks-common"
 version = "4.0.3"
-source = "git+https://github.com/melcar-stacks/stacks-core?branch=wasmi#eae4ba83182b0dec36230aa24edb69e6909ad228"
+source = "git+https://github.com/melcar-stacks/stacks-core?branch=wasmi#26aa9915d315f7ab65fd9ae1231cd7f7c1d105f8"
 dependencies = [
  "chrono",
  "curve25519-dalek",
