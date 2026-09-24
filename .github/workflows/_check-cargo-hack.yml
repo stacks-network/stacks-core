@@ -120,9 +120,8 @@ jobs:
   # Fuzz targets with the repository toolchain.
   # The fuzz crates build on stable: nightly is only needed by `cargo fuzz run`
   # for sanitizer instrumentation (`-Zsanitizer`), which `cargo check` does not use.
-  # NOTE: the job name is kept as-is because it is a required status check.
   fuzz-targets:
-    name: Fuzz Targets (Nightly)
+    name: Fuzz Targets
     runs-on: ubuntu-latest
     steps:
       # Checkout the code
