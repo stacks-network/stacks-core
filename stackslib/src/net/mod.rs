@@ -2326,13 +2326,11 @@ pub mod test {
 
     use clarity::types::sqlite::NO_PARAMS;
     use clarity::vm::costs::ExecutionCost;
-    use clarity::vm::types::*;
     use mio;
     use rand::{self, RngCore};
     use stacks_common::codec::StacksMessageCodec;
     use stacks_common::deps_common::bitcoin::network::serialize::BitcoinHash;
     use stacks_common::types::StacksEpochId;
-    use stacks_common::util::hash::*;
     use stacks_common::util::secp256k1::*;
     use stacks_common::util::vrf::*;
 

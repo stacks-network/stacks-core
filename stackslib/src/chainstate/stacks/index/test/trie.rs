@@ -195,8 +195,7 @@ fn trie_cursor_try_attach_leaf(marf_opts: &MARFOpenOpts) {
         }
 
         // each ptr must be a node with two children
-        for i in 0..32 {
-            let ptr = &ptrs[i];
+        for ptr in &ptrs[..32] {
             let (node, hash) = f.read_nodetype(ptr).unwrap();
             match node {
                 TrieNodeType::Node4(ref data) => assert_eq!(count_children(&data.ptrs), 2),

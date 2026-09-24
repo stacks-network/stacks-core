@@ -15,15 +15,32 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use std::backtrace::Backtrace;
+use std::path::Path;
 use std::sync::{LazyLock, Mutex};
 use std::thread;
 use std::time::Instant;
 
 use hashbrown::HashMap;
 use rand::{thread_rng, Rng};
-use rusqlite::Connection;
+use rusqlite::types::ToSql;
+use rusqlite::{
+    Connection, Error as SqliteError, OpenFlags, OptionalExtension, Transaction,
+    TransactionBehavior,
+};
 
+use crate::types::sqlite::NO_PARAMS;
 use crate::util::sleep_ms;
+
+// 256MB
+pub const SQLITE_MMAP_SIZE: i64 = 256 * 1024 * 1024;
+
+// 32K
+pub const SQLITE_MARF_PAGE_SIZE: i64 = 32768;
+
+/// Statement-cache capacity for `sqlite_open` connections. The widest observed
+/// working set is ~120 distinct statements (the sortition MARF);
+/// rusqlite's default of 16 would LRU-thrash.
+pub const SQLITE_STATEMENT_CACHE_CAPACITY: usize = 200;
 
 /// Keep track of DB locks, for deadlock debugging
 ///  - **key:** `rusqlite::Connection` debug print
@@ -90,4 +107,95 @@ pub fn tx_busy_handler(run_count: i32) -> bool {
 
     sleep_ms(sleep_time_ms);
     true
+}
+
+/// Run a PRAGMA statement.  This can't always be done via execute(), because it may return a result (and
+/// rusqlite does not like this).
+pub fn sql_pragma(
+    conn: &Connection,
+    pragma_name: &str,
+    pragma_value: &dyn ToSql,
+) -> Result<(), SqliteError> {
+    conn.pragma_update(None, pragma_name, pragma_value)
+}
+
+/// Run a VACUUM command
+pub fn sql_vacuum(conn: &Connection) -> Result<(), SqliteError> {
+    conn.execute("VACUUM", NO_PARAMS).map(|_| ())
+}
+
+/// Returns true if the database table `table_name` exists in the active
+///  database of the provided SQLite connection.
+pub fn table_exists(conn: &Connection, table_name: &str) -> Result<bool, SqliteError> {
+    let sql = "SELECT name FROM sqlite_master WHERE type='table' AND name=?";
+    conn.query_row(sql, [table_name], |row| row.get::<_, String>(0))
+        .optional()
+        .map(|r| r.is_some())
+}
+
+/// Begin an immediate-mode transaction, and handle busy errors with exponential backoff.
+/// Handling busy errors when the tx begins is preferable to doing it when the tx commits, since
+/// then we don't have to worry about any extra rollback logic.
+pub fn tx_begin_immediate(conn: &mut Connection) -> Result<Transaction<'_>, SqliteError> {
+    conn.busy_handler(Some(tx_busy_handler))?;
+    let tx = Transaction::new(conn, TransactionBehavior::Immediate)?;
+    update_lock_table(&tx);
+    Ok(tx)
+}
+
+#[cfg(feature = "profile-sqlite")]
+fn trace_profile(query: &str, duration: std::time::Duration) {
+    use serde_json::json;
+    let obj = json!({"millis":duration.as_millis(), "query":query});
+    debug!(
+        "sqlite trace profile {}",
+        serde_json::to_string(&obj).unwrap()
+    );
+}
+
+#[cfg(feature = "profile-sqlite")]
+fn inner_connection_open<P: AsRef<Path>>(
+    path: P,
+    flags: OpenFlags,
+) -> Result<Connection, SqliteError> {
+    let mut db = Connection::open_with_flags(path, flags)?;
+    db.profile(Some(trace_profile));
+    Ok(db)
+}
+
+#[cfg(not(feature = "profile-sqlite"))]
+fn inner_connection_open<P: AsRef<Path>>(
+    path: P,
+    flags: OpenFlags,
+) -> Result<Connection, SqliteError> {
+    Connection::open_with_flags(path, flags)
+}
+
+/// Open a database connection and set some typically-used pragmas.
+/// Connections are always opened in SQLite multi-thread (`NO_MUTEX`) mode;
+/// passing `FULL_MUTEX` panics.
+pub fn sqlite_open<P: AsRef<Path>>(
+    path: P,
+    mut flags: OpenFlags,
+    foreign_keys: bool,
+) -> Result<Connection, SqliteError> {
+    // Without an explicit mutex flag the bundled SQLite defaults to serialized
+    // mode, whose per-connection mutex is pure overhead here: `Connection` is
+    // `!Sync`, so no thread can ever contend on it.
+    assert!(
+        !flags.contains(OpenFlags::SQLITE_OPEN_FULL_MUTEX),
+        "sqlite_open always opens in multi-thread mode; FULL_MUTEX is not supported"
+    );
+    flags.insert(OpenFlags::SQLITE_OPEN_NO_MUTEX);
+    let db = inner_connection_open(path, flags)?;
+    db.busy_handler(Some(tx_busy_handler))?;
+    db.set_prepared_statement_cache_capacity(SQLITE_STATEMENT_CACHE_CAPACITY);
+    if !flags.contains(OpenFlags::SQLITE_OPEN_READ_ONLY) {
+        sql_pragma(&db, "journal_mode", &"WAL")?;
+    }
+    sql_pragma(&db, "synchronous", &"NORMAL")?;
+    if foreign_keys {
+        sql_pragma(&db, "foreign_keys", &true)?;
+    }
+    Ok(db)
 }

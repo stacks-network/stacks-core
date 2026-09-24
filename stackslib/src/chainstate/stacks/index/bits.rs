@@ -18,6 +18,9 @@
 use std::io::{ErrorKind, Read, Seek, SeekFrom, Write};
 
 use sha2::{Digest, Sha512_256 as TrieHasher};
+use stacks_common::codec::StacksMessageCodec;
+use stacks_common::types::chainstate::{TrieHash, TRIEHASH_ENCODED_SIZE};
+use stacks_common::util::hash::to_hex;
 
 use crate::chainstate::stacks::index::node::{
     clear_compressed, clear_ctrl_bits, is_backptr, is_compressed, ptrs_fmt, ConsensusSerializable,
@@ -28,9 +31,6 @@ use crate::chainstate::stacks::index::storage::TrieStorageConnection;
 use crate::chainstate::stacks::index::{
     BlockMap, Error, MarfTrieId, TrieLeaf, MARF_VALUE_ENCODED_SIZE,
 };
-use crate::codec::StacksMessageCodec;
-use crate::types::chainstate::{TrieHash, TRIEHASH_ENCODED_SIZE};
-use crate::util::hash::to_hex;
 
 /// Magic byte value indicating a sparse compressed pointer list.
 /// This value cannot be a valid [`TrieNodeID`], making it safe to use as a marker.

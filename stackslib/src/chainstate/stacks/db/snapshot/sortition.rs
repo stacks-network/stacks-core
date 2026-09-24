@@ -21,7 +21,7 @@ use stacks_common::types::chainstate::{BurnchainHeaderHash, SortitionId};
 use stacks_common::types::sqlite::NO_PARAMS;
 
 use super::common::{
-    classify_hint, clone_schemas_from_source, copied_rows, with_offline_write_session,
+    classify_hint, clone_schemas_from_source, copied_rows, marf_err, with_offline_write_session,
     DbSnapshotSpec, TableCopySpec, TableCopySpecs, MARF_INFRA_TABLES,
 };
 use super::fork_storage::{collect_canonical_leaf_hashes, copy_canonical_fork_storage};
@@ -140,10 +140,10 @@ fn stacks_tip_memo_copy_binds(
         return Ok(Vec::new());
     };
     let mut params = vec![
-        Value::Integer(u64_to_sql(boundary.max_stacks_height)?),
+        Value::Integer(u64_to_sql(boundary.max_stacks_height).map_err(marf_err)?),
         Value::Text(boundary.anchor_consensus_hash.to_string()),
         Value::Text(boundary.anchor_block_hash.to_string()),
-        Value::Integer(u64_to_sql(boundary.anchor_block_height)?),
+        Value::Integer(u64_to_sql(boundary.anchor_block_height).map_err(marf_err)?),
     ];
     if include_burn_view {
         params.push(Value::Text(
@@ -267,7 +267,10 @@ fn populate_canonical_sortitions(
     let mut burn_hashes: HashSet<String> = HashSet::new();
     let mut orphans: u64 = 0;
     for (_, sortition_id, _) in &canonical {
-        match src_conn.get_snapshot_burn_header_hash(sortition_id)? {
+        match src_conn
+            .get_snapshot_burn_header_hash(sortition_id)
+            .map_err(marf_err)?
+        {
             Some(burn_header_hash) => {
                 burn_hashes.insert(burn_header_hash);
             }
@@ -307,7 +310,7 @@ fn populate_canonical_sortitions(
 
 fn validate_tip_boundary(boundary: Option<&SortitionTipCopyBoundary>) -> Result<(), Error> {
     if let Some(boundary) = boundary {
-        boundary.validate()?;
+        boundary.validate().map_err(marf_err)?;
     }
     Ok(())
 }
@@ -474,7 +477,10 @@ fn copy_sortition_tables_inner(
         boundary: stacks_boundary.cloned(),
     }
     .run_copy(session_conn)?;
-    if !session_conn.stacks_tip_memos_within_boundary(stacks_boundary)? {
+    if !session_conn
+        .stacks_tip_memos_within_boundary(stacks_boundary)
+        .map_err(marf_err)?
+    {
         return Err(Error::CorruptionError(
             "copied sortition tip row points past the Stacks MARF boundary".into(),
         ));

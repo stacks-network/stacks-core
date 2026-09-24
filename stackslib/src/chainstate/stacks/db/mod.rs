@@ -75,7 +75,7 @@ use crate::clarity_vm::clarity::{
     ClarityReadOnlyConnection, PreCommitClarityBlock,
 };
 use crate::clarity_vm::database::marf::MarfedKV;
-use crate::clarity_vm::database::HeadersDBConn;
+use crate::clarity_vm::database::{HeadersDBConn, MarfHeadersDB};
 use crate::core::*;
 use crate::monitoring;
 use crate::net::atlas::BNS_CHARS_REGEX;
@@ -112,7 +112,7 @@ pub struct StacksChainState {
     pub chain_id: u32,
     pub clarity_state: ClarityInstance,
     pub nakamoto_staging_blocks_conn: NakamotoStagingBlocksConn,
-    pub state_index: MARF<StacksBlockId>,
+    pub state_index: MarfHeadersDB,
     pub blocks_path: String,
     pub clarity_state_index_path: String, // path to clarity MARF
     pub clarity_state_index_root: String, // path to dir containing clarity MARF and side-store
@@ -2002,7 +2002,7 @@ impl StacksChainState {
             chain_id,
             clarity_state,
             nakamoto_staging_blocks_conn,
-            state_index,
+            state_index: MarfHeadersDB::new(state_index),
             blocks_path: blocks_path_root,
             clarity_state_index_path: clarity_state_index_marf,
             clarity_state_index_root,

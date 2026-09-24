@@ -19,9 +19,8 @@
 
 use std::collections::HashMap;
 
-use clarity::util::hash::Sha512Trunc256Sum;
-use stacks_common::types::chainstate::StacksBlockId;
-use stacks_common::util::hash::to_hex;
+use stacks_common::types::chainstate::{BlockHeaderHash, TrieHash};
+use stacks_common::util::hash::{to_hex, Sha512Trunc256Sum};
 
 use crate::chainstate::stacks::index::bits::*;
 use crate::chainstate::stacks::index::marf::*;
@@ -29,7 +28,6 @@ use crate::chainstate::stacks::index::node::*;
 use crate::chainstate::stacks::index::storage::*;
 use crate::chainstate::stacks::index::trie::*;
 use crate::chainstate::stacks::index::{MARFValue, MarfTrieId, TrieLeaf, TrieMerkleProof};
-use crate::chainstate::stacks::{BlockHeaderHash, TrieHash};
 
 pub mod file;
 pub mod marf;

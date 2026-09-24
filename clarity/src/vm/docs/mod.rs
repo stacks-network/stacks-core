@@ -2266,7 +2266,14 @@ definition (i.e., you cannot put a define statement in the middle of a function 
 
 Public functions _must_ return a ResponseType (using either `ok` or `err`). Any datamap modifications performed by
 a public function is aborted if the function returns an `err` type. Public functions may be invoked by other
-contracts via `contract-call?`.",
+contracts via `contract-call?`.
+
+Function names may not collide with a native function or keyword. Beginning in Epoch 4.1, one exception applies:
+a public function may take a reserved name (e.g. `slice?`) to implement a method of a trait listed in `impl-trait`,
+provided the name was still free in the trait's Clarity version. Inside the contract the native function or keyword
+keeps its meaning, so the implementation is reached through `contract-call?` and trait dispatch; a keyword-named one
+can also be applied directly or passed to `map`/`fold`/`filter`, since no native function has that name. A function
+under a reserved name that matches no such trait method fails with `NameAlreadyUsed`.",
     example: "
 (define-public (hello-world (input int))
   (begin (print (+ 2 input))
@@ -2333,7 +2340,9 @@ Read-only functions may return any type. However, read-only functions
 may not perform any datamap modifications, or call any functions which
 perform such modifications. This is enforced both during type checks and during
 the execution of the function. Public read-only functions may
-be invoked by other contracts via `contract-call?`.",
+be invoked by other contracts via `contract-call?`.
+
+The reserved-name exception described under `define-public` applies to read-only functions as well.",
     example: "
 (define-read-only (just-return-one-hundred)
   (* 10 10))",
@@ -2410,6 +2419,10 @@ and a trait value can be bound to a variable in a `let` or `match` expression. I
 and trait value with matching type allowed in Clarity 1, Clarity 2 also supports implicit casting from a
 compatible trait, meaning that a value of type `trait-a` may be passed to a parameter with type `trait-b` if `trait-a`
 includes all of the requirements of `trait-b` (and optionally additional functions).
+
+Beginning in Epoch 4.1, a trait method may not take a name reserved in the contract's Clarity version;
+`define-trait` rejects it with `NameAlreadyUsed`. Traits from versions where the name was still free stay
+implementable: see `define-public`.
 
 Like other kinds of definition statements, `define-trait` may only be used at the top level of a smart contract
 definition (i.e., you cannot put a define statement in the middle of a function body).
