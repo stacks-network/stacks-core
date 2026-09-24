@@ -52,8 +52,6 @@ pub struct NeighborPingback {
 /// _outgoing_ connections limited to NUM_NEIGHBORS.
 #[derive(Clone, Debug)]
 pub struct NeighborWalkResult {
-    /// Newly-added node neighbors
-    pub new_connections: HashSet<NeighborKey>,
     /// Dead connections discovered (so we can close their sockets)
     pub dead_connections: HashSet<DropNeighbor>,
     /// Connections to misbehaving peers (so we can close their sockets and ban them)
@@ -66,15 +64,10 @@ pub struct NeighborWalkResult {
 impl NeighborWalkResult {
     pub fn new() -> NeighborWalkResult {
         NeighborWalkResult {
-            new_connections: HashSet::new(),
             dead_connections: HashSet::new(),
             broken_connections: HashSet::new(),
             replaced_neighbors: HashSet::new(),
         }
-    }
-
-    pub fn add_new(&mut self, nk: NeighborKey) {
-        self.new_connections.insert(nk);
     }
 
     pub fn add_broken(&mut self, dn: DropNeighbor) {
@@ -90,7 +83,6 @@ impl NeighborWalkResult {
     }
 
     pub fn clear(&mut self) {
-        self.new_connections.clear();
         self.dead_connections.clear();
         self.broken_connections.clear();
         self.replaced_neighbors.clear();
