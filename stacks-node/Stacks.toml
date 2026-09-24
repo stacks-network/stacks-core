@@ -18,7 +18,6 @@ rpc_bind = "127.0.0.1:20443"
 # peer_host = "127.0.0.1"
 # peer_port = 18444
 # rpc_port = 18443
-# rpc_ssl = false
 # username = "helium-node"
 # password = "secret"
 # timeout = 300
