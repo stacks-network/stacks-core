@@ -193,20 +193,6 @@ impl StackerDBTx<'_> {
         &self.sql_tx
     }
 
-    /// Delete a stacker DB table and its contents.
-    /// Idempotent.
-    #[cfg(test)]
-    pub fn delete_stackerdb(
-        &self,
-        smart_contract_id: &QualifiedContractIdentifier,
-    ) -> Result<(), net_error> {
-        let qry = "DELETE FROM databases WHERE smart_contract_id = ?1";
-        let args = params![smart_contract_id.to_string()];
-        let mut stmt = self.sql_tx.prepare(qry)?;
-        stmt.execute(args)?;
-        Ok(())
-    }
-
     /// List all stacker DB smart contracts we have available
     pub fn get_stackerdb_contract_ids(
         &self,
@@ -269,22 +255,6 @@ impl StackerDBTx<'_> {
             }
         }
 
-        Ok(())
-    }
-
-    /// Clear a database's slots and its data.
-    /// Idempotent.
-    /// Fails if the DB doesn't exist
-    #[cfg(test)]
-    pub fn clear_stackerdb_slots(
-        &self,
-        smart_contract: &QualifiedContractIdentifier,
-    ) -> Result<(), net_error> {
-        let stackerdb_id = self.get_stackerdb_id(smart_contract)?;
-        let qry = "DELETE FROM chunks WHERE stackerdb_id = ?1";
-        let args = params![stackerdb_id];
-        let mut stmt = self.sql_tx.prepare(qry)?;
-        stmt.execute(args)?;
         Ok(())
     }
 
@@ -437,6 +407,38 @@ impl StackerDBTx<'_> {
             });
         }
         self.insert_chunk(smart_contract, slot_desc, chunk)
+    }
+}
+
+/// Test-only helpers for [`StackerDBTx`].
+#[cfg(test)]
+impl StackerDBTx<'_> {
+    /// Delete a stacker DB table and its contents.
+    /// Idempotent.
+    pub fn delete_stackerdb(
+        &self,
+        smart_contract_id: &QualifiedContractIdentifier,
+    ) -> Result<(), net_error> {
+        let qry = "DELETE FROM databases WHERE smart_contract_id = ?1";
+        let args = params![smart_contract_id.to_string()];
+        let mut stmt = self.sql_tx.prepare(qry)?;
+        stmt.execute(args)?;
+        Ok(())
+    }
+
+    /// Clear a database's slots and its data.
+    /// Idempotent.
+    /// Fails if the DB doesn't exist
+    pub fn clear_stackerdb_slots(
+        &self,
+        smart_contract: &QualifiedContractIdentifier,
+    ) -> Result<(), net_error> {
+        let stackerdb_id = self.get_stackerdb_id(smart_contract)?;
+        let qry = "DELETE FROM chunks WHERE stackerdb_id = ?1";
+        let args = params![stackerdb_id];
+        let mut stmt = self.sql_tx.prepare(qry)?;
+        stmt.execute(args)?;
+        Ok(())
     }
 }
 

@@ -2483,12 +2483,6 @@ impl ConversationP2P {
         Ok(())
     }
 
-    /// How many pending outgoing messages are there
-    #[cfg(test)]
-    pub fn num_pending_outbound(&self) -> usize {
-        self.reply_handles.len()
-    }
-
     /// Validate an inbound p2p message
     /// Return Ok(true) if valid, Ok(false) if invalid, and Err if we should disconnect.
     fn validate_inbound_message(
@@ -3028,15 +3022,23 @@ impl ConversationP2P {
         }
     }
 
-    /// Get a ref to the conversation stats
-    #[cfg(test)]
-    pub fn get_stats(&self) -> &NeighborStats {
-        &self.stats
-    }
-
     /// Get a mut ref to the conversation stats
     pub fn get_stats_mut(&mut self) -> &mut NeighborStats {
         &mut self.stats
+    }
+}
+
+/// Test-only helpers for [`ConversationP2P`].
+#[cfg(test)]
+impl ConversationP2P {
+    /// How many pending outgoing messages are there
+    pub fn num_pending_outbound(&self) -> usize {
+        self.reply_handles.len()
+    }
+
+    /// Get a ref to the conversation stats
+    pub fn get_stats(&self) -> &NeighborStats {
+        &self.stats
     }
 }
 

@@ -1061,34 +1061,6 @@ impl InvState {
         }
     }
 
-    /// How many sortitions do we know about from this neighbor?
-    /// Ignores broken or diverged peers.
-    #[cfg(test)]
-    pub fn get_inv_sortitions(&self, nk: &NeighborKey) -> u64 {
-        if self.get_peer_status(nk) != NodeStatus::Online {
-            return 0;
-        }
-
-        match self.block_stats.get(nk) {
-            Some(stats) => stats.inv.num_sortitions,
-            _ => 0,
-        }
-    }
-
-    /// How many blocks do we know about from this neighbor?
-    /// Ignores broken or diverged peers
-    #[cfg(test)]
-    pub fn get_inv_num_blocks(&self, nk: &NeighborKey) -> u64 {
-        if self.get_peer_status(nk) != NodeStatus::Online {
-            return 0;
-        }
-
-        match self.block_stats.get(nk) {
-            Some(stats) => stats.inv.num_blocks(),
-            _ => 0,
-        }
-    }
-
     /// Cull broken peers and purge their stats
     pub fn cull_bad_peers(&mut self) -> HashSet<NeighborKey> {
         let mut bad_peers = HashSet::new();
@@ -1124,18 +1096,6 @@ impl InvState {
         list
     }
 
-    /// Get the list of diverged peers
-    #[cfg(test)]
-    pub fn get_diverged_peers(&self) -> Vec<NeighborKey> {
-        let mut list = vec![];
-        for (nk, stats) in self.block_stats.iter() {
-            if stats.status == NodeStatus::Diverged {
-                list.push(nk.clone());
-            }
-        }
-        list
-    }
-
     /// Get the list of dead
     pub fn get_dead_peers(&self) -> Vec<NeighborKey> {
         let mut list = vec![];
@@ -1147,21 +1107,8 @@ impl InvState {
         list
     }
 
-    #[cfg(test)]
-    pub fn get_stats(&self, nk: &NeighborKey) -> Option<&NeighborBlockStats> {
-        self.block_stats.get(nk)
-    }
-
     pub fn get_stats_mut(&mut self, nk: &NeighborKey) -> Option<&mut NeighborBlockStats> {
         self.block_stats.get_mut(nk)
-    }
-
-    #[cfg(test)]
-    pub fn add_peer(&mut self, nk: NeighborKey, is_bootstrap_peer: bool) {
-        self.block_stats.insert(
-            nk.clone(),
-            NeighborBlockStats::new(nk, self.first_block_height, is_bootstrap_peer),
-        );
     }
 
     pub fn del_peer(&mut self, nk: &NeighborKey) {
@@ -1284,28 +1231,6 @@ impl InvState {
         }
     }
 
-    #[cfg(test)]
-    pub fn set_block_available(
-        &mut self,
-        burnchain: &Burnchain,
-        neighbor_key: &NeighborKey,
-        sortdb: &SortitionDB,
-        consensus_hash: &ConsensusHash,
-    ) -> Result<Option<u64>, net_error> {
-        self.set_data_available(burnchain, neighbor_key, sortdb, consensus_hash, false)
-    }
-
-    #[cfg(test)]
-    pub fn set_microblocks_available(
-        &mut self,
-        burnchain: &Burnchain,
-        neighbor_key: &NeighborKey,
-        sortdb: &SortitionDB,
-        consensus_hash: &ConsensusHash,
-    ) -> Result<Option<u64>, net_error> {
-        self.set_data_available(burnchain, neighbor_key, sortdb, consensus_hash, true)
-    }
-
     /// Invalidate all block inventories at and after a given reward cycle
     pub fn invalidate_block_inventories(&mut self, burnchain: &Burnchain, reward_cycle: u64) {
         for (nk, stats) in self.block_stats.iter_mut() {
@@ -1320,6 +1245,78 @@ impl InvState {
                 stats.reset_pox_scan(reward_cycle);
             }
         }
+    }
+}
+
+/// Test-only helpers for [`InvState`].
+#[cfg(test)]
+impl InvState {
+    /// How many sortitions do we know about from this neighbor?
+    /// Ignores broken or diverged peers.
+    pub fn get_inv_sortitions(&self, nk: &NeighborKey) -> u64 {
+        if self.get_peer_status(nk) != NodeStatus::Online {
+            return 0;
+        }
+
+        match self.block_stats.get(nk) {
+            Some(stats) => stats.inv.num_sortitions,
+            _ => 0,
+        }
+    }
+
+    /// How many blocks do we know about from this neighbor?
+    /// Ignores broken or diverged peers
+    pub fn get_inv_num_blocks(&self, nk: &NeighborKey) -> u64 {
+        if self.get_peer_status(nk) != NodeStatus::Online {
+            return 0;
+        }
+
+        match self.block_stats.get(nk) {
+            Some(stats) => stats.inv.num_blocks(),
+            _ => 0,
+        }
+    }
+
+    /// Get the list of diverged peers
+    pub fn get_diverged_peers(&self) -> Vec<NeighborKey> {
+        let mut list = vec![];
+        for (nk, stats) in self.block_stats.iter() {
+            if stats.status == NodeStatus::Diverged {
+                list.push(nk.clone());
+            }
+        }
+        list
+    }
+
+    pub fn get_stats(&self, nk: &NeighborKey) -> Option<&NeighborBlockStats> {
+        self.block_stats.get(nk)
+    }
+
+    pub fn add_peer(&mut self, nk: NeighborKey, is_bootstrap_peer: bool) {
+        self.block_stats.insert(
+            nk.clone(),
+            NeighborBlockStats::new(nk, self.first_block_height, is_bootstrap_peer),
+        );
+    }
+
+    pub fn set_block_available(
+        &mut self,
+        burnchain: &Burnchain,
+        neighbor_key: &NeighborKey,
+        sortdb: &SortitionDB,
+        consensus_hash: &ConsensusHash,
+    ) -> Result<Option<u64>, net_error> {
+        self.set_data_available(burnchain, neighbor_key, sortdb, consensus_hash, false)
+    }
+
+    pub fn set_microblocks_available(
+        &mut self,
+        burnchain: &Burnchain,
+        neighbor_key: &NeighborKey,
+        sortdb: &SortitionDB,
+        consensus_hash: &ConsensusHash,
+    ) -> Result<Option<u64>, net_error> {
+        self.set_data_available(burnchain, neighbor_key, sortdb, consensus_hash, true)
     }
 }
 
