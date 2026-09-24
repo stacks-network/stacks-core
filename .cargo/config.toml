@@ -20,5 +20,5 @@ stacks-common = { path = "./stacks-common" }
 clarity-types = { path = "./clarity-types" }
 
 # Uncomment the patch below to use the local version of clarity-wasm
-[patch.'https://github.com/stx-labs/clarity-wasm.git']
-clar2wasm = { path = "../clarity-wasm/clar2wasm" }
+# [patch.'https://github.com/stx-labs/clarity-wasm.git']
+# clar2wasm = { path = "../clarity-wasm/clar2wasm" }
