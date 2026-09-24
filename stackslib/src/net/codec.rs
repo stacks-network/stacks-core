@@ -93,7 +93,7 @@ impl Preamble {
         sha2.update(&preamble_bits[..]);
         sha2.update(message_bits);
 
-        digest_bits.copy_from_slice(sha2.finalize().as_slice());
+        digest_bits.copy_from_slice(&sha2.finalize());
 
         let sig = privkey
             .sign(&digest_bits)
@@ -124,7 +124,7 @@ impl Preamble {
         sha2.update(&preamble_bits[..]);
         sha2.update(message_bits);
 
-        digest_bits.copy_from_slice(sha2.finalize().as_slice());
+        digest_bits.copy_from_slice(&sha2.finalize());
 
         let res = pubkey
             .verify(&digest_bits, &self.signature)
