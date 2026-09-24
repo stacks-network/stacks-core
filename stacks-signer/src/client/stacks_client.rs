@@ -48,7 +48,7 @@ use stacks_common::{debug, warn};
 use super::SignerSlotID;
 use crate::client::{retry_with_exponential_backoff, ClientError};
 use crate::config::GlobalConfig;
-use crate::runloop::RewardCycleInfo;
+use crate::runloop::{PoxGeometry, RewardCycleInfo};
 
 /// The Stacks signer client used to communicate with the stacks node
 #[derive(Clone, Debug)]
@@ -556,24 +556,30 @@ impl StacksClient {
         Ok(pox_info_data)
     }
 
+    /// Get the PoX reward cycle geometry from the stacks node
+    pub fn get_pox_geometry(&self) -> Result<PoxGeometry, ClientError> {
+        debug!("StacksClient: Getting PoX geometry");
+        Ok(Self::pox_geometry_of(&self.get_pox_data()?))
+    }
+
     /// Get the current reward cycle info from the stacks node
     pub fn get_current_reward_cycle_info(&self) -> Result<RewardCycleInfo, ClientError> {
         debug!("StacksClient: Getting current reward cycle info");
         let pox_data = self.get_pox_data()?;
-        let blocks_mined = pox_data
-            .current_burnchain_block_height
-            .saturating_sub(pox_data.first_burnchain_block_height);
-        let reward_cycle_length = pox_data
-            .reward_phase_block_length
-            .saturating_add(pox_data.prepare_phase_block_length);
-        let reward_cycle = blocks_mined / reward_cycle_length;
-        Ok(RewardCycleInfo {
-            reward_cycle,
-            reward_cycle_length,
+        Ok(RewardCycleInfo::at_height(
+            &Self::pox_geometry_of(&pox_data),
+            pox_data.current_burnchain_block_height,
+        ))
+    }
+
+    fn pox_geometry_of(pox_data: &RPCPoxInfoData) -> PoxGeometry {
+        PoxGeometry {
+            reward_cycle_length: pox_data
+                .reward_phase_block_length
+                .saturating_add(pox_data.prepare_phase_block_length),
             prepare_phase_block_length: pox_data.prepare_phase_block_length,
             first_burnchain_block_height: pox_data.first_burnchain_block_height,
-            last_burnchain_block_height: pox_data.current_burnchain_block_height,
-        })
+        }
     }
 
     /// Helper function to retrieve the account info from the stacks node for a specific address

@@ -17,9 +17,12 @@ use std::fmt::Debug;
 use std::sync::mpsc::Sender;
 use std::time::Duration;
 
+use blockstack_lib::net::api::getsortition::SortitionInfo;
 use clarity::codec::StacksMessageCodec;
 use hashbrown::HashMap;
 use libsigner::{SignerEntries, SignerEvent, SignerRunLoop};
+use reqwest::StatusCode;
+use stacks_common::types::chainstate::ConsensusHash;
 use stacks_common::{debug, error, info, warn};
 
 use crate::chainstate::v1::SortitionsView;
@@ -88,7 +91,11 @@ pub enum State {
     RegisteredSigners,
 }
 
-/// The current reward cycle info
+/// The current reward cycle info, as reported by the status check.
+///
+/// This is a snapshot of a [`SignerBurnView`] at its tip (see
+/// [`SignerBurnView::reward_cycle_info`]) or of the node's PoX data
+/// (see `StacksClient::get_current_reward_cycle_info`).
 #[derive(PartialEq, Eq, Debug, Clone, Copy)]
 pub struct RewardCycleInfo {
     /// The current reward cycle
@@ -104,26 +111,202 @@ pub struct RewardCycleInfo {
 }
 
 impl RewardCycleInfo {
-    /// Check if the provided burnchain block height is part of the reward cycle
-    pub const fn is_in_reward_cycle(&self, burnchain_block_height: u64) -> bool {
-        let blocks_mined = burnchain_block_height.saturating_sub(self.first_burnchain_block_height);
-        let reward_cycle = blocks_mined / self.reward_cycle_length;
-        self.reward_cycle == reward_cycle
+    /// The reward cycle info for `geometry` as of the burn block at `burn_block_height`.
+    pub const fn at_height(geometry: &PoxGeometry, burn_block_height: u64) -> Self {
+        Self {
+            reward_cycle: geometry.reward_cycle_of(burn_block_height),
+            reward_cycle_length: geometry.reward_cycle_length,
+            prepare_phase_block_length: geometry.prepare_phase_block_length,
+            first_burnchain_block_height: geometry.first_burnchain_block_height,
+            last_burnchain_block_height: burn_block_height,
+        }
     }
+}
 
-    /// Get the reward cycle for a specific burnchain block height
-    pub const fn get_reward_cycle(&self, burnchain_block_height: u64) -> u64 {
+/// The PoX reward cycle geometry. Fixed for the lifetime of the node.
+#[derive(PartialEq, Eq, Debug, Clone, Copy)]
+pub struct PoxGeometry {
+    /// The total reward cycle length
+    pub reward_cycle_length: u64,
+    /// The prepare phase length
+    pub prepare_phase_block_length: u64,
+    /// The first burn block height
+    pub first_burnchain_block_height: u64,
+}
+
+impl PoxGeometry {
+    /// The reward cycle containing the given burnchain block height
+    pub const fn reward_cycle_of(&self, burnchain_block_height: u64) -> u64 {
         let blocks_mined = burnchain_block_height.saturating_sub(self.first_burnchain_block_height);
         blocks_mined / self.reward_cycle_length
     }
 
-    /// Check if the provided burnchain block height is in the prepare phase of the next cycle
-    pub fn is_in_next_prepare_phase(&self, burnchain_block_height: u64) -> bool {
-        let effective_height = burnchain_block_height - self.first_burnchain_block_height;
-        let reward_index = effective_height % self.reward_cycle_length;
+    /// Whether the given burnchain block height is in the prepare
+    /// phase for the next reward cycle
+    pub const fn is_in_next_prepare_phase(&self, burnchain_block_height: u64) -> bool {
+        let blocks_mined = burnchain_block_height.saturating_sub(self.first_burnchain_block_height);
+        let reward_index = blocks_mined % self.reward_cycle_length;
+        reward_index >= self.reward_cycle_length - self.prepare_phase_block_length
+    }
+}
 
-        reward_index >= (self.reward_cycle_length - self.prepare_phase_block_length)
-            && self.get_reward_cycle(burnchain_block_height) == self.reward_cycle
+/// A burn block on the node's canonical burnchain fork.
+#[derive(PartialEq, Eq, Debug, Clone)]
+pub struct BurnBlock {
+    /// The burnchain block height
+    pub height: u64,
+    /// The consensus hash of the sortition for this burn block
+    pub consensus_hash: ConsensusHash,
+}
+
+/// A resolved answer to "what is the latest sortition at or before this burn block?",
+/// carrying the burn block it was queried at.
+///
+/// The `query_tip` is stored alongside the sortition so that consumers can check if the
+/// response is stale. This is important for *signing*: there, consumers want to make sure
+/// that the data is current. For resource allocation/signer thread tear-down, the runloop
+/// only cares about the most recently resolved height.
+#[derive(PartialEq, Eq, Debug, Clone)]
+pub struct ResolvedSortition {
+    /// The burn block this was the answer for
+    pub queried_tip: ConsensusHash,
+    /// The burn height of the latest sortition at or before `queried_tip`
+    pub sortition_height: u64,
+}
+
+/// The runloop's view of the burnchain: the current burn block, and the latest burn block
+/// with a sortition. The current reward cycle is derived from the tip.
+///
+/// Sortition queries are anchored to the tip's consensus hash rather than to the node's
+/// idea of "latest", which names the burnchain fork we are reasoning about and makes an
+/// answer the node cannot yet give recognisable as such (`/v3/sortitions/latest_and_last`
+/// returns the latest block *with* a sortition, so a stale answer would look identical to
+/// a processed block without one). It also makes the view fork-correct for free: after a
+/// burnchain reorg the new events name the new fork, and the answer follows it.
+#[derive(PartialEq, Eq, Debug, Clone)]
+pub struct SignerBurnView {
+    /// The PoX reward cycle geometry
+    pub geometry: PoxGeometry,
+    /// The most recent burn block on the node's canonical fork
+    pub tip: BurnBlock,
+    /// The latest sortition this view has resolved, and the tip it
+    /// was resolved for.
+    ///
+    /// `None` only ever means "we have never had an answer". A
+    /// resolved answer deliberately survives `set_tip`: it stops
+    /// being a signing answer as soon as the tip moves past its
+    /// `queried_tip`, but it remains the retention answer. Reading
+    /// this field directly is therefore a retention decision; the
+    /// signing gate must go through `latest_sortition_reward_cycle`.
+    resolved_sortition: Option<ResolvedSortition>,
+}
+
+impl SignerBurnView {
+    /// A view of the burnchain at `tip`, with the latest sortition not yet resolved.
+    pub fn new(geometry: PoxGeometry, tip: BurnBlock) -> Self {
+        Self {
+            geometry,
+            tip,
+            resolved_sortition: None,
+        }
+    }
+
+    /// The reward cycle of the tip
+    pub const fn current_reward_cycle(&self) -> u64 {
+        self.geometry.reward_cycle_of(self.tip.height)
+    }
+
+    /// Whether the tip is in the prepare phase for the next reward cycle
+    pub const fn is_in_next_prepare_phase(&self) -> bool {
+        self.geometry.is_in_next_prepare_phase(self.tip.height)
+    }
+
+    /// The reward cycle of the latest sortition at or before the tip, or `None` if it has
+    /// not been resolved.
+    ///
+    /// `None` means the answer could not be determined. It does *not* mean "no later
+    /// sortition exists", and callers must not read it that way; see
+    /// `Signer::is_reward_cycle_retired`.
+    pub fn latest_sortition_reward_cycle(&self) -> Option<u64> {
+        self.resolved_for_current_tip()
+            .map(|resolved| self.geometry.reward_cycle_of(resolved.sortition_height))
+    }
+
+    /// The resolved sortition, but only if it is an answer for the current tip.
+    ///
+    /// Private: an answer scoped to the tip is a signing answer, and
+    /// `latest_sortition_reward_cycle` is the only supported way to ask for one.
+    fn resolved_for_current_tip(&self) -> Option<&ResolvedSortition> {
+        self.resolved_sortition
+            .as_ref()
+            .filter(|resolved| resolved.queried_tip == self.tip.consensus_hash)
+    }
+
+    /// The reward cycle that signer retention is decided against: the cycle of the latest
+    /// sortition this view has resolved, whichever tip it was resolved for.
+    pub fn retention_sortition_reward_cycle(&self) -> Option<u64> {
+        self.resolved_sortition
+            .as_ref()
+            .map(|resolved| self.geometry.reward_cycle_of(resolved.sortition_height))
+    }
+
+    /// Record the latest sortition at or before `queried_tip`.
+    ///
+    /// `queried_tip` is the burn block the query was made against, which is not necessarily
+    /// the current tip: recording the question with the answer is what lets
+    /// `latest_sortition_reward_cycle` reject an answer the tip has moved past.
+    pub fn set_latest_sortition(&mut self, queried_tip: ConsensusHash, sortition_height: u64) {
+        self.resolved_sortition = Some(ResolvedSortition {
+            queried_tip,
+            sortition_height,
+        });
+    }
+
+    /// Move the view to a new tip.
+    pub fn set_tip(&mut self, tip: BurnBlock) {
+        self.tip = tip;
+    }
+
+    /// The reward cycle info snapshot at the tip, for the status check
+    pub const fn reward_cycle_info(&self) -> RewardCycleInfo {
+        RewardCycleInfo::at_height(&self.geometry, self.tip.height)
+    }
+}
+
+/// The oldest reward cycle whose signer set may still be asked to sign.
+///
+/// Normally this is the current reward cycle. It is the previous cycle while that cycle's
+/// sortition is still the latest one on the burnchain: the tenure that sortition elected can
+/// be extended into the current cycle, and only the reward set that elected it can sign for
+/// those blocks (see `load_nakamoto_reward_set_for_tenure` in stackslib). As soon as a
+/// sortition occurs in the current cycle, the previous cycle's set is retired (whether or
+/// not the new cycle's set considers that winner valid).
+///
+/// This is the same condition `Signer::is_reward_cycle_retired` applies per proposal. Here it
+/// only decides how long to keep a signer configured (so here it is a resource allocation policy
+/// rather than a signing policy).
+///
+/// This never looks back more than one cycle: `stacks_signers` is
+/// keyed by reward cycle parity, so only two cycles can be configured
+/// at a time.
+fn oldest_active_reward_cycle(
+    current_reward_cycle: u64,
+    latest_sortition_reward_cycle: Option<u64>,
+) -> u64 {
+    let Some(prior_reward_cycle) = current_reward_cycle.checked_sub(1) else {
+        return current_reward_cycle;
+    };
+    // `None` means no sortition has ever been confirmed on this view (callers pass
+    // `SignerBurnView::retention_sortition_reward_cycle`, which falls back to the last
+    // resolved answer, so a merely-pending tip does not land here). Keep the prior cycle's
+    // signer configured: retention is a liveness question, and the safety question is
+    // settled separately by `Signer::is_reward_cycle_retired`, which refuses to sign on an
+    // unconfirmed view. Tearing the signer down here instead would make an unconfirmed view
+    // permanent for that cycle, since it could no longer act once the view recovers.
+    if latest_sortition_reward_cycle.is_none_or(|latest| latest <= prior_reward_cycle) {
+        prior_reward_cycle
+    } else {
+        current_reward_cycle
     }
 }
 
@@ -194,8 +377,8 @@ where
     pub stacks_signers: HashMap<u64, ConfiguredSigner<Signer, T>>,
     /// The state of the runloop
     pub state: State,
-    /// The current reward cycle info. Only None if the runloop is uninitialized
-    pub current_reward_cycle_info: Option<RewardCycleInfo>,
+    /// The runloop's view of the burnchain. Only None if the runloop is uninitialized
+    pub burnchain_view: Option<SignerBurnView>,
     /// Cache sortitin data from `stacks-node`
     pub sortition_state: Option<SortitionsView>,
 }
@@ -209,7 +392,7 @@ impl<Signer: SignerTrait<T>, T: StacksMessageCodec + Clone + Send + Debug> RunLo
             stacks_client,
             stacks_signers: HashMap::with_capacity(2),
             state: State::Uninitialized,
-            current_reward_cycle_info: None,
+            burnchain_view: None,
             sortition_state: None,
         }
     }
@@ -361,60 +544,198 @@ impl<Signer: SignerTrait<T>, T: StacksMessageCodec + Clone + Send + Debug> RunLo
 
     fn initialize_runloop(&mut self) -> Result<(), ClientError> {
         debug!("Initializing signer runloop...");
-        let reward_cycle_info = retry_with_exponential_backoff(|| {
-            self.stacks_client
-                .get_current_reward_cycle_info()
-                .map_err(backoff::Error::transient)
-        })?;
-        let current_reward_cycle = reward_cycle_info.reward_cycle;
+        let burnchain_view =
+            retry_with_exponential_backoff(|| -> Result<_, backoff::Error<ClientError>> {
+                let geometry = self
+                    .stacks_client
+                    .get_pox_geometry()
+                    .map_err(backoff::Error::transient)?;
+                let peer_info = self
+                    .stacks_client
+                    .get_peer_info()
+                    .map_err(backoff::Error::transient)?;
+                Ok(SignerBurnView::new(
+                    geometry,
+                    BurnBlock {
+                        height: peer_info.burn_block_height,
+                        consensus_hash: peer_info.pox_consensus,
+                    },
+                ))
+            })?;
+        let current_reward_cycle = burnchain_view.current_reward_cycle();
         self.refresh_signer_config(current_reward_cycle);
         // We should only attempt to initialize the next reward cycle signer if we are in the prepare phase of the next reward cycle
-        if reward_cycle_info.is_in_next_prepare_phase(reward_cycle_info.last_burnchain_block_height)
-        {
+        if burnchain_view.is_in_next_prepare_phase() {
             self.refresh_signer_config(current_reward_cycle.saturating_add(1));
         }
-        self.current_reward_cycle_info = Some(reward_cycle_info);
-        if self.stacks_signers.is_empty() {
-            self.state = State::NoRegisteredSigners;
-        } else {
-            self.state = State::RegisteredSigners;
-        }
+        self.burnchain_view = Some(burnchain_view);
+        self.refresh_signer_retention();
         Ok(())
     }
 
-    fn refresh_runloop(&mut self, ev_burn_block_height: u64) -> Result<(), ClientError> {
-        let current_burn_block_height = std::cmp::max(
-            self.stacks_client.get_peer_info()?.burn_block_height,
-            ev_burn_block_height,
-        );
-        let reward_cycle_info = self
-            .current_reward_cycle_info
-            .as_mut()
-            .expect("FATAL: cannot be an initialized signer with no reward cycle info.");
-        let current_reward_cycle = reward_cycle_info.reward_cycle;
-        let block_reward_cycle = reward_cycle_info.get_reward_cycle(current_burn_block_height);
-
-        // First ensure we refresh our view of the current reward cycle information
-        if block_reward_cycle != current_reward_cycle {
-            let new_reward_cycle_info = RewardCycleInfo {
-                reward_cycle: block_reward_cycle,
-                reward_cycle_length: reward_cycle_info.reward_cycle_length,
-                prepare_phase_block_length: reward_cycle_info.prepare_phase_block_length,
-                first_burnchain_block_height: reward_cycle_info.first_burnchain_block_height,
-                last_burnchain_block_height: current_burn_block_height,
-            };
-            *reward_cycle_info = new_reward_cycle_info;
+    /// Resolve the latest sortition for the burnchain tip if it is still pending. Returns
+    /// whether the view moved from pending to known on this call.
+    ///
+    /// Runs on every pass, before any event is dispatched to the signers, so a block
+    /// proposal sees a resolved view as soon as the node can provide one. A failed query
+    /// leaves the view pending and is retried on the next pass.
+    fn resolve_latest_sortition(&mut self) -> bool {
+        let Some(view) = &self.burnchain_view else {
+            return false;
+        };
+        if view.resolved_for_current_tip().is_some() {
+            return false;
         }
-        let reward_cycle_before_refresh = current_reward_cycle;
-        let current_reward_cycle = reward_cycle_info.reward_cycle;
-        let is_in_next_prepare_phase =
-            reward_cycle_info.is_in_next_prepare_phase(current_burn_block_height);
+        let queried_tip = view.tip.consensus_hash.clone();
+        let Some(latest_sortition_height) = self.query_latest_sortition(&queried_tip) else {
+            return false;
+        };
+        info!("Resolved the latest sortition's reward cycle";
+            "latest_sortition_height" => latest_sortition_height,
+            "burn_block_consensus_hash" => %queried_tip,
+        );
+        if let Some(view) = &mut self.burnchain_view {
+            view.set_latest_sortition(queried_tip, latest_sortition_height);
+        }
+        true
+    }
+
+    /// The reward cycle of the latest winning sortition at or before the burn block named
+    /// by `consensus_hash`, or `None` if it could not be determined.
+    fn query_latest_sortition(&self, consensus_hash: &ConsensusHash) -> Option<u64> {
+        let sortition = self.query_sortition(consensus_hash)?;
+        if sortition.was_sortition {
+            return Some(sortition.burn_block_height);
+        }
+
+        // No sortition in this burn block, so the latest one is whatever it points back to.
+        // A burn block without a sortition still carries `last_sortition_ch`; it is absent
+        // only when no sortition has ever occurred on this fork.
+        let Some(last_sortition_ch) = sortition.last_sortition_ch.as_ref() else {
+            debug!("No sortition has occurred yet on this burnchain fork.";
+                "consensus_hash" => %consensus_hash,
+            );
+            return None;
+        };
+        let last_sortition = self.query_sortition(last_sortition_ch)?;
+        Some(last_sortition.burn_block_height)
+    }
+
+    /// Read one sortition from the node by consensus hash, logging rather than propagating
+    /// a failure: every caller treats a missing answer as "unknown".
+    fn query_sortition(&self, consensus_hash: &ConsensusHash) -> Option<SortitionInfo> {
+        match self
+            .stacks_client
+            .get_sortition_by_consensus_hash(consensus_hash)
+        {
+            Ok(sortition) => Some(sortition),
+            // The node has not caught up to this burn block yet. Expected on the passes
+            // immediately following a burn block event, so not worth a warning.
+            Err(ClientError::RequestFailure(status)) if status == StatusCode::NOT_FOUND => {
+                debug!("Node does not know this burn block yet; will retry next pass.";
+                    "consensus_hash" => %consensus_hash,
+                );
+                None
+            }
+            Err(e) => {
+                warn!("Could not read sortition info; leaving the latest sortition unresolved.";
+                    "consensus_hash" => %consensus_hash,
+                    "err" => %e,
+                );
+                None
+            }
+        }
+    }
+
+    /// Configure the signer for `reward_cycle` unless its slot is already held by a newer
+    /// cycle.
+    ///
+    /// `stacks_signers` is keyed by reward cycle parity, so cycles N and N+2 compete for one
+    /// slot. The newer cycle always wins: it is the one that will be asked to sign next.
+    fn refresh_signer_config_if_not_superseded(&mut self, reward_cycle: u64) {
+        if let Some(signer) = self.stacks_signers.get(&(reward_cycle % 2)) {
+            if signer.reward_cycle() >= reward_cycle {
+                return;
+            }
+        }
+        self.refresh_signer_config(reward_cycle);
+    }
+
+    /// Make sure a signer is configured for every reward cycle that may still be asked to
+    /// sign, and return the oldest of them for `cleanup_stale_signers` to keep.
+    ///
+    /// Re-configuring rather than merely declining to tear down is what makes this survive a
+    /// signer restart during the overlap, and a burnchain reorg that orphans the sortition
+    /// which retired the prior cycle.
+    fn refresh_active_reward_cycle_signers(&mut self, current_reward_cycle: u64) -> u64 {
+        let latest_sortition_reward_cycle = self
+            .burnchain_view
+            .as_ref()
+            .and_then(SignerBurnView::retention_sortition_reward_cycle);
+        let oldest_active =
+            oldest_active_reward_cycle(current_reward_cycle, latest_sortition_reward_cycle);
+        if oldest_active < current_reward_cycle {
+            self.refresh_signer_config_if_not_superseded(oldest_active);
+        }
+        oldest_active
+    }
+
+    /// Re-evaluate which reward cycles' signers to keep, and update the runloop state
+    /// accordingly.
+    ///
+    /// The decision depends on the current reward cycle and on the latest sortition, so
+    /// this runs whenever either changes: on a new burnchain tip (from `refresh_runloop`,
+    /// where the sortition is usually still pending and so the prior cycle is kept), and
+    /// when the sortition resolves (from `run_one_pass`), which is the point at which a
+    /// prior cycle can actually be retired.
+    fn refresh_signer_retention(&mut self) {
+        let Some(current_reward_cycle) = self
+            .burnchain_view
+            .as_ref()
+            .map(SignerBurnView::current_reward_cycle)
+        else {
+            return;
+        };
+        let oldest_active_reward_cycle =
+            self.refresh_active_reward_cycle_signers(current_reward_cycle);
+        self.cleanup_stale_signers(oldest_active_reward_cycle);
+        self.state = if self.stacks_signers.is_empty() {
+            State::NoRegisteredSigners
+        } else {
+            State::RegisteredSigners
+        };
+    }
+
+    fn refresh_runloop(&mut self, event_block: BurnBlock) -> Result<(), ClientError> {
+        let peer_info = self.stacks_client.get_peer_info()?;
+        let burnchain_view = self
+            .burnchain_view
+            .as_mut()
+            .expect("FATAL: cannot be an initialized signer with no burnchain view.");
+        let reward_cycle_before_refresh = burnchain_view.current_reward_cycle();
+
+        // The node may be ahead of its event stream. Follow whichever tip is higher, taking
+        // height and consensus hash from the same source so that they describe one block.
+        let node_tip = BurnBlock {
+            height: peer_info.burn_block_height,
+            consensus_hash: peer_info.pox_consensus,
+        };
+        let event_height = event_block.height;
+        let tip = if node_tip.height > event_block.height {
+            node_tip
+        } else {
+            event_block
+        };
+        burnchain_view.set_tip(tip);
+
+        let current_reward_cycle = burnchain_view.current_reward_cycle();
+        let is_in_next_prepare_phase = burnchain_view.is_in_next_prepare_phase();
         let next_reward_cycle = current_reward_cycle.saturating_add(1);
 
         info!(
             "Refreshing runloop with new burn block event";
-            "latest_node_burn_ht" => current_burn_block_height,
-            "event_ht" =>  ev_burn_block_height,
+            "latest_node_burn_ht" => burnchain_view.tip.height,
+            "event_ht" => event_height,
             "reward_cycle_before_refresh" => reward_cycle_before_refresh,
             "current_reward_cycle" => current_reward_cycle,
             "configured_for_current" => Self::is_configured_for_cycle(&self.stacks_signers, current_reward_cycle),
@@ -422,6 +743,7 @@ impl<Signer: SignerTrait<T>, T: StacksMessageCodec + Clone + Send + Debug> RunLo
             "configured_for_next" => Self::is_configured_for_cycle(&self.stacks_signers, next_reward_cycle),
             "registered_for_next" => Self::is_registered_for_cycle(&self.stacks_signers, next_reward_cycle),
             "is_in_next_prepare_phase" => is_in_next_prepare_phase,
+            "resolved_sortition" => ?burnchain_view.resolved_sortition,
         );
 
         // Check if we need to refresh the signers:
@@ -436,12 +758,7 @@ impl<Signer: SignerTrait<T>, T: StacksMessageCodec + Clone + Send + Debug> RunLo
             self.refresh_signer_config(next_reward_cycle);
         }
 
-        self.cleanup_stale_signers(current_reward_cycle);
-        if self.stacks_signers.is_empty() {
-            self.state = State::NoRegisteredSigners;
-        } else {
-            self.state = State::RegisteredSigners;
-        }
+        self.refresh_signer_retention();
         Ok(())
     }
 
@@ -466,7 +783,10 @@ impl<Signer: SignerTrait<T>, T: StacksMessageCodec + Clone + Send + Debug> RunLo
             && matches!(signer, ConfiguredSigner::RegisteredSigner(_))
     }
 
-    fn cleanup_stale_signers(&mut self, current_reward_cycle: u64) {
+    /// Tear down signers for reward cycles older than `oldest_active_reward_cycle` once
+    /// they have no work left. This is resource management only: whether a signer may
+    /// still sign is decided by `Signer::is_reward_cycle_retired`, not by its lifetime.
+    fn cleanup_stale_signers(&mut self, oldest_active_reward_cycle: u64) {
         #[cfg(any(test, feature = "testing"))]
         if TEST_SKIP_SIGNER_CLEANUP.get() {
             warn!("Skipping signer cleanup due to testing directive.");
@@ -475,8 +795,8 @@ impl<Signer: SignerTrait<T>, T: StacksMessageCodec + Clone + Send + Debug> RunLo
         let mut to_delete = Vec::new();
         for (idx, signer) in &mut self.stacks_signers {
             let reward_cycle = signer.reward_cycle();
-            if reward_cycle >= current_reward_cycle {
-                // We are either the current or a future reward cycle, so we are not stale.
+            if reward_cycle >= oldest_active_reward_cycle {
+                // Still active, or a future reward cycle, so not stale.
                 continue;
             }
             match signer {
@@ -523,7 +843,10 @@ impl<Signer: SignerTrait<T>, T: StacksMessageCodec + Clone + Send + Debug>
         if let Some(SignerEvent::StatusCheck) = event {
             let state_info = StateInfo {
                 runloop_state: self.state,
-                reward_cycle_info: self.current_reward_cycle_info,
+                reward_cycle_info: self
+                    .burnchain_view
+                    .as_ref()
+                    .map(SignerBurnView::reward_cycle_info),
                 running_signers: self
                     .stacks_signers
                     .values()
@@ -579,18 +902,31 @@ impl<Signer: SignerTrait<T>, T: StacksMessageCodec + Clone + Send + Debug>
                 }
                 return None;
             }
-        } else if let Some(SignerEvent::NewBurnBlock { burn_height, .. }) = event {
-            if let Err(e) = self.refresh_runloop(burn_height) {
+        } else if let Some(SignerEvent::NewBurnBlock {
+            burn_height,
+            ref consensus_hash,
+            ..
+        }) = event
+        {
+            let event_block = BurnBlock {
+                height: burn_height,
+                consensus_hash: consensus_hash.clone(),
+            };
+            if let Err(e) = self.refresh_runloop(event_block) {
                 error!("Failed to refresh signer runloop: {e}.");
                 warn!("Signer may have an outdated view of the network.");
             }
         }
+        if self.resolve_latest_sortition() {
+            self.refresh_signer_retention();
+        }
 
-        let current_reward_cycle = self
-            .current_reward_cycle_info
+        let burnchain_view = self
+            .burnchain_view
             .as_ref()
-            .expect("FATAL: cannot be an initialized signer with no reward cycle info.")
-            .reward_cycle;
+            .expect("FATAL: cannot be an initialized signer with no burnchain view.");
+        let current_reward_cycle = burnchain_view.current_reward_cycle();
+        let latest_sortition_reward_cycle = burnchain_view.latest_sortition_reward_cycle();
         for configured_signer in self.stacks_signers.values_mut() {
             let ConfiguredSigner::RegisteredSigner(ref mut signer) = configured_signer else {
                 debug!("{configured_signer}: Not configured for cycle, ignoring events for cycle");
@@ -603,6 +939,7 @@ impl<Signer: SignerTrait<T>, T: StacksMessageCodec + Clone + Send + Debug>
                 event.as_ref(),
                 res,
                 current_reward_cycle,
+                latest_sortition_reward_cycle,
             );
         }
 
@@ -619,9 +956,182 @@ mod tests {
     use blockstack_lib::chainstate::stacks::boot::NakamotoSignerEntry;
     use libsigner::SignerEntries;
     use rand::{thread_rng, Rng, RngCore};
-    use stacks_common::types::chainstate::StacksPublicKey;
+    use stacks_common::types::chainstate::{ConsensusHash, StacksPublicKey};
 
-    use super::RewardCycleInfo;
+    use super::{
+        oldest_active_reward_cycle, BurnBlock, PoxGeometry, RewardCycleInfo, SignerBurnView,
+    };
+
+    #[test]
+    fn burnchain_view_derives_reward_cycle_from_tip_and_scopes_sortition_to_its_tip() {
+        let geometry = PoxGeometry {
+            reward_cycle_length: 10,
+            prepare_phase_block_length: 3,
+            first_burnchain_block_height: 100,
+        };
+        let tip = BurnBlock {
+            height: 125,
+            consensus_hash: ConsensusHash([1; 20]),
+        };
+        let mut view = SignerBurnView::new(geometry, tip.clone());
+        assert_eq!(view.current_reward_cycle(), 2);
+        assert!(!view.is_in_next_prepare_phase());
+        assert_eq!(view.resolved_sortition, None);
+        assert_eq!(view.latest_sortition_reward_cycle(), None);
+        assert_eq!(
+            view.reward_cycle_info(),
+            RewardCycleInfo {
+                reward_cycle: 2,
+                reward_cycle_length: 10,
+                prepare_phase_block_length: 3,
+                first_burnchain_block_height: 100,
+                last_burnchain_block_height: 125,
+            }
+        );
+
+        // Nothing resolved yet, so retention has no answer to fall back on either.
+        assert_eq!(view.retention_sortition_reward_cycle(), None);
+
+        view.set_latest_sortition(ConsensusHash([1; 20]), 119);
+        assert_eq!(view.latest_sortition_reward_cycle(), Some(1));
+
+        // Re-setting the same tip keeps the resolved answer.
+        view.set_tip(tip);
+        assert_eq!(view.latest_sortition_reward_cycle(), Some(1));
+
+        // A new tip (here, the first prepare phase block of cycle 2) re-opens the question.
+        view.set_tip(BurnBlock {
+            height: 127,
+            consensus_hash: ConsensusHash([2; 20]),
+        });
+        assert_eq!(view.current_reward_cycle(), 2);
+        assert!(view.is_in_next_prepare_phase());
+        assert_eq!(view.latest_sortition_reward_cycle(), None);
+
+        // So does the same height on a different fork.
+        view.set_latest_sortition(ConsensusHash([2; 20]), 127);
+        view.set_tip(BurnBlock {
+            height: 127,
+            consensus_hash: ConsensusHash([3; 20]),
+        });
+        assert_eq!(view.latest_sortition_reward_cycle(), None);
+    }
+
+    #[test]
+    fn retention_falls_back_to_the_last_resolved_sortition_across_tips() {
+        let geometry = PoxGeometry {
+            reward_cycle_length: 10,
+            prepare_phase_block_length: 3,
+            first_burnchain_block_height: 100,
+        };
+        // Mid cycle 2, with cycle 2's own sortition already resolved: cycle 1 is retired.
+        let mut view = SignerBurnView::new(
+            geometry,
+            BurnBlock {
+                height: 124,
+                consensus_hash: ConsensusHash([1; 20]),
+            },
+        );
+        view.set_latest_sortition(ConsensusHash([1; 20]), 124);
+        assert_eq!(view.retention_sortition_reward_cycle(), Some(2));
+        assert_eq!(oldest_active_reward_cycle(2, Some(2)), 2);
+
+        // A new burn block re-opens the per-tip question, so the signing gate closes...
+        view.set_tip(BurnBlock {
+            height: 125,
+            consensus_hash: ConsensusHash([2; 20]),
+        });
+        assert_eq!(view.latest_sortition_reward_cycle(), None);
+        // ...but retention still answers cycle 2, so cycle 1's signer is not rebuilt only to
+        // be torn down again when this tip resolves.
+        assert_eq!(view.retention_sortition_reward_cycle(), Some(2));
+        assert_eq!(oldest_active_reward_cycle(2, Some(2)), 2);
+
+        // A reorg that puts the latest sortition back in cycle 1 is answered by the resolved
+        // value, not by the stale fallback, so cycle 1 is held open again.
+        view.set_tip(BurnBlock {
+            height: 125,
+            consensus_hash: ConsensusHash([3; 20]),
+        });
+        view.set_latest_sortition(ConsensusHash([3; 20]), 119);
+        assert_eq!(view.retention_sortition_reward_cycle(), Some(1));
+        assert_eq!(oldest_active_reward_cycle(2, Some(1)), 1);
+
+        // A view that has never resolved anything (e.g. a signer that just restarted) has no
+        // fallback, and holds the prior cycle open as before.
+        let restarted = SignerBurnView::new(
+            geometry,
+            BurnBlock {
+                height: 125,
+                consensus_hash: ConsensusHash([4; 20]),
+            },
+        );
+        assert_eq!(restarted.retention_sortition_reward_cycle(), None);
+        assert_eq!(oldest_active_reward_cycle(2, None), 1);
+    }
+
+    #[test]
+    fn an_answer_for_a_superseded_tip_never_gates_signing() {
+        let geometry = PoxGeometry {
+            reward_cycle_length: 10,
+            prepare_phase_block_length: 3,
+            first_burnchain_block_height: 100,
+        };
+        let mut view = SignerBurnView::new(
+            geometry,
+            BurnBlock {
+                height: 125,
+                consensus_hash: ConsensusHash([1; 20]),
+            },
+        );
+
+        // An answer that names a burn block other than the current tip is an answer to a
+        // question we are no longer asking, however recently it arrived. It cannot gate
+        // signing even though it is the only answer this view has ever had.
+        view.set_latest_sortition(ConsensusHash([9; 20]), 124);
+        assert_eq!(view.latest_sortition_reward_cycle(), None);
+        assert_eq!(view.retention_sortition_reward_cycle(), Some(2));
+
+        // Moving the tip onto the block that answer was for makes it current, without the
+        // answer itself being touched.
+        view.set_tip(BurnBlock {
+            height: 124,
+            consensus_hash: ConsensusHash([9; 20]),
+        });
+        assert_eq!(view.latest_sortition_reward_cycle(), Some(2));
+    }
+
+    #[test]
+    fn oldest_active_reward_cycle_holds_prior_until_a_sortition_lands() {
+        // The burnchain is still in cycle 10: nothing to hold open.
+        assert_eq!(oldest_active_reward_cycle(10, Some(10)), 10);
+
+        // The burnchain has crossed into cycle 11, but the latest sortition is still the one
+        // in cycle 10. The tenure it elected can be extended into cycle 11, and only cycle
+        // 10's reward set can sign for it, so cycle 10's signer is still needed.
+        assert_eq!(oldest_active_reward_cycle(11, Some(10)), 10);
+
+        // A sortition has landed in cycle 11. Responsibility has passed on, whatever cycle
+        // 11's signers make of the winner.
+        assert_eq!(oldest_active_reward_cycle(11, Some(11)), 11);
+
+        // Unconfirmed: keep the prior cycle configured so it can act once the view
+        // recovers. It will not sign in the meantime -- `Signer::is_reward_cycle_retired`
+        // treats an unconfirmed view as retiring a past cycle's signer.
+        assert_eq!(oldest_active_reward_cycle(11, None), 10);
+    }
+
+    #[test]
+    fn oldest_active_reward_cycle_looks_back_at_most_one_cycle() {
+        // `stacks_signers` is keyed by reward cycle parity, so cycle 10 could not be held
+        // alongside cycle 12 even if no sortition had occurred since.
+        assert_eq!(oldest_active_reward_cycle(12, Some(10)), 11);
+        assert_eq!(oldest_active_reward_cycle(12, None), 11);
+
+        // No underflow at the very first reward cycle.
+        assert_eq!(oldest_active_reward_cycle(0, None), 0);
+        assert_eq!(oldest_active_reward_cycle(0, Some(0)), 0);
+    }
 
     #[test]
     fn parse_nakamoto_signer_entries_test() {
@@ -653,7 +1163,7 @@ mod tests {
     }
 
     #[test]
-    fn is_in_reward_cycle_info() {
+    fn reward_cycle_of() {
         let rand_byte: u8 = std::cmp::max(1, thread_rng().gen());
         let prepare_phase_block_length = rand_byte as u64;
         // Ensure the reward cycle is not close to u64 Max to prevent overflow when adding prepare phase len
@@ -674,30 +1184,32 @@ mod tests {
         let blocks_mined = last_burnchain_block_height.wrapping_sub(first_burnchain_block_height);
         let reward_cycle = blocks_mined / reward_cycle_length;
 
-        let reward_cycle_info = RewardCycleInfo {
-            reward_cycle,
+        let geometry = PoxGeometry {
             reward_cycle_length,
             prepare_phase_block_length,
             first_burnchain_block_height,
-            last_burnchain_block_height,
         };
-        assert!(reward_cycle_info.is_in_reward_cycle(first_burnchain_block_height));
-        assert!(reward_cycle_info.is_in_reward_cycle(last_burnchain_block_height));
-        assert!(!reward_cycle_info
-            .is_in_reward_cycle(first_burnchain_block_height.wrapping_add(reward_cycle_length)));
+        let is_in_reward_cycle = |height: u64| geometry.reward_cycle_of(height) == reward_cycle;
+        assert!(is_in_reward_cycle(first_burnchain_block_height));
+        assert!(is_in_reward_cycle(last_burnchain_block_height));
+        assert!(!is_in_reward_cycle(
+            first_burnchain_block_height.wrapping_add(reward_cycle_length)
+        ));
 
-        assert!(reward_cycle_info.is_in_reward_cycle(
+        assert!(is_in_reward_cycle(
             first_burnchain_block_height
                 .wrapping_add(reward_cycle_length)
                 .wrapping_sub(1)
         ));
 
-        assert!(reward_cycle_info.is_in_reward_cycle(
+        assert!(is_in_reward_cycle(
             first_burnchain_block_height.wrapping_add(reward_cycle_phase_block_length)
         ));
-        assert!(reward_cycle_info.is_in_reward_cycle(first_burnchain_block_height.wrapping_add(1)));
+        assert!(is_in_reward_cycle(
+            first_burnchain_block_height.wrapping_add(1)
+        ));
 
-        assert!(reward_cycle_info.is_in_reward_cycle(
+        assert!(is_in_reward_cycle(
             first_burnchain_block_height
                 .wrapping_add(reward_cycle_phase_block_length)
                 .wrapping_add(1)
@@ -705,28 +1217,26 @@ mod tests {
     }
 
     #[test]
-    fn is_in_next_prepare_phase() {
-        let reward_cycle_info = RewardCycleInfo {
-            reward_cycle: 5,
+    fn is_in_prepare_phase() {
+        let geometry = PoxGeometry {
             reward_cycle_length: 10,
             prepare_phase_block_length: 5,
             first_burnchain_block_height: 0,
-            last_burnchain_block_height: 50,
         };
 
-        assert!(!reward_cycle_info.is_in_next_prepare_phase(49));
-        assert!(!reward_cycle_info.is_in_next_prepare_phase(50));
-        assert!(!reward_cycle_info.is_in_next_prepare_phase(51));
-        assert!(!reward_cycle_info.is_in_next_prepare_phase(52));
-        assert!(!reward_cycle_info.is_in_next_prepare_phase(53));
-        assert!(!reward_cycle_info.is_in_next_prepare_phase(54));
-        assert!(reward_cycle_info.is_in_next_prepare_phase(55));
-        assert!(reward_cycle_info.is_in_next_prepare_phase(56));
-        assert!(reward_cycle_info.is_in_next_prepare_phase(57));
-        assert!(reward_cycle_info.is_in_next_prepare_phase(58));
-        assert!(reward_cycle_info.is_in_next_prepare_phase(59));
-        assert!(!reward_cycle_info.is_in_next_prepare_phase(60));
-        assert!(!reward_cycle_info.is_in_next_prepare_phase(61));
+        assert!(geometry.is_in_next_prepare_phase(49));
+        assert!(!geometry.is_in_next_prepare_phase(50));
+        assert!(!geometry.is_in_next_prepare_phase(51));
+        assert!(!geometry.is_in_next_prepare_phase(52));
+        assert!(!geometry.is_in_next_prepare_phase(53));
+        assert!(!geometry.is_in_next_prepare_phase(54));
+        assert!(geometry.is_in_next_prepare_phase(55));
+        assert!(geometry.is_in_next_prepare_phase(56));
+        assert!(geometry.is_in_next_prepare_phase(57));
+        assert!(geometry.is_in_next_prepare_phase(58));
+        assert!(geometry.is_in_next_prepare_phase(59));
+        assert!(!geometry.is_in_next_prepare_phase(60));
+        assert!(!geometry.is_in_next_prepare_phase(61));
 
         let rand_byte: u8 = std::cmp::max(1, thread_rng().gen());
         let prepare_phase_block_length = rand_byte as u64;
@@ -739,30 +1249,20 @@ mod tests {
         let reward_cycle_phase_block_length =
             reward_cycle_length.wrapping_sub(prepare_phase_block_length);
         let first_burnchain_block_height = std::cmp::max(1u8, thread_rng().gen()) as u64;
-        let last_burnchain_block_height = thread_rng().gen_range(
-            first_burnchain_block_height
-                ..first_burnchain_block_height
-                    .wrapping_add(reward_cycle_length)
-                    .wrapping_sub(prepare_phase_block_length),
-        );
-        let blocks_mined = last_burnchain_block_height.wrapping_sub(first_burnchain_block_height);
-        let reward_cycle = blocks_mined / reward_cycle_length;
-
-        let reward_cycle_info = RewardCycleInfo {
-            reward_cycle,
+        let geometry = PoxGeometry {
             reward_cycle_length,
             prepare_phase_block_length,
             first_burnchain_block_height,
-            last_burnchain_block_height,
         };
 
         for i in 0..reward_cycle_length {
             if i < reward_cycle_phase_block_length {
-                assert!(!reward_cycle_info
+                assert!(!geometry
                     .is_in_next_prepare_phase(first_burnchain_block_height.wrapping_add(i)));
             } else {
-                assert!(reward_cycle_info
-                    .is_in_next_prepare_phase(first_burnchain_block_height.wrapping_add(i)));
+                assert!(
+                    geometry.is_in_next_prepare_phase(first_burnchain_block_height.wrapping_add(i))
+                );
             }
         }
     }

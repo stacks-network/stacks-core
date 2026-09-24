@@ -74,8 +74,16 @@ refactors. Key files:
 | [`stacks-signer/src/chainstate/mod.rs`](../stacks-signer/src/chainstate/mod.rs)                                                  | shared chainstate checks (`check_latest_block_in_tenure`, …)       |
 | [`stacks-signer/src/chainstate/v1.rs`](../stacks-signer/src/chainstate/v1.rs) / [`v2.rs`](../stacks-signer/src/chainstate/v2.rs) | protocol-version-specific proposal checks and miner timeout        |
 | [`stacks-signer/src/signerdb.rs`](../stacks-signer/src/signerdb.rs)                                                              | `BlockInfo`/`BlockState`, block queries, conflict queries          |
+| [`stacks-signer/src/runloop.rs`](../stacks-signer/src/runloop.rs)                                                                | burnchain view, reward cycle handover, signer retention            |
 
 ## 1. The event loop & dispatch
+
+The runloop calls `process_event` once per pass for every configured signer, and
+hands it the burnchain view as two values: the reward cycle of the burn chain tip,
+and the reward cycle of the latest sortition (`None` while that is still
+unresolved). The signer records both before anything else in the pass, so every
+decision below sees the view for the burn block being processed — including the
+retirement gate of section 9.
 
 Every pass through `process_event`, whether an event arrived or the loop just
 ticked, runs the same housekeeping before dispatch: retire a timed-out
@@ -89,7 +97,7 @@ is handled.
 ```mermaid
 flowchart LR
     EV(["event or tick"]) --> PE["process_event"]
-    PE --> HK["every pass:<br/>check_submitted_block_proposal<br/>check_pending_block_validations<br/>handle_pending_update<br/>(pending update, else check_miner_inactivity)<br/>capitulate_viewpoint (rate-limited)"]
+    PE --> HK["every pass:<br/>record current_reward_cycle +<br/>latest_sortition_reward_cycle (section 9)<br/>check_submitted_block_proposal<br/>check_pending_block_validations<br/>handle_pending_update<br/>(pending update, else check_miner_inactivity)<br/>capitulate_viewpoint (rate-limited)"]
     HK --> PAR{"event from the other<br/>signer set? (slot parity)"}
     PAR -- yes --> SKIP(["ignore event"])
     PAR -- no --> STARTED{"our reward cycle<br/>started?"}
@@ -201,9 +209,11 @@ flowchart TB
     VERDICT -- false --> REJPREV["re-send rejection<br/>RejectedInPriorRound"]:::bad
     VERDICT -- "not yet validated" --> PEND{"validation pending?"}
     PEND -- yes --> WAITV(["wait"]):::hold
-    PEND -- no --> AGE
-    REASON -- yes --> AGE
-    KNOWN -- no --> AGE{"older than<br/>block_proposal_max_age_secs?"}
+    PEND -- no --> RETIRED
+    REASON -- yes --> RETIRED
+    KNOWN -- no --> RETIRED{"sortition in a later<br/>reward cycle?<br/>is_reward_cycle_retired"}
+    RETIRED -- yes --> RCR["reject RewardCycleRetired<br/>(not stored)"]:::bad
+    RETIRED -- no --> AGE{"older than<br/>block_proposal_max_age_secs?"}
     AGE -- yes --> OLD["reject ProposalTooOld<br/>(not stored)"]:::bad
     AGE -- no --> FRESH["fresh evaluation:<br/>drain early votes (first sighting only,<br/>drain_pending_block_responses),<br/>new BlockInfo (overwrites a stored row),<br/>fetch SortitionsView if needed"]
     FRESH --> CHECK["check_block_against_state:<br/>protocol version consensus (NoSignerConsensus),<br/>static validity, no problematic_txs<br/>(ProblematicTransactions), then<br/>v1 SortitionsView::check_proposal or<br/>v2 GlobalStateView::check_proposal → section 7"]
@@ -218,15 +228,24 @@ flowchart TB
     classDef hold fill:#8a95a51f,stroke:#8a95a5,stroke-dasharray:4 3;
 ```
 
+The retirement gate sits deliberately _after_ the prior-decision handling and
+_before_ everything else. After, because a block we have already decided on keeps
+that decision: contradicting our own signature on an accepted block would be worse
+than staying quiet. Before, because anything still undecided must not be worked on
+at all once this signer set has been superseded (section 9). `RewardCycleRetired`
+is one of the reasons `should_reevaluate_reject_reason` treats as reconsiderable,
+since a burn chain fork can orphan the sortition that retired us.
+
 Early votes: acceptances, rejections, and pre-commits that arrived before the
 proposal itself are parked in pending tables and replayed once the proposal is
 known. A re-evaluated block gets no replay; its fresh `BlockInfo` overwrites the
 stored row.
 
 > Anchors: `handle_block_proposal`, `should_reevaluate_block`,
-> `should_reevaluate_reject_reason`, `check_block_against_state`,
-> `submit_block_for_validation`, `process_pending_responses_for_block`
-> (signer.rs); `check_proposal` (chainstate/v1.rs, v2.rs)
+> `should_reevaluate_reject_reason`, `is_reward_cycle_retired`,
+> `check_block_against_state`, `submit_block_for_validation`,
+> `process_pending_responses_for_block` (signer.rs); `check_proposal`
+> (chainstate/v1.rs, v2.rs)
 
 ## 4. The node's validation verdict
 
@@ -467,7 +486,9 @@ would overwrite that row.
 
 ```mermaid
 flowchart TB
-    IN["check_block_against_signer_db_state<br/>(validate-ok and signing paths)"] --> TC{"tenure-change block?"}
+    IN["check_block_against_signer_db_state<br/>(validate-ok and signing paths)"] --> RET{"sortition in a later<br/>reward cycle?<br/>is_reward_cycle_retired"}
+    RET -- yes --> RCR["fails the check<br/>RewardCycleRetired"]:::bad
+    RET -- no --> TC{"tenure-change block?"}
     TC -- yes --> PARENT["check_tenure_change_confirms_parent =<br/>check_latest_block_in_tenure(PARENT tenure, SelfAsTip::Counts)"]
     TC -- no --> SAME["check_latest_block_in_tenure(OWN tenure,<br/>SelfAsTip::Ignored)"]
     PARENT --> CLB
@@ -485,10 +506,18 @@ flowchart TB
     classDef bad fill:#d84a3f22,stroke:#c9473d,stroke-width:1.5px;
 ```
 
+The retirement gate leads because it is the one question whose answer can change
+between proposal arrival and signing without anything about the block changing: a
+proposal submitted to the node's validator before a sortition landed in the next
+reward cycle can have its verdict come back after (section 9). This is the last
+point before a pre-commit or a signature leaves the box, so the gate is asked
+again here rather than trusted from proposal time.
+
 A failed check becomes a different rejection depending on who asked.
-`check_block_against_signer_db_state` returns `SortitionViewMismatch`, or
-`ConnectivityIssues` when the lookup itself errored rather than answering; the v2
-`check_proposal` path returns `InvalidParentBlock`.
+`check_block_against_signer_db_state` returns `RewardCycleRetired` for the gate,
+`SortitionViewMismatch` for a chainstate mismatch, or `ConnectivityIssues` when
+the lookup itself errored rather than answering; the v2 `check_proposal` path
+returns `InvalidParentBlock`.
 
 The check also writes: a node tenure tip that the signer DB holds but not yet as
 `GloballyAccepted` is marked so where the transition is allowed, and its
@@ -517,8 +546,9 @@ consensus-visible.
 > `check_tenure_change_confirms_parent`, `confirms_latest_block_in_same_tenure`,
 > `get_tenure_last_block_info` (chainstate/mod.rs); `check_proposal`,
 > `validate_tenure_change_payload` (chainstate/v1.rs, v2.rs);
-> `check_block_against_signer_db_state` (signer.rs); `get_last_signed_block`,
-> `get_last_globally_accepted_block`, `get_last_accepted_block` (signerdb.rs)
+> `check_block_against_signer_db_state`, `is_reward_cycle_retired` (signer.rs);
+> `get_last_signed_block`, `get_last_globally_accepted_block`,
+> `get_last_accepted_block` (signerdb.rs)
 
 ## 8. Burn blocks & the miner-view state machine
 
@@ -608,3 +638,105 @@ the freshness timeout. Both dynamics are pinned by integration tests:
 > `is_timed_out`, `check_parent_tenure_choice` (chainstate/mod.rs,
 > chainstate/v1.rs, v2.rs); `has_signed_block_in_tenure`, `insert_burn_block`,
 > `mark_tenure_superseded`, `prune_superseded_tenures` (signerdb.rs)
+
+## 9. Reward cycle handover (runloop)
+
+Sections 3 and 7 both consult one gate, `is_reward_cycle_retired`, and the two
+numbers it reads come from outside the per-cycle signer. This section is where
+they are computed: `stacks-signer/src/runloop.rs`, the outer loop that decides
+which reward cycles have a signer at all.
+
+A tenure is signed by the reward set that was active when it was **elected**
+(`load_nakamoto_reward_set_for_tenure` in stackslib), not by the set active when
+some later block in it is proposed. The cycle boundary is therefore not where a
+signer set's job ends: once the burn chain crosses into cycle N+1 with no
+sortition there yet, cycle N's tenure can still be extended across the boundary,
+and only cycle N's set may sign those blocks. What retires cycle N's set is the
+first **sortition** in cycle N+1 — not the boundary, and not cycle N+1's set
+approving of the winner. If that winner is unresponsive, the correct outcome is
+that nobody signs until the next sortition; it is _not_ that cycle N's miner
+resumes. Without the gate, cycle N's own state machine would fall back to the
+last sortition winner — its own miner — and approve exactly that takeover.
+
+```mermaid
+flowchart TB
+    EVT["NewBurnBlock event<br/>refresh_runloop"] --> TIP["set_tip: the higher of the event<br/>block and get_peer_info's tip"]
+    TIP --> CUR["current_reward_cycle =<br/>reward_cycle_of(tip.height)"]
+    TIP --> PEND["any resolved answer now names<br/>a superseded tip, so it stops<br/>answering for this one"]
+    PEND --> RES["resolve_latest_sortition:<br/>every pass, before any event<br/>is dispatched to the signers"]
+    RES --> Q{"/v3/sortitions/consensus/:tip<br/>sortition in that burn block?"}
+    Q -- yes --> KN["ResolvedSortition:<br/>{queried_tip, sortition_height}"]
+    Q -- "no, but the block names<br/>last_sortition_ch — resolve that" --> KN
+    Q -- "node has not caught up (404),<br/>query failed, or no sortition has<br/>ever occurred on this fork" --> HOLD(["no answer for this tip —<br/>retried next pass"]):::hold
+    KN --> GATE["signing gate (safety):<br/>latest_sortition_reward_cycle →<br/>process_event → is_reward_cycle_retired"]
+    HOLD --> GATE
+    CUR --> GATE
+    KN --> KEEP["retention (resources):<br/>retention_sortition_reward_cycle →<br/>oldest_active_reward_cycle"]
+    HOLD --> KEEP
+    KEEP --> CFG["refresh_signer_config_if_not_superseded<br/>+ cleanup_stale_signers"]
+    classDef hold fill:#8a95a51f,stroke:#8a95a5,stroke-dasharray:4 3;
+```
+
+The tip and the latest sortition are tracked separately because they answer
+different questions and the node cannot always answer the second one yet: it
+announces a burn block before it commits that block's sortition, so the first
+query after an event legitimately fails. Sortition queries are anchored to the
+tip's consensus hash rather than to the node's idea of "latest", which names the
+burn chain fork being reasoned about and makes an answer the node cannot yet give
+recognizable as such. That also makes the view fork-correct for free: after a
+burn chain reorg the new events name the new fork and the answer follows it.
+
+A resolved answer is stored as a `ResolvedSortition`. This stores the
+`queried_tip` it was an answer to and the `sortition_height` that
+answers it. There is exactly one stored answer, and which consumer may
+use it falls out of that stamp: `latest_sortition_reward_cycle` uses
+it only when `queried_tip` matches the current tip,
+`retention_sortition_reward_cycle` takes it whatever tip it names, and
+`set_tip` is a plain assignment that invalidates nothing. Storing the
+query next to the response makes the staleness check structural rather
+than a rule the code has to remember.
+
+**The two consumers read an unresolved view differently, and that difference is
+the point.**
+
+- **The signing gate is a safety question**, so it stays pessimistic.
+  `latest_sortition_reward_cycle` is `None` for as long as this tip's sortition
+  is unresolved, and `is_reward_cycle_retired` then answers from the tip alone:
+  while the tip is still inside our own cycle there is no risk in staying active,
+  but once it has crossed the boundary the signer refuses to sign until the view
+  resolves. It is deliberately not latched to the last confirmed value — that
+  would hide exactly the staleness the gate exists to react to. The refusal is a
+  broadcast `RewardCycleRetired`, and it is reconsiderable (section 3), so a
+  burn chain fork that orphans the retiring sortition lets the same signer go
+  back to work without a restart.
+- **Retention is a resource-allocation question**, so it tolerates a stale
+  answer. `oldest_active_reward_cycle` decides how long the prior cycle's signer
+  stays configured; `stacks_signers` is keyed by reward cycle parity, so only two
+  cycles can be configured at once and it never looks back further than one.
+  It reads `retention_sortition_reward_cycle`, which takes the stored answer
+  whichever tip it was resolved for. `None` there means "never resolved
+  anything" — a signer that just started — which is the only case where holding
+  the prior cycle open is the right default. Without that tolerance every burn
+  block would rebuild the long-retired prior cycle's signer (three node RPCs and
+  a fresh `Signer`) only for the resolved answer to retire it again in the same
+  pass.
+
+Retention re-configures the prior cycle's signer rather than merely declining to
+tear it down, which is what makes it survive a signer restart during the overlap,
+and a burn chain fork that orphans the sortition which retired that cycle.
+
+Both halves of the boundary behavior are pinned by integration tests:
+`tenure_extend_across_reward_cycle_boundary` and
+`no_tenure_extend_across_cycle_boundary_when_new_cycle_has_a_sortition`
+([tenure_extend.rs](../stacks-node/src/tests/signer/v0/tenure_extend.rs)).
+
+> Anchors: `RunLoop::refresh_runloop`, `resolve_latest_sortition`,
+> `query_latest_sortition`, `refresh_signer_retention`,
+> `refresh_active_reward_cycle_signers`,
+> `refresh_signer_config_if_not_superseded`, `cleanup_stale_signers`,
+> `oldest_active_reward_cycle`, `SignerBurnView`, `ResolvedSortition`,
+> `set_tip`, `set_latest_sortition`, `resolved_for_current_tip`,
+> `latest_sortition_reward_cycle`,
+> `retention_sortition_reward_cycle` (runloop.rs); `is_reward_cycle_retired`
+> (v0/signer.rs); `RejectReason::RewardCycleRetired` (libsigner/src/v0/messages.rs);
+> `get_sortition_by_consensus_hash`, `get_peer_info` (client/stacks_client.rs)
