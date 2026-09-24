@@ -463,19 +463,6 @@ impl BlocksAvailableData {
     pub fn new() -> BlocksAvailableData {
         BlocksAvailableData { available: vec![] }
     }
-
-    pub fn try_push(
-        &mut self,
-        ch: ConsensusHash,
-        bhh: BurnchainHeaderHash,
-    ) -> Result<(), net_error> {
-        if self.available.len() < BLOCKS_AVAILABLE_MAX_LEN as usize {
-            self.available.push((ch, bhh));
-            return Ok(());
-        } else {
-            return Err(net_error::InvalidMessage);
-        }
-    }
 }
 
 impl StacksMessageCodec for BlocksDatum {

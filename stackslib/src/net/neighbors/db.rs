@@ -51,10 +51,6 @@ impl NeighborReplacements {
         self.replaced_neighbors.insert(naddr, slot);
     }
 
-    pub fn get_slot(&self, naddr: &NeighborAddress) -> Option<u32> {
-        self.replaced_neighbors.get(naddr).copied()
-    }
-
     pub fn get_neighbor(&self, naddr: &NeighborAddress) -> Option<&Neighbor> {
         self.replacements.get(naddr)
     }
