@@ -368,24 +368,6 @@ impl PeerBlocksInv {
         new_mblocks != 0
     }
 
-    /// Clear a block bit
-    #[cfg_attr(test, mutants::skip)]
-    pub fn clear_block_bit(&mut self, block_height: u64) {
-        self.merge_blocks_inv(block_height, 1, vec![0x01], vec![0x00], true);
-    }
-
-    /// Clear a microblock bit
-    pub fn clear_microblock_bit(&mut self, microblock_height: u64) {
-        self.merge_blocks_inv(microblock_height, 1, vec![0x00], vec![0x01], true);
-    }
-
-    /// Set a confirmed anchor block detection.
-    /// Return whether or not the bit was flipped to 1
-    pub fn set_pox_bit(&mut self, burnchain: &Burnchain, reward_cycle: u64) -> bool {
-        let bits_set = self.merge_pox_inv(burnchain, reward_cycle, 1, vec![0x01], true);
-        bits_set.unwrap_or(0) != 0
-    }
-
     /// Count up the number of blocks represented
     pub fn num_blocks(&self) -> u64 {
         let mut total = 0;
@@ -402,17 +384,6 @@ impl PeerBlocksInv {
         let mut total = 0;
         for i in 0..self.num_sortitions {
             if self.has_ith_microblock_stream(i + self.first_block_height) {
-                total += 1;
-            }
-        }
-        total
-    }
-
-    /// Count up the number of anchor blocks represented
-    pub fn num_pox_anchor_blocks(&self) -> u64 {
-        let mut total = 0;
-        for i in 0..self.num_reward_cycles {
-            if self.has_ith_anchor_block(i) {
                 total += 1;
             }
         }
@@ -454,11 +425,6 @@ impl PeerBlocksInv {
     /// What's the block height represented here?
     pub fn get_block_height(&self) -> u64 {
         self.first_block_height + self.num_sortitions
-    }
-
-    /// What's the number of PoX reward cycles we know about?
-    pub fn get_pox_height(&self) -> u64 {
-        self.num_reward_cycles
     }
 }
 

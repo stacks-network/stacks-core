@@ -88,9 +88,6 @@ pub struct DNSResolver {
     inbound: Receiver<DNSRequest>,
     outbound: SyncSender<DNSResponse>,
     max_inflight: u64,
-
-    // used mainly for testing
-    hardcoded: HashMap<(String, u16), Vec<SocketAddr>>,
 }
 
 /// The DNSClient provides an API to send DNS requests and poll DNS results. The client forwards
@@ -113,20 +110,11 @@ impl DNSResolver {
             inbound: socket_chan_rx,
             outbound: dns_chan_tx,
             max_inflight,
-            hardcoded: HashMap::new(),
         };
         (resolver, client)
     }
 
-    pub fn add_hardcoded(&mut self, host: &str, port: u16, addrs: Vec<SocketAddr>) {
-        self.hardcoded.insert((host.to_string(), port), addrs);
-    }
-
     pub fn resolve(&self, req: DNSRequest) -> DNSResponse {
-        if let Some(addrs) = self.hardcoded.get(&(req.host.clone(), req.port)) {
-            return DNSResponse::new(req, Ok(addrs.to_vec()));
-        }
-
         // TODO: this is a blocking operation, but there's not really a good solution here other
         // than to just do this in a separate thread :shrug:
         test_debug!("Resolve {}:{}", &req.host, req.port);
