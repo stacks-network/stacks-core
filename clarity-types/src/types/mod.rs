@@ -345,7 +345,6 @@ impl TraitIdentifier {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[cfg_attr(test, derive(variant_count::VariantCount))]
 pub enum Value {
     Int(i128),
     UInt(u128),
@@ -362,7 +361,6 @@ pub enum Value {
 }
 
 #[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize)]
-#[cfg_attr(test, derive(variant_count::VariantCount))]
 pub enum SequenceData {
     Buffer(BuffData),
     List(ListData),
@@ -771,7 +769,6 @@ impl SequenceData {
 }
 
 #[derive(Clone, Eq, PartialEq, Serialize, Deserialize)]
-#[cfg_attr(test, derive(variant_count::VariantCount))]
 pub enum CharType {
     UTF8(UTF8Data),
     ASCII(ASCIIData),
