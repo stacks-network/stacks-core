@@ -734,7 +734,7 @@ Both halves of the boundary behavior are pinned by integration tests:
 > `query_latest_sortition`, `refresh_signer_retention`,
 > `refresh_active_reward_cycle_signers`,
 > `refresh_signer_config_if_not_superseded`, `cleanup_stale_signers`,
-> `oldest_active_reward_cycle`, `BurnchainView`, `ResolvedSortition`,
+> `oldest_active_reward_cycle`, `SignerBurnView`, `ResolvedSortition`,
 > `set_tip`, `set_latest_sortition`, `resolved_for_current_tip`,
 > `latest_sortition_reward_cycle`,
 > `retention_sortition_reward_cycle` (runloop.rs); `is_reward_cycle_retired`

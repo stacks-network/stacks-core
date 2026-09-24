@@ -93,8 +93,8 @@ pub enum State {
 
 /// The current reward cycle info, as reported by the status check.
 ///
-/// This is a snapshot of a [`BurnchainView`] at its tip (see
-/// [`BurnchainView::reward_cycle_info`]) or of the node's PoX data
+/// This is a snapshot of a [`SignerBurnView`] at its tip (see
+/// [`SignerBurnView::reward_cycle_info`]) or of the node's PoX data
 /// (see `StacksClient::get_current_reward_cycle_info`).
 #[derive(PartialEq, Eq, Debug, Clone, Copy)]
 pub struct RewardCycleInfo {
@@ -184,7 +184,7 @@ pub struct ResolvedSortition {
 /// a processed block without one). It also makes the view fork-correct for free: after a
 /// burnchain reorg the new events name the new fork, and the answer follows it.
 #[derive(PartialEq, Eq, Debug, Clone)]
-pub struct BurnchainView {
+pub struct SignerBurnView {
     /// The PoX reward cycle geometry
     pub geometry: PoxGeometry,
     /// The most recent burn block on the node's canonical fork
@@ -201,7 +201,7 @@ pub struct BurnchainView {
     resolved_sortition: Option<ResolvedSortition>,
 }
 
-impl BurnchainView {
+impl SignerBurnView {
     /// A view of the burnchain at `tip`, with the latest sortition not yet resolved.
     pub fn new(geometry: PoxGeometry, tip: BurnBlock) -> Self {
         Self {
@@ -297,7 +297,7 @@ fn oldest_active_reward_cycle(
         return current_reward_cycle;
     };
     // `None` means no sortition has ever been confirmed on this view (callers pass
-    // `BurnchainView::retention_sortition_reward_cycle`, which falls back to the last
+    // `SignerBurnView::retention_sortition_reward_cycle`, which falls back to the last
     // resolved answer, so a merely-pending tip does not land here). Keep the prior cycle's
     // signer configured: retention is a liveness question, and the safety question is
     // settled separately by `Signer::is_reward_cycle_retired`, which refuses to sign on an
@@ -378,7 +378,7 @@ where
     /// The state of the runloop
     pub state: State,
     /// The runloop's view of the burnchain. Only None if the runloop is uninitialized
-    pub burnchain_view: Option<BurnchainView>,
+    pub burnchain_view: Option<SignerBurnView>,
     /// Cache sortitin data from `stacks-node`
     pub sortition_state: Option<SortitionsView>,
 }
@@ -554,7 +554,7 @@ impl<Signer: SignerTrait<T>, T: StacksMessageCodec + Clone + Send + Debug> RunLo
                     .stacks_client
                     .get_peer_info()
                     .map_err(backoff::Error::transient)?;
-                Ok(BurnchainView::new(
+                Ok(SignerBurnView::new(
                     geometry,
                     BurnBlock {
                         height: peer_info.burn_block_height,
@@ -671,7 +671,7 @@ impl<Signer: SignerTrait<T>, T: StacksMessageCodec + Clone + Send + Debug> RunLo
         let latest_sortition_reward_cycle = self
             .burnchain_view
             .as_ref()
-            .and_then(BurnchainView::retention_sortition_reward_cycle);
+            .and_then(SignerBurnView::retention_sortition_reward_cycle);
         let oldest_active =
             oldest_active_reward_cycle(current_reward_cycle, latest_sortition_reward_cycle);
         if oldest_active < current_reward_cycle {
@@ -692,7 +692,7 @@ impl<Signer: SignerTrait<T>, T: StacksMessageCodec + Clone + Send + Debug> RunLo
         let Some(current_reward_cycle) = self
             .burnchain_view
             .as_ref()
-            .map(BurnchainView::current_reward_cycle)
+            .map(SignerBurnView::current_reward_cycle)
         else {
             return;
         };
@@ -846,7 +846,7 @@ impl<Signer: SignerTrait<T>, T: StacksMessageCodec + Clone + Send + Debug>
                 reward_cycle_info: self
                     .burnchain_view
                     .as_ref()
-                    .map(BurnchainView::reward_cycle_info),
+                    .map(SignerBurnView::reward_cycle_info),
                 running_signers: self
                     .stacks_signers
                     .values()
@@ -959,7 +959,7 @@ mod tests {
     use stacks_common::types::chainstate::{ConsensusHash, StacksPublicKey};
 
     use super::{
-        oldest_active_reward_cycle, BurnBlock, BurnchainView, PoxGeometry, RewardCycleInfo,
+        oldest_active_reward_cycle, BurnBlock, PoxGeometry, RewardCycleInfo, SignerBurnView,
     };
 
     #[test]
@@ -973,7 +973,7 @@ mod tests {
             height: 125,
             consensus_hash: ConsensusHash([1; 20]),
         };
-        let mut view = BurnchainView::new(geometry, tip.clone());
+        let mut view = SignerBurnView::new(geometry, tip.clone());
         assert_eq!(view.current_reward_cycle(), 2);
         assert!(!view.is_in_next_prepare_phase());
         assert_eq!(view.resolved_sortition, None);
@@ -1025,7 +1025,7 @@ mod tests {
             first_burnchain_block_height: 100,
         };
         // Mid cycle 2, with cycle 2's own sortition already resolved: cycle 1 is retired.
-        let mut view = BurnchainView::new(
+        let mut view = SignerBurnView::new(
             geometry,
             BurnBlock {
                 height: 124,
@@ -1059,7 +1059,7 @@ mod tests {
 
         // A view that has never resolved anything (e.g. a signer that just restarted) has no
         // fallback, and holds the prior cycle open as before.
-        let restarted = BurnchainView::new(
+        let restarted = SignerBurnView::new(
             geometry,
             BurnBlock {
                 height: 125,
@@ -1077,7 +1077,7 @@ mod tests {
             prepare_phase_block_length: 3,
             first_burnchain_block_height: 100,
         };
-        let mut view = BurnchainView::new(
+        let mut view = SignerBurnView::new(
             geometry,
             BurnBlock {
                 height: 125,
