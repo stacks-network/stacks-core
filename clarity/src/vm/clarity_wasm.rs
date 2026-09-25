@@ -10862,9 +10862,9 @@ mod tests {
 }
 
 mod error_mapping {
-    use stacks_common::types::StacksEpochId;
     use std::sync::Mutex;
 
+    use stacks_common::types::StacksEpochId;
     use wasmi::{AsContextMut, Instance, TrapCode};
 
     use super::{
