@@ -222,10 +222,8 @@ impl TestMiner {
         match self.vrf_key_map.get(vrf_pubkey) {
             Some(prover_key) => {
                 let proof = VRF::prove(prover_key, last_sortition_hash.as_bytes())?;
-                let valid = match VRF::verify(vrf_pubkey, &proof, last_sortition_hash.as_bytes()) {
-                    Ok(v) => v,
-                    Err(e) => false,
-                };
+                let valid = VRF::verify(vrf_pubkey, &proof, last_sortition_hash.as_bytes())
+                    .unwrap_or_default();
                 assert!(valid);
                 Some(proof)
             }
@@ -859,8 +857,8 @@ fn process_next_sortition(
     }
 
     // have each leader register a VRF key
-    for j in 0..miners.len() {
-        let key_register_op = block.add_leader_key_register(&mut miners[j]);
+    for miner in miners.iter_mut() {
+        let key_register_op = block.add_leader_key_register(miner);
         next_prev_keys.push(key_register_op);
     }
 

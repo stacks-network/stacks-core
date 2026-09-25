@@ -463,19 +463,6 @@ impl BlocksAvailableData {
     pub fn new() -> BlocksAvailableData {
         BlocksAvailableData { available: vec![] }
     }
-
-    pub fn try_push(
-        &mut self,
-        ch: ConsensusHash,
-        bhh: BurnchainHeaderHash,
-    ) -> Result<(), net_error> {
-        if self.available.len() < BLOCKS_AVAILABLE_MAX_LEN as usize {
-            self.available.push((ch, bhh));
-            return Ok(());
-        } else {
-            return Err(net_error::InvalidMessage);
-        }
-    }
 }
 
 impl StacksMessageCodec for BlocksDatum {
@@ -1603,7 +1590,6 @@ pub mod test {
     use stacks_common::bitvec::BitVec;
     use stacks_common::codec::NEIGHBOR_ADDRESS_ENCODED_SIZE;
     use stacks_common::util::hash::hex_bytes;
-    use stacks_common::util::secp256k1::*;
 
     use super::*;
     use crate::net::{GetNakamotoInvData, NakamotoInvData};

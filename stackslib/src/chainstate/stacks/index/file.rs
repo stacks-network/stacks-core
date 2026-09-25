@@ -23,6 +23,7 @@ use std::{env, fs, io};
 #[cfg(test)]
 use rusqlite::params;
 use rusqlite::Connection;
+use stacks_common::types::chainstate::TrieHash;
 
 use crate::chainstate::stacks::index::bits::{
     get_node_max_byte_len, read_hash_bytes, read_nodetype_at_head, read_nodetype_at_head_nohash,
@@ -33,7 +34,6 @@ use crate::chainstate::stacks::index::storage::NodeHashReader;
 #[cfg(test)]
 use crate::chainstate::stacks::index::storage::TrieStorageConnection;
 use crate::chainstate::stacks::index::{trie_sql, Error, MarfDataEntry, MarfTrieId};
-use crate::types::chainstate::TrieHash;
 use crate::util_lib::db::sql_vacuum;
 
 /// Reader-thread count for the bulk header fan-out.
@@ -557,7 +557,7 @@ impl TrieFile {
     }
 
     /// Obtain a TrieHash for a node, given the node's block's hash (used only in testing)
-    #[cfg(test)]
+    #[cfg(any(test, feature = "testing"))]
     pub fn get_node_hash_bytes_by_bhh<T: MarfTrieId>(
         &mut self,
         db: &Connection,

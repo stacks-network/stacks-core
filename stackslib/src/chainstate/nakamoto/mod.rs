@@ -1273,21 +1273,6 @@ impl NakamotoBlockHeader {
 }
 
 impl NakamotoBlock {
-    /// Find all positionally-valid tenure changes in this block.
-    /// They must be the first transactions.
-    /// Return their indexes into self.txs
-    fn find_tenure_changes(&self) -> Vec<usize> {
-        let mut ret = vec![];
-        for (i, tx) in self.txs.iter().enumerate() {
-            if let TransactionPayload::TenureChange(..) = &tx.payload {
-                ret.push(i);
-            } else {
-                break;
-            }
-        }
-        ret
-    }
-
     pub fn is_first_mined(&self) -> bool {
         self.header.is_first_mined()
     }

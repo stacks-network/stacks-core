@@ -1094,7 +1094,6 @@ mod test {
     use clarity::vm::costs::ExecutionCost;
     use clarity::vm::types::StacksAddressExtensions;
     use stacks_common::types::chainstate::BurnchainHeaderHash;
-    use stacks_common::util::hash::*;
 
     use super::*;
     use crate::burnchains::*;

@@ -1281,6 +1281,7 @@ pub fn dump_consts() {
     let json_out = json!({
         "miner_reward_maturity": consts::MINER_REWARD_MATURITY,
         "chain_id_mainnet": consts::CHAIN_ID_MAINNET,
+        "chain_id_signet": consts::CHAIN_ID_SIGNET,
         "chain_id_testnet": consts::CHAIN_ID_TESTNET,
         "signer_slots_per_user": consts::SIGNER_SLOTS_PER_USER,
         "network_id_mainnet": consts::NETWORK_ID_MAINNET,

@@ -33,7 +33,8 @@ use super::stacks::boot::{RewardSet, RewardSetData};
 use super::stacks::db::blocks::DummyEventDispatcher;
 use crate::burnchains::db::{BurnchainBlockData, BurnchainDB};
 use crate::burnchains::{
-    Burnchain, BurnchainBlockHeader, Error as BurnchainError, PoxConstants, Txid,
+    Burnchain, BurnchainBlockHeader, BurnchainSignerKind, Error as BurnchainError, PoxConstants,
+    Txid,
 };
 use crate::chainstate::burn::db::sortdb::{SortitionDB, SortitionHandleTx};
 use crate::chainstate::burn::operations::leader_block_commit::RewardSetInfo;
@@ -353,7 +354,7 @@ impl<T: BlockEventDispatcher> RewardSetProvider for OnChainRewardSetProvider<'_,
             cur_epoch,
         )?;
 
-        if is_nakamoto_reward_set && reward_set.signers().map_or(true, |s| s.is_empty()) {
+        if is_nakamoto_reward_set && reward_set.signers().is_none_or(|s| s.is_empty()) {
             error!("FATAL: Signer sets are empty in a reward set that will be used in nakamoto"; "reward_set" => ?reward_set);
             return Err(Error::PoXAnchorBlockRequired);
         }
@@ -857,6 +858,7 @@ pub struct PoxTransactionRewardRecipient {
 pub struct PoxTransactionReward {
     #[serde(with = "prefix_hex")]
     pub txid: Txid,
+    pub apparent_sender: Option<String>,
     pub reward_recipients: Vec<PoxTransactionRewardRecipient>,
 }
 
@@ -899,6 +901,11 @@ pub fn calculate_paid_rewards(ops: &[BlockstackOperationType]) -> PaidRewards {
             if !tx_reward_recipients.is_empty() {
                 pox_transactions.push(PoxTransactionReward {
                     txid: commit.txid.clone(),
+                    apparent_sender: match commit.apparent_sender.kind() {
+                        BurnchainSignerKind::Signer(signer) => Some(signer.to_string()),
+                        BurnchainSignerKind::NoChangeOutput
+                        | BurnchainSignerKind::UndecodableOutput => None,
+                    },
                     reward_recipients: tx_reward_recipients,
                 });
             }
@@ -1877,12 +1884,11 @@ pub fn check_chainstate_db_versions(
 pub struct SortitionDBMigrator {
     chainstate: Option<StacksChainState>,
     burnchain: Burnchain,
-    burnchain_db: BurnchainDB,
 }
 
 impl SortitionDBMigrator {
     /// Instantiate the migrator.
-    /// The chainstate must already exist
+    /// The chainstate must already exist.
     pub fn new(
         burnchain: Burnchain,
         chainstate_path: &str,
@@ -1895,12 +1901,10 @@ impl SortitionDBMigrator {
             chainstate_path,
             marf_opts,
         )?;
-        let burnchain_db = BurnchainDB::open(&burnchain.get_burnchaindb_path(), false)?;
 
         Ok(Self {
             chainstate: Some(chainstate),
             burnchain,
-            burnchain_db,
         })
     }
 

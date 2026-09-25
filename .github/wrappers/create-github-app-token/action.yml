@@ -24,7 +24,7 @@ inputs:
   skip-token-revoke:
     description: "If true, the token will not be revoked when the current job is complete"
     required: false
-    default: "false"
+    default: false
   # Make GitHub API configurable to support non-GitHub Cloud use cases
   # see https://github.com/actions/create-github-app-token/issues/77
   github-api-url:

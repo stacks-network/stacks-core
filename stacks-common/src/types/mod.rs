@@ -816,22 +816,15 @@ impl StacksEpochId {
         self >= &StacksEpochId::Epoch41
     }
 
+    /// Gate for `clarity::vm::is_shadowable_reserved`. From Epoch 4.1 deploys
+    /// cannot pin a version, so the epoch is the single switch.
+    pub fn allows_shadowable_reserved_names(&self) -> bool {
+        self >= &StacksEpochId::Epoch41
+    }
+
     /// Does this epoch sum stacking entries in the assetmap or just replace
     ///  and error-on-replace?
     pub fn sums_stacking_assetmap(&self) -> bool {
-        self >= &StacksEpochId::Epoch40
-    }
-
-    /// Whether this epoch eagerly rejects a tuple `merge` whose combined size
-    /// exceeds `MAX_VALUE_SIZE`, at the merge site, with `ValueTooLarge` — both at
-    /// static-analysis time and at runtime.
-    ///
-    /// Before this epoch, an oversized merge was not checked at the merge site: the
-    /// oversized tuple type/value propagated and only failed later (block-invalidating
-    /// `InvariantViolation` when its size was eventually computed — or, if never
-    /// sized, the contract deployed and became uncallable). Gated here so the
-    /// behavior changes atomically at the epoch boundary. See PR #6946.
-    pub fn fixes_tuple_merge_size_check(&self) -> bool {
         self >= &StacksEpochId::Epoch40
     }
 

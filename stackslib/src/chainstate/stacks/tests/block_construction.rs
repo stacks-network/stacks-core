@@ -27,25 +27,18 @@ use clarity::codec::StacksMessageCodec;
 use clarity::vm::clarity::ClarityConnection;
 use clarity::vm::costs::LimitedCostTracker;
 use clarity::vm::test_util::TEST_BURN_STATE_DB;
-use clarity::vm::types::*;
 use mempool::MemPoolWalkStrategy;
 use rand::{thread_rng, Rng};
 use rusqlite::params;
-use stacks_common::address::*;
 use stacks_common::util::hash::MerkleTree;
 use stacks_common::util::secp256k1::Secp256k1PrivateKey;
 use stacks_common::util::{get_epoch_time_ms, sleep_ms};
 
-use crate::chainstate::burn::db::sortdb::*;
 use crate::chainstate::burn::operations::{BlockstackOperationType, LeaderBlockCommitOp};
-use crate::chainstate::burn::*;
 use crate::chainstate::coordinator::Error as CoordinatorError;
 use crate::chainstate::stacks::db::blocks::test::store_staging_block;
 use crate::chainstate::stacks::db::blocks::MemPoolRejection;
-use crate::chainstate::stacks::db::testing::*;
-use crate::chainstate::stacks::db::*;
 use crate::chainstate::stacks::events::StacksTransactionReceipt;
-use crate::chainstate::stacks::miner::*;
 use crate::chainstate::stacks::test::codec_all_transactions;
 use crate::chainstate::stacks::tests::*;
 use crate::chainstate::stacks::{Error as ChainstateError, C32_ADDRESS_VERSION_TESTNET_SINGLESIG};
@@ -493,9 +486,9 @@ fn test_build_anchored_blocks_stx_transfers_multi() {
                 let coinbase_tx = make_coinbase(miner, tenure_id);
 
                 if tenure_id > 0 {
-                    for i in 0..5 {
+                    for privk in &privks[..5] {
                         let stx_transfer = make_user_stacks_transfer(
-                            &privks[i],
+                            privk,
                             sender_nonce,
                             200,
                             &recipient.to_account_principal(),
@@ -519,9 +512,9 @@ fn test_build_anchored_blocks_stx_transfers_multi() {
                     test_debug!("Delay for 1.5s");
                     sleep_ms(1500);
 
-                    for i in 5..10 {
+                    for privk in privks[..10].iter().skip(5) {
                         let stx_transfer = make_user_stacks_transfer(
-                            &privks[i],
+                            privk,
                             sender_nonce,
                             200,
                             &recipient.to_account_principal(),
@@ -1208,7 +1201,7 @@ fn test_build_anchored_blocks_skip_too_expensive() {
     let recipient = StacksAddress::from_string(recipient_addr_str).unwrap();
     let mut sender_nonce = 0;
 
-    for tenure_id in 0..num_blocks {
+    for (tenure_id, expensive_privk) in privks_expensive[..num_blocks].iter().enumerate() {
         // send transactions to the mempool
         let tip =
             SortitionDB::get_canonical_burn_chain_tip(peer.chain.sortdb.as_ref().unwrap().conn())
@@ -1286,7 +1279,7 @@ fn test_build_anchored_blocks_skip_too_expensive() {
 
                     // will never get mined
                     let contract_tx = make_user_contract_publish(
-                        &privks_expensive[tenure_id],
+                        expensive_privk,
                         0,
                         (2 * contract.len()) as u64,
                         &format!("hello-world-{tenure_id}"),
@@ -1625,7 +1618,7 @@ fn test_build_anchored_blocks_multiple_chaintips() {
         sn.block_height
     };
 
-    for tenure_id in 0..num_blocks {
+    for (tenure_id, privk) in privks[..num_blocks].iter().enumerate() {
         // send transactions to the mempool
         let tip =
             SortitionDB::get_canonical_burn_chain_tip(peer.chain.sortdb.as_ref().unwrap().conn())
@@ -1674,7 +1667,7 @@ fn test_build_anchored_blocks_multiple_chaintips() {
                   (begin (var-set bar (/ x y)) (ok (var-get bar))))";
 
                     let contract_tx = make_user_contract_publish(
-                        &privks[tenure_id],
+                        privk,
                         0,
                         (2 * contract.len()) as u64,
                         &format!("hello-world-{tenure_id}"),
@@ -1766,7 +1759,7 @@ fn test_build_anchored_blocks_empty_chaintips() {
         sn.block_height
     };
 
-    for tenure_id in 0..num_blocks {
+    for (tenure_id, privk) in privks[..num_blocks].iter().enumerate() {
         // send transactions to the mempool
         let tip =
             SortitionDB::get_canonical_burn_chain_tip(peer.chain.sortdb.as_ref().unwrap().conn())
@@ -1831,7 +1824,7 @@ fn test_build_anchored_blocks_empty_chaintips() {
                   (begin (var-set bar (/ x y)) (ok (var-get bar))))";
 
                     let contract_tx = make_user_contract_publish(
-                        &privks[tenure_id],
+                        privk,
                         0,
                         2000,
                         &format!("hello-world-{tenure_id}"),
@@ -1908,7 +1901,7 @@ fn test_build_anchored_blocks_too_expensive_transactions() {
         sn.block_height
     };
 
-    for tenure_id in 0..num_blocks {
+    for (tenure_id, privk) in privks[..num_blocks].iter().enumerate() {
         // send transactions to the mempool
         let tip =
             SortitionDB::get_canonical_burn_chain_tip(peer.chain.sortdb.as_ref().unwrap().conn())
@@ -1958,7 +1951,7 @@ fn test_build_anchored_blocks_too_expensive_transactions() {
 
                     // should be mined once
                     let contract_tx = make_user_contract_publish(
-                        &privks[tenure_id],
+                        privk,
                         0,
                         100000000 / 2 + 1,
                         &format!("hello-world-{tenure_id}"),
@@ -1986,7 +1979,7 @@ fn test_build_anchored_blocks_too_expensive_transactions() {
 
                     // should never be mined
                     let contract_tx = make_user_contract_publish(
-                        &privks[tenure_id],
+                        privk,
                         1,
                         100000000 / 2,
                         &format!("hello-world-{tenure_id}-2"),
@@ -2192,16 +2185,16 @@ fn test_build_anchored_blocks_invalid() {
 
         if tenure_id == bad_block_tenure + 1 {
             // adjust
-            for i in 0..burn_ops.len() {
-                if let BlockstackOperationType::LeaderBlockCommit(ref mut opdata) = burn_ops[i] {
+            for burn_op in &mut burn_ops {
+                if let BlockstackOperationType::LeaderBlockCommit(ref mut opdata) = burn_op {
                     opdata.parent_block_ptr =
                         (resume_tenure_parent_commit.as_ref().unwrap().block_height as u32) - 1;
                 }
             }
         } else if tenure_id == bad_block_tenure {
             // adjust
-            for i in 0..burn_ops.len() {
-                if let BlockstackOperationType::LeaderBlockCommit(ref mut opdata) = burn_ops[i] {
+            for burn_op in &mut burn_ops {
+                if let BlockstackOperationType::LeaderBlockCommit(ref mut opdata) = burn_op {
                     opdata.parent_block_ptr =
                         (bad_block_parent_commit.as_ref().unwrap().block_height as u32) - 1;
                     eprintln!("\n\ncorrupt block commit is now {:?}\n", opdata);
@@ -2209,15 +2202,15 @@ fn test_build_anchored_blocks_invalid() {
             }
         } else if tenure_id == bad_block_ancestor_tenure {
             // find
-            for i in 0..burn_ops.len() {
-                if let BlockstackOperationType::LeaderBlockCommit(ref mut opdata) = burn_ops[i] {
+            for burn_op in &burn_ops {
+                if let BlockstackOperationType::LeaderBlockCommit(ref opdata) = burn_op {
                     bad_block_parent_commit = Some(opdata.clone());
                 }
             }
         } else if tenure_id == resume_parent_tenure {
             // find
-            for i in 0..burn_ops.len() {
-                if let BlockstackOperationType::LeaderBlockCommit(ref mut opdata) = burn_ops[i] {
+            for burn_op in &burn_ops {
+                if let BlockstackOperationType::LeaderBlockCommit(ref opdata) = burn_op {
                     resume_tenure_parent_commit = Some(opdata.clone());
                 }
             }
@@ -2270,7 +2263,7 @@ fn test_build_anchored_blocks_bad_nonces() {
         sn.block_height
     };
 
-    for tenure_id in 0..num_blocks {
+    for (tenure_id, privk) in privks[..num_blocks].iter().enumerate() {
         eprintln!("Start tenure {tenure_id:?}");
         // send transactions to the mempool
         let tip =
@@ -2321,7 +2314,7 @@ fn test_build_anchored_blocks_bad_nonces() {
 
                     // should be mined once
                     let contract_tx = make_user_contract_publish(
-                        &privks[tenure_id],
+                        privk,
                         0,
                         10000,
                         &format!("hello-world-{tenure_id}"),
@@ -2350,7 +2343,7 @@ fn test_build_anchored_blocks_bad_nonces() {
 
                     // should never be mined
                     let contract_tx = make_user_contract_publish(
-                        &privks[tenure_id],
+                        privk,
                         1,
                         10000,
                         &format!("hello-world-{tenure_id}-2"),
@@ -2387,7 +2380,7 @@ fn test_build_anchored_blocks_bad_nonces() {
 
                     // should be mined once
                     let contract_tx = make_user_contract_publish(
-                        &privks[tenure_id],
+                        privk,
                         0,
                         10000,
                         &format!("hello-world-{tenure_id}"),
@@ -2416,7 +2409,7 @@ fn test_build_anchored_blocks_bad_nonces() {
 
                     // should never be mined
                     let contract_tx = make_user_contract_publish(
-                        &privks[tenure_id],
+                        privk,
                         1,
                         10000,
                         &format!("hello-world-{tenure_id}-2"),
@@ -2538,18 +2531,16 @@ fn test_build_microblock_stream_forks() {
              ref parent_opt,
              ref parent_microblock_header_opt| {
                 let parent_tip = match parent_opt {
-                    None => StacksChainState::get_genesis_header_info(chainstate.db())
-                        .unwrap(),
+                    None => StacksChainState::get_genesis_header_info(chainstate.db()).unwrap(),
                     Some(block) => {
                         let ic = sortdb.index_conn();
-                        let snapshot =
-                            SortitionDB::get_block_snapshot_for_winning_stacks_block(
-                                &ic,
-                                &tip.sortition_id,
-                                &block.block_hash(),
-                            )
-                            .unwrap()
-                            .unwrap(); // succeeds because we don't fork
+                        let snapshot = SortitionDB::get_block_snapshot_for_winning_stacks_block(
+                            &ic,
+                            &tip.sortition_id,
+                            &block.block_hash(),
+                        )
+                        .unwrap()
+                        .unwrap(); // succeeds because we don't fork
                         StacksChainState::get_anchored_block_header_info(
                             chainstate.db(),
                             &snapshot.consensus_hash,
@@ -2562,161 +2553,210 @@ fn test_build_microblock_stream_forks() {
 
                 let parent_header_hash = parent_tip.anchored_header.block_hash();
                 let parent_consensus_hash = parent_tip.consensus_hash.clone();
-                let parent_index_hash = StacksBlockHeader::make_index_block_hash(&parent_consensus_hash, &parent_header_hash);
+                let parent_index_hash = StacksBlockHeader::make_index_block_hash(
+                    &parent_consensus_hash,
+                    &parent_header_hash,
+                );
                 let parent_size = parent_tip.anchored_block_size;
 
-                let mut mempool = MemPoolDB::open_test(false, 0x80000000, &chainstate_path).unwrap();
+                let mut mempool =
+                    MemPoolDB::open_test(false, 0x80000000, &chainstate_path).unwrap();
 
-                let expected_parent_microblock_opt =
-                    if tenure_id > 0 {
-                        let parent_microblock_privkey = mblock_privks[tenure_id - 1].clone();
+                let expected_parent_microblock_opt = if tenure_id > 0 {
+                    let parent_microblock_privkey = mblock_privks[tenure_id - 1].clone();
 
-                        let parent_mblock_stream = {
-                            let parent_cost = StacksChainState::get_stacks_block_anchored_cost(chainstate.db(), &StacksBlockHeader::make_index_block_hash(&parent_consensus_hash, &parent_header_hash)).unwrap().unwrap();
+                    let parent_mblock_stream = {
+                        let parent_cost = StacksChainState::get_stacks_block_anchored_cost(
+                            chainstate.db(),
+                            &StacksBlockHeader::make_index_block_hash(
+                                &parent_consensus_hash,
+                                &parent_header_hash,
+                            ),
+                        )
+                        .unwrap()
+                        .unwrap();
 
-                            // produce the microblock stream for the parent, which this tenure's anchor
-                            // block will confirm.
-                            let sort_ic = sortdb.index_handle_at_tip();
+                        // produce the microblock stream for the parent, which this tenure's anchor
+                        // block will confirm.
+                        let sort_ic = sortdb.index_handle_at_tip();
 
-                            chainstate
-                                .reload_unconfirmed_state(&sort_ic, parent_index_hash.clone())
-                                .unwrap();
+                        chainstate
+                            .reload_unconfirmed_state(&sort_ic, parent_index_hash.clone())
+                            .unwrap();
 
-                            let mut microblock_builder = StacksMicroblockBuilder::new(parent_header_hash.clone(), parent_consensus_hash.clone(), chainstate, &sort_ic, BlockBuilderSettings::max_value()).unwrap();
+                        let mut microblock_builder = StacksMicroblockBuilder::new(
+                            parent_header_hash.clone(),
+                            parent_consensus_hash.clone(),
+                            chainstate,
+                            &sort_ic,
+                            BlockBuilderSettings::max_value(),
+                        )
+                        .unwrap();
 
-                            let mut microblocks = vec![];
-                            for i in 0..5 {
-                                let mblock_tx = make_user_contract_publish(
-                                    &privks[tenure_id - 1],
-                                    i,
-                                    0,
-                                    &format!("hello-world-{}-{}", i, thread_rng().gen::<u64>()),
-                                    &format!("(begin (print \"{}\"))", thread_rng().gen::<u64>())
-                                );
-                                let mblock_tx_len = {
-                                    let mut bytes = vec![];
-                                    mblock_tx.consensus_serialize(&mut bytes).unwrap();
-                                    bytes.len() as u64
-                                };
-
-                                let mblock = microblock_builder.mine_next_microblock_from_txs(vec![(mblock_tx, mblock_tx_len)], &parent_microblock_privkey).unwrap();
-                                microblocks.push(mblock);
-                            }
-                            microblocks
-                        };
-
-                        // make a fork at seq 2
-                        let mut forked_parent_microblock_stream = parent_mblock_stream.clone();
-                        for i in 2..forked_parent_microblock_stream.len() {
-                            let forked_mblock_tx = make_user_contract_publish(
+                        let mut microblocks = vec![];
+                        for i in 0..5 {
+                            let mblock_tx = make_user_contract_publish(
                                 &privks[tenure_id - 1],
-                                i as u64,
+                                i,
                                 0,
-                                &format!("hello-world-fork-{}-{}", i, thread_rng().gen::<u64>()),
-                                &format!("(begin (print \"fork-{}\"))", thread_rng().gen::<u64>())
+                                &format!("hello-world-{}-{}", i, thread_rng().gen::<u64>()),
+                                &format!("(begin (print \"{}\"))", thread_rng().gen::<u64>()),
                             );
+                            let mblock_tx_len = {
+                                let mut bytes = vec![];
+                                mblock_tx.consensus_serialize(&mut bytes).unwrap();
+                                bytes.len() as u64
+                            };
 
-                            forked_parent_microblock_stream[i].txs[0] = forked_mblock_tx;
-
-                            // re-calculate merkle root
-                            let txid_vecs: Vec<_> = forked_parent_microblock_stream[i].txs
-                                .iter()
-                                .map(|tx| tx.txid().as_bytes().to_vec())
-                                .collect();
-
-                            let merkle_tree = MerkleTree::<Sha512Trunc256Sum>::new(&txid_vecs);
-                            let tx_merkle_root = merkle_tree.root();
-
-                            forked_parent_microblock_stream[i].header.tx_merkle_root = tx_merkle_root;
-                            forked_parent_microblock_stream[i].header.prev_block = forked_parent_microblock_stream[i-1].block_hash();
-                            forked_parent_microblock_stream[i].header.sign(&parent_microblock_privkey).unwrap();
-
-                            test_debug!("parent of microblock {} is {}", &forked_parent_microblock_stream[i].block_hash(), &forked_parent_microblock_stream[i-1].block_hash());
+                            let mblock = microblock_builder
+                                .mine_next_microblock_from_txs(
+                                    vec![(mblock_tx, mblock_tx_len)],
+                                    &parent_microblock_privkey,
+                                )
+                                .unwrap();
+                            microblocks.push(mblock);
                         }
+                        microblocks
+                    };
 
-                        let mut tail = None;
+                    // make a fork at seq 2
+                    let mut forked_parent_microblock_stream = parent_mblock_stream.clone();
+                    for i in 2..forked_parent_microblock_stream.len() {
+                        let forked_mblock_tx = make_user_contract_publish(
+                            &privks[tenure_id - 1],
+                            i as u64,
+                            0,
+                            &format!("hello-world-fork-{}-{}", i, thread_rng().gen::<u64>()),
+                            &format!("(begin (print \"fork-{}\"))", thread_rng().gen::<u64>()),
+                        );
 
-                        // store two forks, which diverge at seq 2
-                        for mblock in parent_mblock_stream.into_iter() {
-                            if mblock.header.sequence < 2 {
-                                tail = Some((mblock.block_hash(), mblock.header.sequence));
-                            }
-                            let stored = chainstate.preprocess_streamed_microblock(&parent_consensus_hash, &parent_header_hash, &mblock).unwrap();
-                            assert!(stored);
+                        forked_parent_microblock_stream[i].txs[0] = forked_mblock_tx;
+
+                        // re-calculate merkle root
+                        let txid_vecs: Vec<_> = forked_parent_microblock_stream[i]
+                            .txs
+                            .iter()
+                            .map(|tx| tx.txid().as_bytes().to_vec())
+                            .collect();
+
+                        let merkle_tree = MerkleTree::<Sha512Trunc256Sum>::new(&txid_vecs);
+                        let tx_merkle_root = merkle_tree.root();
+
+                        forked_parent_microblock_stream[i].header.tx_merkle_root = tx_merkle_root;
+                        forked_parent_microblock_stream[i].header.prev_block =
+                            forked_parent_microblock_stream[i - 1].block_hash();
+                        forked_parent_microblock_stream[i]
+                            .header
+                            .sign(&parent_microblock_privkey)
+                            .unwrap();
+
+                        test_debug!(
+                            "parent of microblock {} is {}",
+                            &forked_parent_microblock_stream[i].block_hash(),
+                            &forked_parent_microblock_stream[i - 1].block_hash()
+                        );
+                    }
+
+                    let mut tail = None;
+
+                    // store two forks, which diverge at seq 2
+                    for mblock in parent_mblock_stream.into_iter() {
+                        if mblock.header.sequence < 2 {
+                            tail = Some((mblock.block_hash(), mblock.header.sequence));
                         }
-                        for mblock in forked_parent_microblock_stream[2..].iter() {
-                            let stored = chainstate.preprocess_streamed_microblock(&parent_consensus_hash, &parent_header_hash, mblock).unwrap();
-                            assert!(stored);
-                        }
+                        let stored = chainstate
+                            .preprocess_streamed_microblock(
+                                &parent_consensus_hash,
+                                &parent_header_hash,
+                                &mblock,
+                            )
+                            .unwrap();
+                        assert!(stored);
+                    }
+                    for mblock in forked_parent_microblock_stream[2..].iter() {
+                        let stored = chainstate
+                            .preprocess_streamed_microblock(
+                                &parent_consensus_hash,
+                                &parent_header_hash,
+                                mblock,
+                            )
+                            .unwrap();
+                        assert!(stored);
+                    }
 
-                        // find the poison-microblock at seq 2
-                        let poison_opt = match StacksChainState::load_descendant_staging_microblock_stream_with_poison(
+                    // find the poison-microblock at seq 2
+                    let poison_opt =
+                        StacksChainState::load_descendant_staging_microblock_stream_with_poison(
                             chainstate.db(),
                             &parent_index_hash,
                             0,
-                            u16::MAX
-                        ).unwrap() {
-                            Some(stream) => stream.poison_payload,
-                            None => None
-                        };
+                            u16::MAX,
+                        )
+                        .unwrap()
+                        .and_then(|stream| stream.poison_payload);
 
-                        if let Some(poison_payload) = poison_opt {
-                            let mut tx_bytes = vec![];
-                            let poison_microblock_tx = make_user_poison_microblock(
-                                &privks[tenure_id - 1],
-                                2,
-                                0,
-                                poison_payload
-                            );
+                    if let Some(poison_payload) = poison_opt {
+                        let mut tx_bytes = vec![];
+                        let poison_microblock_tx = make_user_poison_microblock(
+                            &privks[tenure_id - 1],
+                            2,
+                            0,
+                            poison_payload,
+                        );
 
-                            poison_microblock_tx
-                                .consensus_serialize(&mut tx_bytes)
-                                .unwrap();
+                        poison_microblock_tx
+                            .consensus_serialize(&mut tx_bytes)
+                            .unwrap();
 
-                            mempool
-                                .submit_raw(
-                                    chainstate,
-                                    sortdb,
-                                    &parent_consensus_hash,
-                                    &parent_header_hash,
-                                    tx_bytes,
-                            &ExecutionCost::max_value(),
-                            &StacksEpochId::Epoch20,
-                                )
-                                .unwrap();
-                        }
-                        // the miner will load a microblock stream up to the first detected
-                        // fork (which is at sequence 2)
-                        tail
+                        mempool
+                            .submit_raw(
+                                chainstate,
+                                sortdb,
+                                &parent_consensus_hash,
+                                &parent_header_hash,
+                                tx_bytes,
+                                &ExecutionCost::max_value(),
+                                &StacksEpochId::Epoch20,
+                            )
+                            .unwrap();
                     }
-                    else {
-                        None
-                    };
+                    // the miner will load a microblock stream up to the first detected
+                    // fork (which is at sequence 2)
+                    tail
+                } else {
+                    None
+                };
 
                 let coinbase_tx = make_coinbase(miner, tenure_id);
 
-                let mblock_pubkey_hash = Hash160::from_node_public_key(&StacksPublicKey::from_private(&mblock_privks[tenure_id]));
+                let mblock_pubkey_hash = Hash160::from_node_public_key(
+                    &StacksPublicKey::from_private(&mblock_privks[tenure_id]),
+                );
 
-                let (anchored_block, block_size, block_execution_cost) = StacksBlockBuilder::build_anchored_block(
-                    chainstate,
-                    &sortdb.index_handle_at_tip(),
-                    &mut mempool,
-                    &parent_tip,
-                    tip.total_burn,
-                    vrf_proof,
-                    &mblock_pubkey_hash,
-                    &coinbase_tx,
-                    BlockBuilderSettings::max_value(),
-                    None,
-                    &burnchain,
-                )
-                .unwrap();
+                let (anchored_block, block_size, block_execution_cost) =
+                    StacksBlockBuilder::build_anchored_block(
+                        chainstate,
+                        &sortdb.index_handle_at_tip(),
+                        &mut mempool,
+                        &parent_tip,
+                        tip.total_burn,
+                        vrf_proof,
+                        &mblock_pubkey_hash,
+                        &coinbase_tx,
+                        BlockBuilderSettings::max_value(),
+                        None,
+                        &burnchain,
+                    )
+                    .unwrap();
 
                 // miner should have picked up the preprocessed microblocks, but only up to the
                 // fork.
                 if let Some((mblock_tail_hash, mblock_tail_seq)) = expected_parent_microblock_opt {
                     assert_eq!(anchored_block.header.parent_microblock, mblock_tail_hash);
-                    assert_eq!(anchored_block.header.parent_microblock_sequence, mblock_tail_seq);
+                    assert_eq!(
+                        anchored_block.header.parent_microblock_sequence,
+                        mblock_tail_seq
+                    );
                     assert_eq!(mblock_tail_seq, 1);
                 }
 
@@ -2728,7 +2768,11 @@ fn test_build_microblock_stream_forks() {
                             have_poison_microblock = true;
                         }
                     }
-                    assert!(have_poison_microblock, "Anchored block has no poison microblock: {:#?}", &anchored_block);
+                    assert!(
+                        have_poison_microblock,
+                        "Anchored block has no poison microblock: {:#?}",
+                        &anchored_block
+                    );
                 }
 
                 (anchored_block, vec![])
@@ -2977,15 +3021,12 @@ fn test_build_microblock_stream_forks_with_descendants() {
                         }
 
                         // find the poison-microblock at seq 2
-                        let poison_opt = match StacksChainState::load_descendant_staging_microblock_stream_with_poison(
+                        let poison_opt = StacksChainState::load_descendant_staging_microblock_stream_with_poison(
                             chainstate.db(),
                             &parent_index_hash,
                             0,
                             u16::MAX
-                        ).unwrap() {
-                            Some(stream) => stream.poison_payload,
-                            None => None
-                        };
+                        ).unwrap().and_then(|stream| stream.poison_payload);
 
                         if let Some(poison_payload) = poison_opt {
                             *discovered_poison_payload.borrow_mut() = Some(poison_payload.clone());
@@ -3893,7 +3934,7 @@ fn test_is_tx_problematic() {
     let recipient = StacksAddress::from_string(recipient_addr_str).unwrap();
 
     let mut last_block = None;
-    for tenure_id in 0..num_blocks {
+    for (tenure_id, expensive_privk) in privks_expensive[..num_blocks].iter().enumerate() {
         // send transactions to the mempool
         let tip =
             SortitionDB::get_canonical_burn_chain_tip(peer.chain.sortdb.as_ref().unwrap().conn())
@@ -3950,7 +3991,7 @@ fn test_is_tx_problematic() {
                         )".to_string();
 
                     let contract_spends_too_much_tx = make_user_contract_publish(
-                        &privks_expensive[tenure_id],
+                        expensive_privk,
                         0,
                         (2 * contract_spends_too_much.len()) as u64,
                         &format!("hello-world-{tenure_id}"),
@@ -3993,7 +4034,7 @@ fn test_is_tx_problematic() {
                         )".to_string();
 
                     let contract_call_spends_too_much_tx = make_user_contract_publish(
-                        &privks_expensive[tenure_id],
+                        expensive_privk,
                         0,
                         (2 * contract_call_spends_too_much.len()) as u64,
                         "spend-too-much",
@@ -4054,7 +4095,7 @@ fn test_is_tx_problematic() {
                     );
 
                     let runtime_check_error_trait_tx = make_user_contract_publish(
-                        &privks_expensive[tenure_id],
+                        expensive_privk,
                         1,
                         (2 * runtime_check_error_trait.len()) as u64,
                         "foo",
@@ -4062,7 +4103,7 @@ fn test_is_tx_problematic() {
                     );
 
                     let runtime_check_error_impl_tx = make_user_contract_publish(
-                        &privks_expensive[tenure_id],
+                        expensive_privk,
                         2,
                         (2 * runtime_check_error_impl.len()) as u64,
                         "foo-impl",
@@ -4070,7 +4111,7 @@ fn test_is_tx_problematic() {
                     );
 
                     let runtime_check_error_tx = make_user_contract_publish(
-                        &privks_expensive[tenure_id],
+                        expensive_privk,
                         3,
                         (2 * runtime_check_error.len()) as u64,
                         "trait-runtime-analysis-error",
@@ -4099,7 +4140,7 @@ fn test_is_tx_problematic() {
                     // the same tx, but with nonce 4 (since we expect the `spends-too-much` contract to get
                     // mined, as well as the other problem setup txs)
                     let contract_spends_too_much_tx = make_user_contract_publish(
-                        &privks_expensive[tenure_id],
+                        expensive_privk,
                         4,
                         (2 * contract_spends_too_much.len()) as u64,
                         &format!("hello-world-{tenure_id}"),
@@ -4126,7 +4167,7 @@ fn test_is_tx_problematic() {
                 if tenure_id == 3 {
                     // call spend-too-much and verify that it's flagged as problematic
                     let spend_too_much = make_user_contract_call(
-                        &privks_expensive[tenure_id],
+                        expensive_privk,
                         0,
                         2000,
                         &addrs_expensive[2],
@@ -4176,7 +4217,7 @@ fn test_is_tx_problematic() {
                 if tenure_id == 4 {
                     // call trait-runtime-analysis-error.test and verify that it's flagged as problematic
                     let runtime_check_error_problematic = make_user_contract_call(
-                        &privks_expensive[tenure_id],
+                        expensive_privk,
                         0,
                         2000,
                         &addrs_expensive[2],
@@ -4228,7 +4269,7 @@ fn test_is_tx_problematic() {
                 if tenure_id == 5 {
                     // call trait-runtime-analysis-error.test-past and verify that it's flagged as problematic
                     let runtime_check_error_problematic = make_user_contract_call(
-                        &privks_expensive[tenure_id],
+                        expensive_privk,
                         0,
                         2000,
                         &addrs_expensive[2],
@@ -4805,10 +4846,10 @@ fn paramaterized_mempool_walk_test(
 
     let mut transaction_counter = 0;
     for round_index in 0..num_rounds {
-        for user_index in 0..num_users {
+        for key_address_pair in &key_address_pairs[..num_users] {
             transaction_counter += 1;
             let mut tx = make_user_stacks_transfer(
-                &key_address_pairs[user_index].0,
+                &key_address_pair.0,
                 round_index as u64,
                 200,
                 &recipient.to_account_principal(),

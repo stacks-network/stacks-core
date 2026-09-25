@@ -1,0 +1,1 @@
+The chainstate snapshot module now converts `util_lib::db` errors into MARF errors explicitly rather than through a `From` impl, in preparation for moving the MARF into its own crate. No behaviour change.

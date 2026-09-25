@@ -1,4 +1,4 @@
-use std::ops::Deref;
+use std::ops::{Deref, DerefMut};
 
 use clarity::types::chainstate::TrieHash;
 use clarity::util::hash::Sha512Trunc256Sum;
@@ -502,7 +502,37 @@ impl HeadersDB for ChainstateTx<'_> {
     }
 }
 
-impl HeadersDB for MARF<StacksBlockId> {
+/// Newtype wrapper owning the chainstate headers [`MARF`] so that `stackslib` can
+/// implement [`HeadersDB`] for it.
+///
+/// `HeadersDB` comes from `clarity` and `MARF` is moving to its own crate, so once
+/// both are foreign to `stackslib` the orphan rule forbids
+/// `impl HeadersDB for MARF<StacksBlockId>`. Owning the MARF in a local type keeps
+/// the impl legal. `Deref`/`DerefMut` mean every existing `state_index.<marf method>`
+/// call site is unaffected.
+pub struct MarfHeadersDB(MARF<StacksBlockId>);
+
+impl MarfHeadersDB {
+    pub fn new(marf: MARF<StacksBlockId>) -> Self {
+        Self(marf)
+    }
+}
+
+impl Deref for MarfHeadersDB {
+    type Target = MARF<StacksBlockId>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl DerefMut for MarfHeadersDB {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
+    }
+}
+
+impl HeadersDB for MarfHeadersDB {
     fn get_stacks_block_header_hash_for_block(
         &self,
         id_bhh: &StacksBlockId,
@@ -587,7 +617,7 @@ impl HeadersDB for MARF<StacksBlockId> {
         tip: &StacksBlockId,
         epoch: &StacksEpochId,
     ) -> Option<VRFSeed> {
-        let tenure_id_bhh = get_first_block_in_tenure(self, id_bhh, tip, Some(epoch));
+        let tenure_id_bhh = get_first_block_in_tenure(&self.0, id_bhh, tip, Some(epoch));
         let (column_name, nakamoto) = if epoch.uses_nakamoto_blocks() {
             ("vrf_proof", true)
         } else {
@@ -611,7 +641,7 @@ impl HeadersDB for MARF<StacksBlockId> {
         tip: &StacksBlockId,
         epoch: &StacksEpochId,
     ) -> Option<StacksAddress> {
-        let tenure_id_bhh = get_first_block_in_tenure(self, id_bhh, tip, Some(epoch));
+        let tenure_id_bhh = get_first_block_in_tenure(&self.0, id_bhh, tip, Some(epoch));
         get_miner_column(self.sqlite_conn(), &tenure_id_bhh, "address", |r| {
             let s: String = r.get_unwrap("address");
             let addr = StacksAddress::from_string(&s).expect("FATAL: malformed address");
@@ -625,7 +655,7 @@ impl HeadersDB for MARF<StacksBlockId> {
         tip: &StacksBlockId,
         epoch: &StacksEpochId,
     ) -> Option<u128> {
-        let tenure_id_bhh = get_first_block_in_tenure(self, id_bhh, tip, Some(epoch));
+        let tenure_id_bhh = get_first_block_in_tenure(&self.0, id_bhh, tip, Some(epoch));
         get_miner_column(
             self.sqlite_conn(),
             &tenure_id_bhh,
@@ -641,7 +671,7 @@ impl HeadersDB for MARF<StacksBlockId> {
         tip: &StacksBlockId,
         epoch: &StacksEpochId,
     ) -> Option<u128> {
-        let tenure_id_bhh = get_first_block_in_tenure(self, id_bhh, tip, Some(epoch));
+        let tenure_id_bhh = get_first_block_in_tenure(&self.0, id_bhh, tip, Some(epoch));
         get_miner_column(
             self.sqlite_conn(),
             &tenure_id_bhh,
@@ -657,8 +687,8 @@ impl HeadersDB for MARF<StacksBlockId> {
         tip: &StacksBlockId,
         epoch: &StacksEpochId,
     ) -> Option<u128> {
-        let tenure_id_bhh = get_first_block_in_tenure(self, id_bhh, tip, Some(epoch));
-        get_matured_reward(self, &tenure_id_bhh, tip, epoch).map(|x| x.total())
+        let tenure_id_bhh = get_first_block_in_tenure(&self.0, id_bhh, tip, Some(epoch));
+        get_matured_reward(&self.0, &tenure_id_bhh, tip, epoch).map(|x| x.total())
     }
 
     fn get_stacks_height_for_tenure_height(
@@ -667,7 +697,7 @@ impl HeadersDB for MARF<StacksBlockId> {
         tenure_height: u32,
     ) -> Option<u32> {
         let tenure_block_id =
-            GetTenureStartId::get_tenure_block_id_at_cb_height(self, tip, tenure_height.into())
+            GetTenureStartId::get_tenure_block_id_at_cb_height(&self.0, tip, tenure_height.into())
                 .expect("FATAL: bad DB data for tenure height lookups")?;
         get_stacks_header_column(self.sqlite_conn(), &tenure_block_id, "block_height", |r| {
             u64::from_row(r)
