@@ -57,16 +57,20 @@ pub trait ClarityBackingStore {
     fn get_data(&mut self, key: &str) -> Result<Option<String>, VmExecutionError>;
     /// fetch Hash(K)-V out of the commmitted datastore
     fn get_data_from_path(&mut self, hash: &TrieHash) -> Result<Option<String>, VmExecutionError>;
-    /// fetch K-V out of the committed datastore, along with the byte representation
-    ///  of the Merkle proof for that key-value pair
+    /// Fetch K-V out of the committed datastore, along with the byte representation of the
+    /// Merkle proof for that key-value pair -- if this backend is able to produce one. The
+    /// outer `Option` is `None` if the key doesn't exist; the inner `Option` is `None` if the
+    /// key exists but this backend has no proof to offer for it (e.g. a non-Merkleized
+    /// backend). Callers that were asked for a proof must treat that as "no proof available",
+    /// not as a valid empty proof.
     fn get_data_with_proof(
         &mut self,
         key: &str,
-    ) -> Result<Option<(String, Vec<u8>)>, VmExecutionError>;
+    ) -> Result<Option<(String, Option<Vec<u8>>)>, VmExecutionError>;
     fn get_data_with_proof_from_path(
         &mut self,
         hash: &TrieHash,
-    ) -> Result<Option<(String, Vec<u8>)>, VmExecutionError>;
+    ) -> Result<Option<(String, Option<Vec<u8>>)>, VmExecutionError>;
     fn has_entry(&mut self, key: &str) -> Result<bool, VmExecutionError> {
         Ok(self.get_data(key)?.is_some())
     }
@@ -86,9 +90,6 @@ pub trait ClarityBackingStore {
 
     fn get_open_chain_tip_height(&mut self) -> u32;
     fn get_open_chain_tip(&mut self) -> StacksBlockId;
-
-    #[cfg(feature = "rusqlite")]
-    fn get_side_store(&mut self) -> &Connection;
 
     fn get_cc_special_cases_handler(&self) -> Option<SpecialCaseHandler> {
         None
@@ -142,6 +143,18 @@ pub trait ClarityBackingStore {
         }
         Ok(())
     }
+}
+
+/// Opt-in capability for backends that happen to store their data in sqlite.
+///
+/// This is *not* part of [`ClarityBackingStore`]: nothing about the Clarity VM's execution
+/// semantics requires sqlite, and a non-sqlite backend (e.g. a plain hashmap) has no reason to
+/// implement it. It exists only so that sqlite-backed implementations can share the free-function
+/// helpers in [`crate::vm::database::sqlite`], and so that tests/tools with a concrete sqlite-backed
+/// store in hand can still reach the raw connection for inspection.
+#[cfg(feature = "rusqlite")]
+pub trait SqliteBackingStore: ClarityBackingStore {
+    fn get_side_store(&mut self) -> &Connection;
 }
 
 // TODO: Figure out where this belongs
@@ -216,20 +229,15 @@ impl ClarityBackingStore for NullBackingStore {
     fn get_data_with_proof(
         &mut self,
         _key: &str,
-    ) -> Result<Option<(String, Vec<u8>)>, VmExecutionError> {
+    ) -> Result<Option<(String, Option<Vec<u8>>)>, VmExecutionError> {
         panic!("NullBackingStore can't retrieve data")
     }
 
     fn get_data_with_proof_from_path(
         &mut self,
         _hash: &TrieHash,
-    ) -> Result<Option<(String, Vec<u8>)>, VmExecutionError> {
+    ) -> Result<Option<(String, Option<Vec<u8>>)>, VmExecutionError> {
         panic!("NullBackingStore can't retrieve data")
-    }
-
-    #[cfg(feature = "rusqlite")]
-    fn get_side_store(&mut self) -> &Connection {
-        panic!("NullBackingStore has no side store")
     }
 
     fn get_block_at_height(&mut self, _height: u32) -> Option<StacksBlockId> {

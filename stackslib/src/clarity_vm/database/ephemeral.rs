@@ -20,7 +20,9 @@ use clarity::vm::database::sqlite::{
     sqlite_get_contract_hash, sqlite_get_metadata, sqlite_get_metadata_manual,
     sqlite_insert_metadata,
 };
-use clarity::vm::database::{ClarityBackingStore, SpecialCaseHandler, SqliteConnection};
+use clarity::vm::database::{
+    ClarityBackingStore, SpecialCaseHandler, SqliteBackingStore, SqliteConnection,
+};
 use clarity::vm::errors::{RuntimeError, VmExecutionError, VmInternalError};
 use clarity::vm::types::QualifiedContractIdentifier;
 use rusqlite::{self, Connection};
@@ -494,7 +496,7 @@ impl ClarityBackingStore for EphemeralMarfStore<'_> {
     fn get_data_with_proof(
         &mut self,
         key: &str,
-    ) -> Result<Option<(String, Vec<u8>)>, VmExecutionError> {
+    ) -> Result<Option<(String, Option<Vec<u8>>)>, VmExecutionError> {
         trace!(
             "Ephemeral MarfedKV get_data_with_proof: '{}' tip={:?}",
             key,
@@ -516,7 +518,7 @@ impl ClarityBackingStore for EphemeralMarfStore<'_> {
                             side_key
                         ))
                     })?;
-                Ok(Some((data, proof.serialize_to_vec())))
+                Ok(Some((data, Some(proof.serialize_to_vec()))))
             },
             |read_only_marf, key| read_only_marf.get_data_with_proof(key),
         )
@@ -529,7 +531,7 @@ impl ClarityBackingStore for EphemeralMarfStore<'_> {
     fn get_data_with_proof_from_path(
         &mut self,
         hash: &TrieHash,
-    ) -> Result<Option<(String, Vec<u8>)>, VmExecutionError> {
+    ) -> Result<Option<(String, Option<Vec<u8>>)>, VmExecutionError> {
         trace!(
             "Ephemeral MarfedKV get_data_with_proof_from_hash: {:?} tip={:?}",
             hash,
@@ -551,17 +553,10 @@ impl ClarityBackingStore for EphemeralMarfStore<'_> {
                             side_key
                         ))
                     })?;
-                Ok(Some((data, proof.serialize_to_vec())))
+                Ok(Some((data, Some(proof.serialize_to_vec()))))
             },
             |read_only_marf, path| read_only_marf.get_data_with_proof_from_path(path),
         )
-    }
-
-    /// Get a sqlite connection to the MARF side-store.
-    /// Note that due to `setup_views()` and `teardown_views()`, the MARF DB will show key/value
-    /// pairs for both the ephemeral MARF and the disk-backed readonly MARF.
-    fn get_side_store(&mut self) -> &Connection {
-        self.ephemeral_marf.sqlite_conn()
     }
 
     /// Get an ancestor block's ID at a given absolute height, off of the open tip.
@@ -770,6 +765,15 @@ impl ClarityBackingStore for EphemeralMarfStore<'_> {
         key: &str,
     ) -> Result<Option<String>, VmExecutionError> {
         sqlite_get_metadata_manual(self, at_height, contract, key)
+    }
+}
+
+impl SqliteBackingStore for EphemeralMarfStore<'_> {
+    /// Get a sqlite connection to the MARF side-store.
+    /// Note that due to `setup_views()` and `teardown_views()`, the MARF DB will show key/value
+    /// pairs for both the ephemeral MARF and the disk-backed readonly MARF.
+    fn get_side_store(&mut self) -> &Connection {
+        self.ephemeral_marf.sqlite_conn()
     }
 }
 
