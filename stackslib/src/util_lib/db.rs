@@ -20,7 +20,6 @@ use std::path::PathBuf;
 use std::{error, fmt, fs, io};
 
 use clarity::vm::types::QualifiedContractIdentifier;
-use rusqlite::types::ToSql;
 use rusqlite::{params, Connection, Error as sqlite_error, Params, Row};
 use serde_json::Error as serde_error;
 use stacks_common::types::chainstate::{SortitionId, StacksAddress, StacksBlockId, TrieHash};
