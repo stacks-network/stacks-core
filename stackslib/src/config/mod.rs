@@ -1485,11 +1485,6 @@ pub struct BurnchainConfig {
     /// ---
     /// @default: `38332` for signet; `8332` otherwise
     pub rpc_port: u16,
-    /// Flag indicating whether to use SSL/TLS when connecting to the bitcoin node's
-    /// RPC interface.
-    /// ---
-    /// @default: `false`
-    pub rpc_ssl: bool,
     /// The username for authenticating with the bitcoin node's RPC interface.
     /// Required if the bitcoin node requires RPC authentication.
     /// ---
@@ -1802,7 +1797,6 @@ impl BurnchainConfig {
             peer_host: "0.0.0.0".to_string(),
             peer_port: 8333,
             rpc_port: 8332,
-            rpc_ssl: false,
             username: None,
             password: None,
             timeout: 300,
@@ -1830,25 +1824,6 @@ impl BurnchainConfig {
             fault_injection_burnchain_block_delay: 0,
             max_unspent_utxos: Some(1024),
         }
-    }
-    pub fn get_rpc_url(&self, wallet: Option<String>) -> String {
-        let scheme = match self.rpc_ssl {
-            true => "https://",
-            false => "http://",
-        };
-        let wallet_path = if let Some(wallet_id) = wallet.as_ref() {
-            format!("/wallet/{wallet_id}")
-        } else {
-            "".to_string()
-        };
-        format!("{scheme}{}:{}{wallet_path}", self.peer_host, self.rpc_port)
-    }
-
-    pub fn get_rpc_socket_addr(&self) -> SocketAddr {
-        let mut addrs_iter = format!("{}:{}", self.peer_host, self.rpc_port)
-            .to_socket_addrs()
-            .unwrap();
-        addrs_iter.next().unwrap()
     }
 
     pub fn get_bitcoin_network(&self) -> (String, BitcoinNetworkType) {
@@ -1901,7 +1876,6 @@ pub struct BurnchainConfigFile {
     pub peer_host: Option<String>,
     pub peer_port: Option<u16>,
     pub rpc_port: Option<u16>,
-    pub rpc_ssl: Option<bool>,
     pub username: Option<String>,
     pub password: Option<String>,
     /// Timeout, in seconds, for communication with bitcoind
@@ -2021,7 +1995,6 @@ impl BurnchainConfigFile {
             },
             peer_port: self.peer_port.unwrap_or(default_burnchain_config.peer_port),
             rpc_port: self.rpc_port.unwrap_or(default_burnchain_config.rpc_port),
-            rpc_ssl: self.rpc_ssl.unwrap_or(default_burnchain_config.rpc_ssl),
             username: self.username,
             password: self.password,
             timeout: self.timeout.unwrap_or(default_burnchain_config.timeout),
