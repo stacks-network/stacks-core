@@ -817,13 +817,13 @@ source = "git+https://github.com/stx-labs/clarity-wasm.git?branch=wasmi#96ce5435
 dependencies = [
  "chrono",
  "clap",
- "clarity 2.3.0 (git+https://github.com/melcar-stacks/stacks-core?branch=wasmi)",
- "clarity-types 0.0.1 (git+https://github.com/melcar-stacks/stacks-core?branch=wasmi)",
+ "clarity",
+ "clarity-types",
  "lazy_static",
  "regex",
  "rusqlite",
  "sha2 0.10.9",
- "stacks-common 4.0.3 (git+https://github.com/melcar-stacks/stacks-core?branch=wasmi)",
+ "stacks-common",
  "walrus",
  "wasmi",
  "wat",
@@ -834,7 +834,7 @@ name = "clarity"
 version = "2.3.0"
 dependencies = [
  "assert-json-diff 1.1.0",
- "clarity-types 0.0.1",
+ "clarity-types",
  "criterion",
  "getrandom 0.2.17",
  "hashbrown 0.15.2",
@@ -855,29 +855,7 @@ dependencies = [
  "serde_json",
  "serde_stacker",
  "slog",
- "stacks-common 4.0.3",
- "wasmi",
-]
-
-[[package]]
-name = "clarity"
-version = "2.3.0"
-source = "git+https://github.com/melcar-stacks/stacks-core?branch=wasmi#26aa9915d315f7ab65fd9ae1231cd7f7c1d105f8"
-dependencies = [
- "clarity-types 0.0.1 (git+https://github.com/melcar-stacks/stacks-core?branch=wasmi)",
- "hashbrown 0.15.2",
- "integer-sqrt",
- "lazy_static",
- "rand 0.8.8",
- "rand_chacha 0.3.1",
- "regex",
- "rusqlite",
- "serde",
- "serde_derive",
- "serde_json",
- "serde_stacker",
- "slog",
- "stacks-common 4.0.3 (git+https://github.com/melcar-stacks/stacks-core?branch=wasmi)",
+ "stacks-common",
  "wasmi",
 ]
 
@@ -886,7 +864,7 @@ name = "clarity-cli"
 version = "0.1.0"
 dependencies = [
  "clap",
- "clarity 2.3.0",
+ "clarity",
  "lazy_static",
  "rand 0.8.8",
  "rusqlite",
@@ -894,7 +872,7 @@ dependencies = [
  "serde_derive",
  "serde_json",
  "slog",
- "stacks-common 4.0.3",
+ "stacks-common",
  "stackslib",
 ]
 
@@ -911,23 +889,7 @@ dependencies = [
  "serde_derive",
  "serde_json",
  "slog",
- "stacks-common 4.0.3",
- "variant_count",
-]
-
-[[package]]
-name = "clarity-types"
-version = "0.0.1"
-source = "git+https://github.com/melcar-stacks/stacks-core?branch=wasmi#26aa9915d315f7ab65fd9ae1231cd7f7c1d105f8"
-dependencies = [
- "lazy_static",
- "regex",
- "rusqlite",
- "serde",
- "serde_derive",
- "serde_json",
- "slog",
- "stacks-common 4.0.3 (git+https://github.com/melcar-stacks/stacks-core?branch=wasmi)",
+ "stacks-common",
  "variant_count",
 ]
 
@@ -2528,7 +2490,7 @@ dependencies = [
 name = "libsigner"
 version = "0.0.1"
 dependencies = [
- "clarity 2.3.0",
+ "clarity",
  "hashbrown 0.15.2",
  "libstackerdb",
  "mutants",
@@ -2538,7 +2500,7 @@ dependencies = [
  "serde_json",
  "sha2 0.10.9",
  "slog",
- "stacks-common 4.0.3",
+ "stacks-common",
  "stackslib",
  "thiserror 1.0.69",
  "tiny_http",
@@ -2559,10 +2521,10 @@ dependencies = [
 name = "libstackerdb"
 version = "0.0.1"
 dependencies = [
- "clarity 2.3.0",
+ "clarity",
  "serde",
  "sha2 0.10.9",
- "stacks-common 4.0.3",
+ "stacks-common",
 ]
 
 [[package]]
@@ -2625,7 +2587,7 @@ dependencies = [
  "rusqlite",
  "serde",
  "sha2 0.10.9",
- "stacks-common 4.0.3",
+ "stacks-common",
  "stackslib",
  "tempfile",
  "toml 0.5.11",
@@ -3249,13 +3211,13 @@ checksum = "439ee305def115ba05938db6eb1644ff94165c5ab5e9420d1c1bcedbba909391"
 name = "pox-locking"
 version = "2.4.0"
 dependencies = [
- "clarity 2.3.0",
+ "clarity",
  "madhouse",
  "mutants",
  "pinny",
  "proptest",
  "slog",
- "stacks-common 4.0.3",
+ "stacks-common",
 ]
 
 [[package]]
@@ -4491,11 +4453,11 @@ dependencies = [
 name = "stacks-cli"
 version = "0.1.0"
 dependencies = [
- "clarity 2.3.0",
+ "clarity",
  "clarity-cli",
  "serde_json",
  "stacks-codec",
- "stacks-common 4.0.3",
+ "stacks-common",
  "stackslib",
  "tempfile",
  "thiserror 1.0.69",
@@ -4505,9 +4467,9 @@ dependencies = [
 name = "stacks-codec"
 version = "0.1.0"
 dependencies = [
- "clarity-types 0.0.1",
+ "clarity-types",
  "serde",
- "stacks-common 4.0.3",
+ "stacks-common",
  "variant_count",
 ]
 
@@ -4545,41 +4507,11 @@ dependencies = [
 ]
 
 [[package]]
-name = "stacks-common"
-version = "4.0.3"
-source = "git+https://github.com/melcar-stacks/stacks-core?branch=wasmi#26aa9915d315f7ab65fd9ae1231cd7f7c1d105f8"
-dependencies = [
- "chrono",
- "curve25519-dalek",
- "ed25519-dalek",
- "hashbrown 0.15.2",
- "lazy_static",
- "libsecp256k1",
- "nix",
- "p256",
- "percent-encoding",
- "rand 0.8.8",
- "ripemd",
- "rusqlite",
- "secp256k1",
- "serde",
- "serde_derive",
- "serde_json",
- "sha2 0.10.9",
- "sha3",
- "slog",
- "slog-term",
- "thiserror 1.0.69",
- "time",
- "winapi 0.3.9",
-]
-
-[[package]]
 name = "stacks-inspect"
 version = "4.0.3"
 dependencies = [
  "clap",
- "clarity 2.3.0",
+ "clarity",
  "clarity-cli",
  "libstackerdb",
  "mutants",
@@ -4587,7 +4519,7 @@ dependencies = [
  "rusqlite",
  "serde_json",
  "slog",
- "stacks-common 4.0.3",
+ "stacks-common",
  "stackslib",
  "tikv-jemallocator",
 ]
@@ -4601,7 +4533,7 @@ dependencies = [
  "backtrace",
  "base64 0.12.3",
  "chrono",
- "clarity 2.3.0",
+ "clarity",
  "hashbrown 0.15.2",
  "http-types",
  "lazy_static",
@@ -4623,7 +4555,7 @@ dependencies = [
  "serial_test",
  "slog",
  "stacks-codec",
- "stacks-common 4.0.3",
+ "stacks-common",
  "stacks-inspect",
  "stacks-signer",
  "stackslib",
@@ -4668,7 +4600,7 @@ version = "4.0.3"
 dependencies = [
  "backoff",
  "clap",
- "clarity 2.3.0",
+ "clarity",
  "hashbrown 0.15.2",
  "lazy_static",
  "libsigner",
@@ -4686,7 +4618,7 @@ dependencies = [
  "slog",
  "slog-json",
  "slog-term",
- "stacks-common 4.0.3",
+ "stacks-common",
  "stackslib",
  "stdext",
  "thiserror 1.0.69",
@@ -4701,11 +4633,11 @@ dependencies = [
 name = "stacks-transactions"
 version = "0.1.0"
 dependencies = [
- "clarity-types 0.0.1",
+ "clarity-types",
  "pinny",
  "proptest",
  "stacks-codec",
- "stacks-common 4.0.3",
+ "stacks-common",
 ]
 
 [[package]]
@@ -4715,7 +4647,7 @@ dependencies = [
  "assert-json-diff 1.1.0",
  "chrono",
  "clar2wasm",
- "clarity 2.3.0",
+ "clarity",
  "ed25519-dalek",
  "insta",
  "lazy_static",
@@ -4747,7 +4679,7 @@ dependencies = [
  "siphasher",
  "slog",
  "stacks-codec",
- "stacks-common 4.0.3",
+ "stacks-common",
  "stacks-transactions",
  "stdext",
  "stx-genesis",
