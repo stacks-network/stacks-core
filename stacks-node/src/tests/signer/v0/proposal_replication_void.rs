@@ -16,7 +16,6 @@ use std::env;
 use std::time::Duration;
 
 use libsigner::v0::messages::{BlockResponse, RejectReason, SignerMessage};
-use pinny::tag;
 use stacks::core::test_util::to_addr;
 use stacks::types::chainstate::StacksPublicKey;
 use stacks::util::get_epoch_time_secs;
@@ -37,7 +36,6 @@ use crate::tests::signer::v0::{
     wait_for_block_pushed_and_tip, wait_for_block_rejections_from_signers,
 };
 
-#[tag(bitcoind)]
 #[test]
 #[ignore]
 /// Reproduce a "replication void", where the miner's block proposal reaches no
@@ -154,7 +152,6 @@ fn proposal_void_shorter_than_max_age_recovers_with_original_block() {
     signer_test.shutdown();
 }
 
-#[tag(bitcoind)]
 #[test]
 #[ignore]
 /// Verify that a "replication void" longer than `block_proposal_max_age_secs`
@@ -302,7 +299,6 @@ fn proposal_void_longer_than_max_age_recovers_by_rejection_and_remine() {
     signer_test.shutdown();
 }
 
-#[tag(bitcoind)]
 #[test]
 #[ignore]
 /// Verify that a signer which has already decided on a block does not flip its
