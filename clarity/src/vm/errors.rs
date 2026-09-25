@@ -205,15 +205,15 @@ pub enum WasmError {
     MemoryNotFound,
     GlobalNotFound(String),
     NotInDatabase(String),
-    WasmCompileFailed(wasmtime::Error),
-    UnableToLoadModule(wasmtime::Error),
-    UnableToLinkHostFunction(String, wasmtime::Error),
+    WasmCompileFailed(wasmi::Error),
+    UnableToLoadModule(wasmi::Error),
+    UnableToLinkHostFunction(String, wasmi::Error),
     UnableToReadIdentifier(FromUtf8Error),
     UnableToRetrieveIdentifier(i32),
     InvalidClarityName(String),
-    UnableToWriteStackPointer(wasmtime::Error),
-    UnableToReadMemory(wasmtime::Error),
-    UnableToWriteMemory(wasmtime::Error),
+    UnableToWriteStackPointer(wasmi::Error),
+    UnableToReadMemory(wasmi::Error),
+    UnableToWriteMemory(wasmi::Error),
     ValueTypeMismatch,
     InvalidNoTypeInValue,
     InvalidListUnionTypeInValue,
@@ -221,7 +221,7 @@ pub enum WasmError {
     DefineFunctionCalledInRunMode,
     ExpectedReturnValue,
     InvalidIndicator(i32),
-    Runtime(wasmtime::Error),
+    Runtime(wasmi::Error),
     /// Type description is invalid or malformed, preventing proper type-checking.
     InvalidTypeDescription,
     AllowanceViolation(u128),
@@ -277,6 +277,33 @@ impl fmt::Display for WasmError {
 
 #[cfg(feature = "clarity-wasm")]
 impl std::error::Error for WasmError {}
+
+// Wasmi has no blanket conversion from arbitrary errors (unlike wasmtime's
+// `anyhow`-based error), so the errors raised by host functions are
+// registered as host errors and converted explicitly.
+#[cfg(feature = "clarity-wasm")]
+macro_rules! impl_wasmi_host_error {
+    ($($ty:ty),* $(,)?) => {
+        $(
+            impl wasmi::errors::HostError for $ty {}
+
+            impl From<$ty> for wasmi::Error {
+                fn from(err: $ty) -> Self {
+                    wasmi::Error::host(err)
+                }
+            }
+        )*
+    };
+}
+
+#[cfg(feature = "clarity-wasm")]
+impl_wasmi_host_error!(
+    WasmError,
+    VmExecutionError,
+    RuntimeError,
+    crate::vm::costs::CostErrors,
+    crate::vm::analysis::errors::RuntimeCheckErrorKind,
+);
 
 impl PartialEq<VmExecutionError> for VmExecutionError {
     fn eq(&self, other: &VmExecutionError) -> bool {

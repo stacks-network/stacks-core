@@ -23,7 +23,7 @@ use stacks_common::bounded_format;
 use stacks_common::types::StacksEpochId;
 use stacks_common::types::chainstate::StacksBlockId;
 #[cfg(feature = "clarity-wasm")]
-use wasmtime::Engine;
+use wasmi::Engine;
 
 #[cfg(feature = "clarity-wasm")]
 use super::clarity_wasm::{CostMeter, call_function};
