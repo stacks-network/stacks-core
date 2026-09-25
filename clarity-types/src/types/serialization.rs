@@ -69,6 +69,16 @@ const SANITIZATION_READ_BOUND: u64 = 15_000_000;
 /// After epoch-2.4, with type sanitization support, the full
 ///  clarity depth limit is supported.
 const UNSANITIZED_DEPTH_CHECK: usize = 16;
+
+/// Select the historical or current value-depth limit used by typed decoding.
+const fn deserialization_depth_limit(sanitize: bool) -> usize {
+    if sanitize {
+        MAX_TYPE_DEPTH as usize
+    } else {
+        UNSANITIZED_DEPTH_CHECK
+    }
+}
+
 /// Initial capacity used when deserializing list/tuple containers; the vector
 /// grows as elements are read. Does not change the accepted serialized length.
 const INITIAL_DESERIALIZATION_CONTAINER_CAPACITY: usize = 1024;
@@ -549,6 +559,7 @@ impl Value {
             expected_type,
             sanitize,
             TupleFieldsBehavior::LEGACY,
+            deserialization_depth_limit(sanitize),
         )
     }
 
@@ -557,6 +568,7 @@ impl Value {
         expected_type: Option<&TypeSignature>,
         sanitize: bool,
         behavior: TupleFieldsBehavior,
+        depth_limit: usize,
     ) -> Result<(Value, u64), SerializationError> {
         let bound_value_serialization_bytes = if sanitize && expected_type.is_some() {
             SANITIZATION_READ_BOUND
@@ -564,8 +576,13 @@ impl Value {
             BOUND_VALUE_SERIALIZATION_BYTES as u64
         };
         let mut bound_reader = BoundReader::from_reader(r, bound_value_serialization_bytes);
-        let value =
-            Value::inner_deserialize_read(&mut bound_reader, expected_type, sanitize, behavior)?;
+        let value = Value::inner_deserialize_read(
+            &mut bound_reader,
+            expected_type,
+            sanitize,
+            behavior,
+            depth_limit,
+        )?;
         let bytes_read = bound_reader.num_read();
         if let Some(expected_type) = expected_type {
             let expect_size = match expected_type.max_serialized_size() {
@@ -595,6 +612,7 @@ impl Value {
         top_expected_type: Option<&TypeSignature>,
         sanitize: bool,
         behavior: TupleFieldsBehavior,
+        depth_limit: usize,
     ) -> Result<Value, SerializationError> {
         use super::Value::*;
 
@@ -603,12 +621,7 @@ impl Value {
         }];
 
         while !stack.is_empty() {
-            let depth_check = if sanitize {
-                MAX_TYPE_DEPTH as usize
-            } else {
-                UNSANITIZED_DEPTH_CHECK
-            };
-            if stack.len() > depth_check {
+            if stack.len() > depth_limit {
                 return Err(ClarityTypeError::TypeSignatureTooDeep.into());
             }
 
@@ -1174,19 +1187,22 @@ impl Value {
         Value::deserialize_read(&mut bytes.as_slice(), Some(expected), sanitize)
     }
 
-    /// Behaves like [`Self::try_deserialize_bytes`], selecting historical
-    /// tuple-field handling before Epoch 4.1 and exact field-set enforcement
-    /// from Epoch 4.1 onward.
+    /// Epoch-aware typed deserialization from a borrowed byte slice.
+    ///
+    /// This selects historical tuple-field handling before Epoch 4.1 and exact field-set
+    /// enforcement from Epoch 4.1 onward. Like [`Self::try_deserialize_bytes`], it permits trailing
+    /// bytes.
     pub fn try_deserialize_bytes_at_epoch(
-        bytes: &Vec<u8>,
+        bytes: &[u8],
         expected: &TypeSignature,
         epoch: &StacksEpochId,
     ) -> Result<Value, SerializationError> {
         Self::deserialize_read_count_with_options(
-            &mut bytes.as_slice(),
+            &mut &*bytes,
             Some(expected),
             epoch.value_sanitizing(),
             TupleFieldsBehavior::from_epoch(epoch),
+            deserialization_depth_limit(epoch.value_sanitizing()),
         )
         .map(|(value, _)| value)
     }
@@ -1216,21 +1232,23 @@ impl Value {
         Value::try_deserialize_bytes_at_epoch(&data, expected, epoch)
     }
 
-    /// Deserialize a byte buffer into a Clarity Value of `expected` type,
-    /// requiring the whole buffer to be consumed. Sanitization (Epoch 2.4+) and
-    /// strict typed-tuple field enforcement (Epoch 4.1+) are derived from `epoch`
-    /// so consensus behavior is gated entirely by the execution epoch.
+    /// Deserialize a borrowed byte slice into a Clarity Value of `expected` type, requiring the
+    /// whole slice to be consumed.
+    ///
+    /// Sanitization (Epoch 2.4+) and strict typed-tuple field enforcement (Epoch 4.1+) are derived
+    /// from `epoch`, so consensus behavior is gated entirely by the execution epoch.
     pub fn try_deserialize_bytes_exact_at_epoch(
-        bytes: &Vec<u8>,
+        bytes: &[u8],
         expected: &TypeSignature,
         epoch: &StacksEpochId,
     ) -> Result<Value, SerializationError> {
         let input_length = bytes.len();
         let (value, read_count) = Value::deserialize_read_count_with_options(
-            &mut bytes.as_slice(),
+            &mut &*bytes,
             Some(expected),
             epoch.value_sanitizing(),
             TupleFieldsBehavior::from_epoch(epoch),
+            deserialization_depth_limit(epoch.value_sanitizing()),
         )?;
         if read_count != (input_length as u64) {
             Err(SerializationError::LeftoverBytesInDeserialization)
@@ -1246,6 +1264,26 @@ impl Value {
         bytes: &Vec<u8>,
     ) -> Result<Value, SerializationError> {
         Value::deserialize_read(&mut bytes.as_slice(), None, false)
+    }
+
+    /// Deserialize exactly one self-describing consensus value from a borrowed byte slice without
+    /// applying a declared type.
+    ///
+    /// This is intended for offline physical-storage migration. Consensus VM reads must continue
+    /// using the epoch-aware typed entry points.
+    pub fn try_deserialize_slice_exact_untyped(bytes: &[u8]) -> Result<Value, SerializationError> {
+        let (value, read_count) = Value::deserialize_read_count_with_options(
+            &mut &*bytes,
+            None,
+            false,
+            TupleFieldsBehavior::LEGACY,
+            MAX_TYPE_DEPTH as usize,
+        )?;
+        if read_count != bytes.len() as u64 {
+            Err(SerializationError::LeftoverBytesInDeserialization)
+        } else {
+            Ok(value)
+        }
     }
 
     /// Try to deserialize a value from a hex string without type information. This *does not*

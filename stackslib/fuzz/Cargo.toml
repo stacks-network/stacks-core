@@ -22,6 +22,7 @@ members = ["."]
 
 [profile.release]
 debug = 1
+debug-assertions = true
 
 [[bin]]
 name = "bitcoin_blocks_parser_parse_tx_raw"

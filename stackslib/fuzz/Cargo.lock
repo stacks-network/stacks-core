@@ -176,6 +176,7 @@ dependencies = [
  "serde_json",
  "slog",
  "stacks-common",
+ "thiserror",
  "variant_count",
 ]
 
