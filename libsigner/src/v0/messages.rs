@@ -1052,6 +1052,7 @@ impl From<&RejectReason> for RejectReasonPrefix {
             RejectReason::ConsensusHashMismatch { .. } => RejectReasonPrefix::ConsensusHashMismatch,
             RejectReason::ProblematicTransactions => RejectReasonPrefix::ProblematicTransactions,
             RejectReason::ProposalTooOld => RejectReasonPrefix::ProposalTooOld,
+            RejectReason::RewardCycleRetired => RejectReasonPrefix::RewardCycleRetired,
             RejectReason::Unknown(_) => RejectReasonPrefix::Unknown,
             RejectReason::NotRejected => RejectReasonPrefix::NotRejected,
         }
@@ -1143,6 +1144,10 @@ pub enum RejectReason {
     /// The block proposal's header timestamp is older than the signer's
     /// configured `block_proposal_max_age_secs`
     ProposalTooOld,
+    /// A sortition has occurred in a reward cycle later than this signer
+    /// set's, so this set is no longer responsible for the proposed
+    /// tenure and will not sign for it
+    RewardCycleRetired,
     /// The block was approved, no rejection details needed
     NotRejected,
     /// Handle unknown codes gracefully
@@ -1196,6 +1201,9 @@ pub enum RejectReasonPrefix {
     /// The block proposal's header timestamp is older than the signer's
     /// configured `block_proposal_max_age_secs`
     ProposalTooOld = 18,
+    /// A sortition has occurred in a reward cycle later than this signer
+    /// set's, so this set is no longer responsible for the proposed tenure
+    RewardCycleRetired = 19,
     /// Unknown reject code, for forward compatibility
     Unknown = 254,
     /// The block was approved, no rejection details needed
@@ -1225,6 +1233,7 @@ impl RejectReasonPrefix {
             Self::ConsensusHashMismatch => 16,
             Self::ProblematicTransactions => 17,
             Self::ProposalTooOld => 18,
+            Self::RewardCycleRetired => 19,
             Self::Unknown => 254,
             Self::NotRejected => 255,
         }
@@ -1253,6 +1262,7 @@ impl From<u8> for RejectReasonPrefix {
             16 => Self::ConsensusHashMismatch,
             17 => Self::ProblematicTransactions,
             18 => Self::ProposalTooOld,
+            19 => Self::RewardCycleRetired,
             255 => Self::NotRejected,
             // For forward compatibility, all other values are unknown
             _ => Self::Unknown,
@@ -1920,6 +1930,7 @@ impl StacksMessageCodec for RejectReason {
             | RejectReason::NoSignerConsensus
             | RejectReason::ProblematicTransactions
             | RejectReason::ProposalTooOld
+            | RejectReason::RewardCycleRetired
             | RejectReason::Unknown(_)
             | RejectReason::NotRejected => {
                 // No additional data to serialize / deserialize
@@ -1966,6 +1977,7 @@ impl StacksMessageCodec for RejectReason {
             }
             RejectReasonPrefix::ProblematicTransactions => RejectReason::ProblematicTransactions,
             RejectReasonPrefix::ProposalTooOld => RejectReason::ProposalTooOld,
+            RejectReasonPrefix::RewardCycleRetired => RejectReason::RewardCycleRetired,
             RejectReasonPrefix::Unknown => RejectReason::Unknown(type_prefix_byte),
             RejectReasonPrefix::NotRejected => RejectReason::NotRejected,
         };
@@ -2076,6 +2088,12 @@ impl std::fmt::Display for RejectReason {
                 write!(
                     f,
                     "The block proposal's header timestamp is older than the maximum proposal age."
+                )
+            }
+            RejectReason::RewardCycleRetired => {
+                write!(
+                    f,
+                    "A sortition has occurred in a later reward cycle; this signer set no longer signs for the proposed tenure."
                 )
             }
             RejectReason::NoSignerConsensus => {
@@ -2524,6 +2542,36 @@ mod test {
             fd.write_all(&inner_bytes).map_err(CodecError::WriteError)?;
             Ok(())
         }
+    }
+
+    #[test]
+    fn reward_cycle_retired_round_trips() {
+        // Pin the wire code: it is part of the protocol as soon as a signer sends one.
+        assert_eq!(
+            RejectReasonPrefix::from(&RejectReason::RewardCycleRetired).to_u8(),
+            19
+        );
+
+        let mut bytes = vec![];
+        RejectReason::RewardCycleRetired
+            .consensus_serialize(&mut bytes)
+            .unwrap();
+        assert_eq!(bytes, vec![19], "the reason carries no additional data");
+        assert_eq!(
+            read_next::<RejectReason, _>(&mut bytes.as_slice()).unwrap(),
+            RejectReason::RewardCycleRetired
+        );
+
+        // A peer that predates the variant reads the byte through this arm rather than
+        // failing to parse the rejection, which is what makes adding one safe.
+        assert_eq!(
+            RejectReasonPrefix::from(19u8),
+            RejectReasonPrefix::RewardCycleRetired
+        );
+        assert_eq!(
+            read_next::<RejectReason, _>(&mut [20u8].as_slice()).unwrap(),
+            RejectReason::Unknown(20)
+        );
     }
 
     #[test]
