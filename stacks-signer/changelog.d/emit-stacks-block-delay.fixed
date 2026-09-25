@@ -1,0 +1,1 @@
+Signers now emit `stacks_signer_agreement_state_conflicts{conflict="stacks_block_delay"}` when their node has not processed the parent-tenure block observed by the signer set; conflict labels are independent and may increment during the same evaluation.

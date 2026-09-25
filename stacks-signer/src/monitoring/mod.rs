@@ -60,7 +60,6 @@ pub mod actions {
     use crate::config::GlobalConfig;
     use crate::monitoring::prometheus::*;
     use crate::monitoring::{SignerAgreementStateChangeReason, SignerAgreementStateConflict};
-    use crate::v0::signer_state::LocalStateMachine;
 
     /// Update stacks tip height gauge
     pub fn update_stacks_tip_height(height: i64) {
@@ -136,14 +135,6 @@ pub mod actions {
             .observe(latency_ms as f64 / 1000.0);
     }
 
-    /// Record the current local state machine
-    pub fn record_local_state(state: LocalStateMachine) {
-        SIGNER_LOCAL_STATE_MACHINE
-            .lock()
-            .expect("Local state machine lock poisoned")
-            .replace(state);
-    }
-
     /// Increment signer agreement state change reason counter
     pub fn increment_signer_agreement_state_change_reason(
         reason: SignerAgreementStateChangeReason,
@@ -160,13 +151,6 @@ pub mod actions {
         SIGNER_AGREEMENT_STATE_CONFLICTS
             .with_label_values(&[&label_value])
             .inc();
-    }
-
-    /// Record the time (seconds) taken for a signer to agree with the signer set
-    pub fn record_signer_agreement_capitulation_latency(latency_s: u64) {
-        SIGNER_AGREEMENT_CAPITULATION_LATENCIES_HISTOGRAM
-            .with_label_values(&[])
-            .observe(latency_s as f64);
     }
 
     /// Start serving monitoring metrics.
@@ -193,7 +177,6 @@ pub mod actions {
     use stacks_common::info;
 
     use crate::monitoring::{SignerAgreementStateChangeReason, SignerAgreementStateConflict};
-    use crate::v0::signer_state::LocalStateMachine;
     use crate::GlobalConfig;
 
     /// Update stacks tip height gauge
@@ -241,9 +224,6 @@ pub mod actions {
     /// Record the time taken to validate a block, as reported by the Stacks node.
     pub fn record_block_validation_latency(_latency_ms: u64) {}
 
-    /// Record the current local state machine
-    pub fn record_local_state(_state: LocalStateMachine) {}
-
     /// Increment signer agreement state change reason counter
     pub fn increment_signer_agreement_state_change_reason(
         _reason: SignerAgreementStateChangeReason,
@@ -252,9 +232,6 @@ pub mod actions {
 
     /// Increment signer agreement state conflict counter
     pub fn increment_signer_agreement_state_conflict(_conflict: SignerAgreementStateConflict) {}
-
-    /// Record the time (seconds) taken for a signer to agree with the signer set
-    pub fn record_signer_agreement_capitulation_latency(_latency_s: u64) {}
 
     /// Start serving monitoring metrics.
     /// This will only serve the metrics if the `monitoring_prom` feature is enabled.

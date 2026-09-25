@@ -1,0 +1,1 @@
+Removed the unused `stacks_node_warning_emitted_total` and `stacks_node_errors_emitted_total` Prometheus series, whose logging hooks no longer exist.

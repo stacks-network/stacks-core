@@ -14,16 +14,12 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::sync::Mutex;
-
 use lazy_static::lazy_static;
 use prometheus::{
     gather, histogram_opts, opts, register_histogram_vec, register_int_counter,
     register_int_counter_vec, register_int_gauge, Encoder, HistogramVec, IntCounter, IntCounterVec,
     IntGauge, TextEncoder,
 };
-
-use crate::v0::signer_state::LocalStateMachine;
 
 lazy_static! {
     pub static ref STACKS_TIP_HEIGHT_GAUGE: IntGauge = register_int_gauge!(opts!(
@@ -95,14 +91,6 @@ lazy_static! {
         "The number of state machine conflicts in signer agreement protocol. `conflict` can be one of: 'burn_block_delay', 'stacks_block_delay', 'miner_view'",
         &["conflict"]
     ).unwrap();
-
-    pub static ref SIGNER_AGREEMENT_CAPITULATION_LATENCIES_HISTOGRAM: HistogramVec = register_histogram_vec!(histogram_opts!(
-        "stacks_signer_agreement_capitulation_latencies_histogram",
-        "Measuring the time (in seconds) for the signer to agree (capitulate) with the signer set",
-        vec![0.0, 1.0, 3.0, 5.0, 10.0, 20.0, 30.0, 60.0, 120.0]
-    ), &[]).unwrap();
-
-    pub static ref SIGNER_LOCAL_STATE_MACHINE: Mutex<Option<LocalStateMachine>> = Mutex::new(None);
 }
 
 pub fn gather_metrics_string() -> String {
