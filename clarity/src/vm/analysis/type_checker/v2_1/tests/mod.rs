@@ -4807,3 +4807,165 @@ fn test_argument_visitor_retains_cost_on_type_error() {
         StaticCheckErrorKind::IncorrectArgumentCount(1, 1)
     ));
 }
+
+/// `fold` returns its initial value for an empty sequence, so from 4.1 the
+/// inferred type must admit it. Callbacks that return their accumulator, and
+/// native callbacks, infer the same type in both epochs.
+#[test]
+fn test_analysis_fold_result_admits_initial_value() {
+    let keep_none = "(define-private (keep-none (x uint) (acc (optional (string-ascii 5)))) none)";
+    let fold = format!("{keep_none} (fold keep-none (list u1) (some \"hello\"))");
+    let inferred = |epoch, version| mem_run_analysis(&fold, version, epoch).unwrap().0.unwrap();
+    assert_eq!(
+        inferred(StacksEpochId::Epoch40, ClarityVersion::Clarity6),
+        TypeSignature::new_option(TypeSignature::NoType).unwrap()
+    );
+    assert_eq!(
+        inferred(StacksEpochId::Epoch41, ClarityVersion::Clarity7),
+        TypeSignature::from_string(
+            "(optional (string-ascii 5))",
+            ClarityVersion::Clarity7,
+            StacksEpochId::Epoch41
+        )
+    );
+    let confused =
+        format!("{keep_none} (default-to u1 (fold keep-none (list u1) (some \"hello\")))");
+    mem_run_analysis(&confused, ClarityVersion::Clarity6, StacksEpochId::Epoch40).unwrap();
+    let error =
+        mem_run_analysis(&confused, ClarityVersion::Clarity7, StacksEpochId::Epoch41).unwrap_err();
+    assert!(
+        matches!(*error.err, StaticCheckErrorKind::DefaultTypesMustMatch(..)),
+        "{error:?}"
+    );
+    for source in [
+        "(fold + (list 1 2) 0)",
+        "(define-private (keep (x uint) (acc (optional (string-ascii 5)))) acc) \
+         (fold keep (list u1) (some \"hi\"))",
+    ] {
+        let legacy = mem_run_analysis(source, ClarityVersion::Clarity6, StacksEpochId::Epoch40)
+            .unwrap()
+            .0;
+        let strict = mem_run_analysis(source, ClarityVersion::Clarity7, StacksEpochId::Epoch41)
+            .unwrap()
+            .0;
+        assert_eq!(legacy, strict, "{source}");
+    }
+}
+
+/// From 4.1 every analysis site rejects tuples with different fields, in every
+/// Clarity version, with the error of the operation that joined them. Before
+/// 4.1 the narrower tuple first passes. Nesting is covered by the type-level
+/// test in clarity-types.
+#[rstest]
+#[case::if_arms(
+    "(if false {a: u1} {a: u1, b: true})",
+    StaticCheckErrorKind::IfArmsMustMatch
+)]
+#[case::default_to(
+    "(default-to {a: u1} (some {a: u1, b: true}))",
+    StaticCheckErrorKind::DefaultTypesMustMatch
+)]
+#[case::match_optional(
+    "(match (if false (some true) none) x {a: u1} {a: u1, b: true})",
+    StaticCheckErrorKind::MatchArmsMustMatch
+)]
+#[case::match_response(
+    "(match (if false (ok true) (err true)) x {a: u1} e {a: u1, b: true})",
+    StaticCheckErrorKind::MatchArmsMustMatch
+)]
+#[case::equals("(is-eq {a: u1, b: true} {a: u1})", StaticCheckErrorKind::TypeError)]
+#[case::list("(list {a: u1} {a: u1, b: true})", StaticCheckErrorKind::TypeError)]
+#[case::append(
+    "(append (list {a: u1}) {a: u1, b: true})",
+    StaticCheckErrorKind::TypeError
+)]
+#[case::concat(
+    "(concat (list {a: u1}) (list {a: u1, b: true}))",
+    StaticCheckErrorKind::TypeError
+)]
+#[case::final_return(
+    "(define-private (f) (begin (asserts! true {a: u1}) {a: u1, b: true})) (f)",
+    StaticCheckErrorKind::ReturnTypesMustMatch
+)]
+#[case::tracked_returns(
+    "(define-private (f) (begin (asserts! true {a: u1}) (asserts! true {a: u1, b: true}) {a: u1})) (f)",
+    StaticCheckErrorKind::ReturnTypesMustMatch
+)]
+#[case::fold_initial_value(
+    "(define-private (keep-none (x uint) (acc (optional {a: uint, b: bool}))) none) \
+     (default-to {a: u1} (fold keep-none (list u1) (some {a: u1, b: true})))",
+    StaticCheckErrorKind::DefaultTypesMustMatch
+)]
+fn test_analysis_tuple_supertype_epoch_gate(
+    #[case] source: &str,
+    #[case] rejected_as: fn(Box<TypeSignature>, Box<TypeSignature>) -> StaticCheckErrorKind,
+) {
+    // Only the variant matters; its payload differs per site.
+    let expected = rejected_as(
+        Box::new(TypeSignature::NoType),
+        Box::new(TypeSignature::NoType),
+    );
+    for &epoch in (StacksEpochId::Epoch20..).iter() {
+        for &version in ClarityVersion::ALL
+            .iter()
+            .filter(|v| **v <= ClarityVersion::default_for_epoch(epoch))
+        {
+            let result = mem_run_analysis(source, version, epoch);
+            if epoch >= StacksEpochId::Epoch41 {
+                let error =
+                    result.expect_err(&format!("accepted at {epoch:?}/{version:?}: {source}"));
+                assert_eq!(
+                    std::mem::discriminant(&*error.err),
+                    std::mem::discriminant(&expected),
+                    "rejected at {epoch:?}/{version:?} with {error:?}, expected {expected:?}"
+                );
+            } else {
+                result.unwrap_or_else(|e| {
+                    panic!("rejected at {epoch:?}/{version:?}: {source}: {e:?}")
+                });
+            }
+        }
+    }
+}
+
+/// Every accumulated `concat` argument is checked with the deployment epoch, and
+/// at every site tuples with the same fields still unify by widening lengths
+/// rather than requiring identical types.
+#[test]
+fn test_analysis_tuple_supertype_valid_joins_and_variadic_concat() {
+    let variadic = "(concat (list {a: u1}) (list {a: u2}) (list {a: u3, b: true}))";
+    mem_run_analysis(variadic, ClarityVersion::Clarity6, StacksEpochId::Epoch40).unwrap();
+    assert!(mem_run_analysis(variadic, ClarityVersion::Clarity7, StacksEpochId::Epoch41).is_err());
+    for source in [
+        "(if false {a: 0x01} {a: 0x0102})",
+        "(default-to {a: 0x01} (some {a: 0x0102}))",
+        "(match (if true (some {a: 0x01}) none) x x {a: 0x0102})",
+        "(match (if true (ok {a: 0x01}) (err u1)) x x e {a: 0x0102})",
+        "(is-eq {a: 0x01} {a: 0x0102})",
+        "(define-private (f) (begin (asserts! true {a: 0x01}) {a: 0x0102})) (f)",
+        "(list {a: 0x01} {a: 0x0102})",
+        "(append (list {a: 0x01}) {a: 0x0102})",
+        "(concat (list {a: 0x01}) (list {a: 0x0102}) (list {a: 0x010203}))",
+        "(list)",
+        "(list {a: u1} {a: u2})",
+        "(if true none (some {a: u1}))",
+        "(if true (ok {a: u1}) (err {b: true}))",
+    ] {
+        let legacy = mem_run_analysis(source, ClarityVersion::Clarity6, StacksEpochId::Epoch40)
+            .unwrap()
+            .0;
+        let strict = mem_run_analysis(source, ClarityVersion::Clarity7, StacksEpochId::Epoch41)
+            .unwrap()
+            .0;
+        assert_eq!(legacy, strict, "{source}");
+    }
+    for source in [
+        "(if true {a: u1, b: true} {a: u1})",
+        "(list {a: u1, b: true} {a: u1})",
+        "(if true {a: u1} {b: u1})",
+    ] {
+        for epoch in [StacksEpochId::Epoch40, StacksEpochId::Epoch41] {
+            assert!(mem_run_analysis(source, ClarityVersion::Clarity6, epoch).is_err());
+        }
+    }
+}

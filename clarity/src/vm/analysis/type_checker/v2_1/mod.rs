@@ -1251,8 +1251,8 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
         match self.function_return_tracker {
             Some(ref mut tracker) => {
                 let new_type = match tracker.take() {
-                    Some(expected_type) => TypeSignature::least_supertype(
-                        &StacksEpochId::Epoch21,
+                    Some(expected_type) => TypeSignature::least_supertype_for_analysis(
+                        &self.epoch,
                         &expected_type,
                         &return_type,
                     )
@@ -1550,8 +1550,8 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
                     if let Some(Some(ref expected)) = self.function_return_tracker {
                         // check if the computed return type matches the return type
                         //   of any early exits from the call graph (e.g., (expects ...) calls)
-                        TypeSignature::least_supertype(
-                            &StacksEpochId::Epoch21,
+                        TypeSignature::least_supertype_for_analysis(
+                            &self.epoch,
                             expected,
                             &return_type,
                         )

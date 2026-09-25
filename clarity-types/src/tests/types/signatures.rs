@@ -546,8 +546,17 @@ fn test_type_min_size_tuple_with_list_matches_minimum_value() {
     assert_eq!(min_value.size().unwrap(), declared_type.min_size().unwrap());
 }
 
-#[test]
-fn test_least_supertype() {
+#[rstest]
+#[case::runtime(false)]
+#[case::analysis(true)]
+fn test_least_supertype(#[case] analysis: bool) {
+    let least_supertype = |a: &TypeSignature, b: &TypeSignature| {
+        if analysis {
+            TypeSignature::least_supertype_for_analysis(&StacksEpochId::Epoch41, a, b)
+        } else {
+            TypeSignature::least_supertype_v2_1(a, b)
+        }
+    };
     let callables = [
         CallableSubtype::Principal(QualifiedContractIdentifier::local("foo").unwrap()),
         CallableSubtype::Trait(TraitIdentifier {
@@ -682,14 +691,8 @@ fn test_least_supertype() {
     ];
 
     for (pair, expected) in notype_pairs {
-        assert_eq!(
-            TypeSignature::least_supertype_v2_1(&pair.0, &pair.1).unwrap(),
-            expected
-        );
-        assert_eq!(
-            TypeSignature::least_supertype_v2_1(&pair.1, &pair.0).unwrap(),
-            expected
-        );
+        assert_eq!(least_supertype(&pair.0, &pair.1).unwrap(), expected);
+        assert_eq!(least_supertype(&pair.1, &pair.0).unwrap(), expected);
     }
 
     let simple_pairs = [
@@ -799,14 +802,8 @@ fn test_least_supertype() {
     ];
 
     for (pair, expected) in simple_pairs {
-        assert_eq!(
-            TypeSignature::least_supertype_v2_1(&pair.0, &pair.1).unwrap(),
-            expected
-        );
-        assert_eq!(
-            TypeSignature::least_supertype_v2_1(&pair.1, &pair.0).unwrap(),
-            expected
-        );
+        assert_eq!(least_supertype(&pair.0, &pair.1).unwrap(), expected);
+        assert_eq!(least_supertype(&pair.1, &pair.0).unwrap(), expected);
     }
 
     let matched_pairs = [
@@ -866,14 +863,8 @@ fn test_least_supertype() {
     ];
 
     for (pair, expected) in matched_pairs {
-        assert_eq!(
-            TypeSignature::least_supertype_v2_1(&pair.0, &pair.1).unwrap(),
-            expected
-        );
-        assert_eq!(
-            TypeSignature::least_supertype_v2_1(&pair.1, &pair.0).unwrap(),
-            expected
-        );
+        assert_eq!(least_supertype(&pair.0, &pair.1).unwrap(), expected);
+        assert_eq!(least_supertype(&pair.1, &pair.0).unwrap(), expected);
     }
 
     let compound_pairs = [
@@ -945,14 +936,8 @@ fn test_least_supertype() {
     ];
 
     for (pair, expected) in compound_pairs {
-        assert_eq!(
-            TypeSignature::least_supertype_v2_1(&pair.0, &pair.1).unwrap(),
-            expected
-        );
-        assert_eq!(
-            TypeSignature::least_supertype_v2_1(&pair.1, &pair.0).unwrap(),
-            expected
-        );
+        assert_eq!(least_supertype(&pair.0, &pair.1).unwrap(), expected);
+        assert_eq!(least_supertype(&pair.1, &pair.0).unwrap(), expected);
     }
 
     let bad_pairs = [
@@ -1050,14 +1035,14 @@ fn test_least_supertype() {
     ];
 
     for pair in bad_pairs {
-        matches!(
-            TypeSignature::least_supertype_v2_1(&pair.0, &pair.1).unwrap_err(),
+        assert!(matches!(
+            least_supertype(&pair.0, &pair.1).unwrap_err(),
             ClarityTypeError::TypeMismatch(..)
-        );
-        matches!(
-            TypeSignature::least_supertype_v2_1(&pair.1, &pair.0).unwrap_err(),
+        ));
+        assert!(matches!(
+            least_supertype(&pair.1, &pair.0).unwrap_err(),
             ClarityTypeError::TypeMismatch(..)
-        );
+        ));
     }
 }
 
@@ -1157,6 +1142,15 @@ fn test_least_supertype_v2_1_idempotent(#[case] leaf: TypeSignature) {
             "least_supertype_v2_1 must be idempotent for {t:?}"
         );
     }
+    for epoch in [StacksEpochId::Epoch40, StacksEpochId::Epoch41] {
+        for t in &corpus {
+            assert_eq!(
+                TypeSignature::least_supertype_for_analysis(&epoch, t, t).as_ref(),
+                Ok(t),
+                "least_supertype_for_analysis must be idempotent at {epoch:?} for {t:?}"
+            );
+        }
+    }
 }
 
 fn buff_value(len: usize) -> Value {
@@ -1220,5 +1214,104 @@ fn test_construct_parent_list_type_matches_parent_list_type(#[case] values: Vec<
     assert_eq!(
         streamed, collected,
         "construct_parent_list_type diverged from parent_list_type for {values:?}"
+    );
+    for epoch in [StacksEpochId::Epoch40, StacksEpochId::Epoch41] {
+        assert_eq!(
+            TypeSignature::parent_list_type_for_analysis(&epoch, &children),
+            collected,
+            "compatible list inference changed at {epoch:?} for {values:?}"
+        );
+    }
+}
+
+/// Every epoch with Clarity. `StacksEpochId::ALL` needs no feature, unlike the
+/// range iterators behind stacks-common's `testing`, which also moves
+/// `StacksEpochId::latest()`.
+fn clarity_epochs() -> impl Iterator<Item = &'static StacksEpochId> {
+    StacksEpochId::ALL
+        .iter()
+        .filter(|epoch| **epoch >= StacksEpochId::Epoch20)
+}
+
+/// From 4.1 analysis rejects tuples with different fields at every nesting
+/// level; runtime and pre-4.1 analysis accept the narrower tuple first.
+#[test]
+fn test_analysis_tuple_supertype_epoch_gate() {
+    let narrow = TypeSignature::from(
+        TupleTypeSignature::try_from(vec![(ClarityName::from_literal("a"), UIntType)]).unwrap(),
+    );
+    let wide = TypeSignature::from(
+        TupleTypeSignature::try_from(vec![
+            (ClarityName::from_literal("a"), UIntType),
+            (ClarityName::from_literal("b"), BoolType),
+        ])
+        .unwrap(),
+    );
+    let wrappers: [fn(TypeSignature) -> TypeSignature; 6] = [
+        |t| t,
+        |t| TypeSignature::list_of(t, 2).unwrap(),
+        |t| TypeSignature::new_option(t).unwrap(),
+        |t| TypeSignature::new_response(t, UIntType).unwrap(),
+        |t| TypeSignature::new_response(UIntType, t).unwrap(),
+        |t| {
+            TupleTypeSignature::try_from(vec![(ClarityName::from_literal("nested"), t)])
+                .unwrap()
+                .into()
+        },
+    ];
+    for outer in wrappers {
+        for inner in wrappers {
+            let a = outer(inner(narrow.clone()));
+            let b = outer(inner(wide.clone()));
+            for epoch in clarity_epochs() {
+                assert_eq!(TypeSignature::least_supertype(epoch, &a, &b).unwrap(), a);
+                assert!(TypeSignature::least_supertype(epoch, &b, &a).is_err());
+                assert!(!a.admits_type(epoch, &b).unwrap());
+                let analyzed = TypeSignature::least_supertype_for_analysis(epoch, &a, &b);
+                if *epoch >= StacksEpochId::Epoch41 {
+                    assert!(matches!(analyzed, Err(ClarityTypeError::TypeMismatch(..))));
+                } else {
+                    assert_eq!(analyzed.unwrap(), a);
+                }
+                assert!(TypeSignature::least_supertype_for_analysis(epoch, &b, &a).is_err());
+            }
+        }
+    }
+    // Equal field counts alone do not suffice: names must also match.
+    let other = TypeSignature::from(
+        TupleTypeSignature::try_from(vec![(ClarityName::from_literal("b"), UIntType)]).unwrap(),
+    );
+    for (a, b) in [(&narrow, &other), (&other, &narrow)] {
+        assert!(
+            TypeSignature::least_supertype_for_analysis(&StacksEpochId::Epoch41, a, b).is_err()
+        );
+    }
+    // An empty list carries no values, so its entry type does not constrain the
+    // other list, in either order.
+    let empty = TypeSignature::list_of(wide.clone(), 0).unwrap();
+    let nonempty = TypeSignature::list_of(narrow.clone(), 1).unwrap();
+    for (a, b) in [(&empty, &nonempty), (&nonempty, &empty)] {
+        let result =
+            TypeSignature::least_supertype_for_analysis(&StacksEpochId::Epoch41, a, b).unwrap();
+        assert_eq!(result, nonempty);
+        // The strict result admits both operands: the property this rule restores.
+        assert!(result.admits_type(&StacksEpochId::Epoch41, a).unwrap());
+        assert!(result.admits_type(&StacksEpochId::Epoch41, b).unwrap());
+    }
+    // List construction in analysis follows the same rule; runtime list construction does not.
+    let children = [narrow.clone(), wide];
+    for epoch in clarity_epochs() {
+        let analyzed = TypeSignature::parent_list_type_for_analysis(epoch, &children);
+        if *epoch >= StacksEpochId::Epoch41 {
+            assert!(matches!(analyzed, Err(ClarityTypeError::TypeMismatch(..))));
+        } else {
+            assert_eq!(analyzed, TypeSignature::parent_list_type(&children));
+        }
+    }
+    assert_eq!(
+        TypeSignature::parent_list_type(&children)
+            .unwrap()
+            .get_list_item_type(),
+        &narrow
     );
 }
