@@ -12,7 +12,7 @@
 //
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 use rstest::rstest;
 use stacks_common::types::StacksEpochId;
@@ -22,10 +22,10 @@ use crate::representations::CONTRACT_MAX_NAME_LENGTH;
 use crate::types::TypeSignature::{BoolType, IntType, ListUnionType, UIntType};
 use crate::types::signatures::{CallableSubtype, TypeSignature};
 use crate::types::{
-    BufferLength, CallableData, MAX_TO_ASCII_BUFFER_LEN, MAX_TO_ASCII_RESULT_LEN, MAX_TYPE_DEPTH,
-    MAX_UTF8_VALUE_SIZE, MAX_VALUE_SIZE, QualifiedContractIdentifier, SequenceSubtype,
-    StandardPrincipalData, StringSubtype, StringUTF8Length, TraitIdentifier, TupleData,
-    TupleTypeSignature, WRAPPER_VALUE_SIZE,
+    BufferLength, CallableData, ListTypeData, MAX_TO_ASCII_BUFFER_LEN, MAX_TO_ASCII_RESULT_LEN,
+    MAX_TYPE_DEPTH, MAX_UTF8_VALUE_SIZE, MAX_VALUE_SIZE, QualifiedContractIdentifier,
+    SequenceSubtype, StandardPrincipalData, StringSubtype, StringUTF8Length, TraitIdentifier,
+    TupleData, TupleTypeSignature, WRAPPER_VALUE_SIZE,
 };
 use crate::{ClarityName, Value};
 
@@ -1221,4 +1221,466 @@ fn test_construct_parent_list_type_matches_parent_list_type(#[case] values: Vec<
         streamed, collected,
         "construct_parent_list_type diverged from parent_list_type for {values:?}"
     );
+}
+
+/// Pins the empty list type and, by calling it at all, proves the `expect` inside
+/// [`TypeSignature::empty_list`] is dead: the function takes no inputs, so if it constructs
+/// successfully once it can never panic.
+///
+/// The size is the list type signature with zero entries: 1 byte for the `NoType` entry type
+/// enum + 4 bytes for `max_len` + 1 byte for the list type enum.
+#[test]
+fn test_type_signature_empty_list_type_data() {
+    let result = TypeSignature::empty_list();
+    assert_eq!(&TypeSignature::NoType, result.get_list_item_type());
+    assert_eq!(0, result.get_max_len());
+    assert_eq!(6, result.size());
+}
+
+/// The cached size must equal what `new_list` computes for the same shape
+#[test]
+fn test_type_signature_empty_list_matches_new_list() {
+    let built = ListTypeData::new_list(TypeSignature::NoType, 0).unwrap();
+    assert_eq!(built, TypeSignature::empty_list());
+    assert_eq!(built.size(), TypeSignature::empty_list().size());
+}
+
+#[test]
+fn test_tuple_type_signature_serde_roundtrip_flat() {
+    let mut fields = BTreeMap::new();
+    fields.insert(ClarityName::from_literal("a"), TypeSignature::IntType);
+    fields.insert(ClarityName::from_literal("b"), TypeSignature::BoolType);
+    fields.insert(ClarityName::from_literal("c"), TypeSignature::UIntType);
+    let original = TupleTypeSignature::try_from(fields).unwrap();
+
+    let json: serde_json::Value = serde_json::to_value(&original).unwrap();
+    // Pin the wire format: only `type_map` is serialized, `size` is excluded.
+    let expected_json = serde_json::json!({
+        "type_map": {
+            "a": "IntType",
+            "b": "BoolType",
+            "c": "UIntType"
+        }
+    });
+    assert_eq!(expected_json, json);
+
+    let deserialized: TupleTypeSignature = serde_json::from_value(json).unwrap();
+    assert_eq!(original, deserialized);
+    assert_eq!(original.size(), deserialized.size());
+}
+
+#[test]
+fn test_tuple_type_signature_serde_roundtrip_nested() {
+    let mut inner_fields = BTreeMap::new();
+    inner_fields.insert(ClarityName::from_literal("x"), TypeSignature::IntType);
+    let inner = TupleTypeSignature::try_from(inner_fields).unwrap();
+
+    let mut outer_fields = BTreeMap::new();
+    outer_fields.insert(
+        ClarityName::from_literal("nested"),
+        TypeSignature::TupleType(inner),
+    );
+    outer_fields.insert(ClarityName::from_literal("flag"), TypeSignature::BoolType);
+    let original = TupleTypeSignature::try_from(outer_fields).unwrap();
+
+    let json: serde_json::Value = serde_json::to_value(&original).unwrap();
+    let expected_json = serde_json::json!({
+        "type_map": {
+            "flag": "BoolType",
+            "nested": {
+                "TupleType": {
+                    "type_map": {
+                        "x": "IntType"
+                    }
+                }
+            }
+        }
+    });
+    assert_eq!(expected_json, json);
+
+    let deserialized: TupleTypeSignature = serde_json::from_value(json).unwrap();
+    assert_eq!(original, deserialized);
+    assert_eq!(original.size(), deserialized.size());
+}
+
+#[test]
+fn test_tuple_type_signature_serde_deserialize_empty_fails() {
+    let json = serde_json::json!({
+        "type_map": {}
+    });
+
+    let err = serde_json::from_value::<TupleTypeSignature>(json).unwrap_err();
+    assert_eq!("EmptyTuplesNotAllowed", err.to_string());
+}
+
+#[test]
+fn test_tuple_type_signature_serde_deserialize_too_deep_fails() {
+    // Create a deeply nested type that exceeds max type depth
+    let json = {
+        let mut value = serde_json::Value::String("IntType".to_string());
+        for _ in 0..(MAX_TYPE_DEPTH as usize) {
+            value = serde_json::json!({
+                "TupleType": {
+                    "type_map": {
+                        "field": value
+                    }
+                }
+            });
+        }
+        serde_json::json!({
+            "type_map": {
+                "field": value
+            }
+        })
+    };
+
+    let err = serde_json::from_value::<TupleTypeSignature>(json).unwrap_err();
+    assert_eq!("TypeSignatureTooDeep", err.to_string());
+}
+
+#[test]
+fn test_tuple_type_signature_serde_deserialize_too_large_fails() {
+    // Add enough fields to exceed max value size limit.
+    let json = {
+        let mut json_map = serde_json::Map::new();
+        let num_fields = (MAX_VALUE_SIZE / 16) + 1;
+        for i in 0..num_fields {
+            json_map.insert(
+                format!("a{}", i),
+                serde_json::Value::String("BoolType".to_string()),
+            );
+        }
+        serde_json::json!({
+            "type_map": json_map
+        })
+    };
+
+    let err = serde_json::from_value::<TupleTypeSignature>(json).unwrap_err();
+    assert_eq!("ValueTooLarge", err.to_string());
+}
+
+#[test]
+fn test_tuple_type_signature_try_from_ok() {
+    let mut map = BTreeMap::new();
+    map.insert(ClarityName::from_literal("a"), TypeSignature::BoolType);
+    map.insert(ClarityName::from_literal("b"), TypeSignature::IntType);
+    let result = TupleTypeSignature::try_from(map);
+    assert!(result.is_ok());
+}
+
+#[test]
+fn test_tuple_type_signature_try_from_empty_fails() {
+    let map = BTreeMap::new();
+    let result = TupleTypeSignature::try_from(map);
+    assert_eq!(ClarityTypeError::EmptyTuplesNotAllowed, result.unwrap_err());
+}
+
+#[test]
+fn test_tuple_type_signature_try_from_too_deep_fails() {
+    // Create a deeply nested type that exceeds max type depth
+    let mut nested = TypeSignature::BoolType;
+    for _ in 0..(MAX_TYPE_DEPTH - 1) {
+        let mut map = BTreeMap::new();
+        map.insert(ClarityName::from_literal("field"), nested);
+        nested = TypeSignature::TupleType(TupleTypeSignature::try_from(map).unwrap());
+    }
+    let mut map = BTreeMap::new();
+    map.insert(ClarityName::from_literal("field"), nested);
+    let result = TupleTypeSignature::try_from(map);
+    assert_eq!(ClarityTypeError::TypeSignatureTooDeep, result.unwrap_err());
+}
+
+#[test]
+fn test_tuple_type_signature_try_from_too_large_fails() {
+    let mut map = BTreeMap::new();
+    let num_fields = (MAX_VALUE_SIZE / 16) + 1;
+    for i in 0..num_fields {
+        map.insert(
+            ClarityName::try_from(format!("a{i}")).unwrap(),
+            TypeSignature::BoolType,
+        );
+    }
+    let result = TupleTypeSignature::try_from(map);
+    assert_eq!(ClarityTypeError::ValueTooLarge, result.unwrap_err());
+}
+
+#[test]
+fn test_list_type_data_serde_roundtrip_ints() {
+    let original = ListTypeData::new_list(TypeSignature::IntType, 10).unwrap();
+
+    let json: serde_json::Value = serde_json::to_value(&original).unwrap();
+    // Pin the wire format: `max_len` + `entry_type`, no `size`.
+    let expected_json = serde_json::json!({
+        "max_len": 10,
+        "entry_type": "IntType"
+    });
+    assert_eq!(expected_json, json);
+
+    let deserialized: ListTypeData = serde_json::from_value(json).unwrap();
+    assert_eq!(original, deserialized);
+    assert_eq!(original.size(), deserialized.size());
+}
+
+#[test]
+fn test_list_type_data_serde_roundtrip_tuples() {
+    let mut fields = BTreeMap::new();
+    fields.insert(ClarityName::from_literal("a"), TypeSignature::IntType);
+    fields.insert(ClarityName::from_literal("b"), TypeSignature::BoolType);
+    let tuple_type = TupleTypeSignature::try_from(fields).unwrap();
+
+    let original = ListTypeData::new_list(TypeSignature::TupleType(tuple_type), 5).unwrap();
+
+    let json: serde_json::Value = serde_json::to_value(&original).unwrap();
+    let expected_json = serde_json::json!({
+        "max_len": 5,
+        "entry_type": {
+            "TupleType": {
+                "type_map": {
+                    "a": "IntType",
+                    "b": "BoolType"
+                }
+            }
+        }
+    });
+    assert_eq!(expected_json, json);
+
+    let deserialized: ListTypeData = serde_json::from_value(json).unwrap();
+    assert_eq!(original, deserialized);
+    assert_eq!(original.size(), deserialized.size());
+}
+
+#[test]
+fn test_type_signature_serde_roundtrip_tuple() {
+    let mut fields = BTreeMap::new();
+    fields.insert(ClarityName::from_literal("a"), TypeSignature::IntType);
+    fields.insert(ClarityName::from_literal("b"), TypeSignature::PrincipalType);
+    let original = TypeSignature::TupleType(TupleTypeSignature::try_from(fields).unwrap());
+
+    let json: serde_json::Value = serde_json::to_value(&original).unwrap();
+    let expected_json = serde_json::json!({
+        "TupleType": {
+            "type_map": {
+                "a": "IntType",
+                "b": "PrincipalType"
+            }
+        }
+    });
+    assert_eq!(expected_json, json);
+
+    let deserialized: TypeSignature = serde_json::from_value(json).unwrap();
+    assert_eq!(original, deserialized);
+    assert_eq!(original.size().unwrap(), deserialized.size().unwrap());
+}
+
+#[test]
+fn test_type_signature_serde_roundtrip_list() {
+    let original = TypeSignature::list_of(TypeSignature::UIntType, 20).unwrap();
+
+    let json: serde_json::Value = serde_json::to_value(&original).unwrap();
+    let expected_json = serde_json::json!({
+        "SequenceType": {
+            "ListType": {
+                "max_len": 20,
+                "entry_type": "UIntType"
+            }
+        }
+    });
+    assert_eq!(expected_json, json);
+
+    let deserialized: TypeSignature = serde_json::from_value(json).unwrap();
+    assert_eq!(original, deserialized);
+    assert_eq!(original.size().unwrap(), deserialized.size().unwrap());
+}
+
+#[test]
+fn test_type_signature_serde_roundtrip_list_of_tuples() {
+    let mut fields = BTreeMap::new();
+    fields.insert(ClarityName::from_literal("id"), TypeSignature::UIntType);
+    fields.insert(ClarityName::from_literal("active"), TypeSignature::BoolType);
+    let tuple_type = TupleTypeSignature::try_from(fields).unwrap();
+
+    let original = TypeSignature::list_of(TypeSignature::TupleType(tuple_type), 10).unwrap();
+
+    let json: serde_json::Value = serde_json::to_value(&original).unwrap();
+    let expected_json = serde_json::json!({
+        "SequenceType": {
+            "ListType": {
+                "max_len": 10,
+                "entry_type": {
+                    "TupleType": {
+                        "type_map": {
+                            "active": "BoolType",
+                            "id": "UIntType"
+                        }
+                    }
+                }
+            }
+        }
+    });
+    assert_eq!(expected_json, json);
+
+    let deserialized: TypeSignature = serde_json::from_value(json).unwrap();
+    assert_eq!(original, deserialized);
+    assert_eq!(original.size().unwrap(), deserialized.size().unwrap());
+}
+
+#[test]
+fn test_list_type_data_serde_deserialize_too_large_fails() {
+    // IntType + max_len exceed max value size limit.
+    let json = serde_json::json!({
+        "max_len": MAX_VALUE_SIZE,
+        "entry_type": "IntType"
+    });
+    let err = serde_json::from_value::<ListTypeData>(json).unwrap_err();
+    assert_eq!("ValueTooLarge", err.to_string());
+}
+
+#[test]
+fn test_list_type_data_serde_deserialize_too_deep_fails() {
+    // Create a deeply nested type that exceeds max type depth.
+    let json = {
+        let mut entry_type = serde_json::json!("IntType");
+        for _ in 0..MAX_TYPE_DEPTH - 1 {
+            entry_type = serde_json::json!({
+                "SequenceType": { "ListType": { "max_len": 1, "entry_type": entry_type } }
+            });
+        }
+        // list obj adds the final level that exceeds the limit.
+        serde_json::json!({
+            "max_len": 1,
+            "entry_type": entry_type
+        })
+    };
+    let err = serde_json::from_value::<ListTypeData>(json).unwrap_err();
+    assert_eq!("TypeSignatureTooDeep", err.to_string());
+}
+
+#[test]
+fn test_list_type_data_new_list_ok() {
+    let list = ListTypeData::new_list(TypeSignature::IntType, 5).unwrap();
+    assert_eq!(list.get_max_len(), 5);
+    assert_eq!(list.get_list_item_type(), &TypeSignature::IntType);
+    assert!(list.size() > 0);
+}
+
+#[test]
+fn test_list_type_data_new_list_rejects_too_large() {
+    // IntType + max_len exceed max value size limit.
+    let err = ListTypeData::new_list(TypeSignature::IntType, MAX_VALUE_SIZE).unwrap_err();
+    assert_eq!(ClarityTypeError::ValueTooLarge, err);
+}
+
+#[test]
+fn test_list_type_data_new_list_rejects_too_deep() {
+    // Create a deeply nested type ready to exceeds max type depth.
+    let mut entry_type = TypeSignature::IntType;
+    for _ in 0..MAX_TYPE_DEPTH - 1 {
+        entry_type = TypeSignature::list_of(entry_type, 1).unwrap();
+    }
+    // new_list adds the final level that exceeds the limit.
+    let err = ListTypeData::new_list(entry_type, 1).unwrap_err();
+    assert_eq!(ClarityTypeError::TypeSignatureTooDeep, err);
+}
+
+/// `reduce_max_len` mutates `max_len`, so it must keep the cached size in step. It had no
+/// direct coverage at all: its only caller in the tree is `special_as_max_len`.
+///
+/// The strongest form of the assertion is that shrinking to `n` lands on exactly the size a
+/// list constructed at `n` would have — that is what makes the cache indistinguishable from a
+/// recompute.
+#[test]
+fn test_list_type_data_reduce_max_len_updates_cached_size() {
+    let mut list = ListTypeData::new_list(TypeSignature::IntType, 10).unwrap();
+    let before = list.size();
+
+    list.reduce_max_len(4).unwrap();
+    assert_eq!(4, list.get_max_len());
+    assert!(list.size() < before, "shrinking must reduce the size");
+    assert_eq!(
+        ListTypeData::new_list(TypeSignature::IntType, 4)
+            .unwrap()
+            .size(),
+        list.size(),
+    );
+
+    // Shrinking to zero leaves only the type-signature floor, not zero.
+    list.reduce_max_len(0).unwrap();
+    assert_eq!(0, list.get_max_len());
+    assert_eq!(
+        ListTypeData::new_list(TypeSignature::IntType, 0)
+            .unwrap()
+            .size(),
+        list.size(),
+    );
+}
+
+/// `reduce_max_len` only ever shrinks: a larger argument is a no-op, and must not disturb the
+/// cached size either. This is the guard that makes its error branch unreachable.
+#[test]
+fn test_list_type_data_reduce_max_len_ignores_growth() {
+    let mut list = ListTypeData::new_list(TypeSignature::IntType, 5).unwrap();
+    let before = list.size();
+
+    list.reduce_max_len(100).unwrap();
+
+    assert_eq!(
+        5,
+        list.get_max_len(),
+        "reduce_max_len must not grow the list"
+    );
+    assert_eq!(before, list.size());
+}
+
+/// A valid merge (non-overflowing) updates fields and cached size.
+#[test]
+fn test_tuple_type_signature_shallow_merge_updates_cached_size() {
+    let base = TupleTypeSignature::try_from(vec![
+        (ClarityName::from_literal("a"), TypeSignature::IntType),
+        (ClarityName::from_literal("b"), TypeSignature::BoolType),
+    ])
+    .unwrap();
+    let before = base.size();
+    let update = TupleTypeSignature::try_from(vec![(
+        ClarityName::from_literal("c"),
+        TypeSignature::UIntType,
+    )])
+    .unwrap();
+
+    let merged = base.shallow_merge(update).unwrap();
+
+    let expected = TupleTypeSignature::try_from(vec![
+        (ClarityName::from_literal("a"), TypeSignature::IntType),
+        (ClarityName::from_literal("b"), TypeSignature::BoolType),
+        (ClarityName::from_literal("c"), TypeSignature::UIntType),
+    ])
+    .unwrap();
+    assert_eq!(expected, merged);
+    assert_eq!(expected.size(), merged.size());
+    assert!(merged.size() > before, "adding a field must grow the size");
+}
+
+/// A field present in both sides takes the update's type, and the cached size follows that
+/// type rather than the one it replaced.
+#[test]
+fn test_tuple_type_signature_shallow_merge_overrides_field_type() {
+    let base = TupleTypeSignature::try_from(vec![(
+        ClarityName::from_literal("a"),
+        TypeSignature::BoolType,
+    )])
+    .unwrap();
+    let update = TupleTypeSignature::try_from(vec![(
+        ClarityName::from_literal("a"),
+        TypeSignature::IntType,
+    )])
+    .unwrap();
+
+    let merged = base.shallow_merge(update).unwrap();
+
+    let expected = TupleTypeSignature::try_from(vec![(
+        ClarityName::from_literal("a"),
+        TypeSignature::IntType,
+    )])
+    .unwrap();
+    assert_eq!(expected, merged);
+    assert_eq!(expected.size(), merged.size());
 }

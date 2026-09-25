@@ -212,13 +212,13 @@ fn check_special_merge(
     check_argument_count(2, args)?;
 
     let res = checker.type_check(&args[0], context)?;
-    let mut base = match res {
+    let base = match res {
         TypeSignature::TupleType(tuple_sig) => Ok(tuple_sig),
         _ => Err(StaticCheckErrorKind::ExpectedTuple(Box::new(res.clone()))),
     }?;
 
     let res = checker.type_check(&args[1], context)?;
-    let mut update = match res {
+    let update = match res {
         TypeSignature::TupleType(tuple_sig) => Ok(tuple_sig),
         _ => Err(StaticCheckErrorKind::ExpectedTuple(Box::new(res.clone()))),
     }?;
@@ -228,8 +228,8 @@ fn check_special_merge(
         update.len(),
     )?;
 
-    base.shallow_merge(&mut update)?;
-    Ok(TypeSignature::TupleType(base))
+    let merged = base.shallow_merge(update)?;
+    Ok(TypeSignature::TupleType(merged))
 }
 
 pub fn check_special_tuple_cons(
