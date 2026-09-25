@@ -238,21 +238,13 @@ impl RPCRequestHandler for GetTenuresForkInfo {
                 cursor =
                     SortitionDB::get_block_snapshot(sortdb.conn(), &cursor.parent_sortition_id)?
                         .ok_or_else(|| ChainError::NoSuchBlockError)?;
-                if cursor.sortition
-                    || chainstate
-                        .nakamoto_blocks_db()
-                        .is_shadow_tenure(&cursor.consensus_hash)?
-                {
+                if cursor.sortition {
                     results.push(TenureForkingInfo::from_snapshot(
                         &cursor,
                         sortdb,
                         chainstate,
                         &network.stacks_tip.block_id(),
                     )?);
-                }
-                if cursor.sortition {
-                    // don't count shadow blocks towards the depth, since there can be a large
-                    // swath of them.
                     depth += 1;
                 }
             }

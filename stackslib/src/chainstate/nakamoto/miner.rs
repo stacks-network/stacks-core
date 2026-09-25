@@ -199,7 +199,7 @@ pub struct MinerTenureInfo<'a> {
     pub coinbase_height: u64,
     pub cause: MinerTenureInfoCause,
     pub active_reward_set: boot::RewardSet,
-    pub tenure_block_commit_opt: Option<LeaderBlockCommitOp>,
+    pub tenure_block_commit: LeaderBlockCommitOp,
     pub ephemeral: bool,
 }
 
@@ -317,7 +317,7 @@ impl NakamotoBlockBuilder {
         burn_dbconn: &'a SortitionHandleConn,
         cause: MinerTenureInfoCause,
     ) -> Result<MinerTenureInfo<'a>, Error> {
-        self.inner_load_tenure_info(chainstate, burn_dbconn, cause, false, false)
+        self.inner_load_tenure_info(chainstate, burn_dbconn, cause, false)
     }
 
     /// This function should be called before `tenure_begin`.
@@ -330,7 +330,7 @@ impl NakamotoBlockBuilder {
         burn_dbconn: &'a SortitionHandleConn,
         cause: MinerTenureInfoCause,
     ) -> Result<MinerTenureInfo<'a>, Error> {
-        self.inner_load_tenure_info(chainstate, burn_dbconn, cause, false, true)
+        self.inner_load_tenure_info(chainstate, burn_dbconn, cause, true)
     }
 
     /// This function should be called before `tenure_begin`.
@@ -342,10 +342,9 @@ impl NakamotoBlockBuilder {
         chainstate: &'a mut StacksChainState,
         burn_dbconn: &'a SortitionHandleConn,
         cause: MinerTenureInfoCause,
-        shadow_block: bool,
         ephemeral: bool,
     ) -> Result<MinerTenureInfo<'a>, Error> {
-        debug!("Nakamoto miner tenure begin"; "shadow" => shadow_block, "tenure_change" => ?cause, "ephemeral" => ephemeral);
+        debug!("Nakamoto miner tenure begin"; "tenure_change" => ?cause, "ephemeral" => ephemeral);
 
         let Some(tenure_election_sn) =
             SortitionDB::get_block_snapshot_consensus(burn_dbconn, &self.header.consensus_hash)?
@@ -358,24 +357,19 @@ impl NakamotoBlockBuilder {
             return Err(Error::NoSuchBlockError);
         };
 
-        let tenure_block_commit_opt = if shadow_block {
-            None
-        } else {
-            let Some(tenure_block_commit) = SortitionDB::get_block_commit(
-                burn_dbconn,
-                &tenure_election_sn.winning_block_txid,
-                &tenure_election_sn.sortition_id,
-            )?
-            else {
-                warn!("Could not find winning block commit for burn block that elected the miner";
-                    "consensus_hash" => %self.header.consensus_hash,
-                    "stacks_block_hash" => %self.header.block_hash(),
-                    "stacks_block_id" => %self.header.block_id(),
-                    "winning_txid" => %tenure_election_sn.winning_block_txid
-                );
-                return Err(Error::NoSuchBlockError);
-            };
-            Some(tenure_block_commit)
+        let Some(tenure_block_commit) = SortitionDB::get_block_commit(
+            burn_dbconn,
+            &tenure_election_sn.winning_block_txid,
+            &tenure_election_sn.sortition_id,
+        )?
+        else {
+            warn!("Could not find winning block commit for burn block that elected the miner";
+                "consensus_hash" => %self.header.consensus_hash,
+                "stacks_block_hash" => %self.header.block_hash(),
+                "stacks_block_id" => %self.header.block_id(),
+                "winning_txid" => %tenure_election_sn.winning_block_txid
+            );
+            return Err(Error::NoSuchBlockError);
         };
 
         let elected_height = tenure_election_sn.block_height;
@@ -481,7 +475,7 @@ impl NakamotoBlockBuilder {
             cause,
             coinbase_height,
             active_reward_set,
-            tenure_block_commit_opt,
+            tenure_block_commit,
             ephemeral,
         })
     }
@@ -496,11 +490,7 @@ impl NakamotoBlockBuilder {
         burn_dbconn: &'a SortitionHandleConn,
         info: &'b mut MinerTenureInfo<'a>,
     ) -> Result<ClarityTx<'b, 'b>, Error> {
-        let Some(block_commit) = info.tenure_block_commit_opt.as_ref() else {
-            return Err(Error::InvalidStacksBlock(
-                "Block-commit is required; cannot mine a shadow block".into(),
-            ));
-        };
+        let block_commit = &info.tenure_block_commit;
 
         let SetupBlockResult {
             clarity_tx,
@@ -583,11 +573,8 @@ impl NakamotoBlockBuilder {
 
         self.header.tx_merkle_root = tx_merkle_root;
         self.header.state_index_root = state_root_hash;
-        // Keep the shadow bit, but set the version to the expected version for
-        // this epoch.
-        let shadow_flag = self.header.version & 0x80;
         self.header.version =
-            NakamotoBlockHeader::expected_version_for_epoch(clarity_tx.get_epoch()) | shadow_flag;
+            NakamotoBlockHeader::expected_version_for_epoch(clarity_tx.get_epoch());
 
         let block = NakamotoBlock {
             header: self.header.clone(),

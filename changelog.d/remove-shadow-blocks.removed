@@ -1,0 +1,2 @@
+Removed the never-used shadow block mechanism (`chainstate::nakamoto::shadow` and the `stacks-inspect` shadow commands). The block-commit rule that accepts a missing vtxindex-0 parent in Nakamoto epochs is kept, since sortition history depends on it.
+Block headers with the former shadow-block high bit (0x80) set are now rejected instead of having the bit masked off. This is stricter than SIP-044's `version & 0x7f` wording but changes nothing in practice: such blocks were never accepted from the network.

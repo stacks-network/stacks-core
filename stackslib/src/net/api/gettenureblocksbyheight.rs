@@ -112,19 +112,14 @@ impl RPCRequestHandler for RPCNakamotoTenureBlocksByHeightRequestHandler {
                     "`burnchain_block_height` not set".into(),
                 ))?;
 
-        let reply = node.with_node_state(|network, sortdb, chainstate, _mempool, _rpc_args| {
+        let reply = node.with_node_state(|_network, sortdb, chainstate, _mempool, _rpc_args| {
             let snapshot = get_block_snapshot_by_burnchain_block_height(
                 sortdb,
                 burnchain_block_height,
                 &preamble,
             )?;
-            let last_sortition_ch = get_prior_last_sortition_consensus_hash(
-                chainstate,
-                sortdb,
-                &snapshot,
-                &preamble,
-                &network.stacks_tip.block_id(),
-            )?;
+            let last_sortition_ch =
+                get_prior_last_sortition_consensus_hash(sortdb, &snapshot, &preamble)?;
             TenureReply::try_from_header_or_snapshot(
                 chainstate,
                 &snapshot,
