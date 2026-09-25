@@ -838,6 +838,12 @@ impl StacksEpochId {
         self >= &StacksEpochId::Epoch41
     }
 
+    /// Whether analysis types a `fold` result to admit its initial value, which an
+    /// empty sequence returns unchanged.
+    pub fn requires_fold_result_to_admit_initial_value(&self) -> bool {
+        self >= &StacksEpochId::Epoch41
+    }
+
     pub fn supports_call_with_constant(&self) -> bool {
         self >= &StacksEpochId::Epoch34
     }
