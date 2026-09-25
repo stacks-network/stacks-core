@@ -594,7 +594,7 @@ impl<'a> ClarityDatabase<'a> {
 
             let (sanitized_value, did_sanitize) =
                 Value::sanitize_value(epoch, &TypeSignature::type_of(&value)?, value)
-                    .ok_or_else(|| RuntimeCheckErrorKind::CouldNotDetermineType)?;
+                    .ok_or(RuntimeCheckErrorKind::CouldNotDetermineType)?;
             // if data needed to be sanitized *charge* for the unsanitized cost
             if did_sanitize {
                 pre_sanitized_size = Some(value_size);

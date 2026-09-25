@@ -420,11 +420,11 @@ where
         if !done {
             done = !peers_behind_burnchain;
 
-            for i in 0..num_peers {
-                for b in 0..num_blocks {
-                    if !peer_invs[i].has_ith_block(
+            for (i, peer_inv) in peer_invs[..num_peers].iter().enumerate() {
+                for (b, block) in block_data[..num_blocks].iter().enumerate() {
+                    if !peer_inv.has_ith_block(
                         ((b as u64) + first_stacks_block_height - first_sortition_height) as u16,
-                    ) && block_data[b].1.is_some()
+                    ) && block.1.is_some()
                     {
                         test_debug!(
                             "Peer {} is missing block {} at sortition height {} (between {} and {})",
@@ -438,10 +438,10 @@ where
                         done = false;
                     }
                 }
-                for b in 1..(num_blocks - 1) {
-                    if !peer_invs[i].has_ith_microblock_stream(
+                for (b, block) in block_data[..num_blocks - 1].iter().enumerate().skip(1) {
+                    if !peer_inv.has_ith_microblock_stream(
                         ((b as u64) + first_stacks_block_height - first_sortition_height) as u16,
-                    ) && block_data[b].2.is_some()
+                    ) && block.2.is_some()
                     {
                         test_debug!(
                             "Peer {} is missing microblock stream {} (between {} and {})",
@@ -895,7 +895,6 @@ pub fn test_get_blocks_and_microblocks_5_peers_star() {
 
                 for p in peer_configs.iter_mut() {
                     p.connection_opts.disable_block_advertisement = true;
-                    p.connection_opts.max_clients_per_host = 30;
                 }
 
                 let peer_0 = peer_configs[0].to_neighbor();
@@ -967,7 +966,6 @@ pub fn test_get_blocks_and_microblocks_5_peers_line() {
 
                 for p in peer_configs.iter_mut() {
                     p.connection_opts.disable_block_advertisement = true;
-                    p.connection_opts.max_clients_per_host = 30;
                 }
 
                 for i in 0..peer_configs.len() {
@@ -1048,7 +1046,6 @@ pub fn test_get_blocks_and_microblocks_overwhelmed_connections() {
 
                     // severely restrict the number of allowed
                     // connections in each peer
-                    peer_configs[i].connection_opts.max_clients_per_host = 1;
                     peer_configs[i].connection_opts.num_clients = 1;
                     peer_configs[i].connection_opts.idle_timeout = 1;
                     peer_configs[i].connection_opts.max_http_clients = 1;

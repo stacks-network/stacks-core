@@ -15,6 +15,7 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use std::collections::{HashMap, HashSet};
+use std::mem;
 
 use stacks_common::types::net::PeerHost;
 
@@ -74,26 +75,6 @@ impl NeighborRPC {
         });
     }
 
-    /// Is a neighbor dead?
-    pub fn is_dead(&self, network: &PeerNetwork, naddr: &NeighborAddress) -> bool {
-        // reason and source does't matter. They are ignored by the hasher/partial eq
-        self.dead.contains(&DropNeighbor {
-            key: naddr.to_neighbor_key(network),
-            reason: DropReason::Unknown,
-            source: DropSource::Unknown,
-        })
-    }
-
-    /// Is a neighbor broken
-    pub fn is_broken(&self, network: &PeerNetwork, naddr: &NeighborAddress) -> bool {
-        // reason and source does't matter. They are ignored by the hasher/partial eq
-        self.broken.contains(&DropNeighbor {
-            key: naddr.to_neighbor_key(network),
-            reason: DropReason::Unknown,
-            source: DropSource::Unknown,
-        })
-    }
-
     /// Is a neighbor dead or broken?
     pub fn is_dead_or_broken(&self, network: &PeerNetwork, naddr: &NeighborAddress) -> bool {
         // reason and source does't matter. They are ignored by the hasher/partial eq
@@ -107,12 +88,12 @@ impl NeighborRPC {
 
     /// Extract the list of dead neighbors
     pub fn take_dead(&mut self) -> HashSet<DropNeighbor> {
-        std::mem::replace(&mut self.dead, HashSet::new())
+        mem::take(&mut self.dead)
     }
 
     /// Extract the list of broken neighbors
     pub fn take_broken(&mut self) -> HashSet<DropNeighbor> {
-        std::mem::replace(&mut self.broken, HashSet::new())
+        mem::take(&mut self.broken)
     }
 
     /// Collect all in-flight replies into a vec.

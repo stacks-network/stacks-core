@@ -440,33 +440,10 @@ impl FromRow<VoteForAggregateKeyOp> for VoteForAggregateKeyOp {
     }
 }
 
-struct AcceptedStacksBlockHeader {
-    pub tip_consensus_hash: ConsensusHash, // PoX tip
-    pub consensus_hash: ConsensusHash,     // stacks block consensus hash
-    pub block_hash: BlockHeaderHash,       // stacks block hash
-    pub height: u64,                       // stacks block height
-}
-
 #[derive(Debug)]
 pub struct InitialMiningBonus {
     pub total_reward: u128,
     pub per_block: u128,
-}
-
-impl FromRow<AcceptedStacksBlockHeader> for AcceptedStacksBlockHeader {
-    fn from_row(row: &Row) -> Result<AcceptedStacksBlockHeader, db_error> {
-        let tip_consensus_hash = ConsensusHash::from_column(row, "tip_consensus_hash")?;
-        let consensus_hash = ConsensusHash::from_column(row, "consensus_hash")?;
-        let block_hash = BlockHeaderHash::from_column(row, "stacks_block_hash")?;
-        let height = u64::from_column(row, "block_height")?;
-
-        Ok(AcceptedStacksBlockHeader {
-            tip_consensus_hash,
-            consensus_hash,
-            block_hash,
-            height,
-        })
-    }
 }
 
 impl FromRow<StacksEpoch> for StacksEpoch {
@@ -938,19 +915,6 @@ impl db_keys {
         format!("sortition_db::reward_set::entry::{}", ix)
     }
 
-    pub fn pox_reward_set_payouts_key() -> String {
-        "sortition_db::reward_set::payouts".to_string()
-    }
-
-    pub fn pox_reward_set_payouts_value(addrs: Vec<PoxAddress>, payout_per_addr: u128) -> String {
-        serde_json::to_string(&(addrs, payout_per_addr)).unwrap()
-    }
-
-    pub fn pox_reward_set_payouts_decode(addr_str: &str) -> (Vec<PoxAddress>, u128) {
-        let addrs_and_payout: (Vec<PoxAddress>, u128) = serde_json::from_str(addr_str).unwrap();
-        addrs_and_payout
-    }
-
     /// store an entry for retrieving the PoX identifier (i.e., the PoX bitvector) for this PoX fork
     pub fn pox_identifier() -> &'static str {
         "sortition_db::pox_identifier"
@@ -1013,33 +977,6 @@ impl db_keys {
             .try_into()
             .expect("CORRUPTION: expected u16 reward set size");
         u16::from_le_bytes(*byte_buff)
-    }
-
-    /// reward cycle ID that was last processed
-    /// NOTE: unused now, but was used in earlier consensus rules.
-    /// Preserved for testing compatibility.
-    pub fn last_reward_cycle_key() -> &'static str {
-        "sortition_db::last_reward_cycle"
-    }
-
-    /// NOTE: unused now, but was used in earlier consensus rules.
-    /// Preserved for testing compatibility.
-    pub fn last_reward_cycle_to_string(rc: u64) -> String {
-        to_hex(&rc.to_le_bytes())
-    }
-
-    /// NOTE: unused now, but was used in earlier consensus rules.
-    /// Preserved for testing compatibility.
-    pub fn last_reward_cycle_from_string(rc_str: &str) -> u64 {
-        let bytes = hex_bytes(rc_str).expect("CORRUPTION: bad format written for reward cycle ID");
-        assert_eq!(
-            bytes.len(),
-            8,
-            "CORRUPTION: expected 8 bytes for reward cycle"
-        );
-        // expect, because we did a length check above
-        let rc_buff: [u8; 8] = bytes.try_into().expect("FATAL: non-length 8 array");
-        u64::from_le_bytes(rc_buff)
     }
 }
 
@@ -4484,18 +4421,13 @@ impl SortitionDB {
             return Err(db_error::Corruption);
         }
 
-        if chain_tip.block_height < burnchain.stable_confirmations as u64 {
-            // should never happen, but don't panic since this is network-callable code
-            error!(
-                "Invalid block height from DB: {}: expected at least {}",
-                chain_tip.block_height, burnchain.stable_confirmations
-            );
-            return Err(db_error::Corruption);
-        }
-
+        // During startup the local processed tip can be near the first burn block, even when
+        // Bitcoin Core is fully synced. Clamp the stable view to the first burn block.
         let stable_block_height = cmp::max(
             burnchain.first_block_height,
-            chain_tip.block_height - (burnchain.stable_confirmations as u64),
+            chain_tip
+                .block_height
+                .saturating_sub(burnchain.stable_confirmations as u64),
         );
 
         // get all burn block hashes between the chain tip, and the stable height back
@@ -6771,6 +6703,8 @@ impl ChainstateDB for SortitionDB {
 
 #[cfg(test)]
 pub mod tests {
+    use std::assert_matches;
+
     use clarity::vm::costs::ExecutionCost;
     use rand::RngCore;
     use stacks_common::address::AddressHashMode;
@@ -6778,9 +6712,12 @@ pub mod tests {
     use stacks_common::types::sqlite::NO_PARAMS;
     use stacks_common::util::get_epoch_time_secs;
     use stacks_common::util::hash::{hex_bytes, Hash160};
-    use stacks_common::util::vrf::*;
+    use tempfile::tempdir;
 
     use super::*;
+    use crate::burnchains::bitcoin::indexer::{
+        BITCOIN_MAINNET, BITCOIN_REGTEST, BITCOIN_SIGNET, BITCOIN_TESTNET,
+    };
     use crate::burnchains::db::BurnchainDB;
     use crate::burnchains::tests::db::make_simple_block_commit;
     use crate::burnchains::*;
@@ -6795,6 +6732,76 @@ pub mod tests {
     use crate::chainstate::stacks::StacksPublicKey;
     use crate::core::{StacksEpochExtension, *};
     use crate::util_lib::db::Error as db_error;
+
+    /// Stable views clamp to the first burn block until enough local history exists, on every network.
+    #[test]
+    fn test_burnchain_view_clamps_stable_tip_to_first_burn_block() {
+        let vectors = [
+            (0, 7, [0, 0, 0, 0, 0, 0, 0, 0, 1]),
+            (3, 7, [0, 0, 0, 0, 0, 0, 0, 0, 1]),
+            (100, 7, [0, 0, 0, 0, 0, 0, 0, 0, 1]),
+            (0, 1, [0, 0, 1, 2, 3, 4, 5, 6, 7]),
+        ];
+
+        let all_networks = [
+            BITCOIN_MAINNET,
+            BITCOIN_TESTNET,
+            BITCOIN_REGTEST,
+            BITCOIN_SIGNET,
+        ];
+
+        for (first_burn_block_height, confirmations, stable_offsets) in vectors {
+            let dir = tempdir().unwrap();
+
+            let mut burnchain = Burnchain::regtest(dir.path().to_str().unwrap());
+            burnchain.first_block_height = first_burn_block_height;
+            burnchain.first_block_hash = BurnchainHeaderHash([0xfe; 32]);
+            burnchain.stable_confirmations = confirmations;
+
+            let epochs =
+                StacksEpoch::unit_test_up_to(first_burn_block_height, StacksEpochId::Epoch20);
+
+            let mut db = SortitionDB::connect(
+                dir.path().join("sortition").to_str().unwrap(),
+                first_burn_block_height,
+                &burnchain.first_block_hash,
+                u64::from(burnchain.first_block_timestamp),
+                &epochs,
+                burnchain.pox_constants.clone(),
+                None,
+                true,
+                None,
+            )
+            .unwrap();
+
+            let first = SortitionDB::get_first_block_snapshot(db.conn()).unwrap();
+            let mut snapshots = vec![first.clone()];
+            snapshots.extend(make_fork_run(&mut db, &first, 8, 0));
+
+            for network_id in all_networks {
+                burnchain.network_id = network_id;
+
+                for (tip, stable_offset) in snapshots.iter().zip(stable_offsets) {
+                    let view =
+                        SortitionDB::get_burnchain_view(&db.index_conn(), &burnchain, tip).unwrap();
+                    let expected = &snapshots[stable_offset];
+                    assert_eq!(view.burn_block_height, tip.block_height);
+                    assert_eq!(view.burn_block_hash, tip.burn_header_hash);
+                    assert_eq!(view.burn_stable_block_height, expected.block_height);
+                    assert_eq!(view.burn_stable_block_hash, expected.burn_header_hash);
+                }
+
+                if first_burn_block_height > 0 {
+                    let mut invalid_tip = first.clone();
+                    invalid_tip.block_height = first_burn_block_height - 1;
+                    assert_matches!(
+                        SortitionDB::get_burnchain_view(&db.index_conn(), &burnchain, &invalid_tip),
+                        Err(db_error::Corruption)
+                    );
+                }
+            }
+        }
+    }
 
     pub fn make_simple_key_register(
         burn_header_hash: &BurnchainHeaderHash,
@@ -6887,10 +6894,10 @@ pub mod tests {
                 )]
             } else {
                 let mut commits = vec![];
-                for i in 0..parent_commits.len() {
+                for (i, parent_commit_slot) in parent_commits.iter_mut().enumerate() {
                     let mut block_commit = make_simple_block_commit(
                         burnchain,
-                        parent_commits[i].as_ref(),
+                        parent_commit_slot.as_ref(),
                         &block_header,
                         next_block_hash(),
                     );
@@ -6916,7 +6923,7 @@ pub mod tests {
                         block_commit.parent_vtxindex
                     );
 
-                    if let Some(parent_commit) = parent_commits[i].as_ref() {
+                    if let Some(parent_commit) = parent_commit_slot.as_ref() {
                         assert!(parent_commit.block_height != block_commit.block_height);
                         assert!(
                             parent_commit.block_height == u64::from(block_commit.parent_block_ptr)
@@ -6924,7 +6931,7 @@ pub mod tests {
                         assert!(parent_commit.vtxindex == u32::from(block_commit.parent_vtxindex));
                     }
 
-                    parent_commits[i] = Some(block_commit.clone());
+                    *parent_commit_slot = Some(block_commit.clone());
                     commits.push(Some(block_commit.clone()));
                 }
                 new_commits.push(commits.clone());
@@ -6948,27 +6955,6 @@ pub mod tests {
         }
 
         (new_headers, new_commits)
-    }
-
-    /// Conveninece wrapper that produces a reward cycle with one sequence of block-commits.  Returns
-    /// the sequence of block headers in this reward cycle, and the list of block-commits created.  If
-    /// parent_commit is None, then the list of block-commits will contain all None's.
-    fn make_simple_reward_cycle(
-        burnchain_db: &mut BurnchainDB,
-        burnchain: &Burnchain,
-        key: &LeaderKeyRegisterOp,
-        headers: &mut Vec<BurnchainBlockHeader>,
-        parent_commit: Option<LeaderBlockCommitOp>,
-    ) -> (Vec<BurnchainBlockHeader>, Vec<Option<LeaderBlockCommitOp>>) {
-        let (new_headers, commits) =
-            make_reward_cycle(burnchain_db, burnchain, key, headers, vec![parent_commit]);
-        (
-            new_headers,
-            commits
-                .into_iter()
-                .map(|mut cmts| cmts.pop().unwrap())
-                .collect(),
-        )
     }
 
     impl SortitionHandleTx<'_> {
@@ -9456,8 +9442,7 @@ pub mod tests {
             SortitionDB::merge_block_header_cache(&mut cache, &hashes);
 
             assert_eq!(hashes.len(), 256);
-            for i in 0..256 {
-                let (ref consensus_hash, ref block_hash_opt) = &hashes[i];
+            for (i, (consensus_hash, block_hash_opt)) in hashes[..256].iter().enumerate() {
                 if i % 3 == 0 {
                     assert!(block_hash_opt.is_none());
                 } else {

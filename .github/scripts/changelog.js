@@ -17,6 +17,17 @@ module.exports = async ({ github, context, core }) => {
     return;
   }
 
+  // A changelog fragment is only required for PRs targeting the main
+  // branch. PRs into other branches (e.g. feature branches) still get the
+  // misuse checks below, but are not required to add a fragment.
+  const baseRef = pr.base.ref;
+  const fragmentRequired = baseRef === "main";
+  if (!fragmentRequired) {
+    core.info(
+      `PR targets '${baseRef}', not 'main' — a changelog fragment is not required.`
+    );
+  }
+
   const { data: files } = await github.rest.pulls.listFiles({
     owner: context.repo.owner,
     repo: context.repo.repo,
@@ -83,14 +94,16 @@ module.exports = async ({ github, context, core }) => {
       validExtensions.some((ext) => f.filename.endsWith(`.${ext}`))
   );
 
-  if (fragments.length === 0) {
+  if (fragments.length > 0) {
+    const names = fragments.map((f) => f.filename).join(", ");
+    core.info(`Found changelog fragment(s): ${names}`);
+  } else if (fragmentRequired) {
     core.setFailed(
       "No changelog fragment found. Please add a fragment file to changelog.d/ " +
         "(see changelog.d/README.md for instructions). " +
         'If no changelog entry is needed, add the "no changelog" label to the PR.'
     );
   } else {
-    const names = fragments.map((f) => f.filename).join(", ");
-    core.info(`Found changelog fragment(s): ${names}`);
+    core.info("No changelog fragment found, but none is required.");
   }
 };

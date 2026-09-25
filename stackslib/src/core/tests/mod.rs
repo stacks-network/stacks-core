@@ -63,12 +63,6 @@ use crate::util_lib::bloom::test::setup_bloom_counter;
 use crate::util_lib::bloom::*;
 use crate::util_lib::db::tx_begin_immediate;
 
-const FOO_CONTRACT: &str = "(define-public (foo) (ok 1))
-                                    (define-public (bar (x uint)) (ok x))";
-const SK_1: &str = "a1289f6438855da7decf9b61b852c882c398cff1446b2a0f823538aa2ebef92e01";
-const SK_2: &str = "4ce9a8f7539ea93753a36405b16e8b57e15a552430410709c2b6d65dca5c02e201";
-const SK_3: &str = "cb95ddd0fe18ec57f4f3533b95ae564b3f1ae063dbf75b46334bd86245aef78501";
-
 #[test]
 fn mempool_db_init() {
     let _chainstate = TestChainstateBuilder::new_testnet(function_name!()).build();
@@ -1826,8 +1820,7 @@ fn test_add_txs_bloom_filter() {
         if block_height > 10 + BLOOM_COUNTER_DEPTH {
             let expired_block_height = block_height - BLOOM_COUNTER_DEPTH;
             let bf = mempool.get_txid_bloom_filter().unwrap();
-            for i in 0..(block_height - 10 - BLOOM_COUNTER_DEPTH) {
-                let txids = &all_txids[i];
+            for txids in &all_txids[..block_height - 10 - BLOOM_COUNTER_DEPTH] {
                 let mut fp_count = 0;
                 for txid in txids {
                     if bf.contains_raw(&txid.0) {

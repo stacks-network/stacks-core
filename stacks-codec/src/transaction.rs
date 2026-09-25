@@ -2244,10 +2244,15 @@ const _: () =
 /// Condition code for a `Pox` post-condition. A `Pox` post-condition gates the
 /// position-altering PoX-5 operations (`unstake`, `unstake-sbtc`,
 /// `update-bond-registration`, `announce-l1-early-exit`) that act on a
-/// principal's existing stacking/bond position. An *attempt* counts, whether or
-/// not the call succeeded, so the owner can detect (and block) a contract that
-/// merely tries to touch their position. These are all-or-nothing, so the
-/// condition is presence-based rather than an amount comparison, mirroring
+/// principal's existing stacking/bond position. A call that returns `(err ...)`
+/// still counts as an attempt, so the owner can also detect (and block) a
+/// contract that merely tries to touch their position. The attempt is recorded
+/// as an effect of the calling function, so it survives to the post-condition
+/// check only if every public function between the PoX call and the
+/// transaction's entry point returns `(ok ...)`; a function that returns
+/// `(err ...)` rolls the record back with its other effects. The position is
+/// unchanged either way. These are all-or-nothing, so the condition is
+/// presence-based rather than an amount comparison, mirroring
 /// `NonfungibleConditionCode`.
 #[repr(u8)]
 #[derive(Debug, Clone, PartialEq, Copy, Serialize, Deserialize, VariantCount)]

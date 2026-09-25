@@ -23,7 +23,9 @@ use rand::Rng;
 use rusqlite::params;
 
 use crate::chainstate::stacks::db::StacksChainState;
-use crate::util_lib::db::{query_row, u64_to_sql, DBConn, Error as db_error};
+#[cfg(test)]
+use crate::util_lib::db::u64_to_sql;
+use crate::util_lib::db::{query_row, DBConn, Error as db_error};
 
 /// Used to cache nonces in memory and in the mempool database.
 /// 1. MARF - source of truth for nonces
@@ -200,6 +202,8 @@ impl NonceCache {
     }
 }
 
+/// Write a nonce directly to the database for cache tests.
+#[cfg(test)]
 fn db_set_nonce(conn: &DBConn, address: &StacksAddress, nonce: u64) -> Result<(), db_error> {
     let addr_str = address.to_string();
     let nonce_i64 = u64_to_sql(nonce)?;

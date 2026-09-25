@@ -343,9 +343,6 @@ pub struct ConnectionOptions {
     pub num_clients: u64,
     pub soft_num_neighbors: u64,
     pub soft_num_clients: u64,
-    pub max_neighbors_per_host: u64,
-    pub max_clients_per_host: u64,
-    pub soft_max_neighbors_per_host: u64,
     pub soft_max_neighbors_per_org: u64,
     pub soft_max_clients_per_host: u64,
     pub max_neighbors_of_neighbor: u64,
@@ -541,9 +538,6 @@ impl std::default::Default for ConnectionOptions {
             num_clients: 256, // how many inbound connections we can have, full-stop
             soft_num_neighbors: 20, // how many outbound connections we can have, before we start pruning them
             soft_num_clients: 128, // how many inbound connections we can have, before we start pruning them
-            max_neighbors_per_host: 10, // how many outbound connections we can have per IP address, full-stop
-            max_clients_per_host: 10, // how many inbound connections we can have per IP address, full-stop
-            soft_max_neighbors_per_host: 10, // how many outbound connections we can have per IP address, before we start pruning them
             soft_max_neighbors_per_org: 10, // how many outbound connections we can have per AS-owning organization, before we start pruning them
             soft_max_clients_per_host: 10, // how many inbound connections we can have per IP address, before we start pruning them,
             max_neighbors_of_neighbor: 10,
@@ -1793,9 +1787,9 @@ mod test {
         let expected_messages = messages.clone();
 
         let mut handles = vec![]; // keep pipes in-scope
-        for i in 0..conn.options.outbox_maxlen {
+        for message in &messages[..conn.options.outbox_maxlen] {
             let handle = conn
-                .make_request_handle(messages[i].request_id(), 60, 0)
+                .make_request_handle(message.request_id(), 60, 0)
                 .unwrap();
             handles.push(handle);
         }
