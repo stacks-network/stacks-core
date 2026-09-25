@@ -20,7 +20,6 @@ use std::{env, thread};
 
 use clarity::vm::types::PrincipalData;
 use libsigner::v0::messages::{BlockResponse, RejectCode, RejectReason, SignerMessage};
-use pinny::tag;
 use stacks::chainstate::burn::db::sortdb::SortitionDB;
 use stacks::chainstate::nakamoto::miner::NakamotoBlockBuilder;
 use stacks::chainstate::nakamoto::NakamotoChainState;
@@ -918,7 +917,6 @@ fn idle_tenure_extend_active_mining() {
     signer_test.shutdown();
 }
 
-#[tag(bitcoind)]
 #[test]
 #[ignore]
 /// Test that a signer will reject a SIP-034 tenure extension (for now).
@@ -952,7 +950,6 @@ fn sip034_tenure_extend_proposal_rejection() {
     )
 }
 
-#[tag(bitcoind)]
 #[test]
 #[ignore]
 /// Test that a signer will allow a SIP-034 tenure extension (for now).
@@ -4660,7 +4657,6 @@ fn multiple_miners_empty_sortition() {
     miners.shutdown();
 }
 
-#[tag(bitcoind, flaky, slow)]
 #[test]
 #[ignore]
 /// This test spins up a single nakamoto node configured to mine.
@@ -4936,7 +4932,6 @@ fn read_count_extend_after_burn_view_change() {
     miners.shutdown();
 }
 
-#[tag(bitcoind, slow)]
 #[test]
 #[ignore]
 /// Test that a miner can extend its tenure across a reward cycle boundary.
@@ -5162,7 +5157,6 @@ fn tenure_extend_across_reward_cycle_boundary() {
     signer_test.shutdown();
 }
 
-#[tag(bitcoind, slow)]
 #[test]
 #[ignore]
 /// Test that the previous reward cycle's miner cannot extend across the cycle boundary once

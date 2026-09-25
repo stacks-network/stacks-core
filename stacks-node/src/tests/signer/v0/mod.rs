@@ -31,7 +31,6 @@ use libsigner::{
     BlockProposal, BlockProposalData, SignerSession, StackerDBSession, VERSION_STRING,
 };
 use madhouse::{execute_commands, prop_allof, scenario, Command, CommandWrapper};
-use pinny::tag;
 use proptest::prelude::Strategy;
 use rand::{thread_rng, Rng};
 use rusqlite::Connection;
@@ -2648,7 +2647,6 @@ pub fn wait_for_state_machine_update_by_miner_tenure_id(
     })
 }
 
-#[tag(bitcoind)]
 #[test]
 #[ignore]
 /// Test that a signer can respond to an invalid block proposal

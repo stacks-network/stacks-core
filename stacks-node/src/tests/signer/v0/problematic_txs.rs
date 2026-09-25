@@ -19,7 +19,6 @@ use std::time::Duration;
 use clarity::vm::types::QualifiedContractIdentifier;
 use clarity::vm::ContractName;
 use libsigner::v0::messages::RejectReason;
-use pinny::tag;
 use stacks::chainstate::nakamoto::ProblematicTxMarker;
 use stacks::types::chainstate::{StacksPrivateKey, StacksPublicKey};
 use stacks::util::secp256k1::Secp256k1PublicKey;
@@ -34,7 +33,6 @@ use crate::tests::signer::v0::{wait_for_block_proposal, wait_for_block_rejection
 use crate::tests::signer::SignerTest;
 use crate::tests::to_addr;
 
-#[tag(bitcoind)]
 #[test]
 #[ignore]
 /// In this first version of the `problematic_txs` feature, signers reject any
