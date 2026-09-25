@@ -251,7 +251,6 @@ fn assert_squash_tip<T: MarfTrieId + std::fmt::Display>(label: &str, actual: &T,
 /// and sortition tips equal the resolved anchor tips (`expected_stacks_tip`,
 /// `expected_sortition_tip`). Returns `(clarity, index, sortition)`. Exits on any
 /// mismatch.
-#[allow(clippy::type_complexity)]
 fn read_all_marf_metadata(
     inputs: &ManifestInputs,
 ) -> (

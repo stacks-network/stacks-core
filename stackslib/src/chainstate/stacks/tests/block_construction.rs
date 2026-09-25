@@ -2685,7 +2685,7 @@ fn test_build_microblock_stream_forks() {
                     }
 
                     // find the poison-microblock at seq 2
-                    let (_, poison_opt) =
+                    let poison_opt =
                         StacksChainState::load_descendant_staging_microblock_stream_with_poison(
                             chainstate.db(),
                             &parent_index_hash,
@@ -2693,7 +2693,7 @@ fn test_build_microblock_stream_forks() {
                             u16::MAX,
                         )
                         .unwrap()
-                        .unwrap_or_default();
+                        .and_then(|stream| stream.poison_payload);
 
                     if let Some(poison_payload) = poison_opt {
                         let mut tx_bytes = vec![];
@@ -3021,12 +3021,12 @@ fn test_build_microblock_stream_forks_with_descendants() {
                         }
 
                         // find the poison-microblock at seq 2
-                        let (_, poison_opt) = StacksChainState::load_descendant_staging_microblock_stream_with_poison(
+                        let poison_opt = StacksChainState::load_descendant_staging_microblock_stream_with_poison(
                             chainstate.db(),
                             &parent_index_hash,
                             0,
                             u16::MAX
-                        ).unwrap().unwrap_or_default();
+                        ).unwrap().and_then(|stream| stream.poison_payload);
 
                         if let Some(poison_payload) = poison_opt {
                             *discovered_poison_payload.borrow_mut() = Some(poison_payload.clone());

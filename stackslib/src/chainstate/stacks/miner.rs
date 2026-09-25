@@ -39,6 +39,7 @@ use crate::burnchains::{Burnchain, Txid};
 use crate::chainstate::burn::db::sortdb::{SortitionDB, SortitionHandleConn};
 use crate::chainstate::burn::*;
 use crate::chainstate::stacks::address::StacksAddressExtensions;
+use crate::chainstate::stacks::db::accounts::MaturedMinerPayouts;
 use crate::chainstate::stacks::db::blocks::SetupBlockResult;
 use crate::chainstate::stacks::db::transactions::{
     finalize_failed_transaction, handle_clarity_runtime_error, ClarityRuntimeTxError,
@@ -1850,14 +1851,16 @@ impl StacksBlockBuilder {
                 &self.parent_consensus_hash,
                 &self.parent_header_hash,
             );
-            let (parent_microblocks, _) =
-                StacksChainState::load_descendant_staging_microblock_stream_with_poison(
+            let parent_microblocks =
+                match StacksChainState::load_descendant_staging_microblock_stream_with_poison(
                     chainstate.db(),
                     &parent_index_hash,
                     0,
                     u16::MAX,
-                )?
-                .unwrap_or_default();
+                )? {
+                    Some(stream) => stream.microblocks,
+                    None => vec![],
+                };
 
             debug!(
                 "Loaded {} microblocks made by {}/{}",
@@ -1891,8 +1894,12 @@ impl StacksBlockBuilder {
                                     self.header.parent_block)
         );
 
-        if let Some((ref _miner_payout, ref _user_payouts, ref _parent_reward, ref _reward_info)) =
-            self.miner_payouts
+        if let Some(MaturedMinerPayouts {
+            miner: ref _miner_payout,
+            users: ref _user_payouts,
+            parent: ref _parent_reward,
+            ..
+        }) = self.miner_payouts
         {
             test_debug!(
                 "Miner payout to process: {_miner_payout:?}; user payouts: {_user_payouts:?}; parent payout: {_parent_reward:?}"
