@@ -39,7 +39,6 @@ use crate::chainstate::stacks::index::trie::Trie;
 use crate::chainstate::stacks::index::{
     trie_sql, Error, MARFValue, MarfTrieId, TrieLeaf, TrieMerkleProof,
 };
-use crate::util_lib::db::Error as db_error;
 
 pub const BLOCK_HASH_TO_HEIGHT_MAPPING_KEY: &str = "__MARF_BLOCK_HASH_TO_HEIGHT";
 pub const BLOCK_HEIGHT_TO_HASH_MAPPING_KEY: &str = "__MARF_BLOCK_HEIGHT_TO_HASH";
@@ -1747,7 +1746,7 @@ impl<T: MarfTrieId> MARF<T> {
     }
 
     /// Make a raw transaction to the underlying storage
-    pub fn storage_tx(&mut self) -> Result<Transaction<'_>, db_error> {
+    pub fn storage_tx(&mut self) -> Result<Transaction<'_>, rusqlite::Error> {
         self.storage.sqlite_tx()
     }
 

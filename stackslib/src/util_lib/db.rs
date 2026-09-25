@@ -29,8 +29,9 @@ use stacks_common::types::Address;
 // Generic SQLite plumbing now lives in `stacks_common`; re-exported here so that
 // the many `util_lib::db::*` call sites keep working unchanged.
 pub use stacks_common::util::db::{
-    sqlite_open, table_exists, tx_begin_immediate as tx_begin_immediate_sqlite, tx_busy_handler,
-    update_lock_table, SQLITE_MARF_PAGE_SIZE, SQLITE_MMAP_SIZE, SQLITE_STATEMENT_CACHE_CAPACITY,
+    sql_pragma, sql_vacuum, sqlite_open, table_exists,
+    tx_begin_immediate as tx_begin_immediate_sqlite, tx_busy_handler, update_lock_table,
+    SQLITE_MARF_PAGE_SIZE, SQLITE_MMAP_SIZE, SQLITE_STATEMENT_CACHE_CAPACITY,
 };
 use stacks_common::util::hash::to_hex;
 use stacks_common::util::secp256k1::{Secp256k1PrivateKey, Secp256k1PublicKey};
@@ -546,21 +547,6 @@ where
     P: Params,
 {
     query_int(conn, sql_query, sql_args)
-}
-
-/// Run a PRAGMA statement.  This can't always be done via execute(), because it may return a result (and
-/// rusqlite does not like this).
-pub fn sql_pragma(
-    conn: &Connection,
-    pragma_name: &str,
-    pragma_value: &dyn ToSql,
-) -> Result<(), Error> {
-    stacks_common::util::db::sql_pragma(conn, pragma_name, pragma_value).map_err(Error::SqliteError)
-}
-
-/// Run a VACUUM command
-pub fn sql_vacuum(conn: &Connection) -> Result<(), Error> {
-    stacks_common::util::db::sql_vacuum(conn).map_err(Error::SqliteError)
 }
 
 /// Set up an on-disk database with a MARF index if they don't exist yet.

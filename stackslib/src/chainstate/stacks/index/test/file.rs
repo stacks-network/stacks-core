@@ -17,11 +17,11 @@
 use std::fs;
 
 use rusqlite::{Connection, OpenFlags};
+use stacks_common::util::db::sqlite_open;
 
 use super::*;
 use crate::chainstate::stacks::index::file::*;
 use crate::chainstate::stacks::index::*;
-use crate::util_lib::db::*;
 
 fn db_path(test_name: &str) -> String {
     let path = format!("/tmp/{}.sqlite", test_name);
@@ -247,7 +247,7 @@ fn test_migrate_schema_3_creates_squash_tables_on_v2_db() {
         db.query_row(
             "SELECT COUNT(*) FROM sqlite_master WHERE type='table' \
              AND name IN ('marf_squash_info', 'marf_squashed_blocks')",
-            stacks_common::types::sqlite::NO_PARAMS,
+            [],
             |row| row.get(0),
         )
         .unwrap()

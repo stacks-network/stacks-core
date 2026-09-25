@@ -24,6 +24,9 @@ use rusqlite::{Connection, OpenFlags, Transaction};
 use sha2::Digest;
 use stacks_common::codec::StacksMessageCodec;
 use stacks_common::types::chainstate::{TrieHash, TRIEHASH_ENCODED_SIZE};
+use stacks_common::util::db::{
+    sql_pragma, sqlite_open, tx_begin_immediate, SQLITE_MARF_PAGE_SIZE, SQLITE_MMAP_SIZE,
+};
 use stacks_common::util::hash::to_hex;
 
 use crate::chainstate::stacks::index::bits::{
@@ -42,10 +45,6 @@ use crate::chainstate::stacks::index::trie::Trie;
 use crate::chainstate::stacks::index::{
     trie_sql, BlockMap, ClarityMarfTrieId, Error, MarfDataEntry, MarfTrieId, TrieHasher,
     MAX_PATCH_DEPTH,
-};
-use crate::util_lib::db::{
-    sql_pragma, sqlite_open, tx_begin_immediate, Error as db_error, SQLITE_MARF_PAGE_SIZE,
-    SQLITE_MMAP_SIZE,
 };
 
 /// A trait for reading the hash of a node into a given Write impl, given the pointer to a node in
@@ -1531,7 +1530,7 @@ fn marf_sqlite_open<P: AsRef<Path>>(
     db_path: P,
     open_flags: OpenFlags,
     foreign_keys: bool,
-) -> Result<Connection, db_error> {
+) -> Result<Connection, Error> {
     let db = sqlite_open(db_path, open_flags, foreign_keys)?;
     sql_pragma(&db, "mmap_size", &SQLITE_MMAP_SIZE)?;
     sql_pragma(&db, "page_size", &SQLITE_MARF_PAGE_SIZE)?;
@@ -1701,7 +1700,12 @@ impl<T: MarfTrieId> TrieFileStorage<T> {
         &self.db
     }
 
-    pub fn sqlite_tx(&mut self) -> Result<Transaction<'_>, db_error> {
+    /// Begin a raw SQLite transaction against the MARF's backing database.
+    ///
+    /// Reports `rusqlite::Error` rather than [`Error`] so that callers keep full
+    /// fidelity over how a transaction failure is classified in their own error
+    /// type; MARF-internal callers convert with `?` as usual.
+    pub fn sqlite_tx(&mut self) -> Result<Transaction<'_>, rusqlite::Error> {
         tx_begin_immediate(&mut self.db)
     }
 

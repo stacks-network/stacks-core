@@ -24,8 +24,6 @@ use stacks_common::types::chainstate::{
     BurnchainHeaderHash, SortitionId, StacksBlockId, TrieHash, TRIEHASH_ENCODED_SIZE,
 };
 
-use crate::util_lib::db::Error as db_error;
-
 pub mod bits;
 pub mod blob_layout;
 pub mod cache;
@@ -306,16 +304,6 @@ impl From<rusqlite::Error> for Error {
             Error::NotFoundError
         } else {
             Error::SQLError(err)
-        }
-    }
-}
-
-impl From<db_error> for Error {
-    fn from(e: db_error) -> Error {
-        match e {
-            db_error::SqliteError(se) => Error::SQLError(se),
-            db_error::NotFoundError => Error::NotFoundError,
-            _ => Error::CorruptionError(format!("{}", &e)),
         }
     }
 }

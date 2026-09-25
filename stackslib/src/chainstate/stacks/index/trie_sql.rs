@@ -20,6 +20,7 @@ use rusqlite::blob::Blob;
 use rusqlite::{params, Connection, DatabaseName, OptionalExtension, Transaction};
 use stacks_common::types::chainstate::{TrieHash, TRIEHASH_ENCODED_SIZE};
 use stacks_common::types::sqlite::NO_PARAMS;
+use stacks_common::util::db::{table_exists, tx_begin_immediate};
 
 #[cfg(test)]
 use crate::chainstate::stacks::index::bits::read_hash_bytes;
@@ -30,7 +31,59 @@ use crate::chainstate::stacks::index::node::{TrieNodeType, TriePtr};
 #[cfg(test)]
 use crate::chainstate::stacks::index::storage::TrieStorageConnection;
 use crate::chainstate::stacks::index::{trie_sql, Error, MarfDataEntry, MarfTrieId};
-use crate::util_lib::db::{query_count, query_row, table_exists, tx_begin_immediate, u64_to_sql};
+
+/// The MARF only ever reads a handful of row shapes, so it implements them directly against
+/// `rusqlite` rather than depending on the generic `FromRow`/`query_row` machinery that a larger
+/// crate shares across many domain types. Each helper reproduces what the corresponding
+/// `FromRow` impl did, including rejecting negative values rather than wrapping them into a
+/// nonsense `u64`, and prepares statements through the connection's cache as before.
+fn u64_to_sql(x: u64) -> Result<i64, Error> {
+    i64::try_from(x)
+        .map_err(|_| Error::CorruptionError(format!("Value {x} does not fit in a SQL INTEGER")))
+}
+
+/// Read one column as a `u64`, rejecting a negative stored value as corruption.
+fn column_u64(row: &rusqlite::Row, idx: usize) -> Result<u64, Error> {
+    let x: i64 = row.get(idx)?;
+    u64::try_from(x)
+        .map_err(|_| Error::CorruptionError(format!("Column {idx} holds a negative value ({x})")))
+}
+
+/// Query a single row holding a `(u64, u64)` pair (the offset/length columns).
+fn query_offset_length(
+    conn: &Connection,
+    sql_query: &str,
+    sql_args: impl rusqlite::Params,
+) -> Result<Option<(u64, u64)>, Error> {
+    let mut stmt = conn.prepare_cached(sql_query)?;
+    let mut rows = stmt.query_and_then(sql_args, |row| {
+        Ok((column_u64(row, 0)?, column_u64(row, 1)?))
+    })?;
+    rows.next().transpose()
+}
+
+/// Query a single row holding one `u64` column.
+fn query_u64(
+    conn: &Connection,
+    sql_query: &str,
+    sql_args: impl rusqlite::Params,
+) -> Result<Option<u64>, Error> {
+    let mut stmt = conn.prepare_cached(sql_query)?;
+    let mut rows = stmt.query_and_then(sql_args, |row| column_u64(row, 0))?;
+    rows.next().transpose()
+}
+
+/// Query a single `COUNT(*)`-style integer.
+fn query_count(
+    conn: &Connection,
+    sql_query: &str,
+    sql_args: impl rusqlite::Params,
+) -> Result<i64, Error> {
+    let mut stmt = conn.prepare_cached(sql_query)?;
+    let mut rows = stmt.query(sql_args)?;
+    let row = rows.next()?.ok_or(Error::NotFoundError)?;
+    row.get(0).map_err(Error::from)
+}
 
 static SQL_MARF_DATA_TABLE: &str = "
 CREATE TABLE IF NOT EXISTS marf_data (
@@ -867,7 +920,7 @@ pub fn get_external_trie_offset_length(
 ) -> Result<(u64, u64), Error> {
     let qry = "SELECT external_offset, external_length FROM marf_data WHERE block_id = ?1";
     let args = params![block_id];
-    let (offset, length): (u64, u64) = query_row(conn, qry, args)?.ok_or(Error::NotFoundError)?;
+    let (offset, length) = query_offset_length(conn, qry, args)?.ok_or(Error::NotFoundError)?;
     Ok((offset, length))
 }
 
@@ -878,7 +931,7 @@ pub fn get_external_trie_offset_length_by_bhh<T: MarfTrieId>(
 ) -> Result<(u64, u64), Error> {
     let qry = "SELECT external_offset, external_length FROM marf_data WHERE block_hash = ?1";
     let args = params![bhh];
-    let (offset, length): (u64, u64) = query_row(conn, qry, args)?.ok_or(Error::NotFoundError)?;
+    let (offset, length) = query_offset_length(conn, qry, args)?.ok_or(Error::NotFoundError)?;
     Ok((offset, length))
 }
 
@@ -886,7 +939,7 @@ pub fn get_external_trie_offset_length_by_bhh<T: MarfTrieId>(
 /// which the next trie will be appended.
 pub fn get_external_blobs_length(conn: &Connection) -> Result<u64, Error> {
     let qry = "SELECT (external_offset + external_length) AS blobs_length FROM marf_data ORDER BY external_offset DESC LIMIT 1";
-    let max_len: u64 = query_row(conn, qry, NO_PARAMS)?.unwrap_or(0);
+    let max_len: u64 = query_u64(conn, qry, NO_PARAMS)?.unwrap_or(0);
     Ok(max_len)
 }
 

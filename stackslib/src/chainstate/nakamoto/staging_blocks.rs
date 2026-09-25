@@ -801,7 +801,7 @@ impl StacksChainState {
         let header_tx = self
             .state_index
             .storage_tx()
-            .map_err(ChainstateError::DBError)?;
+            .map_err(|e| ChainstateError::DBError(e.into()))?;
         let staging_tx = tx_begin_immediate(&mut self.nakamoto_staging_blocks_conn)?;
         Ok((header_tx, NakamotoStagingBlocksTx(staging_tx)))
     }
