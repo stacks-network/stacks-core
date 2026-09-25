@@ -1825,21 +1825,6 @@ impl BurnchainConfig {
             max_unspent_utxos: Some(1024),
         }
     }
-    pub fn get_rpc_url(&self, wallet: Option<String>) -> String {
-        let wallet_path = if let Some(wallet_id) = wallet.as_ref() {
-            format!("/wallet/{wallet_id}")
-        } else {
-            "".to_string()
-        };
-        format!("http://{}:{}{wallet_path}", self.peer_host, self.rpc_port)
-    }
-
-    pub fn get_rpc_socket_addr(&self) -> SocketAddr {
-        let mut addrs_iter = format!("{}:{}", self.peer_host, self.rpc_port)
-            .to_socket_addrs()
-            .unwrap();
-        addrs_iter.next().unwrap()
-    }
 
     pub fn get_bitcoin_network(&self) -> (String, BitcoinNetworkType) {
         match self.mode.as_str() {
