@@ -154,6 +154,9 @@ pub struct ClarityDatabase<'a> {
     /// Exclusive borrow — the contained caches have no interior mutability, so the borrow
     /// checker enforces single-writer for the lifetime of this database.
     execution_cache: Option<&'a mut ClarityExecutionCache>,
+    /// Backing-store value of the epoch key at the current block view, never a pending value.
+    /// Cleared when the view or the key changes.
+    clarity_epoch_version: Option<StacksEpochId>,
 }
 
 pub trait HeadersDB {
@@ -483,6 +486,7 @@ impl<'a> ClarityDatabase<'a> {
             headers_db,
             burn_state_db,
             execution_cache: None,
+            clarity_epoch_version: None,
         }
     }
 
@@ -496,6 +500,7 @@ impl<'a> ClarityDatabase<'a> {
             headers_db,
             burn_state_db,
             execution_cache: None,
+            clarity_epoch_version: None,
         }
     }
 
@@ -531,6 +536,7 @@ impl<'a> ClarityDatabase<'a> {
         bhh: StacksBlockId,
         query_pending_data: bool,
     ) -> Result<StacksBlockId, VmExecutionError> {
+        self.clarity_epoch_version = None;
         self.store.set_block_hash(bhh, query_pending_data)
     }
 
@@ -951,6 +957,24 @@ impl<'a> ClarityDatabase<'a> {
         &mut self,
         contract_identifier: &QualifiedContractIdentifier,
     ) -> Result<Contract, VmExecutionError> {
+        self.load_contract(contract_identifier, None)
+    }
+
+    /// [`Self::get_contract`] for a caller that has just read `load_cost_size` with
+    /// [`Self::get_contract_size`] and made no store changes since, so a miss need not re-read it.
+    pub(crate) fn get_contract_with_size(
+        &mut self,
+        contract_identifier: &QualifiedContractIdentifier,
+        load_cost_size: u64,
+    ) -> Result<Contract, VmExecutionError> {
+        self.load_contract(contract_identifier, Some(load_cost_size))
+    }
+
+    fn load_contract(
+        &mut self,
+        contract_identifier: &QualifiedContractIdentifier,
+        load_cost_size: Option<u64>,
+    ) -> Result<Contract, VmExecutionError> {
         let retargeted = self.store.is_retargeted();
 
         // Attempt to serve from cache ONLY if we are reading at chain tip (not retargeted).
@@ -970,7 +994,10 @@ impl<'a> ClarityDatabase<'a> {
         // Only populate the cache on reads at tip and when there are no pending writes to relevant
         // metadata keys.
         if !retargeted && !is_pending {
-            let load_cost_size = self.read_contract_size(contract_identifier)?;
+            let load_cost_size = match load_cost_size {
+                Some(size) => size,
+                None => self.read_contract_size(contract_identifier)?,
+            };
 
             self.cache_contract(
                 contract_identifier.clone(),
@@ -1019,12 +1046,21 @@ impl<'a> ClarityDatabase<'a> {
     /// The instantiation of subsequent epochs may bump up the epoch version in the clarity DB if
     /// Clarity is updated in that epoch.
     pub fn get_clarity_epoch_version(&mut self) -> Result<StacksEpochId, VmExecutionError> {
-        let out = match self.get_data(Self::clarity_state_epoch_key())? {
+        let key = Self::clarity_state_epoch_key();
+        // An empty stack must still reach `get_data`, which rejects it.
+        let from_store = !self.is_stack_empty() && !self.store.has_pending_data(key);
+        if from_store && let Some(epoch) = self.clarity_epoch_version {
+            return Ok(epoch);
+        }
+        let out = match self.get_data(key)? {
             Some(x) => u32::try_into(x).map_err(|_| {
                 VmInternalError::Expect("Bad Clarity epoch version in stored Clarity state".into())
             })?,
             None => StacksEpochId::Epoch20,
         };
+        if from_store {
+            self.clarity_epoch_version = Some(out);
+        }
         Ok(out)
     }
 
@@ -1033,6 +1069,8 @@ impl<'a> ClarityDatabase<'a> {
         &mut self,
         epoch: StacksEpochId,
     ) -> Result<(), VmExecutionError> {
+        // The cached store value goes stale once this write is committed.
+        self.clarity_epoch_version = None;
         self.put_data(Self::clarity_state_epoch_key(), &(epoch as u32))
     }
 
@@ -2941,6 +2979,78 @@ mod tests {
         );
 
         db.commit().unwrap();
+    }
+
+    #[track_caller]
+    fn commit_epoch(db: &mut ClarityDatabase, epoch: StacksEpochId) {
+        db.begin();
+        db.set_clarity_epoch_version(epoch).unwrap();
+        db.commit().unwrap();
+    }
+
+    #[test]
+    fn epoch_version_rollback_restores_stored_value() {
+        let mut store = MemoryBackingStore::new();
+        let mut db = store.as_clarity_db();
+        commit_epoch(&mut db, StacksEpochId::Epoch30);
+
+        db.begin();
+        assert_eq!(
+            db.get_clarity_epoch_version().unwrap(),
+            StacksEpochId::Epoch30
+        );
+        db.begin();
+        db.set_clarity_epoch_version(StacksEpochId::Epoch31)
+            .unwrap();
+        assert_eq!(
+            db.get_clarity_epoch_version().unwrap(),
+            StacksEpochId::Epoch31
+        );
+        db.roll_back().unwrap();
+        assert_eq!(
+            db.get_clarity_epoch_version().unwrap(),
+            StacksEpochId::Epoch30
+        );
+        db.roll_back().unwrap();
+    }
+
+    #[test]
+    fn epoch_version_transition_is_seen_after_commit() {
+        let mut store = MemoryBackingStore::new();
+        let mut db = store.as_clarity_db();
+        commit_epoch(&mut db, StacksEpochId::Epoch30);
+
+        db.begin();
+        assert_eq!(
+            db.get_clarity_epoch_version().unwrap(),
+            StacksEpochId::Epoch30
+        );
+        db.set_clarity_epoch_version(StacksEpochId::Epoch31)
+            .unwrap();
+        assert_eq!(
+            db.get_clarity_epoch_version().unwrap(),
+            StacksEpochId::Epoch31
+        );
+        db.commit().unwrap();
+
+        db.begin();
+        assert_eq!(
+            db.get_clarity_epoch_version().unwrap(),
+            StacksEpochId::Epoch31
+        );
+        db.roll_back().unwrap();
+    }
+
+    #[test]
+    fn epoch_version_read_without_open_context_errors() {
+        let mut store = MemoryBackingStore::new();
+        let mut db = store.as_clarity_db();
+        commit_epoch(&mut db, StacksEpochId::Epoch30);
+
+        db.begin();
+        db.get_clarity_epoch_version().unwrap();
+        db.roll_back().unwrap();
+        assert!(db.get_clarity_epoch_version().is_err());
     }
 }
 

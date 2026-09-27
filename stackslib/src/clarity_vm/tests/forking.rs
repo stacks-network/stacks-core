@@ -431,3 +431,66 @@ fn branched_execution(
         assert!(is_err_code(&result, 30))
     }
 }
+
+#[test]
+fn clarity_epoch_version_follows_block_view() {
+    let blocks = [
+        StacksBlockId([1; 32]),
+        StacksBlockId([2; 32]),
+        StacksBlockId([3; 32]),
+    ];
+    let mut marf_kv = MarfedKV::temporary();
+    let mut parent = StacksBlockId::sentinel();
+    for (block, epoch) in blocks
+        .iter()
+        .zip([StacksEpochId::Epoch2_05, StacksEpochId::Epoch21])
+    {
+        let mut store = marf_kv.begin(&parent, block);
+        {
+            let mut db = store.as_clarity_db(&TEST_HEADER_DB, &TEST_BURN_STATE_DB);
+            db.begin();
+            db.set_clarity_epoch_version(epoch).unwrap();
+            db.commit().unwrap();
+        }
+        store.test_commit();
+        parent = block.clone();
+    }
+
+    let mut store = marf_kv.begin(&blocks[1], &blocks[2]);
+    {
+        let mut db = store.as_clarity_db(&TEST_HEADER_DB, &TEST_BURN_STATE_DB);
+        db.begin();
+        assert_eq!(
+            db.get_clarity_epoch_version().unwrap(),
+            StacksEpochId::Epoch21
+        );
+
+        // (at-block blocks[0] ...)
+        let tip = db.set_block_hash(blocks[0].clone(), false).unwrap();
+        assert_eq!(
+            db.get_clarity_epoch_version().unwrap(),
+            StacksEpochId::Epoch2_05
+        );
+
+        // A nested (at-block blocks[1] ...) restores the outer view with pending reads enabled,
+        // so the store is not retargeted to the tip even though `is_retargeted()` is false.
+        let outer = db.set_block_hash(blocks[1].clone(), false).unwrap();
+        assert_eq!(
+            db.get_clarity_epoch_version().unwrap(),
+            StacksEpochId::Epoch21
+        );
+        db.set_block_hash(outer, true).unwrap();
+        assert_eq!(
+            db.get_clarity_epoch_version().unwrap(),
+            StacksEpochId::Epoch2_05
+        );
+
+        db.set_block_hash(tip, true).unwrap();
+        assert_eq!(
+            db.get_clarity_epoch_version().unwrap(),
+            StacksEpochId::Epoch21
+        );
+        db.roll_back().unwrap();
+    }
+    store.test_commit();
+}
