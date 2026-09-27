@@ -37,14 +37,16 @@ use crate::net::api::getneighbors::{RPCNeighbor, RPCNeighborsInfo};
 use crate::net::connection::ConnectionOptions;
 use crate::net::http::{
     http_error_from_code_and_text, http_reason, HttpContentType, HttpRequestContents,
-    HttpRequestPreamble, HttpResponsePayload, HttpResponsePreamble, HttpVersion,
+    HttpRequestPreamble, HttpResponseContents, HttpResponsePayload, HttpResponsePreamble,
+    HttpVersion,
 };
 use crate::net::httpcore::{
     send_http_request, HttpPreambleExtensions as _, HttpRequestContentsExtensions as _, StacksHttp,
     StacksHttpMessage, StacksHttpPreamble, StacksHttpRequest, StacksHttpResponse,
 };
 use crate::net::rpc::ConversationHttp;
-use crate::net::{ProtocolFamily, TipRequest};
+use crate::net::test::{RPCHandlerArgsType, TestPeer, TestPeerConfig};
+use crate::net::{ProtocolFamily, StacksNodeState, TipRequest};
 
 #[test]
 fn test_parse_stacks_http_preamble_request_err() {
@@ -1378,4 +1380,145 @@ fn test_http_error_responses() {
             Err(e) => panic!("{verb} {path}: unexpected error {e:?}"),
         }
     }
+}
+
+/// Parse one raw HTTP request as a server-side connection does.
+fn parse_raw_request(http: &mut StacksHttp, raw: &str) -> StacksHttpMessage {
+    let (preamble, offset) = http.read_preamble(raw.as_bytes()).unwrap();
+    let (message, _) = http
+        .read_payload(&preamble, &raw.as_bytes()[offset..])
+        .unwrap();
+    message
+}
+
+/// 200 if the request parsed, otherwise the error status code.
+fn parsed_status(message: &StacksHttpMessage) -> u16 {
+    match message {
+        StacksHttpMessage::Request(_) => 200,
+        StacksHttpMessage::Response(resp) | StacksHttpMessage::Error(_, resp) => {
+            resp.preamble().status_code
+        }
+    }
+}
+
+/// The shared route table must match each connection's own handlers, in order, even when
+/// the connection's settings differ from the defaults the table was built with.
+#[test]
+fn test_rpc_routes_match_per_connection_handlers() {
+    let conn_opts = ConnectionOptions {
+        auth_token: Some("password".into()),
+        maximum_call_argument_size: 123,
+        read_only_call_max_mem_bytes: 456,
+        read_only_max_execution_time_secs: 7,
+        ..ConnectionOptions::default()
+    };
+    let http = StacksHttp::new("127.0.0.1:20443".parse().unwrap(), &conn_opts);
+    let (shared, own) = http.route_patterns();
+    assert!(!shared.is_empty());
+    assert_eq!(shared, own);
+}
+
+/// Connections with different auth tokens must each accept only their own token.
+#[test]
+fn test_rpc_handler_settings_are_per_connection() {
+    let addr = "127.0.0.1:20443".parse().unwrap();
+    let conn_opts = |auth_token: Option<&str>| ConnectionOptions {
+        auth_token: auth_token.map(String::from),
+        ..ConnectionOptions::default()
+    };
+    let mut http_a = StacksHttp::new(addr, &conn_opts(Some("token-a")));
+    let mut http_b = StacksHttp::new(addr, &conn_opts(Some("token-b")));
+    let mut http_no_token = StacksHttp::new(addr, &conn_opts(None));
+
+    let replay_block = |token: &str| {
+        format!(
+            "GET /v3/blocks/replay/{} HTTP/1.1\r\nHost: localhost:20443\r\nAuthorization: {token}\r\n\r\n",
+            "0".repeat(64)
+        )
+    };
+    let status = |http: &mut StacksHttp, token: &str| {
+        parsed_status(&parse_raw_request(http, &replay_block(token)))
+    };
+
+    assert_eq!(status(&mut http_a, "token-a"), 200);
+    assert_eq!(status(&mut http_a, "token-b"), 401);
+    assert_eq!(status(&mut http_b, "token-b"), 200);
+    assert_eq!(status(&mut http_b, "token-a"), 401);
+    // Block replay is disabled when no auth token is configured
+    assert_eq!(status(&mut http_no_token, "token-a"), 400);
+}
+
+/// Handlers hold request state between parsing and handling, so requests on one connection,
+/// including a failed parse that resets its handler, must not affect another's pending request.
+#[test]
+fn test_rpc_handler_state_is_per_connection() {
+    let mut peer = TestPeer::new(TestPeerConfig::new(function_name!(), 0, 0));
+    let sortdb = peer.chain.sortdb.take().unwrap();
+    let mut stacks_node = peer.chain.stacks_node.take().unwrap();
+    let mut mempool = peer.mempool.take().unwrap();
+    let rpc_args = RPCHandlerArgsType::make_default();
+    let mut node_state = StacksNodeState::new(
+        &mut peer.network,
+        &sortdb,
+        &mut stacks_node.chainstate,
+        &mut mempool,
+        &rpc_args,
+        false,
+        false,
+    );
+
+    let addr = "127.0.0.1:20443".parse().unwrap();
+    let mut http_a = StacksHttp::new(addr, &ConnectionOptions::default());
+    let mut http_b = StacksHttp::new(addr, &ConnectionOptions::default());
+
+    let block_a = StacksBlockId([0xaa; 32]);
+    let block_b = StacksBlockId([0xbb; 32]);
+    let get_block = |block_id: &StacksBlockId| {
+        format!(
+            "GET /v3/blocks/{} HTTP/1.1\r\nHost: localhost:20443\r\n\r\n",
+            block_id.to_hex()
+        )
+    };
+    let bad_get_block = format!(
+        "GET /v3/blocks/{} HTTP/1.1\r\nHost: localhost:20443\r\nContent-Length: 1\r\n\r\nx",
+        block_b.to_hex()
+    );
+    // Neither block exists, so expect a 404 naming the requested block.
+    let assert_block_not_found =
+        |http: &mut StacksHttp,
+         request,
+         block_id: &StacksBlockId,
+         node_state: &mut StacksNodeState| {
+            let (preamble, contents) = http.try_handle_request(request, node_state).unwrap();
+            assert_eq!(preamble.status_code, 404);
+            let HttpResponseContents::RAM(body) = contents else {
+                panic!("expected an in-memory error body");
+            };
+            let body = String::from_utf8(body).unwrap();
+            assert!(body.contains(&block_id.to_hex()), "unexpected body: {body}");
+        };
+
+    // Connection A's handler now holds block A.
+    let StacksHttpMessage::Request(request_a) =
+        parse_raw_request(&mut http_a, &get_block(&block_a))
+    else {
+        panic!("expected a parsed request");
+    };
+
+    // B parses a request to the same endpoint, then a bad one that resets its handler.
+    let message = parse_raw_request(&mut http_b, &get_block(&block_b));
+    assert_eq!(parsed_status(&message), 200);
+    let message = parse_raw_request(&mut http_b, &bad_get_block);
+    assert_eq!(parsed_status(&message), 400);
+
+    // Connection A's pending request is unaffected.
+    assert_block_not_found(&mut http_a, request_a, &block_a, &mut node_state);
+
+    // Connection B still handles a new request correctly.
+    let StacksHttpMessage::Request(request_b) =
+        parse_raw_request(&mut http_b, &get_block(&block_b))
+    else {
+        panic!("expected a parsed request");
+    };
+    assert_block_not_found(&mut http_b, request_b, &block_b, &mut node_state);
 }
