@@ -84,6 +84,75 @@ fn make_permissive_regex(strict_regex: &Regex) -> Regex {
     Regex::new(&permissive).unwrap_or_else(|_| strict_regex.clone())
 }
 
+/// RPC routes shared by every server-side [`StacksHttp`].
+static RPC_ROUTES: std::sync::LazyLock<Vec<RPCRoute>> = std::sync::LazyLock::new(|| {
+    let mut builder = RPCRoutesBuilder::new();
+    builder.register_rpc_methods();
+    builder.routes
+});
+
+type RPCHandlerConstructor = Box<dyn Fn(&StacksHttp) -> Box<dyn RPCRequestHandler> + Send + Sync>;
+
+/// One RPC endpoint's immutable data, shared by all connections.
+/// Handlers hold request state, so each [`StacksHttp`] builds its own via `new_handler`.
+pub(crate) struct RPCRoute {
+    /// HTTP verb this route serves
+    verb: &'static str,
+    /// Matches valid request paths and captures their parameters
+    path_regex: Regex,
+    /// Matches the path without validating parameters, to tell 400/405 apart from 404
+    permissive_regex: Regex,
+    /// Builds this route's handler from a connection's settings
+    new_handler: RPCHandlerConstructor,
+}
+
+/// Get a handler's strict and permissive path regexes, generating the permissive one
+/// if the handler doesn't override `path_regex_permissive()`.
+fn route_regexes(handler: &dyn RPCRequestHandler) -> (Regex, Regex) {
+    let path_regex = handler.path_regex();
+    let permissive_regex = handler.path_regex_permissive();
+
+    let permissive_regex = if permissive_regex.as_str() == path_regex.as_str() {
+        make_permissive_regex(&path_regex)
+    } else {
+        permissive_regex
+    };
+    (path_regex, permissive_regex)
+}
+
+/// Collects RPC routes. Order matters: the first matching route wins.
+pub(crate) struct RPCRoutesBuilder {
+    routes: Vec<RPCRoute>,
+    /// Settings for the throwaway handler used to read each route's verb and regexes
+    defaults: StacksHttp,
+}
+
+impl RPCRoutesBuilder {
+    fn new() -> Self {
+        Self {
+            routes: vec![],
+            defaults: StacksHttp::new_client(
+                SocketAddr::from(([127, 0, 0, 1], 0)),
+                &ConnectionOptions::default(),
+            ),
+        }
+    }
+
+    pub(crate) fn register_rpc_endpoint<Handler: RPCRequestHandler + 'static>(
+        &mut self,
+        new_handler: fn(&StacksHttp) -> Handler,
+    ) {
+        let handler = new_handler(&self.defaults);
+        let (path_regex, permissive_regex) = route_regexes(&handler);
+        self.routes.push(RPCRoute {
+            verb: handler.verb(),
+            path_regex,
+            permissive_regex,
+            new_handler: Box::new(move |http| Box::new(new_handler(http))),
+        });
+    }
+}
+
 /// All representations of the `tip=` query parameter value
 #[derive(Debug, Clone, PartialEq)]
 pub enum TipRequest {
@@ -998,9 +1067,10 @@ pub struct StacksHttp {
     /// parse a reply.  If instead this state-machine is used by the server to parse a request and
     /// send a reply, it will be unused.
     request_handler_index: Option<usize>,
-    /// HTTP request handlers (verb, regex, permissive_regex, request-handler)
-    /// The permissive_regex is used for 405 Method Not Allowed detection
-    request_handlers: Vec<(String, Regex, Regex, Box<dyn RPCRequestHandler>)>,
+    /// RPC routes this state machine serves. Empty for clients.
+    routes: &'static [RPCRoute],
+    /// This connection's handler for each entry in `routes`, at the same index
+    request_handlers: Vec<Box<dyn RPCRequestHandler>>,
     /// Maximum size of call arguments
     pub maximum_call_argument_size: u32,
     /// Maximum execution budget of a read-only call
@@ -1026,6 +1096,7 @@ impl StacksHttp {
             last_four_preamble_bytes: [0u8; 4],
             reply: None,
             request_handler_index: None,
+            routes: RPC_ROUTES.as_slice(),
             request_handlers: vec![],
             maximum_call_argument_size: conn_opts.maximum_call_argument_size,
             read_only_call_limit: conn_opts.read_only_call_limit.clone(),
@@ -1036,7 +1107,11 @@ impl StacksHttp {
             ),
             read_only_call_max_mem_bytes: conn_opts.read_only_call_max_mem_bytes,
         };
-        http.register_rpc_methods();
+        http.request_handlers = http
+            .routes
+            .iter()
+            .map(|route| (route.new_handler)(&http))
+            .collect();
         http
     }
 
@@ -1050,6 +1125,7 @@ impl StacksHttp {
             last_four_preamble_bytes: [0u8; 4],
             reply: None,
             request_handler_index: None,
+            routes: &[],
             request_handlers: vec![],
             maximum_call_argument_size: conn_opts.maximum_call_argument_size,
             read_only_call_limit: conn_opts.read_only_call_limit.clone(),
@@ -1062,38 +1138,14 @@ impl StacksHttp {
         }
     }
 
-    /// Register an API RPC endpoint.
-    /// Auto-generates a permissive regex for 400/404/405 detection
-    /// unless the handler provides its own via path_regex_permissive().
-    pub fn register_rpc_endpoint<Handler: RPCRequestHandler + 'static>(
-        &mut self,
-        handler: Handler,
-    ) {
-        let strict_regex = handler.path_regex();
-        let permissive_regex = handler.path_regex_permissive();
-
-        let permissive_regex = if permissive_regex.as_str() == strict_regex.as_str() {
-            make_permissive_regex(&strict_regex)
-        } else {
-            permissive_regex
-        };
-
-        self.request_handlers.push((
-            handler.verb().to_string(),
-            strict_regex,
-            permissive_regex,
-            Box::new(handler),
-        ));
-    }
-
     /// Find the HTTP request handler to use to process the reply, given the request path.
     /// Returns the index into the list of handlers
     fn find_response_handler(&self, request_verb: &str, request_path: &str) -> Option<usize> {
-        for (i, (verb, regex, _, _)) in self.request_handlers.iter().enumerate() {
-            if request_verb != verb {
+        for (i, route) in self.routes.iter().enumerate() {
+            if request_verb != route.verb {
                 continue;
             }
-            let Some(_captures) = regex.captures(request_path) else {
+            let Some(_captures) = route.path_regex.captures(request_path) else {
                 continue;
             };
 
@@ -1106,11 +1158,13 @@ impl StacksHttp {
     /// Returns a list of HTTP verbs that are allowed for handlers whose path regex matches.
     fn find_allowed_methods(&self, request_path: &str) -> Vec<String> {
         let mut allowed_methods = Vec::new();
-        for (verb, regex, permissive_regex, _) in self.request_handlers.iter() {
+        for route in self.routes.iter() {
             // Check if either the strict or permissive regex matches
-            if regex.is_match(request_path) || permissive_regex.is_match(request_path) {
-                if !allowed_methods.contains(verb) {
-                    allowed_methods.push(verb.clone());
+            if route.path_regex.is_match(request_path)
+                || route.permissive_regex.is_match(request_path)
+            {
+                if !allowed_methods.iter().any(|verb| verb == route.verb) {
+                    allowed_methods.push(route.verb.to_string());
                 }
             }
         }
@@ -1126,6 +1180,36 @@ impl StacksHttp {
                 panic!("FATAL: could not find handler for '{request_verb}' '{request_path}'")
             });
         self.request_handler_index = Some(handler_index);
+    }
+
+    /// Get (verb, path regex, permissive regex) for each route, once from the shared table
+    /// and once from this connection's handlers.
+    #[cfg(test)]
+    pub fn route_patterns(&self) -> (Vec<(String, String, String)>, Vec<(String, String, String)>) {
+        let shared = self
+            .routes
+            .iter()
+            .map(|route| {
+                (
+                    route.verb.to_string(),
+                    route.path_regex.as_str().to_string(),
+                    route.permissive_regex.as_str().to_string(),
+                )
+            })
+            .collect();
+        let own = self
+            .request_handlers
+            .iter()
+            .map(|handler| {
+                let (path_regex, permissive_regex) = route_regexes(handler.as_ref());
+                (
+                    handler.verb().to_string(),
+                    path_regex.as_str().to_string(),
+                    permissive_regex.as_str().to_string(),
+                )
+            })
+            .collect();
+        (shared, own)
     }
 
     /// Try to parse an inbound HTTP request using a given handler, preamble, and body
@@ -1175,11 +1259,12 @@ impl StacksHttp {
         let mut verb_matched_but_params_invalid = false;
         let mut any_strict_match = false;
 
-        for (verb, regex, permissive_regex, request) in self.request_handlers.iter_mut() {
-            let permissive_match = permissive_regex.is_match(&decoded_path);
-            let Some(captures) = regex.captures(&decoded_path) else {
+        for (route, request) in self.routes.iter().zip(self.request_handlers.iter_mut()) {
+            let verb = route.verb;
+            let permissive_match = route.permissive_regex.is_match(&decoded_path);
+            let Some(captures) = route.path_regex.captures(&decoded_path) else {
                 if permissive_match {
-                    if &preamble.verb == verb {
+                    if preamble.verb == verb {
                         verb_matched_but_params_invalid = true;
                     }
                     allowed_methods.push(verb.to_string());
@@ -1189,7 +1274,7 @@ impl StacksHttp {
 
             any_strict_match = true;
             allowed_methods.push(verb.to_string());
-            if &preamble.verb != verb {
+            if preamble.verb != verb {
                 continue;
             }
 
@@ -1282,7 +1367,7 @@ impl StacksHttp {
             return Self::try_parse_error_response(preamble, body);
         }
 
-        let (_, _, _, parser) = self
+        let parser = self
             .request_handlers
             .get(request_handler_index)
             .expect("FATAL: tried to use nonexistent response handler");
@@ -1330,7 +1415,7 @@ impl StacksHttp {
             .try_into_contents();
         };
 
-        let (_, _, _, request_handler) = self
+        let request_handler = self
             .request_handlers
             .get_mut(response_handler_index)
             .expect("FATAL: request points to a nonexistent handler");
@@ -1486,7 +1571,7 @@ impl StacksHttp {
         };
         req.response_handler_index = Some(response_handler_index);
 
-        let (_, _, _, request_handler) = self
+        let request_handler = self
             .request_handlers
             .get(response_handler_index)
             .expect("FATAL: request points to a nonexistent handler");
