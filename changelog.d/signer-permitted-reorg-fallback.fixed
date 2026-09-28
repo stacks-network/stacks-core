@@ -1,0 +1,1 @@
+Fixed a chain stall where signers, after rejecting an invalid sortition winner, fell back to the prior tenure but re-judged the already-permitted reorg. The reorg'ed tenure was judged against blocks which landed later, and the signers concluded with no valid miner.

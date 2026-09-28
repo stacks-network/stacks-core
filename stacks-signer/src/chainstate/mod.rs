@@ -27,7 +27,7 @@ use clarity::vm::types::BoundedErrorString;
 use libsigner::v0::messages::RejectReason;
 use libsigner::v0::signer_state::GlobalStateEvaluator;
 use stacks_common::types::chainstate::ConsensusHash;
-use stacks_common::{info, warn};
+use stacks_common::{debug, info, warn};
 use v1::SortitionState as SortitionStateV1;
 use v2::SortitionState as SortitionStateV2;
 
@@ -179,6 +179,11 @@ impl SortitionData {
     /// against the branch it sanctions and only while this tenure's sortition survives a
     /// burnchain fork. Nothing is recorded for a refused reorg, even for the tenures in it
     /// that individually qualified.
+    ///
+    /// The record also makes the decision final for this sortition: a
+    /// tenure it already supersedes is not judged again in the event
+    /// that the miner is a "fallback" miner for a subsequent
+    /// sortition.
     pub fn check_parent_tenure_choice(
         &self,
         signer_db: &mut SignerDb,
@@ -216,6 +221,16 @@ impl SortitionData {
         for tenure in tenures_reorged.iter() {
             if tenure.consensus_hash == self.parent_tenure_id {
                 // this was a built-upon tenure, no need to check this tenure as part of the reorg.
+                continue;
+            }
+
+            // We already permitted this sortition to reorg `tenure`
+            if signer_db.is_tenure_superseded_by(&tenure.consensus_hash, &self.consensus_hash)? {
+                debug!(
+                    "Reorged tenure was already permitted for this sortition, skipping re-check";
+                    "sortition_state.consensus_hash" => %self.consensus_hash,
+                    "reorged_tenure_id" => %tenure.consensus_hash,
+                );
                 continue;
             }
 

@@ -1688,6 +1688,18 @@ impl SignerDb {
         Ok(query_row::<i64, _>(&self.db, query, params![consensus_hash])?.is_some())
     }
 
+    /// Whether we permitted the tenure `superseded_by_consensus_hash` to reorg the tenure
+    /// `consensus_hash` (see [`SignerDb::mark_tenure_superseded`]).
+    pub fn is_tenure_superseded_by(
+        &self,
+        consensus_hash: &ConsensusHash,
+        superseded_by_consensus_hash: &ConsensusHash,
+    ) -> Result<bool, DBError> {
+        let query = "SELECT 1 FROM superseded_tenures WHERE consensus_hash = ?1 AND superseded_by_consensus_hash = ?2";
+        let args = params![consensus_hash, superseded_by_consensus_hash];
+        Ok(query_row::<i64, _>(&self.db, query, args)?.is_some())
+    }
+
     /// Drop superseded-tenure records for sortitions below `burn_block_height`. A tenure that
     /// old cannot conflict with a proposal anywhere near the chain tip, so the record has no
     /// further use.
@@ -3677,6 +3689,16 @@ pub mod tests {
         db.mark_tenure_superseded(&consensus_hash_1, 42, &permitting_ch, &permitting_bbh)
             .unwrap();
         assert!(db.is_tenure_superseded(&consensus_hash_1).unwrap());
+        assert!(db
+            .is_tenure_superseded_by(&consensus_hash_1, &permitting_ch)
+            .unwrap());
+        // The permit names the tenure it was granted to, and no other.
+        assert!(!db
+            .is_tenure_superseded_by(&consensus_hash_1, &consensus_hash_2)
+            .unwrap());
+        assert!(!db
+            .is_tenure_superseded_by(&consensus_hash_2, &permitting_ch)
+            .unwrap());
         let conflicts = db.get_signed_conflicts(2, &unrelated_hash).unwrap();
         assert_eq!(conflicts.len(), 3);
         for conflict in &conflicts {
@@ -3703,6 +3725,12 @@ pub mod tests {
         let superseded_by = annotated.superseded_by.as_ref().unwrap();
         assert_eq!(superseded_by.consensus_hash, repermitting_ch);
         assert_eq!(superseded_by.burn_block_hash, repermitting_bbh);
+        assert!(db
+            .is_tenure_superseded_by(&consensus_hash_1, &repermitting_ch)
+            .unwrap());
+        assert!(!db
+            .is_tenure_superseded_by(&consensus_hash_1, &permitting_ch)
+            .unwrap());
 
         db.mark_tenure_superseded(&consensus_hash_2, 43, &permitting_ch, &permitting_bbh)
             .unwrap();
@@ -3716,6 +3744,9 @@ pub mod tests {
         // tenure 2 (burn 43) stays, so tenure 1's blocks lose their annotation.
         db.prune_superseded_tenures(43).unwrap();
         assert!(!db.is_tenure_superseded(&consensus_hash_1).unwrap());
+        assert!(!db
+            .is_tenure_superseded_by(&consensus_hash_1, &repermitting_ch)
+            .unwrap());
         assert!(db.is_tenure_superseded(&consensus_hash_2).unwrap());
         let conflicts = db.get_signed_conflicts(2, &unrelated_hash).unwrap();
         assert_eq!(conflicts.len(), 3);
