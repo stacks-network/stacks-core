@@ -1756,8 +1756,6 @@ fn test_get_blocks_and_microblocks_peers_broadcast() {
                     peer_configs[i].connection_opts.inv_sync_interval = 0;
 
                     let max_inflight = peer_configs[i].connection_opts.max_inflight_blocks;
-                    peer_configs[i].connection_opts.max_clients_per_host =
-                        ((num_peers + 1) as u64) * max_inflight;
                     peer_configs[i].connection_opts.soft_max_clients_per_host =
                         ((num_peers + 1) as u64) * max_inflight;
                     peer_configs[i].connection_opts.num_neighbors = (num_peers + 1) as u64;

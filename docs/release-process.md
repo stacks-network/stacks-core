@@ -97,6 +97,7 @@ The timing of the next Stacking cycle can be found [here](https://stx.eco/dao/to
 6. A build may be started by manually triggering the [`Release` workflow](../.github/workflows/release.yml) against the `release/X.Y.Z` branch.
 
    - **Note**: The node and signer are released together, so this workflow produces a single release containing both the `stacks-core` and `stacks-signer` binaries and Docker images.
+   - **Note**: The Release process requires 2 separate sets of approvals: one at the Andon Cord step (by someone other than the person who initiated the Release workflow) and another at the end of the workflow in order to access the Release environment Actions secrets in order to publish the release draft. Ensure that a team member who can approve these steps is available when beginning a release.
 
 7. Once the release candidate has been built and binaries are available, ecosystem participants shall be notified to test the tagged release on various staging infrastructure.
 

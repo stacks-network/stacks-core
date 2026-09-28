@@ -24,7 +24,7 @@ use stacks_common::types::chainstate::{BlockHeaderHash, ConsensusHash, StacksBlo
 use stacks_common::types::sqlite::NO_PARAMS;
 use stacks_common::util::get_epoch_time_secs;
 
-use crate::chainstate::nakamoto::{NakamotoBlock, NakamotoBlockHeader, NakamotoChainState};
+use crate::chainstate::nakamoto::{NakamotoBlock, NakamotoChainState};
 use crate::chainstate::stacks::db::StacksChainState;
 use crate::chainstate::stacks::index::marf::MarfConnection;
 use crate::chainstate::stacks::Error as ChainstateError;
@@ -45,8 +45,6 @@ pub enum NakamotoBlockObtainMethod {
     Mined,
     /// The block was uploaded to us via HTTP
     Uploaded,
-    /// This is a shadow block -- it was created by a SIP to fix a consensus bug
-    Shadow,
 }
 
 impl fmt::Display for NakamotoBlockObtainMethod {
@@ -366,32 +364,6 @@ impl<'a> NakamotoStagingBlocksConnRef<'a> {
         )))
     }
 
-    /// Get a Nakamoto block header by index block hash.
-    /// Verifies its integrity
-    /// Returns Ok(Some(header)) if the block was present
-    /// Returns Ok(None) if there was no such block
-    /// Returns Err(..) on DB error, including corruption
-    pub fn get_nakamoto_block_header(
-        &self,
-        index_block_hash: &StacksBlockId,
-    ) -> Result<Option<NakamotoBlockHeader>, ChainstateError> {
-        let Some(rowid) = self.get_nakamoto_block_rowid(index_block_hash)? else {
-            return Ok(None);
-        };
-
-        let mut fd = self.open_nakamoto_block(rowid, false)?;
-        let block_header = NakamotoBlockHeader::consensus_deserialize(&mut fd)?;
-        if &block_header.block_id() != index_block_hash {
-            error!(
-                "Staging DB corruption: expected {}, got {}",
-                index_block_hash,
-                &block_header.block_id()
-            );
-            return Err(DBError::Corruption.into());
-        }
-        Ok(Some(block_header))
-    }
-
     /// Get the size of a Nakamoto block, given its index block hash
     /// Returns Ok(Some(size)) if the block was present
     /// Returns Ok(None) if there was no such block
@@ -677,19 +649,6 @@ impl NakamotoStagingBlocksTx<'_> {
             self.conn()
                 .is_burn_block_processed(&block.header.consensus_hash)?
         };
-
-        let obtain_method = if block.is_shadow_block() {
-            // override
-            NakamotoBlockObtainMethod::Shadow
-        } else {
-            obtain_method
-        };
-
-        if self.conn().is_shadow_tenure(&block.header.consensus_hash)? && !block.is_shadow_block() {
-            return Err(ChainstateError::InvalidStacksBlock(
-                "Tried to insert a non-shadow block into a shadow tenure".into(),
-            ));
-        }
 
         self.execute(
             "INSERT INTO nakamoto_staging_blocks (

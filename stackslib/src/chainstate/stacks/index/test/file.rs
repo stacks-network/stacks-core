@@ -247,7 +247,7 @@ fn test_migrate_schema_3_creates_squash_tables_on_v2_db() {
         db.query_row(
             "SELECT COUNT(*) FROM sqlite_master WHERE type='table' \
              AND name IN ('marf_squash_info', 'marf_squashed_blocks')",
-            crate::types::sqlite::NO_PARAMS,
+            stacks_common::types::sqlite::NO_PARAMS,
             |row| row.get(0),
         )
         .unwrap()

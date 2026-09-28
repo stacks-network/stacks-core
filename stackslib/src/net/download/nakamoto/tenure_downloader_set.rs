@@ -478,9 +478,7 @@ impl NakamotoTenureDownloaderSet {
 
             let tenure_download = NakamotoTenureDownloader::new(
                 ch.clone(),
-                tenure_info.start_block_snapshot_consensus_hash.clone(),
                 tenure_info.start_block_id.clone(),
-                tenure_info.end_block_snapshot_consensus_hash.clone(),
                 tenure_info.end_block_id.clone(),
                 naddr.clone(),
                 start_reward_set.clone(),

@@ -22,6 +22,9 @@ use std::{fmt, fs, io, mem};
 
 use rusqlite::{Connection, OpenFlags, Transaction};
 use sha2::Digest;
+use stacks_common::codec::StacksMessageCodec;
+use stacks_common::types::chainstate::{TrieHash, TRIEHASH_ENCODED_SIZE};
+use stacks_common::util::hash::to_hex;
 
 use crate::chainstate::stacks::index::bits::{
     get_node_byte_len, get_node_byte_len_compressed, is_inline_child_ptr, read_hash_bytes,
@@ -40,9 +43,6 @@ use crate::chainstate::stacks::index::{
     trie_sql, BlockMap, ClarityMarfTrieId, Error, MarfDataEntry, MarfTrieId, TrieHasher,
     MAX_PATCH_DEPTH,
 };
-use crate::codec::StacksMessageCodec;
-use crate::types::chainstate::{TrieHash, TRIEHASH_ENCODED_SIZE};
-use crate::util::hash::to_hex;
 use crate::util_lib::db::{
     sql_pragma, sqlite_open, tx_begin_immediate, Error as db_error, SQLITE_MARF_PAGE_SIZE,
     SQLITE_MMAP_SIZE,
@@ -2534,7 +2534,7 @@ impl<T: MarfTrieId> TrieStorageConnection<'_, T> {
     }
 
     /// Read the Trie root node's hash from the block table.
-    #[cfg(test)]
+    #[cfg(any(test, feature = "testing"))]
     pub fn read_block_root_hash(&mut self, bhh: &T) -> Result<TrieHash, Error> {
         let root_hash_ptr = TriePtr::new(
             TrieNodeID::Node256 as u8,

@@ -19,10 +19,12 @@ use ::libsecp256k1::curve::Scalar;
 pub use ::libsecp256k1::Error;
 use ::libsecp256k1::{
     self, PublicKey as LibSecp256k1PublicKey, RecoveryId as LibSecp256k1RecoveryId,
-    SecretKey as LibSecp256k1PrivateKey, Signature as LibSecp256k1Signature, ECMULT_GEN_CONTEXT,
+    SecretKey as LibSecp256k1PrivateKey, Signature as LibSecp256k1Signature,
 };
 #[cfg(not(feature = "wasm-deterministic"))]
-use ::libsecp256k1::{Error as LibSecp256k1Error, Message as LibSecp256k1Message};
+use ::libsecp256k1::{
+    Error as LibSecp256k1Error, Message as LibSecp256k1Message, ECMULT_GEN_CONTEXT,
+};
 use serde::de::{Deserialize, Error as de_Error};
 use serde::Serialize;
 
@@ -448,8 +450,8 @@ impl PrivateKey for Secp256k1PrivateKey {
     #[cfg(all(feature = "wasm-deterministic", any(test, feature = "testing")))]
     fn sign_with_noncedata(
         &self,
-        data_hash: &[u8],
-        noncedata: &[u8; 32],
+        _data_hash: &[u8],
+        _noncedata: &[u8; 32],
     ) -> Result<MessageSignature, &'static str> {
         Err("Not implemented for wasm-deterministic")
     }

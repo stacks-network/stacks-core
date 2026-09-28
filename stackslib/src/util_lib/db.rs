@@ -16,20 +16,22 @@
 
 use std::io::Error as IOError;
 use std::ops::{Deref, DerefMut};
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::{error, fmt, fs, io};
 
 use clarity::vm::types::QualifiedContractIdentifier;
 use rusqlite::types::ToSql;
-use rusqlite::{
-    params, Connection, Error as sqlite_error, OpenFlags, OptionalExtension, Params, Row,
-    Transaction, TransactionBehavior,
-};
+use rusqlite::{params, Connection, Error as sqlite_error, Params, Row};
 use serde_json::Error as serde_error;
 use stacks_common::types::chainstate::{SortitionId, StacksAddress, StacksBlockId, TrieHash};
 use stacks_common::types::sqlite::NO_PARAMS;
 use stacks_common::types::Address;
-use stacks_common::util::db::update_lock_table;
+// Generic SQLite plumbing now lives in `stacks_common`; re-exported here so that
+// the many `util_lib::db::*` call sites keep working unchanged.
+pub use stacks_common::util::db::{
+    sqlite_open, table_exists, tx_begin_immediate as tx_begin_immediate_sqlite, tx_busy_handler,
+    update_lock_table, SQLITE_MARF_PAGE_SIZE, SQLITE_MMAP_SIZE, SQLITE_STATEMENT_CACHE_CAPACITY,
+};
 use stacks_common::util::hash::to_hex;
 use stacks_common::util::secp256k1::{Secp256k1PrivateKey, Secp256k1PublicKey};
 
@@ -38,17 +40,6 @@ use crate::chainstate::stacks::index::{Error as MARFError, MARFValue, MarfTrieId
 
 pub type DBConn = rusqlite::Connection;
 pub type DBTx<'a> = rusqlite::Transaction<'a>;
-
-// 256MB
-pub const SQLITE_MMAP_SIZE: i64 = 256 * 1024 * 1024;
-
-// 32K
-pub const SQLITE_MARF_PAGE_SIZE: i64 = 32768;
-
-/// Statement-cache capacity for `sqlite_open` connections. The widest observed
-/// working set is ~120 distinct statements (the sortition MARF);
-/// rusqlite's default of 16 would LRU-thrash.
-pub const SQLITE_STATEMENT_CACHE_CAPACITY: usize = 200;
 
 #[derive(Debug)]
 pub enum Error {
@@ -564,31 +555,12 @@ pub fn sql_pragma(
     pragma_name: &str,
     pragma_value: &dyn ToSql,
 ) -> Result<(), Error> {
-    inner_sql_pragma(conn, pragma_name, pragma_value).map_err(Error::SqliteError)
-}
-
-fn inner_sql_pragma(
-    conn: &Connection,
-    pragma_name: &str,
-    pragma_value: &dyn ToSql,
-) -> Result<(), sqlite_error> {
-    conn.pragma_update(None, pragma_name, pragma_value)
+    stacks_common::util::db::sql_pragma(conn, pragma_name, pragma_value).map_err(Error::SqliteError)
 }
 
 /// Run a VACUUM command
 pub fn sql_vacuum(conn: &Connection) -> Result<(), Error> {
-    conn.execute("VACUUM", NO_PARAMS)
-        .map_err(Error::SqliteError)
-        .map(|_| ())
-}
-
-/// Returns true if the database table `table_name` exists in the active
-///  database of the provided SQLite connection.
-pub fn table_exists(conn: &Connection, table_name: &str) -> Result<bool, sqlite_error> {
-    let sql = "SELECT name FROM sqlite_master WHERE type='table' AND name=?";
-    conn.query_row(sql, &[table_name], |row| row.get::<_, String>(0))
-        .optional()
-        .map(|r| r.is_some())
+    stacks_common::util::db::sql_vacuum(conn).map_err(Error::SqliteError)
 }
 
 /// Set up an on-disk database with a MARF index if they don't exist yet.
@@ -682,84 +654,11 @@ impl<'a, C: Clone, T: MarfTrieId> DerefMut for IndexDBTx<'a, C, T> {
     }
 }
 
-/// Called by `rusqlite` if we are waiting too long on a database lock
-pub fn tx_busy_handler(run_count: i32) -> bool {
-    stacks_common::util::db::tx_busy_handler(run_count)
-}
-
 /// Begin an immediate-mode transaction, and handle busy errors with exponential backoff.
 /// Handling busy errors when the tx begins is preferable to doing it when the tx commits, since
 /// then we don't have to worry about any extra rollback logic.
 pub fn tx_begin_immediate(conn: &mut Connection) -> Result<DBTx<'_>, Error> {
     tx_begin_immediate_sqlite(conn).map_err(Error::from)
-}
-
-/// Begin an immediate-mode transaction, and handle busy errors with exponential backoff.
-/// Handling busy errors when the tx begins is preferable to doing it when the tx commits, since
-/// then we don't have to worry about any extra rollback logic.
-/// Sames as `tx_begin_immediate` except that it returns a rusqlite error.
-pub fn tx_begin_immediate_sqlite(conn: &mut Connection) -> Result<DBTx<'_>, sqlite_error> {
-    conn.busy_handler(Some(tx_busy_handler))?;
-    let tx = Transaction::new(conn, TransactionBehavior::Immediate)?;
-    update_lock_table(tx.deref());
-    Ok(tx)
-}
-
-#[cfg(feature = "profile-sqlite")]
-fn trace_profile(query: &str, duration: std::time::Duration) {
-    use serde_json::json;
-    let obj = json!({"millis":duration.as_millis(), "query":query});
-    debug!(
-        "sqlite trace profile {}",
-        serde_json::to_string(&obj).unwrap()
-    );
-}
-
-#[cfg(feature = "profile-sqlite")]
-fn inner_connection_open<P: AsRef<Path>>(
-    path: P,
-    flags: OpenFlags,
-) -> Result<Connection, sqlite_error> {
-    let mut db = Connection::open_with_flags(path, flags)?;
-    db.profile(Some(trace_profile));
-    Ok(db)
-}
-
-#[cfg(not(feature = "profile-sqlite"))]
-fn inner_connection_open<P: AsRef<Path>>(
-    path: P,
-    flags: OpenFlags,
-) -> Result<Connection, sqlite_error> {
-    Connection::open_with_flags(path, flags)
-}
-
-/// Open a database connection and set some typically-used pragmas.
-/// Connections are always opened in SQLite multi-thread (`NO_MUTEX`) mode;
-/// passing `FULL_MUTEX` panics.
-pub fn sqlite_open<P: AsRef<Path>>(
-    path: P,
-    mut flags: OpenFlags,
-    foreign_keys: bool,
-) -> Result<Connection, sqlite_error> {
-    // Without an explicit mutex flag the bundled SQLite defaults to serialized
-    // mode, whose per-connection mutex is pure overhead here: `Connection` is
-    // `!Sync`, so no thread can ever contend on it.
-    assert!(
-        !flags.contains(OpenFlags::SQLITE_OPEN_FULL_MUTEX),
-        "sqlite_open always opens in multi-thread mode; FULL_MUTEX is not supported"
-    );
-    flags.insert(OpenFlags::SQLITE_OPEN_NO_MUTEX);
-    let db = inner_connection_open(path, flags)?;
-    db.busy_handler(Some(tx_busy_handler))?;
-    db.set_prepared_statement_cache_capacity(SQLITE_STATEMENT_CACHE_CAPACITY);
-    if !flags.contains(OpenFlags::SQLITE_OPEN_READ_ONLY) {
-        inner_sql_pragma(&db, "journal_mode", &"WAL")?;
-    }
-    inner_sql_pragma(&db, "synchronous", &"NORMAL")?;
-    if foreign_keys {
-        inner_sql_pragma(&db, "foreign_keys", &true)?;
-    }
-    Ok(db)
 }
 
 /// Get the ancestor block hash of a block of a given height, given a descendent block hash.
@@ -1002,6 +901,8 @@ impl<C: Clone, T: MarfTrieId> Drop for IndexDBTx<'_, C, T> {
 #[cfg(test)]
 mod tests {
     use std::fs;
+
+    use rusqlite::OpenFlags;
 
     use super::*;
 

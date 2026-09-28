@@ -18,7 +18,7 @@ use regex::{Captures, Regex};
 use serde::{self, Serialize};
 use serde_json;
 use stacks_common::types::chainstate::{
-    BlockHeaderHash, BurnchainHeaderHash, ConsensusHash, SortitionId, StacksBlockId,
+    BlockHeaderHash, BurnchainHeaderHash, ConsensusHash, SortitionId,
 };
 use stacks_common::types::net::PeerHost;
 use stacks_common::util::hash::Hash160;
@@ -26,8 +26,6 @@ use stacks_common::util::serde_serializers::{prefix_hex, prefix_opt_hex};
 
 use crate::chainstate::burn::db::sortdb::SortitionDB;
 use crate::chainstate::burn::BlockSnapshot;
-use crate::chainstate::nakamoto::{NakamotoChainState, StacksDBIndexed};
-use crate::chainstate::stacks::db::StacksChainState;
 use crate::chainstate::stacks::Error as ChainError;
 use crate::net::http::{
     parse_json, Error, HttpBadRequest, HttpNotFound, HttpRequest, HttpRequestContents,
@@ -77,11 +75,6 @@ pub struct SortitionInfo {
     pub consensus_hash: ConsensusHash,
     /// Boolean indicating whether or not there was a succesful sortition (i.e. a winning
     ///  block or miner was chosen).
-    ///
-    /// This will *also* be true if this sortition corresponds to a shadow block.  This is because
-    /// the signer does not distinguish between shadow blocks and blocks with sortitions, so until
-    /// we can update the signer and this interface, we'll have to report the presence of a shadow
-    /// block tenure in a way that the signer currently understands.
     pub was_sortition: bool,
     /// If sortition occurred, and the miner's VRF key registration
     ///  associated a nakamoto mining pubkey with their commit, this
@@ -156,42 +149,13 @@ impl GetSortitionHandler {
     fn get_sortition_info(
         sortition_sn: BlockSnapshot,
         sortdb: &SortitionDB,
-        chainstate: &mut StacksChainState,
-        tip: &StacksBlockId,
     ) -> Result<SortitionInfo, ChainError> {
-        let is_shadow = chainstate
-            .nakamoto_blocks_db()
-            .is_shadow_tenure(&sortition_sn.consensus_hash)?;
         let (miner_pk_hash160, stacks_parent_ch, committed_block_hash, last_sortition_ch, vrf_seed) =
-            if !sortition_sn.sortition && !is_shadow {
+            if !sortition_sn.sortition {
                 let handle = sortdb.index_handle(&sortition_sn.sortition_id);
                 let last_sortition =
                     handle.get_last_snapshot_with_sortition(sortition_sn.block_height)?;
                 (None, None, None, Some(last_sortition.consensus_hash), None)
-            } else if !sortition_sn.sortition && is_shadow {
-                // this is a shadow tenure.
-                let parent_tenure_ch = chainstate
-                    .index_conn()
-                    .get_parent_tenure_consensus_hash(tip, &sortition_sn.consensus_hash)?
-                    .ok_or_else(|| DBError::NotFoundError)?;
-
-                let parent_tenure_start_header =
-                    NakamotoChainState::get_nakamoto_tenure_start_block_header(
-                        &mut chainstate.index_conn(),
-                        tip,
-                        &parent_tenure_ch,
-                    )?
-                    .ok_or_else(|| DBError::NotFoundError)?;
-
-                (
-                    Some(Hash160([0x00; 20])),
-                    Some(parent_tenure_ch.clone()),
-                    Some(BlockHeaderHash(
-                        parent_tenure_start_header.index_block_hash().0,
-                    )),
-                    Some(parent_tenure_ch),
-                    None,
-                )
             } else {
                 let block_commit = SortitionDB::get_block_commit(sortdb.conn(), &sortition_sn.winning_block_txid, &sortition_sn.sortition_id)?
                         .ok_or_else(|| {
@@ -247,7 +211,7 @@ impl GetSortitionHandler {
             sortition_id: sortition_sn.sortition_id,
             parent_sortition_id: sortition_sn.parent_sortition_id,
             consensus_hash: sortition_sn.consensus_hash,
-            was_sortition: sortition_sn.sortition || is_shadow,
+            was_sortition: sortition_sn.sortition,
             miner_pk_hash160,
             stacks_parent_ch,
             last_sortition_ch,
@@ -314,7 +278,7 @@ impl RPCRequestHandler for GetSortitionHandler {
         _contents: HttpRequestContents,
         node: &mut StacksNodeState,
     ) -> Result<(HttpResponsePreamble, HttpResponseContents), NetError> {
-        let result = node.with_node_state(|network, sortdb, chainstate, _mempool, _rpc_args| {
+        let result = node.with_node_state(|network, sortdb, _chainstate, _mempool, _rpc_args| {
             let query_result = match self.query {
                 QuerySpecifier::Latest => Ok(Some(network.burnchain_tip.clone())),
                 QuerySpecifier::ConsensusHash(ref consensus_hash) => {
@@ -343,12 +307,7 @@ impl RPCRequestHandler for GetSortitionHandler {
                 }
             };
             let sortition_sn = query_result?.ok_or_else(|| ChainError::NoSuchBlockError)?;
-            Self::get_sortition_info(
-                sortition_sn,
-                sortdb,
-                chainstate,
-                &network.stacks_tip.block_id(),
-            )
+            Self::get_sortition_info(sortition_sn, sortdb)
         });
 
         let block = match result {
@@ -381,18 +340,13 @@ impl RPCRequestHandler for GetSortitionHandler {
         if self.query == QuerySpecifier::LatestAndLast {
             // if latest **and** last are requested, lookup the sortition info for last_sortition_ch
             if let Some(last_sortition_ch) = last_sortition_ch {
-                let result = node.with_node_state(|network, sortdb, chainstate, _, _| {
+                let result = node.with_node_state(|_network, sortdb, _chainstate, _, _| {
                     let last_sortition_sn = SortitionDB::get_block_snapshot_consensus(
                         sortdb.conn(),
                         &last_sortition_ch,
                     )?
                     .ok_or_else(|| ChainError::NoSuchBlockError)?;
-                    Self::get_sortition_info(
-                        last_sortition_sn,
-                        sortdb,
-                        chainstate,
-                        &network.stacks_tip.block_id(),
-                    )
+                    Self::get_sortition_info(last_sortition_sn, sortdb)
                 });
                 let last_block = match result {
                     Ok(block) => block,

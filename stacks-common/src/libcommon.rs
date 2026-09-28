@@ -57,6 +57,8 @@ pub mod consts {
 
     pub const CHAIN_ID_MAINNET: u32 = 0x00000001;
     pub const CHAIN_ID_TESTNET: u32 = 0x80000000;
+    /// Default Stacks transaction and P2P network identity for signet deployments.
+    pub const CHAIN_ID_SIGNET: u32 = 0x80000001;
 
     #[cfg(any(test, feature = "testing"))]
     pub const MINER_REWARD_MATURITY: u64 = 2; // small for testing purposes

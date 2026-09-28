@@ -16,6 +16,8 @@
 
 /// This module defines the methods for reading and inserting into a Trie
 use sha2::Digest;
+use stacks_common::types::chainstate::{TrieHash, TRIEHASH_ENCODED_SIZE};
+use stacks_common::util::macros::is_trace;
 
 use crate::chainstate::stacks::index::bits::{get_leaf_hash, get_node_hash};
 use crate::chainstate::stacks::index::marf::MARF;
@@ -25,8 +27,6 @@ use crate::chainstate::stacks::index::node::{
 };
 use crate::chainstate::stacks::index::storage::{TrieHashCalculationMode, TrieStorageConnection};
 use crate::chainstate::stacks::index::{trie_sql, Error, MarfTrieId, TrieHasher, TrieLeaf};
-use crate::types::chainstate::{TrieHash, TRIEHASH_ENCODED_SIZE};
-use crate::util::macros::is_trace;
 
 /// We don't actually instantiate a Trie, but we still need to pass a type parameter for the
 /// storage implementation.

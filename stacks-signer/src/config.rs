@@ -28,7 +28,7 @@ use serde::Deserialize;
 use stacks_common::address::{
     C32_ADDRESS_VERSION_MAINNET_SINGLESIG, C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
 };
-use stacks_common::consts::{CHAIN_ID_MAINNET, CHAIN_ID_TESTNET};
+use stacks_common::consts::{CHAIN_ID_MAINNET, CHAIN_ID_SIGNET, CHAIN_ID_TESTNET};
 use stacks_common::types::chainstate::{StacksAddress, StacksPrivateKey, StacksPublicKey};
 use stacks_common::util::hash::Hash160;
 
@@ -77,14 +77,17 @@ pub enum ConfigError {
     UnsupportedAddressVersion,
 }
 
+/// Signer configuration profile selecting the default chain ID and encoding family.
+/// Non-mainnet profiles share address and transaction encodings.
 #[derive(serde::Deserialize, Debug, Clone, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
-/// The Stacks network to use.
 pub enum Network {
     /// The mainnet network
     Mainnet,
     /// The testnet network
     Testnet,
+    /// A Stacks network backed by public or custom Bitcoin signet.
+    Signet,
     /// The mocknet network
     Mocknet,
 }
@@ -94,6 +97,7 @@ impl std::fmt::Display for Network {
         match self {
             Self::Mainnet => write!(f, "mainnet"),
             Self::Testnet => write!(f, "testnet"),
+            Self::Signet => write!(f, "signet"),
             Self::Mocknet => write!(f, "mocknet"),
         }
     }
@@ -104,7 +108,7 @@ impl Network {
     pub const fn to_address_version(&self) -> u8 {
         match self {
             Self::Mainnet => C32_ADDRESS_VERSION_MAINNET_SINGLESIG,
-            Self::Testnet | Self::Mocknet => C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
+            Self::Testnet | Self::Signet | Self::Mocknet => C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
         }
     }
 
@@ -112,7 +116,7 @@ impl Network {
     pub const fn to_transaction_version(&self) -> TransactionVersion {
         match self {
             Self::Mainnet => TransactionVersion::Mainnet,
-            Self::Testnet | Self::Mocknet => TransactionVersion::Testnet,
+            Self::Testnet | Self::Signet | Self::Mocknet => TransactionVersion::Testnet,
         }
     }
 
@@ -120,7 +124,7 @@ impl Network {
     pub const fn is_mainnet(&self) -> bool {
         match self {
             Self::Mainnet => true,
-            Self::Testnet | Self::Mocknet => false,
+            Self::Testnet | Self::Signet | Self::Mocknet => false,
         }
     }
 }
@@ -214,7 +218,7 @@ pub struct GlobalConfig {
     pub stacks_private_key: StacksPrivateKey,
     /// The signer's Stacks address
     pub stacks_address: StacksAddress,
-    /// The network to use. One of "mainnet" or "testnet".
+    /// The network whose address, transaction, and chain-ID defaults to use.
     pub network: Network,
     /// The time to wait for a response from the stacker-db instance
     pub event_timeout: Duration,
@@ -293,11 +297,11 @@ struct RawConfigFile {
     ///   - 64 or 66 hex characters (with optional `01` compression suffix).
     ///   - This key determines the signer's on-chain identity and address.
     pub stacks_private_key: String,
-    /// The network to use. One of `"mainnet"`, `"testnet"`, or `"mocknet"`.
+    /// The network to use. One of `"mainnet"`, `"testnet"`, `"signet"`, or `"mocknet"`.
     /// ---
     /// @default: (required, no default)
     /// @notes:
-    ///   - Determines address version and transaction version.
+    ///   - Determines address version, transaction version, and default chain ID.
     pub network: Network,
     /// The time to wait for a response from the stacker-db instance.
     /// ---
@@ -355,7 +359,7 @@ struct RawConfigFile {
     pub block_proposal_timeout_ms: Option<u64>,
     /// An optional custom Chain ID. Overrides the default for the selected network.
     /// ---
-    /// @default: `0x00000001` (mainnet) or `0x80000000` (testnet)
+    /// @default: `0x00000001` (mainnet), `0x80000001` (signet), or `0x80000000` (testnet/mocknet)
     /// @notes:
     ///   - Only set this for custom/private networks.
     pub chain_id: Option<u32>,
@@ -677,6 +681,7 @@ Dry run: {dry_run}
     pub fn to_chain_id(&self) -> u32 {
         self.chain_id.unwrap_or(match self.network {
             Network::Mainnet => CHAIN_ID_MAINNET,
+            Network::Signet => CHAIN_ID_SIGNET,
             Network::Testnet | Network::Mocknet => CHAIN_ID_TESTNET,
         })
     }
@@ -926,6 +931,37 @@ capitulate_miner_view_timeout_secs = 1000
             config.capitulate_miner_view_timeout,
             Duration::from_secs(1000)
         );
+    }
+
+    /// Signet defaults and explicit deployment IDs survive config serialization and parsing.
+    #[test]
+    fn test_signet_network_defaults_and_override() {
+        let key = StacksPrivateKey::from_seed(b"signet-signer-config");
+        for chain_id in [None, Some(0x80000100)] {
+            let configs = build_signer_config_tomls(
+                std::slice::from_ref(&key),
+                "127.0.0.1:20443",
+                None,
+                &Network::Signet,
+                "test-password",
+                0,
+                3000,
+                None,
+                chain_id,
+            );
+            let config = GlobalConfig::load_from_str(&configs[0]).unwrap();
+            assert_eq!(config.network, Network::Signet);
+            assert_eq!(config.to_chain_id(), chain_id.unwrap_or(CHAIN_ID_SIGNET));
+            assert!(!config.network.is_mainnet());
+            assert_eq!(
+                config.network.to_transaction_version(),
+                TransactionVersion::Testnet
+            );
+            assert_eq!(
+                config.network.to_address_version(),
+                C32_ADDRESS_VERSION_TESTNET_SINGLESIG
+            );
+        }
     }
 
     #[test]

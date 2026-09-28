@@ -1,0 +1,1 @@
+Moves SQLite plumbing that knows nothing about the MARF, and isn't specific to stackslib, down into stacks-common where both crates can reach it.
