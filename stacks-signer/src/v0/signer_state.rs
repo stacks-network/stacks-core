@@ -83,16 +83,16 @@ pub struct NewBurnBlock {
     pub consensus_hash: ConsensusHash,
 }
 
-/// Delay before the first retry of a pending update that failed on a node error
+/// Delay before retrying a pending update after its first failed retry on a node error
 const PENDING_RETRY_INITIAL_DELAY: Duration = Duration::from_secs(1);
 /// Upper bound on the delay between retries of a pending update that keeps failing
 const PENDING_RETRY_MAX_DELAY: Duration = Duration::from_secs(16);
 
-/// Exponential backoff for retrying a pending update after a node error.
+/// Exponential backoff for `handle_pending_update` retries that fail on a node error, so an
+/// unhealthy node doesn't block the event loop on RPC retries every pass.
 ///
-/// Waiting for the node to catch up to an expected burn block is cheap and time-sensitive, so
-/// that case is retried on every pass. Any other failure means the node is erroring, and
-/// retrying on every pass would block the event loop on RPC retries while it stays unhealthy.
+/// A node that is merely behind is retried every pass, and so is the first retry of a failed
+/// direct arrival (new burn block or startup); only repeated failures are delayed.
 #[derive(Debug, Default)]
 pub struct PendingRetryBackoff {
     /// Number of consecutive failed retries
