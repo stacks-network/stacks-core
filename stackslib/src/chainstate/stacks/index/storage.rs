@@ -3241,16 +3241,13 @@ impl<T: MarfTrieId> TrieStorageConnection<'_, T> {
         }
     }
 
-    /// Count up the number of trie blocks this storage represents
-    pub fn num_blocks(&self) -> usize {
-        let result = if self.data.uncommitted_writes.is_some() {
-            1
-        } else {
-            0
-        };
-        result
-            + (trie_sql::count_blocks(&self.db)
-                .expect("Corruption: SQL Error on a non-fallible query.") as usize)
+    /// Whether this storage holds no tries. Skips the `marf_data` query while a trie is being
+    /// extended, since that trie counts.
+    pub fn is_empty(&self) -> bool {
+        self.data.uncommitted_writes.is_none()
+            && trie_sql::count_blocks(&self.db)
+                .expect("Corruption: SQL Error on a non-fallible query.")
+                == 0
     }
 
     #[cfg(test)]

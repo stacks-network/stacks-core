@@ -23,7 +23,7 @@ use std::{env, fs, io};
 #[cfg(test)]
 use rusqlite::params;
 use rusqlite::Connection;
-use stacks_common::types::chainstate::TrieHash;
+use stacks_common::types::chainstate::{TrieHash, TRIEHASH_ENCODED_SIZE};
 
 use crate::chainstate::stacks::index::bits::{
     get_node_max_byte_len, read_hash_bytes, read_nodetype_at_head, read_nodetype_at_head_nohash,
@@ -117,6 +117,146 @@ pub(super) fn read_exact_at(file: &fs::File, buf: &mut [u8], offset: u64) -> io:
     }
 }
 
+/// One positioned read, which may return fewer than `buf.len()` bytes. Leaves the cursor
+/// unchanged, like [`read_exact_at`].
+fn read_at(file: &fs::File, buf: &mut [u8], offset: u64) -> io::Result<usize> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::FileExt;
+        file.read_at(buf, offset)
+    }
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::FileExt;
+        let mut handle: &fs::File = file;
+        let original_pos = handle.stream_position()?;
+        let read_result = handle.seek_read(buf, offset);
+        let restore_result = handle.seek(SeekFrom::Start(original_pos));
+        let nr = read_result?;
+        restore_result?;
+        Ok(nr)
+    }
+}
+
+/// Bytes a node parse can touch from the node's start, including the pointer over-read in
+/// `ptrs_from_bytes`. Only sizes the read; a larger node just costs another read.
+fn node_read_window(node_id: u8) -> usize {
+    get_node_max_byte_len(node_id, true)
+        .map(|len| len + TriePtr::max_encoded_size() + 1)
+        .unwrap_or(4096)
+}
+
+/// `Read + Seek` over a file that serves reads from one positioned read of up to `window`
+/// bytes, so parsing a node costs one syscall instead of a seek plus several reads.
+pub(super) struct WindowReader<'a> {
+    file: &'a File,
+    /// Bytes read at `buf_start`; shorter than `window` only at end of file.
+    buf: &'a mut Vec<u8>,
+    buf_start: u64,
+    window: usize,
+    pos: u64,
+}
+
+impl<'a> WindowReader<'a> {
+    pub(super) fn new(file: &'a File, buf: &'a mut Vec<u8>, window: usize, pos: u64) -> Self {
+        buf.clear();
+        WindowReader {
+            file,
+            buf,
+            buf_start: pos,
+            window: window.max(1),
+            pos,
+        }
+    }
+
+    /// Offset of `pos` within `buf`, if buffered.
+    fn buffered_offset(&self) -> Option<usize> {
+        let offset = usize::try_from(self.pos.checked_sub(self.buf_start)?).ok()?;
+        (offset < self.buf.len()).then_some(offset)
+    }
+
+    fn fill(&mut self) -> io::Result<()> {
+        self.buf.resize(self.window, 0);
+        let nr = loop {
+            match read_at(self.file, self.buf, self.pos) {
+                Err(e) if e.kind() == io::ErrorKind::Interrupted => continue,
+                res => break res,
+            }
+        };
+        let nr = nr.inspect_err(|_| self.buf.clear())?;
+        self.buf.truncate(nr);
+        self.buf_start = self.pos;
+        Ok(())
+    }
+}
+
+impl Read for WindowReader<'_> {
+    fn read(&mut self, out: &mut [u8]) -> io::Result<usize> {
+        if out.is_empty() {
+            return Ok(0);
+        }
+        let offset = match self.buffered_offset() {
+            Some(offset) => offset,
+            None => {
+                self.fill()?;
+                0
+            }
+        };
+        let Some(avail) = self.buf.get(offset..) else {
+            return Ok(0);
+        };
+        let nr = avail.len().min(out.len());
+        let (Some(dst), Some(src)) = (out.get_mut(..nr), avail.get(..nr)) else {
+            return Ok(0);
+        };
+        dst.copy_from_slice(src);
+        self.pos += nr as u64;
+        Ok(nr)
+    }
+}
+
+impl Seek for WindowReader<'_> {
+    fn seek(&mut self, pos: SeekFrom) -> io::Result<u64> {
+        let new_pos = match pos {
+            SeekFrom::Start(pos) => Some(pos),
+            SeekFrom::Current(delta) => self.pos.checked_add_signed(delta),
+            SeekFrom::End(delta) => self.file.metadata()?.len().checked_add_signed(delta),
+        }
+        .ok_or_else(|| {
+            io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "invalid seek to a negative or overflowing position",
+            )
+        })?;
+        self.pos = new_pos;
+        Ok(new_pos)
+    }
+}
+
+/// Reader over a [`TrieFile`], positioned at a node.
+enum TrieFileReader<'a> {
+    Disk(WindowReader<'a>),
+    RAM(&'a mut Cursor<Vec<u8>>),
+}
+
+impl Read for TrieFileReader<'_> {
+    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+        match self {
+            TrieFileReader::Disk(r) => r.read(buf),
+            TrieFileReader::RAM(r) => r.read(buf),
+        }
+    }
+}
+
+impl Seek for TrieFileReader<'_> {
+    fn seek(&mut self, pos: SeekFrom) -> io::Result<u64> {
+        match self {
+            TrieFileReader::Disk(r) => r.seek(pos),
+            TrieFileReader::RAM(r) => r.seek(pos),
+        }
+    }
+}
+
 /// Async `posix_fadvise(WILLNEED)` hint over `[offset, offset + len)`.
 /// Returns immediately; no-op on non-Linux targets (Windows, macOS).
 #[cfg_attr(not(target_os = "linux"), allow(unused_variables))]
@@ -163,6 +303,8 @@ pub struct TrieFileDisk {
     fd: File,
     path: String,
     trie_offsets: TrieIdOffsets,
+    /// Reused by [`WindowReader`].
+    read_buf: Vec<u8>,
 }
 
 /// Handle to a flat in-memory buffer containing Trie blobs (used for testing)
@@ -194,6 +336,7 @@ impl TrieFile {
             fd,
             path: path.to_string(),
             trie_offsets: TrieIdOffsets::new(),
+            read_buf: Vec::new(),
         }))
     }
 
@@ -482,8 +625,11 @@ impl<'a> TrieFileNodeHashReader<'a> {
 impl NodeHashReader for TrieFileNodeHashReader<'_> {
     fn read_node_hash_bytes<W: Write>(&mut self, ptr: &TriePtr, w: &mut W) -> Result<(), Error> {
         let trie_offset = self.file.get_trie_offset(self.db, self.block_id)?;
-        self.file.seek(SeekFrom::Start(trie_offset + ptr.ptr()))?;
-        let hash_buff = read_hash_bytes(self.file)?;
+        let hash_buff = read_hash_bytes(
+            &mut self
+                .file
+                .reader_at(trie_offset + ptr.ptr(), TRIEHASH_ENCODED_SIZE)?,
+        )?;
         w.write_all(&hash_buff).map_err(|e| e.into())
     }
 }
@@ -526,8 +672,8 @@ impl TrieFile {
         ptr: &TriePtr,
     ) -> Result<TrieHash, Error> {
         let offset = self.get_trie_offset(db, block_id)?;
-        self.seek(SeekFrom::Start(offset + ptr.ptr()))?;
-        let hash_buff = read_hash_bytes(self)?;
+        let hash_buff =
+            read_hash_bytes(&mut self.reader_at(offset + ptr.ptr(), TRIEHASH_ENCODED_SIZE)?)?;
         Ok(TrieHash(hash_buff))
     }
 
@@ -540,8 +686,8 @@ impl TrieFile {
         ptr: &TriePtr,
     ) -> Result<(TrieNodeType, TrieHash), Error> {
         let offset = self.get_trie_offset(db, block_id)?;
-        self.seek(SeekFrom::Start(offset + ptr.ptr()))?;
-        read_nodetype_at_head(self, ptr.id())
+        let mut reader = self.reader_at(offset + ptr.ptr(), node_read_window(ptr.id()))?;
+        read_nodetype_at_head(&mut reader, ptr.id())
     }
 
     /// Obtain a TrieNodeType, given its block ID and pointer
@@ -552,8 +698,8 @@ impl TrieFile {
         ptr: &TriePtr,
     ) -> Result<TrieNodeType, Error> {
         let offset = self.get_trie_offset(db, block_id)?;
-        self.seek(SeekFrom::Start(offset + ptr.ptr()))?;
-        read_nodetype_at_head_nohash(self, ptr.id())
+        let mut reader = self.reader_at(offset + ptr.ptr(), node_read_window(ptr.id()))?;
+        read_nodetype_at_head_nohash(&mut reader, ptr.id())
     }
 
     /// Obtain a TrieHash for a node, given the node's block's hash (used only in testing)
@@ -680,6 +826,23 @@ impl TrieFile {
                 None => Ok(headers),
             }
         })
+    }
+
+    /// Reader positioned at `pos`. A disk-backed reader fetches `window` bytes per read and
+    /// doesn't move the file cursor.
+    fn reader_at(&mut self, pos: u64, window: usize) -> io::Result<TrieFileReader<'_>> {
+        match self {
+            TrieFile::Disk(disk) => Ok(TrieFileReader::Disk(WindowReader::new(
+                &disk.fd,
+                &mut disk.read_buf,
+                window,
+                pos,
+            ))),
+            TrieFile::RAM(ram) => {
+                ram.fd.seek(SeekFrom::Start(pos))?;
+                Ok(TrieFileReader::RAM(&mut ram.fd))
+            }
+        }
     }
 
     /// Read blob bytes without moving the file cursor.
