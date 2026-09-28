@@ -42,6 +42,7 @@ use stacks_common::consts::SIGNER_SLOTS_PER_USER;
 use stacks_common::types::chainstate::StacksAddress;
 use stacks_common::types::net::PeerAddress;
 use stacks_common::types::Address;
+use stacks_common::util::db::SqliteVfs;
 use stacks_common::util::get_epoch_time_ms;
 use stacks_common::util::hash::hex_bytes;
 use stacks_common::util::secp256k1::{Secp256k1PrivateKey, Secp256k1PublicKey};
@@ -2308,6 +2309,28 @@ pub struct NodeConfig {
     ///   - Compression affects only the on-disk MARF representation; in-memory behavior
     ///     remains unchanged.
     pub marf_compress: bool,
+    /// SQLite VFS (OS interface layer) used to open every node database.
+    ///
+    /// Possible values:
+    /// - `"default"`: SQLite's platform default. Databases can be opened by several
+    ///   processes at once, and every WAL-mode transaction takes and releases file
+    ///   locks on the database and its `-shm` file.
+    /// - `"unix-excl"`: each database is locked exclusively by the node process for as
+    ///   long as it is open, and the WAL index lives in memory instead of a `-shm`
+    ///   file. Removes the per-transaction lock calls, which are expensive on network
+    ///   and clustered filesystems where each lock is a round trip to the storage.
+    /// ---
+    /// @default: `"default"`
+    /// @notes:
+    ///   - With `"unix-excl"`, no other process can open the node's databases while
+    ///     the node runs; offline tools such as `stacks-inspect` must run with the
+    ///     node stopped.
+    ///   - `"unix-excl"` is only available on unix platforms.
+    ///   - Does not change the on-disk format. Switching between values takes effect
+    ///     on restart and needs no migration.
+    /// @toml_example: |
+    ///   sqlite_vfs = "unix-excl"
+    pub sqlite_vfs: SqliteVfs,
     /// Sampling interval in seconds for the PoX synchronization watchdog thread
     /// (pre-Nakamoto). Determines how often the watchdog checked PoX state
     /// consistency in the Neon run loop.
@@ -2682,6 +2705,7 @@ impl Default for NodeConfig {
             prometheus_bind: None,
             marf_defer_hashing: true,
             marf_compress: true,
+            sqlite_vfs: SqliteVfs::default(),
             pox_sync_sample_secs: 30,
             use_test_genesis_chainstate: None,
             fault_injection_block_push_fail_probability: None,
@@ -4178,6 +4202,7 @@ pub struct NodeConfigFile {
     pub marf_cache_strategy: Option<String>,
     pub marf_defer_hashing: Option<bool>,
     pub marf_compress: Option<bool>,
+    pub sqlite_vfs: Option<String>,
     pub pox_sync_sample_secs: Option<u64>,
     pub use_test_genesis_chainstate: Option<bool>,
     /// At most, how often should the chain-liveness thread
@@ -4281,6 +4306,10 @@ impl NodeConfigFile {
             marf_compress: self
                 .marf_compress
                 .unwrap_or(default_node_config.marf_compress),
+            sqlite_vfs: match self.sqlite_vfs {
+                Some(vfs) => vfs.parse().map_err(|e| format!("node.sqlite_vfs: {e}"))?,
+                None => default_node_config.sqlite_vfs,
+            },
             pox_sync_sample_secs: self
                 .pox_sync_sample_secs
                 .unwrap_or(default_node_config.pox_sync_sample_secs),
@@ -5850,6 +5879,55 @@ mod tests {
         assert!(
             !cfg_opts.force_db_migrate,
             "internal default migrate setting"
+        );
+    }
+
+    #[test]
+    fn test_load_node_sqlite_vfs_config() {
+        let config = utils::config_from_valid_string(
+            r#"
+                [node]
+                "#,
+        );
+        assert_eq!(config.node.sqlite_vfs, SqliteVfs::Default, "default VFS");
+
+        let config = utils::config_from_valid_string(
+            r#"
+                [node]
+                sqlite_vfs = "default"
+                "#,
+        );
+        assert_eq!(
+            config.node.sqlite_vfs,
+            SqliteVfs::Default,
+            "explicit default"
+        );
+
+        #[cfg(unix)]
+        {
+            let config = utils::config_from_valid_string(
+                r#"
+                    [node]
+                    sqlite_vfs = "unix-excl"
+                    "#,
+            );
+            assert_eq!(config.node.sqlite_vfs, SqliteVfs::UnixExcl, "unix-excl");
+        }
+
+        let err = Config::from_config_file(
+            ConfigFile::from_str(
+                r#"
+                [node]
+                sqlite_vfs = "unix-shared"
+                "#,
+            )
+            .unwrap(),
+            false,
+        )
+        .unwrap_err();
+        assert!(
+            err.starts_with("node.sqlite_vfs: unknown SQLite VFS 'unix-shared'"),
+            "unexpected error: {err}"
         );
     }
 
