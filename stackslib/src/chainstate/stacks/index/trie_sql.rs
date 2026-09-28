@@ -42,47 +42,45 @@ fn u64_to_sql(x: u64) -> Result<i64, Error> {
         .map_err(|_| Error::CorruptionError(format!("Value {x} does not fit in a SQL INTEGER")))
 }
 
-/// Read one column as a `u64`, rejecting a negative stored value as corruption.
-fn column_u64(row: &rusqlite::Row, idx: usize) -> Result<u64, Error> {
-    let x: i64 = row.get(idx)?;
-    u64::try_from(x)
-        .map_err(|_| Error::CorruptionError(format!("Column {idx} holds a negative value ({x})")))
+/// Convert a stored column value to `u64`, rejecting a negative one as corruption.
+fn to_u64(x: i64, what: &str) -> Result<u64, Error> {
+    u64::try_from(x).map_err(|_| Error::CorruptionError(format!("{what} is negative ({x})")))
 }
 
-/// Query a single row holding a `(u64, u64)` pair (the offset/length columns).
+/// Query the single row holding a `(u64, u64)` pair (the offset/length columns).
 fn query_offset_length(
     conn: &Connection,
     sql_query: &str,
     sql_args: impl rusqlite::Params,
 ) -> Result<Option<(u64, u64)>, Error> {
     let mut stmt = conn.prepare_cached(sql_query)?;
-    let mut rows = stmt.query_and_then(sql_args, |row| {
-        Ok((column_u64(row, 0)?, column_u64(row, 1)?))
-    })?;
-    rows.next().transpose()
+    let row: Option<(i64, i64)> = stmt
+        .query_row(sql_args, |row| Ok((row.get(0)?, row.get(1)?)))
+        .optional()?;
+    row.map(|(offset, length)| Ok((to_u64(offset, "offset")?, to_u64(length, "length")?)))
+        .transpose()
 }
 
-/// Query a single row holding one `u64` column.
+/// Query the single row holding one `u64` column.
 fn query_u64(
     conn: &Connection,
     sql_query: &str,
     sql_args: impl rusqlite::Params,
 ) -> Result<Option<u64>, Error> {
     let mut stmt = conn.prepare_cached(sql_query)?;
-    let mut rows = stmt.query_and_then(sql_args, |row| column_u64(row, 0))?;
-    rows.next().transpose()
+    let value: Option<i64> = stmt.query_row(sql_args, |row| row.get(0)).optional()?;
+    value.map(|v| to_u64(v, "value")).transpose()
 }
 
-/// Query a single `COUNT(*)`-style integer.
-fn query_count(
+/// Query a single `i64` column.
+fn query_i64(
     conn: &Connection,
     sql_query: &str,
     sql_args: impl rusqlite::Params,
 ) -> Result<i64, Error> {
     let mut stmt = conn.prepare_cached(sql_query)?;
-    let mut rows = stmt.query(sql_args)?;
-    let row = rows.next()?.ok_or(Error::NotFoundError)?;
-    row.get(0).map_err(Error::from)
+    stmt.query_row(sql_args, |row| row.get(0))
+        .map_err(Error::from)
 }
 
 static SQL_MARF_DATA_TABLE: &str = "
@@ -953,12 +951,12 @@ pub fn detect_partial_migration(conn: &Connection) -> Result<bool, Error> {
         return Ok(false);
     }
 
-    let num_migrated = query_count(
+    let num_migrated = query_i64(
         conn,
         "SELECT COUNT(*) FROM marf_data WHERE external_offset = 0 AND external_length = 0 AND unconfirmed = 0",
         NO_PARAMS,
     )?;
-    let num_not_migrated = query_count(
+    let num_not_migrated = query_i64(
         conn,
         "SELECT COUNT(*) FROM marf_data WHERE external_offset != 0 AND external_length != 0 AND unconfirmed = 0",
         NO_PARAMS,
