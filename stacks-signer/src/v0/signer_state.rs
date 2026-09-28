@@ -30,6 +30,7 @@ use libsigner::v0::signer_state::{GlobalStateEvaluator, MinerState, SignerStateM
 use serde::{Deserialize, Serialize};
 use stacks_common::codec::Error as CodecError;
 use stacks_common::types::chainstate::{ConsensusHash, StacksBlockId};
+use stacks_common::util::hash::Hash160;
 #[cfg(any(test, feature = "testing"))]
 use stacks_common::util::secp256k1::Secp256k1PublicKey;
 use stacks_common::{debug, info, warn};
@@ -866,7 +867,7 @@ impl LocalStateMachine {
                 "Signer State: Burn block mismatch. Cannot capitulate.";
                 "current_burn_block" => %current_burn_block,
                 "current_burn_block_height" => current_burn_block_height,
-                "global_burn_block" => %current_burn_block,
+                "global_burn_block" => %global_burn_block,
                 "global_burn_block_height" => global_burn_block_height,
             );
             // We don't have the majority's burn block yet...will have to wait
@@ -962,8 +963,44 @@ impl LocalStateMachine {
             }
         }
 
+        // Rank the candidate views deterministically. `potential_matches` is a HashSet, so
+        // sorting on the burn block height alone left ties (two blocking-minority views of the
+        // same tenure that disagree on the parent tenure's last block) in random iteration
+        // order: each capitulation check could flip between them, and every flip broadcasts a
+        // fresh state update. Prefer, in order: the highest burn block, the tallest parent-tenure
+        // last block, the heaviest view, and finally the view's contents so that every signer
+        // ranks an identical candidate set identically.
         let mut potential_matches: Vec<_> = potential_matches.into_iter().collect();
-        potential_matches.sort_by_key(|(block_height, _)| *block_height);
+        potential_matches.sort_by_key(|(block_height, miner)| {
+            let weight = miners.get(miner).copied().unwrap_or(0);
+            match miner {
+                StateMachineUpdateMinerState::ActiveMiner {
+                    current_miner_pkh,
+                    tenure_id,
+                    parent_tenure_id,
+                    parent_tenure_last_block,
+                    parent_tenure_last_block_height,
+                } => (
+                    *block_height,
+                    *parent_tenure_last_block_height,
+                    weight,
+                    tenure_id.clone(),
+                    parent_tenure_id.clone(),
+                    parent_tenure_last_block.clone(),
+                    current_miner_pkh.clone(),
+                ),
+                // Never actually reached: only active miners become potential matches.
+                StateMachineUpdateMinerState::NoValidMiner => (
+                    *block_height,
+                    0,
+                    weight,
+                    ConsensusHash::empty(),
+                    ConsensusHash::empty(),
+                    StacksBlockId([0; 32]),
+                    Hash160([0; 20]),
+                ),
+            }
+        });
 
         let new_miner = potential_matches.last().map(|(_, miner)| (*miner).clone());
         if new_miner.is_none() {
