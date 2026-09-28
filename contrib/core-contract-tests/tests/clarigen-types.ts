@@ -11690,6 +11690,12 @@ export const contracts = {
         ],
         Response<boolean, bigint>
       >,
+      getAdminCount: {
+        name: 'get-admin-count',
+        access: 'read_only',
+        args: [],
+        outputs: { type: 'uint128' },
+      } as TypedAbiFunction<[], bigint>,
       getEarnedFees: {
         name: 'get-earned-fees',
         access: 'read_only',
@@ -12121,6 +12127,16 @@ export const contracts = {
         },
         access: 'constant',
       } as TypedAbiVariable<Response<null, bigint>>,
+      ERR_LAST_ADMIN: {
+        name: 'ERR_LAST_ADMIN',
+        type: {
+          response: {
+            ok: 'none',
+            error: 'uint128',
+          },
+        },
+        access: 'constant',
+      } as TypedAbiVariable<Response<null, bigint>>,
       ERR_MAX_FEES_INCREASE: {
         name: 'ERR_MAX_FEES_INCREASE',
         type: {
@@ -12216,6 +12232,11 @@ export const contracts = {
         type: 'uint128',
         access: 'constant',
       } as TypedAbiVariable<bigint>,
+      adminCount: {
+        name: 'admin-count',
+        type: 'uint128',
+        access: 'variable',
+      } as TypedAbiVariable<bigint>,
       earnedFees: {
         name: 'earned-fees',
         type: 'uint128',
@@ -12297,6 +12318,10 @@ export const contracts = {
         isOk: false,
         value: 1_004n,
       },
+      ERR_LAST_ADMIN: {
+        isOk: false,
+        value: 1_018n,
+      },
       ERR_MAX_FEES_INCREASE: {
         isOk: false,
         value: 1_017n,
@@ -12334,6 +12359,7 @@ export const contracts = {
         value: 1_009n,
       },
       MAX_BIPS: 10_000n,
+      adminCount: 1n,
       earnedFees: 0n,
       feesBips: 0n,
       maxFeesBips: 10_000n,

@@ -195,3 +195,26 @@ test('admins set and clear the signer metadata uri', () => {
   txOk(signerManagerV2.setTokenUri(null), deployer);
   expect(rovOk(signerManagerV2.getTokenUri())).toBeNull();
 });
+
+test('the last admin cannot remove themselves', () => {
+  expect(rov(signerManagerV2.getAdminCount())).toBe(1n);
+  expect(
+    txErr(signerManagerV2.updateAdmin(deployer, false), deployer).value,
+  ).toBe(signerManagerV2Errors.ERR_LAST_ADMIN);
+
+  // Re-enabling an existing admin or disabling a non-admin is a no-op.
+  txOk(signerManagerV2.updateAdmin(deployer, true), deployer);
+  txOk(signerManagerV2.updateAdmin(bob, false), deployer);
+  expect(rov(signerManagerV2.getAdminCount())).toBe(1n);
+
+  txOk(signerManagerV2.updateAdmin(alice, true), deployer);
+  expect(rov(signerManagerV2.getAdminCount())).toBe(2n);
+  txOk(signerManagerV2.updateAdmin(deployer, false), deployer);
+  expect(rov(signerManagerV2.isAdmin(deployer))).toBe(false);
+  expect(rov(signerManagerV2.getAdminCount())).toBe(1n);
+
+  expect(txErr(signerManagerV2.updateAdmin(alice, false), alice).value).toBe(
+    signerManagerV2Errors.ERR_LAST_ADMIN,
+  );
+  expect(rov(signerManagerV2.isAdmin(alice))).toBe(true);
+});

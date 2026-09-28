@@ -52,6 +52,8 @@
 (define-constant ERR_FEES_ABOVE_MAX (err u1016))
 ;; The max fee can only be lowered.
 (define-constant ERR_MAX_FEES_INCREASE (err u1017))
+;; Removing this admin would leave the contract with no admins.
+(define-constant ERR_LAST_ADMIN (err u1018))
 
 (define-constant DUST_LIMIT u546)
 
@@ -63,6 +65,9 @@
     bool
 )
 (map-set admins tx-sender true)
+
+;; Number of enabled admins. `update-admin` keeps this at least one.
+(define-data-var admin-count uint u1)
 
 ;; Fees taken, in basis points, from rewards
 (define-data-var fees-bips uint u0)
@@ -462,13 +467,25 @@
         (admin principal)
         (enabled bool)
     )
-    (begin
+    (let (
+            (was-enabled (is-admin admin))
+            (count (var-get admin-count))
+        )
         (try! (authorize-admin))
+        (asserts! (or enabled (not was-enabled) (> count u1)) ERR_LAST_ADMIN)
         (print {
             topic: "update-admin",
             admin: admin,
             enabled: enabled,
         })
+        (var-set admin-count
+            (if (is-eq enabled was-enabled)
+                count
+                (if enabled
+                    (+ count u1)
+                    (- count u1)
+                )
+            ))
         (map-set admins admin enabled)
         (ok admin)
     )
@@ -641,6 +658,10 @@
 
 (define-read-only (is-admin (caller principal))
     (default-to false (map-get? admins caller))
+)
+
+(define-read-only (get-admin-count)
+    (var-get admin-count)
 )
 
 (define-private (snapshot-bond-fee
