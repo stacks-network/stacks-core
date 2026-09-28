@@ -637,8 +637,8 @@ pub fn call_function<'a>(
     sponsor: Option<PrincipalData>,
 ) -> Result<Value, VmExecutionError> {
     let engine = global_context.engine.clone();
-    let module = contract_context.with_wasm_module(|wasm_module| unsafe {
-        Module::deserialize(&engine, wasm_module)
+    let module = contract_context.with_wasm_module(|wasm_module| {
+        Module::new(&engine, wasm_module)
             .map_err(|e| VmExecutionError::Wasm(WasmError::UnableToLoadModule(e)))
     })?;
 
@@ -705,18 +705,14 @@ pub fn compile_and_call_function<'a>(
     .map_err(|e| VmExecutionError::Wasm(WasmError::WasmGeneratorError(e)))?;
 
     let engine = global_context.engine.clone();
-    let module = Module::from_binary(&engine, &compilation.module)
+    let module = Module::new(&engine, &compilation.module)
         .map_err(|e| VmExecutionError::Wasm(WasmError::UnableToLoadModule(e)))?;
 
-    // Complete the contract context for the Wasm runtime: attach the compiled module, in the
-    // serialized form `call_function` expects, and fill in the function return types which the
+    // Complete the contract context for the Wasm runtime: attach the compiled module bytes,
+    // which `call_function` loads, and fill in the function return types which the
     // interpreter's deploy path does not record.
     let mut contract_context = contract_context.clone();
-    contract_context.set_wasm_module(
-        module
-            .serialize()
-            .map_err(|e| VmExecutionError::Wasm(WasmError::WasmCompileFailed(e)))?,
-    );
+    contract_context.set_wasm_module(compilation.module.clone());
     contract_context.complete_function_return_types(&compilation.analysis);
 
     // Keep the completed contract context in the cache, so that the rest of this transaction
