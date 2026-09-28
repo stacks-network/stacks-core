@@ -11408,6 +11408,15 @@ export const contracts = {
         ],
         Response<boolean, bigint>
       >,
+      setMaxFees: {
+        name: 'set-max-fees',
+        access: 'public',
+        args: [{ name: 'new-max', type: 'uint128' }],
+        outputs: { type: { response: { ok: 'bool', error: 'uint128' } } },
+      } as TypedAbiFunction<
+        [newMax: TypedAbiArg<number | bigint, 'newMax'>],
+        Response<boolean, bigint>
+      >,
       setPayoutConfig: {
         name: 'set-payout-config',
         access: 'public',
@@ -11729,6 +11738,12 @@ export const contracts = {
         ],
         bigint
       >,
+      getMaxFeesBips: {
+        name: 'get-max-fees-bips',
+        access: 'read_only',
+        args: [],
+        outputs: { type: 'uint128' },
+      } as TypedAbiFunction<[], bigint>,
       getPayoutConfig: {
         name: 'get-payout-config',
         access: 'read_only',
@@ -12046,6 +12061,16 @@ export const contracts = {
         },
         access: 'constant',
       } as TypedAbiVariable<Response<null, bigint>>,
+      ERR_FEES_ABOVE_MAX: {
+        name: 'ERR_FEES_ABOVE_MAX',
+        type: {
+          response: {
+            ok: 'none',
+            error: 'uint128',
+          },
+        },
+        access: 'constant',
+      } as TypedAbiVariable<Response<null, bigint>>,
       ERR_INSUFFICIENT_FEES: {
         name: 'ERR_INSUFFICIENT_FEES',
         type: {
@@ -12088,6 +12113,16 @@ export const contracts = {
       } as TypedAbiVariable<Response<null, bigint>>,
       ERR_INVALID_POX_ADDR: {
         name: 'ERR_INVALID_POX_ADDR',
+        type: {
+          response: {
+            ok: 'none',
+            error: 'uint128',
+          },
+        },
+        access: 'constant',
+      } as TypedAbiVariable<Response<null, bigint>>,
+      ERR_MAX_FEES_INCREASE: {
+        name: 'ERR_MAX_FEES_INCREASE',
         type: {
           response: {
             ok: 'none',
@@ -12191,6 +12226,11 @@ export const contracts = {
         type: 'uint128',
         access: 'variable',
       } as TypedAbiVariable<bigint>,
+      maxFeesBips: {
+        name: 'max-fees-bips',
+        type: 'uint128',
+        access: 'variable',
+      } as TypedAbiVariable<bigint>,
       tokenUri: {
         name: 'token-uri',
         type: {
@@ -12233,6 +12273,10 @@ export const contracts = {
         isOk: false,
         value: 1_013n,
       },
+      ERR_FEES_ABOVE_MAX: {
+        isOk: false,
+        value: 1_016n,
+      },
       ERR_INSUFFICIENT_FEES: {
         isOk: false,
         value: 1_007n,
@@ -12252,6 +12296,10 @@ export const contracts = {
       ERR_INVALID_POX_ADDR: {
         isOk: false,
         value: 1_004n,
+      },
+      ERR_MAX_FEES_INCREASE: {
+        isOk: false,
+        value: 1_017n,
       },
       ERR_NOT_ALLOWLISTED: {
         isOk: false,
@@ -12288,6 +12336,7 @@ export const contracts = {
       MAX_BIPS: 10_000n,
       earnedFees: 0n,
       feesBips: 0n,
+      maxFeesBips: 10_000n,
       tokenUri: null,
       totalPending: 0n,
       unclaimedStakerRewards: 0n,

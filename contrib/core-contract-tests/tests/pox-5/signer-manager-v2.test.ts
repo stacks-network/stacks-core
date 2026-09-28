@@ -357,3 +357,31 @@ test('only admins can update fees, and fees must be below 100%', () => {
   );
   txOk(signerManagerV2.updateFees(9999n), deployer);
 });
+
+test('the max fee caps the fee rate and can only be lowered', () => {
+  expect(rov(signerManagerV2.getMaxFeesBips())).toBe(BASIS_POINTS);
+  expect(txErr(signerManagerV2.setMaxFees(500n), alice).value).toBe(
+    signerManagerV2Errors.ERR_UNAUTHORIZED_ADMIN,
+  );
+
+  txOk(signerManagerV2.updateFees(800n), deployer);
+  // The max cannot drop below the current fee rate.
+  expect(txErr(signerManagerV2.setMaxFees(500n), deployer).value).toBe(
+    signerManagerV2Errors.ERR_FEES_ABOVE_MAX,
+  );
+  txOk(signerManagerV2.updateFees(300n), deployer);
+  txOk(signerManagerV2.setMaxFees(500n), deployer);
+  expect(rov(signerManagerV2.getMaxFeesBips())).toBe(500n);
+
+  expect(txErr(signerManagerV2.updateFees(501n), deployer).value).toBe(
+    signerManagerV2Errors.ERR_FEES_ABOVE_MAX,
+  );
+  txOk(signerManagerV2.updateFees(500n), deployer);
+  txOk(signerManagerV2.updateFees(0n), deployer);
+
+  expect(txErr(signerManagerV2.setMaxFees(501n), deployer).value).toBe(
+    signerManagerV2Errors.ERR_MAX_FEES_INCREASE,
+  );
+  txOk(signerManagerV2.setMaxFees(400n), deployer);
+  expect(rov(signerManagerV2.getMaxFeesBips())).toBe(400n);
+});

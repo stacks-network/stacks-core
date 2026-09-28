@@ -48,6 +48,10 @@
 (define-constant ERR_BELOW_DUST_LIMIT (err u1014))
 ;; The allowlist is enabled and the staker is not listed.
 (define-constant ERR_NOT_ALLOWLISTED (err u1015))
+;; The fee rate would exceed the admin-set max fee.
+(define-constant ERR_FEES_ABOVE_MAX (err u1016))
+;; The max fee can only be lowered.
+(define-constant ERR_MAX_FEES_INCREASE (err u1017))
 
 (define-constant DUST_LIMIT u546)
 
@@ -62,6 +66,9 @@
 
 ;; Fees taken, in basis points, from rewards
 (define-data-var fees-bips uint u0)
+
+;; Cap on `fees-bips`. It can only be lowered, so stakers can rely on it.
+(define-data-var max-fees-bips uint MAX_BIPS)
 
 ;; Amount of earned fees that are held by the contract.
 ;; When fees are transferred out of the contract, this value
@@ -472,12 +479,30 @@
     (begin
         (try! (authorize-admin))
         (asserts! (< new-fees MAX_BIPS) ERR_INVALID_FEES_BIPS)
+        (asserts! (<= new-fees (var-get max-fees-bips)) ERR_FEES_ABOVE_MAX)
         (print {
             topic: "update-fees",
             old-fees: (var-get fees-bips),
             new-fees: new-fees,
         })
         (var-set fees-bips new-fees)
+        (ok true)
+    )
+)
+
+;; Permanently cap the fee rate. The cap can only be lowered, and not below
+;; the current fee rate.
+(define-public (set-max-fees (new-max uint))
+    (begin
+        (try! (authorize-admin))
+        (asserts! (<= new-max (var-get max-fees-bips)) ERR_MAX_FEES_INCREASE)
+        (asserts! (>= new-max (var-get fees-bips)) ERR_FEES_ABOVE_MAX)
+        (print {
+            topic: "set-max-fees",
+            old-max: (var-get max-fees-bips),
+            new-max: new-max,
+        })
+        (var-set max-fees-bips new-max)
         (ok true)
     )
 )
@@ -759,6 +784,10 @@
             bond-index: bond-index,
         })
     )
+)
+
+(define-read-only (get-max-fees-bips)
+    (var-get max-fees-bips)
 )
 
 (define-read-only (get-earned-fees)
