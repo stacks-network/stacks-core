@@ -877,7 +877,7 @@ impl<T: MarfTrieId> MARF<T> {
         }
 
         let (cur_bhh, cur_block_id) = storage.get_cur_block_and_id();
-        if storage.num_blocks() == 0 || cur_bhh == T::sentinel() {
+        if storage.is_empty() || cur_bhh == T::sentinel() {
             // brand new storage
             trace!("Brand new storage -- start with {:?}", new_bhh);
             storage.extend_to_block(new_bhh)?;
