@@ -1,0 +1,1 @@
+MARF node reads from the external `.blobs` file now take one positioned read per node instead of a seek plus several reads, and inserts no longer query `marf_data` once per key. Trie data, root hashes and proofs are unchanged.
