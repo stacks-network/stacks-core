@@ -1039,8 +1039,8 @@ mod test {
 
     #[test]
     fn test_null_miner_logistic() {
-        for i in 0..1024 {
-            let atc_u256 = ATC_LOOKUP[i];
+        for (i, entry) in ATC_LOOKUP.iter().enumerate() {
+            let atc_u256 = *entry;
             let null_miner_lgst =
                 BlockSnapshot::null_miner_logistic(AtcRational::frac(i as u64, 1024));
             assert_eq!(null_miner_lgst, atc_u256);

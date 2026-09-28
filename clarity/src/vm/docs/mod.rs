@@ -1103,7 +1103,8 @@ input sequence _and_ the output of a previous application of `func`.
 first element of `sequence_A`. The resulting value of type `B` is used for the
 next application of `func`, along with the next element of `sequence_A` and so
 on. `fold` returns the last value of type `B` returned by these successive
-applications `func`.
+applications of `func`. If `sequence_A` is empty, `func` is never applied and
+`fold` returns `initial_B` unchanged.
 
 Applicable sequence types are `(list A)`, `buff`, `string-ascii` and `string-utf8`,
 for which the corresponding element types are, respectively, `A`, `(buff 1)`, `(string-ascii 1)` and `(string-utf8 1)`.
@@ -1117,10 +1118,14 @@ The `func` argument must be a literal function name.
 (define-private (concat-string (a (string-ascii 20)) (b (string-ascii 20))) (unwrap-panic (as-max-len? (concat a b) u20)))
 (fold concat-string "cdef" "ab")   ;; Returns "fedcab"
 (fold concat-string (list "cd" "ef") "ab")   ;; Returns "efcdab"
+(fold concat-string "" "ab")   ;; Returns "ab"
 (define-private (concat-buff (a (buff 20)) (b (buff 20))) (unwrap-panic (as-max-len? (concat a b) u20)))
 (fold concat-buff 0x03040506 0x0102)   ;; Returns 0x060504030102
 "#,
-    notices: &[],
+    notices: &[DocNotice {
+        level: "info",
+        body: "As of Epoch 4.1, the result type of `fold` covers both `initial_B` and the return type of `func`. Earlier epochs used the return type of `func` alone.",
+    }],
 };
 
 const CONCAT_API: SpecialAPI = SpecialAPI {
@@ -2266,7 +2271,14 @@ definition (i.e., you cannot put a define statement in the middle of a function 
 
 Public functions _must_ return a ResponseType (using either `ok` or `err`). Any datamap modifications performed by
 a public function is aborted if the function returns an `err` type. Public functions may be invoked by other
-contracts via `contract-call?`.",
+contracts via `contract-call?`.
+
+Function names may not collide with a native function or keyword. Beginning in Epoch 4.1, one exception applies:
+a public function may take a reserved name (e.g. `slice?`) to implement a method of a trait listed in `impl-trait`,
+provided the name was still free in the trait's Clarity version. Inside the contract the native function or keyword
+keeps its meaning, so the implementation is reached through `contract-call?` and trait dispatch; a keyword-named one
+can also be applied directly or passed to `map`/`fold`/`filter`, since no native function has that name. A function
+under a reserved name that matches no such trait method fails with `NameAlreadyUsed`.",
     example: "
 (define-public (hello-world (input int))
   (begin (print (+ 2 input))
@@ -2333,7 +2345,9 @@ Read-only functions may return any type. However, read-only functions
 may not perform any datamap modifications, or call any functions which
 perform such modifications. This is enforced both during type checks and during
 the execution of the function. Public read-only functions may
-be invoked by other contracts via `contract-call?`.",
+be invoked by other contracts via `contract-call?`.
+
+The reserved-name exception described under `define-public` applies to read-only functions as well.",
     example: "
 (define-read-only (just-return-one-hundred)
   (* 10 10))",
@@ -2410,6 +2424,10 @@ and a trait value can be bound to a variable in a `let` or `match` expression. I
 and trait value with matching type allowed in Clarity 1, Clarity 2 also supports implicit casting from a
 compatible trait, meaning that a value of type `trait-a` may be passed to a parameter with type `trait-b` if `trait-a`
 includes all of the requirements of `trait-b` (and optionally additional functions).
+
+Beginning in Epoch 4.1, a trait method may not take a name reserved in the contract's Clarity version;
+`define-trait` rejects it with `NameAlreadyUsed`. Traits from versions where the name was still free stay
+implementable: see `define-public`.
 
 Like other kinds of definition statements, `define-trait` may only be used at the top level of a smart contract
 definition (i.e., you cannot put a define statement in the middle of a function body).
@@ -3089,10 +3107,14 @@ the active PoX contract to `unstake`, `unstake-sbtc`, `update-bond-registration`
 or `announce-l1-early-exit`. `with-pox` is not allowed outside of
 `restrict-assets?` or `as-contract?` contexts. These actions are all-or-nothing
 for a position, so this allowance takes no amount: its presence simply permits
-them, and its absence forbids them within the protected scope. An *attempt* is
-gated whether or not the underlying call succeeds, so the absence of `with-pox`
-catches even a failed attempt to touch the position. Locking STX is covered by
-`with-staking`, not `with-pox`.
+them, and its absence forbids them within the protected scope. A call to one
+of these functions counts as an attempt even when it returns `(err ...)`, so
+without `with-pox` the scope also rejects a failed attempt to touch the
+position. The record of an attempt is an effect like any other: if a public
+function between the PoX contract and the protected scope returns `(err ...)`,
+its effects are rolled back and the attempt is no longer visible to the scope.
+In both of these error cases, the position itself remains unchanged. Locking
+STX is covered by `with-staking`, not `with-pox`.
 ",
     example: r#"
 (restrict-assets? tx-sender

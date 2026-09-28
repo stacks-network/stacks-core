@@ -22,7 +22,9 @@ use stacks_common::types::StacksEpochId;
 
 use crate::chainstate::burn::db::sortdb::SortitionDB;
 use crate::chainstate::burn::BlockSnapshot;
-use crate::chainstate::nakamoto::{NakamotoBlock, NakamotoChainState};
+use crate::chainstate::nakamoto::NakamotoBlock;
+#[cfg(test)]
+use crate::chainstate::nakamoto::NakamotoChainState;
 use crate::chainstate::stacks::boot::RewardSet;
 use crate::chainstate::stacks::db::StacksChainState;
 use crate::net::api::gettenureinfo::RPCGetTenureInfo;
@@ -636,6 +638,7 @@ impl NakamotoUnconfirmedTenureDownloader {
     /// Return Ok(true) if we need it still
     /// Return Ok(false) if we already have it
     /// Return Err(..) if we encounter a DB error or if this function was called out of sequence.
+    #[cfg(test)]
     pub fn need_highest_complete_tenure(
         &self,
         chainstate: &StacksChainState,

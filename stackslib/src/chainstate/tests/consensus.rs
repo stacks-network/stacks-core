@@ -1019,7 +1019,8 @@ impl ContractConsensusTest<'_> {
     /// * `function_name` - Contract function to test
     /// * `function_args` - Arguments passed to `function_name` on every call
     /// * `clarity_versions` - List of Clarity versions to include in testing. For each epoch to test, at least one clarity version must be available.
-    /// * `setup_contracts` - Contracts that must be deployed before epoch-specific logic runs
+    /// * `setup_contracts` - Deployed before the deploy/call blocks: in the first epoch, or in the
+    ///   epoch pinned with `with_epoch` (which may predate the deploy epochs).
     ///
     /// # Panics
     ///
@@ -1065,12 +1066,6 @@ impl ContractConsensusTest<'_> {
             call_epochs.iter().all(|e| e >= min_deploy_epoch),
             "All call epochs must be >= the minimum deploy epoch"
         );
-        assert!(
-            setup_contracts
-                .iter()
-                .all(|c| c.deploy_epoch.is_none() || c.deploy_epoch.unwrap() >= *min_deploy_epoch),
-            "All setup contracts must have a deploy epoch >= the minimum deploy epoch"
-        );
 
         // Build epoch_blocks map based on deploy and call epochs
         let mut num_blocks_per_epoch: HashMap<StacksEpochId, u64> = HashMap::new();
@@ -1091,6 +1086,15 @@ impl ContractConsensusTest<'_> {
         for contract in setup_contracts {
             // Deploy the setup contracts in the first epoch if not specified.
             let deploy_epoch = contract.deploy_epoch.unwrap_or(default_setup_epoch);
+            if let Some(version) = contract.clarity_version {
+                // A pin where versioned deploys are rejected would fail the whole
+                // block at precheck; fail fast with the reason instead.
+                assert!(
+                    !deploy_epoch.rejects_versioned_smart_contracts(),
+                    "Setup contract {} pins {version} at {deploy_epoch}, which rejects versioned deploys",
+                    contract.name
+                );
+            }
             // Get the default Clarity version for the epoch of the contract if not specified.
             let clarity_version = contract.clarity_version.or_else(|| {
                 deploys_can_pin_version(deploy_epoch)

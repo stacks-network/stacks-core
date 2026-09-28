@@ -82,8 +82,9 @@ pub struct AssetMap {
     asset_map: HashMap<PrincipalData, HashMap<AssetIdentifier, Vec<Value>>>,
     /// Amount of STX stacked or delegated for stacking by principal.
     stacking_map: HashMap<PrincipalData, u128>,
-    /// Principals that attempted a position-altering PoX action, whether or not
-    /// the action succeeded, so post-conditions can gate failed attempts.
+    /// Principals that attempted a position-altering PoX action, including
+    /// calls that returned `(err ...)`, so post-conditions can gate failed
+    /// attempts.
     pox_action_set: HashSet<PrincipalData>,
 }
 

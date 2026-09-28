@@ -337,7 +337,7 @@ impl GlobalStateView {
         // here: a block we have merely pre-committed to carries no signature from us, so it is safe to
         // accept a competing tenure-start block in its place if it failed to reach consensus.
         let last_in_current_tenure = signer_db
-            .get_last_signed_block(&block.header.consensus_hash)
+            .get_last_signed_block(&block.header.consensus_hash, None)
             .map_err(|e| {
                 SignerChainstateError::from(ClientError::InvalidResponse(e.to_string()))
             })?;

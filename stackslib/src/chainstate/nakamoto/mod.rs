@@ -1263,21 +1263,6 @@ impl NakamotoBlockHeader {
 }
 
 impl NakamotoBlock {
-    /// Find all positionally-valid tenure changes in this block.
-    /// They must be the first transactions.
-    /// Return their indexes into self.txs
-    fn find_tenure_changes(&self) -> Vec<usize> {
-        let mut ret = vec![];
-        for (i, tx) in self.txs.iter().enumerate() {
-            if let TransactionPayload::TenureChange(..) = &tx.payload {
-                ret.push(i);
-            } else {
-                break;
-            }
-        }
-        ret
-    }
-
     pub fn is_first_mined(&self) -> bool {
         self.header.is_first_mined()
     }
@@ -1923,8 +1908,7 @@ impl NakamotoBlock {
     /// Verifies:
     /// * the header version matches the epoch. The header version is fixed per
     ///   epoch and is what gates the `problematic_txs` field in the block hash,
-    ///   so a block whose version doesn't match its epoch is rejected.  This
-    ///   includes the high bit, which used to flag shadow blocks.
+    ///   so a block whose version doesn't match its epoch is rejected.
     pub fn validate_header_static(&self, epoch_id: StacksEpochId) -> bool {
         let expected_version = NakamotoBlockHeader::expected_version_for_epoch(epoch_id);
         if self.header.version != expected_version {

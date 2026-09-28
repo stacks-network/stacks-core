@@ -857,9 +857,9 @@ fn minority_signers_capitulate_to_supermajority_consensus() {
                 continue;
             };
             if parent_tenure_last_block == &block_id_n_1 {
-                rejecting_signer_addrs.iter().find(|a| *a == address).map(|a| {
+                if let Some(a) = rejecting_signer_addrs.iter().find(|a| *a == address) {
                     found_updates_n_1.insert(a.clone());
-                });
+                }
             }
         }
         Ok(found_updates_n_1.len() == rejecting_signer_addrs.len())

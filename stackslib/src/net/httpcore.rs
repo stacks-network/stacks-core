@@ -915,7 +915,7 @@ impl StacksHttpRecvStream {
         // did we get a message?
         if self.state.is_eof() {
             // reset
-            let message_data = mem::replace(&mut self.data, vec![]);
+            let message_data = mem::take(&mut self.data);
             let total_consumed = self.total_consumed;
 
             self.state = HttpChunkedTransferReaderState::new(self.state.max_size);

@@ -787,7 +787,7 @@ impl<'a> TestChainstate<'a> {
         block.header.tx_merkle_root = compute_tx_merkle_root(&block.txs);
         block.header.state_index_root = self
             .compute_nakamoto_marf_root(block.header.timestamp, &block.txs)
-            .unwrap_or_else(|e| TrieHash::ZERO);
+            .unwrap_or(TrieHash::ZERO);
 
         self.miner.sign_nakamoto_block(&mut block);
         let signers = self.config.test_signers.clone().unwrap_or_default();

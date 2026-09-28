@@ -21,7 +21,7 @@ use clarity_types::types::SequenceSubtype;
 use rstest::rstest;
 #[cfg(test)]
 use rstest_reuse::{self, *};
-use stacks_common::types::StacksEpochId;
+use stacks_common::types::{StacksEpochId, StacksEpochRangeTestExt as _};
 
 use crate::vm::analysis::errors::{StaticCheckError, StaticCheckErrorKind, SyntaxBindingError};
 use crate::vm::analysis::tests::utils::{SingleAnalysisPass, run_single_analysis_pass};
@@ -3177,57 +3177,50 @@ fn test_combine_tuples() {
     mem_type_check("(merge { a: 1, b: 2, c: 3 } 5)").unwrap_err();
 }
 
-/// Static-analysis epoch gate for an oversized tuple `merge`.
+/// Static-analysis rejection of an oversized tuple `merge`.
 ///
 /// Two individually-valid `(buff 524288)`-typed fields merge into a tuple type whose value
-/// size exceeds `MAX_VALUE_SIZE`. The failure mode flips at the 4.0 boundary:
-/// - epoch < 4.0: `check_special_merge` does not size the merged tuple; the oversized type
-///   propagates and only fails when `new_response` (the `ok`) sizes it, surfacing as a
-///   block-invalidating `Unreachable` (wrapping an `InvariantViolation`).
-/// - epoch >= 4.0: `check_special_merge` rejects the oversized merge at the merge site with a
-///   clean `ValueTooLarge`.
+/// size exceeds `MAX_VALUE_SIZE`. `check_special_merge` rejects it at the merge site with a
+/// clean `ValueTooLarge`, and the error does not vary by epoch.
+/// The check lives in [`TupleTypeSignature::shallow_merge`].
 #[test]
-fn tuple_merge_oversized_analysis_gate_epoch40() {
+fn tuple_merge_oversized_analysis_rejected() {
     let snippet = "(define-private (f (x (buff 524288)))
         (ok (merge (tuple (a x)) (tuple (b x)))))";
 
-    // epoch < 4.0 (legacy): block-invalidating `Unreachable` from the later `.size()`.
-    let legacy_err =
-        mem_run_analysis(snippet, ClarityVersion::Clarity3, StacksEpochId::Epoch34).unwrap_err();
-    assert!(
-        matches!(*legacy_err.err, StaticCheckErrorKind::Unreachable(_)),
-        "expected a pre-4.0 Unreachable failure, got {:?}",
-        legacy_err.err
-    );
-
-    // epoch >= 4.0: clean `ValueTooLarge` at the merge site.
-    let gated_err =
-        mem_run_analysis(snippet, ClarityVersion::Clarity3, StacksEpochId::Epoch40).unwrap_err();
-    assert_eq!(*gated_err.err, StaticCheckErrorKind::ValueTooLarge);
+    for &epoch in (StacksEpochId::Epoch21..).as_slice() {
+        let version = ClarityVersion::default_for_epoch(epoch);
+        let err = mem_run_analysis(snippet, version, epoch).unwrap_err();
+        assert_eq!(
+            *err.err,
+            StaticCheckErrorKind::ValueTooLarge,
+            "expected ValueTooLarge at {epoch} ({version})"
+        );
+    }
 }
 
-/// Static-analysis epoch gate for an oversized tuple `merge` whose result is **never sized**.
+/// Static-analysis rejection of an oversized tuple `merge` whose result is **never sized**.
 ///
 /// The merge result is bound in a `let` but never used (the function returns `(ok true)`), so
-/// nothing computes its size during analysis. This is the case that pre-4.0 slipped past the
-/// static checker entirely — the contract type-checks and deploys, then becomes uncallable.
-/// The 4.0 gate rejects it at the merge site regardless of whether the result is ever used.
-/// - epoch < 4.0: analysis accepts the contract (no sizing occurs).
-/// - epoch >= 4.0: `check_special_merge` rejects it with `ValueTooLarge`.
+/// nothing computes its size during analysis. This is the case that historically slipped past
+/// the static checker entirely — the contract type-checked and deployed, then became
+/// uncallable. Because the check now lives in `shallow_merge`, it is rejected at the merge
+/// site whether or not the result is ever used, in every epoch.
 #[test]
-fn tuple_merge_unused_oversized_analysis_gate_epoch40() {
+fn tuple_merge_unused_oversized_analysis_rejected() {
     let snippet = "(define-private (f (x (buff 524288)))
         (let ((m (merge (tuple (a x)) (tuple (b x)))))
             (ok true)))";
 
-    // epoch < 4.0 (legacy): analysis accepts the unused oversized merge.
-    mem_run_analysis(snippet, ClarityVersion::Clarity3, StacksEpochId::Epoch34)
-        .expect("pre-4.0 analysis must accept an unused oversized merge");
-
-    // epoch >= 4.0: rejected at the merge site with `ValueTooLarge`, even though unused.
-    let gated_err =
-        mem_run_analysis(snippet, ClarityVersion::Clarity3, StacksEpochId::Epoch40).unwrap_err();
-    assert_eq!(*gated_err.err, StaticCheckErrorKind::ValueTooLarge);
+    for &epoch in (StacksEpochId::Epoch21..).as_slice() {
+        let version = ClarityVersion::default_for_epoch(epoch);
+        let err = mem_run_analysis(snippet, version, epoch).unwrap_err();
+        assert_eq!(
+            *err.err,
+            StaticCheckErrorKind::ValueTooLarge,
+            "expected ValueTooLarge at {epoch} ({version})"
+        );
+    }
 }
 
 #[test]
@@ -4813,4 +4806,48 @@ fn test_argument_visitor_retains_cost_on_type_error() {
         *extra_argument.result.unwrap_err().err,
         StaticCheckErrorKind::IncorrectArgumentCount(1, 1)
     ));
+}
+
+/// `fold` returns its initial value for an empty sequence, so from 4.1 the
+/// inferred type must admit it. Callbacks that return their accumulator, and
+/// native callbacks, infer the same type in both epochs.
+#[test]
+fn test_analysis_fold_result_admits_initial_value() {
+    let keep_none = "(define-private (keep-none (x uint) (acc (optional (string-ascii 5)))) none)";
+    let fold = format!("{keep_none} (fold keep-none (list u1) (some \"hello\"))");
+    let inferred = |epoch, version| mem_run_analysis(&fold, version, epoch).unwrap().0.unwrap();
+    assert_eq!(
+        inferred(StacksEpochId::Epoch40, ClarityVersion::Clarity6),
+        TypeSignature::new_option(TypeSignature::NoType).unwrap()
+    );
+    assert_eq!(
+        inferred(StacksEpochId::Epoch41, ClarityVersion::Clarity7),
+        TypeSignature::from_string(
+            "(optional (string-ascii 5))",
+            ClarityVersion::Clarity7,
+            StacksEpochId::Epoch41
+        )
+    );
+    let confused =
+        format!("{keep_none} (default-to u1 (fold keep-none (list u1) (some \"hello\")))");
+    mem_run_analysis(&confused, ClarityVersion::Clarity6, StacksEpochId::Epoch40).unwrap();
+    let error =
+        mem_run_analysis(&confused, ClarityVersion::Clarity7, StacksEpochId::Epoch41).unwrap_err();
+    assert!(
+        matches!(*error.err, StaticCheckErrorKind::DefaultTypesMustMatch(..)),
+        "{error:?}"
+    );
+    for source in [
+        "(fold + (list 1 2) 0)",
+        "(define-private (keep (x uint) (acc (optional (string-ascii 5)))) acc) \
+         (fold keep (list u1) (some \"hi\"))",
+    ] {
+        let legacy = mem_run_analysis(source, ClarityVersion::Clarity6, StacksEpochId::Epoch40)
+            .unwrap()
+            .0;
+        let strict = mem_run_analysis(source, ClarityVersion::Clarity7, StacksEpochId::Epoch41)
+            .unwrap()
+            .0;
+        assert_eq!(legacy, strict, "{source}");
+    }
 }
