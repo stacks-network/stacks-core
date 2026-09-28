@@ -16,7 +16,7 @@
 use std::collections::{HashMap, HashSet};
 #[cfg(any(test, feature = "testing"))]
 use std::sync::LazyLock;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use blockstack_lib::chainstate::burn::ConsensusHashExtensions;
 use blockstack_lib::util_lib::db::Error as DBError;
@@ -83,27 +83,70 @@ pub struct NewBurnBlock {
     pub consensus_hash: ConsensusHash,
 }
 
+/// Delay before the first retry of a pending update that failed on a node error
+const PENDING_RETRY_INITIAL_DELAY: Duration = Duration::from_secs(1);
+/// Upper bound on the delay between retries of a pending update that keeps failing
+const PENDING_RETRY_MAX_DELAY: Duration = Duration::from_secs(16);
+
+/// Exponential backoff for retrying a pending update after a node error.
+///
+/// Waiting for the node to catch up to an expected burn block is cheap and time-sensitive, so
+/// that case is retried on every pass. Any other failure means the node is erroring, and
+/// retrying on every pass would block the event loop on RPC retries while it stays unhealthy.
+#[derive(Debug, Default)]
+pub struct PendingRetryBackoff {
+    /// Number of consecutive failed retries
+    consecutive_failures: u32,
+    /// The earliest time the next retry may run
+    retry_at: Option<Instant>,
+}
+
+impl PendingRetryBackoff {
+    /// Whether a retry may run at `now`
+    pub fn is_ready(&self, now: Instant) -> bool {
+        self.retry_at.is_none_or(|retry_at| now >= retry_at)
+    }
+
+    /// Record a failed retry at `now`, pushing the next retry further out
+    pub fn record_failure(&mut self, now: Instant) {
+        let delay = PENDING_RETRY_INITIAL_DELAY
+            .saturating_mul(2u32.saturating_pow(self.consecutive_failures))
+            .min(PENDING_RETRY_MAX_DELAY);
+        self.consecutive_failures = self.consecutive_failures.saturating_add(1);
+        self.retry_at = Some(now + delay);
+    }
+
+    /// Allow the next retry to run immediately
+    pub fn reset(&mut self) {
+        *self = Self::default();
+    }
+}
+
 impl LocalStateMachine {
     /// Initialize a local state machine by querying the local stacks-node
-    ///  and signerdb for the current sortition information
+    ///  and signerdb for the current sortition information.
+    ///
+    /// If the node cannot be queried, the machine is returned `Pending` rather than
+    /// `Uninitialized`, so that `handle_pending_update` retries the initialization.
     pub fn new(
         db: &mut SignerDb,
         client: &StacksClient,
         proposal_config: &ProposalEvalConfig,
         eval: &GlobalStateEvaluator,
         active_signer_protocol_version: u64,
-    ) -> Result<Self, SignerChainstateError> {
+    ) -> Self {
         let mut instance = Self::Uninitialized;
-        instance.bitcoin_block_arrival(
+        if let Err(e) = instance.bitcoin_block_arrival(
             db,
             client,
             proposal_config,
             None,
             eval,
             active_signer_protocol_version,
-        )?;
-
-        Ok(instance)
+        ) {
+            warn!("Signer State: Failed to initialize local state machine; will retry"; "err" => ?e);
+        }
+        instance
     }
 
     /// Convert the local state machine into update message with the specificed supported protocol version
@@ -199,7 +242,10 @@ impl LocalStateMachine {
         }
     }
 
-    /// If this local state machine has pending updates, process them
+    /// If this local state machine has pending updates, process them.
+    ///
+    /// A retry that failed on a node error is throttled by `backoff`; while it is not yet due,
+    /// this returns `Ok(())` without contacting the node.
     pub fn handle_pending_update(
         &mut self,
         db: &mut SignerDb,
@@ -207,11 +253,16 @@ impl LocalStateMachine {
         proposal_config: &ProposalEvalConfig,
         eval: &GlobalStateEvaluator,
         local_signer_protocol_version: u64,
+        backoff: &mut PendingRetryBackoff,
     ) -> Result<(), SignerChainstateError> {
         let LocalStateMachine::Pending { update, .. } = self else {
+            backoff.reset();
             return self.check_miner_inactivity(db, client, proposal_config, eval);
         };
-        match update.clone() {
+        if !backoff.is_ready(Instant::now()) {
+            return Ok(());
+        }
+        let result = match update.clone() {
             StateMachineUpdate::BurnBlock(expected_burn_height) => self.bitcoin_block_arrival(
                 db,
                 client,
@@ -220,7 +271,12 @@ impl LocalStateMachine {
                 eval,
                 local_signer_protocol_version,
             ),
+        };
+        match result {
+            Ok(()) | Err(SignerChainstateError::NodeBehindBurnBlock(_)) => backoff.reset(),
+            Err(_) => backoff.record_failure(Instant::now()),
         }
+        result
     }
 
     /// Check and update our local view of the current miner based on it's tenure's
@@ -479,8 +535,12 @@ impl LocalStateMachine {
         eval: &GlobalStateEvaluator,
         local_signer_protocol_version: u64,
     ) -> Result<(), SignerChainstateError> {
-        // set self to uninitialized so that if this function errors,
-        //  self is left as uninitialized.
+        // Take ownership of the prior state while we rebuild it. If anything below fails, we
+        // must NOT be left `Uninitialized`: nothing re-runs this function for an uninitialized
+        // machine until the *next* burn block event, so a transient node error (the node is
+        // busy processing the very sortition we are reacting to) would silently drop this
+        // signer out of the global state for a whole Bitcoin block. Instead, every error path
+        // parks the machine as `Pending` so `handle_pending_update` retries on the next pass.
         let prior_state = std::mem::replace(self, Self::Uninitialized);
         let prior_state_machine = match prior_state.clone() {
             // if the local state machine was uninitialized, just initialize it
@@ -508,6 +568,64 @@ impl LocalStateMachine {
             }
         };
 
+        match Self::compute_bitcoin_block_arrival(
+            db,
+            client,
+            proposal_config,
+            expected_burn_block.as_ref(),
+            eval,
+            &prior_state_machine,
+        ) {
+            Ok(state_machine) => {
+                *self = Self::Initialized(state_machine);
+            }
+            Err(e) => {
+                // Park the machine so the next pass retries the same arrival instead of
+                // waiting for another burn block. Without an expected burn block (startup),
+                // retry against whatever the prior state knew; a placeholder prior (height
+                // 0, empty hash) never makes the retry wait. A node that is merely behind
+                // always has an expected burn block.
+                let expected = expected_burn_block.unwrap_or_else(|| NewBurnBlock {
+                    burn_block_height: prior_state_machine.burn_block_height,
+                    consensus_hash: prior_state_machine.burn_block.clone(),
+                });
+                if !matches!(e, SignerChainstateError::NodeBehindBurnBlock(_)) {
+                    warn!(
+                        "Signer State: Failed to process bitcoin block arrival; will retry";
+                        "expected_burn_block_height" => expected.burn_block_height,
+                        "expected_consensus_hash" => %expected.consensus_hash,
+                        "err" => ?e,
+                    );
+                }
+                *self = Self::Pending {
+                    update: StateMachineUpdate::BurnBlock(expected),
+                    prior: prior_state_machine,
+                };
+                return Err(e);
+            }
+        }
+
+        if prior_state != *self {
+            crate::monitoring::actions::increment_signer_agreement_state_change_reason(
+                crate::monitoring::SignerAgreementStateChangeReason::BurnBlockArrival,
+            );
+        }
+
+        Ok(())
+    }
+
+    /// The fallible part of [`Self::bitcoin_block_arrival`].
+    ///
+    /// Returns the rebuilt state machine, or [`SignerChainstateError::NodeBehindBurnBlock`] when
+    /// the node has not yet processed `expected_burn_block`.
+    fn compute_bitcoin_block_arrival(
+        db: &mut SignerDb,
+        client: &StacksClient,
+        proposal_config: &ProposalEvalConfig,
+        expected_burn_block: Option<&NewBurnBlock>,
+        eval: &GlobalStateEvaluator,
+        prior_state_machine: &SignerStateMachine,
+    ) -> Result<SignerStateMachine, SignerChainstateError> {
         let peer_info = client.get_peer_info()?;
         let next_burn_block_height = peer_info.burn_block_height;
         let next_burn_block_hash = peer_info.pox_consensus;
@@ -528,11 +646,7 @@ impl LocalStateMachine {
                     next_burn_block_height,
                     next_burn_block_hash,
                 );
-                *self = Self::Pending {
-                    update: StateMachineUpdate::BurnBlock(expected_burn_block),
-                    prior: prior_state_machine,
-                };
-                return Err(ClientError::InvalidResponse(err_msg).into());
+                return Err(SignerChainstateError::NodeBehindBurnBlock(err_msg));
             }
         }
 
@@ -581,22 +695,12 @@ impl LocalStateMachine {
             }
         };
 
-        // Note: we do this at the end so that the transform isn't fallible.
-        //  we should come up with a better scheme here.
-        *self = Self::Initialized(SignerStateMachine {
+        Ok(SignerStateMachine {
             burn_block: next_burn_block_hash,
             burn_block_height: next_burn_block_height,
             current_miner: miner_state,
             active_signer_protocol_version: prior_state_machine.active_signer_protocol_version,
-        });
-
-        if prior_state != *self {
-            crate::monitoring::actions::increment_signer_agreement_state_change_reason(
-                crate::monitoring::SignerAgreementStateChangeReason::BurnBlockArrival,
-            );
-        }
-
-        Ok(())
+        })
     }
 
     /// Check if our parent tenure last block does not match the node and has timed out.
