@@ -52,3 +52,4 @@ just that workflow:
 | -------- | -------- |
 | `docker-image.yml` | `ENABLE_CI_DOCKER_IMAGE` |
 | `tests-proptest-nightly.yml` | `ENABLE_CI_PROPTEST_NIGHTLY` |
+| `tests-flaky-scan-nightly.yml` | `ENABLE_CI_FLAKY_SCAN_NIGHTLY` |

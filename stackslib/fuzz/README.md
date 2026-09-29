@@ -4,7 +4,9 @@ This directory contains fuzz targets for the stackslib package using [libfuzzer-
 
 ## Requirements
 
-- Rust nightly toolchain
+- Rust nightly toolchain, required by `cargo fuzz` for sanitizer
+  instrumentation (the default `-s address`). The fuzz targets themselves build
+  on stable, so `cargo fuzz run -s none <target_name>` also works on stable.
 - `cargo-fuzz` (installed automatically by the coverage script)
 - `llvm-tools` component (installed automatically by the coverage script)
 
