@@ -697,6 +697,9 @@ impl Signer {
                     }),
                     &self.global_state_evaluator, active_signer_protocol_version)
                     .unwrap_or_else(|e| error!("{self}: failed to update local state machine for latest bitcoin block arrival"; "err" => ?e));
+                // This arrival is a fresh attempt, so if it failed, its first retry must not
+                // wait out a backoff built up by failures of an earlier arrival.
+                self.pending_retry_backoff.reset();
                 *sortition_state = None;
             }
             SignerEvent::NewBlock {
