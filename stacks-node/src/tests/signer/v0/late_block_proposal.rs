@@ -17,7 +17,6 @@ use std::time::Duration;
 
 use clarity::vm::types::PrincipalData;
 use libsigner::v0::messages::{BlockResponse, SignerMessage};
-use pinny::tag;
 use stacks::core::test_util::{make_stacks_transfer_serialized, to_addr};
 use stacks::types::chainstate::{StacksAddress, StacksPublicKey};
 use stacks::types::PublicKey;
@@ -34,7 +33,6 @@ use crate::tests::signer::v0::{
     get_stackerdb_signer_messages, wait_for_block_proposal, wait_for_block_pushed_and_tip,
 };
 
-#[tag(bitcoind)]
 #[test]
 #[ignore]
 /// Test that a signer that receives a block proposal for a block that they have a block pushed event
