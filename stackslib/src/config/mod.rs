@@ -3246,7 +3246,9 @@ pub struct MinerConfig {
     /// tenure. This gives the new winner of the most recent sortition a grace period
     /// to produce their first block. Also used in scenarios with empty sortitions
     /// to give the winner of the *last valid* sortition time to produce a block
-    /// before the current miner attempts an extension.
+    /// before the current miner attempts an extension, and, when this node won that
+    /// sortition and had already proposed its tenure-start block, to give the signers
+    /// time to sign and push that block before the node re-issues it.
     /// ---
     /// @default: [`DEFAULT_TENURE_EXTEND_WAIT_MS`]
     /// @units: milliseconds

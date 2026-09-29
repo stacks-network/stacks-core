@@ -681,11 +681,27 @@ impl BlockMinerThread {
         // Late block tenures are initiated only to issue the BlockFound
         //  tenure change tx (because they can be immediately extended to
         //  the next burn view). This checks whether or not we're in such a
-        //  tenure and have produced a block already. If so, it exits the
-        //  mining thread to allow the tenure extension thread to take over.
-        if self.last_block_mined.is_some() && self.reason.is_late_block() {
-            info!("Miner: finished mining a late tenure");
-            return Err(NakamotoNodeError::StacksTipChanged);
+        //  tenure and the tenure has already started: either this thread
+        //  produced a block, or a tenure-start block proposed earlier (e.g.
+        //  by the miner thread this one replaced) was signed and pushed by
+        //  the signers in the meantime. Either way this thread's work is
+        //  done, so exit and let the tenure extension thread take over rather
+        //  than proposing a sibling of a tenure-start block that has landed.
+        if self.reason.is_late_block() {
+            let tenure_started = self.last_block_mined.is_some()
+                || self
+                    .find_highest_known_block_in_my_tenure(sortdb, &chain_state)
+                    .unwrap_or_else(|e| {
+                        warn!("Miner: failed to look up the late tenure's highest block, will try again: {e:?}");
+                        None
+                    })
+                    .is_some();
+            if tenure_started {
+                info!("Miner: finished mining a late tenure";
+                    "tenure_id" => %self.burn_election_block.consensus_hash,
+                );
+                return Err(NakamotoNodeError::StacksTipChanged);
+            }
         }
         // If we're mock mining, we may not have processed the block that the
         // actual tenure winner committed to yet. So, before attempting to
@@ -875,6 +891,15 @@ impl BlockMinerThread {
         mut new_block: NakamotoBlock,
     ) -> Result<bool, NakamotoNodeError> {
         Self::fault_injection_block_proposal_stall(&new_block);
+
+        // Tell the relayer that a tenure-start proposal is going out
+        if new_block
+            .get_tenure_change_tx_payload()
+            .is_some_and(|payload| payload.cause.is_eq(&TenureChangeCause::BlockFound))
+        {
+            self.globals
+                .set_last_proposed_tenure_start(new_block.header.consensus_hash.clone());
+        }
 
         let signer_signature = match self.propose_block(
             coordinator,

@@ -358,6 +358,11 @@ pub struct TenureExtendTime {
     timeout: Duration,
     /// The reason for tenure-extending
     reason: TenureExtendReason,
+    /// Set when a tenure-start (`BlockFound`) block for the last-won sortition had
+    /// already been proposed when this timer was armed. If no block for that tenure has
+    /// been processed by this deadline, the proposal is presumed lost and the relayer
+    /// re-issues the `BlockFound` as a late tenure.
+    block_found_deadline: Option<Instant>,
 }
 
 impl TenureExtendTime {
@@ -367,6 +372,7 @@ impl TenureExtendTime {
             time: Instant::now(),
             timeout,
             reason: TenureExtendReason::UnresponsiveWinner,
+            block_found_deadline: None,
         }
     }
 
@@ -376,7 +382,28 @@ impl TenureExtendTime {
             time: Instant::now(),
             timeout: Duration::from_millis(0),
             reason,
+            block_found_deadline: None,
         }
+    }
+
+    /// Create a new `TenureExtendTime` for an empty sortition that arrived while our
+    /// tenure-start block for the last-won sortition was proposed but not yet processed.
+    /// The relayer extends as soon as that block lands, and re-issues the `BlockFound` if
+    /// nothing has landed after `block_found_wait`.
+    pub fn block_found_in_flight(block_found_wait: Duration) -> Self {
+        let now = Instant::now();
+        Self {
+            time: now,
+            timeout: Duration::from_millis(0),
+            reason: TenureExtendReason::EmptySortition,
+            block_found_deadline: Some(now + block_found_wait),
+        }
+    }
+
+    /// The deadline by which an in-flight tenure-start block must land before the
+    /// relayer re-issues the `BlockFound`, if one was in flight.
+    pub fn block_found_deadline(&self) -> Option<Instant> {
+        self.block_found_deadline
     }
 
     /// Should we attempt to tenure-extend?
@@ -834,6 +861,22 @@ impl RelayerThread {
             );
 
             if Self::need_block_found(&canonical_stacks_snapshot, &last_winning_snapshot) {
+                if self.block_found_in_flight(&last_winning_snapshot) {
+                    // Our tenure-start block for this sortition has been proposed but not
+                    // processed yet. The signers may well still sign and push it, and a
+                    // second BlockFound would only be a sibling of it that they will refuse
+                    // to sign. Wait for it to land and then extend; only if it never lands
+                    // do we re-issue the BlockFound (see `check_tenure_timers`).
+                    info!(
+                        "Relayer: BlockFound for the last winning sortition is already in flight. Will wait for it to land before extending.";
+                        "sortition_ch" => %last_winning_snapshot.consensus_hash,
+                        "block_found_wait_timeout_ms" => self.config.miner.tenure_extend_wait_timeout.as_millis(),
+                    );
+                    self.tenure_extend_time = Some(TenureExtendTime::block_found_in_flight(
+                        self.config.miner.tenure_extend_wait_timeout,
+                    ));
+                    return None;
+                }
                 info!(
                     "Relayer: will submit late BlockFound for {}",
                     &last_winning_snapshot.consensus_hash
@@ -886,6 +929,20 @@ impl RelayerThread {
 
         info!("Relayer: No sortition, and we did not produce the last Stacks tip. Will not mine.");
         return None;
+    }
+
+    /// Has this node already proposed a tenure-start block for `last_winning_snapshot`'s
+    /// tenure? If so, the signers may still sign and push it even though the miner thread
+    /// that proposed it has since exited, so a new `BlockFound` must not be issued yet.
+    ///
+    /// Mock miners' proposals never land, so they always report `false` and keep issuing
+    /// late `BlockFound` tenures immediately.
+    fn block_found_in_flight(&self, last_winning_snapshot: &BlockSnapshot) -> bool {
+        if self.config.get_node_config(false).mock_mining {
+            return false;
+        }
+        self.globals.get_last_proposed_tenure_start().as_ref()
+            == Some(&last_winning_snapshot.consensus_hash)
     }
 
     /// Determine if we the current tenure winner needs to issue a BlockFound.
@@ -2046,8 +2103,37 @@ impl RelayerThread {
                 if won_last_winning_snapshot
                     && Self::need_block_found(&canonical_stacks_snapshot, &last_winning_snapshot)
                 {
-                    info!("Will not tenure extend yet -- need to issue a BlockFound first");
-                    // We may manage to extend later, so don't set the timer to None.
+                    let Some(deadline) = tenure_extend_time.block_found_deadline() else {
+                        // A late BlockFound miner thread is already working on it.
+                        info!("Will not tenure extend yet -- need to issue a BlockFound first");
+                        // We may manage to extend later, so don't set the timer to None.
+                        return;
+                    };
+                    if Instant::now() < deadline {
+                        debug!("Will not tenure extend yet -- waiting for the in-flight BlockFound to land";
+                            "sortition_ch" => %last_winning_snapshot.consensus_hash,
+                        );
+                        return;
+                    }
+                    // The in-flight tenure-start block never landed, so it is presumed lost.
+                    // Issue the late BlockFound we deferred at the sortition, and extend once
+                    // it lands.
+                    info!(
+                        "Relayer: in-flight BlockFound did not land in time. Will submit late BlockFound.";
+                        "sortition_ch" => %last_winning_snapshot.consensus_hash,
+                    );
+                    self.tenure_extend_time = Some(TenureExtendTime::immediate(
+                        TenureExtendReason::EmptySortition,
+                    ));
+                    if let Err(e) = self.start_new_tenure(
+                        StacksBlockId(last_winning_snapshot.winning_stacks_block_hash.clone().0),
+                        last_winning_snapshot.clone(),
+                        last_winning_snapshot.clone(),
+                        MinerReason::BlockFound { late: true },
+                        &burn_tip.consensus_hash,
+                    ) {
+                        error!("Relayer: Failed to start late BlockFound tenure: {e:?}");
+                    }
                     return;
                 }
             }
