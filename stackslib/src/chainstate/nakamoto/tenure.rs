@@ -732,17 +732,8 @@ impl NakamotoChainState {
                 return Ok(None);
             }
 
-            // is the parent a shadow block?
-            // Only possible if the parent is also a nakamoto block
-            let is_parent_shadow_block = NakamotoChainState::get_nakamoto_block_version(
-                headers_conn.sqlite(),
-                &block_header.parent_block_id,
-            )?
-            .map(NakamotoBlockHeader::is_shadow_block_version)
-            .unwrap_or(false);
-
-            if !is_parent_shadow_block && !prev_sn.sortition {
-                // parent wasn't a shadow block (we expect a sortition), but this wasn't a sortition-induced tenure change
+            if !prev_sn.sortition {
+                // the previous tenure must have been chosen by a sortition
                 warn!("Invalid tenure-change: no block found";
                       "prev_tenure_consensus_hash" => %tenure_payload.prev_tenure_consensus_hash
                 );
@@ -750,8 +741,8 @@ impl NakamotoChainState {
             }
         }
 
-        // if this isn't a shadow block, then the tenure must correspond to sortitions
-        if !block_header.is_shadow_block() && !tenure_sn.sortition {
+        // the tenure must correspond to a sortition
+        if !tenure_sn.sortition {
             warn!("Invalid tenure-change: no block found";
                   "tenure_consensus_hash" => %tenure_payload.tenure_consensus_hash
             );

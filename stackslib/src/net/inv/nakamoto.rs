@@ -136,27 +136,6 @@ impl InvGenerator {
         }
     }
 
-    #[cfg(test)]
-    pub fn new_no_cache() -> Self {
-        Self {
-            processed_tenures: HashMap::new(),
-            sortitions: HashMap::new(),
-            tip_ancestor_search_depth: TIP_ANCESTOR_SEARCH_DEPTH,
-            cache_misses: 0,
-            no_cache: true,
-        }
-    }
-
-    pub fn with_tip_ancestor_search_depth(mut self, depth: u64) -> Self {
-        self.tip_ancestor_search_depth = depth;
-        self
-    }
-
-    #[cfg(test)]
-    pub(crate) fn cache_misses(&self) -> u128 {
-        self.cache_misses
-    }
-
     /// Find the highest ancestor of `tip_block_id` that has an entry in `processed_tenures`.
     /// Search up to `self.tip_ancestor_search_depth` ancestors back.
     ///
@@ -216,14 +195,6 @@ impl InvGenerator {
 
     #[cfg(not(test))]
     fn test_clear_cache(&mut self) {}
-
-    /// Clear the cache (test only)
-    #[cfg(test)]
-    fn test_clear_cache(&mut self) {
-        if self.no_cache {
-            self.processed_tenures.clear();
-        }
-    }
 
     /// Get a processed tenure. If it's not cached, then load it from disk.
     ///
@@ -459,6 +430,36 @@ impl InvGenerator {
             &tip.consensus_hash
         );
         Ok(tenure_status)
+    }
+}
+
+/// Test-only helpers for [`InvGenerator`].
+#[cfg(test)]
+impl InvGenerator {
+    pub fn new_no_cache() -> Self {
+        Self {
+            processed_tenures: HashMap::new(),
+            sortitions: HashMap::new(),
+            tip_ancestor_search_depth: TIP_ANCESTOR_SEARCH_DEPTH,
+            cache_misses: 0,
+            no_cache: true,
+        }
+    }
+
+    pub fn with_tip_ancestor_search_depth(mut self, depth: u64) -> Self {
+        self.tip_ancestor_search_depth = depth;
+        self
+    }
+
+    pub(crate) fn cache_misses(&self) -> u128 {
+        self.cache_misses
+    }
+
+    /// Clear the cache (test only)
+    fn test_clear_cache(&mut self) {
+        if self.no_cache {
+            self.processed_tenures.clear();
+        }
     }
 }
 

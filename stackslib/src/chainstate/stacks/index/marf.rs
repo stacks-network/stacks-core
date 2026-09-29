@@ -18,11 +18,11 @@ use std::ops::DerefMut;
 use std::sync::LazyLock;
 use std::time::Instant;
 
-#[cfg(any(test, feature = "testing"))]
-use clarity::util::tests::TestFlag;
 use rusqlite::{Connection, Transaction};
 use stacks_common::types::chainstate::{TrieHash, TRIEHASH_ENCODED_SIZE};
 use stacks_common::util::hash::Sha512Trunc256Sum;
+#[cfg(any(test, feature = "testing"))]
+use stacks_common::util::tests::TestFlag;
 
 pub use super::squash::SquashStats;
 use super::storage::ReopenedTrieStorageConnection;
@@ -39,7 +39,6 @@ use crate::chainstate::stacks::index::trie::Trie;
 use crate::chainstate::stacks::index::{
     trie_sql, Error, MARFValue, MarfTrieId, TrieLeaf, TrieMerkleProof,
 };
-use crate::util_lib::db::Error as db_error;
 
 pub const BLOCK_HASH_TO_HEIGHT_MAPPING_KEY: &str = "__MARF_BLOCK_HASH_TO_HEIGHT";
 pub const BLOCK_HEIGHT_TO_HASH_MAPPING_KEY: &str = "__MARF_BLOCK_HEIGHT_TO_HASH";
@@ -403,7 +402,7 @@ impl<'a, T: MarfTrieId> MarfTransaction<'a, T> {
         }
     }
 
-    #[cfg(test)]
+    #[cfg(any(test, feature = "testing"))]
     fn commit_tx(self) {
         self.storage.commit_tx()
     }
@@ -719,7 +718,7 @@ impl<T: MarfTrieId> MARF<T> {
         }
     }
 
-    #[cfg(test)]
+    #[cfg(any(test, feature = "testing"))]
     pub fn begin(&mut self, chain_tip: &T, next_chain_tip: &T) -> Result<(), Error> {
         let mut tx = self.begin_tx()?;
         tx.begin(chain_tip, next_chain_tip)?;
@@ -1736,7 +1735,7 @@ impl<T: MarfTrieId> MARF<T> {
     }
 
     /// Access internal storage
-    #[cfg(test)]
+    #[cfg(any(test, feature = "testing"))]
     pub fn borrow_storage_backend(&mut self) -> TrieStorageConnection<'_, T> {
         self.storage.connection()
     }
@@ -1747,7 +1746,7 @@ impl<T: MarfTrieId> MARF<T> {
     }
 
     /// Make a raw transaction to the underlying storage
-    pub fn storage_tx(&mut self) -> Result<Transaction<'_>, db_error> {
+    pub fn storage_tx(&mut self) -> Result<Transaction<'_>, rusqlite::Error> {
         self.storage.sqlite_tx()
     }
 
@@ -1815,7 +1814,7 @@ impl<T: MarfTrieId> MARF<T> {
     ///
     /// Follows backpointers to resolve nodes living in earlier blocks, so the
     /// returned set represents the complete state visible at `block_hash`.
-    pub(crate) fn for_each_leaf<F>(
+    pub fn for_each_leaf<F>(
         storage: &mut TrieStorageConnection<T>,
         block_hash: &T,
         mut handle_leaf: F,

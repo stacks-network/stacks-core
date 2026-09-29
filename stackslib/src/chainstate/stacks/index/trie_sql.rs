@@ -18,6 +18,9 @@ use std::io::Write;
 
 use rusqlite::blob::Blob;
 use rusqlite::{params, Connection, DatabaseName, OptionalExtension, Transaction};
+use stacks_common::types::chainstate::{TrieHash, TRIEHASH_ENCODED_SIZE};
+use stacks_common::types::sqlite::NO_PARAMS;
+use stacks_common::util::db::{table_exists, tx_begin_immediate};
 
 #[cfg(test)]
 use crate::chainstate::stacks::index::bits::read_hash_bytes;
@@ -28,9 +31,57 @@ use crate::chainstate::stacks::index::node::{TrieNodeType, TriePtr};
 #[cfg(test)]
 use crate::chainstate::stacks::index::storage::TrieStorageConnection;
 use crate::chainstate::stacks::index::{trie_sql, Error, MarfDataEntry, MarfTrieId};
-use crate::types::chainstate::{TrieHash, TRIEHASH_ENCODED_SIZE};
-use crate::types::sqlite::NO_PARAMS;
-use crate::util_lib::db::{query_count, query_row, table_exists, tx_begin_immediate, u64_to_sql};
+
+/// The MARF only ever reads a handful of row shapes, so it implements them directly against
+/// `rusqlite` rather than depending on the generic `FromRow`/`query_row` machinery that a larger
+/// crate shares across many domain types. Each helper reproduces what the corresponding
+/// `FromRow` impl did, including rejecting negative values rather than wrapping them into a
+/// nonsense `u64`, and prepares statements through the connection's cache as before.
+fn u64_to_sql(x: u64) -> Result<i64, Error> {
+    i64::try_from(x)
+        .map_err(|_| Error::CorruptionError(format!("Value {x} does not fit in a SQL INTEGER")))
+}
+
+/// Convert a stored column value to `u64`, rejecting a negative one as corruption.
+fn to_u64(x: i64, what: &str) -> Result<u64, Error> {
+    u64::try_from(x).map_err(|_| Error::CorruptionError(format!("{what} is negative ({x})")))
+}
+
+/// Query the single row holding a `(u64, u64)` pair (the offset/length columns).
+fn query_offset_length(
+    conn: &Connection,
+    sql_query: &str,
+    sql_args: impl rusqlite::Params,
+) -> Result<Option<(u64, u64)>, Error> {
+    let mut stmt = conn.prepare_cached(sql_query)?;
+    let row: Option<(i64, i64)> = stmt
+        .query_row(sql_args, |row| Ok((row.get(0)?, row.get(1)?)))
+        .optional()?;
+    row.map(|(offset, length)| Ok((to_u64(offset, "offset")?, to_u64(length, "length")?)))
+        .transpose()
+}
+
+/// Query the single row holding one `u64` column.
+fn query_u64(
+    conn: &Connection,
+    sql_query: &str,
+    sql_args: impl rusqlite::Params,
+) -> Result<Option<u64>, Error> {
+    let mut stmt = conn.prepare_cached(sql_query)?;
+    let value: Option<i64> = stmt.query_row(sql_args, |row| row.get(0)).optional()?;
+    value.map(|v| to_u64(v, "value")).transpose()
+}
+
+/// Query a single `i64` column.
+fn query_i64(
+    conn: &Connection,
+    sql_query: &str,
+    sql_args: impl rusqlite::Params,
+) -> Result<i64, Error> {
+    let mut stmt = conn.prepare_cached(sql_query)?;
+    stmt.query_row(sql_args, |row| row.get(0))
+        .map_err(Error::from)
+}
 
 static SQL_MARF_DATA_TABLE: &str = "
 CREATE TABLE IF NOT EXISTS marf_data (
@@ -357,7 +408,7 @@ pub fn bulk_read_squashed_blocks<T: MarfTrieId>(
 /// would. Lets test fixtures outside the MARF module populate squash
 /// metadata without writing MARF-internal SQL. The table itself is created
 /// by the schema-3 migration.
-#[cfg(test)]
+#[cfg(any(test, feature = "testing"))]
 pub fn test_insert_squashed_block<T: MarfTrieId>(
     conn: &Connection,
     height: u32,
@@ -378,7 +429,7 @@ pub fn test_insert_squashed_block<T: MarfTrieId>(
 
 /// Test-only: append a `marf_squashed_blocks` row one above the current
 /// maximum height.
-#[cfg(test)]
+#[cfg(any(test, feature = "testing"))]
 pub fn test_append_squashed_block<T: MarfTrieId>(
     conn: &Connection,
     block_hash: &T,
@@ -867,7 +918,7 @@ pub fn get_external_trie_offset_length(
 ) -> Result<(u64, u64), Error> {
     let qry = "SELECT external_offset, external_length FROM marf_data WHERE block_id = ?1";
     let args = params![block_id];
-    let (offset, length): (u64, u64) = query_row(conn, qry, args)?.ok_or(Error::NotFoundError)?;
+    let (offset, length) = query_offset_length(conn, qry, args)?.ok_or(Error::NotFoundError)?;
     Ok((offset, length))
 }
 
@@ -878,7 +929,7 @@ pub fn get_external_trie_offset_length_by_bhh<T: MarfTrieId>(
 ) -> Result<(u64, u64), Error> {
     let qry = "SELECT external_offset, external_length FROM marf_data WHERE block_hash = ?1";
     let args = params![bhh];
-    let (offset, length): (u64, u64) = query_row(conn, qry, args)?.ok_or(Error::NotFoundError)?;
+    let (offset, length) = query_offset_length(conn, qry, args)?.ok_or(Error::NotFoundError)?;
     Ok((offset, length))
 }
 
@@ -886,7 +937,7 @@ pub fn get_external_trie_offset_length_by_bhh<T: MarfTrieId>(
 /// which the next trie will be appended.
 pub fn get_external_blobs_length(conn: &Connection) -> Result<u64, Error> {
     let qry = "SELECT (external_offset + external_length) AS blobs_length FROM marf_data ORDER BY external_offset DESC LIMIT 1";
-    let max_len: u64 = query_row(conn, qry, NO_PARAMS)?.unwrap_or(0);
+    let max_len: u64 = query_u64(conn, qry, NO_PARAMS)?.unwrap_or(0);
     Ok(max_len)
 }
 
@@ -900,12 +951,12 @@ pub fn detect_partial_migration(conn: &Connection) -> Result<bool, Error> {
         return Ok(false);
     }
 
-    let num_migrated = query_count(
+    let num_migrated = query_i64(
         conn,
         "SELECT COUNT(*) FROM marf_data WHERE external_offset = 0 AND external_length = 0 AND unconfirmed = 0",
         NO_PARAMS,
     )?;
-    let num_not_migrated = query_count(
+    let num_not_migrated = query_i64(
         conn,
         "SELECT COUNT(*) FROM marf_data WHERE external_offset != 0 AND external_length != 0 AND unconfirmed = 0",
         NO_PARAMS,

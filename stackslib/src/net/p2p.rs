@@ -1349,22 +1349,6 @@ impl PeerNetwork {
         ret
     }
 
-    /// Count how many connections to a given IP address we have
-    pub fn count_ip_connections(
-        ipaddr: &SocketAddr,
-        sockets: &HashMap<usize, mio_net::TcpStream>,
-    ) -> u64 {
-        let mut ret = 0;
-        for (_, socket) in sockets.iter() {
-            if let Ok(addr) = socket.peer_addr() {
-                if addr.ip() == ipaddr.ip() {
-                    ret += 1;
-                }
-            };
-        }
-        ret
-    }
-
     /// Is the network connected to always-allowed peers?
     /// Returns (count, total)
     pub fn count_connected_always_allowed_peers(&self) -> Result<(u64, u64), net_error> {

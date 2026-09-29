@@ -17,6 +17,10 @@
 use std::io::{Read, Seek, Write};
 use std::{error, fmt};
 
+use stacks_common::codec::{read_next, write_next, Error as codec_error, StacksMessageCodec};
+use stacks_common::types::chainstate::{TrieHash, BLOCK_HEADER_HASH_ENCODED_SIZE};
+use stacks_common::util::hash::to_hex;
+
 use crate::chainstate::stacks::index::bits::{
     get_compressed_ptrs_size, get_path_byte_len, get_ptrs_byte_len, get_ptrs_byte_len_compressed,
     get_sparse_ptrs_bitmap_size, path_from_bytes, ptrs_from_bytes, write_path_to_bytes,
@@ -25,9 +29,6 @@ use crate::chainstate::stacks::index::bits::{
 use crate::chainstate::stacks::index::{
     BlockMap, ClarityMarfTrieId, Error, MARFValue, MarfTrieId, TrieLeaf, MARF_VALUE_ENCODED_SIZE,
 };
-use crate::codec::{read_next, write_next, Error as codec_error, StacksMessageCodec};
-use crate::types::chainstate::{TrieHash, BLOCK_HEADER_HASH_ENCODED_SIZE};
-use crate::util::hash::to_hex;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum CursorError {

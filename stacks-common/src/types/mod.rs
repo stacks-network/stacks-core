@@ -570,8 +570,13 @@ impl StacksEpochId {
         self >= &StacksEpochId::Epoch30
     }
 
-    /// Whether or not this epoch supports shadow blocks
-    pub fn supports_shadow_blocks(&self) -> bool {
+    /// Whether a block-commit whose parent is `(height > 0, vtxindex 0)` is accepted without
+    /// that parent block-commit existing, and is assumed to descend from the PoX anchor block.
+    ///
+    /// Nakamoto epochs did this so that miners could build atop shadow blocks, which were never
+    /// used and have since been removed.  The commits it admitted are part of sortition history,
+    /// so the rule must be preserved.  Building off of genesis (`(0, 0)`) is unaffected.
+    pub fn allows_missing_vtxindex_zero_commit_parent(&self) -> bool {
         self >= &StacksEpochId::Epoch30
     }
 
@@ -828,21 +833,14 @@ impl StacksEpochId {
         self >= &StacksEpochId::Epoch40
     }
 
-    /// Whether this epoch eagerly rejects a tuple `merge` whose combined size
-    /// exceeds `MAX_VALUE_SIZE`, at the merge site, with `ValueTooLarge` — both at
-    /// static-analysis time and at runtime.
-    ///
-    /// Before this epoch, an oversized merge was not checked at the merge site: the
-    /// oversized tuple type/value propagated and only failed later (block-invalidating
-    /// `InvariantViolation` when its size was eventually computed — or, if never
-    /// sized, the contract deployed and became uncallable). Gated here so the
-    /// behavior changes atomically at the epoch boundary. See PR #6946.
-    pub fn fixes_tuple_merge_size_check(&self) -> bool {
-        self >= &StacksEpochId::Epoch40
-    }
-
     /// Whether `replace-at?` handles a zero-length element at type-checking time.
     pub fn fixes_replace_at_element_arity(&self) -> bool {
+        self >= &StacksEpochId::Epoch41
+    }
+
+    /// Whether analysis types a `fold` result to admit its initial value, which an
+    /// empty sequence returns unchanged.
+    pub fn requires_fold_result_to_admit_initial_value(&self) -> bool {
         self >= &StacksEpochId::Epoch41
     }
 

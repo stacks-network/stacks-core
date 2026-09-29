@@ -75,7 +75,7 @@ use crate::clarity_vm::clarity::{
     ClarityReadOnlyConnection, PreCommitClarityBlock,
 };
 use crate::clarity_vm::database::marf::MarfedKV;
-use crate::clarity_vm::database::HeadersDBConn;
+use crate::clarity_vm::database::{HeadersDBConn, MarfHeadersDB};
 use crate::core::*;
 use crate::monitoring;
 use crate::net::atlas::BNS_CHARS_REGEX;
@@ -112,7 +112,7 @@ pub struct StacksChainState {
     pub chain_id: u32,
     pub clarity_state: ClarityInstance,
     pub nakamoto_staging_blocks_conn: NakamotoStagingBlocksConn,
-    pub state_index: MARF<StacksBlockId>,
+    pub state_index: MarfHeadersDB,
     pub blocks_path: String,
     pub clarity_state_index_path: String, // path to clarity MARF
     pub clarity_state_index_root: String, // path to dir containing clarity MARF and side-store
@@ -1246,7 +1246,7 @@ impl StacksChainState {
             }
 
             // need a migration
-            let tx = marf.storage_tx()?;
+            let tx = marf.storage_tx().map_err(db_error::from)?;
             StacksChainState::apply_schema_migrations(&tx, mainnet, chain_id)?;
             StacksChainState::add_indexes(&tx)?;
             tx.commit()?;
@@ -1272,7 +1272,7 @@ impl StacksChainState {
             let db_config = StacksChainState::load_db_config(marf.sqlite_conn())
                 .expect("CORRUPTION: no db_config found");
 
-            let tx = marf.storage_tx()?;
+            let tx = marf.storage_tx().map_err(db_error::from)?;
             StacksChainState::add_indexes(&tx)?;
             tx.commit()?;
             Ok(marf)
@@ -1982,7 +1982,7 @@ impl StacksChainState {
 
         let init_required = fs::metadata(&clarity_state_index_marf).is_err();
 
-        let state_index =
+        let state_db =
             StacksChainState::open_db(mainnet, chain_id, &header_index_root, marf_opts.clone())?;
 
         let vm_state = MarfedKV::open(
@@ -2002,7 +2002,7 @@ impl StacksChainState {
             chain_id,
             clarity_state,
             nakamoto_staging_blocks_conn,
-            state_index,
+            state_index: MarfHeadersDB::new(state_db),
             blocks_path: blocks_path_root,
             clarity_state_index_path: clarity_state_index_marf,
             clarity_state_index_root,
@@ -2050,7 +2050,9 @@ impl StacksChainState {
     /// Begin a transaction against the underlying DB
     /// Does not create a Clarity instance, and does not affect the MARF.
     pub fn db_tx_begin(&mut self) -> Result<DBTx<'_>, Error> {
-        self.state_index.storage_tx().map_err(Error::DBError)
+        self.state_index
+            .storage_tx()
+            .map_err(|e| Error::DBError(e.into()))
     }
 
     /// Simultaneously begin a transaction against both the headers and blocks.

@@ -238,14 +238,11 @@ pub fn check_special_fold(
 
     let initial_value_type = checker.type_check(&args[2], context)?;
 
-    // fold: f(A, B) -> A
-    //     where A = initial_value_type
-    //           B = list items type
-
     // f must accept the initial value and the list items type
+    let initial_args = [input_type.clone(), initial_value_type];
     let return_type = function_type.check_args(
         checker,
-        &[input_type.clone(), initial_value_type],
+        &initial_args,
         context.epoch,
         context.clarity_version,
     )?;
@@ -258,7 +255,20 @@ pub fn check_special_fold(
         context.clarity_version,
     )?;
 
-    Ok(return_type)
+    // An empty sequence returns the initial value unchanged, so the result type
+    // must admit it, not only f's return type. Pre-4.1 contracts keep the return
+    // type alone.
+    if !checker.epoch.requires_fold_result_to_admit_initial_value() {
+        return Ok(return_type);
+    }
+    let [_, initial_value_type] = initial_args;
+    analysis_typecheck_cost(checker, &initial_value_type, &return_type)?;
+    TypeSignature::least_supertype(&checker.epoch, &initial_value_type, &return_type).map_err(
+        |_| {
+            StaticCheckErrorKind::TypeError(Box::new(initial_value_type), Box::new(return_type))
+                .into()
+        },
+    )
 }
 
 pub fn check_special_concat(

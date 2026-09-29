@@ -808,8 +808,16 @@ impl TupleTypeSignature {
         Ok(true)
     }
 
-    pub fn shallow_merge(&mut self, update: &mut TupleTypeSignature) {
+    /// Merge `update`'s fields into `self`, rejecting a merged tuple whose value size
+    /// exceeds [`MAX_VALUE_SIZE`] with [`ClarityTypeError::ValueTooLarge`].
+    pub fn shallow_merge(
+        &mut self,
+        update: &mut TupleTypeSignature,
+    ) -> Result<(), ClarityTypeError> {
         Arc::make_mut(&mut self.type_map).append(Arc::make_mut(&mut update.type_map));
+        // inner_size() returns Ok(None) exactly when the tuple is oversized.
+        self.inner_size()?.ok_or(ClarityTypeError::ValueTooLarge)?;
+        Ok(())
     }
 }
 
@@ -1534,18 +1542,6 @@ impl TupleTypeSignature {
         self.inner_size()?.ok_or_else(|| {
             ClarityTypeError::InvariantViolation("size() overflowed on a constructed type.".into())
         })
-    }
-
-    /// Serialized value size of the tuple, or [`ClarityTypeError::ValueTooLarge`] if it
-    /// exceeds [`MAX_VALUE_SIZE`].
-    ///
-    /// This differs from [`Self::size`] only in the error variant: `size` reports an oversized
-    /// tuple as an `InvariantViolation` (a "should never happen" signal that block-invalidates),
-    /// whereas this reports it as the checked `ValueTooLarge` rejection. Used at the tuple
-    /// `merge` site (static analysis and runtime) to reject an oversized merged tuple cleanly.
-    pub fn checked_value_size(&self) -> Result<u32, ClarityTypeError> {
-        // inner_size() returns Ok(None) exactly when the tuple is oversized.
-        self.inner_size()?.ok_or(ClarityTypeError::ValueTooLarge)
     }
 
     fn max_depth(&self) -> u8 {
