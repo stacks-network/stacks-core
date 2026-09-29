@@ -76,6 +76,9 @@ pub struct SignerCoordinator {
     burn_tip_at_start: ConsensusHash,
     /// The timeout configuration based on the percentage of rejections
     block_rejection_timeout_steps: BTreeMap<u32, Duration>,
+    /// Cap on the rejection timeout while any signer has rejected the block
+    /// for a transient reason
+    transient_rejection_retry_timeout: Duration,
 }
 
 /// Helper function to build block_rejection_timeout_steps BTreeMap from config.
@@ -104,6 +107,30 @@ fn build_block_rejection_timeout_steps(
     }
 
     block_rejection_timeout_steps
+}
+
+/// Select the timeout to apply while waiting for signer responses, given the
+/// total rejection weight received so far and the portion of it that is
+/// transient (see [`libsigner::v0::messages::RejectReason::is_transient`]).
+///
+/// Returns the matching step (the rejection weight key) and its timeout. While
+/// any transient rejections are outstanding, the timeout is capped at
+/// `transient_retry_timeout`: those signers re-evaluate the block once it is
+/// proposed again, so waiting for the full step timeout only delays the block.
+fn select_rejection_timeout(
+    block_rejection_timeout_steps: &BTreeMap<u32, Duration>,
+    total_weight_rejected: u32,
+    total_weight_rejected_transient: u32,
+    transient_retry_timeout: Duration,
+) -> Option<(u32, Duration)> {
+    let (step, timeout) = block_rejection_timeout_steps
+        .range((Included(0), Included(total_weight_rejected)))
+        .last()?;
+    if total_weight_rejected_transient > 0 {
+        Some((*step, (*timeout).min(transient_retry_timeout)))
+    } else {
+        Some((*step, *timeout))
+    }
 }
 
 impl SignerCoordinator {
@@ -163,6 +190,7 @@ impl SignerCoordinator {
             listener_thread: None,
             burn_tip_at_start: burn_tip_at_start.clone(),
             block_rejection_timeout_steps,
+            transient_rejection_retry_timeout: config.miner.transient_rejection_retry_timeout,
         };
 
         // Spawn the signer DB listener thread
@@ -374,7 +402,7 @@ impl SignerCoordinator {
         // the amount of current rejections (used to eventually modify the timeout)
         let mut rejections: u32 = 0;
         // default timeout (the 0 entry must be always present)
-        let mut rejections_timeout = self
+        let mut rejections_timeout = *self
             .block_rejection_timeout_steps
             .get(&rejections)
             .ok_or_else(|| {
@@ -398,7 +426,7 @@ impl SignerCoordinator {
                 EVENT_RECEIVER_POLL,
                 |status| {
                     // rejections-based timeout expired?
-                    if rejections_timer.elapsed() > *rejections_timeout {
+                    if rejections_timer.elapsed() > rejections_timeout {
                         return false;
                     }
                     // number of rejections changed?
@@ -440,7 +468,7 @@ impl SignerCoordinator {
                         return Err(NakamotoNodeError::BurnchainTipChanged);
                     }
 
-                    if rejections_timer.elapsed() > *rejections_timeout {
+                    if rejections_timer.elapsed() > rejections_timeout {
                         warn!("Timed out while waiting for responses from signers, resending proposal";
                             "elapsed" => rejections_timer.elapsed().as_secs(),
                             "rejections_timeout" => rejections_timeout.as_secs(),
@@ -486,18 +514,21 @@ impl SignerCoordinator {
 
             if rejections != block_status.total_weight_rejected {
                 rejections = block_status.total_weight_rejected;
-                let (rejections_step, new_rejections_timeout) = self
-                    .block_rejection_timeout_steps
-                    .range((Included(0), Included(rejections)))
-                    .last()
-                    .ok_or_else(|| {
-                        NakamotoNodeError::SigningCoordinatorFailure(
-                            "Invalid rejection timeout step function definition".into(),
-                        )
-                    })?;
+                let (rejections_step, new_rejections_timeout) = select_rejection_timeout(
+                    &self.block_rejection_timeout_steps,
+                    rejections,
+                    block_status.total_weight_rejected_transient,
+                    self.transient_rejection_retry_timeout,
+                )
+                .ok_or_else(|| {
+                    NakamotoNodeError::SigningCoordinatorFailure(
+                        "Invalid rejection timeout step function definition".into(),
+                    )
+                })?;
                 rejections_timeout = new_rejections_timeout;
                 info!("Number of received rejections updated, resetting timeout";
                                     "rejections" => rejections,
+                                    "transient_rejections" => block_status.total_weight_rejected_transient,
                                     "rejections_timeout" => rejections_timeout.as_secs(),
                                     "rejections_step" => rejections_step,
                                     "rejections_threshold" => self.total_weight.saturating_sub(self.weight_threshold));
@@ -543,7 +574,7 @@ impl SignerCoordinator {
                     "signer_signature_hash" => %block_signer_sighash,
                 );
                 return Ok(block_status.gathered_signatures.values().cloned().collect());
-            } else if rejections_timer.elapsed() > *rejections_timeout {
+            } else if rejections_timer.elapsed() > rejections_timeout {
                 warn!("Timed out while waiting for responses from signers";
                     "elapsed" => rejections_timer.elapsed().as_secs(),
                     "rejections_timeout" => rejections_timeout.as_secs(),
@@ -611,7 +642,7 @@ mod tests {
     use std::collections::HashMap;
     use std::time::Duration;
 
-    use super::build_block_rejection_timeout_steps;
+    use super::{build_block_rejection_timeout_steps, select_rejection_timeout};
 
     #[test]
     fn timeout_steps_keep_longest_on_collisions() {
@@ -641,5 +672,55 @@ mod tests {
         assert_eq!(built.get(&10), Some(&Duration::from_secs(90)));
         assert_eq!(built.get(&20), Some(&Duration::from_secs(45)));
         assert_eq!(built.get(&30), Some(&Duration::from_secs(0)));
+    }
+
+    fn default_steps(total_weight: u32) -> std::collections::BTreeMap<u32, Duration> {
+        let mut steps = HashMap::new();
+        steps.insert(0, Duration::from_secs(180));
+        steps.insert(10, Duration::from_secs(90));
+        steps.insert(20, Duration::from_secs(45));
+        steps.insert(30, Duration::from_secs(0));
+        build_block_rejection_timeout_steps(total_weight, &steps)
+    }
+
+    #[test]
+    fn rejection_timeout_follows_steps_without_transient_rejections() {
+        let steps = default_steps(100);
+        let retry = Duration::from_secs(5);
+
+        assert_eq!(
+            select_rejection_timeout(&steps, 0, 0, retry),
+            Some((0, Duration::from_secs(180)))
+        );
+        assert_eq!(
+            select_rejection_timeout(&steps, 15, 0, retry),
+            Some((10, Duration::from_secs(90)))
+        );
+        assert_eq!(
+            select_rejection_timeout(&steps, 25, 0, retry),
+            Some((20, Duration::from_secs(45)))
+        );
+    }
+
+    #[test]
+    fn rejection_timeout_capped_by_transient_rejections() {
+        let steps = default_steps(100);
+        let retry = Duration::from_secs(5);
+
+        // All rejections are transient
+        assert_eq!(
+            select_rejection_timeout(&steps, 15, 15, retry),
+            Some((10, retry))
+        );
+        // Mixed rejections: any transient weight caps the timeout
+        assert_eq!(
+            select_rejection_timeout(&steps, 25, 5, retry),
+            Some((20, retry))
+        );
+        // The cap never lengthens a shorter step timeout
+        assert_eq!(
+            select_rejection_timeout(&steps, 30, 10, retry),
+            Some((30, Duration::from_secs(0)))
+        );
     }
 }

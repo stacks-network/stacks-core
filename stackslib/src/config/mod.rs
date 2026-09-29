@@ -160,6 +160,9 @@ const DEFAULT_MAX_EXECUTION_TIME_SECS: u64 = 30;
 const DEFAULT_MAX_ANALYSIS_TIME_SECS: u64 = 30;
 /// Default number of seconds that a miner should wait before timing out an HTTP request to StackerDB.
 const DEFAULT_STACKERDB_TIMEOUT_SECS: u64 = 10;
+/// Default number of milliseconds that a miner should wait before re-proposing a
+/// block that some signers rejected for a transient reason.
+const DEFAULT_TRANSIENT_REJECTION_RETRY_MS: u64 = 5_000;
 /// Default maximum size for a tenure (note: the counter is reset on tenure extend).
 pub const DEFAULT_MAX_TENURE_BYTES: u64 = 10 * 1024 * 1024; // 10 MB
 /// Default maximum memory allocation during miner block assembly
@@ -3325,6 +3328,27 @@ pub struct MinerConfig {
     ///   "20" = 45
     ///   "30" = 0
     pub block_rejection_timeout_steps: HashMap<u32, Duration>,
+    /// Maximum duration to wait before re-proposing a block that some signers
+    /// rejected for a transient reason.
+    ///
+    /// Transient rejections are caused by a signer's view lagging behind the
+    /// network, and typically occur right after a new burn block: the signer has
+    /// not yet processed the burn block, received the parent block, or received
+    /// enough state machine updates from its peers to reach consensus on the
+    /// signer state. These usually resolve within seconds, and signers
+    /// re-evaluate the block when it is proposed again. While any such rejection
+    /// is outstanding, the timeout selected from
+    /// [`MinerConfig::block_rejection_timeout_steps`] is capped at this value so
+    /// the miner re-proposes promptly instead of waiting for the full
+    /// rejection-based timeout.
+    /// ---
+    /// @default: [`DEFAULT_TRANSIENT_REJECTION_RETRY_MS`]
+    /// @units: milliseconds
+    /// @notes:
+    ///   - Transient rejection reasons are `NoSignerConsensus`,
+    ///     `ConsensusHashMismatch`, `NoSortitionView`, `ConnectivityIssues`, and
+    ///     validation failures with `UnknownParent` or `NotFoundError`.
+    pub transient_rejection_retry_timeout: Duration,
     /// Defines the maximum execution time (in seconds) allowed for a single contract call
     /// transaction during mining.
     ///
@@ -3427,6 +3451,9 @@ impl Default for MinerConfig {
                 rejections_timeouts_default_map.insert(30, Duration::from_secs(0));
                 rejections_timeouts_default_map
             },
+            transient_rejection_retry_timeout: Duration::from_millis(
+                DEFAULT_TRANSIENT_REJECTION_RETRY_MS,
+            ),
             max_execution_time_secs: DEFAULT_MAX_EXECUTION_TIME_SECS,
             max_analysis_time_secs: DEFAULT_MAX_ANALYSIS_TIME_SECS,
             stackerdb_timeout: Duration::from_secs(DEFAULT_STACKERDB_TIMEOUT_SECS),
@@ -4486,6 +4513,7 @@ pub struct MinerConfigFile {
     pub tenure_timeout_secs: Option<u64>,
     pub tenure_extend_cost_threshold: Option<u64>,
     pub block_rejection_timeout_steps: Option<HashMap<String, u64>>,
+    pub transient_rejection_retry_timeout_ms: Option<u64>,
     pub max_execution_time_secs: Option<u64>,
     pub max_analysis_time_secs: Option<u64>,
     pub stackerdb_timeout_secs: Option<u64>,
@@ -4680,6 +4708,10 @@ impl MinerConfigFile {
                     miner_default_config.block_rejection_timeout_steps
                 }
             },
+            transient_rejection_retry_timeout: self
+                .transient_rejection_retry_timeout_ms
+                .map(Duration::from_millis)
+                .unwrap_or(miner_default_config.transient_rejection_retry_timeout),
 
             max_execution_time_secs: self
                 .max_execution_time_secs
