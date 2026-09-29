@@ -13,6 +13,8 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use std::collections::HashSet;
+
 pub use weight_limited_fifo::WeightLimitedFifo;
 
 use crate::vm::contracts::Contract;
@@ -53,12 +55,15 @@ pub struct ClarityExecutionCache {
     /// is exceeded. See the `weight_limited_fifo` module for cache mechanics and counter
     /// semantics.
     pub contracts: WeightLimitedFifo<QualifiedContractIdentifier, CachedContract>,
+    /// Contracts `has_contract` found in the backing store at the starting view.
+    pub existing_contracts: HashSet<QualifiedContractIdentifier>,
 }
 
 impl Default for ClarityExecutionCache {
     fn default() -> Self {
         Self {
             contracts: WeightLimitedFifo::new(DEFAULT_CONTRACT_CACHE_BYTE_LIMIT),
+            existing_contracts: HashSet::new(),
         }
     }
 }

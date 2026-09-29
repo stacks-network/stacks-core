@@ -15,6 +15,7 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 use clarity::vm::analysis::errors::RuntimeCheckErrorKind;
 use clarity::vm::contexts::OwnedEnvironment;
+use clarity::vm::database::ClarityExecutionCache;
 use clarity::vm::errors::{ClarityEvalError, RuntimeError, VmExecutionError};
 use clarity::vm::test_util::{
     execute, is_committed, is_err_code, symbols_from_values, TEST_BURN_STATE_DB, TEST_HEADER_DB,
@@ -430,4 +431,67 @@ fn branched_execution(
     } else {
         assert!(is_err_code(&result, 30))
     }
+}
+
+#[test]
+fn has_contract_follows_block_view() {
+    let blocks = [
+        StacksBlockId([1; 32]),
+        StacksBlockId([2; 32]),
+        StacksBlockId([3; 32]),
+    ];
+    let id = QualifiedContractIdentifier::local("deployed-in-block-2").unwrap();
+    let mut marf_kv = MarfedKV::temporary();
+
+    let mut store = marf_kv.begin(&StacksBlockId::sentinel(), &blocks[0]);
+    {
+        let mut db = store.as_clarity_db(&TEST_HEADER_DB, &TEST_BURN_STATE_DB);
+        db.begin();
+        db.set_clarity_epoch_version(StacksEpochId::Epoch21)
+            .unwrap();
+        db.commit().unwrap();
+    }
+    store.test_commit();
+
+    let mut store = marf_kv.begin(&blocks[0], &blocks[1]);
+    {
+        let mut db = store.as_clarity_db(&TEST_HEADER_DB, &TEST_BURN_STATE_DB);
+        db.begin();
+        db.insert_contract_hash(&id, "(define-public (noop) (ok true))")
+            .unwrap();
+        db.set_contract_data_size(&id, 0).unwrap();
+        let contract = ContractContext::new(id.clone(), ClarityVersion::Clarity2).into();
+        db.insert_contract(&id, contract).unwrap();
+        db.commit().unwrap();
+    }
+    store.test_commit();
+
+    let mut cache = ClarityExecutionCache::default();
+    let mut store = marf_kv.begin(&blocks[1], &blocks[2]);
+    {
+        let mut db = store
+            .as_clarity_db(&TEST_HEADER_DB, &TEST_BURN_STATE_DB)
+            .with_cache(&mut cache);
+        db.begin();
+        db.get_contract(&id).unwrap();
+        assert!(db.has_contract(&id));
+
+        // (at-block blocks[0] ...)
+        let tip = db.set_block_hash(blocks[0].clone(), false).unwrap();
+        assert!(!db.has_contract(&id));
+
+        // A nested (at-block blocks[1] ...) restores the outer view with pending reads enabled,
+        // so `is_retargeted()` is false while the view is still blocks[0].
+        let outer = db.set_block_hash(blocks[1].clone(), false).unwrap();
+        assert!(db.has_contract(&id));
+        db.set_block_hash(outer, true).unwrap();
+        assert!(!db.has_contract(&id));
+
+        db.set_block_hash(tip, true).unwrap();
+        assert!(db.has_contract(&id));
+        db.roll_back().unwrap();
+    }
+    // The blocks[1] hit was read after the view moved, so it must not be remembered.
+    assert!(cache.existing_contracts.is_empty());
+    store.test_commit();
 }
