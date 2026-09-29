@@ -117,9 +117,11 @@ jobs:
             --features=wasm-deterministic \
             --target wasm32-unknown-unknown
 
-  # Fuzz targets with nightly toolchain
+  # Fuzz targets with the repository toolchain.
+  # The fuzz crates build on stable: nightly is only needed by `cargo fuzz run`
+  # for sanitizer instrumentation (`-Zsanitizer`), which `cargo check` does not use.
   fuzz-targets:
-    name: Fuzz Targets (Nightly)
+    name: Fuzz Targets
     runs-on: ubuntu-latest
     steps:
       # Checkout the code
@@ -129,18 +131,14 @@ jobs:
           ref: ${{ github.event.pull_request.head.sha || github.ref }}
           persist-credentials: false
 
-      # Setup the rust toolchain for specified target.
-      # Pin to a specific nightly: an unpinned `nightly` tracks the latest build
-      # and breaks the job whenever rustc tightens lints (e.g. unused imports).
+      # Setup the rust toolchain using repo config
       - name: Setup Rust Toolchain
         uses: ./.github/actions/setup-rust-toolchain
-        with:
-          toolchain: nightly-2026-06-07
 
       # Fuzz check clarity targets
       - name: Check fuzz targets (clarity)
         run: |
-          cargo +nightly-2026-06-07 check \
+          cargo check \
             --manifest-path clarity/fuzz/Cargo.toml \
             --bins \
             --locked
@@ -148,7 +146,7 @@ jobs:
       # Fuzz check stackslib targets
       - name: Check fuzz targets (stackslib)
         run: |
-          cargo +nightly-2026-06-07 check \
+          cargo check \
             --manifest-path stackslib/fuzz/Cargo.toml \
             --bins \
             --locked
