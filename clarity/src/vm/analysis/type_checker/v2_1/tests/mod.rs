@@ -4807,3 +4807,47 @@ fn test_argument_visitor_retains_cost_on_type_error() {
         StaticCheckErrorKind::IncorrectArgumentCount(1, 1)
     ));
 }
+
+/// `fold` returns its initial value for an empty sequence, so from 4.1 the
+/// inferred type must admit it. Callbacks that return their accumulator, and
+/// native callbacks, infer the same type in both epochs.
+#[test]
+fn test_analysis_fold_result_admits_initial_value() {
+    let keep_none = "(define-private (keep-none (x uint) (acc (optional (string-ascii 5)))) none)";
+    let fold = format!("{keep_none} (fold keep-none (list u1) (some \"hello\"))");
+    let inferred = |epoch, version| mem_run_analysis(&fold, version, epoch).unwrap().0.unwrap();
+    assert_eq!(
+        inferred(StacksEpochId::Epoch40, ClarityVersion::Clarity6),
+        TypeSignature::new_option(TypeSignature::NoType).unwrap()
+    );
+    assert_eq!(
+        inferred(StacksEpochId::Epoch41, ClarityVersion::Clarity7),
+        TypeSignature::from_string(
+            "(optional (string-ascii 5))",
+            ClarityVersion::Clarity7,
+            StacksEpochId::Epoch41
+        )
+    );
+    let confused =
+        format!("{keep_none} (default-to u1 (fold keep-none (list u1) (some \"hello\")))");
+    mem_run_analysis(&confused, ClarityVersion::Clarity6, StacksEpochId::Epoch40).unwrap();
+    let error =
+        mem_run_analysis(&confused, ClarityVersion::Clarity7, StacksEpochId::Epoch41).unwrap_err();
+    assert!(
+        matches!(*error.err, StaticCheckErrorKind::DefaultTypesMustMatch(..)),
+        "{error:?}"
+    );
+    for source in [
+        "(fold + (list 1 2) 0)",
+        "(define-private (keep (x uint) (acc (optional (string-ascii 5)))) acc) \
+         (fold keep (list u1) (some \"hi\"))",
+    ] {
+        let legacy = mem_run_analysis(source, ClarityVersion::Clarity6, StacksEpochId::Epoch40)
+            .unwrap()
+            .0;
+        let strict = mem_run_analysis(source, ClarityVersion::Clarity7, StacksEpochId::Epoch41)
+            .unwrap()
+            .0;
+        assert_eq!(legacy, strict, "{source}");
+    }
+}

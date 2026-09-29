@@ -750,7 +750,7 @@ fn test_nakamoto_copy() {
         "parent_2",
         101,
         &ibhs[1],
-        "Shadow",
+        "Uploaded",
         b"block_data_2",
     );
     // Non-canonical block (not in the squashed index headers).
@@ -809,7 +809,7 @@ fn test_nakamoto_copy() {
             |row| row.get(0),
         )
         .unwrap();
-    assert_eq!(method, "Shadow", "obtain_method must be preserved");
+    assert_eq!(method, "Uploaded", "obtain_method must be preserved");
 
     // Verify db_version matches source.
     let dst_ver: i64 = dst_conn

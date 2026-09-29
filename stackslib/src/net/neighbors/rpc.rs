@@ -75,26 +75,6 @@ impl NeighborRPC {
         });
     }
 
-    /// Is a neighbor dead?
-    pub fn is_dead(&self, network: &PeerNetwork, naddr: &NeighborAddress) -> bool {
-        // reason and source does't matter. They are ignored by the hasher/partial eq
-        self.dead.contains(&DropNeighbor {
-            key: naddr.to_neighbor_key(network),
-            reason: DropReason::Unknown,
-            source: DropSource::Unknown,
-        })
-    }
-
-    /// Is a neighbor broken
-    pub fn is_broken(&self, network: &PeerNetwork, naddr: &NeighborAddress) -> bool {
-        // reason and source does't matter. They are ignored by the hasher/partial eq
-        self.broken.contains(&DropNeighbor {
-            key: naddr.to_neighbor_key(network),
-            reason: DropReason::Unknown,
-            source: DropSource::Unknown,
-        })
-    }
-
     /// Is a neighbor dead or broken?
     pub fn is_dead_or_broken(&self, network: &PeerNetwork, naddr: &NeighborAddress) -> bool {
         // reason and source does't matter. They are ignored by the hasher/partial eq

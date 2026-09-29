@@ -35,7 +35,7 @@ use stacks::chainstate::burn::operations::{
 };
 use stacks::chainstate::burn::{BlockSnapshot, ConsensusHash};
 use stacks::chainstate::nakamoto::coordinator::get_nakamoto_next_recipients;
-use stacks::chainstate::nakamoto::{NakamotoBlockHeader, NakamotoChainState};
+use stacks::chainstate::nakamoto::NakamotoChainState;
 use stacks::chainstate::stacks::db::StacksChainState;
 use stacks::chainstate::stacks::miner::{
     set_mining_spend_amount, signal_mining_blocked, signal_mining_ready,
@@ -1148,40 +1148,19 @@ impl RelayerThread {
         };
 
         // find the parent block-commit of this commit, so we can find the parent vtxindex
-        // if the parent is a shadow block, then the vtxindex would be 0.
         let commit_parent_block_burn_height = tip_tenure_sortition.block_height;
-        let commit_parent_winning_vtxindex = if let Ok(Some(parent_winning_tx)) =
-            SortitionDB::get_block_commit(
-                self.sortdb.conn(),
-                &tip_tenure_sortition.winning_block_txid,
-                &tip_tenure_sortition.sortition_id,
-            ) {
-            parent_winning_tx.vtxindex
-        } else {
-            debug!(
-                "{}/{} ({}) must be a shadow block, since it has no block-commit",
-                &tip_block_bh, &tip_block_ch, &tip_block_id
+        let Ok(Some(parent_winning_tx)) = SortitionDB::get_block_commit(
+            self.sortdb.conn(),
+            &tip_tenure_sortition.winning_block_txid,
+            &tip_tenure_sortition.sortition_id,
+        ) else {
+            error!("Relayer: Failed to lookup the block-commit that won the highest tenure";
+                "tenure_consensus_hash" => %tip_block_ch,
+                "stacks_block_id" => %tip_block_id
             );
-            let Ok(Some(parent_version)) =
-                NakamotoChainState::get_nakamoto_block_version(self.chainstate.db(), &tip_block_id)
-            else {
-                error!(
-                    "Relayer: Failed to lookup block version of {}",
-                    &tip_block_id
-                );
-                return Err(NakamotoNodeError::ParentNotFound);
-            };
-
-            if !NakamotoBlockHeader::is_shadow_block_version(parent_version) {
-                error!(
-                    "Relayer: parent block-commit of {} not found, and it is not a shadow block",
-                    &tip_block_id
-                );
-                return Err(NakamotoNodeError::ParentNotFound);
-            }
-
-            0
+            return Err(NakamotoNodeError::ParentNotFound);
         };
+        let commit_parent_winning_vtxindex = parent_winning_tx.vtxindex;
 
         // epoch in which this commit will be sent (affects how the burnchain client processes it)
         let Ok(Some(target_epoch)) =
