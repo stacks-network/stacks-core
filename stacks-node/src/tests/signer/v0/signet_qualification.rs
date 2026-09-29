@@ -121,7 +121,6 @@ fn send_and_confirm_transfer(miners: &mut MultipleMinerTest, timeout_secs: u64) 
 }
 
 /// Check custom-signet startup, signed tenures, and successful transfer replication.
-#[tag(slow, bitcoind)]
 #[test]
 #[ignore = "requires Bitcoin Core on PATH; mines real signet PoW"]
 fn signet_signed_transfer_smoke() {
@@ -190,7 +189,7 @@ fn signet_signed_transfer_smoke() {
 }
 
 /// Qualify PoX-5 over three complete reward cycles, transactions, peer agreement, and recovery.
-#[tag(slow, bitcoind, ci_skip)]
+#[tag(ci_skip)]
 #[test]
 #[ignore = "requires Bitcoin Core on PATH; mines real signet PoW and runs two miners/five signers"]
 fn signet_pox5_epoch40_stability_and_restart() {
