@@ -725,7 +725,6 @@ impl StackerDBListenerComms {
             block.responded_signers.clear();
             block.total_weight_rejected = 0;
             block.total_weight_rejected_transient = 0;
-            block.failed_txids.clear();
 
             // Add approving signers back to the responded signers set
             for (slot_id, _) in block.gathered_signatures.iter() {
