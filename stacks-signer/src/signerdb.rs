@@ -399,9 +399,8 @@ pub struct PruneParams {
     /// signer may still need for a fork up to that depth is kept.
     pub fork_depth: u64,
     /// How long another signer's burn block timestamp is kept when this signer never recorded that
-    /// burn block itself, e.g. because it missed the burn block during an outage. Such a timestamp
-    /// is only ever read for the current or the last sortition, to time out its miner, so this must
-    /// be longer than any sortition stays current.
+    /// burn block itself, e.g. because it missed the burn block during an outage. It is measured
+    /// up to the arrival of the newest burn block this signer recorded.
     pub orphaned_update_max_age: Duration,
 }
 
@@ -646,19 +645,24 @@ impl<'a> PruneTx<'a> {
         // Timestamps for a burn block this signer never recorded cannot be aged by height. They
         // are kept while a peer's update may simply have arrived before our own burn block, and
         // removed once too old to belong to the current or last sortition, the only ones they are
-        // read for. This runs only once the height-based aging above has caught up, so the scan
+        // read for. Their age is taken at the arrival of the newest burn block this signer
+        // recorded, not now: until it records a newer one (after a slow Bitcoin block, or burn
+        // block events it missed), the sortition a timestamp belongs to may still be current, so
+        // nothing ages. This runs only once the height-based aging above has caught up, so the scan
         // stays over a small table.
         if removed_count < self.params.batch_size {
-            let max_received_time =
-                get_epoch_time_secs().saturating_sub(self.params.orphaned_update_max_age.as_secs());
             let removed = self.tx.execute(
                 "DELETE FROM burn_block_updates_received_times WHERE rowid IN (
                     SELECT u.rowid FROM burn_block_updates_received_times u
-                    WHERE u.received_time < ?1
+                    WHERE u.received_time < (SELECT bb.received_time FROM burn_blocks bb
+                                             ORDER BY bb.block_height DESC LIMIT 1) - ?1
                       AND NOT EXISTS (SELECT 1 FROM burn_blocks bb
                                       WHERE bb.consensus_hash = u.burn_block_consensus_hash)
                     ORDER BY u.received_time LIMIT ?2)",
-                params![u64_to_sql(max_received_time)?, batch_size_sql],
+                params![
+                    u64_to_sql(self.params.orphaned_update_max_age.as_secs())?,
+                    batch_size_sql
+                ],
             )?;
             self.stats.other_rows = self.stats.other_rows.saturating_add(Self::count(removed));
         }
@@ -3542,6 +3546,19 @@ pub mod tests {
         assert_eq!(count(&db, &missed), 3);
         assert_eq!(count(&db, &prune_test_ch(50)), 2);
 
+        // No burn block recorded since the oldest orphans arrived (a slow Bitcoin block, or missed
+        // burn block events): nothing has aged, however old they are by the wall clock
+        db.db
+            .execute(
+                "UPDATE burn_blocks SET received_time = ?1",
+                params![u64_to_sql(too_old).unwrap()],
+            )
+            .unwrap();
+        while db.prune(&prune_test_params(1)).unwrap().removed_any() {}
+        assert_eq!(count(&db, &missed), 3);
+
+        // A new burn block is recorded: the orphans age up to its arrival
+        prune_test_insert_burn_block(&mut db, 301);
         while db.prune(&prune_test_params(1)).unwrap().removed_any() {}
 
         // Only the orphans past the maximum age are gone
