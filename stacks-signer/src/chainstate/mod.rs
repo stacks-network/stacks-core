@@ -217,7 +217,10 @@ impl SortitionData {
 
         // Track which tenures are superseded by the reorg, then mark them in
         // the DB after the reorg is permitted.
-        let mut superseded_tenures = Vec::new();
+// Track which tenures are superseded by the reorg, except for those that
+// have already been marked as such. If the reorg is permitted, these tenures
+// will be marked in the DB.
+let mut superseded_tenures = Vec::new();
         for tenure in tenures_reorged.iter() {
             if tenure.consensus_hash == self.parent_tenure_id {
                 // this was a built-upon tenure, no need to check this tenure as part of the reorg.
