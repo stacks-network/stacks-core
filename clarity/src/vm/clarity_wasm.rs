@@ -136,6 +136,9 @@ pub struct ClarityWasmContext<'a, 'b> {
     pub cost_globals: Option<CostGlobals>,
 }
 
+/// Fuel given to each new store when the engine has fuel metering enabled.
+pub const WASM_FUEL_LIMIT: u64 = u64::MAX;
+
 /// A wasmi [`Store`] holding a [`ClarityWasmContext`] with erased lifetimes.
 ///
 /// Host functions are `'static` closures over the data of a [`Store`], so the
@@ -163,8 +166,11 @@ impl<'a, 'b> ClarityWasmStore<'a, 'b> {
                 context,
             )
         };
+        let mut store = Store::new(engine, context);
+        // Only fails if fuel metering is disabled on the engine, which is fine.
+        let _ = store.set_fuel(WASM_FUEL_LIMIT);
         Self {
-            store: Store::new(engine, context),
+            store,
             _borrows: PhantomData,
         }
     }
