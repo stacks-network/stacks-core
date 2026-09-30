@@ -461,7 +461,8 @@ impl PruneStats {
 /// A block is removed only if all of these hold:
 /// 1. it is below the lowest accepted height of the tenure in charge at the horizon,
 /// 2. it is not in the tenure of the canonical tip,
-/// 3. no block of its tenure is at or above that height (tenures are removed whole),
+/// 3. no block of its tenure is at or above that height: a tenure becomes removable only as
+///    a whole, though its blocks may take several passes, oldest first,
 /// 4. its tenure was not elected at or after the tenure in charge at the horizon.
 struct PruneTx<'a> {
     tx: DBTx<'a>,
@@ -3335,6 +3336,32 @@ pub mod tests {
         db.prune(&prune_test_params(100)).unwrap();
         assert!(db.block_lookup(&old_part).unwrap().is_some());
         assert!(db.block_lookup(&new_part).unwrap().is_some());
+    }
+
+    #[test]
+    fn test_prune_drains_a_tenure_larger_than_a_batch_oldest_first() {
+        let mut db = SignerDb::new(tmp_db_path()).unwrap();
+        for burn_height in 1..=300 {
+            prune_test_insert_burn_block(&mut db, burn_height);
+        }
+        let accepted = BlockState::GloballyAccepted;
+        // A removable tenure elected at 150 with more blocks than a batch, then the tenure in
+        // charge at the horizon (190) and the tip's tenure (250)
+        let large: Vec<_> = (1..=5)
+            .map(|height| prune_test_insert_stx_block(&mut db, 150, height, accepted))
+            .collect();
+        prune_test_insert_stx_block(&mut db, 190, 6, accepted);
+        prune_test_insert_stx_block(&mut db, 250, 7, accepted);
+
+        // Each pass removes the oldest blocks left, so its newest block is the last to go
+        for (removed_so_far, removed_in_pass) in [(2, 2), (4, 2), (5, 1)] {
+            let stats = db.prune(&prune_test_params(2)).unwrap();
+            assert_eq!(stats.blocks, removed_in_pass);
+            for (i, hash) in large.iter().enumerate() {
+                assert_eq!(db.block_lookup(hash).unwrap().is_none(), i < removed_so_far);
+            }
+        }
+        assert_eq!(prune_test_table_count(&db, "blocks"), 2);
     }
 
     #[test]
