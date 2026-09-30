@@ -2,7 +2,7 @@
     "summary": "PoX information response",
     "value": {
         "contract_id": "SP000000000000000000002Q6VF78.pox",
-        "current_epoch": "Epoch30",
+        "current_epoch": "Epoch40",
         "pox_activation_threshold_ustx": 52329761604388,
         "first_burnchain_block_height": 666050,
         "current_burnchain_block_height": 812345,
