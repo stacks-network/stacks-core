@@ -2788,6 +2788,9 @@ fn checked_decrease_token_supply_underflow() {
 
 #[cfg(test)]
 mod tests {
+    use std::cell::Cell;
+    use std::rc::Rc;
+
     use super::*;
     use crate::vm::database::{MemoryBackingStore, StoreType};
     use crate::vm::version::ClarityVersion;
@@ -3051,6 +3054,126 @@ mod tests {
         db.get_clarity_epoch_version().unwrap();
         db.roll_back().unwrap();
         assert!(db.get_clarity_epoch_version().is_err());
+    }
+
+    /// Counts backing-store reads of the epoch key.
+    struct EpochReadCounter {
+        inner: MemoryBackingStore,
+        reads: Rc<Cell<u32>>,
+    }
+
+    impl ClarityBackingStore for EpochReadCounter {
+        fn put_all_data(&mut self, items: Vec<(String, String)>) -> Result<(), VmExecutionError> {
+            self.inner.put_all_data(items)
+        }
+        fn get_data(&mut self, key: &str) -> Result<Option<String>, VmExecutionError> {
+            if key == ClarityDatabase::clarity_state_epoch_key() {
+                self.reads.set(self.reads.get() + 1);
+            }
+            self.inner.get_data(key)
+        }
+        fn get_data_from_path(
+            &mut self,
+            hash: &TrieHash,
+        ) -> Result<Option<String>, VmExecutionError> {
+            self.inner.get_data_from_path(hash)
+        }
+        fn get_data_with_proof(
+            &mut self,
+            key: &str,
+        ) -> Result<Option<(String, Vec<u8>)>, VmExecutionError> {
+            self.inner.get_data_with_proof(key)
+        }
+        fn get_data_with_proof_from_path(
+            &mut self,
+            hash: &TrieHash,
+        ) -> Result<Option<(String, Vec<u8>)>, VmExecutionError> {
+            self.inner.get_data_with_proof_from_path(hash)
+        }
+        /// `MemoryBackingStore` has no block history, so any view is accepted.
+        fn set_block_hash(
+            &mut self,
+            bhh: StacksBlockId,
+        ) -> Result<StacksBlockId, VmExecutionError> {
+            Ok(bhh)
+        }
+        fn get_block_at_height(&mut self, height: u32) -> Option<StacksBlockId> {
+            self.inner.get_block_at_height(height)
+        }
+        fn get_current_block_height(&mut self) -> u32 {
+            self.inner.get_current_block_height()
+        }
+        fn get_open_chain_tip_height(&mut self) -> u32 {
+            self.inner.get_open_chain_tip_height()
+        }
+        fn get_open_chain_tip(&mut self) -> StacksBlockId {
+            self.inner.get_open_chain_tip()
+        }
+        fn get_side_store(&mut self) -> &rusqlite::Connection {
+            self.inner.get_side_store()
+        }
+        fn get_contract_hash(
+            &mut self,
+            contract: &QualifiedContractIdentifier,
+        ) -> Result<(StacksBlockId, Sha512Trunc256Sum), VmExecutionError> {
+            self.inner.get_contract_hash(contract)
+        }
+        fn insert_metadata(
+            &mut self,
+            contract: &QualifiedContractIdentifier,
+            key: &str,
+            value: &str,
+        ) -> Result<(), VmExecutionError> {
+            self.inner.insert_metadata(contract, key, value)
+        }
+        fn get_metadata(
+            &mut self,
+            contract: &QualifiedContractIdentifier,
+            key: &str,
+        ) -> Result<Option<String>, VmExecutionError> {
+            self.inner.get_metadata(contract, key)
+        }
+        fn get_metadata_manual(
+            &mut self,
+            at_height: u32,
+            contract: &QualifiedContractIdentifier,
+            key: &str,
+        ) -> Result<Option<String>, VmExecutionError> {
+            self.inner.get_metadata_manual(at_height, contract, key)
+        }
+    }
+
+    #[test]
+    fn epoch_version_reads_store_once_per_view() {
+        let reads = Rc::new(Cell::new(0));
+        let mut store = EpochReadCounter {
+            inner: MemoryBackingStore::new(),
+            reads: reads.clone(),
+        };
+        let mut db = ClarityDatabase::new(&mut store, &NULL_HEADER_DB, &NULL_BURN_STATE_DB);
+        commit_epoch(&mut db, StacksEpochId::Epoch30);
+
+        db.begin();
+        db.get_clarity_epoch_version().unwrap();
+        db.get_clarity_epoch_version().unwrap();
+        assert_eq!(reads.get(), 1);
+
+        // A pending write is served from the rollback layer, not the store.
+        db.begin();
+        db.set_clarity_epoch_version(StacksEpochId::Epoch31)
+            .unwrap();
+        db.get_clarity_epoch_version().unwrap();
+        assert_eq!(reads.get(), 1);
+        db.roll_back().unwrap();
+        db.get_clarity_epoch_version().unwrap();
+        db.get_clarity_epoch_version().unwrap();
+        assert_eq!(reads.get(), 2);
+
+        db.set_block_hash(StacksBlockId([1; 32]), true).unwrap();
+        db.get_clarity_epoch_version().unwrap();
+        db.get_clarity_epoch_version().unwrap();
+        assert_eq!(reads.get(), 3);
+        db.roll_back().unwrap();
     }
 }
 
