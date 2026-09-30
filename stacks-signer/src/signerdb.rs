@@ -22,7 +22,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use blockstack_lib::chainstate::nakamoto::NakamotoBlock;
 use blockstack_lib::chainstate::stacks::{TenureChangeCause, TransactionPayload};
 use blockstack_lib::util_lib::db::{
-    query_row, query_rows, sqlite_open, table_exists, tx_begin_immediate, u64_to_sql,
+    query_row, query_rows, sqlite_open, table_exists, tx_begin_immediate, u64_to_sql, DBTx,
     Error as DBError, FromColumn, FromRow,
 };
 use clarity::types::chainstate::{BurnchainHeaderHash, StacksAddress, StacksPublicKey};
@@ -381,18 +381,29 @@ impl BlockInfo {
 }
 
 /// How far below the burnchain tip, in burn blocks, a fork can still matter to the signer. It
-/// bounds everything the signer database keeps by age: the record that the signer sanctioned the
-/// reorg of a tenure (see [`SignerDb::prune_superseded_tenures`]), and the blocks, responses and
-/// burn block records removed by [`SignerDb::prune`]. A fork deeper than this would cause much
-/// bigger problems than a stale conflict or a missing local record.
+/// bounds everything the signer database keeps by age.
+/// Used as an input for pruning operations such as [`SignerDb::prune_superseded_tenures`] and
+/// [`SignerDb::prune`].
+/// NOTE: A fork deeper than this would cause much bigger problems than a stale conflict or
+/// a missing local record.
 pub const MAX_FORK_DEPTH: u64 = 100;
 
-/// How long [`SignerDb::prune`] keeps another signer's burn block timestamp when this signer never
-/// recorded that burn block itself, e.g. because it missed the burn block during an outage. Such a
-/// timestamp is only ever read for the current or the last sortition, to time out its miner. Twice
-/// the fork horizon at the 10 minute mean Bitcoin block interval (~33 h) is far longer than any
-/// sortition stays current, so by then the timestamp can no longer be read.
-pub const ORPHANED_BURN_BLOCK_UPDATE_MAX_AGE_SECS: u64 = 2 * MAX_FORK_DEPTH * 600;
+/// The parameters of one pruning pass (see [`SignerDb::prune`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PruneParams {
+    /// The per-table limit of the pass: at most this many blocks, each together with its per-block
+    /// rows, and at most this many rows per delete of each burn block keyed table. A large backlog
+    /// drains over repeated passes.
+    pub batch_size: u64,
+    /// How far below the burn tip, in burn blocks, the fork horizon is placed. Everything the
+    /// signer may still need for a fork up to that depth is kept.
+    pub fork_depth: u64,
+    /// How long another signer's burn block timestamp is kept when this signer never recorded that
+    /// burn block itself, e.g. because it missed the burn block during an outage. Such a timestamp
+    /// is only ever read for the current or the last sortition, to time out its miner, so this must
+    /// be longer than any sortition stays current.
+    pub orphaned_update_max_age: Duration,
+}
 
 /// What a single [`SignerDb::prune`] pass removed.
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
@@ -410,6 +421,11 @@ pub struct PruneStats {
 }
 
 impl PruneStats {
+    /// The result of a pass that could not place the fork horizon: nothing was removed.
+    pub fn skipped() -> Self {
+        Self::default()
+    }
+
     /// Whether the pass removed any row. Once the database is up to date most passes remove
     /// nothing, since data crosses the fork horizon only about once per tenure.
     pub fn removed_any(&self) -> bool {
@@ -417,10 +433,276 @@ impl PruneStats {
     }
 
     /// Whether the pass skipped the retention rule because it could not place the fork horizon
-    /// from local data, e.g. on a new database or a signer that was offline. A skipped pass never removes
-    /// anything, but a pass that removes nothing is usually not skipped.
+    /// from local data, e.g. on a new database or a signer that was offline. A skipped pass never
+    /// removes anything, but a pass that removes nothing is usually not skipped.
     pub fn is_skipped(&self) -> bool {
         self.cutoff_height.is_none()
+    }
+}
+
+/// One pruning pass over the signer db (run by [`SignerDb::prune`]), in a single `IMMEDIATE`
+/// transaction: [`PruneTx::begin`] places the fork horizon, [`PruneTx::execute`] removes what
+/// lies behind it and [`PruneTx::commit`] keeps the result. Dropping it before the commit rolls
+/// the whole pass back.
+///
+/// A pass removes what no fork can reach any more: every tenure elected before the one in charge
+/// at the fork horizon ([`PruneParams::fork_depth`] burn blocks below the burn tip), together
+/// with its per-block rows, and the burn block and reward cycle keyed records that go with it.
+/// The reward cycle keyed signer state is small and is aged in full. Other signers' timestamps for
+/// a burn block this signer never recorded are removed by age instead (see
+/// [`PruneParams::orphaned_update_max_age`]).
+///
+/// The horizon is placed from data the signer trusts: burn blocks come from its own node, and
+/// block heights only from [`BlockState::GloballyAccepted`] blocks. The burn height and reward
+/// cycle a miner puts in a proposal are never used. If the tenure in charge at the horizon cannot
+/// be found within a further [`PruneParams::fork_depth`] burn blocks (e.g. a fresh database or a
+/// signer that was offline), the pass removes nothing.
+///
+/// A block is removed only if all of these hold:
+/// 1. it is below the lowest accepted height of the tenure in charge at the horizon,
+/// 2. it is not in the tenure of the canonical tip,
+/// 3. no block of its tenure is at or above that height (tenures are removed whole),
+/// 4. its tenure was not elected at or after the tenure in charge at the horizon.
+struct PruneTx<'a> {
+    tx: DBTx<'a>,
+    /// The parameters of this pass
+    params: PruneParams,
+    /// Burn height of the tenure in charge at the fork horizon
+    in_charge_burn_height: i64,
+    /// The lowest accepted Stacks height of the tenure in charge: blocks below it may be removed
+    cutoff: i64,
+    /// The tenure of the canonical tip, which is never removed
+    tip_tenure: String,
+    /// What the pass has removed so far
+    stats: PruneStats,
+}
+
+impl<'a> PruneTx<'a> {
+    /// Open the transaction and place the fork horizon `params.fork_depth` burn blocks below the
+    /// burn tip. `None` if it cannot be placed; the transaction is then dropped and nothing is
+    /// written.
+    fn begin(conn: &'a mut Connection, params: PruneParams) -> Result<Option<Self>, DBError> {
+        let accepted = BlockState::GloballyAccepted.to_string();
+        let tx = tx_begin_immediate(conn)?;
+
+        let burn_tip: Option<i64> =
+            tx.query_row("SELECT MAX(block_height) FROM burn_blocks", [], |row| {
+                row.get(0)
+            })?;
+        let Some(horizon) = burn_tip
+            .and_then(|tip| u64::try_from(tip).ok())
+            .and_then(|tip| tip.checked_sub(params.fork_depth))
+        else {
+            return Ok(None);
+        };
+
+        // The tenure in charge at the horizon: the latest sortition at or below it whose tenure
+        // has accepted blocks.
+        let in_charge: Option<(String, i64)> = tx
+            .query_row(
+                "SELECT bb.consensus_hash, bb.block_height FROM burn_blocks bb
+                 WHERE bb.block_height <= ?1 AND bb.block_height >= ?2
+                   AND EXISTS (SELECT 1 FROM blocks b
+                               WHERE b.consensus_hash = bb.consensus_hash AND b.state = ?3)
+                 ORDER BY bb.block_height DESC LIMIT 1",
+                params![
+                    u64_to_sql(horizon)?,
+                    u64_to_sql(horizon.saturating_sub(params.fork_depth))?,
+                    &accepted
+                ],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .optional()?;
+        let Some((in_charge_tenure, in_charge_burn_height)) = in_charge else {
+            return Ok(None);
+        };
+        let cutoff: Option<i64> = tx.query_row(
+            "SELECT MIN(stacks_height) FROM blocks WHERE consensus_hash = ?1 AND state = ?2",
+            params![&in_charge_tenure, &accepted],
+            |row| row.get(0),
+        )?;
+        let tip_tenure: Option<String> = tx
+            .query_row(
+                "SELECT consensus_hash FROM blocks WHERE state = ?1
+                 ORDER BY stacks_height DESC, signed_group DESC LIMIT 1",
+                params![&accepted],
+                |row| row.get(0),
+            )
+            .optional()?;
+        let (Some(cutoff), Some(tip_tenure)) = (cutoff, tip_tenure) else {
+            return Ok(None);
+        };
+
+        Ok(Some(Self {
+            tx,
+            params,
+            in_charge_burn_height,
+            cutoff,
+            tip_tenure,
+            stats: PruneStats::default(),
+        }))
+    }
+
+    /// Run every step of the pass, in the order the rule needs. Run it once per pass: each step
+    /// removes at most one batch.
+    fn execute(&mut self) -> Result<(), DBError> {
+        self.prune_blocks()?;
+        // Burn block records are aged once nothing refers to them any more, so after the blocks.
+        self.prune_burn_block_records()?;
+        self.prune_reward_cycle_state()
+    }
+
+    /// Commit the pass and return what it removed
+    fn commit(self) -> Result<PruneStats, DBError> {
+        let Self {
+            tx,
+            cutoff,
+            mut stats,
+            ..
+        } = self;
+        tx.commit()?;
+        stats.cutoff_height = u64::try_from(cutoff).ok();
+        Ok(stats)
+    }
+
+    /// Rows removed by one statement, as a statistic
+    fn count(removed: usize) -> u64 {
+        u64::try_from(removed).unwrap_or(u64::MAX)
+    }
+
+    /// Remove at most one batch of blocks, oldest first, each together with its per-block rows.
+    /// See [`PruneTx`] for the four conditions a block must meet.
+    fn prune_blocks(&mut self) -> Result<(), DBError> {
+        let hashes: Vec<String> = {
+            let mut stmt = self.tx.prepare(
+                "SELECT b.signer_signature_hash FROM blocks b
+                 WHERE b.stacks_height < ?1
+                   AND b.consensus_hash != ?2
+                   AND NOT EXISTS (SELECT 1 FROM blocks t
+                                   WHERE t.consensus_hash = b.consensus_hash
+                                     AND t.stacks_height >= ?1)
+                   AND NOT EXISTS (SELECT 1 FROM burn_blocks bb
+                                   WHERE bb.consensus_hash = b.consensus_hash
+                                     AND bb.block_height >= ?3)
+                 ORDER BY b.stacks_height ASC
+                 LIMIT ?4",
+            )?;
+            let rows = stmt.query_map(
+                params![
+                    self.cutoff,
+                    &self.tip_tenure,
+                    self.in_charge_burn_height,
+                    u64_to_sql(self.params.batch_size)?
+                ],
+                |row| row.get(0),
+            )?;
+            rows.collect::<Result<_, _>>()?
+        };
+        for hash in &hashes {
+            for table in [
+                "block_signatures",
+                "block_pre_commits",
+                "block_rejection_signer_addrs",
+                "block_validations_pending",
+            ] {
+                let removed = self.tx.execute(
+                    &format!("DELETE FROM {table} WHERE signer_signature_hash = ?1"),
+                    params![hash],
+                )?;
+                self.stats.block_rows = self.stats.block_rows.saturating_add(Self::count(removed));
+            }
+            let removed = self.tx.execute(
+                "DELETE FROM blocks WHERE signer_signature_hash = ?1",
+                params![hash],
+            )?;
+            self.stats.blocks = self.stats.blocks.saturating_add(Self::count(removed));
+        }
+        Ok(())
+    }
+
+    /// Age the burn block keyed records of sortitions before the tenure in charge, oldest first.
+    /// `burn_blocks` goes last: it is how the others are aged, and a record is kept while anything
+    /// still refers to it.
+    ///
+    /// The `burn_blocks` delete only examines its `batch_size` oldest candidates, so its cost
+    /// stays bounded however large a backlog is. Candidates exclude records still referred to by
+    /// `blocks`, the only reference that can outlive the horizon (a kept tip tenure, or a tenure
+    /// kept whole); the other references are aged oldest first just before, so the oldest
+    /// candidates are always the next to become free.
+    fn prune_burn_block_records(&mut self) -> Result<(), DBError> {
+        let batch_size_sql = u64_to_sql(self.params.batch_size)?;
+        let removed = self.tx.execute(
+            "DELETE FROM burn_block_updates_received_times WHERE rowid IN (
+                SELECT u.rowid FROM burn_block_updates_received_times u
+                JOIN burn_blocks bb ON bb.consensus_hash = u.burn_block_consensus_hash
+                WHERE bb.block_height < ?1
+                ORDER BY bb.block_height LIMIT ?2)",
+            params![self.in_charge_burn_height, batch_size_sql],
+        )?;
+        let removed_count = Self::count(removed);
+        self.stats.other_rows = self.stats.other_rows.saturating_add(removed_count);
+
+        // Timestamps for a burn block this signer never recorded cannot be aged by height. They
+        // are kept while a peer's update may simply have arrived before our own burn block, and
+        // removed once too old to belong to the current or last sortition, the only ones they are
+        // read for. This runs only once the height-based aging above has caught up, so the scan
+        // stays over a small table.
+        if removed_count < self.params.batch_size {
+            let max_received_time =
+                get_epoch_time_secs().saturating_sub(self.params.orphaned_update_max_age.as_secs());
+            let removed = self.tx.execute(
+                "DELETE FROM burn_block_updates_received_times WHERE rowid IN (
+                    SELECT u.rowid FROM burn_block_updates_received_times u
+                    WHERE u.received_time < ?1
+                      AND NOT EXISTS (SELECT 1 FROM burn_blocks bb
+                                      WHERE bb.consensus_hash = u.burn_block_consensus_hash)
+                    ORDER BY u.received_time LIMIT ?2)",
+                params![u64_to_sql(max_received_time)?, batch_size_sql],
+            )?;
+            self.stats.other_rows = self.stats.other_rows.saturating_add(Self::count(removed));
+        }
+
+        for statement in [
+            "DELETE FROM tenure_activity WHERE rowid IN (
+                SELECT ta.rowid FROM tenure_activity ta
+                JOIN burn_blocks bb ON bb.consensus_hash = ta.consensus_hash
+                WHERE bb.block_height < ?1
+                  AND NOT EXISTS (SELECT 1 FROM blocks b WHERE b.consensus_hash = ta.consensus_hash)
+                ORDER BY bb.block_height LIMIT ?2)",
+            "DELETE FROM burn_blocks WHERE rowid IN (
+                SELECT candidate.rowid FROM (
+                    SELECT bb.rowid, bb.consensus_hash FROM burn_blocks bb
+                    WHERE bb.block_height < ?1
+                      AND NOT EXISTS (SELECT 1 FROM blocks b
+                                      WHERE b.consensus_hash = bb.consensus_hash)
+                    ORDER BY bb.block_height LIMIT ?2) candidate
+                WHERE NOT EXISTS (SELECT 1 FROM tenure_activity ta
+                                  WHERE ta.consensus_hash = candidate.consensus_hash)
+                  AND NOT EXISTS (SELECT 1 FROM burn_block_updates_received_times u
+                                  WHERE u.burn_block_consensus_hash = candidate.consensus_hash))",
+        ] {
+            let removed = self.tx.execute(
+                statement,
+                params![self.in_charge_burn_height, batch_size_sql],
+            )?;
+            self.stats.other_rows = self.stats.other_rows.saturating_add(Self::count(removed));
+        }
+        Ok(())
+    }
+
+    /// Keep signer state for the latest reward cycle this signer has recorded and the one before
+    /// it. These cycles come from the signer's own configuration, never from a miner.
+    fn prune_reward_cycle_state(&mut self) -> Result<(), DBError> {
+        for table in ["signer_state_machine_updates", "signer_states"] {
+            let removed = self.tx.execute(
+                &format!(
+                    "DELETE FROM {table} WHERE reward_cycle < (SELECT MAX(reward_cycle) - 1 FROM {table})"
+                ),
+                [],
+            )?;
+            self.stats.other_rows = self.stats.other_rows.saturating_add(Self::count(removed));
+        }
+        Ok(())
     }
 }
 
@@ -1754,200 +2036,17 @@ impl SignerDb {
         Ok(())
     }
 
-    /// Remove what no fork can reach any more: every tenure elected before the one in charge at
-    /// the fork horizon (`MAX_FORK_DEPTH` burn blocks below the burn tip), together with its
-    /// per-block rows, and the burn block and reward cycle keyed records that go with it.
+    /// Run one pruning pass (a `PruneTx`) with the given [`PruneParams`], removing what no fork can
+    /// reach any more. A large backlog drains over repeated calls.
     ///
-    /// Each call is one transaction, and a large backlog drains over repeated calls. It removes at
-    /// most `batch_size` blocks, each together with its per-block rows, and at most `batch_size`
-    /// rows per delete of each burn block keyed table. The reward cycle keyed signer state is small
-    /// and is aged in full. Other signers' timestamps for a burn block this signer never recorded
-    /// are removed by age instead (see [`ORPHANED_BURN_BLOCK_UPDATE_MAX_AGE_SECS`]).
-    ///
-    /// The horizon is placed from data the signer trusts: burn blocks come from its own node, and
-    /// block heights only from `GloballyAccepted` blocks. The burn height and reward cycle a miner
-    /// puts in a proposal are never used. If the tenure in charge at the horizon cannot be found
-    /// within a further `MAX_FORK_DEPTH` burn blocks (e.g. a fresh database or a
-    /// signer that was offline), the pass removes nothing.
-    ///
-    /// A block is removed only if all of these hold:
-    /// 1. it is below the lowest accepted height of the tenure in charge at the horizon,
-    /// 2. it is not in the tenure of the canonical tip,
-    /// 3. no block of its tenure is at or above that height (tenures are removed whole),
-    /// 4. its tenure was not elected at or after the tenure in charge at the horizon.
-    pub fn prune(&mut self, batch_size: u64) -> Result<PruneStats, DBError> {
-        let accepted = BlockState::GloballyAccepted.to_string();
-        let batch_size_sql = u64_to_sql(batch_size)?;
-        let mut stats = PruneStats::default();
-        let tx = tx_begin_immediate(&mut self.db)?;
-
-        let burn_tip: Option<i64> =
-            tx.query_row("SELECT MAX(block_height) FROM burn_blocks", [], |row| {
-                row.get(0)
-            })?;
-        let Some(horizon) = burn_tip
-            .and_then(|tip| u64::try_from(tip).ok())
-            .and_then(|tip| tip.checked_sub(MAX_FORK_DEPTH))
-        else {
-            return Ok(stats);
+    /// Returns what the pass removed; [`PruneStats::is_skipped`] tells whether the fork horizon
+    /// could not be placed.
+    pub fn prune(&mut self, params: &PruneParams) -> Result<PruneStats, DBError> {
+        let Some(mut prune_tx) = PruneTx::begin(&mut self.db, *params)? else {
+            return Ok(PruneStats::skipped());
         };
-
-        // The tenure in charge at the horizon: the latest sortition at or below it whose tenure
-        // has accepted blocks.
-        let in_charge: Option<(String, i64)> = tx
-            .query_row(
-                "SELECT bb.consensus_hash, bb.block_height FROM burn_blocks bb
-                 WHERE bb.block_height <= ?1 AND bb.block_height >= ?2
-                   AND EXISTS (SELECT 1 FROM blocks b
-                               WHERE b.consensus_hash = bb.consensus_hash AND b.state = ?3)
-                 ORDER BY bb.block_height DESC LIMIT 1",
-                params![
-                    u64_to_sql(horizon)?,
-                    u64_to_sql(horizon.saturating_sub(MAX_FORK_DEPTH))?,
-                    &accepted
-                ],
-                |row| Ok((row.get(0)?, row.get(1)?)),
-            )
-            .optional()?;
-        let Some((in_charge_tenure, in_charge_burn_height)) = in_charge else {
-            return Ok(stats);
-        };
-        let cutoff: Option<i64> = tx.query_row(
-            "SELECT MIN(stacks_height) FROM blocks WHERE consensus_hash = ?1 AND state = ?2",
-            params![&in_charge_tenure, &accepted],
-            |row| row.get(0),
-        )?;
-        let tip_tenure: Option<String> = tx
-            .query_row(
-                "SELECT consensus_hash FROM blocks WHERE state = ?1
-                 ORDER BY stacks_height DESC, signed_group DESC LIMIT 1",
-                params![&accepted],
-                |row| row.get(0),
-            )
-            .optional()?;
-        let (Some(cutoff), Some(tip_tenure)) = (cutoff, tip_tenure) else {
-            return Ok(stats);
-        };
-
-        let hashes: Vec<String> = {
-            let mut stmt = tx.prepare(
-                "SELECT b.signer_signature_hash FROM blocks b
-                 WHERE b.stacks_height < ?1
-                   AND b.consensus_hash != ?2
-                   AND NOT EXISTS (SELECT 1 FROM blocks t
-                                   WHERE t.consensus_hash = b.consensus_hash
-                                     AND t.stacks_height >= ?1)
-                   AND NOT EXISTS (SELECT 1 FROM burn_blocks bb
-                                   WHERE bb.consensus_hash = b.consensus_hash
-                                     AND bb.block_height >= ?3)
-                 ORDER BY b.stacks_height ASC
-                 LIMIT ?4",
-            )?;
-            let rows = stmt.query_map(
-                params![cutoff, &tip_tenure, in_charge_burn_height, batch_size_sql],
-                |row| row.get(0),
-            )?;
-            rows.collect::<Result<_, _>>()?
-        };
-        let count = |removed: usize| u64::try_from(removed).unwrap_or(u64::MAX);
-        for hash in &hashes {
-            for table in [
-                "block_signatures",
-                "block_pre_commits",
-                "block_rejection_signer_addrs",
-                "block_validations_pending",
-            ] {
-                let removed = tx.execute(
-                    &format!("DELETE FROM {table} WHERE signer_signature_hash = ?1"),
-                    params![hash],
-                )?;
-                stats.block_rows = stats.block_rows.saturating_add(count(removed));
-            }
-            let removed = tx.execute(
-                "DELETE FROM blocks WHERE signer_signature_hash = ?1",
-                params![hash],
-            )?;
-            stats.blocks = stats.blocks.saturating_add(count(removed));
-        }
-
-        // Burn block keyed records of sortitions before the tenure in charge, oldest first.
-        // `burn_blocks` goes last: it is how the others are aged, and a record is kept while
-        // anything still refers to it.
-        //
-        // The `burn_blocks` delete only examines its `batch_size` oldest candidates, so its cost
-        // stays bounded however large a backlog is. Candidates exclude records still referred to
-        // by `blocks`, the only reference that can outlive the horizon (a kept tip tenure, or a
-        // tenure kept whole); the other references are aged oldest first just above, so the
-        // oldest candidates are always the next to become free.
-        let removed = tx.execute(
-            "DELETE FROM burn_block_updates_received_times WHERE rowid IN (
-                SELECT u.rowid FROM burn_block_updates_received_times u
-                JOIN burn_blocks bb ON bb.consensus_hash = u.burn_block_consensus_hash
-                WHERE bb.block_height < ?1
-                ORDER BY bb.block_height LIMIT ?2)",
-            params![in_charge_burn_height, batch_size_sql],
-        )?;
-        let removed_count = count(removed);
-        stats.other_rows = stats.other_rows.saturating_add(removed_count);
-
-        // Timestamps for a burn block this signer never recorded cannot be aged by height. They
-        // are kept while a peer's update may simply have arrived before our own burn block, and
-        // removed once too old to belong to the current or last sortition, the only ones they are
-        // read for. This runs only once the height-based aging above has caught up, so the scan
-        // stays over a small table.
-        if removed_count < batch_size {
-            let max_received_time =
-                get_epoch_time_secs().saturating_sub(ORPHANED_BURN_BLOCK_UPDATE_MAX_AGE_SECS);
-            let removed = tx.execute(
-                "DELETE FROM burn_block_updates_received_times WHERE rowid IN (
-                    SELECT u.rowid FROM burn_block_updates_received_times u
-                    WHERE u.received_time < ?1
-                      AND NOT EXISTS (SELECT 1 FROM burn_blocks bb
-                                      WHERE bb.consensus_hash = u.burn_block_consensus_hash)
-                    ORDER BY u.received_time LIMIT ?2)",
-                params![u64_to_sql(max_received_time)?, batch_size_sql],
-            )?;
-            stats.other_rows = stats.other_rows.saturating_add(count(removed));
-        }
-
-        for statement in [
-            "DELETE FROM tenure_activity WHERE rowid IN (
-                SELECT ta.rowid FROM tenure_activity ta
-                JOIN burn_blocks bb ON bb.consensus_hash = ta.consensus_hash
-                WHERE bb.block_height < ?1
-                  AND NOT EXISTS (SELECT 1 FROM blocks b WHERE b.consensus_hash = ta.consensus_hash)
-                ORDER BY bb.block_height LIMIT ?2)",
-            "DELETE FROM burn_blocks WHERE rowid IN (
-                SELECT candidate.rowid FROM (
-                    SELECT bb.rowid, bb.consensus_hash FROM burn_blocks bb
-                    WHERE bb.block_height < ?1
-                      AND NOT EXISTS (SELECT 1 FROM blocks b
-                                      WHERE b.consensus_hash = bb.consensus_hash)
-                    ORDER BY bb.block_height LIMIT ?2) candidate
-                WHERE NOT EXISTS (SELECT 1 FROM tenure_activity ta
-                                  WHERE ta.consensus_hash = candidate.consensus_hash)
-                  AND NOT EXISTS (SELECT 1 FROM burn_block_updates_received_times u
-                                  WHERE u.burn_block_consensus_hash = candidate.consensus_hash))",
-        ] {
-            let removed = tx.execute(statement, params![in_charge_burn_height, batch_size_sql])?;
-            stats.other_rows = stats.other_rows.saturating_add(count(removed));
-        }
-
-        // Signer state is kept for the latest reward cycle this signer has recorded and the one
-        // before it. These cycles come from the signer's own configuration, never from a miner.
-        for table in ["signer_state_machine_updates", "signer_states"] {
-            let removed = tx.execute(
-                &format!(
-                    "DELETE FROM {table} WHERE reward_cycle < (SELECT MAX(reward_cycle) - 1 FROM {table})"
-                ),
-                [],
-            )?;
-            stats.other_rows = stats.other_rows.saturating_add(count(removed));
-        }
-
-        tx.commit()?;
-        stats.cutoff_height = u64::try_from(cutoff).ok();
-        Ok(stats)
+        prune_tx.execute()?;
+        prune_tx.commit()
     }
 
     /// Return the last globally accepted block in a tenure (identified by its consensus hash).
@@ -3137,6 +3236,16 @@ pub mod tests {
         hash
     }
 
+    /// The parameters of a test pruning pass. The seed data is built around a fork depth of
+    /// `MAX_FORK_DEPTH` (burn tip 300, horizon 200, search down to 100).
+    fn prune_test_params(batch_size: u64) -> PruneParams {
+        PruneParams {
+            batch_size,
+            fork_depth: MAX_FORK_DEPTH,
+            orphaned_update_max_age: Duration::from_secs(2 * MAX_FORK_DEPTH * 600),
+        }
+    }
+
     /// Number of rows in `table`
     pub fn prune_test_table_count(db: &SignerDb, table: &str) -> i64 {
         db.db
@@ -3170,7 +3279,7 @@ pub mod tests {
         let mut db = SignerDb::new(tmp_db_path()).unwrap();
         let hashes = prune_test_seed_data(&mut db);
 
-        let stats = db.prune(100).unwrap();
+        let stats = db.prune(&prune_test_params(100)).unwrap();
         assert_eq!(stats.cutoff_height, Some(5));
         assert_eq!(stats.blocks, 4);
         // one signature per removed block
@@ -3187,14 +3296,14 @@ pub mod tests {
         }
 
         // burn blocks below the tenure in charge are aged out too, at most a batch per pass
-        while db.prune(100).unwrap().removed_any() {}
+        while db.prune(&prune_test_params(100)).unwrap().removed_any() {}
         assert!(db.get_burn_block_by_ch(&prune_test_ch(50)).is_err());
         assert!(db.get_burn_block_by_ch(&prune_test_ch(189)).is_err());
         assert!(db.get_burn_block_by_ch(&prune_test_ch(190)).is_ok());
         assert_eq!(prune_test_table_count(&db, "burn_blocks"), 111);
 
         // once drained, a pass still places the horizon and has nothing left to do
-        let stats = db.prune(100).unwrap();
+        let stats = db.prune(&prune_test_params(100)).unwrap();
         assert_eq!(stats.cutoff_height, Some(5));
         assert!(!stats.removed_any());
         assert!(!stats.is_skipped());
@@ -3209,7 +3318,7 @@ pub mod tests {
         // An unvalidated proposal claiming a low height in the tip's tenure
         let low_claim = prune_test_insert_stx_block(&mut db, 250, 1, BlockState::Unprocessed);
 
-        let stats = db.prune(100).unwrap();
+        let stats = db.prune(&prune_test_params(100)).unwrap();
         assert_eq!(stats.blocks, 4);
         assert!(db.block_lookup(&reorging).unwrap().is_some());
         assert!(db.block_lookup(&low_claim).unwrap().is_some());
@@ -3223,7 +3332,7 @@ pub mod tests {
         let old_part = prune_test_insert_stx_block(&mut db, 100, 2, BlockState::GloballyAccepted);
         let new_part = prune_test_insert_stx_block(&mut db, 100, 9, BlockState::LocallyAccepted);
 
-        db.prune(100).unwrap();
+        db.prune(&prune_test_params(100)).unwrap();
         assert!(db.block_lookup(&old_part).unwrap().is_some());
         assert!(db.block_lookup(&new_part).unwrap().is_some());
     }
@@ -3232,25 +3341,25 @@ pub mod tests {
     fn test_prune_skips_when_the_horizon_cannot_be_placed() {
         // Fresh database
         let mut db = SignerDb::new(tmp_db_path()).unwrap();
-        let stats = db.prune(100).unwrap();
+        let stats = db.prune(&prune_test_params(100)).unwrap();
         assert!(stats.is_skipped());
-        assert_eq!(stats, PruneStats::default());
+        assert_eq!(stats, PruneStats::skipped());
 
         // Burn tip too low to have a horizon
         prune_test_insert_burn_block(&mut db, 50);
         prune_test_insert_stx_block(&mut db, 50, 1, BlockState::GloballyAccepted);
-        let stats = db.prune(100).unwrap();
+        let stats = db.prune(&prune_test_params(100)).unwrap();
         assert!(stats.is_skipped());
-        assert_eq!(stats, PruneStats::default());
+        assert_eq!(stats, PruneStats::skipped());
 
         // No accepted tenure elected in the search range below the horizon (a long Stacks stall,
         // or a signer that was offline): tip 500, horizon 400, search down to 300, last tenure at 50
         for burn_height in 51..=500 {
             prune_test_insert_burn_block(&mut db, burn_height);
         }
-        let stats = db.prune(100).unwrap();
+        let stats = db.prune(&prune_test_params(100)).unwrap();
         assert!(stats.is_skipped());
-        assert_eq!(stats, PruneStats::default());
+        assert_eq!(stats, PruneStats::skipped());
         assert_eq!(prune_test_table_count(&db, "blocks"), 1);
         // heights 50..=500: nothing was removed
         assert_eq!(prune_test_table_count(&db, "burn_blocks"), 451);
@@ -3261,12 +3370,12 @@ pub mod tests {
         let mut db = SignerDb::new(tmp_db_path()).unwrap();
         prune_test_seed_data(&mut db);
 
-        let stats = db.prune(1).unwrap();
+        let stats = db.prune(&prune_test_params(1)).unwrap();
         assert_eq!(stats.blocks, 1);
         assert_eq!(prune_test_table_count(&db, "blocks"), 7);
 
         let mut passes = 1;
-        while db.prune(1).unwrap().removed_any() {
+        while db.prune(&prune_test_params(1)).unwrap().removed_any() {
             passes += 1;
         }
         assert_eq!(prune_test_table_count(&db, "blocks"), 4);
@@ -3305,7 +3414,11 @@ pub mod tests {
             prune_test_insert_stx_block(&mut db, 2, 10, BlockState::LocallyAccepted);
             db.update_last_activity_time(&prune_test_ch(3), 1).unwrap();
 
-            while db.prune(batch_size).unwrap().removed_any() {}
+            while db
+                .prune(&prune_test_params(batch_size))
+                .unwrap()
+                .removed_any()
+            {}
 
             // Nothing the unbounded rule would remove is left, whatever the batch size
             assert_eq!(
@@ -3336,7 +3449,7 @@ pub mod tests {
                 .unwrap();
         }
 
-        db.prune(100).unwrap();
+        db.prune(&prune_test_params(100)).unwrap();
 
         assert!(db
             .get_last_activity_time(&prune_test_ch(50))
@@ -3361,7 +3474,8 @@ pub mod tests {
         let mut db = SignerDb::new(tmp_db_path()).unwrap();
         prune_test_seed_data(&mut db);
         let now = get_epoch_time_secs();
-        let too_old = now - ORPHANED_BURN_BLOCK_UPDATE_MAX_AGE_SECS - 60;
+        let max_age = prune_test_params(1).orphaned_update_max_age.as_secs();
+        let too_old = now - max_age - 60;
         let insert = |db: &SignerDb, signer: &str, ch: &ConsensusHash, received_time: u64| {
             db.db
                 .execute(
@@ -3390,23 +3504,18 @@ pub mod tests {
             insert(&db, signer, &missed, too_old);
             // a peer's update that arrived before our own burn block
             insert(&db, signer, &not_yet_recorded, now - 60);
-            insert(
-                &db,
-                signer,
-                &nearly_too_old,
-                now - ORPHANED_BURN_BLOCK_UPDATE_MAX_AGE_SECS + 3600,
-            );
+            insert(&db, signer, &nearly_too_old, now - max_age + 3600);
             // recorded burn blocks: one below the tenure in charge, one kept (the tip's tenure)
             insert(&db, signer, &prune_test_ch(50), now);
             insert(&db, signer, &prune_test_ch(250), too_old);
         }
 
         // While the height-based aging still has a full batch to do, orphans are left alone
-        db.prune(1).unwrap();
+        db.prune(&prune_test_params(1)).unwrap();
         assert_eq!(count(&db, &missed), 3);
         assert_eq!(count(&db, &prune_test_ch(50)), 2);
 
-        while db.prune(1).unwrap().removed_any() {}
+        while db.prune(&prune_test_params(1)).unwrap().removed_any() {}
 
         // Only the orphans past the maximum age are gone
         assert_eq!(count(&db, &missed), 0);

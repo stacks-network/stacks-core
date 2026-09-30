@@ -22,17 +22,23 @@ use std::time::{Duration, Instant};
 use blockstack_lib::util_lib::db::Error as DBError;
 use stacks_common::{debug, info, warn};
 
-use crate::signerdb::{PruneStats, SignerDb};
+use crate::signerdb::{PruneParams, PruneStats, SignerDb, MAX_FORK_DEPTH};
 
 /// How often a pruning pass runs. The runloop checks it on every pass, whatever the event, so it
 /// does not depend on the event stream going quiet.
 pub const PRUNE_INTERVAL: Duration = Duration::from_secs(10);
-/// The per-table limit of one pruning pass: at most this many blocks, each removed together with
-/// its per-block rows (signatures, pre-commits, rejections, pending validation), and at most this
-/// many rows of each burn block keyed table. Blocks are counted in Stacks blocks because they carry
-/// almost all of the cost of a pass. Together with [`PRUNE_INTERVAL`] this bounds the time spent
-/// pruning, and drains an existing backlog over repeated passes.
-const PRUNE_BATCH_SIZE: u64 = 100;
+/// The parameters of every pruning pass (see [`PruneParams`]).
+const PRUNE_PARAMS: PruneParams = PruneParams {
+    // Blocks are counted in Stacks blocks because they carry almost all of the cost of a pass.
+    // Together with `PRUNE_INTERVAL` this bounds the time spent pruning, and drains an existing
+    // backlog over repeated passes.
+    batch_size: 100,
+    // The signer's own fork depth
+    fork_depth: MAX_FORK_DEPTH,
+    // Twice the fork horizon at the 10 minute mean Bitcoin block interval (~33 h): far longer than
+    // any sortition stays current
+    orphaned_update_max_age: Duration::from_secs(2 * MAX_FORK_DEPTH * 600),
+};
 /// A pruning pass slower than this is logged as a warning.
 const PRUNE_SLOW_PASS: Duration = Duration::from_millis(500);
 
@@ -68,7 +74,7 @@ impl SignerDbPruner {
             return;
         }
         let started = Instant::now();
-        let result = self.db.prune(PRUNE_BATCH_SIZE);
+        let result = self.db.prune(&PRUNE_PARAMS);
         self.record(&result, started.elapsed());
     }
 
