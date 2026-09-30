@@ -458,10 +458,6 @@ pub struct ConnectionOptions {
     pub disable_network_bans: bool,
     /// Disable block availability advertisement
     pub disable_block_advertisement: bool,
-    /// Disable block pushing
-    pub disable_block_push: bool,
-    /// Disable microblock pushing
-    pub disable_microblock_push: bool,
     /// Disable walk pingbacks -- don't attempt to walk to a remote peer even if it contacted us
     /// first
     pub disable_pingbacks: bool,
@@ -609,8 +605,6 @@ impl std::default::Default for ConnectionOptions {
             disable_network_prune: false,
             disable_network_bans: false,
             disable_block_advertisement: false,
-            disable_block_push: false,
-            disable_microblock_push: false,
             disable_pingbacks: false,
             disable_inbound_walks: false,
             disable_natpunch: false,
