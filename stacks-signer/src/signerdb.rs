@@ -1688,15 +1688,13 @@ impl SignerDb {
         Ok(query_row::<i64, _>(&self.db, query, params![consensus_hash])?.is_some())
     }
 
-    /// Whether we permitted the tenure `superseded_by_consensus_hash` to reorg the tenure
-    /// `consensus_hash` (see [`SignerDb::mark_tenure_superseded`]).
-    pub fn is_tenure_superseded_by(
-        &self,
-        consensus_hash: &ConsensusHash,
-        superseded_by_consensus_hash: &ConsensusHash,
-    ) -> Result<bool, DBError> {
+    /// Whether we recorded the permit described by `permit`: that
+    /// [`ReorgPermit::reorging_tenure`] may reorg [`ReorgPermit::reorged_tenure`] (see
+    /// [`SignerDb::mark_tenure_superseded`]). Only the most recent permitting tenure is
+    /// recorded per reorged tenure, so a permit replaced by a later one reads as absent.
+    pub fn has_reorg_permit(&self, permit: ReorgPermit<'_>) -> Result<bool, DBError> {
         let query = "SELECT 1 FROM superseded_tenures WHERE consensus_hash = ?1 AND superseded_by_consensus_hash = ?2";
-        let args = params![consensus_hash, superseded_by_consensus_hash];
+        let args = params![permit.reorged_tenure, permit.reorging_tenure];
         Ok(query_row::<i64, _>(&self.db, query, args)?.is_some())
     }
 
@@ -2670,6 +2668,18 @@ pub struct SignedConflictInfo {
     /// conflict only for a proposal on the branch it sanctioned, and only while that sortition
     /// is still canonical, both of which the caller must derive.
     pub superseded_by: Option<SupersededBy>,
+}
+
+/// The two tenures of a reorg permit, as queried by [`SignerDb::has_reorg_permit`]. The two
+/// hashes are named rather than positional because both sides of a reorg are a
+/// [`ConsensusHash`], and swapping them asks a different question that silently answers
+/// `false`.
+#[derive(Debug)]
+pub struct ReorgPermit<'a> {
+    /// The tenure whose blocks we permitted to be replaced
+    pub reorged_tenure: &'a ConsensusHash,
+    /// The tenure we permitted to replace them
+    pub reorging_tenure: &'a ConsensusHash,
 }
 
 /// The sortition of a tenure we permitted to reorg another tenure, as carried by
@@ -3690,14 +3700,23 @@ pub mod tests {
             .unwrap();
         assert!(db.is_tenure_superseded(&consensus_hash_1).unwrap());
         assert!(db
-            .is_tenure_superseded_by(&consensus_hash_1, &permitting_ch)
+            .has_reorg_permit(ReorgPermit {
+                reorged_tenure: &consensus_hash_1,
+                reorging_tenure: &permitting_ch,
+            })
             .unwrap());
         // The permit names the tenure it was granted to, and no other.
         assert!(!db
-            .is_tenure_superseded_by(&consensus_hash_1, &consensus_hash_2)
+            .has_reorg_permit(ReorgPermit {
+                reorged_tenure: &consensus_hash_1,
+                reorging_tenure: &consensus_hash_2,
+            })
             .unwrap());
         assert!(!db
-            .is_tenure_superseded_by(&consensus_hash_2, &permitting_ch)
+            .has_reorg_permit(ReorgPermit {
+                reorged_tenure: &consensus_hash_2,
+                reorging_tenure: &permitting_ch,
+            })
             .unwrap());
         let conflicts = db.get_signed_conflicts(2, &unrelated_hash).unwrap();
         assert_eq!(conflicts.len(), 3);
@@ -3726,10 +3745,16 @@ pub mod tests {
         assert_eq!(superseded_by.consensus_hash, repermitting_ch);
         assert_eq!(superseded_by.burn_block_hash, repermitting_bbh);
         assert!(db
-            .is_tenure_superseded_by(&consensus_hash_1, &repermitting_ch)
+            .has_reorg_permit(ReorgPermit {
+                reorged_tenure: &consensus_hash_1,
+                reorging_tenure: &repermitting_ch,
+            })
             .unwrap());
         assert!(!db
-            .is_tenure_superseded_by(&consensus_hash_1, &permitting_ch)
+            .has_reorg_permit(ReorgPermit {
+                reorged_tenure: &consensus_hash_1,
+                reorging_tenure: &permitting_ch,
+            })
             .unwrap());
 
         db.mark_tenure_superseded(&consensus_hash_2, 43, &permitting_ch, &permitting_bbh)
@@ -3745,7 +3770,10 @@ pub mod tests {
         db.prune_superseded_tenures(43).unwrap();
         assert!(!db.is_tenure_superseded(&consensus_hash_1).unwrap());
         assert!(!db
-            .is_tenure_superseded_by(&consensus_hash_1, &repermitting_ch)
+            .has_reorg_permit(ReorgPermit {
+                reorged_tenure: &consensus_hash_1,
+                reorging_tenure: &repermitting_ch,
+            })
             .unwrap());
         assert!(db.is_tenure_superseded(&consensus_hash_2).unwrap());
         let conflicts = db.get_signed_conflicts(2, &unrelated_hash).unwrap();

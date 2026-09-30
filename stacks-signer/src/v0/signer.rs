@@ -52,7 +52,9 @@ use crate::chainstate::{ProposalEvalConfig, SelfAsTip, SortitionData, SortitionS
 use crate::client::{ClientError, SignerSlotID, StackerDB, StacksClient};
 use crate::config::{SignerConfig, SignerConfigMode};
 use crate::runloop::SignerResult;
-use crate::signerdb::{BlockInfo, BlockState, PendingBlockResponses, SignedConflictInfo, SignerDb};
+use crate::signerdb::{
+    BlockInfo, BlockState, PendingBlockResponses, ReorgPermit, SignedConflictInfo, SignerDb,
+};
 use crate::v0::signer_state::NewBurnBlock;
 #[cfg(not(any(test, feature = "testing")))]
 use crate::v0::signer_state::SUPPORTED_SIGNER_PROTOCOL_VERSION;
@@ -2075,14 +2077,18 @@ impl Signer {
         let LocalStateMachine::Initialized(state_machine) = &self.local_state_machine else {
             return None;
         };
-        let MinerState::ActiveMiner { tenure_id, .. } = &state_machine.current_miner else {
+        let MinerState::ActiveMiner {
+            tenure_id: active_miner_tenure_id,
+            ..
+        } = &state_machine.current_miner
+        else {
             return None;
         };
         let block_tenure_id = &proposed_block.header.consensus_hash;
-        match self
-            .signer_db
-            .is_tenure_superseded_by(block_tenure_id, tenure_id)
-        {
+        match self.signer_db.has_reorg_permit(ReorgPermit {
+            reorged_tenure: block_tenure_id,
+            reorging_tenure: active_miner_tenure_id,
+        }) {
             Ok(false) => None,
             Ok(true) => {
                 warn!(
@@ -2090,12 +2096,12 @@ impl Signer {
                     "signer_signature_hash" => %proposed_block.header.signer_signature_hash(),
                     "block_height" => proposed_block.header.chain_length,
                     "block_consensus_hash" => %block_tenure_id,
-                    "active_miner_tenure_id" => %tenure_id,
+                    "active_miner_tenure_id" => %active_miner_tenure_id,
                 );
                 Some(self.create_block_rejection(
                     RejectReason::ConsensusHashMismatch {
                         actual: block_tenure_id.clone(),
-                        expected: tenure_id.clone(),
+                        expected: active_miner_tenure_id.clone(),
                     },
                     proposed_block,
                 ))

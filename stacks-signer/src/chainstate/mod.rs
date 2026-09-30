@@ -34,7 +34,7 @@ use v2::SortitionState as SortitionStateV2;
 use crate::chainstate::v1::SortitionMinerStatus;
 use crate::client::{ClientError, StacksClient};
 use crate::config::SignerConfig;
-use crate::signerdb::{BlockInfo, BlockState, SignerDb};
+use crate::signerdb::{BlockInfo, BlockState, ReorgPermit, SignerDb};
 use crate::v0::signer_state::GLOBAL_SIGNER_STATE_ACTIVATION_VERSION;
 
 /// The testing module for the various chainstate implementations
@@ -215,12 +215,10 @@ impl SortitionData {
         let sortition_state_received_time =
             signer_db.get_burn_block_receive_time(&self.burn_block_hash)?;
 
-        // Track which tenures are superseded by the reorg, then mark them in
-        // the DB after the reorg is permitted.
-// Track which tenures are superseded by the reorg, except for those that
-// have already been marked as such. If the reorg is permitted, these tenures
-// will be marked in the DB.
-let mut superseded_tenures = Vec::new();
+        // Track which tenures are superseded by the reorg, except for those that
+        // have already been marked as such. If the reorg is permitted, these tenures
+        // will be marked in the DB.
+        let mut superseded_tenures = Vec::new();
         for tenure in tenures_reorged.iter() {
             if tenure.consensus_hash == self.parent_tenure_id {
                 // this was a built-upon tenure, no need to check this tenure as part of the reorg.
@@ -228,7 +226,10 @@ let mut superseded_tenures = Vec::new();
             }
 
             // We already permitted this sortition to reorg `tenure`
-            if signer_db.is_tenure_superseded_by(&tenure.consensus_hash, &self.consensus_hash)? {
+            if signer_db.has_reorg_permit(ReorgPermit {
+                reorged_tenure: &tenure.consensus_hash,
+                reorging_tenure: &self.consensus_hash,
+            })? {
                 debug!(
                     "Reorged tenure was already permitted for this sortition, skipping re-check";
                     "sortition_state.consensus_hash" => %self.consensus_hash,

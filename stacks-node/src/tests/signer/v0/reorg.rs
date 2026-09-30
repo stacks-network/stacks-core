@@ -37,7 +37,7 @@ use stacks::util::hash::{Hash160, Sha512Trunc256Sum};
 use stacks::util::secp256k1::{Secp256k1PrivateKey, Secp256k1PublicKey};
 use stacks_common::types::chainstate::TrieHash;
 use stacks_common::util::sleep_ms;
-use stacks_signer::signerdb::{BlockState, SignerDb};
+use stacks_signer::signerdb::{BlockState, ReorgPermit, SignerDb};
 use stacks_signer::v0::signer_state::LocalStateMachine;
 use stacks_signer::v0::tests::{
     TEST_PIN_SUPPORTED_SIGNER_PROTOCOL_VERSION, TEST_REJECT_ALL_BLOCK_PROPOSAL,
@@ -5430,11 +5430,12 @@ fn signer_db_paths(miners: &MultipleMinerTest) -> Vec<std::path::PathBuf> {
 /// a reorg they already permitted when they fall back to its tenure.
 ///
 /// When a sortition winner is invalid, the signers fall back to the prior sortition's
-/// winner and re-run `check_parent_tenure_choice` for it. If the prior tenure was itself a
-/// permitted reorg, that re-check counts the reorged tenure's globally accepted blocks again,
-/// as of *now*. A block of the reorged tenure that was signed before the reorg but only
-/// landed afterwards pushes that count past one, so the re-check refuses the reorg the signers
-/// already sanctioned, neither miner is valid, and the chain stalls until the next sortition.
+/// winner. Under previous behaviors, the signers would re-run `check_parent_tenure_choice` for
+/// that tenure. If that prior tenure was itself a permitted reorg, that re-check would count
+/// the reorged tenure's globally accepted blocks again. A block of the reorged tenure that was
+/// signed before the reorg but only landed afterwards would push that count past one, so the
+/// re-check would refuse the reorg the signers already sanctioned, making neither miner valid,
+/// and the chain would stall until the next sortition.
 ///
 /// Test Setup:
 /// Two miners and five signers. `first_proposal_burn_block_timing` is large, so a reorg is
@@ -5713,7 +5714,10 @@ fn reorged_tenure_is_frozen_once_reorg_is_permitted() {
         let signer_db = SignerDb::new(db_path).unwrap();
         assert!(
             signer_db
-                .is_tenure_superseded_by(&tenure_a_ch, &tenure_b_ch)
+                .has_reorg_permit(ReorgPermit {
+                    reorged_tenure: &tenure_a_ch,
+                    reorging_tenure: &tenure_b_ch,
+                })
                 .unwrap(),
             "Every signer should have recorded permitting tenure B to reorg tenure A"
         );
