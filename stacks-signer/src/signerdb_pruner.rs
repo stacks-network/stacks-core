@@ -106,7 +106,7 @@ impl SignerDbPruner {
             self.skipped = skipped;
         }
         if stats.removed_any() {
-            debug!("Pruned the signer db";
+            debug!("Signer db pruned";
                 "cutoff_height" => ?stats.cutoff_height,
                 "blocks" => stats.blocks,
                 "block_rows" => stats.block_rows,

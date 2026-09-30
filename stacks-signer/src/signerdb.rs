@@ -387,6 +387,13 @@ impl BlockInfo {
 /// bigger problems than a stale conflict or a missing local record.
 pub const MAX_FORK_DEPTH: u64 = 100;
 
+/// How long [`SignerDb::prune`] keeps another signer's burn block timestamp when this signer never
+/// recorded that burn block itself, e.g. because it missed the burn block during an outage. Such a
+/// timestamp is only ever read for the current or the last sortition, to time out its miner. Twice
+/// the fork horizon at the 10 minute mean Bitcoin block interval (~33 h) is far longer than any
+/// sortition stays current, so by then the timestamp can no longer be read.
+pub const ORPHANED_BURN_BLOCK_UPDATE_MAX_AGE_SECS: u64 = 2 * MAX_FORK_DEPTH * 600;
+
 /// What a single [`SignerDb::prune`] pass removed.
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct PruneStats {
@@ -1753,8 +1760,9 @@ impl SignerDb {
     ///
     /// Each call is one transaction, and a large backlog drains over repeated calls. It removes at
     /// most `batch_size` blocks, each together with its per-block rows, and at most `batch_size`
-    /// rows of each burn block keyed table. The reward cycle keyed signer state is small and is aged
-    /// in full.
+    /// rows per delete of each burn block keyed table. The reward cycle keyed signer state is small
+    /// and is aged in full. Other signers' timestamps for a burn block this signer never recorded
+    /// are removed by age instead (see [`ORPHANED_BURN_BLOCK_UPDATE_MAX_AGE_SECS`]).
     ///
     /// The horizon is placed from data the signer trusts: burn blocks come from its own node, and
     /// block heights only from `GloballyAccepted` blocks. The burn height and reward cycle a miner
@@ -1769,7 +1777,7 @@ impl SignerDb {
     /// 4. its tenure was not elected at or after the tenure in charge at the horizon.
     pub fn prune(&mut self, batch_size: u64) -> Result<PruneStats, DBError> {
         let accepted = BlockState::GloballyAccepted.to_string();
-        let batch_size = u64_to_sql(batch_size)?;
+        let batch_size_sql = u64_to_sql(batch_size)?;
         let mut stats = PruneStats::default();
         let tx = tx_begin_immediate(&mut self.db)?;
 
@@ -1836,7 +1844,7 @@ impl SignerDb {
                  LIMIT ?4",
             )?;
             let rows = stmt.query_map(
-                params![cutoff, &tip_tenure, in_charge_burn_height, batch_size],
+                params![cutoff, &tip_tenure, in_charge_burn_height, batch_size_sql],
                 |row| row.get(0),
             )?;
             rows.collect::<Result<_, _>>()?
@@ -1871,12 +1879,38 @@ impl SignerDb {
         // by `blocks`, the only reference that can outlive the horizon (a kept tip tenure, or a
         // tenure kept whole); the other references are aged oldest first just above, so the
         // oldest candidates are always the next to become free.
-        for statement in [
+        let removed = tx.execute(
             "DELETE FROM burn_block_updates_received_times WHERE rowid IN (
                 SELECT u.rowid FROM burn_block_updates_received_times u
                 JOIN burn_blocks bb ON bb.consensus_hash = u.burn_block_consensus_hash
                 WHERE bb.block_height < ?1
                 ORDER BY bb.block_height LIMIT ?2)",
+            params![in_charge_burn_height, batch_size_sql],
+        )?;
+        let removed_count = count(removed);
+        stats.other_rows = stats.other_rows.saturating_add(removed_count);
+
+        // Timestamps for a burn block this signer never recorded cannot be aged by height. They
+        // are kept while a peer's update may simply have arrived before our own burn block, and
+        // removed once too old to belong to the current or last sortition, the only ones they are
+        // read for. This runs only once the height-based aging above has caught up, so the scan
+        // stays over a small table.
+        if removed_count < batch_size {
+            let max_received_time =
+                get_epoch_time_secs().saturating_sub(ORPHANED_BURN_BLOCK_UPDATE_MAX_AGE_SECS);
+            let removed = tx.execute(
+                "DELETE FROM burn_block_updates_received_times WHERE rowid IN (
+                    SELECT u.rowid FROM burn_block_updates_received_times u
+                    WHERE u.received_time < ?1
+                      AND NOT EXISTS (SELECT 1 FROM burn_blocks bb
+                                      WHERE bb.consensus_hash = u.burn_block_consensus_hash)
+                    ORDER BY u.received_time LIMIT ?2)",
+                params![u64_to_sql(max_received_time)?, batch_size_sql],
+            )?;
+            stats.other_rows = stats.other_rows.saturating_add(count(removed));
+        }
+
+        for statement in [
             "DELETE FROM tenure_activity WHERE rowid IN (
                 SELECT ta.rowid FROM tenure_activity ta
                 JOIN burn_blocks bb ON bb.consensus_hash = ta.consensus_hash
@@ -1895,7 +1929,7 @@ impl SignerDb {
                   AND NOT EXISTS (SELECT 1 FROM burn_block_updates_received_times u
                                   WHERE u.burn_block_consensus_hash = candidate.consensus_hash))",
         ] {
-            let removed = tx.execute(statement, params![in_charge_burn_height, batch_size])?;
+            let removed = tx.execute(statement, params![in_charge_burn_height, batch_size_sql])?;
             stats.other_rows = stats.other_rows.saturating_add(count(removed));
         }
 
@@ -3320,6 +3354,67 @@ pub mod tests {
         assert!(db.get_encrypted_signer_state(3).unwrap().is_none());
         assert!(db.get_encrypted_signer_state(4).unwrap().is_some());
         assert!(db.get_encrypted_signer_state(5).unwrap().is_some());
+    }
+
+    #[test]
+    fn test_prune_ages_orphaned_burn_block_timestamps_by_age() {
+        let mut db = SignerDb::new(tmp_db_path()).unwrap();
+        prune_test_seed_data(&mut db);
+        let now = get_epoch_time_secs();
+        let too_old = now - ORPHANED_BURN_BLOCK_UPDATE_MAX_AGE_SECS - 60;
+        let insert = |db: &SignerDb, signer: &str, ch: &ConsensusHash, received_time: u64| {
+            db.db
+                .execute(
+                    "INSERT INTO burn_block_updates_received_times
+                     (signer_addr, burn_block_consensus_hash, received_time) VALUES (?1, ?2, ?3)",
+                    params![signer, ch, u64_to_sql(received_time).unwrap()],
+                )
+                .unwrap();
+        };
+        let count = |db: &SignerDb, ch: &ConsensusHash| -> i64 {
+            db.db
+                .query_row(
+                    "SELECT COUNT(*) FROM burn_block_updates_received_times
+                     WHERE burn_block_consensus_hash = ?1",
+                    params![ch],
+                    |row| row.get(0),
+                )
+                .unwrap()
+        };
+        // Burn blocks this signer never recorded (no `burn_blocks` row)
+        let missed = prune_test_ch(10_000);
+        let not_yet_recorded = prune_test_ch(10_001);
+        let nearly_too_old = prune_test_ch(10_002);
+        for signer in ["a", "b", "c"] {
+            // missed long ago (e.g. during an outage): can no longer be the current sortition
+            insert(&db, signer, &missed, too_old);
+            // a peer's update that arrived before our own burn block
+            insert(&db, signer, &not_yet_recorded, now - 60);
+            insert(
+                &db,
+                signer,
+                &nearly_too_old,
+                now - ORPHANED_BURN_BLOCK_UPDATE_MAX_AGE_SECS + 3600,
+            );
+            // recorded burn blocks: one below the tenure in charge, one kept (the tip's tenure)
+            insert(&db, signer, &prune_test_ch(50), now);
+            insert(&db, signer, &prune_test_ch(250), too_old);
+        }
+
+        // While the height-based aging still has a full batch to do, orphans are left alone
+        db.prune(1).unwrap();
+        assert_eq!(count(&db, &missed), 3);
+        assert_eq!(count(&db, &prune_test_ch(50)), 2);
+
+        while db.prune(1).unwrap().removed_any() {}
+
+        // Only the orphans past the maximum age are gone
+        assert_eq!(count(&db, &missed), 0);
+        assert_eq!(count(&db, &not_yet_recorded), 3);
+        assert_eq!(count(&db, &nearly_too_old), 3);
+        // Timestamps of recorded burn blocks are aged by height only, whatever their age
+        assert_eq!(count(&db, &prune_test_ch(50)), 0);
+        assert_eq!(count(&db, &prune_test_ch(250)), 3);
     }
 
     /// Create a temporary db path for testing purposes
