@@ -73,12 +73,6 @@ use crate::run_loop::nakamoto::{Globals, RunLoop};
 use crate::run_loop::RegisteredKey;
 use crate::BitcoinRegtestController;
 
-/// How long the relayer waits for an already-proposed tenure-start (`BlockFound`) block
-/// to be processed before presuming it lost and issuing a late `BlockFound` of its own.
-/// Measured from the moment the proposal was sent, not from the empty sortition that
-/// prompted the wait, so a run of empty sortitions cannot extend it.
-pub const BLOCK_FOUND_IN_FLIGHT_WAIT: Duration = Duration::from_secs(15);
-
 #[cfg(test)]
 /// Mutex to stall the relayer thread right before it creates a miner thread.
 pub static TEST_MINER_THREAD_STALL: LazyLock<TestFlag<bool>> = LazyLock::new(TestFlag::default);
@@ -946,10 +940,11 @@ impl RelayerThread {
     /// `BlockFound` must not be issued before then -- it would only be a sibling of the
     /// in-flight block, which the signers will refuse to sign.
     ///
-    /// The deadline is derived from the proposal itself rather than stored on the
-    /// tenure-extend timer, so that repeated empty sortitions re-read the same deadline
-    /// instead of pushing it further out, and so that a proposal whose miner thread died
-    /// without resolving it can only delay the late `BlockFound` by a constant time.
+    /// The deadline is [`MinerConfig::block_found_in_flight_wait`] past the moment the
+    /// block was proposed. Deriving it from the proposal rather than storing it on the
+    /// tenure-extend timer means repeated empty sortitions re-read the same deadline
+    /// instead of pushing it further out, and that a proposal whose miner thread died
+    /// without resolving it can only delay the late `BlockFound` by a bounded time.
     ///
     /// Mock miners' proposals never land, so they always report `None` and keep issuing
     /// late `BlockFound` tenures immediately.
@@ -962,7 +957,7 @@ impl RelayerThread {
         }
         let (proposed_tenure_id, proposed_at) = self.globals.get_last_proposed_tenure_start()?;
         (proposed_tenure_id == last_winning_snapshot.consensus_hash)
-            .then(|| proposed_at + BLOCK_FOUND_IN_FLIGHT_WAIT)
+            .then(|| proposed_at + self.config.miner.block_found_in_flight_wait)
     }
 
     /// Determine if we the current tenure winner needs to issue a BlockFound.

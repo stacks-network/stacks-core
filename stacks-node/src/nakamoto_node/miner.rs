@@ -688,14 +688,24 @@ impl BlockMinerThread {
         //  done, so exit and let the tenure extension thread take over rather
         //  than proposing a sibling of a tenure-start block that has landed.
         if self.reason.is_late_block() {
-            let tenure_started = self.last_block_mined.is_some()
-                || self
-                    .find_highest_known_block_in_my_tenure(sortdb, &chain_state)
-                    .unwrap_or_else(|e| {
+            let tenure_started = if self.last_block_mined.is_some() {
+                true
+            } else {
+                // An empty tenure reports `Ok(None)` here, so an error means the lookup
+                // itself failed (e.g. lock contention with the chains coordinator).
+                // Proceeding on that would propose a BlockFound without knowing whether
+                // the tenure has already started, which is how a sibling of a landed
+                // tenure-start block gets created. Retry instead; the abort check at the
+                // top of this function lets the relayer stop the retry loop.
+                match self.find_highest_known_block_in_my_tenure(sortdb, &chain_state) {
+                    Ok(highest) => highest.is_some(),
+                    Err(e) => {
                         warn!("Miner: failed to look up the late tenure's highest block, will try again: {e:?}");
-                        None
-                    })
-                    .is_some();
+                        thread::sleep(Duration::from_millis(ABORT_TRY_AGAIN_MS));
+                        return Ok(());
+                    }
+                }
+            };
             if tenure_started {
                 info!("Miner: finished mining a late tenure";
                     "tenure_id" => %self.burn_election_block.consensus_hash,

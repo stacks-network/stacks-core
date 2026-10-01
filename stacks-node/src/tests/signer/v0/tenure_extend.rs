@@ -53,7 +53,7 @@ use crate::clarity::vm::clarity::ClarityConnection;
 use crate::nakamoto_node::miner::{
     fault_injection_stall_miner, fault_injection_unstall_miner, TEST_BROADCAST_PROPOSAL_STALL,
 };
-use crate::nakamoto_node::relayer::{BLOCK_FOUND_IN_FLIGHT_WAIT, TEST_MINER_COMMIT_TIP};
+use crate::nakamoto_node::relayer::TEST_MINER_COMMIT_TIP;
 use crate::nakamoto_node::stackerdb_listener::TEST_IGNORE_SIGNERS;
 use crate::neon::Counters;
 use crate::tests::nakamoto_integrations::{next_block_and, wait_for};
@@ -4257,8 +4257,22 @@ fn empty_sortition_before_tenure_start_signed() {
     let send_amt = 100;
     let send_fee = 180;
     let recipient = PrincipalData::from(StacksAddress::burn_address(false));
-    let signer_test: SignerTest<SpawnedSigner> =
-        SignerTest::new(num_signers, vec![(sender_addr, send_amt + send_fee)]);
+    // Everything between N's proposal and N being processed has to fit inside the
+    // relayer's in-flight wait, because once it elapses a late `BlockFound` is correct
+    // and the "exactly one BlockFound" assertion below would trip for the wrong reason.
+    // That span covers mining B, the sibling probe, and unstalling and signing N, so
+    // give it far more room than the default.
+    let block_found_in_flight_wait = Duration::from_secs(120);
+    let signer_test: SignerTest<SpawnedSigner> = SignerTest::new_with_config_modifications(
+        num_signers,
+        vec![(sender_addr, send_amt + send_fee)],
+        |_| {},
+        |node_config| {
+            node_config.miner.block_found_in_flight_wait = block_found_in_flight_wait;
+        },
+        None,
+        None,
+    );
     let http_origin = format!("http://{}", signer_test.running_nodes.conf.node.rpc_bind);
     let miner_sk = signer_test
         .running_nodes
@@ -4320,6 +4334,9 @@ fn empty_sortition_before_tenure_start_signed() {
             .is_some_and(|payload| payload.cause.is_eq(&TenureChangeCause::BlockFound)),
         "Block N should be tenure A's BlockFound tenure-start block"
     );
+    // The relayer will wait for N until this deadline, measured from the moment N was
+    // proposed.
+    let block_found_deadline = get_epoch_time_secs() + block_found_in_flight_wait.as_secs();
     // The signers are stalled, so N is unsigned and the tip has not moved.
     assert_eq!(
         get_chain_info(&signer_test.running_nodes.conf).stacks_tip_height,
@@ -4340,9 +4357,11 @@ fn empty_sortition_before_tenure_start_signed() {
     // Give the relayer time to react to the empty sortition while N is still
     // unsigned. A correct miner issues nothing here: the only thing it may do
     // is extend, and it cannot extend until N is processed. A miner with the
-    // bug spawns a late `BlockFound` thread and proposes a sibling of N within
-    // a few seconds, which the final proposal count below catches. Either way
-    // the wait is bounded, so its result is deliberately ignored.
+    // bug spawns a late `BlockFound` thread as soon as it processes B and
+    // proposes a sibling of N within a few seconds, which the final proposal
+    // count below catches. Either way the wait is bounded, so its result is
+    // deliberately ignored.
+    //
     let proposed_before_unstall = proposed_blocks.load(Ordering::SeqCst);
     let _ = wait_for(10, || {
         Ok(proposed_blocks.load(Ordering::SeqCst) > proposed_before_unstall)
@@ -4364,6 +4383,15 @@ fn empty_sortition_before_tenure_start_signed() {
         info.stacks_tip,
         block_n.header.block_hash(),
         "The tenure-start block that was proposed first must be the one that lands"
+    );
+    // N landing after the relayer gave up on it makes a late BlockFound correct, which
+    // would show up below as a spurious "second BlockFound" failure. Catch it here
+    // instead, where the message names the real problem.
+    assert!(
+        get_epoch_time_secs() <= block_found_deadline,
+        "Block N took longer than BLOCK_FOUND_IN_FLIGHT_WAIT to land, so the relayer was \
+         entitled to issue a late BlockFound; this test cannot distinguish that from the \
+         bug it is checking for"
     );
 
     info!("------------------------- Miner Extends Into Burn View B -------------------------");
@@ -4460,7 +4488,7 @@ fn empty_sortition_before_tenure_start_signed() {
 /// sortition arrives while tenure A's tenure-start block N is in flight, but
 /// this time the signers never see N (they ignore the proposal), so N never
 /// lands. Waiting for it must not become a stall of its own: once
-/// `BLOCK_FOUND_IN_FLIGHT_WAIT` has elapsed since N was proposed without a
+/// `block_found_in_flight_wait` has elapsed since N was proposed without a
 /// block landing in tenure A, the relayer must fall back to the late
 /// `BlockFound` it deferred, and then extend into the empty sortition once
 /// that block lands.
@@ -4491,6 +4519,8 @@ fn empty_sortition_with_lost_tenure_start_proposal() {
 
     info!("------------------------- Test Setup -------------------------");
     let num_signers = 5;
+    // The test sits through this wait before the late BlockFound appears, so keep it short.
+    let block_found_in_flight_wait = Duration::from_secs(20);
     let sender_sk = Secp256k1PrivateKey::random();
     let sender_addr = tests::to_addr(&sender_sk);
     let send_amt = 100;
@@ -4500,7 +4530,9 @@ fn empty_sortition_with_lost_tenure_start_proposal() {
         num_signers,
         vec![(sender_addr, send_amt + send_fee)],
         |_| {},
-        |_| {},
+        |node_config| {
+            node_config.miner.block_found_in_flight_wait = block_found_in_flight_wait;
+        },
         None,
         None,
     );
@@ -4567,7 +4599,7 @@ fn empty_sortition_with_lost_tenure_start_proposal() {
     );
     // The relayer measures its wait from the moment N was proposed, not from the empty
     // sortition that prompted it, so the deadline is fixed from here on.
-    let block_found_deadline = get_epoch_time_secs() + BLOCK_FOUND_IN_FLIGHT_WAIT.as_secs();
+    let block_found_deadline = get_epoch_time_secs() + block_found_in_flight_wait.as_secs();
 
     info!("------------------------- Mine Empty Burn Block B -------------------------");
     signer_test.mine_bitcoin_block();
@@ -4602,7 +4634,7 @@ fn empty_sortition_with_lost_tenure_start_proposal() {
     );
 
     info!("------------------------- Late BlockFound After The Wait Expires -------------------------");
-    wait_for(BLOCK_FOUND_IN_FLIGHT_WAIT.as_secs() + 30, || {
+    wait_for(block_found_in_flight_wait.as_secs() + 30, || {
         Ok(proposed_blocks.load(Ordering::SeqCst) > proposed_after_n)
     })
     .expect("Timed out waiting for the late BlockFound proposal");
