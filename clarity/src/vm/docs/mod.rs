@@ -1103,7 +1103,8 @@ input sequence _and_ the output of a previous application of `func`.
 first element of `sequence_A`. The resulting value of type `B` is used for the
 next application of `func`, along with the next element of `sequence_A` and so
 on. `fold` returns the last value of type `B` returned by these successive
-applications `func`.
+applications of `func`. If `sequence_A` is empty, `func` is never applied and
+`fold` returns `initial_B` unchanged.
 
 Applicable sequence types are `(list A)`, `buff`, `string-ascii` and `string-utf8`,
 for which the corresponding element types are, respectively, `A`, `(buff 1)`, `(string-ascii 1)` and `(string-utf8 1)`.
@@ -1117,10 +1118,14 @@ The `func` argument must be a literal function name.
 (define-private (concat-string (a (string-ascii 20)) (b (string-ascii 20))) (unwrap-panic (as-max-len? (concat a b) u20)))
 (fold concat-string "cdef" "ab")   ;; Returns "fedcab"
 (fold concat-string (list "cd" "ef") "ab")   ;; Returns "efcdab"
+(fold concat-string "" "ab")   ;; Returns "ab"
 (define-private (concat-buff (a (buff 20)) (b (buff 20))) (unwrap-panic (as-max-len? (concat a b) u20)))
 (fold concat-buff 0x03040506 0x0102)   ;; Returns 0x060504030102
 "#,
-    notices: &[],
+    notices: &[DocNotice {
+        level: "info",
+        body: "As of Epoch 4.1, the result type of `fold` covers both `initial_B` and the return type of `func`. Earlier epochs used the return type of `func` alone.",
+    }],
 };
 
 const CONCAT_API: SpecialAPI = SpecialAPI {

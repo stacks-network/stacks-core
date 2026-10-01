@@ -831,10 +831,7 @@ fn http_post_microblock(
     return true;
 }
 
-fn test_get_blocks_and_microblocks_2_peers_push_blocks_and_microblocks(
-    outbound_test: bool,
-    disable_push: bool,
-) {
+fn test_get_blocks_and_microblocks_2_peers_push_blocks_and_microblocks(outbound_test: bool) {
     with_timeout(600, move || {
         let original_blocks_and_microblocks = RefCell::new(vec![]);
         let blocks_and_microblocks = RefCell::new(vec![]);
@@ -863,14 +860,6 @@ fn test_get_blocks_and_microblocks_2_peers_push_blocks_and_microblocks(
                 // clears inv state
                 peer_configs[0].connection_opts.disable_natpunch = true;
                 peer_configs[1].connection_opts.disable_natpunch = true;
-
-                // force usage of blocksavailable/microblocksavailable?
-                if disable_push {
-                    peer_configs[0].connection_opts.disable_block_push = true;
-                    peer_configs[0].connection_opts.disable_microblock_push = true;
-                    peer_configs[1].connection_opts.disable_block_push = true;
-                    peer_configs[1].connection_opts.disable_microblock_push = true;
-                }
 
                 let peer_0 = peer_configs[0].to_neighbor();
                 let peer_1 = peer_configs[1].to_neighbor();
@@ -943,12 +932,9 @@ fn test_get_blocks_and_microblocks_2_peers_push_blocks_and_microblocks(
                 block_data
             },
             |ref mut peers| {
-                if !disable_push {
-                    for peer in peers.iter_mut() {
-                        // force peers to keep trying to process buffered data
-                        peer.network.burnchain_tip.burn_header_hash =
-                            BurnchainHeaderHash([0u8; 32]);
-                    }
+                for peer in peers.iter_mut() {
+                    // force peers to keep trying to process buffered data
+                    peer.network.burnchain_tip.burn_header_hash = BurnchainHeaderHash([0u8; 32]);
                 }
 
                 // make sure peer 1's inv has an entry for peer 0, even
@@ -1077,26 +1063,10 @@ fn test_get_blocks_and_microblocks_2_peers_push_blocks_and_microblocks(
 
 #[test]
 #[ignore]
-fn test_get_blocks_and_microblocks_2_peers_push_blocks_and_microblocks_outbound() {
-    // simulates node 0 pushing blocks to node 1, but node 0 is publicly routable.
-    // nodes rely on blocksavailable/microblocksavailable to discover blocks
-    test_get_blocks_and_microblocks_2_peers_push_blocks_and_microblocks(true, true)
-}
-
-#[test]
-#[ignore]
-fn test_get_blocks_and_microblocks_2_peers_push_blocks_and_microblocks_inbound() {
-    // simulates node 0 pushing blocks to node 1, where node 0 is behind a NAT
-    // nodes rely on blocksavailable/microblocksavailable to discover blocks
-    test_get_blocks_and_microblocks_2_peers_push_blocks_and_microblocks(false, true)
-}
-
-#[test]
-#[ignore]
 fn test_get_blocks_and_microblocks_2_peers_push_blocks_and_microblocks_outbound_direct() {
     // simulates node 0 pushing blocks to node 1, but node 0 is publicly routable.
     // nodes may push blocks and microblocks directly to each other
-    test_get_blocks_and_microblocks_2_peers_push_blocks_and_microblocks(true, false)
+    test_get_blocks_and_microblocks_2_peers_push_blocks_and_microblocks(true)
 }
 
 #[test]
@@ -1104,7 +1074,7 @@ fn test_get_blocks_and_microblocks_2_peers_push_blocks_and_microblocks_outbound_
 fn test_get_blocks_and_microblocks_2_peers_push_blocks_and_microblocks_inbound_direct() {
     // simulates node 0 pushing blocks to node 1, where node 0 is behind a NAT
     // nodes may push blocks and microblocks directly to each other
-    test_get_blocks_and_microblocks_2_peers_push_blocks_and_microblocks(false, false)
+    test_get_blocks_and_microblocks_2_peers_push_blocks_and_microblocks(false)
 }
 
 #[test]
