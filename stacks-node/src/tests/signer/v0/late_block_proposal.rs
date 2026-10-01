@@ -121,7 +121,6 @@ fn signer_rejects_proposal_after_block_pushed() {
         match message {
             SignerMessage::BlockResponse(BlockResponse::Rejected(rejected)) => {
                 if rejected.signer_signature_hash == signer_signature_hash
-                    && rejected.signer_signature_hash == signer_signature_hash
                     && rejected
                         .verify(&signer_1)
                         .expect("Failed to verify signature")
