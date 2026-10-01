@@ -570,9 +570,15 @@ impl StacksEpochId {
         self >= &StacksEpochId::Epoch30
     }
 
-    /// Whether or not this epoch supports shadow blocks
-    pub fn supports_shadow_blocks(&self) -> bool {
-        self >= &StacksEpochId::Epoch30
+    /// Whether a block-commit whose parent is `(height > 0, vtxindex 0)` is accepted without
+    /// that parent block-commit existing, and is assumed to descend from the PoX anchor block.
+    ///
+    /// Epochs 3.0 through 4.0 did this so that miners could build atop shadow blocks, which were
+    /// never used and have since been removed.  The commits it admitted are part of sortition
+    /// history, so those epochs must preserve it.  From Epoch 4.1 the parent block-commit must
+    /// exist.  Building off of genesis (`(0, 0)`) is unaffected.
+    pub fn allows_missing_vtxindex_zero_commit_parent(&self) -> bool {
+        self >= &StacksEpochId::Epoch30 && self < &StacksEpochId::Epoch41
     }
 
     /// Does this epoch support unlocking PoX contributors that miss a slot?
@@ -830,6 +836,12 @@ impl StacksEpochId {
 
     /// Whether `replace-at?` handles a zero-length element at type-checking time.
     pub fn fixes_replace_at_element_arity(&self) -> bool {
+        self >= &StacksEpochId::Epoch41
+    }
+
+    /// Whether analysis types a `fold` result to admit its initial value, which an
+    /// empty sequence returns unchanged.
+    pub fn requires_fold_result_to_admit_initial_value(&self) -> bool {
         self >= &StacksEpochId::Epoch41
     }
 

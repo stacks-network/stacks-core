@@ -571,25 +571,16 @@ pub fn test_nakamoto_first_tenure_block_syntactic_validation() {
 
     // The header version is the *last* static check, so the block above is
     // otherwise-valid and isolates the version gate. The expected version is
-    // fixed per epoch (`NAKAMOTO_BLOCK_VERSION`), and the shadow-block high bit
-    // (0x80) is ignored when checking it.
+    // fixed per epoch (`NAKAMOTO_BLOCK_VERSION`).
     let valid_txs = vec![tenure_change_tx.clone(), coinbase_tx.clone()];
 
-    // The correct version still validates with the shadow-block bit set.
-    let mut shadow_header = header.clone();
-    shadow_header.version = NAKAMOTO_BLOCK_VERSION | 0x80;
-    let block = NakamotoBlock {
-        header: shadow_header,
-        txs: valid_txs.clone(),
-    };
-    assert!(block.validate_header_static(StacksEpochId::Epoch30));
-
-    // Any other version is rejected, with or without the shadow-block bit. This
-    // includes version 1, which was the value used before the version field was
-    // enforced.
+    // Any other version is rejected. This includes version 1, which was the
+    // value used before the version field was enforced, and the high bit, which
+    // used to flag shadow blocks.
     for bad_version in [
         NAKAMOTO_BLOCK_VERSION.wrapping_add(1),
         NAKAMOTO_BLOCK_VERSION.wrapping_add(2),
+        NAKAMOTO_BLOCK_VERSION | 0x80,
         NAKAMOTO_BLOCK_VERSION.wrapping_add(2) | 0x80,
     ] {
         let mut bad_header = header.clone();
@@ -1816,9 +1807,7 @@ pub fn test_load_store_update_nakamoto_blocks() {
 /// Tests:
 /// * NakamotoBlockHeader::check_miner_signature
 /// * NakamotoBlockHeader::check_tenure_tx
-/// * NakamotoBlockHeader::is_shadow_block
-/// * NakamotoBlockHeader::check_normal_coinbase_tx
-/// * NakamotoBlockHeader::check_shadow_coinbase_tx
+/// * NakamotoBlockHeader::check_coinbase_tx
 #[test]
 fn test_nakamoto_block_static_verification() {
     let private_key = StacksPrivateKey::random();
@@ -1829,7 +1818,6 @@ fn test_nakamoto_block_static_verification() {
     let sortition_hash = SortitionHash([0x01; 32]);
     let vrf_proof = VRF::prove(&vrf_privkey, sortition_hash.as_bytes()).unwrap();
 
-    let burn_recipient = StacksAddress::burn_address(false).to_account_principal();
     let alt_recipient = StacksAddress::p2pkh(false, &StacksPublicKey::from_private(&private_key_2))
         .to_account_principal();
 
@@ -1839,12 +1827,6 @@ fn test_nakamoto_block_static_verification() {
     let coinbase_recipient_payload = TransactionPayload::Coinbase(
         CoinbasePayload([0x12; 32]),
         Some(alt_recipient),
-        Some(vrf_proof.clone()),
-    );
-
-    let coinbase_shadow_recipient_payload = TransactionPayload::Coinbase(
-        CoinbasePayload([0x12; 32]),
-        Some(burn_recipient),
         Some(vrf_proof),
     );
 
@@ -1863,14 +1845,6 @@ fn test_nakamoto_block_static_verification() {
     );
     coinbase_recipient_tx.chain_id = 0x80000000;
     coinbase_recipient_tx.anchor_mode = TransactionAnchorMode::OnChainOnly;
-
-    let mut coinbase_shadow_recipient_tx = StacksTransaction::new(
-        TransactionVersion::Testnet,
-        TransactionAuth::from_p2pkh(&private_key).unwrap(),
-        coinbase_shadow_recipient_payload,
-    );
-    coinbase_shadow_recipient_tx.chain_id = 0x80000000;
-    coinbase_shadow_recipient_tx.anchor_mode = TransactionAnchorMode::OnChainOnly;
 
     let tenure_change_payload = TenureChangePayload {
         tenure_consensus_hash: ConsensusHash([0x04; 20]), // same as in nakamoto header
@@ -1944,16 +1918,6 @@ fn test_nakamoto_block_static_verification() {
     let nakamoto_recipient_txs = vec![tenure_change_tx.clone(), coinbase_recipient_tx];
     let nakamoto_recipient_tx_merkle_root = {
         let txid_vecs: Vec<_> = nakamoto_recipient_txs
-            .iter()
-            .map(|tx| tx.txid().as_bytes().to_vec())
-            .collect();
-
-        MerkleTree::<Sha512Trunc256Sum>::new(&txid_vecs).root()
-    };
-
-    let nakamoto_shadow_recipient_txs = vec![tenure_change_tx, coinbase_shadow_recipient_tx];
-    let nakamoto_shadow_recipient_tx_merkle_root = {
-        let txid_vecs: Vec<_> = nakamoto_shadow_recipient_txs
             .iter()
             .map(|tx| tx.txid().as_bytes().to_vec())
             .collect();
@@ -2067,29 +2031,6 @@ fn test_nakamoto_block_static_verification() {
         txs: nakamoto_recipient_txs,
     };
 
-    let mut nakamoto_shadow_recipient_header = NakamotoBlockHeader {
-        version: 1,
-        chain_length: 457,
-        burn_spent: 126,
-        consensus_hash: tenure_change_payload.tenure_consensus_hash.clone(),
-        parent_block_id: StacksBlockId([0x03; 32]),
-        tx_merkle_root: nakamoto_shadow_recipient_tx_merkle_root,
-        state_index_root: TrieHash([0x07; 32]),
-        timestamp: 8,
-        miner_signature: MessageSignature::empty(),
-        signer_signature: vec![],
-        pox_treatment: BitVec::zeros(1).unwrap(),
-        problematic_txs: vec![],
-    };
-    nakamoto_shadow_recipient_header
-        .sign_miner(&private_key)
-        .unwrap();
-
-    let nakamoto_shadow_recipient_block = NakamotoBlock {
-        header: nakamoto_shadow_recipient_header.clone(),
-        txs: nakamoto_shadow_recipient_txs,
-    };
-
     assert_eq!(
         nakamoto_block.header.recover_miner_pk().unwrap(),
         StacksPublicKey::from_private(&private_key)
@@ -2116,78 +2057,13 @@ fn test_nakamoto_block_static_verification() {
     let vrf_alt_pubkey = VRFPublicKey::from_private(&vrf_alt_privkey);
 
     assert!(nakamoto_block
-        .check_normal_coinbase_tx(&vrf_pubkey, &sortition_hash)
+        .check_coinbase_tx(&vrf_pubkey, &sortition_hash)
         .is_ok());
     assert!(nakamoto_block
-        .check_normal_coinbase_tx(&vrf_pubkey, &SortitionHash([0x02; 32]))
+        .check_coinbase_tx(&vrf_pubkey, &SortitionHash([0x02; 32]))
         .is_err());
     assert!(nakamoto_block
-        .check_normal_coinbase_tx(&vrf_alt_pubkey, &sortition_hash)
-        .is_err());
-
-    let mut shadow_block = nakamoto_shadow_recipient_block.clone();
-    shadow_block.header.version |= 0x80;
-
-    assert!(!nakamoto_shadow_recipient_block.is_shadow_block());
-    assert!(shadow_block.is_shadow_block());
-
-    // miner key not checked for shadow blocks
-    assert!(shadow_block
-        .check_miner_signature(&Hash160::from_node_public_key(
-            &StacksPublicKey::from_private(&private_key_2)
-        ))
-        .is_ok());
-
-    // shadow block VRF is not checked
-    assert!(shadow_block.check_shadow_coinbase_tx(false).is_ok());
-
-    // shadow blocks need burn recipeints for coinbases
-    let mut shadow_block_no_recipient = nakamoto_block.clone();
-    shadow_block_no_recipient.header.version |= 0x80;
-
-    assert!(shadow_block_no_recipient.is_shadow_block());
-    assert!(shadow_block_no_recipient
-        .check_shadow_coinbase_tx(false)
-        .is_err());
-
-    let mut shadow_block_alt_recipient = nakamoto_block.clone();
-    shadow_block_alt_recipient.header.version |= 0x80;
-
-    assert!(shadow_block_alt_recipient.is_shadow_block());
-    assert!(shadow_block_alt_recipient
-        .check_shadow_coinbase_tx(false)
-        .is_err());
-
-    // tenure tx requirements still hold for shadow blocks
-    let mut shadow_nakamoto_block = nakamoto_block;
-    let mut shadow_nakamoto_block_bad_ch = nakamoto_block_bad_ch;
-    let mut shadow_nakamoto_block_bad_miner_sig = nakamoto_block_bad_miner_sig;
-
-    shadow_nakamoto_block.header.version |= 0x80;
-    shadow_nakamoto_block_bad_ch.header.version |= 0x80;
-    shadow_nakamoto_block_bad_miner_sig.header.version |= 0x80;
-
-    shadow_nakamoto_block
-        .header
-        .sign_miner(&private_key)
-        .unwrap();
-    shadow_nakamoto_block_bad_ch
-        .header
-        .sign_miner(&private_key)
-        .unwrap();
-    shadow_nakamoto_block_bad_miner_sig
-        .header
-        .sign_miner(&private_key)
-        .unwrap();
-
-    assert!(shadow_nakamoto_block.is_shadow_block());
-    assert!(shadow_nakamoto_block_bad_ch.is_shadow_block());
-    assert!(shadow_nakamoto_block_bad_miner_sig.is_shadow_block());
-
-    assert!(shadow_nakamoto_block.check_tenure_tx().is_ok());
-    assert!(shadow_nakamoto_block_bad_ch.check_tenure_tx().is_err());
-    assert!(shadow_nakamoto_block_bad_miner_sig
-        .check_tenure_tx()
+        .check_coinbase_tx(&vrf_alt_pubkey, &sortition_hash)
         .is_err());
 }
 
@@ -3445,27 +3321,10 @@ pub mod problematic_txs_validation {
             .validate_problematic_txs(StacksEpochId::Epoch34)
             .is_err());
 
-        // The shadow-block flag (high bit) does not change the version's epoch
-        // classification: a shadow v1 header is valid in Epoch 4.0...
-        let mut block = make_block(2);
-        block.header.version = NAKAMOTO_BLOCK_VERSION_EPOCH_4 | 0x80;
-        block.header.problematic_txs.clear();
-        block
-            .validate_problematic_txs(StacksEpochId::Epoch40)
-            .unwrap();
-
-        // ...and a shadow v0 header is valid before Epoch 4.0.
-        let mut block = make_block(2);
-        block.header.version = 0x80;
-        block.header.problematic_txs.clear();
-        block
-            .validate_problematic_txs(StacksEpochId::Epoch34)
-            .unwrap();
-
-        // The version must match the epoch *exactly* (masking the shadow bit):
-        // an unrecognized version is rejected in either epoch, even with no
-        // markers.
-        for bad_version in [2u8, 5u8, 0x82u8] {
+        // The version must match the epoch *exactly*: an unrecognized version
+        // is rejected in either epoch, even with no markers. This includes the
+        // high bit, which used to flag shadow blocks.
+        for bad_version in [2u8, 5u8, 0x80u8, 0x81u8, 0x82u8] {
             let mut block = make_block(2);
             block.header.version = bad_version;
             block.header.problematic_txs.clear();

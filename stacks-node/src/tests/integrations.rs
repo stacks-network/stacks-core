@@ -28,7 +28,6 @@ use clarity::vm::types::{
 };
 use clarity::vm::{ClarityName, ClarityVersion, ContractName, Value};
 use lazy_static::lazy_static;
-use pinny::tag;
 use reqwest;
 use serde_json::json;
 use stacks::burnchains::Address;
@@ -178,7 +177,6 @@ lazy_static! {
     static ref HTTP_BINDING: Mutex<Option<String>> = Mutex::new(None);
 }
 
-#[tag(slow)]
 #[test]
 #[ignore]
 fn integration_test_get_info() {
@@ -1103,7 +1101,6 @@ const FAUCET_CONTRACT: &str = "
       (print (as-contract (stx-transfer? u1 .faucet recipient)))))
 ";
 
-#[tag(slow)]
 #[test]
 fn contract_stx_transfer() {
     let mut conf = new_test_conf();
