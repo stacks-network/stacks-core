@@ -6696,7 +6696,7 @@ impl ChainstateDB for SortitionDB {
 
 #[cfg(test)]
 pub mod tests {
-    use std::assert_matches;
+    use std::{assert_matches, slice};
 
     use clarity::vm::costs::ExecutionCost;
     use rand::RngCore;
@@ -7800,7 +7800,7 @@ pub mod tests {
         {
             let mut ic = SortitionHandleTx::begin(&mut db, &snapshot.sortition_id).unwrap();
             let keys = ic
-                .get_consumed_leader_keys(&snapshot, &[block_commit.clone()])
+                .get_consumed_leader_keys(&snapshot, slice::from_ref(&block_commit))
                 .unwrap();
             assert_eq!(keys, vec![leader_key.clone()]);
         }
@@ -7893,7 +7893,7 @@ pub mod tests {
         {
             let mut ic = SortitionHandleTx::begin(&mut db, &snapshot.sortition_id).unwrap();
             let keys = ic
-                .get_consumed_leader_keys(&empty_snapshot, &[block_commit.clone()])
+                .get_consumed_leader_keys(&empty_snapshot, slice::from_ref(&block_commit))
                 .unwrap();
             assert_eq!(keys, vec![leader_key.clone()]);
         }

@@ -1686,6 +1686,8 @@ impl StacksChainState {
 
 #[cfg(test)]
 pub mod test {
+    use std::slice;
+
     use clarity::util::secp256k1::Secp256k1PrivateKey;
     use clarity::vm::representations::{ClarityName, ContractName};
     use clarity::vm::test_util::{UnitTestBurnStateDB, TEST_BURN_STATE_DB};
@@ -6655,7 +6657,7 @@ pub mod test {
     ) -> Result<(u64, StacksTransactionReceipt), Error> {
         let epoch = clarity_block.get_epoch();
 
-        if !StacksBlock::validate_transactions_static_epoch(&[tx.clone()], epoch) {
+        if !StacksBlock::validate_transactions_static_epoch(slice::from_ref(tx), epoch) {
             let msg = format!(
                 "Invalid transaction {}: target epoch is not activated",
                 tx.txid()
