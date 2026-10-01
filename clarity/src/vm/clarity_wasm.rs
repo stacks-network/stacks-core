@@ -137,7 +137,7 @@ pub struct ClarityWasmContext<'a, 'b> {
 }
 
 /// Fuel given to each new store when the engine has fuel metering enabled.
-pub const WASM_FUEL_LIMIT: u64 = u64::MAX;
+pub const WASM_FUEL_LIMIT: u64 = 1;
 
 /// A wasmi [`Store`] holding a [`ClarityWasmContext`] with erased lifetimes.
 ///
