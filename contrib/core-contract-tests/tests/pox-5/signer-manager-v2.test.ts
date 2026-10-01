@@ -110,7 +110,7 @@ test('claim-rewards reserves the cycle and snapshots the fee', () => {
     total,
   );
   expect(rov(signerManagerV2.getUnclaimedStakerRewards())).toBe(total);
-  expect(rov(signerManagerV2.getFeeBipsForCycle(1n, null))).toBe(500n);
+  expect(rov(signerManagerV2.getFeeBipsForCycle(1n))).toBe(500n);
   // Everything in the vault is spoken for.
   expect(txErr(signerManagerV2.sweepFeeRefunds(deployer), deployer).value).toBe(
     signerManagerV2Errors.ERR_NO_REFUNDS,

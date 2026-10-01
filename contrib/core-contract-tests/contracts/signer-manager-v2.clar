@@ -81,10 +81,7 @@
 (define-data-var earned-fees uint u0)
 
 (define-map fee-bips-for-cycle
-    {
-        reward-cycle: uint,
-        bond-index: (optional uint),
-    }
+    uint
     uint
 )
 ;; A staker's payout destination, including the floor for third-party L1 claims.
@@ -191,13 +188,7 @@
         ;; settles via `settle-staker-rewards`; reserve it so it is not sweepable.
         (reserve-rewards reward-cycle none (get earned (get stx-rewards result)))
         (fold reserve-bond-rewards (get bond-rewards result) reward-cycle)
-        (map-insert fee-bips-for-cycle {
-            reward-cycle: reward-cycle,
-            bond-index: none,
-        }
-            (var-get fees-bips)
-        )
-        (fold snapshot-bond-fee (get bond-rewards result) reward-cycle)
+        (map-insert fee-bips-for-cycle reward-cycle (var-get fees-bips))
         (ok result)
     )
 )
@@ -220,7 +211,7 @@
             ))
             (fees (/
                 (* earned-before-fees
-                    (get-fee-bips-for-cycle reward-cycle bond-index)
+                    (get-fee-bips-for-cycle reward-cycle)
                 )
                 MAX_BIPS
             ))
@@ -246,7 +237,7 @@
                 ))
             ))
             (reserve (get-unclaimed-staker-rewards-for-cycle reward-cycle bond-index))
-            (fee (/ (* gross (get-fee-bips-for-cycle reward-cycle bond-index)) MAX_BIPS))
+            (fee (/ (* gross (get-fee-bips-for-cycle reward-cycle)) MAX_BIPS))
         )
         (asserts! (> gross u0) ERR_NO_CLAIMABLE_REWARDS)
         (asserts! (>= reserve gross) ERR_NO_CLAIMABLE_REWARDS)
@@ -664,26 +655,6 @@
     (var-get admin-count)
 )
 
-(define-private (snapshot-bond-fee
-        (bond-info {
-            bond-index: uint,
-            earned: uint,
-            rewards-per-token: uint,
-        })
-        ;; #[allow(unused_binding)]
-        (reward-cycle uint)
-    )
-    (begin
-        (map-insert fee-bips-for-cycle {
-            reward-cycle: reward-cycle,
-            bond-index: (some (get bond-index bond-info)),
-        }
-            (var-get fees-bips)
-        )
-        reward-cycle
-    )
-)
-
 (define-private (authorize-staker)
     (ok (asserts! (is-eq contract-caller tx-sender) ERR_UNAUTHORIZED_CALLER))
 )
@@ -795,16 +766,8 @@
     )
 )
 
-(define-read-only (get-fee-bips-for-cycle
-        (reward-cycle uint)
-        (bond-index (optional uint))
-    )
-    (default-to u0
-        (map-get? fee-bips-for-cycle {
-            reward-cycle: reward-cycle,
-            bond-index: bond-index,
-        })
-    )
+(define-read-only (get-fee-bips-for-cycle (reward-cycle uint))
+    (default-to u0 (map-get? fee-bips-for-cycle reward-cycle))
 )
 
 (define-read-only (get-max-fees-bips)

@@ -11137,37 +11137,6 @@ export const contracts = {
         ],
         boolean
       >,
-      snapshotBondFee: {
-        name: 'snapshot-bond-fee',
-        access: 'private',
-        args: [
-          {
-            name: 'bond-info',
-            type: {
-              tuple: [
-                { name: 'bond-index', type: 'uint128' },
-                { name: 'earned', type: 'uint128' },
-                { name: 'rewards-per-token', type: 'uint128' },
-              ],
-            },
-          },
-          { name: 'reward-cycle', type: 'uint128' },
-        ],
-        outputs: { type: 'uint128' },
-      } as TypedAbiFunction<
-        [
-          bondInfo: TypedAbiArg<
-            {
-              bondIndex: number | bigint;
-              earned: number | bigint;
-              rewardsPerToken: number | bigint;
-            },
-            'bondInfo'
-          >,
-          rewardCycle: TypedAbiArg<number | bigint, 'rewardCycle'>,
-        ],
-        bigint
-      >,
       transferSbtc: {
         name: 'transfer-sbtc',
         access: 'private',
@@ -11732,16 +11701,10 @@ export const contracts = {
       getFeeBipsForCycle: {
         name: 'get-fee-bips-for-cycle',
         access: 'read_only',
-        args: [
-          { name: 'reward-cycle', type: 'uint128' },
-          { name: 'bond-index', type: { optional: 'uint128' } },
-        ],
+        args: [{ name: 'reward-cycle', type: 'uint128' }],
         outputs: { type: 'uint128' },
       } as TypedAbiFunction<
-        [
-          rewardCycle: TypedAbiArg<number | bigint, 'rewardCycle'>,
-          bondIndex: TypedAbiArg<number | bigint | null, 'bondIndex'>,
-        ],
+        [rewardCycle: TypedAbiArg<number | bigint, 'rewardCycle'>],
         bigint
       >,
       getMaxFeesBips: {
@@ -11955,20 +11918,9 @@ export const contracts = {
       } as TypedAbiMap<string, boolean>,
       feeBipsForCycle: {
         name: 'fee-bips-for-cycle',
-        key: {
-          tuple: [
-            { name: 'bond-index', type: { optional: 'uint128' } },
-            { name: 'reward-cycle', type: 'uint128' },
-          ],
-        },
+        key: 'uint128',
         value: 'uint128',
-      } as TypedAbiMap<
-        {
-          bondIndex: number | bigint | null;
-          rewardCycle: number | bigint;
-        },
-        bigint
-      >,
+      } as TypedAbiMap<number | bigint, bigint>,
       payoutConfigs: {
         name: 'payout-configs',
         key: 'principal',
