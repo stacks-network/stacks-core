@@ -9,6 +9,12 @@ on:
         description: "Release Tag"
         required: true
         type: string
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release Tag"
+        required: true
+        type: string
 
 # Set default permissions
 permissions:
