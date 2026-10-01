@@ -55,9 +55,9 @@ use crate::runloop::SignerResult;
 use crate::signerdb::{
     BlockInfo, BlockState, PendingBlockResponses, ReorgPermit, SignedConflictInfo, SignerDb,
 };
-use crate::v0::signer_state::NewBurnBlock;
 #[cfg(not(any(test, feature = "testing")))]
 use crate::v0::signer_state::SUPPORTED_SIGNER_PROTOCOL_VERSION;
+use crate::v0::signer_state::{NewBurnBlock, PendingRetryBackoff};
 #[cfg(test)]
 use crate::v0::tests::BlockMessageRecorder;
 use crate::Signer as SignerTrait;
@@ -130,6 +130,8 @@ pub struct Signer {
     pub block_proposal_max_age_secs: u64,
     /// The signer's local state machine used in signer set agreement
     pub local_state_machine: LocalStateMachine,
+    /// Throttles retries of the local state machine's pending update after node errors
+    pending_retry_backoff: PendingRetryBackoff,
     /// Cache of stacks block IDs for blocks recently processed by our stacks-node
     recently_processed: RecentlyProcessedBlocks<100>,
     /// The signer's global state evaluator
@@ -300,11 +302,7 @@ impl SignerTrait<SignerMessage> for Signer {
             &proposal_config,
             &global_state_evaluator,
             version,
-        )
-        .unwrap_or_else(|e| {
-            warn!("Failed to initialize local state machine for signer: {e:?}");
-            LocalStateMachine::Uninitialized
-        });
+        );
         Self {
             private_key: signer_config.stacks_private_key,
             stacks_address,
@@ -321,6 +319,7 @@ impl SignerTrait<SignerMessage> for Signer {
             block_proposal_validation_timeout: signer_config.block_proposal_validation_timeout,
             block_proposal_max_age_secs: signer_config.block_proposal_max_age_secs,
             local_state_machine: signer_state,
+            pending_retry_backoff: PendingRetryBackoff::default(),
             recently_processed: RecentlyProcessedBlocks::new(),
             global_state_evaluator,
             capitulate_miner_view_timeout: signer_config.capitulate_miner_view_timeout,
@@ -363,7 +362,8 @@ impl SignerTrait<SignerMessage> for Signer {
         if self.reward_cycle <= current_reward_cycle {
             self.local_state_machine.handle_pending_update(&mut self.signer_db, stacks_client,
                 &self.proposal_config,
-                &self.global_state_evaluator, local_signer_protocol_version)
+                &self.global_state_evaluator, local_signer_protocol_version,
+                &mut self.pending_retry_backoff)
                 .unwrap_or_else(|e| error!("{self}: failed to update local state machine for pending update"; "err" => ?e));
         }
         // See if we should capitulate our viewpoint...
@@ -699,6 +699,9 @@ impl Signer {
                     }),
                     &self.global_state_evaluator, active_signer_protocol_version)
                     .unwrap_or_else(|e| error!("{self}: failed to update local state machine for latest bitcoin block arrival"; "err" => ?e));
+                // This arrival is a fresh attempt, so if it failed, its first retry must not
+                // wait out a backoff built up by failures of an earlier arrival.
+                self.pending_retry_backoff.reset();
                 *sortition_state = None;
             }
             SignerEvent::NewBlock {

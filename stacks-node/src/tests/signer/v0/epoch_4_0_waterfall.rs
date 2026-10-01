@@ -27,7 +27,6 @@ use std::time::Duration;
 
 use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier};
 use clarity::vm::ContractName;
-use pinny::tag;
 use stacks::burnchains::Txid;
 use stacks::chainstate::stacks::address::{PoxAddress, PoxAddressType32};
 use stacks::chainstate::stacks::boot::POX_5_NAME;
@@ -85,7 +84,6 @@ fn get_miner_pubkey<Z: super::SpawnedSignerTrait>(
 /// After the Epoch 4.0 boundary, miners produce leader block commits
 /// with a single PoX output paying to the configured sBTC recipient, and
 /// blocks continue to assemble.
-#[tag(slow, bitcoind)]
 #[test]
 #[ignore]
 fn epoch_4_0_block_commit_uses_single_sbtc_output() {

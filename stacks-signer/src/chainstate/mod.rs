@@ -60,6 +60,9 @@ pub enum SignerChainstateError {
     /// The local state machine wasn't ready to be queried
     #[error("The local state machine is not ready, so no update message can be produced")]
     LocalStateMachineNotReady,
+    /// The connected stacks node has not yet processed the burn block the signer expects
+    #[error("Node has not processed the expected burn block yet: {0}")]
+    NodeBehindBurnBlock(String),
 }
 
 impl From<SignerChainstateError> for RejectReason {
