@@ -66,6 +66,7 @@ pub const PEER_DEPRIORITIZATION_TIME_SECS: u64 = 60;
 /// can make progress even if there is only one available peer (in which case, that peer will get
 /// scheduled across multiple machines to drive their progress in the right sequence such that
 /// tenures will be incrementally fetched and yielded by the p2p state machine to the relayer).
+#[derive(Default)]
 pub struct NakamotoTenureDownloaderSet {
     /// A list of instantiated downloaders that are in progress
     pub(crate) downloaders: Vec<Option<NakamotoTenureDownloader>>,
@@ -316,22 +317,6 @@ impl NakamotoTenureDownloaderSet {
         }
     }
 
-    /// Find the downloaders that have obtained their tenure-start blocks, and extract them.  These
-    /// will be fed into other downloaders which are blocked on needing their tenure-end blocks.
-    pub(crate) fn find_new_tenure_start_blocks(&self) -> HashMap<StacksBlockId, NakamotoBlock> {
-        let mut ret = HashMap::new();
-        for downloader_opt in self.downloaders.iter() {
-            let Some(downloader) = downloader_opt else {
-                continue;
-            };
-            let Some(block) = downloader.tenure_start_block.as_ref() else {
-                continue;
-            };
-            ret.insert(block.block_id(), block.clone());
-        }
-        ret
-    }
-
     /// Does there exist a downloader (possibly unscheduled) for the given tenure?
     pub(crate) fn has_downloader_for_tenure(&self, tenure_id: &ConsensusHash) -> bool {
         for downloader_opt in self.downloaders.iter() {
@@ -492,9 +477,7 @@ impl NakamotoTenureDownloaderSet {
 
             let tenure_download = NakamotoTenureDownloader::new(
                 ch.clone(),
-                tenure_info.start_block_snapshot_consensus_hash.clone(),
                 tenure_info.start_block_id.clone(),
-                tenure_info.end_block_snapshot_consensus_hash.clone(),
                 tenure_info.end_block_id.clone(),
                 naddr.clone(),
                 start_reward_set.clone(),

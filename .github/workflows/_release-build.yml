@@ -88,7 +88,7 @@ jobs:
     steps:
       # Checkout the code
       - name: Checkout the latest code
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        uses: $/.github/wrappers/checkout
         with:
           ref: ${{ github.event.pull_request.head.sha || github.ref }}
 
@@ -124,13 +124,13 @@ jobs:
 
       # Upload the binary archive using the commit sha as the key
       - name: Upload Artifact (stacks-core)
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: ./.github/wrappers/upload-artifact
         with:
           name: ${{ github.sha }}-stacks-core-${{ steps.build-binaries.outputs.zipfile_name }}
           path: ${{ steps.build-binaries.outputs.zipfile_name }}.zip
 
       # Attest the binary archive
       - name: Attest Artifact (stacks-core)
-        uses: actions/attest-build-provenance@0f67c3f4856b2e3261c31976d6725780e5e4c373 # v4.1.1
+        uses: ./.github/wrappers/attest-build-provenance
         with:
           subject-path: ${{ steps.build-binaries.outputs.zipfile_name }}.zip

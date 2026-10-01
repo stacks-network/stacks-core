@@ -18,8 +18,8 @@ use stacks_common::types::StacksEpochId;
 
 use super::{SimpleNativeFunction, TypedNativeFunction};
 use crate::vm::analysis::type_checker::v2_1::{
-    StaticCheckError, StaticCheckErrorKind, TypeChecker, TypingContext, check_argument_count,
-    check_arguments_at_least,
+    ArgumentCheckOutcome, StaticCheckError, StaticCheckErrorKind, TypeChecker, TypingContext,
+    check_argument_count, check_arguments_at_least,
 };
 use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::costs::{CostTracker, analysis_typecheck_cost, runtime_cost};
@@ -113,7 +113,10 @@ pub fn check_special_map(
         };
 
         if check_result.is_ok() {
-            let (costs, result) = function_type.check_args_visitor_2_1(
+            let ArgumentCheckOutcome {
+                cost: costs,
+                result,
+            } = function_type.check_args_visitor_2_1(
                 checker,
                 &entry_type,
                 arg_ix,
@@ -235,14 +238,11 @@ pub fn check_special_fold(
 
     let initial_value_type = checker.type_check(&args[2], context)?;
 
-    // fold: f(A, B) -> A
-    //     where A = initial_value_type
-    //           B = list items type
-
     // f must accept the initial value and the list items type
+    let initial_args = [input_type.clone(), initial_value_type];
     let return_type = function_type.check_args(
         checker,
-        &[input_type.clone(), initial_value_type],
+        &initial_args,
         context.epoch,
         context.clarity_version,
     )?;
@@ -255,7 +255,20 @@ pub fn check_special_fold(
         context.clarity_version,
     )?;
 
-    Ok(return_type)
+    // An empty sequence returns the initial value unchanged, so the result type
+    // must admit it, not only f's return type. Pre-4.1 contracts keep the return
+    // type alone.
+    if !checker.epoch.requires_fold_result_to_admit_initial_value() {
+        return Ok(return_type);
+    }
+    let [_, initial_value_type] = initial_args;
+    analysis_typecheck_cost(checker, &initial_value_type, &return_type)?;
+    TypeSignature::least_supertype(&checker.epoch, &initial_value_type, &return_type).map_err(
+        |_| {
+            StaticCheckErrorKind::TypeError(Box::new(initial_value_type), Box::new(return_type))
+                .into()
+        },
+    )
 }
 
 pub fn check_special_concat(
@@ -567,10 +580,25 @@ pub fn check_special_replace_at(
         _ => return Err(StaticCheckErrorKind::ExpectedSequence(Box::new(input_type)).into()),
     };
     let unit_seq = seq_type.unit_type();
+    let seq_is_list = seq_type.is_list_type();
     // Check index argument
     checker.type_check_expects(&args[1], context, &TypeSignature::UIntType)?;
     // Check element argument
-    checker.type_check_expects(&args[2], context, &unit_seq)?;
+    if checker.epoch.fixes_replace_at_element_arity() && !seq_is_list {
+        // 4.1+: require exactly the unit type — `type_check_expects` admits by max
+        // length, so it would accept a statically empty element (e.g. `0x`) that
+        // fails the runtime arity check. Lists are exempt, as at runtime.
+        let elem_type = checker.type_check(&args[2], context)?;
+        analysis_typecheck_cost(checker, &unit_seq, &elem_type)?;
+        if elem_type != TypeSignature::NoType && elem_type != unit_seq {
+            let mut err: StaticCheckError =
+                StaticCheckErrorKind::TypeError(Box::new(unit_seq), Box::new(elem_type)).into();
+            err.set_expression(&args[2]);
+            return Err(err);
+        }
+    } else {
+        checker.type_check_expects(&args[2], context, &unit_seq)?;
+    }
 
     let final_type = TypeSignature::new_option(input_type)?;
     Ok(final_type)

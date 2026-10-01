@@ -1,1 +1,0 @@
-Added a new authenticated RPC endpoint `POST /v3/transactions/simulate` which simulates a single transaction on top of a chain tip (the canonical tip by default, or the one selected with the `tip` query parameter), discarding all state changes, and reports its result, events, and execution cost.

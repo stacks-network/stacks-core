@@ -25,7 +25,6 @@ use stacks_common::types::Address;
 use stacks_common::util::hash::{Hash160, Sha512Trunc256Sum};
 
 use crate::burnchains::bitcoin::indexer::BitcoinIndexer;
-use crate::burnchains::tests::TestMiner;
 use crate::chainstate::burn::operations::BlockstackOperationType;
 use crate::chainstate::nakamoto::coordinator::tests::make_token_transfer;
 use crate::chainstate::nakamoto::tests::get_account;
@@ -40,17 +39,14 @@ use crate::net::test::*;
 use crate::net::tests::inv::nakamoto::make_nakamoto_peers_from_invs;
 use crate::net::{Error as NetError, *};
 
-/// Everything in a TestPeer, except the coordinator (which is encumbered by the lifetime of its
-/// chains coordinator's event observer)
+/// Peer state needed to continue networking after its coordinator stops.
 struct ExitedPeer {
     pub config: TestPeerConfig,
     pub network: PeerNetwork,
     pub sortdb: Option<SortitionDB>,
-    pub miner: TestMiner,
     pub stacks_node: Option<TestStacksNode>,
     pub relayer: Relayer,
     pub mempool: Option<MemPoolDB>,
-    pub chainstate_path: String,
     pub indexer: Option<BitcoinIndexer>,
 }
 
@@ -61,11 +57,9 @@ impl ExitedPeer {
             config: peer.config,
             network: peer.network,
             sortdb: peer.chain.sortdb,
-            miner: peer.chain.miner,
             stacks_node: peer.chain.stacks_node,
             relayer: peer.relayer,
             mempool: peer.mempool,
-            chainstate_path: peer.chain.chainstate_path,
             indexer: peer.chain.indexer,
         }
     }

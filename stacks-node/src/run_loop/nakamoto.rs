@@ -36,7 +36,6 @@ use stacks_common::util::hash::Hash160;
 use stacks_common::util::{get_epoch_time_secs, sleep_ms};
 use stx_genesis::GenesisData;
 
-use crate::burnchains::make_bitcoin_indexer;
 use crate::globals::Globals as GenericGlobals;
 use crate::monitoring::{start_serving_monitoring_metrics, MonitoringError};
 use crate::nakamoto_node::{self, StacksNode, BLOCK_PROCESSOR_STACK_SIZE, RELAYER_MAX_BUFFER};
@@ -306,8 +305,6 @@ impl RunLoop {
             true,
         )
         .expect("Failed to connect Atlas DB during startup");
-        let coordinator_indexer =
-            make_bitcoin_indexer(&self.config, Some(self.should_keep_running.clone()));
 
         let rpc_port = moved_config
             .node
@@ -338,7 +335,6 @@ impl RunLoop {
                     cost_estimator.as_deref_mut(),
                     fee_estimator.as_deref_mut(),
                     miner_status,
-                    coordinator_indexer,
                     atlas_db,
                 );
             })

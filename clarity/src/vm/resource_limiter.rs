@@ -48,6 +48,7 @@ impl TimeTracker {
     ///
     /// If `None` is provided, no time tracking is performed and the tracker
     /// behaves as an unlimited timer.
+    #[cfg(test)]
     pub fn from_opt_max_duration(duration: Option<Duration>) -> Self {
         match duration {
             Some(max_duration) => Self::from_max_duration(max_duration),

@@ -822,7 +822,7 @@ dependencies = [
  "serde_json",
  "serde_stacker",
  "slog",
- "stacks-common 0.0.1",
+ "stacks-common 4.0.3",
 ]
 
 [[package]]
@@ -842,7 +842,7 @@ dependencies = [
  "serde_json",
  "serde_stacker",
  "slog",
- "stacks-common 0.0.1 (git+https://github.com/stacks-network/stacks-core.git?rev=ecaaf5c4d397a691e5155eef01b59ddfeaba4ddd)",
+ "stacks-common 0.0.1",
 ]
 
 [[package]]
@@ -858,7 +858,7 @@ dependencies = [
  "serde_derive",
  "serde_json",
  "slog",
- "stacks-common 0.0.1",
+ "stacks-common 4.0.3",
  "stackslib 0.0.1",
 ]
 
@@ -875,7 +875,7 @@ dependencies = [
  "serde_derive",
  "serde_json",
  "slog",
- "stacks-common 0.0.1",
+ "stacks-common 4.0.3",
  "variant_count",
 ]
 
@@ -891,7 +891,7 @@ dependencies = [
  "serde_derive",
  "serde_json",
  "slog",
- "stacks-common 0.0.1 (git+https://github.com/stacks-network/stacks-core.git?rev=ecaaf5c4d397a691e5155eef01b59ddfeaba4ddd)",
+ "stacks-common 0.0.1",
 ]
 
 [[package]]
@@ -929,6 +929,16 @@ dependencies = [
  "lazy_static",
  "libc",
  "windows-sys 0.52.0",
+]
+
+[[package]]
+name = "console_error_panic_hook"
+version = "0.1.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a06aeb73f470f66dcdbf7223caeebb85984942f22f1adb2a088cf9668146bbbc"
+dependencies = [
+ "cfg-if 1.0.0",
+ "wasm-bindgen",
 ]
 
 [[package]]
@@ -2435,7 +2445,6 @@ version = "0.0.1"
 dependencies = [
  "clarity 0.0.1",
  "hashbrown 0.15.2",
- "libc",
  "libstackerdb 0.0.1",
  "mutants",
  "rand 0.8.5",
@@ -2444,7 +2453,7 @@ dependencies = [
  "serde_json",
  "sha2 0.10.8",
  "slog",
- "stacks-common 0.0.1",
+ "stacks-common 4.0.3",
  "stackslib 0.0.1",
  "thiserror 1.0.65",
  "tiny_http",
@@ -2464,7 +2473,7 @@ dependencies = [
  "serde_json",
  "sha2 0.10.8",
  "slog",
- "stacks-common 0.0.1 (git+https://github.com/stacks-network/stacks-core.git?rev=ecaaf5c4d397a691e5155eef01b59ddfeaba4ddd)",
+ "stacks-common 0.0.1",
  "stackslib 0.0.1 (git+https://github.com/stacks-network/stacks-core.git?rev=ecaaf5c4d397a691e5155eef01b59ddfeaba4ddd)",
  "thiserror 1.0.65",
  "tiny_http",
@@ -2488,7 +2497,7 @@ dependencies = [
  "clarity 0.0.1",
  "serde",
  "sha2 0.10.8",
- "stacks-common 0.0.1",
+ "stacks-common 4.0.3",
 ]
 
 [[package]]
@@ -2499,7 +2508,7 @@ dependencies = [
  "clarity 0.0.1 (git+https://github.com/stacks-network/stacks-core.git?rev=ecaaf5c4d397a691e5155eef01b59ddfeaba4ddd)",
  "serde",
  "sha2 0.10.8",
- "stacks-common 0.0.1 (git+https://github.com/stacks-network/stacks-core.git?rev=ecaaf5c4d397a691e5155eef01b59ddfeaba4ddd)",
+ "stacks-common 0.0.1",
 ]
 
 [[package]]
@@ -2562,7 +2571,7 @@ dependencies = [
  "rusqlite",
  "serde",
  "sha2 0.10.8",
- "stacks-common 0.0.1",
+ "stacks-common 4.0.3",
  "stackslib 0.0.1",
  "tempfile",
  "toml 0.5.11",
@@ -3168,7 +3177,7 @@ dependencies = [
  "pinny",
  "proptest",
  "slog",
- "stacks-common 0.0.1",
+ "stacks-common 4.0.3",
 ]
 
 [[package]]
@@ -3178,7 +3187,7 @@ source = "git+https://github.com/stacks-network/stacks-core.git?rev=ecaaf5c4d397
 dependencies = [
  "clarity 0.0.1 (git+https://github.com/stacks-network/stacks-core.git?rev=ecaaf5c4d397a691e5155eef01b59ddfeaba4ddd)",
  "slog",
- "stacks-common 0.0.1 (git+https://github.com/stacks-network/stacks-core.git?rev=ecaaf5c4d397a691e5155eef01b59ddfeaba4ddd)",
+ "stacks-common 0.0.1",
 ]
 
 [[package]]
@@ -4408,7 +4417,7 @@ dependencies = [
  "clarity-cli",
  "serde_json",
  "stacks-codec",
- "stacks-common 0.0.1",
+ "stacks-common 4.0.3",
  "stackslib 0.0.1",
  "tempfile",
  "thiserror 1.0.65",
@@ -4420,40 +4429,9 @@ version = "0.1.0"
 dependencies = [
  "clarity-types 0.0.1",
  "serde",
- "stacks-common 0.0.1",
+ "stacks-common 4.0.3",
  "variant_count",
-]
-
-[[package]]
-name = "stacks-common"
-version = "0.0.1"
-dependencies = [
- "chrono",
- "curve25519-dalek",
- "ed25519-dalek",
- "getrandom 0.2.12",
- "hashbrown 0.15.2",
- "lazy_static",
- "libsecp256k1",
- "nix",
- "p256",
- "pinny",
- "proptest",
- "rand 0.8.5",
- "ripemd",
- "rusqlite",
- "secp256k1",
- "serde",
- "serde_derive",
- "serde_json",
- "sha2 0.10.8",
- "sha3",
- "slog",
- "slog-json",
- "slog-term",
- "thiserror 1.0.65",
- "toml 0.5.11",
- "winapi 0.3.9",
+ "wasm-bindgen-test",
 ]
 
 [[package]]
@@ -4486,8 +4464,39 @@ dependencies = [
 ]
 
 [[package]]
+name = "stacks-common"
+version = "4.0.3"
+dependencies = [
+ "chrono",
+ "curve25519-dalek",
+ "ed25519-dalek",
+ "getrandom 0.2.12",
+ "hashbrown 0.15.2",
+ "lazy_static",
+ "libsecp256k1",
+ "nix",
+ "p256",
+ "pinny",
+ "proptest",
+ "rand 0.8.5",
+ "ripemd",
+ "rusqlite",
+ "secp256k1",
+ "serde",
+ "serde_derive",
+ "serde_json",
+ "sha2 0.10.8",
+ "sha3",
+ "slog",
+ "slog-json",
+ "slog-term",
+ "thiserror 1.0.65",
+ "winapi 0.3.9",
+]
+
+[[package]]
 name = "stacks-inspect"
-version = "0.1.0"
+version = "4.0.3"
 dependencies = [
  "clap",
  "clarity 0.0.1",
@@ -4498,14 +4507,30 @@ dependencies = [
  "rusqlite",
  "serde_json",
  "slog",
- "stacks-common 0.0.1",
+ "stacks-common 4.0.3",
  "stackslib 0.0.1",
  "tikv-jemallocator",
 ]
 
 [[package]]
+name = "stacks-marf"
+version = "4.0.3"
+dependencies = [
+ "rstest",
+ "rstest_reuse",
+ "rusqlite",
+ "serde",
+ "serde_derive",
+ "sha2 0.10.8",
+ "slog",
+ "stacks-common 4.0.3",
+ "stdext",
+ "tempfile",
+]
+
+[[package]]
 name = "stacks-node"
-version = "0.1.0"
+version = "4.0.3"
 dependencies = [
  "async-h1",
  "async-std",
@@ -4536,10 +4561,10 @@ dependencies = [
  "slog",
  "stacks-codec",
  "stacks-common 0.0.1",
- "stacks-common 0.0.1 (git+https://github.com/stacks-network/stacks-core.git?rev=ecaaf5c4d397a691e5155eef01b59ddfeaba4ddd)",
+ "stacks-common 4.0.3",
  "stacks-inspect",
  "stacks-signer 0.0.1",
- "stacks-signer 0.0.1 (git+https://github.com/stacks-network/stacks-core.git?rev=ecaaf5c4d397a691e5155eef01b59ddfeaba4ddd)",
+ "stacks-signer 4.0.3",
  "stackslib 0.0.1",
  "stackslib 0.0.1 (git+https://github.com/stacks-network/stacks-core.git?rev=ecaaf5c4d397a691e5155eef01b59ddfeaba4ddd)",
  "stdext",
@@ -4580,6 +4605,35 @@ dependencies = [
 [[package]]
 name = "stacks-signer"
 version = "0.0.1"
+source = "git+https://github.com/stacks-network/stacks-core.git?rev=ecaaf5c4d397a691e5155eef01b59ddfeaba4ddd#ecaaf5c4d397a691e5155eef01b59ddfeaba4ddd"
+dependencies = [
+ "backoff",
+ "clap",
+ "clarity 0.0.1 (git+https://github.com/stacks-network/stacks-core.git?rev=ecaaf5c4d397a691e5155eef01b59ddfeaba4ddd)",
+ "hashbrown 0.15.2",
+ "lazy_static",
+ "libsigner 0.0.1 (git+https://github.com/stacks-network/stacks-core.git?rev=ecaaf5c4d397a691e5155eef01b59ddfeaba4ddd)",
+ "libstackerdb 0.0.1 (git+https://github.com/stacks-network/stacks-core.git?rev=ecaaf5c4d397a691e5155eef01b59ddfeaba4ddd)",
+ "rand 0.8.5",
+ "rand_core 0.6.4",
+ "reqwest",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "slog",
+ "slog-term",
+ "stacks-common 0.0.1",
+ "stackslib 0.0.1 (git+https://github.com/stacks-network/stacks-core.git?rev=ecaaf5c4d397a691e5155eef01b59ddfeaba4ddd)",
+ "thiserror 1.0.65",
+ "toml 0.5.11",
+ "tracing",
+ "tracing-subscriber",
+ "url",
+]
+
+[[package]]
+name = "stacks-signer"
+version = "4.0.3"
 dependencies = [
  "backoff",
  "clap",
@@ -4599,40 +4653,11 @@ dependencies = [
  "slog",
  "slog-json",
  "slog-term",
- "stacks-common 0.0.1",
+ "stacks-common 4.0.3",
  "stackslib 0.0.1",
  "stdext",
  "thiserror 1.0.65",
  "tiny_http",
- "toml 0.5.11",
- "tracing",
- "tracing-subscriber",
- "url",
-]
-
-[[package]]
-name = "stacks-signer"
-version = "0.0.1"
-source = "git+https://github.com/stacks-network/stacks-core.git?rev=ecaaf5c4d397a691e5155eef01b59ddfeaba4ddd#ecaaf5c4d397a691e5155eef01b59ddfeaba4ddd"
-dependencies = [
- "backoff",
- "clap",
- "clarity 0.0.1 (git+https://github.com/stacks-network/stacks-core.git?rev=ecaaf5c4d397a691e5155eef01b59ddfeaba4ddd)",
- "hashbrown 0.15.2",
- "lazy_static",
- "libsigner 0.0.1 (git+https://github.com/stacks-network/stacks-core.git?rev=ecaaf5c4d397a691e5155eef01b59ddfeaba4ddd)",
- "libstackerdb 0.0.1 (git+https://github.com/stacks-network/stacks-core.git?rev=ecaaf5c4d397a691e5155eef01b59ddfeaba4ddd)",
- "rand 0.8.5",
- "rand_core 0.6.4",
- "reqwest",
- "rusqlite",
- "serde",
- "serde_json",
- "slog",
- "slog-term",
- "stacks-common 0.0.1 (git+https://github.com/stacks-network/stacks-core.git?rev=ecaaf5c4d397a691e5155eef01b59ddfeaba4ddd)",
- "stackslib 0.0.1 (git+https://github.com/stacks-network/stacks-core.git?rev=ecaaf5c4d397a691e5155eef01b59ddfeaba4ddd)",
- "thiserror 1.0.65",
  "toml 0.5.11",
  "tracing",
  "tracing-subscriber",
@@ -4647,7 +4672,7 @@ dependencies = [
  "pinny",
  "proptest",
  "stacks-codec",
- "stacks-common 0.0.1",
+ "stacks-common 4.0.3",
 ]
 
 [[package]]
@@ -4688,7 +4713,7 @@ dependencies = [
  "siphasher",
  "slog",
  "stacks-codec",
- "stacks-common 0.0.1",
+ "stacks-common 4.0.3",
  "stacks-transactions",
  "stdext",
  "stx-genesis",
@@ -4725,7 +4750,7 @@ dependencies = [
  "sha2 0.10.8",
  "siphasher",
  "slog",
- "stacks-common 0.0.1 (git+https://github.com/stacks-network/stacks-core.git?rev=ecaaf5c4d397a691e5155eef01b59ddfeaba4ddd)",
+ "stacks-common 0.0.1",
  "time",
  "toml 0.5.11",
  "url",
@@ -5643,6 +5668,31 @@ name = "wasm-bindgen-shared"
 version = "0.2.91"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4f186bd2dcf04330886ce82d6f33dd75a7bfcf69ecf5763b89fcde53b6ac9838"
+
+[[package]]
+name = "wasm-bindgen-test"
+version = "0.3.41"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "143ddeb4f833e2ed0d252e618986e18bfc7b0e52f2d28d77d05b2f045dd8eb61"
+dependencies = [
+ "console_error_panic_hook",
+ "js-sys",
+ "scoped-tls",
+ "wasm-bindgen",
+ "wasm-bindgen-futures",
+ "wasm-bindgen-test-macro",
+]
+
+[[package]]
+name = "wasm-bindgen-test-macro"
+version = "0.3.41"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a5211b7550606857312bba1d978a8ec75692eae187becc5e680444fffc5e6f89"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.117",
+]
 
 [[package]]
 name = "web-sys"

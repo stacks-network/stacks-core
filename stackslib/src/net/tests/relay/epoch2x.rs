@@ -189,8 +189,8 @@ fn test_relayer_stats_add_relyed_messages() {
         MAX_RECENT_MESSAGES
     );
 
-    for i in (all_transactions.len() - MAX_RECENT_MESSAGES)..MAX_RECENT_MESSAGES {
-        let digest = all_transactions[i].get_digest();
+    for transaction in all_transactions.iter().rev().take(MAX_RECENT_MESSAGES) {
+        let digest = transaction.get_digest();
         let mut found = false;
         for (_, hash) in relay_stats.recent_messages.get(&nk).unwrap().iter() {
             found = found || (*hash == digest);
@@ -822,10 +822,7 @@ fn http_post_microblock(
     true
 }
 
-fn test_get_blocks_and_microblocks_2_peers_push_blocks_and_microblocks(
-    outbound_test: bool,
-    disable_push: bool,
-) {
+fn test_get_blocks_and_microblocks_2_peers_push_blocks_and_microblocks(outbound_test: bool) {
     with_timeout(600, move || {
         let original_blocks_and_microblocks = RefCell::new(vec![]);
         let blocks_and_microblocks = RefCell::new(vec![]);
@@ -854,14 +851,6 @@ fn test_get_blocks_and_microblocks_2_peers_push_blocks_and_microblocks(
                 // clears inv state
                 peer_configs[0].connection_opts.disable_natpunch = true;
                 peer_configs[1].connection_opts.disable_natpunch = true;
-
-                // force usage of blocksavailable/microblocksavailable?
-                if disable_push {
-                    peer_configs[0].connection_opts.disable_block_push = true;
-                    peer_configs[0].connection_opts.disable_microblock_push = true;
-                    peer_configs[1].connection_opts.disable_block_push = true;
-                    peer_configs[1].connection_opts.disable_microblock_push = true;
-                }
 
                 let peer_0 = peer_configs[0].to_neighbor();
                 let peer_1 = peer_configs[1].to_neighbor();
@@ -934,12 +923,9 @@ fn test_get_blocks_and_microblocks_2_peers_push_blocks_and_microblocks(
                 block_data
             },
             |ref mut peers| {
-                if !disable_push {
-                    for peer in peers.iter_mut() {
-                        // force peers to keep trying to process buffered data
-                        peer.network.burnchain_tip.burn_header_hash =
-                            BurnchainHeaderHash([0u8; 32]);
-                    }
+                for peer in peers.iter_mut() {
+                    // force peers to keep trying to process buffered data
+                    peer.network.burnchain_tip.burn_header_hash = BurnchainHeaderHash([0u8; 32]);
                 }
 
                 // make sure peer 1's inv has an entry for peer 0, even
@@ -1068,26 +1054,10 @@ fn test_get_blocks_and_microblocks_2_peers_push_blocks_and_microblocks(
 
 #[test]
 #[ignore]
-fn test_get_blocks_and_microblocks_2_peers_push_blocks_and_microblocks_outbound() {
-    // simulates node 0 pushing blocks to node 1, but node 0 is publicly routable.
-    // nodes rely on blocksavailable/microblocksavailable to discover blocks
-    test_get_blocks_and_microblocks_2_peers_push_blocks_and_microblocks(true, true)
-}
-
-#[test]
-#[ignore]
-fn test_get_blocks_and_microblocks_2_peers_push_blocks_and_microblocks_inbound() {
-    // simulates node 0 pushing blocks to node 1, where node 0 is behind a NAT
-    // nodes rely on blocksavailable/microblocksavailable to discover blocks
-    test_get_blocks_and_microblocks_2_peers_push_blocks_and_microblocks(false, true)
-}
-
-#[test]
-#[ignore]
 fn test_get_blocks_and_microblocks_2_peers_push_blocks_and_microblocks_outbound_direct() {
     // simulates node 0 pushing blocks to node 1, but node 0 is publicly routable.
     // nodes may push blocks and microblocks directly to each other
-    test_get_blocks_and_microblocks_2_peers_push_blocks_and_microblocks(true, false)
+    test_get_blocks_and_microblocks_2_peers_push_blocks_and_microblocks(true)
 }
 
 #[test]
@@ -1095,7 +1065,7 @@ fn test_get_blocks_and_microblocks_2_peers_push_blocks_and_microblocks_outbound_
 fn test_get_blocks_and_microblocks_2_peers_push_blocks_and_microblocks_inbound_direct() {
     // simulates node 0 pushing blocks to node 1, where node 0 is behind a NAT
     // nodes may push blocks and microblocks directly to each other
-    test_get_blocks_and_microblocks_2_peers_push_blocks_and_microblocks(false, false)
+    test_get_blocks_and_microblocks_2_peers_push_blocks_and_microblocks(false)
 }
 
 #[test]
@@ -1747,8 +1717,6 @@ fn test_get_blocks_and_microblocks_peers_broadcast() {
                     peer_configs[i].connection_opts.inv_sync_interval = 0;
 
                     let max_inflight = peer_configs[i].connection_opts.max_inflight_blocks;
-                    peer_configs[i].connection_opts.max_clients_per_host =
-                        ((num_peers + 1) as u64) * max_inflight;
                     peer_configs[i].connection_opts.soft_max_clients_per_host =
                         ((num_peers + 1) as u64) * max_inflight;
                     peer_configs[i].connection_opts.num_neighbors = (num_peers + 1) as u64;
@@ -2010,8 +1978,8 @@ fn test_get_blocks_and_microblocks_peers_broadcast() {
         let blocks_and_microblocks = blocks_and_microblocks.into_inner();
         let expected_txs = sent_txs.into_inner();
 
-        for i in 1..peers.len() {
-            let txs = MemPoolDB::get_all_txs(peers[i].mempool.as_ref().unwrap().conn()).unwrap();
+        for peer in peers.iter().skip(1) {
+            let txs = MemPoolDB::get_all_txs(peer.mempool.as_ref().unwrap().conn()).unwrap();
             for tx in txs.iter() {
                 let mut found = false;
                 for expected_tx in expected_txs.iter() {
@@ -2031,7 +1999,7 @@ fn test_get_blocks_and_microblocks_peers_broadcast() {
             {
                 let block_hash = block.block_hash();
                 let tx_infos = MemPoolDB::get_txs_after(
-                    peers[i].mempool.as_ref().unwrap().conn(),
+                    peer.mempool.as_ref().unwrap().conn(),
                     consensus_hash,
                     &block_hash,
                     0,

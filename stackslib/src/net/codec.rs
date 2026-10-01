@@ -44,7 +44,7 @@ use crate::net::db::LocalPeer;
 use crate::net::{Error as net_error, *};
 
 pub fn bitvec_len(bitlen: u16) -> u16 {
-    (bitlen / 8) + (if bitlen % 8 != 0 { 1 } else { 0 })
+    (bitlen / 8) + (if !bitlen.is_multiple_of(8) { 1 } else { 0 })
 }
 
 impl Preamble {
@@ -463,19 +463,6 @@ impl BlocksAvailableData {
     pub fn new() -> BlocksAvailableData {
         BlocksAvailableData { available: vec![] }
     }
-
-    pub fn try_push(
-        &mut self,
-        ch: ConsensusHash,
-        bhh: BurnchainHeaderHash,
-    ) -> Result<(), net_error> {
-        if self.available.len() < BLOCKS_AVAILABLE_MAX_LEN as usize {
-            self.available.push((ch, bhh));
-            Ok(())
-        } else {
-            Err(net_error::InvalidMessage)
-        }
-    }
 }
 
 impl StacksMessageCodec for BlocksDatum {
@@ -713,6 +700,8 @@ impl StacksMessageCodec for NackData {
     }
 }
 
+// A default would misleadingly consume randomness to generate a fresh nonce.
+#[allow(clippy::new_without_default)]
 impl PingData {
     pub fn new() -> PingData {
         let mut rng = rand::thread_rng();
@@ -1601,42 +1590,9 @@ pub mod test {
     use stacks_common::bitvec::BitVec;
     use stacks_common::codec::NEIGHBOR_ADDRESS_ENCODED_SIZE;
     use stacks_common::util::hash::hex_bytes;
-    use stacks_common::util::secp256k1::*;
 
     use super::*;
     use crate::net::{GetNakamotoInvData, NakamotoInvData};
-
-    fn check_overflow<T>(r: Result<T, net_error>) -> bool {
-        match r {
-            Ok(_) => {
-                test_debug!("did not get an overflow error, or any error");
-                false
-            }
-            Err(e) => match e {
-                net_error::OverflowError(_) => true,
-                _ => {
-                    test_debug!("did not get an overflow error, but got {:?}", &e);
-                    false
-                }
-            },
-        }
-    }
-
-    fn check_underflow<T>(r: Result<T, net_error>) -> bool {
-        match r {
-            Ok(_) => {
-                test_debug!("did not get an underflow error, or any error");
-                false
-            }
-            Err(e) => match e {
-                net_error::UnderflowError(_) => true,
-                _ => {
-                    test_debug!("did not get an underflow error, but got {:?}", &e);
-                    false
-                }
-            },
-        }
-    }
 
     fn check_deserialize<T: std::fmt::Debug>(r: Result<T, codec_error>) -> bool {
         match r {

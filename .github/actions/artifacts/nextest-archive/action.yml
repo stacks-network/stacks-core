@@ -9,9 +9,6 @@ inputs:
   archive-file:
     description: "The nextest archive file"
     required: true
-  debug-binary-path:
-    description: "Debug binary path"
-    required: true
 
 runs:
   using: "composite"
@@ -19,7 +16,7 @@ runs:
     - name: Restore Nextest Archive Artifact
       if: |
         inputs.action == 'restore'
-      uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # 8.0.1
+      uses: ./.github/wrappers/download-artifact
       with:
         name: "nextest-archive"
 
@@ -40,7 +37,7 @@ runs:
     - name: Checkout the latest code
       if: |
         inputs.action == 'create'
-      uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      uses: $/.github/wrappers/checkout
       with:
         ref: ${{ github.event.pull_request.head.sha || github.ref }}
 
@@ -52,15 +49,15 @@ runs:
       with:
         components: llvm-tools-preview
 
-    #  Install nextest and grcov
-    #    grcov is not needed to build the archive, but it is bundled into the
+    #  Install nextest and cargo-llvm-cov
+    #    cargo-llvm-cov is used to build the archive and then bundled into the
     #    artifact for the test jobs (see the staging step below)
-    - name: Install nextest and grcov
+    - name: Install nextest and cargo-llvm-cov
       if: |
         inputs.action == 'create'
       uses: ./.github/actions/install-tool
       with:
-        tools: nextest, grcov
+        tools: nextest, cargo-llvm-cov
 
     # Stage the tool binaries so they are uploaded with the artifact. The many
     # parallel test jobs restore them from there instead of each downloading
@@ -71,7 +68,7 @@ runs:
       shell: bash
       run: |
         mkdir -p ci-tools
-        cp "$(command -v cargo-nextest)" "$(command -v grcov)" ci-tools/
+        cp "$(command -v cargo-nextest)" "$(command -v cargo-llvm-cov)" ci-tools/
 
     # Install mold linker and clang (faster than default)      
     - name: Install mold Linker (and clang)
@@ -96,7 +93,7 @@ runs:
         inputs.action == 'create'
       shell: bash
       env:
-        RUSTFLAGS: "-C instrument-coverage -C linker=clang -C link-arg=-fuse-ld=mold -A warnings"
+        RUSTFLAGS: "-C linker=clang -C link-arg=-fuse-ld=mold -A warnings"
         CARGO_INCREMENTAL: 0
       # This command should be kept in sync with the same command in cache/cargo action
       run: |
@@ -104,7 +101,7 @@ runs:
         INPUT_FILE="${{ inputs.archive-file }}"
         ARCHIVE_FILE="${INPUT_FILE/#\~/$HOME}"
 
-        cargo nextest archive \
+        cargo llvm-cov nextest-archive \
           --workspace \
           --tests \
           --locked \
@@ -114,20 +111,12 @@ runs:
     - name: Create Nextest Archive Artifact
       if: |
         inputs.action == 'create'
-      uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # 7.0.1
+      uses: ./.github/wrappers/upload-artifact
       with:
         name: "nextest-archive"
         path: |
           ${{ inputs.archive-file }}
           ci-tools/
-          ${{ inputs.debug-binary-path }}
-          !${{ inputs.debug-binary-path }}/examples/**
-          !${{ inputs.debug-binary-path }}/incremental/**
-          !${{ inputs.debug-binary-path }}/.fingerprint/**
-          !${{ inputs.debug-binary-path }}/build/**
-          !${{ inputs.debug-binary-path }}/deps/**/*.d
-          !${{ inputs.debug-binary-path }}/deps/**/*.rlib
-          !${{ inputs.debug-binary-path }}/deps/**/*.rmeta
         if-no-files-found: error
         retention-days: 1
         compression-level: 9 # 0 (none) - 9 (most)

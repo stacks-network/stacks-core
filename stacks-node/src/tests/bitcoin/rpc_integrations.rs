@@ -24,6 +24,8 @@
 //! CI uses this mechanism to automate checks across
 //! the relevant set of Bitcoin Core versions.
 
+use std::assert_matches;
+
 use pinny::tag;
 use stacks::burnchains::bitcoin::address::{BitcoinAddress, LegacyBitcoinAddressType};
 use stacks::burnchains::bitcoin::BitcoinNetworkType;
@@ -225,15 +227,11 @@ fn test_wallet_creation_fails_if_already_exists() {
         .create_wallet("mywallet1", Some(false))
         .expect_err("mywallet1 creation should fail now!");
 
-    match &err {
-        BitcoinRpcClientError::Rpc(RpcError::NetworkIO(_)) => {
-            assert!(true, "Bitcoind v25 returns HTTP 500)");
-        }
-        BitcoinRpcClientError::Rpc(RpcError::Service(_)) => {
-            assert!(true, "Bitcoind v26+ returns HTTP 200");
-        }
-        _ => panic!("Expected Network or Service error, got {err:?}"),
-    }
+    // Bitcoind v25 returns HTTP 500; v26+ returns HTTP 200. Both are accepted.
+    assert_matches!(
+        err,
+        BitcoinRpcClientError::Rpc(RpcError::NetworkIO(_) | RpcError::Service(_))
+    );
 }
 
 #[tag(ci_skip)]

@@ -309,6 +309,7 @@ impl Node {
             (_, BitcoinNetworkType::Mainnet) => PoxConstants::mainnet_default(),
             (_, BitcoinNetworkType::Testnet) => PoxConstants::testnet_default(),
             (_, BitcoinNetworkType::Regtest) => PoxConstants::regtest_default(),
+            (_, BitcoinNetworkType::Signet) => PoxConstants::signet_default(),
         };
 
         let mut boot_data = ChainStateBootData {

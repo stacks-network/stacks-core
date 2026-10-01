@@ -118,6 +118,12 @@ pub struct InvGenerator {
     no_cache: bool,
 }
 
+impl Default for InvGenerator {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl InvGenerator {
     pub fn new() -> Self {
         Self {
@@ -128,27 +134,6 @@ impl InvGenerator {
             #[cfg(test)]
             no_cache: false,
         }
-    }
-
-    #[cfg(test)]
-    pub fn new_no_cache() -> Self {
-        Self {
-            processed_tenures: HashMap::new(),
-            sortitions: HashMap::new(),
-            tip_ancestor_search_depth: TIP_ANCESTOR_SEARCH_DEPTH,
-            cache_misses: 0,
-            no_cache: true,
-        }
-    }
-
-    pub fn with_tip_ancestor_search_depth(mut self, depth: u64) -> Self {
-        self.tip_ancestor_search_depth = depth;
-        self
-    }
-
-    #[cfg(test)]
-    pub(crate) fn cache_misses(&self) -> u128 {
-        self.cache_misses
     }
 
     /// Find the highest ancestor of `tip_block_id` that has an entry in `processed_tenures`.
@@ -210,14 +195,6 @@ impl InvGenerator {
 
     #[cfg(not(test))]
     fn test_clear_cache(&mut self) {}
-
-    /// Clear the cache (test only)
-    #[cfg(test)]
-    fn test_clear_cache(&mut self) {
-        if self.no_cache {
-            self.processed_tenures.clear();
-        }
-    }
 
     /// Get a processed tenure. If it's not cached, then load it from disk.
     ///
@@ -456,6 +433,36 @@ impl InvGenerator {
     }
 }
 
+/// Test-only helpers for [`InvGenerator`].
+#[cfg(test)]
+impl InvGenerator {
+    pub fn new_no_cache() -> Self {
+        Self {
+            processed_tenures: HashMap::new(),
+            sortitions: HashMap::new(),
+            tip_ancestor_search_depth: TIP_ANCESTOR_SEARCH_DEPTH,
+            cache_misses: 0,
+            no_cache: true,
+        }
+    }
+
+    pub fn with_tip_ancestor_search_depth(mut self, depth: u64) -> Self {
+        self.tip_ancestor_search_depth = depth;
+        self
+    }
+
+    pub(crate) fn cache_misses(&self) -> u128 {
+        self.cache_misses
+    }
+
+    /// Clear the cache (test only)
+    fn test_clear_cache(&mut self) {
+        if self.no_cache {
+            self.processed_tenures.clear();
+        }
+    }
+}
+
 #[derive(Debug, PartialEq, Clone)]
 pub struct NakamotoTenureInv {
     /// Bitmap of which tenures a peer has.
@@ -530,15 +537,6 @@ impl NakamotoTenureInv {
             .last_key_value()
             .map(|(highest_rc, _)| *highest_rc)
             .unwrap_or(0)
-    }
-
-    /// How many blocks are represented in this inv?
-    fn num_blocks_represented(&self) -> u64 {
-        let mut total = 0;
-        for (_, inv) in self.tenures_inv.iter() {
-            total += u64::from(inv.len());
-        }
-        total
     }
 
     /// Add in a newly-discovered inventory.

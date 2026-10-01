@@ -19,7 +19,7 @@ use libsigner::v0::messages::{
     BlockAccepted, BlockResponse, BlockResponseData, RejectReason, SignerMessage,
     SignerMessageMetadata,
 };
-use libsigner::v0::signer_state::{MinerState, ReplayTransactionSet, SignerStateMachine};
+use libsigner::v0::signer_state::{MinerState, SignerStateMachine};
 use libsigner_v3_3_0_0_5;
 use libsigner_v3_3_0_0_5::v0::messages::SignerMessage as OldSignerMessage;
 use signer_v3_3_0_0_5_0;
@@ -80,6 +80,7 @@ pub fn miner_state_v3_3_0_0_5_to_current(
 }
 
 // Helper function to convert from one to the other
+#[allow(dead_code)]
 pub fn stacks_transaction_v3_3_0_0_5_to_current(
     tx: &stacks_v3_3_0_0_5::chainstate::stacks::StacksTransaction,
 ) -> StacksTransaction {
@@ -104,15 +105,6 @@ pub fn signer_state_machine_v3_3_0_0_5_to_current(
         burn_block_height: machine.burn_block_height,
         current_miner: miner_state_v3_3_0_0_5_to_current(&machine.current_miner),
         active_signer_protocol_version: machine.active_signer_protocol_version,
-        tx_replay_set: ReplayTransactionSet::new(
-            machine
-                .tx_replay_set
-                .clone()
-                .unwrap_or_default()
-                .iter()
-                .map(stacks_transaction_v3_3_0_0_5_to_current)
-                .collect(),
-        ),
     }
 }
 
@@ -141,7 +133,7 @@ impl SpawnedSignerTrait for MultiverSpawnedSigner {
     type StopResult = ();
 
     fn new(c: stacks_signer::config::GlobalConfig) -> Self {
-        if c.endpoint.port() % 2 == 0 {
+        if c.endpoint.port().is_multiple_of(2) {
             debug!(
                 "Spawning current version signer for endpoint {}",
                 c.endpoint
@@ -179,9 +171,11 @@ impl SpawnedSignerTrait for MultiverSpawnedSigner {
                 reorg_attempts_activity_timeout: c.reorg_attempts_activity_timeout,
                 dry_run: c.dry_run,
                 proposal_wait_for_parent_time: c.proposal_wait_for_parent_time,
-                validate_with_replay_tx: c.validate_with_replay_tx,
+                // Transaction replay was removed from the current config; the pinned older
+                // signer still has these fields, so feed it the values replay-disabled.
+                validate_with_replay_tx: false,
                 capitulate_miner_view_timeout: c.capitulate_miner_view_timeout,
-                reset_replay_set_after_fork_blocks: c.reset_replay_set_after_fork_blocks,
+                reset_replay_set_after_fork_blocks: 2,
                 stackerdb_timeout: c.stackerdb_timeout,
                 supported_signer_protocol_version: c.supported_signer_protocol_version,
                 read_count_idle_timeout: c.read_count_idle_timeout,
@@ -414,8 +408,7 @@ fn with_new_miners<S: SpawnedSignerTrait>(supported_signer_protocol_version: u64
     let stackerdb_events = test_observer::get_stackerdb_chunks();
     let old_updates_count = stackerdb_events
         .iter()
-        .map(|ev| ev.modified_slots.iter())
-        .flatten()
+        .flat_map(|ev| ev.modified_slots.iter())
         .filter(|chunk| {
             let Ok(message) = SignerMessage::consensus_deserialize(&mut chunk.data.as_slice())
             else {
@@ -429,8 +422,7 @@ fn with_new_miners<S: SpawnedSignerTrait>(supported_signer_protocol_version: u64
         .count();
     let new_updates_count = stackerdb_events
         .iter()
-        .map(|ev| ev.modified_slots.iter())
-        .flatten()
+        .flat_map(|ev| ev.modified_slots.iter())
         .filter(|chunk| {
             let Ok(message) = SignerMessage::consensus_deserialize(&mut chunk.data.as_slice())
             else {
@@ -538,8 +530,7 @@ fn mixed_signer_set_40_percent_new_60_percent_old() {
         let stackerdb_events = test_observer::get_stackerdb_chunks();
         let nmb_signatures = stackerdb_events
             .iter()
-            .map(|ev| ev.modified_slots.iter())
-            .flatten()
+            .flat_map(|ev| ev.modified_slots.iter())
             .filter_map(|chunk| {
                 let Ok(message) = SignerMessage::consensus_deserialize(&mut chunk.data.as_slice())
                 else {
@@ -559,8 +550,7 @@ fn mixed_signer_set_40_percent_new_60_percent_old() {
     let stackerdb_events = test_observer::get_stackerdb_chunks();
     let state_machine_updates = stackerdb_events
         .iter()
-        .map(|ev| ev.modified_slots.iter())
-        .flatten()
+        .flat_map(|ev| ev.modified_slots.iter())
         .filter_map(|chunk| {
             let Ok(message) = SignerMessage::consensus_deserialize(&mut chunk.data.as_slice())
             else {
@@ -685,8 +675,7 @@ fn mixed_signer_set_80_percent_new_20_percent_old() {
         let stackerdb_events = test_observer::get_stackerdb_chunks();
         let nmb_signatures = stackerdb_events
             .iter()
-            .map(|ev| ev.modified_slots.iter())
-            .flatten()
+            .flat_map(|ev| ev.modified_slots.iter())
             .filter_map(|chunk| {
                 let Ok(message) = SignerMessage::consensus_deserialize(&mut chunk.data.as_slice())
                 else {
@@ -706,8 +695,7 @@ fn mixed_signer_set_80_percent_new_20_percent_old() {
     let stackerdb_events = test_observer::get_stackerdb_chunks();
     let state_machine_updates = stackerdb_events
         .iter()
-        .map(|ev| ev.modified_slots.iter())
-        .flatten()
+        .flat_map(|ev| ev.modified_slots.iter())
         .filter_map(|chunk| {
             let Ok(message) = SignerMessage::consensus_deserialize(&mut chunk.data.as_slice())
             else {

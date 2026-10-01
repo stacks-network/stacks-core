@@ -296,9 +296,9 @@ impl UnconfirmedState {
                         slice::from_ref(&mblock),
                     ) {
                         Ok(x) => x,
-                        Err((e, _)) => {
+                        Err(error) => {
                             // absorb the error
-                            warn!("Encountered invalid stacks microblock: {}", &e);
+                            warn!("Encountered invalid stacks microblock: {}", error.source);
                             break;
                         }
                     };

@@ -98,9 +98,8 @@ fn test_ephemeral_marf_store() {
     for (i, block_id) in blocks.iter().enumerate() {
         debug!("readonly: open block #{}: {}", i, block_id);
         let mut marf_ro = marfed_kv.begin_read_only(Some(block_id));
-        for j in 0..=i {
+        for keys_and_values in &block_data[..i + 1] {
             // all values up to those inserted in the block with this ID are present
-            let keys_and_values = &block_data[j];
             for (key, expected_value) in keys_and_values.iter() {
                 let value = marf_ro.get_data(key).unwrap().unwrap();
                 assert_eq!(expected_value, &value);
@@ -110,9 +109,8 @@ fn test_ephemeral_marf_store() {
                 );
             }
         }
-        for j in i + 1..blocks.len() {
+        for keys_and_values in block_data[..blocks.len()].iter().skip(i + 1) {
             // all values afterwards are not present
-            let keys_and_values = &block_data[j];
             for (key, _) in keys_and_values.iter() {
                 assert!(marf_ro.get_data(key).unwrap().is_none());
                 debug!("readonly: at block #{} {}: {} not mapped", i, block_id, key);
@@ -130,9 +128,8 @@ fn test_ephemeral_marf_store() {
         debug!("ephemeral: open block #{}: {}", i, block_id);
         let ephemeral_tip = StacksBlockId([0xf0; 32]);
         let mut marf_ephemeral = marfed_kv.begin_ephemeral(block_id, &ephemeral_tip).unwrap();
-        for j in 0..=i {
+        for keys_and_values in &block_data[..i + 1] {
             // all values up to those inserted in the block with this ID are present
-            let keys_and_values = &block_data[j];
             for (key, expected_value) in keys_and_values.iter() {
                 let value = marf_ephemeral.get_data(key).unwrap().unwrap();
                 assert_eq!(expected_value, &value);
@@ -142,9 +139,8 @@ fn test_ephemeral_marf_store() {
                 );
             }
         }
-        for j in i + 1..blocks.len() {
+        for keys_and_values in block_data[..blocks.len()].iter().skip(i + 1) {
             // all values afterwards are not present
-            let keys_and_values = &block_data[j];
             for (key, _) in keys_and_values.iter() {
                 assert!(marf_ephemeral.get_data(key).unwrap().is_none());
                 debug!(
@@ -193,9 +189,8 @@ fn test_ephemeral_marf_store() {
         }
 
         // can read back all disk-backed data represented up to the base_tip
-        for j in 0..=i {
+        for keys_and_values in &block_data[..i + 1] {
             // all values up to those inserted in the block with this ID are present
-            let keys_and_values = &block_data[j];
             for (key, expected_value) in keys_and_values.iter() {
                 let value = marf_ephemeral.get_data(key).unwrap().unwrap();
                 assert_eq!(expected_value, &value);
@@ -207,9 +202,8 @@ fn test_ephemeral_marf_store() {
         }
 
         // cannot read data beyond the base tip
-        for j in i + 1..blocks.len() {
+        for keys_and_values in block_data[..blocks.len()].iter().skip(i + 1) {
             // all values afterwards are not present
-            let keys_and_values = &block_data[j];
             for (key, _) in keys_and_values.iter() {
                 assert!(marf_ephemeral.get_data(key).unwrap().is_none());
                 debug!(
@@ -221,7 +215,7 @@ fn test_ephemeral_marf_store() {
 
         // can read all ephemeral values and all disk-backed values up to base_tip in random order
         let mut all_keys_and_values: Vec<(String, String)> =
-            block_data[0..=i].iter().cloned().flatten().collect();
+            block_data[0..=i].iter().flatten().cloned().collect();
 
         all_keys_and_values.append(&mut keys_and_values.clone());
         all_keys_and_values.shuffle(&mut thread_rng());
@@ -250,9 +244,8 @@ fn test_ephemeral_marf_store() {
         }
 
         // can still read back all disk-backed data represented up to the base_tip
-        for j in 0..=i {
+        for keys_and_values in &block_data[..i + 1] {
             // all values up to those inserted in the block with this ID are present
-            let keys_and_values = &block_data[j];
             for (key, expected_value) in keys_and_values.iter() {
                 let value = marf_ephemeral.get_data(key).unwrap().unwrap();
                 assert_eq!(expected_value, &value);
@@ -264,9 +257,8 @@ fn test_ephemeral_marf_store() {
         }
 
         // cannot still read data beyond the base tip
-        for j in i + 1..blocks.len() {
+        for keys_and_values in block_data[..blocks.len()].iter().skip(i + 1) {
             // all values afterwards are not present
-            let keys_and_values = &block_data[j];
             for (key, _) in keys_and_values.iter() {
                 assert!(marf_ephemeral.get_data(key).unwrap().is_none());
                 debug!(
@@ -746,8 +738,7 @@ fn test_ephemeral_nakamoto_block_replay_smart_contract() {
         all_nakamoto_blocks.append(&mut nakamoto_blocks);
     }
 
-    all_nakamoto_blocks
-        .sort_by(|blk1, blk2| blk1.header.chain_length.cmp(&blk2.header.chain_length));
+    all_nakamoto_blocks.sort_by_key(|blk1| blk1.header.chain_length);
 
     for naka_block in all_nakamoto_blocks {
         replay_block(&sortdb, &mut stacks_node.chainstate, naka_block, &observer);

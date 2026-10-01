@@ -30,7 +30,7 @@ pub fn try_parse_error_response(
     content_type: HttpContentType,
     body: &[u8],
 ) -> Result<HttpResponsePayload, Error> {
-    if status_code < 400 || status_code > 599 {
+    if !(400..=599).contains(&status_code) {
         return Err(Error::DecodeError(
             "Inavlid response: not an error".to_string(),
         ));

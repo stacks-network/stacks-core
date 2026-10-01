@@ -569,7 +569,7 @@ impl NakamotoSigners {
     fn update_signers(
         clarity: &mut ClarityTransactionConnection,
         reward_cycle: u64,
-        signers: &Vec<NakamotoSignerEntry>,
+        signers: &[NakamotoSignerEntry],
         signers_contract: &QualifiedContractIdentifier,
         has_participation: bool,
         coinbase_height: u64,
@@ -771,7 +771,7 @@ impl NakamotoSigners {
             reward_cycle,
             &signer_set,
             signers_contract,
-            signer_set.len() > 0,
+            !signer_set.is_empty(),
             coinbase_height,
             is_mainnet,
         )?;

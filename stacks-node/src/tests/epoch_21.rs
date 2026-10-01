@@ -732,10 +732,8 @@ fn transition_fixes_bitcoin_rigidity() {
     let parent_burn_height = get_chain_info(&conf).burn_block_height;
     let op_burn_height = parent_burn_height + 1;
     // the op's block must win a sortition to preserve the expected miner nonce
-    wait_for(60, || {
-        Ok(counters.neon_submitted_commit_last_burn_height.get() >= parent_burn_height)
-    })
-    .expect("Timed out waiting for the miner to submit a block-commit");
+    wait_for_tip_commit(&conf, &counters, 60)
+        .expect("Timed out waiting for the miner to submit a block-commit");
     btc_regtest_controller.build_next_block(1);
 
     let empty_burn_height = op_burn_height + 1;

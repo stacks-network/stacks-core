@@ -30,13 +30,6 @@ fn test_to_ascii(#[case] version: ClarityVersion, #[case] epoch: StacksEpochId) 
     let to_ascii_response_type = |ty: TypeSignature| -> Option<TypeSignature> {
         Some(TypeSignature::new_response(ty, TypeSignature::UIntType).unwrap())
     };
-    let to_ascii_max_response_type = Some(
-        TypeSignature::new_response(
-            TypeSignature::TO_ASCII_STRING_ASCII_MAX,
-            TypeSignature::UIntType,
-        )
-        .unwrap(),
-    );
     let to_ascii_expected_types = vec![
         TypeSignature::IntType,
         TypeSignature::UIntType,

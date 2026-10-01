@@ -233,12 +233,12 @@ fn test_stream_confirmed_microblocks() {
         true,
     );
 
-    for i in 0..mblocks.len() {
+    for mblock in &mblocks {
         set_microblocks_processed(
             &mut chainstate,
             &child_consensus_hash,
             &child_block.block_hash(),
-            &mblocks[i].block_hash(),
+            &mblock.block_hash(),
         );
     }
 

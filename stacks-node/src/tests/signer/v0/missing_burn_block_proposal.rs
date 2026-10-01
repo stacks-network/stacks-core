@@ -16,7 +16,6 @@ use std::env;
 use std::time::Duration;
 
 use libsigner::v0::messages::RejectCode;
-use pinny::tag;
 use stacks::chainstate::burn::ConsensusHash;
 use stacks::chainstate::stacks::TransactionPayload;
 use stacks::net::api::postblock_proposal::ValidateRejectCode;
@@ -33,7 +32,6 @@ use crate::tests::neon_integrations::{get_chain_info, test_observer};
 use crate::tests::signer::v0::{wait_for_block_proposal, wait_for_block_rejections_from_signers};
 use crate::tests::signer::SignerTest;
 
-#[tag(bitcoind)]
 #[test]
 #[ignore]
 /// Test that when a block proposal contains a TenureChange referencing an

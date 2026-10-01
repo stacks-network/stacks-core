@@ -22,7 +22,8 @@ use blockstack_lib::net::api::getsortition::SortitionInfo;
 use blockstack_lib::util_lib::db::Error as DBError;
 use clarity::types::chainstate::{BurnchainHeaderHash, StacksAddress, StacksPublicKey};
 use clarity::util::get_epoch_time_secs;
-use clarity::util::hash::Hash160;
+use clarity::util::hash::{Hash160, Sha512Trunc256Sum};
+use clarity::vm::types::BoundedErrorString;
 use libsigner::v0::messages::RejectReason;
 use libsigner::v0::signer_state::GlobalStateEvaluator;
 use stacks_common::types::chainstate::ConsensusHash;
@@ -59,11 +60,14 @@ pub enum SignerChainstateError {
     /// The local state machine wasn't ready to be queried
     #[error("The local state machine is not ready, so no update message can be produced")]
     LocalStateMachineNotReady,
+    /// The connected stacks node has not yet processed the burn block the signer expects
+    #[error("Node has not processed the expected burn block yet: {0}")]
+    NodeBehindBurnBlock(String),
 }
 
 impl From<SignerChainstateError> for RejectReason {
     fn from(error: SignerChainstateError) -> Self {
-        RejectReason::ConnectivityIssues(error.to_string())
+        RejectReason::ConnectivityIssues(BoundedErrorString::from_display(&error))
     }
 }
 
@@ -89,9 +93,6 @@ pub struct ProposalEvalConfig {
     pub reorg_attempts_activity_timeout: Duration,
     /// Time to wait before submitting a block proposal to the stacks-node
     pub proposal_wait_for_parent_time: Duration,
-    /// How many blocks after a fork should we reset the replay set,
-    /// as a failsafe mechanism
-    pub reset_replay_set_after_fork_blocks: u64,
 }
 
 impl From<&SignerConfig> for ProposalEvalConfig {
@@ -104,7 +105,6 @@ impl From<&SignerConfig> for ProposalEvalConfig {
             reorg_attempts_activity_timeout: value.reorg_attempts_activity_timeout,
             tenure_idle_timeout_buffer: value.tenure_idle_timeout_buffer,
             proposal_wait_for_parent_time: value.proposal_wait_for_parent_time,
-            reset_replay_set_after_fork_blocks: value.reset_replay_set_after_fork_blocks,
             read_count_idle_timeout: value.read_count_idle_timeout,
         }
     }
@@ -156,6 +156,20 @@ impl TryFrom<SortitionInfo> for SortitionData {
     }
 }
 
+/// Whether the block under check may itself be the signed tip that
+/// [`SortitionData::check_latest_block_in_tenure`] compares it against.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SelfAsTip {
+    /// The block can be the tip. Used at proposal time, where a duplicate proposal of the
+    /// tenure's fresh accepted tip fails the height comparison and is rejected rather than freshly
+    /// evaluated, which would overwrite that row.
+    Counts,
+    /// The block is left out of the tip query, so another accepted sibling at the same height,
+    /// if there is one, is the block compared against. Used by the checks that run after our own
+    /// validation, when the group may already have signed this very block.
+    Ignored,
+}
+
 impl SortitionData {
     /// Check if the tenure defined by `sortition_state` is building off of an
     ///  appropriate tenure.
@@ -163,10 +177,11 @@ impl SortitionData {
     /// A permitted reorg is recorded once the whole reorg is permitted: each tenure whose
     /// blocks this one is allowed to replace is marked superseded (see
     /// [`SignerDb::mark_tenure_superseded`]), so a signature we already placed on one of those
-    /// blocks does not later block the replacement. The record carries this tenure's sortition
-    /// as the permitting one, so the permit stops applying if a burnchain fork later orphans
-    /// it. Nothing is recorded for a refused reorg, even for the tenures in it that
-    /// individually qualified.
+    /// blocks does not later block the replacement. The record names this tenure as the
+    /// permitting one, which bounds the permit in two ways: it excuses those signatures only
+    /// against the branch it sanctions and only while this tenure's sortition survives a
+    /// burnchain fork. Nothing is recorded for a refused reorg, even for the tenures in it
+    /// that individually qualified.
     pub fn check_parent_tenure_choice(
         &self,
         signer_db: &mut SignerDb,
@@ -331,10 +346,11 @@ impl SortitionData {
         consensus_hash: &ConsensusHash,
         signer_db: &SignerDb,
         tenure_last_block_proposal_timeout: Duration,
+        excluded_signer_signature_hash: Option<&Sha512Trunc256Sum>,
     ) -> Result<Option<BlockInfo>, ClientError> {
-        // Get the last signed block in the tenure
+        // Get the last signed block in the tenure, leaving out the excluded block (if any)
         let last_signed_block = signer_db
-            .get_last_signed_block(consensus_hash)
+            .get_last_signed_block(consensus_hash, excluded_signer_signature_hash)
             .map_err(|e| ClientError::InvalidResponse(e.to_string()))?;
 
         let Some(block_info) = last_signed_block else {
@@ -372,7 +388,8 @@ impl SortitionData {
     /// height check here, we are relying on the `stacks-node` proposal endpoint
     /// to do the validation on the chainstate data that it has.
     ///
-    /// This updates the activity timer for the miner of `block`.
+    /// This updates the activity timer for the miner of `block`. `self_as_tip` says whether
+    /// `block` itself may be the signed tip it is compared against, see [`SelfAsTip`].
     pub fn check_latest_block_in_tenure(
         tenure_id: &ConsensusHash,
         block: &NakamotoBlock,
@@ -380,11 +397,18 @@ impl SortitionData {
         client: &StacksClient,
         tenure_last_block_proposal_timeout: Duration,
         reorg_attempts_activity_timeout: Duration,
+        self_as_tip: SelfAsTip,
     ) -> Result<bool, ClientError> {
+        let own_hash = block.header.signer_signature_hash();
+        let excluded = match self_as_tip {
+            SelfAsTip::Counts => None,
+            SelfAsTip::Ignored => Some(&own_hash),
+        };
         let last_block_info = SortitionData::get_tenure_last_block_info(
             tenure_id,
             signer_db,
             tenure_last_block_proposal_timeout,
+            excluded,
         )?;
 
         if let Some(info) = last_block_info {
@@ -500,6 +524,7 @@ impl SortitionData {
             client,
             tenure_last_block_proposal_timeout,
             reorg_attempts_activity_timeout,
+            SelfAsTip::Counts,
         )
     }
 
@@ -516,6 +541,7 @@ impl SortitionData {
             client,
             proposal_config.tenure_last_block_proposal_timeout,
             proposal_config.reorg_attempts_activity_timeout,
+            SelfAsTip::Counts,
         )
     }
 }

@@ -31,10 +31,10 @@ use libsigner::{
     BlockProposal, BlockProposalData, SignerSession, StackerDBSession, VERSION_STRING,
 };
 use madhouse::{execute_commands, prop_allof, scenario, Command, CommandWrapper};
-use pinny::tag;
 use proptest::prelude::Strategy;
 use rand::{thread_rng, Rng};
 use rusqlite::Connection;
+use serde_json::{Map as JsonMap, Value as JsonValue};
 use stacks::address::AddressHashMode;
 use stacks::chainstate::burn::db::sortdb::SortitionDB;
 use stacks::chainstate::burn::ConsensusHash;
@@ -79,10 +79,7 @@ use stacks_common::util::sleep_ms;
 use stacks_signer::chainstate::v1::SortitionsView;
 use stacks_signer::chainstate::ProposalEvalConfig;
 use stacks_signer::client::StackerDB;
-use stacks_signer::config::{
-    build_signer_config_tomls, GlobalConfig as SignerConfig, Network,
-    DEFAULT_RESET_REPLAY_SET_AFTER_FORK_BLOCKS,
-};
+use stacks_signer::config::{build_signer_config_tomls, GlobalConfig as SignerConfig, Network};
 use stacks_signer::signerdb::SignerDb;
 use stacks_signer::v0::signer::TEST_REPEAT_PROPOSAL_RESPONSE;
 use stacks_signer::v0::signer_state::SUPPORTED_SIGNER_PROTOCOL_VERSION;
@@ -96,7 +93,7 @@ use stacks_signer::v0::SpawnedSigner;
 use tracing_subscriber::prelude::*;
 use tracing_subscriber::{fmt, EnvFilter};
 
-use super::SignerTest;
+use super::{wait_for_node_commit, SignerTest};
 use crate::event_dispatcher::TEST_SKIP_BLOCK_ANNOUNCEMENT;
 use crate::nakamoto_node::miner::{
     fault_injection_stall_miner, fault_injection_try_stall_miner, fault_injection_unstall_miner,
@@ -133,8 +130,8 @@ pub mod reorg;
 pub mod signers_consider_consensus_blocks;
 pub mod signers_consider_late_proposals;
 pub mod signers_wait_for_validation;
+mod signet_qualification;
 pub mod tenure_extend;
-pub mod tx_replay;
 
 impl<Z: SpawnedSignerTrait> SignerTest<Z> {
     /// Poll until the reward set for the next reward cycle is available.
@@ -230,6 +227,9 @@ impl<Z: SpawnedSignerTrait> SignerTest<Z> {
         // Note, we don't use `nakamoto_blocks_mined` counter, because there
         // could be other miners mining blocks.
         info!("Waiting for first Epoch 3.0 tenure to start");
+        // The Nakamoto relayer starts asynchronously at the epoch boundary.
+        // Wait for its commit before mining the first tenure's Bitcoin block.
+        wait_for_node_commit(&self.running_nodes.conf, &self.running_nodes.counters, 60);
         self.mine_nakamoto_block(Duration::from_secs(60), false);
         info!("Ready to mine Nakamoto blocks!");
     }
@@ -1128,6 +1128,13 @@ impl MultipleMinerTest {
         let node_1_pk = StacksPublicKey::from_private(&node_1_sk);
 
         conf_node_2.node.working_dir = format!("{}-1", conf_node_2.node.working_dir);
+        // A cloned configuration must not load the other miner's persisted VRF key.
+        if conf_node_2.miner.activated_vrf_key_path.is_some()
+            && conf_node_2.miner.activated_vrf_key_path == conf.miner.activated_vrf_key_path
+        {
+            conf_node_2.miner.activated_vrf_key_path =
+                Some(format!("{}/vrf_key", conf_node_2.node.working_dir));
+        }
 
         conf_node_2.node.set_bootstrap_nodes(
             format!("{}@{}", &node_1_pk.to_hex(), conf.node.p2p_address),
@@ -2121,8 +2128,16 @@ impl MultipleMinerTest {
 /// transaction with the given cause.
 fn last_block_contains_tenure_change_tx(cause: TenureChangeCause) -> bool {
     let blocks = test_observer::get_blocks();
-    let last_block = &blocks.last().unwrap();
-    let transactions = last_block["transactions"].as_array().unwrap();
+    let last_block = blocks.last().unwrap().as_object().unwrap();
+    block_contains_tenure_change_tx(last_block, cause)
+}
+
+/// Returns whether an observed block contains a tenure change with the given cause.
+fn block_contains_tenure_change_tx(
+    block: &JsonMap<String, JsonValue>,
+    cause: TenureChangeCause,
+) -> bool {
+    let transactions = block["transactions"].as_array().unwrap();
     let tx = transactions.first().expect("No transactions in block");
     let raw_tx = tx["raw_tx"].as_str().unwrap();
     let tx_bytes = hex_bytes(&raw_tx[2..]).unwrap();
@@ -2632,7 +2647,6 @@ pub fn wait_for_state_machine_update_by_miner_tenure_id(
     })
 }
 
-#[tag(bitcoind)]
 #[test]
 #[ignore]
 /// Test that a signer can respond to an invalid block proposal
@@ -2677,7 +2691,6 @@ fn block_proposal_rejection() {
         tenure_idle_timeout: Duration::from_secs(300),
         tenure_idle_timeout_buffer: Duration::from_secs(2),
         reorg_attempts_activity_timeout: Duration::from_secs(30),
-        reset_replay_set_after_fork_blocks: DEFAULT_RESET_REPLAY_SET_AFTER_FORK_BLOCKS,
         read_count_idle_timeout: Duration::from_secs(12000),
     };
     let mut block = NakamotoBlock::new(NakamotoBlockHeader::empty(), vec![]);
@@ -2809,20 +2822,17 @@ fn miner_gather_signatures() {
             let precommits = re_precommits
                 .captures(&metrics_response)
                 .and_then(|caps| caps.get(1))
-                .map(|m| m.as_str().parse::<u64>().ok())
-                .flatten();
+                .and_then(|m| m.as_str().parse::<u64>().ok());
 
             let proposals = re_proposals
                 .captures(&metrics_response)
                 .and_then(|caps| caps.get(1))
-                .map(|m| m.as_str().parse::<u64>().ok())
-                .flatten();
+                .and_then(|m| m.as_str().parse::<u64>().ok());
 
             let responses = re_responses
                 .captures(&metrics_response)
                 .and_then(|caps| caps.get(1))
-                .map(|m| m.as_str().parse::<u64>().ok())
-                .flatten();
+                .and_then(|m| m.as_str().parse::<u64>().ok());
 
             if let (Some(proposals), Some(responses), Some(precommits)) =
                 (proposals, responses, precommits)
@@ -4375,7 +4385,7 @@ fn min_gap_between_blocks() {
 
     // Verify that every Nakamoto block is mined after the gap is exceeded between each
     let mut blocks = get_nakamoto_headers(&signer_test.running_nodes.conf);
-    blocks.sort_by(|a, b| a.stacks_block_height.cmp(&b.stacks_block_height));
+    blocks.sort_by_key(|a| a.stacks_block_height);
     for i in 1..blocks.len() {
         let block = &blocks[i];
         let parent_block = &blocks[i - 1];
@@ -4910,7 +4920,7 @@ fn multiple_miners_with_nakamoto_blocks() {
     assert_eq!(peer_1_height, peer_2_height);
     assert_eq!(
         peer_1_height,
-        pre_nakamoto_peer_1_height + (btc_blocks_mined - 1) * (inter_blocks_per_tenure as u64 + 1)
+        pre_nakamoto_peer_1_height + (btc_blocks_mined - 1) * (inter_blocks_per_tenure + 1)
     );
     assert_eq!(btc_blocks_mined, miner_1_tenures + miner_2_tenures);
     miners.shutdown();
@@ -5577,7 +5587,6 @@ fn block_validation_response_timeout() {
         tenure_idle_timeout: Duration::from_secs(300),
         tenure_idle_timeout_buffer: Duration::from_secs(2),
         reorg_attempts_activity_timeout: Duration::from_secs(30),
-        reset_replay_set_after_fork_blocks: DEFAULT_RESET_REPLAY_SET_AFTER_FORK_BLOCKS,
         read_count_idle_timeout: Duration::from_secs(12000),
     };
     let mut block = NakamotoBlock::new(NakamotoBlockHeader::empty(), vec![]);
@@ -5866,7 +5875,6 @@ fn block_validation_pending_table() {
         tenure_idle_timeout: Duration::from_secs(300),
         tenure_idle_timeout_buffer: Duration::from_secs(2),
         reorg_attempts_activity_timeout: Duration::from_secs(30),
-        reset_replay_set_after_fork_blocks: DEFAULT_RESET_REPLAY_SET_AFTER_FORK_BLOCKS,
         read_count_idle_timeout: Duration::from_secs(12000),
     };
     let mut block = NakamotoBlock::new(NakamotoBlockHeader::empty(), vec![]);
@@ -6203,7 +6211,6 @@ fn incoming_signers_ignore_block_proposals() {
         tenure_idle_timeout: Duration::from_secs(300),
         tenure_idle_timeout_buffer: Duration::from_secs(2),
         reorg_attempts_activity_timeout: Duration::from_secs(30),
-        reset_replay_set_after_fork_blocks: DEFAULT_RESET_REPLAY_SET_AFTER_FORK_BLOCKS,
         read_count_idle_timeout: Duration::from_secs(12000),
     };
     let mut block = NakamotoBlock::new(NakamotoBlockHeader::empty(), vec![]);
@@ -6379,7 +6386,6 @@ fn outgoing_signers_ignore_block_proposals() {
         tenure_idle_timeout: Duration::from_secs(300),
         tenure_idle_timeout_buffer: Duration::from_secs(2),
         reorg_attempts_activity_timeout: Duration::from_secs(30),
-        reset_replay_set_after_fork_blocks: DEFAULT_RESET_REPLAY_SET_AFTER_FORK_BLOCKS,
         read_count_idle_timeout: Duration::from_secs(12000),
     };
     let mut block = NakamotoBlock::new(NakamotoBlockHeader::empty(), vec![]);
@@ -6681,13 +6687,13 @@ fn injected_signatures_are_ignored_across_boundaries() {
         .collect();
     let non_ignoring_signers: Vec<_> = all_signers
         .iter()
-        .cloned()
         .take(new_num_signers * 5 / 10)
+        .cloned()
         .collect();
     let ignoring_signers: Vec<_> = all_signers
         .iter()
-        .cloned()
         .skip(new_num_signers * 5 / 10)
+        .cloned()
         .collect();
     assert_eq!(ignoring_signers.len(), 3);
     assert_eq!(non_ignoring_signers.len(), 2);
@@ -7321,7 +7327,7 @@ fn large_mempool_base(strategy: MemPoolWalkStrategy, set_fee: impl Fn() -> u64) 
         .collect::<Vec<_>>();
     let initial_sender_addrs = initial_sender_sks
         .iter()
-        .map(|sk| tests::to_addr(sk))
+        .map(tests::to_addr)
         .collect::<Vec<_>>();
 
     // These 10 accounts will send to 25 accounts each, then those 260 accounts
@@ -7502,7 +7508,7 @@ fn large_mempool_base(strategy: MemPoolWalkStrategy, set_fee: impl Fn() -> u64) 
         for (sender_sk, nonce) in senders.iter_mut() {
             let sender_addr = tests::to_addr(sender_sk);
             let fee = set_fee();
-            assert!(fee >= 180 && fee <= 2000);
+            assert!((180..=2000).contains(&fee));
             let transfer_tx =
                 make_stacks_transfer_serialized(sender_sk, *nonce, fee, chain_id, &recipient, 1);
             insert_tx_in_mempool(
@@ -7612,7 +7618,7 @@ fn larger_mempool() {
         .collect::<Vec<_>>();
     let initial_sender_addrs = initial_sender_sks
         .iter()
-        .map(|sk| tests::to_addr(sk))
+        .map(tests::to_addr)
         .collect::<Vec<_>>();
 
     // These 10 accounts will send to 25 accounts each, then those 260 accounts
@@ -8111,7 +8117,7 @@ fn verify_mempool_caches() {
         let is_next_block = test_observer::get_blocks()
             .last()
             .and_then(|block| block["block_height"].as_u64())
-            .map_or(false, |h| h == block_height_before + 1);
+            .is_some_and(|h| h == block_height_before + 1);
 
         Ok(is_next_block)
     })
@@ -8588,7 +8594,6 @@ fn multiversioned_signer_protocol_version_calculation() {
         },
         |node_config| {
             node_config.miner.block_commit_delay = Duration::from_secs(1);
-            node_config.miner.replay_transactions = true;
         },
         None,
         None,
@@ -8686,12 +8691,9 @@ fn contract_with_undefined_variable_compat() {
                 sender_addr.clone(),
                 (send_amt + send_fee) * 10 + deploy_fee + call_fee,
             )],
-            |c| {
-                c.validate_with_replay_tx = true;
-            },
+            |_| {},
             |node_config| {
                 node_config.miner.block_commit_delay = Duration::from_secs(1);
-                node_config.miner.replay_transactions = true;
                 node_config.miner.activated_vrf_key_path =
                     Some(format!("{}/vrf_key", node_config.node.working_dir));
             },
@@ -9165,7 +9167,23 @@ fn burn_block_payload_includes_pox_transactions() {
     }
     let mut miners = MultipleMinerTest::new(5, 0);
 
-    let (conf_1, _conf_2) = miners.get_node_configs();
+    let (conf_1, conf_2) = miners.get_node_configs();
+    let expected_apparent_senders = HashSet::from([
+        miners
+            .btc_regtest_controller_mut()
+            .get_miner_address(
+                StacksEpochId::Epoch21,
+                &Keychain::default(conf_1.node.seed.clone()).get_pub_key(),
+            )
+            .to_string(),
+        miners
+            .btc_regtest_controller_mut()
+            .get_miner_address(
+                StacksEpochId::Epoch21,
+                &Keychain::default(conf_2.node.seed.clone()).get_pub_key(),
+            )
+            .to_string(),
+    ]);
     miners.boot_to_epoch_3();
     let sortdb = conf_1.get_burnchain().open_sortition_db(true).unwrap();
 
@@ -9225,6 +9243,14 @@ fn burn_block_payload_includes_pox_transactions() {
     }
 
     assert_eq!(total_per_recipient, total_per_recipient_from_transactions);
+
+    assert_eq!(
+        expected_apparent_senders,
+        pox_transactions
+            .iter()
+            .map(|t| t.apparent_sender.clone().unwrap())
+            .collect()
+    );
 }
 
 #[test]

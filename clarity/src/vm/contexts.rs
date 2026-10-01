@@ -15,11 +15,11 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use std::collections::{BTreeMap, HashMap, HashSet};
-use std::mem::replace;
 
 pub use clarity_types::effects::{AssetMap, AssetMapEntry};
 use clarity_types::representations::ClarityName;
 use serde::Serialize;
+use stacks_common::bounded_format;
 use stacks_common::types::StacksEpochId;
 use stacks_common::types::chainstate::StacksBlockId;
 
@@ -278,7 +278,10 @@ impl EventBatch {
 
 impl<'a, 'hooks> OwnedEnvironment<'a, 'hooks> {
     #[cfg(any(test, feature = "testing"))]
-    pub fn new(database: ClarityDatabase<'a>, epoch: StacksEpochId) -> OwnedEnvironment<'a, 'a> {
+    pub fn new(
+        database: ClarityDatabase<'a>,
+        epoch: StacksEpochId,
+    ) -> OwnedEnvironment<'a, 'hooks> {
         OwnedEnvironment {
             context: GlobalContext::new(
                 false,
@@ -292,7 +295,7 @@ impl<'a, 'hooks> OwnedEnvironment<'a, 'hooks> {
     }
 
     #[cfg(any(test, feature = "testing"))]
-    pub fn new_toplevel(mut database: ClarityDatabase<'a>) -> OwnedEnvironment<'a, 'a> {
+    pub fn new_toplevel(mut database: ClarityDatabase<'a>) -> OwnedEnvironment<'a, 'hooks> {
         database.begin();
         let epoch = database.get_clarity_epoch_version().unwrap();
         let version = ClarityVersion::default_for_epoch(epoch);
@@ -316,7 +319,7 @@ impl<'a, 'hooks> OwnedEnvironment<'a, 'hooks> {
         mut database: ClarityDatabase<'a>,
         epoch: StacksEpochId,
         use_mainnet: bool,
-    ) -> OwnedEnvironment<'a, 'a> {
+    ) -> OwnedEnvironment<'a, 'hooks> {
         use crate::vm::tests::test_only_mainnet_to_chain_id;
         let cost_track = LimitedCostTracker::new_max_limit(&mut database, epoch, use_mainnet)
             .expect("FAIL: problem instantiating cost tracking");
@@ -333,7 +336,7 @@ impl<'a, 'hooks> OwnedEnvironment<'a, 'hooks> {
         chain_id: u32,
         database: ClarityDatabase<'a>,
         epoch_id: StacksEpochId,
-    ) -> OwnedEnvironment<'a, 'a> {
+    ) -> OwnedEnvironment<'a, 'hooks> {
         OwnedEnvironment {
             context: GlobalContext::new(
                 mainnet,
@@ -352,7 +355,7 @@ impl<'a, 'hooks> OwnedEnvironment<'a, 'hooks> {
         database: ClarityDatabase<'a>,
         cost_tracker: LimitedCostTracker,
         epoch_id: StacksEpochId,
-    ) -> OwnedEnvironment<'a, 'a> {
+    ) -> OwnedEnvironment<'a, 'hooks> {
         OwnedEnvironment {
             context: GlobalContext::new(mainnet, chain_id, database, cost_tracker, epoch_id),
             call_stack: CallStack::new(),
@@ -361,12 +364,7 @@ impl<'a, 'hooks> OwnedEnvironment<'a, 'hooks> {
 
     /// Registers an evaluation hook for this environment.
     pub fn add_eval_hook(&mut self, hook: &'hooks mut dyn EvalHook) {
-        if let Some(mut hooks) = self.context.eval_hooks.take() {
-            hooks.push(hook);
-            self.context.eval_hooks = Some(hooks);
-        } else {
-            self.context.eval_hooks = Some(vec![hook]);
-        }
+        self.context.eval_hooks.get_or_insert_default().push(hook);
     }
 
     pub fn set_execution_resource_limiter(&mut self, resource_limiter: ResourceLimiter) {
@@ -641,16 +639,6 @@ impl CostTracker for ExecutionState<'_, '_, '_> {
     fn reset_memory(&mut self) {
         self.global_context.cost_track.reset_memory()
     }
-    fn short_circuit_contract_call(
-        &mut self,
-        contract: &QualifiedContractIdentifier,
-        function: &ClarityName,
-        input: &[u64],
-    ) -> std::result::Result<bool, CostErrors> {
-        self.global_context
-            .cost_track
-            .short_circuit_contract_call(contract, function, input)
-    }
 }
 
 impl CostTracker for GlobalContext<'_, '_> {
@@ -674,35 +662,9 @@ impl CostTracker for GlobalContext<'_, '_> {
     fn reset_memory(&mut self) {
         self.cost_track.reset_memory()
     }
-    fn short_circuit_contract_call(
-        &mut self,
-        contract: &QualifiedContractIdentifier,
-        function: &ClarityName,
-        input: &[u64],
-    ) -> std::result::Result<bool, CostErrors> {
-        self.cost_track
-            .short_circuit_contract_call(contract, function, input)
-    }
 }
 
 impl<'a, 'b, 'hooks> ExecutionState<'a, 'b, 'hooks> {
-    /// Used only for contract-call! cost short-circuiting. Once the short-circuited cost
-    ///  has been evaluated and assessed, the contract-call! itself is executed "for free".
-    pub fn run_free<F, A>(&mut self, invoke_ctx: &InvocationContext, to_run: F) -> A
-    where
-        F: FnOnce(&mut ExecutionState, &InvocationContext) -> A,
-    {
-        let original_tracker = replace(
-            &mut self.global_context.cost_track,
-            LimitedCostTracker::new_free(),
-        );
-        // note: it is important that this method not return until original_tracker has been
-        //  restored. DO NOT use the try syntax (?).
-        let result = to_run(self, invoke_ctx);
-        self.global_context.cost_track = original_tracker;
-        result
-    }
-
     pub fn eval_read_only(
         &mut self,
         invoke_ctx: &InvocationContext,
@@ -859,7 +821,7 @@ impl<'a, 'b, 'hooks> ExecutionState<'a, 'b, 'hooks> {
             if !allow_private && !func.is_public() {
                 return Err(RuntimeCheckErrorKind::NoSuchPublicFunction(contract_identifier.to_string(), tx_name.to_string()).into());
             } else if read_only && !func.is_read_only() {
-                return Err(RuntimeCheckErrorKind::Unreachable(format!("Public function not read-only: {contract_identifier} {tx_name}")).into());
+                return Err(RuntimeCheckErrorKind::Unreachable(bounded_format!("Public function not read-only: {contract_identifier} {tx_name}")).into());
             }
 
             let args: Result<Vec<Value>, VmExecutionError> = args.iter()
@@ -1047,7 +1009,7 @@ impl<'a, 'b, 'hooks> ExecutionState<'a, 'b, 'hooks> {
                 .database
                 .has_contract(&contract_identifier)
             {
-                return Err(RuntimeCheckErrorKind::Unreachable(format!(
+                return Err(RuntimeCheckErrorKind::Unreachable(bounded_format!(
                     "Contract already exists: {contract_identifier}"
                 ))
                 .into());
@@ -1700,7 +1662,7 @@ impl<'a, 'hooks> GlobalContext<'a, 'hooks> {
                 Ok(result)
             } else {
                 self.roll_back()?;
-                Err(RuntimeCheckErrorKind::Unreachable(format!(
+                Err(RuntimeCheckErrorKind::Unreachable(bounded_format!(
                     "Public function must return response: {}",
                     TypeSignature::type_of(&result)?
                 ))
@@ -1766,12 +1728,16 @@ impl ContractContext {
         self.implemented_traits.contains(trait_identifier)
     }
 
-    pub fn is_name_used(&self, name: &str) -> bool {
-        is_reserved(name, self.get_clarity_version())
-            || self.variables.contains_key(name)
+    /// Whether the contract itself defines `name`, ignoring reserved natives.
+    pub fn is_name_defined_by_contract(&self, name: &str) -> bool {
+        self.variables.contains_key(name)
             || self.functions.contains_key(name)
             || self.persisted_names.contains(name)
             || self.defined_traits.contains_key(name)
+    }
+
+    pub fn is_name_used(&self, name: &str) -> bool {
+        is_reserved(name, self.get_clarity_version()) || self.is_name_defined_by_contract(name)
     }
 
     pub fn get_clarity_version(&self) -> &ClarityVersion {
@@ -1799,7 +1765,7 @@ impl ContractContext {
                 let owned = std::mem::replace(value, Value::none());
                 let (sanitized, _) =
                     Value::sanitize_value(epoch, &TypeSignature::type_of(&owned)?, owned)
-                        .ok_or_else(|| RuntimeCheckErrorKind::CouldNotDetermineType)?;
+                        .ok_or(RuntimeCheckErrorKind::CouldNotDetermineType)?;
                 *value = sanitized;
             }
         }
@@ -2173,7 +2139,7 @@ mod test {
         assert_eq!(
             err,
             VmExecutionError::RuntimeCheck(RuntimeCheckErrorKind::Unreachable(
-                "Contract already exists: S1G2081040G2081040G2081040G208105NK8PE5.dup".to_string()
+                "Contract already exists: S1G2081040G2081040G2081040G208105NK8PE5.dup".into()
             ))
         );
     }

@@ -17,6 +17,7 @@
 use std::fmt;
 
 use clarity_types::representations::Span;
+use clarity_types::types::BoundedErrorString;
 
 /// In a near future, we can go further in our static analysis and provide different levels
 /// of diagnostics, such as warnings, hints, best practices, etc.
@@ -28,17 +29,25 @@ pub enum Level {
 }
 
 pub trait DiagnosableError {
-    fn message(&self) -> String;
+    /// Write this error's human-readable message into `f`. Stream directly
+    /// since [`Self::message`]'s sink can only bound what streams through it.
+    fn write_message(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result;
+
+    /// The message as an owned, bounded string.
+    fn message(&self) -> BoundedErrorString {
+        BoundedErrorString::from_display(&fmt::from_fn(|f| self.write_message(f)))
+    }
+
     fn suggestion(&self) -> Option<String>;
     fn level(&self) -> Level {
         Level::Error
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, PartialEq)]
 pub struct Diagnostic {
     pub level: Level,
-    pub message: String,
+    pub message: BoundedErrorString,
     pub spans: Vec<Span>,
     pub suggestion: Option<String>,
 }

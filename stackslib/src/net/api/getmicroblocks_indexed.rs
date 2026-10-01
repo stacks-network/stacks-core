@@ -30,7 +30,7 @@ use crate::net::httpcore::{request, RPCRequestHandler, StacksHttpRequest, Stacks
 use crate::net::{Error as NetError, StacksNodeState};
 use crate::util_lib::db::DBConn;
 
-#[derive(Clone)]
+#[derive(Clone, Default)]
 pub struct RPCMicroblocksIndexedRequestHandler {
     pub tail_microblock_id: Option<StacksBlockId>,
 }

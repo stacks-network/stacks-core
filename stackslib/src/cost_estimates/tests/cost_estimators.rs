@@ -831,14 +831,14 @@ fn test_cost_estimator_epochs_independent() {
 
     // Setup: "notify" cost_200 in Epoch20.
     estimator.notify_block(
-        &vec![make_dummy_cc_tx(contract_name, func_name, cost_200.clone())],
+        &[make_dummy_cc_tx(contract_name, func_name, cost_200.clone())],
         &BLOCK_LIMIT_MAINNET_20,
         &StacksEpochId::Epoch20,
     );
 
     // Setup: "notify" cost_205 in Epoch2_05.
     estimator.notify_block(
-        &vec![
+        &[
             make_dummy_coinbase_tx(),
             make_dummy_transfer_tx(),
             make_dummy_transfer_tx(),

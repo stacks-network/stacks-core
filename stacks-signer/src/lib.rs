@@ -67,6 +67,12 @@ pub trait Signer<T: SignerEventTrait>: Debug + Display {
     /// Get the reward cycle of the signer
     fn reward_cycle(&self) -> u64;
     /// Process an event
+    ///
+    /// `latest_sortition_reward_cycle` is the reward cycle of the
+    /// most recent winning sortition on the canonical burnchain fork,
+    /// or `None` if it could not be determined. This is not
+    /// necessarily the same as `current_reward_cycle` (e.g., a burn
+    /// block with no sortition leaves it pointing at the prior cycle)
     fn process_event(
         &mut self,
         stacks_client: &StacksClient,
@@ -74,6 +80,7 @@ pub trait Signer<T: SignerEventTrait>: Debug + Display {
         event: Option<&SignerEvent<T>>,
         res: &Sender<SignerResult>,
         current_reward_cycle: u64,
+        latest_sortition_reward_cycle: Option<u64>,
     );
     /// Check if the signer is in the middle of processing blocks
     fn has_unprocessed_blocks(&self) -> bool;

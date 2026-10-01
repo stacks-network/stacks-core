@@ -23,6 +23,7 @@ pub mod neighbors;
 pub mod relay;
 
 use std::collections::{HashMap, HashSet};
+use std::mem;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 
 use clarity::types::{EpochList, StacksEpochId};
@@ -693,8 +694,7 @@ impl NakamotoBootPlan {
                         .map(|(block, _, _)| block)
                         .collect();
 
-                    let malleablized_blocks =
-                        std::mem::replace(&mut peer.chain.malleablized_blocks, vec![]);
+                    let malleablized_blocks = mem::take(&mut peer.chain.malleablized_blocks);
                     for mblk in malleablized_blocks.iter() {
                         malleablized_block_ids.insert(mblk.block_id());
                     }
@@ -811,8 +811,7 @@ impl NakamotoBootPlan {
                         .map(|(block, _, _)| block)
                         .collect();
 
-                    let malleablized_blocks =
-                        std::mem::replace(&mut peer.chain.malleablized_blocks, vec![]);
+                    let malleablized_blocks = mem::take(&mut peer.chain.malleablized_blocks);
                     for mblk in malleablized_blocks.iter() {
                         malleablized_block_ids.insert(mblk.block_id());
                     }

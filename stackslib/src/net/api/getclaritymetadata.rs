@@ -52,7 +52,7 @@ pub struct ClarityMetadataResponse {
     pub data: String,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Default)]
 pub struct RPCGetClarityMetadataRequestHandler {
     pub clarity_metadata_key: Option<String>,
     pub contract_identifier: Option<QualifiedContractIdentifier>,

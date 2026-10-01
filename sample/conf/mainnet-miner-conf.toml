@@ -364,11 +364,6 @@ wallet_name = "<YOUR_BITCOIN_WALLET_NAME>"
 
 # --- Advanced / Debugging ---
 
-# Replay expected transactions during block building (experimental).
-# WARNING: Cannot be set to true on mainnet (node will fail to start).
-# Default: false
-# replay_transactions = false
-
 # StackerDB socket timeout for miner operations.
 # Default: 10
 # Units: seconds

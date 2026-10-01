@@ -652,7 +652,7 @@ impl HttpResponsePayload {
                 Some(value.len() as u32)
             }
             Self::Text(value) => {
-                if value.as_bytes().len() > (u32::MAX as usize) {
+                if value.len() > (u32::MAX as usize) {
                     return None;
                 }
                 Some(value.len() as u32)

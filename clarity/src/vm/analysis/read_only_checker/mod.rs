@@ -194,50 +194,6 @@ impl<'a, 'b> ReadOnlyChecker<'a, 'b> {
         Ok((function_name.clone(), is_read_only))
     }
 
-    fn check_reads_only_valid(
-        &mut self,
-        expr: &SymbolicExpression,
-    ) -> Result<(), StaticCheckError> {
-        use crate::vm::functions::define::DefineFunctionsParsed::*;
-        if let Some(define_type) = DefineFunctionsParsed::try_parse(expr)? {
-            match define_type {
-                // The _arguments_ to Constant, PersistedVariable, FT defines must be checked to ensure that
-                //   any _evaluated arguments_ supplied to them are valid with respect to read-only requirements.
-                Constant { value, .. } => {
-                    self.check_read_only(value)?;
-                }
-                PersistedVariable { initial, .. } => {
-                    self.check_read_only(initial)?;
-                }
-                BoundedFungibleToken { max_supply, .. } => {
-                    // only the *optional* total supply arg is eval'ed
-                    self.check_read_only(max_supply)?;
-                }
-                PrivateFunction { signature, body } | PublicFunction { signature, body } => {
-                    let (f_name, is_read_only) = self.check_define_function(signature, body)?;
-                    self.defined_functions.insert(f_name, is_read_only);
-                }
-                ReadOnlyFunction { signature, body } => {
-                    let (f_name, is_read_only) = self.check_define_function(signature, body)?;
-                    if !is_read_only {
-                        return Err(StaticCheckErrorKind::WriteAttemptedInReadOnly.into());
-                    } else {
-                        self.defined_functions.insert(f_name, is_read_only);
-                    }
-                }
-                Map { .. } | NonFungibleToken { .. } | UnboundedFungibleToken { .. } => {
-                    // No arguments to (define-map ...) or (define-non-fungible-token) or fungible tokens without max supplies are eval'ed.
-                }
-                Trait { .. } | UseTrait { .. } | ImplTrait { .. } => {
-                    // No arguments to (use-trait ...), (define-trait ...). or (impl-trait) are eval'ed.
-                }
-            }
-        } else {
-            self.check_read_only(expr)?;
-        }
-        Ok(())
-    }
-
     fn check_read_only_inner(
         &mut self,
         expr: &SymbolicExpression,

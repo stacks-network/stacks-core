@@ -17,8 +17,9 @@
 
 use std::io::Cursor;
 
+use stacks_common::codec::{Error as codec_error, StacksMessageCodec};
+
 use super::*;
-use crate::codec::{Error as codec_error, StacksMessageCodec};
 
 #[test]
 fn trie_node_patch_try_from_nodetype_returns_none_when_no_diffs() {

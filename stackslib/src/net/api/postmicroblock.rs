@@ -36,7 +36,7 @@ use crate::net::{
     Error as NetError, MicroblocksData, StacksMessageType, StacksNodeState, TipRequest,
 };
 
-#[derive(Clone)]
+#[derive(Clone, Default)]
 pub struct RPCPostMicroblockRequestHandler {
     pub microblock: Option<StacksMicroblock>,
 }

@@ -31,7 +31,7 @@ use crate::chainstate::burn::db::sortdb::SortitionDB;
 use crate::chainstate::nakamoto::miner::{MinerTenureInfoCause, NakamotoBlockBuilder};
 use crate::chainstate::nakamoto::NakamotoChainState;
 use crate::chainstate::stacks::db::StacksChainState;
-use crate::chainstate::stacks::events::StacksTransactionReceipt;
+use crate::chainstate::stacks::events::{BoundedErrorString, StacksTransactionReceipt};
 use crate::chainstate::stacks::miner::{
     BlockBuilder, BlockLimitFunction, TransactionResourceBudgets, TransactionResult,
 };
@@ -139,13 +139,6 @@ impl RPCTransactionSimulateRequestHandler {
                 "Chain tip is not a Nakamoto block".into(),
             ));
         };
-        if tip_nakamoto_header.is_shadow_block() {
-            // shadow tenures have no block-commit, so an ephemeral block
-            // cannot be built to extend them
-            return Err(TxSimulateError::BadTip(
-                "Chain tip is in a shadow tenure".into(),
-            ));
-        }
         let consensus_hash = tip_header.consensus_hash.clone();
         let total_burn = tip_nakamoto_header.burn_spent;
         let bitvec_len = tip_nakamoto_header.pox_treatment.len();
@@ -279,7 +272,7 @@ pub struct RPCSimulatedTransaction {
     /// whether the tx was aborted by a post-condition
     pub post_condition_aborted: bool,
     /// optional vm error
-    pub vm_error: Option<String>,
+    pub vm_error: Option<BoundedErrorString>,
 }
 
 impl RPCSimulatedTransaction {
@@ -458,8 +451,7 @@ impl RPCRequestHandler for RPCTransactionSimulateRequestHandler {
                 .try_into_contents()
             }
             // the caller picked a tip that exists but cannot be extended (e.g.
-            // an epoch-2.x block, or a shadow tenure); that's a client error,
-            // not a node fault
+            // an epoch-2.x block); that's a client error, not a node fault
             Err(TxSimulateError::BadTip(reason)) => {
                 return StacksHttpResponse::new_error(
                     &preamble,

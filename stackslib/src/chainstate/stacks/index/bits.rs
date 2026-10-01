@@ -18,6 +18,9 @@
 use std::io::{ErrorKind, Read, Seek, SeekFrom, Write};
 
 use sha2::{Digest, Sha512_256 as TrieHasher};
+use stacks_common::codec::StacksMessageCodec;
+use stacks_common::types::chainstate::{TrieHash, TRIEHASH_ENCODED_SIZE};
+use stacks_common::util::hash::to_hex;
 
 use crate::chainstate::stacks::index::node::{
     clear_compressed, clear_ctrl_bits, is_backptr, is_compressed, ptrs_fmt, ConsensusSerializable,
@@ -28,9 +31,6 @@ use crate::chainstate::stacks::index::storage::TrieStorageConnection;
 use crate::chainstate::stacks::index::{
     BlockMap, Error, MarfTrieId, TrieLeaf, MARF_VALUE_ENCODED_SIZE,
 };
-use crate::codec::StacksMessageCodec;
-use crate::types::chainstate::{TrieHash, TRIEHASH_ENCODED_SIZE};
-use crate::util::hash::to_hex;
 
 /// Magic byte value indicating a sparse compressed pointer list.
 /// This value cannot be a valid [`TrieNodeID`], making it safe to use as a marker.
@@ -324,7 +324,7 @@ pub fn ptrs_from_bytes<R: Read + Seek>(
 
     if is_compressed(*nid) {
         trace!("Node {} has compressed ptrs", cleared_nid);
-        let sparse_flag = ptr_bytes.get(0).ok_or_else(|| {
+        let sparse_flag = ptr_bytes.first().ok_or_else(|| {
             Error::CorruptionError("Failed to read 2nd byte from bytes array".into())
         })?;
 
@@ -362,17 +362,16 @@ pub fn ptrs_from_bytes<R: Read + Seek>(
                 Error::CorruptionError("Failed to read bitmap_size bytes from bytes array".into())
             })?;
 
-            let mut nextptr = 0;
             let mut cursor = 0;
             for i in 0..(8 * bitmap_size) {
-                if nextptr >= ptrs_buf.len() {
+                if i >= ptrs_buf.len() {
                     break;
                 }
                 let bi = i / 8;
                 let bt = i % 8;
                 let mask = 1u8 << bt;
-                let next_ptrs_buf = ptrs_buf.get_mut(nextptr).ok_or_else(|| {
-                    Error::CorruptionError("infallible: nextptr < ptrs_buf.len()".into())
+                let next_ptrs_buf = ptrs_buf.get_mut(i).ok_or_else(|| {
+                    Error::CorruptionError("infallible: i < ptrs_buf.len()".into())
                 })?;
                 let byte = *bitmap.get(bi).ok_or_else(|| {
                     Error::CorruptionError("infallible: i / 8 < bitmap.len()".into())
@@ -406,7 +405,6 @@ pub fn ptrs_from_bytes<R: Read + Seek>(
                         .checked_add(next_ptrs_buf.compressed_size())
                         .ok_or_else(|| Error::OverflowError)?;
                 }
-                nextptr += 1;
             }
             trace!(
                 "Node {} sparse compressed ptrs ({} bytes): {}",

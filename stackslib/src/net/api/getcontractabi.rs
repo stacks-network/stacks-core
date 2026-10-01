@@ -33,7 +33,7 @@ use crate::net::httpcore::{
 };
 use crate::net::{Error as NetError, StacksNodeState, TipRequest};
 
-#[derive(Clone)]
+#[derive(Clone, Default)]
 pub struct RPCGetContractAbiRequestHandler {
     pub contract_identifier: Option<QualifiedContractIdentifier>,
 }

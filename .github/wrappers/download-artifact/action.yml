@@ -1,0 +1,66 @@
+name: "Download Artifact"
+description: "Wraps actions/download-artifact with standardized defaults"
+
+inputs:
+  name:
+    description: 'Name of the artifact to download'
+    required: false
+  artifact-ids:
+    description: 'IDs of the artifacts to download, comma-separated'
+    required: false
+    default: ''
+  path:
+    description: 'Destination path where artifacts will be downloaded'
+    required: false
+    default: '.'
+  pattern:
+    description: 'A glob pattern matching artifacts to download'
+    required: false
+    default: ''
+  merge-multiple:
+    description: 'Whether to download all matching artifacts into the same destination path'
+    required: false
+    default: 'false'
+  github-token:
+    description: 'The GitHub token used to authenticate with the GitHub API'
+    required: false
+    default: ''
+  repository:
+    description: 'The repository owner and repository name joined together by "/"'
+    required: false
+    default: ''
+  run-id:
+    description: 'The ID of the workflow run where the desired artifact was uploaded from'
+    required: false
+    default: ''
+  skip-decompress:
+    description: 'Whether to skip decompressing a zip file (if detected)'
+    required: false
+    default: 'false'
+  digest-mismatch:
+    description: 'Action on mismatch between downloaded hash and expected hash: ignore, info, warn, error'
+    required: false
+    default: 'error'
+
+outputs:
+  download-path:
+    description: 'Path of artifact download'
+    value: ${{ steps.download-artifact.outputs.download-path }}
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Download Artifact
+      id: download-artifact
+      uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+      with:
+        name: ${{ inputs.name }}
+        artifact-ids: ${{ inputs.artifact-ids }}
+        path: ${{ inputs.path }}
+        pattern: ${{ inputs.pattern }}
+        merge-multiple: ${{ inputs.merge-multiple }}
+        github-token: ${{ inputs.github-token }}
+        repository: ${{ inputs.repository }}
+        run-id: ${{ inputs.run-id }}
+        skip-decompress: ${{ inputs.skip-decompress }}
+        digest-mismatch: ${{ inputs.digest-mismatch }}

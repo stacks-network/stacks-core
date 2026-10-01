@@ -80,6 +80,17 @@ pub const STACKS_BLOCK_VERSION_AST_PRECHECK_SIZE: u8 = 1;
 
 pub use stacks_codec::transaction::{MAX_BLOCK_LEN, MAX_TRANSACTION_LEN};
 
+/// Cost measurements captured when transaction execution exceeds its budget.
+#[derive(Debug)]
+pub struct CostOverflowContext {
+    /// Cost consumed before executing the transaction.
+    pub before: ExecutionCost,
+    /// Cost consumed after executing the transaction.
+    pub after: ExecutionCost,
+    /// Maximum cost permitted for the block.
+    pub budget: ExecutionCost,
+}
+
 #[derive(Debug)]
 pub enum Error {
     InvalidFee,
@@ -105,7 +116,7 @@ pub enum Error {
     NoTransactionsToMine,
     MicroblockStreamTooLongError,
     IncompatibleSpendingConditionError,
-    CostOverflowError(ExecutionCost, ExecutionCost, ExecutionCost),
+    CostOverflowError(Box<CostOverflowContext>),
     /// Errors that occur during clarity contract processing and execution
     ClarityError(ClarityError),
     DBError(db_error),
@@ -194,12 +205,12 @@ impl fmt::Display for Error {
             Error::IncompatibleSpendingConditionError => {
                 write!(f, "Spending condition is incompatible with this operation")
             }
-            Error::CostOverflowError(ref c1, ref c2, ref c3) => write!(
+            Error::CostOverflowError(ref context) => write!(
                 f,
                 "{}",
                 &format!(
                     "Cost overflow: before={:?}, after={:?}, budget={:?}",
-                    c1, c2, c3
+                    context.before, context.after, context.budget
                 )
             ),
             Error::ClarityError(ref e) => fmt::Display::fmt(e, f),
@@ -403,12 +414,20 @@ impl Error {
     ) -> Error {
         match err {
             CostErrors::CostBalanceExceeded(used, budget) => {
-                Error::CostOverflowError(cost_before, used, budget)
+                Error::CostOverflowError(Box::new(CostOverflowContext {
+                    before: cost_before,
+                    after: used,
+                    budget,
+                }))
             }
             _ => {
                 let cur_cost = context.cost_track.get_total();
                 let budget = context.cost_track.get_limit();
-                Error::CostOverflowError(cost_before, cur_cost, budget)
+                Error::CostOverflowError(Box::new(CostOverflowContext {
+                    before: cost_before,
+                    after: cur_cost,
+                    budget,
+                }))
             }
         }
     }

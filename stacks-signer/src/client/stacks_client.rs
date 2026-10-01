@@ -17,7 +17,7 @@ use std::collections::{HashMap, VecDeque};
 
 use blockstack_lib::chainstate::nakamoto::NakamotoBlock;
 use blockstack_lib::chainstate::stacks::boot::{NakamotoSignerEntry, SIGNERS_NAME};
-use blockstack_lib::chainstate::stacks::{StacksTransaction, TransactionVersion};
+use blockstack_lib::chainstate::stacks::TransactionVersion;
 use blockstack_lib::net::api::callreadonly::CallReadOnlyResponse;
 use blockstack_lib::net::api::get_tenure_tip_meta::BlockHeaderWithMetadata;
 use blockstack_lib::net::api::get_tenures_fork_info::{
@@ -48,7 +48,7 @@ use stacks_common::{debug, warn};
 use super::SignerSlotID;
 use crate::client::{retry_with_exponential_backoff, ClientError};
 use crate::config::GlobalConfig;
-use crate::runloop::RewardCycleInfo;
+use crate::runloop::{PoxGeometry, RewardCycleInfo};
 
 /// The Stacks signer client used to communicate with the stacks node
 #[derive(Clone, Debug)]
@@ -278,11 +278,7 @@ impl StacksClient {
     }
 
     /// Submit the block proposal to the stacks node. The block will be validated and returned via the HTTP endpoint for Block events.
-    pub fn submit_block_for_validation(
-        &self,
-        block: NakamotoBlock,
-        replay_txs: Option<Vec<StacksTransaction>>,
-    ) -> Result<(), ClientError> {
+    pub fn submit_block_for_validation(&self, block: NakamotoBlock) -> Result<(), ClientError> {
         debug!("StacksClient: Submitting block for validation";
             "signer_signature_hash" => %block.header.signer_signature_hash(),
             "block_id" => %block.header.block_id(),
@@ -291,7 +287,6 @@ impl StacksClient {
         let block_proposal = NakamotoBlockProposal {
             block,
             chain_id: self.chain_id,
-            replay_txs,
         };
         let timer = crate::monitoring::actions::new_rpc_call_timer(
             &self.block_proposal_path(),
@@ -561,24 +556,30 @@ impl StacksClient {
         Ok(pox_info_data)
     }
 
+    /// Get the PoX reward cycle geometry from the stacks node
+    pub fn get_pox_geometry(&self) -> Result<PoxGeometry, ClientError> {
+        debug!("StacksClient: Getting PoX geometry");
+        Ok(Self::pox_geometry_of(&self.get_pox_data()?))
+    }
+
     /// Get the current reward cycle info from the stacks node
     pub fn get_current_reward_cycle_info(&self) -> Result<RewardCycleInfo, ClientError> {
         debug!("StacksClient: Getting current reward cycle info");
         let pox_data = self.get_pox_data()?;
-        let blocks_mined = pox_data
-            .current_burnchain_block_height
-            .saturating_sub(pox_data.first_burnchain_block_height);
-        let reward_cycle_length = pox_data
-            .reward_phase_block_length
-            .saturating_add(pox_data.prepare_phase_block_length);
-        let reward_cycle = blocks_mined / reward_cycle_length;
-        Ok(RewardCycleInfo {
-            reward_cycle,
-            reward_cycle_length,
+        Ok(RewardCycleInfo::at_height(
+            &Self::pox_geometry_of(&pox_data),
+            pox_data.current_burnchain_block_height,
+        ))
+    }
+
+    fn pox_geometry_of(pox_data: &RPCPoxInfoData) -> PoxGeometry {
+        PoxGeometry {
+            reward_cycle_length: pox_data
+                .reward_phase_block_length
+                .saturating_add(pox_data.prepare_phase_block_length),
             prepare_phase_block_length: pox_data.prepare_phase_block_length,
             first_burnchain_block_height: pox_data.first_burnchain_block_height,
-            last_burnchain_block_height: pox_data.current_burnchain_block_height,
-        })
+        }
     }
 
     /// Helper function to retrieve the account info from the stacks node for a specific address
@@ -691,7 +692,8 @@ impl StacksClient {
                 "{function_name}: {}",
                 call_read_only_response
                     .cause
-                    .unwrap_or_else(|| "unknown".to_string())
+                    .as_deref()
+                    .unwrap_or("unknown")
             )));
         }
         let hex = call_read_only_response.result.unwrap_or_default();
@@ -1054,7 +1056,7 @@ mod tests {
         let mock = MockServerClient::new();
         let header = NakamotoBlockHeader::empty();
         let block = NakamotoBlock::new(header, vec![]);
-        let h = spawn(move || mock.client.submit_block_for_validation(block, None));
+        let h = spawn(move || mock.client.submit_block_for_validation(block));
         write_response(mock.server, b"HTTP/1.1 200 OK\n\n");
         assert!(h.join().unwrap().is_ok());
     }
@@ -1064,7 +1066,7 @@ mod tests {
         let mock = MockServerClient::new();
         let header = NakamotoBlockHeader::empty();
         let block = NakamotoBlock::new(header, vec![]);
-        let h = spawn(move || mock.client.submit_block_for_validation(block, None));
+        let h = spawn(move || mock.client.submit_block_for_validation(block));
         write_response(mock.server, b"HTTP/1.1 404 Not Found\n\n");
         assert!(h.join().unwrap().is_err());
     }

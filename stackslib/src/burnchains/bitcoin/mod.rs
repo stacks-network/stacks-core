@@ -35,7 +35,10 @@ pub mod indexer;
 pub mod keys;
 pub mod messages;
 pub mod network;
+pub mod signet;
 pub mod spv;
+#[cfg(test)]
+mod testdata;
 
 pub type PeerMessage = stacks_common::deps_common::bitcoin::network::message::NetworkMessage;
 
@@ -51,13 +54,13 @@ pub enum Error {
     /// Serialization error
     SerializationError(btc_serialize_error),
     /// Invalid Message to peer
-    InvalidMessage(PeerMessage),
+    InvalidMessage(Box<PeerMessage>),
     /// Invalid Reply from peer
     InvalidReply,
     /// Invalid magic
     InvalidMagic,
     /// Unhandled message
-    UnhandledMessage(PeerMessage),
+    UnhandledMessage(Box<PeerMessage>),
     /// Connection is broken and ought to be re-established
     ConnectionBroken,
     /// Connection could not be (re-)established
@@ -151,6 +154,8 @@ pub enum BitcoinNetworkType {
     Mainnet,
     Testnet,
     Regtest,
+    /// Public or custom BIP 325 signet, validated by the configured Bitcoin peer.
+    Signet,
 }
 
 impl BitcoinNetworkType {

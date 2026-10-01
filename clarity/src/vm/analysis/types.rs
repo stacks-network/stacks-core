@@ -30,11 +30,6 @@ use crate::vm::types::FunctionType;
 use crate::vm::types::signatures::FunctionSignature;
 use crate::vm::{ClarityVersion, SymbolicExpression};
 
-const DESERIALIZE_FAIL_MESSAGE: &str =
-    "PANIC: Failed to deserialize bad database data in contract analysis.";
-const SERIALIZE_FAIL_MESSAGE: &str =
-    "PANIC: Failed to deserialize bad database data in contract analysis.";
-
 pub trait AnalysisPass {
     fn run_pass(
         epoch: &StacksEpochId,
@@ -62,7 +57,6 @@ pub struct ContractAnalysis {
     pub defined_traits: BTreeMap<ClarityName, BTreeMap<ClarityName, FunctionSignature>>,
     pub implemented_traits: BTreeSet<TraitIdentifier>,
     pub contract_interface: Option<ContractInterface>,
-    pub is_cost_contract_eligible: bool,
     pub epoch: StacksEpochId,
     pub clarity_version: ClarityVersion,
     #[serde(skip)]
@@ -97,7 +91,6 @@ impl ContractAnalysis {
             fungible_tokens: BTreeSet::new(),
             non_fungible_tokens: BTreeMap::new(),
             cost_track: Some(cost_track),
-            is_cost_contract_eligible: false,
             epoch,
             clarity_version,
         }

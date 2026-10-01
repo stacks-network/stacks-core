@@ -369,7 +369,7 @@ impl ListTypeData {
         };
         let would_be_size = list_data
             .inner_size()?
-            .ok_or_else(|| ClarityTypeError::ValueTooLarge)?;
+            .ok_or(ClarityTypeError::ValueTooLarge)?;
         if would_be_size > MAX_VALUE_SIZE {
             Err(ClarityTypeError::ValueTooLarge)
         } else {
@@ -758,7 +758,7 @@ impl TryFrom<BTreeMap<ClarityName, TypeSignature>> for TupleTypeSignature {
         let result = TupleTypeSignature { type_map };
         let would_be_size = result
             .inner_size()?
-            .ok_or_else(|| ClarityTypeError::ValueTooLarge)?;
+            .ok_or(ClarityTypeError::ValueTooLarge)?;
         if would_be_size > MAX_VALUE_SIZE {
             Err(ClarityTypeError::ValueTooLarge)
         } else {
@@ -808,8 +808,16 @@ impl TupleTypeSignature {
         Ok(true)
     }
 
-    pub fn shallow_merge(&mut self, update: &mut TupleTypeSignature) {
+    /// Merge `update`'s fields into `self`, rejecting a merged tuple whose value size
+    /// exceeds [`MAX_VALUE_SIZE`] with [`ClarityTypeError::ValueTooLarge`].
+    pub fn shallow_merge(
+        &mut self,
+        update: &mut TupleTypeSignature,
+    ) -> Result<(), ClarityTypeError> {
         Arc::make_mut(&mut self.type_map).append(Arc::make_mut(&mut update.type_map));
+        // inner_size() returns Ok(None) exactly when the tuple is oversized.
+        self.inner_size()?.ok_or(ClarityTypeError::ValueTooLarge)?;
+        Ok(())
     }
 }
 
@@ -1401,7 +1409,7 @@ impl TypeSignature {
 
     pub fn type_size(&self) -> Result<u32, ClarityTypeError> {
         self.inner_type_size()
-            .ok_or_else(|| ClarityTypeError::ValueTooLarge)
+            .ok_or(ClarityTypeError::ValueTooLarge)
     }
 
     /// Returns the size of the _type signature_
@@ -1536,18 +1544,6 @@ impl TupleTypeSignature {
         })
     }
 
-    /// Serialized value size of the tuple, or [`ClarityTypeError::ValueTooLarge`] if it
-    /// exceeds [`MAX_VALUE_SIZE`].
-    ///
-    /// This differs from [`Self::size`] only in the error variant: `size` reports an oversized
-    /// tuple as an `InvariantViolation` (a "should never happen" signal that block-invalidates),
-    /// whereas this reports it as the checked `ValueTooLarge` rejection. Used at the tuple
-    /// `merge` site (static analysis and runtime) to reject an oversized merged tuple cleanly.
-    pub fn checked_value_size(&self) -> Result<u32, ClarityTypeError> {
-        // inner_size() returns Ok(None) exactly when the tuple is oversized.
-        self.inner_size()?.ok_or(ClarityTypeError::ValueTooLarge)
-    }
-
     fn max_depth(&self) -> u8 {
         let mut max = 0;
         for type_signature in self.type_map.values() {
@@ -1625,10 +1621,8 @@ impl TupleTypeSignature {
 impl fmt::Display for TupleTypeSignature {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "(tuple")?;
-        let mut type_strs: Vec<_> = self.type_map.iter().collect();
-        type_strs.sort_unstable_by_key(|x| x.0);
-        for (field_name, field_type) in type_strs {
-            write!(f, " ({} {})", &**field_name, field_type)?;
+        for (field_name, field_type) in self.type_map.iter() {
+            write!(f, " ({field_name} {field_type})")?;
         }
         write!(f, ")")
     }
@@ -1638,7 +1632,7 @@ impl fmt::Debug for TupleTypeSignature {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "TupleTypeSignature {{")?;
         for (field_name, field_type) in self.type_map.iter() {
-            write!(f, " \"{}\": {},", &**field_name, field_type)?;
+            write!(f, " \"{field_name}\": {field_type},")?;
         }
         write!(f, "}}")
     }
