@@ -39,6 +39,11 @@ pub static TEST_PIN_SUPPORTED_SIGNER_PROTOCOL_VERSION: LazyLock<
 pub static TEST_REJECT_ALL_BLOCK_PROPOSAL: LazyLock<TestFlag<Vec<StacksPublicKey>>> =
     LazyLock::new(TestFlag::default);
 
+/// A global variable that can be used to set the reason used by signers rejecting block proposals
+/// due to TEST_REJECT_ALL_BLOCK_PROPOSAL. Defaults to `RejectReason::TestingDirective` if unset.
+pub static TEST_REJECT_ALL_BLOCK_PROPOSAL_REASON: LazyLock<TestFlag<RejectReason>> =
+    LazyLock::new(TestFlag::default);
+
 /// A global variable that can be used to ignore block proposals if the signer's public key is in the provided list
 pub static TEST_IGNORE_ALL_BLOCK_PROPOSALS: LazyLock<TestFlag<Vec<StacksPublicKey>>> =
     LazyLock::new(TestFlag::default);
@@ -168,7 +173,10 @@ impl Signer {
                 block_info.valid = Some(false);
             };
 
-            block_info.reject_reason = Some(RejectReason::TestingDirective);
+            let reject_reason = TEST_REJECT_ALL_BLOCK_PROPOSAL_REASON
+                .get_opt()
+                .unwrap_or(RejectReason::TestingDirective);
+            block_info.reject_reason = Some(reject_reason.clone());
 
             // We must insert the block into the DB to prevent subsequent repeat proposals being accepted (should reject
             // as invalid since we rejected in a prior round if this crops up again)
@@ -176,7 +184,7 @@ impl Signer {
             self.signer_db
                 .insert_block(block_info)
                 .unwrap_or_else(|e| self.handle_insert_block_error(e));
-            Some(self.create_block_rejection(RejectReason::TestingDirective, &block_proposal.block))
+            Some(self.create_block_rejection(reject_reason, &block_proposal.block))
         } else {
             block_rejection
         }

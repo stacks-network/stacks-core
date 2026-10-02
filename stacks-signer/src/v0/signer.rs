@@ -2855,41 +2855,82 @@ impl Signer {
     }
 }
 
-/// Determine if a block should be re-evaluated based on its rejection reason˝
+/// Determine if a block should be re-evaluated based on its rejection reason.
+///
+/// Every transient rejection (see [`RejectReason::is_transient`]) is
+/// re-evaluated, since miners re-propose promptly after receiving one.
 fn should_reevaluate_reject_reason(block_info: &BlockInfo) -> bool {
-    if let Some(reject_reason) = &block_info.reject_reason {
-        match reject_reason {
-            RejectReason::ValidationFailed(ValidateRejectCode::UnknownParent)
-            | RejectReason::ValidationFailed(ValidateRejectCode::NotFoundError)
-            | RejectReason::NoSortitionView
-            | RejectReason::ConnectivityIssues(_)
-            | RejectReason::TestingDirective
-            | RejectReason::InvalidTenureExtend
-            | RejectReason::ConsensusHashMismatch { .. }
-            | RejectReason::NoSignerConsensus
-            | RejectReason::NotRejected
-            // A burnchain reorg can orphan the later-cycle sortition that retired
-            // this signer set, which re-opens the gate.
-            | RejectReason::RewardCycleRetired
-            | RejectReason::Unknown(_) => true,
-            RejectReason::ValidationFailed(_)
-            | RejectReason::RejectedInPriorRound
-            | RejectReason::SortitionViewMismatch
-            | RejectReason::ReorgNotAllowed
-            | RejectReason::InvalidBitvec
-            | RejectReason::PubkeyHashMismatch
-            | RejectReason::InvalidMiner
-            | RejectReason::NotLatestSortitionWinner
-            | RejectReason::InvalidParentBlock
-            | RejectReason::DuplicateBlockFound
-            | RejectReason::IrrecoverablePubkeyHash
-            | RejectReason::ProblematicTransactions
-            | RejectReason::ProposalTooOld => {
-                // No need to re-validate these types of rejections.
-                false
-            }
+    block_info
+        .reject_reason
+        .as_ref()
+        .is_some_and(should_reevaluate_reason)
+}
+
+/// Determine if a block rejected for `reject_reason` should be re-evaluated.
+fn should_reevaluate_reason(reject_reason: &RejectReason) -> bool {
+    reject_reason.is_transient()
+        || matches!(
+            reject_reason,
+            RejectReason::TestingDirective
+                | RejectReason::InvalidTenureExtend
+                | RejectReason::NotRejected
+                // A burnchain reorg can orphan the later-cycle sortition that retired
+                // this signer set, which re-opens the gate.
+                | RejectReason::RewardCycleRetired
+                | RejectReason::Unknown(_)
+        )
+}
+
+#[cfg(test)]
+mod reject_reason_tests {
+    use clarity::types::chainstate::ConsensusHash;
+    use libsigner::v0::messages::RejectReason;
+
+    use super::*;
+
+    #[test]
+    fn transient_rejections_are_reevaluated() {
+        let reevaluated = [
+            RejectReason::ValidationFailed(ValidateRejectCode::UnknownParent),
+            RejectReason::ValidationFailed(ValidateRejectCode::NotFoundError),
+            RejectReason::NoSortitionView,
+            RejectReason::ConnectivityIssues("test".into()),
+            RejectReason::TestingDirective,
+            RejectReason::InvalidTenureExtend,
+            RejectReason::ConsensusHashMismatch {
+                expected: ConsensusHash([0x01; 20]),
+                actual: ConsensusHash([0x02; 20]),
+            },
+            RejectReason::NoSignerConsensus,
+            RejectReason::NotRejected,
+            RejectReason::RewardCycleRetired,
+            RejectReason::Unknown(0xff),
+        ];
+        let not_reevaluated = [
+            RejectReason::ValidationFailed(ValidateRejectCode::InvalidBlock),
+            RejectReason::ValidationFailed(ValidateRejectCode::BadTransaction),
+            RejectReason::RejectedInPriorRound,
+            RejectReason::SortitionViewMismatch,
+            RejectReason::ReorgNotAllowed,
+            RejectReason::InvalidBitvec,
+            RejectReason::PubkeyHashMismatch,
+            RejectReason::InvalidMiner,
+            RejectReason::NotLatestSortitionWinner,
+            RejectReason::InvalidParentBlock,
+            RejectReason::DuplicateBlockFound,
+            RejectReason::IrrecoverablePubkeyHash,
+            RejectReason::ProblematicTransactions,
+            RejectReason::ProposalTooOld,
+        ];
+
+        for reason in &reevaluated {
+            assert!(should_reevaluate_reason(reason), "{reason:?}");
         }
-    } else {
-        false
+        for reason in &not_reevaluated {
+            assert!(!should_reevaluate_reason(reason), "{reason:?}");
+            // Miners re-propose promptly after a transient rejection, so every
+            // transient rejection must be re-evaluated.
+            assert!(!reason.is_transient(), "{reason:?}");
+        }
     }
 }
