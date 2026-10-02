@@ -1,0 +1,1 @@
+Signers now always allow the transition of a block to `GloballyAccepted`, since this comes from the node and should override any other state which is just based on signer messages.
