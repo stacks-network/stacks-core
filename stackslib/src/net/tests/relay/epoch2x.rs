@@ -2837,22 +2837,30 @@ fn process_new_blocks_rejects_problematic_asts() {
     assert_eq!(network_result.pushed_blocks.len(), 1);
     assert_eq!(network_result.pushed_microblocks.len(), 1);
 
-    network_result
-        .blocks
-        .push((new_consensus_hash.clone(), bad_block.clone(), 123));
-    network_result
-        .confirmed_microblocks
-        .push((new_consensus_hash.clone(), vec![bad_mblock], 234));
+    network_result.blocks.push(Downloaded {
+        consensus_hash: new_consensus_hash.clone(),
+        data: bad_block.clone(),
+        download_time_secs: 123,
+    });
+    network_result.confirmed_microblocks.push(Downloaded {
+        consensus_hash: new_consensus_hash.clone(),
+        data: vec![bad_mblock],
+        download_time_secs: 234,
+    });
 
     let mut sortdb = peer.chain.sortdb.take().unwrap();
-    let (processed_blocks, processed_mblocks, relay_mblocks, bad_neighbors) =
-        Relayer::process_new_blocks(
-            &mut network_result,
-            &mut sortdb,
-            &mut peer.chain.stacks_node.as_mut().unwrap().chainstate,
-            None,
-        )
-        .unwrap();
+    let ProcessedBlocks {
+        blocks: processed_blocks,
+        confirmed_microblocks: processed_mblocks,
+        unconfirmed_microblocks: relay_mblocks,
+        bad_neighbors,
+    } = Relayer::process_new_blocks(
+        &mut network_result,
+        &mut sortdb,
+        &mut peer.chain.stacks_node.as_mut().unwrap().chainstate,
+        None,
+    )
+    .unwrap();
 
     // despite this data showing up in all aspects of the network result, none of it actually
     // gets relayed

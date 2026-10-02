@@ -38,6 +38,42 @@ use crate::net::p2p::PeerNetwork;
 use crate::net::{Error as net_error, NeighborKey, *};
 use crate::util_lib::db::Error as db_error;
 
+/// A sortition's elected block and neighbors advertising that block.
+pub struct BlockAvailability {
+    /// Consensus hash identifying the sortition.
+    pub consensus_hash: ConsensusHash,
+    /// Elected block, or none for a sortition without a winner.
+    pub block_hash: Option<BlockHeaderHash>,
+    /// Neighbors advertising the block in their inventory.
+    pub neighbors: Vec<NeighborKey>,
+}
+
+/// Downloaded data and progress through the current inventory scan.
+#[derive(Default)]
+pub struct DownloadProgress {
+    /// Whether the current download requests are complete.
+    pub done: bool,
+    /// Whether a full pass reached the chain tip.
+    pub at_chain_tip: bool,
+    /// Local PoX ID when the scan began, when available.
+    pub old_pox_id: Option<PoxId>,
+    /// Downloaded blocks.
+    pub blocks: Vec<Downloaded<StacksBlock>>,
+    /// Downloaded microblock streams.
+    pub microblocks: Vec<Downloaded<Vec<StacksMicroblock>>>,
+}
+
+/// Progress and peers to disconnect after a block downloader step.
+#[derive(Default)]
+pub struct BlockDownloadOutcome {
+    /// Data fetched and progress made during this step.
+    pub progress: DownloadProgress,
+    /// Broken HTTP event IDs.
+    pub broken_http_peers: Vec<usize>,
+    /// Broken P2P peers and their drop metadata.
+    pub broken_p2p_peers: Vec<DropNeighbor>,
+}
+
 #[cfg(not(test))]
 pub const BLOCK_DOWNLOAD_INTERVAL: u64 = 180;
 #[cfg(test)]
@@ -704,7 +740,7 @@ impl BlockDownloader {
         header_cache: &mut BlockHeaderCache,
         sortition_height_start: u64,
         mut sortition_height_end: u64,
-    ) -> Result<Vec<(ConsensusHash, Option<BlockHeaderHash>, Vec<NeighborKey>)>, net_error> {
+    ) -> Result<Vec<BlockAvailability>, net_error> {
         let first_block_height = sortdb.first_block_height;
 
         // what blocks do we have in this range?
@@ -814,7 +850,11 @@ impl BlockDownloader {
                         &block_hash,
                         &neighbors
                     );
-                    ret.push((consensus_hash, Some(block_hash), neighbors));
+                    ret.push(BlockAvailability {
+                        consensus_hash,
+                        block_hash: Some(block_hash),
+                        neighbors,
+                    });
                 }
                 None => {
                     // no sortition
@@ -825,7 +865,11 @@ impl BlockDownloader {
                         sortition_bit + first_block_height,
                         &consensus_hash
                     );
-                    ret.push((consensus_hash, None, vec![]));
+                    ret.push(BlockAvailability {
+                        consensus_hash,
+                        block_hash: None,
+                        neighbors: vec![],
+                    });
 
                     if cfg!(test) {
                         for (_nk, stats) in inv_state.block_stats.iter() {
@@ -1239,8 +1283,14 @@ impl PeerNetwork {
             start_sortition_height + scan_batch_size
         );
 
-        for (i, (consensus_hash, block_hash_opt, mut neighbors)) in
-            availability.into_iter().enumerate()
+        for (
+            i,
+            BlockAvailability {
+                consensus_hash,
+                block_hash: block_hash_opt,
+                mut neighbors,
+            },
+        ) in availability.into_iter().enumerate()
         {
             test_debug!(
                 "{:?}: consider availability of {}/{:?}",
@@ -2047,23 +2097,14 @@ impl PeerNetwork {
         })
     }
 
-    /// Process newly-fetched blocks and microblocks.
-    /// Returns true if we've completed all requests.
-    /// Returns (done?, at-chain-tip?, blocks-we-got, microblocks-we-got) on success
+    /// Process newly fetched blocks and microblocks.
+    /// Returns scan progress, the starting PoX ID, and downloaded data on success.
+    /// The progress `done` flag indicates that all requests are complete.
     fn finish_downloads(
         &mut self,
         sortdb: &SortitionDB,
         chainstate: &mut StacksChainState,
-    ) -> Result<
-        (
-            bool,
-            bool,
-            Option<PoxId>,
-            Vec<(ConsensusHash, StacksBlock, u64)>,
-            Vec<(ConsensusHash, Vec<StacksMicroblock>, u64)>,
-        ),
-        net_error,
-    > {
+    ) -> Result<DownloadProgress, net_error> {
         let mut blocks = vec![];
         let mut microblocks = vec![];
         let mut done = false;
@@ -2088,11 +2129,11 @@ impl PeerNetwork {
                     &request_key.index_block_hash,
                     request_key.sortition_height
                 );
-                blocks.push((
-                    request_key.consensus_hash.clone(),
-                    block,
-                    now.saturating_sub(request_key.download_start),
-                ));
+                blocks.push(Downloaded {
+                    consensus_hash: request_key.consensus_hash.clone(),
+                    data: block,
+                    download_time_secs: now.saturating_sub(request_key.download_start),
+                });
                 downloader.num_blocks_downloaded += 1;
 
                 // don't try this again
@@ -2147,11 +2188,11 @@ impl PeerNetwork {
                         &request_key.anchor_block_hash,
                         request_key.sortition_height
                     );
-                    microblocks.push((
-                        parent_consensus_hash,
-                        microblock_stream,
-                        now.saturating_sub(request_key.download_start),
-                    ));
+                    microblocks.push(Downloaded {
+                        consensus_hash: parent_consensus_hash,
+                        data: microblock_stream,
+                        download_time_secs: now.saturating_sub(request_key.download_start),
+                    });
                     downloader.num_microblocks_downloaded += 1;
                 } else {
                     // stream is not well-formed
@@ -2304,7 +2345,13 @@ impl PeerNetwork {
                 downloader.state = BlockDownloaderState::GetBlocksBegin;
             }
 
-            Ok((done, at_chain_tip, old_pox_id, blocks, microblocks))
+            Ok(DownloadProgress {
+                done,
+                at_chain_tip,
+                old_pox_id,
+                blocks,
+                microblocks,
+            })
         })
     }
 
@@ -2322,34 +2369,21 @@ impl PeerNetwork {
         self.attachments_downloader = Some(AttachmentsDownloader::new(initial_batch));
     }
 
-    /// Process block downloader lifetime.  Returns the new blocks and microblocks if we get
-    /// anything.
-    /// Returns:
-    /// * are we done?
-    /// * did we do a full pass up to the chain tip?
-    /// * what's the local PoX ID when we started?  Will be Some(..) when we're done
-    /// * List of blocks we downloaded
-    /// * List of microblock streams we downloaded
-    /// * List of broken HTTP event IDs to disconnect from
-    /// * List of broken p2p neighbor keys to disconnect from
+    /// Process block downloader lifetime.
+    ///
+    /// Returns [`BlockDownloadOutcome`] containing scan progress, the blocks and microblock
+    /// streams downloaded in this step, and broken HTTP and P2P peers to disconnect from.
+    /// `progress.old_pox_id` is the local PoX ID from when the scan began; it is set only when
+    /// this step finishes a download pass, and is `None` when downloads are throttled.
+    ///
+    /// Returns `Err(NotConnected)` if there is no inventory data to download from.
     pub fn download_blocks(
         &mut self,
         sortdb: &SortitionDB,
         chainstate: &mut StacksChainState,
         dns_client: &mut DNSClient,
         ibd: bool,
-    ) -> Result<
-        (
-            bool,
-            bool,
-            Option<PoxId>,
-            Vec<(ConsensusHash, StacksBlock, u64)>,
-            Vec<(ConsensusHash, Vec<StacksMicroblock>, u64)>,
-            Vec<usize>,
-            Vec<DropNeighbor>,
-        ),
-        net_error,
-    > {
+    ) -> Result<BlockDownloadOutcome, net_error> {
         if let Some(ref inv_state) = self.inv_state {
             if !inv_state.has_inv_data_for_downloader(ibd) {
                 debug!(
@@ -2396,7 +2430,14 @@ impl PeerNetwork {
                             &self.local_peer,
                             downloader.finished_scan_at + downloader.download_interval
                         );
-                        return Ok((true, true, None, vec![], vec![], vec![], vec![]));
+                        return Ok(BlockDownloadOutcome {
+                            progress: DownloadProgress {
+                                done: true,
+                                at_chain_tip: true,
+                                ..DownloadProgress::default()
+                            },
+                            ..BlockDownloadOutcome::default()
+                        });
                     } else {
                         // start a rescan -- we've waited long enough
                         debug!(
@@ -2416,12 +2457,7 @@ impl PeerNetwork {
             }
         }
 
-        let mut done = false;
-        let mut at_chain_tip = false;
-
-        let mut blocks = vec![];
-        let mut microblocks = vec![];
-        let mut old_pox_id = None;
+        let mut progress = DownloadProgress::default();
 
         let mut done_cycle = false;
         while !done_cycle {
@@ -2450,20 +2486,7 @@ impl PeerNetwork {
                 BlockDownloaderState::Done => {
                     // did a pass.
                     // do we have more requests?
-                    let (
-                        blocks_done,
-                        full_pass,
-                        downloader_pox_id,
-                        mut successful_blocks,
-                        mut successful_microblocks,
-                    ) = self.finish_downloads(sortdb, chainstate)?;
-
-                    old_pox_id = downloader_pox_id;
-                    blocks.append(&mut successful_blocks);
-                    microblocks.append(&mut successful_microblocks);
-                    done = blocks_done;
-                    at_chain_tip = full_pass;
-
+                    progress = self.finish_downloads(sortdb, chainstate)?;
                     done_cycle = true;
                 }
             }
@@ -2480,21 +2503,17 @@ impl PeerNetwork {
             None => (vec![], vec![]),
         };
 
-        if done {
+        if progress.done {
             // reset state if we're done
             if let Some(ref mut downloader) = self.block_downloader {
                 downloader.reset()
             }
         }
 
-        Ok((
-            done,
-            at_chain_tip,
-            old_pox_id,
-            blocks,
-            microblocks,
+        Ok(BlockDownloadOutcome {
+            progress,
             broken_http_peers,
             broken_p2p_peers,
-        ))
+        })
     }
 }

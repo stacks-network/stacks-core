@@ -48,6 +48,7 @@ use crate::net::atlas::{AtlasDB, AttachmentsDownloader};
 use crate::net::chat::{ConversationP2P, NeighborStats};
 use crate::net::connection::{ConnectionOptions, ReplyHandleP2P};
 use crate::net::db::{LocalPeer, PeerDB};
+use crate::net::download::epoch2x::{BlockDownloadOutcome, DownloadProgress};
 use crate::net::download::nakamoto::NakamotoDownloadStateMachine;
 use crate::net::download::BlockDownloader;
 use crate::net::inv::inv2x::*;
@@ -3225,15 +3226,18 @@ impl PeerNetwork {
             self.init_block_downloader();
         }
 
-        let (
-            done,
-            at_chain_tip,
-            old_pox_id,
-            mut blocks,
-            mut microblocks,
+        let BlockDownloadOutcome {
+            progress:
+                DownloadProgress {
+                    done,
+                    at_chain_tip,
+                    old_pox_id,
+                    mut blocks,
+                    mut microblocks,
+                },
             broken_http_peers,
             broken_p2p_peers,
-        ) = match self.download_blocks(sortdb, chainstate, dns_client, ibd) {
+        } = match self.download_blocks(sortdb, chainstate, dns_client, ibd) {
             Ok(x) => x,
             Err(net_error::NotConnected) => {
                 // there was simply nothing to do
@@ -3268,14 +3272,14 @@ impl PeerNetwork {
             let mut block_set = HashSet::new();
             let mut microblock_set = HashSet::new();
 
-            for (_, block, _) in network_result.blocks.iter() {
+            for Downloaded { data: block, .. } in network_result.blocks.iter() {
                 if block_set.contains(&block.block_hash()) {
                     debug!("Duplicate block {}", block.block_hash());
                 }
                 block_set.insert(block.block_hash());
             }
 
-            for (_, mblocks, _) in network_result.confirmed_microblocks.iter() {
+            for Downloaded { data: mblocks, .. } in network_result.confirmed_microblocks.iter() {
                 for mblock in mblocks.iter() {
                     if microblock_set.contains(&mblock.block_hash()) {
                         debug!("Duplicate microblock {}", mblock.block_hash());
@@ -4129,9 +4133,9 @@ impl PeerNetwork {
                     |network, attachments_downloader| {
                         let mut dead_events = vec![];
                         match attachments_downloader.run(dns_client, network) {
-                            Ok((ref mut attachments, ref mut events_to_deregister)) => {
-                                network_result.attachments.append(attachments);
-                                dead_events.append(events_to_deregister);
+                            Ok(mut progress) => {
+                                network_result.attachments.append(&mut progress.resolved_attachments);
+                                dead_events.append(&mut progress.events_to_deregister);
                             }
                             Err(e) => {
                                 warn!(

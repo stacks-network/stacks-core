@@ -70,9 +70,9 @@ use crate::core::{StacksEpoch, StacksEpochExtension};
 use crate::net::relay::Relayer;
 use crate::net::test::{RPCHandlerArgsType, TestEventObserver, TestPeer, TestPeerConfig};
 use crate::net::{
-    BlocksData, BlocksDatum, MicroblocksData, NakamotoBlocksData, NeighborAddress, NeighborKey,
-    NetworkResult, PingData, PushedStackerDBChunk, StackerDBPushChunkData, StacksMessage,
-    StacksMessageType, StacksNodeState,
+    BlocksData, BlocksDatum, Downloaded, MicroblocksData, NakamotoBlocksData, NeighborAddress,
+    NeighborKey, NetworkResult, PingData, PushedStackerDBChunk, StackerDBPushChunkData,
+    StacksMessage, StacksMessageType, StacksNodeState,
 };
 use crate::util_lib::boot::{boot_code_addr, boot_code_id, boot_code_tx_auth};
 
@@ -1453,12 +1453,16 @@ fn test_network_result_update() {
     network_result_1
         .unhandled_messages
         .insert(nk1.clone(), vec![msg1]);
-    network_result_1
-        .blocks
-        .push((ConsensusHash([0x11; 20]), blk1, 1));
-    network_result_1
-        .confirmed_microblocks
-        .push((ConsensusHash([0x11; 20]), vec![mblk1], 1));
+    network_result_1.blocks.push(Downloaded {
+        consensus_hash: ConsensusHash([0x11; 20]),
+        data: blk1,
+        download_time_secs: 1,
+    });
+    network_result_1.confirmed_microblocks.push(Downloaded {
+        consensus_hash: ConsensusHash([0x11; 20]),
+        data: vec![mblk1],
+        download_time_secs: 1,
+    });
     network_result_1
         .nakamoto_blocks
         .insert(nblk1.block_id(), nblk1.clone());
@@ -1515,12 +1519,16 @@ fn test_network_result_update() {
     network_result_2
         .unhandled_messages
         .insert(nk2.clone(), vec![msg2.clone()]);
-    network_result_2
-        .blocks
-        .push((ConsensusHash([0x22; 20]), blk2, 2));
-    network_result_2
-        .confirmed_microblocks
-        .push((ConsensusHash([0x22; 20]), vec![mblk2], 2));
+    network_result_2.blocks.push(Downloaded {
+        consensus_hash: ConsensusHash([0x22; 20]),
+        data: blk2,
+        download_time_secs: 2,
+    });
+    network_result_2.confirmed_microblocks.push(Downloaded {
+        consensus_hash: ConsensusHash([0x22; 20]),
+        data: vec![mblk2],
+        download_time_secs: 2,
+    });
     network_result_2
         .nakamoto_blocks
         .insert(nblk2.block_id(), nblk2);
