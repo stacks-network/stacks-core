@@ -47,6 +47,9 @@ pub(crate) use stream::compute_node_hash;
 use stream::recompute_content_hashes;
 pub(crate) use stream::stream_squash_blob;
 
+/// Maps a source block ID and byte offset to its collected node index.
+type SourceNodeIndex = HashMap<(u32, u64), usize>;
+
 /// Resolve a child pointer to the `(block_id, byte_offset)` locating it in
 /// blob storage; `None` for empty pointers. Backpointers and squash-annotated
 /// inline pointers (non-zero `back_block`) name the child's block directly;
@@ -112,7 +115,7 @@ fn restore_default_squash_pragmas(conn: &rusqlite::Connection) -> Result<(), Err
 /// identity when the squashed MARF is extended later.
 fn remap_child_ptrs(
     store: &mut NodeStore,
-    source_to_idx: &HashMap<(u32, u64), usize>,
+    source_to_idx: &SourceNodeIndex,
     block_id_map: &[u32],
     label: &str,
 ) -> Result<(), Error> {
@@ -973,13 +976,13 @@ impl<T: MarfTrieId> MARF<T> {
         source: &mut TrieStorageConnection<T>,
         block_hash: &T,
         tmp_dir: &str,
-    ) -> Result<(NodeStore, HashMap<(u32, u64), usize>), Error> {
+    ) -> Result<(NodeStore, SourceNodeIndex), Error> {
         source.open_block(block_hash)?;
         let (root_node, root_hash) = Trie::read_root(source)?;
         let root_block_id = source.get_cur_block_identifier()?;
 
         let mut store = NodeStore::new(tmp_dir)?;
-        let mut source_to_idx: HashMap<(u32, u64), usize> = HashMap::new();
+        let mut source_to_idx: SourceNodeIndex = HashMap::new();
 
         let root_is_leaf = root_node.is_leaf();
         let root_ptrs: Vec<TriePtr> = if root_is_leaf {
