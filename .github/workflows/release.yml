@@ -7,6 +7,15 @@ run-name: "Release: [${{ github.ref_name }}]"
 
 on:
   workflow_dispatch: # Allows manual triggering
+    inputs:
+      btc-version:
+        description: 'The version of the bitcoin binary to use for tests'
+        required: false
+        type: string
+      btc-version-sha:
+        description: 'The SHA of the binary to verify before executing the tests. Find these in the official SHA256SUMS file for each release. Example: https://bitcoincore.org/bin/bitcoin-core-31.1/SHA256SUMS'
+        required: false
+        type: string
 
 # Set default permissions for all jobs
 permissions:
@@ -25,10 +34,6 @@ concurrency:
 
 # Env vars
 env:
-  # The version of the bitcoin binary to use for tests
-  BTC_VERSION: "31.1"
-  # The SHA of the binary to verify before executing the tests. Find these in the official SHA256SUMS file for each release. Example: https://bitcoincore.org/bin/bitcoin-core-31.1/SHA256SUMS
-  BTC_VERSION_SHA: "b80d9c3e04da78fb6f0569685673418cf686fadba9042d926d13fb87ff503f9e"
   # The name of the test archive file that is generated
   TEST_ARCHIVE_FILE: "./test_archive.tar.zst"
 
@@ -52,10 +57,27 @@ jobs:
     if: needs.check-ci.outputs.enabled == 'true'
     runs-on: &shared_config ubuntu-latest
     outputs:
-      btc-version: ${{ steps.set-env.outputs.btc_version }}
-      btc-version-sha: ${{ steps.set-env.outputs.btc_version_sha }}
+      btc-version: ${{ steps.btc-version.outputs.version }}
+      btc-version-sha: ${{ steps.btc-version.outputs.sha }}
       test-archive-file: ${{ steps.set-env.outputs.test_archive_file }}
     steps:
+      # Checkout the code
+      #   - only .github is required for this job
+      - name: Checkout the latest code
+        uses: $/.github/wrappers/checkout
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.ref }}
+          sparse-checkout: |
+            .github
+
+      # Resolve target bitcoin version
+      - name: Resolve Target Bitcoin Version
+        id: btc-version
+        uses: ./.github/actions/bitcoin-version
+        with:
+          btc-version: ${{ inputs.btc-version }}
+          btc-version-sha: ${{ inputs.btc-version-sha }}
+    
       - name: Export Env Variables
         id: set-env
         run: |
@@ -63,8 +85,6 @@ jobs:
           INPUT_FILE="${{ env.TEST_ARCHIVE_FILE }}"
           ARCHIVE_FILE="${INPUT_FILE/#\~/$HOME}"
 
-          echo "btc_version=$BTC_VERSION" >> $GITHUB_OUTPUT
-          echo "btc_version_sha=$BTC_VERSION_SHA" >> $GITHUB_OUTPUT    
           echo "test_archive_file=$ARCHIVE_FILE" >> $GITHUB_OUTPUT
 
   ############################################################################
