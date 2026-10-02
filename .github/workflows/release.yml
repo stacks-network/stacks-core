@@ -76,14 +76,14 @@ jobs:
       is_release: ${{ steps.check-release.outputs.is_release }}
     steps:
       # Checkout the code
-      #   - only .github and versions.toml are required for this job
+      #   - only .github and Cargo.toml are required for this job
       - name: Checkout the latest code
         uses: $/.github/wrappers/checkout
         with:
           ref: ${{ github.event.pull_request.head.sha || github.ref }}
           sparse-checkout: |
             .github
-            versions.toml
+            Cargo.toml
 
       # Run script to check if this is a release and set outputs
       - name: Check Release
@@ -278,6 +278,6 @@ jobs:
       attestations: write    # required for attestation
       packages: write        # required for image push to ghcr
     uses: ./.github/workflows/_release-github.yml
-    secrets: inherit         # required for secrets from "release" env to be available to this workflow
+    secrets: inherit         # passes repo/org secrets; "release" env secrets are read by the called job itself
     with:
       tag: ${{ needs.check-release.outputs.tag }} # 3-part version shared by the node and signer, like 4.0.0

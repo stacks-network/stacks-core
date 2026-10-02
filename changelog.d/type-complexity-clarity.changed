@@ -1,1 +1,0 @@
-Replace complex Clarity callback signatures with documented aliases and return argument-check costs and results through the named ArgumentCheckOutcome type.
