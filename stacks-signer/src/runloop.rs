@@ -15,7 +15,7 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 use std::fmt::Debug;
 use std::sync::mpsc::Sender;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use blockstack_lib::net::api::getsortition::SortitionInfo;
 use clarity::codec::StacksMessageCodec;
@@ -29,6 +29,7 @@ use crate::chainstate::v1::SortitionsView;
 use crate::client::{retry_with_exponential_backoff, ClientError, StacksClient};
 use crate::config::{GlobalConfig, SignerConfig, SignerConfigMode};
 use crate::signerdb::BlockInfo;
+use crate::signerdb_pruner::SignerDbPruner;
 use crate::v0::signer_state::LocalStateMachine;
 #[cfg(any(test, feature = "testing"))]
 use crate::v0::tests::TEST_SKIP_SIGNER_CLEANUP;
@@ -381,12 +382,16 @@ where
     pub burnchain_view: Option<SignerBurnView>,
     /// Cache sortitin data from `stacks-node`
     pub sortition_state: Option<SortitionsView>,
+    /// Prunes the signer db shared by all signers of this process
+    pruner: SignerDbPruner,
 }
 
 impl<Signer: SignerTrait<T>, T: StacksMessageCodec + Clone + Send + Debug> RunLoop<Signer, T> {
     /// Create a new signer runloop from the provided configuration
     pub fn new(config: GlobalConfig) -> Self {
         let stacks_client = StacksClient::from(&config);
+        let pruner = SignerDbPruner::new(&config.db_path, Instant::now())
+            .expect("Failed to connect to the signer db for pruning");
         Self {
             config,
             stacks_client,
@@ -394,6 +399,7 @@ impl<Signer: SignerTrait<T>, T: StacksMessageCodec + Clone + Send + Debug> RunLo
             state: State::Uninitialized,
             burnchain_view: None,
             sortition_state: None,
+            pruner,
         }
     }
     /// Get the registered signers for a specific reward cycle
@@ -947,6 +953,7 @@ impl<Signer: SignerTrait<T>, T: StacksMessageCodec + Clone + Send + Debug>
             let next_reward_cycle = current_reward_cycle.saturating_add(1);
             info!("Signer is not registered for the current reward cycle ({current_reward_cycle}). Reward set is not yet determined or signer is not registered for the upcoming reward cycle ({next_reward_cycle}).");
         }
+        self.pruner.maybe_prune(Instant::now());
         None
     }
 }
