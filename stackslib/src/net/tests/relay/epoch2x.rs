@@ -47,7 +47,7 @@ use crate::net::db::PeerDB;
 use crate::net::http::{HttpRequestContents, HttpRequestPreamble};
 use crate::net::httpcore::StacksHttpMessage;
 use crate::net::p2p::*;
-use crate::net::relay::{ProcessedBlocks, *};
+use crate::net::relay::*;
 use crate::net::test::*;
 use crate::net::tests::download::epoch2x::run_get_blocks_and_microblocks;
 use crate::net::{Error as net_error, *};
