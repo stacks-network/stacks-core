@@ -54,9 +54,6 @@ use crate::net::stackerdb::{
 };
 use crate::net::{Error as net_error, *};
 
-/// A microblock message paired with its prior relay hints.
-pub type RelayedMicroblocks = (Vec<RelayData>, MicroblocksData);
-
 /// Unconfirmed microblocks to relay and neighbors that supplied invalid data.
 struct PreprocessedMicroblocks {
     /// Messages with their prior relay hints.

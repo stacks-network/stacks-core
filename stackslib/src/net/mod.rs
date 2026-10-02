@@ -60,7 +60,6 @@ use crate::net::httpcore::{
     TipRequest,
 };
 use crate::net::p2p::{PeerNetwork, PendingMessages};
-use crate::net::relay::RelayedMicroblocks;
 use crate::util_lib::db::{DBConn, Error as db_error};
 use crate::util_lib::strings::UrlString;
 
@@ -1175,6 +1174,12 @@ pub struct RelayData {
     pub seq: u32,
 }
 
+/// A microblock message paired with its prior relay hints.
+pub type RelayedMicroblocks = (Vec<RelayData>, MicroblocksData);
+
+/// A Nakamoto blocks message paired with its prior relay hints.
+pub type RelayedNakamotoBlocks = (Vec<RelayData>, NakamotoBlocksData);
+
 /// All P2P message types
 #[derive(Debug, Clone, PartialEq)]
 pub enum StacksMessageType {
@@ -1562,7 +1567,7 @@ pub struct NetworkResult {
     /// all Stacks 2.x microblocks pushed to us, and the relay hints from the message
     pub pushed_microblocks: HashMap<NeighborKey, Vec<RelayedMicroblocks>>,
     /// all Stacks 3.x blocks pushed to us
-    pub pushed_nakamoto_blocks: HashMap<NeighborKey, Vec<(Vec<RelayData>, NakamotoBlocksData)>>,
+    pub pushed_nakamoto_blocks: HashMap<NeighborKey, Vec<RelayedNakamotoBlocks>>,
     /// transactions sent to us by the http server
     pub uploaded_transactions: Vec<StacksTransaction>,
     /// blocks sent to us via the http server
