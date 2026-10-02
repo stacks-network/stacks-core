@@ -1708,6 +1708,32 @@ impl BlockMinerThread {
                     self.last_block_mined = None;
                 }
             }
+        } else if self.last_block_mined.is_none()
+            && parent_block_info.parent_tenure.is_none()
+            && parent_block_info.stacks_parent_header.consensus_hash
+                == self.burn_election_block.consensus_hash
+        {
+            // Our tenure already has a canonical tip, but we never saw it accepted: a
+            // different proposal for this tenure reached consensus (e.g. an earlier proposal
+            // of ours that the signers pushed after we had re-mined). Adopt it and continue
+            // the tenure on top of it.
+            let stacks_parent_header = &parent_block_info.stacks_parent_header;
+            let tenure_len = NakamotoChainState::get_nakamoto_tenure_length(
+                chain_state.db(),
+                &stacks_parent_header.index_block_hash(),
+            )?;
+            info!("Miner: adopting the canonical tip of our tenure, which we did not see accepted";
+                "block_hash" => %stacks_parent_header.anchored_header.block_hash(),
+                "block_height" => stacks_parent_header.stacks_block_height,
+                "consensus_hash" => %stacks_parent_header.consensus_hash,
+                "tenure_length" => tenure_len,
+            );
+            self.globals.counters.bump_naka_mined_tenures();
+            self.last_block_mined = Some((
+                stacks_parent_header.consensus_hash.clone(),
+                stacks_parent_header.anchored_header.block_hash(),
+            ));
+            self.mined_blocks = u64::from(tenure_len);
         }
 
         if self.last_block_mined.is_none() && parent_block_info.parent_tenure.is_none() {
