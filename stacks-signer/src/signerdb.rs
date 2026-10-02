@@ -459,7 +459,7 @@ impl PruneStats {
 /// be found within a further [`PruneParams::fork_depth`] burn blocks (e.g. a fresh database or a
 /// signer that was offline), the pass removes nothing.
 ///
-/// A block is removed only if all of these hold:
+/// A block is removed only if all of these rules hold:
 /// 1. it is below the lowest accepted height of the tenure in charge at the horizon (the cutoff),
 /// 2. no block of its tenure is at or above the cutoff: a tenure becomes removable only as a
 ///    whole, though its blocks may take several passes, oldest first, and an older tenure still
@@ -678,6 +678,13 @@ impl<'a> PruneTx<'a> {
     /// At most one batch of tenures is returned, as each has at least one block; the others are
     /// found again by a later pass. The limit applies to tenures that passed the checks, never to
     /// the candidates, so a candidate that is kept cannot hide one behind it.
+    ///
+    /// NOTE: No index serves the `candidates` query directly, so SQLite reads every entry of
+    /// `blocks_consensus_hash_state_height` (about 20 ms per million blocks). This runs only when
+    /// tenures with a known election leave room in the batch, so not while a backlog of them
+    /// drains, and by then the table is small. An index on `blocks (stacks_height,
+    /// consensus_hash)` would save little, but would have to be built over the whole table of a
+    /// large database when it upgrades, and updated on every block write.
     fn expired_unknown_elections(&self) -> Result<Vec<String>, DBError> {
         let mut stmt = self.tx.prepare(
             "WITH candidates AS MATERIALIZED (
