@@ -3660,7 +3660,6 @@ impl SortitionDB {
 
         reward_set
             .signers()
-            .as_ref()
             .map(|x| x.len())
             .unwrap_or(0)
             .try_into()
