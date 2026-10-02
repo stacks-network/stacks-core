@@ -26,16 +26,15 @@ use libsigner::{BlockProposal, BlockProposalData, SignerSession, StackerDBSessio
 use stacks::burnchains::Burnchain;
 use stacks::chainstate::burn::db::sortdb::SortitionDB;
 use stacks::chainstate::burn::{BlockSnapshot, ConsensusHash};
-use stacks::chainstate::nakamoto::{NakamotoBlock, NakamotoChainState};
+use stacks::chainstate::nakamoto::{NakamotoBlock, NakamotoBlockHeader, NakamotoChainState};
 use stacks::chainstate::stacks::boot::{RewardSet, MINERS_NAME};
 use stacks::chainstate::stacks::db::{StacksBlockHeaderTypes, StacksChainState};
 use stacks::chainstate::stacks::Error as ChainstateError;
 use stacks::codec::StacksMessageCodec;
 use stacks::libstackerdb::StackerDBChunkData;
 use stacks::net::stackerdb::StackerDBs;
-use stacks::types::chainstate::{StacksBlockId, StacksPrivateKey, StacksPublicKey};
+use stacks::types::chainstate::{StacksPrivateKey, StacksPublicKey};
 use stacks::types::MinerDiagnosticData;
-use stacks::util::hash::Sha512Trunc256Sum;
 use stacks::util::secp256k1::MessageSignature;
 use stacks::util_lib::boot::boot_code_id;
 
@@ -338,14 +337,7 @@ impl SignerCoordinator {
                 }
             }
 
-            let res = self.get_block_status(
-                &block.header.signer_signature_hash(),
-                &block.block_id(),
-                &block.header.parent_block_id,
-                chain_state,
-                sortdb,
-                counters,
-            );
+            let res = self.get_block_status(&block.header, chain_state, sortdb, counters);
 
             match res {
                 Err(NakamotoNodeError::SignatureTimeout) => {
@@ -364,13 +356,15 @@ impl SignerCoordinator {
     /// there. If a new burnchain tip is detected, we will return an error.
     fn get_block_status(
         &self,
-        block_signer_sighash: &Sha512Trunc256Sum,
-        block_id: &StacksBlockId,
-        parent_block_id: &StacksBlockId,
+        block_header: &NakamotoBlockHeader,
         chain_state: &mut StacksChainState,
         sortdb: &SortitionDB,
         counters: &Counters,
     ) -> Result<Vec<MessageSignature>, NakamotoNodeError> {
+        let block_signer_sighash = &block_header.signer_signature_hash();
+        let block_id = &block_header.block_id();
+        let parent_block_id = &block_header.parent_block_id;
+        let block_consensus_hash = &block_header.consensus_hash;
         // the amount of current rejections (used to eventually modify the timeout)
         let mut rejections: u32 = 0;
         // default timeout (the 0 entry must be always present)
@@ -478,6 +472,37 @@ impl SignerCoordinator {
                               "new_block_height" => %highest_in_tenure.anchored_header.height(),
                         );
                         return Err(NakamotoNodeError::StacksTipChanged);
+                    }
+
+                    // For a tenure-start block, the parent tenure is not the block's own tenure,
+                    // so the check above cannot see a competing block that has already started
+                    // this tenure (e.g. an earlier proposal of ours that reached consensus after
+                    // we re-mined). If this tenure already has a different block, ours can never
+                    // be accepted.
+                    if &parent_tenure_header.consensus_hash != block_consensus_hash {
+                        if let Some(highest_in_own_tenure) =
+                            NakamotoChainState::find_highest_known_block_header_in_tenure(
+                                chain_state,
+                                sortdb,
+                                block_consensus_hash,
+                            )?
+                        {
+                            if &highest_in_own_tenure.index_block_hash() == block_id {
+                                let StacksBlockHeaderTypes::Nakamoto(stored_block) =
+                                    highest_in_own_tenure.anchored_header
+                                else {
+                                    error!("Nakamoto miner produced a non-nakamoto block");
+                                    return Err(NakamotoNodeError::UnexpectedChainState);
+                                };
+                                return Ok(stored_block.signer_signature);
+                            }
+                            info!("SignCoordinator: Exiting due to a different block in the proposed block's tenure";
+                                  "new_block_hash" => %highest_in_own_tenure.anchored_header.block_hash(),
+                                  "new_block_height" => %highest_in_own_tenure.anchored_header.height(),
+                                  "consensus_hash" => %block_consensus_hash,
+                            );
+                            return Err(NakamotoNodeError::StacksTipChanged);
+                        }
                     }
 
                     continue;

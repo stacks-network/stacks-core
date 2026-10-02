@@ -1674,10 +1674,10 @@ impl BlockMinerThread {
             }
         }
 
-        let target_epoch_id =
+        let target_epoch =
             SortitionDB::get_stacks_epoch(burn_db.conn(), self.burn_block.block_height + 1)?
-                .expect("FATAL: no epoch defined")
-                .epoch_id;
+                .expect("FATAL: no epoch defined");
+        let target_epoch_id = target_epoch.epoch_id;
         let mut parent_block_info = self.load_block_parent_info(&mut burn_db, &mut chain_state)?;
         let vrf_proof = self
             .make_vrf_proof()
@@ -1708,6 +1708,44 @@ impl BlockMinerThread {
                     self.last_block_mined = None;
                 }
             }
+        } else if self.last_block_mined.is_none()
+            && parent_block_info.parent_tenure.is_none()
+            && parent_block_info.stacks_parent_header.consensus_hash
+                == self.burn_election_block.consensus_hash
+        {
+            // Our tenure already has a canonical tip, but we never saw it accepted: a
+            // different proposal for this tenure reached consensus (e.g. an earlier proposal
+            // of ours that the signers pushed after we had re-mined). Adopt it and continue
+            // the tenure on top of it.
+            let stacks_parent_header = &parent_block_info.stacks_parent_header;
+            let stacks_parent_id = stacks_parent_header.index_block_hash();
+            let tenure_len = NakamotoChainState::get_nakamoto_tenure_length(
+                chain_state.db(),
+                &stacks_parent_id,
+            )?;
+            let tenure_cost =
+                NakamotoChainState::get_total_tenure_cost_at(chain_state.db(), &stacks_parent_id)?
+                    .ok_or_else(|| {
+                        error!("Miner: no total tenure cost for the canonical tip of our tenure";
+                            "block_id" => %stacks_parent_id,
+                        );
+                        NakamotoNodeError::UnexpectedChainState
+                    })?;
+            info!("Miner: adopting the canonical tip of our tenure, which we did not see accepted";
+                "block_hash" => %stacks_parent_header.anchored_header.block_hash(),
+                "block_height" => stacks_parent_header.stacks_block_height,
+                "consensus_hash" => %stacks_parent_header.consensus_hash,
+                "tenure_length" => tenure_len,
+                "tenure_cost" => %tenure_cost,
+            );
+            self.globals.counters.bump_naka_mined_tenures();
+            self.last_block_mined = Some((
+                stacks_parent_header.consensus_hash.clone(),
+                stacks_parent_header.anchored_header.block_hash(),
+            ));
+            self.mined_blocks = u64::from(tenure_len);
+            self.tenure_cost = tenure_cost;
+            self.tenure_budget = target_epoch.block_limit.clone();
         }
 
         if self.last_block_mined.is_none() && parent_block_info.parent_tenure.is_none() {
