@@ -75,12 +75,12 @@ fn test_function_lookup_borrows_contract() {
         let (mut state, invocation) = env.get_exec_environment(None, None, &contract);
         lookup_function("identity", &mut state, &invocation).unwrap()
     };
-    let CallableType::UserFunction(function) = &callable else {
+    let CallableType::UserFunction(function) = callable else {
         panic!("expected a user-defined function");
     };
     assert!(std::ptr::eq(
         contract.functions.get("identity").unwrap(),
-        *function
+        function
     ));
 
     let (mut state, invocation) = env.get_exec_environment(None, None, &contract);
