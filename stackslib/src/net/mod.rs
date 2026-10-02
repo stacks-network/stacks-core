@@ -1174,6 +1174,12 @@ pub struct RelayData {
     pub seq: u32,
 }
 
+/// A microblock message paired with its prior relay hints.
+pub type RelayedMicroblocks = (Vec<RelayData>, MicroblocksData);
+
+/// A Nakamoto blocks message paired with its prior relay hints.
+pub type RelayedNakamotoBlocks = (Vec<RelayData>, NakamotoBlocksData);
+
 /// All P2P message types
 #[derive(Debug, Clone, PartialEq)]
 pub enum StacksMessageType {
@@ -1260,6 +1266,24 @@ pub trait MessageSequence {
     fn get_message_name(&self) -> &'static str;
 }
 
+/// A completed streamed payload and its encoded size.
+#[derive(Debug)]
+pub struct CompletedPayload<T> {
+    /// Decoded payload assembled across one or more reads.
+    pub payload: T,
+    /// Total encoded bytes consumed to assemble this payload.
+    pub total_encoded_bytes: usize,
+}
+
+/// Progress made while consuming a streamed payload.
+#[derive(Debug)]
+pub struct StreamRead<T> {
+    /// Completed payload, or none if more input is required.
+    pub completed: Option<CompletedPayload<T>>,
+    /// Encoded bytes consumed during this call only.
+    pub consumed: usize,
+}
+
 pub trait ProtocolFamily {
     type Preamble: StacksMessageCodec + Send + Sync + Clone + PartialEq + std::fmt::Debug;
     type Message: MessageSequence + Send + Sync + Clone + PartialEq + std::fmt::Debug;
@@ -1293,7 +1317,7 @@ pub trait ProtocolFamily {
         &mut self,
         preamble: &Self::Preamble,
         fd: &mut R,
-    ) -> Result<(Option<(Self::Message, usize)>, usize), Error>;
+    ) -> Result<StreamRead<Self::Message>, Error>;
 
     /// Given a public key, a preamble, and the yet-to-be-parsed message bytes, verify the message
     /// authenticity.  Not all protocols need to do this.
@@ -1521,6 +1545,18 @@ pub const DENY_BAN_DURATION: u64 = 86400; // seconds (1 day)
 
 pub const DENY_MIN_BAN_DURATION: u64 = 2;
 
+/// Stacks 2.x data fetched by the block downloader.
+#[derive(Clone, PartialEq, Debug)]
+pub struct Downloaded<T> {
+    /// Consensus hash of the anchored block the data belongs to. For a microblock stream,
+    /// this is the anchored block that produced the stream.
+    pub consensus_hash: ConsensusHash,
+    /// Downloaded block or microblock stream.
+    pub data: T,
+    /// Time taken to download the data, in seconds.
+    pub download_time_secs: u64,
+}
+
 /// Result of doing network work
 #[derive(Clone, PartialEq, Debug)]
 pub struct NetworkResult {
@@ -1531,9 +1567,9 @@ pub struct NetworkResult {
     /// Network messages we received but did not handle
     pub unhandled_messages: HashMap<NeighborKey, Vec<StacksMessage>>,
     /// Stacks 2.x blocks we downloaded, and time taken
-    pub blocks: Vec<(ConsensusHash, StacksBlock, u64)>,
+    pub blocks: Vec<Downloaded<StacksBlock>>,
     /// Stacks 2.x confiremd microblocks we downloaded, and time taken
-    pub confirmed_microblocks: Vec<(ConsensusHash, Vec<StacksMicroblock>, u64)>,
+    pub confirmed_microblocks: Vec<Downloaded<Vec<StacksMicroblock>>>,
     /// Nakamoto blocks we downloaded
     pub nakamoto_blocks: HashMap<StacksBlockId, NakamotoBlock>,
     /// all transactions pushed to us and their message relay hints
@@ -1541,9 +1577,9 @@ pub struct NetworkResult {
     /// all Stacks 2.x blocks pushed to us
     pub pushed_blocks: HashMap<NeighborKey, Vec<BlocksData>>,
     /// all Stacks 2.x microblocks pushed to us, and the relay hints from the message
-    pub pushed_microblocks: HashMap<NeighborKey, Vec<(Vec<RelayData>, MicroblocksData)>>,
+    pub pushed_microblocks: HashMap<NeighborKey, Vec<RelayedMicroblocks>>,
     /// all Stacks 3.x blocks pushed to us
-    pub pushed_nakamoto_blocks: HashMap<NeighborKey, Vec<(Vec<RelayData>, NakamotoBlocksData)>>,
+    pub pushed_nakamoto_blocks: HashMap<NeighborKey, Vec<RelayedNakamotoBlocks>>,
     /// transactions sent to us by the http server
     pub uploaded_transactions: Vec<StacksTransaction>,
     /// blocks sent to us via the http server
@@ -1632,7 +1668,7 @@ impl NetworkResult {
         let mut blocks: HashSet<_> = self
             .blocks
             .iter()
-            .map(|(ch, blk, _)| StacksBlockId::new(ch, &blk.block_hash()))
+            .map(|blk| StacksBlockId::new(&blk.consensus_hash, &blk.data.block_hash()))
             .collect();
 
         let pushed_blocks: HashSet<_> = self
@@ -1672,7 +1708,7 @@ impl NetworkResult {
         let mut mblocks: HashSet<_> = self
             .confirmed_microblocks
             .iter()
-            .flat_map(|(_, mblocks, _)| mblocks.iter().map(|mblk| mblk.block_hash()))
+            .flat_map(|mblocks| mblocks.data.iter().map(|mblk| mblk.block_hash()))
             .collect();
 
         let pushed_microblocks: HashSet<_> = self
@@ -1821,8 +1857,8 @@ impl NetworkResult {
         let newer_txids = newer.all_txids();
 
         // only retain blocks not found in `newer`
-        self.blocks.retain(|(ch, blk, _)| {
-            let block_id = StacksBlockId::new(ch, &blk.block_hash());
+        self.blocks.retain(|blk| {
+            let block_id = StacksBlockId::new(&blk.consensus_hash, &blk.data.block_hash());
             let retain = !newer_blocks.contains(&block_id);
             if !retain {
                 debug!("Drop duplicate downloaded block {}", &block_id);
@@ -1833,7 +1869,7 @@ impl NetworkResult {
 
         // merge microblocks, but deduplicate
         self.confirmed_microblocks
-            .retain_mut(|(_, ref mut mblocks, _)| {
+            .retain_mut(|Downloaded { data: mblocks, .. }| {
                 mblocks.retain(|mblk| {
                     let retain = !newer_microblocks.contains(&mblk.block_hash());
                     if !retain {
