@@ -813,47 +813,42 @@ impl PeerNetwork {
                     }
                 }
             }
-            // Not collapsible into a match guard: a Nack with any other error code must fall
-            // through to the end of this `match`, not into the `_` arm, which returns early.
-            #[allow(clippy::collapsible_match)]
-            StacksMessageType::Nack(ref nack_data) => {
-                if nack_data.error_code == NackErrorCodes::FutureView {
-                    // Chunk corresponds to a known DB but the view of the sender is potentially in
-                    // the future. We should buffer this in case it becomes storable, but don't store it yet.
-                    // Also validate the chunk before buffering to prevent invalid data from being
-                    // accepted (e.g. protect against big chunks with forged signatures).
-                    let stackerdb_config = if let Some(config) =
-                        self.get_stacker_db_configs().get(&chunk_data.contract_id)
-                    {
-                        config
-                    } else {
-                        return Ok((false, false));
-                    };
-
-                    let slot_versions =
-                        match self.stackerdbs.get_slot_versions(&chunk_data.contract_id) {
-                            Ok(versions) => versions,
-                            Err(_) => {
-                                return Ok((false, false));
-                            }
-                        };
-
-                    if !self.validate_received_chunk(
-                        &chunk_data.contract_id,
-                        stackerdb_config,
-                        &chunk_data.chunk_data,
-                        &slot_versions,
-                    )? {
-                        return Ok((false, false));
-                    }
-
-                    return Ok((true, false));
+            StacksMessageType::Nack(ref nack_data)
+                if nack_data.error_code == NackErrorCodes::FutureView =>
+            {
+                // Chunk corresponds to a known DB but the view of the sender is potentially in
+                // the future. We should buffer this in case it becomes storable, but don't store it yet.
+                // Also validate the chunk before buffering to prevent invalid data from being
+                // accepted (e.g. protect against big chunks with forged signatures).
+                let stackerdb_config = if let Some(config) =
+                    self.get_stacker_db_configs().get(&chunk_data.contract_id)
+                {
+                    config
                 } else {
                     return Ok((false, false));
+                };
+
+                let slot_versions = match self.stackerdbs.get_slot_versions(&chunk_data.contract_id)
+                {
+                    Ok(versions) => versions,
+                    Err(_) => {
+                        return Ok((false, false));
+                    }
+                };
+
+                if !self.validate_received_chunk(
+                    &chunk_data.contract_id,
+                    stackerdb_config,
+                    &chunk_data.chunk_data,
+                    &slot_versions,
+                )? {
+                    return Ok((false, false));
                 }
+
+                return Ok((true, false));
             }
             _ => {
-                // don't recognize the message, so don't buffer
+                // don't recognize the message (or a Nack other than FutureView), so don't buffer
                 return Ok((false, false));
             }
         }
