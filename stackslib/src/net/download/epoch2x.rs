@@ -2371,16 +2371,14 @@ impl PeerNetwork {
         self.attachments_downloader = Some(AttachmentsDownloader::new(initial_batch));
     }
 
-    /// Process block downloader lifetime.  Returns the new blocks and microblocks if we get
-    /// anything.
-    /// Returns:
-    /// * are we done?
-    /// * did we do a full pass up to the chain tip?
-    /// * what's the local PoX ID when we started?  Will be Some(..) when we're done
-    /// * List of blocks we downloaded
-    /// * List of microblock streams we downloaded
-    /// * List of broken HTTP event IDs to disconnect from
-    /// * List of broken p2p neighbor keys to disconnect from
+    /// Process block downloader lifetime.
+    ///
+    /// Returns [`BlockDownloadOutcome`] containing scan progress, the blocks and microblock
+    /// streams downloaded in this step, and broken HTTP and P2P peers to disconnect from.
+    /// `progress.old_pox_id` is the local PoX ID from when the scan began; it is set only when
+    /// this step finishes a download pass, and is `None` when downloads are throttled.
+    ///
+    /// Returns `Err(NotConnected)` if there is no inventory data to download from.
     pub fn download_blocks(
         &mut self,
         sortdb: &SortitionDB,
