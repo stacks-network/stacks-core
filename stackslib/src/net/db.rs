@@ -425,7 +425,7 @@ impl PeerDB {
 
         tx.execute(
             "INSERT INTO db_config (version) VALUES (?1)",
-            &[&"1".to_string()],
+            [&"1".to_string()],
         )
         .map_err(db_error::SqliteError)?;
 
@@ -992,13 +992,13 @@ impl PeerDB {
                 if PeerDB::is_address_denied(conn, &neighbor.addr.addrbytes)? {
                     return Ok(true);
                 }
-                return Ok(false);
+                Ok(false)
             }
             None => {
                 if PeerDB::is_address_denied(conn, peer_addr)? {
                     return Ok(true);
                 }
-                return Ok(false);
+                Ok(false)
             }
         }
     }
@@ -1046,7 +1046,7 @@ impl PeerDB {
 
     /// Drop all stacker DB contract IDs for a peer, given its slot
     pub fn drop_stacker_dbs(tx: &Transaction, slot: u32) -> Result<(), db_error> {
-        tx.execute("DELETE FROM stackerdb_peers WHERE peer_slot = ?1", &[&slot])
+        tx.execute("DELETE FROM stackerdb_peers WHERE peer_slot = ?1", [&slot])
             .map_err(db_error::SqliteError)?;
         Ok(())
     }
@@ -1289,7 +1289,7 @@ impl PeerDB {
         let qry =
             "SELECT slot FROM frontier WHERE network_id = ?1 AND addrbytes = ?2 AND port = ?3";
         let args = params![network_id, addrbytes.to_bin(), port];
-        Ok(query_row::<u32, _>(conn, qry, args)?)
+        query_row::<u32, _>(conn, qry, args)
     }
 
     /// Get the list of stacker DB contract IDs for a given set of slots.
@@ -1300,7 +1300,7 @@ impl PeerDB {
     ) -> Result<Vec<QualifiedContractIdentifier>, db_error> {
         let mut db_set = HashSet::new();
         let qry = "SELECT smart_contract_id FROM stackerdb_peers WHERE peer_slot = ?1";
-        let dbs = query_rows(conn, qry, &[&used_slot])?;
+        let dbs = query_rows(conn, qry, [&used_slot])?;
         for cid in dbs.into_iter() {
             db_set.insert(cid);
         }
@@ -1410,7 +1410,7 @@ impl PeerDB {
         }
 
         // no slots free
-        return Ok(false);
+        Ok(false)
     }
 
     /// Add a cidr prefix
@@ -2846,7 +2846,7 @@ mod test {
                     return false;
                 }
             }
-            return true;
+            true
         }
 
         let db = PeerDB::connect_memory(
@@ -2953,7 +2953,7 @@ mod test {
                     return false;
                 }
             }
-            return true;
+            true
         }
 
         let db = PeerDB::connect_memory(
