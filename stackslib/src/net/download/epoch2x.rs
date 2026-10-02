@@ -2459,12 +2459,7 @@ impl PeerNetwork {
             }
         }
 
-        let mut done = false;
-        let mut at_chain_tip = false;
-
-        let mut blocks = vec![];
-        let mut microblocks = vec![];
-        let mut old_pox_id = None;
+        let mut progress = DownloadProgress::default();
 
         let mut done_cycle = false;
         while !done_cycle {
@@ -2493,20 +2488,7 @@ impl PeerNetwork {
                 BlockDownloaderState::Done => {
                     // did a pass.
                     // do we have more requests?
-                    let DownloadProgress {
-                        done: blocks_done,
-                        at_chain_tip: full_pass,
-                        old_pox_id: downloader_pox_id,
-                        blocks: mut successful_blocks,
-                        microblocks: mut successful_microblocks,
-                    } = self.finish_downloads(sortdb, chainstate)?;
-
-                    old_pox_id = downloader_pox_id;
-                    blocks.append(&mut successful_blocks);
-                    microblocks.append(&mut successful_microblocks);
-                    done = blocks_done;
-                    at_chain_tip = full_pass;
-
+                    progress = self.finish_downloads(sortdb, chainstate)?;
                     done_cycle = true;
                 }
             }
@@ -2523,7 +2505,7 @@ impl PeerNetwork {
             None => (vec![], vec![]),
         };
 
-        if done {
+        if progress.done {
             // reset state if we're done
             if let Some(ref mut downloader) = self.block_downloader {
                 downloader.reset()
@@ -2531,13 +2513,7 @@ impl PeerNetwork {
         }
 
         Ok(BlockDownloadOutcome {
-            progress: DownloadProgress {
-                done,
-                at_chain_tip,
-                old_pox_id,
-                blocks,
-                microblocks,
-            },
+            progress,
             broken_http_peers,
             broken_p2p_peers,
         })
