@@ -21,10 +21,10 @@ use stacks_common::types::chainstate::{BlockHeaderHash, TrieHash};
 use stacks_common::util::get_epoch_time_ms;
 use stacks_common::util::hash::to_hex;
 
-use crate::chainstate::stacks::index::marf::{MARFOpenOpts, MarfConnection, MARF};
-use crate::chainstate::stacks::index::storage::TrieFileStorage;
-use crate::chainstate::stacks::index::test::{merkle_test_marf, opts};
-use crate::chainstate::stacks::index::{ClarityMarfTrieId, MARFValue, TrieLeaf};
+use crate::marf::{MARFOpenOpts, MarfConnection, MARF};
+use crate::storage::TrieFileStorage;
+use crate::test::{merkle_test_marf, opts};
+use crate::{ClarityMarfTrieId, MARFValue, TrieLeaf};
 
 // insert a random sequence of 1024 * 1024 keys.  Every 4096 inserts, fork.
 // Use file storage, and use batching.

@@ -20,8 +20,8 @@ use rusqlite::{Connection, OpenFlags};
 use stacks_common::util::db::sqlite_open;
 
 use super::*;
-use crate::chainstate::stacks::index::file::*;
-use crate::chainstate::stacks::index::*;
+use crate::file::*;
+use crate::*;
 
 fn db_path(test_name: &str) -> String {
     let path = format!("/tmp/{}.sqlite", test_name);
@@ -101,7 +101,7 @@ fn test_migrate_tables_readonly_fails_when_outdated() {
     // A read-only open should fail because the schema is outdated.
     let err = trie_sql::ensure_no_migration_necessary::<BlockHeaderHash>(&mut db).unwrap_err();
     assert!(
-        matches!(&err, crate::chainstate::stacks::index::Error::CorruptionError(msg) if msg.contains("not compatible with read-only")),
+        matches!(&err, crate::Error::CorruptionError(msg) if msg.contains("not compatible with read-only")),
         "instead got: {err}"
     );
 }
@@ -110,11 +110,11 @@ fn test_migrate_tables_readonly_fails_when_outdated() {
 fn test_migrate_existing_trie_blobs() {
     let test_file = "/tmp/test_migrate_existing_trie_blobs.sqlite";
     let test_blobs_file = "/tmp/test_migrate_existing_trie_blobs.sqlite.blobs";
-    if fs::metadata(&test_file).is_ok() {
-        fs::remove_file(&test_file).unwrap();
+    if fs::metadata(test_file).is_ok() {
+        fs::remove_file(test_file).unwrap();
     }
-    if fs::metadata(&test_blobs_file).is_ok() {
-        fs::remove_file(&test_blobs_file).unwrap();
+    if fs::metadata(test_blobs_file).is_ok() {
+        fs::remove_file(test_blobs_file).unwrap();
     }
 
     let (data, last_block_header, root_header_map) = {
@@ -156,7 +156,7 @@ fn test_migrate_existing_trie_blobs() {
     let mut marf = MARF::from_storage(f);
 
     // blobs file exists
-    assert!(fs::metadata(&test_blobs_file).is_ok());
+    assert!(fs::metadata(test_blobs_file).is_ok());
 
     // verify that the new blob structure is well-formed
     let blob_root_header_map = {
@@ -206,7 +206,7 @@ fn test_bulk_read_block_entries_rejects_negative_external_offset() {
 
     let err = trie_sql::bulk_read_block_entries::<BlockHeaderHash>(&db).unwrap_err();
     assert!(
-        matches!(err, crate::chainstate::stacks::index::Error::OverflowError),
+        matches!(err, crate::Error::OverflowError),
         "instead got: {err:?}"
     );
 }
@@ -221,7 +221,7 @@ fn test_update_squash_root_node_hash_requires_existing_row() {
     assert!(
         matches!(
             err,
-            crate::chainstate::stacks::index::Error::CorruptionError(ref msg)
+            crate::Error::CorruptionError(ref msg)
                 if msg.contains("no marf_squash_info row exists")
         ),
         "instead got: {err:?}"

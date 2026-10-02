@@ -26,15 +26,15 @@ use rusqlite::Connection;
 use stacks_common::types::chainstate::TrieHash;
 use stacks_common::util::db::sql_vacuum;
 
-use crate::chainstate::stacks::index::bits::{
+use crate::bits::{
     get_node_max_byte_len, read_hash_bytes, read_nodetype_at_head, read_nodetype_at_head_nohash,
 };
-use crate::chainstate::stacks::index::blob_layout::{self, BlobHeader};
-use crate::chainstate::stacks::index::node::{TrieNodeType, TriePtr};
-use crate::chainstate::stacks::index::storage::NodeHashReader;
+use crate::blob_layout::{self, BlobHeader};
+use crate::node::{TrieNodeType, TriePtr};
+use crate::storage::NodeHashReader;
 #[cfg(test)]
-use crate::chainstate::stacks::index::storage::TrieStorageConnection;
-use crate::chainstate::stacks::index::{trie_sql, Error, MarfDataEntry, MarfTrieId};
+use crate::storage::TrieStorageConnection;
+use crate::{trie_sql, Error, MarfDataEntry, MarfTrieId};
 
 /// Reader-thread count for the bulk header fan-out.
 ///
@@ -217,7 +217,7 @@ impl TrieFile {
                     if e.kind() == io::ErrorKind::NotFound {
                         Ok(false)
                     } else {
-                        return Err(e.into());
+                        Err(e.into())
                     }
                 }
             }

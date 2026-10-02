@@ -17,7 +17,7 @@
 use std::collections::hash_map::Entry;
 use std::collections::HashMap;
 
-use crate::chainstate::stacks::index::MarfTrieId;
+use crate::MarfTrieId;
 
 /// Cache MARF block hash/block ID lookups.
 pub struct BlockHashCache<T: MarfTrieId> {

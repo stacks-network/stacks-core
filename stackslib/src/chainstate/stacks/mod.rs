@@ -47,8 +47,8 @@ use stacks_common::util::vrf::VRFProof;
 
 use crate::burnchains::Txid;
 use crate::chainstate::burn::ConsensusHash;
-use crate::chainstate::stacks::db::accounts::MinerReward;
-use crate::chainstate::stacks::db::{MinerRewardInfo, StacksHeaderInfo};
+use crate::chainstate::stacks::db::accounts::MaturedMinerPayouts;
+use crate::chainstate::stacks::db::StacksHeaderInfo;
 use crate::chainstate::stacks::index::Error as marf_error;
 use crate::clarity_vm::clarity::ClarityError;
 use crate::net::Error as net_error;
@@ -61,7 +61,10 @@ pub mod block;
 pub mod boot;
 pub mod db;
 pub mod events;
-pub mod index;
+/// The MARF now lives in the `stacks-marf` crate. Re-exported under its historical
+/// path so that existing `crate::chainstate::stacks::index::...` call sites keep
+/// resolving; they move to `stacks_marf::...` in follow-up patches.
+pub use stacks_marf as index;
 pub mod miner;
 pub mod sbtc;
 pub mod transaction;
@@ -503,7 +506,7 @@ pub struct StacksBlockBuilder {
     bytes_so_far: u64,
     prev_microblock_header: StacksMicroblockHeader,
     miner_privkey: StacksPrivateKey,
-    miner_payouts: Option<(MinerReward, Vec<MinerReward>, MinerReward, MinerRewardInfo)>,
+    miner_payouts: Option<MaturedMinerPayouts>,
     parent_consensus_hash: ConsensusHash,
     parent_header_hash: BlockHeaderHash,
     parent_microblock_hash: Option<BlockHeaderHash>,
@@ -911,15 +914,15 @@ pub mod test {
                 for tx_payload in tx_payloads.iter() {
                     match tx_payload {
                         // poison microblock and coinbase must be on-chain
-                        TransactionPayload::Coinbase(..) => {
-                            if *anchor_mode != TransactionAnchorMode::OnChainOnly {
-                                continue;
-                            }
+                        TransactionPayload::Coinbase(..)
+                            if *anchor_mode != TransactionAnchorMode::OnChainOnly =>
+                        {
+                            continue;
                         }
-                        TransactionPayload::PoisonMicroblock(_, _) => {
-                            if *anchor_mode != TransactionAnchorMode::OnChainOnly {
-                                continue;
-                            }
+                        TransactionPayload::PoisonMicroblock(_, _)
+                            if *anchor_mode != TransactionAnchorMode::OnChainOnly =>
+                        {
+                            continue;
                         }
                         _ => {}
                     }

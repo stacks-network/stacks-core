@@ -26,19 +26,17 @@ use stacks_common::util::tests::TestFlag;
 
 pub use super::squash::SquashStats;
 use super::storage::ReopenedTrieStorageConnection;
-use crate::chainstate::stacks::index::bits::{get_leaf_hash, get_node_hash};
-use crate::chainstate::stacks::index::node::{
+use crate::bits::{get_leaf_hash, get_node_hash};
+use crate::node::{
     clear_backptr, is_backptr, node_copy_update_ptrs, set_backptr, CursorError, TrieCowPtr,
     TrieCursor, TrieNode256, TrieNodeID, TrieNodeType, TriePtr,
 };
-use crate::chainstate::stacks::index::storage::{
+use crate::storage::{
     SquashInfo, TrieFileStorage, TrieHashCalculationMode, TrieStorageConnection,
     TrieStorageTransaction,
 };
-use crate::chainstate::stacks::index::trie::Trie;
-use crate::chainstate::stacks::index::{
-    trie_sql, Error, MARFValue, MarfTrieId, TrieLeaf, TrieMerkleProof,
-};
+use crate::trie::Trie;
+use crate::{trie_sql, Error, MARFValue, MarfTrieId, TrieLeaf, TrieMerkleProof};
 
 pub const BLOCK_HASH_TO_HEIGHT_MAPPING_KEY: &str = "__MARF_BLOCK_HASH_TO_HEIGHT";
 pub const BLOCK_HEIGHT_TO_HASH_MAPPING_KEY: &str = "__MARF_BLOCK_HEIGHT_TO_HASH";
@@ -396,7 +394,7 @@ impl<'a, T: MarfTrieId> MarfTransaction<'a, T> {
         current_block_hash: &T,
     ) -> Result<Option<u32>, Error> {
         if Some(bhh) == self.get_open_chain_tip() {
-            return Ok(self.get_open_chain_tip_height());
+            Ok(self.get_open_chain_tip_height())
         } else {
             MARF::get_block_height_miner_tip(&mut self.storage, bhh, current_block_hash)
         }
@@ -1020,7 +1018,7 @@ impl<T: MarfTrieId> MARF<T> {
         }
 
         trace!("Trie has a cycle");
-        return Err(Error::CorruptionError("Trie has a cycle".to_string()));
+        Err(Error::CorruptionError("Trie has a cycle".to_string()))
     }
 
     /// Walk down this MARF at the given block hash, resolving backptrs to previous tries.
@@ -1107,7 +1105,7 @@ impl<T: MarfTrieId> MARF<T> {
         }
 
         trace!("Trie has a cycle");
-        return Err(Error::CorruptionError("Trie has a cycle".to_string()));
+        Err(Error::CorruptionError("Trie has a cycle".to_string()))
     }
 
     pub fn format(
@@ -1162,13 +1160,13 @@ impl<T: MarfTrieId> MARF<T> {
         match node {
             TrieNodeType::Leaf(data) => {
                 // found!
-                return Ok(Some(data));
+                Ok(Some(data))
             }
             _ => {
                 // Trie invariant violation -- a full path reached a non-leaf
-                return Err(Error::CorruptionError(
+                Err(Error::CorruptionError(
                     "Path reached a non-leaf".to_string(),
-                ));
+                ))
             }
         }
     }
@@ -1714,7 +1712,7 @@ impl<T: MarfTrieId> MARF<T> {
         current_block_hash: &T,
     ) -> Result<Option<u32>, Error> {
         if Some(bhh) == self.get_open_chain_tip() {
-            return Ok(self.get_open_chain_tip_height());
+            Ok(self.get_open_chain_tip_height())
         } else {
             MARF::get_block_height_miner_tip(
                 &mut self.storage.connection(),

@@ -129,7 +129,7 @@ impl RPCRequestHandler for RPCPostMicroblockRequestHandler {
         let tip = match node.load_stacks_chain_tip(&preamble, &contents) {
             Ok(tip) => tip,
             Err(error_resp) => {
-                return error_resp.try_into_contents().map_err(NetError::from);
+                return error_resp.try_into_contents();
             }
         };
         let data_resp = node.with_node_state(|_network, sortdb, chainstate, _mempool, _rpc_args| {
@@ -193,7 +193,7 @@ impl RPCRequestHandler for RPCPostMicroblockRequestHandler {
         let (accepted, parent_block_id, data_resp) = match data_resp {
             Ok((accepted, parent_block_id)) => (accepted, parent_block_id, microblock.block_hash()),
             Err(response) => {
-                return response.try_into_contents().map_err(NetError::from);
+                return response.try_into_contents();
             }
         };
 
@@ -219,7 +219,7 @@ impl HttpResponse for RPCPostMicroblockRequestHandler {
         body: &[u8],
     ) -> Result<HttpResponsePayload, Error> {
         let mblock_hash: BlockHeaderHash = parse_json(preamble, body)?;
-        Ok(HttpResponsePayload::try_from_json(mblock_hash)?)
+        HttpResponsePayload::try_from_json(mblock_hash)
     }
 }
 

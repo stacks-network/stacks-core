@@ -127,9 +127,7 @@ fn test_ephemeral_marf_store() {
         }
         debug!("ephemeral: open block #{}: {}", i, block_id);
         let ephemeral_tip = StacksBlockId([0xf0; 32]);
-        let mut marf_ephemeral = marfed_kv
-            .begin_ephemeral(&block_id, &ephemeral_tip)
-            .unwrap();
+        let mut marf_ephemeral = marfed_kv.begin_ephemeral(block_id, &ephemeral_tip).unwrap();
         for keys_and_values in &block_data[..i + 1] {
             // all values up to those inserted in the block with this ID are present
             for (key, expected_value) in keys_and_values.iter() {
@@ -175,9 +173,7 @@ fn test_ephemeral_marf_store() {
             "ephemeral: open block #{}: {} --> {}",
             i, block_id, &ephemeral_tip
         );
-        let mut marf_ephemeral = marfed_kv
-            .begin_ephemeral(&block_id, &ephemeral_tip)
-            .unwrap();
+        let mut marf_ephemeral = marfed_kv.begin_ephemeral(block_id, &ephemeral_tip).unwrap();
         marf_ephemeral
             .put_all_data(keys_and_values.clone())
             .unwrap();
@@ -238,9 +234,7 @@ fn test_ephemeral_marf_store() {
             .unwrap();
 
         // data is _not_ persisted
-        let mut marf_ephemeral = marfed_kv
-            .begin_ephemeral(&block_id, &ephemeral_tip)
-            .unwrap();
+        let mut marf_ephemeral = marfed_kv.begin_ephemeral(block_id, &ephemeral_tip).unwrap();
         for (key, _) in keys_and_values.iter() {
             assert!(marf_ephemeral.get_data(key).unwrap().is_none());
             debug!(
@@ -319,9 +313,9 @@ fn replay_block(
         .iter()
         .find(|tx| matches!(tx.payload, TransactionPayload::Coinbase(..)));
     let tenure_cause = tenure_change
-        .and_then(|tx| match &tx.payload {
-            TransactionPayload::TenureChange(tc) => Some(MinerTenureInfoCause::from(tc.cause)),
-            _ => Some(MinerTenureInfoCause::NoTenureChange),
+        .map(|tx| match &tx.payload {
+            TransactionPayload::TenureChange(tc) => MinerTenureInfoCause::from(tc.cause),
+            _ => MinerTenureInfoCause::NoTenureChange,
         })
         .unwrap_or(MinerTenureInfoCause::NoTenureChange);
 
@@ -335,7 +329,7 @@ fn replay_block(
         None,
         Some(100),
         Some(original_block.header.timestamp),
-        u64::from(DEFAULT_MAX_TENURE_BYTES),
+        DEFAULT_MAX_TENURE_BYTES,
     )
     .unwrap();
 
@@ -640,7 +634,7 @@ fn test_ephemeral_nakamoto_block_replay_smart_contract() {
         let smart_contract_payload = TransactionPayload::SmartContract(
             TransactionSmartContract {
                 name: ContractName::try_from("test-clarity-db").unwrap(),
-                code_body: StacksString::from_str(&code_body).expect("FATAL: invalid code body"),
+                code_body: StacksString::from_str(code_body).expect("FATAL: invalid code body"),
             },
             None,
         );
@@ -657,9 +651,8 @@ fn test_ephemeral_nakamoto_block_replay_smart_contract() {
 
         let mut tx_signer = StacksTransactionSigner::new(&smart_contract);
         tx_signer.sign_origin(&private_key).unwrap();
-        let smart_contract_signed = tx_signer.get_tx().unwrap();
 
-        smart_contract_signed
+        tx_signer.get_tx().unwrap()
     };
 
     let mut sender_nonce = 1;
@@ -683,9 +676,8 @@ fn test_ephemeral_nakamoto_block_replay_smart_contract() {
 
         let mut tx_signer = StacksTransactionSigner::new(&cc);
         tx_signer.sign_origin(&private_key).unwrap();
-        let cc_signed = tx_signer.get_tx().unwrap();
 
-        cc_signed
+        tx_signer.get_tx().unwrap()
     };
 
     let mut boot_tenures = vec![];

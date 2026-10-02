@@ -17,8 +17,8 @@
 use std::io::Cursor;
 
 use super::*;
-use crate::chainstate::stacks::index::bits::{get_node_byte_len, get_node_max_byte_len};
-use crate::chainstate::stacks::index::*;
+use crate::bits::{get_node_byte_len, get_node_max_byte_len};
+use crate::*;
 
 #[test]
 fn trieptr_to_bytes() {
@@ -5311,10 +5311,7 @@ fn ptrs_from_bytes_compressed_sparse_mixed_width() {
     let (encoded, expected, decoded, cursor_pos, expected_consumed) =
         decode_node4_ptrs_from_compressed_bytes(&sparse_ptrs);
     assert!(is_compressed(encoded[0]));
-    assert_eq!(
-        crate::chainstate::stacks::index::bits::SPARSE_PTR_BITMAP_MARKER,
-        encoded[1]
-    );
+    assert_eq!(crate::bits::SPARSE_PTR_BITMAP_MARKER, encoded[1]);
     assert_eq!(expected, decoded);
     assert_eq!(expected_consumed, cursor_pos);
 }
@@ -5331,17 +5328,14 @@ fn ptrs_from_bytes_compressed_dense_mixed_width() {
     let (encoded, expected, decoded, cursor_pos, expected_consumed) =
         decode_node4_ptrs_from_compressed_bytes(&dense_ptrs);
     assert!(is_compressed(encoded[0]));
-    assert_ne!(
-        crate::chainstate::stacks::index::bits::SPARSE_PTR_BITMAP_MARKER,
-        encoded[1]
-    );
+    assert_ne!(crate::bits::SPARSE_PTR_BITMAP_MARKER, encoded[1]);
     assert_eq!(expected, decoded);
     assert_eq!(expected_consumed, cursor_pos);
 }
 
 #[test]
 fn test_node_copy_update_ptrs_preserves_nonzero_back_block() {
-    use crate::chainstate::stacks::index::node::node_copy_update_ptrs;
+    use crate::node::node_copy_update_ptrs;
 
     // Inline pointer with back_block = 0 (normal archival case) - should be overwritten
     let mut ptrs = [TriePtr::new(TrieNodeID::Node4 as u8, 0x10, 100)];

@@ -17,6 +17,7 @@
 
 use std::collections::HashSet;
 use std::path::Path;
+use std::slice;
 
 use clarity::types::StacksEpochId;
 use rusqlite::{params, Connection};
@@ -288,7 +289,7 @@ fn test_burnchain_db_excludes_non_canonical_fork() {
 
     // Only fixture_bhh(0xa1) is canonical at height 1.
     let hash_a = fixture_bhh(0xa1);
-    let sort_path = create_squashed_sortition(dir.path(), &[hash_a.clone()]);
+    let sort_path = create_squashed_sortition(dir.path(), slice::from_ref(&hash_a));
 
     let src = create_burnchain_db(&src_path);
     BurnchainDB::test_insert_block_header_row(&src, 0, &GENESIS_BHH.to_string(), "none").unwrap();
@@ -368,7 +369,7 @@ fn test_burnchain_db_anchor_blocks_filtered() {
     let dst_path = dir.path().join("dst.sqlite");
 
     let h1 = fixture_bhh(1);
-    let sort_path = create_squashed_sortition(dir.path(), &[h1.clone()]);
+    let sort_path = create_squashed_sortition(dir.path(), slice::from_ref(&h1));
 
     let src = create_burnchain_db(&src_path);
     BurnchainDB::test_insert_block_header_row(&src, 0, &GENESIS_BHH.to_string(), "none").unwrap();

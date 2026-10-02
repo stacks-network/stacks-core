@@ -23,17 +23,15 @@ use stacks_common::codec::{read_next, Error as codec_error, StacksMessageCodec};
 use stacks_common::types::chainstate::TrieHash;
 use stacks_common::util::hash::to_hex;
 
-use crate::chainstate::stacks::index::bits::{
-    get_leaf_hash, get_node_hash, read_root_hash, write_path_to_bytes,
-};
-use crate::chainstate::stacks::index::marf::MARF;
-use crate::chainstate::stacks::index::node::{
+use crate::bits::{get_leaf_hash, get_node_hash, read_root_hash, write_path_to_bytes};
+use crate::marf::MARF;
+use crate::node::{
     is_backptr, ConsensusSerializable, CursorError, TrieCursor, TrieNode, TrieNodeID, TrieNodeType,
     TriePtr,
 };
-use crate::chainstate::stacks::index::storage::TrieStorageConnection;
-use crate::chainstate::stacks::index::trie::Trie;
-use crate::chainstate::stacks::index::{
+use crate::storage::TrieStorageConnection;
+use crate::trie::Trie;
+use crate::{
     BlockMap, ClarityMarfTrieId, Error, MARFValue, MarfTrieId, ProofTrieNode, ProofTriePtr,
     TrieMerkleProof, TrieMerkleProofType,
 };
@@ -1390,7 +1388,7 @@ impl<T: MarfTrieId> TrieMerkleProof<T> {
         }
 
         trace!("Trie has a cycle");
-        return Err(Error::CorruptionError("Trie has a cycle".to_string()));
+        Err(Error::CorruptionError("Trie has a cycle".to_string()))
     }
 
     /// Make a merkle proof of inclusion from a path.

@@ -20,18 +20,16 @@ use std::collections::HashMap;
 use stacks_common::types::chainstate::{BlockHeaderHash, StacksBlockId, TrieHash};
 use stacks_common::util::hash::to_hex;
 
-use crate::chainstate::stacks::index::marf::{
+use crate::marf::{
     MARFOpenOpts, MarfConnection, BLOCK_HASH_TO_HEIGHT_MAPPING_KEY,
     BLOCK_HEIGHT_TO_HASH_MAPPING_KEY, MARF, OWN_BLOCK_HEIGHT_KEY,
 };
-use crate::chainstate::stacks::index::node::{TrieNodeID, TrieNodeType, TriePtr};
-use crate::chainstate::stacks::index::storage::{
-    TrieFileStorage, TrieHashCalculationMode, TrieStorageConnection,
-};
-use crate::chainstate::stacks::index::test::{
+use crate::node::{TrieNodeID, TrieNodeType, TriePtr};
+use crate::storage::{TrieFileStorage, TrieHashCalculationMode, TrieStorageConnection};
+use crate::test::{
     make_node4_path, make_node_path, merkle_test_marf, merkle_test_marf_key_value, opts,
 };
-use crate::chainstate::stacks::index::{ClarityMarfTrieId, Error, MARFValue, TrieLeaf};
+use crate::{ClarityMarfTrieId, Error, MARFValue, TrieLeaf};
 
 #[test]
 fn marf_insert_different_leaf_same_block_100() {

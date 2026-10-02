@@ -268,12 +268,8 @@ impl PoxAddress {
         let hashmode_value = tuple_data.get("version").ok()?.to_owned();
 
         let hashmode_u8 = match hashmode_value {
-            Value::Sequence(SequenceData::Buffer(data)) => {
-                if data.data.len() == 1 {
-                    *data.data.first()?
-                } else {
-                    return None;
-                }
+            Value::Sequence(SequenceData::Buffer(data)) if data.data.len() == 1 => {
+                *data.data.first()?
             }
             _ => {
                 return None;
