@@ -151,10 +151,7 @@ fn test_get_block_availability() {
                     );
 
                     let mut all_availability = true;
-                    for BlockAvailability {
-                        peers: neighbors, ..
-                    } in peer_1_availability.iter()
-                    {
+                    for BlockAvailability { neighbors, .. } in peer_1_availability.iter() {
                         if neighbors.len() != 1 {
                             // not done yet
                             count = 0;
@@ -209,7 +206,7 @@ fn test_get_block_availability() {
             BlockAvailability {
                 consensus_hash,
                 block_hash: stacks_block_hash_opt,
-                peers: neighbors,
+                neighbors,
             },
         ) in block_data.iter().zip(availability.iter())
         {
@@ -493,7 +490,7 @@ where
             BlockAvailability {
                 consensus_hash,
                 block_hash: stacks_block_hash_opt,
-                peers: neighbors,
+                neighbors,
             },
         ) in block_data.iter().zip(availability.iter())
         {

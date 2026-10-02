@@ -38,14 +38,14 @@ use crate::net::p2p::PeerNetwork;
 use crate::net::{Error as net_error, NeighborKey, *};
 use crate::util_lib::db::Error as db_error;
 
-/// A sortition's elected block and peers advertising that block.
+/// A sortition's elected block and neighbors advertising that block.
 pub struct BlockAvailability {
     /// Consensus hash identifying the sortition.
     pub consensus_hash: ConsensusHash,
     /// Elected block, or none for a sortition without a winner.
     pub block_hash: Option<BlockHeaderHash>,
     /// Neighbors advertising the block in their inventory.
-    pub peers: Vec<NeighborKey>,
+    pub neighbors: Vec<NeighborKey>,
 }
 
 /// Downloaded data and progress through the current inventory scan.
@@ -853,7 +853,7 @@ impl BlockDownloader {
                     ret.push(BlockAvailability {
                         consensus_hash,
                         block_hash: Some(block_hash),
-                        peers: neighbors,
+                        neighbors,
                     });
                 }
                 None => {
@@ -868,7 +868,7 @@ impl BlockDownloader {
                     ret.push(BlockAvailability {
                         consensus_hash,
                         block_hash: None,
-                        peers: vec![],
+                        neighbors: vec![],
                     });
 
                     if cfg!(test) {
@@ -1290,7 +1290,7 @@ impl PeerNetwork {
             BlockAvailability {
                 consensus_hash,
                 block_hash: block_hash_opt,
-                peers: mut neighbors,
+                mut neighbors,
             },
         ) in availability.into_iter().enumerate()
         {
