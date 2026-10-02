@@ -32,11 +32,21 @@ jobs:
           sparse-checkout: |
             .github
 
+      ### TEMP: will be deleted, just to make this CI run so I can verify all is working before merge
+      ### DO NOT RELEASE
+      - name: Create Bitcoin Cache
+        uses: ./.github/actions/cache/bitcoin
+        with:
+          action: create
+          btc-version: ${{ inputs.btc-version }}
+          btc-version-sha: ${{ inputs.btc-version-sha }}
+
       # Check cache for bitcoin binary
       - name: Check Bitcoin Cache
         id: bitcoin
         uses: ./.github/actions/cache/bitcoin
         with:
+          action: check
           btc-version: ${{ inputs.btc-version }}
           btc-version-sha: ${{ inputs.btc-version-sha }}
 
@@ -44,6 +54,8 @@ jobs:
       - name: Check Cargo Cache
         id: cargo
         uses: ./.github/actions/cache/cargo
+        with:
+          action: check
 
       # Output a job summary of cache status and crash the CI run if a cache is missing
       - name: Output GitHub Job Summary
