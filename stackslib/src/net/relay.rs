@@ -1203,7 +1203,12 @@ impl Relayer {
     ) -> HashMap<ConsensusHash, StacksBlock> {
         let mut new_blocks = HashMap::new();
 
-        for (consensus_hash, block, download_time) in network_result.blocks.iter() {
+        for Downloaded {
+            consensus_hash,
+            data: block,
+            download_time_secs,
+        } in network_result.blocks.iter()
+        {
             debug!(
                 "Received downloaded block {}/{}",
                 consensus_hash,
@@ -1223,7 +1228,7 @@ impl Relayer {
                 chainstate,
                 consensus_hash,
                 block,
-                *download_time,
+                *download_time_secs,
             ) {
                 Ok(accept_response) => {
                     if BlockAcceptResponse::Accepted == accept_response {
@@ -1411,8 +1416,11 @@ impl Relayer {
         chainstate: &mut StacksChainState,
     ) -> HashMap<ConsensusHash, (StacksBlockId, Vec<StacksMicroblock>)> {
         let mut ret = HashMap::new();
-        for (consensus_hash, microblock_stream, _download_time) in
-            network_result.confirmed_microblocks.iter()
+        for Downloaded {
+            consensus_hash,
+            data: microblock_stream,
+            ..
+        } in network_result.confirmed_microblocks.iter()
         {
             let Some(microblock_stream_first) = microblock_stream.first() else {
                 continue;

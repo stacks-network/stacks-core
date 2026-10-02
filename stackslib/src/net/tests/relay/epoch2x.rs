@@ -2846,12 +2846,16 @@ fn process_new_blocks_rejects_problematic_asts() {
     assert_eq!(network_result.pushed_blocks.len(), 1);
     assert_eq!(network_result.pushed_microblocks.len(), 1);
 
-    network_result
-        .blocks
-        .push((new_consensus_hash.clone(), bad_block.clone(), 123));
-    network_result
-        .confirmed_microblocks
-        .push((new_consensus_hash.clone(), vec![bad_mblock], 234));
+    network_result.blocks.push(Downloaded {
+        consensus_hash: new_consensus_hash.clone(),
+        data: bad_block.clone(),
+        download_time_secs: 123,
+    });
+    network_result.confirmed_microblocks.push(Downloaded {
+        consensus_hash: new_consensus_hash.clone(),
+        data: vec![bad_mblock],
+        download_time_secs: 234,
+    });
 
     let mut sortdb = peer.chain.sortdb.take().unwrap();
     let ProcessedBlocks {

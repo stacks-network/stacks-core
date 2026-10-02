@@ -1545,6 +1545,18 @@ pub const DENY_BAN_DURATION: u64 = 86400; // seconds (1 day)
 
 pub const DENY_MIN_BAN_DURATION: u64 = 2;
 
+/// Stacks 2.x data fetched by the block downloader.
+#[derive(Clone, PartialEq, Debug)]
+pub struct Downloaded<T> {
+    /// Consensus hash of the anchored block the data belongs to. For a microblock stream,
+    /// this is the anchored block that produced the stream.
+    pub consensus_hash: ConsensusHash,
+    /// Downloaded block or microblock stream.
+    pub data: T,
+    /// Time taken to download the data, in seconds.
+    pub download_time_secs: u64,
+}
+
 /// Result of doing network work
 #[derive(Clone, PartialEq, Debug)]
 pub struct NetworkResult {
@@ -1555,9 +1567,9 @@ pub struct NetworkResult {
     /// Network messages we received but did not handle
     pub unhandled_messages: HashMap<NeighborKey, Vec<StacksMessage>>,
     /// Stacks 2.x blocks we downloaded, and time taken
-    pub blocks: Vec<(ConsensusHash, StacksBlock, u64)>,
+    pub blocks: Vec<Downloaded<StacksBlock>>,
     /// Stacks 2.x confiremd microblocks we downloaded, and time taken
-    pub confirmed_microblocks: Vec<(ConsensusHash, Vec<StacksMicroblock>, u64)>,
+    pub confirmed_microblocks: Vec<Downloaded<Vec<StacksMicroblock>>>,
     /// Nakamoto blocks we downloaded
     pub nakamoto_blocks: HashMap<StacksBlockId, NakamotoBlock>,
     /// all transactions pushed to us and their message relay hints
@@ -1656,7 +1668,7 @@ impl NetworkResult {
         let mut blocks: HashSet<_> = self
             .blocks
             .iter()
-            .map(|(ch, blk, _)| StacksBlockId::new(ch, &blk.block_hash()))
+            .map(|blk| StacksBlockId::new(&blk.consensus_hash, &blk.data.block_hash()))
             .collect();
 
         let pushed_blocks: HashSet<_> = self
@@ -1696,7 +1708,7 @@ impl NetworkResult {
         let mut mblocks: HashSet<_> = self
             .confirmed_microblocks
             .iter()
-            .flat_map(|(_, mblocks, _)| mblocks.iter().map(|mblk| mblk.block_hash()))
+            .flat_map(|mblocks| mblocks.data.iter().map(|mblk| mblk.block_hash()))
             .collect();
 
         let pushed_microblocks: HashSet<_> = self
@@ -1845,8 +1857,8 @@ impl NetworkResult {
         let newer_txids = newer.all_txids();
 
         // only retain blocks not found in `newer`
-        self.blocks.retain(|(ch, blk, _)| {
-            let block_id = StacksBlockId::new(ch, &blk.block_hash());
+        self.blocks.retain(|blk| {
+            let block_id = StacksBlockId::new(&blk.consensus_hash, &blk.data.block_hash());
             let retain = !newer_blocks.contains(&block_id);
             if !retain {
                 debug!("Drop duplicate downloaded block {}", &block_id);
@@ -1857,7 +1869,7 @@ impl NetworkResult {
 
         // merge microblocks, but deduplicate
         self.confirmed_microblocks
-            .retain_mut(|(_, ref mut mblocks, _)| {
+            .retain_mut(|Downloaded { data: mblocks, .. }| {
                 mblocks.retain(|mblk| {
                     let retain = !newer_microblocks.contains(&mblk.block_hash());
                     if !retain {

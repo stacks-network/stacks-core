@@ -3273,14 +3273,14 @@ impl PeerNetwork {
             let mut block_set = HashSet::new();
             let mut microblock_set = HashSet::new();
 
-            for (_, block, _) in network_result.blocks.iter() {
+            for Downloaded { data: block, .. } in network_result.blocks.iter() {
                 if block_set.contains(&block.block_hash()) {
                     debug!("Duplicate block {}", block.block_hash());
                 }
                 block_set.insert(block.block_hash());
             }
 
-            for (_, mblocks, _) in network_result.confirmed_microblocks.iter() {
+            for Downloaded { data: mblocks, .. } in network_result.confirmed_microblocks.iter() {
                 for mblock in mblocks.iter() {
                     if microblock_set.contains(&mblock.block_hash()) {
                         debug!("Duplicate microblock {}", mblock.block_hash());

@@ -57,10 +57,10 @@ pub struct DownloadProgress {
     pub at_chain_tip: bool,
     /// Local PoX ID when the scan began, when available.
     pub old_pox_id: Option<PoxId>,
-    /// Downloaded blocks with their consensus hashes and download durations in seconds.
-    pub blocks: Vec<(ConsensusHash, StacksBlock, u64)>,
-    /// Downloaded microblock streams with consensus hashes and durations in seconds.
-    pub microblocks: Vec<(ConsensusHash, Vec<StacksMicroblock>, u64)>,
+    /// Downloaded blocks.
+    pub blocks: Vec<Downloaded<StacksBlock>>,
+    /// Downloaded microblock streams.
+    pub microblocks: Vec<Downloaded<Vec<StacksMicroblock>>>,
 }
 
 /// Progress and peers to disconnect after a block downloader step.
@@ -2131,11 +2131,11 @@ impl PeerNetwork {
                     &request_key.index_block_hash,
                     request_key.sortition_height
                 );
-                blocks.push((
-                    request_key.consensus_hash.clone(),
-                    block,
-                    now.saturating_sub(request_key.download_start),
-                ));
+                blocks.push(Downloaded {
+                    consensus_hash: request_key.consensus_hash.clone(),
+                    data: block,
+                    download_time_secs: now.saturating_sub(request_key.download_start),
+                });
                 downloader.num_blocks_downloaded += 1;
 
                 // don't try this again
@@ -2190,11 +2190,11 @@ impl PeerNetwork {
                         &request_key.anchor_block_hash,
                         request_key.sortition_height
                     );
-                    microblocks.push((
-                        parent_consensus_hash,
-                        microblock_stream,
-                        now.saturating_sub(request_key.download_start),
-                    ));
+                    microblocks.push(Downloaded {
+                        consensus_hash: parent_consensus_hash,
+                        data: microblock_stream,
+                        download_time_secs: now.saturating_sub(request_key.download_start),
+                    });
                     downloader.num_microblocks_downloaded += 1;
                 } else {
                     // stream is not well-formed
