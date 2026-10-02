@@ -21,6 +21,7 @@ use stacks_common::types::net::PeerHost;
 
 use crate::chainstate::stacks::db::StacksChainState;
 use crate::chainstate::stacks::Error as ChainError;
+use crate::monitoring;
 use crate::net::api::getmicroblocks_indexed::StacksIndexedMicroblockStream;
 use crate::net::http::{
     parse_bytes, Error, HttpContentType, HttpNotFound, HttpRequest, HttpRequestContents,
@@ -139,6 +140,8 @@ impl RPCRequestHandler for RPCMicroblocksConfirmedRequestHandler {
                     .map_err(NetError::from);
             }
         };
+
+        monitoring::increment_stx_confirmed_micro_blocks_served_counter();
 
         let resp_preamble = HttpResponsePreamble::from_http_request_preamble(
             &preamble,
