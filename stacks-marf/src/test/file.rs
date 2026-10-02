@@ -20,8 +20,8 @@ use rusqlite::{Connection, OpenFlags};
 use stacks_common::util::db::sqlite_open;
 
 use super::*;
-use crate::chainstate::stacks::index::file::*;
-use crate::chainstate::stacks::index::*;
+use crate::file::*;
+use crate::*;
 
 fn db_path(test_name: &str) -> String {
     let path = format!("/tmp/{}.sqlite", test_name);
@@ -101,7 +101,7 @@ fn test_migrate_tables_readonly_fails_when_outdated() {
     // A read-only open should fail because the schema is outdated.
     let err = trie_sql::ensure_no_migration_necessary::<BlockHeaderHash>(&mut db).unwrap_err();
     assert!(
-        matches!(&err, crate::chainstate::stacks::index::Error::CorruptionError(msg) if msg.contains("not compatible with read-only")),
+        matches!(&err, crate::Error::CorruptionError(msg) if msg.contains("not compatible with read-only")),
         "instead got: {err}"
     );
 }
@@ -206,7 +206,7 @@ fn test_bulk_read_block_entries_rejects_negative_external_offset() {
 
     let err = trie_sql::bulk_read_block_entries::<BlockHeaderHash>(&db).unwrap_err();
     assert!(
-        matches!(err, crate::chainstate::stacks::index::Error::OverflowError),
+        matches!(err, crate::Error::OverflowError),
         "instead got: {err:?}"
     );
 }
@@ -221,7 +221,7 @@ fn test_update_squash_root_node_hash_requires_existing_row() {
     assert!(
         matches!(
             err,
-            crate::chainstate::stacks::index::Error::CorruptionError(ref msg)
+            crate::Error::CorruptionError(ref msg)
                 if msg.contains("no marf_squash_info row exists")
         ),
         "instead got: {err:?}"

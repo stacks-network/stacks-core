@@ -16,9 +16,9 @@
 
 use stacks_common::types::chainstate::TrieHash;
 
-use crate::chainstate::stacks::index::marf::MARFOpenOpts;
-use crate::chainstate::stacks::index::test::{make_test_insert_data, opts};
-use crate::chainstate::stacks::index::MARFValue;
+use crate::marf::MARFOpenOpts;
+use crate::test::{make_test_insert_data, opts};
+use crate::MARFValue;
 
 mod utils {
     use std::fs;
@@ -26,10 +26,10 @@ mod utils {
 
     use stacks_common::types::chainstate::{BlockHeaderHash, TrieHash};
 
-    use crate::chainstate::stacks::index::marf::{MARFOpenOpts, MARF};
-    use crate::chainstate::stacks::index::storage::{TrieFileStorage, TrieHashCalculationMode};
-    use crate::chainstate::stacks::index::test::merkle_test_marf;
-    use crate::chainstate::stacks::index::{ClarityMarfTrieId, MARFValue, TrieLeaf};
+    use crate::marf::{MARFOpenOpts, MARF};
+    use crate::storage::{TrieFileStorage, TrieHashCalculationMode};
+    use crate::test::merkle_test_marf;
+    use crate::{ClarityMarfTrieId, MARFValue, TrieLeaf};
 
     /// Runs a MARF test using string keys.
     ///

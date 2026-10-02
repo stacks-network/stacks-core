@@ -23,14 +23,14 @@ use stacks_common::types::sqlite::NO_PARAMS;
 use stacks_common::util::db::{table_exists, tx_begin_immediate};
 
 #[cfg(test)]
-use crate::chainstate::stacks::index::bits::read_hash_bytes;
-use crate::chainstate::stacks::index::bits::{
+use crate::bits::read_hash_bytes;
+use crate::bits::{
     read_node_hash_bytes as bits_read_node_hash_bytes, read_nodetype, read_nodetype_nohash,
 };
-use crate::chainstate::stacks::index::node::{TrieNodeType, TriePtr};
+use crate::node::{TrieNodeType, TriePtr};
 #[cfg(test)]
-use crate::chainstate::stacks::index::storage::TrieStorageConnection;
-use crate::chainstate::stacks::index::{trie_sql, Error, MarfDataEntry, MarfTrieId};
+use crate::storage::TrieStorageConnection;
+use crate::{trie_sql, Error, MarfDataEntry, MarfTrieId};
 
 /// The MARF only ever reads a handful of row shapes, so it implements them directly against
 /// `rusqlite` rather than depending on the generic `FromRow`/`query_row` machinery that a larger

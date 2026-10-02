@@ -15,7 +15,7 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use super::*;
-use crate::chainstate::stacks::index::{ClarityMarfTrieId, *};
+use crate::{ClarityMarfTrieId, *};
 
 fn walk_to_insertion_point(
     f: &mut TrieStorageConnection<BlockHeaderHash>,
