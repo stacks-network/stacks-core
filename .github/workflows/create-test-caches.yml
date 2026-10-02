@@ -39,11 +39,41 @@ concurrency:
   group: create-caches
   cancel-in-progress: true
 
+# Env vars
+env:
+  # The version of the bitcoin binary to use for tests
+  BTC_VERSION: "31.1"
+  # The SHA of the binary to verify before executing the tests. Find these in the official SHA256SUMS file for each release. Example: https://bitcoincore.org/bin/bitcoin-core-31.1/SHA256SUMS
+  BTC_VERSION_SHA: "b80d9c3e04da78fb6f0569685673418cf686fadba9042d926d13fb87ff503f9e"
+
 jobs:
   # Check if CI is enabled
   check-ci:
     name: "Check: CI Enabled"
     uses: ./.github/workflows/__check-ci.yml
+
+  ############################################################################
+  ### Global Variables Setup
+  ###
+  ### Bridges global env variables to the jobs context so they are safely
+  ### accessible by downstream reusable workflows.
+  ### Also defines default runs-on anchor.
+  ############################################################################
+  setup-env:
+    name: "Setup: Global Variables"
+    needs:
+      - check-ci
+    if: needs.check-ci.outputs.enabled == 'true'
+    runs-on: &shared_config ubuntu-latest
+    outputs:
+      btc-version: ${{ steps.set-env.outputs.btc_version }}
+      btc-version-sha: ${{ steps.set-env.outputs.btc_version_sha }}
+    steps:
+      - name: Export Env Variables
+        id: set-env
+        run: |
+          echo "btc_version=$BTC_VERSION" >> $GITHUB_OUTPUT
+          echo "btc_version_sha=$BTC_VERSION_SHA" >> $GITHUB_OUTPUT
 
   #######################################################################################################################
   ### Create Reusable Caches for Tests
@@ -55,9 +85,8 @@ jobs:
   cache-bitcoin-binary:
     name: "Create: Bitcoin Binary Cache"
     needs:
-      - check-ci
-    if: needs.check-ci.outputs.enabled == 'true'
-    runs-on: ubuntu-latest
+      - setup-env
+    runs-on: *shared_config
     steps:
       # Checkout the code
       #   - only .github is required for this job
@@ -73,6 +102,10 @@ jobs:
       - name: Check Bitcoin Cache
         id: bitcoin
         uses: ./.github/actions/cache/bitcoin
+        with:
+          action: check
+          btc-version: ${{ steps.setup-env.outputs.btc-version }}
+          btc-version-sha: ${{ steps.setup-env.outputs.btc-version-sha }}
 
       # Only create when a binary doesn't already exist
       - name: Create Bitcoin Cache
@@ -81,6 +114,8 @@ jobs:
         uses: ./.github/actions/cache/bitcoin
         with:
           action: create
+          btc-version: ${{ steps.setup-env.outputs.btc-version }}
+          btc-version-sha: ${{ steps.setup-env.outputs.btc-version-sha }}
 
   cache-cargo:
     name: "Create: Cargo Cache"

@@ -25,6 +25,11 @@ concurrency:
 
 # Env vars
 env:
+  # The version of the bitcoin binary to use for tests
+  BTC_VERSION: "31.1"
+  # The SHA of the binary to verify before executing the tests. Find these in the official SHA256SUMS file for each release. Example: https://bitcoincore.org/bin/bitcoin-core-31.1/SHA256SUMS
+  BTC_VERSION_SHA: "b80d9c3e04da78fb6f0569685673418cf686fadba9042d926d13fb87ff503f9e"
+  # The name of the test archive file that is generated
   TEST_ARCHIVE_FILE: "./test_archive.tar.zst"
 
 jobs:
@@ -47,6 +52,8 @@ jobs:
     if: needs.check-ci.outputs.enabled == 'true'
     runs-on: &shared_config ubuntu-latest
     outputs:
+      btc-version: ${{ steps.set-env.outputs.btc_version }}
+      btc-version-sha: ${{ steps.set-env.outputs.btc_version_sha }}
       test-archive-file: ${{ steps.set-env.outputs.test_archive_file }}
     steps:
       - name: Export Env Variables
@@ -56,6 +63,8 @@ jobs:
           INPUT_FILE="${{ env.TEST_ARCHIVE_FILE }}"
           ARCHIVE_FILE="${INPUT_FILE/#\~/$HOME}"
 
+          echo "btc_version=$BTC_VERSION" >> $GITHUB_OUTPUT
+          echo "btc_version_sha=$BTC_VERSION_SHA" >> $GITHUB_OUTPUT    
           echo "test_archive_file=$ARCHIVE_FILE" >> $GITHUB_OUTPUT
 
   ############################################################################
@@ -253,6 +262,8 @@ jobs:
       - setup-env
     uses: ./.github/workflows/_tests-epoch.yml
     with:
+      btc-version: ${{ needs.setup-env.outputs.btc-version }}
+      btc-version-sha: ${{ needs.setup-env.outputs.btc-version-sha }}
       archive-file: ${{ needs.setup-env.outputs.test-archive-file }}
       upload-junit-xml: "false"
       upload-code-coverage: "false"
