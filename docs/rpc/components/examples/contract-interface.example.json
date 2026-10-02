@@ -656,7 +656,7 @@
             }
         ],
         "non_fungible_tokens": [],
-        "epoch": "Epoch30",
-        "clarity_version": "Clarity3"
+        "epoch": "Epoch40",
+        "clarity_version": "Clarity6"
     }
 }

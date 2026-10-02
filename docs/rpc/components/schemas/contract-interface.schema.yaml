@@ -88,7 +88,7 @@ properties:
           $ref: "./clarity-type.schema.yaml"
   epoch:
     type: string
-    description: Stacks epoch identifier (e.g., "Epoch30").
+    description: Stacks epoch identifier (e.g., "Epoch40").
   clarity_version:
     type: string
     description: Clarity language version used by this contract.

@@ -31,7 +31,7 @@ properties:
           additionalProperties: true
       signers:
         type: array
-        description: Optional signer set for PoX-4 reward cycles.
+        description: Optional signer set for the reward cycle (PoX-4 and later).
         items:
           type: object
           properties:
