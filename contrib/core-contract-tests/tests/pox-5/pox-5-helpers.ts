@@ -43,6 +43,8 @@ export const testSigner = contracts.testPox5Signer;
 export const testSignerErrors = extractErrors(testSigner);
 export const signerManager = contracts.signerManager;
 export const signerManagerErrors = extractErrors(signerManager);
+export const signerManagerV2 = contracts.signerManagerV2;
+export const signerManagerV2Errors = extractErrors(signerManagerV2);
 export const sbtc = contracts.sbtcToken;
 
 export const REWARD_CYCLE_LENGTH = 100n;
@@ -466,6 +468,24 @@ export function registerSignerManager() {
   );
 }
 
+export function registerSignerManagerV2() {
+  const signerSk = secp256k1.utils.randomSecretKey();
+  const signature = signSignerKeyGrant({
+    signerManager: signerManagerV2.identifier,
+    authId: 1n,
+    signerSk,
+  });
+  txOk(
+    signerManagerV2.registerSelf({
+      signerKey: secp256k1.getPublicKey(signerSk, true),
+      signerManager: signerManagerV2.identifier,
+      authId: 1n,
+      signerSig: signature,
+    }),
+    deployer,
+  );
+}
+
 /**
  * Deploy and setup a new signer
  */
@@ -615,4 +635,52 @@ export function makePoxAddrCalldata(
       ),
     ),
   };
+}
+export type PayoutConfig = {
+  l1Withdrawal: {
+    poxAddr: { version: Uint8Array; hashbytes: Uint8Array };
+    maxFee: bigint;
+    minClaim: bigint;
+  } | null;
+  sbtcRecipient: string | null;
+};
+
+/** A payout config withdrawing to a random L1 address. */
+export function randomPayoutConfig({
+  maxFee,
+  minClaim,
+}: {
+  maxFee: bigint;
+  minClaim: bigint;
+}): PayoutConfig {
+  return {
+    l1Withdrawal: { poxAddr: randomPoxAddress(), maxFee, minClaim },
+    sbtcRecipient: null,
+  };
+}
+
+/** Encode a payout config as `signer-manager-core` calldata. */
+export function payoutConfigCalldata(config: PayoutConfig) {
+  const l1 = config.l1Withdrawal;
+  return hex.decode(
+    serializeCV(
+      Cl.tuple({
+        'l1-withdrawal': l1
+          ? Cl.some(
+              Cl.tuple({
+                'pox-addr': Cl.tuple({
+                  version: Cl.buffer(l1.poxAddr.version),
+                  hashbytes: Cl.buffer(l1.poxAddr.hashbytes),
+                }),
+                'max-fee': Cl.uint(l1.maxFee),
+                'min-claim': Cl.uint(l1.minClaim),
+              }),
+            )
+          : Cl.none(),
+        'sbtc-recipient': config.sbtcRecipient
+          ? Cl.some(Cl.principal(config.sbtcRecipient))
+          : Cl.none(),
+      }),
+    ),
+  );
 }
