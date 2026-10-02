@@ -35,8 +35,8 @@ const PRUNE_PARAMS: PruneParams = PruneParams {
     batch_size: 100,
     // The signer's own fork depth
     fork_depth: MAX_FORK_DEPTH,
-    // Twice the fork horizon at the 10 minute mean Bitcoin block interval (~33 h): far longer than
-    // any sortition stays current
+    // Twice the fork horizon at the 10 minute mean Bitcoin block interval (~33 h), on top of the
+    // horizon's own depth: far longer than any sortition stays current
     orphaned_update_max_age: Duration::from_secs(2 * MAX_FORK_DEPTH * 600),
 };
 /// A pruning pass slower than this is logged as a warning.
