@@ -224,8 +224,8 @@ impl TestMiner {
 
         let mut tx_signer = StacksTransactionSigner::new(&tx_coinbase);
         self.sign_as_origin(&mut tx_signer);
-        let tx_coinbase_signed = tx_signer.get_tx().unwrap();
-        tx_coinbase_signed
+
+        tx_signer.get_tx().unwrap()
     }
 
     pub fn make_nakamoto_tenure_change(
@@ -251,8 +251,8 @@ impl TestMiner {
 
         let mut tx_signer = StacksTransactionSigner::new(&tx_tenure_change);
         self.sign_as_origin(&mut tx_signer);
-        let tx_tenure_change_signed = tx_signer.get_tx().unwrap();
-        tx_tenure_change_signed
+
+        tx_signer.get_tx().unwrap()
     }
 
     pub fn sign_nakamoto_block(&self, block: &mut NakamotoBlock) {
@@ -318,10 +318,9 @@ impl TestStacksNode {
         &self,
         last_tenure_id: &StacksBlockId,
     ) -> Option<Vec<NakamotoBlock>> {
-        match self.nakamoto_commit_ops.get(last_tenure_id) {
-            None => None,
-            Some(idx) => Some(self.nakamoto_blocks[*idx].clone()),
-        }
+        self.nakamoto_commit_ops
+            .get(last_tenure_id)
+            .map(|idx| self.nakamoto_blocks[*idx].clone())
     }
 
     /// Begin the next nakamoto tenure by triggering a tenure-change.
@@ -480,15 +479,14 @@ impl TestStacksNode {
             // building off an existing stacks block
             let parent_stacks_block_snapshot = {
                 let ic = sortdb.index_conn();
-                let parent_stacks_block_snapshot =
-                    SortitionDB::get_block_snapshot_for_winning_stacks_block(
-                        &ic,
-                        &burn_block.parent_snapshot.sortition_id,
-                        &parent_stacks_block.block_hash(),
-                    )
-                    .unwrap()
-                    .unwrap();
-                parent_stacks_block_snapshot
+
+                SortitionDB::get_block_snapshot_for_winning_stacks_block(
+                    &ic,
+                    &burn_block.parent_snapshot.sortition_id,
+                    &parent_stacks_block.block_hash(),
+                )
+                .unwrap()
+                .unwrap()
             };
 
             let parent_chain_tip = StacksChainState::get_anchored_block_header_info(
@@ -730,7 +728,7 @@ impl TestStacksNode {
                     None,
                     None,
                     None,
-                    u64::from(DEFAULT_MAX_TENURE_BYTES),
+                    DEFAULT_MAX_TENURE_BYTES,
                 )?
             } else {
                 assert!(

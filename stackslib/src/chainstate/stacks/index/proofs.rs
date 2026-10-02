@@ -1390,7 +1390,7 @@ impl<T: MarfTrieId> TrieMerkleProof<T> {
         }
 
         trace!("Trie has a cycle");
-        return Err(Error::CorruptionError("Trie has a cycle".to_string()));
+        Err(Error::CorruptionError("Trie has a cycle".to_string()))
     }
 
     /// Make a merkle proof of inclusion from a path.

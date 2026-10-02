@@ -331,8 +331,8 @@ impl TestStacksNode {
             panic!("Tried to fork an unforkable chainstate instance");
         }
 
-        if fs::metadata(&chainstate_path(new_test_name)).is_ok() {
-            fs::remove_dir_all(&chainstate_path(new_test_name)).unwrap();
+        if fs::metadata(chainstate_path(new_test_name)).is_ok() {
+            fs::remove_dir_all(chainstate_path(new_test_name)).unwrap();
         }
 
         copy_dir(
@@ -488,7 +488,7 @@ impl TestStacksNode {
                 }
             }
         }
-        return None;
+        None
     }
 
     pub fn get_microblock_stream(
@@ -496,17 +496,15 @@ impl TestStacksNode {
         miner: &TestMiner,
         block_hash: &BlockHeaderHash,
     ) -> Option<Vec<StacksMicroblock>> {
-        match self.commit_ops.get(block_hash) {
-            None => None,
-            Some(idx) => Some(self.microblocks[*idx].clone()),
-        }
+        self.commit_ops
+            .get(block_hash)
+            .map(|idx| self.microblocks[*idx].clone())
     }
 
     pub fn get_anchored_block(&self, block_hash: &BlockHeaderHash) -> Option<StacksBlock> {
-        match self.commit_ops.get(block_hash) {
-            None => None,
-            Some(idx) => Some(self.anchored_blocks[*idx].clone()),
-        }
+        self.commit_ops
+            .get(block_hash)
+            .map(|idx| self.anchored_blocks[*idx].clone())
     }
 
     pub fn get_last_winning_snapshot(
@@ -928,13 +926,13 @@ pub fn check_mining_reward(
             miner.id,
             miner.origin_address().unwrap().to_string()
         );
-        return total == 0;
+        total == 0
     } else {
         if amount != total {
             test_debug!("Amount {amount} != {total}");
             return false;
         }
-        return true;
+        true
     }
 }
 
@@ -1004,8 +1002,8 @@ pub fn make_coinbase_with_nonce(
 
     let mut tx_signer = StacksTransactionSigner::new(&tx_coinbase);
     miner.sign_as_origin(&mut tx_signer);
-    let tx_coinbase_signed = tx_signer.get_tx().unwrap();
-    tx_coinbase_signed
+
+    tx_signer.get_tx().unwrap()
 }
 
 pub fn make_smart_contract(
@@ -1067,9 +1065,8 @@ pub fn make_smart_contract_with_version(
 
     let mut tx_signer = StacksTransactionSigner::new(&tx_contract);
     miner.sign_as_origin(&mut tx_signer);
-    let tx_contract_signed = tx_signer.get_tx().unwrap();
 
-    tx_contract_signed
+    tx_signer.get_tx().unwrap()
 }
 
 /// paired with make_smart_contract
@@ -1105,8 +1102,8 @@ pub fn make_contract_call(
 
     let mut tx_signer = StacksTransactionSigner::new(&tx_contract_call);
     miner.sign_as_origin(&mut tx_signer);
-    let tx_contract_call_signed = tx_signer.get_tx().unwrap();
-    tx_contract_call_signed
+
+    tx_signer.get_tx().unwrap()
 }
 
 /// make a token transfer
@@ -1133,8 +1130,8 @@ pub fn make_token_transfer(
 
     let mut tx_signer = StacksTransactionSigner::new(&tx_stx_transfer);
     miner.sign_as_origin(&mut tx_signer);
-    let tx_stx_transfer_signed = tx_signer.get_tx().unwrap();
-    tx_stx_transfer_signed
+
+    tx_signer.get_tx().unwrap()
 }
 
 // TODO: merge with vm/tests/integrations.rs.
@@ -1303,8 +1300,8 @@ pub fn make_user_contract_call(
 
     let mut tx_signer = StacksTransactionSigner::new(&tx_contract_call);
     tx_signer.sign_origin(sender).unwrap();
-    let tx_contract_call_signed = tx_signer.get_tx().unwrap();
-    tx_contract_call_signed
+
+    tx_signer.get_tx().unwrap()
 }
 
 pub fn make_user_stacks_transfer(

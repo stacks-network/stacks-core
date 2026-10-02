@@ -1353,7 +1353,7 @@ impl StacksChainState {
             .expect("FATAL: infallible constant version byte is not valid")
             .into();
 
-        return principal;
+        principal
     }
 
     /// Instantiate the boot code and genesis state into a given [`ClarityTx`].

@@ -581,7 +581,7 @@ impl BlockDownloader {
         for (block_key, event_id) in pending_block_requests.drain() {
             self.getblock_requests.insert(block_key, event_id);
         }
-        return Ok(false);
+        Ok(false)
     }
 
     /// Start fetching microblocks
@@ -727,7 +727,7 @@ impl BlockDownloader {
         for (block_key, event_id) in pending_microblock_requests.drain() {
             self.getmicroblocks_requests.insert(block_key, event_id);
         }
-        return Ok(false);
+        Ok(false)
     }
 
     /// Get the availability of each block in the given sortition range, using the inv state.
@@ -1073,7 +1073,7 @@ impl BlockDownloader {
                 }
             }
         }
-        return false;
+        false
     }
 }
 
@@ -1227,11 +1227,9 @@ impl PeerNetwork {
                     child_consensus_hash,
                     child_block_hash
                 );
-                return Ok(false);
+                Ok(false)
             }
-            None => {
-                return Ok(true);
-            }
+            None => Ok(true),
         }
     }
 

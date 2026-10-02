@@ -109,7 +109,7 @@ impl Samples {
             return true;
         }
 
-        return false;
+        false
     }
 
     /// Return the integer mean of the sample, uses iterative
@@ -140,7 +140,7 @@ impl Samples {
 
     fn get_sqlite(conn: &Connection, identifier: &str) -> Samples {
         let sql = "SELECT samples FROM pessimistic_estimator WHERE estimate_key = ?";
-        conn.query_row(sql, &[identifier], |row| row.get(0))
+        conn.query_row(sql, [identifier], |row| row.get(0))
             .optional()
             .expect("SQLite failure")
             .unwrap_or_else(|| Samples { items: vec![] })

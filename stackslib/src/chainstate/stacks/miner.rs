@@ -14,13 +14,13 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::cmp;
 use std::collections::HashSet;
 #[cfg(any(test, feature = "testing"))]
 use std::sync::LazyLock;
 use std::sync::{Arc, Mutex};
 use std::thread::ThreadId;
 use std::time::Instant;
+use std::{cmp, slice};
 
 use clarity::vm::database::BurnStateDB;
 use clarity::vm::resource_limiter::ResourceBudget;
@@ -140,7 +140,7 @@ impl MinerStatus {
     }
 
     pub fn get_spend_amount(&self) -> u64 {
-        return self.spend_amount;
+        self.spend_amount
     }
 
     pub fn set_spend_amount(&mut self, amt: u64) {
@@ -230,7 +230,7 @@ impl BlockBuilderSettings {
             confirm_microblocks: true,
             max_execution_time: None,
             max_analysis_time: None,
-            max_tenure_bytes: u64::from(DEFAULT_MAX_TENURE_BYTES),
+            max_tenure_bytes: DEFAULT_MAX_TENURE_BYTES,
             temporarily_excluded_txids: HashSet::new(),
             max_assembly_mem_bytes: 0,
         }
@@ -246,7 +246,7 @@ impl BlockBuilderSettings {
             confirm_microblocks: true,
             max_execution_time: None,
             max_analysis_time: None,
-            max_tenure_bytes: u64::from(DEFAULT_MAX_TENURE_BYTES),
+            max_tenure_bytes: DEFAULT_MAX_TENURE_BYTES,
             temporarily_excluded_txids: HashSet::new(),
             max_assembly_mem_bytes: 0,
         }
@@ -1446,12 +1446,7 @@ impl<'a> StacksMicroblockBuilder<'a> {
             }
         }
 
-        return self.make_next_microblock(
-            txs_included,
-            miner_key,
-            tx_events,
-            Some(event_dispatcher),
-        );
+        self.make_next_microblock(txs_included, miner_key, tx_events, Some(event_dispatcher))
     }
 
     pub fn get_bytes_so_far(&self) -> u64 {
@@ -1633,7 +1628,7 @@ impl StacksBlockBuilder {
         }
 
         self.header.microblock_pubkey_hash = pubkh;
-        return true;
+        true
     }
 
     /// Set the block miner's private key
@@ -2358,7 +2353,7 @@ impl StacksBlockBuilder {
             &mut builder,
             mempool,
             parent_stacks_header.stacks_block_height,
-            &[coinbase_tx.clone()],
+            slice::from_ref(coinbase_tx),
             settings,
             event_observer,
         ) {

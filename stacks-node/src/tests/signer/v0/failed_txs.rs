@@ -205,7 +205,9 @@ fn setup_failed_tx_test(reject_code: ValidateRejectCode) -> FailedTxTestContext 
             .position(|(addr, _)| addr == &signer_addr)
             .expect("Signer not found in slot list") as u32;
 
-        info!("------------------------- Manually submitting signer {i} (slot {slot_id}) block rejection -------------------------");
+        info!(
+            "------------------------- Manually submitting signer {i} (slot {slot_id}) block rejection -------------------------"
+        );
         let mut accepted = false;
         let mut version = 0;
         let start = Instant::now();
@@ -232,7 +234,9 @@ fn setup_failed_tx_test(reject_code: ValidateRejectCode) -> FailedTxTestContext 
     info!("------------------------- Wait to mine second block -------------------------");
     let second_block = wait_for_block_pushed_by_miner_key(30, expected_height, &miner_pubk)
         .expect("Miner did not propose a second block");
-    info!("------------------------- Verify second block excludes sender A's txs -------------------------");
+    info!(
+        "------------------------- Verify second block excludes sender A's txs -------------------------"
+    );
     let second_txids: Vec<_> = second_block.txs().map(|tx| tx.txid()).collect();
     assert_eq!(
         second_txids.len(),
@@ -286,7 +290,9 @@ fn miner_excludes_failed_txid_and_nonce_dependent_txs() {
 
     let miner_pubk = StacksPublicKey::from_private(ctx.signer_test.get_miner_key());
 
-    info!("------------------------- Wait for third block with sender A's txs -------------------------");
+    info!(
+        "------------------------- Wait for third block with sender A's txs -------------------------"
+    );
     // The exclusion only lasts one block, so the miner should re-include sender A's txs
     let third_block = wait_for_block_pushed_by_miner_key(
         30,
@@ -335,7 +341,9 @@ fn miner_permanently_bans_problematic_txid() {
     let send_amt = 1_000;
     let recipient = clarity::vm::types::PrincipalData::from(StacksAddress::burn_address(false));
 
-    info!("------------------------- Wait for third block — sender A's txs should STILL be excluded -------------------------");
+    info!(
+        "------------------------- Wait for third block — sender A's txs should STILL be excluded -------------------------"
+    );
     // Trigger another block mine by submitting a third sender B transaction
     let tx_b2 = make_stacks_transfer_serialized(
         &ctx.sender_b_sk,
@@ -416,7 +424,9 @@ fn miner_drops_contract_publish_on_analysis_time_expired() {
     info!("------------------------- Mine a normal Nakamoto block -------------------------");
     signer_test.mine_nakamoto_block(Duration::from_secs(30), true);
 
-    info!("------------------------- Submit the analysis-gated contract-publish -------------------------");
+    info!(
+        "------------------------- Submit the analysis-gated contract-publish -------------------------"
+    );
     let (txid, deploy_nonce) = signer_test
         .submit_contract_deploy(
             &sender_sk,
@@ -426,7 +436,9 @@ fn miner_drops_contract_publish_on_analysis_time_expired() {
         )
         .expect("Failed to submit contract deploy");
 
-    info!("------------------------- Give the miner several tenures to (not) mine it -------------------------");
+    info!(
+        "------------------------- Give the miner several tenures to (not) mine it -------------------------"
+    );
     for _ in 0..3 {
         signer_test.mine_nakamoto_block(Duration::from_secs(30), true);
     }
@@ -491,7 +503,9 @@ fn signer_rejects_contract_publish_on_analysis_time_expired() {
     info!("------------------------- Mine a normal Nakamoto block -------------------------");
     signer_test.mine_nakamoto_block(Duration::from_secs(30), true);
 
-    info!("------------------------- Submit the analysis-gated contract-publish -------------------------");
+    info!(
+        "------------------------- Submit the analysis-gated contract-publish -------------------------"
+    );
     let (txid_hex, _deploy_nonce) = signer_test
         .submit_contract_deploy(
             &sender_sk,
@@ -502,7 +516,9 @@ fn signer_rejects_contract_publish_on_analysis_time_expired() {
         .expect("Failed to submit contract deploy");
     let publish_txid = Txid::from_hex(&txid_hex).expect("Failed to parse publish txid");
 
-    info!("------------------------- Ensure signers reject the proposal containing it -------------------------");
+    info!(
+        "------------------------- Ensure signers reject the proposal containing it -------------------------"
+    );
     // The miner proposes a block containing the publish; the signers' node
     // validates it with a 0s per-tx analysis budget and rejects the tx as Problematic.
     wait_for(60, || {

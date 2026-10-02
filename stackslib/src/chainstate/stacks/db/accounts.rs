@@ -1080,6 +1080,8 @@ impl StacksChainState {
 
 #[cfg(test)]
 mod test {
+    use std::slice;
+
     use clarity::vm::costs::ExecutionCost;
     use clarity::vm::types::StacksAddressExtensions;
     use stacks_common::types::chainstate::BurnchainHeaderHash;
@@ -1498,7 +1500,7 @@ mod test {
             StacksEpochId::Epoch2_05,
             &miner,
             &miner,
-            &[user.clone()],
+            slice::from_ref(&user),
             &MinerPaymentSchedule::genesis(true),
             None,
         );
@@ -1507,7 +1509,7 @@ mod test {
             StacksEpochId::Epoch2_05,
             &user,
             &miner,
-            &[user.clone()],
+            slice::from_ref(&user),
             &MinerPaymentSchedule::genesis(true),
             None,
         );
