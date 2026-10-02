@@ -15,7 +15,7 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use super::*;
-use crate::chainstate::stacks::index::*;
+use crate::*;
 
 #[test]
 fn verifier_catches_stale_proof() {

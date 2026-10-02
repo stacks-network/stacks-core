@@ -1454,6 +1454,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "stacks-marf"
+version = "4.0.3"
+dependencies = [
+ "nix",
+ "rusqlite",
+ "serde",
+ "serde_derive",
+ "sha2 0.10.9",
+ "slog",
+ "stacks-common",
+]
+
+[[package]]
 name = "stacks-transactions"
 version = "0.1.0"
 dependencies = [
@@ -1489,6 +1502,7 @@ dependencies = [
  "slog",
  "stacks-codec",
  "stacks-common",
+ "stacks-marf",
  "stacks-transactions",
  "time",
  "toml",

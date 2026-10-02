@@ -22,12 +22,12 @@ use std::collections::HashMap;
 use stacks_common::types::chainstate::{BlockHeaderHash, TrieHash};
 use stacks_common::util::hash::{to_hex, Sha512Trunc256Sum};
 
-use crate::chainstate::stacks::index::bits::*;
-use crate::chainstate::stacks::index::marf::*;
-use crate::chainstate::stacks::index::node::*;
-use crate::chainstate::stacks::index::storage::*;
-use crate::chainstate::stacks::index::trie::*;
-use crate::chainstate::stacks::index::{MARFValue, MarfTrieId, TrieLeaf, TrieMerkleProof};
+use crate::bits::*;
+use crate::marf::*;
+use crate::node::*;
+use crate::storage::*;
+use crate::trie::*;
+use crate::{MARFValue, MarfTrieId, TrieLeaf, TrieMerkleProof};
 
 pub mod file;
 pub mod marf;
@@ -377,8 +377,8 @@ pub fn make_test_insert_data(
 pub mod opts {
     use std::sync::LazyLock;
 
-    use crate::chainstate::stacks::index::marf::MARFOpenOpts;
-    use crate::chainstate::stacks::index::storage::TrieHashCalculationMode;
+    use crate::marf::MARFOpenOpts;
+    use crate::storage::TrieHashCalculationMode;
 
     pub static OPTS_IMM: LazyLock<MARFOpenOpts> =
         LazyLock::new(|| MARFOpenOpts::new(TrieHashCalculationMode::Immediate, false));

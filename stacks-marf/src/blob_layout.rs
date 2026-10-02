@@ -28,7 +28,7 @@ use stacks_common::types::chainstate::{
     TrieHash, BLOCK_HEADER_HASH_ENCODED_SIZE, TRIEHASH_ENCODED_SIZE,
 };
 
-use crate::chainstate::stacks::index::MarfTrieId;
+use crate::MarfTrieId;
 
 /// Offset of the reserved 4-byte field.
 pub const RESERVED_FIELD_OFFSET: usize = BLOCK_HEADER_HASH_ENCODED_SIZE;

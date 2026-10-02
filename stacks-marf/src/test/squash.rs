@@ -21,23 +21,21 @@ use stacks_common::types::chainstate::{StacksBlockId, TrieHash, TRIEHASH_ENCODED
 use tempfile::tempdir;
 
 use super::marf::setup_marf;
-use crate::chainstate::stacks::index::bits::{
-    get_node_byte_len, get_node_hash, read_nodetype, resolve_inline_child_offsets,
-};
-use crate::chainstate::stacks::index::marf::{
+use crate::bits::{get_node_byte_len, get_node_hash, read_nodetype, resolve_inline_child_offsets};
+use crate::marf::{
     MARFOpenOpts, MarfConnection, SquashStats, BLOCK_HEIGHT_TO_HASH_MAPPING_KEY, MARF,
     OWN_BLOCK_HEIGHT_KEY,
 };
-use crate::chainstate::stacks::index::node::{
+use crate::node::{
     is_backptr, is_u64_ptr, set_backptr, TrieNode as _, TrieNode16, TrieNode256, TrieNode4,
     TrieNode48, TrieNodeID, TrieNodeType, TriePtr,
 };
-use crate::chainstate::stacks::index::squash::{
+use crate::squash::{
     compute_node_hash, deserialize_node, serialize_node, stream_squash_blob, NodeStore,
 };
-use crate::chainstate::stacks::index::storage::TrieHashCalculationMode;
-use crate::chainstate::stacks::index::trie::Trie;
-use crate::chainstate::stacks::index::{
+use crate::storage::TrieHashCalculationMode;
+use crate::trie::Trie;
+use crate::{
     blob_layout, trie_sql, ClarityMarfTrieId, Error, MARFValue, TrieLeaf, TrieMerkleProof,
 };
 

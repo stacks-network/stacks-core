@@ -22,15 +22,13 @@ use stacks_common::codec::StacksMessageCodec;
 use stacks_common::types::chainstate::{TrieHash, TRIEHASH_ENCODED_SIZE};
 use stacks_common::util::hash::to_hex;
 
-use crate::chainstate::stacks::index::node::{
+use crate::node::{
     clear_compressed, clear_ctrl_bits, is_backptr, is_compressed, ptrs_fmt, ConsensusSerializable,
     TrieNode, TrieNode16, TrieNode256, TrieNode4, TrieNode48, TrieNodeID, TrieNodePatch,
     TrieNodeType, TriePtr,
 };
-use crate::chainstate::stacks::index::storage::TrieStorageConnection;
-use crate::chainstate::stacks::index::{
-    BlockMap, Error, MarfTrieId, TrieLeaf, MARF_VALUE_ENCODED_SIZE,
-};
+use crate::storage::TrieStorageConnection;
+use crate::{BlockMap, Error, MarfTrieId, TrieLeaf, MARF_VALUE_ENCODED_SIZE};
 
 /// Magic byte value indicating a sparse compressed pointer list.
 /// This value cannot be a valid [`TrieNodeID`], making it safe to use as a marker.

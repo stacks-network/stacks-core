@@ -29,20 +29,20 @@ use stacks_common::util::db::{
 };
 use stacks_common::util::hash::to_hex;
 
-use crate::chainstate::stacks::index::bits::{
+use crate::bits::{
     get_node_byte_len, get_node_byte_len_compressed, is_inline_child_ptr, read_hash_bytes,
     read_nodetype, read_root_hash, reserved_root_size, resolve_inline_child_offsets,
     write_nodetype_bytes, write_nodetype_bytes_compressed,
 };
-use crate::chainstate::stacks::index::blob_layout::{self, BlobHeader};
-use crate::chainstate::stacks::index::cache::*;
-use crate::chainstate::stacks::index::file::{TrieFile, TrieFileNodeHashReader};
-use crate::chainstate::stacks::index::marf::MARFOpenOpts;
-use crate::chainstate::stacks::index::node::{
+use crate::blob_layout::{self, BlobHeader};
+use crate::cache::*;
+use crate::file::{TrieFile, TrieFileNodeHashReader};
+use crate::marf::MARFOpenOpts;
+use crate::node::{
     is_backptr, set_backptr, TrieCowPtr, TrieNode, TrieNodeID, TrieNodePatch, TrieNodeType, TriePtr,
 };
-use crate::chainstate::stacks::index::trie::Trie;
-use crate::chainstate::stacks::index::{
+use crate::trie::Trie;
+use crate::{
     trie_sql, BlockMap, ClarityMarfTrieId, Error, MarfDataEntry, MarfTrieId, TrieHasher,
     MAX_PATCH_DEPTH,
 };
