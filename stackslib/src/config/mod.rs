@@ -35,6 +35,7 @@ use std::time::Duration;
 use std::{cmp, fs, thread};
 
 use clarity::vm::costs::ExecutionCost;
+use clarity::vm::representations::CONTRACT_MAX_NAME_LENGTH;
 use clarity::vm::types::{AssetIdentifier, PrincipalData, QualifiedContractIdentifier};
 use rand::RngCore;
 use serde::Deserialize;
@@ -4566,11 +4567,19 @@ impl MinerConfigFile {
             block_reward_recipient: self
                 .block_reward_recipient
                 .map(|c| {
-                    PrincipalData::parse(&c).map_err(|e| {
+                    let principal = PrincipalData::parse(&c).map_err(|e| {
                         format!(
                             "miner.block_reward_recipient is not a valid principal identifier: {e}"
                         )
-                    })
+                    })?;
+                    // No contract with such a name can be deployed, and from
+                    // Epoch 4.1 a coinbase paying one fails block validation.
+                    if principal.has_overlong_contract_name() {
+                        return Err(format!(
+                            "miner.block_reward_recipient has a contract name longer than {CONTRACT_MAX_NAME_LENGTH} bytes"
+                        ));
+                    }
+                    Ok(principal)
                 })
                 .transpose()?,
             segwit: self.segwit.unwrap_or(miner_default_config.segwit),
@@ -5279,6 +5288,31 @@ mod tests {
         );
 
         assert!(Config::from_config_file(ConfigFile::from_str("").unwrap(), false).is_ok());
+    }
+
+    #[rstest]
+    #[case::max_len(40, true)]
+    #[case::overlong(41, false)]
+    fn test_block_reward_recipient_contract_name_length(
+        #[case] name_len: usize,
+        #[case] accepted: bool,
+    ) {
+        let config = format!(
+            r#"
+            [miner]
+            block_reward_recipient = "ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM.{}"
+            "#,
+            "a".repeat(name_len)
+        );
+        let result = Config::from_config_file(ConfigFile::from_str(&config).unwrap(), false);
+        if accepted {
+            result.unwrap();
+        } else {
+            assert_eq!(
+                "miner.block_reward_recipient has a contract name longer than 40 bytes",
+                result.unwrap_err()
+            );
+        }
     }
 
     #[test]

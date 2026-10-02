@@ -43,11 +43,14 @@ use clarity_types::types::{
 };
 use clarity_types::{ClarityVersion, Value};
 use stacks_codec::transaction::{
-    NonfungibleConditionCode, TransactionPostCondition, TransactionPostConditionMode,
+    NonfungibleConditionCode, TransactionPayload, TransactionPostCondition,
+    TransactionPostConditionMode,
 };
 use stacks_common::bounded_format;
 use stacks_common::types::StacksEpochId;
 
+#[cfg(test)]
+mod contract_name_tests;
 #[cfg(test)]
 mod tests;
 #[cfg(test)]
@@ -205,6 +208,86 @@ pub fn check_versioned_deploy_supported_in_epoch(
             max: epoch_default,
         });
     }
+    Ok(())
+}
+
+/// Which transaction field carries a contract principal whose name is longer
+/// than 40 bytes, which is not valid from Epoch 4.1. Typed rather than a
+/// formatted message so callers keep their own error channel.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum OverlongContractName {
+    TokenTransferRecipient,
+    ContractCallArgument,
+    CoinbaseRecipient,
+    NonfungiblePostCondition,
+}
+
+impl std::fmt::Display for OverlongContractName {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let field = match self {
+            Self::TokenTransferRecipient => "Token transfer recipient",
+            Self::ContractCallArgument => "Contract call argument",
+            Self::CoinbaseRecipient => "Coinbase recipient",
+            Self::NonfungiblePostCondition => "NFT post-condition asset value",
+        };
+        write!(
+            f,
+            "{field} contains a contract name longer than 40 bytes, which is not supported since Stacks 4.1"
+        )
+    }
+}
+
+impl std::error::Error for OverlongContractName {}
+
+/// Reject a transaction that introduces a contract principal whose name is
+/// longer than 40 bytes when `epoch_id` enforces the contract-name length limit
+/// (from Epoch 4.1).
+///
+/// The transaction codec decodes principals inside Clarity values, token-transfer
+/// recipients, and coinbase recipients with the legacy 128-byte name limit, so
+/// the epoch rule is applied here rather than in the codec. Contract names that
+/// the codec reads as a bare `ContractName` (call targets, deploys, post-condition
+/// principals and asset identifiers) are already limited to 40 bytes.
+pub fn check_contract_names_supported_in_epoch(
+    payload: &TransactionPayload,
+    post_conditions: &[TransactionPostCondition],
+    epoch_id: StacksEpochId,
+) -> Result<(), OverlongContractName> {
+    if !epoch_id.enforces_contract_name_length_limit() {
+        return Ok(());
+    }
+
+    // The codec caps decoded values at `MAX_TYPE_DEPTH`, so a too-deep error is
+    // not expected here; reject rather than accept a value we could not check.
+    let has_overlong = |value: &Value| value.contains_overlong_contract_name().unwrap_or(true);
+
+    match payload {
+        TransactionPayload::TokenTransfer(recipient, ..)
+            if recipient.has_overlong_contract_name() =>
+        {
+            return Err(OverlongContractName::TokenTransferRecipient);
+        }
+        TransactionPayload::ContractCall(call) if call.function_args.iter().any(has_overlong) => {
+            return Err(OverlongContractName::ContractCallArgument);
+        }
+        TransactionPayload::Coinbase(_, Some(recipient), _)
+            if recipient.has_overlong_contract_name() =>
+        {
+            return Err(OverlongContractName::CoinbaseRecipient);
+        }
+        _ => {}
+    }
+
+    if post_conditions.iter().any(|pc| {
+        matches!(
+            pc,
+            TransactionPostCondition::Nonfungible(_, _, value, _)
+                if has_overlong(value)
+        )
+    }) {
+        return Err(OverlongContractName::NonfungiblePostCondition);
+    }
+
     Ok(())
 }
 

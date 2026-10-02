@@ -548,6 +548,24 @@ impl StacksEpochId {
         self >= &StacksEpochId::Epoch41
     }
 
+    /// Whether contract names longer than 40 bytes (`CONTRACT_MAX_NAME_LENGTH`) are
+    /// rejected wherever a new Clarity value can enter the VM.
+    ///
+    /// Before this epoch, contract principals *inside Clarity values* could carry
+    /// names up to 128 bytes (`MAX_STRING_LEN`), even though deployed contracts are
+    /// limited to 40. From Epoch 4.1, `from-consensus-buff?` and transaction
+    /// arguments reject such names, and `principal-destruct?` rejects them.
+    /// Values already stored in chainstate remain readable.
+    pub fn enforces_contract_name_length_limit(&self) -> bool {
+        self >= &StacksEpochId::Epoch41
+    }
+
+    /// Whether `concat` fails the transaction with `ValueTooLarge` when it would
+    /// build a buffer or string larger than `MAX_VALUE_SIZE`.
+    pub fn checks_concat_result_size(&self) -> bool {
+        self >= &StacksEpochId::Epoch41
+    }
+
     pub fn supports_specific_budget_extends(&self) -> bool {
         self >= &StacksEpochId::Epoch33
     }
