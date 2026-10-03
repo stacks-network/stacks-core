@@ -21,6 +21,7 @@ use clarity::vm::costs::{
     DefaultVersion, ExecutionCost, LimitedCostTracker, COSTS_1_NAME, COSTS_2_NAME, COSTS_3_NAME,
     COSTS_4_NAME,
 };
+use clarity::vm::database::ClarityExecutionCache;
 use clarity::vm::errors::VmExecutionError;
 use clarity::vm::events::StacksTransactionEvent;
 use clarity::vm::functions::NativeFunctions;
@@ -1318,4 +1319,61 @@ fn test_cost_change() {
     });
 
     assert_eq!(result_33_large, result_33_small);
+}
+
+/// A callee served from the contract cache must be charged the same `LoadContract` cost as one
+/// read from the store: the first call fills the cache, the second is served from it.
+#[test]
+fn contract_call_cost_unchanged_by_contract_cache() {
+    let epoch = StacksEpochId::Epoch40;
+    let Value::Principal(PrincipalData::Standard(sender)) =
+        execute("'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR")
+    else {
+        panic!("Expected a standard principal data");
+    };
+    let callee_id =
+        QualifiedContractIdentifier::new(sender.clone(), ContractName::from_literal("callee"));
+    let caller_id =
+        QualifiedContractIdentifier::new(sender.clone(), ContractName::from_literal("caller"));
+    let callee = "(define-constant PAD 0x0102030405060708) (define-public (f) (ok u1))";
+    let caller = "(define-public (execute)
+        (begin (try! (contract-call? .callee f)) (contract-call? .callee f)))";
+
+    let run = |use_cache: bool| {
+        let (mut clarity_instance, mut tip, mut block_id_byte) =
+            new_cost_test_clarity_instance(false);
+        setup_cost_test_epochs_through(&mut clarity_instance, &mut tip, &mut block_id_byte, epoch);
+        let mut marf_kv = clarity_instance.destroy();
+        let burn_state_db = generate_test_burn_state_db(epoch);
+        let final_block = next_test_block_id(&mut block_id_byte);
+        let mut store = marf_kv.begin(&tip, &final_block);
+        let mut cache = ClarityExecutionCache::default();
+        let mut db = store.as_clarity_db(&TEST_HEADER_DB, &burn_state_db);
+        if use_cache {
+            db = db.with_cache(&mut cache);
+        }
+        let mut owned_env = OwnedEnvironment::new_max_limit(db, epoch, false);
+        owned_env
+            .initialize_contract(callee_id.clone(), callee, None)
+            .unwrap();
+        owned_env
+            .initialize_contract(caller_id.clone(), caller, None)
+            .unwrap();
+
+        let before = owned_env.get_cost_total();
+        let (result, _, _) = execute_transaction(
+            &mut owned_env,
+            sender.clone().into(),
+            &caller_id,
+            "execute",
+            &[],
+        )
+        .unwrap();
+        assert_eq!(result, Value::okay(Value::UInt(1)).unwrap());
+        let mut cost = owned_env.get_cost_total();
+        cost.sub(&before).unwrap();
+        cost
+    };
+
+    assert_eq!(run(true), run(false));
 }

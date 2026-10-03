@@ -1,0 +1,1 @@
+`ClarityDatabase` now caches the stored Clarity epoch version instead of reading it from the MARF on every map, variable and set operation, and a contract-call that misses the contract cache no longer reads the contract size twice. Charged costs are unchanged.
