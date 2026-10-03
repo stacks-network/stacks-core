@@ -60,6 +60,29 @@ pub const MAX_TO_ASCII_BUFFER_LEN: u32 = (MAX_TO_ASCII_RESULT_LEN - 2) / 2;
 pub const MAX_TYPE_DEPTH: u8 = 32;
 /// this is the charged size for wrapped values, i.e., response or optionals
 pub const WRAPPER_VALUE_SIZE: u32 = 1;
+/// Size of an Int or UInt value (i128 = 16 bytes)
+pub const INT_SIZE: u32 = std::mem::size_of::<i128>() as u32;
+/// Size of a Bool value
+pub const BOOL_SIZE: u32 = 1;
+/// Size charged for a `NoType` value.
+pub const NO_TYPE_SIZE: u32 = 1;
+/// Pessimistic upper-bound size of a principal value.
+///
+/// 20 bytes (Hash160) + 128 bytes ([`MAX_STRING_LEN`](crate::representations::MAX_STRING_LEN)).
+///
+/// Note: contract names are actually limited to 40 bytes
+/// ([`CONTRACT_MAX_NAME_LENGTH`](crate::representations::CONTRACT_MAX_NAME_LENGTH)),
+/// but this constant conservatively uses the general `ClarityName` max of 128.
+/// Changing this would be consensus-breaking.
+pub const PRINCIPAL_SIZE: u32 = 148;
+/// Pessimistic upper-bound size of a trait reference.
+///
+/// [`PRINCIPAL_SIZE`] + 128 bytes for the trait name.
+pub const TRAIT_SIZE: u32 = PRINCIPAL_SIZE + 128;
+/// Length prefix size for sequences (buffer, string)
+pub const SEQUENCE_LENGTH_PREFIX: u32 = 4;
+/// Size of a single UTF8 character (4 bytes)
+pub const UTF8_CHAR_SIZE: u32 = 4;
 /// Maximum byte length for Value string representations in error messages.
 /// Deliberately smaller than `MAX_ERROR_MESSAGE_LEN` so a rendered value
 /// cannot eat the whole message budget.
@@ -913,7 +936,7 @@ impl SequencedValue<Vec<u8>> for UTF8Data {
     fn type_signature(&self) -> std::result::Result<TypeSignature, ClarityTypeError> {
         let str_len = StringUTF8Length::try_from(self.data.len()).map_err(|_| {
             ClarityTypeError::InvariantViolation(
-                "ERROR: Too large of a buffer successfully constructed.".into(),
+                "ERROR: too large of a buffer successfully constructed.".into(),
             )
         })?;
         Ok(TypeSignature::SequenceType(SequenceSubtype::StringType(
@@ -1865,14 +1888,8 @@ impl TupleData {
         mut base: TupleData,
         updates: TupleData,
     ) -> Result<TupleData, ClarityTypeError> {
-        let TupleData {
-            data_map,
-            mut type_signature,
-        } = updates;
-        for (name, value) in data_map.into_iter() {
-            base.data_map.insert(name, value);
-        }
-        base.type_signature.shallow_merge(&mut type_signature)?;
+        base.data_map.extend(updates.data_map);
+        base.type_signature = base.type_signature.shallow_merge(updates.type_signature)?;
         Ok(base)
     }
 }

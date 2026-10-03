@@ -24,9 +24,11 @@ use stacks_common::types::StacksEpochId;
 
 use crate::representations::{CONTRACT_MAX_NAME_LENGTH, ClarityName, ContractName};
 use crate::types::{
-    CharType, ClarityTypeError, MAX_TO_ASCII_BUFFER_LEN, MAX_TO_ASCII_RESULT_LEN, MAX_TYPE_DEPTH,
-    MAX_UTF8_VALUE_SIZE, MAX_VALUE_SIZE, PrincipalData, QualifiedContractIdentifier, SequenceData,
-    SequencedValue, StandardPrincipalData, TraitIdentifier, Value, WRAPPER_VALUE_SIZE,
+    BOOL_SIZE, CharType, ClarityTypeError, INT_SIZE, MAX_TO_ASCII_BUFFER_LEN,
+    MAX_TO_ASCII_RESULT_LEN, MAX_TYPE_DEPTH, MAX_UTF8_VALUE_SIZE, MAX_VALUE_SIZE, NO_TYPE_SIZE,
+    PRINCIPAL_SIZE, PrincipalData, QualifiedContractIdentifier, SEQUENCE_LENGTH_PREFIX,
+    SequenceData, SequencedValue, StandardPrincipalData, TRAIT_SIZE, TraitIdentifier,
+    UTF8_CHAR_SIZE, Value, WRAPPER_VALUE_SIZE,
 };
 
 #[derive(Debug, Clone, PartialEq, PartialOrd, Eq, Serialize, Deserialize, Hash)]
@@ -65,10 +67,29 @@ impl AssetIdentifier {
     }
 }
 
-#[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, PartialEq, Eq, Serialize)]
 pub struct TupleTypeSignature {
-    #[serde(with = "tuple_type_map_serde")]
+    #[serde(serialize_with = "tuple_type_map_serde::serialize")]
     type_map: Arc<BTreeMap<ClarityName, TypeSignature>>,
+    /// Value size, computed at construction time.
+    #[serde(skip)]
+    size: u32,
+}
+
+/// Custom deserializer for [`TupleTypeSignature`].
+///
+/// [`TupleTypeSignature::size`] is not serialized: it is recomputed from the type map on
+/// deserialization. This avoids trusting an untrusted value for a field used in
+/// [`MAX_VALUE_SIZE`] enforcement.
+impl<'de> Deserialize<'de> for TupleTypeSignature {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        #[derive(Deserialize)]
+        struct Raw {
+            type_map: BTreeMap<ClarityName, TypeSignature>,
+        }
+        let raw = Raw::deserialize(deserializer)?;
+        TupleTypeSignature::try_from(raw.type_map).map_err(serde::de::Error::custom)
+    }
 }
 
 mod tuple_type_map_serde {
@@ -76,7 +97,7 @@ mod tuple_type_map_serde {
     use std::ops::Deref;
     use std::sync::Arc;
 
-    use serde::{Deserializer, Serializer};
+    use serde::Serializer;
 
     use super::TypeSignature;
     use crate::representations::ClarityName;
@@ -86,16 +107,6 @@ mod tuple_type_map_serde {
         ser: S,
     ) -> Result<S::Ok, S::Error> {
         serde::Serialize::serialize(map.deref(), ser)
-    }
-
-    pub fn deserialize<'de, D>(
-        deser: D,
-    ) -> Result<Arc<BTreeMap<ClarityName, TypeSignature>>, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        let map: BTreeMap<ClarityName, TypeSignature> = serde::Deserialize::deserialize(deser)?;
-        Ok(Arc::new(map))
     }
 }
 
@@ -261,6 +272,12 @@ impl TryFrom<i128> for StringUTF8Length {
     }
 }
 
+/// Width of the enum discriminant in a type signature.
+const TYPE_ENUM_SIZE: u32 = 1;
+/// Width of the length field a sequence type signature carries: `max_len` for lists, the
+/// length bound for buffers and strings.
+const TYPE_LENGTH_FIELD_SIZE: u32 = 4;
+
 // INVARIANTS enforced by the Type Signatures.
 //   1. A TypeSignature constructor will always fail rather than construct a
 //        type signature for a too large or invalid type. This is why any variable length
@@ -335,10 +352,30 @@ use self::TypeSignature::{
     ResponseType, SequenceType, TraitReferenceType, TupleType, UIntType,
 };
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct ListTypeData {
     max_len: u32,
     entry_type: Box<TypeSignature>,
+    /// Value size, computed at construction time.
+    #[serde(skip)]
+    size: u32,
+}
+
+/// Custom deserializer for [`ListTypeData`].
+///
+/// [`ListTypeData::size`] is not serialized: it is recomputed from
+/// [`ListTypeData::max_len`] and [`ListTypeData::entry_type`] on deserialization. This avoids
+/// trusting an untrusted value for a field used in [`MAX_VALUE_SIZE`] enforcement.
+impl<'de> Deserialize<'de> for ListTypeData {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        #[derive(Deserialize)]
+        struct Raw {
+            max_len: u32,
+            entry_type: Box<TypeSignature>,
+        }
+        let raw = Raw::deserialize(deserializer)?;
+        Self::new_list(*raw.entry_type, raw.max_len).map_err(serde::de::Error::custom)
+    }
 }
 
 impl From<ListTypeData> for TypeSignature {
@@ -363,30 +400,39 @@ impl ListTypeData {
             return Err(ClarityTypeError::TypeSignatureTooDeep);
         }
 
-        let list_data = ListTypeData {
+        // `compute_inner_size` already returns `None` when the size exceeds `MAX_VALUE_SIZE`.
+        let size = Self::compute_inner_size(&entry_type, max_len)?
+            .ok_or(ClarityTypeError::ValueTooLarge)?;
+        Ok(ListTypeData {
             entry_type: Box::new(entry_type),
             max_len,
-        };
-        let would_be_size = list_data
-            .inner_size()?
-            .ok_or(ClarityTypeError::ValueTooLarge)?;
-        if would_be_size > MAX_VALUE_SIZE {
-            Err(ClarityTypeError::ValueTooLarge)
-        } else {
-            Ok(list_data)
-        }
+            size,
+        })
     }
 
     pub fn destruct(self) -> (TypeSignature, u32) {
         (*self.entry_type, self.max_len)
     }
 
-    // if checks like as-max-len pass, they may _reduce_
-    //   but should not increase the type signatures max length
-    pub fn reduce_max_len(&mut self, new_max_len: u32) {
+    /// if checks like `as-max-len` pass, they may _reduce_
+    /// but should not increase the type signatures max length
+    ///
+    /// The error branch is unreachable: `max_len` only ever shrinks, `entry_type` is
+    /// unchanged, and the list was already valid at construction, so the recomputed size is
+    /// necessarily `<=` the old one and cannot overflow. It is reported as an
+    /// `InvariantViolation` rather than `ValueTooLarge` because reaching it would mean the
+    /// construction invariant itself broke.
+    pub fn reduce_max_len(&mut self, new_max_len: u32) -> Result<(), ClarityTypeError> {
         if new_max_len <= self.max_len {
+            self.size =
+                Self::compute_inner_size(&self.entry_type, new_max_len)?.ok_or_else(|| {
+                    ClarityTypeError::InvariantViolation(
+                        "reduce_max_len produced a list whose size overflows".into(),
+                    )
+                })?;
             self.max_len = new_max_len;
         }
+        Ok(())
     }
 
     pub fn get_max_len(&self) -> u32 {
@@ -652,9 +698,11 @@ impl TypeSignature {
     pub fn canonicalize_v2_1(&self) -> TypeSignature {
         match self {
             SequenceType(SequenceSubtype::ListType(list_type)) => {
+                // Canonicalization is size-preserving, so the cached size carries over unchanged.
                 SequenceType(SequenceSubtype::ListType(ListTypeData {
                     max_len: list_type.max_len,
                     entry_type: Box::new(list_type.entry_type.canonicalize_v2_1()),
+                    size: list_type.size,
                 }))
             }
             OptionalType(inner_type) => OptionalType(Box::new(inner_type.canonicalize_v2_1())),
@@ -667,8 +715,10 @@ impl TypeSignature {
                 for (field_name, field_type) in tuple_sig.get_type_map() {
                     canonicalized_fields.insert(field_name.clone(), field_type.canonicalize_v2_1());
                 }
+                // Canonicalization is size-preserving, so the cached size carries over.
                 TypeSignature::from(TupleTypeSignature {
                     type_map: Arc::new(canonicalized_fields),
+                    size: tuple_sig.size,
                 })
             }
             TraitReferenceType(trait_id) => CallableType(CallableSubtype::Trait(trait_id.clone())),
@@ -754,16 +804,12 @@ impl TryFrom<BTreeMap<ClarityName, TypeSignature>> for TupleTypeSignature {
                 return Err(ClarityTypeError::TypeSignatureTooDeep);
             }
         }
-        let type_map = Arc::new(type_map.into_iter().collect());
-        let result = TupleTypeSignature { type_map };
-        let would_be_size = result
-            .inner_size()?
-            .ok_or(ClarityTypeError::ValueTooLarge)?;
-        if would_be_size > MAX_VALUE_SIZE {
-            Err(ClarityTypeError::ValueTooLarge)
-        } else {
-            Ok(result)
-        }
+        // `compute_inner_size` already returns `None` when the size exceeds `MAX_VALUE_SIZE`.
+        let size = Self::compute_inner_size(&type_map)?.ok_or(ClarityTypeError::ValueTooLarge)?;
+        Ok(TupleTypeSignature {
+            type_map: Arc::new(type_map),
+            size,
+        })
     }
 }
 
@@ -810,14 +856,17 @@ impl TupleTypeSignature {
 
     /// Merge `update`'s fields into `self`, rejecting a merged tuple whose value size
     /// exceeds [`MAX_VALUE_SIZE`] with [`ClarityTypeError::ValueTooLarge`].
+    /// Consumes both tuples and returns the merged one.
     pub fn shallow_merge(
-        &mut self,
-        update: &mut TupleTypeSignature,
-    ) -> Result<(), ClarityTypeError> {
+        mut self,
+        mut update: TupleTypeSignature,
+    ) -> Result<Self, ClarityTypeError> {
         Arc::make_mut(&mut self.type_map).append(Arc::make_mut(&mut update.type_map));
-        // inner_size() returns Ok(None) exactly when the tuple is oversized.
-        self.inner_size()?.ok_or(ClarityTypeError::ValueTooLarge)?;
-        Ok(())
+        // Derived from the merged map, so the merge has to happen first: that ordering is why
+        // this method consumes its operands rather than borrowing them.
+        self.size =
+            Self::compute_inner_size(&self.type_map)?.ok_or(ClarityTypeError::ValueTooLarge)?;
+        Ok(self)
     }
 }
 
@@ -997,8 +1046,12 @@ impl TypeSignature {
     ) -> Result<TypeSignature, ClarityTypeError> {
         match (a, b) {
             (
-                TupleType(TupleTypeSignature { type_map: types_a }),
-                TupleType(TupleTypeSignature { type_map: types_b }),
+                TupleType(TupleTypeSignature {
+                    type_map: types_a, ..
+                }),
+                TupleType(TupleTypeSignature {
+                    type_map: types_b, ..
+                }),
             ) => {
                 let mut type_map_out = BTreeMap::new();
                 for (name, entry_a) in types_a.iter() {
@@ -1017,10 +1070,12 @@ impl TypeSignature {
                 SequenceType(SequenceSubtype::ListType(ListTypeData {
                     max_len: len_a,
                     entry_type: entry_a,
+                    ..
                 })),
                 SequenceType(SequenceSubtype::ListType(ListTypeData {
                     max_len: len_b,
                     entry_type: entry_b,
+                    ..
                 })),
             ) => {
                 let entry_type = if *len_a == 0 {
@@ -1106,8 +1161,12 @@ impl TypeSignature {
     ) -> Result<TypeSignature, ClarityTypeError> {
         match (a, b) {
             (
-                TupleType(TupleTypeSignature { type_map: types_a }),
-                TupleType(TupleTypeSignature { type_map: types_b }),
+                TupleType(TupleTypeSignature {
+                    type_map: types_a, ..
+                }),
+                TupleType(TupleTypeSignature {
+                    type_map: types_b, ..
+                }),
             ) => {
                 let mut type_map_out = BTreeMap::new();
                 for (name, entry_a) in types_a.iter() {
@@ -1126,10 +1185,12 @@ impl TypeSignature {
                 SequenceType(SequenceSubtype::ListType(ListTypeData {
                     max_len: len_a,
                     entry_type: entry_a,
+                    ..
                 })),
                 SequenceType(SequenceSubtype::ListType(ListTypeData {
                     max_len: len_b,
                     entry_type: entry_b,
+                    ..
                 })),
             ) => {
                 let entry_type = if *len_a == 0 {
@@ -1251,11 +1312,15 @@ impl TypeSignature {
         ListTypeData::new_list(item_type, max_len).map(|x| x.into())
     }
 
+    /// The type of the empty list, `(list 0 NoType)`.
+    ///
+    /// Built through [`ListTypeData::new_list`] so the size computation stays in one place
+    /// rather than being duplicated as a literal here. The `expect` is unreachable and takes
+    /// no inputs, so it cannot vary by caller: `NoType` has depth 0 and the resulting size is
+    /// a fixed 6 bytes.
     pub fn empty_list() -> ListTypeData {
-        ListTypeData {
-            entry_type: Box::new(TypeSignature::NoType),
-            max_len: 0,
-        }
+        ListTypeData::new_list(TypeSignature::NoType, 0)
+            .expect("infallible: the empty list is always valid")
     }
 
     pub fn type_of(x: &Value) -> Result<TypeSignature, ClarityTypeError> {
@@ -1333,12 +1398,16 @@ impl TypeSignature {
     }
 }
 
-/// These implement the size calculations in TypeSignatures
-///    in constructors of TypeSignatures, only `.inner_size()` may be called.
-///    .inner_size is a failable method to compute the size of the type signature,
-///    Failures indicate that a type signature represents _too large_ of a value.
-/// TypeSignature constructors will fail instead of constructing such a type.
-///   because of this, the public interface to size is infallible.
+/// These implement the size calculations in TypeSignatures.
+///
+/// Constructors compute the size through the associated `compute_inner_size` functions, which
+/// do not need a constructed value. Those are failable: a failure means the type signature
+/// would represent a _too large_ value, and the constructor fails instead of building it.
+///
+/// Because a constructed tuple or list therefore always has a valid size, it is cached at
+/// construction and [`TupleTypeSignature::size`] / [`ListTypeData::size`] return it
+/// infallibly. [`TypeSignature::size`] stays failable: the wrapper variants it composes
+/// (`Optional`, `Response`) can still overflow when summed.
 impl TypeSignature {
     pub fn depth(&self) -> u8 {
         // unlike inner_size, depth will never threaten to overflow,
@@ -1366,7 +1435,7 @@ impl TypeSignature {
     }
 
     pub fn size(&self) -> Result<u32, ClarityTypeError> {
-        self.inner_size()?.ok_or_else(|| {
+        self.inner_size().ok_or_else(|| {
             ClarityTypeError::InvariantViolation(
                 "FAIL: .size() overflowed on too large of a type. Construction should have failed!"
                     .into(),
@@ -1374,37 +1443,40 @@ impl TypeSignature {
         })
     }
 
-    fn inner_size(&self) -> Result<Option<u32>, ClarityTypeError> {
-        let out = match self {
+    fn inner_size(&self) -> Option<u32> {
+        match self {
             // NoType's may be asked for their size at runtime --
             //  legal constructions like `(ok 1)` have NoType parts (if they have unknown error variant types).
-            NoType => Some(1),
-            IntType => Some(16),
-            UIntType => Some(16),
-            BoolType => Some(1),
-            PrincipalType => Some(148), // 20+128
-            TupleType(tuple_sig) => tuple_sig.inner_size()?,
+            NoType => Some(NO_TYPE_SIZE),
+            IntType | UIntType => Some(INT_SIZE),
+            BoolType => Some(BOOL_SIZE),
+            PrincipalType => Some(PRINCIPAL_SIZE),
+            // Cached at construction; never oversized (see the note above this impl).
+            TupleType(tuple_sig) => Some(tuple_sig.size()),
             SequenceType(SequenceSubtype::BufferType(len))
             | SequenceType(SequenceSubtype::StringType(StringSubtype::ASCII(len))) => {
-                Some(4 + u32::from(len))
+                SEQUENCE_LENGTH_PREFIX.checked_add(u32::from(len))
             }
-            SequenceType(SequenceSubtype::ListType(list_type)) => list_type.inner_size()?,
+            // Cached at construction; never oversized (see the note above this impl).
+            SequenceType(SequenceSubtype::ListType(list_type)) => Some(list_type.size()),
             SequenceType(SequenceSubtype::StringType(StringSubtype::UTF8(len))) => {
-                Some(4 + 4 * u32::from(len))
+                // seq_prefix + char_size * len
+                UTF8_CHAR_SIZE
+                    .checked_mul(u32::from(len))?
+                    .checked_add(SEQUENCE_LENGTH_PREFIX)
             }
-            OptionalType(t) => t.size()?.checked_add(WRAPPER_VALUE_SIZE),
+            OptionalType(t) => t.inner_size()?.checked_add(WRAPPER_VALUE_SIZE),
             ResponseType(v) => {
-                // ResponseTypes are 1 byte for the committed bool,
+                // ResponseTypes charge WRAPPER_VALUE_SIZE for the `committed` discriminant,
                 //   plus max(err_type, ok_type)
                 let (t, s) = (&v.0, &v.1);
-                let t_size = t.size()?;
-                let s_size = s.size()?;
+                let t_size = t.inner_size()?;
+                let s_size = s.inner_size()?;
                 cmp::max(t_size, s_size).checked_add(WRAPPER_VALUE_SIZE)
             }
-            CallableType(CallableSubtype::Principal(_)) | ListUnionType(_) => Some(148), // 20+128
-            CallableType(CallableSubtype::Trait(_)) | TraitReferenceType(_) => Some(276), // 20+128+128
-        };
-        Ok(out)
+            CallableType(CallableSubtype::Principal(_)) | ListUnionType(_) => Some(PRINCIPAL_SIZE),
+            CallableType(CallableSubtype::Trait(_)) | TraitReferenceType(_) => Some(TRAIT_SIZE),
+        }
     }
 
     pub fn type_size(&self) -> Result<u32, ClarityTypeError> {
@@ -1417,27 +1489,32 @@ impl TypeSignature {
         match self {
             // NoType's may be asked for their size at runtime --
             //  legal constructions like `(ok 1)` have NoType parts (if they have unknown error variant types).
-            // These types all only use ~1 byte for their type enum
-            NoType | IntType | UIntType | BoolType | PrincipalType => Some(1),
-            // u32 length + type enum
+            // These types carry no payload, so they cost only their discriminant.
+            NoType | IntType | UIntType | BoolType | PrincipalType => Some(TYPE_ENUM_SIZE),
             TupleType(tuple_sig) => tuple_sig.type_size(),
-            SequenceType(SequenceSubtype::BufferType(_)) => Some(1 + 4),
+            SequenceType(SequenceSubtype::BufferType(_)) => {
+                Some(TYPE_ENUM_SIZE + TYPE_LENGTH_FIELD_SIZE)
+            }
             SequenceType(SequenceSubtype::ListType(list_type)) => list_type.type_size(),
-            SequenceType(SequenceSubtype::StringType(StringSubtype::ASCII(_))) => Some(1 + 4),
-            SequenceType(SequenceSubtype::StringType(StringSubtype::UTF8(_))) => Some(1 + 4),
-            OptionalType(t) => t.inner_type_size()?.checked_add(1),
+            SequenceType(SequenceSubtype::StringType(StringSubtype::ASCII(_))) => {
+                Some(TYPE_ENUM_SIZE + TYPE_LENGTH_FIELD_SIZE)
+            }
+            SequenceType(SequenceSubtype::StringType(StringSubtype::UTF8(_))) => {
+                Some(TYPE_ENUM_SIZE + TYPE_LENGTH_FIELD_SIZE)
+            }
+            OptionalType(t) => t.inner_type_size()?.checked_add(TYPE_ENUM_SIZE),
             ResponseType(v) => {
                 let (t, s) = (&v.0, &v.1);
                 t.inner_type_size()?
                     .checked_add(s.inner_type_size()?)?
-                    .checked_add(1)
+                    .checked_add(TYPE_ENUM_SIZE)
             }
-            CallableType(_) | TraitReferenceType(_) | ListUnionType(_) => Some(1),
+            CallableType(_) | TraitReferenceType(_) | ListUnionType(_) => Some(TYPE_ENUM_SIZE),
         }
     }
 
     pub fn min_size(&self) -> Result<u32, ClarityTypeError> {
-        self.inner_min_size()?.ok_or_else(|| {
+        self.inner_min_size().ok_or_else(|| {
             ClarityTypeError::InvariantViolation(
                 "FAIL: .min_size() overflowed on too large of a type. Construction should have failed!"
                     .into(),
@@ -1445,56 +1522,74 @@ impl TypeSignature {
         })
     }
 
-    fn inner_min_size(&self) -> Result<Option<u32>, ClarityTypeError> {
-        let out = match self {
+    fn inner_min_size(&self) -> Option<u32> {
+        match self {
             // NoType's may be asked for their size at runtime --
             //  legal constructions like `(ok 1)` have NoType parts (if they have unknown error variant types).
-            NoType => Some(1),
-            IntType => Some(16),
-            UIntType => Some(16),
-            BoolType => Some(1),
-            TupleType(tuple_sig) => tuple_sig.inner_min_size()?,
+            NoType => Some(NO_TYPE_SIZE),
+            IntType | UIntType => Some(INT_SIZE),
+            BoolType => Some(BOOL_SIZE),
+            TupleType(tuple_sig) => tuple_sig.inner_min_size(),
             SequenceType(SequenceSubtype::BufferType(_))
-            | SequenceType(SequenceSubtype::StringType(StringSubtype::ASCII(_))) => Some(4),
+            | SequenceType(SequenceSubtype::StringType(StringSubtype::ASCII(_))) => {
+                Some(SEQUENCE_LENGTH_PREFIX)
+            }
             // Minimal list value is an empty list, which still carries list type metadata.
             SequenceType(SequenceSubtype::ListType(list_type)) => list_type.type_size(),
-            SequenceType(SequenceSubtype::StringType(StringSubtype::UTF8(_))) => Some(4),
+            SequenceType(SequenceSubtype::StringType(StringSubtype::UTF8(_))) => {
+                Some(SEQUENCE_LENGTH_PREFIX)
+            }
             // Optional types always admit `none`, so minimum size is fixed:
             // 1 byte for NoType plus wrapper.
-            OptionalType(_) => Some(WRAPPER_VALUE_SIZE + 1),
+            OptionalType(_) => Some(WRAPPER_VALUE_SIZE + NO_TYPE_SIZE),
             ResponseType(v) => {
                 // ResponseTypes are 1 byte for the committed bool,
                 //   plus min(err_type, ok_type)
                 let (t, s) = (&v.0, &v.1);
-                let t_size = t.min_size()?;
-                let s_size = s.min_size()?;
+                let t_size = t.inner_min_size()?;
+                let s_size = s.inner_min_size()?;
                 cmp::min(t_size, s_size).checked_add(WRAPPER_VALUE_SIZE)
             }
             PrincipalType | CallableType(CallableSubtype::Principal(_)) | ListUnionType(_) => {
                 // The actual value size is not computed for these types, so we need to just always
                 // return the size that `size()` returns for them, which is the maximum size of a
                 // contract principal with a 128 byte contract name.
-                Some(148)
+                Some(PRINCIPAL_SIZE)
             }
             CallableType(CallableSubtype::Trait(_)) | TraitReferenceType(_) => {
                 // The actual value size is not computed for these types, so we need to just always
                 // return the size that `size()` returns for them, which is the maximum size of a
                 // trait reference with a 128 byte contract name and 128 byte trait name.
-                Some(276)
+                Some(TRAIT_SIZE)
             }
-        };
-        Ok(out)
+        }
     }
 }
 
 impl ListTypeData {
+    /// Returns the cached value size, computed at construction time.
+    pub fn size(&self) -> u32 {
+        self.size
+    }
+
+    /// Type-signature size of this list instance.
+    fn type_size(&self) -> Option<u32> {
+        Self::compute_type_size(&self.entry_type)
+    }
+
+    /// Compute the value size of a list from its entry type and max length.
+    ///
     /// List Size: type_signature_size + max_len * entry_type.size()
-    fn inner_size(&self) -> Result<Option<u32>, ClarityTypeError> {
-        let total_size = self
-            .entry_type
+    ///
+    /// Returns `Ok(None)` when the result overflows or exceeds [`MAX_VALUE_SIZE`].
+    fn compute_inner_size(
+        entry_type: &TypeSignature,
+        max_len: u32,
+    ) -> Result<Option<u32>, ClarityTypeError> {
+        let total_size = entry_type
             .size()?
-            .checked_mul(self.max_len)
-            .and_then(|x| x.checked_add(self.type_size()?));
+            .checked_mul(max_len)
+            .and_then(|x| x.checked_add(Self::compute_type_size(entry_type)?));
         match total_size {
             Some(total_size) => {
                 if total_size > MAX_VALUE_SIZE {
@@ -1507,8 +1602,11 @@ impl ListTypeData {
         }
     }
 
-    fn type_size(&self) -> Option<u32> {
-        let total_size = self.entry_type.inner_type_size()?.checked_add(4 + 1)?; // 1 byte for Type enum, 4 for max_len.
+    /// Compute the type-signature size of a list from its entry type.
+    fn compute_type_size(entry_type: &TypeSignature) -> Option<u32> {
+        let total_size = entry_type
+            .inner_type_size()?
+            .checked_add(TYPE_LENGTH_FIELD_SIZE + TYPE_ENUM_SIZE)?;
         if total_size > MAX_VALUE_SIZE {
             None
         } else {
@@ -1518,12 +1616,19 @@ impl ListTypeData {
 }
 
 impl TupleTypeSignature {
+    /// Type-signature size of this tuple instance.
+    pub fn type_size(&self) -> Option<u32> {
+        Self::compute_type_size(&self.type_map)
+    }
+
+    /// Compute the type-signature size of a tuple from its type map.
+    ///
     /// Tuple Size:
     ///    size( btreemap<name, type> ) = 2*map.len() + sum(names) + sum(values)
-    pub fn type_size(&self) -> Option<u32> {
-        let mut type_map_size = u32::try_from(self.type_map.len()).ok()?.checked_mul(2)?;
+    fn compute_type_size(type_map: &BTreeMap<ClarityName, TypeSignature>) -> Option<u32> {
+        let mut type_map_size = u32::try_from(type_map.len()).ok()?.checked_mul(2)?;
 
-        for (name, type_signature) in self.type_map.iter() {
+        for (name, type_signature) in type_map.iter() {
             // we only accept ascii names, so 1 char = 1 byte.
             type_map_size = type_map_size
                 .checked_add(type_signature.inner_type_size()?)?
@@ -1538,10 +1643,9 @@ impl TupleTypeSignature {
         }
     }
 
-    pub fn size(&self) -> Result<u32, ClarityTypeError> {
-        self.inner_size()?.ok_or_else(|| {
-            ClarityTypeError::InvariantViolation("size() overflowed on a constructed type.".into())
-        })
+    /// Returns the cached value size, computed at construction time.
+    pub fn size(&self) -> u32 {
+        self.size
     }
 
     fn max_depth(&self) -> u8 {
@@ -1552,19 +1656,25 @@ impl TupleTypeSignature {
         max
     }
 
+    /// Compute the value size of a tuple from its type map.
+    ///
     /// Tuple Size:
     ///    size( btreemap<name, value> ) + type_size
     ///    size( btreemap<name, value> ) = 2*map.len() + sum(names) + sum(values)
-    fn inner_size(&self) -> Result<Option<u32>, ClarityTypeError> {
-        let Some(mut total_size) = u32::try_from(self.type_map.len())
+    ///
+    /// Returns `Ok(None)` when the result overflows or exceeds [`MAX_VALUE_SIZE`].
+    fn compute_inner_size(
+        type_map: &BTreeMap<ClarityName, TypeSignature>,
+    ) -> Result<Option<u32>, ClarityTypeError> {
+        let Some(mut total_size) = u32::try_from(type_map.len())
             .ok()
             .and_then(|x| x.checked_mul(2))
-            .and_then(|x| x.checked_add(self.type_size()?))
+            .and_then(|x| x.checked_add(Self::compute_type_size(type_map)?))
         else {
             return Ok(None);
         };
 
-        for (name, type_signature) in self.type_map.iter() {
+        for (name, type_signature) in type_map.iter() {
             // we only accept ascii names, so 1 char = 1 byte.
             total_size = if let Some(new_size) = total_size.checked_add(type_signature.size()?) {
                 new_size
@@ -1588,32 +1698,20 @@ impl TupleTypeSignature {
     /// Tuple Size:
     ///    size( btreemap<name, value> ) + type_size
     ///    size( btreemap<name, value> ) = 2*map.len() + sum(names) + sum(values)
-    fn inner_min_size(&self) -> Result<Option<u32>, ClarityTypeError> {
-        let Some(mut total_size) = u32::try_from(self.type_map.len())
+    fn inner_min_size(&self) -> Option<u32> {
+        let mut total_size = u32::try_from(self.type_map.len())
             .ok()
             .and_then(|x| x.checked_mul(2))
-            .and_then(|x| x.checked_add(self.type_size()?))
-        else {
-            return Ok(None);
-        };
+            .and_then(|x| x.checked_add(self.type_size()?))?;
         for (name, type_signature) in self.type_map.iter() {
             // we only accept ascii names, so 1 char = 1 byte.
-            total_size = if let Some(new_size) = total_size.checked_add(type_signature.min_size()?)
-            {
-                new_size
-            } else {
-                return Ok(None);
-            };
-            total_size = if let Some(new_size) = total_size.checked_add(name.len() as u32) {
-                new_size
-            } else {
-                return Ok(None);
-            };
+            total_size = total_size.checked_add(type_signature.inner_min_size()?)?;
+            total_size = total_size.checked_add(name.len() as u32)?;
         }
         if total_size > MAX_VALUE_SIZE {
-            Ok(None)
+            None
         } else {
-            Ok(Some(total_size))
+            Some(total_size)
         }
     }
 }
