@@ -49,11 +49,11 @@ impl RPCGetTransactionRequestHandler {
 
 /// Decode the HTTP request
 impl HttpRequest for RPCGetTransactionRequestHandler {
-    fn verb(&self) -> &'static str {
+    fn verb() -> &'static str {
         "GET"
     }
 
-    fn path_regex(&self) -> Regex {
+    fn path_regex() -> Regex {
         Regex::new(r#"^/v3/transaction/(?P<txid>[0-9a-f]{64})$"#).unwrap()
     }
 

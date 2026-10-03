@@ -128,11 +128,11 @@ impl RPCNakamotoBlockSimulateRequestHandler {
 
 /// Decode the HTTP request
 impl HttpRequest for RPCNakamotoBlockSimulateRequestHandler {
-    fn verb(&self) -> &'static str {
+    fn verb() -> &'static str {
         "POST"
     }
 
-    fn path_regex(&self) -> Regex {
+    fn path_regex() -> Regex {
         Regex::new(r#"^/v3/blocks/simulate/(?P<block_id>[0-9a-f]{64})$"#).unwrap()
     }
 

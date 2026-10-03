@@ -60,11 +60,11 @@ impl RPCNakamotoTenureBlocksByHeightRequestHandler {
 
 /// Decode the HTTP request
 impl HttpRequest for RPCNakamotoTenureBlocksByHeightRequestHandler {
-    fn verb(&self) -> &'static str {
+    fn verb() -> &'static str {
         "GET"
     }
 
-    fn path_regex(&self) -> Regex {
+    fn path_regex() -> Regex {
         Regex::new(r#"^/v3/tenures/blocks/height/(?P<burnchain_block_height>\d+)$"#).unwrap()
     }
 

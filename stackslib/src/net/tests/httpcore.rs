@@ -41,8 +41,9 @@ use crate::net::http::{
     HttpVersion,
 };
 use crate::net::httpcore::{
-    send_http_request, HttpPreambleExtensions as _, HttpRequestContentsExtensions as _, StacksHttp,
-    StacksHttpMessage, StacksHttpPreamble, StacksHttpRequest, StacksHttpResponse,
+    send_http_request, HttpPreambleExtensions as _, HttpRequestContentsExtensions as _,
+    RPCRouteTable, StacksHttp, StacksHttpMessage, StacksHttpPreamble, StacksHttpRequest,
+    StacksHttpResponse,
 };
 use crate::net::rpc::ConversationHttp;
 use crate::net::test::{RPCHandlerArgsType, TestPeer, TestPeerConfig};
@@ -189,6 +190,7 @@ fn test_http_request_type_codec() {
         None,
         PeerHost::DNS("localhost".to_string(), 12345),
         &ConnectionOptions::default(),
+        &RPCRouteTable::new(&ConnectionOptions::default()),
         100,
         32,
     );
@@ -1052,6 +1054,7 @@ fn test_metrics_identifiers() {
         None,
         PeerHost::DNS("localhost".to_string(), 12345),
         &ConnectionOptions::default(),
+        &RPCRouteTable::new(&ConnectionOptions::default()),
         100,
         32,
     );
@@ -1401,23 +1404,6 @@ fn parsed_status(message: &StacksHttpMessage) -> u16 {
     }
 }
 
-/// The shared route table must match each connection's own handlers, in order, even when
-/// the connection's settings differ from the defaults the table was built with.
-#[test]
-fn test_rpc_routes_match_per_connection_handlers() {
-    let conn_opts = ConnectionOptions {
-        auth_token: Some("password".into()),
-        maximum_call_argument_size: 123,
-        read_only_call_max_mem_bytes: 456,
-        read_only_max_execution_time_secs: 7,
-        ..ConnectionOptions::default()
-    };
-    let http = StacksHttp::new("127.0.0.1:20443".parse().unwrap(), &conn_opts);
-    let (shared, own) = http.route_patterns();
-    assert!(!shared.is_empty());
-    assert_eq!(shared, own);
-}
-
 /// Connections with different auth tokens must each accept only their own token.
 #[test]
 fn test_rpc_handler_settings_are_per_connection() {
@@ -1449,7 +1435,8 @@ fn test_rpc_handler_settings_are_per_connection() {
 }
 
 /// Handlers hold request state between parsing and handling, so requests on one connection,
-/// including a failed parse that resets its handler, must not affect another's pending request.
+/// including a failed parse that resets its handler, must not affect another's pending request,
+/// even when both connections share a route table.
 #[test]
 fn test_rpc_handler_state_is_per_connection() {
     let mut peer = TestPeer::new(TestPeerConfig::new(function_name!(), 0, 0));
@@ -1468,8 +1455,9 @@ fn test_rpc_handler_state_is_per_connection() {
     );
 
     let addr = "127.0.0.1:20443".parse().unwrap();
-    let mut http_a = StacksHttp::new(addr, &ConnectionOptions::default());
-    let mut http_b = StacksHttp::new(addr, &ConnectionOptions::default());
+    let routes = RPCRouteTable::new(&ConnectionOptions::default());
+    let mut http_a = StacksHttp::with_routes(addr, &routes);
+    let mut http_b = StacksHttp::with_routes(addr, &routes);
 
     let block_a = StacksBlockId([0xaa; 32]);
     let block_b = StacksBlockId([0xbb; 32]);

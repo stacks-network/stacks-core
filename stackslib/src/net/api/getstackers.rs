@@ -105,11 +105,11 @@ impl GetStackersResponse {
 
 /// Decode the HTTP request
 impl HttpRequest for GetStackersRequestHandler {
-    fn verb(&self) -> &'static str {
+    fn verb() -> &'static str {
         "GET"
     }
 
-    fn path_regex(&self) -> Regex {
+    fn path_regex() -> Regex {
         Regex::new(r#"^/v3/stacker_set/(?P<cycle_num>[0-9]{1,10})$"#).unwrap()
     }
 

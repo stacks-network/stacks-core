@@ -87,11 +87,11 @@ pub struct GetTenuresForkInfo {
 
 /// Decode the HTTP request
 impl HttpRequest for GetTenuresForkInfo {
-    fn verb(&self) -> &'static str {
+    fn verb() -> &'static str {
         "GET"
     }
 
-    fn path_regex(&self) -> Regex {
+    fn path_regex() -> Regex {
         Regex::new(&format!(
             r#"^{RPC_TENURE_FORKING_INFO_PATH}/(?P<start>[0-9a-f]{{40}})/(?P<stop>[0-9a-f]{{40}})$"#
         ))

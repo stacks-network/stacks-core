@@ -232,20 +232,6 @@ fn test_analysis_limit_fine_but_execution_limit_too_low() {
     );
 }
 
-/// The read-only RPC memory limit must be threaded from `ConnectionOptions`
-/// into the HTTP server state so the handlers can set the correct budget.
-#[test]
-fn test_read_only_call_max_mem_bytes_threaded_into_http() {
-    let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 0);
-    let conn_opts = ConnectionOptions {
-        read_only_call_max_mem_bytes: 12345,
-        ..Default::default()
-    };
-
-    let http = StacksHttp::new(addr, &conn_opts);
-    assert_eq!(http.read_only_call_max_mem_bytes, 12345);
-}
-
 fn new_call_read_request(addr: SocketAddr, arguments: Vec<String>) -> StacksHttpRequest {
     let contract_addr =
         StacksAddress::from_string("ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R").unwrap();
@@ -318,7 +304,7 @@ fn test_read_only_parse_records_retained_mem() {
         "/v2/contracts/call-read/{}/flood/f",
         StacksAddress::from_string("ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R").unwrap()
     );
-    let path_regex = handler.path_regex();
+    let path_regex = callreadonly::RPCCallReadOnlyRequestHandler::path_regex();
     let captures = path_regex.captures(&path).unwrap();
     handler
         .try_parse_request(&parsed_preamble, &captures, None, &bytes[offset..])

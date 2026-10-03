@@ -88,11 +88,11 @@ impl StacksUnconfirmedMicroblockStream {
 
 /// Decode the HTTP request
 impl HttpRequest for RPCMicroblocksUnconfirmedRequestHandler {
-    fn verb(&self) -> &'static str {
+    fn verb() -> &'static str {
         "GET"
     }
 
-    fn path_regex(&self) -> Regex {
+    fn path_regex() -> Regex {
         Regex::new(r#"^/v2/microblocks/unconfirmed/(?P<parent_block_id>[0-9a-f]{64})/(?P<start_sequence>[0-9]{1,6})$"#).unwrap()
     }
 

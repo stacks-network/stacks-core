@@ -696,16 +696,24 @@ impl Clone for Box<dyn HttpRequest> {
 
 /// Trait that every HTTP round-trip request type must implement
 pub trait HttpRequest: Send + HttpRequestClone {
+    // The verb and path regexes take no `self`, so routes depend only on the handler type.
     /// What is the HTTP verb that this request honors?
-    fn verb(&self) -> &'static str;
+    fn verb() -> &'static str
+    where
+        Self: Sized;
     /// What is the path regex that this request honors?
-    fn path_regex(&self) -> Regex;
+    fn path_regex() -> Regex
+    where
+        Self: Sized;
     /// This regex matches the path structure without strict parameter validation,
     /// allowing the API to return 405 Method Not Allowed when the path exists
     /// but the HTTP method is not supported.
     /// Default implementation returns the same as path_regex().
-    fn path_regex_permissive(&self) -> Regex {
-        self.path_regex()
+    fn path_regex_permissive() -> Regex
+    where
+        Self: Sized,
+    {
+        Self::path_regex()
     }
     /// Decode a request into the contents that this request handler cares about.
     fn try_parse_request(

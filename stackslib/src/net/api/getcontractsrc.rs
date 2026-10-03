@@ -59,11 +59,11 @@ impl RPCGetContractSrcRequestHandler {
 
 /// Decode the HTTP request
 impl HttpRequest for RPCGetContractSrcRequestHandler {
-    fn verb(&self) -> &'static str {
+    fn verb() -> &'static str {
         "GET"
     }
 
-    fn path_regex(&self) -> Regex {
+    fn path_regex() -> Regex {
         Regex::new(&format!(
             "^/v2/contracts/source/(?P<address>{})/(?P<contract>{})$",
             *STANDARD_PRINCIPAL_REGEX_STRING, *CONTRACT_NAME_REGEX_STRING

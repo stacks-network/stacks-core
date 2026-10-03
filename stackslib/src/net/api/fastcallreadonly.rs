@@ -74,11 +74,11 @@ impl RPCFastCallReadOnlyRequestHandler {
 
 /// Decode the HTTP request
 impl HttpRequest for RPCFastCallReadOnlyRequestHandler {
-    fn verb(&self) -> &'static str {
+    fn verb() -> &'static str {
         "POST"
     }
 
-    fn path_regex(&self) -> Regex {
+    fn path_regex() -> Regex {
         Regex::new(&format!(
             "^/v3/contracts/fast-call-read/(?P<address>{})/(?P<contract>{})/(?P<function>{})$",
             *STANDARD_PRINCIPAL_REGEX_STRING, *CONTRACT_NAME_REGEX_STRING, *CLARITY_NAME_REGEX

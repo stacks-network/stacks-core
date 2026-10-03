@@ -18,6 +18,7 @@
 use std::collections::BTreeMap;
 use std::io::{Read, Write};
 use std::net::{SocketAddr, TcpStream, ToSocketAddrs};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 use std::{fmt, io, mem};
 
@@ -84,72 +85,97 @@ fn make_permissive_regex(strict_regex: &Regex) -> Regex {
     Regex::new(&permissive).unwrap_or_else(|_| strict_regex.clone())
 }
 
-/// RPC routes shared by every server-side [`StacksHttp`].
-static RPC_ROUTES: std::sync::LazyLock<Vec<RPCRoute>> = std::sync::LazyLock::new(|| {
-    let mut builder = RPCRoutesBuilder::new();
-    builder.register_rpc_methods();
-    builder.routes
-});
-
-type RPCHandlerConstructor = Box<dyn Fn(&StacksHttp) -> Box<dyn RPCRequestHandler> + Send + Sync>;
-
-/// One RPC endpoint's immutable data, shared by all connections.
-/// Handlers hold request state, so each [`StacksHttp`] builds its own via `new_handler`.
-pub(crate) struct RPCRoute {
+/// One RPC endpoint's verb and path regexes
+#[derive(Debug)]
+struct RPCRoute {
     /// HTTP verb this route serves
     verb: &'static str,
     /// Matches valid request paths and captures their parameters
     path_regex: Regex,
     /// Matches the path without validating parameters, to tell 400/405 apart from 404
     permissive_regex: Regex,
-    /// Builds this route's handler from a connection's settings
-    new_handler: RPCHandlerConstructor,
 }
 
-/// Get a handler's strict and permissive path regexes, generating the permissive one
-/// if the handler doesn't override `path_regex_permissive()`.
-fn route_regexes(handler: &dyn RPCRequestHandler) -> (Regex, Regex) {
-    let path_regex = handler.path_regex();
-    let permissive_regex = handler.path_regex_permissive();
-
-    let permissive_regex = if permissive_regex.as_str() == path_regex.as_str() {
-        make_permissive_regex(&path_regex)
-    } else {
-        permissive_regex
-    };
-    (path_regex, permissive_regex)
+/// The RPC API served by [`StacksHttp`], built once per [`HttpPeer`] from its [`ConnectionOptions`].
+/// Connections share the compiled routes but clone the handlers, which hold per-request state.
+pub struct RPCRouteTable {
+    /// Routes in match order: the first matching route wins
+    routes: Arc<[RPCRoute]>,
+    /// Unused handler for each entry in `routes`, at the same index
+    handlers: Vec<Box<dyn RPCRequestHandler>>,
 }
 
-/// Collects RPC routes. Order matters: the first matching route wins.
+impl RPCRouteTable {
+    /// Build every RPC route, with handlers configured from `conn_opts`
+    pub fn new(conn_opts: &ConnectionOptions) -> Self {
+        let mut builder = RPCRoutesBuilder {
+            routes: vec![],
+            handlers: vec![],
+            maximum_call_argument_size: conn_opts.maximum_call_argument_size,
+            read_only_call_limit: conn_opts.read_only_call_limit.clone(),
+            auth_token: conn_opts.auth_token.clone(),
+            read_only_max_execution_time: Duration::from_secs(
+                conn_opts.read_only_max_execution_time_secs,
+            ),
+            read_only_call_max_mem_bytes: conn_opts.read_only_call_max_mem_bytes,
+        };
+        builder.register_rpc_methods();
+        Self {
+            routes: builder.routes.into(),
+            handlers: builder.handlers,
+        }
+    }
+}
+
+impl fmt::Debug for RPCRouteTable {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        f.debug_struct("RPCRouteTable")
+            .field("routes", &self.routes)
+            .finish_non_exhaustive()
+    }
+}
+
+/// Collects RPC routes and the settings their handlers are built with
 pub(crate) struct RPCRoutesBuilder {
+    /// Routes in registration order
     routes: Vec<RPCRoute>,
-    /// Settings for the throwaway handler used to read each route's verb and regexes
-    defaults: StacksHttp,
+    /// Handler for each entry in `routes`, at the same index
+    handlers: Vec<Box<dyn RPCRequestHandler>>,
+    /// Maximum size of call arguments
+    pub(crate) maximum_call_argument_size: u32,
+    /// Maximum execution budget of a read-only call
+    pub(crate) read_only_call_limit: ExecutionCost,
+    /// The authorization token to enable access to privileged features, such as the block proposal RPC endpoint
+    pub(crate) auth_token: Option<String>,
+    /// Maximum execution time of a read-only call when in zero cost-tracking mode
+    pub(crate) read_only_max_execution_time: Duration,
+    /// Maximum heap allocation for a single read-only call before it is aborted
+    pub(crate) read_only_call_max_mem_bytes: u64,
 }
 
 impl RPCRoutesBuilder {
-    fn new() -> Self {
-        Self {
-            routes: vec![],
-            defaults: StacksHttp::new_client(
-                SocketAddr::from(([127, 0, 0, 1], 0)),
-                &ConnectionOptions::default(),
-            ),
-        }
-    }
-
+    /// Register an API RPC endpoint.
+    /// Auto-generates a permissive regex for 400/404/405 detection
+    /// unless the handler provides its own via path_regex_permissive().
     pub(crate) fn register_rpc_endpoint<Handler: RPCRequestHandler + 'static>(
         &mut self,
-        new_handler: fn(&StacksHttp) -> Handler,
+        handler: Handler,
     ) {
-        let handler = new_handler(&self.defaults);
-        let (path_regex, permissive_regex) = route_regexes(&handler);
+        let path_regex = Handler::path_regex();
+        let permissive_regex = Handler::path_regex_permissive();
+
+        let permissive_regex = if permissive_regex.as_str() == path_regex.as_str() {
+            make_permissive_regex(&path_regex)
+        } else {
+            permissive_regex
+        };
+
         self.routes.push(RPCRoute {
-            verb: handler.verb(),
+            verb: Handler::verb(),
             path_regex,
             permissive_regex,
-            new_handler: Box::new(move |http| Box::new(new_handler(http))),
         });
+        self.handlers.push(Box::new(handler));
     }
 }
 
@@ -1068,56 +1094,23 @@ pub struct StacksHttp {
     /// send a reply, it will be unused.
     request_handler_index: Option<usize>,
     /// RPC routes this state machine serves. Empty for clients.
-    routes: &'static [RPCRoute],
+    routes: Arc<[RPCRoute]>,
     /// This connection's handler for each entry in `routes`, at the same index
     request_handlers: Vec<Box<dyn RPCRequestHandler>>,
-    /// Maximum size of call arguments
-    pub maximum_call_argument_size: u32,
-    /// Maximum execution budget of a read-only call
-    pub read_only_call_limit: ExecutionCost,
-    /// The authorization token to enable access to privileged features, such as the block proposal RPC endpoint
-    pub auth_token: Option<String>,
     /// Allow arbitrary responses to be handled in addition to request handlers
     allow_arbitrary_response: bool,
-    /// Maximum execution time of a read-only call when in zero cost-tracking mode
-    pub read_only_max_execution_time: Duration,
-    /// Maximum heap allocation for a single read-only call before it is aborted
-    pub read_only_call_max_mem_bytes: u64,
 }
 
 impl StacksHttp {
-    /// Create an HTTP protocol state machine that handles the built-in RPC API.
-    /// Used for building the RPC server
+    /// Create an HTTP protocol state machine that handles the built-in RPC API,
+    /// building its own route table
     pub fn new(peer_addr: SocketAddr, conn_opts: &ConnectionOptions) -> StacksHttp {
-        let mut http = StacksHttp {
-            peer_addr,
-            body_start: None,
-            num_preamble_bytes: 0,
-            last_four_preamble_bytes: [0u8; 4],
-            reply: None,
-            request_handler_index: None,
-            routes: RPC_ROUTES.as_slice(),
-            request_handlers: vec![],
-            maximum_call_argument_size: conn_opts.maximum_call_argument_size,
-            read_only_call_limit: conn_opts.read_only_call_limit.clone(),
-            auth_token: conn_opts.auth_token.clone(),
-            allow_arbitrary_response: false,
-            read_only_max_execution_time: Duration::from_secs(
-                conn_opts.read_only_max_execution_time_secs,
-            ),
-            read_only_call_max_mem_bytes: conn_opts.read_only_call_max_mem_bytes,
-        };
-        http.request_handlers = http
-            .routes
-            .iter()
-            .map(|route| (route.new_handler)(&http))
-            .collect();
-        http
+        Self::with_routes(peer_addr, &RPCRouteTable::new(conn_opts))
     }
 
-    /// Create an HTTP protocol state machine that can handle arbitrary responses.
-    /// Used for building clients.
-    pub fn new_client(peer_addr: SocketAddr, conn_opts: &ConnectionOptions) -> StacksHttp {
+    /// Create an HTTP protocol state machine that handles the RPC API in `routes`.
+    /// Used for building the RPC server
+    pub fn with_routes(peer_addr: SocketAddr, routes: &RPCRouteTable) -> StacksHttp {
         StacksHttp {
             peer_addr,
             body_start: None,
@@ -1125,16 +1118,25 @@ impl StacksHttp {
             last_four_preamble_bytes: [0u8; 4],
             reply: None,
             request_handler_index: None,
-            routes: &[],
+            routes: Arc::clone(&routes.routes),
+            request_handlers: routes.handlers.clone(),
+            allow_arbitrary_response: false,
+        }
+    }
+
+    /// Create an HTTP protocol state machine that can handle arbitrary responses.
+    /// Used for building clients.
+    pub fn new_client(peer_addr: SocketAddr) -> StacksHttp {
+        StacksHttp {
+            peer_addr,
+            body_start: None,
+            num_preamble_bytes: 0,
+            last_four_preamble_bytes: [0u8; 4],
+            reply: None,
+            request_handler_index: None,
+            routes: Arc::from([]),
             request_handlers: vec![],
-            maximum_call_argument_size: conn_opts.maximum_call_argument_size,
-            read_only_call_limit: conn_opts.read_only_call_limit.clone(),
-            auth_token: conn_opts.auth_token.clone(),
             allow_arbitrary_response: true,
-            read_only_max_execution_time: Duration::from_secs(
-                conn_opts.read_only_max_execution_time_secs,
-            ),
-            read_only_call_max_mem_bytes: conn_opts.read_only_call_max_mem_bytes,
         }
     }
 
@@ -1182,46 +1184,16 @@ impl StacksHttp {
         self.request_handler_index = Some(handler_index);
     }
 
-    /// Get (verb, path regex, permissive regex) for each route, once from the shared table
-    /// and once from this connection's handlers.
-    #[cfg(test)]
-    pub fn route_patterns(&self) -> (Vec<(String, String, String)>, Vec<(String, String, String)>) {
-        let shared = self
-            .routes
-            .iter()
-            .map(|route| {
-                (
-                    route.verb.to_string(),
-                    route.path_regex.as_str().to_string(),
-                    route.permissive_regex.as_str().to_string(),
-                )
-            })
-            .collect();
-        let own = self
-            .request_handlers
-            .iter()
-            .map(|handler| {
-                let (path_regex, permissive_regex) = route_regexes(handler.as_ref());
-                (
-                    handler.verb().to_string(),
-                    path_regex.as_str().to_string(),
-                    permissive_regex.as_str().to_string(),
-                )
-            })
-            .collect();
-        (shared, own)
-    }
-
     /// Try to parse an inbound HTTP request using a given handler, preamble, and body
     #[cfg(test)]
-    pub fn handle_try_parse_request(
+    pub fn handle_try_parse_request<Handler: RPCRequestHandler>(
         &self,
-        handler: &mut dyn RPCRequestHandler,
+        handler: &mut Handler,
         preamble: &HttpRequestPreamble,
         body: &[u8],
     ) -> Result<StacksHttpRequest, NetError> {
         let (decoded_path, query) = decode_request_path(&preamble.path_and_query_str)?;
-        let captures = if let Some(caps) = handler.path_regex().captures(&decoded_path) {
+        let captures = if let Some(caps) = Handler::path_regex().captures(&decoded_path) {
             caps
         } else {
             return Err(NetError::NotFoundError);
@@ -2099,7 +2071,7 @@ pub fn send_http_request(
     // Step 1-2: set up the connection and request handle
     // NOTE: we don't need anything special for connection options, so just use the default
     let conn_opts = ConnectionOptions::default();
-    let http = StacksHttp::new_client(addr, &conn_opts);
+    let http = StacksHttp::new_client(addr);
     let mut connection = NetworkConnection::new(http, &conn_opts, None);
     let mut request_handle = connection
         .make_request_handle(0, get_epoch_time_secs() + timeout.as_secs(), 0)

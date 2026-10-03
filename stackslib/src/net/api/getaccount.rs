@@ -57,11 +57,11 @@ impl RPCGetAccountRequestHandler {
 
 /// Decode the HTTP request
 impl HttpRequest for RPCGetAccountRequestHandler {
-    fn verb(&self) -> &'static str {
+    fn verb() -> &'static str {
         "GET"
     }
 
-    fn path_regex(&self) -> Regex {
+    fn path_regex() -> Regex {
         Regex::new(&format!(
             "^/v2/accounts/(?P<principal>{})$",
             *PRINCIPAL_DATA_REGEX_STRING

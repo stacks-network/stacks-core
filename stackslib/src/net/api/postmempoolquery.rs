@@ -217,11 +217,11 @@ impl HttpChunkGenerator for StacksMemPoolStream {
 
 /// Decode the HTTP request
 impl HttpRequest for RPCMempoolQueryRequestHandler {
-    fn verb(&self) -> &'static str {
+    fn verb() -> &'static str {
         "POST"
     }
 
-    fn path_regex(&self) -> Regex {
+    fn path_regex() -> Regex {
         Regex::new(r#"^/v2/mempool/query$"#).unwrap()
     }
 
