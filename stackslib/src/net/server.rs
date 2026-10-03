@@ -53,6 +53,9 @@ pub struct HttpPeer {
 
     /// connection options
     pub connection_opts: ConnectionOptions,
+
+    /// RPC routes shared by every conversation, built from `connection_opts`
+    rpc_routes: RPCRouteTable,
 }
 
 impl HttpPeer {
@@ -69,6 +72,7 @@ impl HttpPeer {
             http_server_handle: server_handle,
             http_server_addr: server_addr,
 
+            rpc_routes: RPCRouteTable::new(&conn_opts),
             connection_opts: conn_opts,
         }
     }
@@ -245,6 +249,7 @@ impl HttpPeer {
             outbound_url.clone(),
             peer_host,
             &self.connection_opts,
+            &self.rpc_routes,
             event_id,
             send_buffer_size,
         );

@@ -61,11 +61,11 @@ impl RPCPostMicroblockRequestHandler {
 
 /// Decode the HTTP request
 impl HttpRequest for RPCPostMicroblockRequestHandler {
-    fn verb(&self) -> &'static str {
+    fn verb() -> &'static str {
         "POST"
     }
 
-    fn path_regex(&self) -> Regex {
+    fn path_regex() -> Regex {
         Regex::new(r#"^/v2/microblocks$"#).unwrap()
     }
 

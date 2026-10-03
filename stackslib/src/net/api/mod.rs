@@ -79,118 +79,100 @@ impl RPCRoutesBuilder {
     /// Register all RPC methods.
     /// Put your new RPC method handlers here.
     pub(crate) fn register_rpc_methods(&mut self) {
-        self.register_rpc_endpoint(|http| {
-            blockreplay::RPCNakamotoBlockReplayRequestHandler::new(http.auth_token.clone())
-        });
-        self.register_rpc_endpoint(|http| {
-            blocksimulate::RPCNakamotoBlockSimulateRequestHandler::new(http.auth_token.clone())
-        });
-        self.register_rpc_endpoint(|http| {
-            txsimulate::RPCTransactionSimulateRequestHandler::new(http.auth_token.clone())
-        });
-        self.register_rpc_endpoint(|http| {
-            callreadonly::RPCCallReadOnlyRequestHandler::new(
-                http.maximum_call_argument_size,
-                http.read_only_call_limit.clone(),
-                http.read_only_max_execution_time,
-                http.read_only_call_max_mem_bytes,
-            )
-        });
-        self.register_rpc_endpoint(|http| {
-            fastcallreadonly::RPCFastCallReadOnlyRequestHandler::new(
-                http.maximum_call_argument_size,
-                http.read_only_max_execution_time,
-                http.read_only_call_max_mem_bytes,
-                http.auth_token.clone(),
-            )
-        });
-        self.register_rpc_endpoint(|_| getaccount::RPCGetAccountRequestHandler::new());
-        self.register_rpc_endpoint(|_| getattachment::RPCGetAttachmentRequestHandler::new());
-        self.register_rpc_endpoint(|_| {
-            getattachmentsinv::RPCGetAttachmentsInvRequestHandler::new()
-        });
-        self.register_rpc_endpoint(|_| getblock::RPCBlocksRequestHandler::new());
-        self.register_rpc_endpoint(|_| getblock_v3::RPCNakamotoBlockRequestHandler::new());
-        self.register_rpc_endpoint(|_| {
-            getblockbyheight::RPCNakamotoBlockByHeightRequestHandler::new()
-        });
-        self.register_rpc_endpoint(|_| getclaritymarfvalue::RPCGetClarityMarfRequestHandler::new());
-        self.register_rpc_endpoint(|_| {
-            getclaritymetadata::RPCGetClarityMetadataRequestHandler::new()
-        });
-        self.register_rpc_endpoint(|_| getconstantval::RPCGetConstantValRequestHandler::new());
-        self.register_rpc_endpoint(|_| getcontractabi::RPCGetContractAbiRequestHandler::new());
-        self.register_rpc_endpoint(|_| getcontractsrc::RPCGetContractSrcRequestHandler::new());
-        self.register_rpc_endpoint(|_| getdatavar::RPCGetDataVarRequestHandler::new());
-        self.register_rpc_endpoint(|_| getheaders::RPCHeadersRequestHandler::new());
-        self.register_rpc_endpoint(|_| getinfo::RPCPeerInfoRequestHandler::new());
-        self.register_rpc_endpoint(|_| {
-            getistraitimplemented::RPCGetIsTraitImplementedRequestHandler::new()
-        });
-        self.register_rpc_endpoint(|http| {
-            getmapentry::RPCGetMapEntryRequestHandler::new(http.read_only_call_max_mem_bytes)
-        });
-        self.register_rpc_endpoint(|_| {
-            getmicroblocks_confirmed::RPCMicroblocksConfirmedRequestHandler::new()
-        });
-        self.register_rpc_endpoint(|_| {
-            getmicroblocks_indexed::RPCMicroblocksIndexedRequestHandler::new()
-        });
-        self.register_rpc_endpoint(|_| {
-            getmicroblocks_unconfirmed::RPCMicroblocksUnconfirmedRequestHandler::new()
-        });
-        self.register_rpc_endpoint(|_| getneighbors::RPCNeighborsRequestHandler::new());
-        self.register_rpc_endpoint(|_| {
-            getstxtransfercost::RPCGetStxTransferCostRequestHandler::new()
-        });
-        self.register_rpc_endpoint(|_| {
-            getstackerdbchunk::RPCGetStackerDBChunkRequestHandler::new()
-        });
-        self.register_rpc_endpoint(|_| getpoxinfo::RPCPoxInfoRequestHandler::new());
-        self.register_rpc_endpoint(|_| {
-            getstackerdbmetadata::RPCGetStackerDBMetadataRequestHandler::new()
-        });
-        self.register_rpc_endpoint(|_| getstackers::GetStackersRequestHandler::default());
-        self.register_rpc_endpoint(|_| getsortition::GetSortitionHandler::new());
-        self.register_rpc_endpoint(|_| gettenure::RPCNakamotoTenureRequestHandler::new());
-        self.register_rpc_endpoint(|_| gettenureinfo::RPCNakamotoTenureInfoRequestHandler::new());
-        self.register_rpc_endpoint(|_| gettenuretip::RPCNakamotoTenureTipRequestHandler::new());
-        self.register_rpc_endpoint(|_| {
-            get_tenure_tip_meta::NakamotoTenureTipMetadataRequestHandler::new()
-        });
-        self.register_rpc_endpoint(|_| {
-            gettenureblocks::RPCNakamotoTenureBlocksRequestHandler::new()
-        });
-        self.register_rpc_endpoint(|_| {
-            gettenureblocksbyhash::RPCNakamotoTenureBlocksByHashRequestHandler::new()
-        });
-        self.register_rpc_endpoint(|_| {
-            gettenureblocksbyheight::RPCNakamotoTenureBlocksByHeightRequestHandler::new()
-        });
-        self.register_rpc_endpoint(|_| get_tenures_fork_info::GetTenuresForkInfo::default());
-        self.register_rpc_endpoint(|_| {
-            gettransaction_unconfirmed::RPCGetTransactionUnconfirmedRequestHandler::new()
-        });
-        self.register_rpc_endpoint(|_| gettransaction::RPCGetTransactionRequestHandler::new());
-        self.register_rpc_endpoint(|_| getsigner::GetSignerRequestHandler::default());
-        self.register_rpc_endpoint(|_| gethealth::RPCGetHealthRequestHandler::new());
-        self.register_rpc_endpoint(|_| {
-            liststackerdbreplicas::RPCListStackerDBReplicasRequestHandler::new()
-        });
-        self.register_rpc_endpoint(|_| postblock::RPCPostBlockRequestHandler::new());
-        self.register_rpc_endpoint(|http| {
-            postblock_proposal::RPCBlockProposalRequestHandler::new(http.auth_token.clone())
-        });
-        self.register_rpc_endpoint(|http| {
-            postblock_v3::RPCPostBlockRequestHandler::new(http.auth_token.clone())
-        });
-        self.register_rpc_endpoint(|_| postfeerate::RPCPostFeeRateRequestHandler::new());
-        self.register_rpc_endpoint(|_| postmempoolquery::RPCMempoolQueryRequestHandler::new());
-        self.register_rpc_endpoint(|_| postmicroblock::RPCPostMicroblockRequestHandler::new());
-        self.register_rpc_endpoint(|_| {
-            poststackerdbchunk::RPCPostStackerDBChunkRequestHandler::new()
-        });
-        self.register_rpc_endpoint(|_| posttransaction::RPCPostTransactionRequestHandler::new());
+        self.register_rpc_endpoint(blockreplay::RPCNakamotoBlockReplayRequestHandler::new(
+            self.auth_token.clone(),
+        ));
+        self.register_rpc_endpoint(blocksimulate::RPCNakamotoBlockSimulateRequestHandler::new(
+            self.auth_token.clone(),
+        ));
+        self.register_rpc_endpoint(txsimulate::RPCTransactionSimulateRequestHandler::new(
+            self.auth_token.clone(),
+        ));
+        self.register_rpc_endpoint(callreadonly::RPCCallReadOnlyRequestHandler::new(
+            self.maximum_call_argument_size,
+            self.read_only_call_limit.clone(),
+            self.read_only_max_execution_time,
+            self.read_only_call_max_mem_bytes,
+        ));
+        self.register_rpc_endpoint(fastcallreadonly::RPCFastCallReadOnlyRequestHandler::new(
+            self.maximum_call_argument_size,
+            self.read_only_max_execution_time,
+            self.read_only_call_max_mem_bytes,
+            self.auth_token.clone(),
+        ));
+        self.register_rpc_endpoint(getaccount::RPCGetAccountRequestHandler::new());
+        self.register_rpc_endpoint(getattachment::RPCGetAttachmentRequestHandler::new());
+        self.register_rpc_endpoint(getattachmentsinv::RPCGetAttachmentsInvRequestHandler::new());
+        self.register_rpc_endpoint(getblock::RPCBlocksRequestHandler::new());
+        self.register_rpc_endpoint(getblock_v3::RPCNakamotoBlockRequestHandler::new());
+        self.register_rpc_endpoint(getblockbyheight::RPCNakamotoBlockByHeightRequestHandler::new());
+        self.register_rpc_endpoint(getclaritymarfvalue::RPCGetClarityMarfRequestHandler::new());
+        self.register_rpc_endpoint(getclaritymetadata::RPCGetClarityMetadataRequestHandler::new());
+        self.register_rpc_endpoint(getconstantval::RPCGetConstantValRequestHandler::new());
+        self.register_rpc_endpoint(getcontractabi::RPCGetContractAbiRequestHandler::new());
+        self.register_rpc_endpoint(getcontractsrc::RPCGetContractSrcRequestHandler::new());
+        self.register_rpc_endpoint(getdatavar::RPCGetDataVarRequestHandler::new());
+        self.register_rpc_endpoint(getheaders::RPCHeadersRequestHandler::new());
+        self.register_rpc_endpoint(getinfo::RPCPeerInfoRequestHandler::new());
+        self.register_rpc_endpoint(
+            getistraitimplemented::RPCGetIsTraitImplementedRequestHandler::new(),
+        );
+        self.register_rpc_endpoint(getmapentry::RPCGetMapEntryRequestHandler::new(
+            self.read_only_call_max_mem_bytes,
+        ));
+        self.register_rpc_endpoint(
+            getmicroblocks_confirmed::RPCMicroblocksConfirmedRequestHandler::new(),
+        );
+        self.register_rpc_endpoint(
+            getmicroblocks_indexed::RPCMicroblocksIndexedRequestHandler::new(),
+        );
+        self.register_rpc_endpoint(
+            getmicroblocks_unconfirmed::RPCMicroblocksUnconfirmedRequestHandler::new(),
+        );
+        self.register_rpc_endpoint(getneighbors::RPCNeighborsRequestHandler::new());
+        self.register_rpc_endpoint(getstxtransfercost::RPCGetStxTransferCostRequestHandler::new());
+        self.register_rpc_endpoint(getstackerdbchunk::RPCGetStackerDBChunkRequestHandler::new());
+        self.register_rpc_endpoint(getpoxinfo::RPCPoxInfoRequestHandler::new());
+        self.register_rpc_endpoint(
+            getstackerdbmetadata::RPCGetStackerDBMetadataRequestHandler::new(),
+        );
+        self.register_rpc_endpoint(getstackers::GetStackersRequestHandler::default());
+        self.register_rpc_endpoint(getsortition::GetSortitionHandler::new());
+        self.register_rpc_endpoint(gettenure::RPCNakamotoTenureRequestHandler::new());
+        self.register_rpc_endpoint(gettenureinfo::RPCNakamotoTenureInfoRequestHandler::new());
+        self.register_rpc_endpoint(gettenuretip::RPCNakamotoTenureTipRequestHandler::new());
+        self.register_rpc_endpoint(
+            get_tenure_tip_meta::NakamotoTenureTipMetadataRequestHandler::new(),
+        );
+        self.register_rpc_endpoint(gettenureblocks::RPCNakamotoTenureBlocksRequestHandler::new());
+        self.register_rpc_endpoint(
+            gettenureblocksbyhash::RPCNakamotoTenureBlocksByHashRequestHandler::new(),
+        );
+        self.register_rpc_endpoint(
+            gettenureblocksbyheight::RPCNakamotoTenureBlocksByHeightRequestHandler::new(),
+        );
+        self.register_rpc_endpoint(get_tenures_fork_info::GetTenuresForkInfo::default());
+        self.register_rpc_endpoint(
+            gettransaction_unconfirmed::RPCGetTransactionUnconfirmedRequestHandler::new(),
+        );
+        self.register_rpc_endpoint(gettransaction::RPCGetTransactionRequestHandler::new());
+        self.register_rpc_endpoint(getsigner::GetSignerRequestHandler::default());
+        self.register_rpc_endpoint(gethealth::RPCGetHealthRequestHandler::new());
+        self.register_rpc_endpoint(
+            liststackerdbreplicas::RPCListStackerDBReplicasRequestHandler::new(),
+        );
+        self.register_rpc_endpoint(postblock::RPCPostBlockRequestHandler::new());
+        self.register_rpc_endpoint(postblock_proposal::RPCBlockProposalRequestHandler::new(
+            self.auth_token.clone(),
+        ));
+        self.register_rpc_endpoint(postblock_v3::RPCPostBlockRequestHandler::new(
+            self.auth_token.clone(),
+        ));
+        self.register_rpc_endpoint(postfeerate::RPCPostFeeRateRequestHandler::new());
+        self.register_rpc_endpoint(postmempoolquery::RPCMempoolQueryRequestHandler::new());
+        self.register_rpc_endpoint(postmicroblock::RPCPostMicroblockRequestHandler::new());
+        self.register_rpc_endpoint(poststackerdbchunk::RPCPostStackerDBChunkRequestHandler::new());
+        self.register_rpc_endpoint(posttransaction::RPCPostTransactionRequestHandler::new());
     }
 }
 
