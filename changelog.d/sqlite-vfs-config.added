@@ -1,0 +1,1 @@
+Added `node.sqlite_vfs` configuration option to select the SQLite VFS used for node databases. `"unix-excl"` holds one exclusive lock per database for the life of the process and keeps the WAL index in memory, removing per-transaction file locking on network and clustered filesystems. The default (`"default"`) keeps current behavior.
