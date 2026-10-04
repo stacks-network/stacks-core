@@ -593,6 +593,7 @@ impl BlockMinerThread {
         let mut coordinator = SignerCoordinator::new(
             self.event_dispatcher.stackerdb_channel.clone(),
             self.globals.should_keep_running.clone(),
+            self.abort_flag.clone(),
             &reward_set,
             initial_chunks_loader,
             &self.burn_election_block,
@@ -891,6 +892,16 @@ impl BlockMinerThread {
                         "consensus_hash" => %new_block.header.consensus_hash,
                     );
                     return Ok(false);
+                }
+                NakamotoNodeError::MiningFailure(ChainstateError::MinerAborted) => {
+                    info!("Miner interrupted while waiting for signatures in order to shut down";
+                        "signer_signature_hash" => %new_block.header.signer_signature_hash(),
+                        "block_height" => new_block.header.chain_length,
+                        "consensus_hash" => %new_block.header.consensus_hash,
+                    );
+                    self.globals
+                        .raise_initiative("MiningFailure: aborted by node".to_string());
+                    return Err(e);
                 }
                 NakamotoNodeError::BurnchainTipChanged => {
                     info!("Burnchain tip changed while waiting for signatures";

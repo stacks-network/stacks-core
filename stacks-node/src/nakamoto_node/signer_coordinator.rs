@@ -15,7 +15,7 @@
 
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::ops::Bound::Included;
-use std::sync::atomic::AtomicBool;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
@@ -65,6 +65,9 @@ pub struct SignerCoordinator {
     stackerdb_comms: StackerDBListenerComms,
     /// Keep running flag for the signer DB listener thread
     keep_running: Arc<AtomicBool>,
+    /// The miner thread's abort flag, set by the relayer to stop the miner thread. While waiting
+    /// for signatures, the coordinator gives up as soon as it is set.
+    miner_abort_flag: Arc<AtomicBool>,
     /// Handle for the signer DB listener thread
     listener_thread: Option<JoinHandle<()>>,
     /// The current tip when this miner thread was started.
@@ -111,6 +114,7 @@ impl SignerCoordinator {
     pub fn new(
         stackerdb_channel: Arc<Mutex<StackerDBChannel>>,
         node_keep_running: Arc<AtomicBool>,
+        miner_abort_flag: Arc<AtomicBool>,
         reward_set: &RewardSet,
         initial_chunks_loader: InitialChunksLoader,
         election_block: &BlockSnapshot,
@@ -159,6 +163,7 @@ impl SignerCoordinator {
             weight_threshold: listener.weight_threshold,
             stackerdb_comms: listener.get_comms(),
             keep_running,
+            miner_abort_flag,
             listener_thread: None,
             burn_tip_at_start: burn_tip_at_start.clone(),
             block_rejection_timeout_steps,
@@ -384,6 +389,12 @@ impl SignerCoordinator {
         // this is used to track the start of the waiting cycle
         let rejections_timer = Instant::now();
         loop {
+            if self.miner_abort_flag.load(Ordering::SeqCst) {
+                info!("SignCoordinator: Exiting due to miner abort";
+                    "signer_signature_hash" => %block_signer_sighash,
+                );
+                return Err(ChainstateError::MinerAborted.into());
+            }
             // At every iteration wait for the block_status.
             // Exit when the amount of confirmations/rejections reaches the threshold (or until timeout)
             // Based on the amount of rejections, eventually modify the timeout.
