@@ -501,8 +501,8 @@ impl SIP031EmissionInterval {
 
 impl StacksEpochId {
     /// Highest epoch enabled in release builds.
-    /// Keep this in sync with `versions.toml` and `PEER_NETWORK_EPOCH`
-    /// (validated in tests and `validate_epochs()`)
+    /// Keep this in sync with `workspace.package.version` in `Cargo.toml` and
+    /// `PEER_NETWORK_EPOCH` (validated in tests and `validate_epochs()`).
     pub const RELEASE_LATEST_EPOCH: StacksEpochId = StacksEpochId::Epoch40;
 
     #[cfg(any(test, feature = "testing"))]
@@ -570,9 +570,15 @@ impl StacksEpochId {
         self >= &StacksEpochId::Epoch30
     }
 
-    /// Whether or not this epoch supports shadow blocks
-    pub fn supports_shadow_blocks(&self) -> bool {
-        self >= &StacksEpochId::Epoch30
+    /// Whether a block-commit whose parent is `(height > 0, vtxindex 0)` is accepted without
+    /// that parent block-commit existing, and is assumed to descend from the PoX anchor block.
+    ///
+    /// Epochs 3.0 through 4.0 did this so that miners could build atop shadow blocks, which were
+    /// never used and have since been removed.  The commits it admitted are part of sortition
+    /// history, so those epochs must preserve it.  From Epoch 4.1 the parent block-commit must
+    /// exist.  Building off of genesis (`(0, 0)`) is unaffected.
+    pub fn allows_missing_vtxindex_zero_commit_parent(&self) -> bool {
+        self >= &StacksEpochId::Epoch30 && self < &StacksEpochId::Epoch41
     }
 
     /// Does this epoch support unlocking PoX contributors that miss a slot?
@@ -620,12 +626,6 @@ impl StacksEpochId {
         } else {
             0
         }
-    }
-
-    /// Whether or not this epoch supports the cost-voting contract (SIP-006), which is
-    /// disabled from Epoch 4.0 (SIP-044).
-    pub fn supports_cost_voting_contract(&self) -> bool {
-        self < &StacksEpochId::Epoch40
     }
 
     /// Returns true for epochs which use Nakamoto blocks. These blocks use a
@@ -815,23 +815,34 @@ impl StacksEpochId {
         self >= &StacksEpochId::Epoch40
     }
 
+    /// Whether or not this epoch rejects smart-contract deploys that pin a
+    /// Clarity version (the `VersionedSmartContract` payload), so that new
+    /// contracts always use the epoch default.
+    pub fn rejects_versioned_smart_contracts(&self) -> bool {
+        self >= &StacksEpochId::Epoch41
+    }
+
+    /// Gate for `clarity::vm::is_shadowable_reserved`. From Epoch 4.1 deploys
+    /// cannot pin a version, so the epoch is the single switch.
+    pub fn allows_shadowable_reserved_names(&self) -> bool {
+        self >= &StacksEpochId::Epoch41
+    }
+
     /// Does this epoch sum stacking entries in the assetmap or just replace
     ///  and error-on-replace?
     pub fn sums_stacking_assetmap(&self) -> bool {
         self >= &StacksEpochId::Epoch40
     }
 
-    /// Whether this epoch eagerly rejects a tuple `merge` whose combined size
-    /// exceeds `MAX_VALUE_SIZE`, at the merge site, with `ValueTooLarge` — both at
-    /// static-analysis time and at runtime.
-    ///
-    /// Before this epoch, an oversized merge was not checked at the merge site: the
-    /// oversized tuple type/value propagated and only failed later (block-invalidating
-    /// `InvariantViolation` when its size was eventually computed — or, if never
-    /// sized, the contract deployed and became uncallable). Gated here so the
-    /// behavior changes atomically at the epoch boundary. See PR #6946.
-    pub fn fixes_tuple_merge_size_check(&self) -> bool {
-        self >= &StacksEpochId::Epoch40
+    /// Whether `replace-at?` handles a zero-length element at type-checking time.
+    pub fn fixes_replace_at_element_arity(&self) -> bool {
+        self >= &StacksEpochId::Epoch41
+    }
+
+    /// Whether analysis types a `fold` result to admit its initial value, which an
+    /// empty sequence returns unchanged.
+    pub fn requires_fold_result_to_admit_initial_value(&self) -> bool {
+        self >= &StacksEpochId::Epoch41
     }
 
     pub fn supports_call_with_constant(&self) -> bool {
@@ -886,6 +897,16 @@ impl StacksEpochId {
     /// this behavior changes beginning with Epoch 4.1.
     pub fn performs_read_only_checks_before_type_checks(&self) -> bool {
         self < &StacksEpochId::Epoch41
+    }
+
+    /// Whether the analysis engine's definition sorter should track the `contract-call?`
+    /// function's `contract-name` argument as a dependency. That behavior would be
+    /// correct (starting in Epoch 2, when that argument no longer had to be a literal;
+    /// before that, it was not necessary), but it was broken before Epoch 4.1, and
+    /// because the change is consensus-breaking (even for non-broken contracts, because
+    /// it can change cost), we have to preserve the legacy behavior.
+    pub fn checks_dependency_of_contract_call_target(&self) -> bool {
+        self >= &StacksEpochId::Epoch41
     }
 
     /// Return the network epoch associated with the StacksEpochId

@@ -21,7 +21,7 @@ use clarity_types::types::SequenceSubtype;
 use rstest::rstest;
 #[cfg(test)]
 use rstest_reuse::{self, *};
-use stacks_common::types::StacksEpochId;
+use stacks_common::types::{StacksEpochId, StacksEpochRangeTestExt as _};
 
 use crate::vm::analysis::errors::{StaticCheckError, StaticCheckErrorKind, SyntaxBindingError};
 use crate::vm::analysis::tests::utils::{SingleAnalysisPass, run_single_analysis_pass};
@@ -522,7 +522,7 @@ fn test_define_trait(#[case] version: ClarityVersion, #[case] epoch: StacksEpoch
         format!(
             "(define-trait trait-1 ((method ({}) (response uint uint))))",
             (0..(MAX_FUNCTION_PARAMETERS + 1))
-                .map(|i| "uint".to_string())
+                .map(|_| "uint".to_string())
                 .collect::<Vec<String>>()
                 .join(" ")
         ),
@@ -2104,6 +2104,90 @@ fn test_replace_at_utf8() {
     }
 }
 
+/// From epoch 4.1, `replace-at?` rejects a statically empty buff/string element,
+/// which earlier epochs admit only to fail at runtime.
+#[test]
+fn test_replace_at_empty_element() {
+    let empty_elem = [
+        "(replace-at? 0x0011 u0 0x)",
+        "(replace-at? \"ab\" u0 \"\")",
+        "(replace-at? u\"ab\" u0 u\"\")",
+    ];
+
+    let buff_len = BufferLength::try_from(1u32).unwrap();
+    let buff_len_zero = BufferLength::try_from(0u32).unwrap();
+    let str_len = StringUTF8Length::try_from(1u32).unwrap();
+    let str_len_zero = StringUTF8Length::try_from(0u32).unwrap();
+    let expected_err = [
+        StaticCheckErrorKind::TypeError(
+            Box::new(SequenceType(BufferType(buff_len.clone()))),
+            Box::new(SequenceType(BufferType(buff_len_zero.clone()))),
+        ),
+        StaticCheckErrorKind::TypeError(
+            Box::new(SequenceType(StringType(ASCII(buff_len)))),
+            Box::new(SequenceType(StringType(ASCII(buff_len_zero)))),
+        ),
+        StaticCheckErrorKind::TypeError(
+            Box::new(SequenceType(StringType(UTF8(str_len)))),
+            Box::new(SequenceType(StringType(UTF8(str_len_zero)))),
+        ),
+    ];
+    for (test, expected) in empty_elem.iter().zip(expected_err.iter()) {
+        assert_eq!(*expected, *type_check_helper(test).unwrap_err().err);
+    }
+
+    // Pre-4.1 epochs accept the same expressions unchanged.
+    let expected_pre41 = [
+        "(optional (buff 2))",
+        "(optional (string-ascii 2))",
+        "(optional (string-utf8 2))",
+    ];
+    for (test, expected) in empty_elem.iter().zip(expected_pre41.iter()) {
+        assert_eq!(
+            expected,
+            &format!(
+                "{}",
+                type_check_helper_version(test, ClarityVersion::latest(), StacksEpochId::Epoch40)
+                    .unwrap()
+            )
+        );
+    }
+
+    // A `(buff 1)`-typed element passes even if its runtime value is empty; that
+    // case is caught at runtime (see `vm::tests::sequences`).
+    assert_eq!(
+        "(optional (buff 2))",
+        &format!(
+            "{}",
+            type_check_helper("(replace-at? 0x0011 u0 (unwrap-panic (as-max-len? 0x u1)))")
+                .unwrap()
+        )
+    );
+
+    // Rejected even when the input is statically empty too (runtime would return
+    // `none` for the always out-of-bounds index).
+    assert_eq!(
+        StaticCheckErrorKind::TypeError(
+            Box::new(SequenceType(BufferType(
+                BufferLength::try_from(1u32).unwrap()
+            ))),
+            Box::new(SequenceType(BufferType(
+                BufferLength::try_from(0u32).unwrap()
+            ))),
+        ),
+        *type_check_helper("(replace-at? 0x u0 0x)").unwrap_err().err
+    );
+
+    // Lists are exempt, matching the runtime arity check.
+    assert_eq!(
+        "(optional (list 2 (list 1 int)))",
+        &format!(
+            "{}",
+            type_check_helper("(replace-at? (list (list 1) (list 2)) u0 (list))").unwrap()
+        )
+    );
+}
+
 #[test]
 fn test_native_concat() {
     let good = ["(concat (list 2 3) (list 4 5))"];
@@ -2255,6 +2339,7 @@ fn test_variadic_concat_pre_clarity_6_rejected() {
             ClarityVersion::Clarity4 => StacksEpochId::Epoch33,
             ClarityVersion::Clarity5 => StacksEpochId::Epoch34,
             ClarityVersion::Clarity6 => unreachable!(),
+            ClarityVersion::Clarity7 => unreachable!(),
         };
         for (snippet, expected) in &snippets_and_expected {
             let err = type_check_helper_version(snippet, version, epoch).unwrap_err();
@@ -3092,57 +3177,50 @@ fn test_combine_tuples() {
     mem_type_check("(merge { a: 1, b: 2, c: 3 } 5)").unwrap_err();
 }
 
-/// Static-analysis epoch gate for an oversized tuple `merge`.
+/// Static-analysis rejection of an oversized tuple `merge`.
 ///
 /// Two individually-valid `(buff 524288)`-typed fields merge into a tuple type whose value
-/// size exceeds `MAX_VALUE_SIZE`. The failure mode flips at the 4.0 boundary:
-/// - epoch < 4.0: `check_special_merge` does not size the merged tuple; the oversized type
-///   propagates and only fails when `new_response` (the `ok`) sizes it, surfacing as a
-///   block-invalidating `Unreachable` (wrapping an `InvariantViolation`).
-/// - epoch >= 4.0: `check_special_merge` rejects the oversized merge at the merge site with a
-///   clean `ValueTooLarge`.
+/// size exceeds `MAX_VALUE_SIZE`. `check_special_merge` rejects it at the merge site with a
+/// clean `ValueTooLarge`, and the error does not vary by epoch.
+/// The check lives in [`TupleTypeSignature::shallow_merge`].
 #[test]
-fn tuple_merge_oversized_analysis_gate_epoch40() {
+fn tuple_merge_oversized_analysis_rejected() {
     let snippet = "(define-private (f (x (buff 524288)))
         (ok (merge (tuple (a x)) (tuple (b x)))))";
 
-    // epoch < 4.0 (legacy): block-invalidating `Unreachable` from the later `.size()`.
-    let legacy_err =
-        mem_run_analysis(snippet, ClarityVersion::Clarity3, StacksEpochId::Epoch34).unwrap_err();
-    assert!(
-        matches!(*legacy_err.err, StaticCheckErrorKind::Unreachable(_)),
-        "expected a pre-4.0 Unreachable failure, got {:?}",
-        legacy_err.err
-    );
-
-    // epoch >= 4.0: clean `ValueTooLarge` at the merge site.
-    let gated_err =
-        mem_run_analysis(snippet, ClarityVersion::Clarity3, StacksEpochId::Epoch40).unwrap_err();
-    assert_eq!(*gated_err.err, StaticCheckErrorKind::ValueTooLarge);
+    for &epoch in (StacksEpochId::Epoch21..).as_slice() {
+        let version = ClarityVersion::default_for_epoch(epoch);
+        let err = mem_run_analysis(snippet, version, epoch).unwrap_err();
+        assert_eq!(
+            *err.err,
+            StaticCheckErrorKind::ValueTooLarge,
+            "expected ValueTooLarge at {epoch} ({version})"
+        );
+    }
 }
 
-/// Static-analysis epoch gate for an oversized tuple `merge` whose result is **never sized**.
+/// Static-analysis rejection of an oversized tuple `merge` whose result is **never sized**.
 ///
 /// The merge result is bound in a `let` but never used (the function returns `(ok true)`), so
-/// nothing computes its size during analysis. This is the case that pre-4.0 slipped past the
-/// static checker entirely — the contract type-checks and deploys, then becomes uncallable.
-/// The 4.0 gate rejects it at the merge site regardless of whether the result is ever used.
-/// - epoch < 4.0: analysis accepts the contract (no sizing occurs).
-/// - epoch >= 4.0: `check_special_merge` rejects it with `ValueTooLarge`.
+/// nothing computes its size during analysis. This is the case that historically slipped past
+/// the static checker entirely — the contract type-checked and deployed, then became
+/// uncallable. Because the check now lives in `shallow_merge`, it is rejected at the merge
+/// site whether or not the result is ever used, in every epoch.
 #[test]
-fn tuple_merge_unused_oversized_analysis_gate_epoch40() {
+fn tuple_merge_unused_oversized_analysis_rejected() {
     let snippet = "(define-private (f (x (buff 524288)))
         (let ((m (merge (tuple (a x)) (tuple (b x)))))
             (ok true)))";
 
-    // epoch < 4.0 (legacy): analysis accepts the unused oversized merge.
-    mem_run_analysis(snippet, ClarityVersion::Clarity3, StacksEpochId::Epoch34)
-        .expect("pre-4.0 analysis must accept an unused oversized merge");
-
-    // epoch >= 4.0: rejected at the merge site with `ValueTooLarge`, even though unused.
-    let gated_err =
-        mem_run_analysis(snippet, ClarityVersion::Clarity3, StacksEpochId::Epoch40).unwrap_err();
-    assert_eq!(*gated_err.err, StaticCheckErrorKind::ValueTooLarge);
+    for &epoch in (StacksEpochId::Epoch21..).as_slice() {
+        let version = ClarityVersion::default_for_epoch(epoch);
+        let err = mem_run_analysis(snippet, version, epoch).unwrap_err();
+        assert_eq!(
+            *err.err,
+            StaticCheckErrorKind::ValueTooLarge,
+            "expected ValueTooLarge at {epoch} ({version})"
+        );
+    }
 }
 
 #[test]
@@ -4700,4 +4778,76 @@ fn test_in_contract_trait_entry_metered_from_epoch40() {
     assert_eq!(post_cost.read_length, pre_cost.read_length);
     assert_eq!(post_cost.write_count, pre_cost.write_count);
     assert_eq!(post_cost.write_length, pre_cost.write_length);
+}
+
+/// Argument errors retain any computed cost, while arity-only checks omit costs.
+#[test]
+fn test_argument_visitor_retains_cost_on_type_error() {
+    let first = FunctionType::ArithmeticVariadic.check_args_visitor_2_1(&mut (), &IntType, 0, None);
+    assert!(matches!(first.cost, Some(Ok(_))));
+    assert_eq!(first.result.unwrap(), Some(IntType));
+
+    let mismatch = FunctionType::ArithmeticVariadic.check_args_visitor_2_1(
+        &mut (),
+        &UIntType,
+        1,
+        Some(&IntType),
+    );
+    assert!(matches!(mismatch.cost, Some(Ok(_))));
+    assert!(matches!(
+        *mismatch.result.unwrap_err().err,
+        StaticCheckErrorKind::TypeError(expected, actual) if *expected == IntType && *actual == UIntType
+    ));
+
+    let extra_argument =
+        FunctionType::ArithmeticUnary.check_args_visitor_2_1(&mut (), &IntType, 1, None);
+    assert!(extra_argument.cost.is_none());
+    assert!(matches!(
+        *extra_argument.result.unwrap_err().err,
+        StaticCheckErrorKind::IncorrectArgumentCount(1, 1)
+    ));
+}
+
+/// `fold` returns its initial value for an empty sequence, so from 4.1 the
+/// inferred type must admit it. Callbacks that return their accumulator, and
+/// native callbacks, infer the same type in both epochs.
+#[test]
+fn test_analysis_fold_result_admits_initial_value() {
+    let keep_none = "(define-private (keep-none (x uint) (acc (optional (string-ascii 5)))) none)";
+    let fold = format!("{keep_none} (fold keep-none (list u1) (some \"hello\"))");
+    let inferred = |epoch, version| mem_run_analysis(&fold, version, epoch).unwrap().0.unwrap();
+    assert_eq!(
+        inferred(StacksEpochId::Epoch40, ClarityVersion::Clarity6),
+        TypeSignature::new_option(TypeSignature::NoType).unwrap()
+    );
+    assert_eq!(
+        inferred(StacksEpochId::Epoch41, ClarityVersion::Clarity7),
+        TypeSignature::from_string(
+            "(optional (string-ascii 5))",
+            ClarityVersion::Clarity7,
+            StacksEpochId::Epoch41
+        )
+    );
+    let confused =
+        format!("{keep_none} (default-to u1 (fold keep-none (list u1) (some \"hello\")))");
+    mem_run_analysis(&confused, ClarityVersion::Clarity6, StacksEpochId::Epoch40).unwrap();
+    let error =
+        mem_run_analysis(&confused, ClarityVersion::Clarity7, StacksEpochId::Epoch41).unwrap_err();
+    assert!(
+        matches!(*error.err, StaticCheckErrorKind::DefaultTypesMustMatch(..)),
+        "{error:?}"
+    );
+    for source in [
+        "(fold + (list 1 2) 0)",
+        "(define-private (keep (x uint) (acc (optional (string-ascii 5)))) acc) \
+         (fold keep (list u1) (some \"hi\"))",
+    ] {
+        let legacy = mem_run_analysis(source, ClarityVersion::Clarity6, StacksEpochId::Epoch40)
+            .unwrap()
+            .0;
+        let strict = mem_run_analysis(source, ClarityVersion::Clarity7, StacksEpochId::Epoch41)
+            .unwrap()
+            .0;
+        assert_eq!(legacy, strict, "{source}");
+    }
 }

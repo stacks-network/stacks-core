@@ -1,1 +1,0 @@
-Fixed a block-commit timing race that made the release-only Epoch CI job fail deterministically on `tests::epoch_21::transition_fixes_bitcoin_rigidity`.

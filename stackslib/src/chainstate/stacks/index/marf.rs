@@ -18,11 +18,11 @@ use std::ops::DerefMut;
 use std::sync::LazyLock;
 use std::time::Instant;
 
-#[cfg(any(test, feature = "testing"))]
-use clarity::util::tests::TestFlag;
 use rusqlite::{Connection, Transaction};
 use stacks_common::types::chainstate::{TrieHash, TRIEHASH_ENCODED_SIZE};
 use stacks_common::util::hash::Sha512Trunc256Sum;
+#[cfg(any(test, feature = "testing"))]
+use stacks_common::util::tests::TestFlag;
 
 pub use super::squash::SquashStats;
 use super::storage::ReopenedTrieStorageConnection;
@@ -39,7 +39,6 @@ use crate::chainstate::stacks::index::trie::Trie;
 use crate::chainstate::stacks::index::{
     trie_sql, Error, MARFValue, MarfTrieId, TrieLeaf, TrieMerkleProof,
 };
-use crate::util_lib::db::Error as db_error;
 
 pub const BLOCK_HASH_TO_HEIGHT_MAPPING_KEY: &str = "__MARF_BLOCK_HASH_TO_HEIGHT";
 pub const BLOCK_HEIGHT_TO_HASH_MAPPING_KEY: &str = "__MARF_BLOCK_HEIGHT_TO_HASH";
@@ -397,13 +396,13 @@ impl<'a, T: MarfTrieId> MarfTransaction<'a, T> {
         current_block_hash: &T,
     ) -> Result<Option<u32>, Error> {
         if Some(bhh) == self.get_open_chain_tip() {
-            return Ok(self.get_open_chain_tip_height());
+            Ok(self.get_open_chain_tip_height())
         } else {
             MARF::get_block_height_miner_tip(&mut self.storage, bhh, current_block_hash)
         }
     }
 
-    #[cfg(test)]
+    #[cfg(any(test, feature = "testing"))]
     fn commit_tx(self) {
         self.storage.commit_tx()
     }
@@ -719,7 +718,7 @@ impl<T: MarfTrieId> MARF<T> {
         }
     }
 
-    #[cfg(test)]
+    #[cfg(any(test, feature = "testing"))]
     pub fn begin(&mut self, chain_tip: &T, next_chain_tip: &T) -> Result<(), Error> {
         let mut tx = self.begin_tx()?;
         tx.begin(chain_tip, next_chain_tip)?;
@@ -1021,7 +1020,7 @@ impl<T: MarfTrieId> MARF<T> {
         }
 
         trace!("Trie has a cycle");
-        return Err(Error::CorruptionError("Trie has a cycle".to_string()));
+        Err(Error::CorruptionError("Trie has a cycle".to_string()))
     }
 
     /// Walk down this MARF at the given block hash, resolving backptrs to previous tries.
@@ -1042,7 +1041,6 @@ impl<T: MarfTrieId> MARF<T> {
         })?;
 
         for _ in 0..(cursor.path.len() + 1) {
-            storage.bench_mut().marf_walk_from_start();
             match Trie::walk_from_nohash(storage, &node, &mut cursor) {
                 Ok(node_info_opt) => {
                     match node_info_opt {
@@ -1062,7 +1060,6 @@ impl<T: MarfTrieId> MARF<T> {
                             }
 
                             trace!("Cursor reached leaf {node:?}");
-                            storage.bench_mut().marf_walk_from_finish();
                             return Ok((cursor, node));
                         }
                     }
@@ -1074,23 +1071,19 @@ impl<T: MarfTrieId> MARF<T> {
                                 CursorError::PathDiverged => {
                                     // we're done -- path diverged.  No backptr-walking can help us.
                                     trace!("Path diverged -- we're done.");
-                                    storage.bench_mut().marf_walk_from_finish();
                                     return Err(Error::NotFoundError);
                                 }
                                 CursorError::ChrNotFound => {
                                     // we're done -- end-of-node-path, but no child node.
                                     // Not even a backptr.
                                     trace!("ChrNotFound encountered -- node does not exist");
-                                    storage.bench_mut().marf_walk_from_finish();
                                     return Err(Error::NotFoundError);
                                 }
                                 CursorError::BackptrEncountered(ptr) => {
-                                    storage.bench_mut().marf_walk_backptr_start();
                                     // at intermediate node whose child is not present in this trie.
                                     // try to shunt to the prior node that has the child itself.
                                     let (next_node, _, next_node_ptr, _) =
                                         MARF::walk_backptr(storage, &node, ptr.chr(), &mut cursor)?;
-                                    storage.bench_mut().marf_walk_backptr_finish();
 
                                     // finish taking the step
                                     cursor.repair_backptr_finish(
@@ -1106,7 +1099,6 @@ impl<T: MarfTrieId> MARF<T> {
                         }
                         _ => {
                             // some other error (e.g. I/O error)
-                            storage.bench_mut().marf_walk_from_finish();
                             return Err(e);
                         }
                     }
@@ -1115,7 +1107,7 @@ impl<T: MarfTrieId> MARF<T> {
         }
 
         trace!("Trie has a cycle");
-        return Err(Error::CorruptionError("Trie has a cycle".to_string()));
+        Err(Error::CorruptionError("Trie has a cycle".to_string()))
     }
 
     pub fn format(
@@ -1170,13 +1162,13 @@ impl<T: MarfTrieId> MARF<T> {
         match node {
             TrieNodeType::Leaf(data) => {
                 // found!
-                return Ok(Some(data));
+                Ok(Some(data))
             }
             _ => {
                 // Trie invariant violation -- a full path reached a non-leaf
-                return Err(Error::CorruptionError(
+                Err(Error::CorruptionError(
                     "Path reached a non-leaf".to_string(),
-                ));
+                ))
             }
         }
     }
@@ -1722,7 +1714,7 @@ impl<T: MarfTrieId> MARF<T> {
         current_block_hash: &T,
     ) -> Result<Option<u32>, Error> {
         if Some(bhh) == self.get_open_chain_tip() {
-            return Ok(self.get_open_chain_tip_height());
+            Ok(self.get_open_chain_tip_height())
         } else {
             MARF::get_block_height_miner_tip(
                 &mut self.storage.connection(),
@@ -1743,7 +1735,7 @@ impl<T: MarfTrieId> MARF<T> {
     }
 
     /// Access internal storage
-    #[cfg(test)]
+    #[cfg(any(test, feature = "testing"))]
     pub fn borrow_storage_backend(&mut self) -> TrieStorageConnection<'_, T> {
         self.storage.connection()
     }
@@ -1754,7 +1746,7 @@ impl<T: MarfTrieId> MARF<T> {
     }
 
     /// Make a raw transaction to the underlying storage
-    pub fn storage_tx(&mut self) -> Result<Transaction<'_>, db_error> {
+    pub fn storage_tx(&mut self) -> Result<Transaction<'_>, rusqlite::Error> {
         self.storage.sqlite_tx()
     }
 
@@ -1822,7 +1814,7 @@ impl<T: MarfTrieId> MARF<T> {
     ///
     /// Follows backpointers to resolve nodes living in earlier blocks, so the
     /// returned set represents the complete state visible at `block_hash`.
-    pub(crate) fn for_each_leaf<F>(
+    pub fn for_each_leaf<F>(
         storage: &mut TrieStorageConnection<T>,
         block_hash: &T,
         mut handle_leaf: F,

@@ -19,8 +19,8 @@ use std::thread;
 #[cfg(test)]
 use clarity::consts::CHAIN_ID_TESTNET;
 use clarity::vm::analysis::AnalysisDatabase;
-use clarity::vm::clarity::TransactionConnection;
 pub use clarity::vm::clarity::{ClarityConnection, ClarityError};
+use clarity::vm::clarity::{TransactionConfig, TransactionConnection, TransactionOutput};
 use clarity::vm::contexts::{AssetMap, OwnedEnvironment};
 use clarity::vm::costs::{CostTracker, ExecutionCost, LimitedCostTracker};
 use clarity::vm::database::{
@@ -32,7 +32,7 @@ use clarity::vm::events::{STXEventType, STXMintEventData};
 use clarity::vm::hooks::EvalHook;
 use clarity::vm::representations::SymbolicExpression;
 use clarity::vm::resource_limiter::ResourceBudget;
-use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier, Value};
+use clarity::vm::types::{BoundedErrorString, PrincipalData, QualifiedContractIdentifier, Value};
 use clarity::vm::{ClarityVersion, ContractName};
 use stacks_common::consts::SIGNER_SLOTS_PER_USER;
 use stacks_common::types::chainstate::{StacksBlockId, TrieHash};
@@ -203,10 +203,10 @@ pub trait WritableMarfStore:
 /// The Stacks node commits tries for one of three purposes:
 /// * It processed a block, and needs to persist its trie in the chainstate proper.
 /// * It mined a block, and needs to persist its trie outside of the chainstate proper. The miner
-/// may build on it later.
+///   may build on it later.
 /// * It processed an unconfirmed microblock (Stacks 2.x only), and needs to persist the
-/// unconfirmed chainstate outside of the chainstate proper so that the microblock miner can
-/// continue to build on it and the network can service RPC requests on its state.
+///   unconfirmed chainstate outside of the chainstate proper so that the microblock miner can
+///   continue to build on it and the network can service RPC requests on its state.
 ///
 /// These needs are each captured in distinct methods for committing this transaction.
 pub trait ClarityMarfStoreTransaction {
@@ -312,8 +312,8 @@ impl From<ChainstateError> for ClarityError {
     fn from(e: ChainstateError) -> Self {
         match e {
             ChainstateError::InvalidStacksTransaction(msg, _) => ClarityError::BadTransaction(msg),
-            ChainstateError::CostOverflowError(_, after, budget) => {
-                ClarityError::CostError(after, budget)
+            ChainstateError::CostOverflowError(context) => {
+                ClarityError::CostError(context.after, context.budget)
             }
             ChainstateError::ClarityError(x) => x,
             x => ClarityError::BadTransaction(x.to_string()),
@@ -471,10 +471,7 @@ impl ClarityBlockConnection<'_, '_> {
 
     /// Returns the block limit for the block being created.
     pub fn block_limit(&self) -> Option<ExecutionCost> {
-        match self.cost_track {
-            Some(ref track) => Some(track.get_limit()),
-            None => None,
-        }
+        self.cost_track.as_ref().map(|track| track.get_limit())
     }
 
     /// Load the epoch ID from the clarity DB.
@@ -626,7 +623,7 @@ impl ClarityInstance {
                 .analyze_smart_contract(
                     &boot_code_id("cost-voting", use_mainnet),
                     ClarityVersion::Clarity1,
-                    &*BOOT_CODE_COST_VOTING,
+                    &BOOT_CODE_COST_VOTING,
                     &ResourceBudget::unlimited(),
                 )
                 .unwrap();
@@ -635,7 +632,7 @@ impl ClarityInstance {
                     &boot_code_id("cost-voting", use_mainnet),
                     ClarityVersion::Clarity1,
                     &ast,
-                    &*BOOT_CODE_COST_VOTING,
+                    &BOOT_CODE_COST_VOTING,
                     None,
                     |_, _| None,
                     &ResourceBudget::unlimited(),
@@ -652,7 +649,7 @@ impl ClarityInstance {
                 .analyze_smart_contract(
                     &boot_code_id("pox", use_mainnet),
                     ClarityVersion::Clarity1,
-                    &*BOOT_CODE_POX_TESTNET,
+                    &BOOT_CODE_POX_TESTNET,
                     &ResourceBudget::unlimited(),
                 )
                 .unwrap();
@@ -661,7 +658,7 @@ impl ClarityInstance {
                     &boot_code_id("pox", use_mainnet),
                     ClarityVersion::Clarity1,
                     &ast,
-                    &*BOOT_CODE_POX_TESTNET,
+                    &BOOT_CODE_POX_TESTNET,
                     None,
                     |_, _| None,
                     &ResourceBudget::unlimited(),
@@ -748,7 +745,7 @@ impl ClarityInstance {
                 .analyze_smart_contract(
                     &boot_code_id("pox-2", use_mainnet),
                     ClarityVersion::Clarity2,
-                    &*POX_2_TESTNET_CODE,
+                    &POX_2_TESTNET_CODE,
                     &ResourceBudget::unlimited(),
                 )
                 .unwrap();
@@ -757,7 +754,7 @@ impl ClarityInstance {
                     &boot_code_id("pox-2", use_mainnet),
                     ClarityVersion::Clarity2,
                     &ast,
-                    &*POX_2_TESTNET_CODE,
+                    &POX_2_TESTNET_CODE,
                     None,
                     |_, _| None,
                     &ResourceBudget::unlimited(),
@@ -1162,37 +1159,6 @@ impl<'a, 'b> ClarityBlockConnection<'a, 'b> {
         ))
     }
 
-    /// Instantiates a boot contract by:
-    ///
-    /// 1. Preparing a [`StacksTransaction`] with the appropriate version, payload and auth,
-    /// 2. Executing it using the boot account within a cost-free transaction, and
-    /// 3. Asserting the receipt for success.
-    ///
-    /// Panics if any of the above steps fail.
-    fn instantiate_boot_contract(
-        &mut self,
-        contract_name: &str,
-        code_body: &str,
-        clarity_version: Option<ClarityVersion>,
-    ) -> Result<StacksTransactionReceipt, ClarityError> {
-        let contract_id = boot_code_id(contract_name, self.mainnet);
-
-        let (boot_code_account, contract_tx) =
-            self.make_boot_code_smart_contract_tx(contract_name, code_body, clarity_version)?;
-
-        let receipt = self.as_free_transaction(|tx_conn| {
-            info!("Instantiate {} contract", &contract_id);
-            process_boot_transaction_payload(tx_conn, &contract_tx, &boot_code_account)
-                .expect("FATAL: Failed to process boot contract initialization")
-        });
-
-        if receipt.result != Value::okay_true() || receipt.post_condition_aborted {
-            panic!("FATAL: Failure processing {contract_id} contract initialization: {receipt:#?}");
-        }
-
-        Ok(receipt)
-    }
-
     pub fn initialize_epoch_2_05(&mut self) -> Result<StacksTransactionReceipt, ClarityError> {
         // use the `using!` statement to ensure that the old cost_tracker is placed
         //  back in all branches after initialization
@@ -1426,14 +1392,9 @@ impl<'a, 'b> ClarityBlockConnection<'a, 'b> {
 
                 // initialize with a synthetic transaction
                 debug!("Instantiate .costs-3 contract");
-                let receipt = process_boot_transaction_payload(
-                    tx_conn,
-                    &costs_3_contract_tx,
-                    &boot_code_account,
-                )
-                .expect("FATAL: Failed to process costs-3 contract initialization");
 
-                receipt
+                process_boot_transaction_payload(tx_conn, &costs_3_contract_tx, &boot_code_account)
+                    .expect("FATAL: Failed to process costs-3 contract initialization")
             });
 
             if costs_3_initialization_receipt.result != Value::okay_true()
@@ -1768,13 +1729,9 @@ impl<'a, 'b> ClarityBlockConnection<'a, 'b> {
             let signers_initialization_receipt = self.as_transaction(|tx_conn| {
                 // initialize with a synthetic transaction
                 debug!("Instantiate {} contract", &signers_contract_id);
-                let receipt = process_boot_transaction_payload(
-                    tx_conn,
-                    &signers_contract_tx,
-                    &boot_code_account,
-                )
-                .expect("FATAL: Failed to process .signers contract initialization");
-                receipt
+
+                process_boot_transaction_payload(tx_conn, &signers_contract_tx, &boot_code_account)
+                    .expect("FATAL: Failed to process .signers contract initialization")
             });
 
             if signers_initialization_receipt.result != Value::okay_true()
@@ -1813,13 +1770,13 @@ impl<'a, 'b> ClarityBlockConnection<'a, 'b> {
                     let signers_db_receipt = self.as_transaction(|tx_conn| {
                         // initialize with a synthetic transaction
                         debug!("Instantiate .{} contract", &signers_name);
-                        let receipt = process_boot_transaction_payload(
+
+                        process_boot_transaction_payload(
                             tx_conn,
                             &signers_contract_tx,
                             &boot_code_account,
                         )
-                        .expect("FATAL: Failed to process .signers DB contract initialization");
-                        receipt
+                        .expect("FATAL: Failed to process .signers DB contract initialization")
                     });
 
                     if signers_db_receipt.result != Value::okay_true()
@@ -1851,13 +1808,9 @@ impl<'a, 'b> ClarityBlockConnection<'a, 'b> {
             let signers_voting_initialization_receipt = self.as_transaction(|tx_conn| {
                 // initialize with a synthetic transaction
                 debug!("Instantiate {} contract", &signers_voting_contract_id);
-                let receipt = process_boot_transaction_payload(
-                    tx_conn,
-                    &signers_contract_tx,
-                    &boot_code_account,
-                )
-                .expect("FATAL: Failed to process .signers-voting contract initialization");
-                receipt
+
+                process_boot_transaction_payload(tx_conn, &signers_contract_tx, &boot_code_account)
+                    .expect("FATAL: Failed to process .signers-voting contract initialization")
             });
 
             if signers_voting_initialization_receipt.result != Value::okay_true()
@@ -1981,13 +1934,9 @@ impl<'a, 'b> ClarityBlockConnection<'a, 'b> {
             let mut sip_031_initialization_receipt = self.as_transaction(|tx_conn| {
                 // initialize with a synthetic transaction
                 info!("Instantiate {} contract", &sip_031_contract_id);
-                let receipt = process_boot_transaction_payload(
-                    tx_conn,
-                    &sip_031_contract_tx,
-                    &boot_code_account,
-                )
-                .expect("FATAL: Failed to process .sip-031 contract initialization");
-                receipt
+
+                process_boot_transaction_payload(tx_conn, &sip_031_contract_tx, &boot_code_account)
+                    .expect("FATAL: Failed to process .sip-031 contract initialization")
             });
 
             if sip_031_initialization_receipt.result != Value::okay_true()
@@ -2094,14 +2043,9 @@ impl<'a, 'b> ClarityBlockConnection<'a, 'b> {
 
                 // initialize with a synthetic transaction
                 info!("Instantiate .costs-4 contract");
-                let receipt = process_boot_transaction_payload(
-                    tx_conn,
-                    &costs_4_contract_tx,
-                    &boot_code_account,
-                )
-                .expect("FATAL: Failed to process costs-4 contract initialization");
 
-                receipt
+                process_boot_transaction_payload(tx_conn, &costs_4_contract_tx, &boot_code_account)
+                    .expect("FATAL: Failed to process costs-4 contract initialization")
             });
 
             if costs_4_initialization_receipt.result != Value::okay_true()
@@ -2391,9 +2335,9 @@ impl TransactionConnection for ClarityTransactionConnection<'_, '_> {
         &'hooks mut self,
         to_do: F,
         abort_call_back: A,
-    ) -> Result<(R, AssetMap, Vec<StacksTransactionEvent>, Option<String>), E>
+    ) -> Result<TransactionOutput<R>, E>
     where
-        A: FnOnce(&AssetMap, &mut ClarityDatabase) -> Option<String>,
+        A: FnOnce(&AssetMap, &mut ClarityDatabase) -> Option<BoundedErrorString>,
         F: FnOnce(
             &mut OwnedEnvironment<'_, 'hooks>,
         ) -> Result<(R, AssetMap, Vec<StacksTransactionEvent>), E>,
@@ -2402,55 +2346,32 @@ impl TransactionConnection for ClarityTransactionConnection<'_, '_> {
         using!(self.log, "log", |log| {
             using!(self.cost_track, "cost tracker", |cost_track| {
                 let rollback_wrapper = RollbackWrapper::from_persisted_log(self.store, log);
-                let mut db = ClarityDatabase::new_with_rollback_wrapper(
+                let db = ClarityDatabase::new_with_rollback_wrapper(
                     rollback_wrapper,
                     self.header_db,
                     self.burn_state_db,
                 )
                 .with_cache(&mut self.cache);
+                let eval_hook = self.eval_hook.as_deref_mut();
 
-                // wrap the whole contract-call in a claritydb transaction,
-                //   so we can abort on call_back's boolean retun
-                db.begin();
-                let mut vm_env = OwnedEnvironment::new_cost_limited(
-                    self.mainnet,
-                    self.chain_id,
+                // The returned cost tracker keeps its memory usage: it is reset only when the
+                // surrounding transaction commits.
+                let (db, cost_track, result) = clarity::vm::clarity::execute_with_abort_callback(
                     db,
                     cost_track,
-                    self.epoch,
+                    TransactionConfig {
+                        mainnet: self.mainnet,
+                        chain_id: self.chain_id,
+                        epoch: self.epoch,
+                    },
+                    |vm_env| {
+                        if let Some(eval_hook) = eval_hook {
+                            vm_env.add_eval_hook(eval_hook);
+                        }
+                        to_do(vm_env)
+                    },
+                    abort_call_back,
                 );
-
-                if let Some(eval_hook) = self.eval_hook.as_deref_mut() {
-                    vm_env.add_eval_hook(eval_hook);
-                }
-
-                let result = to_do(&mut vm_env);
-                let (mut db, cost_track) = vm_env
-                    .destruct()
-                    .expect("Failed to recover database reference after executing transaction");
-                // DO NOT reset memory usage yet -- that should happen only when the TX commits.
-
-                let result = match result {
-                    Ok((value, asset_map, events)) => {
-                        let aborted = abort_call_back(&asset_map, &mut db);
-                        let db_result = if aborted.is_some() {
-                            db.roll_back()
-                        } else {
-                            db.commit()
-                        };
-                        match db_result {
-                            Ok(_) => Ok((value, asset_map, events, aborted)),
-                            Err(e) => Err(e.into()),
-                        }
-                    }
-                    Err(e) => {
-                        let db_result = db.roll_back();
-                        match db_result {
-                            Ok(_) => Err(e),
-                            Err(db_err) => Err(db_err.into()),
-                        }
-                    }
-                };
 
                 (cost_track, (db.destroy().into(), result))
             })
@@ -2540,7 +2461,7 @@ impl ClarityTransactionConnection<'_, '_> {
     }
 
     pub fn is_mainnet(&self) -> bool {
-        return self.mainnet;
+        self.mainnet
     }
 
     /// Commit the changes from the edit log.
@@ -2594,7 +2515,7 @@ impl ClarityTransactionConnection<'_, '_> {
                     )
                     .map_err(ClarityError::from)
             },
-            |_, _| Some("read-only".to_string()),
+            |_, _| Some("read-only".into()),
         )?;
         Ok(result)
     }
@@ -3299,7 +3220,7 @@ mod tests {
                         &contract_identifier,
                         "set-bar",
                         &[Value::Int(10), Value::Int(1)],
-                        |_, _| Some("testing rollback".to_string()),
+                        |_, _| Some("testing rollback".into()),
                         &ResourceBudget::unlimited(),
                     )
                 })
@@ -3336,7 +3257,7 @@ mod tests {
                     &contract_identifier,
                     "set-bar",
                     &[Value::Int(10), Value::Int(0)],
-                    |_, _| Some("testing rollback".to_string()),
+                    |_, _| Some("testing rollback".into()),
                     &ResourceBudget::unlimited()
                 ))
                 .unwrap_err()
@@ -3579,7 +3500,7 @@ mod tests {
                 _height: u32,
                 _sortition_id: &SortitionId,
             ) -> Option<(Vec<TupleData>, u128)> {
-                return None;
+                None
             }
         }
 

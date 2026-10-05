@@ -43,7 +43,9 @@ use super::miner_db::MinerDB;
 use super::stackerdb_listener::StackerDBListenerComms;
 use super::Error as NakamotoNodeError;
 use crate::event_dispatcher::StackerDBChannel;
-use crate::nakamoto_node::stackerdb_listener::{StackerDBListener, EVENT_RECEIVER_POLL};
+use crate::nakamoto_node::stackerdb_listener::{
+    InitialChunksLoader, StackerDBListener, EVENT_RECEIVER_POLL,
+};
 use crate::neon::Counters;
 use crate::Config;
 
@@ -111,6 +113,7 @@ impl SignerCoordinator {
         stackerdb_channel: Arc<Mutex<StackerDBChannel>>,
         node_keep_running: Arc<AtomicBool>,
         reward_set: &RewardSet,
+        initial_chunks_loader: InitialChunksLoader,
         election_block: &BlockSnapshot,
         burnchain: &Burnchain,
         message_key: StacksPrivateKey,
@@ -126,6 +129,7 @@ impl SignerCoordinator {
             node_keep_running,
             keep_running.clone(),
             reward_set,
+            initial_chunks_loader,
             election_block,
             burnchain,
             config,
@@ -250,7 +254,7 @@ impl SignerCoordinator {
                     debug!("Wrote message to stackerdb: {ack:?}");
                     Ok(())
                 } else {
-                    Err(NakamotoNodeError::StackerDBUploadError(ack))
+                    Err(NakamotoNodeError::StackerDBUploadError(ack.into()))
                 }
             }
             Err(e) => Err(NakamotoNodeError::SigningCoordinatorFailure(format!(
@@ -402,7 +406,7 @@ impl SignerCoordinator {
                         return false;
                     }
                     // enough signatures?
-                    return status.total_weight_approved < self.weight_threshold;
+                    status.total_weight_approved < self.weight_threshold
                 },
             )? {
                 Some(status) => status,
@@ -453,8 +457,8 @@ impl SignerCoordinator {
                     // Check if a new Stacks block has arrived in the parent tenure
                     let highest_in_tenure =
                         NakamotoChainState::find_highest_known_block_header_in_tenure(
-                            &chain_state,
-                            &sortdb,
+                            chain_state,
+                            sortdb,
                             &parent_tenure_header.consensus_hash,
                         )?
                         .ok_or(NakamotoNodeError::UnexpectedChainState)?;

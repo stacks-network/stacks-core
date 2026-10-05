@@ -16,6 +16,8 @@
 
 /// This module defines the methods for reading and inserting into a Trie
 use sha2::Digest;
+use stacks_common::types::chainstate::{TrieHash, TRIEHASH_ENCODED_SIZE};
+use stacks_common::util::macros::is_trace;
 
 use crate::chainstate::stacks::index::bits::{get_leaf_hash, get_node_hash};
 use crate::chainstate::stacks::index::marf::MARF;
@@ -25,8 +27,6 @@ use crate::chainstate::stacks::index::node::{
 };
 use crate::chainstate::stacks::index::storage::{TrieHashCalculationMode, TrieStorageConnection};
 use crate::chainstate::stacks::index::{trie_sql, Error, MarfTrieId, TrieHasher, TrieLeaf};
-use crate::types::chainstate::{TrieHash, TRIEHASH_ENCODED_SIZE};
-use crate::util::macros::is_trace;
 
 /// We don't actually instantiate a Trie, but we still need to pass a type parameter for the
 /// storage implementation.
@@ -200,7 +200,6 @@ impl Trie {
             let (node, node_hash) = storage.read_nodetype(ptr)?;
             Ok((node, node_hash, *ptr))
         } else {
-            storage.bench_mut().marf_find_backptr_node_start();
             // ptr is a backptr -- find the block
             let back_block_hash = storage
                 .get_block_from_local_id(ptr.back_block())
@@ -220,7 +219,6 @@ impl Trie {
                 })?;
 
             let backptr = ptr.from_backptr();
-            storage.bench_mut().marf_find_backptr_node_finish();
 
             let (node, node_hash) = storage.read_nodetype(&backptr)?;
             cursor.repair_backptr_step_backptr(&node, &backptr, storage.get_cur_block());
@@ -448,7 +446,7 @@ impl Trie {
                 return true;
             }
         }
-        return false;
+        false
     }
 
     /// Try to insert a leaf node into the given node, if there's space to do so and if the leaf

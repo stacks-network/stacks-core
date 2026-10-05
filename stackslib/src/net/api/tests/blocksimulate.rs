@@ -15,6 +15,7 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
+use std::slice;
 
 use clarity::types::chainstate::StacksPrivateKey;
 use clarity::vm::types::PrincipalData;
@@ -40,14 +41,10 @@ use crate::net::ProtocolFamily;
 #[test]
 fn test_try_parse_request() {
     let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 33333);
-    let mut http = StacksHttp::new(addr.clone(), &ConnectionOptions::default());
+    let mut http = StacksHttp::new(addr, &ConnectionOptions::default());
 
-    let mut request = StacksHttpRequest::new_block_simulate(
-        addr.into(),
-        &StacksBlockId([0x01; 32]),
-        &vec![],
-        &vec![],
-    );
+    let mut request =
+        StacksHttpRequest::new_block_simulate(addr.into(), &StacksBlockId([0x01; 32]), &[], &[]);
 
     // add the authorization header
     request.add_header("authorization".into(), "password".into());
@@ -77,20 +74,20 @@ fn test_try_parse_request() {
     let (preamble, contents) = parsed_request.destruct();
 
     assert_eq!(&preamble, request.preamble());
-    assert_eq!(handler.profiler, false);
+    assert!(!handler.profiler);
 }
 
 #[test]
 fn test_try_parse_request_with_profiler() {
     let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 33333);
-    let mut http = StacksHttp::new(addr.clone(), &ConnectionOptions::default());
+    let mut http = StacksHttp::new(addr, &ConnectionOptions::default());
 
     let mut request = StacksHttpRequest::new_block_simulate_with_profiler(
         addr.into(),
         &StacksBlockId([0x01; 32]),
         true,
-        &vec![],
-        &vec![],
+        &[],
+        &[],
     );
 
     // add the authorization header
@@ -115,7 +112,7 @@ fn test_try_parse_request_with_profiler() {
 
     let (preamble, contents) = parsed_request.destruct();
 
-    assert_eq!(handler.profiler, true);
+    assert!(handler.profiler);
 }
 
 #[test]
@@ -160,8 +157,8 @@ fn test_try_make_response() {
         0,
         1000,
         CHAIN_ID_TESTNET,
-        &"print-contract1",
-        &"(print u1)",
+        "print-contract1",
+        "(print u1)",
         Some(clarity::vm::ClarityVersion::Clarity1),
     );
 
@@ -170,17 +167,17 @@ fn test_try_make_response() {
         1,
         1000,
         CHAIN_ID_TESTNET,
-        &"print-contract2",
-        &"(print u2)",
+        "print-contract2",
+        "(print u2)",
         Some(clarity::vm::ClarityVersion::Clarity1),
     );
 
     // query existing, non-empty Nakamoto block
     let mut request = StacksHttpRequest::new_block_simulate(
-        addr.clone().into(),
+        addr.into(),
         &rpc_test.canonical_tip,
-        &vec![deploy_tx1.clone(), deploy_tx2.clone()],
-        &vec![blocksimulate::RPCNakamotoBlockSimulateMint {
+        &[deploy_tx1.clone(), deploy_tx2.clone()],
+        &[blocksimulate::RPCNakamotoBlockSimulateMint {
             principal: PrincipalData::from(&private_key),
             amount: 3000,
         }],
@@ -190,23 +187,15 @@ fn test_try_make_response() {
     requests.push(request);
 
     // query non-existent block
-    let mut request = StacksHttpRequest::new_block_simulate(
-        addr.clone().into(),
-        &StacksBlockId([0x01; 32]),
-        &vec![],
-        &vec![],
-    );
+    let mut request =
+        StacksHttpRequest::new_block_simulate(addr.into(), &StacksBlockId([0x01; 32]), &[], &[]);
     // add the authorization header
     request.add_header("authorization".into(), "password".into());
     requests.push(request);
 
     // unauthenticated request
-    let request = StacksHttpRequest::new_block_simulate(
-        addr.clone().into(),
-        &StacksBlockId([0x00; 32]),
-        &vec![],
-        &vec![],
-    );
+    let request =
+        StacksHttpRequest::new_block_simulate(addr.into(), &StacksBlockId([0x00; 32]), &[], &[]);
     requests.push(request);
 
     let mut responses = rpc_test.run(requests);
@@ -299,8 +288,8 @@ fn simulate_block_with_pc_failure() {
                 0,
                 1000,
                 CHAIN_ID_TESTNET,
-                &"test",
-                &code_body,
+                "test",
+                code_body,
                 None,
             );
 
@@ -312,7 +301,7 @@ fn simulate_block_with_pc_failure() {
                 &address,
                 contract_name.clone(),
                 function_name.clone(),
-                &vec![],
+                &[],
             );
 
             let boot_tenures = vec![NakamotoBootTenure::Sortition(vec![
@@ -354,10 +343,10 @@ fn simulate_block_with_pc_failure() {
     let mut requests = vec![];
 
     let mut request = StacksHttpRequest::new_block_simulate(
-        addr.clone().into(),
+        addr.into(),
         &rpc_test.canonical_tip,
-        &vec![contract_call],
-        &vec![],
+        &[contract_call],
+        &[],
     );
     request.add_header("authorization".into(), "password".into());
     requests.push(request);
@@ -405,8 +394,8 @@ fn test_try_make_response_with_unsuccessful_transaction() {
                 100,
                 1000,
                 CHAIN_ID_TESTNET,
-                &"dummy-contract",
-                &contract_code,
+                "dummy-contract",
+                contract_code,
                 Some(clarity::vm::ClarityVersion::Clarity1),
             );
 
@@ -426,18 +415,18 @@ fn test_try_make_response_with_unsuccessful_transaction() {
         0,
         1000,
         CHAIN_ID_TESTNET,
-        &"err-contract",
-        &contract_code,
+        "err-contract",
+        contract_code,
         Some(clarity::vm::ClarityVersion::Clarity1),
     );
 
     let mut requests = vec![];
 
     let mut request = StacksHttpRequest::new_block_simulate(
-        addr.clone().into(),
+        addr.into(),
         &rpc_test.canonical_tip,
-        &vec![deploy_tx.clone()],
-        &vec![blocksimulate::RPCNakamotoBlockSimulateMint {
+        slice::from_ref(&deploy_tx),
+        &[blocksimulate::RPCNakamotoBlockSimulateMint {
             principal: PrincipalData::from(&private_key),
             amount: 3000,
         }],
@@ -470,7 +459,7 @@ fn test_try_make_response_with_unsuccessful_transaction() {
     assert_eq!(resp.transactions[0].txid, deploy_tx.txid());
 
     assert_eq!(
-        resp.transactions.last().unwrap().vm_error.clone().unwrap(),
-        ":0:0: use of unresolved function 'broken'"
+        resp.transactions.last().unwrap().vm_error.as_deref(),
+        Some(":0:0: use of unresolved function 'broken'")
     );
 }

@@ -15,7 +15,7 @@
 
 //! Account and fee operations used during transaction processing.
 
-use crate::chainstate::stacks::db::transactions::TransactionNonceMismatch;
+use crate::chainstate::stacks::db::transactions::{NonceCheckFailure, TransactionNonceMismatch};
 use crate::chainstate::stacks::db::{StacksAccount, StacksChainState};
 use crate::chainstate::stacks::{Error, StacksTransaction};
 use crate::clarity_vm::clarity::{ClarityConnection, ClarityTransactionConnection};
@@ -26,15 +26,12 @@ pub fn get_payer_account<T: ClarityConnection>(
     tx: &StacksTransaction,
 ) -> StacksAccount {
     // who's paying the fee?
-    let payer_account = if let Some(sponsor_address) = tx.sponsor_address() {
-        let payer_account = StacksChainState::get_account(clarity_tx, &sponsor_address.into());
-        payer_account
-    } else {
-        let origin_account = StacksChainState::get_account(clarity_tx, &tx.origin_address().into());
-        origin_account
-    };
 
-    payer_account
+    if let Some(sponsor_address) = tx.sponsor_address() {
+        StacksChainState::get_account(clarity_tx, &sponsor_address.into())
+    } else {
+        StacksChainState::get_account(clarity_tx, &tx.origin_address().into())
+    }
 }
 
 /// Check the account nonces for the supplied stacks transaction,
@@ -43,10 +40,7 @@ pub fn check_transaction_nonces<T: ClarityConnection>(
     clarity_tx: &mut T,
     tx: &StacksTransaction,
     quiet: bool,
-) -> Result<
-    (StacksAccount, StacksAccount),
-    (TransactionNonceMismatch, (StacksAccount, StacksAccount)),
-> {
+) -> Result<(StacksAccount, StacksAccount), Box<NonceCheckFailure>> {
     // who's sending it?
     let origin = tx.get_origin();
     let origin_account = StacksChainState::get_account(clarity_tx, &tx.origin_address().into());
@@ -68,7 +62,11 @@ pub fn check_transaction_nonces<T: ClarityConnection>(
             if !quiet {
                 warn!("{e}");
             }
-            return Err((e, (origin_account, payer_account)));
+            return Err(Box::new(NonceCheckFailure {
+                mismatch: e,
+                origin_account,
+                payer_account,
+            }));
         }
 
         payer_account
@@ -89,7 +87,11 @@ pub fn check_transaction_nonces<T: ClarityConnection>(
         if !quiet {
             warn!("{e}");
         }
-        return Err((e, (origin_account, payer_account)));
+        return Err(Box::new(NonceCheckFailure {
+            mismatch: e,
+            origin_account,
+            payer_account,
+        }));
     }
 
     Ok((origin_account, payer_account))

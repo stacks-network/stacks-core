@@ -473,9 +473,9 @@ impl StacksMessageCodec for HttpResponsePreamble {
         })? {
             httparse::Status::Partial => {
                 // try again
-                return Err(CodecError::UnderflowError(
+                Err(CodecError::UnderflowError(
                     "Not enough bytes to form a HTTP response preamble".to_string(),
-                ));
+                ))
             }
             httparse::Status::Complete(_) => {
                 // consumed all headers.
@@ -652,7 +652,7 @@ impl HttpResponsePayload {
                 Some(value.len() as u32)
             }
             Self::Text(value) => {
-                if value.as_bytes().len() > (u32::MAX as usize) {
+                if value.len() > (u32::MAX as usize) {
                     return None;
                 }
                 Some(value.len() as u32)
@@ -684,7 +684,7 @@ impl HttpResponsePayload {
                 serde_json::to_writer(&mut bytes, &value).map_err(Error::JsonError)?
             }
             Self::Bytes(value) => bytes.extend_from_slice(&value[..]),
-            Self::Text(value) => bytes.extend_from_slice(&value.as_bytes()[..]),
+            Self::Text(value) => bytes.extend_from_slice(value.as_bytes()),
         }
         let mut encoded_bytes = vec![];
         {

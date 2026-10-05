@@ -44,7 +44,7 @@ use crate::net::httpcore::{
     StacksHttpMessage, StacksHttpPreamble, StacksHttpRequest, StacksHttpResponse,
 };
 use crate::net::rpc::ConversationHttp;
-use crate::net::{ProtocolFamily, TipRequest};
+use crate::net::{CompletedPayload, ProtocolFamily, StreamRead, TipRequest};
 
 #[test]
 fn test_parse_stacks_http_preamble_request_err() {
@@ -105,23 +105,39 @@ fn test_parse_stacks_http_preamble_request_err() {
 
 #[test]
 fn test_parse_stacks_http_preamble_response_err() {
-    let tests = vec![
-        ("HTTP/1.1 200",
-        "Not enough bytes to form a HTTP request or response"),
-        ("HTTP/1.1 200 OK\r\nfoo: \u{2764}\r\n\r\n",
-         "Failed to decode HTTP request or HTTP response"),
-        ("HTTP/1.1 200 OK\r\nfoo: bar\r\nfoo: bar\r\n\r\n",
-         "Failed to decode HTTP request or HTTP response"),
-        ("HTTP/1.1 200 OK\r\nContent-Type: image/png\r\n\r\n",
-         "Failed to decode HTTP request or HTTP response"),
-        ("HTTP/1.1 200 OK\r\nContent-Length: foo\r\n\r\n",
-         "Failed to decode HTTP request or HTTP response"),
-        ("HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\n\r\n",
-         "Failed to decode HTTP request or HTTP response"),
-        ("HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: 123\r\nTransfer-Encoding: chunked\r\n\r\n",
-         "Failed to decode HTTP request or HTTP response"),
-        ("HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: 123\r\nConnection: foo\r\n\r\n",
-         "Failed to decode HTTP request or HTTP response"),
+    let tests = [
+        (
+            "HTTP/1.1 200",
+            "Not enough bytes to form a HTTP request or response",
+        ),
+        (
+            "HTTP/1.1 200 OK\r\nfoo: \u{2764}\r\n\r\n",
+            "Failed to decode HTTP request or HTTP response",
+        ),
+        (
+            "HTTP/1.1 200 OK\r\nfoo: bar\r\nfoo: bar\r\n\r\n",
+            "Failed to decode HTTP request or HTTP response",
+        ),
+        (
+            "HTTP/1.1 200 OK\r\nContent-Type: image/png\r\n\r\n",
+            "Failed to decode HTTP request or HTTP response",
+        ),
+        (
+            "HTTP/1.1 200 OK\r\nContent-Length: foo\r\n\r\n",
+            "Failed to decode HTTP request or HTTP response",
+        ),
+        (
+            "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\n\r\n",
+            "Failed to decode HTTP request or HTTP response",
+        ),
+        (
+            "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: 123\r\nTransfer-Encoding: chunked\r\n\r\n",
+            "Failed to decode HTTP request or HTTP response",
+        ),
+        (
+            "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: 123\r\nConnection: foo\r\n\r\n",
+            "Failed to decode HTTP request or HTTP response",
+        ),
     ];
 
     for (data, errstr) in tests.iter() {
@@ -750,10 +766,13 @@ fn test_http_response_type_codec() {
         );
 
         let (mut message, _total_len) = if expected_http_preamble.is_chunked() {
-            let (msg_opt, len) = http
+            let StreamRead {
+                completed: msg_opt,
+                consumed: len,
+            } = http
                 .stream_payload(&preamble, &mut &bytes[offset..])
                 .unwrap();
-            (msg_opt.unwrap().0, len)
+            (msg_opt.unwrap().payload, len)
         } else {
             http.read_payload(&preamble, &bytes[offset..]).unwrap()
         };
@@ -876,7 +895,15 @@ fn test_http_duplicate_concurrent_streamed_response_fails() {
             &mut &valid_neighbors_response.as_bytes()[offset..],
         )
         .unwrap();
-    if let (Some((StacksHttpMessage::Response(response), _)), _) = msg {
+    if let StreamRead {
+        completed:
+            Some(CompletedPayload {
+                payload: StacksHttpMessage::Response(response),
+                ..
+            }),
+        ..
+    } = msg
+    {
         assert_eq!(
             response.decode_rpc_neighbors().unwrap(),
             RPCNeighborsInfo {
@@ -1156,7 +1183,8 @@ fn start_mock_server(response: String, client_done_signal: Receiver<()>) -> Stri
 
     // Start the server in a new thread
     thread::spawn(move || {
-        for stream in listener.incoming() {
+        // Serve exactly one request, then close.
+        if let Some(stream) = listener.incoming().next() {
             debug!("Mock server accepted connection");
             let mut stream = stream.expect("Failed to accept connection");
 
@@ -1183,8 +1211,6 @@ fn start_mock_server(response: String, client_done_signal: Receiver<()>) -> Stri
             drop(stream);
 
             debug!("Mock server closing connection");
-
-            break; // Close after the first request
         }
     });
 
@@ -1362,5 +1388,54 @@ fn test_http_error_responses() {
             }
             Err(e) => panic!("{verb} {path}: unexpected error {e:?}"),
         }
+    }
+}
+
+/// Chunk boundaries must not conflate per-call consumption with the complete encoded size.
+#[test]
+fn test_streamed_response_byte_accounting() {
+    let preamble_bytes = b"HTTP/1.1 200 OK\r\nServer: stacks/v2.0\r\nX-Request-Id: 123\r\nContent-Type: application/json\r\nTransfer-Encoding: chunked\r\n\r\n";
+    let body =
+        b"37\r\n{\"bootstrap\":[],\"sample\":[],\"inbound\":[],\"outbound\":[]}\r\n0\r\n\r\n";
+
+    for chunk_size in [1, 2, 7, body.len()] {
+        let mut http = StacksHttp::new(
+            "127.0.0.1:20443".parse().unwrap(),
+            &ConnectionOptions::default(),
+        );
+        http.set_response_handler("GET", "/v2/neighbors");
+        let (preamble, _) = http.read_preamble(preamble_bytes).unwrap();
+        let mut total_consumed = 0;
+        let mut completed = None;
+        for chunk in body.chunks(chunk_size) {
+            let mut input = chunk;
+            let progress = http.stream_payload(&preamble, &mut input).unwrap();
+            assert_eq!(progress.consumed, chunk.len());
+            total_consumed += progress.consumed;
+            if total_consumed < body.len() {
+                assert!(progress.completed.is_none());
+                let pending = http.stream_payload(&preamble, &mut &[][..]).unwrap();
+                assert_eq!(pending.consumed, 0);
+                assert!(pending.completed.is_none());
+            } else {
+                completed = progress.completed;
+            }
+        }
+        let completed = completed.expect("complete chunked response");
+        assert_eq!(completed.total_encoded_bytes, body.len());
+        assert_eq!(total_consumed, body.len());
+        let StacksHttpMessage::Response(response) = completed.payload else {
+            panic!("expected HTTP response");
+        };
+        assert_eq!(
+            response.decode_rpc_neighbors().unwrap(),
+            RPCNeighborsInfo {
+                bootstrap: vec![],
+                sample: vec![],
+                inbound: vec![],
+                outbound: vec![]
+            }
+        );
+        assert_eq!(http.num_pending(), 0);
     }
 }

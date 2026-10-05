@@ -35,7 +35,7 @@ use stacks::chainstate::burn::operations::{
 };
 use stacks::chainstate::burn::{BlockSnapshot, ConsensusHash};
 use stacks::chainstate::nakamoto::coordinator::get_nakamoto_next_recipients;
-use stacks::chainstate::nakamoto::{NakamotoBlockHeader, NakamotoChainState};
+use stacks::chainstate::nakamoto::NakamotoChainState;
 use stacks::chainstate::stacks::db::StacksChainState;
 use stacks::chainstate::stacks::miner::{
     set_mining_spend_amount, signal_mining_blocked, signal_mining_ready,
@@ -301,6 +301,11 @@ impl MinerStopHandle {
         self.join_handle
     }
 
+    /// Signal the miner thread that it should abort
+    pub fn set_aborted(&self) {
+        self.abort_flag.store(true, Ordering::SeqCst);
+    }
+
     /// Stop the inner miner thread.
     /// Blocks the miner, and sets the abort flag so that a blocked miner will error out.
     pub fn stop(self, globals: &Globals) -> Result<(), NakamotoNodeError> {
@@ -311,7 +316,7 @@ impl MinerStopHandle {
             &my_id, &prior_thread_id
         );
 
-        self.abort_flag.store(true, Ordering::SeqCst);
+        self.set_aborted();
         globals.block_miner();
 
         let prior_miner = self.into_inner();
@@ -621,7 +626,7 @@ impl RelayerThread {
     /// * whether or not we won the _given_ sortition (`sn`)
     /// * whether or not we won the sortition that started the ongoing Stacks tenure
     /// * whether or not the ongoing Stacks tenure is at or descended from the last-winning
-    /// sortition
+    ///   sortition
     ///
     /// Specifically:
     ///
@@ -743,7 +748,7 @@ impl RelayerThread {
     /// * whether or not we won the last sortition with a winner
     /// * whether or not the last sortition winner has produced a Stacks block
     /// * whether or not the ongoing Stacks tenure is at or descended from the last-winning
-    /// sortition
+    ///   sortition
     ///
     /// Find out who won the last sortition with a winner.  If it was us, and if we haven't yet
     /// submitted a `BlockFound` tenure-change for it (which can happen if this given sortition is
@@ -880,7 +885,7 @@ impl RelayerThread {
         }
 
         info!("Relayer: No sortition, and we did not produce the last Stacks tip. Will not mine.");
-        return None;
+        None
     }
 
     /// Determine if we the current tenure winner needs to issue a BlockFound.
@@ -1143,40 +1148,19 @@ impl RelayerThread {
         };
 
         // find the parent block-commit of this commit, so we can find the parent vtxindex
-        // if the parent is a shadow block, then the vtxindex would be 0.
         let commit_parent_block_burn_height = tip_tenure_sortition.block_height;
-        let commit_parent_winning_vtxindex = if let Ok(Some(parent_winning_tx)) =
-            SortitionDB::get_block_commit(
-                self.sortdb.conn(),
-                &tip_tenure_sortition.winning_block_txid,
-                &tip_tenure_sortition.sortition_id,
-            ) {
-            parent_winning_tx.vtxindex
-        } else {
-            debug!(
-                "{}/{} ({}) must be a shadow block, since it has no block-commit",
-                &tip_block_bh, &tip_block_ch, &tip_block_id
+        let Ok(Some(parent_winning_tx)) = SortitionDB::get_block_commit(
+            self.sortdb.conn(),
+            &tip_tenure_sortition.winning_block_txid,
+            &tip_tenure_sortition.sortition_id,
+        ) else {
+            error!("Relayer: Failed to lookup the block-commit that won the highest tenure";
+                "tenure_consensus_hash" => %tip_block_ch,
+                "stacks_block_id" => %tip_block_id
             );
-            let Ok(Some(parent_version)) =
-                NakamotoChainState::get_nakamoto_block_version(self.chainstate.db(), &tip_block_id)
-            else {
-                error!(
-                    "Relayer: Failed to lookup block version of {}",
-                    &tip_block_id
-                );
-                return Err(NakamotoNodeError::ParentNotFound);
-            };
-
-            if !NakamotoBlockHeader::is_shadow_block_version(parent_version) {
-                error!(
-                    "Relayer: parent block-commit of {} not found, and it is not a shadow block",
-                    &tip_block_id
-                );
-                return Err(NakamotoNodeError::ParentNotFound);
-            }
-
-            0
+            return Err(NakamotoNodeError::ParentNotFound);
         };
+        let commit_parent_winning_vtxindex = parent_winning_tx.vtxindex;
 
         // epoch in which this commit will be sent (affects how the burnchain client processes it)
         let Ok(Some(target_epoch)) =
@@ -1257,7 +1241,7 @@ impl RelayerThread {
                 .clone();
 
             let parent_tenure_tip =
-                NakamotoChainState::get_block_header(&self.chainstate.db(), &parent_tenure_tip_id)
+                NakamotoChainState::get_block_header(self.chainstate.db(), &parent_tenure_tip_id)
                     .unwrap()
                     .unwrap();
 
@@ -1487,9 +1471,7 @@ impl RelayerThread {
 
     /// Get the public key hash for the mining key.
     fn get_mining_key_pkh(&self) -> Option<Hash160> {
-        let Some(ref mining_key) = self.config.miner.mining_key else {
-            return None;
-        };
+        let mining_key = self.config.miner.mining_key.as_ref()?;
         Some(Hash160::from_node_public_key(
             &StacksPublicKey::from_private(mining_key),
         ))
@@ -1582,13 +1564,13 @@ impl RelayerThread {
                     chain_state,
                     &canonical_stacks_tip,
                     &canonical_stacks_tip_sn,
-                    &cursor,
+                    cursor,
                 )? {
                     return Ok(FindIter::Found(()));
                 }
 
                 // nope. continue the search
-                return Ok(FindIter::Continue);
+                Ok(FindIter::Continue)
             })
             .map(|found| found.is_some())
     }
@@ -1843,7 +1825,7 @@ impl RelayerThread {
     /// * Otherwise, if we haven't done so already, go register a VRF public key
     /// * If the stacks chain tip or burnchain tip has changed, then issue a block-commit
     /// * If the last burn view we started a miner for is not the canonical burn view, then
-    /// try and start a new tenure (or continue an existing one).
+    ///   try and start a new tenure (or continue an existing one).
     fn initiative(&mut self) -> Result<Option<RelayerDirective>, NakamotoNodeError> {
         if !self.is_miner {
             return Ok(None);
@@ -1963,10 +1945,10 @@ impl RelayerThread {
             &sort_tip.consensus_hash,
             &self.config.miner.block_commit_delay,
         ) {
-            return Ok(Some(RelayerDirective::IssueBlockCommit(
+            Ok(Some(RelayerDirective::IssueBlockCommit(
                 stacks_tip_ch,
                 stacks_tip_bh,
-            )));
+            )))
         } else {
             if let Some(deadline) = self
                 .new_tenure_timeout
@@ -1975,7 +1957,7 @@ impl RelayerThread {
                 self.next_initiative = std::cmp::min(self.next_initiative, deadline);
             }
 
-            return Ok(None);
+            Ok(None)
         }
     }
 
@@ -2011,9 +1993,9 @@ impl RelayerThread {
         };
         // reset timer so we can try again if for some reason a miner was already running (e.g. a
         // blockfound from earlier).
-        self.tenure_extend_time
-            .as_mut()
-            .map(|t| t.refresh(self.config.miner.tenure_extend_poll_timeout));
+        if let Some(t) = self.tenure_extend_time.as_mut() {
+            t.refresh(self.config.miner.tenure_extend_poll_timeout);
+        }
         // try to extend, but only if we aren't already running a thread for the current or newer
         // burnchain view
         let Ok(burn_tip) = SortitionDB::get_canonical_burn_chain_tip(self.sortdb.conn())
@@ -2325,7 +2307,6 @@ pub mod test {
     use std::io::Write;
     use std::path::Path;
     use std::time::Duration;
-    use std::u64;
 
     use rand::{thread_rng, Rng};
     use stacks::burnchains::Txid;

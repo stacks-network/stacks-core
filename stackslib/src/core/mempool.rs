@@ -14,8 +14,8 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::cmp::{self, Ordering};
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::cmp::Ordering;
+use std::collections::{HashSet, VecDeque};
 use std::hash::Hasher;
 use std::io::{Read, Write};
 use std::ops::{Deref, DerefMut};
@@ -63,8 +63,8 @@ use crate::net::api::postblock_proposal::{BlockValidateOk, BlockValidateReject};
 use crate::net::Error as net_error;
 use crate::util_lib::bloom::{bloom_hash_count, BloomCounter, BloomFilter, BloomNodeHasher};
 use crate::util_lib::db::{
-    query_int, query_row, query_row_columns, query_rows, sqlite_open, table_exists,
-    tx_begin_immediate, u64_to_sql, DBConn, DBTx, Error as db_error, Error, FromColumn, FromRow,
+    query_int, query_row, query_rows, sqlite_open, table_exists, tx_begin_immediate, u64_to_sql,
+    DBConn, DBTx, Error as db_error, Error, FromColumn, FromRow,
 };
 use crate::{cost_estimates, monitoring};
 
@@ -340,12 +340,6 @@ pub struct MemPoolAdmitter {
     cur_consensus_hash: ConsensusHash,
 }
 
-enum MemPoolWalkResult {
-    Chainstate(ConsensusHash, BlockHeaderHash, u64, u64),
-    NoneAtCoinbaseHeight(ConsensusHash, BlockHeaderHash, u64),
-    Done,
-}
-
 impl MemPoolAdmitter {
     pub fn new(cur_block: BlockHeaderHash, cur_consensus_hash: ConsensusHash) -> MemPoolAdmitter {
         MemPoolAdmitter {
@@ -396,13 +390,6 @@ pub struct ConsiderTransaction {
     /// If `update_estimator` is set, the iteration should update the estimator
     /// after considering the tx.
     pub update_estimate: bool,
-}
-
-enum ConsiderTransactionResult {
-    NoTransactions,
-    UpdateNonces(Vec<StacksAddress>),
-    /// This transaction should be considered for inclusion in the block.
-    Consider(ConsiderTransaction),
 }
 
 impl std::fmt::Display for MemPoolDropReason {
@@ -559,15 +546,9 @@ impl FromStr for MemPoolWalkStrategy {
     type Err = &'static str;
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
-            "GlobalFeeRate" => {
-                return Ok(Self::GlobalFeeRate);
-            }
-            "NextNonceWithHighestFeeRate" => {
-                return Ok(Self::NextNonceWithHighestFeeRate);
-            }
-            _ => {
-                return Err("Unknown mempool walk strategy");
-            }
+            "GlobalFeeRate" => Ok(Self::GlobalFeeRate),
+            "NextNonceWithHighestFeeRate" => Ok(Self::NextNonceWithHighestFeeRate),
+            _ => Err("Unknown mempool walk strategy"),
         }
     }
 }
@@ -696,10 +677,7 @@ impl FromRow<MemPoolTxInfo> for MemPoolTxInfo {
 impl FromRow<MemPoolTxInfoPartial> for MemPoolTxInfoPartial {
     fn from_row(row: &Row) -> Result<MemPoolTxInfoPartial, db_error> {
         let txid = Txid::from_column(row, "txid")?;
-        let fee_rate: Option<f64> = match row.get("fee_rate") {
-            Ok(rate) => Some(rate),
-            Err(_) => None,
-        };
+        let fee_rate: Option<f64> = row.get("fee_rate").ok();
         let origin_address = StacksAddress::from_column(row, "origin_address")?;
         let origin_nonce = u64::from_column(row, "origin_nonce")?;
         let sponsor_address = StacksAddress::from_column(row, "sponsor_address")?;
@@ -875,7 +853,7 @@ const MEMPOOL_SCHEMA_7_TIME_ESTIMATES: &[&str] = &[
     "#,
 ];
 
-const MEMPOOL_SCHEMA_8_NONCE_SORTING: &'static [&'static str] = &[
+const MEMPOOL_SCHEMA_8_NONCE_SORTING: &[&str] = &[
     r#"
     -- Add table to track considered transactions
     CREATE TABLE IF NOT EXISTS considered_txs(
@@ -1120,9 +1098,7 @@ struct CandidateCache {
 
 impl CandidateCache {
     fn new(candidate_retry_cache_size: usize) -> Self {
-        let max_size: usize = candidate_retry_cache_size
-            .try_into()
-            .expect("Could not cast `candidate_retry_cache_size` as usize.");
+        let max_size: usize = candidate_retry_cache_size;
         Self {
             cache: VecDeque::new(),
             next: VecDeque::new(),
@@ -1167,12 +1143,6 @@ impl CandidateCache {
     #[cfg_attr(test, mutants::skip)]
     fn len(&self) -> usize {
         self.cache.len() + self.next.len()
-    }
-
-    /// Is the cache empty?
-    #[cfg_attr(test, mutants::skip)]
-    fn is_empty(&self) -> bool {
-        self.cache.is_empty() && self.next.is_empty()
     }
 }
 
@@ -1395,7 +1365,7 @@ impl MemPoolDB {
         let admitter = MemPoolAdmitter::new(BlockHeaderHash([0u8; 32]), ConsensusHash([0u8; 20]));
 
         let mut create_flag = false;
-        let open_flags = if fs::metadata(&db_path).is_err() {
+        let open_flags = if fs::metadata(db_path).is_err() {
             // need to create
             create_flag = true;
             OpenFlags::SQLITE_OPEN_READ_WRITE | OpenFlags::SQLITE_OPEN_CREATE
@@ -1404,7 +1374,7 @@ impl MemPoolDB {
             OpenFlags::SQLITE_OPEN_READ_WRITE
         };
 
-        let mut conn = sqlite_open(&db_path, open_flags, true)?;
+        let mut conn = sqlite_open(db_path, open_flags, true)?;
         if create_flag {
             // instantiate!
             MemPoolDB::instantiate_mempool_db(&mut conn)?;
@@ -1495,27 +1465,6 @@ impl MemPoolDB {
         Ok(())
     }
 
-    /// Find the origin addresses who have sent the highest-fee transactions
-    fn find_origin_addresses_by_descending_fees(
-        &self,
-        start_coinbase_height: i64,
-        end_coinbase_height: i64,
-        min_fees: u64,
-        offset: u32,
-        count: u32,
-    ) -> Result<Vec<StacksAddress>, db_error> {
-        let sql = "SELECT DISTINCT origin_address FROM mempool WHERE height > ?1 AND height <= ?2 AND tx_fee >= ?3
-                   ORDER BY tx_fee DESC LIMIT ?4 OFFSET ?5";
-        let args = params![
-            start_coinbase_height,
-            end_coinbase_height,
-            u64_to_sql(min_fees)?,
-            count,
-            offset,
-        ];
-        query_row_columns(self.conn(), sql, args, "origin_address")
-    }
-
     /// Add estimated fee rates to the mempool rate table using
     /// the mempool's configured `CostMetric` and `CostEstimator`. Will update
     /// at most `max_updates` entries in the database before returning.
@@ -1564,25 +1513,6 @@ impl MemPoolDB {
         sql_tx.commit()?;
 
         Ok(updated)
-    }
-
-    /// Helper method to record nonces to a retry-buffer.
-    /// This is needed for when we try to write-through a new (address, nonce) pair to the on-disk
-    /// `nonces` cache, but the write fails due to lock contention from another thread.  The
-    /// retry-buffer will be used to later store this data in a single transaction.
-    fn save_nonce_for_retry(
-        retry_store: &mut HashMap<StacksAddress, u64>,
-        max_size: u64,
-        addr: StacksAddress,
-        new_nonce: u64,
-    ) {
-        if (retry_store.len() as u64) < max_size {
-            if let Some(nonce) = retry_store.get_mut(&addr) {
-                *nonce = cmp::max(new_nonce, *nonce);
-            } else {
-                retry_store.insert(addr, new_nonce);
-            }
-        }
     }
 
     /// Iterate over candidates in the mempool
@@ -2478,9 +2408,9 @@ impl MemPoolDB {
     /// we're in:
     /// * In epoch 2.x, these are the Stacks chain tip.
     /// * In Nakamoto, these will be resolved to the tenure-start block of the tenure in which this
-    /// Stacks block lies.  The reason for this is because of how the mempool performs
-    /// garbage collection in its DB and bloom filter -- the latter of which is used for mempool
-    /// sync.
+    ///   Stacks block lies.  The reason for this is because of how the mempool performs
+    ///   garbage collection in its DB and bloom filter -- the latter of which is used for mempool
+    ///   sync.
     ///
     /// No action is required by te caller to handle this discrepancy; the caller should just submit
     /// the canonical Stacks tip.  If the current epoch is a Nakamoto epoch, it will be resolved to
@@ -2705,7 +2635,7 @@ impl MemPoolDB {
     fn inner_drop_txs(tx: &DBTx<'_>, txids: &[Txid]) -> Result<(), db_error> {
         let sql = "DELETE FROM mempool WHERE txid = ?";
         for txid in txids.iter() {
-            tx.execute(sql, &[txid])?;
+            tx.execute(sql, [txid])?;
         }
         Ok(())
     }

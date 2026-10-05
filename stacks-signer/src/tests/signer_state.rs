@@ -14,7 +14,7 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 use std::collections::HashMap;
 use std::fs;
-use std::time::{Duration, SystemTime};
+use std::time::{Duration, Instant, SystemTime};
 
 use blockstack_lib::chainstate::nakamoto::NakamotoBlockHeader;
 use blockstack_lib::chainstate::stacks::db::StacksBlockHeaderTypes;
@@ -32,19 +32,21 @@ use libsigner::v0::messages::{
     StateMachineUpdate as StateMachineUpdateMessage, StateMachineUpdateContent,
     StateMachineUpdateMinerState,
 };
-use libsigner::v0::signer_state::{
-    GlobalStateEvaluator, MinerState, ReplayTransactionSet, SignerStateMachine,
-};
+use libsigner::v0::signer_state::{GlobalStateEvaluator, MinerState, SignerStateMachine};
 use stacks_common::bitvec::BitVec;
 use stacks_common::function_name;
 
 use crate::chainstate::{ProposalEvalConfig, SortitionData};
-use crate::client::tests::{build_get_tenure_tip_response, MockServerClient};
+use crate::client::tests::{
+    build_get_peer_info_response, build_get_tenure_tip_response, MockServerClient,
+};
 use crate::client::StacksClient;
-use crate::config::{GlobalConfig, DEFAULT_RESET_REPLAY_SET_AFTER_FORK_BLOCKS};
+use crate::config::GlobalConfig;
 use crate::signerdb::tests::{create_block_override, tmp_db_path};
 use crate::signerdb::SignerDb;
-use crate::v0::signer_state::{LocalStateMachine, NewBurnBlock, StateMachineUpdate};
+use crate::v0::signer_state::{
+    LocalStateMachine, NewBurnBlock, PendingRetryBackoff, StateMachineUpdate,
+};
 
 #[test]
 fn check_capitulate_miner_view() {
@@ -180,7 +182,6 @@ fn check_capitulate_miner_view() {
         burn_block,
         burn_block_height,
         current_miner: new_miner.clone().into(),
-        tx_replay_set: ReplayTransactionSet::none(),
         active_signer_protocol_version,
     };
 
@@ -442,7 +443,6 @@ fn check_capitulate_with_local_timeout() {
         burn_block: burn_block.clone(),
         burn_block_height,
         current_miner: local_miner.clone().into(),
-        tx_replay_set: ReplayTransactionSet::none(),
         active_signer_protocol_version,
     };
 
@@ -633,7 +633,6 @@ fn check_capitulate_split_view_node_at_lower_height() {
         burn_block: burn_block.clone(),
         burn_block_height,
         current_miner: local_miner.clone().into(),
-        tx_replay_set: ReplayTransactionSet::none(),
         active_signer_protocol_version,
     };
     let mut local_state_machine = LocalStateMachine::Initialized(signer_state_machine);
@@ -820,7 +819,6 @@ fn check_capitulate_split_view_node_at_higher_height() {
         burn_block: burn_block.clone(),
         burn_block_height,
         current_miner: local_miner.clone().into(),
-        tx_replay_set: ReplayTransactionSet::none(),
         active_signer_protocol_version,
     };
     let mut local_state_machine = LocalStateMachine::Initialized(signer_state_machine);
@@ -938,7 +936,6 @@ fn check_capitulate_viewpoint_time_guards() {
         burn_block: burn_block.clone(),
         burn_block_height,
         current_miner: local_miner.clone().into(),
-        tx_replay_set: ReplayTransactionSet::none(),
         active_signer_protocol_version,
     };
 
@@ -1009,7 +1006,6 @@ fn check_capitulate_viewpoint_time_guards() {
             burn_block,
             burn_block_height,
             current_miner: local_miner.into(),
-            tx_replay_set: ReplayTransactionSet::none(),
             active_signer_protocol_version,
         }),
         "Recent globally accepted block should prevent capitulation"
@@ -1035,7 +1031,6 @@ fn check_miner_inactivity_timeout() {
         tenure_idle_timeout_buffer: Duration::from_secs(2),
         reorg_attempts_activity_timeout: Duration::from_secs(3),
         proposal_wait_for_parent_time: Duration::from_secs(0),
-        reset_replay_set_after_fork_blocks: DEFAULT_RESET_REPLAY_SET_AFTER_FORK_BLOCKS,
         read_count_idle_timeout: Duration::from_secs(12000),
     };
 
@@ -1133,7 +1128,7 @@ fn check_miner_inactivity_timeout() {
     // This local state machine should not change as an uninitialized local state cannot be modified
     let mut local_state_machine = LocalStateMachine::Uninitialized;
     local_state_machine
-        .check_miner_inactivity(&signer_db, &stacks_client, &proposal_config, &eval)
+        .check_miner_inactivity(&mut signer_db, &stacks_client, &proposal_config, &eval)
         .unwrap();
     assert_eq!(local_state_machine, LocalStateMachine::Uninitialized);
 
@@ -1143,11 +1138,10 @@ fn check_miner_inactivity_timeout() {
         burn_block_height: 1,
         current_miner: inactive_miner,
         active_signer_protocol_version: 0,
-        tx_replay_set: ReplayTransactionSet::none(),
     };
     local_state_machine = LocalStateMachine::Initialized(signer_state.clone());
     local_state_machine
-        .check_miner_inactivity(&signer_db, &stacks_client, &proposal_config, &eval)
+        .check_miner_inactivity(&mut signer_db, &stacks_client, &proposal_config, &eval)
         .unwrap();
     assert_eq!(
         local_state_machine,
@@ -1164,7 +1158,7 @@ fn check_miner_inactivity_timeout() {
         update: update.clone(),
     };
     local_state_machine
-        .check_miner_inactivity(&signer_db, &stacks_client, &proposal_config, &eval)
+        .check_miner_inactivity(&mut signer_db, &stacks_client, &proposal_config, &eval)
         .unwrap();
     assert_eq!(
         local_state_machine,
@@ -1178,7 +1172,7 @@ fn check_miner_inactivity_timeout() {
     signer_state.current_miner = active_miner;
     local_state_machine = LocalStateMachine::Initialized(signer_state.clone());
     local_state_machine
-        .check_miner_inactivity(&signer_db, &stacks_client, &proposal_config, &eval)
+        .check_miner_inactivity(&mut signer_db, &stacks_client, &proposal_config, &eval)
         .unwrap();
     assert_eq!(
         local_state_machine,
@@ -1193,6 +1187,41 @@ fn check_miner_inactivity_timeout() {
     let expected_result = vec![cur, last];
     let json_payload = serde_json::to_string(&expected_result).unwrap();
     let to_send_1 = format!("HTTP/1.1 200 OK\n\n{json_payload}");
+
+    // If the canonical stacks tip is NOT in the prior sortition's tenure (e.g. a
+    // Bitcoin reorg orphaned it), the prior miner's node has already stopped mining,
+    // so the current miner must NOT be demoted.
+    let (_, mut peer_info) = build_get_peer_info_response(None, None);
+    peer_info.stacks_tip_consensus_hash = ConsensusHash([0x77; 20]);
+    let json_payload = serde_json::to_string(&peer_info).unwrap();
+    let to_send_tip_mismatch = format!("HTTP/1.1 200 OK\n\n{json_payload}");
+
+    let MockServerClient {
+        mut server,
+        client,
+        config,
+    } = MockServerClient::new();
+    let expected_state = local_state_machine.clone();
+    let h = std::thread::spawn(move || {
+        local_state_machine
+            .check_miner_inactivity(&mut signer_db, &client, &proposal_config, &eval)
+            .unwrap();
+        // The timed out miner must remain the current miner: the prior miner cannot
+        // continue a tenure it does not own.
+        assert_eq!(local_state_machine, expected_state);
+        (local_state_machine, signer_db, proposal_config, eval)
+    });
+    crate::client::tests::write_response(server, to_send_1.as_bytes());
+    server = crate::client::tests::mock_server_from_config(&config);
+    crate::client::tests::write_response(server, to_send_tip_mismatch.as_bytes());
+    let (mut local_state_machine, mut signer_db, proposal_config, eval) = h.join().unwrap();
+
+    // Now the canonical stacks tip IS in the prior sortition's tenure, so the prior
+    // miner can continue it and the demotion should proceed.
+    let (_, mut peer_info) = build_get_peer_info_response(None, None);
+    peer_info.stacks_tip_consensus_hash = last_sortition.consensus_hash.clone();
+    let json_payload = serde_json::to_string(&peer_info).unwrap();
+    let to_send_tip_match = format!("HTTP/1.1 200 OK\n\n{json_payload}");
 
     // Next it will check if the prior sortition is both valid
     // and that it has chosen a good parent
@@ -1235,7 +1264,7 @@ fn check_miner_inactivity_timeout() {
     } = MockServerClient::new();
     let h = std::thread::spawn(move || {
         local_state_machine
-            .check_miner_inactivity(&signer_db, &client, &proposal_config, &eval)
+            .check_miner_inactivity(&mut signer_db, &client, &proposal_config, &eval)
             .unwrap();
         // The new miner will have the reassigned miner
         signer_state.current_miner = reassigned_miner;
@@ -1248,9 +1277,282 @@ fn check_miner_inactivity_timeout() {
     crate::client::tests::write_response(server, to_send_1.as_bytes());
 
     server = crate::client::tests::mock_server_from_config(&config);
+    crate::client::tests::write_response(server, to_send_tip_match.as_bytes());
+
+    server = crate::client::tests::mock_server_from_config(&config);
     crate::client::tests::write_response(server, to_send_2.as_bytes());
 
     server = crate::client::tests::mock_server_from_config(&config);
     crate::client::tests::write_response(server, to_send_3.as_bytes());
     h.join().unwrap();
+}
+
+/// A transient node error while reacting to a burn block must not strand the local state
+/// machine as `Uninitialized`: nothing re-runs `bitcoin_block_arrival` for an uninitialized
+/// machine until the *next* burn block event, so the signer would drop out of the global
+/// state for a whole Bitcoin block. The machine must instead be parked as `Pending` (keeping
+/// the prior state) so that `handle_pending_update` retries the same arrival on the next pass.
+#[test]
+fn bitcoin_block_arrival_error_parks_pending_and_retries() {
+    let config = GlobalConfig::load_from_file("./src/tests/conf/signer-0.toml").unwrap();
+    let stacks_client = StacksClient::from(&config);
+
+    let fn_name = function_name!();
+    let signer_db_dir = "/tmp/stacks-node-tests/signer-units/";
+    let signer_db_path = format!("{signer_db_dir}/{fn_name}.{}.sqlite", get_epoch_time_secs());
+    fs::create_dir_all(signer_db_dir).unwrap();
+    let mut signer_db = SignerDb::new(signer_db_path).unwrap();
+
+    let proposal_config = ProposalEvalConfig {
+        first_proposal_burn_block_timing: Duration::from_secs(30),
+        block_proposal_timeout: Duration::from_secs(5),
+        tenure_last_block_proposal_timeout: Duration::from_secs(30),
+        tenure_idle_timeout: Duration::from_secs(300),
+        tenure_idle_timeout_buffer: Duration::from_secs(2),
+        reorg_attempts_activity_timeout: Duration::from_secs(3),
+        proposal_wait_for_parent_time: Duration::from_secs(0),
+        read_count_idle_timeout: Duration::from_secs(12000),
+    };
+
+    let block_sk = StacksPrivateKey::from_seed(&[0, 1]);
+    let block_pk = StacksPublicKey::from_private(&block_sk);
+    let block_pkh = Hash160::from_node_public_key(&block_pk);
+
+    // The current sortition builds directly off the prior one, so validating it needs no
+    // fork-info round trip.
+    let genesis_block = NakamotoBlockHeader::genesis();
+    let cur_sortition = SortitionData {
+        miner_pkh: block_pkh.clone(),
+        miner_pubkey: None,
+        prior_sortition: ConsensusHash([0; 20]),
+        parent_tenure_id: ConsensusHash([0; 20]),
+        consensus_hash: ConsensusHash([1; 20]),
+        burn_header_timestamp: 2,
+        burn_block_hash: BurnchainHeaderHash([1; 32]),
+    };
+    let burn_height = 6;
+    let cur = SortitionInfo {
+        burn_block_hash: cur_sortition.burn_block_hash.clone(),
+        burn_block_height: burn_height,
+        burn_header_timestamp: cur_sortition.burn_header_timestamp,
+        sortition_id: SortitionId([1u8; 32]),
+        parent_sortition_id: SortitionId([3u8; 32]),
+        consensus_hash: cur_sortition.consensus_hash.clone(),
+        was_sortition: true,
+        miner_pk_hash160: Some(block_pkh.clone()),
+        last_sortition_ch: Some(ConsensusHash([0; 20])),
+        committed_block_hash: None,
+        vrf_seed: None,
+        stacks_parent_ch: Some(cur_sortition.parent_tenure_id.clone()),
+    };
+    let last = SortitionInfo {
+        burn_block_hash: BurnchainHeaderHash([0; 32]),
+        burn_block_height: 5,
+        burn_header_timestamp: 1,
+        sortition_id: SortitionId([0u8; 32]),
+        parent_sortition_id: SortitionId([4u8; 32]),
+        consensus_hash: ConsensusHash([0; 20]),
+        was_sortition: true,
+        miner_pk_hash160: Some(block_pkh.clone()),
+        last_sortition_ch: Some(ConsensusHash([9u8; 20])),
+        committed_block_hash: None,
+        vrf_seed: None,
+        stacks_parent_ch: Some(genesis_block.consensus_hash.clone()),
+    };
+    let sortitions_json = serde_json::to_string(&vec![cur, last]).unwrap();
+    let sortitions_ok = format!("HTTP/1.1 200 OK\n\n{sortitions_json}");
+    let node_error = "HTTP/1.1 500 Internal Server Error\n\n".to_string();
+
+    // The node already reports the burn block the signer was told about.
+    let (peer_info_ok, _) = build_get_peer_info_response(
+        Some(burn_height),
+        Some(cur_sortition.consensus_hash.clone()),
+    );
+    let tenure_tip_ok = build_get_tenure_tip_response(&BlockHeaderWithMetadata {
+        burn_view: Some(genesis_block.consensus_hash.clone()),
+        anchored_header: StacksBlockHeaderTypes::Nakamoto(genesis_block.clone()),
+    });
+
+    let mut address_weights = HashMap::new();
+    address_weights.insert(stacks_client.get_signer_address().clone(), 10_u32);
+    let eval = GlobalStateEvaluator::new(HashMap::new(), address_weights);
+
+    let prior = SignerStateMachine {
+        burn_block: ConsensusHash([0; 20]),
+        burn_block_height: 5,
+        current_miner: MinerState::NoValidMiner,
+        active_signer_protocol_version: 0,
+    };
+    let expected_burn_block = NewBurnBlock {
+        burn_block_height: burn_height,
+        consensus_hash: cur_sortition.consensus_hash.clone(),
+    };
+
+    // 1. The sortition lookup fails: the arrival must error, but the machine must be parked
+    //    as Pending with the prior state and the expected burn block, not Uninitialized.
+    let mut local_state_machine = LocalStateMachine::Initialized(prior.clone());
+    let MockServerClient {
+        mut server,
+        client,
+        config,
+    } = MockServerClient::new();
+    let expected_pending = LocalStateMachine::Pending {
+        update: StateMachineUpdate::BurnBlock(expected_burn_block.clone()),
+        prior: prior.clone(),
+    };
+    let expected_burn_block_clone = expected_burn_block.clone();
+    let h = std::thread::spawn(move || {
+        let result = local_state_machine.bitcoin_block_arrival(
+            &mut signer_db,
+            &client,
+            &proposal_config,
+            Some(expected_burn_block_clone),
+            &eval,
+            0,
+        );
+        assert!(result.is_err(), "a node error must surface to the caller");
+        assert_eq!(local_state_machine, expected_pending);
+        (local_state_machine, signer_db, proposal_config, eval)
+    });
+    crate::client::tests::write_response(server, peer_info_ok.as_bytes());
+    server = crate::client::tests::mock_server_from_config(&config);
+    crate::client::tests::write_response(server, node_error.as_bytes());
+    let (mut local_state_machine, mut signer_db, proposal_config, eval) = h.join().unwrap();
+
+    // 2. Even at startup, the error must leave a retryable Pending state.
+    let MockServerClient {
+        mut server,
+        client,
+        config,
+    } = MockServerClient::new();
+    let h = std::thread::spawn(move || {
+        let from_uninitialized =
+            LocalStateMachine::new(&mut signer_db, &client, &proposal_config, &eval, 0);
+        assert!(
+            matches!(
+                from_uninitialized,
+                LocalStateMachine::Pending {
+                    update: StateMachineUpdate::BurnBlock(NewBurnBlock {
+                        burn_block_height: 0,
+                        ..
+                    }),
+                    ..
+                }
+            ),
+            "unexpected state: {from_uninitialized:?}"
+        );
+        (signer_db, proposal_config, eval)
+    });
+    crate::client::tests::write_response(server, peer_info_ok.as_bytes());
+    server = crate::client::tests::mock_server_from_config(&config);
+    crate::client::tests::write_response(server, node_error.as_bytes());
+    let (mut signer_db, proposal_config, eval) = h.join().unwrap();
+
+    // 3. The next pass retries the pending arrival and, with a healthy node, initializes.
+    let MockServerClient {
+        mut server,
+        client,
+        config,
+    } = MockServerClient::new();
+    let expected_initialized = LocalStateMachine::Initialized(SignerStateMachine {
+        burn_block: cur_sortition.consensus_hash.clone(),
+        burn_block_height: burn_height,
+        current_miner: MinerState::ActiveMiner {
+            current_miner_pkh: cur_sortition.miner_pkh.clone(),
+            tenure_id: cur_sortition.consensus_hash.clone(),
+            parent_tenure_id: cur_sortition.parent_tenure_id.clone(),
+            parent_tenure_last_block: genesis_block.block_id(),
+            parent_tenure_last_block_height: 0,
+        },
+        active_signer_protocol_version: 0,
+    });
+    let h = std::thread::spawn(move || {
+        let mut backoff = PendingRetryBackoff::default();
+        local_state_machine
+            .handle_pending_update(
+                &mut signer_db,
+                &client,
+                &proposal_config,
+                &eval,
+                0,
+                &mut backoff,
+            )
+            .unwrap();
+        assert_eq!(local_state_machine, expected_initialized);
+    });
+    crate::client::tests::write_response(server, peer_info_ok.as_bytes());
+    server = crate::client::tests::mock_server_from_config(&config);
+    crate::client::tests::write_response(server, sortitions_ok.as_bytes());
+    server = crate::client::tests::mock_server_from_config(&config);
+    crate::client::tests::write_response(server, tenure_tip_ok.as_bytes());
+    h.join().unwrap();
+}
+
+/// Retries after node errors back off exponentially, up to a cap, and reset once they stop failing.
+#[test]
+fn pending_retry_backoff_grows_and_resets() {
+    let now = Instant::now();
+    let mut backoff = PendingRetryBackoff::default();
+    assert!(backoff.is_ready(now));
+
+    let mut expected_delay = Duration::from_secs(1);
+    for _ in 0..8 {
+        backoff.record_failure(now);
+        assert!(!backoff.is_ready(now + expected_delay - Duration::from_millis(1)));
+        assert!(backoff.is_ready(now + expected_delay));
+        expected_delay = (expected_delay * 2).min(Duration::from_secs(16));
+    }
+
+    backoff.reset();
+    assert!(backoff.is_ready(now));
+}
+
+/// While a failed pending update is backing off, `handle_pending_update` must leave the
+/// machine untouched without contacting the node.
+#[test]
+fn handle_pending_update_skips_retry_during_backoff() {
+    let config = GlobalConfig::load_from_file("./src/tests/conf/signer-0.toml").unwrap();
+    // During backoff the node must not be queried, so this client is never used.
+    let stacks_client = StacksClient::from(&config);
+    let mut signer_db = SignerDb::new(tmp_db_path()).unwrap();
+    let proposal_config = ProposalEvalConfig {
+        first_proposal_burn_block_timing: Duration::from_secs(30),
+        block_proposal_timeout: Duration::from_secs(5),
+        tenure_last_block_proposal_timeout: Duration::from_secs(30),
+        tenure_idle_timeout: Duration::from_secs(300),
+        tenure_idle_timeout_buffer: Duration::from_secs(2),
+        reorg_attempts_activity_timeout: Duration::from_secs(3),
+        proposal_wait_for_parent_time: Duration::from_secs(0),
+        read_count_idle_timeout: Duration::from_secs(12000),
+    };
+    let eval = GlobalStateEvaluator::new(HashMap::new(), HashMap::new());
+
+    let pending = LocalStateMachine::Pending {
+        update: StateMachineUpdate::BurnBlock(NewBurnBlock {
+            burn_block_height: 6,
+            consensus_hash: ConsensusHash([1; 20]),
+        }),
+        prior: SignerStateMachine {
+            burn_block: ConsensusHash([0; 20]),
+            burn_block_height: 5,
+            current_miner: MinerState::NoValidMiner,
+            active_signer_protocol_version: 0,
+        },
+    };
+    let mut local_state_machine = pending.clone();
+    let mut backoff = PendingRetryBackoff::default();
+    backoff.record_failure(Instant::now());
+
+    local_state_machine
+        .handle_pending_update(
+            &mut signer_db,
+            &stacks_client,
+            &proposal_config,
+            &eval,
+            0,
+            &mut backoff,
+        )
+        .unwrap();
+    assert_eq!(local_state_machine, pending);
+    assert!(!backoff.is_ready(Instant::now()));
 }

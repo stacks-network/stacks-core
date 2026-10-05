@@ -18,6 +18,9 @@
 use std::io::{ErrorKind, Read, Seek, SeekFrom, Write};
 
 use sha2::{Digest, Sha512_256 as TrieHasher};
+use stacks_common::codec::StacksMessageCodec;
+use stacks_common::types::chainstate::{TrieHash, TRIEHASH_ENCODED_SIZE};
+use stacks_common::util::hash::to_hex;
 
 use crate::chainstate::stacks::index::node::{
     clear_compressed, clear_ctrl_bits, is_backptr, is_compressed, ptrs_fmt, ConsensusSerializable,
@@ -28,9 +31,6 @@ use crate::chainstate::stacks::index::storage::TrieStorageConnection;
 use crate::chainstate::stacks::index::{
     BlockMap, Error, MarfTrieId, TrieLeaf, MARF_VALUE_ENCODED_SIZE,
 };
-use crate::codec::StacksMessageCodec;
-use crate::types::chainstate::{TrieHash, TRIEHASH_ENCODED_SIZE};
-use crate::util::hash::to_hex;
 
 /// Magic byte value indicating a sparse compressed pointer list.
 /// This value cannot be a valid [`TrieNodeID`], making it safe to use as a marker.
@@ -150,11 +150,11 @@ pub fn get_compressed_ptrs_size(id: u8, ptrs: &[TriePtr]) -> Option<(usize, bool
     }
 
     // +1 is for the SPARSE_PTR_BITMAP_MARKER bitmap marker
-    let sparse_size = usize::try_from(1 + bitmap_size + sparse_ptrs_size).expect("infallible");
+    let sparse_size = 1 + bitmap_size + sparse_ptrs_size;
     if sparse_size < ptrs_size {
-        return Some((sparse_size, true));
+        Some((sparse_size, true))
     } else {
-        return Some((ptrs_size, false));
+        Some((ptrs_size, false))
     }
 }
 
@@ -183,9 +183,9 @@ pub fn get_ptrs_byte_len_compressed(id: u8, ptrs: &[TriePtr]) -> usize {
 ///
 /// Where
 /// * 0xff ([`SPARSE_PTR_BITMAP_MARKER`]) is a marker bit that cannot be the first byte of a `TriePtr`, and indicates that a
-/// bitmap follows
+///   bitmap follows
 /// * `bitmap` is a bit field in which the ith bit is set if the ith `TriePtr` is not empty.  All
-/// other `TriePtr`s in `ptrs_buf` will be considered empty, and initialized as such.
+///   other `TriePtr`s in `ptrs_buf` will be considered empty, and initialized as such.
 ///
 /// The remaining bytes 1+B through 1+B+N contain the list of compressed `TriePtr`s -- one for each
 /// set bit in `bitmap`.
@@ -324,7 +324,7 @@ pub fn ptrs_from_bytes<R: Read + Seek>(
 
     if is_compressed(*nid) {
         trace!("Node {} has compressed ptrs", cleared_nid);
-        let sparse_flag = ptr_bytes.get(0).ok_or_else(|| {
+        let sparse_flag = ptr_bytes.first().ok_or_else(|| {
             Error::CorruptionError("Failed to read 2nd byte from bytes array".into())
         })?;
 
@@ -355,24 +355,23 @@ pub fn ptrs_from_bytes<R: Read + Seek>(
             trace!(
                 "Node {} has sparse compressed ptrs bitmap {}",
                 cleared_nid,
-                to_hex(&bitmap)
+                to_hex(bitmap)
             );
 
             let ptr_bytes = &ptr_bytes.get(bitmap_size..).ok_or_else(|| {
                 Error::CorruptionError("Failed to read bitmap_size bytes from bytes array".into())
             })?;
 
-            let mut nextptr = 0;
             let mut cursor = 0;
             for i in 0..(8 * bitmap_size) {
-                if nextptr >= ptrs_buf.len() {
+                if i >= ptrs_buf.len() {
                     break;
                 }
                 let bi = i / 8;
                 let bt = i % 8;
                 let mask = 1u8 << bt;
-                let next_ptrs_buf = ptrs_buf.get_mut(nextptr).ok_or_else(|| {
-                    Error::CorruptionError("infallible: nextptr < ptrs_buf.len()".into())
+                let next_ptrs_buf = ptrs_buf.get_mut(i).ok_or_else(|| {
+                    Error::CorruptionError("infallible: i < ptrs_buf.len()".into())
                 })?;
                 let byte = *bitmap.get(bi).ok_or_else(|| {
                     Error::CorruptionError("infallible: i / 8 < bitmap.len()".into())
@@ -406,13 +405,12 @@ pub fn ptrs_from_bytes<R: Read + Seek>(
                         .checked_add(next_ptrs_buf.compressed_size())
                         .ok_or_else(|| Error::OverflowError)?;
                 }
-                nextptr += 1;
             }
             trace!(
                 "Node {} sparse compressed ptrs ({} bytes): {}",
                 cleared_nid,
                 cursor,
-                &ptrs_fmt(&ptrs_buf)
+                &ptrs_fmt(ptrs_buf)
             );
 
             // seek to the end of the decoded ptrs
@@ -446,7 +444,7 @@ pub fn ptrs_from_bytes<R: Read + Seek>(
             trace!(
                 "Node {} dense compressed ptrs: {}",
                 cleared_nid,
-                &ptrs_fmt(&ptrs_buf)
+                &ptrs_fmt(ptrs_buf)
             );
 
             // seek to the end of the decoded ptrs
@@ -610,7 +608,7 @@ pub fn read_node_hash_bytes<F: Read + Seek>(
 /// Returns Err(IOError(..)) on storage I/O failure
 pub fn read_root_hash<T: MarfTrieId>(s: &mut TrieStorageConnection<T>) -> Result<TrieHash, Error> {
     let ptr = s.root_trieptr();
-    Ok(s.read_node_hash_bytes(&ptr)?)
+    s.read_node_hash_bytes(&ptr)
 }
 
 /// Count the number of allocated children in a list of a node's children pointers.

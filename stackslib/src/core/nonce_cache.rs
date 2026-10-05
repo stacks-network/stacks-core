@@ -23,16 +23,18 @@ use rand::Rng;
 use rusqlite::params;
 
 use crate::chainstate::stacks::db::StacksChainState;
-use crate::util_lib::db::{query_row, u64_to_sql, DBConn, Error as db_error};
+#[cfg(test)]
+use crate::util_lib::db::u64_to_sql;
+use crate::util_lib::db::{query_row, DBConn, Error as db_error};
 
 /// Used to cache nonces in memory and in the mempool database.
 /// 1. MARF - source of truth for nonces
 /// 2. Nonce DB - table in mempool sqlite database
 /// 3. HashMap - in-memory cache for nonces
-/// The in-memory cache is restricted to a maximum size to avoid memory
-/// exhaustion. When the cache is full, it should be flushed to the database
-/// and cleared. It is recommended to do this in between batches of candidate
-/// transactions from the mempool.
+///    The in-memory cache is restricted to a maximum size to avoid memory
+///    exhaustion. When the cache is full, it should be flushed to the database
+///    and cleared. It is recommended to do this in between batches of candidate
+///    transactions from the mempool.
 pub struct NonceCache {
     /// In-memory LRU cache of nonces.
     cache: LruCache<StacksAddress, u64>,
@@ -200,6 +202,8 @@ impl NonceCache {
     }
 }
 
+/// Write a nonce directly to the database for cache tests.
+#[cfg(test)]
 fn db_set_nonce(conn: &DBConn, address: &StacksAddress, nonce: u64) -> Result<(), db_error> {
     let addr_str = address.to_string();
     let nonce_i64 = u64_to_sql(nonce)?;
@@ -259,8 +263,8 @@ mod tests {
             )
             .commit_block();
         let mut clarity_conn = clarity_instance.begin_block(
-            &StacksBlockId([0 as u8; 32]),
-            &StacksBlockId([1 as u8; 32]),
+            &StacksBlockId([0_u8; 32]),
+            &StacksBlockId([1_u8; 32]),
             &TEST_HEADER_DB,
             &TEST_BURN_STATE_DB,
         );
@@ -281,8 +285,8 @@ mod tests {
         let mut mempool = MemPoolDB::open_test(false, CHAIN_ID_TESTNET, &chainstate_path).unwrap();
         let conn = &mut mempool.db;
         let addr = StacksAddress::from_string("ST2JHG361ZXG51QTKY2NQCVBPPRRE2KZB1HR05NNC").unwrap();
-        db_set_nonce(&conn, &addr, 123).unwrap();
-        assert_eq!(db_get_nonce(&conn, &addr).unwrap().unwrap(), 123);
+        db_set_nonce(conn, &addr, 123).unwrap();
+        assert_eq!(db_get_nonce(conn, &addr).unwrap().unwrap(), 123);
     }
 
     #[test]
@@ -309,7 +313,7 @@ mod tests {
         cache.set(addr3.clone(), 3, conn);
 
         // Verify addr1 was written to DB during eviction
-        assert_eq!(db_get_nonce(&conn, &addr1).unwrap().unwrap(), 1);
+        assert_eq!(db_get_nonce(conn, &addr1).unwrap().unwrap(), 1);
     }
 
     #[test]
@@ -333,8 +337,8 @@ mod tests {
         cache.flush(conn);
 
         // Verify both entries were written to DB
-        assert_eq!(db_get_nonce(&conn, &addr1).unwrap().unwrap(), 5);
-        assert_eq!(db_get_nonce(&conn, &addr2).unwrap().unwrap(), 10);
+        assert_eq!(db_get_nonce(conn, &addr1).unwrap().unwrap(), 5);
+        assert_eq!(db_get_nonce(conn, &addr2).unwrap().unwrap(), 10);
     }
 
     #[test]
@@ -347,11 +351,11 @@ mod tests {
         let addr = StacksAddress::from_string("ST2JHG361ZXG51QTKY2NQCVBPPRRE2KZB1HR05NNC").unwrap();
 
         // Set initial nonce
-        db_set_nonce(&conn, &addr, 1).unwrap();
-        assert_eq!(db_get_nonce(&conn, &addr).unwrap().unwrap(), 1);
+        db_set_nonce(conn, &addr, 1).unwrap();
+        assert_eq!(db_get_nonce(conn, &addr).unwrap().unwrap(), 1);
 
         // Overwrite with new nonce
-        db_set_nonce(&conn, &addr, 2).unwrap();
-        assert_eq!(db_get_nonce(&conn, &addr).unwrap().unwrap(), 2);
+        db_set_nonce(conn, &addr, 2).unwrap();
+        assert_eq!(db_get_nonce(conn, &addr).unwrap().unwrap(), 2);
     }
 }

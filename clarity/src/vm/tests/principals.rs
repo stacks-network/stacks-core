@@ -149,6 +149,8 @@ fn test_simple_is_standard_testnet_cases() {
     );
 }
 
+/// Checks mainnet standard and contract principals on both network configurations.
+#[test]
 fn test_simple_is_standard_mainnet_cases() {
     let mainnet_addr_test = "(is-standard 'SP3X6QWWETNBZWGBK6DRGTR1KX50S74D3433WDGJY)";
     assert_eq!(
@@ -198,7 +200,7 @@ fn test_simple_is_standard_mainnet_cases() {
         .unwrap()
     );
 
-    let mainnet_addr_test = "(is-standard 'SM3X6QWWETNBZWGBK6DRGTR1KX50S74D3433WDGJY)";
+    let mainnet_addr_test = "(is-standard 'SM2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQVX8X0G)";
     assert_eq!(
         Value::Bool(true),
         execute_with_parameters(
@@ -222,7 +224,7 @@ fn test_simple_is_standard_mainnet_cases() {
         .unwrap()
     );
 
-    let mainnet_addr_test = "(is-standard 'SM3X6QWWETNBZWGBK6DRGTR1KX50S74D3433WDGJY.tokens)";
+    let mainnet_addr_test = "(is-standard 'SM2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQVX8X0G.tokens)";
     assert_eq!(
         Value::Bool(true),
         execute_with_parameters(

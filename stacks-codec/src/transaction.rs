@@ -533,6 +533,7 @@ define_u8_enum!(TransactionPayloadID {
     Coinbase = 4,
     // has an alt principal, but no VRF proof
     CoinbaseToAltRecipient = 5,
+    // pins a Clarity version; only accepted in Epochs 2.1 through 4.0
     VersionedSmartContract = 6,
     TenureChange = 7,
     // has a VRF proof, and may have an alt principal
@@ -1293,7 +1294,7 @@ impl SinglesigSpendingCondition {
             return Err(AuthError::VerifyingError(format!(
                 "Signer hash does not equal hash of public key(s): {} != {}",
                 addr.bytes(),
-                &self.signer
+                self.signer
             )));
         }
 
@@ -2243,10 +2244,15 @@ const _: () =
 /// Condition code for a `Pox` post-condition. A `Pox` post-condition gates the
 /// position-altering PoX-5 operations (`unstake`, `unstake-sbtc`,
 /// `update-bond-registration`, `announce-l1-early-exit`) that act on a
-/// principal's existing stacking/bond position. An *attempt* counts, whether or
-/// not the call succeeded, so the owner can detect (and block) a contract that
-/// merely tries to touch their position. These are all-or-nothing, so the
-/// condition is presence-based rather than an amount comparison, mirroring
+/// principal's existing stacking/bond position. A call that returns `(err ...)`
+/// still counts as an attempt, so the owner can also detect (and block) a
+/// contract that merely tries to touch their position. The attempt is recorded
+/// as an effect of the calling function, so it survives to the post-condition
+/// check only if every public function between the PoX call and the
+/// transaction's entry point returns `(ok ...)`; a function that returns
+/// `(err ...)` rolls the record back with its other effects. The position is
+/// unchanged either way. These are all-or-nothing, so the condition is
+/// presence-based rather than an amount comparison, mirroring
 /// `NonfungibleConditionCode`.
 #[repr(u8)]
 #[derive(Debug, Clone, PartialEq, Copy, Serialize, Deserialize, VariantCount)]
@@ -2709,6 +2715,9 @@ impl StacksMicroblockHeader {
 pub enum TransactionPayload {
     TokenTransfer(PrincipalData, u64, TokenTransferMemo),
     ContractCall(TransactionContractCall),
+    /// A pinned Clarity version (`VersionedSmartContract` on the wire) is only
+    /// accepted in Epochs 2.1 through 4.0; elsewhere the deploy must be
+    /// unversioned and runs as the epoch default.
     SmartContract(TransactionSmartContract, Option<ClarityVersion>),
     // the previous epoch leader sent two microblocks with the same sequence, and this is proof
     PoisonMicroblock(StacksMicroblockHeader, StacksMicroblockHeader),
@@ -2808,6 +2817,7 @@ fn clarity_version_consensus_serialize<W: Write>(
         ClarityVersion::Clarity4 => write_next(fd, &4u8)?,
         ClarityVersion::Clarity5 => write_next(fd, &5u8)?,
         ClarityVersion::Clarity6 => write_next(fd, &6u8)?,
+        ClarityVersion::Clarity7 => write_next(fd, &7u8)?,
     }
     Ok(())
 }
@@ -2823,9 +2833,10 @@ fn clarity_version_consensus_deserialize<R: Read>(
         4u8 => Ok(ClarityVersion::Clarity4),
         5u8 => Ok(ClarityVersion::Clarity5),
         6u8 => Ok(ClarityVersion::Clarity6),
+        7u8 => Ok(ClarityVersion::Clarity7),
         _ => Err(codec_error::DeserializeError(format!(
             "Unrecognized ClarityVersion byte {}",
-            &version_byte
+            version_byte
         ))),
     }
 }

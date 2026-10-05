@@ -106,8 +106,8 @@ impl fmt::Debug for StackerDBChunkData {
                 "StackerDBChunkData({},{},{},{})",
                 self.slot_id,
                 self.slot_version,
-                &self.sig,
-                &to_hex(&self.data)
+                self.sig,
+                to_hex(&self.data)
             )
         } else {
             write!(
@@ -115,8 +115,8 @@ impl fmt::Debug for StackerDBChunkData {
                 "StackerDBChunkData({},{},{},{}...({}))",
                 self.slot_id,
                 self.slot_version,
-                &self.sig,
-                &to_hex(&self.data[..128]),
+                self.sig,
+                to_hex(&self.data[..128]),
                 self.data.len()
             )
         }
@@ -286,8 +286,8 @@ fn stackerdb_chunk_hex_deserialize<'de, D: serde::Deserializer<'de>>(
 pub fn stackerdb_get_metadata_path(contract_id: QualifiedContractIdentifier) -> String {
     format!(
         "/v2/stackerdb/{}/{}",
-        &StacksAddress::from(contract_id.issuer),
-        &contract_id.name
+        StacksAddress::from(contract_id.issuer),
+        contract_id.name
     )
 }
 
@@ -300,16 +300,16 @@ pub fn stackerdb_get_chunk_path(
     if let Some(version) = slot_version {
         format!(
             "/v2/stackerdb/{}/{}/{}/{}",
-            &StacksAddress::from(contract_id.issuer),
-            &contract_id.name,
+            StacksAddress::from(contract_id.issuer),
+            contract_id.name,
             slot_id,
             version
         )
     } else {
         format!(
             "/v2/stackerdb/{}/{}/{}",
-            &StacksAddress::from(contract_id.issuer),
-            &contract_id.name,
+            StacksAddress::from(contract_id.issuer),
+            contract_id.name,
             slot_id
         )
     }
@@ -319,7 +319,7 @@ pub fn stackerdb_get_chunk_path(
 pub fn stackerdb_post_chunk_path(contract_id: QualifiedContractIdentifier) -> String {
     format!(
         "/v2/stackerdb/{}/{}/chunks",
-        &StacksAddress::from(contract_id.issuer),
-        &contract_id.name
+        StacksAddress::from(contract_id.issuer),
+        contract_id.name
     )
 }

@@ -17,11 +17,11 @@
 use std::fs;
 
 use rusqlite::{Connection, OpenFlags};
+use stacks_common::util::db::sqlite_open;
 
 use super::*;
 use crate::chainstate::stacks::index::file::*;
 use crate::chainstate::stacks::index::*;
-use crate::util_lib::db::*;
 
 fn db_path(test_name: &str) -> String {
     let path = format!("/tmp/{}.sqlite", test_name);
@@ -110,11 +110,11 @@ fn test_migrate_tables_readonly_fails_when_outdated() {
 fn test_migrate_existing_trie_blobs() {
     let test_file = "/tmp/test_migrate_existing_trie_blobs.sqlite";
     let test_blobs_file = "/tmp/test_migrate_existing_trie_blobs.sqlite.blobs";
-    if fs::metadata(&test_file).is_ok() {
-        fs::remove_file(&test_file).unwrap();
+    if fs::metadata(test_file).is_ok() {
+        fs::remove_file(test_file).unwrap();
     }
-    if fs::metadata(&test_blobs_file).is_ok() {
-        fs::remove_file(&test_blobs_file).unwrap();
+    if fs::metadata(test_blobs_file).is_ok() {
+        fs::remove_file(test_blobs_file).unwrap();
     }
 
     let (data, last_block_header, root_header_map) = {
@@ -156,7 +156,7 @@ fn test_migrate_existing_trie_blobs() {
     let mut marf = MARF::from_storage(f);
 
     // blobs file exists
-    assert!(fs::metadata(&test_blobs_file).is_ok());
+    assert!(fs::metadata(test_blobs_file).is_ok());
 
     // verify that the new blob structure is well-formed
     let blob_root_header_map = {
@@ -247,7 +247,7 @@ fn test_migrate_schema_3_creates_squash_tables_on_v2_db() {
         db.query_row(
             "SELECT COUNT(*) FROM sqlite_master WHERE type='table' \
              AND name IN ('marf_squash_info', 'marf_squashed_blocks')",
-            crate::types::sqlite::NO_PARAMS,
+            [],
             |row| row.get(0),
         )
         .unwrap()

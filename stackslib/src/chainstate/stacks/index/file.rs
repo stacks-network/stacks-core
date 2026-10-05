@@ -23,6 +23,8 @@ use std::{env, fs, io};
 #[cfg(test)]
 use rusqlite::params;
 use rusqlite::Connection;
+use stacks_common::types::chainstate::TrieHash;
+use stacks_common::util::db::sql_vacuum;
 
 use crate::chainstate::stacks::index::bits::{
     get_node_max_byte_len, read_hash_bytes, read_nodetype_at_head, read_nodetype_at_head_nohash,
@@ -33,8 +35,6 @@ use crate::chainstate::stacks::index::storage::NodeHashReader;
 #[cfg(test)]
 use crate::chainstate::stacks::index::storage::TrieStorageConnection;
 use crate::chainstate::stacks::index::{trie_sql, Error, MarfDataEntry, MarfTrieId};
-use crate::types::chainstate::TrieHash;
-use crate::util_lib::db::sql_vacuum;
 
 /// Reader-thread count for the bulk header fan-out.
 ///
@@ -168,7 +168,6 @@ pub struct TrieFileDisk {
 /// Handle to a flat in-memory buffer containing Trie blobs (used for testing)
 pub struct TrieFileRAM {
     fd: Cursor<Vec<u8>>,
-    readonly: bool,
     trie_offsets: TrieIdOffsets,
 }
 
@@ -199,10 +198,9 @@ impl TrieFile {
     }
 
     /// Make a new RAM-backed TrieFile
-    fn new_ram(readonly: bool) -> TrieFile {
+    fn new_ram() -> TrieFile {
         TrieFile::RAM(TrieFileRAM {
             fd: Cursor::new(vec![]),
-            readonly,
             trie_offsets: TrieIdOffsets::new(),
         })
     }
@@ -219,7 +217,7 @@ impl TrieFile {
                     if e.kind() == io::ErrorKind::NotFound {
                         Ok(false)
                     } else {
-                        return Err(e.into());
+                        Err(e.into())
                     }
                 }
             }
@@ -278,7 +276,7 @@ impl TrieFile {
     /// Otherwise, it'll be stored as `$db_path.blobs`.
     pub fn from_db_path(path: &str, readonly: bool) -> Result<TrieFile, Error> {
         if path == ":memory:" {
-            Ok(TrieFile::new_ram(readonly))
+            Ok(TrieFile::new_ram())
         } else {
             let blob_path = format!("{}.blobs", path);
             TrieFile::new_disk(&blob_path, readonly)
@@ -559,7 +557,7 @@ impl TrieFile {
     }
 
     /// Obtain a TrieHash for a node, given the node's block's hash (used only in testing)
-    #[cfg(test)]
+    #[cfg(any(test, feature = "testing"))]
     pub fn get_node_hash_bytes_by_bhh<T: MarfTrieId>(
         &mut self,
         db: &Connection,
@@ -584,7 +582,7 @@ impl TrieFile {
             let block_hash: T = row.get_unwrap("block_hash");
             let offset_i64: i64 = row.get_unwrap("external_offset");
             let offset = offset_i64 as u64;
-            let start = TrieStorageConnection::<T>::root_ptr_disk() as u64;
+            let start = TrieStorageConnection::<T>::root_ptr_disk();
 
             self.seek(SeekFrom::Start(offset + start))?;
             let hash_buff = read_hash_bytes(self)?;

@@ -848,7 +848,8 @@ mod test {
             let pox_id = PoxId::stubbed();
             let sort_id = SortitionId::stubbed(&empty_block_header.block_hash);
             let mut ic = SortitionHandleTx::begin(&mut db, &sort_id).unwrap();
-            let sn = test_make_snapshot(
+
+            test_make_snapshot(
                 &mut ic,
                 &burnchain,
                 &sort_id,
@@ -857,8 +858,7 @@ mod test {
                 &empty_block_header,
                 &BurnchainStateTransition::noop(),
             )
-            .unwrap();
-            sn
+            .unwrap()
         };
 
         assert!(!snapshot_no_transactions.sortition);
@@ -902,7 +902,8 @@ mod test {
             let sort_id = SortitionId::stubbed(&empty_block_header.block_hash);
             let pox_id = PoxId::stubbed();
             let mut ic = SortitionHandleTx::begin(&mut db, &sort_id).unwrap();
-            let sn = test_make_snapshot(
+
+            test_make_snapshot(
                 &mut ic,
                 &burnchain,
                 &sort_id,
@@ -915,8 +916,7 @@ mod test {
                     ..BurnchainStateTransition::noop()
                 },
             )
-            .unwrap();
-            sn
+            .unwrap()
         };
 
         assert!(!snapshot_no_burns.sortition);
@@ -1039,8 +1039,8 @@ mod test {
 
     #[test]
     fn test_null_miner_logistic() {
-        for i in 0..1024 {
-            let atc_u256 = ATC_LOOKUP[i];
+        for (i, entry) in ATC_LOOKUP.iter().enumerate() {
+            let atc_u256 = *entry;
             let null_miner_lgst =
                 BlockSnapshot::null_miner_logistic(AtcRational::frac(i as u64, 1024));
             assert_eq!(null_miner_lgst, atc_u256);

@@ -26,16 +26,18 @@ use clarity::vm::ClarityVersion;
 use super::post_conditions;
 use crate::chainstate::nakamoto::miner::MinerTenureInfoCause;
 use crate::chainstate::stacks::db::transactions::{
-    handle_clarity_runtime_error, log_unreachable_error, ClarityRuntimeTxError,
+    handle_clarity_analysis_error, handle_clarity_runtime_error, log_unreachable_error,
+    ClarityAnalysisTxError, ClarityRuntimeTxError, IncludedRuntimeTxError, RejectedRuntimeTxError,
 };
 use crate::chainstate::stacks::db::{StacksAccount, StacksChainState};
-use crate::chainstate::stacks::events::StacksTransactionReceipt;
+use crate::chainstate::stacks::events::{BoundedErrorString, StacksTransactionReceipt};
 use crate::chainstate::stacks::miner::TransactionResourceBudgets;
-use crate::chainstate::stacks::{Error, StacksTransaction, TransactionPayload};
+use crate::chainstate::stacks::{
+    CostOverflowContext, Error, StacksTransaction, TransactionPayload,
+};
 use crate::clarity_vm::clarity::{
     ClarityConnection as _, ClarityError, ClarityTransactionConnection,
 };
-use crate::core::StacksEpochId;
 use crate::util_lib::strings::VecDisplay;
 
 /// Process the transaction's payload, and run the post-conditions against the resulting state.
@@ -140,8 +142,14 @@ pub fn process(
                 }
                 Err(e) => {
                     log_unreachable_error(&e, &tx.txid());
-                    match handle_clarity_runtime_error(e) {
-                        ClarityRuntimeTxError::Acceptable { error, err_type } => {
+                    let runtime_err = handle_clarity_runtime_error(e, epoch_id);
+                    match runtime_err {
+                        ClarityRuntimeTxError::Included(IncludedRuntimeTxError::Runtime {
+                            error,
+                            err_type,
+                            ..
+                        }) => {
+                            let vm_error = BoundedErrorString::from_display(&error);
                             info!("Contract-call processed with {}", err_type;
                                       "txid" => %tx.txid(),
                                       "origin" => %origin_account.principal,
@@ -149,20 +157,18 @@ pub fn process(
                                       "contract_name" => %contract_id,
                                       "function_name" => %contract_call.function_name,
                                       "function_args" => %VecDisplay(&contract_call.function_args),
-                                      "error" => ?error);
-                            (
-                                Value::err_none(),
-                                AssetMap::new(),
-                                vec![],
-                                Some(error.to_string()),
-                            )
+                                      "error" => %vm_error);
+                            (Value::err_none(), AssetMap::new(), vec![], Some(vm_error))
                         }
-                        ClarityRuntimeTxError::AbortedByCallback {
-                            output,
-                            assets_modified,
-                            tx_events,
-                            reason,
-                        } => {
+                        ClarityRuntimeTxError::Included(
+                            IncludedRuntimeTxError::AbortedByCallback {
+                                output,
+                                assets_modified,
+                                tx_events,
+                                reason,
+                                ..
+                            },
+                        ) => {
                             info!("Contract-call aborted by post-condition";
                                       "txid" => %tx.txid(),
                                       "origin" => %origin_account.principal,
@@ -174,52 +180,56 @@ pub fn process(
                                     tx.clone(),
                                     tx_events,
                                     output.expect("BUG: Post condition contract call must provide would-have-been-returned value"),
-                                    assets_modified.get_stx_burned_total()?,
+                                    assets_modified
+                                        .get_stx_burned_total()
+                                        .map_err(VmExecutionError::from)?,
                                     total_cost,
                                     reason,
                                 );
                             return Ok(receipt);
                         }
-                        ClarityRuntimeTxError::CostError(cost_after, budget) => {
+                        ClarityRuntimeTxError::Rejected(RejectedRuntimeTxError::Cost {
+                            cost: cost_after,
+                            budget,
+                            ..
+                        }) => {
                             warn!("Block compute budget exceeded: if included, this will invalidate a block"; "txid" => %tx.txid(), "cost" => %cost_after, "budget" => %budget);
-                            return Err(Error::CostOverflowError(cost_before, cost_after, budget));
+                            return Err(Error::CostOverflowError(
+                                CostOverflowContext {
+                                    before: cost_before,
+                                    after: cost_after,
+                                    budget,
+                                }
+                                .into(),
+                            ));
                         }
-                        ClarityRuntimeTxError::AnalysisError(runtime_check_err) => {
-                            if epoch_id >= StacksEpochId::Epoch21 {
-                                // in 2.1 and later, this is a permitted runtime error.  take the
-                                // fee from the payer and keep the tx.
-                                info!("Contract-call encountered an analysis error at runtime";
+                        ClarityRuntimeTxError::Included(IncludedRuntimeTxError::Analysis {
+                            error: runtime_check_err,
+                            ..
+                        }) => {
+                            info!("Contract-call encountered an analysis error at runtime";
                                       "txid" => %tx.txid(),
                                       "origin" => %origin_account.principal,
                                       "origin_nonce" => %origin_account.nonce,
                                       "contract_name" => %contract_id,
                                       "function_name" => %contract_call.function_name,
                                       "function_args" => %VecDisplay(&contract_call.function_args),
-                                      "error" => %runtime_check_err);
+                                      "error" => %BoundedErrorString::from_display(&runtime_check_err));
 
-                                let receipt =
-                                    StacksTransactionReceipt::from_runtime_failure_contract_call(
-                                        tx.clone(),
-                                        total_cost,
-                                        runtime_check_err,
-                                    );
-                                return Ok(receipt);
-                            } else {
-                                // prior to 2.1, this is not permitted in a block.
-                                warn!("Unexpected analysis error invalidating transaction: if included, this will invalidate a block";
-                                          "txid" => %tx.txid(),
-                                          "origin" => %origin_account.principal,
-                                          "origin_nonce" => %origin_account.nonce,
-                                           "contract_name" => %contract_id,
-                                           "function_name" => %contract_call.function_name,
-                                           "function_args" => %VecDisplay(&contract_call.function_args),
-                                           "error" => %runtime_check_err);
-                                return Err(Error::ClarityError(ClarityError::Interpreter(
-                                    VmExecutionError::RuntimeCheck(runtime_check_err),
-                                )));
-                            }
+                            let receipt =
+                                StacksTransactionReceipt::from_runtime_failure_contract_call(
+                                    tx.clone(),
+                                    total_cost,
+                                    runtime_check_err,
+                                );
+                            return Ok(receipt);
                         }
-                        ClarityRuntimeTxError::ExecutionResourceBudgetExceeded(s) => {
+                        ClarityRuntimeTxError::Rejected(
+                            RejectedRuntimeTxError::ExecutionResourceBudgetExceeded {
+                                message: s,
+                                ..
+                            },
+                        ) => {
                             warn!("Transaction exceeded miner execution resource limit; will be dropped from mempool";
                                           "error" => s.clone(),
                                           "txid" => %tx.txid(),
@@ -230,7 +240,10 @@ pub fn process(
                                            "function_args" => %VecDisplay(&contract_call.function_args));
                             return Err(Error::ExecutionResourceBudgetExceeded(s));
                         }
-                        ClarityRuntimeTxError::Rejectable(e) => {
+                        ClarityRuntimeTxError::Rejected(RejectedRuntimeTxError::Clarity {
+                            error: e,
+                            ..
+                        }) => {
                             error!("Unexpected error in validating transaction: if included, this will invalidate a block";
                                        "txid" => %tx.txid(),
                                        "origin" => %origin_account.principal,
@@ -249,7 +262,9 @@ pub fn process(
                 tx.clone(),
                 events,
                 result,
-                asset_map.get_stx_burned_total()?,
+                asset_map
+                    .get_stx_burned_total()
+                    .map_err(VmExecutionError::from)?,
                 total_cost,
                 vm_error,
             );
@@ -300,49 +315,46 @@ pub fn process(
                 Ok(x) => x,
                 Err(e) => {
                     log_unreachable_error(&e, &tx.txid());
-                    match e {
-                        ClarityError::CostError(ref cost_after, ref budget) => {
-                            warn!(
-                                "Block compute budget exceeded on {}: cost before={}, after={}, budget={}",
-                                tx.txid(),
-                                &cost_before,
-                                cost_after,
-                                budget
-                            );
-                            return Err(Error::CostOverflowError(
-                                cost_before,
-                                cost_after.clone(),
-                                budget.clone(),
-                            ));
-                        }
-                        ClarityError::AnalysisResourceBudgetExceeded(s) => {
-                            // The analysis phase exceeded its wall-clock deadline or allocation limit (on a voting path only).
-                            warn!("Contract analysis exceeded the analysis resource budget; tx will be dropped from the mempool";
-                                  "error" => s.clone(),
-                                  "txid" => %tx.txid(),
-                                  "contract_name" => %contract_id,
-                            );
-                            return Err(Error::AnalysisResourceBudgetExceeded(s));
-                        }
-                        other_error => {
-                            if let ClarityError::Parse(err) = &other_error {
-                                if err.rejectable_in_epoch(clarity_tx.get_epoch()) {
-                                    info!(
+                    match handle_clarity_analysis_error(e, clarity_tx.get_epoch()) {
+                        ClarityAnalysisTxError::Rejected {
+                            error: rejected, ..
+                        } => match rejected {
+                            ClarityError::CostError(cost_after, budget) => {
+                                warn!(
+                                        "Block compute budget exceeded on {}: cost before={}, after={}, budget={}",
+                                        tx.txid(),
+                                        &cost_before,
+                                        &cost_after,
+                                        &budget
+                                    );
+                                return Err(Error::CostOverflowError(
+                                    CostOverflowContext {
+                                        before: cost_before,
+                                        after: cost_after,
+                                        budget,
+                                    }
+                                    .into(),
+                                ));
+                            }
+                            ClarityError::AnalysisResourceBudgetExceeded(s) => {
+                                warn!("Contract analysis exceeded the analysis resource budget; tx will be dropped from the mempool";
+                                      "error" => s.clone(),
+                                      "txid" => %tx.txid(),
+                                      "contract_name" => %contract_id,
+                                );
+                                return Err(Error::AnalysisResourceBudgetExceeded(s));
+                            }
+                            other_error => {
+                                info!(
                                         "Transaction {} is problematic and should have prevented this block from being relayed",
                                         tx.txid()
                                     );
-                                    return Err(Error::ClarityError(other_error));
-                                }
+                                return Err(Error::ClarityError(other_error));
                             }
-                            if let ClarityError::StaticCheck(err) = &other_error {
-                                if err.err.rejectable_in_epoch(clarity_tx.get_epoch()) {
-                                    info!(
-                                        "Transaction {} is problematic and should have prevented this block from being relayed",
-                                        tx.txid()
-                                    );
-                                    return Err(Error::ClarityError(other_error));
-                                }
-                            }
+                        },
+                        ClarityAnalysisTxError::Included {
+                            error: other_error, ..
+                        } => {
                             // this analysis isn't free -- convert to runtime error
                             let mut analysis_cost = clarity_tx.cost_so_far();
                             analysis_cost
@@ -409,12 +421,18 @@ pub fn process(
                 }
                 Err(e) => {
                     log_unreachable_error(&e, &tx.txid());
-                    match handle_clarity_runtime_error(e) {
-                        ClarityRuntimeTxError::Acceptable { error, err_type } => {
+                    let runtime_err = handle_clarity_runtime_error(e, epoch_id);
+                    match runtime_err {
+                        ClarityRuntimeTxError::Included(IncludedRuntimeTxError::Runtime {
+                            error,
+                            err_type,
+                            ..
+                        }) => {
+                            let vm_error = BoundedErrorString::from_display(&error);
                             info!("Smart-contract processed with {}", err_type;
                                       "txid" => %tx.txid(),
                                       "contract" => %contract_id,
-                                      "error" => ?error);
+                                      "error" => %vm_error);
                             // When top-level code in a contract publish causes a runtime error,
                             // the transaction is accepted, but the contract is not created.
                             //   Return a tx receipt with an `err_none()` result to indicate
@@ -429,71 +447,84 @@ pub fn process(
                                 execution_cost: total_cost,
                                 microblock_header: None,
                                 tx_index: 0,
-                                vm_error: Some(error.to_string()),
+                                vm_error: Some(vm_error),
                                 problematic_skipped: None,
                             };
                             return Ok(receipt);
                         }
-                        ClarityRuntimeTxError::AbortedByCallback {
-                            assets_modified,
-                            tx_events,
-                            reason,
-                            ..
-                        } => {
+                        ClarityRuntimeTxError::Included(
+                            IncludedRuntimeTxError::AbortedByCallback {
+                                assets_modified,
+                                tx_events,
+                                reason,
+                                ..
+                            },
+                        ) => {
                             let receipt =
                                 StacksTransactionReceipt::from_condition_aborted_smart_contract(
                                     tx.clone(),
                                     tx_events,
-                                    assets_modified.get_stx_burned_total()?,
+                                    assets_modified
+                                        .get_stx_burned_total()
+                                        .map_err(VmExecutionError::from)?,
                                     contract_analysis,
                                     total_cost,
                                     reason,
                                 );
                             return Ok(receipt);
                         }
-                        ClarityRuntimeTxError::CostError(cost_after, budget) => {
+                        ClarityRuntimeTxError::Rejected(RejectedRuntimeTxError::Cost {
+                            cost: cost_after,
+                            budget,
+                            ..
+                        }) => {
                             warn!("Block compute budget exceeded: if included, this will invalidate a block";
                                       "txid" => %tx.txid(),
                                       "cost" => %cost_after,
                                       "budget" => %budget);
-                            return Err(Error::CostOverflowError(cost_before, cost_after, budget));
+                            return Err(Error::CostOverflowError(
+                                CostOverflowContext {
+                                    before: cost_before,
+                                    after: cost_after,
+                                    budget,
+                                }
+                                .into(),
+                            ));
                         }
-                        ClarityRuntimeTxError::AnalysisError(runtime_check_err) => {
-                            if epoch_id >= StacksEpochId::Epoch21 {
-                                // in 2.1 and later, this is a permitted runtime error.  take the
-                                // fee from the payer and keep the tx.
-                                info!("Smart-contract encountered an analysis error at runtime";
+                        ClarityRuntimeTxError::Included(IncludedRuntimeTxError::Analysis {
+                            error: runtime_check_err,
+                            ..
+                        }) => {
+                            info!("Smart-contract encountered an analysis error at runtime";
                                       "txid" => %tx.txid(),
                                       "contract" => %contract_id,
-                                      "error" => %runtime_check_err);
+                                      "error" => %BoundedErrorString::from_display(&runtime_check_err));
 
-                                let receipt =
-                                    StacksTransactionReceipt::from_runtime_failure_smart_contract(
-                                        tx.clone(),
-                                        total_cost,
-                                        contract_analysis,
-                                        runtime_check_err,
-                                    );
-                                return Ok(receipt);
-                            } else {
-                                // prior to 2.1, this is not permitted in a block.
-                                warn!("Unexpected analysis error invalidating transaction: if included, this will invalidate a block";
-                                      "txid" => %tx.txid(),
-                                      "contract" => %contract_id,
-                                      "error" => %runtime_check_err);
-                                return Err(Error::ClarityError(ClarityError::Interpreter(
-                                    VmExecutionError::RuntimeCheck(runtime_check_err),
-                                )));
-                            }
+                            let receipt =
+                                StacksTransactionReceipt::from_runtime_failure_smart_contract(
+                                    tx.clone(),
+                                    total_cost,
+                                    contract_analysis,
+                                    runtime_check_err,
+                                );
+                            return Ok(receipt);
                         }
-                        ClarityRuntimeTxError::ExecutionResourceBudgetExceeded(s) => {
+                        ClarityRuntimeTxError::Rejected(
+                            RejectedRuntimeTxError::ExecutionResourceBudgetExceeded {
+                                message: s,
+                                ..
+                            },
+                        ) => {
                             warn!("Transaction exceeded miner execution resource limit; will be dropped from mempool";
                                           "error" => s.clone(),
                                           "txid" => %tx.txid(),
                                           "contract" => %contract_id);
                             return Err(Error::ExecutionResourceBudgetExceeded(s));
                         }
-                        ClarityRuntimeTxError::Rejectable(e) => {
+                        ClarityRuntimeTxError::Rejected(RejectedRuntimeTxError::Clarity {
+                            error: e,
+                            ..
+                        }) => {
                             error!("Unexpected error invalidating transaction: if included, this will invalidate a block";
                                        "txid" => %tx.txid(),
                                        "contract_name" => %contract_id,
@@ -507,7 +538,9 @@ pub fn process(
             let receipt = StacksTransactionReceipt::from_smart_contract(
                 tx.clone(),
                 events,
-                asset_map.get_stx_burned_total()?,
+                asset_map
+                    .get_stx_burned_total()
+                    .map_err(VmExecutionError::from)?,
                 contract_analysis,
                 total_cost,
             );

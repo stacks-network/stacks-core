@@ -21,14 +21,15 @@ use std::time::{Duration, Instant};
 
 use clarity::types::net::PeerHost;
 use clarity::vm::costs::ExecutionCost;
+use clarity::vm::types::serialization::TypePrefix;
 use clarity::vm::types::{QualifiedContractIdentifier, StacksAddressExtensions};
 use clarity::vm::ContractName;
 use libstackerdb::SlotMetadata;
 use stacks_common::address::{AddressHashMode, C32_ADDRESS_VERSION_TESTNET_SINGLESIG};
 use stacks_common::codec::StacksMessageCodec;
 use stacks_common::types::chainstate::{
-    BlockHeaderHash, BurnchainHeaderHash, ConsensusHash, StacksAddress, StacksBlockId,
-    StacksPrivateKey, StacksPublicKey,
+    BurnchainHeaderHash, ConsensusHash, StacksAddress, StacksBlockId, StacksPrivateKey,
+    StacksPublicKey,
 };
 use stacks_common::util::get_epoch_time_secs;
 use stacks_common::util::hash::{to_hex, Hash160, Sha512Trunc256Sum};
@@ -110,6 +111,7 @@ mod postmempoolquery;
 mod postmicroblock;
 mod poststackerdbchunk;
 mod posttransaction;
+mod txsimulate;
 
 /// Contract identifier of `TEST_CONTRACT`, deployed as `hello-world` by `TestRPC::setup`.
 static TEST_CONTRACT_ID: LazyLock<QualifiedContractIdentifier> = LazyLock::new(|| {
@@ -180,6 +182,16 @@ const TEST_CONTRACT_UNCONFIRMED: &str = "
 (define-public (do-test) (ok u1))
 ";
 
+fn bool_list_hex(len: u32) -> String {
+    let mut data = vec![TypePrefix::List as u8];
+    data.extend_from_slice(&len.to_be_bytes());
+    data.extend(std::iter::repeat_n(
+        TypePrefix::BoolTrue as u8,
+        len as usize,
+    ));
+    to_hex(&data)
+}
+
 /// This helper function drives I/O between a sender and receiver Http conversation.
 fn convo_send_recv(sender: &mut ConversationHttp, receiver: &mut ConversationHttp) {
     let (mut pipe_read, mut pipe_write) = Pipe::new();
@@ -224,14 +236,10 @@ pub struct TestRPC<'a> {
     pub convo_2: ConversationHttp,
     /// hash of the chain tip
     pub canonical_tip: StacksBlockId,
-    /// block header hash of the chain tip
-    pub tip_hash: BlockHeaderHash,
     /// block height of the chain tip
     pub tip_height: u64,
     /// consensus hash of the chain tip
     pub consensus_hash: ConsensusHash,
-    /// hash of last microblock
-    pub microblock_tip_hash: BlockHeaderHash,
     /// list of mempool transactions
     pub mempool_txids: Vec<Txid>,
     /// list of microblock transactions
@@ -575,7 +583,8 @@ impl<'a> TestRPC<'a> {
                     BlockBuilderSettings::max_value(),
                 )
                 .unwrap();
-                let microblock = microblock_builder
+
+                microblock_builder
                     .mine_next_microblock_from_txs(
                         vec![
                             (tx_cc_signed, tx_cc_len),
@@ -583,8 +592,7 @@ impl<'a> TestRPC<'a> {
                         ],
                         &microblock_privkey,
                     )
-                    .unwrap();
-                microblock
+                    .unwrap()
             };
             peer_1.chain.sortdb = Some(sortdb);
             mblock
@@ -593,7 +601,6 @@ impl<'a> TestRPC<'a> {
         let microblock_txids = microblock.txs.iter().map(|tx| tx.txid()).collect();
         let canonical_tip =
             StacksBlockHeader::make_index_block_hash(&consensus_hash, &stacks_block.block_hash());
-        let tip_hash = stacks_block.block_hash();
 
         if process_microblock {
             // store microblock stream
@@ -890,10 +897,8 @@ impl<'a> TestRPC<'a> {
             convo_1,
             convo_2,
             canonical_tip,
-            tip_hash,
             tip_height,
             consensus_hash,
-            microblock_tip_hash: microblock.block_hash(),
             mempool_txids,
             microblock_txids,
             next_block: Some((next_consensus_hash, next_stacks_block)),
@@ -986,9 +991,7 @@ impl<'a> TestRPC<'a> {
             convo_2,
             canonical_tip: nakamoto_tip.index_block_hash(),
             consensus_hash: nakamoto_tip.consensus_hash.clone(),
-            tip_hash: nakamoto_tip.anchored_header.block_hash(),
             tip_height: nakamoto_tip.stacks_block_height,
-            microblock_tip_hash: BlockHeaderHash([0x00; 32]),
             mempool_txids: vec![],
             microblock_txids: vec![],
             next_block: None,
@@ -1090,9 +1093,7 @@ impl<'a> TestRPC<'a> {
             convo_2,
             canonical_tip: nakamoto_tip.index_block_hash(),
             consensus_hash: nakamoto_tip.consensus_hash.clone(),
-            tip_hash: nakamoto_tip.anchored_header.block_hash(),
             tip_height: nakamoto_tip.stacks_block_height,
-            microblock_tip_hash: BlockHeaderHash([0x00; 32]),
             mempool_txids: vec![],
             microblock_txids: vec![],
             next_block: None,
@@ -1309,7 +1310,7 @@ impl<'a> TestRPC<'a> {
             responses.push(resp);
         }
 
-        return responses;
+        responses
     }
 }
 

@@ -17,6 +17,10 @@
 use std::io::{Read, Seek, Write};
 use std::{error, fmt};
 
+use stacks_common::codec::{read_next, write_next, Error as codec_error, StacksMessageCodec};
+use stacks_common::types::chainstate::{TrieHash, BLOCK_HEADER_HASH_ENCODED_SIZE};
+use stacks_common::util::hash::to_hex;
+
 use crate::chainstate::stacks::index::bits::{
     get_compressed_ptrs_size, get_path_byte_len, get_ptrs_byte_len, get_ptrs_byte_len_compressed,
     get_sparse_ptrs_bitmap_size, path_from_bytes, ptrs_from_bytes, write_path_to_bytes,
@@ -25,9 +29,6 @@ use crate::chainstate::stacks::index::bits::{
 use crate::chainstate::stacks::index::{
     BlockMap, ClarityMarfTrieId, Error, MARFValue, MarfTrieId, TrieLeaf, MARF_VALUE_ENCODED_SIZE,
 };
-use crate::codec::{read_next, write_next, Error as codec_error, StacksMessageCodec};
-use crate::types::chainstate::{TrieHash, BLOCK_HEADER_HASH_ENCODED_SIZE};
-use crate::util::hash::to_hex;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum CursorError {
@@ -948,13 +949,13 @@ impl<T: MarfTrieId> TrieCursor<T> {
                     self.index - 1,
                     &path_bytes
                 );
-                return Err(self.last_error.clone().unwrap());
+                Err(self.last_error.clone().unwrap())
             } else {
-                return Ok(ptr_opt);
+                Ok(ptr_opt)
             }
         } else {
             trace!("cursor: now out of path");
-            return Ok(None);
+            Ok(None)
         }
     }
 
@@ -1540,7 +1541,7 @@ impl TrieNodePatch {
         let ptr_diff = Self::make_ptr_diff(&old_node_ptr, old_node.ptrs(), new_node.ptrs());
         Self {
             ptr: old_node_ptr,
-            ptr_diff: ptr_diff,
+            ptr_diff,
         }
     }
 
@@ -1553,7 +1554,7 @@ impl TrieNodePatch {
         let ptr_diff = Self::make_ptr_diff(&old_node_ptr, old_node.ptrs(), new_node.ptrs());
         Self {
             ptr: old_node_ptr,
-            ptr_diff: ptr_diff,
+            ptr_diff,
         }
     }
 
@@ -1566,7 +1567,7 @@ impl TrieNodePatch {
         let ptr_diff = Self::make_ptr_diff(&old_node_ptr, old_node.ptrs(), new_node.ptrs());
         Self {
             ptr: old_node_ptr,
-            ptr_diff: ptr_diff,
+            ptr_diff,
         }
     }
 
@@ -1579,7 +1580,7 @@ impl TrieNodePatch {
         let ptr_diff = Self::make_ptr_diff(&old_node_ptr, old_node.ptrs(), new_node.ptrs());
         Self {
             ptr: old_node_ptr,
-            ptr_diff: ptr_diff,
+            ptr_diff,
         }
     }
 
@@ -1614,7 +1615,7 @@ impl TrieNodePatch {
             trace!("Cannot produce TrieNodePatch: old node and new node are type leaf!");
             return None;
         };
-        if patch.ptr_diff.len() == 0 {
+        if patch.ptr_diff.is_empty() {
             trace!("Cannot produce TrieNodePatch: patch has no diffs!");
             return None;
         }
@@ -1637,11 +1638,11 @@ impl TrieNodePatch {
             ptr: old_patch_ptr,
             ptr_diff,
         };
-        if patch.ptr_diff.len() == 0 {
+        if patch.ptr_diff.is_empty() {
             trace!("Cannot produce TrieNodePatch: patch has no diffs!");
             return None;
         }
-        return Some(patch);
+        Some(patch)
     }
 
     /// Apply this patch to a node4, given the node, block ID where the patch was found, and block
@@ -1832,9 +1833,7 @@ impl TrieNode for TrieNode4 {
     ) -> Option<Self> {
         let mut node = self;
         for (patch_block_id, _, patch) in patches.iter() {
-            let Some(next_node) = patch.apply_node4(node, *patch_block_id, cur_block_id) else {
-                return None;
-            };
+            let next_node = patch.apply_node4(node, *patch_block_id, cur_block_id)?;
             node = next_node;
         }
         node.patches.extend_from_slice(patches);
@@ -1929,9 +1928,7 @@ impl TrieNode for TrieNode16 {
     ) -> Option<Self> {
         let mut node = self;
         for (patch_block_id, _, patch) in patches.iter() {
-            let Some(next_node) = patch.apply_node16(node, *patch_block_id, cur_block_id) else {
-                return None;
-            };
+            let next_node = patch.apply_node16(node, *patch_block_id, cur_block_id)?;
             node = next_node;
         }
         node.patches.extend_from_slice(patches);
@@ -2104,9 +2101,7 @@ impl TrieNode for TrieNode48 {
     ) -> Option<Self> {
         let mut node = self;
         for (patch_block_id, _, patch) in patches.iter() {
-            let Some(next_node) = patch.apply_node48(node, *patch_block_id, cur_block_id) else {
-                return None;
-            };
+            let next_node = patch.apply_node48(node, *patch_block_id, cur_block_id)?;
             node = next_node;
         }
         node.patches.extend_from_slice(patches);
@@ -2199,9 +2194,7 @@ impl TrieNode for TrieNode256 {
     ) -> Option<Self> {
         let mut node = self;
         for (patch_block_id, _, patch) in patches.iter() {
-            let Some(next_node) = patch.apply_node256(node, *patch_block_id, cur_block_id) else {
-                return None;
-            };
+            let next_node = patch.apply_node256(node, *patch_block_id, cur_block_id)?;
             node = next_node;
         }
         node.patches.extend_from_slice(patches);
@@ -2441,27 +2434,19 @@ impl TrieNodeType {
     ) -> Option<Self> {
         match self {
             TrieNodeType::Node4(data) => {
-                let Some(new_data) = data.apply_patches(patches, cur_block_id) else {
-                    return None;
-                };
+                let new_data = data.apply_patches(patches, cur_block_id)?;
                 Some(TrieNodeType::Node4(new_data))
             }
             TrieNodeType::Node16(data) => {
-                let Some(new_data) = data.apply_patches(patches, cur_block_id) else {
-                    return None;
-                };
+                let new_data = data.apply_patches(patches, cur_block_id)?;
                 Some(TrieNodeType::Node16(new_data))
             }
             TrieNodeType::Node48(data) => {
-                let Some(new_data) = data.apply_patches(patches, cur_block_id) else {
-                    return None;
-                };
+                let new_data = data.apply_patches(patches, cur_block_id)?;
                 Some(TrieNodeType::Node48(Box::new(new_data)))
             }
             TrieNodeType::Node256(data) => {
-                let Some(new_data) = data.apply_patches(patches, cur_block_id) else {
-                    return None;
-                };
+                let new_data = data.apply_patches(patches, cur_block_id)?;
                 Some(TrieNodeType::Node256(Box::new(new_data)))
             }
             TrieNodeType::Leaf(data) => Some(TrieNodeType::Leaf(data)),

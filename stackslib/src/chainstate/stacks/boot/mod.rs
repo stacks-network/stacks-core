@@ -73,6 +73,64 @@ pub const POX_5_NAME: &str = "pox-5";
 /// pox-5's flat minimum to participate as a stacker, mirroring
 /// `SIGNER_SET_MIN_USTX` in `pox-5.clar` (`u50000000000` = 50,000 STX).
 pub const POX_5_SIGNER_SET_MIN_USTX: u64 = 50_000_000_000;
+/// Test-only signer-manager contract used to exercise PoX-5 signer enrollment
+/// and reward handling.
+///
+/// `validate-stake!` accepts fixture stakes without additional policy,
+/// `register-self` grants and registers the signer key under the contract, and
+/// the reward entry points delegate to the PoX-5 boot contract.
+#[cfg(any(test, feature = "testing"))]
+pub const POX_5_SIGNER_MANAGER_TEST_CONTRACT_SOURCE: &str = r#"
+(impl-trait 'ST000000000000000000002AMW42H.pox-5.signer-manager-trait)
+(use-trait signer-manager-trait 'ST000000000000000000002AMW42H.pox-5.signer-manager-trait)
+
+(define-public (validate-stake!
+        (staker principal)
+        (first-index uint)
+        (num-indexes uint)
+        (amount-ustx uint)
+        (amount-sats uint)
+        (is-bond bool)
+        (signer-calldata (optional (buff 500)))
+    )
+    (ok true)
+)
+
+(define-public (register-self
+    (signer-manager <signer-manager-trait>)
+    (signer-key (buff 33))
+    (auth-id uint)
+    (signer-sig (buff 65))
+  )
+  (as-contract? ()
+    (try! (contract-call? 'ST000000000000000000002AMW42H.pox-5 grant-signer-key
+      signer-key current-contract auth-id signer-sig
+    ))
+    (try! (contract-call? 'ST000000000000000000002AMW42H.pox-5 register-signer
+      signer-manager signer-key
+    ))
+  )
+)
+
+(define-public (claim-rewards
+    (bond-periods (list 6 uint))
+    (reward-cycle uint)
+  )
+  (contract-call? 'ST000000000000000000002AMW42H.pox-5 claim-rewards
+    bond-periods reward-cycle
+  )
+)
+
+(define-read-only (get-earned-staker-rewards
+    (staker principal)
+    (reward-cycle uint)
+    (bond-index (optional uint))
+  )
+  (contract-call? 'ST000000000000000000002AMW42H.pox-5 get-earned-staker-rewards
+    current-contract reward-cycle bond-index staker
+  )
+)
+"#;
 pub const SIGNERS_NAME: &str = "signers";
 pub const SIGNERS_VOTING_NAME: &str = "signers-voting";
 pub const SIGNERS_VOTING_FUNCTION_NAME: &str = "vote-for-aggregate-public-key";
@@ -499,8 +557,8 @@ impl RewardSet {
     ///
     /// * V0: one bit per reward-slot recipient.
     /// * Waterfall: always 1 => there is a single sBTC output. This treatment vec
-    ///    is no longer used in consensus, but the miner includes it for deserialization
-    ///    compatibility
+    ///   is no longer used in consensus, but the miner includes it for deserialization
+    ///   compatibility
     pub fn pox_treatment_bitvec_len(&self) -> u16 {
         match self {
             RewardSet::V0(v0) => v0.rewarded_addresses.len().try_into().unwrap_or(u16::MAX),
@@ -816,7 +874,7 @@ impl StacksChainState {
             let tx_event =
                 ExecutionState::construct_print_transaction_event(pox_contract.clone(), event_info);
             events.push(tx_event);
-            total_events.extend(events.into_iter());
+            total_events.extend(events);
         }
 
         Ok(total_events)
@@ -1146,8 +1204,8 @@ impl StacksChainState {
             0 => 0,
             remainder => POX_THRESHOLD_STEPS_USTX - remainder,
         };
-        let threshold = threshold_precise + ceil_amount;
-        return threshold;
+
+        threshold_precise + ceil_amount
     }
 
     pub fn get_reward_threshold_and_participation(
@@ -1569,7 +1627,7 @@ impl StacksChainState {
                 VmExecutionError::RuntimeCheck(RuntimeCheckErrorKind::NoSuchContract(_)),
             ))) => {
                 warn!("Reward cycle attempted to calculate rewards before the PoX contract was instantiated");
-                return Ok(vec![]);
+                Ok(vec![])
             }
             x => x,
         }
@@ -2098,7 +2156,7 @@ pub mod test {
     pub fn get_liquid_ustx(peer: &mut TestPeer) -> u128 {
         let value = eval_at_tip(peer, "pox", "stx-liquid-supply");
         if let Value::UInt(inner_uint) = value {
-            return inner_uint;
+            inner_uint
         } else {
             panic!("stx-liquid-supply isn't a uint");
         }
@@ -2107,7 +2165,7 @@ pub mod test {
     pub fn get_balance(peer: &mut TestPeer, addr: &PrincipalData) -> u128 {
         let value = eval_at_tip(peer, "pox", &format!("(stx-get-balance '{addr})"));
         if let Value::UInt(balance) = value {
-            return balance;
+            balance
         } else {
             panic!("stx-get-balance isn't a uint");
         }
@@ -2926,72 +2984,6 @@ pub mod test {
         make_tx(key, nonce, 0, payload)
     }
 
-    // make a stream of invalid pox-lockup transactions
-    fn make_invalid_pox_lockups(key: &StacksPrivateKey, mut nonce: u64) -> Vec<StacksTransaction> {
-        let mut ret = vec![];
-
-        let amount = 1;
-        let lock_period = 1;
-        let addr_bytes = Hash160([0u8; 20]);
-
-        let bad_pox_addr_version = Value::Tuple(
-            TupleData::from_data(vec![
-                (
-                    ClarityName::try_from("version".to_owned()).unwrap(),
-                    Value::UInt(100),
-                ),
-                (
-                    ClarityName::try_from("hashbytes".to_owned()).unwrap(),
-                    Value::Sequence(SequenceData::Buffer(BuffData {
-                        data: addr_bytes.as_bytes().to_vec(),
-                    })),
-                ),
-            ])
-            .unwrap(),
-        );
-
-        let generator = |amount, pox_addr, lock_period, nonce| {
-            make_pox_contract_call(
-                key,
-                nonce,
-                "stack-stx",
-                vec![Value::UInt(amount), pox_addr, Value::UInt(lock_period)],
-            )
-        };
-
-        let bad_pox_addr_tx = generator(amount, bad_pox_addr_version, lock_period, nonce);
-        ret.push(bad_pox_addr_tx);
-        nonce += 1;
-
-        let bad_lock_period_short = generator(
-            amount,
-            make_pox_addr(AddressHashMode::SerializeP2PKH, &addr_bytes),
-            0,
-            nonce,
-        );
-        ret.push(bad_lock_period_short);
-        nonce += 1;
-
-        let bad_lock_period_long = generator(
-            amount,
-            make_pox_addr(AddressHashMode::SerializeP2PKH, &addr_bytes),
-            13,
-            nonce,
-        );
-        ret.push(bad_lock_period_long);
-        nonce += 1;
-
-        let bad_amount = generator(
-            0,
-            make_pox_addr(AddressHashMode::SerializeP2PKH, &addr_bytes),
-            1,
-            nonce,
-        );
-        ret.push(bad_amount);
-
-        ret
-    }
-
     fn make_bare_contract(
         key: &StacksPrivateKey,
         nonce: u64,
@@ -3048,8 +3040,8 @@ pub mod test {
             ))
         )
         ", boot_code_test_addr());
-        let contract_tx = make_bare_contract(key, nonce, 0, name, &contract);
-        contract_tx
+
+        make_bare_contract(key, nonce, 0, name, &contract)
     }
 
     // call after make_pox_lockup_contract gets mined
@@ -5639,7 +5631,7 @@ pub mod test {
                             1,
                         );
                         block_txs.push(alice_stack);
-                    } else if tenure_id >= 2 && tenure_id <= 8 {
+                    } else if (2..=8).contains(&tenure_id) {
                         // try to spend tokens -- they should all fail with short-return
                         let alice_spend = make_bare_contract(
                             &alice,
@@ -5853,7 +5845,7 @@ pub mod test {
 
                 assert!(reward_cycle > cur_reward_cycle);
                 test_before_first_reward_cycle = true;
-            } else if tenure_id >= 2 && tenure_id <= 8 {
+            } else if (2..=8).contains(&tenure_id) {
                 // alice did _NOT_ spend
                 assert!(get_contract(
                     &mut peer,

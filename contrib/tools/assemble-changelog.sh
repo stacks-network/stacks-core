@@ -1,19 +1,17 @@
 #!/usr/bin/env bash
 #
-# Assemble changelog fragments into CHANGELOG.md for both stacks-node
-# and stacks-signer.
+# Assemble changelog fragments from changelog.d/ into CHANGELOG.md.
 #
 # Usage:
 #   ./contrib/tools/assemble-changelog.sh <version>
 #
-# The node and signer are released together and share a single version, so both
-# changelogs receive the same `## [<version>]` heading. `.github/scripts/draft_release.sh`
-# looks up that exact heading in each CHANGELOG.md when it drafts the release body,
-# so the two must stay in sync.
+# The node and signer are released together and share a single version and a
+# single changelog. `.github/scripts/draft_release.sh` looks up the exact
+# `## [<version>]` heading in CHANGELOG.md when it drafts the release body.
 #
 # The new version section is inserted before the first existing ## version
-# header in each CHANGELOG.md. Fragment files are deleted after assembly.
-# If a changelog directory has no fragments, it is skipped.
+# header in CHANGELOG.md. Fragment files are deleted after assembly.
+# If the changelog directory has no fragments, it is skipped.
 #
 # Fragments are grouped by their file extension into sections, in this order:
 #   .breaking -> "### ⚠️ Breaking Changes"  (first, so it can't be missed)
@@ -23,7 +21,7 @@
 #   .removed  -> "### Removed"
 #
 # Example:
-#   ./contrib/tools/assemble-changelog.sh 4.1.0    # node [4.1.0] + signer [4.1.0]
+#   ./contrib/tools/assemble-changelog.sh 4.1.0
 
 set -euo pipefail
 
@@ -139,10 +137,7 @@ assemble_changelog() {
     echo "  Assembled [$version] into $changelog"
 }
 
-echo "Assembling stacks-node changelog..."
+echo "Assembling changelog..."
 assemble_changelog "$REPO_ROOT/changelog.d" "$REPO_ROOT/CHANGELOG.md" "$VERSION"
-
-echo "Assembling stacks-signer changelog..."
-assemble_changelog "$REPO_ROOT/stacks-signer/changelog.d" "$REPO_ROOT/stacks-signer/CHANGELOG.md" "$VERSION"
 
 echo "Done."

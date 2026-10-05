@@ -18,14 +18,12 @@
 use clarity::vm::hooks::EvalHook;
 use clarity::vm::ClarityVersion;
 
-use super::TransactionNonceMismatch;
+use super::NonceCheckFailure;
 use crate::burnchains::Txid;
 use crate::chainstate::stacks::db::{ClarityTx, DBConfig, StacksAccount, StacksChainState};
 use crate::chainstate::stacks::events::StacksTransactionReceipt;
 use crate::chainstate::stacks::miner::TransactionResourceBudgets;
-use crate::chainstate::stacks::{
-    Error, StacksTransaction, TransactionAuthVerificationMode, TransactionPayload,
-};
+use crate::chainstate::stacks::{Error, StacksTransaction, TransactionPayload};
 use crate::clarity_vm::clarity::{ClarityConnection, ClarityTransactionConnection};
 use crate::core::StacksEpochId;
 
@@ -36,9 +34,6 @@ mod post_conditions;
 #[cfg(any(test, doctest))]
 mod tests;
 mod validation;
-
-#[cfg(test)]
-pub use post_conditions::check as check_transaction_postconditions_for_test;
 
 fn noop_transaction_check(_receipt: &StacksTransactionReceipt) -> Result<(), Error> {
     Ok(())
@@ -218,18 +213,8 @@ impl<'hooks, State, Check> TransactionProcessor<'hooks, State, NeedsResourcePoli
 /// Provides validation, disposition, and payload-context selection for [`SelectedTransaction`].
 impl<'tx, Resources> TransactionProcessor<'static, SelectedTransaction<'tx>, Resources> {
     /// Checks transaction properties that do not require mutable chainstate.
-    pub fn precheck(
-        &self,
-        config: &DBConfig,
-        epoch_id: StacksEpochId,
-        auth_verification_mode_override: Option<TransactionAuthVerificationMode>,
-    ) -> Result<(), Error> {
-        validation::precheck_transaction(
-            config,
-            self.state.tx,
-            epoch_id,
-            auth_verification_mode_override,
-        )
+    pub fn precheck(&self, config: &DBConfig, epoch_id: StacksEpochId) -> Result<(), Error> {
+        validation::precheck_transaction(config, self.state.tx, epoch_id)
     }
 
     /// Checks the transaction's origin and payer nonces against chainstate.
@@ -237,10 +222,7 @@ impl<'tx, Resources> TransactionProcessor<'static, SelectedTransaction<'tx>, Res
         &self,
         clarity_tx: &mut T,
         quiet: bool,
-    ) -> Result<
-        (StacksAccount, StacksAccount),
-        (TransactionNonceMismatch, (StacksAccount, StacksAccount)),
-    > {
+    ) -> Result<(StacksAccount, StacksAccount), Box<NonceCheckFailure>> {
         accounts::check_transaction_nonces(clarity_tx, self.state.tx, quiet)
     }
 
@@ -391,7 +373,7 @@ where
             ));
         }
 
-        validation::precheck_transaction(&self.state.clarity_tx.config, tx, epoch, None)?;
+        validation::precheck_transaction(&self.state.clarity_tx.config, tx, epoch)?;
 
         let mut transaction = self
             .state

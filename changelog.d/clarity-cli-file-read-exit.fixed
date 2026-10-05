@@ -1,0 +1,1 @@
+`clarity-cli` and `stacks-inspect` now print an error and exit with status 1 when a file they were asked to read is missing or unreadable, instead of panicking with a backtrace. This covers `stacks-inspect` commands such as `decode-block` and `post-stackerdb`, which share the same read helpers.

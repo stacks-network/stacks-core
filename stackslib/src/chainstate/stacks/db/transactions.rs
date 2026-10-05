@@ -18,19 +18,21 @@
 use std::time::Duration;
 
 use clarity::vm::analysis::types::ContractAnalysis;
-use clarity::vm::contexts::AssetMap;
+// Re-exported to keep the old import paths working.
+pub use clarity::vm::clarity::{
+    handle_clarity_analysis_error, handle_clarity_runtime_error, ClarityAnalysisTxError,
+    ClarityRuntimeTxError, IncludedRuntimeTxError, RejectedRuntimeTxError,
+};
 use clarity::vm::costs::ExecutionCost;
-use clarity::vm::errors::{VmExecutionError, VmInternalError};
+use clarity::vm::errors::VmExecutionError;
 #[cfg(test)]
 use clarity::vm::hooks::EvalHook;
 #[cfg(test)]
 use clarity::vm::resource_limiter::ResourceBudget;
-#[cfg(test)]
-use clarity::vm::types::{
-    AssetIdentifier, QualifiedContractIdentifier, StacksAddressExtensions as _,
-    StandardPrincipalData, TupleData,
-};
 use clarity::vm::types::{PrincipalData, Value};
+#[cfg(test)]
+use clarity::vm::types::{StacksAddressExtensions as _, TupleData};
+use stacks_common::bounded_format;
 
 use crate::chainstate::stacks::db::*;
 #[cfg(test)]
@@ -44,34 +46,6 @@ use crate::monitoring::increment_unreachable_errors_counter;
 pub mod processing;
 
 pub use self::processing::{TransactionProcessor, TxToProcess};
-
-/// This is a safe-to-hash Clarity value
-#[derive(PartialEq, Eq)]
-struct HashableClarityValue(Value);
-
-impl TryFrom<Value> for HashableClarityValue {
-    type Error = VmExecutionError;
-
-    fn try_from(value: Value) -> Result<Self, Self::Error> {
-        // check that serialization _will_ be successful when hashed
-        let _bytes = value.serialize_to_vec().map_err(|_| {
-            VmExecutionError::Internal(VmInternalError::Expect(
-                "Failed to serialize asset in NFT during post-condition checks".into(),
-            ))
-        })?;
-        Ok(Self(value))
-    }
-}
-
-impl std::hash::Hash for HashableClarityValue {
-    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-        #[allow(clippy::unwrap_used, clippy::collection_is_never_read)]
-        // this unwrap is safe _as long as_ TryFrom<Value> was used as a constructor
-        // Also, this function has side effects, which cause Clippy to wrongly think `bytes` is unused
-        let bytes = self.0.serialize_to_vec().unwrap();
-        bytes.hash(state);
-    }
-}
 
 impl StacksTransactionReceipt {
     pub fn from_stx_transfer(
@@ -101,7 +75,7 @@ impl StacksTransactionReceipt {
         result: Value,
         burned: u128,
         cost: ExecutionCost,
-        vm_error: Option<String>,
+        vm_error: Option<BoundedErrorString>,
     ) -> StacksTransactionReceipt {
         StacksTransactionReceipt {
             transaction: tx.into(),
@@ -124,7 +98,7 @@ impl StacksTransactionReceipt {
         result: Value,
         burned: u128,
         cost: ExecutionCost,
-        reason: String,
+        reason: BoundedErrorString,
     ) -> StacksTransactionReceipt {
         StacksTransactionReceipt {
             transaction: tx.into(),
@@ -169,7 +143,7 @@ impl StacksTransactionReceipt {
         burned: u128,
         analysis: ContractAnalysis,
         cost: ExecutionCost,
-        reason: String,
+        reason: BoundedErrorString,
     ) -> StacksTransactionReceipt {
         StacksTransactionReceipt {
             transaction: tx.into(),
@@ -207,28 +181,32 @@ impl StacksTransactionReceipt {
         analysis_cost: ExecutionCost,
         error: ClarityError,
     ) -> StacksTransactionReceipt {
-        let error_string = match error {
+        let vm_error = match error {
             ClarityError::StaticCheck(ref static_check_error) => {
                 if let Some(span) = static_check_error.diagnostic.spans.first() {
-                    format!(
+                    bounded_format!(
                         ":{}:{}: {}",
-                        span.start_line, span.start_column, static_check_error.diagnostic.message
+                        span.start_line,
+                        span.start_column,
+                        static_check_error.diagnostic.message
                     )
                 } else {
-                    static_check_error.diagnostic.message.to_string()
+                    static_check_error.diagnostic.message.clone()
                 }
             }
             ClarityError::Parse(ref parse_error) => {
                 if let Some(span) = parse_error.diagnostic.spans.first() {
-                    format!(
+                    bounded_format!(
                         ":{}:{}: {}",
-                        span.start_line, span.start_column, parse_error.diagnostic.message
+                        span.start_line,
+                        span.start_column,
+                        parse_error.diagnostic.message
                     )
                 } else {
-                    parse_error.diagnostic.message.to_string()
+                    parse_error.diagnostic.message.clone()
                 }
             }
-            _ => error.to_string(),
+            _ => BoundedErrorString::from_display(&error),
         };
         StacksTransactionReceipt {
             transaction: tx.into(),
@@ -240,7 +218,7 @@ impl StacksTransactionReceipt {
             execution_cost: analysis_cost,
             microblock_header: None,
             tx_index: 0,
-            vm_error: Some(error_string),
+            vm_error: Some(vm_error),
             problematic_skipped: None,
         }
     }
@@ -281,7 +259,7 @@ impl StacksTransactionReceipt {
             execution_cost: cost,
             microblock_header: None,
             tx_index: 0,
-            vm_error: Some(error.to_string()),
+            vm_error: Some(BoundedErrorString::from_display(&error)),
             problematic_skipped: None,
         }
     }
@@ -301,7 +279,7 @@ impl StacksTransactionReceipt {
             execution_cost: cost,
             microblock_header: None,
             tx_index: 0,
-            vm_error: Some(error.to_string()),
+            vm_error: Some(BoundedErrorString::from_display(&error)),
             problematic_skipped: None,
         }
     }
@@ -367,6 +345,17 @@ pub struct TransactionNonceMismatch {
     pub quiet: bool,
 }
 
+/// A nonce mismatch together with the account states used to validate it.
+#[derive(Debug)]
+pub struct NonceCheckFailure {
+    /// Details of the invalid origin or sponsor nonce.
+    pub mismatch: TransactionNonceMismatch,
+    /// Origin account state at validation time.
+    pub origin_account: StacksAccount,
+    /// Payer account state at validation time.
+    pub payer_account: StacksAccount,
+}
+
 impl std::fmt::Display for TransactionNonceMismatch {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         let acct_type = if self.is_origin { "origin" } else { "sponsor" };
@@ -382,80 +371,15 @@ impl std::fmt::Display for TransactionNonceMismatch {
     }
 }
 
-impl<T> From<(TransactionNonceMismatch, T)> for Error {
-    fn from(e: (TransactionNonceMismatch, T)) -> Error {
-        Error::InvalidStacksTransaction(e.0.to_string(), e.0.quiet)
+impl From<Box<NonceCheckFailure>> for Error {
+    fn from(failure: Box<NonceCheckFailure>) -> Error {
+        Error::InvalidStacksTransaction(failure.mismatch.to_string(), failure.mismatch.quiet)
     }
 }
 
 impl From<TransactionNonceMismatch> for MemPoolRejection {
     fn from(e: TransactionNonceMismatch) -> MemPoolRejection {
         MemPoolRejection::BadNonces(e)
-    }
-}
-
-pub enum ClarityRuntimeTxError {
-    Acceptable {
-        error: ClarityError,
-        err_type: &'static str,
-    },
-    AbortedByCallback {
-        /// What the output value of the transaction would have been.
-        /// This will be a Some for contract-calls, and None for contract initialization txs.
-        output: Option<Value>,
-        /// The asset map which was evaluated by the abort callback
-        assets_modified: AssetMap,
-        /// The events from the transaction processing
-        tx_events: Vec<StacksTransactionEvent>,
-        /// A human-readable explanation for aborting the transaction
-        reason: String,
-    },
-    CostError(ExecutionCost, ExecutionCost),
-    AnalysisError(RuntimeCheckErrorKind),
-    ExecutionResourceBudgetExceeded(String),
-    Rejectable(ClarityError),
-}
-
-pub fn handle_clarity_runtime_error(error: ClarityError) -> ClarityRuntimeTxError {
-    match error {
-        // runtime errors are okay
-        ClarityError::Interpreter(VmExecutionError::Runtime(_, _)) => {
-            ClarityRuntimeTxError::Acceptable {
-                error,
-                err_type: "runtime error",
-            }
-        }
-        ClarityError::Interpreter(VmExecutionError::EarlyReturn(_)) => {
-            ClarityRuntimeTxError::Acceptable {
-                error,
-                err_type: "short return/panic",
-            }
-        }
-        ClarityError::Interpreter(VmExecutionError::RuntimeCheck(runtime_check_err)) => {
-            if runtime_check_err.rejectable() {
-                ClarityRuntimeTxError::Rejectable(ClarityError::Interpreter(
-                    VmExecutionError::RuntimeCheck(runtime_check_err),
-                ))
-            } else {
-                ClarityRuntimeTxError::AnalysisError(runtime_check_err)
-            }
-        }
-        ClarityError::AbortedByCallback {
-            output,
-            assets_modified,
-            tx_events,
-            reason,
-        } => ClarityRuntimeTxError::AbortedByCallback {
-            output: output.map(|v| *v),
-            assets_modified: *assets_modified,
-            tx_events,
-            reason,
-        },
-        ClarityError::CostError(cost, budget) => ClarityRuntimeTxError::CostError(cost, budget),
-        ClarityError::ExecutionResourceBudgetExceeded(s) => {
-            ClarityRuntimeTxError::ExecutionResourceBudgetExceeded(s)
-        }
-        unhandled_error => ClarityRuntimeTxError::Rejectable(unhandled_error),
     }
 }
 
@@ -476,7 +400,7 @@ fn log_unreachable_error(error: &ClarityError, txid: &Txid) {
                 "event_name" => "unreachable_error",
                 "error_type" => "static_check",
                 "txid" => %txid,
-                "error" => %static_err,
+                "error" => %BoundedErrorString::from_display(&static_err),
             );
             increment_unreachable_errors_counter("static_check");
         }
@@ -487,7 +411,7 @@ fn log_unreachable_error(error: &ClarityError, txid: &Txid) {
                 "event_name" => "unreachable_error",
                 "error_type" => "runtime_check",
                 "txid" => %txid,
-                "error" => %runtime_check_err,
+                "error" => %BoundedErrorString::from_display(runtime_check_err),
             );
             increment_unreachable_errors_counter("runtime_check");
         }
@@ -514,20 +438,21 @@ pub fn finalize_failed_transaction(
         TransactionResult::problematic(tx, error)
     } else {
         match &error {
-            Error::CostOverflowError(overflow_cost_before, cost_after, total_budget) => {
+            Error::CostOverflowError(context) => {
                 // note: this path _does_ not perform the tx block budget % heuristic,
                 //  because this code path is not directly called with a mempool handle.
                 clarity_tx.reset_cost(cost_before.clone());
-                if total_budget.proportion_largest_dimension(overflow_cost_before)
+                if context.budget.proportion_largest_dimension(&context.before)
                     < TX_BLOCK_LIMIT_PROPORTION_HEURISTIC
                 {
                     warn!(
-                        "Transaction {} consumed over {}% of block budget, marking as invalid; budget was {total_budget}",
+                        "Transaction {} consumed over {}% of block budget, marking as invalid; budget was {}",
                         tx.txid(),
-                        100 - TX_BLOCK_LIMIT_PROPORTION_HEURISTIC
+                        100 - TX_BLOCK_LIMIT_PROPORTION_HEURISTIC,
+                        context.budget,
                     );
-                    let mut measured_cost = cost_after.clone();
-                    let measured_cost = if measured_cost.sub(overflow_cost_before).is_ok() {
+                    let mut measured_cost = context.after.clone();
+                    let measured_cost = if measured_cost.sub(&context.before).is_ok() {
                         Some(measured_cost)
                     } else {
                         warn!("Failed to compute measured cost of a too big transaction");
@@ -536,8 +461,10 @@ pub fn finalize_failed_transaction(
                     TransactionResult::error(tx, Error::TransactionTooBigError(measured_cost))
                 } else {
                     warn!(
-                        "Transaction {} reached block cost {cost_after}; budget was {total_budget}",
-                        tx.txid()
+                        "Transaction {} reached block cost {}; budget was {}",
+                        tx.txid(),
+                        context.after,
+                        context.budget
                     );
                     TransactionResult::skipped_due_to_error(tx, Error::BlockTooBigError)
                 }
@@ -549,20 +476,19 @@ pub fn finalize_failed_transaction(
 
 #[cfg(test)]
 pub mod test {
+    use std::slice;
+
     use clarity::util::secp256k1::Secp256k1PrivateKey;
     use clarity::vm::hooks::trace::CallTraceHook;
     use clarity::vm::representations::{ClarityName, ContractName};
     use clarity::vm::test_util::{UnitTestBurnStateDB, TEST_BURN_STATE_DB};
     use clarity::vm::tests::TEST_HEADER_DB;
-    use clarity::vm::types::ResponseData;
-    use pinny::tag;
-    use proptest::prelude::*;
+    use clarity::vm::types::{ResponseData, StandardPrincipalData};
     use rand::Rng;
     use rstest::rstest;
     use stacks_common::types::chainstate::SortitionId;
     use stacks_common::util::hash::*;
 
-    use super::processing::check_transaction_postconditions_for_test;
     use super::*;
     use crate::chainstate::stacks::db::testing::*;
     use crate::chainstate::stacks::{Error, *};
@@ -591,6 +517,16 @@ pub mod test {
         tx: &StacksTransaction,
     ) -> Result<ClarityVersion, Error> {
         Ok(TransactionProcessor::from(tx).clarity_version(clarity_tx.get_epoch()))
+    }
+
+    fn expect_runtime_check_error(error: Error) -> RuntimeCheckErrorKind {
+        let Error::ClarityError(ClarityError::Interpreter(error)) = error else {
+            panic!("Did not get unchecked interpreter error");
+        };
+        let VmExecutionError::RuntimeCheck(error) = error else {
+            panic!("Did not get runtime check error");
+        };
+        error
     }
 
     pub const TestBurnStateDB_20: UnitTestBurnStateDB = UnitTestBurnStateDB {
@@ -852,6 +788,68 @@ pub mod test {
                     assert!(msg.contains("target epoch is not activated"), "{msg}");
                 }
                 _ => panic!("Expected InvalidStacksTransaction for epoch {epoch_id:?}"),
+            }
+        };
+    }
+
+    #[rstest]
+    // Through epoch 4.0 a deploy may pin any version up to the epoch default.
+    #[case(StacksEpochId::Epoch40, Some(ClarityVersion::Clarity5), true)]
+    #[case(StacksEpochId::Epoch40, Some(ClarityVersion::Clarity6), true)]
+    // From epoch 4.1 no pin is accepted; unversioned deploys get the epoch
+    // default, which is the latest version.
+    #[case(StacksEpochId::Epoch41, Some(ClarityVersion::Clarity6), false)]
+    #[case(StacksEpochId::Epoch41, Some(ClarityVersion::Clarity7), false)]
+    #[case(StacksEpochId::Epoch41, None, true)]
+    fn precheck_rejects_versioned_deploys_from_epoch41(
+        #[case] epoch_id: StacksEpochId,
+        #[case] version_opt: Option<ClarityVersion>,
+        #[case] should_succeed: bool,
+    ) {
+        let sk = Secp256k1PrivateKey::random();
+        let auth = TransactionAuth::from_p2pkh(&sk).unwrap();
+        let chain_id = 0x80000000;
+
+        let tx = StacksTransaction {
+            version: TransactionVersion::Testnet,
+            chain_id,
+            auth,
+            anchor_mode: TransactionAnchorMode::Any,
+            post_condition_mode: TransactionPostConditionMode::Allow,
+            post_conditions: vec![],
+            payload: TransactionPayload::SmartContract(
+                TransactionSmartContract {
+                    name: ContractName::from_literal("test-contract"),
+                    code_body: StacksString::from_str("(define-public (ping) (ok true))").unwrap(),
+                },
+                version_opt,
+            ),
+        };
+        let mut signer = StacksTransactionSigner::new(&tx);
+        signer.sign_origin(&sk).unwrap();
+        let tx = signer.get_tx().unwrap();
+
+        let config = DBConfig {
+            version: CHAINSTATE_VERSION.to_string(),
+            mainnet: false,
+            chain_id,
+        };
+        let result = TransactionProcessor::from(&tx).precheck(&config, epoch_id);
+        if should_succeed {
+            result.unwrap();
+            // From 4.1 the epoch default is the newest version there is.
+            if version_opt.is_none() {
+                assert_eq!(
+                    Some(&ClarityVersion::default_for_epoch(epoch_id)),
+                    ClarityVersion::ALL.last()
+                );
+            }
+        } else {
+            match result.unwrap_err() {
+                Error::InvalidStacksTransaction(msg, false) => {
+                    assert!(msg.contains("not accepted since Stacks 4.1"), "{msg}");
+                }
+                e => panic!("Expected InvalidStacksTransaction for epoch {epoch_id:?}, got {e:?}"),
             }
         };
     }
@@ -1734,7 +1732,6 @@ pub mod test {
                 &BlockHeaderHash([(dbi + 1) as u8; 32]),
             );
 
-            let mut next_nonce = 0;
             for i in 0..contracts.len() {
                 let contract_name = contract_names[i];
                 let contract = contracts[i].to_string();
@@ -1749,7 +1746,7 @@ pub mod test {
 
                 tx_contract.chain_id = 0x80000000;
                 tx_contract.set_tx_fee(0);
-                tx_contract.set_origin_nonce(next_nonce);
+                tx_contract.set_origin_nonce(i as u64);
 
                 let mut signer = StacksTransactionSigner::new(&tx_contract);
                 signer.sign_origin(&privk).unwrap();
@@ -1771,9 +1768,7 @@ pub mod test {
                     } else {
                         expected_errors[i].to_string()
                     };
-                assert_eq!(receipt.vm_error.unwrap(), expected_error);
-
-                next_nonce += 1;
+                assert_eq!(receipt.vm_error.as_deref(), Some(expected_error.as_str()));
             }
 
             conn.commit_block();
@@ -2412,7 +2407,7 @@ pub mod test {
         let signed_tx = signer.get_tx().unwrap();
 
         // invalid contract-calls
-        let contract_calls = vec![
+        let contract_calls = [
             (
                 addr.clone(),
                 "hello-world",
@@ -3011,7 +3006,7 @@ pub mod test {
 
         // mint names to recv_addr, and set a post-condition on the contract-principal to check it.
         // assert contract does not possess the name
-        for (_i, pass_condition) in [NonfungibleConditionCode::Sent].iter().enumerate() {
+        for pass_condition in [NonfungibleConditionCode::Sent].iter() {
             let name = Value::buff_from(next_name.to_be_bytes().to_vec()).unwrap();
             next_name += 1;
 
@@ -3130,7 +3125,7 @@ pub mod test {
 
         // mint names to recv_addr, and set a post-condition on the contract-principal to check it.
         // assert contract still possesses the name (should fail)
-        for (_i, fail_condition) in [NonfungibleConditionCode::NotSent].iter().enumerate() {
+        for fail_condition in [NonfungibleConditionCode::NotSent].iter() {
             let name = Value::buff_from(next_name.to_be_bytes().to_vec()).unwrap();
             next_name += 1;
 
@@ -3534,13 +3529,12 @@ pub mod test {
 
         // mint 100 stackaroos and the name to recv_addr, and set a post-condition for each asset on the contract-principal
         // assert contract sent ==, <=, or >= 100 stackaroos
-        for (_i, pass_condition) in [
+        for pass_condition in [
             FungibleConditionCode::SentEq,
             FungibleConditionCode::SentGe,
             FungibleConditionCode::SentLe,
         ]
         .iter()
-        .enumerate()
         {
             let name = Value::buff_from(next_name.to_be_bytes().to_vec()).unwrap();
             next_name += 1;
@@ -3615,13 +3609,12 @@ pub mod test {
 
         // recv_addr sends 100 stackaroos and name back to addr_publisher.
         // assert recv_addr sent ==, <=, or >= 100 stackaroos
-        for (_i, pass_condition) in [
+        for pass_condition in [
             FungibleConditionCode::SentEq,
             FungibleConditionCode::SentGe,
             FungibleConditionCode::SentLe,
         ]
         .iter()
-        .enumerate()
         {
             let name = Value::buff_from(next_recv_name.to_be_bytes().to_vec()).unwrap();
             next_recv_name += 1;
@@ -3666,13 +3659,12 @@ pub mod test {
         // mint 100 stackaroos and the name to recv_addr, but neglect to set a fungible post-condition.
         // assert contract sent ==, <=, or >= 100 stackaroos, and that the name was removed from
         // the contract
-        for (_i, fail_condition) in [
+        for fail_condition in [
             FungibleConditionCode::SentEq,
             FungibleConditionCode::SentGe,
             FungibleConditionCode::SentLe,
         ]
         .iter()
-        .enumerate()
         {
             let name = Value::buff_from(next_name.to_be_bytes().to_vec()).unwrap();
             next_name += 1;
@@ -3712,13 +3704,12 @@ pub mod test {
         // mint 100 stackaroos and the name to recv_addr, but neglect to set a non-fungible post-condition.
         // assert contract sent ==, <=, or >= 100 stackaroos, and that the name was removed from
         // the contract
-        for (_i, fail_condition) in [
+        for fail_condition in [
             FungibleConditionCode::SentEq,
             FungibleConditionCode::SentGe,
             FungibleConditionCode::SentLe,
         ]
         .iter()
-        .enumerate()
         {
             let name = Value::buff_from(next_name.to_be_bytes().to_vec()).unwrap();
             next_name += 1;
@@ -3758,13 +3749,12 @@ pub mod test {
         // recv_addr sends 100 stackaroos and name back to addr_publisher, but forgets a fungible
         // post-condition.
         // assert recv_addr sent ==, <=, or >= 100 stackaroos
-        for (_i, fail_condition) in [
+        for fail_condition in [
             FungibleConditionCode::SentEq,
             FungibleConditionCode::SentGe,
             FungibleConditionCode::SentLe,
         ]
         .iter()
-        .enumerate()
         {
             let name = Value::buff_from(final_recv_name.to_be_bytes().to_vec()).unwrap();
 
@@ -3805,13 +3795,12 @@ pub mod test {
         // recv_addr sends 100 stackaroos and name back to addr_publisher, but forgets a non-fungible
         // post-condition.
         // assert recv_addr sent ==, <=, or >= 100 stackaroos
-        for (_i, fail_condition) in [
+        for fail_condition in [
             FungibleConditionCode::SentEq,
             FungibleConditionCode::SentGe,
             FungibleConditionCode::SentLe,
         ]
         .iter()
-        .enumerate()
         {
             let name = Value::buff_from(final_recv_name.to_be_bytes().to_vec()).unwrap();
 
@@ -4221,3546 +4210,6 @@ pub mod test {
             conn.commit_block();
         }
     }
-
-    fn make_account(principal: &PrincipalData, nonce: u64, balance: u128) -> StacksAccount {
-        let stx_balance = STXBalance::initial(balance);
-        StacksAccount {
-            principal: principal.clone(),
-            nonce,
-            stx_balance,
-        }
-    }
-
-    #[test]
-    fn test_check_postconditions_multiple_fts() {
-        let privk = StacksPrivateKey::from_hex(
-            "6d430bb91222408e7706c9001cfaeb91b08c2be6d5ac95779ab52c6b431950e001",
-        )
-        .unwrap();
-        let auth = TransactionAuth::from_p2pkh(&privk).unwrap();
-        let addr = auth.origin().address_testnet();
-        let origin = addr.to_account_principal();
-        let recv_addr = StacksAddress::new(1, Hash160([0xff; 20])).unwrap();
-        let contract_addr = StacksAddress::new(1, Hash160([0x01; 20])).unwrap();
-
-        let asset_info_1 = AssetInfo {
-            contract_address: contract_addr.clone(),
-            contract_name: ContractName::try_from("hello-world").unwrap(),
-            asset_name: ClarityName::try_from("test-asset-1").unwrap(),
-        };
-
-        let asset_info_2 = AssetInfo {
-            contract_address: contract_addr.clone(),
-            contract_name: ContractName::try_from("hello-world").unwrap(),
-            asset_name: ClarityName::try_from("test-asset-2").unwrap(),
-        };
-
-        let asset_info_3 = AssetInfo {
-            contract_address: contract_addr.clone(),
-            contract_name: ContractName::try_from("hello-world").unwrap(),
-            asset_name: ClarityName::try_from("test-asset-3").unwrap(),
-        };
-
-        let asset_id_1 = AssetIdentifier {
-            contract_identifier: QualifiedContractIdentifier::new(
-                StandardPrincipalData::from(asset_info_1.contract_address.clone()),
-                asset_info_1.contract_name.clone(),
-            ),
-            asset_name: asset_info_1.asset_name.clone(),
-        };
-
-        let asset_id_2 = AssetIdentifier {
-            contract_identifier: QualifiedContractIdentifier::new(
-                StandardPrincipalData::from(asset_info_2.contract_address.clone()),
-                asset_info_2.contract_name.clone(),
-            ),
-            asset_name: asset_info_2.asset_name.clone(),
-        };
-
-        let _asset_id_3 = AssetIdentifier {
-            contract_identifier: QualifiedContractIdentifier::new(
-                StandardPrincipalData::from(asset_info_3.contract_address.clone()),
-                asset_info_3.contract_name.clone(),
-            ),
-            asset_name: asset_info_3.asset_name.clone(),
-        };
-
-        // multi-ft
-        let mut ft_transfer_2 = AssetMap::new();
-        ft_transfer_2
-            .add_token_transfer(&origin, asset_id_1, 123)
-            .unwrap();
-        ft_transfer_2
-            .add_token_transfer(&origin, asset_id_2, 123)
-            .unwrap();
-
-        let tests = vec![
-            // no-postconditions in allow mode
-            (
-                true,
-                vec![],
-                TransactionPostConditionMode::Allow,
-                make_account(&origin, 1, 123),
-            ),
-            // one post-condition on origin in allow mode
-            (
-                true,
-                vec![TransactionPostCondition::Fungible(
-                    PostConditionPrincipal::Origin,
-                    asset_info_1.clone(),
-                    FungibleConditionCode::SentEq,
-                    123,
-                )],
-                TransactionPostConditionMode::Allow,
-                make_account(&origin, 1, 123),
-            ),
-            (
-                true,
-                vec![TransactionPostCondition::Fungible(
-                    PostConditionPrincipal::Origin,
-                    asset_info_1.clone(),
-                    FungibleConditionCode::SentLe,
-                    123,
-                )],
-                TransactionPostConditionMode::Allow,
-                make_account(&origin, 1, 123),
-            ),
-            (
-                true,
-                vec![TransactionPostCondition::Fungible(
-                    PostConditionPrincipal::Origin,
-                    asset_info_1.clone(),
-                    FungibleConditionCode::SentGe,
-                    123,
-                )],
-                TransactionPostConditionMode::Allow,
-                make_account(&origin, 1, 123),
-            ),
-            (
-                true,
-                vec![TransactionPostCondition::Fungible(
-                    PostConditionPrincipal::Origin,
-                    asset_info_1.clone(),
-                    FungibleConditionCode::SentLt,
-                    124,
-                )],
-                TransactionPostConditionMode::Allow,
-                make_account(&origin, 1, 123),
-            ),
-            (
-                true,
-                vec![TransactionPostCondition::Fungible(
-                    PostConditionPrincipal::Origin,
-                    asset_info_1.clone(),
-                    FungibleConditionCode::SentGt,
-                    122,
-                )],
-                TransactionPostConditionMode::Allow,
-                make_account(&origin, 1, 123),
-            ),
-            // two post-conditions on origin in allow mode
-            (
-                true,
-                vec![
-                    TransactionPostCondition::Fungible(
-                        PostConditionPrincipal::Origin,
-                        asset_info_1.clone(),
-                        FungibleConditionCode::SentEq,
-                        123,
-                    ),
-                    TransactionPostCondition::Fungible(
-                        PostConditionPrincipal::Origin,
-                        asset_info_2.clone(),
-                        FungibleConditionCode::SentEq,
-                        123,
-                    ),
-                ],
-                TransactionPostConditionMode::Allow,
-                make_account(&origin, 1, 123),
-            ),
-            (
-                true,
-                vec![
-                    TransactionPostCondition::Fungible(
-                        PostConditionPrincipal::Origin,
-                        asset_info_1.clone(),
-                        FungibleConditionCode::SentLe,
-                        123,
-                    ),
-                    TransactionPostCondition::Fungible(
-                        PostConditionPrincipal::Origin,
-                        asset_info_2.clone(),
-                        FungibleConditionCode::SentLe,
-                        123,
-                    ),
-                ],
-                TransactionPostConditionMode::Allow,
-                make_account(&origin, 1, 123),
-            ),
-            (
-                true,
-                vec![
-                    TransactionPostCondition::Fungible(
-                        PostConditionPrincipal::Origin,
-                        asset_info_1.clone(),
-                        FungibleConditionCode::SentGe,
-                        123,
-                    ),
-                    TransactionPostCondition::Fungible(
-                        PostConditionPrincipal::Origin,
-                        asset_info_2.clone(),
-                        FungibleConditionCode::SentGe,
-                        123,
-                    ),
-                ],
-                TransactionPostConditionMode::Allow,
-                make_account(&origin, 1, 123),
-            ),
-            (
-                true,
-                vec![
-                    TransactionPostCondition::Fungible(
-                        PostConditionPrincipal::Origin,
-                        asset_info_1.clone(),
-                        FungibleConditionCode::SentLt,
-                        124,
-                    ),
-                    TransactionPostCondition::Fungible(
-                        PostConditionPrincipal::Origin,
-                        asset_info_2.clone(),
-                        FungibleConditionCode::SentLt,
-                        124,
-                    ),
-                ],
-                TransactionPostConditionMode::Allow,
-                make_account(&origin, 1, 123),
-            ),
-            (
-                true,
-                vec![
-                    TransactionPostCondition::Fungible(
-                        PostConditionPrincipal::Origin,
-                        asset_info_1.clone(),
-                        FungibleConditionCode::SentGt,
-                        122,
-                    ),
-                    TransactionPostCondition::Fungible(
-                        PostConditionPrincipal::Origin,
-                        asset_info_2.clone(),
-                        FungibleConditionCode::SentGt,
-                        122,
-                    ),
-                ],
-                TransactionPostConditionMode::Allow,
-                make_account(&origin, 1, 123),
-            ),
-            // three post-conditions on origin in allow mode, one with sending 0 tokens
-            (
-                true,
-                vec![
-                    TransactionPostCondition::Fungible(
-                        PostConditionPrincipal::Origin,
-                        asset_info_1.clone(),
-                        FungibleConditionCode::SentEq,
-                        123,
-                    ),
-                    TransactionPostCondition::Fungible(
-                        PostConditionPrincipal::Origin,
-                        asset_info_3.clone(),
-                        FungibleConditionCode::SentEq,
-                        0,
-                    ),
-                    TransactionPostCondition::Fungible(
-                        PostConditionPrincipal::Origin,
-                        asset_info_2.clone(),
-                        FungibleConditionCode::SentEq,
-                        123,
-                    ),
-                ],
-                TransactionPostConditionMode::Allow,
-                make_account(&origin, 1, 123),
-            ),
-            (
-                true,
-                vec![
-                    TransactionPostCondition::Fungible(
-                        PostConditionPrincipal::Origin,
-                        asset_info_1.clone(),
-                        FungibleConditionCode::SentLe,
-                        123,
-                    ),
-                    TransactionPostCondition::Fungible(
-                        PostConditionPrincipal::Origin,
-                        asset_info_3.clone(),
-                        FungibleConditionCode::SentLe,
-                        0,
-                    ),
-                    TransactionPostCondition::Fungible(
-                        PostConditionPrincipal::Origin,
-                        asset_info_2.clone(),
-                        FungibleConditionCode::SentLe,
-                        123,
-                    ),
-                ],
-                TransactionPostConditionMode::Allow,
-                make_account(&origin, 1, 123),
-            ),
-            (
-                true,
-                vec![
-                    TransactionPostCondition::Fungible(
-                        PostConditionPrincipal::Origin,
-                        asset_info_1.clone(),
-                        FungibleConditionCode::SentGe,
-                        123,
-                    ),
-                    TransactionPostCondition::Fungible(
-                        PostConditionPrincipal::Origin,
-                        asset_info_3.clone(),
-                        FungibleConditionCode::SentGe,
-                        0,
-                    ),
-                    TransactionPostCondition::Fungible(
-                        PostConditionPrincipal::Origin,
-                        asset_info_2.clone(),
-                        FungibleConditionCode::SentGe,
-                        123,
-                    ),
-                ],
-                TransactionPostConditionMode::Allow,
-                make_account(&origin, 1, 123),
-            ),
-            (
-                true,
-                vec![
-                    TransactionPostCondition::Fungible(
-                        PostConditionPrincipal::Origin,
-                        asset_info_1.clone(),
-                        FungibleConditionCode::SentLt,
-                        124,
-                    ),
-                    TransactionPostCondition::Fungible(
-                        PostConditionPrincipal::Origin,
-                        asset_info_3.clone(),
-                        FungibleConditionCode::SentLt,
-                        1,
-                    ),
-                    TransactionPostCondition::Fungible(
-                        PostConditionPrincipal::Origin,
-                        asset_info_2.clone(),
-                        FungibleConditionCode::SentLt,
-                        124,
-                    ),
-                ],
-                TransactionPostConditionMode::Allow,
-                make_account(&origin, 1, 123),
-            ),
-            (
-                true,
-                vec![
-                    TransactionPostCondition::Fungible(
-                        PostConditionPrincipal::Origin,
-                        asset_info_1.clone(),
-                        FungibleConditionCode::SentGt,
-                        122,
-                    ),
-                    TransactionPostCondition::Fungible(
-                        PostConditionPrincipal::Origin,
-                        asset_info_3.clone(),
-                        FungibleConditionCode::SentEq,
-                        0,
-                    ),
-                    TransactionPostCondition::Fungible(
-                        PostConditionPrincipal::Origin,
-                        asset_info_2.clone(),
-                        FungibleConditionCode::SentGt,
-                        122,
-                    ),
-                ],
-                TransactionPostConditionMode::Allow,
-                make_account(&origin, 1, 123),
-            ),
-            // four post-conditions on origin in allow mode, one with sending 0 tokens, one with
-            // an unchecked address and a vacuous amount
-            (
-                true,
-                vec![
-                    TransactionPostCondition::Fungible(
-                        PostConditionPrincipal::Origin,
-                        asset_info_1.clone(),
-                        FungibleConditionCode::SentEq,
-                        123,
-                    ),
-                    TransactionPostCondition::Fungible(
-                        PostConditionPrincipal::Origin,
-                        asset_info_3.clone(),
-                        FungibleConditionCode::SentEq,
-                        0,
-                    ),
-                    TransactionPostCondition::Fungible(
-                        PostConditionPrincipal::Standard(recv_addr.clone()),
-                        asset_info_1.clone(),
-                        FungibleConditionCode::SentEq,
-                        0,
-                    ),
-                    TransactionPostCondition::Fungible(
-                        PostConditionPrincipal::Origin,
-                        asset_info_2.clone(),
-                        FungibleConditionCode::SentEq,
-                        123,
-                    ),
-                ],
-                TransactionPostConditionMode::Allow,
-                make_account(&origin, 1, 123),
-            ),
-            (
-                true,
-                vec![
-                    TransactionPostCondition::Fungible(
-                        PostConditionPrincipal::Origin,
-                        asset_info_1.clone(),
-                        FungibleConditionCode::SentLe,
-                        123,
-                    ),
-                    TransactionPostCondition::Fungible(
-                        PostConditionPrincipal::Origin,
-                        asset_info_3.clone(),
-                        FungibleConditionCode::SentLe,
-                        0,
-                    ),
-                    TransactionPostCondition::Fungible(
-                        PostConditionPrincipal::Standard(recv_addr.clone()),
-                        asset_info_1.clone(),
-                        FungibleConditionCode::SentLe,
-                        0,
-                    ),
-                    TransactionPostCondition::Fungible(
-                        PostConditionPrincipal::Origin,
-                        asset_info_2.clone(),
-                        FungibleConditionCode::SentLe,
-                        123,
-                    ),
-                ],
-                TransactionPostConditionMode::Allow,
-                make_account(&origin, 1, 123),
-            ),
-            (
-                true,
-                vec![
-                    TransactionPostCondition::Fungible(
-                        PostConditionPrincipal::Origin,
-                        asset_info_1.clone(),
-                        FungibleConditionCode::SentGe,
-                        123,
-                    ),
-                    TransactionPostCondition::Fungible(
-                        PostConditionPrincipal::Origin,
-                        asset_info_3.clone(),
-                        FungibleConditionCode::SentGe,
-                        0,
-                    ),
-                    TransactionPostCondition::Fungible(
-                        PostConditionPrincipal::Standard(recv_addr.clone()),
-                        asset_info_1.clone(),
-                        FungibleConditionCode::SentGe,
-                        0,
-                    ),
-                    TransactionPostCondition::Fungible(
-                        PostConditionPrincipal::Origin,
-                        asset_info_2.clone(),
-                        FungibleConditionCode::SentGe,
-                        123,
-                    ),
-                ],
-                TransactionPostConditionMode::Allow,
-                make_account(&origin, 1, 123),
-            ),
-            (
-                true,
-                vec![
-                    TransactionPostCondition::Fungible(
-                        PostConditionPrincipal::Origin,
-                        asset_info_1.clone(),
-                        FungibleConditionCode::SentLt,
-                        124,
-                    ),
-                    TransactionPostCondition::Fungible(
-                        PostConditionPrincipal::Origin,
-                        asset_info_3.clone(),
-                        FungibleConditionCode::SentLt,
-                        1,
-                    ),
-                    TransactionPostCondition::Fungible(
-                        PostConditionPrincipal::Standard(recv_addr.clone()),
-                        asset_info_1.clone(),
-                        FungibleConditionCode::SentLt,
-                        1,
-                    ),
-                    TransactionPostCondition::Fungible(
-                        PostConditionPrincipal::Origin,
-                        asset_info_2.clone(),
-                        FungibleConditionCode::SentLt,
-                        124,
-                    ),
-                ],
-                TransactionPostConditionMode::Allow,
-                make_account(&origin, 1, 123),
-            ),
-            (
-                true,
-                vec![
-                    TransactionPostCondition::Fungible(
-                        PostConditionPrincipal::Origin,
-                        asset_info_1.clone(),
-                        FungibleConditionCode::SentGt,
-                        122,
-                    ),
-                    TransactionPostCondition::Fungible(
-                        PostConditionPrincipal::Origin,
-                        asset_info_3.clone(),
-                        FungibleConditionCode::SentEq,
-                        0,
-                    ),
-                    TransactionPostCondition::Fungible(
-                        PostConditionPrincipal::Standard(recv_addr.clone()),
-                        asset_info_1.clone(),
-                        FungibleConditionCode::SentEq,
-                        0,
-                    ),
-                    TransactionPostCondition::Fungible(
-                        PostConditionPrincipal::Origin,
-                        asset_info_2.clone(),
-                        FungibleConditionCode::SentGt,
-                        122,
-                    ),
-                ],
-                TransactionPostConditionMode::Allow,
-                make_account(&origin, 1, 123),
-            ),
-            // one post-condition on origin in allow mode, explicit origin
-            (
-                true,
-                vec![TransactionPostCondition::Fungible(
-                    PostConditionPrincipal::Standard(addr.clone()),
-                    asset_info_1.clone(),
-                    FungibleConditionCode::SentEq,
-                    123,
-                )],
-                TransactionPostConditionMode::Allow,
-                make_account(&origin, 1, 123),
-            ),
-            (
-                true,
-                vec![TransactionPostCondition::Fungible(
-                    PostConditionPrincipal::Standard(addr.clone()),
-                    asset_info_1.clone(),
-                    FungibleConditionCode::SentLe,
-                    123,
-                )],
-                TransactionPostConditionMode::Allow,
-                make_account(&origin, 1, 123),
-            ),
-            (
-                true,
-                vec![TransactionPostCondition::Fungible(
-                    PostConditionPrincipal::Standard(addr.clone()),
-                    asset_info_1.clone(),
-                    FungibleConditionCode::SentGe,
-                    123,
-                )],
-                TransactionPostConditionMode::Allow,
-                make_account(&origin, 1, 123),
-            ),
-            (
-                true,
-                vec![TransactionPostCondition::Fungible(
-                    PostConditionPrincipal::Standard(addr.clone()),
-                    asset_info_1.clone(),
-                    FungibleConditionCode::SentLt,
-                    124,
-                )],
-                TransactionPostConditionMode::Allow,
-                make_account(&origin, 1, 123),
-            ),
-            (
-                true,
-                vec![TransactionPostCondition::Fungible(
-                    PostConditionPrincipal::Standard(addr.clone()),
-                    asset_info_1.clone(),
-                    FungibleConditionCode::SentGt,
-                    122,
-                )],
-                TransactionPostConditionMode::Allow,
-                make_account(&origin, 1, 123),
-            ),
-            // two post-conditions on origin in allow mode, explicit origin
-            (
-                true,
-                vec![
-                    TransactionPostCondition::Fungible(
-                        PostConditionPrincipal::Standard(addr.clone()),
-                        asset_info_1.clone(),
-                        FungibleConditionCode::SentEq,
-                        123,
-                    ),
-                    TransactionPostCondition::Fungible(
-                        PostConditionPrincipal::Standard(addr.clone()),
-                        asset_info_2.clone(),
-                        FungibleConditionCode::SentEq,
-                        123,
-                    ),
-                ],
-                TransactionPostConditionMode::Allow,
-                make_account(&origin, 1, 123),
-            ),
-            (
-                true,
-                vec![
-                    TransactionPostCondition::Fungible(
-                        PostConditionPrincipal::Standard(addr.clone()),
-                        asset_info_1.clone(),
-                        FungibleConditionCode::SentLe,
-                        123,
-                    ),
-                    TransactionPostCondition::Fungible(
-                        PostConditionPrincipal::Standard(addr.clone()),
-                        asset_info_2.clone(),
-                        FungibleConditionCode::SentLe,
-                        123,
-                    ),
-                ],
-                TransactionPostConditionMode::Allow,
-                make_account(&origin, 1, 123),
-            ),
-            (
-                true,
-                vec![
-                    TransactionPostCondition::Fungible(
-                        PostConditionPrincipal::Standard(addr.clone()),
-                        asset_info_1.clone(),
-                        FungibleConditionCode::SentGe,
-                        123,
-                    ),
-                    TransactionPostCondition::Fungible(
-                        PostConditionPrincipal::Standard(addr.clone()),
-                        asset_info_2.clone(),
-                        FungibleConditionCode::SentGe,
-                        123,
-                    ),
-                ],
-                TransactionPostConditionMode::Allow,
-                make_account(&origin, 1, 123),
-            ),
-            (
-                true,
-                vec![
-                    TransactionPostCondition::Fungible(
-                        PostConditionPrincipal::Standard(addr.clone()),
-                        asset_info_1.clone(),
-                        FungibleConditionCode::SentLt,
-                        124,
-                    ),
-                    TransactionPostCondition::Fungible(
-                        PostConditionPrincipal::Standard(addr.clone()),
-                        asset_info_2.clone(),
-                        FungibleConditionCode::SentLt,
-                        124,
-                    ),
-                ],
-                TransactionPostConditionMode::Allow,
-                make_account(&origin, 1, 123),
-            ),
-            (
-                true,
-                vec![
-                    TransactionPostCondition::Fungible(
-                        PostConditionPrincipal::Standard(addr.clone()),
-                        asset_info_1.clone(),
-                        FungibleConditionCode::SentGt,
-                        122,
-                    ),
-                    TransactionPostCondition::Fungible(
-                        PostConditionPrincipal::Standard(addr.clone()),
-                        asset_info_2.clone(),
-                        FungibleConditionCode::SentGt,
-                        122,
-                    ),
-                ],
-                TransactionPostConditionMode::Allow,
-                make_account(&origin, 1, 123),
-            ),
-            // three post-conditions on origin in allow mode, one with sending 0 tokens, explicit
-            // origin
-            (
-                true,
-                vec![
-                    TransactionPostCondition::Fungible(
-                        PostConditionPrincipal::Standard(addr.clone()),
-                        asset_info_1.clone(),
-                        FungibleConditionCode::SentEq,
-                        123,
-                    ),
-                    TransactionPostCondition::Fungible(
-                        PostConditionPrincipal::Standard(addr.clone()),
-                        asset_info_3.clone(),
-                        FungibleConditionCode::SentEq,
-                        0,
-                    ),
-                    TransactionPostCondition::Fungible(
-                        PostConditionPrincipal::Standard(addr.clone()),
-                        asset_info_2.clone(),
-                        FungibleConditionCode::SentEq,
-                        123,
-                    ),
-                ],
-                TransactionPostConditionMode::Allow,
-                make_account(&origin, 1, 123),
-            ),
-            (
-                true,
-                vec![
-                    TransactionPostCondition::Fungible(
-                        PostConditionPrincipal::Standard(addr.clone()),
-                        asset_info_1.clone(),
-                        FungibleConditionCode::SentLe,
-                        123,
-                    ),
-                    TransactionPostCondition::Fungible(
-                        PostConditionPrincipal::Standard(addr.clone()),
-                        asset_info_3.clone(),
-                        FungibleConditionCode::SentLe,
-                        0,
-                    ),
-                    TransactionPostCondition::Fungible(
-                        PostConditionPrincipal::Standard(addr.clone()),
-                        asset_info_2.clone(),
-                        FungibleConditionCode::SentLe,
-                        123,
-                    ),
-                ],
-                TransactionPostConditionMode::Allow,
-                make_account(&origin, 1, 123),
-            ),
-            (
-                true,
-                vec![
-                    TransactionPostCondition::Fungible(
-                        PostConditionPrincipal::Standard(addr.clone()),
-                        asset_info_1.clone(),
-                        FungibleConditionCode::SentGe,
-                        123,
-                    ),
-                    TransactionPostCondition::Fungible(
-                        PostConditionPrincipal::Standard(addr.clone()),
-                        asset_info_3.clone(),
-                        FungibleConditionCode::SentGe,
-                        0,
-                    ),
-                    TransactionPostCondition::Fungible(
-                        PostConditionPrincipal::Standard(addr.clone()),
-                        asset_info_2.clone(),
-                        FungibleConditionCode::SentGe,
-                        123,
-                    ),
-                ],
-                TransactionPostConditionMode::Allow,
-                make_account(&origin, 1, 123),
-            ),
-            (
-                true,
-                vec![
-                    TransactionPostCondition::Fungible(
-                        PostConditionPrincipal::Standard(addr.clone()),
-                        asset_info_1.clone(),
-                        FungibleConditionCode::SentLt,
-                        124,
-                    ),
-                    TransactionPostCondition::Fungible(
-                        PostConditionPrincipal::Standard(addr.clone()),
-                        asset_info_3.clone(),
-                        FungibleConditionCode::SentLt,
-                        1,
-                    ),
-                    TransactionPostCondition::Fungible(
-                        PostConditionPrincipal::Standard(addr.clone()),
-                        asset_info_2.clone(),
-                        FungibleConditionCode::SentLt,
-                        124,
-                    ),
-                ],
-                TransactionPostConditionMode::Allow,
-                make_account(&origin, 1, 123),
-            ),
-            (
-                true,
-                vec![
-                    TransactionPostCondition::Fungible(
-                        PostConditionPrincipal::Standard(addr.clone()),
-                        asset_info_1.clone(),
-                        FungibleConditionCode::SentGt,
-                        122,
-                    ),
-                    TransactionPostCondition::Fungible(
-                        PostConditionPrincipal::Standard(addr.clone()),
-                        asset_info_3.clone(),
-                        FungibleConditionCode::SentEq,
-                        0,
-                    ),
-                    TransactionPostCondition::Fungible(
-                        PostConditionPrincipal::Standard(addr.clone()),
-                        asset_info_2.clone(),
-                        FungibleConditionCode::SentGt,
-                        122,
-                    ),
-                ],
-                TransactionPostConditionMode::Allow,
-                make_account(&origin, 1, 123),
-            ),
-            // four post-conditions on origin in allow mode, one with sending 0 tokens, one with
-            // an unchecked address and a vacuous amount, explicit origin
-            (
-                true,
-                vec![
-                    TransactionPostCondition::Fungible(
-                        PostConditionPrincipal::Standard(addr.clone()),
-                        asset_info_1.clone(),
-                        FungibleConditionCode::SentEq,
-                        123,
-                    ),
-                    TransactionPostCondition::Fungible(
-                        PostConditionPrincipal::Standard(addr.clone()),
-                        asset_info_3.clone(),
-                        FungibleConditionCode::SentEq,
-                        0,
-                    ),
-                    TransactionPostCondition::Fungible(
-                        PostConditionPrincipal::Standard(recv_addr.clone()),
-                        asset_info_1.clone(),
-                        FungibleConditionCode::SentEq,
-                        0,
-                    ),
-                    TransactionPostCondition::Fungible(
-                        PostConditionPrincipal::Standard(addr.clone()),
-                        asset_info_2.clone(),
-                        FungibleConditionCode::SentEq,
-                        123,
-                    ),
-                ],
-                TransactionPostConditionMode::Allow,
-                make_account(&origin, 1, 123),
-            ),
-            (
-                true,
-                vec![
-                    TransactionPostCondition::Fungible(
-                        PostConditionPrincipal::Standard(addr.clone()),
-                        asset_info_1.clone(),
-                        FungibleConditionCode::SentLe,
-                        123,
-                    ),
-                    TransactionPostCondition::Fungible(
-                        PostConditionPrincipal::Standard(addr.clone()),
-                        asset_info_3.clone(),
-                        FungibleConditionCode::SentLe,
-                        0,
-                    ),
-                    TransactionPostCondition::Fungible(
-                        PostConditionPrincipal::Standard(recv_addr.clone()),
-                        asset_info_1.clone(),
-                        FungibleConditionCode::SentLe,
-                        0,
-                    ),
-                    TransactionPostCondition::Fungible(
-                        PostConditionPrincipal::Standard(addr.clone()),
-                        asset_info_2.clone(),
-                        FungibleConditionCode::SentLe,
-                        123,
-                    ),
-                ],
-                TransactionPostConditionMode::Allow,
-                make_account(&origin, 1, 123),
-            ),
-            (
-                true,
-                vec![
-                    TransactionPostCondition::Fungible(
-                        PostConditionPrincipal::Standard(addr.clone()),
-                        asset_info_1.clone(),
-                        FungibleConditionCode::SentGe,
-                        123,
-                    ),
-                    TransactionPostCondition::Fungible(
-                        PostConditionPrincipal::Standard(addr.clone()),
-                        asset_info_3.clone(),
-                        FungibleConditionCode::SentGe,
-                        0,
-                    ),
-                    TransactionPostCondition::Fungible(
-                        PostConditionPrincipal::Standard(recv_addr.clone()),
-                        asset_info_1.clone(),
-                        FungibleConditionCode::SentGe,
-                        0,
-                    ),
-                    TransactionPostCondition::Fungible(
-                        PostConditionPrincipal::Standard(addr.clone()),
-                        asset_info_2.clone(),
-                        FungibleConditionCode::SentGe,
-                        123,
-                    ),
-                ],
-                TransactionPostConditionMode::Allow,
-                make_account(&origin, 1, 123),
-            ),
-            (
-                true,
-                vec![
-                    TransactionPostCondition::Fungible(
-                        PostConditionPrincipal::Standard(addr.clone()),
-                        asset_info_1.clone(),
-                        FungibleConditionCode::SentLt,
-                        124,
-                    ),
-                    TransactionPostCondition::Fungible(
-                        PostConditionPrincipal::Standard(addr.clone()),
-                        asset_info_3.clone(),
-                        FungibleConditionCode::SentLt,
-                        1,
-                    ),
-                    TransactionPostCondition::Fungible(
-                        PostConditionPrincipal::Standard(recv_addr.clone()),
-                        asset_info_1.clone(),
-                        FungibleConditionCode::SentLt,
-                        1,
-                    ),
-                    TransactionPostCondition::Fungible(
-                        PostConditionPrincipal::Standard(addr.clone()),
-                        asset_info_2.clone(),
-                        FungibleConditionCode::SentLt,
-                        124,
-                    ),
-                ],
-                TransactionPostConditionMode::Allow,
-                make_account(&origin, 1, 123),
-            ),
-            (
-                true,
-                vec![
-                    TransactionPostCondition::Fungible(
-                        PostConditionPrincipal::Standard(addr.clone()),
-                        asset_info_1.clone(),
-                        FungibleConditionCode::SentGt,
-                        122,
-                    ),
-                    TransactionPostCondition::Fungible(
-                        PostConditionPrincipal::Standard(addr.clone()),
-                        asset_info_3.clone(),
-                        FungibleConditionCode::SentEq,
-                        0,
-                    ),
-                    TransactionPostCondition::Fungible(
-                        PostConditionPrincipal::Standard(recv_addr.clone()),
-                        asset_info_1.clone(),
-                        FungibleConditionCode::SentEq,
-                        0,
-                    ),
-                    TransactionPostCondition::Fungible(
-                        PostConditionPrincipal::Standard(addr.clone()),
-                        asset_info_2.clone(),
-                        FungibleConditionCode::SentGt,
-                        122,
-                    ),
-                ],
-                TransactionPostConditionMode::Allow,
-                make_account(&origin, 1, 123),
-            ),
-            // no-postconditions in deny mode
-            (
-                false,
-                vec![],
-                TransactionPostConditionMode::Deny,
-                make_account(&origin, 1, 123),
-            ),
-            // one post-condition on origin in allow mode
-            (
-                false,
-                vec![TransactionPostCondition::Fungible(
-                    PostConditionPrincipal::Origin,
-                    asset_info_1.clone(),
-                    FungibleConditionCode::SentEq,
-                    123,
-                )],
-                TransactionPostConditionMode::Deny,
-                make_account(&origin, 1, 123),
-            ),
-            (
-                false,
-                vec![TransactionPostCondition::Fungible(
-                    PostConditionPrincipal::Origin,
-                    asset_info_1.clone(),
-                    FungibleConditionCode::SentLe,
-                    123,
-                )],
-                TransactionPostConditionMode::Deny,
-                make_account(&origin, 1, 123),
-            ),
-            (
-                false,
-                vec![TransactionPostCondition::Fungible(
-                    PostConditionPrincipal::Origin,
-                    asset_info_1.clone(),
-                    FungibleConditionCode::SentGe,
-                    123,
-                )],
-                TransactionPostConditionMode::Deny,
-                make_account(&origin, 1, 123),
-            ),
-            (
-                false,
-                vec![TransactionPostCondition::Fungible(
-                    PostConditionPrincipal::Origin,
-                    asset_info_1.clone(),
-                    FungibleConditionCode::SentLt,
-                    124,
-                )],
-                TransactionPostConditionMode::Deny,
-                make_account(&origin, 1, 123),
-            ),
-            (
-                false,
-                vec![TransactionPostCondition::Fungible(
-                    PostConditionPrincipal::Origin,
-                    asset_info_1.clone(),
-                    FungibleConditionCode::SentGt,
-                    122,
-                )],
-                TransactionPostConditionMode::Deny,
-                make_account(&origin, 1, 123),
-            ),
-            // two post-conditions on origin in allow mode
-            (
-                true,
-                vec![
-                    TransactionPostCondition::Fungible(
-                        PostConditionPrincipal::Origin,
-                        asset_info_1.clone(),
-                        FungibleConditionCode::SentEq,
-                        123,
-                    ),
-                    TransactionPostCondition::Fungible(
-                        PostConditionPrincipal::Origin,
-                        asset_info_2.clone(),
-                        FungibleConditionCode::SentEq,
-                        123,
-                    ),
-                ],
-                TransactionPostConditionMode::Deny,
-                make_account(&origin, 1, 123),
-            ),
-            (
-                true,
-                vec![
-                    TransactionPostCondition::Fungible(
-                        PostConditionPrincipal::Origin,
-                        asset_info_1.clone(),
-                        FungibleConditionCode::SentLe,
-                        123,
-                    ),
-                    TransactionPostCondition::Fungible(
-                        PostConditionPrincipal::Origin,
-                        asset_info_2.clone(),
-                        FungibleConditionCode::SentLe,
-                        123,
-                    ),
-                ],
-                TransactionPostConditionMode::Deny,
-                make_account(&origin, 1, 123),
-            ),
-            (
-                true,
-                vec![
-                    TransactionPostCondition::Fungible(
-                        PostConditionPrincipal::Origin,
-                        asset_info_1.clone(),
-                        FungibleConditionCode::SentGe,
-                        123,
-                    ),
-                    TransactionPostCondition::Fungible(
-                        PostConditionPrincipal::Origin,
-                        asset_info_2.clone(),
-                        FungibleConditionCode::SentGe,
-                        123,
-                    ),
-                ],
-                TransactionPostConditionMode::Deny,
-                make_account(&origin, 1, 123),
-            ),
-            (
-                true,
-                vec![
-                    TransactionPostCondition::Fungible(
-                        PostConditionPrincipal::Origin,
-                        asset_info_1.clone(),
-                        FungibleConditionCode::SentLt,
-                        124,
-                    ),
-                    TransactionPostCondition::Fungible(
-                        PostConditionPrincipal::Origin,
-                        asset_info_2.clone(),
-                        FungibleConditionCode::SentLt,
-                        124,
-                    ),
-                ],
-                TransactionPostConditionMode::Deny,
-                make_account(&origin, 1, 123),
-            ),
-            (
-                true,
-                vec![
-                    TransactionPostCondition::Fungible(
-                        PostConditionPrincipal::Origin,
-                        asset_info_1.clone(),
-                        FungibleConditionCode::SentGt,
-                        122,
-                    ),
-                    TransactionPostCondition::Fungible(
-                        PostConditionPrincipal::Origin,
-                        asset_info_2.clone(),
-                        FungibleConditionCode::SentGt,
-                        122,
-                    ),
-                ],
-                TransactionPostConditionMode::Deny,
-                make_account(&origin, 1, 123),
-            ),
-            // three post-conditions on origin in allow mode, one with sending 0 tokens
-            (
-                true,
-                vec![
-                    TransactionPostCondition::Fungible(
-                        PostConditionPrincipal::Origin,
-                        asset_info_1.clone(),
-                        FungibleConditionCode::SentEq,
-                        123,
-                    ),
-                    TransactionPostCondition::Fungible(
-                        PostConditionPrincipal::Origin,
-                        asset_info_3.clone(),
-                        FungibleConditionCode::SentEq,
-                        0,
-                    ),
-                    TransactionPostCondition::Fungible(
-                        PostConditionPrincipal::Origin,
-                        asset_info_2.clone(),
-                        FungibleConditionCode::SentEq,
-                        123,
-                    ),
-                ],
-                TransactionPostConditionMode::Deny,
-                make_account(&origin, 1, 123),
-            ),
-            (
-                true,
-                vec![
-                    TransactionPostCondition::Fungible(
-                        PostConditionPrincipal::Origin,
-                        asset_info_1.clone(),
-                        FungibleConditionCode::SentLe,
-                        123,
-                    ),
-                    TransactionPostCondition::Fungible(
-                        PostConditionPrincipal::Origin,
-                        asset_info_3.clone(),
-                        FungibleConditionCode::SentLe,
-                        0,
-                    ),
-                    TransactionPostCondition::Fungible(
-                        PostConditionPrincipal::Origin,
-                        asset_info_2.clone(),
-                        FungibleConditionCode::SentLe,
-                        123,
-                    ),
-                ],
-                TransactionPostConditionMode::Deny,
-                make_account(&origin, 1, 123),
-            ),
-            (
-                true,
-                vec![
-                    TransactionPostCondition::Fungible(
-                        PostConditionPrincipal::Origin,
-                        asset_info_1.clone(),
-                        FungibleConditionCode::SentGe,
-                        123,
-                    ),
-                    TransactionPostCondition::Fungible(
-                        PostConditionPrincipal::Origin,
-                        asset_info_3.clone(),
-                        FungibleConditionCode::SentGe,
-                        0,
-                    ),
-                    TransactionPostCondition::Fungible(
-                        PostConditionPrincipal::Origin,
-                        asset_info_2.clone(),
-                        FungibleConditionCode::SentGe,
-                        123,
-                    ),
-                ],
-                TransactionPostConditionMode::Deny,
-                make_account(&origin, 1, 123),
-            ),
-            (
-                true,
-                vec![
-                    TransactionPostCondition::Fungible(
-                        PostConditionPrincipal::Origin,
-                        asset_info_1.clone(),
-                        FungibleConditionCode::SentLt,
-                        124,
-                    ),
-                    TransactionPostCondition::Fungible(
-                        PostConditionPrincipal::Origin,
-                        asset_info_3.clone(),
-                        FungibleConditionCode::SentLt,
-                        1,
-                    ),
-                    TransactionPostCondition::Fungible(
-                        PostConditionPrincipal::Origin,
-                        asset_info_2.clone(),
-                        FungibleConditionCode::SentLt,
-                        124,
-                    ),
-                ],
-                TransactionPostConditionMode::Deny,
-                make_account(&origin, 1, 123),
-            ),
-            (
-                true,
-                vec![
-                    TransactionPostCondition::Fungible(
-                        PostConditionPrincipal::Origin,
-                        asset_info_1.clone(),
-                        FungibleConditionCode::SentGt,
-                        122,
-                    ),
-                    TransactionPostCondition::Fungible(
-                        PostConditionPrincipal::Origin,
-                        asset_info_3.clone(),
-                        FungibleConditionCode::SentEq,
-                        0,
-                    ),
-                    TransactionPostCondition::Fungible(
-                        PostConditionPrincipal::Origin,
-                        asset_info_2.clone(),
-                        FungibleConditionCode::SentGt,
-                        122,
-                    ),
-                ],
-                TransactionPostConditionMode::Deny,
-                make_account(&origin, 1, 123),
-            ),
-            // four post-conditions on origin in allow mode, one with sending 0 tokens, one with
-            // an unchecked address and a vacuous amount
-            (
-                true,
-                vec![
-                    TransactionPostCondition::Fungible(
-                        PostConditionPrincipal::Origin,
-                        asset_info_1.clone(),
-                        FungibleConditionCode::SentEq,
-                        123,
-                    ),
-                    TransactionPostCondition::Fungible(
-                        PostConditionPrincipal::Origin,
-                        asset_info_3.clone(),
-                        FungibleConditionCode::SentEq,
-                        0,
-                    ),
-                    TransactionPostCondition::Fungible(
-                        PostConditionPrincipal::Standard(recv_addr.clone()),
-                        asset_info_1.clone(),
-                        FungibleConditionCode::SentEq,
-                        0,
-                    ),
-                    TransactionPostCondition::Fungible(
-                        PostConditionPrincipal::Origin,
-                        asset_info_2.clone(),
-                        FungibleConditionCode::SentEq,
-                        123,
-                    ),
-                ],
-                TransactionPostConditionMode::Deny,
-                make_account(&origin, 1, 123),
-            ),
-            (
-                true,
-                vec![
-                    TransactionPostCondition::Fungible(
-                        PostConditionPrincipal::Origin,
-                        asset_info_1.clone(),
-                        FungibleConditionCode::SentLe,
-                        123,
-                    ),
-                    TransactionPostCondition::Fungible(
-                        PostConditionPrincipal::Origin,
-                        asset_info_3.clone(),
-                        FungibleConditionCode::SentLe,
-                        0,
-                    ),
-                    TransactionPostCondition::Fungible(
-                        PostConditionPrincipal::Standard(recv_addr.clone()),
-                        asset_info_1.clone(),
-                        FungibleConditionCode::SentLe,
-                        0,
-                    ),
-                    TransactionPostCondition::Fungible(
-                        PostConditionPrincipal::Origin,
-                        asset_info_2.clone(),
-                        FungibleConditionCode::SentLe,
-                        123,
-                    ),
-                ],
-                TransactionPostConditionMode::Deny,
-                make_account(&origin, 1, 123),
-            ),
-            (
-                true,
-                vec![
-                    TransactionPostCondition::Fungible(
-                        PostConditionPrincipal::Origin,
-                        asset_info_1.clone(),
-                        FungibleConditionCode::SentGe,
-                        123,
-                    ),
-                    TransactionPostCondition::Fungible(
-                        PostConditionPrincipal::Origin,
-                        asset_info_3.clone(),
-                        FungibleConditionCode::SentGe,
-                        0,
-                    ),
-                    TransactionPostCondition::Fungible(
-                        PostConditionPrincipal::Standard(recv_addr.clone()),
-                        asset_info_1.clone(),
-                        FungibleConditionCode::SentGe,
-                        0,
-                    ),
-                    TransactionPostCondition::Fungible(
-                        PostConditionPrincipal::Origin,
-                        asset_info_2.clone(),
-                        FungibleConditionCode::SentGe,
-                        123,
-                    ),
-                ],
-                TransactionPostConditionMode::Deny,
-                make_account(&origin, 1, 123),
-            ),
-            (
-                true,
-                vec![
-                    TransactionPostCondition::Fungible(
-                        PostConditionPrincipal::Origin,
-                        asset_info_1.clone(),
-                        FungibleConditionCode::SentLt,
-                        124,
-                    ),
-                    TransactionPostCondition::Fungible(
-                        PostConditionPrincipal::Origin,
-                        asset_info_3.clone(),
-                        FungibleConditionCode::SentLt,
-                        1,
-                    ),
-                    TransactionPostCondition::Fungible(
-                        PostConditionPrincipal::Standard(recv_addr.clone()),
-                        asset_info_1.clone(),
-                        FungibleConditionCode::SentLt,
-                        1,
-                    ),
-                    TransactionPostCondition::Fungible(
-                        PostConditionPrincipal::Origin,
-                        asset_info_2.clone(),
-                        FungibleConditionCode::SentLt,
-                        124,
-                    ),
-                ],
-                TransactionPostConditionMode::Deny,
-                make_account(&origin, 1, 123),
-            ),
-            (
-                true,
-                vec![
-                    TransactionPostCondition::Fungible(
-                        PostConditionPrincipal::Origin,
-                        asset_info_1.clone(),
-                        FungibleConditionCode::SentGt,
-                        122,
-                    ),
-                    TransactionPostCondition::Fungible(
-                        PostConditionPrincipal::Origin,
-                        asset_info_3.clone(),
-                        FungibleConditionCode::SentEq,
-                        0,
-                    ),
-                    TransactionPostCondition::Fungible(
-                        PostConditionPrincipal::Standard(recv_addr.clone()),
-                        asset_info_1.clone(),
-                        FungibleConditionCode::SentEq,
-                        0,
-                    ),
-                    TransactionPostCondition::Fungible(
-                        PostConditionPrincipal::Origin,
-                        asset_info_2.clone(),
-                        FungibleConditionCode::SentGt,
-                        122,
-                    ),
-                ],
-                TransactionPostConditionMode::Deny,
-                make_account(&origin, 1, 123),
-            ),
-            // one post-condition on origin in allow mode, explicit origin
-            (
-                false,
-                vec![TransactionPostCondition::Fungible(
-                    PostConditionPrincipal::Standard(addr.clone()),
-                    asset_info_1.clone(),
-                    FungibleConditionCode::SentEq,
-                    123,
-                )],
-                TransactionPostConditionMode::Deny,
-                make_account(&origin, 1, 123),
-            ),
-            (
-                false,
-                vec![TransactionPostCondition::Fungible(
-                    PostConditionPrincipal::Standard(addr.clone()),
-                    asset_info_1.clone(),
-                    FungibleConditionCode::SentLe,
-                    123,
-                )],
-                TransactionPostConditionMode::Deny,
-                make_account(&origin, 1, 123),
-            ),
-            (
-                false,
-                vec![TransactionPostCondition::Fungible(
-                    PostConditionPrincipal::Standard(addr.clone()),
-                    asset_info_1.clone(),
-                    FungibleConditionCode::SentGe,
-                    123,
-                )],
-                TransactionPostConditionMode::Deny,
-                make_account(&origin, 1, 123),
-            ),
-            (
-                false,
-                vec![TransactionPostCondition::Fungible(
-                    PostConditionPrincipal::Standard(addr.clone()),
-                    asset_info_1.clone(),
-                    FungibleConditionCode::SentLt,
-                    124,
-                )],
-                TransactionPostConditionMode::Deny,
-                make_account(&origin, 1, 123),
-            ),
-            (
-                false,
-                vec![TransactionPostCondition::Fungible(
-                    PostConditionPrincipal::Standard(addr.clone()),
-                    asset_info_1.clone(),
-                    FungibleConditionCode::SentGt,
-                    122,
-                )],
-                TransactionPostConditionMode::Deny,
-                make_account(&origin, 1, 123),
-            ),
-            // two post-conditions on origin in allow mode, explicit origin
-            (
-                true,
-                vec![
-                    TransactionPostCondition::Fungible(
-                        PostConditionPrincipal::Standard(addr.clone()),
-                        asset_info_1.clone(),
-                        FungibleConditionCode::SentEq,
-                        123,
-                    ),
-                    TransactionPostCondition::Fungible(
-                        PostConditionPrincipal::Standard(addr.clone()),
-                        asset_info_2.clone(),
-                        FungibleConditionCode::SentEq,
-                        123,
-                    ),
-                ],
-                TransactionPostConditionMode::Deny,
-                make_account(&origin, 1, 123),
-            ),
-            (
-                true,
-                vec![
-                    TransactionPostCondition::Fungible(
-                        PostConditionPrincipal::Standard(addr.clone()),
-                        asset_info_1.clone(),
-                        FungibleConditionCode::SentLe,
-                        123,
-                    ),
-                    TransactionPostCondition::Fungible(
-                        PostConditionPrincipal::Standard(addr.clone()),
-                        asset_info_2.clone(),
-                        FungibleConditionCode::SentLe,
-                        123,
-                    ),
-                ],
-                TransactionPostConditionMode::Deny,
-                make_account(&origin, 1, 123),
-            ),
-            (
-                true,
-                vec![
-                    TransactionPostCondition::Fungible(
-                        PostConditionPrincipal::Standard(addr.clone()),
-                        asset_info_1.clone(),
-                        FungibleConditionCode::SentGe,
-                        123,
-                    ),
-                    TransactionPostCondition::Fungible(
-                        PostConditionPrincipal::Standard(addr.clone()),
-                        asset_info_2.clone(),
-                        FungibleConditionCode::SentGe,
-                        123,
-                    ),
-                ],
-                TransactionPostConditionMode::Deny,
-                make_account(&origin, 1, 123),
-            ),
-            (
-                true,
-                vec![
-                    TransactionPostCondition::Fungible(
-                        PostConditionPrincipal::Standard(addr.clone()),
-                        asset_info_1.clone(),
-                        FungibleConditionCode::SentLt,
-                        124,
-                    ),
-                    TransactionPostCondition::Fungible(
-                        PostConditionPrincipal::Standard(addr.clone()),
-                        asset_info_2.clone(),
-                        FungibleConditionCode::SentLt,
-                        124,
-                    ),
-                ],
-                TransactionPostConditionMode::Deny,
-                make_account(&origin, 1, 123),
-            ),
-            (
-                true,
-                vec![
-                    TransactionPostCondition::Fungible(
-                        PostConditionPrincipal::Standard(addr.clone()),
-                        asset_info_1.clone(),
-                        FungibleConditionCode::SentGt,
-                        122,
-                    ),
-                    TransactionPostCondition::Fungible(
-                        PostConditionPrincipal::Standard(addr.clone()),
-                        asset_info_2.clone(),
-                        FungibleConditionCode::SentGt,
-                        122,
-                    ),
-                ],
-                TransactionPostConditionMode::Deny,
-                make_account(&origin, 1, 123),
-            ),
-            // three post-conditions on origin in allow mode, one with sending 0 tokens, explicit
-            // origin
-            (
-                true,
-                vec![
-                    TransactionPostCondition::Fungible(
-                        PostConditionPrincipal::Standard(addr.clone()),
-                        asset_info_1.clone(),
-                        FungibleConditionCode::SentEq,
-                        123,
-                    ),
-                    TransactionPostCondition::Fungible(
-                        PostConditionPrincipal::Standard(addr.clone()),
-                        asset_info_3.clone(),
-                        FungibleConditionCode::SentEq,
-                        0,
-                    ),
-                    TransactionPostCondition::Fungible(
-                        PostConditionPrincipal::Standard(addr.clone()),
-                        asset_info_2.clone(),
-                        FungibleConditionCode::SentEq,
-                        123,
-                    ),
-                ],
-                TransactionPostConditionMode::Deny,
-                make_account(&origin, 1, 123),
-            ),
-            (
-                true,
-                vec![
-                    TransactionPostCondition::Fungible(
-                        PostConditionPrincipal::Standard(addr.clone()),
-                        asset_info_1.clone(),
-                        FungibleConditionCode::SentLe,
-                        123,
-                    ),
-                    TransactionPostCondition::Fungible(
-                        PostConditionPrincipal::Standard(addr.clone()),
-                        asset_info_3.clone(),
-                        FungibleConditionCode::SentLe,
-                        0,
-                    ),
-                    TransactionPostCondition::Fungible(
-                        PostConditionPrincipal::Standard(addr.clone()),
-                        asset_info_2.clone(),
-                        FungibleConditionCode::SentLe,
-                        123,
-                    ),
-                ],
-                TransactionPostConditionMode::Deny,
-                make_account(&origin, 1, 123),
-            ),
-            (
-                true,
-                vec![
-                    TransactionPostCondition::Fungible(
-                        PostConditionPrincipal::Standard(addr.clone()),
-                        asset_info_1.clone(),
-                        FungibleConditionCode::SentGe,
-                        123,
-                    ),
-                    TransactionPostCondition::Fungible(
-                        PostConditionPrincipal::Standard(addr.clone()),
-                        asset_info_3.clone(),
-                        FungibleConditionCode::SentGe,
-                        0,
-                    ),
-                    TransactionPostCondition::Fungible(
-                        PostConditionPrincipal::Standard(addr.clone()),
-                        asset_info_2.clone(),
-                        FungibleConditionCode::SentGe,
-                        123,
-                    ),
-                ],
-                TransactionPostConditionMode::Deny,
-                make_account(&origin, 1, 123),
-            ),
-            (
-                true,
-                vec![
-                    TransactionPostCondition::Fungible(
-                        PostConditionPrincipal::Standard(addr.clone()),
-                        asset_info_1.clone(),
-                        FungibleConditionCode::SentLt,
-                        124,
-                    ),
-                    TransactionPostCondition::Fungible(
-                        PostConditionPrincipal::Standard(addr.clone()),
-                        asset_info_3.clone(),
-                        FungibleConditionCode::SentLt,
-                        1,
-                    ),
-                    TransactionPostCondition::Fungible(
-                        PostConditionPrincipal::Standard(addr.clone()),
-                        asset_info_2.clone(),
-                        FungibleConditionCode::SentLt,
-                        124,
-                    ),
-                ],
-                TransactionPostConditionMode::Deny,
-                make_account(&origin, 1, 123),
-            ),
-            (
-                true,
-                vec![
-                    TransactionPostCondition::Fungible(
-                        PostConditionPrincipal::Standard(addr.clone()),
-                        asset_info_1.clone(),
-                        FungibleConditionCode::SentGt,
-                        122,
-                    ),
-                    TransactionPostCondition::Fungible(
-                        PostConditionPrincipal::Standard(addr.clone()),
-                        asset_info_3.clone(),
-                        FungibleConditionCode::SentEq,
-                        0,
-                    ),
-                    TransactionPostCondition::Fungible(
-                        PostConditionPrincipal::Standard(addr.clone()),
-                        asset_info_2.clone(),
-                        FungibleConditionCode::SentGt,
-                        122,
-                    ),
-                ],
-                TransactionPostConditionMode::Deny,
-                make_account(&origin, 1, 123),
-            ),
-            // four post-conditions on origin in allow mode, one with sending 0 tokens, one with
-            // an unchecked address and a vacuous amount, explicit origin
-            (
-                true,
-                vec![
-                    TransactionPostCondition::Fungible(
-                        PostConditionPrincipal::Standard(addr.clone()),
-                        asset_info_1.clone(),
-                        FungibleConditionCode::SentEq,
-                        123,
-                    ),
-                    TransactionPostCondition::Fungible(
-                        PostConditionPrincipal::Standard(addr.clone()),
-                        asset_info_3.clone(),
-                        FungibleConditionCode::SentEq,
-                        0,
-                    ),
-                    TransactionPostCondition::Fungible(
-                        PostConditionPrincipal::Standard(recv_addr.clone()),
-                        asset_info_1.clone(),
-                        FungibleConditionCode::SentEq,
-                        0,
-                    ),
-                    TransactionPostCondition::Fungible(
-                        PostConditionPrincipal::Standard(addr.clone()),
-                        asset_info_2.clone(),
-                        FungibleConditionCode::SentEq,
-                        123,
-                    ),
-                ],
-                TransactionPostConditionMode::Deny,
-                make_account(&origin, 1, 123),
-            ),
-            (
-                true,
-                vec![
-                    TransactionPostCondition::Fungible(
-                        PostConditionPrincipal::Standard(addr.clone()),
-                        asset_info_1.clone(),
-                        FungibleConditionCode::SentLe,
-                        123,
-                    ),
-                    TransactionPostCondition::Fungible(
-                        PostConditionPrincipal::Standard(addr.clone()),
-                        asset_info_3.clone(),
-                        FungibleConditionCode::SentLe,
-                        0,
-                    ),
-                    TransactionPostCondition::Fungible(
-                        PostConditionPrincipal::Standard(recv_addr.clone()),
-                        asset_info_1.clone(),
-                        FungibleConditionCode::SentLe,
-                        0,
-                    ),
-                    TransactionPostCondition::Fungible(
-                        PostConditionPrincipal::Standard(addr.clone()),
-                        asset_info_2.clone(),
-                        FungibleConditionCode::SentLe,
-                        123,
-                    ),
-                ],
-                TransactionPostConditionMode::Deny,
-                make_account(&origin, 1, 123),
-            ),
-            (
-                true,
-                vec![
-                    TransactionPostCondition::Fungible(
-                        PostConditionPrincipal::Standard(addr.clone()),
-                        asset_info_1.clone(),
-                        FungibleConditionCode::SentGe,
-                        123,
-                    ),
-                    TransactionPostCondition::Fungible(
-                        PostConditionPrincipal::Standard(addr.clone()),
-                        asset_info_3.clone(),
-                        FungibleConditionCode::SentGe,
-                        0,
-                    ),
-                    TransactionPostCondition::Fungible(
-                        PostConditionPrincipal::Standard(recv_addr.clone()),
-                        asset_info_1.clone(),
-                        FungibleConditionCode::SentGe,
-                        0,
-                    ),
-                    TransactionPostCondition::Fungible(
-                        PostConditionPrincipal::Standard(addr.clone()),
-                        asset_info_2.clone(),
-                        FungibleConditionCode::SentGe,
-                        123,
-                    ),
-                ],
-                TransactionPostConditionMode::Deny,
-                make_account(&origin, 1, 123),
-            ),
-            (
-                true,
-                vec![
-                    TransactionPostCondition::Fungible(
-                        PostConditionPrincipal::Standard(addr.clone()),
-                        asset_info_1.clone(),
-                        FungibleConditionCode::SentLt,
-                        124,
-                    ),
-                    TransactionPostCondition::Fungible(
-                        PostConditionPrincipal::Standard(addr.clone()),
-                        asset_info_3.clone(),
-                        FungibleConditionCode::SentLt,
-                        1,
-                    ),
-                    TransactionPostCondition::Fungible(
-                        PostConditionPrincipal::Standard(recv_addr.clone()),
-                        asset_info_1.clone(),
-                        FungibleConditionCode::SentLt,
-                        1,
-                    ),
-                    TransactionPostCondition::Fungible(
-                        PostConditionPrincipal::Standard(addr.clone()),
-                        asset_info_2.clone(),
-                        FungibleConditionCode::SentLt,
-                        124,
-                    ),
-                ],
-                TransactionPostConditionMode::Deny,
-                make_account(&origin, 1, 123),
-            ),
-            (
-                true,
-                vec![
-                    TransactionPostCondition::Fungible(
-                        PostConditionPrincipal::Standard(addr.clone()),
-                        asset_info_1.clone(),
-                        FungibleConditionCode::SentGt,
-                        122,
-                    ),
-                    TransactionPostCondition::Fungible(
-                        PostConditionPrincipal::Standard(addr.clone()),
-                        asset_info_3,
-                        FungibleConditionCode::SentEq,
-                        0,
-                    ),
-                    TransactionPostCondition::Fungible(
-                        PostConditionPrincipal::Standard(recv_addr.clone()),
-                        asset_info_1,
-                        FungibleConditionCode::SentEq,
-                        0,
-                    ),
-                    TransactionPostCondition::Fungible(
-                        PostConditionPrincipal::Standard(addr.clone()),
-                        asset_info_2,
-                        FungibleConditionCode::SentGt,
-                        122,
-                    ),
-                ],
-                TransactionPostConditionMode::Deny,
-                make_account(&origin, 1, 123),
-            ),
-        ];
-
-        for test in tests {
-            let expected_result = test.0;
-            let post_conditions = &test.1;
-            let mode = &test.2;
-            let origin = &test.3;
-
-            let result = check_transaction_postconditions_for_test(
-                post_conditions,
-                mode,
-                origin,
-                &ft_transfer_2,
-                StacksEpochId::latest(),
-                Txid([0; 32]),
-            )
-            .unwrap();
-            assert_eq!(
-                result.is_none(),
-                expected_result,
-                "test failed:\nasset map: {ft_transfer_2:?}\nscenario: {test:?}"
-            );
-        }
-    }
-
-    #[test]
-    fn test_check_postconditions_multiple_nfts() {
-        let privk = StacksPrivateKey::from_hex(
-            "6d430bb91222408e7706c9001cfaeb91b08c2be6d5ac95779ab52c6b431950e001",
-        )
-        .unwrap();
-        let auth = TransactionAuth::from_p2pkh(&privk).unwrap();
-        let addr = auth.origin().address_testnet();
-        let origin = addr.to_account_principal();
-        let _recv_addr = StacksAddress::new(1, Hash160([0xff; 20])).unwrap();
-        let contract_addr = StacksAddress::new(1, Hash160([0x01; 20])).unwrap();
-
-        let asset_info = AssetInfo {
-            contract_address: contract_addr.clone(),
-            contract_name: ContractName::try_from("hello-world").unwrap(),
-            asset_name: ClarityName::try_from("test-asset").unwrap(),
-        };
-
-        let asset_id = AssetIdentifier {
-            contract_identifier: QualifiedContractIdentifier::new(
-                StandardPrincipalData::from(asset_info.contract_address.clone()),
-                asset_info.contract_name.clone(),
-            ),
-            asset_name: asset_info.asset_name.clone(),
-        };
-
-        // multi-nft transfer
-        let mut nft_transfer_2 = AssetMap::new();
-        nft_transfer_2.add_asset_transfer(&origin, asset_id.clone(), Value::Int(1));
-        nft_transfer_2.add_asset_transfer(&origin, asset_id, Value::Int(2));
-
-        let tests = vec![
-            // no post-conditions in allow mode
-            (
-                true,
-                vec![],
-                TransactionPostConditionMode::Allow,
-                make_account(&origin, 1, 123),
-            ),
-            // one post-condition on origin in allow mode
-            (
-                true,
-                vec![TransactionPostCondition::Nonfungible(
-                    PostConditionPrincipal::Origin,
-                    asset_info.clone(),
-                    Value::Int(1),
-                    NonfungibleConditionCode::Sent,
-                )],
-                TransactionPostConditionMode::Allow,
-                make_account(&origin, 1, 123),
-            ),
-            (
-                true,
-                vec![TransactionPostCondition::Nonfungible(
-                    PostConditionPrincipal::Origin,
-                    asset_info.clone(),
-                    Value::Int(2),
-                    NonfungibleConditionCode::Sent,
-                )],
-                TransactionPostConditionMode::Allow,
-                make_account(&origin, 1, 123),
-            ),
-            // two post-conditions on origin in allow mode
-            (
-                true,
-                vec![
-                    TransactionPostCondition::Nonfungible(
-                        PostConditionPrincipal::Origin,
-                        asset_info.clone(),
-                        Value::Int(1),
-                        NonfungibleConditionCode::Sent,
-                    ),
-                    TransactionPostCondition::Nonfungible(
-                        PostConditionPrincipal::Origin,
-                        asset_info.clone(),
-                        Value::Int(2),
-                        NonfungibleConditionCode::Sent,
-                    ),
-                ],
-                TransactionPostConditionMode::Allow,
-                make_account(&origin, 1, 123),
-            ),
-            // post-condition on a non-sent asset
-            (
-                true,
-                vec![
-                    TransactionPostCondition::Nonfungible(
-                        PostConditionPrincipal::Origin,
-                        asset_info.clone(),
-                        Value::Int(1),
-                        NonfungibleConditionCode::Sent,
-                    ),
-                    TransactionPostCondition::Nonfungible(
-                        PostConditionPrincipal::Origin,
-                        asset_info.clone(),
-                        Value::Int(2),
-                        NonfungibleConditionCode::Sent,
-                    ),
-                    TransactionPostCondition::Nonfungible(
-                        PostConditionPrincipal::Origin,
-                        asset_info.clone(),
-                        Value::Int(3),
-                        NonfungibleConditionCode::NotSent,
-                    ),
-                ],
-                TransactionPostConditionMode::Allow,
-                make_account(&origin, 1, 123),
-            ),
-            // one post-condition on origin in allow mode, explicit origin
-            (
-                true,
-                vec![TransactionPostCondition::Nonfungible(
-                    PostConditionPrincipal::Standard(addr.clone()),
-                    asset_info.clone(),
-                    Value::Int(1),
-                    NonfungibleConditionCode::Sent,
-                )],
-                TransactionPostConditionMode::Allow,
-                make_account(&origin, 1, 123),
-            ),
-            (
-                true,
-                vec![TransactionPostCondition::Nonfungible(
-                    PostConditionPrincipal::Standard(addr.clone()),
-                    asset_info.clone(),
-                    Value::Int(2),
-                    NonfungibleConditionCode::Sent,
-                )],
-                TransactionPostConditionMode::Allow,
-                make_account(&origin, 1, 123),
-            ),
-            // two post-conditions on origin in allow mode, explicit origin
-            (
-                true,
-                vec![
-                    TransactionPostCondition::Nonfungible(
-                        PostConditionPrincipal::Standard(addr.clone()),
-                        asset_info.clone(),
-                        Value::Int(1),
-                        NonfungibleConditionCode::Sent,
-                    ),
-                    TransactionPostCondition::Nonfungible(
-                        PostConditionPrincipal::Standard(addr.clone()),
-                        asset_info.clone(),
-                        Value::Int(2),
-                        NonfungibleConditionCode::Sent,
-                    ),
-                ],
-                TransactionPostConditionMode::Allow,
-                make_account(&origin, 1, 123),
-            ),
-            // post-condition on a non-sent asset, explicit origin
-            (
-                true,
-                vec![
-                    TransactionPostCondition::Nonfungible(
-                        PostConditionPrincipal::Standard(addr.clone()),
-                        asset_info.clone(),
-                        Value::Int(1),
-                        NonfungibleConditionCode::Sent,
-                    ),
-                    TransactionPostCondition::Nonfungible(
-                        PostConditionPrincipal::Standard(addr.clone()),
-                        asset_info.clone(),
-                        Value::Int(2),
-                        NonfungibleConditionCode::Sent,
-                    ),
-                    TransactionPostCondition::Nonfungible(
-                        PostConditionPrincipal::Standard(addr.clone()),
-                        asset_info.clone(),
-                        Value::Int(3),
-                        NonfungibleConditionCode::NotSent,
-                    ),
-                ],
-                TransactionPostConditionMode::Allow,
-                make_account(&origin, 1, 123),
-            ),
-            // no post-conditions in deny mode
-            (
-                false,
-                vec![],
-                TransactionPostConditionMode::Deny,
-                make_account(&origin, 1, 123),
-            ),
-            // one post-condition on origin in deny mode
-            (
-                false,
-                vec![TransactionPostCondition::Nonfungible(
-                    PostConditionPrincipal::Origin,
-                    asset_info.clone(),
-                    Value::Int(1),
-                    NonfungibleConditionCode::Sent,
-                )],
-                TransactionPostConditionMode::Deny,
-                make_account(&origin, 1, 123),
-            ),
-            (
-                false,
-                vec![TransactionPostCondition::Nonfungible(
-                    PostConditionPrincipal::Origin,
-                    asset_info.clone(),
-                    Value::Int(2),
-                    NonfungibleConditionCode::Sent,
-                )],
-                TransactionPostConditionMode::Deny,
-                make_account(&origin, 1, 123),
-            ),
-            // two post-conditions on origin in allow mode
-            (
-                true,
-                vec![
-                    TransactionPostCondition::Nonfungible(
-                        PostConditionPrincipal::Origin,
-                        asset_info.clone(),
-                        Value::Int(1),
-                        NonfungibleConditionCode::Sent,
-                    ),
-                    TransactionPostCondition::Nonfungible(
-                        PostConditionPrincipal::Origin,
-                        asset_info.clone(),
-                        Value::Int(2),
-                        NonfungibleConditionCode::Sent,
-                    ),
-                ],
-                TransactionPostConditionMode::Allow,
-                make_account(&origin, 1, 123),
-            ),
-            // post-condition on a non-sent asset
-            (
-                true,
-                vec![
-                    TransactionPostCondition::Nonfungible(
-                        PostConditionPrincipal::Origin,
-                        asset_info.clone(),
-                        Value::Int(1),
-                        NonfungibleConditionCode::Sent,
-                    ),
-                    TransactionPostCondition::Nonfungible(
-                        PostConditionPrincipal::Origin,
-                        asset_info.clone(),
-                        Value::Int(2),
-                        NonfungibleConditionCode::Sent,
-                    ),
-                    TransactionPostCondition::Nonfungible(
-                        PostConditionPrincipal::Origin,
-                        asset_info.clone(),
-                        Value::Int(3),
-                        NonfungibleConditionCode::NotSent,
-                    ),
-                ],
-                TransactionPostConditionMode::Deny,
-                make_account(&origin, 1, 123),
-            ),
-            // one post-condition on origin in deny mode, explicit origin
-            (
-                false,
-                vec![TransactionPostCondition::Nonfungible(
-                    PostConditionPrincipal::Standard(addr.clone()),
-                    asset_info.clone(),
-                    Value::Int(1),
-                    NonfungibleConditionCode::Sent,
-                )],
-                TransactionPostConditionMode::Deny,
-                make_account(&origin, 1, 123),
-            ),
-            (
-                false,
-                vec![TransactionPostCondition::Nonfungible(
-                    PostConditionPrincipal::Standard(addr.clone()),
-                    asset_info.clone(),
-                    Value::Int(2),
-                    NonfungibleConditionCode::Sent,
-                )],
-                TransactionPostConditionMode::Deny,
-                make_account(&origin, 1, 123),
-            ),
-            // two post-conditions on origin in allow mode, explicit origin
-            (
-                true,
-                vec![
-                    TransactionPostCondition::Nonfungible(
-                        PostConditionPrincipal::Standard(addr.clone()),
-                        asset_info.clone(),
-                        Value::Int(1),
-                        NonfungibleConditionCode::Sent,
-                    ),
-                    TransactionPostCondition::Nonfungible(
-                        PostConditionPrincipal::Standard(addr.clone()),
-                        asset_info.clone(),
-                        Value::Int(2),
-                        NonfungibleConditionCode::Sent,
-                    ),
-                ],
-                TransactionPostConditionMode::Allow,
-                make_account(&origin, 1, 123),
-            ),
-            // post-condition on a non-sent asset, explicit origin
-            (
-                true,
-                vec![
-                    TransactionPostCondition::Nonfungible(
-                        PostConditionPrincipal::Standard(addr.clone()),
-                        asset_info.clone(),
-                        Value::Int(1),
-                        NonfungibleConditionCode::Sent,
-                    ),
-                    TransactionPostCondition::Nonfungible(
-                        PostConditionPrincipal::Standard(addr.clone()),
-                        asset_info.clone(),
-                        Value::Int(2),
-                        NonfungibleConditionCode::Sent,
-                    ),
-                    TransactionPostCondition::Nonfungible(
-                        PostConditionPrincipal::Standard(addr.clone()),
-                        asset_info,
-                        Value::Int(3),
-                        NonfungibleConditionCode::NotSent,
-                    ),
-                ],
-                TransactionPostConditionMode::Deny,
-                make_account(&origin, 1, 123),
-            ),
-        ];
-
-        for test in tests.iter() {
-            let expected_result = test.0;
-            let post_conditions = &test.1;
-            let mode = &test.2;
-            let origin = &test.3;
-
-            let result = check_transaction_postconditions_for_test(
-                post_conditions,
-                mode,
-                origin,
-                &nft_transfer_2,
-                StacksEpochId::latest(),
-                Txid([0; 32]),
-            )
-            .unwrap();
-            assert_eq!(
-                result.is_none(),
-                expected_result,
-                "test failed:\nasset map: {nft_transfer_2:?}\nscenario: {test:?}"
-            );
-        }
-    }
-
-    #[test]
-    fn test_check_postconditions_originator_mode_coverage() {
-        let privk = StacksPrivateKey::from_hex(
-            "6d430bb91222408e7706c9001cfaeb91b08c2be6d5ac95779ab52c6b431950e001",
-        )
-        .unwrap();
-        let auth = TransactionAuth::from_p2pkh(&privk).unwrap();
-        let origin_addr = auth.origin().address_testnet();
-        let origin = origin_addr.to_account_principal();
-        let other_addr = StacksAddress::new(1, Hash160([0xee; 20])).unwrap();
-        let other = other_addr.to_account_principal();
-
-        let mut mixed_stx_transfer = AssetMap::new();
-        mixed_stx_transfer.add_stx_transfer(&origin, 50).unwrap();
-        mixed_stx_transfer.add_stx_transfer(&other, 75).unwrap();
-
-        let tests = vec![
-            // in originator mode, uncovered transfers from non-origin principals are permitted
-            (
-                true,
-                vec![TransactionPostCondition::STX(
-                    PostConditionPrincipal::Origin,
-                    FungibleConditionCode::SentEq,
-                    50,
-                )],
-                TransactionPostConditionMode::Originator,
-            ),
-            // in originator mode, uncovered transfers from origin are forbidden
-            (
-                false,
-                vec![TransactionPostCondition::STX(
-                    PostConditionPrincipal::Standard(other_addr.clone()),
-                    FungibleConditionCode::SentEq,
-                    75,
-                )],
-                TransactionPostConditionMode::Originator,
-            ),
-            // in originator mode, covering both should pass
-            (
-                true,
-                vec![
-                    TransactionPostCondition::STX(
-                        PostConditionPrincipal::Origin,
-                        FungibleConditionCode::SentEq,
-                        50,
-                    ),
-                    TransactionPostCondition::STX(
-                        PostConditionPrincipal::Standard(other_addr.clone()),
-                        FungibleConditionCode::SentEq,
-                        75,
-                    ),
-                ],
-                TransactionPostConditionMode::Originator,
-            ),
-            // sanity check: deny mode still requires all principals to be covered
-            (
-                false,
-                vec![TransactionPostCondition::STX(
-                    PostConditionPrincipal::Origin,
-                    FungibleConditionCode::SentEq,
-                    50,
-                )],
-                TransactionPostConditionMode::Deny,
-            ),
-        ];
-
-        for (expected_result, post_conditions, mode) in tests {
-            let result = check_transaction_postconditions_for_test(
-                &post_conditions,
-                &mode,
-                &make_account(&origin, 1, 123),
-                &mixed_stx_transfer,
-                StacksEpochId::latest(),
-                Txid([0; 32]),
-            )
-            .unwrap();
-            assert_eq!(
-                result.is_none(),
-                expected_result,
-                "test failed:\nasset map: {mixed_stx_transfer:?}\nscenario: {post_conditions:?} mode={mode:?}"
-            );
-        }
-    }
-
-    #[test]
-    fn test_check_postconditions_staking() {
-        let privk = StacksPrivateKey::from_hex(
-            "6d430bb91222408e7706c9001cfaeb91b08c2be6d5ac95779ab52c6b431950e001",
-        )
-        .unwrap();
-        let auth = TransactionAuth::from_p2pkh(&privk).unwrap();
-        let origin_addr = auth.origin().address_testnet();
-        let origin = origin_addr.to_account_principal();
-
-        // Asset map in which the origin staked 100 uSTX.
-        let mut stacked = AssetMap::new();
-        stacked
-            .add_stacking(&origin, 100, StacksEpochId::Epoch40)
-            .unwrap();
-
-        // (expected_pass, post_conditions, mode, epoch)
-        let tests = vec![
-            // Allow mode: uncovered stacking is permitted.
-            (
-                true,
-                vec![],
-                TransactionPostConditionMode::Allow,
-                StacksEpochId::Epoch40,
-            ),
-            // Deny mode: uncovered stacking is forbidden.
-            (
-                false,
-                vec![],
-                TransactionPostConditionMode::Deny,
-                StacksEpochId::Epoch40,
-            ),
-            // Deny mode with a covering allowance (stacked <= limit) passes.
-            (
-                true,
-                vec![TransactionPostCondition::Staking(
-                    PostConditionPrincipal::Origin,
-                    FungibleConditionCode::SentLe,
-                    100,
-                )],
-                TransactionPostConditionMode::Deny,
-                StacksEpochId::Epoch40,
-            ),
-            // A limit that is too small (stacked > limit) fails the condition.
-            (
-                false,
-                vec![TransactionPostCondition::Staking(
-                    PostConditionPrincipal::Origin,
-                    FungibleConditionCode::SentLe,
-                    99,
-                )],
-                TransactionPostConditionMode::Allow,
-                StacksEpochId::Epoch40,
-            ),
-            // SentEq matching the exact stacked amount passes even in Deny mode.
-            (
-                true,
-                vec![TransactionPostCondition::Staking(
-                    PostConditionPrincipal::Origin,
-                    FungibleConditionCode::SentEq,
-                    100,
-                )],
-                TransactionPostConditionMode::Deny,
-                StacksEpochId::Epoch40,
-            ),
-            // Before epoch 4.0, stacking is not enforced even in Deny mode.
-            (
-                true,
-                vec![],
-                TransactionPostConditionMode::Deny,
-                StacksEpochId::Epoch33,
-            ),
-        ];
-
-        for (expected_pass, post_conditions, mode, epoch) in tests {
-            let result = check_transaction_postconditions_for_test(
-                &post_conditions,
-                &mode,
-                &make_account(&origin, 1, 123),
-                &stacked,
-                epoch,
-                Txid([0; 32]),
-            )
-            .unwrap();
-            assert_eq!(
-                result.is_none(),
-                expected_pass,
-                "test failed:\nscenario: {post_conditions:?} mode={mode:?} epoch={epoch:?}"
-            );
-        }
-    }
-
-    #[test]
-    fn test_check_postconditions_pox() {
-        let privk = StacksPrivateKey::from_hex(
-            "6d430bb91222408e7706c9001cfaeb91b08c2be6d5ac95779ab52c6b431950e001",
-        )
-        .unwrap();
-        let auth = TransactionAuth::from_p2pkh(&privk).unwrap();
-        let origin_addr = auth.origin().address_testnet();
-        let origin = origin_addr.to_account_principal();
-
-        // Asset map in which the origin performed a position-altering PoX action.
-        let mut pox_acted = AssetMap::new();
-        pox_acted.add_pox_action(&origin);
-
-        let forbid_pox = || {
-            TransactionPostCondition::Pox(
-                PostConditionPrincipal::Origin,
-                PoxConditionCode::NotPerformed,
-            )
-        };
-        let allow_pox = || {
-            TransactionPostCondition::Pox(
-                PostConditionPrincipal::Origin,
-                PoxConditionCode::MaybePerformed,
-            )
-        };
-        let require_pox = || {
-            TransactionPostCondition::Pox(
-                PostConditionPrincipal::Origin,
-                PoxConditionCode::Performed,
-            )
-        };
-
-        // (expected_pass, post_conditions, mode, epoch)
-        let tests = vec![
-            // Allow mode: uncovered unstaking is permitted.
-            (
-                true,
-                vec![],
-                TransactionPostConditionMode::Allow,
-                StacksEpochId::Epoch40,
-            ),
-            // Deny mode: uncovered unstaking is forbidden.
-            (
-                false,
-                vec![],
-                TransactionPostConditionMode::Deny,
-                StacksEpochId::Epoch40,
-            ),
-            // `MaybeUnstaked` opts in, so an unstake passes even in Deny mode.
-            (
-                true,
-                vec![allow_pox()],
-                TransactionPostConditionMode::Deny,
-                StacksEpochId::Epoch40,
-            ),
-            // `Unstaked` (must) is satisfied since an unstake occurred.
-            (
-                true,
-                vec![require_pox()],
-                TransactionPostConditionMode::Deny,
-                StacksEpochId::Epoch40,
-            ),
-            // `NotUnstaked` fails in allow mode because an unstake occurred.
-            (
-                false,
-                vec![forbid_pox()],
-                TransactionPostConditionMode::Allow,
-                StacksEpochId::Epoch40,
-            ),
-            // Before epoch 4.0, unstaking is not enforced even in Deny mode.
-            (
-                true,
-                vec![],
-                TransactionPostConditionMode::Deny,
-                StacksEpochId::Epoch33,
-            ),
-        ];
-
-        for (expected_pass, post_conditions, mode, epoch) in tests {
-            let result = check_transaction_postconditions_for_test(
-                &post_conditions,
-                &mode,
-                &make_account(&origin, 1, 123),
-                &pox_acted,
-                epoch,
-                Txid([0; 32]),
-            )
-            .unwrap();
-            assert_eq!(
-                result.is_none(),
-                expected_pass,
-                "test failed:\nscenario: {post_conditions:?} mode={mode:?} epoch={epoch:?}"
-            );
-        }
-
-        // `NotUnstaked` passes when no unstake occurred.
-        let empty = AssetMap::new();
-        let result = check_transaction_postconditions_for_test(
-            &[forbid_pox()],
-            &TransactionPostConditionMode::Allow,
-            &make_account(&origin, 1, 123),
-            &empty,
-            StacksEpochId::Epoch40,
-            Txid([0; 32]),
-        )
-        .unwrap();
-        assert!(result.is_none());
-    }
-
-    #[test]
-    fn test_check_postconditions_nft_maybe_sent() {
-        let privk = StacksPrivateKey::from_hex(
-            "6d430bb91222408e7706c9001cfaeb91b08c2be6d5ac95779ab52c6b431950e001",
-        )
-        .unwrap();
-        let auth = TransactionAuth::from_p2pkh(&privk).unwrap();
-        let origin_addr = auth.origin().address_testnet();
-        let origin = origin_addr.to_account_principal();
-        let contract_addr = StacksAddress::new(1, Hash160([0x01; 20])).unwrap();
-
-        let asset_info = AssetInfo {
-            contract_address: contract_addr.clone(),
-            contract_name: ContractName::try_from("hello-world").unwrap(),
-            asset_name: ClarityName::try_from("test-asset").unwrap(),
-        };
-
-        let asset_id = AssetIdentifier {
-            contract_identifier: QualifiedContractIdentifier::new(
-                StandardPrincipalData::from(asset_info.contract_address.clone()),
-                asset_info.contract_name.clone(),
-            ),
-            asset_name: asset_info.asset_name.clone(),
-        };
-
-        let mut nft_sent_value_1 = AssetMap::new();
-        nft_sent_value_1.add_asset_transfer(&origin, asset_id.clone(), Value::Int(1));
-
-        let nft_not_sent = AssetMap::new();
-
-        let mut nft_sent_value_2 = AssetMap::new();
-        nft_sent_value_2.add_asset_transfer(&origin, asset_id, Value::Int(2));
-
-        let tests = vec![
-            // MAY-SEND should pass if the specified NFT is sent
-            (
-                true,
-                vec![TransactionPostCondition::Nonfungible(
-                    PostConditionPrincipal::Origin,
-                    asset_info.clone(),
-                    Value::Int(1),
-                    NonfungibleConditionCode::MaybeSent,
-                )],
-                TransactionPostConditionMode::Deny,
-                &nft_sent_value_1,
-            ),
-            // MAY-SEND should also pass if the specified NFT is not sent
-            (
-                true,
-                vec![TransactionPostCondition::Nonfungible(
-                    PostConditionPrincipal::Origin,
-                    asset_info.clone(),
-                    Value::Int(1),
-                    NonfungibleConditionCode::MaybeSent,
-                )],
-                TransactionPostConditionMode::Deny,
-                &nft_not_sent,
-            ),
-            // MAY-SEND covers only the specific NFT instance (value 1 does not cover value 2)
-            (
-                false,
-                vec![TransactionPostCondition::Nonfungible(
-                    PostConditionPrincipal::Origin,
-                    asset_info.clone(),
-                    Value::Int(1),
-                    NonfungibleConditionCode::MaybeSent,
-                )],
-                TransactionPostConditionMode::Deny,
-                &nft_sent_value_2,
-            ),
-            // allow mode remains permissive regardless
-            (
-                true,
-                vec![TransactionPostCondition::Nonfungible(
-                    PostConditionPrincipal::Origin,
-                    asset_info,
-                    Value::Int(1),
-                    NonfungibleConditionCode::MaybeSent,
-                )],
-                TransactionPostConditionMode::Allow,
-                &nft_sent_value_2,
-            ),
-        ];
-
-        for (expected_result, post_conditions, mode, asset_map) in tests {
-            let result = check_transaction_postconditions_for_test(
-                &post_conditions,
-                &mode,
-                &make_account(&origin, 1, 123),
-                asset_map,
-                StacksEpochId::latest(),
-                Txid([0; 32]),
-            )
-            .unwrap();
-            assert_eq!(
-                result.is_none(),
-                expected_result,
-                "test failed:\nasset map: {asset_map:?}\nscenario: {post_conditions:?} mode={mode:?}"
-            );
-        }
-    }
-
-    proptest! {
-        #[tag(t_prop)]
-        #[test]
-        fn proptest_check_postconditions_originator_mode_coverage(
-            origin_sent in 1u64..10_000,
-            other_sent in 1u64..10_000,
-            include_origin_check in any::<bool>(),
-            include_other_check in any::<bool>(),
-            origin_check_matches in any::<bool>(),
-        ) {
-            let privk = StacksPrivateKey::from_hex(
-                "6d430bb91222408e7706c9001cfaeb91b08c2be6d5ac95779ab52c6b431950e001",
-            )
-            .unwrap();
-            let auth = TransactionAuth::from_p2pkh(&privk).unwrap();
-            let origin_addr = auth.origin().address_testnet();
-            let origin = origin_addr.to_account_principal();
-            let other_addr = StacksAddress::new(1, Hash160([0xee; 20])).unwrap();
-            let other = other_addr.to_account_principal();
-
-            let mut asset_map = AssetMap::new();
-            asset_map
-                .add_stx_transfer(&origin, u128::from(origin_sent))
-                .unwrap();
-            asset_map
-                .add_stx_transfer(&other, u128::from(other_sent))
-                .unwrap();
-
-            let mut post_conditions = vec![];
-            if include_origin_check {
-                let checked_amt = if origin_check_matches {
-                    origin_sent
-                } else {
-                    origin_sent.saturating_add(1)
-                };
-                post_conditions.push(TransactionPostCondition::STX(
-                    PostConditionPrincipal::Origin,
-                    FungibleConditionCode::SentEq,
-                    checked_amt,
-                ));
-            }
-            if include_other_check {
-                post_conditions.push(TransactionPostCondition::STX(
-                    PostConditionPrincipal::Standard(other_addr.clone()),
-                    FungibleConditionCode::SentEq,
-                    other_sent,
-                ));
-            }
-
-            let result = check_transaction_postconditions_for_test(
-                &post_conditions,
-                &TransactionPostConditionMode::Originator,
-                &make_account(&origin, 1, 123),
-                &asset_map,
-                StacksEpochId::latest(),
-                Txid([0; 32]),
-            )
-            .unwrap();
-
-            let expected_pass = include_origin_check && origin_check_matches;
-            prop_assert_eq!(result.is_none(), expected_pass);
-        }
-    }
-
-    proptest! {
-        #[tag(t_prop)]
-        #[test]
-        fn proptest_check_postconditions_nft_maybe_sent_variety(
-            checked_id in 0u16..500,
-            moved_id in 0u16..500,
-            move_asset in any::<bool>(),
-            mode_is_allow in any::<bool>(),
-        ) {
-            let privk = StacksPrivateKey::from_hex(
-                "6d430bb91222408e7706c9001cfaeb91b08c2be6d5ac95779ab52c6b431950e001",
-            )
-            .unwrap();
-            let auth = TransactionAuth::from_p2pkh(&privk).unwrap();
-            let origin_addr = auth.origin().address_testnet();
-            let origin = origin_addr.to_account_principal();
-
-            let asset_info = AssetInfo {
-                contract_address: StacksAddress::new(1, Hash160([0x01; 20])).unwrap(),
-                contract_name: ContractName::try_from("hello-world").unwrap(),
-                asset_name: ClarityName::try_from("test-asset").unwrap(),
-            };
-            let asset_id = AssetIdentifier {
-                contract_identifier: QualifiedContractIdentifier::new(
-                    StandardPrincipalData::from(asset_info.contract_address.clone()),
-                    asset_info.contract_name.clone(),
-                ),
-                asset_name: asset_info.asset_name.clone(),
-            };
-
-            let mut asset_map = AssetMap::new();
-            if move_asset {
-                asset_map.add_asset_transfer(
-                    &origin,
-                    asset_id,
-                    Value::UInt(u128::from(moved_id)),
-                );
-            }
-
-            let mode = if mode_is_allow {
-                TransactionPostConditionMode::Allow
-            } else {
-                TransactionPostConditionMode::Deny
-            };
-
-            let post_conditions = vec![TransactionPostCondition::Nonfungible(
-                PostConditionPrincipal::Origin,
-                asset_info,
-                Value::UInt(u128::from(checked_id)),
-                NonfungibleConditionCode::MaybeSent,
-            )];
-
-            let result = check_transaction_postconditions_for_test(
-                &post_conditions,
-                &mode,
-                &make_account(&origin, 1, 123),
-                &asset_map,
-                StacksEpochId::latest(),
-                Txid([0; 32]),
-            )
-            .unwrap();
-
-            let expected_pass = if mode_is_allow {
-                true
-            } else {
-                !move_asset || checked_id == moved_id
-            };
-            prop_assert_eq!(result.is_none(), expected_pass);
-        }
-    }
-
-    #[test]
-    fn test_check_postconditions_stx() {
-        let privk = StacksPrivateKey::from_hex(
-            "6d430bb91222408e7706c9001cfaeb91b08c2be6d5ac95779ab52c6b431950e001",
-        )
-        .unwrap();
-        let auth = TransactionAuth::from_p2pkh(&privk).unwrap();
-        let addr = auth.origin().address_testnet();
-        let origin = addr.to_account_principal();
-        let _recv_addr = StacksAddress::new(1, Hash160([0xff; 20])).unwrap();
-
-        // stx-transfer for 123 microstx
-        let mut stx_asset_map = AssetMap::new();
-        stx_asset_map.add_stx_transfer(&origin, 123).unwrap();
-
-        // stx-burn for 123 microstx
-        let mut stx_burn_asset_map = AssetMap::new();
-        stx_burn_asset_map.add_stx_burn(&origin, 123).unwrap();
-
-        // stx-transfer and stx-burn for a total of 123 microstx
-        let mut stx_transfer_burn_asset_map = AssetMap::new();
-        stx_transfer_burn_asset_map
-            .add_stx_transfer(&origin, 100)
-            .unwrap();
-        stx_transfer_burn_asset_map
-            .add_stx_burn(&origin, 23)
-            .unwrap();
-
-        let tests = vec![
-            // no post-conditions in allow mode
-            (
-                true,
-                vec![],
-                TransactionPostConditionMode::Allow,
-                make_account(&origin, 1, 123),
-            ), // should pass
-            // post-conditions on origin in allow mode
-            (
-                true,
-                vec![TransactionPostCondition::STX(
-                    PostConditionPrincipal::Origin,
-                    FungibleConditionCode::SentEq,
-                    123,
-                )],
-                TransactionPostConditionMode::Allow,
-                make_account(&origin, 1, 123),
-            ), // should pass
-            (
-                true,
-                vec![TransactionPostCondition::STX(
-                    PostConditionPrincipal::Origin,
-                    FungibleConditionCode::SentLe,
-                    123,
-                )],
-                TransactionPostConditionMode::Allow,
-                make_account(&origin, 1, 123),
-            ), // should pass
-            (
-                true,
-                vec![TransactionPostCondition::STX(
-                    PostConditionPrincipal::Origin,
-                    FungibleConditionCode::SentGe,
-                    123,
-                )],
-                TransactionPostConditionMode::Allow,
-                make_account(&origin, 1, 123),
-            ), // should pass
-            (
-                true,
-                vec![TransactionPostCondition::STX(
-                    PostConditionPrincipal::Origin,
-                    FungibleConditionCode::SentLt,
-                    124,
-                )],
-                TransactionPostConditionMode::Allow,
-                make_account(&origin, 1, 123),
-            ), // should pass
-            (
-                true,
-                vec![TransactionPostCondition::STX(
-                    PostConditionPrincipal::Origin,
-                    FungibleConditionCode::SentGt,
-                    122,
-                )],
-                TransactionPostConditionMode::Allow,
-                make_account(&origin, 1, 123),
-            ), // should pass
-            // post-conditions with an explicitly-set address in allow mode
-            (
-                true,
-                vec![TransactionPostCondition::STX(
-                    PostConditionPrincipal::Standard(addr.clone()),
-                    FungibleConditionCode::SentEq,
-                    123,
-                )],
-                TransactionPostConditionMode::Allow,
-                make_account(&origin, 1, 123),
-            ), // should pass
-            (
-                true,
-                vec![TransactionPostCondition::STX(
-                    PostConditionPrincipal::Standard(addr.clone()),
-                    FungibleConditionCode::SentLe,
-                    123,
-                )],
-                TransactionPostConditionMode::Allow,
-                make_account(&origin, 1, 123),
-            ), // should pass
-            (
-                true,
-                vec![TransactionPostCondition::STX(
-                    PostConditionPrincipal::Standard(addr.clone()),
-                    FungibleConditionCode::SentGe,
-                    123,
-                )],
-                TransactionPostConditionMode::Allow,
-                make_account(&origin, 1, 123),
-            ), // should pass
-            (
-                true,
-                vec![TransactionPostCondition::STX(
-                    PostConditionPrincipal::Standard(addr.clone()),
-                    FungibleConditionCode::SentLt,
-                    124,
-                )],
-                TransactionPostConditionMode::Allow,
-                make_account(&origin, 1, 123),
-            ), // should pass
-            (
-                true,
-                vec![TransactionPostCondition::STX(
-                    PostConditionPrincipal::Standard(addr.clone()),
-                    FungibleConditionCode::SentGt,
-                    122,
-                )],
-                TransactionPostConditionMode::Allow,
-                make_account(&origin, 1, 123),
-            ), // should pass
-            // post-conditions with an unrelated contract address in allow mode
-            (
-                true,
-                vec![TransactionPostCondition::STX(
-                    PostConditionPrincipal::Contract(
-                        addr.clone(),
-                        ContractName::try_from("hello-world").unwrap(),
-                    ),
-                    FungibleConditionCode::SentEq,
-                    0,
-                )],
-                TransactionPostConditionMode::Allow,
-                make_account(&origin, 1, 123),
-            ), // should pass
-            (
-                true,
-                vec![TransactionPostCondition::STX(
-                    PostConditionPrincipal::Contract(
-                        addr.clone(),
-                        ContractName::try_from("hello-world").unwrap(),
-                    ),
-                    FungibleConditionCode::SentLe,
-                    0,
-                )],
-                TransactionPostConditionMode::Allow,
-                make_account(&origin, 1, 123),
-            ), // should pass
-            (
-                true,
-                vec![TransactionPostCondition::STX(
-                    PostConditionPrincipal::Contract(
-                        addr.clone(),
-                        ContractName::try_from("hello-world").unwrap(),
-                    ),
-                    FungibleConditionCode::SentGe,
-                    0,
-                )],
-                TransactionPostConditionMode::Allow,
-                make_account(&origin, 1, 123),
-            ), // should pass
-            (
-                true,
-                vec![TransactionPostCondition::STX(
-                    PostConditionPrincipal::Contract(
-                        addr.clone(),
-                        ContractName::try_from("hello-world").unwrap(),
-                    ),
-                    FungibleConditionCode::SentLt,
-                    1,
-                )],
-                TransactionPostConditionMode::Allow,
-                make_account(&origin, 1, 123),
-            ), // should pass
-            // post-conditions with both the origin and an unrelated contract address in allow mode
-            (
-                true,
-                vec![
-                    TransactionPostCondition::STX(
-                        PostConditionPrincipal::Contract(
-                            addr.clone(),
-                            ContractName::try_from("hello-world").unwrap(),
-                        ),
-                        FungibleConditionCode::SentEq,
-                        0,
-                    ),
-                    TransactionPostCondition::STX(
-                        PostConditionPrincipal::Origin,
-                        FungibleConditionCode::SentEq,
-                        123,
-                    ),
-                ],
-                TransactionPostConditionMode::Allow,
-                make_account(&origin, 1, 123),
-            ), // should pass
-            (
-                true,
-                vec![
-                    TransactionPostCondition::STX(
-                        PostConditionPrincipal::Contract(
-                            addr.clone(),
-                            ContractName::try_from("hello-world").unwrap(),
-                        ),
-                        FungibleConditionCode::SentLe,
-                        0,
-                    ),
-                    TransactionPostCondition::STX(
-                        PostConditionPrincipal::Origin,
-                        FungibleConditionCode::SentLe,
-                        123,
-                    ),
-                ],
-                TransactionPostConditionMode::Allow,
-                make_account(&origin, 1, 123),
-            ), // should pass
-            (
-                true,
-                vec![
-                    TransactionPostCondition::STX(
-                        PostConditionPrincipal::Contract(
-                            addr.clone(),
-                            ContractName::try_from("hello-world").unwrap(),
-                        ),
-                        FungibleConditionCode::SentGe,
-                        0,
-                    ),
-                    TransactionPostCondition::STX(
-                        PostConditionPrincipal::Origin,
-                        FungibleConditionCode::SentGe,
-                        123,
-                    ),
-                ],
-                TransactionPostConditionMode::Allow,
-                make_account(&origin, 1, 123),
-            ), // should pass
-            (
-                true,
-                vec![
-                    TransactionPostCondition::STX(
-                        PostConditionPrincipal::Contract(
-                            addr.clone(),
-                            ContractName::try_from("hello-world").unwrap(),
-                        ),
-                        FungibleConditionCode::SentLt,
-                        1,
-                    ),
-                    TransactionPostCondition::STX(
-                        PostConditionPrincipal::Origin,
-                        FungibleConditionCode::SentLt,
-                        124,
-                    ),
-                ],
-                TransactionPostConditionMode::Allow,
-                make_account(&origin, 1, 123),
-            ), // should pass
-            // post-conditions that fail since the amount is wrong
-            (
-                false,
-                vec![TransactionPostCondition::STX(
-                    PostConditionPrincipal::Origin,
-                    FungibleConditionCode::SentEq,
-                    124,
-                )],
-                TransactionPostConditionMode::Allow,
-                make_account(&origin, 1, 123),
-            ), // should fail
-            (
-                false,
-                vec![TransactionPostCondition::STX(
-                    PostConditionPrincipal::Origin,
-                    FungibleConditionCode::SentLe,
-                    122,
-                )],
-                TransactionPostConditionMode::Allow,
-                make_account(&origin, 1, 123),
-            ), // should fail
-            (
-                false,
-                vec![TransactionPostCondition::STX(
-                    PostConditionPrincipal::Origin,
-                    FungibleConditionCode::SentGe,
-                    124,
-                )],
-                TransactionPostConditionMode::Allow,
-                make_account(&origin, 1, 123),
-            ), // should fail
-            (
-                false,
-                vec![TransactionPostCondition::STX(
-                    PostConditionPrincipal::Origin,
-                    FungibleConditionCode::SentLt,
-                    122,
-                )],
-                TransactionPostConditionMode::Allow,
-                make_account(&origin, 1, 123),
-            ), // should fail
-            (
-                false,
-                vec![TransactionPostCondition::STX(
-                    PostConditionPrincipal::Origin,
-                    FungibleConditionCode::SentGt,
-                    124,
-                )],
-                TransactionPostConditionMode::Allow,
-                make_account(&origin, 1, 123),
-            ), // should fail
-            // no post-conditions in deny mode (should fail)
-            (
-                false,
-                vec![],
-                TransactionPostConditionMode::Deny,
-                make_account(&origin, 1, 123),
-            ), // should fail
-            // post-conditions on origin in deny mode (should all pass since origin is specified
-            (
-                true,
-                vec![TransactionPostCondition::STX(
-                    PostConditionPrincipal::Origin,
-                    FungibleConditionCode::SentEq,
-                    123,
-                )],
-                TransactionPostConditionMode::Deny,
-                make_account(&origin, 1, 123),
-            ), // should pass
-            (
-                true,
-                vec![TransactionPostCondition::STX(
-                    PostConditionPrincipal::Origin,
-                    FungibleConditionCode::SentLe,
-                    123,
-                )],
-                TransactionPostConditionMode::Deny,
-                make_account(&origin, 1, 123),
-            ), // should pass
-            (
-                true,
-                vec![TransactionPostCondition::STX(
-                    PostConditionPrincipal::Origin,
-                    FungibleConditionCode::SentGe,
-                    123,
-                )],
-                TransactionPostConditionMode::Deny,
-                make_account(&origin, 1, 123),
-            ), // should pass
-            (
-                true,
-                vec![TransactionPostCondition::STX(
-                    PostConditionPrincipal::Origin,
-                    FungibleConditionCode::SentLt,
-                    124,
-                )],
-                TransactionPostConditionMode::Deny,
-                make_account(&origin, 1, 123),
-            ), // should pass
-            (
-                true,
-                vec![TransactionPostCondition::STX(
-                    PostConditionPrincipal::Origin,
-                    FungibleConditionCode::SentGt,
-                    122,
-                )],
-                TransactionPostConditionMode::Deny,
-                make_account(&origin, 1, 123),
-            ), // should pass
-            // post-conditions with an explicitly-set address in deny mode (should all pass since
-            // address matches the address in the asset map)
-            (
-                true,
-                vec![TransactionPostCondition::STX(
-                    PostConditionPrincipal::Standard(addr.clone()),
-                    FungibleConditionCode::SentEq,
-                    123,
-                )],
-                TransactionPostConditionMode::Deny,
-                make_account(&origin, 1, 123),
-            ), // should pass
-            (
-                true,
-                vec![TransactionPostCondition::STX(
-                    PostConditionPrincipal::Standard(addr.clone()),
-                    FungibleConditionCode::SentLe,
-                    123,
-                )],
-                TransactionPostConditionMode::Deny,
-                make_account(&origin, 1, 123),
-            ), // should pass
-            (
-                true,
-                vec![TransactionPostCondition::STX(
-                    PostConditionPrincipal::Standard(addr.clone()),
-                    FungibleConditionCode::SentGe,
-                    123,
-                )],
-                TransactionPostConditionMode::Deny,
-                make_account(&origin, 1, 123),
-            ), // should pass
-            (
-                true,
-                vec![TransactionPostCondition::STX(
-                    PostConditionPrincipal::Standard(addr.clone()),
-                    FungibleConditionCode::SentLt,
-                    124,
-                )],
-                TransactionPostConditionMode::Deny,
-                make_account(&origin, 1, 123),
-            ), // should pass
-            (
-                true,
-                vec![TransactionPostCondition::STX(
-                    PostConditionPrincipal::Standard(addr.clone()),
-                    FungibleConditionCode::SentGt,
-                    122,
-                )],
-                TransactionPostConditionMode::Deny,
-                make_account(&origin, 1, 123),
-            ), // should pass
-            // post-conditions with an unrelated contract address in allow mode, with check on
-            // origin (should all pass)
-            (
-                true,
-                vec![
-                    TransactionPostCondition::STX(
-                        PostConditionPrincipal::Contract(
-                            addr.clone(),
-                            ContractName::try_from("hello-world").unwrap(),
-                        ),
-                        FungibleConditionCode::SentEq,
-                        0,
-                    ),
-                    TransactionPostCondition::STX(
-                        PostConditionPrincipal::Origin,
-                        FungibleConditionCode::SentEq,
-                        123,
-                    ),
-                ],
-                TransactionPostConditionMode::Allow,
-                make_account(&origin, 1, 123),
-            ), // should fail
-            (
-                true,
-                vec![
-                    TransactionPostCondition::STX(
-                        PostConditionPrincipal::Contract(
-                            addr.clone(),
-                            ContractName::try_from("hello-world").unwrap(),
-                        ),
-                        FungibleConditionCode::SentLe,
-                        0,
-                    ),
-                    TransactionPostCondition::STX(
-                        PostConditionPrincipal::Origin,
-                        FungibleConditionCode::SentEq,
-                        123,
-                    ),
-                ],
-                TransactionPostConditionMode::Allow,
-                make_account(&origin, 1, 123),
-            ), // should fail
-            (
-                true,
-                vec![
-                    TransactionPostCondition::STX(
-                        PostConditionPrincipal::Contract(
-                            addr.clone(),
-                            ContractName::try_from("hello-world").unwrap(),
-                        ),
-                        FungibleConditionCode::SentGe,
-                        0,
-                    ),
-                    TransactionPostCondition::STX(
-                        PostConditionPrincipal::Origin,
-                        FungibleConditionCode::SentEq,
-                        123,
-                    ),
-                ],
-                TransactionPostConditionMode::Allow,
-                make_account(&origin, 1, 123),
-            ), // should fail
-            (
-                true,
-                vec![
-                    TransactionPostCondition::STX(
-                        PostConditionPrincipal::Contract(
-                            addr.clone(),
-                            ContractName::try_from("hello-world").unwrap(),
-                        ),
-                        FungibleConditionCode::SentLt,
-                        1,
-                    ),
-                    TransactionPostCondition::STX(
-                        PostConditionPrincipal::Origin,
-                        FungibleConditionCode::SentEq,
-                        123,
-                    ),
-                ],
-                TransactionPostConditionMode::Allow,
-                make_account(&origin, 1, 123),
-            ), // should fail
-            // post-conditions with an unrelated contract address in deny mode (should all fail
-            // since stx-transfer isn't covered)
-            (
-                false,
-                vec![TransactionPostCondition::STX(
-                    PostConditionPrincipal::Contract(
-                        addr.clone(),
-                        ContractName::try_from("hello-world").unwrap(),
-                    ),
-                    FungibleConditionCode::SentEq,
-                    0,
-                )],
-                TransactionPostConditionMode::Deny,
-                make_account(&origin, 1, 123),
-            ), // should fail
-            (
-                false,
-                vec![TransactionPostCondition::STX(
-                    PostConditionPrincipal::Contract(
-                        addr.clone(),
-                        ContractName::try_from("hello-world").unwrap(),
-                    ),
-                    FungibleConditionCode::SentLe,
-                    0,
-                )],
-                TransactionPostConditionMode::Deny,
-                make_account(&origin, 1, 123),
-            ), // should fail
-            (
-                false,
-                vec![TransactionPostCondition::STX(
-                    PostConditionPrincipal::Contract(
-                        addr.clone(),
-                        ContractName::try_from("hello-world").unwrap(),
-                    ),
-                    FungibleConditionCode::SentGe,
-                    0,
-                )],
-                TransactionPostConditionMode::Deny,
-                make_account(&origin, 1, 123),
-            ), // should fail
-            (
-                false,
-                vec![TransactionPostCondition::STX(
-                    PostConditionPrincipal::Contract(
-                        addr.clone(),
-                        ContractName::try_from("hello-world").unwrap(),
-                    ),
-                    FungibleConditionCode::SentLt,
-                    1,
-                )],
-                TransactionPostConditionMode::Deny,
-                make_account(&origin, 1, 123),
-            ), // should fail
-            // post-conditions with an unrelated contract address in deny mode, with check on
-            // origin (should all pass)
-            (
-                true,
-                vec![
-                    TransactionPostCondition::STX(
-                        PostConditionPrincipal::Contract(
-                            addr.clone(),
-                            ContractName::try_from("hello-world").unwrap(),
-                        ),
-                        FungibleConditionCode::SentEq,
-                        0,
-                    ),
-                    TransactionPostCondition::STX(
-                        PostConditionPrincipal::Origin,
-                        FungibleConditionCode::SentEq,
-                        123,
-                    ),
-                ],
-                TransactionPostConditionMode::Deny,
-                make_account(&origin, 1, 123),
-            ), // should fail
-            (
-                true,
-                vec![
-                    TransactionPostCondition::STX(
-                        PostConditionPrincipal::Contract(
-                            addr.clone(),
-                            ContractName::try_from("hello-world").unwrap(),
-                        ),
-                        FungibleConditionCode::SentLe,
-                        0,
-                    ),
-                    TransactionPostCondition::STX(
-                        PostConditionPrincipal::Origin,
-                        FungibleConditionCode::SentEq,
-                        123,
-                    ),
-                ],
-                TransactionPostConditionMode::Deny,
-                make_account(&origin, 1, 123),
-            ), // should fail
-            (
-                true,
-                vec![
-                    TransactionPostCondition::STX(
-                        PostConditionPrincipal::Contract(
-                            addr.clone(),
-                            ContractName::try_from("hello-world").unwrap(),
-                        ),
-                        FungibleConditionCode::SentGe,
-                        0,
-                    ),
-                    TransactionPostCondition::STX(
-                        PostConditionPrincipal::Origin,
-                        FungibleConditionCode::SentEq,
-                        123,
-                    ),
-                ],
-                TransactionPostConditionMode::Deny,
-                make_account(&origin, 1, 123),
-            ), // should fail
-            (
-                true,
-                vec![
-                    TransactionPostCondition::STX(
-                        PostConditionPrincipal::Contract(
-                            addr.clone(),
-                            ContractName::try_from("hello-world").unwrap(),
-                        ),
-                        FungibleConditionCode::SentLt,
-                        1,
-                    ),
-                    TransactionPostCondition::STX(
-                        PostConditionPrincipal::Origin,
-                        FungibleConditionCode::SentEq,
-                        123,
-                    ),
-                ],
-                TransactionPostConditionMode::Deny,
-                make_account(&origin, 1, 123),
-            ), // should fail
-            // post-conditions with both the origin and an unrelated contract address in deny mode (should all pass)
-            (
-                true,
-                vec![
-                    TransactionPostCondition::STX(
-                        PostConditionPrincipal::Contract(
-                            addr.clone(),
-                            ContractName::try_from("hello-world").unwrap(),
-                        ),
-                        FungibleConditionCode::SentEq,
-                        0,
-                    ),
-                    TransactionPostCondition::STX(
-                        PostConditionPrincipal::Origin,
-                        FungibleConditionCode::SentEq,
-                        123,
-                    ),
-                ],
-                TransactionPostConditionMode::Deny,
-                make_account(&origin, 1, 123),
-            ), // should pass
-            (
-                true,
-                vec![
-                    TransactionPostCondition::STX(
-                        PostConditionPrincipal::Contract(
-                            addr.clone(),
-                            ContractName::try_from("hello-world").unwrap(),
-                        ),
-                        FungibleConditionCode::SentLe,
-                        0,
-                    ),
-                    TransactionPostCondition::STX(
-                        PostConditionPrincipal::Origin,
-                        FungibleConditionCode::SentLe,
-                        123,
-                    ),
-                ],
-                TransactionPostConditionMode::Deny,
-                make_account(&origin, 1, 123),
-            ), // should pass
-            (
-                true,
-                vec![
-                    TransactionPostCondition::STX(
-                        PostConditionPrincipal::Contract(
-                            addr.clone(),
-                            ContractName::try_from("hello-world").unwrap(),
-                        ),
-                        FungibleConditionCode::SentGe,
-                        0,
-                    ),
-                    TransactionPostCondition::STX(
-                        PostConditionPrincipal::Origin,
-                        FungibleConditionCode::SentGe,
-                        123,
-                    ),
-                ],
-                TransactionPostConditionMode::Deny,
-                make_account(&origin, 1, 123),
-            ), // should pass
-            (
-                true,
-                vec![
-                    TransactionPostCondition::STX(
-                        PostConditionPrincipal::Contract(
-                            addr.clone(),
-                            ContractName::try_from("hello-world").unwrap(),
-                        ),
-                        FungibleConditionCode::SentLt,
-                        1,
-                    ),
-                    TransactionPostCondition::STX(
-                        PostConditionPrincipal::Origin,
-                        FungibleConditionCode::SentLt,
-                        124,
-                    ),
-                ],
-                TransactionPostConditionMode::Deny,
-                make_account(&origin, 1, 123),
-            ), // should pass
-            // post-conditions that fail since the amount is wrong, even though all principals are
-            // covered
-            (
-                false,
-                vec![TransactionPostCondition::STX(
-                    PostConditionPrincipal::Origin,
-                    FungibleConditionCode::SentEq,
-                    124,
-                )],
-                TransactionPostConditionMode::Deny,
-                make_account(&origin, 1, 123),
-            ), // should fail
-            (
-                false,
-                vec![TransactionPostCondition::STX(
-                    PostConditionPrincipal::Origin,
-                    FungibleConditionCode::SentLe,
-                    122,
-                )],
-                TransactionPostConditionMode::Deny,
-                make_account(&origin, 1, 123),
-            ), // should fail
-            (
-                false,
-                vec![TransactionPostCondition::STX(
-                    PostConditionPrincipal::Origin,
-                    FungibleConditionCode::SentGe,
-                    124,
-                )],
-                TransactionPostConditionMode::Deny,
-                make_account(&origin, 1, 123),
-            ), // should fail
-            (
-                false,
-                vec![TransactionPostCondition::STX(
-                    PostConditionPrincipal::Origin,
-                    FungibleConditionCode::SentLt,
-                    122,
-                )],
-                TransactionPostConditionMode::Deny,
-                make_account(&origin, 1, 123),
-            ), // should fail
-            (
-                false,
-                vec![TransactionPostCondition::STX(
-                    PostConditionPrincipal::Origin,
-                    FungibleConditionCode::SentGt,
-                    124,
-                )],
-                TransactionPostConditionMode::Deny,
-                make_account(&origin, 1, 123),
-            ), // should fail
-        ];
-
-        for asset_map in &[
-            &stx_asset_map,
-            &stx_burn_asset_map,
-            &stx_transfer_burn_asset_map,
-        ] {
-            for test in tests.iter() {
-                let expected_result = test.0;
-                let post_conditions = &test.1;
-                let post_condition_mode = &test.2;
-                let origin_account = &test.3;
-
-                let result = check_transaction_postconditions_for_test(
-                    post_conditions,
-                    post_condition_mode,
-                    origin_account,
-                    asset_map,
-                    StacksEpochId::latest(),
-                    Txid([0; 32]),
-                )
-                .unwrap();
-                assert_eq!(
-                    result.is_none(),
-                    expected_result,
-                    "test failed:\nasset map: {asset_map:?}\nscenario: {test:?}"
-                );
-            }
-        }
-    }
-
     #[test]
     fn process_smart_contract_fee_check() {
         let contract = r#"
@@ -9003,7 +5452,7 @@ pub mod test {
     ) -> Result<(u64, StacksTransactionReceipt), Error> {
         let epoch = clarity_block.get_epoch();
 
-        if !StacksBlock::validate_transactions_static_epoch(&vec![tx.clone()], epoch) {
+        if !StacksBlock::validate_transactions_static_epoch(slice::from_ref(tx), epoch) {
             let msg = format!(
                 "Invalid transaction {}: target epoch is not activated",
                 tx.txid()
@@ -9359,13 +5808,7 @@ pub mod test {
             false,
         )
         .unwrap_err();
-        if let Error::ClarityError(ClarityError::Interpreter(VmExecutionError::RuntimeCheck(
-            _runtime_check_err,
-        ))) = err
-        {
-        } else {
-            panic!("Did not get unchecked interpreter error");
-        }
+        expect_runtime_check_error(err);
 
         let err = validate_transactions_static_epoch_and_process_transaction(
             &mut conn,
@@ -9412,13 +5855,7 @@ pub mod test {
             false,
         )
         .unwrap_err();
-        if let Error::ClarityError(ClarityError::Interpreter(VmExecutionError::RuntimeCheck(
-            _runtime_check_err,
-        ))) = err
-        {
-        } else {
-            panic!("Did not get unchecked interpreter error");
-        }
+        expect_runtime_check_error(err);
         let acct = StacksChainState::get_account(&mut conn, &addr.clone().into());
         assert_eq!(acct.nonce, 3);
 
@@ -9463,13 +5900,7 @@ pub mod test {
             false,
         )
         .unwrap_err();
-        if let Error::ClarityError(ClarityError::Interpreter(VmExecutionError::RuntimeCheck(
-            _runtime_check_err,
-        ))) = err
-        {
-        } else {
-            panic!("Did not get unchecked interpreter error");
-        }
+        expect_runtime_check_error(err);
 
         let err = validate_transactions_static_epoch_and_process_transaction(
             &mut conn,
@@ -9515,13 +5946,7 @@ pub mod test {
             false,
         )
         .unwrap_err();
-        if let Error::ClarityError(ClarityError::Interpreter(VmExecutionError::RuntimeCheck(
-            _runtime_check_err,
-        ))) = err
-        {
-        } else {
-            panic!("Did not get unchecked interpreter error");
-        }
+        expect_runtime_check_error(err);
         let acct = StacksChainState::get_account(&mut conn, &addr.clone().into());
         assert_eq!(acct.nonce, 3);
 
@@ -10020,13 +6445,7 @@ pub mod test {
             false,
         )
         .unwrap_err();
-        if let Error::ClarityError(ClarityError::Interpreter(VmExecutionError::RuntimeCheck(
-            runtime_check_err,
-        ))) = err
-        {
-        } else {
-            panic!("Did not get unchecked interpreter error");
-        }
+        expect_runtime_check_error(err);
 
         let err = validate_transactions_static_epoch_and_process_transaction(
             &mut conn,
@@ -10480,13 +6899,7 @@ pub mod test {
             false,
         )
         .unwrap_err();
-        if let Error::ClarityError(ClarityError::Interpreter(VmExecutionError::RuntimeCheck(
-            runtime_check_err,
-        ))) = err
-        {
-        } else {
-            panic!("Did not get unchecked interpreter error");
-        }
+        expect_runtime_check_error(err);
         assert_eq!(fee, 1);
 
         let err = validate_transactions_static_epoch_and_process_transaction(
@@ -10586,17 +6999,11 @@ pub mod test {
             false,
         )
         .unwrap_err();
-        if let Error::ClarityError(ClarityError::Interpreter(VmExecutionError::RuntimeCheck(
-            runtime_check_err,
-        ))) = err
-        {
-            assert!(
-                matches!(runtime_check_err, RuntimeCheckErrorKind::TraitReferenceUnknown(ref name) if name == "foo"),
-                "Expected TraitReferenceUnknown(\"foo\") runtime check error"
-            );
-        } else {
-            panic!("Did not get unchecked interpreter error");
-        };
+        let runtime_check_err = expect_runtime_check_error(err);
+        assert!(
+            matches!(runtime_check_err, RuntimeCheckErrorKind::TraitReferenceUnknown(ref name) if name == "foo"),
+            "Expected TraitReferenceUnknown(\"foo\") runtime check error"
+        );
 
         let err = validate_transactions_static_epoch_and_process_transaction(
             &mut conn,

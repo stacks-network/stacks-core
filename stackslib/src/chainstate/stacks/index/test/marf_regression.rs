@@ -14,7 +14,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use clarity::types::chainstate::TrieHash;
+use stacks_common::types::chainstate::TrieHash;
 
 use crate::chainstate::stacks::index::marf::MARFOpenOpts;
 use crate::chainstate::stacks::index::test::{make_test_insert_data, opts};
@@ -24,7 +24,7 @@ mod utils {
     use std::fs;
     use std::time::SystemTime;
 
-    use clarity::types::chainstate::{BlockHeaderHash, TrieHash};
+    use stacks_common::types::chainstate::{BlockHeaderHash, TrieHash};
 
     use crate::chainstate::stacks::index::marf::{MARFOpenOpts, MARF};
     use crate::chainstate::stacks::index::storage::{TrieFileStorage, TrieHashCalculationMode};
@@ -39,7 +39,7 @@ mod utils {
     /// Returns the root hash at the final block.
     pub fn run_test_with_string_keys(
         test_name: &str,
-        data: &Vec<Vec<(String, MARFValue)>>,
+        data: &[Vec<(String, MARFValue)>],
         marf_opts: &MARFOpenOpts,
         batch_size: usize,
     ) -> TrieHash {
@@ -74,7 +74,7 @@ mod utils {
     /// Returns the root hash at the final block.
     pub fn run_test_with_triehash_keys(
         test_name: &str,
-        data: &Vec<Vec<(TrieHash, MARFValue)>>,
+        data: &[Vec<(TrieHash, MARFValue)>],
         marf_opts: &MARFOpenOpts,
     ) -> TrieHash {
         run_test_with_batch_common(
@@ -85,10 +85,10 @@ mod utils {
             |marf, block_data, _| {
                 for (key, value) in block_data.iter() {
                     let leaf = TrieLeaf::from_value(&[], value.clone());
-                    marf.insert_raw(key.clone(), leaf).unwrap();
+                    marf.insert_raw(*key, leaf).unwrap();
                 }
             },
-            |k| k.clone(),
+            |k| *k,
         )
     }
 
@@ -102,7 +102,7 @@ mod utils {
     /// benchmarks reads/writes, and returns the final root hash.
     fn run_test_with_batch_common<K, FInsert, FPath>(
         test_name: &str,
-        data: &Vec<Vec<(K, MARFValue)>>,
+        data: &[Vec<(K, MARFValue)>],
         marf_opts: &MARFOpenOpts,
         batch_size: usize,
         mut insert_fn: FInsert,

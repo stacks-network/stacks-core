@@ -20,6 +20,8 @@ use stacks_common::types::{StacksEpochId, chainstate::BlockHeaderHash};
 #[cfg(test)]
 use stacks_common::util::hash::Sha512Trunc256Sum;
 
+#[cfg(test)]
+use crate::vm::contexts::OwnedEnvironment;
 use crate::vm::contexts::{ExecutionState, InvocationContext};
 use crate::vm::tests::{test_clarity_versions, test_epochs};
 use crate::vm::types::{PrincipalData, QualifiedContractIdentifier, StandardPrincipalData, Value};
@@ -1336,7 +1338,6 @@ fn test_contract_hash_success(
 
     // Attempt to get the hash of the other contract and expect it to be
     // successful and for the returned hash to match the expected hash.
-    let standard_principal = QualifiedContractIdentifier::local("standard-principal").unwrap();
     let result = exec_state
         .execute_contract(
             &invoke_ctx,
@@ -1377,7 +1378,6 @@ fn test_contract_hash_nonexistent_contract(
     // Deploy a contract to hash
     let other_contract = QualifiedContractIdentifier::local("other-contract").unwrap();
     let contract_content = "(define-constant test-var 1)";
-    let expected_hash = Sha512Trunc256Sum::from_data(contract_content.as_bytes());
 
     exec_state
         .initialize_contract(&invoke_ctx, other_contract.clone(), contract_content)
@@ -1429,7 +1429,6 @@ fn test_contract_hash_standard_principal(
     // Deploy a contract to hash
     let other_contract = QualifiedContractIdentifier::local("other-contract").unwrap();
     let contract_content = "(define-constant test-var 1)";
-    let expected_hash = Sha512Trunc256Sum::from_data(contract_content.as_bytes());
 
     exec_state
         .initialize_contract(&invoke_ctx, other_contract.clone(), contract_content)
@@ -1518,7 +1517,6 @@ fn test_contract_hash_pre_clarity4(
     // Deploy a contract to hash
     let other_contract = QualifiedContractIdentifier::local("other-contract").unwrap();
     let contract_content = "(define-constant test-var 1)";
-    let expected_hash = Sha512Trunc256Sum::from_data(contract_content.as_bytes());
 
     exec_state
         .initialize_contract(&invoke_ctx, other_contract.clone(), contract_content)
@@ -1535,7 +1533,6 @@ fn test_contract_hash_pre_clarity4(
 
     // Attempt to get the hash of the other contract and expect it to be
     // successful and for the returned hash to match the expected hash.
-    let standard_principal = QualifiedContractIdentifier::local("standard-principal").unwrap();
     let err = exec_state
         .execute_contract(
             &invoke_ctx,
@@ -1972,4 +1969,502 @@ fn test_constant_contract_principal_dual_use(
         .execute_contract(&invoke_ctx, &contract_b_id, "check-standard", &[], false)
         .unwrap();
     assert_eq!(result, Value::Bool(false));
+}
+
+/// Deploys `contracts` (name, version, source) into a fresh Epoch 4.1
+/// environment and opens the transaction `execute_contract` needs.
+#[cfg(test)]
+fn make_epoch41_env<'a>(
+    tl_env_factory: &'a mut TopLevelMemoryEnvironmentGenerator,
+    contracts: &[(&str, ClarityVersion, &str)],
+) -> OwnedEnvironment<'a, 'a> {
+    let mut owned_env = tl_env_factory.get_env(StacksEpochId::Epoch41);
+    for &(name, version, source) in contracts {
+        owned_env
+            .initialize_versioned_contract(
+                QualifiedContractIdentifier::local(name).unwrap(),
+                version,
+                source,
+                None,
+            )
+            .unwrap();
+    }
+    owned_env.begin();
+    owned_env
+}
+
+// Epoch 4.1 reserved-name defines: the rule these tests pin is documented on
+// `is_shadowable_reserved`.
+
+/// A transient Clarity 7 contract context for `get_exec_environment`.
+#[cfg(test)]
+fn make_c7_placeholder() -> ContractContext {
+    ContractContext::new(
+        QualifiedContractIdentifier::transient(),
+        ClarityVersion::Clarity7,
+    )
+}
+
+/// Pins `is_shadowable_reserved` to an explicit list, so adding or removing a
+/// native forces a conscious update here.
+#[test]
+fn shadowable_reserved_names_at_clarity7() {
+    use crate::vm::functions::NativeFunctions;
+    use crate::vm::is_shadowable_reserved;
+    use crate::vm::variables::NativeVariables;
+
+    let mut shadowable: Vec<&str> = NativeFunctions::ALL_NAMES
+        .iter()
+        .chain(NativeVariables::ALL_NAMES.iter())
+        .copied()
+        .filter(|name| is_shadowable_reserved(name, &ClarityVersion::Clarity7))
+        .collect();
+    shadowable.sort_unstable();
+
+    let expected = [
+        "as-contract?",
+        "bit-and",
+        "bit-not",
+        "bit-or",
+        "bit-shift-left",
+        "bit-shift-right",
+        "bit-xor",
+        "buff-to-int-be",
+        "buff-to-int-le",
+        "buff-to-uint-be",
+        "buff-to-uint-le",
+        "chain-id",
+        "contract-hash?",
+        "current-contract",
+        "ed25519-verify",
+        "element-at?",
+        "from-consensus-buff?",
+        "get-bitcoin-tx-output?",
+        "get-burn-block-info?",
+        "get-stacks-block-info?",
+        "get-tenure-info?",
+        "index-of?",
+        "int-to-ascii",
+        "int-to-utf8",
+        "is-in-mainnet",
+        "is-standard",
+        "principal-construct?",
+        "principal-destruct?",
+        "replace-at?",
+        "restrict-assets?",
+        "secp256k1-decompress?",
+        "secp256r1-verify",
+        "slice?",
+        "stacks-block-height",
+        "stacks-block-time",
+        "string-to-int?",
+        "string-to-uint?",
+        "stx-account",
+        "stx-transfer-memo?",
+        "tenure-height",
+        "to-ascii?",
+        "to-consensus-buff?",
+        "tx-sponsor?",
+        "verify-merkle-proof",
+        "with-all-assets-unsafe",
+        "with-ft",
+        "with-nft",
+        "with-pox",
+        "with-staking",
+        "with-stx",
+    ];
+    assert_eq!(expected.as_slice(), shadowable.as_slice());
+
+    // Reserved since Clarity 1: never shadowable.
+    for name in ["map", "+", "tx-sender", "let", "true"] {
+        assert!(!is_shadowable_reserved(name, &ClarityVersion::Clarity7));
+    }
+    // Removed natives are plain free names, not shadowable.
+    for name in [
+        "block-height",
+        "get-block-info?",
+        "as-contract",
+        "at-block",
+        "with-stacking",
+    ] {
+        assert!(!is_shadowable_reserved(name, &ClarityVersion::Clarity7));
+    }
+}
+
+/// The implementing function is reachable from outside by its literal name,
+/// while a bare reference inside the contract still resolves to the native.
+#[test]
+fn epoch41_external_call_reaches_shadowed_function_and_native_is_kept() {
+    let mut tl_env_factory = tl_env_factory();
+    let mut owned_env = make_epoch41_env(
+        &mut tl_env_factory,
+        &[
+            // A Clarity 1 trait whose method name later became a native.
+            (
+                "ops-def",
+                ClarityVersion::Clarity1,
+                "(define-trait ops ((slice? (int int) (response int int))))",
+            ),
+            // Implements `slice?` and also uses the native `slice?`.
+            (
+                "c7-shadow",
+                ClarityVersion::Clarity7,
+                "(impl-trait .ops-def.ops)
+                 (define-public (slice? (a int) (b int)) (ok (+ a b)))
+                 (define-read-only (use-native) (slice? (list 10 20 30) u0 u2))",
+            ),
+        ],
+    );
+    let contract_id = QualifiedContractIdentifier::local("c7-shadow").unwrap();
+    let placeholder_context = make_c7_placeholder();
+    let (mut exec_state, invoke_ctx) =
+        owned_env.get_exec_environment(None, None, &placeholder_context);
+
+    // An external call by literal name reaches the user-defined `slice?`.
+    assert_eq!(
+        exec_state
+            .execute_contract(
+                &invoke_ctx,
+                &contract_id,
+                "slice?",
+                &symbols_from_values(vec![Value::Int(4), Value::Int(5)]),
+                false
+            )
+            .unwrap(),
+        Value::okay(Value::Int(9)).unwrap()
+    );
+
+    // A bare `slice?` inside the contract still means the NATIVE.
+    assert_eq!(
+        Ok(Value::some(Value::list_from(vec![Value::Int(10), Value::Int(20)]).unwrap()).unwrap()),
+        exec_state.eval_read_only(&invoke_ctx, &contract_id, "(use-native)")
+    );
+}
+
+/// Read-only functions qualify too.
+#[test]
+fn epoch41_read_only_implementation_of_legacy_trait_method() {
+    let mut tl_env_factory = tl_env_factory();
+    let mut owned_env = make_epoch41_env(
+        &mut tl_env_factory,
+        &[
+            (
+                "ops-def",
+                ClarityVersion::Clarity1,
+                "(define-trait ops ((slice? (int int) (response int int))))",
+            ),
+            (
+                "c7-ro-impl",
+                ClarityVersion::Clarity7,
+                "(impl-trait .ops-def.ops)
+                 (define-read-only (slice? (a int) (b int)) (ok (+ a b)))",
+            ),
+        ],
+    );
+    let contract_id = QualifiedContractIdentifier::local("c7-ro-impl").unwrap();
+    let placeholder_context = make_c7_placeholder();
+    let (mut exec_state, invoke_ctx) =
+        owned_env.get_exec_environment(None, None, &placeholder_context);
+    assert_eq!(
+        exec_state
+            .execute_contract(
+                &invoke_ctx,
+                &contract_id,
+                "slice?",
+                &symbols_from_values(vec![Value::Int(4), Value::Int(5)]),
+                false
+            )
+            .unwrap(),
+        Value::okay(Value::Int(9)).unwrap()
+    );
+}
+
+/// The gate is the epoch, not the version: tooling may run a pinned Clarity 6
+/// contract at Epoch 4.1 (on chain such pins are rejected).
+#[test]
+fn clarity6_at_epoch41_implements_legacy_trait_method() {
+    let mut tl_env_factory = tl_env_factory();
+    let mut owned_env = make_epoch41_env(
+        &mut tl_env_factory,
+        &[
+            (
+                "ops-def",
+                ClarityVersion::Clarity1,
+                "(define-trait ops ((slice? (int int) (response int int))))",
+            ),
+            (
+                "c6-impl",
+                ClarityVersion::Clarity6,
+                "(impl-trait .ops-def.ops)
+                 (define-public (slice? (a int) (b int)) (ok (+ a b)))",
+            ),
+        ],
+    );
+    let contract_id = QualifiedContractIdentifier::local("c6-impl").unwrap();
+    let placeholder_context = make_c7_placeholder();
+    let (mut exec_state, invoke_ctx) =
+        owned_env.get_exec_environment(None, None, &placeholder_context);
+    assert_eq!(
+        exec_state
+            .execute_contract(
+                &invoke_ctx,
+                &contract_id,
+                "slice?",
+                &symbols_from_values(vec![Value::Int(4), Value::Int(5)]),
+                false
+            )
+            .unwrap(),
+        Value::okay(Value::Int(9)).unwrap()
+    );
+}
+
+/// A keyword-named implementation splits by use: applying it calls the
+/// function (no native function has that name); the bare atom reads the keyword.
+#[test]
+fn epoch41_keyword_name_implementation_splits_by_position() {
+    let mut tl_env_factory = tl_env_factory();
+    let mut owned_env = make_epoch41_env(
+        &mut tl_env_factory,
+        &[
+            // The method name became a native keyword in Clarity 3.
+            (
+                "ops-def",
+                ClarityVersion::Clarity1,
+                "(define-trait ops ((stacks-block-height () (response uint uint))))",
+            ),
+            (
+                "c7-keyword",
+                ClarityVersion::Clarity7,
+                "(impl-trait .ops-def.ops)
+                 (define-read-only (stacks-block-height) (ok u12345))
+                 (define-read-only (call-mine) (stacks-block-height))
+                 (define-read-only (read-keyword) stacks-block-height)",
+            ),
+        ],
+    );
+    let contract_id = QualifiedContractIdentifier::local("c7-keyword").unwrap();
+    let placeholder_context = make_c7_placeholder();
+    let (mut exec_state, invoke_ctx) =
+        owned_env.get_exec_environment(None, None, &placeholder_context);
+
+    // Head position: the implementing function.
+    assert_eq!(
+        Ok(Value::okay(Value::UInt(12345)).unwrap()),
+        exec_state.eval_read_only(&invoke_ctx, &contract_id, "(call-mine)")
+    );
+    // Bare atom: the keyword (the env's height, u1).
+    assert_eq!(
+        Ok(Value::UInt(1)),
+        exec_state.eval_read_only(&invoke_ctx, &contract_id, "(read-keyword)")
+    );
+    // Literal-name lookup from outside.
+    assert_eq!(
+        exec_state
+            .execute_contract(&invoke_ctx, &contract_id, "stacks-block-height", &[], false)
+            .unwrap(),
+        Value::okay(Value::UInt(12345)).unwrap()
+    );
+}
+
+/// Defining a shadowable name twice is an ordinary collision, trait or not.
+#[test]
+fn epoch41_duplicate_shadowable_define_rejected() {
+    let mut tl_env_factory = tl_env_factory();
+    let trait_def = "(define-trait ops ((slice? (int int) (response int int))))";
+    // A second definition is a plain collision, trait or not.
+    let contract = "(impl-trait .ops-def.ops)
+                    (define-public (slice? (a int) (b int)) (ok (+ a b)))
+                    (define-public (slice? (a int) (b int)) (ok (- a b)))";
+    let trait_id = QualifiedContractIdentifier::local("ops-def").unwrap();
+    let contract_id = QualifiedContractIdentifier::local("c7-dup").unwrap();
+    let mut owned_env = tl_env_factory.get_env(StacksEpochId::Epoch41);
+    owned_env
+        .initialize_versioned_contract(trait_id, ClarityVersion::Clarity1, trait_def, None)
+        .unwrap();
+    let err = owned_env
+        .initialize_versioned_contract(contract_id, ClarityVersion::Clarity7, contract, None)
+        .unwrap_err();
+    assert_eq!(
+        ClarityEvalError::Vm(VmExecutionError::RuntimeCheck(
+            RuntimeCheckErrorKind::NameAlreadyUsed("slice?".to_string())
+        )),
+        err
+    );
+}
+
+/// VM side of the `define-trait` rule: reserved method names are rejected
+/// from Epoch 4.1 and unchecked before.
+#[test]
+fn epoch41_trait_cannot_declare_reserved_method_name() {
+    let trait_def = "(define-trait t ((slice? (int int) (response int int))))";
+
+    // Unchecked before Epoch 4.1.
+    {
+        let mut tl_env_factory = tl_env_factory();
+        let trait_id = QualifiedContractIdentifier::local("t-c5").unwrap();
+        let mut owned_env = tl_env_factory.get_env(StacksEpochId::Epoch34);
+        owned_env
+            .initialize_versioned_contract(trait_id, ClarityVersion::Clarity5, trait_def, None)
+            .unwrap();
+    }
+
+    // From Epoch 4.1, a trait may not declare a currently-reserved method name.
+    {
+        let mut tl_env_factory = tl_env_factory();
+        let trait_id = QualifiedContractIdentifier::local("t-c7").unwrap();
+        let mut owned_env = tl_env_factory.get_env(StacksEpochId::Epoch41);
+        let err = owned_env
+            .initialize_versioned_contract(trait_id, ClarityVersion::Clarity7, trait_def, None)
+            .unwrap_err();
+        assert_eq!(
+            ClarityEvalError::Vm(VmExecutionError::RuntimeCheck(
+                RuntimeCheckErrorKind::NameAlreadyUsed("slice?".to_string())
+            )),
+            err
+        );
+    }
+}
+
+/// Defines that stay illegal: reserved names before Epoch 4.1; private
+/// functions (never trait methods); and names reserved since Clarity 1, for
+/// every define form.
+#[rstest]
+#[case::later_native_at_c5(
+    StacksEpochId::Epoch34,
+    ClarityVersion::Clarity5,
+    "(define-read-only (slice? (a int) (b int)) (+ a b))",
+    "slice?"
+)]
+#[case::later_native_at_c6(
+    StacksEpochId::Epoch40,
+    ClarityVersion::Clarity6,
+    "(define-read-only (slice? (a int) (b int)) (+ a b))",
+    "slice?"
+)]
+#[case::private_at_c7(
+    StacksEpochId::Epoch41,
+    ClarityVersion::Clarity7,
+    "(define-private (slice? (a int) (b int)) (+ a b))",
+    "slice?"
+)]
+#[case::hard_reserved_public_at_c7(
+    StacksEpochId::Epoch41,
+    ClarityVersion::Clarity7,
+    "(define-public (map (x int)) (ok x))",
+    "map"
+)]
+#[case::hard_reserved_read_only_at_c7(
+    StacksEpochId::Epoch41,
+    ClarityVersion::Clarity7,
+    "(define-read-only (map (x int)) x)",
+    "map"
+)]
+#[case::hard_reserved_private_at_c7(
+    StacksEpochId::Epoch41,
+    ClarityVersion::Clarity7,
+    "(define-private (map (x int)) x)",
+    "map"
+)]
+fn reserved_define_rejected(
+    #[case] epoch: StacksEpochId,
+    #[case] version: ClarityVersion,
+    #[case] contract: &str,
+    #[case] name: &str,
+) {
+    let mut tl_env_factory = tl_env_factory();
+    let contract_id = QualifiedContractIdentifier::local("subject").unwrap();
+    let mut owned_env = tl_env_factory.get_env(epoch);
+    let err = owned_env
+        .initialize_versioned_contract(contract_id, version, contract, None)
+        .unwrap_err();
+    assert_eq!(
+        ClarityEvalError::Vm(VmExecutionError::RuntimeCheck(
+            RuntimeCheckErrorKind::NameAlreadyUsed(name.to_string())
+        )),
+        err
+    );
+}
+
+/// A legacy dispatcher dynamically dispatches its trait into a Clarity 7
+/// implementation whose method name is now reserved.
+#[test]
+fn epoch41_implements_legacy_trait_with_reserved_method_name() {
+    let mut tl_env_factory = tl_env_factory();
+    let mut owned_env = make_epoch41_env(
+        &mut tl_env_factory,
+        &[
+            // A Clarity 1 trait with a method named `slice?` (free then), and a
+            // dispatcher over it.
+            (
+                "legacy",
+                ClarityVersion::Clarity1,
+                "(define-trait ops ((slice? (int int) (response int int))))
+                 (define-public (call-slice (impl-c <ops>))
+                     (contract-call? impl-c slice? 4 5))",
+            ),
+            // A Clarity 7 contract can still implement that trait.
+            (
+                "impl-c7",
+                ClarityVersion::Clarity7,
+                "(impl-trait .legacy.ops)
+                 (define-public (slice? (a int) (b int)) (ok (+ a b)))",
+            ),
+        ],
+    );
+    let legacy_id = QualifiedContractIdentifier::local("legacy").unwrap();
+    let impl_id = QualifiedContractIdentifier::local("impl-c7").unwrap();
+    let placeholder_context = make_c7_placeholder();
+    let (mut exec_state, invoke_ctx) =
+        owned_env.get_exec_environment(None, None, &placeholder_context);
+
+    assert_eq!(
+        exec_state
+            .execute_contract(
+                &invoke_ctx,
+                &legacy_id,
+                "call-slice",
+                &symbols_from_values(vec![Value::from(PrincipalData::Contract(impl_id))]),
+                false
+            )
+            .unwrap(),
+        Value::okay(Value::Int(9)).unwrap()
+    );
+}
+
+/// A static `contract-call?` from another contract reaches the shadowed
+/// function by its literal name.
+#[test]
+fn epoch41_cross_contract_call_resolves_shadowed_function() {
+    let mut tl_env_factory = tl_env_factory();
+    let mut owned_env = make_epoch41_env(
+        &mut tl_env_factory,
+        &[
+            (
+                "ops-def",
+                ClarityVersion::Clarity1,
+                "(define-trait ops ((slice? (int int) (response int int))))",
+            ),
+            (
+                "contract-a",
+                ClarityVersion::Clarity7,
+                "(impl-trait .ops-def.ops)
+                 (define-public (slice? (a int) (b int)) (ok (+ a b)))",
+            ),
+            (
+                "contract-b",
+                ClarityVersion::Clarity7,
+                "(define-public (call-a) (contract-call? .contract-a slice? 4 5))",
+            ),
+        ],
+    );
+    let id_b = QualifiedContractIdentifier::local("contract-b").unwrap();
+    let placeholder_context = make_c7_placeholder();
+    let (mut exec_state, invoke_ctx) =
+        owned_env.get_exec_environment(None, None, &placeholder_context);
+    assert_eq!(
+        exec_state
+            .execute_contract(&invoke_ctx, &id_b, "call-a", &[], false)
+            .unwrap(),
+        Value::okay(Value::Int(9)).unwrap()
+    );
 }
