@@ -387,6 +387,7 @@ mod async_sibling_validation {
     use clarity::util::vrf::VRFProof;
     use clarity::vm::costs::ExecutionCost;
     use libsigner::v0::messages::{PeerInfo, RejectReason, SignerMessage};
+    use libsigner::v0::signer_state::{MinerState, SignerStateMachine};
     use libsigner::{BlockProposal, BlockProposalData, SignerEntries, SignerEvent};
     use stacks_common::bitvec::BitVec;
     use stacks_common::consts::CHAIN_ID_TESTNET;
@@ -404,6 +405,7 @@ mod async_sibling_validation {
     use crate::config::{SignerConfig, SignerConfigMode};
     use crate::signerdb::{BlockInfo, BlockState};
     use crate::v0::signer::Signer;
+    use crate::v0::signer_state::LocalStateMachine;
     use crate::Signer as SignerTrait;
 
     /// Build a tenure-start block for `tenure` with the mandatory tenure-change (idx 0) and
@@ -1398,6 +1400,90 @@ mod async_sibling_validation {
             info_a.signed_self.is_some(),
             "block A should carry our signature"
         );
+    }
+
+    /// This is the tenure we permitted to reorg in the
+    /// superseded-tenure test cases below.
+    const PERMITTING_TENURE: ConsensusHash = ConsensusHash([2; 20]);
+
+    /// Validate tenure-start block A after we have permitted `PERMITTING_TENURE` to reorg A's
+    /// tenure, while our state machine names `active_miner_tenure` as the active miner's
+    /// tenure, and report what the signer did for A.
+    ///
+    /// This simulates a block of the reorged tenure that was still in
+    /// flight when the reorging burn block arrived.
+    fn run_superseded_tenure_case(active_miner_tenure: ConsensusHash) -> RecordedOutcome {
+        let (block_a, _block_b, tips) = sibling_fixture(get_epoch_time_secs(), false);
+        let hash_a = block_a.header.signer_signature_hash();
+        let mut node = MockNode::new(tips, Duration::from_secs(100_000));
+        node.signer
+            .signer_db
+            .insert_block(&BlockInfo::from(proposal_of(&block_a)))
+            .unwrap();
+        node.signer
+            .signer_db
+            .mark_tenure_superseded(
+                &block_a.header.consensus_hash,
+                1,
+                &PERMITTING_TENURE,
+                &BurnchainHeaderHash([0xbb; 32]),
+            )
+            .unwrap();
+        node.signer.local_state_machine = LocalStateMachine::Initialized(SignerStateMachine {
+            burn_block: active_miner_tenure.clone(),
+            burn_block_height: 2,
+            current_miner: MinerState::ActiveMiner {
+                current_miner_pkh: Hash160([0; 20]),
+                tenure_id: active_miner_tenure,
+                parent_tenure_id: ConsensusHash([0; 20]),
+                parent_tenure_last_block: block_a.header.parent_block_id.clone(),
+                parent_tenure_last_block_height: 9,
+            },
+            active_signer_protocol_version: 2,
+        });
+
+        let (result_tx, _result_rx) = mpsc::channel();
+        let mut sortition = None;
+        node.signer.test_block_messages = Some(BlockMessageRecorder::new(hash_a.clone()));
+        node.signer.process_event(
+            &node.client,
+            &mut sortition,
+            Some(&validate_ok(&hash_a)),
+            &result_tx,
+            1,
+            Some(1),
+        );
+        let outcome = RecordedOutcome::collect(&mut node, &hash_a);
+        node.shutdown();
+        outcome
+    }
+
+    #[test]
+    fn block_in_tenure_superseded_by_active_miner_is_not_signed() {
+        // We permitted the active miner to reorg A's tenure while A was in flight.
+        // So block A must not be signed afterwards.
+        let outcome = run_superseded_tenure_case(PERMITTING_TENURE);
+        let expected_reason = RejectReason::ConsensusHashMismatch {
+            actual: ConsensusHash([1; 20]),
+            expected: PERMITTING_TENURE,
+        };
+        let summary = outcome.summary();
+        assert_eq!(
+            summary.responses,
+            Responses::Rejected(expected_reason.clone())
+        );
+        assert_eq!(summary.reject_reason, Some(expected_reason));
+        assert!(!summary.signed_self, "block A must not carry our signature");
+        assert_eq!(summary.pre_commits, 0, "block A must not be pre-committed");
+    }
+
+    #[test]
+    fn block_in_superseded_tenure_is_signed_once_reorging_tenure_is_not_active() {
+        // The reorging tenure is no longer the active miner's: we fell back to A's own
+        // tenure (e.g. the permitting miner timed out). A's tenure is live again, so the
+        // permit must not keep its blocks from being signed.
+        let outcome = run_superseded_tenure_case(ConsensusHash([1; 20]));
+        assert_a_signed(&outcome.info);
     }
 
     #[test]

@@ -1,0 +1,1 @@
+Signers no longer sign a block in a tenure after permitting the active miner's tenure to reorg it. Previously a block that was still being validated or pre-committed when the reorging tenure's burn block arrived could be signed afterwards, leaving the reorged tenure with more globally accepted blocks than the reorg rules allow.
