@@ -53,7 +53,7 @@ jobs:
   # Check if CI is enabled
   check-ci:
     name: "Check: CI Enabled"
-    uses: ./.github/workflows/__check-ci.yml
+    uses: ./.github/workflows/composites/check-ci.yml
 
   ############################################################################
   ### Global Variables Setup
@@ -174,7 +174,7 @@ jobs:
       - check-changelog
       - check-rustfmt
       - setup-env
-    uses: ./.github/workflows/_check-test-caches.yml
+    uses: ./.github/workflows/composites/check-test-caches.yml
     with:
       btc-version: ${{ needs.setup-env.outputs.btc-version }}
       btc-version-sha: ${{ needs.setup-env.outputs.btc-version-sha }}
@@ -189,7 +189,7 @@ jobs:
       - check-rustfmt
       - setup-env
       - check-test-caches
-    uses: ./.github/workflows/_check-cargo-hack.yml
+    uses: ./.github/workflows/composites/check-cargo-hack.yml
   
   ############################################################################
   ### WASM Tests
@@ -200,7 +200,7 @@ jobs:
       - check-changelog
       - check-rustfmt
       - setup-env
-    uses: ./.github/workflows/_tests-wasm.yml
+    uses: ./.github/workflows/composites/tests-wasm.yml
 
   ############################################################################
   ### Constant Check (stacks-inspect)
@@ -212,7 +212,7 @@ jobs:
       - check-rustfmt
       - setup-env
       - check-test-caches
-    uses: ./.github/workflows/_check-constants.yml
+    uses: ./.github/workflows/composites/check-constants.yml
 
   ############################################################################
   ### Create Nextest Archive Artifact for Tests
@@ -253,7 +253,7 @@ jobs:
       - check-test-caches
       - create-nextest-archive
       - setup-env
-    uses: ./.github/workflows/_tests-stacks-core.yml
+    uses: ./.github/workflows/composites/tests-stacks-core.yml
     with:
       btc-version: ${{ needs.setup-env.outputs.btc-version }}
       btc-version-sha: ${{ needs.setup-env.outputs.btc-version-sha }}
@@ -272,7 +272,7 @@ jobs:
       - check-test-caches
       - create-nextest-archive
       - setup-env
-    uses: ./.github/workflows/_tests-bitcoin.yml
+    uses: ./.github/workflows/composites/tests-bitcoin.yml
     with:
       btc-version: ${{ needs.setup-env.outputs.btc-version }}
       btc-version-sha: ${{ needs.setup-env.outputs.btc-version-sha }}
@@ -291,7 +291,7 @@ jobs:
       - check-test-caches
       - create-nextest-archive
       - setup-env
-    uses: ./.github/workflows/_tests-bitcoin-rpc.yml
+    uses: ./.github/workflows/composites/tests-bitcoin-rpc.yml
     with:
       archive-file: ${{ needs.setup-env.outputs.test-archive-file }}
 
@@ -306,7 +306,7 @@ jobs:
       - check-test-caches
       - create-nextest-archive
       - setup-env
-    uses: ./.github/workflows/_tests-p2p.yml
+    uses: ./.github/workflows/composites/tests-p2p.yml
     with:
       btc-version: ${{ needs.setup-env.outputs.btc-version }}
       btc-version-sha: ${{ needs.setup-env.outputs.btc-version-sha }}
