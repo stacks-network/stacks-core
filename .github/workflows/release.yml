@@ -41,7 +41,7 @@ jobs:
   # Check if CI is enabled
   check-ci:
     name: "Check: CI Enabled"
-    uses: ./.github/workflows/composites/check-ci.yml
+    uses: ./.github/workflows/__check-ci.yml
 
   ############################################################################
   ### Global Variables Setup
@@ -242,7 +242,7 @@ jobs:
     name: "Check: Test Caches"
     needs:
       - andon-cord
-    uses: ./.github/workflows/composites/check-test-caches.yml
+    uses: ./.github/workflows/_check-test-caches.yml
 
   ############################################################################
   ### Create Nextest Archive Artifact for Tests
@@ -280,7 +280,7 @@ jobs:
       - check-test-caches
       - create-nextest-archive
       - setup-env
-    uses: ./.github/workflows/composites/tests-epoch.yml
+    uses: ./.github/workflows/_tests-epoch.yml
     with:
       btc-version: ${{ needs.setup-env.outputs.btc-version }}
       btc-version-sha: ${{ needs.setup-env.outputs.btc-version-sha }}
@@ -308,7 +308,7 @@ jobs:
       id-token: write        # required for attestation
       attestations: write    # required for attestation
       packages: write        # required for image push to ghcr
-    uses: ./.github/workflows/composites/release-github.yml
+    uses: ./.github/workflows/_release-github.yml
     secrets: inherit         # required for secrets from "release" env to be available to this workflow
     with:
       tag: ${{ needs.check-release.outputs.tag }} # 3-part version shared by the node and signer, like 4.0.0

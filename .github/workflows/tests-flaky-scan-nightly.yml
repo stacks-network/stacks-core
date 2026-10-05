@@ -107,7 +107,7 @@ jobs:
   ############################################################################
   check-ci:
     name: "Check: CI Enabled"
-    uses: ./.github/workflows/composites/check-ci.yml
+    uses: ./.github/workflows/__check-ci.yml
     with:
       extra-enable-var: ENABLE_CI_FLAKY_SCAN_NIGHTLY
 
@@ -146,7 +146,7 @@ jobs:
       - check-ci
     if: needs.check-ci.outputs.enabled == 'true'
     name: "Check: Test Caches"
-    uses: ./.github/workflows/composites/check-test-caches.yml
+    uses: ./.github/workflows/_check-test-caches.yml
 
   ############################################################################
   ### Create Nextest Archive Artifact for Tests
@@ -184,7 +184,7 @@ jobs:
     needs:
       - create-nextest-archive
       - setup-env
-    uses: ./.github/workflows/composites/tests-bitcoin.yml
+    uses: ./.github/workflows/_tests-bitcoin.yml
     with:
       archive-file: ${{ needs.setup-env.outputs.test-archive-file }}
       nextest-profile: ${{ needs.setup-env.outputs.nextest-profile }}
