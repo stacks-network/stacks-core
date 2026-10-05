@@ -54,6 +54,30 @@ use crate::net::stackerdb::{
 };
 use crate::net::{Error as net_error, *};
 
+/// Unconfirmed microblocks to relay and neighbors that supplied invalid data.
+struct PreprocessedMicroblocks {
+    /// Messages with their prior relay hints.
+    to_relay: Vec<RelayedMicroblocks>,
+    /// Neighbors to ban for invalid microblocks.
+    bad_neighbors: Vec<NeighborKey>,
+}
+
+/// Newly processed epoch-2 blocks and streams, with invalid-data sources.
+pub struct ProcessedBlocks {
+    /// Newly discovered anchored blocks keyed by their sortition consensus hash.
+    ///
+    /// Used to construct `BlocksAvailable` announcements and `BlocksData` messages.
+    pub blocks: HashMap<ConsensusHash, StacksBlock>,
+    /// Confirmed streams with their anchor IDs, keyed by consensus hash.
+    ///
+    /// Used to construct `MicroblocksAvailable` announcements and `MicroblocksData` messages.
+    pub confirmed_microblocks: HashMap<ConsensusHash, (StacksBlockId, Vec<StacksMicroblock>)>,
+    /// Unconfirmed microblock messages to relay with their prior relay hints.
+    pub unconfirmed_microblocks: Vec<RelayedMicroblocks>,
+    /// Neighbors to ban for supplying invalid data.
+    pub bad_neighbors: Vec<NeighborKey>,
+}
+
 pub type BlocksAvailableMap = HashMap<BurnchainHeaderHash, (u64, ConsensusHash)>;
 
 pub const MAX_RELAYER_STATS: usize = 4096;
@@ -191,8 +215,8 @@ impl RelayPayload for BlocksAvailableData {
         let mut bytes = vec![];
         self.consensus_serialize(&mut bytes)
             .expect("BUG: failed to serialize");
-        let h = Sha512Trunc256Sum::from_data(&bytes);
-        h
+
+        Sha512Trunc256Sum::from_data(&bytes)
     }
     fn get_id(&self) -> String {
         format!("{:?}", &self)
@@ -860,9 +884,9 @@ impl Relayer {
                 consensus_hash,
                 &block.block_hash()
             );
-            return Ok(BlockAcceptResponse::Accepted);
+            Ok(BlockAcceptResponse::Accepted)
         } else {
-            return Ok(BlockAcceptResponse::AlreadyStored);
+            Ok(BlockAcceptResponse::AlreadyStored)
         }
     }
 
@@ -913,12 +937,6 @@ impl Relayer {
         obtained_method: NakamotoBlockObtainMethod,
         force_broadcast: bool,
     ) -> Result<BlockAcceptResponse, chainstate_error> {
-        if block.is_shadow_block() {
-            // drop, since we can get these from ourselves when downloading a tenure that ends in
-            // a shadow block.
-            return Ok(BlockAcceptResponse::AlreadyStored);
-        }
-
         if fault_injection::ignore_block(block.header.chain_length, &burnchain.working_dir) {
             return Ok(BlockAcceptResponse::Rejected(
                 "Fault injection: ignoring block".into(),
@@ -1106,9 +1124,8 @@ impl Relayer {
             StacksBlockId,
             (Vec<RelayData>, HashMap<BlockHeaderHash, StacksMicroblock>),
         >,
-    ) -> Vec<(Vec<RelayData>, MicroblocksData)> {
-        let mut mblocks_data: HashMap<StacksBlockId, Vec<(Vec<RelayData>, MicroblocksData)>> =
-            HashMap::new();
+    ) -> Vec<RelayedMicroblocks> {
+        let mut mblocks_data: HashMap<StacksBlockId, Vec<RelayedMicroblocks>> = HashMap::new();
         let mut mblocks_sizes: HashMap<StacksBlockId, usize> = HashMap::new();
 
         for (anchored_block_hash, (relayers, mblocks_map)) in new_microblocks.into_iter() {
@@ -1186,7 +1203,12 @@ impl Relayer {
     ) -> HashMap<ConsensusHash, StacksBlock> {
         let mut new_blocks = HashMap::new();
 
-        for (consensus_hash, block, download_time) in network_result.blocks.iter() {
+        for Downloaded {
+            consensus_hash,
+            data: block,
+            download_time_secs,
+        } in network_result.blocks.iter()
+        {
             debug!(
                 "Received downloaded block {}/{}",
                 consensus_hash,
@@ -1206,7 +1228,7 @@ impl Relayer {
                 chainstate,
                 consensus_hash,
                 block,
-                *download_time,
+                *download_time_secs,
             ) {
                 Ok(accept_response) => {
                     if BlockAcceptResponse::Accepted == accept_response {
@@ -1394,8 +1416,11 @@ impl Relayer {
         chainstate: &mut StacksChainState,
     ) -> HashMap<ConsensusHash, (StacksBlockId, Vec<StacksMicroblock>)> {
         let mut ret = HashMap::new();
-        for (consensus_hash, microblock_stream, _download_time) in
-            network_result.confirmed_microblocks.iter()
+        for Downloaded {
+            consensus_hash,
+            data: microblock_stream,
+            ..
+        } in network_result.confirmed_microblocks.iter()
         {
             let Some(microblock_stream_first) = microblock_stream.first() else {
                 continue;
@@ -1481,7 +1506,7 @@ impl Relayer {
         sort_ic: &SortitionDBConn,
         network_result: &mut NetworkResult,
         chainstate: &mut StacksChainState,
-    ) -> Result<(Vec<(Vec<RelayData>, MicroblocksData)>, Vec<NeighborKey>), net_error> {
+    ) -> Result<PreprocessedMicroblocks, net_error> {
         let mut new_microblocks: HashMap<
             StacksBlockId,
             (Vec<RelayData>, HashMap<BlockHeaderHash, StacksMicroblock>),
@@ -1638,7 +1663,10 @@ impl Relayer {
         }
 
         let mblock_datas = Relayer::make_microblocksdata_messages(new_microblocks);
-        Ok((mblock_datas, bad_neighbors))
+        Ok(PreprocessedMicroblocks {
+            to_relay: mblock_datas,
+            bad_neighbors,
+        })
     }
 
     #[cfg_attr(test, mutants::skip)]
@@ -1893,26 +1921,16 @@ impl Relayer {
         true
     }
 
-    /// Process blocks and microblocks that we received, both downloaded (confirmed) and streamed
-    /// (unconfirmed). Returns:
-    /// * set of consensus hashes that elected the newly-discovered blocks, and the blocks, so we can turn them into BlocksAvailable / BlocksData messages
-    /// * set of confirmed microblock consensus hashes for newly-discovered microblock streams, and the streams, so we can turn them into MicroblocksAvailable / MicroblocksData messages
-    /// * list of unconfirmed microblocks that got pushed to us, as well as their relayers (so we can forward them)
-    /// * list of neighbors that served us invalid data (so we can ban them)
+    /// Process downloaded, pushed, and HTTP-uploaded epoch-2 blocks and microblocks.
+    ///
+    /// Returns [`ProcessedBlocks`] containing newly available blocks and microblock
+    /// streams to announce or relay, together with neighbors to ban for invalid data.
     pub fn process_new_blocks(
         network_result: &mut NetworkResult,
         sortdb: &mut SortitionDB,
         chainstate: &mut StacksChainState,
         coord_comms: Option<&CoordinatorChannels>,
-    ) -> Result<
-        (
-            HashMap<ConsensusHash, StacksBlock>,
-            HashMap<ConsensusHash, (StacksBlockId, Vec<StacksMicroblock>)>,
-            Vec<(Vec<RelayData>, MicroblocksData)>,
-            Vec<NeighborKey>,
-        ),
-        net_error,
-    > {
+    ) -> Result<ProcessedBlocks, net_error> {
         let mut new_blocks = HashMap::new();
         let mut bad_neighbors = vec![];
 
@@ -1979,8 +1997,10 @@ impl Relayer {
         // process microblocks pushed to us, as well as identify which ones were uploaded via http
         // (these ones will have already been processed, but we need to report them as
         // newly-available to the caller nevertheless)
-        let (new_microblocks, mut new_bad_neighbors) =
-            Relayer::preprocess_pushed_microblocks(&sort_ic, network_result, chainstate)?;
+        let PreprocessedMicroblocks {
+            to_relay: new_microblocks,
+            bad_neighbors: mut new_bad_neighbors,
+        } = Relayer::preprocess_pushed_microblocks(&sort_ic, network_result, chainstate)?;
         bad_neighbors.append(&mut new_bad_neighbors);
 
         if !new_blocks.is_empty()
@@ -2000,12 +2020,12 @@ impl Relayer {
             }
         }
 
-        Ok((
-            new_blocks,
-            new_confirmed_microblocks,
-            new_microblocks,
+        Ok(ProcessedBlocks {
+            blocks: new_blocks,
+            confirmed_microblocks: new_confirmed_microblocks,
+            unconfirmed_microblocks: new_microblocks,
             bad_neighbors,
-        ))
+        })
     }
 
     #[cfg_attr(test, mutants::skip)]
@@ -2498,7 +2518,7 @@ impl Relayer {
         sortdb: &SortitionDB,
         new_blocks: HashMap<ConsensusHash, StacksBlock>,
         new_confirmed_microblocks: HashMap<ConsensusHash, (StacksBlockId, Vec<StacksMicroblock>)>,
-        new_microblocks: Vec<(Vec<RelayData>, MicroblocksData)>,
+        new_microblocks: Vec<RelayedMicroblocks>,
     ) {
         // have the p2p thread tell our neighbors about newly-discovered blocks
         let new_block_chs = new_blocks.keys().cloned().collect();
@@ -2570,7 +2590,12 @@ impl Relayer {
 
         // Process epoch2 data
         match Self::process_new_blocks(network_result, sortdb, chainstate, coord_comms) {
-            Ok((new_blocks, new_confirmed_microblocks, new_microblocks, bad_block_neighbors)) => {
+            Ok(ProcessedBlocks {
+                blocks: new_blocks,
+                confirmed_microblocks: new_confirmed_microblocks,
+                unconfirmed_microblocks: new_microblocks,
+                bad_neighbors: bad_block_neighbors,
+            }) => {
                 // report quantities of new data in the receipts
                 num_new_blocks = new_blocks.len() as u64;
                 num_new_confirmed_microblocks = new_confirmed_microblocks.len() as u64;

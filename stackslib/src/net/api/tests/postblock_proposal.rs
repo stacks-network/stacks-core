@@ -268,7 +268,7 @@ fn test_try_make_response() {
             None,
             None,
             None,
-            u64::from(DEFAULT_MAX_TENURE_BYTES),
+            DEFAULT_MAX_TENURE_BYTES,
         )
         .unwrap();
 
@@ -570,7 +570,7 @@ fn test_block_proposal_validation_timeout() {
             None,
             None,
             None,
-            u64::from(DEFAULT_MAX_TENURE_BYTES),
+            DEFAULT_MAX_TENURE_BYTES,
         )
         .unwrap();
 
@@ -761,7 +761,7 @@ fn test_block_proposal_validation_execution_time_expired_blames_tx() {
             None,
             None,
             None,
-            u64::from(DEFAULT_MAX_TENURE_BYTES),
+            DEFAULT_MAX_TENURE_BYTES,
         )
         .unwrap();
 
@@ -937,7 +937,7 @@ fn test_block_proposal_validation_analysis_time_expired_blames_tx() {
             None,
             None,
             None,
-            u64::from(DEFAULT_MAX_TENURE_BYTES),
+            DEFAULT_MAX_TENURE_BYTES,
         )
         .unwrap();
 

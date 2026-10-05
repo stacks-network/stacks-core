@@ -34,7 +34,7 @@ use crate::cost_estimates::{CostEstimator, EstimatorError, PessimisticEstimator}
 fn instantiate_test_db() -> PessimisticEstimator {
     let mut path = env::temp_dir();
     let random_bytes = rand::thread_rng().gen::<[u8; 32]>();
-    path.push(&format!("fee_db_{}.sqlite", &to_hex(&random_bytes)[0..8]));
+    path.push(format!("fee_db_{}.sqlite", &to_hex(&random_bytes)[0..8]));
 
     PessimisticEstimator::open(&path, true).expect("Test failure: could not open fee rate DB")
 }

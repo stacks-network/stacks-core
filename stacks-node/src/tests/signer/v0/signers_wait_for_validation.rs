@@ -137,7 +137,9 @@ fn signer_waits_for_validation_before_signing() {
     // This prevents that signer from validating the next proposed block
     TEST_VALIDATE_STALL.set(vec![Some(node_2_auth)]);
 
-    info!("------------------------- Mine Block N+1 with Stalled Validation -------------------------");
+    info!(
+        "------------------------- Mine Block N+1 with Stalled Validation -------------------------"
+    );
     // Stall the miner's block proposal broadcast so that we can wait for
     // state machine updates to propagate between the two nodes' stackerdbs
     // before the proposal reaches signers. Without this, the signer on
@@ -168,7 +170,10 @@ fn signer_waits_for_validation_before_signing() {
         wait_for_block_pushed_by_miner_key(30, info_before.stacks_tip_height + 1, &miner_pk_1)
             .expect("Failed to mine block N+1");
     let signer_signature_hash = block.header.signer_signature_hash();
-    info!("------------------------- Mined {signer_signature_hash}. Checking for Pre-Commits for {} Signers-------------------------", approving_signers.len());
+    info!(
+        "------------------------- Mined {signer_signature_hash}. Checking for Pre-Commits for {} Signers-------------------------",
+        approving_signers.len()
+    );
     wait_for_block_pre_commits_from_signers(30, &signer_signature_hash, &approving_signers)
         .expect("Failed to receive pre-commits from approving signers");
     // We only wait a small amount of time for each of these checks since we already received block commits from everyone else.

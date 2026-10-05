@@ -387,6 +387,7 @@ mod async_sibling_validation {
     use clarity::util::vrf::VRFProof;
     use clarity::vm::costs::ExecutionCost;
     use libsigner::v0::messages::{PeerInfo, RejectReason, SignerMessage};
+    use libsigner::v0::signer_state::{MinerState, SignerStateMachine};
     use libsigner::{BlockProposal, BlockProposalData, SignerEntries, SignerEvent};
     use stacks_common::bitvec::BitVec;
     use stacks_common::consts::CHAIN_ID_TESTNET;
@@ -404,11 +405,12 @@ mod async_sibling_validation {
     use crate::config::{SignerConfig, SignerConfigMode};
     use crate::signerdb::{BlockInfo, BlockState};
     use crate::v0::signer::Signer;
+    use crate::v0::signer_state::LocalStateMachine;
     use crate::Signer as SignerTrait;
 
     /// Build a tenure-start block for `tenure` with the mandatory tenure-change (idx 0) and
     /// coinbase (idx 1). `timestamp` is varied to produce distinct-hash siblings.
-    fn tenure_start(
+    pub(super) fn tenure_start(
         miner: &StacksPrivateKey,
         tenure: &ConsensusHash,
         parent_tenure: &ConsensusHash,
@@ -549,9 +551,9 @@ mod async_sibling_validation {
 
     /// A mock stacks-node (see [`serve_node`]) with a single registered signer of weight 1
     /// pointed at it, so the pre-commit threshold is met by our own pre-commit alone.
-    struct MockNode {
-        signer: Signer,
-        client: StacksClient,
+    pub(super) struct MockNode {
+        pub(super) signer: Signer,
+        pub(super) client: StacksClient,
         exit: Arc<AtomicBool>,
         server: Option<thread::JoinHandle<()>>,
         db_path: std::path::PathBuf,
@@ -561,7 +563,10 @@ mod async_sibling_validation {
     }
 
     impl MockNode {
-        fn new(tips: Vec<(String, String)>, tenure_last_block_proposal_timeout: Duration) -> Self {
+        pub(super) fn new(
+            tips: Vec<(String, String)>,
+            tenure_last_block_proposal_timeout: Duration,
+        ) -> Self {
             let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).unwrap();
             let port = listener.local_addr().unwrap().port();
             let exit = Arc::new(AtomicBool::new(false));
@@ -634,7 +639,7 @@ mod async_sibling_validation {
 
         /// Stop the mock node and remove the signer db. Called before the caller asserts, so a
         /// failure does not leak the db file.
-        fn shutdown(&mut self) {
+        pub(super) fn shutdown(&mut self) {
             self.exit.store(true, Ordering::SeqCst);
             if let Some(server) = self.server.take() {
                 let _ = server.join();
@@ -643,7 +648,7 @@ mod async_sibling_validation {
         }
     }
 
-    fn validate_ok(hash: &Sha512Trunc256Sum) -> SignerEvent<SignerMessage> {
+    pub(super) fn validate_ok(hash: &Sha512Trunc256Sum) -> SignerEvent<SignerMessage> {
         SignerEvent::BlockValidationResponse(BlockValidateResponse::Ok(BlockValidateOk {
             signer_signature_hash: hash.clone(),
             cost: ExecutionCost::ZERO,
@@ -822,6 +827,7 @@ mod async_sibling_validation {
             Some(&validate_ok(&hash_a)),
             &result_tx,
             1,
+            Some(1),
         );
         let info_a = node
             .signer
@@ -837,6 +843,7 @@ mod async_sibling_validation {
             Some(&validate_ok(&hash_b)),
             &result_tx,
             1,
+            Some(1),
         );
         let info_b = node
             .signer
@@ -862,6 +869,7 @@ mod async_sibling_validation {
                 Some(&SignerEvent::MinerMessages(vec![proposal_b])),
                 &result_tx,
                 1,
+                Some(1),
             );
             node.signer
                 .signer_db
@@ -999,6 +1007,7 @@ mod async_sibling_validation {
                 Some(&validate_ok(&hash_a)),
                 &result_tx,
                 1,
+                Some(1),
             );
             let info_a = node
                 .signer
@@ -1023,6 +1032,7 @@ mod async_sibling_validation {
             Some(&reproposal),
             &result_tx,
             1,
+            Some(1),
         );
         let outcome = RecordedOutcome::collect(&mut node, &hash_b);
         node.shutdown();
@@ -1059,6 +1069,7 @@ mod async_sibling_validation {
                 Some(&validate_ok(&hash_a)),
                 &result_tx,
                 1,
+                Some(1),
             );
             assert_a_signed(
                 &node
@@ -1081,6 +1092,7 @@ mod async_sibling_validation {
             Some(&validate_ok(&hash_c)),
             &result_tx,
             1,
+            Some(1),
         );
         let outcome = RecordedOutcome::collect(&mut node, &hash_c);
         node.shutdown();
@@ -1390,6 +1402,90 @@ mod async_sibling_validation {
         );
     }
 
+    /// This is the tenure we permitted to reorg in the
+    /// superseded-tenure test cases below.
+    const PERMITTING_TENURE: ConsensusHash = ConsensusHash([2; 20]);
+
+    /// Validate tenure-start block A after we have permitted `PERMITTING_TENURE` to reorg A's
+    /// tenure, while our state machine names `active_miner_tenure` as the active miner's
+    /// tenure, and report what the signer did for A.
+    ///
+    /// This simulates a block of the reorged tenure that was still in
+    /// flight when the reorging burn block arrived.
+    fn run_superseded_tenure_case(active_miner_tenure: ConsensusHash) -> RecordedOutcome {
+        let (block_a, _block_b, tips) = sibling_fixture(get_epoch_time_secs(), false);
+        let hash_a = block_a.header.signer_signature_hash();
+        let mut node = MockNode::new(tips, Duration::from_secs(100_000));
+        node.signer
+            .signer_db
+            .insert_block(&BlockInfo::from(proposal_of(&block_a)))
+            .unwrap();
+        node.signer
+            .signer_db
+            .mark_tenure_superseded(
+                &block_a.header.consensus_hash,
+                1,
+                &PERMITTING_TENURE,
+                &BurnchainHeaderHash([0xbb; 32]),
+            )
+            .unwrap();
+        node.signer.local_state_machine = LocalStateMachine::Initialized(SignerStateMachine {
+            burn_block: active_miner_tenure.clone(),
+            burn_block_height: 2,
+            current_miner: MinerState::ActiveMiner {
+                current_miner_pkh: Hash160([0; 20]),
+                tenure_id: active_miner_tenure,
+                parent_tenure_id: ConsensusHash([0; 20]),
+                parent_tenure_last_block: block_a.header.parent_block_id.clone(),
+                parent_tenure_last_block_height: 9,
+            },
+            active_signer_protocol_version: 2,
+        });
+
+        let (result_tx, _result_rx) = mpsc::channel();
+        let mut sortition = None;
+        node.signer.test_block_messages = Some(BlockMessageRecorder::new(hash_a.clone()));
+        node.signer.process_event(
+            &node.client,
+            &mut sortition,
+            Some(&validate_ok(&hash_a)),
+            &result_tx,
+            1,
+            Some(1),
+        );
+        let outcome = RecordedOutcome::collect(&mut node, &hash_a);
+        node.shutdown();
+        outcome
+    }
+
+    #[test]
+    fn block_in_tenure_superseded_by_active_miner_is_not_signed() {
+        // We permitted the active miner to reorg A's tenure while A was in flight.
+        // So block A must not be signed afterwards.
+        let outcome = run_superseded_tenure_case(PERMITTING_TENURE);
+        let expected_reason = RejectReason::ConsensusHashMismatch {
+            actual: ConsensusHash([1; 20]),
+            expected: PERMITTING_TENURE,
+        };
+        let summary = outcome.summary();
+        assert_eq!(
+            summary.responses,
+            Responses::Rejected(expected_reason.clone())
+        );
+        assert_eq!(summary.reject_reason, Some(expected_reason));
+        assert!(!summary.signed_self, "block A must not carry our signature");
+        assert_eq!(summary.pre_commits, 0, "block A must not be pre-committed");
+    }
+
+    #[test]
+    fn block_in_superseded_tenure_is_signed_once_reorging_tenure_is_not_active() {
+        // The reorging tenure is no longer the active miner's: we fell back to A's own
+        // tenure (e.g. the permitting miner timed out). A's tenure is live again, so the
+        // permit must not keep its blocks from being signed.
+        let outcome = run_superseded_tenure_case(ConsensusHash([1; 20]));
+        assert_a_signed(&outcome.info);
+    }
+
     #[test]
     fn signer_refuses_to_sign_second_sibling_tenure_start() {
         // Pin the fresh window far beyond the test's runtime so the guard can only take the
@@ -1636,6 +1732,7 @@ mod async_sibling_validation {
             Some(&validate_ok(&hash_a)),
             &result_tx,
             1,
+            Some(1),
         );
         match fate {
             TenureAFate::Live => {}
@@ -1725,6 +1822,7 @@ mod async_sibling_validation {
             Some(&validate_ok(&hash_b)),
             &result_tx,
             1,
+            Some(1),
         );
         // Read A's final state, i.e. after `fate` was applied, so each caller sees what the
         // conflict actually looked like when B was evaluated.
@@ -2103,6 +2201,7 @@ mod async_sibling_validation {
             Some(&validate_ok(&hash_c1)),
             &result_tx,
             1,
+            Some(1),
         );
         let info_c1 = node
             .signer
@@ -2173,6 +2272,355 @@ mod async_sibling_validation {
         assert_b_refused(
             &info_c1,
             "the reorg permit was granted to a tenure the proposal neither belongs to nor builds on",
+        );
+    }
+}
+
+/// A tenure is signed by the reward set that was active when it was elected, so the
+/// signer set of cycle N keeps signing for its tenure after the burnchain crosses into
+/// cycle N+1 -- but only until a sortition actually occurs in N+1. These tests pin both
+/// halves of that rule.
+#[cfg(test)]
+mod reward_cycle_retirement {
+    use std::sync::mpsc;
+    use std::time::Duration;
+
+    use blockstack_lib::chainstate::nakamoto::NakamotoBlockHeader;
+    use blockstack_lib::net::api::get_tenure_tip_meta::BlockHeaderWithMetadata;
+    use clarity::types::chainstate::{ConsensusHash, StacksBlockId, TrieHash};
+    use clarity::util::hash::Sha512Trunc256Sum;
+    use libsigner::v0::messages::RejectReason;
+    use libsigner::{BlockProposal, BlockProposalData};
+    use stacks_common::bitvec::BitVec;
+    use stacks_common::types::chainstate::StacksPrivateKey;
+    use stacks_common::util::get_epoch_time_secs;
+    use stacks_common::util::secp256k1::MessageSignature;
+
+    use super::async_sibling_validation::{tenure_start, validate_ok, MockNode};
+    use crate::signerdb::{BlockInfo, BlockState};
+    use crate::Signer as SignerTrait;
+    /// Drive one block's validation response through a signer configured for reward cycle 1,
+    /// with the given `(current_reward_cycle, latest_sortition_reward_cycle)`, and return the
+    /// resulting `BlockInfo`.
+    ///
+    /// The block is a plain tenure-start block that the signer would otherwise sign, so the
+    /// only thing that can change the verdict between calls is the retirement gate.
+    fn run_retirement_scenario(
+        current_reward_cycle: u64,
+        latest_sortition_reward_cycle: Option<u64>,
+    ) -> BlockInfo {
+        let miner = StacksPrivateKey::from_seed(&[0, 1]);
+        let tenure = ConsensusHash([1; 20]);
+        let parent_tenure = ConsensusHash([0; 20]);
+
+        let mut parent_header = NakamotoBlockHeader {
+            version: 1,
+            chain_length: 9,
+            burn_spent: 10,
+            consensus_hash: parent_tenure.clone(),
+            parent_block_id: StacksBlockId([9; 32]),
+            tx_merkle_root: Sha512Trunc256Sum([0; 32]),
+            state_index_root: TrieHash([0; 32]),
+            timestamp: 9,
+            miner_signature: MessageSignature::empty(),
+            signer_signature: vec![],
+            pox_treatment: BitVec::ones(1).unwrap(),
+            problematic_txs: vec![],
+        };
+        parent_header.sign_miner(&miner).unwrap();
+        let parent_id = parent_header.block_id();
+
+        let block = tenure_start(
+            &miner,
+            &tenure,
+            &parent_tenure,
+            &parent_id,
+            10,
+            get_epoch_time_secs(),
+        );
+        let hash = block.header.signer_signature_hash();
+
+        // Both tenures report the parent block as their tip, so the tenure-change parent
+        // check passes and the block is signable on its merits.
+        let tip = serde_json::to_string(&BlockHeaderWithMetadata {
+            anchored_header: parent_header.into(),
+            burn_view: Some(tenure.clone()),
+        })
+        .unwrap();
+        let tips = vec![
+            (
+                format!("/v3/tenures/tip_metadata/{parent_tenure}"),
+                tip.clone(),
+            ),
+            (format!("/v3/tenures/tip_metadata/{tenure}"), tip),
+            (
+                "/v3/blocks/upload".to_string(),
+                format!(r#"{{"stacks_block_id":"{parent_id}","accepted":true}}"#),
+            ),
+        ];
+
+        let mut node = MockNode::new(tips, Duration::from_secs(30));
+        let info = BlockInfo::from(BlockProposal {
+            block: block.clone(),
+            burn_height: 1,
+            reward_cycle: 1,
+            block_proposal_data: BlockProposalData::empty(),
+        });
+        node.signer.signer_db.insert_block(&info).unwrap();
+
+        let (result_tx, _result_rx) = mpsc::channel();
+        let mut sortition = None;
+        node.signer.process_event(
+            &node.client,
+            &mut sortition,
+            Some(&validate_ok(&hash)),
+            &result_tx,
+            current_reward_cycle,
+            latest_sortition_reward_cycle,
+        );
+
+        let info = node.signer.signer_db.block_lookup(&hash).unwrap().unwrap();
+        node.shutdown();
+        info
+    }
+
+    fn assert_retirement_signed(info: &BlockInfo, case: &str) {
+        assert_eq!(
+            info.state,
+            BlockState::LocallyAccepted,
+            "the signer should have signed the block when {case}"
+        );
+        assert!(
+            info.signed_self.is_some(),
+            "the signer should carry its own signature when {case}"
+        );
+    }
+
+    #[test]
+    fn active_reward_cycle_signs() {
+        // Control: the burnchain tip and the latest sortition are both in the signer's own
+        // reward cycle, which is the ordinary case.
+        let info = run_retirement_scenario(1, Some(1));
+        assert_retirement_signed(&info, "the signer's cycle is current");
+    }
+
+    #[test]
+    fn cycle_boundary_without_sortition_still_signs() {
+        // The burnchain has crossed into cycle 2, but no sortition has occurred there: the
+        // first burn block of the cycle was empty. The tenure elected in cycle 1 is still
+        // signed by cycle 1's reward set, so this signer must keep signing -- that is what
+        // lets the miner extend its tenure across the boundary.
+        let info = run_retirement_scenario(2, Some(1));
+        assert_retirement_signed(&info, "the new cycle has no sortition yet");
+    }
+
+    #[test]
+    fn sortition_in_later_cycle_retires_the_signer() {
+        // A sortition has occurred in cycle 2, so cycle 2's reward set is responsible from
+        // here on. This must hold regardless of what cycle 2's set makes of the winner: if
+        // the winner is unresponsive the chain waits for the next sortition, and the cycle 1
+        // miner does not get to resume. Without the gate this signer's own state machine
+        // would fall back to the cycle 1 miner and approve exactly that.
+        let info = run_retirement_scenario(2, Some(2));
+        assert_eq!(
+            info.state,
+            BlockState::GloballyRejected,
+            "the signer should have rejected the block once a later cycle held a sortition"
+        );
+        assert_eq!(
+            info.reject_reason,
+            Some(RejectReason::RewardCycleRetired),
+            "the rejection should name the retirement, so the miner learns why"
+        );
+        assert!(
+            info.signed_self.is_none(),
+            "the signer must not have signed a block for a retired reward cycle"
+        );
+    }
+
+    #[test]
+    fn unconfirmed_view_does_not_retire_the_current_cycle_signer() {
+        // The node could not confirm where the latest sortition is, but our own cycle is
+        // still the current one, so we cannot be signing for a tenure we no longer own.
+        // Stopping here would halt ordinary signing on any momentary RPC failure.
+        let info = run_retirement_scenario(1, None);
+        assert_retirement_signed(&info, "our cycle is current and the view is unconfirmed");
+    }
+
+    #[test]
+    fn unconfirmed_view_retires_a_past_cycle_signer() {
+        // Our cycle has passed and the node could not confirm its sortition view is
+        // current, so we cannot rule out that a sortition has already landed in the new
+        // cycle. This is not hypothetical: the sortition RPCs answer from the node's p2p
+        // burnchain tip snapshot, which lags its own burn block height by up to a block,
+        // so a naive read returns the *previous* burn block's answer. Refusing costs a
+        // tenure extend; signing on an unconfirmed view is the takeover we are preventing.
+        let info = run_retirement_scenario(2, None);
+        assert_eq!(
+            info.state,
+            BlockState::GloballyRejected,
+            "the signer should have refused while the sortition view was unconfirmed"
+        );
+        assert_eq!(
+            info.reject_reason,
+            Some(RejectReason::RewardCycleRetired),
+            "the rejection should name the retirement, so the miner learns why"
+        );
+        assert!(
+            info.signed_self.is_none(),
+            "the signer must not sign on an unconfirmed sortition view"
+        );
+    }
+
+    #[test]
+    fn the_gate_follows_the_latest_sortition_rather_than_latching() {
+        // A burnchain reorg re-anchors the sortition query on the new fork, which puts the
+        // gate back into deferral until it resolves again. So the gate has to be read fresh
+        // on every pass: an earlier answer must not outlive the sortition that produced it,
+        // in either direction. Signing on a stale "open" is how a retired signer would sign
+        // a tenure extend it no longer owns.
+        //
+        // Both blocks are signable on their merits and sit in different tenures, so neither
+        // conflicts with the other and the only thing separating the verdicts is the gate.
+        let miner = StacksPrivateKey::from_seed(&[0, 1]);
+        let parent_tenure = ConsensusHash([0; 20]);
+        let deferred_tenure = ConsensusHash([1; 20]);
+        let resolved_tenure = ConsensusHash([2; 20]);
+
+        let mut parent_header = NakamotoBlockHeader {
+            version: 1,
+            chain_length: 9,
+            burn_spent: 10,
+            consensus_hash: parent_tenure.clone(),
+            parent_block_id: StacksBlockId([9; 32]),
+            tx_merkle_root: Sha512Trunc256Sum([0; 32]),
+            state_index_root: TrieHash([0; 32]),
+            timestamp: 9,
+            miner_signature: MessageSignature::empty(),
+            signer_signature: vec![],
+            pox_treatment: BitVec::ones(1).unwrap(),
+            problematic_txs: vec![],
+        };
+        parent_header.sign_miner(&miner).unwrap();
+        let parent_id = parent_header.block_id();
+
+        let now = get_epoch_time_secs();
+        let deferred_block = tenure_start(
+            &miner,
+            &deferred_tenure,
+            &parent_tenure,
+            &parent_id,
+            10,
+            now,
+        );
+        let resolved_block = tenure_start(
+            &miner,
+            &resolved_tenure,
+            &parent_tenure,
+            &parent_id,
+            10,
+            now,
+        );
+        let deferred_hash = deferred_block.header.signer_signature_hash();
+        let resolved_hash = resolved_block.header.signer_signature_hash();
+
+        let tip = serde_json::to_string(&BlockHeaderWithMetadata {
+            anchored_header: parent_header.into(),
+            burn_view: Some(parent_tenure.clone()),
+        })
+        .unwrap();
+        let tips = vec![
+            (
+                format!("/v3/tenures/tip_metadata/{parent_tenure}"),
+                tip.clone(),
+            ),
+            (
+                format!("/v3/tenures/tip_metadata/{deferred_tenure}"),
+                tip.clone(),
+            ),
+            (
+                format!("/v3/tenures/tip_metadata/{resolved_tenure}"),
+                tip.clone(),
+            ),
+            (
+                "/v3/blocks/upload".to_string(),
+                format!(r#"{{"stacks_block_id":"{parent_id}","accepted":true}}"#),
+            ),
+        ];
+
+        let mut node = MockNode::new(tips, Duration::from_secs(30));
+        for block in [&deferred_block, &resolved_block] {
+            let info = BlockInfo::from(BlockProposal {
+                block: block.clone(),
+                burn_height: 1,
+                reward_cycle: 1,
+                block_proposal_data: BlockProposalData::empty(),
+            });
+            node.signer.signer_db.insert_block(&info).unwrap();
+        }
+
+        let (result_tx, _result_rx) = mpsc::channel();
+        let mut sortition = None;
+
+        // The burnchain has crossed into cycle 2 with no sortition there yet, so the gate is
+        // open and we would sign. Nothing is proposed on this pass; it only establishes the
+        // "open" answer that the next pass must not reuse.
+        node.signer
+            .process_event(&node.client, &mut sortition, None, &result_tx, 2, Some(1));
+
+        // A reorg puts the latest sortition back into deferral. Our cycle has passed, so
+        // until it resolves we must refuse rather than fall back on the open answer above.
+        node.signer.process_event(
+            &node.client,
+            &mut sortition,
+            Some(&validate_ok(&deferred_hash)),
+            &result_tx,
+            2,
+            None,
+        );
+        let deferred = node
+            .signer
+            .signer_db
+            .block_lookup(&deferred_hash)
+            .unwrap()
+            .unwrap();
+
+        // It resolves to our own cycle again, and the same signer goes back to work without
+        // needing to be restarted.
+        node.signer.process_event(
+            &node.client,
+            &mut sortition,
+            Some(&validate_ok(&resolved_hash)),
+            &result_tx,
+            2,
+            Some(1),
+        );
+        let resolved = node
+            .signer
+            .signer_db
+            .block_lookup(&resolved_hash)
+            .unwrap()
+            .unwrap();
+
+        node.shutdown();
+
+        assert_eq!(
+            deferred.reject_reason,
+            Some(RejectReason::RewardCycleRetired),
+            "a deferred sortition view must retire us, not reuse the last open answer"
+        );
+        assert!(
+            deferred.signed_self.is_none(),
+            "we must not sign while the sortition view is unresolved"
+        );
+        assert_eq!(
+            resolved.state,
+            BlockState::LocallyAccepted,
+            "the reopened gate should let the same signer sign again"
+        );
+        assert!(
+            resolved.signed_self.is_some(),
+            "the signer should carry its own signature once the gate reopens"
         );
     }
 }

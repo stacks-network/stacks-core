@@ -476,16 +476,12 @@ impl StacksChainState {
         tx: &StacksTransaction,
     ) -> StacksAccount {
         // who's paying the fee?
-        let payer_account = if let Some(sponsor_address) = tx.sponsor_address() {
-            let payer_account = StacksChainState::get_account(clarity_tx, &sponsor_address.into());
-            payer_account
-        } else {
-            let origin_account =
-                StacksChainState::get_account(clarity_tx, &tx.origin_address().into());
-            origin_account
-        };
 
-        payer_account
+        if let Some(sponsor_address) = tx.sponsor_address() {
+            StacksChainState::get_account(clarity_tx, &sponsor_address.into())
+        } else {
+            StacksChainState::get_account(clarity_tx, &tx.origin_address().into())
+        }
     }
 
     /// Check the account nonces for the supplied stacks transaction,
@@ -1690,6 +1686,8 @@ impl StacksChainState {
 
 #[cfg(test)]
 pub mod test {
+    use std::slice;
+
     use clarity::util::secp256k1::Secp256k1PrivateKey;
     use clarity::vm::representations::{ClarityName, ContractName};
     use clarity::vm::test_util::{UnitTestBurnStateDB, TEST_BURN_STATE_DB};
@@ -6659,7 +6657,7 @@ pub mod test {
     ) -> Result<(u64, StacksTransactionReceipt), Error> {
         let epoch = clarity_block.get_epoch();
 
-        if !StacksBlock::validate_transactions_static_epoch(&[tx.clone()], epoch) {
+        if !StacksBlock::validate_transactions_static_epoch(slice::from_ref(tx), epoch) {
             let msg = format!(
                 "Invalid transaction {}: target epoch is not activated",
                 tx.txid()

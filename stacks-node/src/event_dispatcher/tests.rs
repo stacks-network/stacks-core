@@ -1140,7 +1140,7 @@ fn backwards_compatibility_transaction_event_payload() {
         "#;
     let new_value: TransactionEventPayload = serde_json::from_str(&new_serialized_data)
         .expect("Failed to deserialize new data as TransactionEventPayload");
-    let old_value: TransactionEventPayload = serde_json::from_str(&old_serialized_data)
+    let old_value: TransactionEventPayload = serde_json::from_str(old_serialized_data)
         .expect("Failed to deserialize old data as TransactionEventPayload");
     assert_eq!(new_value, old_value);
 }

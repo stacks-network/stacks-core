@@ -17,6 +17,8 @@
 //! consensus-critical behavior of a specific change across epochs and Clarity
 //! versions.
 mod epoch_40_read_budget;
+mod epoch_41_fold_initial_value;
 mod epoch_41_force_latest;
 mod epoch_41_reserved_names;
+mod epoch_41_tuple_supertype;
 mod special_map;

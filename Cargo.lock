@@ -4516,6 +4516,7 @@ dependencies = [
 name = "stacks-marf"
 version = "4.0.4"
 dependencies = [
+ "nix",
  "rstest",
  "rstest_reuse",
  "rusqlite",
@@ -4714,6 +4715,7 @@ dependencies = [
  "slog",
  "stacks-codec",
  "stacks-common 4.0.4",
+ "stacks-marf",
  "stacks-transactions",
  "stdext",
  "stx-genesis",
