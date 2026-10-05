@@ -14,13 +14,13 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::cmp;
 use std::collections::HashSet;
 #[cfg(any(test, feature = "testing"))]
 use std::sync::LazyLock;
 use std::sync::{Arc, Mutex};
 use std::thread::ThreadId;
 use std::time::Instant;
+use std::{cmp, slice};
 
 use clarity::vm::database::BurnStateDB;
 use clarity::vm::resource_limiter::ResourceBudget;
@@ -39,6 +39,7 @@ use crate::burnchains::{Burnchain, Txid};
 use crate::chainstate::burn::db::sortdb::{SortitionDB, SortitionHandleConn};
 use crate::chainstate::burn::*;
 use crate::chainstate::stacks::address::StacksAddressExtensions;
+use crate::chainstate::stacks::db::accounts::MaturedMinerPayouts;
 use crate::chainstate::stacks::db::blocks::SetupBlockResult;
 use crate::chainstate::stacks::db::transactions::{
     finalize_failed_transaction, handle_clarity_runtime_error, ClarityRuntimeTxError,
@@ -140,7 +141,7 @@ impl MinerStatus {
     }
 
     pub fn get_spend_amount(&self) -> u64 {
-        return self.spend_amount;
+        self.spend_amount
     }
 
     pub fn set_spend_amount(&mut self, amt: u64) {
@@ -230,7 +231,7 @@ impl BlockBuilderSettings {
             confirm_microblocks: true,
             max_execution_time: None,
             max_analysis_time: None,
-            max_tenure_bytes: u64::from(DEFAULT_MAX_TENURE_BYTES),
+            max_tenure_bytes: DEFAULT_MAX_TENURE_BYTES,
             temporarily_excluded_txids: HashSet::new(),
             max_assembly_mem_bytes: 0,
         }
@@ -246,7 +247,7 @@ impl BlockBuilderSettings {
             confirm_microblocks: true,
             max_execution_time: None,
             max_analysis_time: None,
-            max_tenure_bytes: u64::from(DEFAULT_MAX_TENURE_BYTES),
+            max_tenure_bytes: DEFAULT_MAX_TENURE_BYTES,
             temporarily_excluded_txids: HashSet::new(),
             max_assembly_mem_bytes: 0,
         }
@@ -1446,12 +1447,7 @@ impl<'a> StacksMicroblockBuilder<'a> {
             }
         }
 
-        return self.make_next_microblock(
-            txs_included,
-            miner_key,
-            tx_events,
-            Some(event_dispatcher),
-        );
+        self.make_next_microblock(txs_included, miner_key, tx_events, Some(event_dispatcher))
     }
 
     pub fn get_bytes_so_far(&self) -> u64 {
@@ -1633,7 +1629,7 @@ impl StacksBlockBuilder {
         }
 
         self.header.microblock_pubkey_hash = pubkh;
-        return true;
+        true
     }
 
     /// Set the block miner's private key
@@ -1850,14 +1846,16 @@ impl StacksBlockBuilder {
                 &self.parent_consensus_hash,
                 &self.parent_header_hash,
             );
-            let (parent_microblocks, _) =
-                StacksChainState::load_descendant_staging_microblock_stream_with_poison(
+            let parent_microblocks =
+                match StacksChainState::load_descendant_staging_microblock_stream_with_poison(
                     chainstate.db(),
                     &parent_index_hash,
                     0,
                     u16::MAX,
-                )?
-                .unwrap_or_default();
+                )? {
+                    Some(stream) => stream.microblocks,
+                    None => vec![],
+                };
 
             debug!(
                 "Loaded {} microblocks made by {}/{}",
@@ -1891,8 +1889,12 @@ impl StacksBlockBuilder {
                                     self.header.parent_block)
         );
 
-        if let Some((ref _miner_payout, ref _user_payouts, ref _parent_reward, ref _reward_info)) =
-            self.miner_payouts
+        if let Some(MaturedMinerPayouts {
+            miner: ref _miner_payout,
+            users: ref _user_payouts,
+            parent: ref _parent_reward,
+            ..
+        }) = self.miner_payouts
         {
             test_debug!(
                 "Miner payout to process: {_miner_payout:?}; user payouts: {_user_payouts:?}; parent payout: {_parent_reward:?}"
@@ -2358,7 +2360,7 @@ impl StacksBlockBuilder {
             &mut builder,
             mempool,
             parent_stacks_header.stacks_block_height,
-            &[coinbase_tx.clone()],
+            slice::from_ref(coinbase_tx),
             settings,
             event_observer,
         ) {

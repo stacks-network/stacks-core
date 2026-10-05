@@ -372,12 +372,14 @@ impl<'a, 'hooks> OwnedEnvironment<'a, 'hooks> {
             .set_execution_resource_limiter(resource_limiter);
     }
 
-    pub fn get_exec_environment<'b>(
-        &'b mut self,
+    /// The invocation borrows only `context`, so a callable resolved through it outlives
+    /// the execution state.
+    pub fn get_exec_environment<'c>(
+        &mut self,
         sender: Option<PrincipalData>,
         sponsor: Option<PrincipalData>,
-        context: &'b ContractContext,
-    ) -> (ExecutionState<'b, 'a, 'hooks>, InvocationContext<'b>) {
+        context: &'c ContractContext,
+    ) -> (ExecutionState<'_, 'a, 'hooks>, InvocationContext<'c>) {
         (
             ExecutionState {
                 global_context: &mut self.context,
@@ -861,12 +863,12 @@ impl<'a, 'b, 'hooks> ExecutionState<'a, 'b, 'hooks> {
             let callee_view = invoke_ctx.with_contract_context(&contract);
             let call = CallTraceFrame::when(self.has_eval_hooks(), || CallHook::UserDefined {
                 contract_identifier: &callee_view.contract_context.contract_identifier,
-                function: &func,
+                function: func,
             });
             call.begin(self, &callee_view, CallArguments::Values(&args));
             call.did_evaluate_arguments(self, &callee_view, &args);
 
-            let res = self.execute_function_as_transaction(invoke_ctx, &func, &args, options);
+            let res = self.execute_function_as_transaction(invoke_ctx, func, &args, options);
 
             call.finish(self, &callee_view, &res);
             self.call_stack.remove(&func_identifier, true)?;
@@ -1713,15 +1715,15 @@ impl ContractContext {
         self.variables.get(name)
     }
 
-    pub fn lookup_function(&self, name: &str) -> Option<DefinedFunction> {
-        self.functions.get(name).cloned()
+    pub fn lookup_function(&self, name: &str) -> Option<&DefinedFunction> {
+        self.functions.get(name)
     }
 
     pub fn lookup_trait_definition(
         &self,
         name: &str,
-    ) -> Option<BTreeMap<ClarityName, FunctionSignature>> {
-        self.defined_traits.get(name).cloned()
+    ) -> Option<&BTreeMap<ClarityName, FunctionSignature>> {
+        self.defined_traits.get(name)
     }
 
     pub fn is_explicitly_implementing_trait(&self, trait_identifier: &TraitIdentifier) -> bool {
