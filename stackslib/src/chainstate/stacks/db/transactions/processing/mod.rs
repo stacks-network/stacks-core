@@ -141,6 +141,10 @@ impl<'tx> TxToProcess<'tx> {
 /// The lifecycle state proves which transaction and Clarity context are
 /// available. An independent resource typestate requires an explicit limited or
 /// unlimited policy before either terminal operation is available.
+///
+/// Configuring a processor has no effect on its own: the transaction is only processed by the
+/// terminal [`process`](Self::process) or [`process_payload`](Self::process_payload) call.
+#[must_use = "a `TransactionProcessor` does nothing until `.process()` or `.process_payload()` is called"]
 pub struct TransactionProcessor<
     'hooks,
     State,
