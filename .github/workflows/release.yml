@@ -242,7 +242,12 @@ jobs:
     name: "Check: Test Caches"
     needs:
       - andon-cord
+      - setup-env
     uses: ./.github/workflows/_check-test-caches.yml
+    with:
+      btc-version: ${{ needs.setup-env.outputs.btc-version }}
+      btc-version-sha: ${{ needs.setup-env.outputs.btc-version-sha }}
+      
 
   ############################################################################
   ### Create Nextest Archive Artifact for Tests

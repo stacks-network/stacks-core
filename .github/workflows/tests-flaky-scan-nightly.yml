@@ -170,10 +170,12 @@ jobs:
   ############################################################################
   check-test-caches:
     needs:
-      - check-ci
-    if: needs.check-ci.outputs.enabled == 'true'
+      - setup-env
     name: "Check: Test Caches"
     uses: ./.github/workflows/_check-test-caches.yml
+    with:
+      btc-version: ${{ needs.setup-env.outputs.btc-version }}
+      btc-version-sha: ${{ needs.setup-env.outputs.btc-version-sha }}
 
   ############################################################################
   ### Create Nextest Archive Artifact for Tests
