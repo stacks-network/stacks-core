@@ -15,7 +15,7 @@ on:
         description: 'The version of the bitcoin binary to use for tests'
         required: false
         type: string
-      btc-version_sha:
+      btc-version-sha:
         description: 'The SHA of the binary to verify before executing the tests. Find these in the official SHA256SUMS file for each release. Example: https://bitcoincore.org/bin/bitcoin-core-31.1/SHA256SUMS'
         required: false
         type: string

@@ -85,6 +85,8 @@ jobs:
         timeout-minutes: ${{ fromJSON(env.TEST_TIMEOUT) }}
         uses: ./.github/actions/run-tests
         with:
+          btc-version: ${{ inputs.btc-version }}
+          btc-version-sha: ${{ inputs.btc-version-sha }}
           test-names: ${{ matrix.test-name }}
           archive-file: ${{ inputs.archive-file }}
           codecov-test-name: ${{ matrix.test-name }}
