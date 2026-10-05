@@ -172,8 +172,10 @@ impl<'tx> From<&'tx StacksTransaction> for TransactionProcessor<'static, Selecte
 impl<'tx> From<TxToProcess<'tx>> for TransactionProcessor<'static, FullTransaction<'tx>> {
     fn from(tx_to_process: TxToProcess<'tx>) -> Self {
         match tx_to_process {
-            TxToProcess::Execute(tx) => TransactionProcessor::from(tx).execute(),
-            TxToProcess::Skip { tx, category } => TransactionProcessor::from(tx).skipped(category),
+            TxToProcess::Execute(tx) => TransactionProcessor::from(tx).for_execution(),
+            TxToProcess::Skip { tx, category } => {
+                TransactionProcessor::from(tx).for_skipping(category)
+            }
         }
     }
 }
@@ -236,11 +238,11 @@ impl<'tx, Resources> TransactionProcessor<'static, SelectedTransaction<'tx>, Res
         }
     }
 
-    /// Selects full execution, asserting that no problematic marker applies and the transaction
-    /// payload must run.
+    /// Configures full processing to execute the transaction's payload.
     ///
-    /// Use [`Self::skipped`] when the transaction carries a problematic marker.
-    pub fn execute(self) -> TransactionProcessor<'static, FullTransaction<'tx>, Resources> {
+    /// Use this for a transaction without a problematic marker. Use [`Self::for_skipping`] for a
+    /// transaction listed in a block's `problematic_txs` markers.
+    pub fn for_execution(self) -> TransactionProcessor<'static, FullTransaction<'tx>, Resources> {
         TransactionProcessor {
             state: FullTransaction {
                 tx: self.state.tx,
@@ -253,8 +255,12 @@ impl<'tx, Resources> TransactionProcessor<'static, SelectedTransaction<'tx>, Res
         }
     }
 
-    /// Marks this transaction as problematic so full processing skips its payload.
-    pub fn skipped(
+    /// Configures full processing to skip the transaction's payload, as required for a transaction
+    /// listed in a block's `problematic_txs` markers.
+    ///
+    /// `category` is opaque to consensus; it only conveys why the transaction was flagged.
+    /// Use [`Self::for_execution`] for a transaction without a problematic marker.
+    pub fn for_skipping(
         self,
         category: u8,
     ) -> TransactionProcessor<'static, FullTransaction<'tx>, Resources> {

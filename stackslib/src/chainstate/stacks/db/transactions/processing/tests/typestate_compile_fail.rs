@@ -28,7 +28,7 @@
 ///     tx: &StacksTransaction,
 /// ) {
 ///     TransactionProcessor::from(tx)
-///         .execute()
+///         .for_execution()
 ///         .using_clarity_tx(clarity_tx)
 ///         .process();
 /// }
@@ -59,7 +59,7 @@ struct FullContextRequiresDisposition;
 ///
 /// fn process_without_a_clarity_context(tx: &StacksTransaction) {
 ///     TransactionProcessor::from(tx)
-///         .execute()
+///         .for_execution()
 ///         .with_unlimited_resource_policy()
 ///         .process();
 /// }
@@ -99,7 +99,7 @@ struct FullProcessingRequiresFullContext;
 ///     tx: &StacksTransaction,
 /// ) {
 ///     TransactionProcessor::from(tx)
-///         .execute()
+///         .for_execution()
 ///         .using_clarity_tx(clarity_tx)
 ///         .with_unlimited_resource_policy()
 ///         .process_payload();
