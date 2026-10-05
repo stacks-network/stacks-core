@@ -26,6 +26,7 @@ use clarity::vm::representations::ContractName;
 use clarity::vm::types::{
     PrincipalData, QualifiedContractIdentifier, StandardPrincipalData, Value,
 };
+#[cfg(test)]
 use clarity::vm::ClarityVersion;
 use rusqlite::Error as RusqliteError;
 use serde::{Deserialize, Serialize};
