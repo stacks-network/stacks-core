@@ -157,7 +157,9 @@ fn signers_do_not_reconsider_globally_accepted_and_responded_blocks() {
     // The 1 signer on miner 2 should immediately issue a block rejection.
     wait_for_block_pushed_by_miner_key(30, info_before.stacks_tip_height + 1, &miner_pk_1)
         .expect("Failed to mine block N+1");
-    info!("------------------------- Check Signer Rejected Due to TestingDirective -------------------------");
+    info!(
+        "------------------------- Check Signer Rejected Due to TestingDirective -------------------------"
+    );
     let rejections =
         wait_for_block_rejections_from_signers(30, &signer_signature_hash, &rejecting_signer)
             .expect("Did not receive expected block rejection from rejecting signer");
@@ -293,7 +295,11 @@ fn signers_respond_to_unprocessed_globally_accepted_block_proposals() {
         wait_for_block_rejections_from_signers(2, &sighash, &nonprocessing_signers).is_err(),
         "Non-processing signer should not have rejected the block proposal"
     );
-    assert_eq!(miners.signer_test.get_peer_info().stacks_tip_height, expected_height, "Node should have advanced to expected height and the block should be marked as globally accepted");
+    assert_eq!(
+        miners.signer_test.get_peer_info().stacks_tip_height,
+        expected_height,
+        "Node should have advanced to expected height and the block should be marked as globally accepted"
+    );
 
     info!(
         "------------------------- Allow the non-processing signer to process the reproposal -------------------------"
@@ -309,7 +315,11 @@ fn signers_respond_to_unprocessed_globally_accepted_block_proposals() {
         .expect(
             "Non-processing signer should have rejected the block proposal after it was reproposed",
         );
-    assert_eq!(rejections[0].reason_code, RejectCode::SortitionViewMismatch, "The block proposal should be rejected as it would be reorging a block that is already globally accepted (itself)");
+    assert_eq!(
+        rejections[0].reason_code,
+        RejectCode::SortitionViewMismatch,
+        "The block proposal should be rejected as it would be reorging a block that is already globally accepted (itself)"
+    );
     miners.shutdown();
 }
 
@@ -367,13 +377,17 @@ fn signers_respond_to_unprocessed_globally_rejected_block_proposals() {
     );
     signer_test.boot_to_epoch_3();
 
-    info!("------------------------- Mine Tenure A and block N to establish state -------------------------");
+    info!(
+        "------------------------- Mine Tenure A and block N to establish state -------------------------"
+    );
     let expected_height = signer_test.get_peer_info().stacks_tip_height + 1;
     signer_test.mine_bitcoin_block();
     let _ = wait_for_block_pushed_by_miner_key(30, expected_height, &miner_pk)
         .expect("Failed to mine block N");
     let expected_height = expected_height.saturating_add(1);
-    info!("------------------------- Force 1 Signer to reject blocks and the rest to reject all proposals -------------------------");
+    info!(
+        "------------------------- Force 1 Signer to reject blocks and the rest to reject all proposals -------------------------"
+    );
 
     TEST_SIGNERS_INSERT_BLOCK_PROPOSAL_WITHOUT_PROCESSING.set(nonprocessing_signers.clone());
     TEST_REJECT_ALL_BLOCK_PROPOSAL.set(processing_signers.clone());
@@ -394,7 +408,9 @@ fn signers_respond_to_unprocessed_globally_rejected_block_proposals() {
     let block_proposal = wait_for_block_proposal(30, expected_height, &miner_pk)
         .expect("Miner failed to propose tenure start block");
     let sighash = block_proposal.block.header.signer_signature_hash();
-    info!("------------------------- Wait for block rejections of {sighash} -------------------------");
+    info!(
+        "------------------------- Wait for block rejections of {sighash} -------------------------"
+    );
     wait_for_block_rejections_from_signers(30, &sighash, &processing_signers)
         .expect("Processing signers failed to reject block proposal");
     // Only wait a few seconds longer than it takes for the non-processing signers to reject for the remaining non-processing signer.
@@ -410,7 +426,10 @@ fn signers_respond_to_unprocessed_globally_rejected_block_proposals() {
         wait_for_block_rejections_from_signers(2, &sighash, &nonprocessing_signers).is_err(),
         "Non-processing signer should not have rejected the block proposal"
     );
-    assert!(signer_test.get_peer_info().stacks_tip_height < expected_height, "Node should NOT have advanced to expected height and the block should be marked as globally rejected");
+    assert!(
+        signer_test.get_peer_info().stacks_tip_height < expected_height,
+        "Node should NOT have advanced to expected height and the block should be marked as globally rejected"
+    );
 
     info!(
         "------------------------- Allow the non-processing signer to process the reproposal -------------------------"
@@ -422,7 +441,9 @@ fn signers_respond_to_unprocessed_globally_rejected_block_proposals() {
         "Non-processing signers failed to pre-commit to the block proposal after being allowed to process it",
     );
 
-    info!("------------------------- Allow rejecting signers to process the reproposal -------------------------");
+    info!(
+        "------------------------- Allow rejecting signers to process the reproposal -------------------------"
+    );
     TEST_REJECT_ALL_BLOCK_PROPOSAL.set(vec![]);
     signer_test.send_block_proposal(block_proposal, Duration::from_secs(20));
     wait_for_block_global_acceptance_from_signers(30, &sighash, &all_signers).expect(

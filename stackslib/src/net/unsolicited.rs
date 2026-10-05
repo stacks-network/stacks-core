@@ -331,7 +331,7 @@ impl PeerNetwork {
             .block_height_to_reward_cycle(reward_set_sn.block_height)
             .expect("FATAL: sortition has no reward cycle");
 
-        return (Some(reward_set_sn_rc), can_process);
+        (Some(reward_set_sn_rc), can_process)
     }
 
     #[cfg_attr(test, mutants::skip)]

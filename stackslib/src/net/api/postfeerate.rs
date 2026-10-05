@@ -249,7 +249,7 @@ impl RPCRequestHandler for RPCPostFeeRateRequestHandler {
         let data_resp = match data_resp {
             Ok(data) => data,
             Err(response) => {
-                return response.try_into_contents().map_err(NetError::from);
+                return response.try_into_contents();
             }
         };
 
@@ -267,7 +267,7 @@ impl HttpResponse for RPCPostFeeRateRequestHandler {
         body: &[u8],
     ) -> Result<HttpResponsePayload, Error> {
         let fee: RPCFeeEstimateResponse = parse_json(preamble, body)?;
-        Ok(HttpResponsePayload::try_from_json(fee)?)
+        HttpResponsePayload::try_from_json(fee)
     }
 }
 
