@@ -359,11 +359,13 @@ impl RollbackWrapper<'_> {
     }
 
     /// this function will only return commitment proofs for values _already_ materialized
-    ///  in the underlying store. otherwise it returns None.
+    ///  in the underlying store. otherwise it returns None. The inner `Option<Vec<u8>>` is
+    ///  `None` if the backing store has no proof to offer for this value at all (e.g. a
+    ///  non-Merkleized backend), as distinct from the value simply not existing.
     pub fn get_data_with_proof<T>(
         &mut self,
         key: &str,
-    ) -> Result<Option<(T, Vec<u8>)>, VmExecutionError>
+    ) -> Result<Option<(T, Option<Vec<u8>>)>, VmExecutionError>
     where
         T: ClarityDeserializable<T>,
     {
@@ -374,11 +376,13 @@ impl RollbackWrapper<'_> {
     }
 
     /// this function will only return commitment proofs for values _already_ materialized
-    ///  in the underlying store. otherwise it returns None.
+    ///  in the underlying store. otherwise it returns None. The inner `Option<Vec<u8>>` is
+    ///  `None` if the backing store has no proof to offer for this value at all (e.g. a
+    ///  non-Merkleized backend), as distinct from the value simply not existing.
     pub fn get_data_with_proof_by_hash<T>(
         &mut self,
         hash: &TrieHash,
-    ) -> Result<Option<(T, Vec<u8>)>, VmExecutionError>
+    ) -> Result<Option<(T, Option<Vec<u8>>)>, VmExecutionError>
     where
         T: ClarityDeserializable<T>,
     {

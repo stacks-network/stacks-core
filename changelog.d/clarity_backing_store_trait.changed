@@ -1,0 +1,1 @@
+Updated the ClarityBackingStore trait to be no more dependent on sqlite
