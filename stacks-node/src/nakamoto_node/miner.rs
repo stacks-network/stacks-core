@@ -1691,10 +1691,10 @@ impl BlockMinerThread {
             }
         }
 
-        let target_epoch =
-            SortitionDB::get_stacks_epoch(burn_db.conn(), self.burn_block.block_height + 1)?
-                .expect("FATAL: no epoch defined");
-        let target_epoch_id = target_epoch.epoch_id;
+        let target_epoch_id =
+            SortitionDB::get_stacks_epoch(burn_db.conn(), self.burn_election_block.block_height)?
+                .expect("FATAL: no epoch defined")
+                .epoch_id;
         let mut parent_block_info = self.load_block_parent_info(&mut burn_db, &mut chain_state)?;
         let vrf_proof = self
             .make_vrf_proof()
@@ -1762,7 +1762,13 @@ impl BlockMinerThread {
             ));
             self.mined_blocks = u64::from(tenure_len);
             self.tenure_cost = tenure_cost;
-            self.tenure_budget = target_epoch.block_limit.clone();
+            // The tenure budget is determined by the epoch of the parent block.
+            self.tenure_budget = SortitionDB::get_stacks_epoch(
+                burn_db.conn(),
+                u64::from(stacks_parent_header.burn_header_height),
+            )?
+            .expect("FATAL: no epoch defined")
+            .block_limit;
             if self.reason.is_late_block() {
                 // A late tenure only exists to get its BlockFound block on chain, and the
                 // adopted tip has done that.
