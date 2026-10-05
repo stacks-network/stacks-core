@@ -190,17 +190,6 @@ jobs:
       - setup-env
       - check-test-caches
     uses: ./.github/workflows/_check-cargo-hack.yml
-  
-  ############################################################################
-  ### WASM Tests
-  ############################################################################
-  tests-wasm:
-    name: "Tests: WASM"
-    needs:
-      - check-changelog
-      - check-rustfmt
-      - setup-env
-    uses: ./.github/workflows/_tests-wasm.yml
 
   ############################################################################
   ### Constant Check (stacks-inspect)
@@ -213,6 +202,18 @@ jobs:
       - setup-env
       - check-test-caches
     uses: ./.github/workflows/_check-constants.yml
+    
+  ############################################################################
+  ### WASM Tests
+  ############################################################################
+  tests-wasm:
+    name: "Tests: WASM"
+    needs:
+      - check-changelog
+      - check-rustfmt
+      - setup-env
+      - check-test-caches
+    uses: ./.github/workflows/_tests-wasm.yml
 
   ############################################################################
   ### Create Nextest Archive Artifact for Tests
