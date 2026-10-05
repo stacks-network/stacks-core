@@ -411,7 +411,7 @@ impl SignerCoordinator {
                         return false;
                     }
                     // enough signatures?
-                    return status.total_weight_approved < self.weight_threshold;
+                    status.total_weight_approved < self.weight_threshold
                 },
             )? {
                 Some(status) => status,
@@ -462,8 +462,8 @@ impl SignerCoordinator {
                     // Check if a new Stacks block has arrived in the parent tenure
                     let highest_in_tenure =
                         NakamotoChainState::find_highest_known_block_header_in_tenure(
-                            &chain_state,
-                            &sortdb,
+                            chain_state,
+                            sortdb,
                             &parent_tenure_header.consensus_hash,
                         )?
                         .ok_or(NakamotoNodeError::UnexpectedChainState)?;
@@ -485,11 +485,12 @@ impl SignerCoordinator {
                         return Err(NakamotoNodeError::StacksTipChanged);
                     }
 
-                    // For a tenure-start block, the parent tenure is not the block's own tenure,
-                    // so the check above cannot see a competing block that has already started
-                    // this tenure (e.g. an earlier proposal of ours that reached consensus after
-                    // we re-mined). If this tenure already has a different block, ours can never
-                    // be accepted.
+                    // A tenure-start block's parent lives in the previous tenure, so the
+                    // check above cannot see a *sibling* tenure-start block landing in the
+                    // proposal's own tenure. That happens when an earlier proposal for this
+                    // tenure (e.g. from the miner thread this one replaced) is signed and
+                    // pushed by the signers while we wait on ours. Without this check the
+                    // miner keeps re-proposing a block the signers will never sign.
                     if &parent_tenure_header.consensus_hash != block_consensus_hash {
                         if let Some(highest_in_own_tenure) =
                             NakamotoChainState::find_highest_known_block_header_in_tenure(
