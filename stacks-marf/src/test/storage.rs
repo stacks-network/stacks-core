@@ -21,7 +21,7 @@ use std::io::{Seek, SeekFrom};
 use tempfile::tempdir;
 
 use super::*;
-use crate::chainstate::stacks::index::*;
+use crate::*;
 
 fn ptrs_cmp(p1: &[TriePtr], p2: &[TriePtr]) -> bool {
     if p1.len() != p2.len() {

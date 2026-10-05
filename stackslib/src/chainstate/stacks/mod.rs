@@ -61,7 +61,10 @@ pub mod block;
 pub mod boot;
 pub mod db;
 pub mod events;
-pub mod index;
+/// The MARF now lives in the `stacks-marf` crate. Re-exported under its historical
+/// path so that existing `crate::chainstate::stacks::index::...` call sites keep
+/// resolving; they move to `stacks_marf::...` in follow-up patches.
+pub use stacks_marf as index;
 pub mod miner;
 pub mod sbtc;
 pub mod transaction;

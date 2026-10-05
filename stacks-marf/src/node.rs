@@ -21,12 +21,12 @@ use stacks_common::codec::{read_next, write_next, Error as codec_error, StacksMe
 use stacks_common::types::chainstate::{TrieHash, BLOCK_HEADER_HASH_ENCODED_SIZE};
 use stacks_common::util::hash::to_hex;
 
-use crate::chainstate::stacks::index::bits::{
+use crate::bits::{
     get_compressed_ptrs_size, get_path_byte_len, get_ptrs_byte_len, get_ptrs_byte_len_compressed,
     get_sparse_ptrs_bitmap_size, path_from_bytes, ptrs_from_bytes, write_path_to_bytes,
     SPARSE_PTR_BITMAP_MARKER,
 };
-use crate::chainstate::stacks::index::{
+use crate::{
     BlockMap, ClarityMarfTrieId, Error, MARFValue, MarfTrieId, TrieLeaf, MARF_VALUE_ENCODED_SIZE,
 };
 

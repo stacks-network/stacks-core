@@ -27,14 +27,12 @@ use std::time::{Duration, Instant};
 use rusqlite::params;
 use stacks_common::types::chainstate::TrieHash;
 
-use crate::chainstate::stacks::index::blob_layout::BlobHeader;
-use crate::chainstate::stacks::index::marf::{MARFOpenOpts, MarfConnection as _, MARF};
-use crate::chainstate::stacks::index::node::{clear_backptr, is_backptr, TrieNodeID, TriePtr};
-use crate::chainstate::stacks::index::storage::{
-    SquashInfo, TrieFileStorage, TrieHashCalculationMode, TrieStorageConnection,
-};
-use crate::chainstate::stacks::index::trie::Trie;
-use crate::chainstate::stacks::index::{trie_sql, Error, MarfDataEntry, MarfTrieId};
+use crate::blob_layout::BlobHeader;
+use crate::marf::{MARFOpenOpts, MarfConnection as _, MARF};
+use crate::node::{clear_backptr, is_backptr, TrieNodeID, TriePtr};
+use crate::storage::{SquashInfo, TrieFileStorage, TrieHashCalculationMode, TrieStorageConnection};
+use crate::trie::Trie;
+use crate::{trie_sql, Error, MarfDataEntry, MarfTrieId};
 
 mod node_store;
 mod stream;
