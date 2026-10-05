@@ -839,6 +839,12 @@ impl BlockMinerThread {
                 info!("Miner: new parent block discovered while mining. Will try again.");
                 Ok(None)
             }
+            Err(NakamotoNodeError::StacksTipChanged) => {
+                // A late tenure adopted the canonical tip of its tenure. Retry. The next
+                // attempt exits through the late-tenure check.
+                info!("Miner: Stacks tip changed while mining. Will try again.");
+                Ok(None)
+            }
             Err(
                 ref e @ (NakamotoNodeError::MiningFailure(ChainstateError::DBError(_))
                 | NakamotoNodeError::DBError(_)),
@@ -1757,6 +1763,11 @@ impl BlockMinerThread {
             self.mined_blocks = u64::from(tenure_len);
             self.tenure_cost = tenure_cost;
             self.tenure_budget = target_epoch.block_limit.clone();
+            if self.reason.is_late_block() {
+                // A late tenure only exists to get its BlockFound block on chain, and the
+                // adopted tip has done that.
+                return Err(NakamotoNodeError::StacksTipChanged);
+            }
         }
 
         if self.last_block_mined.is_none() && parent_block_info.parent_tenure.is_none() {
