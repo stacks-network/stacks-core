@@ -1,0 +1,61 @@
+{
+    "summary": "Stacker set response (PoX-5 cycle)",
+    "value": {
+        "stacker_set": {
+            "reward_set_version": 1,
+            "sbtc_address": {
+                "Addr32": [
+                    true,
+                    "P2TR",
+                    [
+                        35,
+                        78,
+                        62,
+                        152,
+                        83,
+                        38,
+                        17,
+                        204,
+                        89,
+                        128,
+                        170,
+                        73,
+                        10,
+                        116,
+                        43,
+                        155,
+                        202,
+                        197,
+                        215,
+                        235,
+                        64,
+                        216,
+                        24,
+                        108,
+                        149,
+                        0,
+                        228,
+                        113,
+                        82,
+                        224,
+                        35,
+                        51
+                    ]
+                ]
+            },
+            "signers": [
+                {
+                    "signing_key": "0209130bec93e83b23d3366adfcbe0a1641057b9c48102572d892fe8f78de2bee7",
+                    "stacked_amt": 71276903000000,
+                    "weight": 636
+                },
+                {
+                    "signing_key": "0216436e7785e1dc55cf4350ac1f90e45daf0ec5b57bce13a32551a513446e71d1",
+                    "stacked_amt": 1000001500110,
+                    "weight": 9
+                }
+            ],
+            "pox_ustx_threshold": 112082393974
+        }
+    }
+}
