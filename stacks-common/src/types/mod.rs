@@ -542,6 +542,12 @@ impl StacksEpochId {
         self >= &StacksEpochId::Epoch40
     }
 
+    /// Whether implicit casts use the list's actual length to avoid overflowing
+    /// a valid argument against the parameter's element size.
+    pub fn fixes_implicit_cast_list_bound(&self) -> bool {
+        self >= &StacksEpochId::Epoch41
+    }
+
     /// Whether typed tuple deserialization requires every declared field to be
     /// present exactly once after sanitization.
     pub fn enforces_exact_typed_tuple_field_set(&self) -> bool {
