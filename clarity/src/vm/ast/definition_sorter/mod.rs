@@ -17,19 +17,20 @@
 use std::collections::{HashMap, HashSet};
 
 use clarity_types::representations::ClarityName;
+use stacks_common::types::StacksEpochId;
 
-use crate::vm::ClarityVersion;
 use crate::vm::ast::errors::{ParseError, ParseErrorKind, ParseResult};
 use crate::vm::ast::types::ContractAST;
 use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::costs::{CostTracker, runtime_cost};
-use crate::vm::functions::NativeFunctions;
 use crate::vm::functions::define::DefineFunctions;
+use crate::vm::functions::{NativeFunctions, lookup_reserved_functions};
 use crate::vm::representations::PreSymbolicExpression;
 use crate::vm::representations::PreSymbolicExpressionType::{
     Atom, AtomValue, Comment, FieldIdentifier, List, Placeholder, SugaredContractIdentifier,
     SugaredFieldIdentifier, TraitReference, Tuple,
 };
+use crate::vm::{ClarityVersion, is_reserved};
 
 #[cfg(test)]
 mod tests;
@@ -37,13 +38,15 @@ mod tests;
 pub struct DefinitionSorter {
     graph: Graph,
     top_level_expressions_map: HashMap<ClarityName, TopLevelExpressionIndex>,
+    epoch: StacksEpochId,
 }
 
 impl DefinitionSorter {
-    fn new() -> Self {
+    fn new(epoch: StacksEpochId) -> Self {
         Self {
             top_level_expressions_map: HashMap::new(),
             graph: Graph::new(),
+            epoch,
         }
     }
 
@@ -51,8 +54,9 @@ impl DefinitionSorter {
         contract_ast: &mut ContractAST,
         accounting: &mut T,
         version: ClarityVersion,
+        epoch: StacksEpochId,
     ) -> ParseResult<()> {
-        let mut pass = DefinitionSorter::new();
+        let mut pass = DefinitionSorter::new(epoch);
         pass.run(contract_ast, accounting, version)?;
         Ok(())
     }
@@ -118,6 +122,12 @@ impl DefinitionSorter {
     ) -> ParseResult<()> {
         match expr.pre_expr {
             Atom(ref name) => {
+                // From Epoch 4.1 a user function may share a native's name
+                // (see `is_shadowable_reserved`); in value position the atom
+                // means the native, never that definition.
+                if self.epoch.allows_shadowable_reserved_names() && is_reserved(name, &version) {
+                    return Ok(());
+                }
                 if let Some(dep) = self.top_level_expressions_map.get(name)
                     && dep.atom_index != expr.id
                 {
@@ -142,9 +152,9 @@ impl DefinitionSorter {
 
                 // Avoid looking for dependencies in tuples
                 // TODO: Eliminate special handling of tuples as it is a separate presymbolic expression type
-                if let Some((function_name, rest)) = filtered_exprs.split_first() {
+                if let Some((head, rest)) = filtered_exprs.split_first() {
                     let function_args = rest.to_vec();
-                    if let Some(function_name) = function_name.match_atom() {
+                    if let Some(function_name) = head.match_atom() {
                         if let Some(define_function) =
                             DefineFunctions::lookup_by_name(function_name)
                         {
@@ -237,11 +247,14 @@ impl DefinitionSorter {
                         {
                             match native_function {
                                 NativeFunctions::ContractCall => {
-                                    // Args: [contract-name, function-name, ...]: ignore contract-name, function-name, handle rest
-                                    if function_args.len() > 2 {
-                                        for expr in function_args[2..].iter() {
-                                            self.probe_for_dependencies(expr, tle_index, version)?;
+                                    // Args: [contract-name, function-name, ...]: Always ignore function-name because it's not
+                                    // a dependency *in this contract*. Handle contract-name beginning in Epoch 4.1, see
+                                    // `should_skip_contract_call_argument` for details. Always handle the rest.
+                                    for (index, expr) in function_args.iter().enumerate() {
+                                        if self.should_skip_contract_call_argument(index) {
+                                            continue;
                                         }
+                                        self.probe_for_dependencies(expr, tle_index, version)?;
                                     }
                                     return Ok(());
                                 }
@@ -277,8 +290,35 @@ impl DefinitionSorter {
                                     )?;
                                     return Ok(());
                                 }
+                                NativeFunctions::Map
+                                | NativeFunctions::Fold
+                                | NativeFunctions::Filter
+                                    if self.epoch.allows_shadowable_reserved_names() =>
+                                {
+                                    // Args: [function-name, ...]
+                                    if let Some((function_ref, rest)) = function_args.split_first()
+                                    {
+                                        self.probe_function_reference(
+                                            function_ref,
+                                            tle_index,
+                                            version,
+                                        )?;
+                                        for expr in rest.iter() {
+                                            self.probe_for_dependencies(expr, tle_index, version)?;
+                                        }
+                                    }
+                                    return Ok(());
+                                }
                                 _ => {}
                             }
+                        } else if self.epoch.allows_shadowable_reserved_names() {
+                            // Not a native function, so applying the name resolves
+                            // to the user function even when it is a keyword.
+                            self.probe_function_reference(head, tle_index, version)?;
+                            for expr in function_args.iter() {
+                                self.probe_for_dependencies(expr, tle_index, version)?;
+                            }
+                            return Ok(());
                         }
                     }
                 }
@@ -298,6 +338,29 @@ impl DefinitionSorter {
             | Comment(_)
             | Placeholder(_) => Ok(()),
         }
+    }
+
+    /// Dependency of a function-position atom (application head; function
+    /// argument of `map`/`fold`/`filter`). Unlike value position, a keyword
+    /// name counts here: a same-named user function is what it resolves to.
+    fn probe_function_reference(
+        &mut self,
+        expr: &PreSymbolicExpression,
+        tle_index: usize,
+        version: ClarityVersion,
+    ) -> ParseResult<()> {
+        let Some(name) = expr.match_atom() else {
+            return self.probe_for_dependencies(expr, tle_index, version);
+        };
+        if lookup_reserved_functions(name, &version).is_some() {
+            return Ok(());
+        }
+        if let Some(dep) = self.top_level_expressions_map.get(name)
+            && dep.atom_index != expr.id
+        {
+            self.graph.add_directed_edge(tle_index, dep.expr_index)?;
+        }
+        Ok(())
     }
 
     /// accept a slice of expected-pairs, e.g., [ (a b) (c d) (e f) ], and
@@ -393,6 +456,24 @@ impl DefinitionSorter {
         };
         let tle_name = defined_name.match_atom()?;
         Some((tle_name.clone(), defined_name.id, defined_name))
+    }
+
+    /// When probing dependencies of a `contract-call?` invocation, should
+    /// the argument with the given index be ignored? The signature is
+    /// `(contract-call? contract-principal function-name other-args...)`,
+    /// so `contract-principal` is index 0 and `function-name` is index 1.
+    fn should_skip_contract_call_argument(&self, argument_index: usize) -> bool {
+        if self.epoch.checks_dependency_of_contract_call_target() {
+            // only skip argument 1, the function name (because it doesn't
+            // refer to a name in the current contract, but in the called contract)
+            argument_index == 1
+        } else {
+            // also skip argument 0, the target contract, because that is
+            // the legacy behavior that we have to support, even though it
+            // was incorrect starting with Clarity 2 when this argument no
+            // longer had to be a principal literal
+            argument_index <= 1
+        }
     }
 }
 

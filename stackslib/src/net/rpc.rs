@@ -126,6 +126,7 @@ impl ConversationHttp {
     }
 
     /// How many ongoing requests do we have on this conversation?
+    #[cfg(test)]
     pub fn num_pending_outbound(&self) -> usize {
         self.reply_streams.len()
     }
@@ -219,6 +220,7 @@ impl ConversationHttp {
         req: StacksHttpRequest,
         node: &mut StacksNodeState,
     ) -> Result<Option<StacksMessageType>, net_error> {
+        node.set_http_peer_addr(self.peer_addr);
         // NOTE: This may set node.relay_message
         let keep_alive = req.preamble().keep_alive;
         let (mut response_preamble, response_body) =
@@ -361,7 +363,7 @@ impl ConversationHttp {
             Ok(message) => match message {
                 StacksHttpMessage::Request(_) => {
                     warn!("Received response: not a HTTP response");
-                    return Err(Err(net_error::InvalidMessage));
+                    Err(Err(net_error::InvalidMessage))
                 }
                 StacksHttpMessage::Response(http_response) => Ok(http_response),
                 StacksHttpMessage::Error(_, http_response) => Ok(http_response),
@@ -533,7 +535,7 @@ impl ConversationHttp {
                 }
                 StacksHttpMessage::Response(resp) => {
                     node.update_highest_stacks_neighbor(
-                        &self.get_peer_addr(),
+                        self.get_peer_addr(),
                         resp.preamble().get_canonical_stacks_tip_height(),
                     );
                     // Is there someone else waiting for this message?  If so, pass it along.

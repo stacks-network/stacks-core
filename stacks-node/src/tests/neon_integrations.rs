@@ -105,6 +105,7 @@ use crate::burnchains::bitcoin::core_controller::BitcoinCoreController;
 use crate::burnchains::bitcoin_regtest_controller::{self, UTXO};
 use crate::neon_node::RelayerThread;
 use crate::operations::BurnchainOpSigner;
+use crate::run_loop::neon::Counters;
 use crate::stacks_common::types::PrivateKey;
 use crate::syncctl::PoxSyncWatchdogComms;
 use crate::tests::gen_random_port;
@@ -807,6 +808,36 @@ pub fn next_block_and_wait_with_timeout(
     true
 }
 
+/// Wait up to `timeout_secs` for the miner to submit a block-commit built on
+/// the node's current burn tip. Use this before mining the next burn block so
+/// that the commit lands in it. A commit that misses its target burn block is
+/// rejected as a missed commit, producing an empty sortition.
+pub fn wait_for_tip_commit(
+    conf: &Config,
+    counters: &Counters,
+    timeout_secs: u64,
+) -> Result<(), String> {
+    let burn_height = get_chain_info(conf).burn_block_height;
+    wait_for(timeout_secs, || {
+        Ok(counters.neon_submitted_commit_last_burn_height.get() >= burn_height)
+    })
+}
+
+/// Like `next_block_and_wait`, but first waits for the miner to submit a
+/// block-commit built on the current burn tip, so the new burn block holds a
+/// winning commit instead of an empty sortition. Use this in tests that
+/// expect every burn block to elect a Stacks block.
+pub fn next_block_and_wait_for_commit(
+    btc_controller: &BitcoinRegtestController,
+    blocks_processed: &Arc<AtomicU64>,
+    conf: &Config,
+    counters: &Counters,
+) -> bool {
+    wait_for_tip_commit(conf, counters, PANIC_TIMEOUT_SECS)
+        .expect("Timed out waiting for the miner to submit a block-commit");
+    next_block_and_wait(btc_controller, blocks_processed)
+}
+
 /// Mine blocks until `check` returns `true`, up to `max_blocks` blocks.
 /// Each block is mined with `next_block_and_wait`, waiting up to
 /// `block_timeout_secs` for it to be processed before moving on.
@@ -1230,7 +1261,7 @@ fn bitcoind_integration_test() {
         .start_bitcoind()
         .expect("Failed starting bitcoind");
 
-    let mut btc_regtest_controller = BitcoinRegtestController::new(conf.clone(), None);
+    let btc_regtest_controller = BitcoinRegtestController::new(conf.clone(), None);
     let http_origin = format!("http://{}", &conf.node.rpc_bind);
 
     btc_regtest_controller.bootstrap_chain(201);
@@ -1248,13 +1279,13 @@ fn bitcoind_integration_test() {
     wait_for_runloop(&blocks_processed);
 
     // first block wakes up the run loop
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&btc_regtest_controller, &blocks_processed);
 
     // first block will hold our VRF registration
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&btc_regtest_controller, &blocks_processed);
 
     // second block will be the first mined Stacks block
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&btc_regtest_controller, &blocks_processed);
 
     // let's query the miner's account nonce:
 
@@ -1264,7 +1295,7 @@ fn bitcoind_integration_test() {
     assert_eq!(account.balance, 0);
     assert_eq!(account.nonce, 1);
 
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&btc_regtest_controller, &blocks_processed);
     sleep_ms(4_000);
 
     let burn_blocks_observed = test_observer::get_burn_blocks();
@@ -1338,7 +1369,7 @@ fn confirm_unparsed_ongoing_ops() {
         .start_bitcoind()
         .expect("Failed starting bitcoind");
 
-    let mut btc_regtest_controller = BitcoinRegtestController::new(conf.clone(), None);
+    let btc_regtest_controller = BitcoinRegtestController::new(conf.clone(), None);
     let http_origin = format!("http://{}", &conf.node.rpc_bind);
 
     btc_regtest_controller.bootstrap_chain(201);
@@ -1356,23 +1387,23 @@ fn confirm_unparsed_ongoing_ops() {
     wait_for_runloop(&blocks_processed);
 
     // first block wakes up the run loop
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&btc_regtest_controller, &blocks_processed);
 
     // this block will hold our VRF registration
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&btc_regtest_controller, &blocks_processed);
 
     // second bitcoin block will contain the first mined Stacks block, and then issue a 2nd valid commit
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&btc_regtest_controller, &blocks_processed);
 
     // now, let's alter the miner's magic bytes
     bitcoin_regtest_controller::TEST_MAGIC_BYTES
         .lock()
         .unwrap()
-        .replace([b'Z', b'Z']);
+        .replace(*b"ZZ");
 
     // let's trigger another mining loop: this should create an invalid block commit.
     // this bitcoin block will contain the valid commit created before (so, a second stacks block)
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&btc_regtest_controller, &blocks_processed);
 
     // reset the miner's magic bytes
     bitcoin_regtest_controller::TEST_MAGIC_BYTES
@@ -1385,11 +1416,11 @@ fn confirm_unparsed_ongoing_ops() {
     //  if the block wasn't created in 25 seconds, just timeout -- the test will fail
     //  at the final checks
     // in correct behavior, this will create a 3rd valid block commit
-    next_block_and_wait_with_timeout(&mut btc_regtest_controller, &blocks_processed, 25);
+    next_block_and_wait_with_timeout(&btc_regtest_controller, &blocks_processed, 25);
 
     // trigger another mining loop: this will mine the last valid block commit. after this,
     //  the node *should* see 3 stacks blocks.
-    next_block_and_wait_with_timeout(&mut btc_regtest_controller, &blocks_processed, 25);
+    next_block_and_wait_with_timeout(&btc_regtest_controller, &blocks_processed, 25);
 
     // query the miner's account nonce
 
@@ -1420,7 +1451,7 @@ fn most_recent_utxo_integration_test() {
         .start_bitcoind()
         .expect("Failed starting bitcoind");
 
-    let mut btc_regtest_controller = BitcoinRegtestController::new(conf.clone(), None);
+    let btc_regtest_controller = BitcoinRegtestController::new(conf.clone(), None);
 
     btc_regtest_controller.bootstrap_chain(201);
 
@@ -1437,13 +1468,13 @@ fn most_recent_utxo_integration_test() {
     wait_for_runloop(&blocks_processed);
 
     // first block wakes up the run loop
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&btc_regtest_controller, &blocks_processed);
 
     // first block will hold our VRF registration
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&btc_regtest_controller, &blocks_processed);
 
     // second block will be the first mined Stacks block
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&btc_regtest_controller, &blocks_processed);
 
     let mut miner_signer = Keychain::default(conf.node.seed).generate_op_signer();
     let pubkey = miner_signer.get_public_key();
@@ -1498,7 +1529,7 @@ fn most_recent_utxo_integration_test() {
 
     // third block will be the second mined Stacks block, and mining it should *not* spend the
     // biggest UTXO, but should spend the *smallest non-dust* UTXO
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&btc_regtest_controller, &blocks_processed);
 
     let utxos_after = btc_regtest_controller.get_all_utxos(&pubkey);
 
@@ -1679,7 +1710,7 @@ fn deep_contract() {
 
     let burnchain_config = Burnchain::regtest(&conf.get_burn_db_path());
 
-    let mut btc_regtest_controller = BitcoinRegtestController::with_burnchain(
+    let btc_regtest_controller = BitcoinRegtestController::with_burnchain(
         conf.clone(),
         None,
         Some(burnchain_config.clone()),
@@ -1702,13 +1733,13 @@ fn deep_contract() {
     wait_for_runloop(&blocks_processed);
 
     // first block wakes up the run loop
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&btc_regtest_controller, &blocks_processed);
 
     // first block will hold our VRF registration
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&btc_regtest_controller, &blocks_processed);
 
     // second block will be the first mined Stacks block
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&btc_regtest_controller, &blocks_processed);
 
     let _sort_height = channel.get_sortitions_processed();
 
@@ -1724,9 +1755,9 @@ fn deep_contract() {
 
     test_observer::clear();
 
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&btc_regtest_controller, &blocks_processed);
 
     let blocks = test_observer::get_blocks();
     let mut included_smart_contract = false;
@@ -1789,7 +1820,7 @@ fn liquid_ustx_integration() {
 
     let burnchain_config = Burnchain::regtest(&conf.get_burn_db_path());
 
-    let mut btc_regtest_controller = BitcoinRegtestController::with_burnchain(
+    let btc_regtest_controller = BitcoinRegtestController::with_burnchain(
         conf.clone(),
         None,
         Some(burnchain_config.clone()),
@@ -1812,13 +1843,13 @@ fn liquid_ustx_integration() {
     wait_for_runloop(&blocks_processed);
 
     // first block wakes up the run loop
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&btc_regtest_controller, &blocks_processed);
 
     // first block will hold our VRF registration
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&btc_regtest_controller, &blocks_processed);
 
     // second block will be the first mined Stacks block
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&btc_regtest_controller, &blocks_processed);
 
     let _sort_height = channel.get_sortitions_processed();
 
@@ -1849,9 +1880,9 @@ fn liquid_ustx_integration() {
     assert_eq!(&dropped_txs[0].0, &format!("0x{replaced_txid}"));
 
     // mine 1 burn block for the miner to issue the next block
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&btc_regtest_controller, &blocks_processed);
     // mine next burn block for the miner to win
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&btc_regtest_controller, &blocks_processed);
 
     let call_tx = make_contract_call(
         &spender_sk,
@@ -1866,12 +1897,12 @@ fn liquid_ustx_integration() {
 
     submit_tx(&http_origin, &call_tx);
 
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&btc_regtest_controller, &blocks_processed);
 
     // clear and mine another burnchain block, so that the new winner is seen by the observer
     //   (the observer is logically "one block behind" the miner
     test_observer::clear();
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&btc_regtest_controller, &blocks_processed);
 
     let mut blocks = test_observer::get_blocks();
     // should have produced 1 new block
@@ -1920,7 +1951,7 @@ fn lockup_integration() {
 
     let burnchain_config = Burnchain::regtest(&conf.get_burn_db_path());
 
-    let mut btc_regtest_controller = BitcoinRegtestController::with_burnchain(
+    let btc_regtest_controller = BitcoinRegtestController::with_burnchain(
         conf.clone(),
         None,
         Some(burnchain_config.clone()),
@@ -1942,7 +1973,7 @@ fn lockup_integration() {
     wait_for_runloop(&blocks_processed);
 
     // first block wakes up the run loop
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&btc_regtest_controller, &blocks_processed);
 
     // let's query an account that unlocked STX
     // Looking at chainstate-test.txt,
@@ -1954,10 +1985,10 @@ fn lockup_integration() {
     let recipient = StacksAddress::from_string(recipient_addr_str).unwrap();
 
     // first block will hold our VRF registration
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&btc_regtest_controller, &blocks_processed);
 
     // block #1 should be unlocking STX
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&btc_regtest_controller, &blocks_processed);
     assert_eq!(get_balance(&http_origin, &recipient), 13888888889);
     let blocks = test_observer::get_blocks();
     let chain_tip = blocks.last().unwrap();
@@ -1977,10 +2008,10 @@ fn lockup_integration() {
     assert!(found);
 
     // block #2 won't unlock STX
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&btc_regtest_controller, &blocks_processed);
 
     // block #3 should be unlocking STX
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&btc_regtest_controller, &blocks_processed);
     assert_eq!(get_balance(&http_origin, &recipient), 13888888889 * 3);
 
     // now let's ensure that the last block received by the event observer contains the lockup receipt
@@ -2058,13 +2089,13 @@ fn stx_transfer_btc_integration_test() {
     wait_for_runloop(&blocks_processed);
 
     // first block wakes up the run loop
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&btc_regtest_controller, &blocks_processed);
 
     // first block will hold our VRF registration
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&btc_regtest_controller, &blocks_processed);
 
     // second block will be the first mined Stacks block
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&btc_regtest_controller, &blocks_processed);
 
     test_observer::clear();
 
@@ -2094,7 +2125,7 @@ fn stx_transfer_btc_integration_test() {
         "Pre-stx operation should submit successfully"
     );
 
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&btc_regtest_controller, &blocks_processed);
     // let's fire off our transfer op.
     let recipient_sk = StacksPrivateKey::random();
     let recipient_addr = to_addr(&recipient_sk);
@@ -2123,12 +2154,12 @@ fn stx_transfer_btc_integration_test() {
         "Transfer operation should submit successfully"
     );
     // should be elected in the same block as the transfer, so balances should be unchanged.
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&btc_regtest_controller, &blocks_processed);
     assert_eq!(get_balance(&http_origin, &spender_addr), 100300);
     assert_eq!(get_balance(&http_origin, &recipient_addr), 0);
 
     // this block should process the transfer
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&btc_regtest_controller, &blocks_processed);
 
     assert_eq!(get_balance(&http_origin, &spender_addr), 300);
     assert_eq!(get_balance(&http_origin, &recipient_addr), 100_000);
@@ -2192,14 +2223,14 @@ fn stx_transfer_btc_integration_test() {
         .expect("Transfer operation should submit successfully");
 
     // should be elected in the same block as the transfer, so balances should be unchanged.
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&btc_regtest_controller, &blocks_processed);
 
     assert_eq!(get_balance(&http_origin, &spender_addr), 300);
     assert_eq!(get_balance(&http_origin, &recipient_addr), 100_000);
     assert_eq!(get_balance(&http_origin, &spender_2_addr), 100_300);
 
     // should process the transfer
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&btc_regtest_controller, &blocks_processed);
 
     assert_eq!(get_balance(&http_origin, &spender_addr), 300);
     assert_eq!(get_balance(&http_origin, &recipient_addr), 200_000);
@@ -2328,16 +2359,16 @@ fn stx_delegate_btc_integration_test() {
     // give the run loop some time to start up!
     wait_for_runloop(&blocks_processed);
 
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&btc_regtest_controller, &blocks_processed);
 
     test_observer::clear();
 
     // Mine a few more blocks so that Epoch 2.1 (and thus pox-2) can take effect.
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&btc_regtest_controller, &blocks_processed);
 
     // okay, let's send a pre-stx op.
     let pre_stx_op = PreStxOp {
@@ -2362,7 +2393,7 @@ fn stx_delegate_btc_integration_test() {
         "Pre-stx operation should submit successfully"
     );
 
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&btc_regtest_controller, &blocks_processed);
 
     // let's fire off our delegate op.
     let del_stx_op = DelegateStxOp {
@@ -2391,8 +2422,8 @@ fn stx_delegate_btc_integration_test() {
     );
 
     // the second block should process the delegation, after which the balaces should be unchanged
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&btc_regtest_controller, &blocks_processed);
 
     assert_eq!(get_balance(&http_origin, &spender_addr), 100300);
     assert_eq!(get_balance(&http_origin, &recipient_addr), 300);
@@ -2427,11 +2458,11 @@ fn stx_delegate_btc_integration_test() {
     submit_tx(&http_origin, &tx);
 
     // let's mine until the next reward cycle starts ...
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&btc_regtest_controller, &blocks_processed);
 
     // check the locked amount for the spender account
     let account = get_account(&http_origin, &spender_stx_addr);
@@ -2615,9 +2646,9 @@ fn stack_stx_burn_op_test() {
 
     test_observer::clear();
 
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&btc_regtest_controller, &blocks_processed);
 
     info!("Bootstrapped to 2.5, submitting stack-stx and pre-stx op...");
 
@@ -2717,7 +2748,7 @@ fn stack_stx_burn_op_test() {
 
     // Wait a few blocks to be registered
     for _i in 0..3 {
-        next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+        next_block_and_wait(&btc_regtest_controller, &blocks_processed);
         block_height = channel.get_sortitions_processed();
     }
 
@@ -2791,8 +2822,8 @@ fn stack_stx_burn_op_test() {
     info!("Submitted 2 stack STX ops at height {block_height}, mining a few blocks...");
 
     // the second block should process the vote, after which the balaces should be unchanged
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&btc_regtest_controller, &blocks_processed);
 
     let mut stack_stx_found = false;
     let mut stack_stx_burn_op_tx_count = 0;
@@ -3014,9 +3045,9 @@ fn vote_for_aggregate_key_burn_op_test() {
 
     test_observer::clear();
 
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&btc_regtest_controller, &blocks_processed);
 
     info!("Bootstrapped to 2.5, submitting stack-stx and pre-stx op...");
 
@@ -3098,7 +3129,7 @@ fn vote_for_aggregate_key_burn_op_test() {
 
     // Wait a few blocks to be registered
     for _i in 0..5 {
-        next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+        next_block_and_wait(&btc_regtest_controller, &blocks_processed);
         block_height = btc_regtest_controller.get_headers_height();
     }
 
@@ -3150,8 +3181,8 @@ fn vote_for_aggregate_key_burn_op_test() {
     info!("Submitted vote for aggregate key op at height {block_height}, mining a few blocks...");
 
     // the second block should process the vote, after which the vote should be processed
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&btc_regtest_controller, &blocks_processed);
 
     let mut vote_for_aggregate_key_found = false;
     let blocks = test_observer::get_blocks();
@@ -3218,7 +3249,7 @@ fn bitcoind_resubmission_test() {
         .start_bitcoind()
         .expect("Failed starting bitcoind");
 
-    let mut btc_regtest_controller = BitcoinRegtestController::new(conf.clone(), None);
+    let btc_regtest_controller = BitcoinRegtestController::new(conf.clone(), None);
     let http_origin = format!("http://{}", &conf.node.rpc_bind);
 
     btc_regtest_controller.bootstrap_chain(201);
@@ -3236,17 +3267,17 @@ fn bitcoind_resubmission_test() {
     wait_for_runloop(&blocks_processed);
 
     // first block wakes up the run loop
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&btc_regtest_controller, &blocks_processed);
 
     // first block will hold our VRF registration
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&btc_regtest_controller, &blocks_processed);
 
     // next block, issue a commit
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&btc_regtest_controller, &blocks_processed);
 
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&btc_regtest_controller, &blocks_processed);
 
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&btc_regtest_controller, &blocks_processed);
 
     // let's figure out the current chain tip
     let chain_tip = get_chain_tip(&http_origin);
@@ -3299,7 +3330,7 @@ fn bitcoind_resubmission_test() {
 
     thread::sleep(Duration::from_secs(30));
 
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&btc_regtest_controller, &blocks_processed);
 
     let burnchain_db = BurnchainDB::open(
         &btc_regtest_controller
@@ -3336,7 +3367,7 @@ fn bitcoind_forking_test() {
         .start_bitcoind()
         .expect("Failed starting bitcoind");
 
-    let mut btc_regtest_controller = BitcoinRegtestController::new(conf.clone(), None);
+    let btc_regtest_controller = BitcoinRegtestController::new(conf.clone(), None);
     let http_origin = format!("http://{}", &conf.node.rpc_bind);
 
     btc_regtest_controller.bootstrap_chain(201);
@@ -3354,16 +3385,16 @@ fn bitcoind_forking_test() {
     wait_for_runloop(&blocks_processed);
 
     // first block wakes up the run loop
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&btc_regtest_controller, &blocks_processed);
 
     // first block will hold our VRF registration
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&btc_regtest_controller, &blocks_processed);
 
     let mut sort_height = channel.get_sortitions_processed();
     eprintln!("Sort height: {sort_height}");
 
     while sort_height < 210 {
-        next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+        next_block_and_wait(&btc_regtest_controller, &blocks_processed);
         sort_height = channel.get_sortitions_processed();
         eprintln!("Sort height: {sort_height}");
     }
@@ -3384,7 +3415,7 @@ fn bitcoind_forking_test() {
 
     thread::sleep(Duration::from_secs(50));
     eprintln!("Wait for block off of shallow fork");
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&btc_regtest_controller, &blocks_processed);
 
     let account = get_account(&http_origin, &miner_account);
 
@@ -3392,7 +3423,7 @@ fn bitcoind_forking_test() {
     assert_eq!(account.balance, 0);
     assert_eq!(account.nonce, 2);
 
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&btc_regtest_controller, &blocks_processed);
 
     let account = get_account(&http_origin, &miner_account);
 
@@ -3409,13 +3440,13 @@ fn bitcoind_forking_test() {
 
     thread::sleep(Duration::from_secs(50));
     eprintln!("Wait for block off of deep fork");
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&btc_regtest_controller, &blocks_processed);
 
     let account = get_account(&http_origin, &miner_account);
     assert_eq!(account.balance, 0);
     assert_eq!(account.nonce, 3);
 
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&btc_regtest_controller, &blocks_processed);
 
     let account = get_account(&http_origin, &miner_account);
 
@@ -3444,7 +3475,7 @@ fn download_err_in_btc_reorg() {
         .start_bitcoind()
         .expect("Failed starting bitcoind");
 
-    let mut btc_regtest_controller = BitcoinRegtestController::new(conf.clone(), None);
+    let btc_regtest_controller = BitcoinRegtestController::new(conf.clone(), None);
 
     btc_regtest_controller.bootstrap_chain(201);
 
@@ -3462,16 +3493,16 @@ fn download_err_in_btc_reorg() {
     wait_for_runloop(&blocks_processed);
 
     // first block wakes up the run loop
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&btc_regtest_controller, &blocks_processed);
 
     // first block will hold our VRF registration
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&btc_regtest_controller, &blocks_processed);
 
     let mut sort_height = channel.get_sortitions_processed();
     eprintln!("Sort height: {sort_height}");
 
     while sort_height < 210 {
-        next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+        next_block_and_wait(&btc_regtest_controller, &blocks_processed);
         sort_height = channel.get_sortitions_processed();
         eprintln!("Sort height: {sort_height}");
     }
@@ -3484,15 +3515,12 @@ fn download_err_in_btc_reorg() {
 
     btc_regtest_controller.build_next_block(1);
     thread::sleep(Duration::from_secs(5));
-    next_block_and_wait(
-        &mut btc_regtest_controller,
-        &counters.neon_submitted_commits,
-    );
+    next_block_and_wait(&btc_regtest_controller, &counters.neon_submitted_commits);
 
     let stacks_height = get_chain_info(&conf).stacks_tip_height;
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&btc_regtest_controller, &blocks_processed);
     thread::sleep(Duration::from_secs(5));
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&btc_regtest_controller, &blocks_processed);
     thread::sleep(Duration::from_secs(5));
     let next_stacks_height = get_chain_info(&conf).stacks_tip_height;
     info!("Checking stacks height change"; "before" => stacks_height, "after" => next_stacks_height);
@@ -3567,7 +3595,7 @@ fn should_fix_2771() {
         .start_bitcoind()
         .expect("Failed starting bitcoind");
 
-    let mut btc_regtest_controller = BitcoinRegtestController::new(conf.clone(), None);
+    let btc_regtest_controller = BitcoinRegtestController::new(conf.clone(), None);
 
     btc_regtest_controller.bootstrap_chain(201);
 
@@ -3584,16 +3612,16 @@ fn should_fix_2771() {
     wait_for_runloop(&blocks_processed);
 
     // first block wakes up the run loop
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&btc_regtest_controller, &blocks_processed);
 
     // first block will hold our VRF registration
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&btc_regtest_controller, &blocks_processed);
 
     let mut sort_height = channel.get_sortitions_processed();
     eprintln!("Sort height: {sort_height}");
 
     while sort_height < 210 {
-        next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+        next_block_and_wait(&btc_regtest_controller, &blocks_processed);
         sort_height = channel.get_sortitions_processed();
         eprintln!("Sort height: {sort_height}");
     }
@@ -3676,7 +3704,7 @@ fn filter_low_fee_tx_integration_test() {
         .start_bitcoind()
         .expect("Failed starting bitcoind");
 
-    let mut btc_regtest_controller = BitcoinRegtestController::new(conf.clone(), None);
+    let btc_regtest_controller = BitcoinRegtestController::new(conf.clone(), None);
     let http_origin = format!("http://{}", &conf.node.rpc_bind);
 
     btc_regtest_controller.bootstrap_chain(201);
@@ -3694,22 +3722,22 @@ fn filter_low_fee_tx_integration_test() {
     wait_for_runloop(&blocks_processed);
 
     // first block wakes up the run loop
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&btc_regtest_controller, &blocks_processed);
 
     // first block will hold our VRF registration
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&btc_regtest_controller, &blocks_processed);
 
     // second block will be the first mined Stacks block
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&btc_regtest_controller, &blocks_processed);
 
     for tx in txs.iter() {
         submit_tx(&http_origin, tx);
     }
 
     // mine a couple more blocks
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&btc_regtest_controller, &blocks_processed);
 
     // First five accounts have a transaction. The miner will consider low fee transactions,
     //  but rank by estimated fee rate.
@@ -3765,7 +3793,7 @@ fn filter_long_runtime_tx_integration_test() {
         .start_bitcoind()
         .expect("Failed starting bitcoind");
 
-    let mut btc_regtest_controller = BitcoinRegtestController::new(conf.clone(), None);
+    let btc_regtest_controller = BitcoinRegtestController::new(conf.clone(), None);
     let http_origin = format!("http://{}", &conf.node.rpc_bind);
 
     btc_regtest_controller.bootstrap_chain(201);
@@ -3783,22 +3811,22 @@ fn filter_long_runtime_tx_integration_test() {
     wait_for_runloop(&blocks_processed);
 
     // first block wakes up the run loop
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&btc_regtest_controller, &blocks_processed);
 
     // first block will hold our VRF registration
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&btc_regtest_controller, &blocks_processed);
 
     // second block will be the first mined Stacks block
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&btc_regtest_controller, &blocks_processed);
 
     for tx in txs.iter() {
         submit_tx(&http_origin, tx);
     }
 
     // mine a couple more blocks
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&btc_regtest_controller, &blocks_processed);
 
     // no transactions mined
     for spender_addr in &spender_addrs {
@@ -3870,7 +3898,7 @@ fn miner_submit_twice() {
         .start_bitcoind()
         .expect("Failed starting bitcoind");
 
-    let mut btc_regtest_controller = BitcoinRegtestController::new(conf.clone(), None);
+    let btc_regtest_controller = BitcoinRegtestController::new(conf.clone(), None);
     let http_origin = format!("http://{}", &conf.node.rpc_bind);
 
     btc_regtest_controller.bootstrap_chain(201);
@@ -3888,22 +3916,22 @@ fn miner_submit_twice() {
     wait_for_runloop(&blocks_processed);
 
     // first block wakes up the run loop
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&btc_regtest_controller, &blocks_processed);
 
     // first block will hold our VRF registration
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&btc_regtest_controller, &blocks_processed);
 
     // second block will be the first mined Stacks block
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&btc_regtest_controller, &blocks_processed);
 
     submit_tx(&http_origin, &tx_1);
     submit_tx(&http_origin, &tx_2);
 
     // mine a couple more blocks
     // waiting enough time between them that a second attempt could be made.
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&btc_regtest_controller, &blocks_processed);
     thread::sleep(Duration::from_secs(15));
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&btc_regtest_controller, &blocks_processed);
 
     // 1 transaction mined
     let account = get_account(&http_origin, &spender_addr);
@@ -3979,7 +4007,7 @@ fn size_check_integration_test() {
         .start_bitcoind()
         .expect("Failed starting bitcoind");
 
-    let mut btc_regtest_controller = BitcoinRegtestController::new(conf.clone(), None);
+    let btc_regtest_controller = BitcoinRegtestController::new(conf.clone(), None);
     let http_origin = format!("http://{}", &conf.node.rpc_bind);
 
     btc_regtest_controller.bootstrap_chain(201);
@@ -3997,13 +4025,13 @@ fn size_check_integration_test() {
     wait_for_runloop(&blocks_processed);
 
     // first block wakes up the run loop
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&btc_regtest_controller, &blocks_processed);
 
     // first block will hold our VRF registration
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&btc_regtest_controller, &blocks_processed);
 
     // second block will be the first mined Stacks block
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&btc_regtest_controller, &blocks_processed);
 
     // let's query the miner's account nonce:
     let account = get_account(&http_origin, &miner_account);
@@ -4033,7 +4061,7 @@ fn size_check_integration_test() {
         //  and a number of transactions from equal to the number anchor blocks will get mined.
         //
         // this one wakes up our node, so that it'll mine a microblock _and_ an anchor block.
-        next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+        next_block_and_wait(&btc_regtest_controller, &blocks_processed);
         // this one will contain the sortition from above anchor block,
         //    which *should* have also confirmed the microblock.
         sleep_ms(10_000 * i);
@@ -4104,7 +4132,7 @@ fn block_replay_integration_test() {
         .start_bitcoind()
         .expect("Failed starting bitcoind");
 
-    let mut btc_regtest_controller = BitcoinRegtestController::new(conf.clone(), None);
+    let btc_regtest_controller = BitcoinRegtestController::new(conf.clone(), None);
     let http_origin = format!("http://{}", &conf.node.rpc_bind);
 
     btc_regtest_controller.bootstrap_chain(201);
@@ -4123,13 +4151,13 @@ fn block_replay_integration_test() {
     wait_for_runloop(&blocks_processed);
 
     // first block wakes up the run loop
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&btc_regtest_controller, &blocks_processed);
 
     // first block will hold our VRF registration
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&btc_regtest_controller, &blocks_processed);
 
     // second block will be the first mined Stacks block
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&btc_regtest_controller, &blocks_processed);
 
     // let's query the miner's account nonce:
 
@@ -4154,11 +4182,11 @@ fn block_replay_integration_test() {
     );
     submit_tx(&http_origin, &tx);
 
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&btc_regtest_controller, &blocks_processed);
 
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&btc_regtest_controller, &blocks_processed);
 
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&btc_regtest_controller, &blocks_processed);
 
     // try and push the mined block back at the node lots of times
     let (tip_consensus_hash, tip_block) = get_tip_anchored_block(&conf);
@@ -4178,352 +4206,6 @@ fn block_replay_integration_test() {
 
         eprintln!("{i}: text of {path}\n{res_text}");
     }
-
-    test_observer::clear();
-    channel.stop_chains_coordinator();
-}
-
-#[test]
-#[ignore]
-fn cost_voting_integration() {
-    if env::var("BITCOIND_TEST") != Ok("1".into()) {
-        return;
-    }
-
-    // let's make `<` free...
-    let cost_definer_src = "
-    (define-read-only (cost-definition-le (size uint))
-       {
-         runtime: u0, write_length: u0, write_count: u0, read_count: u0, read_length: u0
-       })
-    ";
-
-    // the contract that we'll test the costs of
-    let caller_src = "
-    (define-public (execute-2 (a uint))
-       (ok (< a a)))
-    ";
-
-    let power_vote_src = "
-    (define-public (propose-vote-confirm)
-      (let
-        ((proposal-id (unwrap-panic (contract-call? 'ST000000000000000000002AMW42H.cost-voting submit-proposal
-                            'ST000000000000000000002AMW42H.costs \"cost_le\"
-                            .cost-definer \"cost-definition-le\")))
-         (vote-amount (* u9000000000 u1000000)))
-        (try! (contract-call? 'ST000000000000000000002AMW42H.cost-voting vote-proposal proposal-id vote-amount))
-        (try! (contract-call? 'ST000000000000000000002AMW42H.cost-voting confirm-votes proposal-id))
-        (ok proposal-id)))
-    ";
-
-    let spender_sk = StacksPrivateKey::random();
-    let spender_addr = to_addr(&spender_sk);
-    let spender_princ: PrincipalData = spender_addr.clone().into();
-
-    let (mut conf, miner_account) = neon_integration_test_conf();
-
-    conf.miner.microblock_attempt_time_ms = 1_000;
-    conf.node.wait_time_for_microblocks = 0;
-    conf.node.microblock_frequency = 1_000;
-    conf.miner.first_attempt_time_ms = 2_000;
-    conf.miner.subsequent_attempt_time_ms = 5_000;
-    conf.burnchain.max_rbf = 10_000_000;
-    conf.node.wait_time_for_blocks = 1_000;
-
-    test_observer::spawn();
-    test_observer::register_any(&mut conf);
-
-    let spender_bal = 10_000_000_000 * u64::from(core::MICROSTACKS_PER_STACKS);
-
-    conf.initial_balances.push(InitialBalance {
-        address: spender_princ.clone(),
-        amount: spender_bal,
-    });
-
-    let mut btcd_controller = BitcoinCoreController::from_stx_config(&conf);
-    btcd_controller
-        .start_bitcoind()
-        .expect("Failed starting bitcoind");
-
-    let burnchain_config = Burnchain::regtest(&conf.get_burn_db_path());
-
-    let mut btc_regtest_controller = BitcoinRegtestController::with_burnchain(
-        conf.clone(),
-        None,
-        Some(burnchain_config.clone()),
-        None,
-    );
-    let http_origin = format!("http://{}", &conf.node.rpc_bind);
-
-    btc_regtest_controller.bootstrap_chain(201);
-
-    eprintln!("Chain bootstrapped...");
-
-    let mut run_loop = neon::RunLoop::new(conf.clone());
-    let blocks_processed = run_loop.get_blocks_processed_arc();
-    let channel = run_loop.get_coordinator_channel().unwrap();
-
-    thread::spawn(move || run_loop.start(Some(burnchain_config), 0));
-
-    // give the run loop some time to start up!
-    wait_for_runloop(&blocks_processed);
-
-    // first block wakes up the run loop
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
-
-    // first block will hold our VRF registration
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
-
-    // second block will be the first mined Stacks block
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
-
-    // let's query the miner's account nonce:
-    let res = get_account(&http_origin, &miner_account);
-    assert_eq!(res.balance, 0);
-    assert_eq!(res.nonce, 1);
-
-    // and our spender:
-    let res = get_account(&http_origin, &spender_princ);
-    assert_eq!(res.balance, spender_bal as u128);
-    assert_eq!(res.nonce, 0);
-
-    let transactions = vec![
-        make_contract_publish(
-            &spender_sk,
-            0,
-            1000,
-            conf.burnchain.chain_id,
-            "cost-definer",
-            cost_definer_src,
-        ),
-        make_contract_publish(
-            &spender_sk,
-            1,
-            1000,
-            conf.burnchain.chain_id,
-            "caller",
-            caller_src,
-        ),
-        make_contract_publish(
-            &spender_sk,
-            2,
-            1000,
-            conf.burnchain.chain_id,
-            "voter",
-            power_vote_src,
-        ),
-    ];
-
-    for tx in transactions.into_iter() {
-        submit_tx(&http_origin, &tx);
-    }
-
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
-
-    let vote_tx = make_contract_call(
-        &spender_sk,
-        3,
-        1000,
-        conf.burnchain.chain_id,
-        &spender_addr,
-        "voter",
-        "propose-vote-confirm",
-        &[],
-    );
-
-    let call_le_tx = make_contract_call(
-        &spender_sk,
-        4,
-        1000,
-        conf.burnchain.chain_id,
-        &spender_addr,
-        "caller",
-        "execute-2",
-        &[Value::UInt(1)],
-    );
-
-    test_observer::clear();
-    submit_tx(&http_origin, &vote_tx);
-    submit_tx(&http_origin, &call_le_tx);
-
-    // Mine blocks until both txs are confirmed (nonces 3 and 4)
-    mine_blocks_until(&btc_regtest_controller, &blocks_processed, 3, 60, || {
-        let res = get_account(&http_origin, &spender_princ);
-        Ok(res.nonce >= 5)
-    })
-    .expect("vote and execute txs should have been mined");
-
-    let blocks = test_observer::get_blocks();
-    let mut tested = false;
-    let mut exec_cost = ExecutionCost::ZERO;
-    for block in blocks.iter() {
-        let transactions = block.get("transactions").unwrap().as_array().unwrap();
-        for tx in transactions.iter() {
-            let raw_tx = tx.get("raw_tx").unwrap().as_str().unwrap();
-            if raw_tx == "0x00" {
-                continue;
-            }
-            let tx_bytes = hex_bytes(&raw_tx[2..]).unwrap();
-            let parsed = StacksTransaction::consensus_deserialize(&mut &tx_bytes[..]).unwrap();
-            if let TransactionPayload::ContractCall(contract_call) = parsed.payload {
-                eprintln!("{}", contract_call.function_name.as_str());
-                if contract_call.function_name.as_str() == "execute-2" {
-                    exec_cost =
-                        serde_json::from_value(tx.get("execution_cost").cloned().unwrap()).unwrap();
-                } else if contract_call.function_name.as_str() == "propose-vote-confirm" {
-                    let raw_result = tx.get("raw_result").unwrap().as_str().unwrap();
-                    let parsed = Value::try_deserialize_hex_untyped(&raw_result[2..]).unwrap();
-                    assert_eq!(parsed.to_string(), "(ok u0)");
-                    tested = true;
-                }
-            }
-        }
-    }
-    assert!(tested, "Should have found a contract call tx");
-
-    // try to confirm the passed vote (this will fail)
-    let confirm_proposal = make_contract_call(
-        &spender_sk,
-        5,
-        1000,
-        conf.burnchain.chain_id,
-        &StacksAddress::from_string("ST000000000000000000002AMW42H").unwrap(),
-        "cost-voting",
-        "confirm-miners",
-        &[Value::UInt(0)],
-    );
-
-    test_observer::clear();
-    submit_tx(&http_origin, &confirm_proposal);
-
-    // Mine blocks until early confirm-miners is confirmed (nonce 5)
-    mine_blocks_until(&btc_regtest_controller, &blocks_processed, 3, 60, || {
-        let res = get_account(&http_origin, &spender_princ);
-        Ok(res.nonce >= 6)
-    })
-    .expect("early confirm-miners tx should have been mined");
-
-    let blocks = test_observer::get_blocks();
-    let mut tested = false;
-    for block in blocks.iter() {
-        let transactions = block.get("transactions").unwrap().as_array().unwrap();
-        for tx in transactions.iter() {
-            let raw_tx = tx.get("raw_tx").unwrap().as_str().unwrap();
-            if raw_tx == "0x00" {
-                continue;
-            }
-            let tx_bytes = hex_bytes(&raw_tx[2..]).unwrap();
-            let parsed = StacksTransaction::consensus_deserialize(&mut &tx_bytes[..]).unwrap();
-            if let TransactionPayload::ContractCall(contract_call) = parsed.payload {
-                eprintln!("{}", contract_call.function_name.as_str());
-                if contract_call.function_name.as_str() == "confirm-miners" {
-                    let raw_result = tx.get("raw_result").unwrap().as_str().unwrap();
-                    let parsed = Value::try_deserialize_hex_untyped(&raw_result[2..]).unwrap();
-                    assert_eq!(parsed.to_string(), "(err 13)");
-                    tested = true;
-                }
-            }
-        }
-    }
-    assert!(tested, "Should have found a contract call tx");
-
-    for _i in 0..58 {
-        next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
-    }
-
-    // confirm the passed vote
-    let confirm_proposal = make_contract_call(
-        &spender_sk,
-        6,
-        1000,
-        conf.burnchain.chain_id,
-        &StacksAddress::from_string("ST000000000000000000002AMW42H").unwrap(),
-        "cost-voting",
-        "confirm-miners",
-        &[Value::UInt(0)],
-    );
-
-    test_observer::clear();
-    submit_tx(&http_origin, &confirm_proposal);
-
-    // Mine blocks until confirm-miners after maturation is confirmed (nonce 6)
-    mine_blocks_until(&btc_regtest_controller, &blocks_processed, 3, 60, || {
-        let res = get_account(&http_origin, &spender_princ);
-        Ok(res.nonce >= 7)
-    })
-    .expect("confirm-miners tx should have been mined");
-
-    let blocks = test_observer::get_blocks();
-    let mut tested = false;
-    for block in blocks.iter() {
-        let transactions = block.get("transactions").unwrap().as_array().unwrap();
-        for tx in transactions.iter() {
-            let raw_tx = tx.get("raw_tx").unwrap().as_str().unwrap();
-            if raw_tx == "0x00" {
-                continue;
-            }
-            let tx_bytes = hex_bytes(&raw_tx[2..]).unwrap();
-            let parsed = StacksTransaction::consensus_deserialize(&mut &tx_bytes[..]).unwrap();
-            if let TransactionPayload::ContractCall(contract_call) = parsed.payload {
-                eprintln!("{}", contract_call.function_name.as_str());
-                if contract_call.function_name.as_str() == "confirm-miners" {
-                    let raw_result = tx.get("raw_result").unwrap().as_str().unwrap();
-                    let parsed = Value::try_deserialize_hex_untyped(&raw_result[2..]).unwrap();
-                    assert_eq!(parsed.to_string(), "(ok true)");
-                    tested = true;
-                }
-            }
-        }
-    }
-    assert!(tested, "Should have found a contract call tx");
-
-    let call_le_tx = make_contract_call(
-        &spender_sk,
-        7,
-        1000,
-        conf.burnchain.chain_id,
-        &spender_addr,
-        "caller",
-        "execute-2",
-        &[Value::UInt(1)],
-    );
-
-    test_observer::clear();
-    submit_tx(&http_origin, &call_le_tx);
-
-    // Mine blocks until execute-2 with new cost is confirmed (nonce 7)
-    mine_blocks_until(&btc_regtest_controller, &blocks_processed, 3, 60, || {
-        let res = get_account(&http_origin, &spender_princ);
-        Ok(res.nonce >= 8)
-    })
-    .expect("execute-2 tx should have been mined");
-
-    let blocks = test_observer::get_blocks();
-    let mut tested = false;
-    let mut new_exec_cost = ExecutionCost::max_value();
-    for block in blocks.iter() {
-        let transactions = block.get("transactions").unwrap().as_array().unwrap();
-        for tx in transactions.iter() {
-            let raw_tx = tx.get("raw_tx").unwrap().as_str().unwrap();
-            if raw_tx == "0x00" {
-                continue;
-            }
-            let tx_bytes = hex_bytes(&raw_tx[2..]).unwrap();
-            let parsed = StacksTransaction::consensus_deserialize(&mut &tx_bytes[..]).unwrap();
-            if let TransactionPayload::ContractCall(contract_call) = parsed.payload {
-                eprintln!("{}", contract_call.function_name.as_str());
-                if contract_call.function_name.as_str() == "execute-2" {
-                    new_exec_cost =
-                        serde_json::from_value(tx.get("execution_cost").cloned().unwrap()).unwrap();
-                    tested = true;
-                }
-            }
-        }
-    }
-    assert!(tested, "Should have found a contract call tx");
-
-    assert!(exec_cost.exceeds(&new_exec_cost));
 
     test_observer::clear();
     channel.stop_chains_coordinator();
@@ -4602,7 +4284,7 @@ fn mining_events_integration_test() {
         .start_bitcoind()
         .expect("Failed starting bitcoind");
 
-    let mut btc_regtest_controller = BitcoinRegtestController::new(conf.clone(), None);
+    let btc_regtest_controller = BitcoinRegtestController::new(conf.clone(), None);
     let http_origin = format!("http://{}", &conf.node.rpc_bind);
 
     btc_regtest_controller.bootstrap_chain(201);
@@ -4620,21 +4302,21 @@ fn mining_events_integration_test() {
     wait_for_runloop(&blocks_processed);
 
     // first block wakes up the run loop
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&btc_regtest_controller, &blocks_processed);
 
     // first block will hold our VRF registration
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&btc_regtest_controller, &blocks_processed);
 
     // second block will be the first mined Stacks block
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&btc_regtest_controller, &blocks_processed);
 
     submit_tx(&http_origin, &tx); // should succeed
     submit_tx(&http_origin, &tx_2); // should fail since it tries to publish contract with same name
     submit_tx(&http_origin, &mb_tx); // should be in microblock bc it is microblock only
 
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&btc_regtest_controller, &blocks_processed);
 
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&btc_regtest_controller, &blocks_processed);
 
     // check that the nonces have gone up
     let res = get_account(&http_origin, &addr);
@@ -4891,7 +4573,7 @@ fn setup_block_limit_test(strategy: MemPoolWalkStrategy) -> (Vec<serde_json::Val
         .start_bitcoind()
         .expect("Failed starting bitcoind");
 
-    let mut btc_regtest_controller = BitcoinRegtestController::new(conf.clone(), None);
+    let btc_regtest_controller = BitcoinRegtestController::new(conf.clone(), None);
     let http_origin = format!("http://{}", &conf.node.rpc_bind);
 
     btc_regtest_controller.bootstrap_chain(201);
@@ -4909,13 +4591,13 @@ fn setup_block_limit_test(strategy: MemPoolWalkStrategy) -> (Vec<serde_json::Val
     wait_for_runloop(&blocks_processed);
 
     // first block wakes up the run loop
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&btc_regtest_controller, &blocks_processed);
 
     // first block will hold our VRF registration
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&btc_regtest_controller, &blocks_processed);
 
     // second block will be the first mined Stacks block
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&btc_regtest_controller, &blocks_processed);
 
     // submit all the transactions
     let txid_1 = submit_tx(&http_origin, &tx);
@@ -4925,13 +4607,13 @@ fn setup_block_limit_test(strategy: MemPoolWalkStrategy) -> (Vec<serde_json::Val
 
     sleep_ms(5_000);
 
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&btc_regtest_controller, &blocks_processed);
     sleep_ms(20_000);
 
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&btc_regtest_controller, &blocks_processed);
     sleep_ms(20_000);
 
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&btc_regtest_controller, &blocks_processed);
     sleep_ms(20_000);
 
     // Verify nonces
@@ -5174,7 +4856,7 @@ fn block_large_tx_integration_test() {
         .start_bitcoind()
         .expect("Failed starting bitcoind");
 
-    let mut btc_regtest_controller = BitcoinRegtestController::new(conf.clone(), None);
+    let btc_regtest_controller = BitcoinRegtestController::new(conf.clone(), None);
     let http_origin = format!("http://{}", &conf.node.rpc_bind);
 
     btc_regtest_controller.bootstrap_chain(201);
@@ -5192,13 +4874,13 @@ fn block_large_tx_integration_test() {
     wait_for_runloop(&blocks_processed);
 
     // first block wakes up the run loop
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&btc_regtest_controller, &blocks_processed);
 
     // first block will hold our VRF registration
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&btc_regtest_controller, &blocks_processed);
 
     // second block will be the first mined Stacks block
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&btc_regtest_controller, &blocks_processed);
 
     let account = get_account(&http_origin, &miner_account);
     assert_eq!(account.nonce, 1);
@@ -5212,7 +4894,7 @@ fn block_large_tx_integration_test() {
     let huge_txid = submit_tx(&http_origin, &tx_2);
 
     eprintln!("Try to mine a too-big tx. Normal = {normal_txid}, TooBig = {huge_txid}");
-    next_block_and_wait_with_timeout(&mut btc_regtest_controller, &blocks_processed, 1200);
+    next_block_and_wait_with_timeout(&btc_regtest_controller, &blocks_processed, 1200);
 
     eprintln!("Finished trying to mine a too-big tx");
 
@@ -5314,7 +4996,7 @@ fn pox_integration_test() {
     );
     burnchain_config.pox_constants = pox_constants.clone();
 
-    let mut btc_regtest_controller = BitcoinRegtestController::with_burnchain(
+    let btc_regtest_controller = BitcoinRegtestController::with_burnchain(
         conf.clone(),
         None,
         Some(burnchain_config.clone()),
@@ -5337,13 +5019,13 @@ fn pox_integration_test() {
     wait_for_runloop(&blocks_processed);
 
     // first block wakes up the run loop
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&btc_regtest_controller, &blocks_processed);
 
     // first block will hold our VRF registration
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&btc_regtest_controller, &blocks_processed);
 
     // second block will be the first mined Stacks block
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&btc_regtest_controller, &blocks_processed);
 
     let sort_height = channel.get_sortitions_processed();
 
@@ -5423,7 +5105,7 @@ fn pox_integration_test() {
 
     // now let's mine until the next reward cycle starts ...
     while sort_height < ((14 * pox_constants.reward_cycle_length) + 1).into() {
-        next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+        next_block_and_wait(&btc_regtest_controller, &blocks_processed);
         sort_height = channel.get_sortitions_processed();
         eprintln!("Sort height: {sort_height}");
     }
@@ -5559,7 +5241,7 @@ fn pox_integration_test() {
     // mine until the end of the current reward cycle.
     sort_height = channel.get_sortitions_processed();
     while sort_height < ((15 * pox_constants.reward_cycle_length) - 1).into() {
-        next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+        next_block_and_wait(&btc_regtest_controller, &blocks_processed);
         sort_height = channel.get_sortitions_processed();
         eprintln!("Sort height: {sort_height}");
     }
@@ -5611,7 +5293,7 @@ fn pox_integration_test() {
     // mine until the end of the next reward cycle,
     //   the participation threshold now should be met.
     while sort_height < ((16 * pox_constants.reward_cycle_length) - 1).into() {
-        next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+        next_block_and_wait(&btc_regtest_controller, &blocks_processed);
         sort_height = channel.get_sortitions_processed();
         eprintln!("Sort height: {sort_height}");
     }
@@ -5688,7 +5370,7 @@ fn pox_integration_test() {
 
     // now let's mine into the sunset
     while sort_height < ((17 * pox_constants.reward_cycle_length) - 1).into() {
-        next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+        next_block_and_wait(&btc_regtest_controller, &blocks_processed);
         sort_height = channel.get_sortitions_processed();
         eprintln!("Sort height: {sort_height}");
     }
@@ -5711,7 +5393,7 @@ fn pox_integration_test() {
 
     // and after sunset
     while sort_height < ((18 * pox_constants.reward_cycle_length) - 1).into() {
-        next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+        next_block_and_wait(&btc_regtest_controller, &blocks_processed);
         sort_height = channel.get_sortitions_processed();
         eprintln!("Sort height: {sort_height}");
     }
@@ -5810,7 +5492,7 @@ fn atlas_integration_test() {
     let bootstrap_node_thread = thread::spawn(move || {
         let burnchain_config = Burnchain::regtest(&conf_bootstrap_node.get_burn_db_path());
 
-        let mut btc_regtest_controller = BitcoinRegtestController::with_burnchain(
+        let btc_regtest_controller = BitcoinRegtestController::with_burnchain(
             conf_bootstrap_node.clone(),
             None,
             Some(burnchain_config.clone()),
@@ -5833,13 +5515,13 @@ fn atlas_integration_test() {
         wait_for_runloop(&blocks_processed);
 
         // first block wakes up the run loop
-        next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+        next_block_and_wait(&btc_regtest_controller, &blocks_processed);
 
         // first block will hold our VRF registration
-        next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+        next_block_and_wait(&btc_regtest_controller, &blocks_processed);
 
         // second block will be the first mined Stacks block
-        next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+        next_block_and_wait(&btc_regtest_controller, &blocks_processed);
 
         // Let's setup the follower now.
         follower_node_tx
@@ -6026,7 +5708,7 @@ fn atlas_integration_test() {
         let few_blocks = sort_height + 10;
 
         while sort_height < few_blocks {
-            next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+            next_block_and_wait(&btc_regtest_controller, &blocks_processed);
             sort_height = channel.get_sortitions_processed();
             eprintln!("Sort height: {sort_height}");
         }
@@ -6048,7 +5730,7 @@ fn atlas_integration_test() {
         let few_blocks = sort_height + 10;
 
         while sort_height < few_blocks {
-            next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+            next_block_and_wait(&btc_regtest_controller, &blocks_processed);
             sort_height = channel.get_sortitions_processed();
             eprintln!("Sort height: {sort_height}");
         }
@@ -6352,7 +6034,7 @@ fn antientropy_integration_test() {
 
     let conf_bootstrap_node_threaded = conf_bootstrap_node.clone();
     let bootstrap_node_thread = thread::spawn(move || {
-        let mut btc_regtest_controller = BitcoinRegtestController::with_burnchain(
+        let btc_regtest_controller = BitcoinRegtestController::with_burnchain(
             conf_bootstrap_node_threaded.clone(),
             None,
             Some(burnchain_config.clone()),
@@ -6373,14 +6055,14 @@ fn antientropy_integration_test() {
         wait_for_runloop(&blocks_processed);
 
         // first block wakes up the run loop
-        next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+        next_block_and_wait(&btc_regtest_controller, &blocks_processed);
 
         // first block will hold our VRF registration
-        next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+        next_block_and_wait(&btc_regtest_controller, &blocks_processed);
 
         for i in 0..(target_height - 3) {
             eprintln!("Mine block {i}");
-            next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+            next_block_and_wait(&btc_regtest_controller, &blocks_processed);
             let sort_height = channel.get_sortitions_processed();
             eprintln!("Sort height: {sort_height}");
         }
@@ -6610,13 +6292,13 @@ fn atlas_stress_integration_test() {
     wait_for_runloop(&blocks_processed);
 
     // first block wakes up the run loop
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&btc_regtest_controller, &blocks_processed);
 
     // first block will hold our VRF registration
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&btc_regtest_controller, &blocks_processed);
 
     // second block will be the first mined Stacks block
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&btc_regtest_controller, &blocks_processed);
 
     let mut index_block_hashes = vec![];
 
@@ -6748,7 +6430,7 @@ fn atlas_stress_integration_test() {
 
     let mut mined_namespace_reveal = false;
     for _j in 0..10 {
-        next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+        next_block_and_wait(&btc_regtest_controller, &blocks_processed);
         sleep_ms(10_000);
 
         let account_after = get_account(&http_origin, &to_addr(&user_1));
@@ -6816,7 +6498,7 @@ fn atlas_stress_integration_test() {
         let mut all_mined = false;
         let account_after_nonce = 0;
         for _j in 0..10 {
-            next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+            next_block_and_wait(&btc_regtest_controller, &blocks_processed);
             sleep_ms(10_000);
 
             let (ch, bhh) = get_chain_tip(&http_origin);
@@ -6866,7 +6548,7 @@ fn atlas_stress_integration_test() {
 
     let mut mined_namespace_ready = false;
     for _j in 0..10 {
-        next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+        next_block_and_wait(&btc_regtest_controller, &blocks_processed);
         sleep_ms(10_000);
 
         let (ch, bhh) = get_chain_tip(&http_origin);
@@ -7297,7 +6979,7 @@ fn fuzzed_median_fee_rate_estimation_test(window_size: u64, expected_final_value
         .start_bitcoind()
         .expect("Failed starting bitcoind");
 
-    let mut btc_regtest_controller = BitcoinRegtestController::new(conf.clone(), None);
+    let btc_regtest_controller = BitcoinRegtestController::new(conf.clone(), None);
     let http_origin = format!("http://{}", &conf.node.rpc_bind);
 
     btc_regtest_controller.bootstrap_chain(200);
@@ -7312,7 +6994,7 @@ fn fuzzed_median_fee_rate_estimation_test(window_size: u64, expected_final_value
     thread::spawn(move || run_loop.start(None, 0));
 
     wait_for_runloop(&blocks_processed);
-    run_until_burnchain_height(&mut btc_regtest_controller, &blocks_processed, 210, &conf);
+    run_until_burnchain_height(&btc_regtest_controller, &blocks_processed, 210, &conf);
 
     submit_tx(
         &http_origin,
@@ -7493,13 +7175,13 @@ fn use_latest_tip_integration_test() {
     wait_for_runloop(&blocks_processed);
 
     // First block wakes up the run loop.
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&btc_regtest_controller, &blocks_processed);
 
     // Second block will hold our VRF registration.
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&btc_regtest_controller, &blocks_processed);
 
     // Third block will be the first mined Stacks block.
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&btc_regtest_controller, &blocks_processed);
 
     // Let's query our first spender.
     let account = get_account(&http_origin, &spender_addr);
@@ -7507,7 +7189,7 @@ fn use_latest_tip_integration_test() {
     assert_eq!(account.nonce, 0);
 
     // this call wakes up our node
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&btc_regtest_controller, &blocks_processed);
 
     // Open chainstate.
     // TODO (hack) instantiate the sortdb in the burnchain
@@ -7664,7 +7346,7 @@ fn use_latest_tip_integration_test() {
     .is_ok());
 
     // Mine an anchored block because now we want to have no unconfirmed state.
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&btc_regtest_controller, &blocks_processed);
 
     // Check that the underlying trie for the unconfirmed state does not exist.
     assert!(chainstate.unconfirmed_state.is_some());
@@ -7708,7 +7390,7 @@ fn test_flash_block_skip_tenure() {
         .start_bitcoind()
         .expect("Failed starting bitcoind");
 
-    let mut btc_regtest_controller = BitcoinRegtestController::new(conf.clone(), None);
+    let btc_regtest_controller = BitcoinRegtestController::new(conf.clone(), None);
     let http_origin = format!("http://{}", &conf.node.rpc_bind);
 
     btc_regtest_controller.bootstrap_chain(201);
@@ -7727,13 +7409,13 @@ fn test_flash_block_skip_tenure() {
     wait_for_runloop(&blocks_processed);
 
     // first block wakes up the run loop
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&btc_regtest_controller, &blocks_processed);
 
     // first block will hold our VRF registration
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&btc_regtest_controller, &blocks_processed);
 
     // second block will be the first mined Stacks block
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&btc_regtest_controller, &blocks_processed);
 
     // fault injection: force tenures to take too long
     std::env::set_var("STX_TEST_SLOW_TENURE", "11000");
@@ -7883,7 +7565,7 @@ fn test_problematic_txs_are_not_stored() {
         .start_bitcoind()
         .expect("Failed starting bitcoind");
 
-    let mut btc_regtest_controller = BitcoinRegtestController::new(conf.clone(), None);
+    let btc_regtest_controller = BitcoinRegtestController::new(conf.clone(), None);
     let http_origin = format!("http://{}", &conf.node.rpc_bind);
 
     // something at the limit of the expression depth (will get mined and processed)
@@ -7955,13 +7637,13 @@ fn test_problematic_txs_are_not_stored() {
     wait_for_runloop(&blocks_processed);
 
     // First block wakes up the run loop.
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&btc_regtest_controller, &blocks_processed);
 
     // Second block will hold our VRF registration.
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&btc_regtest_controller, &blocks_processed);
 
     // Third block will be the first mined Stacks block.
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&btc_regtest_controller, &blocks_processed);
 
     submit_tx(&http_origin, &tx_edge);
     submit_tx(&http_origin, &tx_exceeds);
@@ -8166,6 +7848,7 @@ fn test_problematic_blocks_are_not_mined() {
 
     let mut run_loop = neon::RunLoop::new(conf.clone());
     let blocks_processed = run_loop.get_blocks_processed_arc();
+    let counters = run_loop.get_counters();
     let channel = run_loop.get_coordinator_channel().unwrap();
 
     thread::spawn(move || run_loop.start(None, 0));
@@ -8174,13 +7857,13 @@ fn test_problematic_blocks_are_not_mined() {
     wait_for_runloop(&blocks_processed);
 
     // First block wakes up the run loop.
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&btc_regtest_controller, &blocks_processed);
 
     // Second block will hold our VRF registration.
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&btc_regtest_controller, &blocks_processed);
 
     // Third block will be the first mined Stacks block.
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&btc_regtest_controller, &blocks_processed);
 
     debug!("Submit problematic tx_exceeds transaction {tx_exceeds_txid}");
     std::env::set_var("STACKS_DISABLE_TX_PROBLEMATIC_CHECK", "1");
@@ -8193,7 +7876,12 @@ fn test_problematic_blocks_are_not_mined() {
     let mut all_new_files = vec![];
 
     for _i in 0..5 {
-        next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+        next_block_and_wait_for_commit(
+            &btc_regtest_controller,
+            &blocks_processed,
+            &conf,
+            &counters,
+        );
         let cur_files_old = cur_files.clone();
         let (mut new_files, cur_files_new) = find_new_files(bad_blocks_dir, &cur_files_old);
         all_new_files.append(&mut new_files);
@@ -8270,7 +7958,12 @@ fn test_problematic_blocks_are_not_mined() {
 
     // mine some blocks, and log problematic blocks
     for _i in 0..6 {
-        next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+        next_block_and_wait_for_commit(
+            &btc_regtest_controller,
+            &blocks_processed,
+            &conf,
+            &counters,
+        );
         let cur_files_old = cur_files.clone();
         let (mut new_files, cur_files_new) = find_new_files(bad_blocks_dir, &cur_files_old);
         all_new_files.append(&mut new_files);
@@ -8435,7 +8128,7 @@ fn run_with_custom_wallet() {
         .start_bitcoind()
         .expect("Failed starting bitcoind");
 
-    let mut btc_regtest_controller = BitcoinRegtestController::new(conf.clone(), None);
+    let btc_regtest_controller = BitcoinRegtestController::new(conf.clone(), None);
 
     btc_regtest_controller.bootstrap_chain(201);
 
@@ -8450,13 +8143,13 @@ fn run_with_custom_wallet() {
     wait_for_runloop(&blocks_processed);
 
     // First block wakes up the run loop.
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&btc_regtest_controller, &blocks_processed);
 
     // Second block will hold our VRF registration.
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&btc_regtest_controller, &blocks_processed);
 
     // Third block will be the first mined Stacks block.
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&btc_regtest_controller, &blocks_processed);
 
     // verify that the event observer got its boot receipts.
     // If we get this far, then it also means that mining and block-production worked.
@@ -8761,7 +8454,7 @@ fn test_competing_miners_build_on_same_chain(
         } else {
             eprintln!("\n\nWaiting for miner 0...\n\n");
         }
-        next_block_and_wait(&mut btc_regtest_controller, &blocks_processed[0]);
+        next_block_and_wait(&btc_regtest_controller, &blocks_processed[0]);
     }
 
     for (i, conf) in confs.iter().enumerate().skip(1) {
@@ -8776,7 +8469,7 @@ fn test_competing_miners_build_on_same_chain(
             } else {
                 eprintln!("\n\nWaiting for miner {i}...\n\n");
             }
-            next_block_and_iterate(&mut btc_regtest_controller, &blocks_processed[i], 5_000);
+            next_block_and_iterate(&btc_regtest_controller, &blocks_processed[i], 5_000);
         }
     }
 
@@ -8891,7 +8584,7 @@ fn min_txs() {
 
     let burnchain_config = Burnchain::regtest(&conf.get_burn_db_path());
 
-    let mut btc_regtest_controller = BitcoinRegtestController::with_burnchain(
+    let btc_regtest_controller = BitcoinRegtestController::with_burnchain(
         conf.clone(),
         None,
         Some(burnchain_config.clone()),
@@ -8914,13 +8607,13 @@ fn min_txs() {
     wait_for_runloop(&blocks_processed);
 
     // first block wakes up the run loop
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&btc_regtest_controller, &blocks_processed);
 
     // first block will hold our VRF registration
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&btc_regtest_controller, &blocks_processed);
 
     // second block will be the first mined Stacks block
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&btc_regtest_controller, &blocks_processed);
 
     let _sort_height = channel.get_sortitions_processed();
 
@@ -8937,7 +8630,7 @@ fn min_txs() {
         submit_tx(&http_origin, &publish);
 
         debug!("Try to build too-small a block {i}");
-        next_block_and_wait_with_timeout(&mut btc_regtest_controller, &blocks_processed, 15);
+        next_block_and_wait_with_timeout(&btc_regtest_controller, &blocks_processed, 15);
     }
 
     let blocks = test_observer::get_blocks();
@@ -8995,7 +8688,7 @@ fn filter_txs_by_type() {
 
     let burnchain_config = Burnchain::regtest(&conf.get_burn_db_path());
 
-    let mut btc_regtest_controller = BitcoinRegtestController::with_burnchain(
+    let btc_regtest_controller = BitcoinRegtestController::with_burnchain(
         conf.clone(),
         None,
         Some(burnchain_config.clone()),
@@ -9018,13 +8711,13 @@ fn filter_txs_by_type() {
     wait_for_runloop(&blocks_processed);
 
     // first block wakes up the run loop
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&btc_regtest_controller, &blocks_processed);
 
     // first block will hold our VRF registration
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&btc_regtest_controller, &blocks_processed);
 
     // second block will be the first mined Stacks block
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&btc_regtest_controller, &blocks_processed);
 
     let _sort_height = channel.get_sortitions_processed();
     let mut sent_txids = HashSet::new();
@@ -9042,7 +8735,7 @@ fn filter_txs_by_type() {
         sent_txids.insert(parsed.txid());
 
         submit_tx(&http_origin, &publish);
-        next_block_and_wait_with_timeout(&mut btc_regtest_controller, &blocks_processed, 15);
+        next_block_and_wait_with_timeout(&btc_regtest_controller, &blocks_processed, 15);
     }
 
     let blocks = test_observer::get_blocks();
@@ -9105,7 +8798,7 @@ fn filter_txs_by_origin() {
 
     let burnchain_config = Burnchain::regtest(&conf.get_burn_db_path());
 
-    let mut btc_regtest_controller = BitcoinRegtestController::with_burnchain(
+    let btc_regtest_controller = BitcoinRegtestController::with_burnchain(
         conf.clone(),
         None,
         Some(burnchain_config.clone()),
@@ -9128,13 +8821,13 @@ fn filter_txs_by_origin() {
     wait_for_runloop(&blocks_processed);
 
     // first block wakes up the run loop
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&btc_regtest_controller, &blocks_processed);
 
     // first block will hold our VRF registration
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&btc_regtest_controller, &blocks_processed);
 
     // second block will be the first mined Stacks block
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&btc_regtest_controller, &blocks_processed);
 
     let _sort_height = channel.get_sortitions_processed();
     let mut sent_txids = HashSet::new();
@@ -9152,7 +8845,7 @@ fn filter_txs_by_origin() {
         sent_txids.insert(parsed.txid());
 
         submit_tx(&http_origin, &publish);
-        next_block_and_wait_with_timeout(&mut btc_regtest_controller, &blocks_processed, 15);
+        next_block_and_wait_with_timeout(&btc_regtest_controller, &blocks_processed, 15);
     }
 
     let blocks = test_observer::get_blocks();
@@ -9204,7 +8897,7 @@ fn bitcoin_reorg_flap() {
         .start_bitcoind()
         .expect("Failed starting bitcoind");
 
-    let mut btc_regtest_controller = BitcoinRegtestController::new(conf.clone(), None);
+    let btc_regtest_controller = BitcoinRegtestController::new(conf.clone(), None);
 
     btc_regtest_controller.bootstrap_chain(201);
 
@@ -9221,16 +8914,16 @@ fn bitcoin_reorg_flap() {
     wait_for_runloop(&blocks_processed);
 
     // first block wakes up the run loop
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&btc_regtest_controller, &blocks_processed);
 
     // first block will hold our VRF registration
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&btc_regtest_controller, &blocks_processed);
 
     let mut sort_height = channel.get_sortitions_processed();
     eprintln!("Sort height: {sort_height}");
 
     while sort_height < 210 {
-        next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+        next_block_and_wait(&btc_regtest_controller, &blocks_processed);
         sort_height = channel.get_sortitions_processed();
         eprintln!("Sort height: {sort_height}");
     }
@@ -9415,7 +9108,7 @@ fn bitcoin_reorg_flap_with_follower() {
     eprintln!("Follower bootup complete!");
 
     // first block wakes up the run loop
-    next_block_and_wait_with_timeout(&mut btc_regtest_controller, &miner_blocks_processed, 60);
+    next_block_and_wait_with_timeout(&btc_regtest_controller, &miner_blocks_processed, 60);
 
     // next block will hold our VRF registration
     // Note that the follower will not see its block processed counter bumped here

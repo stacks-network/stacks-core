@@ -366,20 +366,6 @@ impl AtlasDB {
         }
     }
 
-    // Open an atlas database in memory (used for testing)
-    #[cfg(test)]
-    pub fn connect_memory(atlas_config: AtlasConfig) -> Result<AtlasDB, db_error> {
-        let conn = Connection::open_in_memory().map_err(db_error::SqliteError)?;
-        let mut db = AtlasDB {
-            atlas_config,
-            conn,
-            readwrite: true,
-        };
-
-        db.instantiate()?;
-        Ok(db)
-    }
-
     #[cfg(test)]
     /// Only ever to be used in testing, open and instantiate a V1 atlasdb
     pub fn connect_memory_db_v1(atlas_config: AtlasConfig) -> Result<AtlasDB, db_error> {
@@ -447,27 +433,6 @@ impl AtlasDB {
         Ok(tx)
     }
 
-    pub fn get_minmax_heights_window_for_page_index(
-        &self,
-        page_index: u32,
-    ) -> Result<(u64, u64), db_error> {
-        let min = page_index * AttachmentInstance::ATTACHMENTS_INV_PAGE_SIZE;
-        let max = (page_index + 1) * AttachmentInstance::ATTACHMENTS_INV_PAGE_SIZE;
-        let qry = "SELECT MIN(block_height) as min, MAX(block_height) as max FROM attachment_instances WHERE attachment_index >= ?1 AND attachment_index < ?2";
-        let args = params![min, max];
-        let mut stmt = self.conn.prepare(qry)?;
-        let mut rows = stmt.query(args)?;
-
-        match rows.next() {
-            Ok(Some(row)) => {
-                let min: i64 = row.get("min").map_err(|_| db_error::NotFoundError)?;
-                let max: i64 = row.get("max").map_err(|_| db_error::NotFoundError)?;
-                Ok((min as u64, max as u64))
-            }
-            _ => Err(db_error::NotFoundError),
-        }
-    }
-
     pub fn get_attachments_available_at_page_index(
         &self,
         page_index: u32,
@@ -475,7 +440,7 @@ impl AtlasDB {
     ) -> Result<Vec<u8>, db_error> {
         let page = self.get_attachments_missing_at_page_index(page_index, block_id)?;
         let mut bit_vector = vec![];
-        for (_index, is_attachment_missing) in page.iter().enumerate() {
+        for is_attachment_missing in page.iter() {
             // todo(ludo): use a bitvector instead
             bit_vector.push(if *is_attachment_missing { 0 } else { 1 });
         }
@@ -562,13 +527,6 @@ impl AtlasDB {
     pub fn count_uninstantiated_attachments(&self) -> Result<u32, db_error> {
         let qry = "SELECT COUNT(rowid) FROM attachments
                    WHERE was_instantiated = 0";
-        let count = query_count(&self.conn, qry, NO_PARAMS)? as u32;
-        Ok(count)
-    }
-
-    pub fn count_unresolved_attachment_instances(&self) -> Result<u32, db_error> {
-        let qry = "SELECT COUNT(rowid) FROM attachment_instances
-                   WHERE is_available = 0";
         let count = query_count(&self.conn, qry, NO_PARAMS)? as u32;
         Ok(count)
     }
@@ -730,5 +688,50 @@ impl AtlasDB {
         )?;
         sql_tx.commit()?;
         Ok(())
+    }
+}
+
+/// Test-only helpers for [`AtlasDB`].
+#[cfg(test)]
+impl AtlasDB {
+    // Open an atlas database in memory (used for testing)
+    pub fn connect_memory(atlas_config: AtlasConfig) -> Result<AtlasDB, db_error> {
+        let conn = Connection::open_in_memory().map_err(db_error::SqliteError)?;
+        let mut db = AtlasDB {
+            atlas_config,
+            conn,
+            readwrite: true,
+        };
+
+        db.instantiate()?;
+        Ok(db)
+    }
+
+    pub fn get_minmax_heights_window_for_page_index(
+        &self,
+        page_index: u32,
+    ) -> Result<(u64, u64), db_error> {
+        let min = page_index * AttachmentInstance::ATTACHMENTS_INV_PAGE_SIZE;
+        let max = (page_index + 1) * AttachmentInstance::ATTACHMENTS_INV_PAGE_SIZE;
+        let qry = "SELECT MIN(block_height) as min, MAX(block_height) as max FROM attachment_instances WHERE attachment_index >= ?1 AND attachment_index < ?2";
+        let args = params![min, max];
+        let mut stmt = self.conn.prepare(qry)?;
+        let mut rows = stmt.query(args)?;
+
+        match rows.next() {
+            Ok(Some(row)) => {
+                let min: i64 = row.get("min").map_err(|_| db_error::NotFoundError)?;
+                let max: i64 = row.get("max").map_err(|_| db_error::NotFoundError)?;
+                Ok((min as u64, max as u64))
+            }
+            _ => Err(db_error::NotFoundError),
+        }
+    }
+
+    pub fn count_unresolved_attachment_instances(&self) -> Result<u32, db_error> {
+        let qry = "SELECT COUNT(rowid) FROM attachment_instances
+                   WHERE is_available = 0";
+        let count = query_count(&self.conn, qry, NO_PARAMS)? as u32;
+        Ok(count)
     }
 }

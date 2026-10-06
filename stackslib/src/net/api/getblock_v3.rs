@@ -33,7 +33,7 @@ use crate::net::http::{
 use crate::net::httpcore::{RPCRequestHandler, StacksHttpRequest, StacksHttpResponse};
 use crate::net::{Error as NetError, StacksNodeState};
 
-#[derive(Clone)]
+#[derive(Clone, Default)]
 pub struct RPCNakamotoBlockRequestHandler {
     pub block_id: Option<StacksBlockId>,
 }
@@ -191,15 +191,13 @@ impl RPCRequestHandler for RPCNakamotoBlockRequestHandler {
                     &HttpNotFound::new(format!("No such block {:?}\n", &block_id)),
                 )
                 .try_into_contents()
-                .map_err(NetError::from)
             }
             Err(e) => {
                 // nope -- error trying to check
                 let msg = format!("Failed to load block {}: {:?}\n", &block_id, &e);
                 warn!("{}", &msg);
                 return StacksHttpResponse::new_error(&preamble, &HttpServerError::new(msg))
-                    .try_into_contents()
-                    .map_err(NetError::from);
+                    .try_into_contents();
             }
         };
 

@@ -32,7 +32,7 @@ use crate::net::httpcore::{
 use crate::net::{Error as NetError, StacksNodeState, TipRequest};
 use crate::util_lib::db::Error as DBError;
 
-#[derive(Clone)]
+#[derive(Clone, Default)]
 pub struct RPCNakamotoBlockByHeightRequestHandler {
     pub block_height: Option<u64>,
 }
@@ -109,7 +109,7 @@ impl RPCRequestHandler for RPCNakamotoBlockByHeightRequestHandler {
         let tip = match node.load_stacks_chain_tip(&preamble, &contents) {
             Ok(tip) => tip,
             Err(error_resp) => {
-                return error_resp.try_into_contents().map_err(NetError::from);
+                return error_resp.try_into_contents();
             }
         };
 
@@ -128,8 +128,7 @@ impl RPCRequestHandler for RPCNakamotoBlockByHeightRequestHandler {
                     let msg = format!("No such block #{:?}\n", block_height);
                     warn!("{}", &msg);
                     return StacksHttpResponse::new_error(&preamble, &HttpNotFound::new(msg))
-                        .try_into_contents()
-                        .map_err(NetError::from);
+                        .try_into_contents();
                 }
             },
             Err(e) => {
@@ -141,7 +140,7 @@ impl RPCRequestHandler for RPCNakamotoBlockByHeightRequestHandler {
                 } else {
                     StacksHttpResponse::new_error(&preamble, &HttpServerError::new(msg))
                 };
-                return resp.try_into_contents().map_err(NetError::from);
+                return resp.try_into_contents();
             }
         };
 
@@ -165,15 +164,13 @@ impl RPCRequestHandler for RPCNakamotoBlockByHeightRequestHandler {
                     &HttpNotFound::new(format!("No such block #{:?}\n", &block_height)),
                 )
                 .try_into_contents()
-                .map_err(NetError::from)
             }
             Err(e) => {
                 // nope -- error trying to check
                 let msg = format!("Failed to load block #{}: {:?}\n", block_height, &e);
                 warn!("{}", &msg);
                 return StacksHttpResponse::new_error(&preamble, &HttpServerError::new(msg))
-                    .try_into_contents()
-                    .map_err(NetError::from);
+                    .try_into_contents();
             }
         };
 

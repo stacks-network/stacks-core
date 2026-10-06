@@ -574,7 +574,6 @@ fn test_contract_call_with_constant_variants_type_check(
 ) {
     let run_case = |contract_name: &str, contract_source: &str| -> Result<(), StaticCheckError> {
         let contract_a_id = QualifiedContractIdentifier::local("contract-a").unwrap();
-        let contract_b_id = QualifiedContractIdentifier::local("contract-b").unwrap();
         let contract_id = QualifiedContractIdentifier::local(contract_name).unwrap();
 
         let mut contract_a = parse(
@@ -3253,8 +3252,8 @@ fn clarity_trait_experiments_mixed_list_to_traits_list(
 
 #[apply(test_clarity_versions)]
 fn clarity_trait_experiments_double_trait_method1_v1(
-    #[case] version: ClarityVersion,
-    #[case] epoch: StacksEpochId,
+    #[case] _version: ClarityVersion,
+    #[case] _epoch: StacksEpochId,
 ) {
     let mut marf = MemoryBackingStore::new();
     let mut db = marf.as_analysis_db();
@@ -3288,8 +3287,8 @@ fn clarity_trait_experiments_double_trait_method1_v1(
 
 #[apply(test_clarity_versions)]
 fn clarity_trait_experiments_double_trait_method2_v1(
-    #[case] version: ClarityVersion,
-    #[case] epoch: StacksEpochId,
+    #[case] _version: ClarityVersion,
+    #[case] _epoch: StacksEpochId,
 ) {
     let mut marf = MemoryBackingStore::new();
     let mut db = marf.as_analysis_db();
@@ -3324,8 +3323,8 @@ fn clarity_trait_experiments_double_trait_method2_v1(
 
 #[apply(test_clarity_versions)]
 fn clarity_trait_experiments_double_trait_method1_v1_v2(
-    #[case] version: ClarityVersion,
-    #[case] epoch: StacksEpochId,
+    #[case] _version: ClarityVersion,
+    #[case] _epoch: StacksEpochId,
 ) {
     let mut marf = MemoryBackingStore::new();
     let mut db = marf.as_analysis_db();
@@ -3359,8 +3358,8 @@ fn clarity_trait_experiments_double_trait_method1_v1_v2(
 
 #[apply(test_clarity_versions)]
 fn clarity_trait_experiments_double_trait_method2_v1_v2(
-    #[case] version: ClarityVersion,
-    #[case] epoch: StacksEpochId,
+    #[case] _version: ClarityVersion,
+    #[case] _epoch: StacksEpochId,
 ) {
     let mut marf = MemoryBackingStore::new();
     let mut db = marf.as_analysis_db();

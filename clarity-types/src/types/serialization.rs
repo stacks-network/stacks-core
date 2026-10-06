@@ -69,6 +69,9 @@ const SANITIZATION_READ_BOUND: u64 = 15_000_000;
 /// After epoch-2.4, with type sanitization support, the full
 ///  clarity depth limit is supported.
 const UNSANITIZED_DEPTH_CHECK: usize = 16;
+/// Initial capacity used when deserializing list/tuple containers; the vector
+/// grows as elements are read. Does not change the accepted serialized length.
+const INITIAL_DESERIALIZATION_CONTAINER_CAPACITY: usize = 1024;
 
 impl std::fmt::Display for SerializationError {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
@@ -421,14 +424,14 @@ impl TypeSignature {
                     .get_max_len()
                     .checked_mul(list_type.get_list_item_type().max_serialized_size()?)
                     .and_then(|x| x.checked_add(list_length_encode))
-                    .ok_or_else(|| ClarityTypeError::ValueTooLarge)?
+                    .ok_or(ClarityTypeError::ValueTooLarge)?
             }
             TypeSignature::SequenceType(SequenceSubtype::BufferType(buff_length)) => {
                 // u32 length as big-endian bytes
                 let buff_length_encode = 4;
                 u32::from(buff_length)
                     .checked_add(buff_length_encode)
-                    .ok_or_else(|| ClarityTypeError::ValueTooLarge)?
+                    .ok_or(ClarityTypeError::ValueTooLarge)?
             }
             TypeSignature::SequenceType(SequenceSubtype::StringType(StringSubtype::ASCII(
                 length,
@@ -438,7 +441,7 @@ impl TypeSignature {
                 // ascii is 1-byte per character
                 u32::from(length)
                     .checked_add(str_length_encode)
-                    .ok_or_else(|| ClarityTypeError::ValueTooLarge)?
+                    .ok_or(ClarityTypeError::ValueTooLarge)?
             }
             TypeSignature::SequenceType(SequenceSubtype::StringType(StringSubtype::UTF8(
                 length,
@@ -449,7 +452,7 @@ impl TypeSignature {
                 u32::from(length)
                     .checked_mul(4)
                     .and_then(|x| x.checked_add(str_length_encode))
-                    .ok_or_else(|| ClarityTypeError::ValueTooLarge)?
+                    .ok_or(ClarityTypeError::ValueTooLarge)?
             }
             TypeSignature::PrincipalType
             | TypeSignature::CallableType(_)
@@ -472,7 +475,7 @@ impl TypeSignature {
                         .checked_add(1) // length of key-name
                         .and_then(|x| x.checked_add(key.len() as u32)) // ClarityName is ascii-only, so 1 byte per length
                         .and_then(|x| x.checked_add(value_size))
-                        .ok_or_else(|| ClarityTypeError::ValueTooLarge)?;
+                        .ok_or(ClarityTypeError::ValueTooLarge)?;
                 }
                 total_size
             }
@@ -515,7 +518,7 @@ impl TypeSignature {
 
         max_output_size
             .checked_add(type_prefix_size)
-            .ok_or_else(|| ClarityTypeError::ValueTooLarge)
+            .ok_or(ClarityTypeError::ValueTooLarge)
     }
 }
 
@@ -758,7 +761,9 @@ impl Value {
                     };
 
                     if len > 0 {
-                        let items = Vec::with_capacity(len as usize);
+                        let items = Vec::with_capacity(
+                            (len as usize).min(INITIAL_DESERIALIZATION_CONTAINER_CAPACITY),
+                        );
                         let stack_item = DeserializeStackItem::List {
                             items,
                             expected_len: len,
@@ -822,7 +827,9 @@ impl Value {
                     };
 
                     if len > 0 {
-                        let items = Vec::with_capacity(expected_len as usize);
+                        let items = Vec::with_capacity(
+                            (expected_len as usize).min(INITIAL_DESERIALIZATION_CONTAINER_CAPACITY),
+                        );
                         let first_key = ClarityName::deserialize_read(r)?;
                         // figure out if the next (key, value) pair for this
                         //  tuple will be elided (or sanitized) from the tuple.

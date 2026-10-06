@@ -22,9 +22,6 @@ use crate::deps_common::ctrlc::SignalId;
 /// Platform specific error type
 pub type Error = io::Error;
 
-/// Platform specific signal type
-pub type Signal = DWORD;
-
 const MAX_SEM_COUNT: c_long = 255;
 static mut SEMAPHORE: HANDLE = 0 as HANDLE;
 

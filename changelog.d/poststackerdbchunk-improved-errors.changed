@@ -1,2 +1,0 @@
-Improve the `POST /v2/stackerdb/<address>/<contract>/chunks` handler to report each chunk-replacement failure with a precise error code adding dedicated `ChunkTooBig` and `TooManySlotWrites` codes instead of collapsing them into `DataAlreadyExists`.
-Improve miner stackerdb error handling taking into consideration the new error codes.

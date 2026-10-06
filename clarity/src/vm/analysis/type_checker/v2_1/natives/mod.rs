@@ -14,6 +14,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use stacks_common::bounded_format;
 use stacks_common::types::StacksEpochId;
 
 use super::{
@@ -51,14 +52,14 @@ pub enum TypedNativeFunction {
     Simple(SimpleNativeFunction),
 }
 
-#[allow(clippy::type_complexity)]
-pub struct SpecialNativeFunction(
-    &'static dyn Fn(
-        &mut TypeChecker,
-        &[SymbolicExpression],
-        &TypingContext,
-    ) -> Result<TypeSignature, StaticCheckError>,
-);
+/// Type-checks a special native function in this epoch's checker.
+type SpecialNativeFn = dyn Fn(
+    &mut TypeChecker,
+    &[SymbolicExpression],
+    &TypingContext,
+) -> Result<TypeSignature, StaticCheckError>;
+
+pub struct SpecialNativeFunction(&'static SpecialNativeFn);
 pub struct SimpleNativeFunction(pub FunctionType);
 
 fn check_special_list_cons(
@@ -106,7 +107,7 @@ fn check_special_list_cons(
         return Err(StaticCheckErrorKind::ValueTooLarge.into());
     }
     let typed_args = result;
-    TypeSignature::parent_list_type(&typed_args)
+    TypeSignature::parent_list_type_for_analysis(&checker.epoch, &typed_args)
         .map_err(StaticCheckError::from)
         .map(TypeSignature::from)
 }
@@ -227,14 +228,7 @@ fn check_special_merge(
         update.len(),
     )?;
 
-    base.shallow_merge(&mut update);
-    if checker.epoch.fixes_tuple_merge_size_check() {
-        // 4.0+: reject an oversized merged tuple cleanly with `ValueTooLarge` at the merge
-        // site. `?` converts `ClarityTypeError::ValueTooLarge` into `StaticCheckError`.
-        // Pre-4.0 the check is absent, so the oversized type propagates exactly as before
-        // (surfacing later as a block-invalidating `InvariantViolation` when it is sized).
-        base.checked_value_size()?;
-    }
+    base.shallow_merge(&mut update)?;
     Ok(TypeSignature::TupleType(base))
 }
 
@@ -274,7 +268,7 @@ pub fn check_special_tuple_cons(
                         .saturating_add(var_type.size()?);
                     tuple_type_data.push((var_name.clone(), var_type));
                 } else {
-                    cons_error = Err(StaticCheckErrorKind::BadTupleConstruction(format!(
+                    cons_error = Err(StaticCheckErrorKind::BadTupleConstruction(bounded_format!(
                         "type size of {type_size} bytes exceeds maximum of {MAX_VALUE_SIZE} bytes"
                     )));
                 }
@@ -430,7 +424,7 @@ fn check_special_equals(
             let cost = compute_typecheck_cost(checker, &x_type, &cur_type);
             costs.push(cost);
             arg_type = Some(
-                TypeSignature::least_supertype(&StacksEpochId::Epoch21, &x_type, &cur_type)
+                TypeSignature::least_supertype_for_analysis(&checker.epoch, &x_type, &cur_type)
                     .map_err(|_| {
                         StaticCheckErrorKind::TypeError(Box::new(x_type), Box::new(cur_type))
                     }),
@@ -468,7 +462,7 @@ fn check_special_if(
 
     analysis_typecheck_cost(checker, expr1, expr2)?;
 
-    TypeSignature::least_supertype(&StacksEpochId::Epoch21, expr1, expr2)
+    TypeSignature::least_supertype_for_analysis(&checker.epoch, expr1, expr2)
         .and_then(|t| t.concretize())
         .map_err(|_| {
             StaticCheckErrorKind::IfArmsMustMatch(Box::new(expr1.clone()), Box::new(expr2.clone()))

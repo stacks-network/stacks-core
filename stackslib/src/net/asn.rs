@@ -86,7 +86,7 @@ impl ASEntry4 {
             )));
         }
 
-        asn4.sort_by(|a1, a2| a1.prefix.cmp(&a2.prefix));
+        asn4.sort_by_key(|a1| a1.prefix);
         Ok(asn4)
     }
 
@@ -180,7 +180,7 @@ impl ASEntry4 {
             ));
         }
         let mask = mask_opt.unwrap();
-        if mask < 8 || mask > 24 {
+        if !(8..=24).contains(&mask) {
             debug!("Invalid mask \"{}\"", mask);
             return Err(net_error::DeserializeError(format!(
                 "Invalid ASN mask {}",

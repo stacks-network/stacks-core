@@ -33,8 +33,8 @@ use stacks::chainstate::stacks::boot::{
 };
 use stacks::chainstate::stacks::db::{StacksBlockHeaderTypes, StacksHeaderInfo};
 use stacks::chainstate::stacks::events::{
-    BurnBlockEvent, BurnBlockEventRewardRecipient, StacksBlockEventData, StacksTransactionEvent,
-    StacksTransactionReceipt, TransactionOrigin,
+    BoundedErrorString, BurnBlockEvent, BurnBlockEventRewardRecipient, StacksBlockEventData,
+    StacksTransactionEvent, StacksTransactionReceipt, TransactionOrigin,
 };
 use stacks::chainstate::stacks::miner::TransactionEvent;
 use stacks::chainstate::stacks::{StacksTransaction, TransactionPayload};
@@ -208,7 +208,7 @@ pub struct TransactionEventPayload<'a> {
     /// The microblock parent hash
     pub microblock_parent_hash: Option<BlockHeaderHash>,
     /// Error information if one occurred in the Clarity VM
-    pub vm_error: Option<String>,
+    pub vm_error: Option<BoundedErrorString>,
     /// Set when the transaction was marked problematic by the block's
     /// `problematic_txs` list (Epoch 4.0+). When `Some(category)`, the
     /// transaction's payload was NOT executed but the fee was still debited

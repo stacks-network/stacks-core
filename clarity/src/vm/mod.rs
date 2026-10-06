@@ -54,6 +54,7 @@ pub mod clarity;
 use std::collections::BTreeMap;
 
 pub use clarity_types::max_call_stack_depth_for_epoch;
+use stacks_common::bounded_format;
 use stacks_common::types::StacksEpochId;
 
 use self::analysis::ContractAnalysis;
@@ -213,7 +214,7 @@ fn lookup_variable<'a>(
         let value = value.clone_with_cost(exec_state)?;
         let (value, _) =
             Value::sanitize_value(exec_state.epoch(), &TypeSignature::type_of(&value)?, value)
-                .ok_or_else(|| RuntimeCheckErrorKind::CouldNotDetermineType)?;
+                .ok_or(RuntimeCheckErrorKind::CouldNotDetermineType)?;
         return Ok(ValueRef::Owned(value));
     }
     if let Some(callable_data) = context.lookup_callable_contract(name) {
@@ -225,14 +226,17 @@ fn lookup_variable<'a>(
         };
         return Ok(ValueRef::Owned(value));
     }
-    Err(RuntimeCheckErrorKind::Unreachable(format!("Undefined variable: {name}")).into())
+    Err(RuntimeCheckErrorKind::Unreachable(bounded_format!("Undefined variable: {name}")).into())
 }
 
-pub fn lookup_function(
+/// Resolves `name` to a builtin, or to a user function borrowed from the contract context.
+/// Charges the `LookupFunction` cost, unlike `ContractContext::lookup_function`, and fails
+/// with `UndefinedFunction` when neither matches.
+pub fn lookup_function<'a>(
     name: &str,
     exec_state: &mut ExecutionState,
-    invoke_ctx: &InvocationContext,
-) -> Result<CallableType, VmExecutionError> {
+    invoke_ctx: &InvocationContext<'a>,
+) -> Result<CallableType<'a>, VmExecutionError> {
     runtime_cost(ClarityCostFunction::LookupFunction, exec_state, 0)?;
 
     if let Some(result) = functions::lookup_reserved_functions(
@@ -244,7 +248,7 @@ pub fn lookup_function(
         let user_function = invoke_ctx
             .contract_context
             .lookup_function(name)
-            .ok_or(RuntimeCheckErrorKind::UndefinedFunction(name.to_string()))?;
+            .ok_or_else(|| RuntimeCheckErrorKind::UndefinedFunction(name.to_string()))?;
         Ok(CallableType::UserFunction(user_function))
     }
 }
@@ -261,7 +265,7 @@ fn add_stack_trace(result: &mut Result<Value, VmExecutionError>, exec_state: &mu
 /// [`apply_evaluated`], returning the function's identifier and whether recursion is tracked.
 #[inline]
 fn check_call_preconditions(
-    function: &CallableType,
+    function: &CallableType<'_>,
     exec_state: &ExecutionState,
 ) -> Result<(FunctionIdentifier, bool), VmExecutionError> {
     // Aaron: in non-debug executions, we shouldn't track a full call-stack.
@@ -284,7 +288,7 @@ fn check_call_preconditions(
 /// `used_memory` is the total already charged via [`ExecutionState::add_memory`] for the
 /// argument values; it is released before returning.
 fn dispatch_args(
-    function: &CallableType,
+    function: &CallableType<'_>,
     identifier: FunctionIdentifier,
     track_recursion: bool,
     args: Vec<Value>,
@@ -353,7 +357,7 @@ fn dispatch_args(
 ///
 /// Enforces recursion detection and max stack-depth limits before dispatch.
 pub fn apply(
-    function: &CallableType,
+    function: &CallableType<'_>,
     args: &[SymbolicExpression],
     exec_state: &mut ExecutionState,
     invoke_ctx: &InvocationContext,
@@ -459,7 +463,7 @@ pub fn apply(
 /// `SymbolicExpression::atom_value` so the special function can evaluate them normally
 /// with `eval`.
 pub fn apply_evaluated(
-    function: &CallableType,
+    function: &CallableType<'_>,
     args: Vec<Value>,
     exec_state: &mut ExecutionState,
     invoke_ctx: &InvocationContext,
@@ -593,14 +597,14 @@ pub fn eval<'a>(
                 children
                     .split_first()
                     .ok_or(RuntimeCheckErrorKind::Unreachable(
-                        "Non functional application".to_string(),
+                        "Non functional application".into(),
                     ))?;
 
             let function_name =
                 function_variable
                     .match_atom()
                     .ok_or(RuntimeCheckErrorKind::Unreachable(
-                        "Bad function name".to_string(),
+                        "Bad function name".into(),
                     ))?;
             let f = lookup_function(function_name, exec_state, invoke_ctx)?;
             apply(&f, rest, exec_state, invoke_ctx, context).map(ValueRef::Owned)
@@ -621,6 +625,19 @@ pub fn eval<'a>(
 pub fn is_reserved(name: &str, version: &ClarityVersion) -> bool {
     functions::lookup_reserved_functions(name, version).is_some()
         || variables::is_reserved_name(name, version)
+}
+
+/// Reserved at `version` but free in an earlier one, so a legacy trait may
+/// carry it as a method name. From Epoch 4.1 a public/read-only function may
+/// take such a name to implement that method, else old traits would be
+/// unimplementable at the only deployable version; the native still wins every
+/// reference where one exists. Enforced by `TraitChecker` at analysis.
+pub fn is_shadowable_reserved(name: &str, version: &ClarityVersion) -> bool {
+    is_reserved(name, version)
+        && ClarityVersion::ALL
+            .iter()
+            .filter(|v| *v < version)
+            .any(|v| !is_reserved(name, v))
 }
 
 /// This function evaluates a list of expressions, sharing a global context.

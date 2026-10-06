@@ -24,6 +24,8 @@
 //! CI uses this mechanism to automate checks across
 //! the relevant set of Bitcoin Core versions.
 
+use std::assert_matches;
+
 use pinny::tag;
 use stacks::burnchains::bitcoin::address::{BitcoinAddress, LegacyBitcoinAddressType};
 use stacks::burnchains::bitcoin::BitcoinNetworkType;
@@ -225,15 +227,11 @@ fn test_wallet_creation_fails_if_already_exists() {
         .create_wallet("mywallet1", Some(false))
         .expect_err("mywallet1 creation should fail now!");
 
-    match &err {
-        BitcoinRpcClientError::Rpc(RpcError::NetworkIO(_)) => {
-            assert!(true, "Bitcoind v25 returns HTTP 500)");
-        }
-        BitcoinRpcClientError::Rpc(RpcError::Service(_)) => {
-            assert!(true, "Bitcoind v26+ returns HTTP 200");
-        }
-        _ => panic!("Expected Network or Service error, got {err:?}"),
-    }
+    // Bitcoind v25 returns HTTP 500; v26+ returns HTTP 200. Both are accepted.
+    assert_matches!(
+        err,
+        BitcoinRpcClientError::Rpc(RpcError::NetworkIO(_) | RpcError::Service(_))
+    );
 }
 
 #[tag(ci_skip)]
@@ -246,7 +244,7 @@ fn test_get_new_address_for_each_address_type() {
     let client = utils::create_client_from_container(&btc_container);
 
     let wallet = "mywallet";
-    client.create_wallet(&wallet, Some(false)).expect("OK");
+    client.create_wallet(wallet, Some(false)).expect("OK");
 
     // Check Legacy p2pkh type OK
     let p2pkh = client
@@ -681,7 +679,7 @@ fn test_invalidate_block_ok() {
         .create_wallet(wallet, Some(false))
         .expect("create wallet ok!");
     let address = client
-        .get_new_address(&wallet, None, Some(AddressType::Legacy))
+        .get_new_address(wallet, None, Some(AddressType::Legacy))
         .expect("get new address ok!");
     let block_hash = client
         .generate_block(&address, &[])

@@ -46,7 +46,7 @@ impl BitcoinTxInputStructured {
             return None;
         }
 
-        let i1 = instructions.get(0)?;
+        let i1 = instructions.first()?;
         let i2 = instructions.get(1)?;
 
         match (i1, i2) {
@@ -189,7 +189,7 @@ impl BitcoinTxInputStructured {
                 }
 
                 match (
-                    multisig_instructions.get(0)?,
+                    multisig_instructions.first()?,
                     multisig_instructions.get(multisig_instructions.len() - 2)?,
                     multisig_instructions.get(multisig_instructions.len() - 1)?,
                 ) {
@@ -325,7 +325,7 @@ impl BitcoinTxInputStructured {
                     );
                     return None;
                 }
-                if *witness_hash.get(0)? != 0 {
+                if *witness_hash.first()? != 0 {
                     test_debug!("Not a p2wpkh-over-p2sh script: not a version-0 witness program");
                     return None;
                 }
@@ -336,7 +336,7 @@ impl BitcoinTxInputStructured {
 
                 BitcoinTxInputStructured::from_bitcoin_witness_pubkey_vecs(
                     1,
-                    &witness.get(1..)?,
+                    witness.get(1..)?,
                     input_txid,
                 )
             }
@@ -376,7 +376,7 @@ impl BitcoinTxInputStructured {
                     );
                     return None;
                 }
-                if *witness_hash.get(0)? != 0 {
+                if *witness_hash.first()? != 0 {
                     test_debug!("Not a p2wsh-over-p2sh script: not a version-0 witness program");
                     return None;
                 }
@@ -545,13 +545,13 @@ impl BitcoinTxOutput {
             BitcoinAddress::from_bytes_legacy(
                 network_id,
                 LegacyBitcoinAddressType::PublicKeyHash,
-                &script_bytes.get(3..23)?,
+                script_bytes.get(3..23)?,
             )
         } else if script_pubkey.is_p2sh() {
             BitcoinAddress::from_bytes_legacy(
                 network_id,
                 LegacyBitcoinAddressType::ScriptHash,
-                &script_bytes.get(2..22)?,
+                script_bytes.get(2..22)?,
             )
         } else {
             Err(btc_error::InvalidByteSequence)

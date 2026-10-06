@@ -1,0 +1,1 @@
+Remove obsolete private HTTP request decoding and signal-handler code from libsigner, including its direct libc dependency, broad dead-code allowances, and redundant crate imports, while preserving block-event deserialization validation.

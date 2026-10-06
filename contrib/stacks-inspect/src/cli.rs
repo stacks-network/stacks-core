@@ -83,6 +83,10 @@ pub struct ValidateBlockArgs {
     #[arg(long, default_value_t = false)]
     pub early_exit: bool,
 
+    /// Don't fail a block whose only mismatch is its execution cost
+    #[arg(long, default_value_t = false)]
+    pub ignore_costs: bool,
+
     /// Block selection mode (if not specified, validates all blocks)
     #[command(subcommand)]
     pub mode: Option<ValidateBlockMode>,
@@ -280,71 +284,6 @@ pub enum Command {
         /// Consensus hash
         #[arg(value_name = "CONSENSUS_HASH")]
         consensus_hash: String,
-    },
-
-    // ================ Shadow Block Commands ================
-    /// Create a shadow block from transactions
-    #[command(name = "make-shadow-block")]
-    MakeShadowBlock {
-        /// Path to chainstate directory
-        #[arg(value_name = "CHAINSTATE_DIR")]
-        chainstate_dir: String,
-
-        /// Network (mainnet, krypton, naka3)
-        #[arg(value_name = "NETWORK")]
-        network: String,
-
-        /// Chain tip block hash
-        #[arg(value_name = "CHAIN_TIP")]
-        chain_tip: String,
-
-        /// Transaction hex strings to include
-        #[arg(value_name = "TX_HEX")]
-        txs: Vec<String>,
-    },
-
-    /// Repair shadow chainstate by generating and applying shadow blocks
-    #[command(name = "shadow-chainstate-repair")]
-    ShadowChainstateRepair {
-        /// Path to chainstate directory
-        #[arg(value_name = "CHAINSTATE_DIR")]
-        chainstate_dir: String,
-
-        /// Network (mainnet, krypton, naka3)
-        #[arg(value_name = "NETWORK")]
-        network: String,
-    },
-
-    /// Apply shadow blocks from JSON to chainstate
-    #[command(name = "shadow-chainstate-patch")]
-    ShadowChainstatePatch {
-        /// Path to chainstate directory
-        #[arg(value_name = "CHAINSTATE_DIR")]
-        chainstate_dir: String,
-
-        /// Network (mainnet, krypton, naka3)
-        #[arg(value_name = "NETWORK")]
-        network: String,
-
-        /// Path to shadow blocks JSON file or "-" for stdin
-        #[arg(value_name = "SHADOW_BLOCKS_JSON")]
-        shadow_blocks_path: String,
-    },
-
-    /// Add a shadow block to chainstate
-    #[command(name = "add-shadow-block")]
-    AddShadowBlock {
-        /// Path to chainstate directory
-        #[arg(value_name = "CHAINSTATE_DIR")]
-        chainstate_dir: String,
-
-        /// Network (mainnet, krypton, naka3)
-        #[arg(value_name = "NETWORK")]
-        network: String,
-
-        /// Shadow block hex
-        #[arg(value_name = "SHADOW_BLOCK_HEX")]
-        shadow_block_hex: String,
     },
 
     // ================ Nakamoto Commands ================
@@ -618,5 +557,50 @@ mod tests {
 
         assert_eq!(cli.config, Some("/path/to/config.toml".to_string()));
         assert!(matches!(cli.command, Command::DumpConsts));
+    }
+
+    #[test]
+    fn test_validate_block_defaults() {
+        let cli = Cli::try_parse_from(["stacks-inspect", "validate-block", "/path/to/chainstate"])
+            .unwrap();
+
+        match cli.command {
+            Command::ValidateBlock(args) => {
+                assert_eq!(args.database_path, "/path/to/chainstate");
+                assert!(!args.early_exit);
+                assert!(!args.ignore_costs);
+                assert!(args.mode.is_none());
+            }
+            _ => panic!("Expected ValidateBlock command"),
+        }
+    }
+
+    #[test]
+    fn test_validate_block_ignore_costs() {
+        let cli = Cli::try_parse_from([
+            "stacks-inspect",
+            "validate-block",
+            "--ignore-costs",
+            "/path/to/chainstate",
+            "naka-index-range",
+            "0",
+            "100",
+        ])
+        .unwrap();
+
+        match cli.command {
+            Command::ValidateBlock(args) => {
+                assert!(args.ignore_costs);
+                assert!(!args.early_exit);
+                assert!(matches!(
+                    args.mode,
+                    Some(ValidateBlockMode::NakaIndexRange {
+                        start: Some(0),
+                        end: Some(100)
+                    })
+                ));
+            }
+            _ => panic!("Expected ValidateBlock command"),
+        }
     }
 }

@@ -48,9 +48,8 @@ pub struct MetadataRow<'a> {
     pub value: &'a str,
 }
 
-pub struct SqliteConnection {
-    conn: Connection,
-}
+/// Stateless storage operations on caller-owned SQLite connections.
+pub enum SqliteConnection {}
 
 fn sqlite_put(conn: &Connection, key: &str, value: &str) -> Result<(), VmExecutionError> {
     let params = params![key, value];

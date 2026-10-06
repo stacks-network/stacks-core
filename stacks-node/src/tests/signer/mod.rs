@@ -35,7 +35,6 @@ use libsigner::v0::messages::{
 use libsigner::v0::signer_state::MinerState;
 use libsigner::{BlockProposal, SignerEntries, SignerEventTrait};
 use serde::{Deserialize, Serialize};
-use stacks::burnchains::Txid;
 use stacks::chainstate::coordinator::comm::CoordinatorChannels;
 use stacks::chainstate::nakamoto::signer_set::NakamotoSigners;
 use stacks::chainstate::nakamoto::NakamotoBlock;
@@ -45,7 +44,6 @@ use stacks::config::{Config as NeonConfig, EventKeyType, EventObserverConfig, In
 use stacks::core::test_util::{
     make_contract_call, make_contract_publish, make_stacks_transfer_serialized,
 };
-use stacks::net::api::getpoxinfo::RPCPoxInfoData;
 use stacks::net::api::postblock_proposal::{
     BlockValidateOk, BlockValidateReject, BlockValidateResponse,
 };
@@ -80,14 +78,29 @@ use crate::tests::nakamoto_integrations::{
     naka_neon_integration_conf, next_block_and_wait_for_commits, POX_DEFAULT_STACKER_BALANCE,
 };
 use crate::tests::neon_integrations::{
-    get_chain_info, next_block_and_wait, run_until_burnchain_height, test_observer,
-    wait_for_runloop,
+    get_chain_info, get_chain_info_opt, next_block_and_wait, run_until_burnchain_height,
+    test_observer, wait_for_runloop,
 };
 use crate::tests::signer::v0::{
     wait_for_state_machine_update, wait_for_state_machine_update_by_miner_tenure_id,
 };
 use crate::tests::to_addr;
 use crate::BitcoinRegtestController;
+
+/// Wait for a commit referencing the node's latest Stacks tenure at the current burn height.
+fn wait_for_node_commit(config: &NeonConfig, counters: &Counters, timeout_secs: u64) {
+    wait_for(timeout_secs, || {
+        let Some(info) = get_chain_info_opt(config) else {
+            return Ok(false);
+        };
+        Ok(
+            counters.naka_submitted_commit_last_burn_height.get() >= info.burn_block_height
+                && counters.naka_submitted_commit_last_parent_tenure_id.get()
+                    == info.stacks_tip_consensus_hash,
+        )
+    })
+    .expect("Node must commit to its latest Stacks tenure before Bitcoin mining advances");
+}
 
 // Helper struct for holding the btc and stx neon nodes
 #[allow(dead_code)]
@@ -248,6 +261,10 @@ impl<Z: SpawnedSignerTrait> SignerTest<Z> {
         naka_conf.miner.activated_vrf_key_path =
             Some(format!("{}/vrf_key", naka_conf.node.working_dir));
 
+        // Keep the block rejection timeout short for these tests, so that we
+        // can recover quickly, within test timeouts.
+        naka_conf.miner.block_rejection_timeout_steps = [(0, Duration::from_secs(20))].into();
+
         node_config_modifier(&mut naka_conf);
 
         // Add initial balances to the config
@@ -393,7 +410,7 @@ impl<Z: SpawnedSignerTrait> SignerTest<Z> {
             let duration = now.duration_since(created_at).unwrap();
             // Regtest doesn't like if the last block is > 2 hours old, so
             // don't use this snapshot.
-            if duration > Duration::from_secs(3600 * 1) {
+            if duration > Duration::from_secs(3600) {
                 // Bitcoin regtest node is too old, act like no snapshot exists
                 warn!("Bitcoin regtest node is too old, not restoring snapshot");
                 std::fs::remove_dir_all(snapshot_path.clone()).unwrap();
@@ -723,11 +740,11 @@ impl<Z: SpawnedSignerTrait> SignerTest<Z> {
         send_amt: u64,
     ) -> Result<(String, u64), String> {
         let http_origin = self.running_nodes.rpc_origin();
-        let sender_addr = to_addr(&sender_sk);
+        let sender_addr = to_addr(sender_sk);
         let sender_nonce = get_account(&http_origin, &sender_addr).nonce;
         let recipient = PrincipalData::from(StacksAddress::burn_address(false));
         let transfer_tx = make_stacks_transfer_serialized(
-            &sender_sk,
+            sender_sk,
             sender_nonce,
             send_fee,
             self.running_nodes.conf.burnchain.chain_id,
@@ -746,11 +763,11 @@ impl<Z: SpawnedSignerTrait> SignerTest<Z> {
         contract_name: &str,
     ) -> Result<(String, u64), String> {
         let http_origin = self.running_nodes.rpc_origin();
-        let sender_addr = to_addr(&sender_sk);
+        let sender_addr = to_addr(sender_sk);
         let sender_nonce = get_account(&http_origin, &sender_addr).nonce;
 
         let contract_tx = make_contract_publish(
-            &sender_sk,
+            sender_sk,
             sender_nonce,
             tx_fee,
             self.running_nodes.conf.burnchain.chain_id,
@@ -775,10 +792,10 @@ impl<Z: SpawnedSignerTrait> SignerTest<Z> {
         contract_args: &[Value],
     ) -> Result<(String, u64), String> {
         let http_origin = self.running_nodes.rpc_origin();
-        let sender_addr = to_addr(&sender_sk);
+        let sender_addr = to_addr(sender_sk);
         let sender_nonce = get_account(&http_origin, &sender_addr).nonce;
         let contract_call_tx = make_contract_call(
-            &sender_sk,
+            sender_sk,
             sender_nonce,
             tx_fee,
             self.running_nodes.conf.burnchain.chain_id,
@@ -820,7 +837,7 @@ impl<Z: SpawnedSignerTrait> SignerTest<Z> {
             "burn-height-local",
         )?;
 
-        self.wait_for_nonce_increase(&to_addr(&sender_sk), sender_nonce)?;
+        self.wait_for_nonce_increase(&to_addr(sender_sk), sender_nonce)?;
         Ok(txid)
     }
 
@@ -833,7 +850,7 @@ impl<Z: SpawnedSignerTrait> SignerTest<Z> {
         let (txid, sender_nonce) =
             self.submit_contract_call(sender_sk, 1000, "burn-height-local", "run-update", &[])?;
 
-        self.wait_for_nonce_increase(&to_addr(&sender_sk), sender_nonce)?;
+        self.wait_for_nonce_increase(&to_addr(sender_sk), sender_nonce)?;
         Ok(txid)
     }
 
@@ -921,7 +938,7 @@ impl<Z: SpawnedSignerTrait> SignerTest<Z> {
 
         let sortition_latest = get_sortition_info_ch(
             &self.running_nodes.conf,
-            &non_sortition_latest.last_sortition_ch.as_ref().unwrap(),
+            non_sortition_latest.last_sortition_ch.as_ref().unwrap(),
         );
         let sortition_prior = get_sortition_info_ch(
             &self.running_nodes.conf,
@@ -990,7 +1007,7 @@ impl<Z: SpawnedSignerTrait> SignerTest<Z> {
             .map(|pk| {
                 self.signer_stacks_private_keys
                     .iter()
-                    .position(|sk| &StacksPublicKey::from_private(&sk) == pk)
+                    .position(|sk| &StacksPublicKey::from_private(sk) == pk)
                     .unwrap()
             })
             .collect();
@@ -999,7 +1016,7 @@ impl<Z: SpawnedSignerTrait> SignerTest<Z> {
             .map(|pk| {
                 self.signer_stacks_private_keys
                     .iter()
-                    .position(|sk| &StacksPublicKey::from_private(&sk) == pk)
+                    .position(|sk| &StacksPublicKey::from_private(sk) == pk)
                     .unwrap()
             })
             .collect();
@@ -1102,35 +1119,6 @@ impl<Z: SpawnedSignerTrait> SignerTest<Z> {
             .into_iter()
             .map(|(_ix, state)| state)
             .collect()
-    }
-
-    /// Wait for a certain condition to be met for each signer's state machine
-    pub fn wait_for_signer_state_check(
-        &self,
-        timeout: u64,
-        mut f: impl FnMut(&LocalStateMachine) -> Result<bool, String>,
-    ) -> Result<(), String> {
-        wait_for(timeout, || {
-            let (signer_states, _) = self.get_burn_updated_states();
-            let all_pass = signer_states
-                .iter()
-                .all(|state| f(state).map_or(false, |ok| ok));
-            Ok(all_pass)
-        })
-    }
-
-    pub fn wait_for_replay_set_eq(&self, timeout: u64, expected_txids: Vec<String>) {
-        self.wait_for_signer_state_check(timeout, |state| {
-            let Some(replay_set) = state.get_tx_replay_set() else {
-                return Ok(false);
-            };
-            let txids = replay_set
-                .iter()
-                .map(|tx| tx.txid().to_hex())
-                .collect::<Vec<_>>();
-            Ok(txids == expected_txids)
-        })
-        .expect("Timed out waiting for replay set to be equal to expected txids");
     }
 
     /// Replace the test's configured signer st
@@ -1256,7 +1244,7 @@ impl<Z: SpawnedSignerTrait> SignerTest<Z> {
     /// Chain information is captured before `f` is called, and then again after `f`
     /// to ensure that the block was mined.
     /// Note: this function does _not_ mine a BTC block.
-    fn wait_for_nakamoto_block(&self, timeout_secs: u64, f: impl FnOnce() -> ()) {
+    fn wait_for_nakamoto_block(&self, timeout_secs: u64, f: impl FnOnce()) {
         let blocks_before = self.running_nodes.counters.naka_mined_blocks.get();
         let info_before = self.get_peer_info();
 
@@ -1647,13 +1635,6 @@ impl<Z: SpawnedSignerTrait> SignerTest<Z> {
             .expect("Failed to get peer info")
     }
 
-    /// Get /v2/pox from the node
-    pub fn get_pox_data(&self) -> RPCPoxInfoData {
-        self.stacks_client
-            .get_pox_data()
-            .expect("Failed to get pox info")
-    }
-
     pub fn readonly_stackerdb_client(&self, reward_cycle: u64) -> StackerDB<MessageSlotID> {
         StackerDB::new_normal(
             &self.running_nodes.conf.node.rpc_bind,
@@ -1724,30 +1705,35 @@ impl<Z: SpawnedSignerTrait> SignerTest<Z> {
             .expect("Failed to send accept signature");
     }
 
-    /// Get the txid of the parent block commit transaction for the given miner
-    pub fn get_parent_block_commit_txid(&self, miner_pk: &StacksPublicKey) -> Option<Txid> {
-        let Some(confirmed_utxo) = self
-            .running_nodes
-            .btc_regtest_controller
-            .get_all_utxos(&miner_pk)
-            .into_iter()
-            .find(|utxo| utxo.confirmations == 0)
-        else {
-            return None;
-        };
-        let unconfirmed_txid = Txid::from_bitcoin_tx_hash(&confirmed_utxo.txid);
-        let unconfirmed_tx = self
-            .running_nodes
-            .btc_regtest_controller
-            .get_raw_transaction(&unconfirmed_txid);
-        let parent_txid = &unconfirmed_tx
-            .input
-            .get(0)
-            .expect("First input should exist")
-            .previous_output
-            .txid;
-        Some(Txid::from_bitcoin_tx_hash(parent_txid))
+    /// Broadcast a block pre-commit on behalf of the given signer, as a faulty or malicious
+    /// signer that pre-commits to a block without following through with a signature would.
+    /// This lets a test push the other signers over the pre-commit threshold so that they
+    /// sign the block, while the impersonated signer never does.
+    pub fn inject_pre_commit(
+        &self,
+        block: &NakamotoBlock,
+        private_key: &StacksPrivateKey,
+        reward_cycle: u64,
+    ) {
+        let mut stackerdb = StackerDB::new_normal(
+            &self.running_nodes.conf.node.rpc_bind,
+            private_key.clone(),
+            false,
+            reward_cycle,
+            self.get_signer_slot_id(reward_cycle, &to_addr(private_key))
+                .expect("Failed to get signer slot id")
+                .expect("Signer does not have a slot id"),
+            SignerDb::new(":memory:").unwrap(),
+            Duration::from_secs(30),
+        );
+
+        stackerdb
+            .send_message_with_retry::<SignerMessage>(SignerMessage::BlockPreCommit(
+                block.header.signer_signature_hash(),
+            ))
+            .expect("Failed to send block pre-commit");
     }
+
     /// Restart the signer at `idx` with a new supported protocol version.
     pub fn restart_signer_with_supported_version(&mut self, idx: usize, version: u64) {
         let mut cfg = self.stop_signer(idx);
@@ -1839,7 +1825,7 @@ fn setup_stx_btc_node<G: FnMut(&mut NeonConfig)>(
         .expect("Failed starting bitcoind");
 
     info!("Make new BitcoinRegtestController");
-    let mut btc_regtest_controller = BitcoinRegtestController::new(naka_conf.clone(), None);
+    let btc_regtest_controller = BitcoinRegtestController::new(naka_conf.clone(), None);
 
     let epoch_2_5_start = naka_conf
         .burnchain
@@ -1873,15 +1859,15 @@ fn setup_stx_btc_node<G: FnMut(&mut NeonConfig)>(
     if !snapshot_exists {
         // First block wakes up the run loop.
         info!("Mine first block...");
-        next_block_and_wait(&mut btc_regtest_controller, &counters.blocks_processed);
+        next_block_and_wait(&btc_regtest_controller, &counters.blocks_processed);
 
         // Second block will hold our VRF registration.
         info!("Mine second block...");
-        next_block_and_wait(&mut btc_regtest_controller, &counters.blocks_processed);
+        next_block_and_wait(&btc_regtest_controller, &counters.blocks_processed);
 
         // Third block will be the first mined Stacks block.
         info!("Mine third block...");
-        next_block_and_wait(&mut btc_regtest_controller, &counters.blocks_processed);
+        next_block_and_wait(&btc_regtest_controller, &counters.blocks_processed);
     }
 
     RunningNodes {

@@ -1,1 +1,0 @@
-Shrunk `size_of::<Value>()` from 128 to 64 bytes by boxing `CallableData::trait_identifier`, halving the memory of every `Vec<Value>`, clone, and stack copy in the Clarity VM and deserializer.

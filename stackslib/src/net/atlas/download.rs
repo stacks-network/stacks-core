@@ -19,7 +19,7 @@ use std::collections::hash_map::Entry;
 use std::collections::{BinaryHeap, HashMap, HashSet, VecDeque};
 use std::hash::{Hash, Hasher};
 use std::net::{IpAddr, SocketAddr};
-use std::{cmp, fmt};
+use std::{cmp, fmt, mem};
 
 use clarity::vm::types::QualifiedContractIdentifier;
 use rand::{thread_rng, Rng};
@@ -38,12 +38,20 @@ use crate::net::{Error as net_error, PeerHost, Requestable};
 use crate::util_lib::db::Error as DBError;
 use crate::util_lib::strings::UrlString;
 
+/// Resolved attachments and HTTP events to clean up after one downloader step.
+#[derive(Default)]
+pub struct AttachmentDownloadProgress {
+    /// Attachment instances paired with their resolved content.
+    pub resolved_attachments: Vec<(AttachmentInstance, Attachment)>,
+    /// HTTP event IDs whose requests have finished.
+    pub events_to_deregister: Vec<usize>,
+}
+
 #[derive(Debug)]
 pub struct AttachmentsDownloader {
     priority_queue: BinaryHeap<AttachmentsBatch>,
     initial_batch: Vec<AttachmentInstance>,
     ongoing_batch: Option<AttachmentsBatchStateMachine>,
-    processed_batches: Vec<AttachmentsBatch>,
     reliability_reports: HashMap<UrlString, ReliabilityReport>,
 }
 
@@ -52,7 +60,6 @@ impl AttachmentsDownloader {
         AttachmentsDownloader {
             priority_queue: BinaryHeap::new(),
             ongoing_batch: None,
-            processed_batches: vec![],
             reliability_reports: HashMap::new(),
             initial_batch,
         }
@@ -67,7 +74,7 @@ impl AttachmentsDownloader {
                 return true;
             }
         }
-        return false;
+        false
     }
 
     /// Returns the next attachments batch that is ready for processing -- i.e. after its deadline
@@ -94,7 +101,7 @@ impl AttachmentsDownloader {
         &mut self,
         dns_client: &mut DNSClient,
         network: &mut PeerNetwork,
-    ) -> Result<(Vec<(AttachmentInstance, Attachment)>, Vec<usize>), net_error> {
+    ) -> Result<AttachmentDownloadProgress, net_error> {
         let mut resolved_attachments = vec![];
         let mut events_to_deregister = vec![];
 
@@ -109,7 +116,7 @@ impl AttachmentsDownloader {
             None => {
                 if self.priority_queue.is_empty() || !self.has_ready_batches() {
                     // Nothing to do!
-                    return Ok((vec![], vec![]));
+                    return Ok(AttachmentDownloadProgress::default());
                 }
 
                 let mut peers = HashMap::new();
@@ -125,7 +132,7 @@ impl AttachmentsDownloader {
                 if peers.is_empty() {
                     warn!("Atlas: could not get a peer to sync with");
                     // Nothing can be done!
-                    return Ok((vec![], vec![]));
+                    return Ok(AttachmentDownloadProgress::default());
                 }
 
                 let attachments_batch = match self.pop_next_ready_batch() {
@@ -133,7 +140,7 @@ impl AttachmentsDownloader {
                     None => {
                         // unreachable
                         warn!("BUG: Atlas; no batch ready although logic checking for ready batches found one");
-                        return Ok((vec![], vec![]));
+                        return Ok(AttachmentDownloadProgress::default());
                     }
                 };
 
@@ -209,7 +216,10 @@ impl AttachmentsDownloader {
             }
         };
 
-        Ok((resolved_attachments, events_to_deregister))
+        Ok(AttachmentDownloadProgress {
+            resolved_attachments,
+            events_to_deregister,
+        })
     }
 
     /// Given a list of `AttachmentInstance`, check if the content corresponding to that
@@ -320,9 +330,8 @@ impl AttachmentsDownloader {
             return Ok(vec![]);
         }
 
-        // we're draining the initial batch, so to avoid angering The Borrow Checker
-        //  use mem replace to just take the whole vec.
-        let initial_batch = std::mem::replace(&mut self.initial_batch, vec![]);
+        // Move the batch out so we can process it while borrowing `self` mutably.
+        let initial_batch = mem::take(&mut self.initial_batch);
 
         self.check_attachment_instances(
             atlas_db,
@@ -950,11 +959,6 @@ pub struct BatchedDNSLookupsResults {
     pub errors: HashMap<UrlString, net_error>,
 }
 
-#[derive(Debug, Clone)]
-struct BatchedRequestsInitializedState<T: Ord + Requestable> {
-    pub queue: BinaryHeap<T>,
-}
-
 #[derive(Debug, Default)]
 pub struct BatchedRequestsResult<T: Requestable> {
     pub remaining: HashMap<usize, T>,
@@ -1133,6 +1137,12 @@ pub struct AttachmentsBatch {
     pub attachments_instances: HashMap<QualifiedContractIdentifier, HashMap<u32, Hash160>>,
     pub retry_count: u64,
     pub retry_deadline: u64,
+}
+
+impl Default for AttachmentsBatch {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl AttachmentsBatch {

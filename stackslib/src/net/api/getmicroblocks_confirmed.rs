@@ -31,7 +31,7 @@ use crate::net::http::{
 use crate::net::httpcore::{request, RPCRequestHandler, StacksHttpRequest, StacksHttpResponse};
 use crate::net::{Error as NetError, StacksNodeState};
 
-#[derive(Clone)]
+#[derive(Clone, Default)]
 pub struct RPCMicroblocksConfirmedRequestHandler {
     pub block_id: Option<StacksBlockId>,
 }
@@ -115,8 +115,7 @@ impl RPCRequestHandler for RPCMicroblocksConfirmedRequestHandler {
 
         let stream_res =
             node.with_node_state(|_network, _sortdb, chainstate, _mempool, _rpc_args| {
-                let res = StacksIndexedMicroblockStream::new_confirmed(chainstate, &block_id);
-                res
+                StacksIndexedMicroblockStream::new_confirmed(chainstate, &block_id)
             });
 
         // start loading up the microblocks
@@ -128,16 +127,14 @@ impl RPCRequestHandler for RPCMicroblocksConfirmedRequestHandler {
                     &preamble,
                     &HttpNotFound::new(format!("No such block {:?}\n", &block_id)),
                 )
-                .try_into_contents()
-                .map_err(NetError::from);
+                .try_into_contents();
             }
             Err(e) => {
                 // nope -- error trying to check
                 let msg = format!("Failed to load block: {:?}\n", &e);
                 warn!("{}", &msg);
                 return StacksHttpResponse::new_error(&preamble, &HttpServerError::new(msg))
-                    .try_into_contents()
-                    .map_err(NetError::from);
+                    .try_into_contents();
             }
         };
 
