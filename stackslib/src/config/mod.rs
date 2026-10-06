@@ -139,6 +139,9 @@ pub const DEFAULT_CONTRACT_COST_LIMIT_PERCENTAGE: u8 = 95;
 const DEFAULT_TENURE_EXTEND_POLL_SECS: u64 = 1;
 /// Default number of millis to wait before trying to continue a tenure because the next miner did not produce blocks
 const DEFAULT_TENURE_EXTEND_WAIT_MS: u64 = 120_000;
+/// Default duration to wait for an already-proposed tenure-start block to be processed
+/// before presuming it lost, in milliseconds.
+const DEFAULT_BLOCK_FOUND_IN_FLIGHT_WAIT_MS: u64 = 15_000;
 /// Default duration to wait before attempting to issue a tenure extend.
 /// This should be greater than the signers' timeout. This is used for issuing
 /// fallback tenure extends
@@ -3247,6 +3250,28 @@ pub struct MinerConfig {
     /// @default: [`DEFAULT_TENURE_EXTEND_WAIT_MS`]
     /// @units: milliseconds
     pub tenure_extend_wait_timeout: Duration,
+    /// Duration to wait for an already-proposed tenure-start (`BlockFound`) block to be
+    /// processed before presuming it lost.
+    ///
+    /// When an empty sortition arrives after this node proposed the tenure-start block
+    /// for the last winning sortition but before that block was processed, the signers
+    /// may still sign and push it. Issuing a second `BlockFound` in that window only
+    /// produces a sibling of the in-flight block, which the signers will refuse to sign,
+    /// so the relayer waits instead. The wait is measured from the moment the block was
+    /// proposed, not from the empty sortition, so a run of empty sortitions cannot
+    /// extend it. Once it elapses the proposal is presumed lost and the relayer issues a
+    /// late `BlockFound`.
+    ///
+    /// This only has to cover the signers aggregating signatures over a block this node
+    /// has already proposed and pushing it back, which takes seconds.
+    ///
+    /// Note: this is a heuristic optimization, even if the miner spawns a new
+    /// `BlockFound` thread, that thread can discover an in-flight `BlockFound` being
+    /// processed.
+    /// ---
+    /// @default: [`DEFAULT_BLOCK_FOUND_IN_FLIGHT_WAIT_MS`]
+    /// @units: milliseconds
+    pub block_found_in_flight_wait: Duration,
     /// Duration to wait before attempting to issue a time-based tenure extend.
     ///
     /// A miner can proactively attempt to extend its tenure if a significant amount
@@ -3411,6 +3436,9 @@ impl Default for MinerConfig {
             contract_cost_limit_percentage: Some(DEFAULT_CONTRACT_COST_LIMIT_PERCENTAGE),
             tenure_extend_poll_timeout: Duration::from_secs(DEFAULT_TENURE_EXTEND_POLL_SECS),
             tenure_extend_wait_timeout: Duration::from_millis(DEFAULT_TENURE_EXTEND_WAIT_MS),
+            block_found_in_flight_wait: Duration::from_millis(
+                DEFAULT_BLOCK_FOUND_IN_FLIGHT_WAIT_MS,
+            ),
             tenure_timeout: Duration::from_secs(DEFAULT_TENURE_TIMEOUT_SECS),
             tenure_extend_cost_threshold: DEFAULT_TENURE_EXTEND_COST_THRESHOLD,
             read_count_extend_cost_threshold: DEFAULT_READ_COUNT_EXTEND_COST_THRESHOLD,
@@ -4479,6 +4507,7 @@ pub struct MinerConfigFile {
     pub contract_cost_limit_percentage: Option<u8>,
     pub tenure_extend_poll_secs: Option<u64>,
     pub tenure_extend_wait_timeout_ms: Option<u64>,
+    pub block_found_in_flight_wait_ms: Option<u64>,
     pub tenure_timeout_secs: Option<u64>,
     pub tenure_extend_cost_threshold: Option<u64>,
     pub block_rejection_timeout_steps: Option<HashMap<String, u64>>,
@@ -4656,6 +4685,7 @@ impl MinerConfigFile {
             contract_cost_limit_percentage,
             tenure_extend_poll_timeout: self.tenure_extend_poll_secs.map(Duration::from_secs).unwrap_or(miner_default_config.tenure_extend_poll_timeout),
             tenure_extend_wait_timeout: self.tenure_extend_wait_timeout_ms.map(Duration::from_millis).unwrap_or(miner_default_config.tenure_extend_wait_timeout),
+            block_found_in_flight_wait: self.block_found_in_flight_wait_ms.map(Duration::from_millis).unwrap_or(miner_default_config.block_found_in_flight_wait),
             tenure_timeout: self.tenure_timeout_secs.map(Duration::from_secs).unwrap_or(miner_default_config.tenure_timeout),
             tenure_extend_cost_threshold: self.tenure_extend_cost_threshold.unwrap_or(miner_default_config.tenure_extend_cost_threshold),
 

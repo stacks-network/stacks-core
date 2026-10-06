@@ -37,10 +37,12 @@ use stacks::util::hash::{Hash160, Sha512Trunc256Sum};
 use stacks::util::secp256k1::{Secp256k1PrivateKey, Secp256k1PublicKey};
 use stacks_common::types::chainstate::TrieHash;
 use stacks_common::util::sleep_ms;
+use stacks_signer::signerdb::{BlockState, ReorgPermit, SignerDb};
 use stacks_signer::v0::signer_state::LocalStateMachine;
 use stacks_signer::v0::tests::{
     TEST_PIN_SUPPORTED_SIGNER_PROTOCOL_VERSION, TEST_REJECT_ALL_BLOCK_PROPOSAL,
-    TEST_SIGNERS_SKIP_BLOCK_RESPONSE_BROADCAST, TEST_SKIP_BLOCK_BROADCAST,
+    TEST_SIGNERS_IGNORE_BLOCK_RESPONSES, TEST_SIGNERS_SKIP_BLOCK_RESPONSE_BROADCAST,
+    TEST_SKIP_BLOCK_BROADCAST,
 };
 use stacks_signer::v0::SpawnedSigner;
 use tracing_subscriber::{fmt, EnvFilter};
@@ -5358,4 +5360,478 @@ fn btc_fork_on_midtenure_accept() {
     );
 
     signer_test.shutdown();
+}
+
+/// The state shared by the reorged-tenure tests below once tenure A has one block.
+struct ReorgedTenureScenario {
+    miners: MultipleMinerTest,
+    sortdb: SortitionDB,
+    /// Height of block N, the last block of tenure T0 and the parent of both tenure A and the
+    /// tenure B that will reorg it
+    block_n_height: u64,
+    /// Consensus hash of tenure A
+    tenure_a_ch: ConsensusHash,
+}
+
+/// Boot two miners and five signers to the point where tenure B can reorg tenure A:
+/// 1. Miner 1 wins tenure T0 and mines block N.
+/// 2. Miner 2 wins tenure A (committed to N). Before A produces a block, miner 1 commits to
+///    N, so its next tenure will be a sibling of A. Miner 2 mines N+1, which is globally
+///    accepted.
+///
+/// Miner 1's commits and miner 2's commits are left paused. `first_proposal_burn_block_timing`
+/// is large, so a reorg is never refused for timing, only by the "more than one globally
+/// accepted block" rule.
+fn boot_to_tenure_a_with_one_block() -> ReorgedTenureScenario {
+    let num_signers = 5;
+    let num_txs = 5;
+
+    let mut miners = MultipleMinerTest::new_with_config_modifications(
+        num_signers,
+        num_txs,
+        |signer_config| {
+            // Never time a tenure out: the scenario relies on stalls.
+            signer_config.block_proposal_timeout = Duration::from_secs(1800);
+            signer_config.block_proposal_validation_timeout = Duration::from_secs(1800);
+            signer_config.tenure_last_block_proposal_timeout = Duration::from_secs(1800);
+            // Any reorg is well timed, so only the globally-accepted-block count can refuse one.
+            signer_config.first_proposal_burn_block_timing = Duration::from_secs(1800);
+        },
+        |config| {
+            config.miner.block_commit_delay = Duration::from_secs(0);
+        },
+        |config| {
+            config.miner.block_commit_delay = Duration::from_secs(0);
+        },
+    );
+
+    let (conf_1, _) = miners.get_node_configs();
+    let (miner_pkh_1, miner_pkh_2) = miners.get_miner_public_key_hashes();
+    let (miner_pk_1, miner_pk_2) = miners.get_miner_public_keys();
+
+    miners.pause_commits_miner_2();
+    miners.boot_to_epoch_3();
+
+    let sortdb = conf_1.get_burnchain().open_sortition_db(true).unwrap();
+
+    info!("------------------------- Miner 1 Wins T0, Mines N -------------------------");
+    miners.ensure_commit_miner_1(&sortdb);
+    miners.pause_commits_miner_1();
+    let stacks_height_before = miners.get_peer_stacks_tip_height();
+    miners
+        .mine_bitcoin_block_and_tenure_change_tx(&sortdb, TenureChangeCause::BlockFound, 60)
+        .expect("Failed to mine BTC block followed by block N");
+    let block_n = wait_for_block_pushed_and_tip(30, stacks_height_before + 1, &miner_pk_1, || {
+        get_chain_info(&conf_1).stacks_tip
+    })
+    .expect("Failed to get block N");
+    let block_n_height = block_n.header.chain_length;
+    verify_sortition_winner(&sortdb, &miner_pkh_1);
+
+    info!("------------------------- Miner 2 Wins A -------------------------");
+    miners.ensure_commit_miner_2(&sortdb);
+    // Keep A empty until miner 1 has committed to N, so miner 1's next tenure skips A.
+    TEST_BROADCAST_PROPOSAL_STALL.set(vec![miner_pk_2.clone()]);
+    miners
+        .mine_bitcoin_blocks_and_confirm(&sortdb, 1, 60)
+        .expect("Failed to mine BTC block for tenure A");
+    verify_sortition_winner(&sortdb, &miner_pkh_2);
+    miners.ensure_commit_miner_1(&sortdb);
+    assert_eq!(
+        miners
+            .signer_test
+            .running_nodes
+            .counters
+            .naka_submitted_commit_last_stacks_tip
+            .load(Ordering::SeqCst),
+        block_n_height,
+        "Miner 1 must commit to N so that tenure B skips tenure A"
+    );
+
+    info!("------------------------- Miner 2 Mines N+1 -------------------------");
+    TEST_BROADCAST_PROPOSAL_STALL.set(vec![]);
+    let block_n_1 = wait_for_block_pushed_and_tip(30, block_n_height + 1, &miner_pk_2, || {
+        get_chain_info(&conf_1).stacks_tip
+    })
+    .expect("Failed to get block N+1");
+    let tenure_a_ch = block_n_1.header.consensus_hash.clone();
+
+    ReorgedTenureScenario {
+        miners,
+        sortdb,
+        block_n_height,
+        tenure_a_ch,
+    }
+}
+
+/// The on-disk signer DB of each signer in the test
+fn signer_db_paths(miners: &MultipleMinerTest) -> Vec<std::path::PathBuf> {
+    miners
+        .signer_test
+        .signer_configs
+        .iter()
+        .map(|config| config.db_path.clone())
+        .collect()
+}
+
+/// Regression test for the stall at Bitcoin heights 968312-968315: signers must not revoke
+/// a reorg they already permitted when they fall back to its tenure.
+///
+/// When a sortition winner is invalid, the signers fall back to the prior sortition's
+/// winner. Under previous behaviors, the signers would re-run `check_parent_tenure_choice` for
+/// that tenure. If that prior tenure was itself a permitted reorg, that re-check would count
+/// the reorged tenure's globally accepted blocks again. A block of the reorged tenure that was
+/// signed before the reorg but only landed afterwards would push that count past one, so the
+/// re-check would refuse the reorg the signers already sanctioned, making neither miner valid,
+/// and the chain would stall until the next sortition.
+///
+/// Test Setup:
+/// Two miners and five signers. `first_proposal_burn_block_timing` is large, so a reorg is
+/// never refused for timing, only by the "more than one globally accepted block" rule.
+///
+/// Test Execution:
+/// 1. Miner 1 wins tenure T0 and mines block N.
+/// 2. Miner 2 wins tenure A (committed to N). Before A produces a block, miner 1 commits to
+///    N, so its next tenure will be a sibling of A. Miner 2 mines N+1, which is globally
+///    accepted.
+/// 3. Miner 2 mines N+2. The signers sign it, but it is kept from landing: the miner stalls
+///    before storing and broadcasting it, and the signers ignore each other's responses. Every
+///    signer records N+2 as only locally accepted, so A has one globally accepted block.
+/// 4. Miner 1 wins tenure B (committed to N). The signers permit B's reorg of A.
+/// 5. N+2 lands, and every signer now counts two globally accepted blocks in A.
+/// 6. Miner 2 commits to N+2 (tenure A), before B has produced a block.
+/// 7. Miner 1 mines N+1' and N+2' in tenure B.
+/// 8. Miner 2 wins tenure C. C would reorg B's two globally accepted blocks, so C is invalid.
+///
+/// Test Assertion:
+/// The signers fall back to tenure B instead of reporting no valid miner, and miner 1
+/// extends tenure B with block N+3.
+#[test]
+#[ignore]
+fn permitted_reorg_survives_fallback_after_reorged_block_lands() {
+    if env::var("BITCOIND_TEST") != Ok("1".into()) {
+        return;
+    }
+
+    let ReorgedTenureScenario {
+        mut miners,
+        sortdb,
+        block_n_height,
+        tenure_a_ch,
+    } = boot_to_tenure_a_with_one_block();
+    let (conf_1, conf_2) = miners.get_node_configs();
+    let (miner_pkh_1, miner_pkh_2) = miners.get_miner_public_key_hashes();
+    let (miner_pk_1, miner_pk_2) = miners.get_miner_public_keys();
+    let all_signers = miners.signer_test.signer_test_pks();
+    let signer_addresses = miners.signer_test.signer_addresses_versions();
+    let signer_db_paths = signer_db_paths(&miners);
+
+    info!(
+        "------------------------- Miner 2 Mines N+2, Kept From Landing -------------------------"
+    );
+    // Signers learn that a block is globally accepted from each other's signatures or from
+    // the node processing it. Cut off both, so N+2 is only locally accepted.
+    TEST_SIGNERS_IGNORE_BLOCK_RESPONSES.set(all_signers.clone());
+    TEST_SKIP_BLOCK_BROADCAST.set(true);
+    TEST_P2P_BROADCAST_STALL.set(true);
+    miners.send_transfer_tx();
+    let block_n_2 = wait_for_block_proposal_block(30, block_n_height + 2, &miner_pk_2)
+        .expect("Failed to get block N+2 proposal");
+    let block_n_2_sighash = block_n_2.header.signer_signature_hash();
+    wait_for_block_acceptance_from_signers(30, &block_n_2_sighash, &all_signers)
+        .expect("Signers did not sign block N+2");
+    wait_for(30, || {
+        Ok(TEST_MINER_BROADCASTING_BLOCK
+            .get_opt()
+            .is_some_and(|block| block.header.signer_signature_hash() == block_n_2_sighash))
+    })
+    .expect("Miner 2 did not reach the broadcast of block N+2");
+
+    for db_path in &signer_db_paths {
+        let signer_db = SignerDb::new(db_path).unwrap();
+        let block_info = signer_db
+            .block_lookup(&block_n_2_sighash)
+            .unwrap()
+            .expect("Signer has no record of block N+2");
+        assert_eq!(block_info.state, BlockState::LocallyAccepted);
+        assert_eq!(
+            signer_db
+                .get_globally_accepted_block_count_in_tenure(&tenure_a_ch)
+                .unwrap(),
+            1
+        );
+    }
+
+    info!("------------------------- Miner 1 Wins B, Reorging A -------------------------");
+    TEST_BROADCAST_PROPOSAL_STALL.set(vec![miner_pk_1.clone()]);
+    miners
+        .mine_bitcoin_blocks_and_confirm(&sortdb, 1, 60)
+        .expect("Failed to mine BTC block for tenure B");
+    verify_sortition_winner(&sortdb, &miner_pkh_1);
+    let tenure_b_info = miners.get_peer_info();
+    let tenure_b_ch = tenure_b_info.pox_consensus.clone();
+    wait_for_state_machine_update(
+        30,
+        &tenure_b_ch,
+        tenure_b_info.burn_block_height,
+        Some((miner_pkh_1.clone(), block_n_height)),
+        &signer_addresses,
+    )
+    .expect("Signers did not permit tenure B's reorg of tenure A");
+
+    info!("------------------------- N+2 Lands -------------------------");
+    TEST_P2P_BROADCAST_STALL.set(false);
+    wait_for(30, || {
+        let tips_at_n_2 = [&conf_1, &conf_2].iter().all(|conf| {
+            get_chain_info_opt(conf)
+                .is_some_and(|info| info.stacks_tip == block_n_2.header.block_hash())
+        });
+        Ok(tips_at_n_2)
+    })
+    .expect("Block N+2 did not land on both nodes");
+    wait_for(30, || {
+        for db_path in &signer_db_paths {
+            let signer_db = SignerDb::new(db_path).unwrap();
+            let globally_accepted = signer_db
+                .block_lookup(&block_n_2_sighash)
+                .unwrap()
+                .is_some_and(|block_info| block_info.state == BlockState::GloballyAccepted);
+            if !globally_accepted {
+                return Ok(false);
+            }
+        }
+        Ok(true)
+    })
+    .expect("Signers did not mark block N+2 as globally accepted");
+    for db_path in &signer_db_paths {
+        let signer_db = SignerDb::new(db_path).unwrap();
+        assert_eq!(
+            signer_db
+                .get_globally_accepted_block_count_in_tenure(&tenure_a_ch)
+                .unwrap(),
+            2
+        );
+    }
+    TEST_SIGNERS_IGNORE_BLOCK_RESPONSES.set(vec![]);
+    TEST_SKIP_BLOCK_BROADCAST.set(false);
+
+    info!("------------------------- Miner 2 Commits to N+2 -------------------------");
+    miners.ensure_commit_miner_2(&sortdb);
+    assert_eq!(
+        miners
+            .rl2_counters
+            .naka_submitted_commit_last_stacks_tip
+            .load(Ordering::SeqCst),
+        block_n_height + 2,
+        "Miner 2 must commit to N+2 so that tenure C skips tenure B"
+    );
+
+    info!("------------------------- Miner 1 Mines N+1' and N+2' -------------------------");
+    TEST_BROADCAST_PROPOSAL_STALL.set(vec![]);
+    // Don't wait for the tip to sit at N+1': the pending transfer lets miner 1 mine N+2' right
+    // behind it, so the tip can move past N+1' before we look.
+    let block_n_1_prime = wait_for_block_pushed_by_miner_key(30, block_n_height + 1, &miner_pk_1)
+        .expect("Failed to get block N+1'");
+    assert_eq!(block_n_1_prime.header.consensus_hash, tenure_b_ch);
+    if miners.get_peer_stacks_tip_height() < block_n_height + 2 {
+        // The transfer from the orphaned N+2 is still pending on this fork, so miner 1 normally
+        // mines it into N+2'. Submit another in case it already went into N+1'; a duplicate of
+        // the pending one is refused, which is fine.
+        let _ = miners.signer_test.submit_transfer_tx(
+            &miners.sender_sk,
+            miners.send_fee,
+            miners.send_amt,
+        );
+    }
+    let block_n_2_prime =
+        wait_for_block_pushed_and_tip(30, block_n_height + 2, &miner_pk_1, || {
+            get_chain_info(&conf_1).stacks_tip
+        })
+        .expect("Failed to get block N+2'");
+    assert_eq!(block_n_2_prime.header.consensus_hash, tenure_b_ch);
+
+    info!("------------------------- Miner 2 Wins C, Which Is Invalid -------------------------");
+    miners
+        .mine_bitcoin_blocks_and_confirm(&sortdb, 1, 60)
+        .expect("Failed to mine BTC block for tenure C");
+    verify_sortition_winner(&sortdb, &miner_pkh_2);
+    let tenure_c_sortition = get_sortition_info(&conf_1);
+    assert_eq!(
+        tenure_c_sortition.stacks_parent_ch,
+        Some(tenure_a_ch.clone()),
+        "Tenure C must build on tenure A, reorging tenure B"
+    );
+
+    info!("------------------------- Signers Fall Back to B -------------------------");
+    let tenure_c_info = miners.get_peer_info();
+    wait_for_state_machine_update(
+        60,
+        &tenure_c_info.pox_consensus,
+        tenure_c_info.burn_block_height,
+        Some((miner_pkh_1.clone(), block_n_height)),
+        &signer_addresses,
+    )
+    .expect("Signers did not fall back to tenure B after rejecting tenure C");
+
+    let block_n_3 = wait_for_block_pushed_and_tip(60, block_n_height + 3, &miner_pk_1, || {
+        get_chain_info(&conf_1).stacks_tip
+    })
+    .expect("Miner 1 did not extend tenure B");
+    assert_eq!(block_n_3.header.consensus_hash, tenure_b_ch);
+    assert!(
+        block_n_3
+            .get_tenure_extend_tx_payload()
+            .is_some_and(|payload| payload.cause.is_full_extend()),
+        "Block N+3 should be a full tenure extend of tenure B"
+    );
+
+    info!("------------------------- Shutdown -------------------------");
+    miners.shutdown();
+}
+
+/// Signers must not sign more blocks of a tenure once they have permitted a later tenure to
+/// reorg it.
+///
+/// This is the other half of the stall at Bitcoin heights 968312-968315. Tenure 968312's
+/// second block was validated and pre-committed, but not yet signed, when 968313 arrived. The
+/// signers permitted 968313's reorg of 968312 (one globally accepted block) and then signed
+/// the in-flight block anyway, leaving the reorged tenure with two globally accepted blocks,
+/// which the reorg rules forbid.
+///
+/// Test Setup:
+/// As for `permitted_reorg_survives_fallback_after_reorged_block_lands`: miner 2's tenure A has
+/// one globally accepted block N+1, and miner 1 has committed to N.
+///
+/// Test Execution:
+/// 1. Block validation is stalled on both nodes, and miner 2 proposes N+2.
+/// 2. Miner 1 wins tenure B (committed to N). The signers permit B's reorg of A, since N+2 is
+///    still in flight and A has one globally accepted block.
+/// 3. Validation resumes, and the signers learn that N+2 is valid.
+/// 4. Miner 1 mines N+1' and N+2' in tenure B.
+///
+/// Test Assertion:
+/// Every signer rejects N+2, so tenure A keeps its single globally accepted block, and
+/// tenure B's blocks are signed.
+#[test]
+#[ignore]
+fn reorged_tenure_is_frozen_once_reorg_is_permitted() {
+    if env::var("BITCOIND_TEST") != Ok("1".into()) {
+        return;
+    }
+
+    let ReorgedTenureScenario {
+        mut miners,
+        sortdb,
+        block_n_height,
+        tenure_a_ch,
+    } = boot_to_tenure_a_with_one_block();
+    let (conf_1, conf_2) = miners.get_node_configs();
+    let (miner_pkh_1, _) = miners.get_miner_public_key_hashes();
+    let (miner_pk_1, miner_pk_2) = miners.get_miner_public_keys();
+    let all_signers = miners.signer_test.signer_test_pks();
+    let signer_addresses = miners.signer_test.signer_addresses_versions();
+    let signer_db_paths = signer_db_paths(&miners);
+
+    info!("------------------------- Miner 2 Proposes N+2, Validation Stalled -------------------------");
+    TEST_VALIDATE_STALL.set(vec![
+        conf_1.connection_options.auth_token.clone(),
+        conf_2.connection_options.auth_token.clone(),
+    ]);
+    miners.send_transfer_tx();
+    let block_n_2 = wait_for_block_proposal_block(30, block_n_height + 2, &miner_pk_2)
+        .expect("Failed to get block N+2 proposal");
+    let block_n_2_sighash = block_n_2.header.signer_signature_hash();
+
+    info!("------------------------- Miner 1 Wins B, Reorging A -------------------------");
+    TEST_BROADCAST_PROPOSAL_STALL.set(vec![miner_pk_1.clone()]);
+    miners
+        .mine_bitcoin_blocks_and_confirm(&sortdb, 1, 60)
+        .expect("Failed to mine BTC block for tenure B");
+    verify_sortition_winner(&sortdb, &miner_pkh_1);
+    let tenure_b_info = miners.get_peer_info();
+    let tenure_b_ch = tenure_b_info.pox_consensus.clone();
+    wait_for_state_machine_update(
+        30,
+        &tenure_b_ch,
+        tenure_b_info.burn_block_height,
+        Some((miner_pkh_1.clone(), block_n_height)),
+        &signer_addresses,
+    )
+    .expect("Signers did not permit tenure B's reorg of tenure A");
+    for db_path in &signer_db_paths {
+        let signer_db = SignerDb::new(db_path).unwrap();
+        assert!(
+            signer_db
+                .has_reorg_permit(ReorgPermit {
+                    reorged_tenure: &tenure_a_ch,
+                    reorging_tenure: &tenure_b_ch,
+                })
+                .unwrap(),
+            "Every signer should have recorded permitting tenure B to reorg tenure A"
+        );
+        assert_eq!(
+            signer_db
+                .get_globally_accepted_block_count_in_tenure(&tenure_a_ch)
+                .unwrap(),
+            1
+        );
+    }
+
+    info!(
+        "------------------------- N+2 Validates Late, Signers Reject It -------------------------"
+    );
+    TEST_VALIDATE_STALL.set(vec![]);
+    let rejections = wait_for_block_rejections_from_signers(30, &block_n_2_sighash, &all_signers)
+        .expect("Signers did not reject block N+2");
+    let expected_reason = RejectReason::ConsensusHashMismatch {
+        actual: tenure_a_ch.clone(),
+        expected: tenure_b_ch.clone(),
+    };
+    for rejection in &rejections {
+        assert_eq!(rejection.response_data.reject_reason, expected_reason);
+    }
+    for db_path in &signer_db_paths {
+        let signer_db = SignerDb::new(db_path).unwrap();
+        let block_info = signer_db
+            .block_lookup(&block_n_2_sighash)
+            .unwrap()
+            .expect("Signer has no record of block N+2");
+        assert!(
+            block_info.signed_self.is_none(),
+            "No signer may sign block N+2 after permitting tenure A's reorg"
+        );
+        assert_eq!(
+            signer_db
+                .get_globally_accepted_block_count_in_tenure(&tenure_a_ch)
+                .unwrap(),
+            1
+        );
+    }
+
+    info!("------------------------- Miner 1 Mines N+1' and N+2' -------------------------");
+    TEST_BROADCAST_PROPOSAL_STALL.set(vec![]);
+    // Don't wait for the tip to sit at N+1': the pending transfer lets miner 1 mine N+2' right
+    // behind it, so the tip can move past N+1' before we look.
+    let block_n_1_prime = wait_for_block_pushed_by_miner_key(30, block_n_height + 1, &miner_pk_1)
+        .expect("Failed to get block N+1'");
+    assert_eq!(block_n_1_prime.header.consensus_hash, tenure_b_ch);
+    if miners.get_peer_stacks_tip_height() < block_n_height + 2 {
+        // The transfer from the rejected N+2 is still pending, so miner 1 normally mines it
+        // into N+2'. Submit another in case it already went into N+1'; a duplicate of the
+        // pending one is refused, which is fine.
+        let _ = miners.signer_test.submit_transfer_tx(
+            &miners.sender_sk,
+            miners.send_fee,
+            miners.send_amt,
+        );
+    }
+    let block_n_2_prime =
+        wait_for_block_pushed_and_tip(30, block_n_height + 2, &miner_pk_1, || {
+            get_chain_info(&conf_1).stacks_tip
+        })
+        .expect("Failed to get block N+2'");
+    assert_eq!(block_n_2_prime.header.consensus_hash, tenure_b_ch);
+
+    info!("------------------------- Shutdown -------------------------");
+    miners.shutdown();
 }
