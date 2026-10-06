@@ -39,6 +39,7 @@ use crate::chainstate::{
     ProposalEvalConfig, SignerChainstateError, SortitionData, SortitionState, SortitionStateVersion,
 };
 use crate::client::{ClientError, CurrentAndLastSortition, StackerDB, StacksClient};
+use crate::monitoring;
 use crate::signerdb::SignerDb;
 
 /// This is the latest supported protocol version for this signer binary
@@ -366,8 +367,8 @@ impl LocalStateMachine {
             "new_active_tenure_ch" => %new_active_tenure_ch
         );
 
-        crate::monitoring::actions::increment_signer_agreement_state_change_reason(
-            crate::monitoring::SignerAgreementStateChangeReason::InactiveMiner,
+        monitoring::actions::increment_signer_agreement_state_change_reason(
+            monitoring::SignerAgreementStateChangeReason::InactiveMiner,
         );
 
         Ok(())
@@ -517,8 +518,8 @@ impl LocalStateMachine {
         *parent_tenure_last_block_height = height;
         *self = LocalStateMachine::Initialized(prior_state_machine);
 
-        crate::monitoring::actions::increment_signer_agreement_state_change_reason(
-            crate::monitoring::SignerAgreementStateChangeReason::StacksBlockArrival,
+        monitoring::actions::increment_signer_agreement_state_change_reason(
+            monitoring::SignerAgreementStateChangeReason::StacksBlockArrival,
         );
 
         Ok(())
@@ -606,8 +607,8 @@ impl LocalStateMachine {
         }
 
         if prior_state != *self {
-            crate::monitoring::actions::increment_signer_agreement_state_change_reason(
-                crate::monitoring::SignerAgreementStateChangeReason::BurnBlockArrival,
+            monitoring::actions::increment_signer_agreement_state_change_reason(
+                monitoring::SignerAgreementStateChangeReason::BurnBlockArrival,
             );
         }
 
@@ -789,8 +790,8 @@ impl LocalStateMachine {
 
         if active_signer_protocol_version != old_protocol_version {
             info!("Signer State: Updating active signer protocol version from {old_protocol_version} to {active_signer_protocol_version}");
-            crate::monitoring::actions::increment_signer_agreement_state_change_reason(
-                crate::monitoring::SignerAgreementStateChangeReason::ProtocolUpgrade,
+            monitoring::actions::increment_signer_agreement_state_change_reason(
+                monitoring::SignerAgreementStateChangeReason::ProtocolUpgrade,
             );
             let (burn_block, burn_block_height) = local_update.content.burn_block_view();
             let current_miner = local_update.content.current_miner();
@@ -913,8 +914,8 @@ impl LocalStateMachine {
                 "burn_block" => %burn_block,
                 "burn_block_height" => burn_block_height,
             );
-            crate::monitoring::actions::increment_signer_agreement_state_change_reason(
-                crate::monitoring::SignerAgreementStateChangeReason::MinerViewUpdate,
+            monitoring::actions::increment_signer_agreement_state_change_reason(
+                monitoring::SignerAgreementStateChangeReason::MinerViewUpdate,
             );
             Self::monitor_miner_parent_tenure_update(current_miner, &new_miner);
 
@@ -974,8 +975,8 @@ impl LocalStateMachine {
                 "global_burn_block_height" => global_burn_block_height,
             );
             // We don't have the majority's burn block yet...will have to wait
-            crate::monitoring::actions::increment_signer_agreement_state_conflict(
-                crate::monitoring::SignerAgreementStateConflict::BurnBlockDelay,
+            monitoring::actions::increment_signer_agreement_state_conflict(
+                monitoring::SignerAgreementStateConflict::BurnBlockDelay,
             );
             return None;
         }
@@ -1069,8 +1070,8 @@ impl LocalStateMachine {
         }
 
         if stacks_block_delayed {
-            crate::monitoring::actions::increment_signer_agreement_state_conflict(
-                crate::monitoring::SignerAgreementStateConflict::StacksBlockDelay,
+            monitoring::actions::increment_signer_agreement_state_conflict(
+                monitoring::SignerAgreementStateConflict::StacksBlockDelay,
             );
         }
 
@@ -1079,8 +1080,8 @@ impl LocalStateMachine {
 
         let new_miner = potential_matches.last().map(|(_, miner)| (*miner).clone());
         if new_miner.is_none() {
-            crate::monitoring::actions::increment_signer_agreement_state_conflict(
-                crate::monitoring::SignerAgreementStateConflict::MinerView,
+            monitoring::actions::increment_signer_agreement_state_conflict(
+                monitoring::SignerAgreementStateConflict::MinerView,
             );
         }
         new_miner
@@ -1104,8 +1105,8 @@ impl LocalStateMachine {
         ) = (&current_miner, &new_miner)
         {
             if current_parent_tenure != new_parent_tenure {
-                crate::monitoring::actions::increment_signer_agreement_state_change_reason(
-                    crate::monitoring::SignerAgreementStateChangeReason::MinerParentTenureUpdate,
+                monitoring::actions::increment_signer_agreement_state_change_reason(
+                    monitoring::SignerAgreementStateChangeReason::MinerParentTenureUpdate,
                 );
             }
         }
