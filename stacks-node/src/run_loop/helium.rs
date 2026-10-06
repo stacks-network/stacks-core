@@ -1,16 +1,16 @@
 use stacks::chainstate::stacks::db::ClarityTx;
-use stacks_common::types::chainstate::BurnchainHeaderHash;
+use stacks::chainstate::stacks::{
+    TransactionAuth, TransactionPayload, TransactionSpendingCondition,
+};
 
-use super::RunLoopCallbacks;
 use crate::burnchains::Error as BurnchainsError;
-use crate::{BitcoinRegtestController, ChainTip, Config, Node};
+use crate::{BitcoinRegtestController, BurnchainTip, ChainTip, Config, Node};
 
 /// RunLoop is coordinating a simulated burnchain and some simulated nodes
 /// taking turns in producing blocks.
 pub struct RunLoop {
     config: Config,
     pub node: Node,
-    pub callbacks: RunLoopCallbacks,
 }
 
 impl RunLoop {
@@ -27,11 +27,7 @@ impl RunLoop {
         // Build node based on config
         let node = Node::new(config.clone(), boot_exec);
 
-        Self {
-            config,
-            node,
-            callbacks: RunLoopCallbacks::new(),
-        }
+        Self { config, node }
     }
 
     /// Starts the testnet runloop.
@@ -52,8 +48,6 @@ impl RunLoop {
         // Initialize and start the burnchain.
         let mut burnchain = BitcoinRegtestController::new(self.config.clone(), None);
 
-        self.callbacks.invoke_burn_chain_initialized(&mut burnchain);
-
         let (initial_state, _) = burnchain.start(None)?;
 
         // Update each node with the genesis block.
@@ -64,12 +58,9 @@ impl RunLoop {
 
         // Waiting on the 1st block (post-genesis) from the burnchain, containing the first key registrations
         // that will be used for bootstraping the chain.
-        let mut round_index: u64 = 0;
-
         // Sync and update node with this new block.
         let (burnchain_tip, _) = burnchain.sync(None)?;
         self.node.process_burnchain_state(&burnchain_tip); // todo(ludo): should return genesis?
-        let mut chain_tip = ChainTip::genesis(&BurnchainHeaderHash::zero(), 0, 0);
 
         self.node.spawn_peer_server();
 
@@ -80,13 +71,6 @@ impl RunLoop {
             Some(res) => res,
             None => panic!("Error while initiating genesis tenure"),
         };
-
-        self.callbacks.invoke_new_tenure(
-            round_index,
-            &burnchain_tip,
-            &chain_tip,
-            &mut first_tenure,
-        );
 
         // TODO (hack) instantiate db
         let _ = burnchain.sortdb_mut();
@@ -114,8 +98,7 @@ impl RunLoop {
 
         let (mut burnchain_tip, _) = burnchain.sync(None)?;
 
-        self.callbacks
-            .invoke_new_burn_chain_state(round_index, &burnchain_tip, &chain_tip);
+        log_new_burn_chain_state(&burnchain_tip);
 
         let mut leader_tenure = None;
 
@@ -129,7 +112,7 @@ impl RunLoop {
         // We should have some additional checks here, and ensure that the previous artifacts are legit.
         let mut atlas_db = self.node.make_atlas_db();
 
-        chain_tip = self.node.process_tenure(
+        let mut chain_tip = self.node.process_tenure(
             &artifacts_from_1st_tenure.anchored_block,
             &last_sortitioned_block.block_snapshot.consensus_hash,
             artifacts_from_1st_tenure.microblocks.clone(),
@@ -137,15 +120,7 @@ impl RunLoop {
             &mut atlas_db,
         );
 
-        self.callbacks.invoke_new_stacks_chain_state(
-            round_index,
-            &burnchain_tip,
-            &chain_tip,
-            &mut self.node.chain_state,
-            &burnchain
-                .sortdb_ref()
-                .index_handle(&burnchain_tip.block_snapshot.sortition_id),
-        );
+        log_new_stacks_chain_state(&chain_tip);
 
         // If the node we're looping on won the sortition, initialize and configure the next tenure
         if won_sortition {
@@ -153,7 +128,7 @@ impl RunLoop {
         }
 
         // Start the runloop
-        round_index = 1;
+        let mut round_index: u64 = 1;
         loop {
             if expected_num_rounds == round_index {
                 return Ok(());
@@ -161,19 +136,11 @@ impl RunLoop {
 
             // Run the last initialized tenure
             let artifacts_from_tenure = match leader_tenure {
-                Some(mut tenure) => {
-                    self.callbacks.invoke_new_tenure(
-                        round_index,
-                        &burnchain_tip,
-                        &chain_tip,
-                        &mut tenure,
-                    );
-                    tenure.run(
-                        &burnchain
-                            .sortdb_ref()
-                            .index_handle(&burnchain_tip.block_snapshot.sortition_id),
-                    )
-                }
+                Some(mut tenure) => tenure.run(
+                    &burnchain
+                        .sortdb_ref()
+                        .index_handle(&burnchain_tip.block_snapshot.sortition_id),
+                ),
                 None => None,
             };
 
@@ -190,8 +157,7 @@ impl RunLoop {
             let (new_burnchain_tip, _) = burnchain.sync(None)?;
             burnchain_tip = new_burnchain_tip;
 
-            self.callbacks
-                .invoke_new_burn_chain_state(round_index, &burnchain_tip, &chain_tip);
+            log_new_burn_chain_state(&burnchain_tip);
 
             leader_tenure = None;
 
@@ -218,15 +184,7 @@ impl RunLoop {
                         &mut atlas_db,
                     );
 
-                    self.callbacks.invoke_new_stacks_chain_state(
-                        round_index,
-                        &burnchain_tip,
-                        &chain_tip,
-                        &mut self.node.chain_state,
-                        &burnchain
-                            .sortdb_ref()
-                            .index_handle(&burnchain_tip.block_snapshot.sortition_id),
-                    );
+                    log_new_stacks_chain_state(&chain_tip);
                 }
             };
 
@@ -236,6 +194,41 @@ impl RunLoop {
             }
 
             round_index += 1;
+        }
+    }
+}
+
+fn log_new_burn_chain_state(burnchain_tip: &BurnchainTip) {
+    eprintln!(
+        "\x1b[0;96mBurnchain block #{} ({}) was produced with sortition #{}\x1b[0m",
+        burnchain_tip.block_snapshot.block_height,
+        burnchain_tip.block_snapshot.burn_header_hash,
+        burnchain_tip.block_snapshot.sortition_hash
+    );
+}
+
+fn log_new_stacks_chain_state(chain_tip: &ChainTip) {
+    eprintln!(
+        "\x1b[0;32mStacks block #{} ({}) successfully produced, including {} transactions\x1b[0m",
+        chain_tip.metadata.stacks_block_height,
+        chain_tip.metadata.index_block_hash(),
+        chain_tip.block.txs.len()
+    );
+    for tx in chain_tip.block.txs.iter() {
+        match &tx.auth {
+            TransactionAuth::Standard(TransactionSpendingCondition::Singlesig(auth)) => {
+                println!(
+                    "-> Tx issued by {:?} (fee: {}, nonce: {})",
+                    auth.signer, auth.tx_fee, auth.nonce
+                )
+            }
+            _ => println!("-> Tx {:?}", tx.auth),
+        }
+        match &tx.payload {
+            TransactionPayload::Coinbase(..) => println!("   Coinbase"),
+            TransactionPayload::SmartContract(contract, ..) => println!("   Publish smart contract\n**************************\n{:?}\n**************************", contract.code_body),
+            TransactionPayload::TokenTransfer(recipent, amount, _) => println!("   Transfering {amount} µSTX to {recipent}"),
+            _ => println!("   {:?}", tx.payload)
         }
     }
 }
