@@ -2,6 +2,7 @@ use std::collections::{BTreeMap, HashMap};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::SyncSender;
 use std::sync::{Arc, Mutex};
+use std::time::Instant;
 
 use stacks::burnchains::Txid;
 use stacks::chainstate::burn::operations::LeaderKeyRegisterOp;
@@ -77,6 +78,13 @@ pub struct Globals<T> {
     /// Initiative flag.
     /// Raised when the main loop should wake up and do something.
     initiative: Arc<Mutex<Option<String>>>,
+    /// Tenure ID of the last tenure-start (`BlockFound`) block this miner proposed to
+    /// the signers, and the time at which it was proposed. The relayer uses it to tell
+    /// whether a tenure-start proposal is still in flight when an empty sortition
+    /// arrives. The timestamp bounds how long the relayer will wait on it: this record
+    /// is never cleared, so without it a proposal that silently died would suppress the
+    /// relayer's late `BlockFound` forever.
+    last_proposed_tenure_start: Arc<Mutex<Option<(ConsensusHash, Instant)>>>,
 }
 
 // Need to manually implement Clone, because [derive(Clone)] requires
@@ -101,6 +109,7 @@ impl<T> Clone for Globals<T> {
             estimated_winning_probs: self.estimated_winning_probs.clone(),
             previous_best_tips: self.previous_best_tips.clone(),
             initiative: self.initiative.clone(),
+            last_proposed_tenure_start: self.last_proposed_tenure_start.clone(),
         }
     }
 }
@@ -134,6 +143,7 @@ impl<T> Globals<T> {
             estimated_winning_probs: Arc::new(Mutex::new(HashMap::new())),
             previous_best_tips: Arc::new(Mutex::new(BTreeMap::new())),
             initiative: Arc::new(Mutex::new(None)),
+            last_proposed_tenure_start: Arc::new(Mutex::new(None)),
         }
     }
 
@@ -161,6 +171,27 @@ impl<T> Globals<T> {
             panic!();
         });
         last_sortition.replace(block_snapshot);
+    }
+
+    /// Get the tenure ID of the last tenure-start block this node proposed to the
+    /// signers, along with the time at which it was proposed
+    pub fn get_last_proposed_tenure_start(&self) -> Option<(ConsensusHash, Instant)> {
+        self.last_proposed_tenure_start
+            .lock()
+            .unwrap_or_else(|_| {
+                error!("Last proposed tenure start mutex poisoned!");
+                panic!();
+            })
+            .clone()
+    }
+
+    /// Record that this node just proposed a tenure-start block for the tenure `tenure_id`
+    pub fn set_last_proposed_tenure_start(&self, tenure_id: ConsensusHash) {
+        let mut last_proposed = self.last_proposed_tenure_start.lock().unwrap_or_else(|_| {
+            error!("Last proposed tenure start mutex poisoned!");
+            panic!();
+        });
+        last_proposed.replace((tenure_id, Instant::now()));
     }
 
     /// Get the status of the miner (blocked or ready)

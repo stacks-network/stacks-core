@@ -35,7 +35,7 @@ use stacks::chainstate::burn::operations::{
 };
 use stacks::chainstate::burn::{BlockSnapshot, ConsensusHash};
 use stacks::chainstate::nakamoto::coordinator::get_nakamoto_next_recipients;
-use stacks::chainstate::nakamoto::{NakamotoBlockHeader, NakamotoChainState};
+use stacks::chainstate::nakamoto::NakamotoChainState;
 use stacks::chainstate::stacks::db::StacksChainState;
 use stacks::chainstate::stacks::miner::{
     set_mining_spend_amount, signal_mining_blocked, signal_mining_ready,
@@ -357,6 +357,11 @@ pub struct TenureExtendTime {
     timeout: Duration,
     /// The reason for tenure-extending
     reason: TenureExtendReason,
+    /// Set when the relayer skipped issuing a late `BlockFound` because a tenure-start
+    /// block for the last-won sortition was already in flight. It tells
+    /// `check_tenure_timers` that nothing else is going to issue that `BlockFound`, so it
+    /// must do so itself once the in-flight proposal's deadline passes.
+    deferred_block_found: bool,
 }
 
 impl TenureExtendTime {
@@ -366,6 +371,7 @@ impl TenureExtendTime {
             time: Instant::now(),
             timeout,
             reason: TenureExtendReason::UnresponsiveWinner,
+            deferred_block_found: false,
         }
     }
 
@@ -375,7 +381,26 @@ impl TenureExtendTime {
             time: Instant::now(),
             timeout: Duration::from_millis(0),
             reason,
+            deferred_block_found: false,
         }
+    }
+
+    /// Create a new `TenureExtendTime` for an empty sortition that arrived while our
+    /// tenure-start block for the last-won sortition was proposed but not yet processed.
+    /// The relayer extends as soon as that block lands, and re-issues the deferred
+    /// `BlockFound` itself if nothing has landed by the proposal's deadline.
+    pub fn deferred_block_found() -> Self {
+        Self {
+            time: Instant::now(),
+            timeout: Duration::from_millis(0),
+            reason: TenureExtendReason::EmptySortition,
+            deferred_block_found: true,
+        }
+    }
+
+    /// Did the relayer defer a late `BlockFound` when it armed this timer?
+    pub fn is_block_found_deferred(&self) -> bool {
+        self.deferred_block_found
     }
 
     /// Should we attempt to tenure-extend?
@@ -833,6 +858,26 @@ impl RelayerThread {
             );
 
             if Self::need_block_found(&canonical_stacks_snapshot, &last_winning_snapshot) {
+                if let Some(deadline) = self.block_found_in_flight_until(&last_winning_snapshot) {
+                    // Our tenure-start block for this sortition has been proposed but not
+                    // processed yet. The signers may well still sign and push it, and a
+                    // second BlockFound would only be a sibling of it that they will refuse
+                    // to sign. Wait for it to land and then extend; only once its deadline
+                    // passes do we re-issue the BlockFound (see `check_tenure_timers`).
+                    if let Some(remaining) = deadline.checked_duration_since(Instant::now()) {
+                        info!(
+                            "Relayer: BlockFound for the last winning sortition is already in flight. Will wait for it to land before extending.";
+                            "sortition_ch" => %last_winning_snapshot.consensus_hash,
+                            "block_found_wait_remaining_ms" => remaining.as_millis(),
+                        );
+                        self.tenure_extend_time = Some(TenureExtendTime::deferred_block_found());
+                        return None;
+                    }
+                    info!(
+                        "Relayer: BlockFound for the last winning sortition was proposed but never landed. Will submit a late BlockFound.";
+                        "sortition_ch" => %last_winning_snapshot.consensus_hash,
+                    );
+                }
                 info!(
                     "Relayer: will submit late BlockFound for {}",
                     &last_winning_snapshot.consensus_hash
@@ -884,7 +929,34 @@ impl RelayerThread {
         }
 
         info!("Relayer: No sortition, and we did not produce the last Stacks tip. Will not mine.");
-        return None;
+        None
+    }
+
+    /// If this node has already proposed a tenure-start block for
+    /// `last_winning_snapshot`'s tenure, return the instant by which that block must be
+    /// processed before the relayer gives up on it. The signers may still sign and push
+    /// it even though the miner thread that proposed it has since exited, so a new
+    /// `BlockFound` must not be issued before then -- it would only be a sibling of the
+    /// in-flight block, which the signers will refuse to sign.
+    ///
+    /// The deadline is [`MinerConfig::block_found_in_flight_wait`] past the moment the
+    /// block was proposed. Deriving it from the proposal rather than storing it on the
+    /// tenure-extend timer means repeated empty sortitions re-read the same deadline
+    /// instead of pushing it further out, and that a proposal whose miner thread died
+    /// without resolving it can only delay the late `BlockFound` by a bounded time.
+    ///
+    /// Mock miners' proposals never land, so they always report `None` and keep issuing
+    /// late `BlockFound` tenures immediately.
+    fn block_found_in_flight_until(
+        &self,
+        last_winning_snapshot: &BlockSnapshot,
+    ) -> Option<Instant> {
+        if self.config.get_node_config(false).mock_mining {
+            return None;
+        }
+        let (proposed_tenure_id, proposed_at) = self.globals.get_last_proposed_tenure_start()?;
+        (proposed_tenure_id == last_winning_snapshot.consensus_hash)
+            .then(|| proposed_at + self.config.miner.block_found_in_flight_wait)
     }
 
     /// Determine if we the current tenure winner needs to issue a BlockFound.
@@ -1147,40 +1219,19 @@ impl RelayerThread {
         };
 
         // find the parent block-commit of this commit, so we can find the parent vtxindex
-        // if the parent is a shadow block, then the vtxindex would be 0.
         let commit_parent_block_burn_height = tip_tenure_sortition.block_height;
-        let commit_parent_winning_vtxindex = if let Ok(Some(parent_winning_tx)) =
-            SortitionDB::get_block_commit(
-                self.sortdb.conn(),
-                &tip_tenure_sortition.winning_block_txid,
-                &tip_tenure_sortition.sortition_id,
-            ) {
-            parent_winning_tx.vtxindex
-        } else {
-            debug!(
-                "{}/{} ({}) must be a shadow block, since it has no block-commit",
-                &tip_block_bh, &tip_block_ch, &tip_block_id
+        let Ok(Some(parent_winning_tx)) = SortitionDB::get_block_commit(
+            self.sortdb.conn(),
+            &tip_tenure_sortition.winning_block_txid,
+            &tip_tenure_sortition.sortition_id,
+        ) else {
+            error!("Relayer: Failed to lookup the block-commit that won the highest tenure";
+                "tenure_consensus_hash" => %tip_block_ch,
+                "stacks_block_id" => %tip_block_id
             );
-            let Ok(Some(parent_version)) =
-                NakamotoChainState::get_nakamoto_block_version(self.chainstate.db(), &tip_block_id)
-            else {
-                error!(
-                    "Relayer: Failed to lookup block version of {}",
-                    &tip_block_id
-                );
-                return Err(NakamotoNodeError::ParentNotFound);
-            };
-
-            if !NakamotoBlockHeader::is_shadow_block_version(parent_version) {
-                error!(
-                    "Relayer: parent block-commit of {} not found, and it is not a shadow block",
-                    &tip_block_id
-                );
-                return Err(NakamotoNodeError::ParentNotFound);
-            }
-
-            0
+            return Err(NakamotoNodeError::ParentNotFound);
         };
+        let commit_parent_winning_vtxindex = parent_winning_tx.vtxindex;
 
         // epoch in which this commit will be sent (affects how the burnchain client processes it)
         let Ok(Some(target_epoch)) =
@@ -1261,7 +1312,7 @@ impl RelayerThread {
                 .clone();
 
             let parent_tenure_tip =
-                NakamotoChainState::get_block_header(&self.chainstate.db(), &parent_tenure_tip_id)
+                NakamotoChainState::get_block_header(self.chainstate.db(), &parent_tenure_tip_id)
                     .unwrap()
                     .unwrap();
 
@@ -1491,9 +1542,7 @@ impl RelayerThread {
 
     /// Get the public key hash for the mining key.
     fn get_mining_key_pkh(&self) -> Option<Hash160> {
-        let Some(ref mining_key) = self.config.miner.mining_key else {
-            return None;
-        };
+        let mining_key = self.config.miner.mining_key.as_ref()?;
         Some(Hash160::from_node_public_key(
             &StacksPublicKey::from_private(mining_key),
         ))
@@ -1586,13 +1635,13 @@ impl RelayerThread {
                     chain_state,
                     &canonical_stacks_tip,
                     &canonical_stacks_tip_sn,
-                    &cursor,
+                    cursor,
                 )? {
                     return Ok(FindIter::Found(()));
                 }
 
                 // nope. continue the search
-                return Ok(FindIter::Continue);
+                Ok(FindIter::Continue)
             })
             .map(|found| found.is_some())
     }
@@ -1967,10 +2016,10 @@ impl RelayerThread {
             &sort_tip.consensus_hash,
             &self.config.miner.block_commit_delay,
         ) {
-            return Ok(Some(RelayerDirective::IssueBlockCommit(
+            Ok(Some(RelayerDirective::IssueBlockCommit(
                 stacks_tip_ch,
                 stacks_tip_bh,
-            )));
+            )))
         } else {
             if let Some(deadline) = self
                 .new_tenure_timeout
@@ -1979,7 +2028,7 @@ impl RelayerThread {
                 self.next_initiative = std::cmp::min(self.next_initiative, deadline);
             }
 
-            return Ok(None);
+            Ok(None)
         }
     }
 
@@ -2066,8 +2115,49 @@ impl RelayerThread {
                 if won_last_winning_snapshot
                     && Self::need_block_found(&canonical_stacks_snapshot, &last_winning_snapshot)
                 {
-                    info!("Will not tenure extend yet -- need to issue a BlockFound first");
-                    // We may manage to extend later, so don't set the timer to None.
+                    if !tenure_extend_time.is_block_found_deferred() {
+                        // A late BlockFound miner thread is already working on it.
+                        info!("Will not tenure extend yet -- need to issue a BlockFound first");
+                        // We may manage to extend later, so don't set the timer to None.
+                        return;
+                    }
+                    // We deferred the late BlockFound at the sortition because a
+                    // tenure-start block for this tenure was in flight. Keep waiting while
+                    // it may still land; nothing else will issue that BlockFound, so once
+                    // its deadline passes it falls to us.
+                    if let Some(remaining) = self
+                        .block_found_in_flight_until(&last_winning_snapshot)
+                        .and_then(|deadline| deadline.checked_duration_since(Instant::now()))
+                    {
+                        debug!("Will not tenure extend yet -- waiting for the in-flight BlockFound to land";
+                            "sortition_ch" => %last_winning_snapshot.consensus_hash,
+                            "block_found_wait_remaining_ms" => remaining.as_millis(),
+                        );
+                        return;
+                    }
+                    // The in-flight tenure-start block never landed, so it is presumed lost.
+                    // Issue the late BlockFound we deferred, and extend once it lands.
+                    info!(
+                        "Relayer: in-flight BlockFound did not land in time. Will submit late BlockFound.";
+                        "sortition_ch" => %last_winning_snapshot.consensus_hash,
+                    );
+                    if let Err(e) = self.start_new_tenure(
+                        StacksBlockId(last_winning_snapshot.winning_stacks_block_hash.clone().0),
+                        last_winning_snapshot.clone(),
+                        last_winning_snapshot.clone(),
+                        MinerReason::BlockFound { late: true },
+                        &burn_tip.consensus_hash,
+                    ) {
+                        // Leave the timer armed as a deferred BlockFound so the next poll
+                        // retries this, rather than falling through to the branch above
+                        // and waiting for a miner thread that was never started.
+                        error!("Relayer: Failed to start late BlockFound tenure: {e:?}");
+                        return;
+                    }
+                    // Prepare to immediately extend once the BlockFound lands.
+                    self.tenure_extend_time = Some(TenureExtendTime::immediate(
+                        TenureExtendReason::EmptySortition,
+                    ));
                     return;
                 }
             }

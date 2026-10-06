@@ -22,7 +22,9 @@ use clarity::types::chainstate::{StacksAddress, StacksPrivateKey, StacksPublicKe
 use clarity::types::{EpochList, StacksEpoch, StacksEpochId, StacksEpochRangeTestExt as _};
 use clarity::util::hash::Hash160;
 use clarity::vm::costs::ExecutionCost;
-use clarity::vm::types::{PrincipalData, ResponseData};
+use clarity::vm::types::{
+    PrincipalData, QualifiedContractIdentifier, ResponseData, StandardPrincipalData,
+};
 use clarity::vm::{ClarityName, ClarityVersion, ContractName, Value as ClarityValue};
 use serde::{Deserialize, Serialize, Serializer};
 use stacks_common::types::chainstate::StacksBlockId;
@@ -101,6 +103,14 @@ pub static FAUCET_PRIV_KEY: LazyLock<StacksPrivateKey> = LazyLock::new(|| {
 
 // The address for the faucet account
 pub static FAUCET_ADDRESS: LazyLock<StacksAddress> = LazyLock::new(|| to_addr(&FAUCET_PRIV_KEY));
+
+/// Principal of a setup contract deployed by the faucet, for dynamic dispatch.
+pub fn setup_contract_principal(name: &'static str) -> ClarityValue {
+    ClarityValue::Principal(PrincipalData::Contract(QualifiedContractIdentifier::new(
+        StandardPrincipalData::from(FAUCET_ADDRESS.clone()),
+        ContractName::from_literal(name),
+    )))
+}
 
 const FOO_CONTRACT: &str = "(define-public (foo) (ok 1))
                                     (define-public (bar (x uint)) (ok x))";

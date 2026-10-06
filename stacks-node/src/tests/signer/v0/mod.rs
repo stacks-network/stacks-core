@@ -18,7 +18,7 @@ use std::str::FromStr;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
-use std::{env, thread};
+use std::{env, slice, thread};
 
 use clarity::vm::costs::ExecutionCost;
 use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier};
@@ -31,10 +31,10 @@ use libsigner::{
     BlockProposal, BlockProposalData, SignerSession, StackerDBSession, VERSION_STRING,
 };
 use madhouse::{execute_commands, prop_allof, scenario, Command, CommandWrapper};
-use pinny::tag;
 use proptest::prelude::Strategy;
 use rand::{thread_rng, Rng};
 use rusqlite::Connection;
+use serde_json::{Map as JsonMap, Value as JsonValue};
 use stacks::address::AddressHashMode;
 use stacks::chainstate::burn::db::sortdb::SortitionDB;
 use stacks::chainstate::burn::ConsensusHash;
@@ -93,7 +93,7 @@ use stacks_signer::v0::SpawnedSigner;
 use tracing_subscriber::prelude::*;
 use tracing_subscriber::{fmt, EnvFilter};
 
-use super::SignerTest;
+use super::{wait_for_node_commit, SignerTest};
 use crate::event_dispatcher::TEST_SKIP_BLOCK_ANNOUNCEMENT;
 use crate::nakamoto_node::miner::{
     fault_injection_stall_miner, fault_injection_try_stall_miner, fault_injection_unstall_miner,
@@ -130,6 +130,7 @@ pub mod reorg;
 pub mod signers_consider_consensus_blocks;
 pub mod signers_consider_late_proposals;
 pub mod signers_wait_for_validation;
+mod signet_qualification;
 pub mod tenure_extend;
 
 impl<Z: SpawnedSignerTrait> SignerTest<Z> {
@@ -226,6 +227,9 @@ impl<Z: SpawnedSignerTrait> SignerTest<Z> {
         // Note, we don't use `nakamoto_blocks_mined` counter, because there
         // could be other miners mining blocks.
         info!("Waiting for first Epoch 3.0 tenure to start");
+        // The Nakamoto relayer starts asynchronously at the epoch boundary.
+        // Wait for its commit before mining the first tenure's Bitcoin block.
+        wait_for_node_commit(&self.running_nodes.conf, &self.running_nodes.counters, 60);
         self.mine_nakamoto_block(Duration::from_secs(60), false);
         info!("Ready to mine Nakamoto blocks!");
     }
@@ -1124,6 +1128,13 @@ impl MultipleMinerTest {
         let node_1_pk = StacksPublicKey::from_private(&node_1_sk);
 
         conf_node_2.node.working_dir = format!("{}-1", conf_node_2.node.working_dir);
+        // A cloned configuration must not load the other miner's persisted VRF key.
+        if conf_node_2.miner.activated_vrf_key_path.is_some()
+            && conf_node_2.miner.activated_vrf_key_path == conf.miner.activated_vrf_key_path
+        {
+            conf_node_2.miner.activated_vrf_key_path =
+                Some(format!("{}/vrf_key", conf_node_2.node.working_dir));
+        }
 
         conf_node_2.node.set_bootstrap_nodes(
             format!("{}@{}", &node_1_pk.to_hex(), conf.node.p2p_address),
@@ -2117,8 +2128,16 @@ impl MultipleMinerTest {
 /// transaction with the given cause.
 fn last_block_contains_tenure_change_tx(cause: TenureChangeCause) -> bool {
     let blocks = test_observer::get_blocks();
-    let last_block = &blocks.last().unwrap();
-    let transactions = last_block["transactions"].as_array().unwrap();
+    let last_block = blocks.last().unwrap().as_object().unwrap();
+    block_contains_tenure_change_tx(last_block, cause)
+}
+
+/// Returns whether an observed block contains a tenure change with the given cause.
+fn block_contains_tenure_change_tx(
+    block: &JsonMap<String, JsonValue>,
+    cause: TenureChangeCause,
+) -> bool {
+    let transactions = block["transactions"].as_array().unwrap();
     let tx = transactions.first().expect("No transactions in block");
     let raw_tx = tx["raw_tx"].as_str().unwrap();
     let tx_bytes = hex_bytes(&raw_tx[2..]).unwrap();
@@ -2168,7 +2187,7 @@ pub fn wait_for_block_proposal_block(
     expected_miner: &StacksPublicKey,
 ) -> Result<NakamotoBlock, String> {
     wait_for_block_proposal(timeout_secs, expected_height, expected_miner)
-        .and_then(|proposal| Ok(proposal.block))
+        .map(|proposal| proposal.block)
 }
 
 /// Returns all successfully deserialized (StackerDBChunkData, SignerMessage) pairs
@@ -2628,7 +2647,6 @@ pub fn wait_for_state_machine_update_by_miner_tenure_id(
     })
 }
 
-#[tag(bitcoind)]
 #[test]
 #[ignore]
 /// Test that a signer can respond to an invalid block proposal
@@ -5739,7 +5757,7 @@ fn block_validation_check_rejection_timeout_heuristic() {
         wait_for_block_rejections_from_signers(
             timeout.as_secs(),
             &proposal.header.signer_signature_hash(),
-            &reject_signers,
+            reject_signers,
         )
         .unwrap();
 
@@ -6468,7 +6486,7 @@ fn injected_signatures_are_ignored_across_boundaries() {
 
     // Setup the new signers that will take over
     let new_signer_config = build_signer_config_tomls(
-        &[new_signer_private_key.clone()],
+        slice::from_ref(&new_signer_private_key),
         &rpc_bind,
         Some(Duration::from_millis(128)), // Timeout defaults to 5 seconds. Let's override it to 128 milliseconds.
         &Network::Testnet,
@@ -8180,7 +8198,7 @@ fn mine_burn_block_and_confirm_signer_rollover(
         &tip.consensus_hash,
         tip.block_height,
         None,
-        &expected_versions,
+        expected_versions,
     )
     .expect("Timed out waiting for signers to send their state updates after a bitcoin block");
     let info = signer_test.get_peer_info();
@@ -8871,7 +8889,7 @@ fn signer_loads_stackerdb_updates_on_startup() {
     wait_for_block_acceptance_from_signers(
         30,
         &block_n_2.header.signer_signature_hash(),
-        &accepting,
+        accepting,
     )
     .expect("Not all signers accepted the block");
 
@@ -8891,7 +8909,7 @@ fn signers_do_not_commit_unless_threshold_precommitted() {
     info!("------------------------- Test Setup -------------------------");
     let num_signers = 20;
 
-    let mut signer_test: SignerTest<SpawnedSigner> = SignerTest::new(num_signers, vec![]);
+    let signer_test: SignerTest<SpawnedSigner> = SignerTest::new(num_signers, vec![]);
     let miner_sk = signer_test
         .running_nodes
         .conf
@@ -8918,7 +8936,7 @@ fn signers_do_not_commit_unless_threshold_precommitted() {
     let height_before = signer_test.get_peer_info().stacks_tip_height;
     info!("------------------------- Start Tenure A -------------------------");
     next_block_and(
-        &mut signer_test.running_nodes.btc_regtest_controller,
+        &signer_test.running_nodes.btc_regtest_controller,
         30,
         || Ok(test_observer::get_mined_nakamoto_blocks().len() > blocks_before),
     )
@@ -9016,7 +9034,7 @@ fn signers_treat_signatures_as_precommits() {
     wait_for_block_pre_commits_from_signers(
         30,
         &signer_signature_hash,
-        &[operating_signer.clone()],
+        slice::from_ref(&operating_signer),
     )
     .expect("Operating signer did not send a pre-commit");
     assert!(
@@ -9067,7 +9085,7 @@ fn signers_treat_signatures_as_precommits() {
         while !accepted {
             let mut chunk = StackerDBChunkData::new(slot_id, version, message.serialize_to_vec());
             chunk
-                .sign(&signer_private_key)
+                .sign(signer_private_key)
                 .expect("Failed to sign message chunk");
             debug!("Produced a signature: {:?}", chunk.sig);
             let result = session.put_chunk(&chunk).expect("Failed to put chunk");

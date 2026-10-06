@@ -27,14 +27,14 @@ use clarity::vm::types::BoundedErrorString;
 use libsigner::v0::messages::RejectReason;
 use libsigner::v0::signer_state::GlobalStateEvaluator;
 use stacks_common::types::chainstate::ConsensusHash;
-use stacks_common::{info, warn};
+use stacks_common::{debug, info, warn};
 use v1::SortitionState as SortitionStateV1;
 use v2::SortitionState as SortitionStateV2;
 
 use crate::chainstate::v1::SortitionMinerStatus;
 use crate::client::{ClientError, StacksClient};
 use crate::config::SignerConfig;
-use crate::signerdb::{BlockInfo, BlockState, SignerDb};
+use crate::signerdb::{BlockInfo, BlockState, ReorgPermit, SignerDb};
 use crate::v0::signer_state::GLOBAL_SIGNER_STATE_ACTIVATION_VERSION;
 
 /// The testing module for the various chainstate implementations
@@ -60,6 +60,9 @@ pub enum SignerChainstateError {
     /// The local state machine wasn't ready to be queried
     #[error("The local state machine is not ready, so no update message can be produced")]
     LocalStateMachineNotReady,
+    /// The connected stacks node has not yet processed the burn block the signer expects
+    #[error("Node has not processed the expected burn block yet: {0}")]
+    NodeBehindBurnBlock(String),
 }
 
 impl From<SignerChainstateError> for RejectReason {
@@ -174,10 +177,16 @@ impl SortitionData {
     /// A permitted reorg is recorded once the whole reorg is permitted: each tenure whose
     /// blocks this one is allowed to replace is marked superseded (see
     /// [`SignerDb::mark_tenure_superseded`]), so a signature we already placed on one of those
-    /// blocks does not later block the replacement. The record carries this tenure's sortition
-    /// as the permitting one, so the permit stops applying if a burnchain fork later orphans
-    /// it. Nothing is recorded for a refused reorg, even for the tenures in it that
-    /// individually qualified.
+    /// blocks does not later block the replacement. The record names this tenure as the
+    /// permitting one, which bounds the permit in two ways: it excuses those signatures only
+    /// against the branch it sanctions and only while this tenure's sortition survives a
+    /// burnchain fork. Nothing is recorded for a refused reorg, even for the tenures in it
+    /// that individually qualified.
+    ///
+    /// The record also makes the decision final for this sortition: a
+    /// tenure it already supersedes is not judged again in the event
+    /// that the miner is a "fallback" miner for a subsequent
+    /// sortition.
     pub fn check_parent_tenure_choice(
         &self,
         signer_db: &mut SignerDb,
@@ -209,12 +218,26 @@ impl SortitionData {
         let sortition_state_received_time =
             signer_db.get_burn_block_receive_time(&self.burn_block_hash)?;
 
-        // Track which tenures are superseded by the reorg, then mark them in
-        // the DB after the reorg is permitted.
+        // Track which tenures are superseded by the reorg, except for those that
+        // have already been marked as such. If the reorg is permitted, these tenures
+        // will be marked in the DB.
         let mut superseded_tenures = Vec::new();
         for tenure in tenures_reorged.iter() {
             if tenure.consensus_hash == self.parent_tenure_id {
                 // this was a built-upon tenure, no need to check this tenure as part of the reorg.
+                continue;
+            }
+
+            // We already permitted this sortition to reorg `tenure`
+            if signer_db.has_reorg_permit(ReorgPermit {
+                reorged_tenure: &tenure.consensus_hash,
+                reorging_tenure: &self.consensus_hash,
+            })? {
+                debug!(
+                    "Reorged tenure was already permitted for this sortition, skipping re-check";
+                    "sortition_state.consensus_hash" => %self.consensus_hash,
+                    "reorged_tenure_id" => %tenure.consensus_hash,
+                );
                 continue;
             }
 

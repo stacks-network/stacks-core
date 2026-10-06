@@ -38,7 +38,8 @@ use crate::net::neighbors::{
     WALK_SEED_PROBABILITY, WALK_STATE_TIMEOUT,
 };
 use crate::net::{
-    Error as net_error, MessageSequence, NeighborAddress, ProtocolFamily, StacksHttp, StacksP2P,
+    CompletedPayload, Error as net_error, MessageSequence, NeighborAddress, ProtocolFamily,
+    StacksHttp, StacksP2P, StreamRead,
 };
 
 /// The default maximum age in seconds of a block that can be validated by the block proposal endpoint
@@ -342,9 +343,6 @@ pub struct ConnectionOptions {
     pub num_clients: u64,
     pub soft_num_neighbors: u64,
     pub soft_num_clients: u64,
-    pub max_neighbors_per_host: u64,
-    pub max_clients_per_host: u64,
-    pub soft_max_neighbors_per_host: u64,
     pub soft_max_neighbors_per_org: u64,
     pub soft_max_clients_per_host: u64,
     pub max_neighbors_of_neighbor: u64,
@@ -461,10 +459,6 @@ pub struct ConnectionOptions {
     pub disable_network_bans: bool,
     /// Disable block availability advertisement
     pub disable_block_advertisement: bool,
-    /// Disable block pushing
-    pub disable_block_push: bool,
-    /// Disable microblock pushing
-    pub disable_microblock_push: bool,
     /// Disable walk pingbacks -- don't attempt to walk to a remote peer even if it contacted us
     /// first
     pub disable_pingbacks: bool,
@@ -540,9 +534,6 @@ impl std::default::Default for ConnectionOptions {
             num_clients: 256, // how many inbound connections we can have, full-stop
             soft_num_neighbors: 20, // how many outbound connections we can have, before we start pruning them
             soft_num_clients: 128, // how many inbound connections we can have, before we start pruning them
-            max_neighbors_per_host: 10, // how many outbound connections we can have per IP address, full-stop
-            max_clients_per_host: 10, // how many inbound connections we can have per IP address, full-stop
-            soft_max_neighbors_per_host: 10, // how many outbound connections we can have per IP address, before we start pruning them
             soft_max_neighbors_per_org: 10, // how many outbound connections we can have per AS-owning organization, before we start pruning them
             soft_max_clients_per_host: 10, // how many inbound connections we can have per IP address, before we start pruning them,
             max_neighbors_of_neighbor: 10,
@@ -615,8 +606,6 @@ impl std::default::Default for ConnectionOptions {
             disable_network_prune: false,
             disable_network_bans: false,
             disable_block_advertisement: false,
-            disable_block_push: false,
-            disable_microblock_push: false,
             disable_pingbacks: false,
             disable_inbound_walks: false,
             disable_natpunch: false,
@@ -871,7 +860,10 @@ impl<P: ProtocolFamily> ConnectionInbox<P> {
         })?;
 
         trace!("Stream up to {} payload bytes", to_buffer.len());
-        let (message_opt, bytes_consumed) = protocol.stream_payload(preamble, &mut to_buffer)?;
+        let StreamRead {
+            completed: message_opt,
+            consumed: bytes_consumed,
+        } = protocol.stream_payload(preamble, &mut to_buffer)?;
 
         trace!("Streamed {} payload bytes", bytes_consumed);
         self.payload_ptr =
@@ -882,7 +874,10 @@ impl<P: ProtocolFamily> ConnectionInbox<P> {
                 ))?;
 
         let ret = match message_opt {
-            Some((message, _message_len)) => {
+            Some(CompletedPayload {
+                payload: message,
+                total_encoded_bytes: _message_len,
+            }) => {
                 test_debug!(
                     "Streamed {} bytes to form a message from preamble {:?}",
                     _message_len,
@@ -1186,16 +1181,12 @@ impl<P: ProtocolFamily> ConnectionOutbox<P> {
         assert!(!self.outbox.is_empty());
 
         // wake up any receivers when (if) we get a reply
-        let mut inflight_message = self.outbox.pop_front();
-        let receiver_notify_opt = inflight_message.take();
-
-        match receiver_notify_opt {
-            None => {}
-            Some(receiver_notify) => {
-                if receiver_notify.notify.is_some() {
-                    self.inflight.push_back(receiver_notify.notify.unwrap());
-                }
-            }
+        if let Some(notify) = self
+            .outbox
+            .pop_front()
+            .and_then(|receiver_notify| receiver_notify.notify)
+        {
+            self.inflight.push_back(notify);
         }
     }
 
@@ -1452,7 +1443,7 @@ impl<P: ProtocolFamily + Clone> NetworkConnection<P> {
             }
         }
 
-        return unsolicited;
+        unsolicited
     }
 
     /// Clear out timed-out requests.

@@ -341,6 +341,7 @@ impl SignerCoordinator {
             let res = self.get_block_status(
                 &block.header.signer_signature_hash(),
                 &block.block_id(),
+                &block.header.consensus_hash,
                 &block.header.parent_block_id,
                 chain_state,
                 sortdb,
@@ -366,6 +367,7 @@ impl SignerCoordinator {
         &self,
         block_signer_sighash: &Sha512Trunc256Sum,
         block_id: &StacksBlockId,
+        block_consensus_hash: &ConsensusHash,
         parent_block_id: &StacksBlockId,
         chain_state: &mut StacksChainState,
         sortdb: &SortitionDB,
@@ -406,7 +408,7 @@ impl SignerCoordinator {
                         return false;
                     }
                     // enough signatures?
-                    return status.total_weight_approved < self.weight_threshold;
+                    status.total_weight_approved < self.weight_threshold
                 },
             )? {
                 Some(status) => status,
@@ -457,8 +459,8 @@ impl SignerCoordinator {
                     // Check if a new Stacks block has arrived in the parent tenure
                     let highest_in_tenure =
                         NakamotoChainState::find_highest_known_block_header_in_tenure(
-                            &chain_state,
-                            &sortdb,
+                            chain_state,
+                            sortdb,
                             &parent_tenure_header.consensus_hash,
                         )?
                         .ok_or(NakamotoNodeError::UnexpectedChainState)?;
@@ -478,6 +480,34 @@ impl SignerCoordinator {
                               "new_block_height" => %highest_in_tenure.anchored_header.height(),
                         );
                         return Err(NakamotoNodeError::StacksTipChanged);
+                    }
+
+                    // A tenure-start block's parent lives in the previous tenure, so the
+                    // check above cannot see a *sibling* tenure-start block landing in the
+                    // proposal's own tenure. That happens when an earlier proposal for this
+                    // tenure (e.g. from the miner thread this one replaced) is signed and
+                    // pushed by the signers while we wait on ours. Without this check the
+                    // miner keeps re-proposing a block the signers will never sign.
+                    if block_consensus_hash != &parent_tenure_header.consensus_hash {
+                        if let Some(highest_in_own_tenure) =
+                            NakamotoChainState::find_highest_known_block_header_in_tenure(
+                                chain_state,
+                                sortdb,
+                                block_consensus_hash,
+                            )?
+                        {
+                            // If it is our own block, the staging DB lookup above returns
+                            // its signatures on the next pass; only a different block means
+                            // the proposal is dead.
+                            if &highest_in_own_tenure.index_block_hash() != block_id {
+                                info!("SignCoordinator: Exiting due to a new block in the proposal's own tenure";
+                                      "tenure_id" => %block_consensus_hash,
+                                      "new_block_hash" => %highest_in_own_tenure.anchored_header.block_hash(),
+                                      "new_block_height" => %highest_in_own_tenure.anchored_header.height(),
+                                );
+                                return Err(NakamotoNodeError::StacksTipChanged);
+                            }
+                        }
                     }
 
                     continue;

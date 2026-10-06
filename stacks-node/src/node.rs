@@ -305,6 +305,7 @@ impl Node {
             (_, BitcoinNetworkType::Mainnet) => PoxConstants::mainnet_default(),
             (_, BitcoinNetworkType::Testnet) => PoxConstants::testnet_default(),
             (_, BitcoinNetworkType::Regtest) => PoxConstants::regtest_default(),
+            (_, BitcoinNetworkType::Signet) => PoxConstants::signet_default(),
         };
 
         let mut boot_data = ChainStateBootData {
@@ -355,7 +356,7 @@ impl Node {
         )
         .expect("FATAL: failed to initiate mempool");
 
-        let mut event_dispatcher = EventDispatcher::from_config(&config);
+        let event_dispatcher = EventDispatcher::from_config(&config);
 
         let burnchain_config = config.get_burnchain();
 
@@ -368,7 +369,7 @@ impl Node {
         .expect("FATAL: failed to connect to burnchain DB");
 
         run_loop::announce_boot_receipts(
-            &mut event_dispatcher,
+            &event_dispatcher,
             &chain_state,
             &burnchain_config.pox_constants,
             &receipts,
@@ -604,12 +605,12 @@ impl Node {
                         });
                     }
                 }
-                BlockstackOperationType::LeaderBlockCommit(ref op) => {
-                    if op.txid == burnchain_tip.block_snapshot.winning_block_txid {
-                        last_sortitioned_block = Some(burnchain_tip.clone());
-                        if self.block_commits.contains(&op.txid) {
-                            won_sortition = true;
-                        }
+                BlockstackOperationType::LeaderBlockCommit(ref op)
+                    if op.txid == burnchain_tip.block_snapshot.winning_block_txid =>
+                {
+                    last_sortitioned_block = Some(burnchain_tip.clone());
+                    if self.block_commits.contains(&op.txid) {
+                        won_sortition = true;
                     }
                 }
                 _ => {
@@ -870,7 +871,7 @@ impl Node {
                         break;
                     } else {
                         for block in blocks.iter() {
-                            if let (Some(epoch_receipt), _) = block {
+                            if let Some(epoch_receipt) = &block.receipt {
                                 let attachments_instances =
                                     self.get_attachment_instances(epoch_receipt, &atlas_config);
                                 if !attachments_instances.is_empty() {
@@ -899,7 +900,7 @@ impl Node {
 
         // todo(ludo): yikes but good enough in the context of helium:
         // we only expect 1 block.
-        let processed_block = processed_blocks[0].clone().0.unwrap();
+        let processed_block = processed_blocks[0].clone().receipt.unwrap();
 
         let mut cost_estimator = self.config.make_cost_estimator();
         let mut fee_estimator = self.config.make_fee_estimator();

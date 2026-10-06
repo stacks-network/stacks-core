@@ -22,7 +22,7 @@
 
 use std::collections::HashMap;
 use std::sync::atomic::Ordering;
-use std::{env, thread};
+use std::{env, slice, thread};
 
 use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier};
 use clarity::vm::{ClarityName, Value};
@@ -148,9 +148,9 @@ fn check_pox_5_stake_lifecycle() {
         &blocks_processed,
         &counters,
         &coord_channel,
-        &[stacker_sk.clone()],
+        slice::from_ref(&stacker_sk),
         &[sender_signer_sk],
-        &[signer_sk.clone()],
+        slice::from_ref(&signer_sk),
         &sbtc_deployer_sk,
         Some(&pubkey_bytes),
         deploy_fee,
@@ -177,7 +177,7 @@ fn check_pox_5_stake_lifecycle() {
     })
     .expect("Timed out waiting for test-signer deploy");
 
-    next_block_and_mine_commit(&mut btc_regtest_controller, 60, &naka_conf, &counters).unwrap();
+    next_block_and_mine_commit(&btc_regtest_controller, 60, &naka_conf, &counters).unwrap();
 
     let test_signer_principal = PrincipalData::Contract(QualifiedContractIdentifier::new(
         sender_addr.clone().into(),
@@ -252,8 +252,7 @@ fn check_pox_5_stake_lifecycle() {
     );
 
     // 2) `stake-update` — extend by 1 cycle and increase by `extra`.
-    next_block_and_process_new_stacks_block(&mut btc_regtest_controller, 30, &coord_channel)
-        .unwrap();
+    next_block_and_process_new_stacks_block(&btc_regtest_controller, 30, &coord_channel).unwrap();
     let extra = 1_000_000u128;
     let update_tx = make_contract_call(
         &staker_sk,
@@ -298,7 +297,7 @@ fn check_pox_5_stake_lifecycle() {
     let mut unstake_succeeded = false;
     let mut unstake_unlock_height: Option<u64> = None;
     for attempt in 0..6 {
-        next_block_and_process_new_stacks_block(&mut btc_regtest_controller, 30, &coord_channel)
+        next_block_and_process_new_stacks_block(&btc_regtest_controller, 30, &coord_channel)
             .unwrap();
 
         test_observer::clear();
@@ -497,9 +496,9 @@ fn check_pox_5_register_for_bond_lifecycle() {
         &blocks_processed,
         &counters,
         &coord_channel,
-        &[stacker_sk.clone()],
+        slice::from_ref(&stacker_sk),
         &[sender_signer_sk],
-        &[signer_sk.clone()],
+        slice::from_ref(&signer_sk),
         &sbtc_deployer_sk,
         Some(&pubkey_bytes),
         deploy_fee,
@@ -527,7 +526,7 @@ fn check_pox_5_register_for_bond_lifecycle() {
     })
     .expect("Timed out waiting for test-signer deploy");
 
-    next_block_and_mine_commit(&mut btc_regtest_controller, 60, &naka_conf, &counters).unwrap();
+    next_block_and_mine_commit(&btc_regtest_controller, 60, &naka_conf, &counters).unwrap();
 
     let test_signer_principal = PrincipalData::Contract(QualifiedContractIdentifier::new(
         sender_addr.clone().into(),
@@ -897,9 +896,9 @@ fn check_pox_5_register_for_second_bond_no_downtime() {
         &blocks_processed,
         &counters,
         &coord_channel,
-        &[stacker_sk.clone()],
+        slice::from_ref(&stacker_sk),
         &[sender_signer_sk],
-        &[signer_sk.clone()],
+        slice::from_ref(&signer_sk),
         &sbtc_deployer_sk,
         Some(&pubkey_bytes),
         deploy_fee,
@@ -927,7 +926,7 @@ fn check_pox_5_register_for_second_bond_no_downtime() {
     })
     .expect("Timed out waiting for test-signer deploy");
 
-    next_block_and_mine_commit(&mut btc_regtest_controller, 60, &naka_conf, &counters).unwrap();
+    next_block_and_mine_commit(&btc_regtest_controller, 60, &naka_conf, &counters).unwrap();
 
     let test_signer_principal = PrincipalData::Contract(QualifiedContractIdentifier::new(
         sender_addr.clone().into(),
@@ -1142,7 +1141,7 @@ fn check_pox_5_register_for_second_bond_no_downtime() {
     );
     loop {
         let blocks_before = test_observer::get_blocks().len();
-        next_block_and_process_new_stacks_block(&mut btc_regtest_controller, 60, &coord_channel)
+        next_block_and_process_new_stacks_block(&btc_regtest_controller, 60, &coord_channel)
             .unwrap();
         wait_for(30, || Ok(test_observer::get_blocks().len() > blocks_before))
             .expect("Timed out waiting for observer to process new block");
@@ -1552,9 +1551,9 @@ fn check_pox_5_register_for_bond_l1_lockup_lifecycle() {
         &blocks_processed,
         &counters,
         &coord_channel,
-        &[stacker_sk.clone()],
+        slice::from_ref(&stacker_sk),
         &[sender_signer_sk],
-        &[signer_sk.clone()],
+        slice::from_ref(&signer_sk),
         &sbtc_deployer_sk,
         None,
         deploy_fee,
@@ -1582,7 +1581,7 @@ fn check_pox_5_register_for_bond_l1_lockup_lifecycle() {
     })
     .expect("Timed out waiting for test-signer deploy");
 
-    next_block_and_mine_commit(&mut btc_regtest_controller, 60, &naka_conf, &counters).unwrap();
+    next_block_and_mine_commit(&btc_regtest_controller, 60, &naka_conf, &counters).unwrap();
 
     let test_signer_principal = PrincipalData::Contract(QualifiedContractIdentifier::new(
         sender_addr.clone().into(),
@@ -1842,9 +1841,9 @@ fn check_pox_5_register_for_bond_l1_lockup_lifecycle() {
         block_txids_display.len()
     );
     // bitcoind always orders the coinbase first.
-    let mut coinbase_txid_internal: [u8; 32] = block_txids_display[0].as_bytes().clone();
+    let mut coinbase_txid_internal: [u8; 32] = *block_txids_display[0].as_bytes();
     coinbase_txid_internal.reverse();
-    let mut lockup_txid_display: [u8; 32] = block_txids_display[1].as_bytes().clone();
+    let mut lockup_txid_display: [u8; 32] = *block_txids_display[1].as_bytes();
     assert_eq!(
         block_txids_display[1].to_hex(),
         p2wsh_txid.to_hex(),
@@ -2546,9 +2545,9 @@ fn check_pox_5_register_for_bond_l1_early_unlock_lifecycle() {
         &blocks_processed,
         &counters,
         &coord_channel,
-        &[stacker_sk.clone()],
+        slice::from_ref(&stacker_sk),
         &[sender_signer_sk],
-        &[signer_sk.clone()],
+        slice::from_ref(&signer_sk),
         &sbtc_deployer_sk,
         Some(&pubkey_bytes),
         deploy_fee,
@@ -2578,7 +2577,7 @@ fn check_pox_5_register_for_bond_l1_early_unlock_lifecycle() {
     })
     .expect("Timed out waiting for test-signer deploy");
 
-    next_block_and_mine_commit(&mut btc_regtest_controller, 60, &naka_conf, &counters).unwrap();
+    next_block_and_mine_commit(&btc_regtest_controller, 60, &naka_conf, &counters).unwrap();
 
     let test_signer_principal = PrincipalData::Contract(QualifiedContractIdentifier::new(
         sender_addr.clone().into(),
@@ -2835,7 +2834,7 @@ fn check_pox_5_register_for_bond_l1_early_unlock_lifecycle() {
         "lockup block should contain exactly coinbase + lockup tx; got {} txs",
         block_txids_display.len()
     );
-    let mut coinbase_txid_internal: [u8; 32] = block_txids_display[0].as_bytes().clone();
+    let mut coinbase_txid_internal: [u8; 32] = *block_txids_display[0].as_bytes();
     coinbase_txid_internal.reverse();
     assert_eq!(
         block_txids_display[1].to_hex(),
@@ -2990,7 +2989,7 @@ fn check_pox_5_register_for_bond_l1_early_unlock_lifecycle() {
     while u128::from(get_chain_info_result(&naka_conf).unwrap().burn_block_height)
         < reward_calculation_burn_height
     {
-        next_block_and_process_new_stacks_block(&mut btc_regtest_controller, 30, &coord_channel)
+        next_block_and_process_new_stacks_block(&btc_regtest_controller, 30, &coord_channel)
             .unwrap();
     }
 
@@ -3695,7 +3694,7 @@ fn check_with_stacking_allowances_stake() {
         &blocks_processed,
         &counters,
         &coord_channel,
-        &[stacker_sk.clone()],
+        slice::from_ref(&stacker_sk),
         &[sender_signer_sk],
         &[],
         &sbtc_deployer_sk,
@@ -3730,7 +3729,7 @@ fn check_with_stacking_allowances_stake() {
     let info = get_chain_info_result(&naka_conf).unwrap();
     let last_stacks_block_height = info.stacks_tip_height as u128;
 
-    next_block_and_mine_commit(&mut btc_regtest_controller, 60, &naka_conf, &counters).unwrap();
+    next_block_and_mine_commit(&btc_regtest_controller, 60, &naka_conf, &counters).unwrap();
 
     let signer_key_hex = Value::buff_from(signer_pk.to_bytes_compressed()).unwrap();
     let contract_name = "test-contract";
@@ -3796,8 +3795,7 @@ fn check_with_stacking_allowances_stake() {
     })
     .expect("Timed out waiting for contracts to publish");
 
-    next_block_and_process_new_stacks_block(&mut btc_regtest_controller, 30, &coord_channel)
-        .unwrap();
+    next_block_and_process_new_stacks_block(&btc_regtest_controller, 30, &coord_channel).unwrap();
 
     // pox-5's `stake` requires the signer-manager contract to have been
     // registered in advance via `register-signer`, which itself requires
@@ -3990,7 +3988,7 @@ fn check_with_stacking_allowances_stake() {
         &sender_addr,
         contract_name,
         "stake-no-allowance",
-        &[amount.clone()],
+        slice::from_ref(&amount),
     );
     stacker_nonce += 1;
     let stack_no_allowance_err_txid = submit_tx(&http_origin, &stack_no_allowance_err_tx);
@@ -4010,7 +4008,7 @@ fn check_with_stacking_allowances_stake() {
         &sender_addr,
         contract_name,
         "stake-all",
-        &[amount.clone()],
+        slice::from_ref(&amount),
     );
     stacker_nonce += 1;
     let stack_all_txid = submit_tx(&http_origin, &stack_all_tx);
@@ -4181,7 +4179,7 @@ fn check_with_stacking_allowances_register_for_bond() {
         &blocks_processed,
         &counters,
         &coord_channel,
-        &[stacker_sk.clone()],
+        slice::from_ref(&stacker_sk),
         &[sender_signer_sk],
         &[],
         &sbtc_deployer_sk,
@@ -4216,7 +4214,7 @@ fn check_with_stacking_allowances_register_for_bond() {
     let info = get_chain_info_result(&naka_conf).unwrap();
     let last_stacks_block_height = info.stacks_tip_height as u128;
 
-    next_block_and_mine_commit(&mut btc_regtest_controller, 60, &naka_conf, &counters).unwrap();
+    next_block_and_mine_commit(&btc_regtest_controller, 60, &naka_conf, &counters).unwrap();
 
     // Test contract: each entry-point calls `pox-5.register-for-bond` from
     // inside a different `restrict-assets?` shape. The bond is set up at
@@ -4301,8 +4299,7 @@ fn check_with_stacking_allowances_register_for_bond() {
     })
     .expect("Timed out waiting for contracts to publish");
 
-    next_block_and_process_new_stacks_block(&mut btc_regtest_controller, 30, &coord_channel)
-        .unwrap();
+    next_block_and_process_new_stacks_block(&btc_regtest_controller, 30, &coord_channel).unwrap();
 
     // Register the signer (same flow as the stake test).
     let test_signer_principal = PrincipalData::Contract(QualifiedContractIdentifier::new(
@@ -4580,7 +4577,7 @@ fn check_with_stacking_allowances_register_for_bond() {
         &sender_addr,
         contract_name,
         "register-for-bond-no-allowance",
-        &[amount.clone()],
+        slice::from_ref(&amount),
     );
     stacker_nonce += 1;
     let no_allowance_err_txid = submit_tx(&http_origin, &no_allowance_err_tx);
@@ -4600,7 +4597,7 @@ fn check_with_stacking_allowances_register_for_bond() {
         &sender_addr,
         contract_name,
         "register-for-bond-all",
-        &[amount.clone()],
+        slice::from_ref(&amount),
     );
     stacker_nonce += 1;
     let all_txid = submit_tx(&http_origin, &all_tx);
@@ -4752,7 +4749,7 @@ fn check_with_pox_allowances() {
         &blocks_processed,
         &counters,
         &coord_channel,
-        &[stacker_sk.clone()],
+        slice::from_ref(&stacker_sk),
         &[sender_signer_sk],
         &[],
         &sbtc_deployer_sk,
@@ -4787,7 +4784,7 @@ fn check_with_pox_allowances() {
     let info = get_chain_info_result(&naka_conf).unwrap();
     let last_stacks_block_height = info.stacks_tip_height as u128;
 
-    next_block_and_mine_commit(&mut btc_regtest_controller, 60, &naka_conf, &counters).unwrap();
+    next_block_and_mine_commit(&btc_regtest_controller, 60, &naka_conf, &counters).unwrap();
 
     // Wrapper contract that calls pox-5 `unstake` inside `restrict-assets?`
     // blocks with various allowances, so we can observe how the in-contract
@@ -4835,8 +4832,7 @@ fn check_with_pox_allowances() {
     })
     .expect("Timed out waiting for contracts to publish");
 
-    next_block_and_process_new_stacks_block(&mut btc_regtest_controller, 30, &coord_channel)
-        .unwrap();
+    next_block_and_process_new_stacks_block(&btc_regtest_controller, 30, &coord_channel).unwrap();
 
     // Register the signer so pox-5 `stake` can find a signer record.
     let test_signer_principal = PrincipalData::Contract(QualifiedContractIdentifier::new(
@@ -4944,12 +4940,8 @@ fn check_with_pox_allowances() {
         let mut stacker_nonce = 1;
         let mut observed: Option<Value> = None;
         for attempt in 0..10 {
-            next_block_and_process_new_stacks_block(
-                &mut btc_regtest_controller,
-                30,
-                &coord_channel,
-            )
-            .unwrap();
+            next_block_and_process_new_stacks_block(&btc_regtest_controller, 30, &coord_channel)
+                .unwrap();
             test_observer::clear();
             let tx = make_contract_call(
                 stacker,
@@ -5089,7 +5081,7 @@ fn check_transaction_post_conditions() {
         &blocks_processed,
         &counters,
         &coord_channel,
-        &[stacker_sk.clone()],
+        slice::from_ref(&stacker_sk),
         &[sender_signer_sk],
         &[],
         &sbtc_deployer_sk,
@@ -5120,7 +5112,7 @@ fn check_transaction_post_conditions() {
     })
     .expect("Timed out waiting for signer contract deploy");
 
-    next_block_and_mine_commit(&mut btc_regtest_controller, 60, &naka_conf, &counters).unwrap();
+    next_block_and_mine_commit(&btc_regtest_controller, 60, &naka_conf, &counters).unwrap();
 
     // Register the signer so pox-5 `stake` can find a signer record.
     let test_signer_principal = PrincipalData::Contract(QualifiedContractIdentifier::new(
@@ -5317,7 +5309,7 @@ fn check_transaction_post_conditions() {
     let mut nonce = 1;
     let mut observed: Option<String> = None;
     for attempt in 0..10 {
-        next_block_and_process_new_stacks_block(&mut btc_regtest_controller, 30, &coord_channel)
+        next_block_and_process_new_stacks_block(&btc_regtest_controller, 30, &coord_channel)
             .unwrap();
         test_observer::clear();
         let tx = make_contract_call_with_post_conditions(

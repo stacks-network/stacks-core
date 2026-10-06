@@ -425,7 +425,7 @@ impl PeerDB {
 
         tx.execute(
             "INSERT INTO db_config (version) VALUES (?1)",
-            &[&"1".to_string()],
+            [&"1".to_string()],
         )
         .map_err(db_error::SqliteError)?;
 
@@ -809,21 +809,6 @@ impl PeerDB {
         Ok(local_peer_opt.expect("Got 0 LocalPeer rows"))
     }
 
-    /// Set the local IP address and port
-    pub fn set_local_ipaddr(
-        tx: &Transaction,
-        addrbytes: &PeerAddress,
-        port: u16,
-    ) -> Result<(), db_error> {
-        tx.execute(
-            "UPDATE local_peer SET addrbytes = ?1, port = ?2",
-            params![to_bin(addrbytes.as_bytes()), port], // TODO: double check if delete as_ref here
-        )
-        .map_err(db_error::SqliteError)?;
-
-        Ok(())
-    }
-
     /// Set local service availability
     pub fn set_local_services(tx: &Transaction, services: u16) -> Result<(), db_error> {
         tx.execute("UPDATE local_peer SET services = ?1", params![services])
@@ -1007,33 +992,13 @@ impl PeerDB {
                 if PeerDB::is_address_denied(conn, &neighbor.addr.addrbytes)? {
                     return Ok(true);
                 }
-                return Ok(false);
+                Ok(false)
             }
             None => {
                 if PeerDB::is_address_denied(conn, peer_addr)? {
                     return Ok(true);
                 }
-                return Ok(false);
-            }
-        }
-    }
-
-    /// Is a peer always allowed?
-    pub fn is_peer_always_allowed(
-        conn: &DBConn,
-        network_id: u32,
-        peer_addr: &PeerAddress,
-        peer_port: u16,
-    ) -> Result<bool, db_error> {
-        match PeerDB::get_peer(conn, network_id, peer_addr, peer_port)? {
-            Some(neighbor) => {
-                if neighbor.allowed < 0 {
-                    return Ok(true);
-                }
-                return Ok(false);
-            }
-            None => {
-                return Ok(false);
+                Ok(false)
             }
         }
     }
@@ -1081,7 +1046,7 @@ impl PeerDB {
 
     /// Drop all stacker DB contract IDs for a peer, given its slot
     pub fn drop_stacker_dbs(tx: &Transaction, slot: u32) -> Result<(), db_error> {
-        tx.execute("DELETE FROM stackerdb_peers WHERE peer_slot = ?1", &[&slot])
+        tx.execute("DELETE FROM stackerdb_peers WHERE peer_slot = ?1", [&slot])
             .map_err(db_error::SqliteError)?;
         Ok(())
     }
@@ -1128,26 +1093,6 @@ impl PeerDB {
             }
         }
 
-        Ok(())
-    }
-
-    /// Remove a peer from the peer database, as well as its stacker DB contracts
-    pub fn drop_peer(
-        tx: &Transaction,
-        network_id: u32,
-        peer_addr: &PeerAddress,
-        peer_port: u16,
-    ) -> Result<(), db_error> {
-        let slot_opt = Self::find_peer_slot(tx, network_id, peer_addr, peer_port)?;
-        tx.execute(
-            "DELETE FROM frontier WHERE network_id = ?1 AND addrbytes = ?2 AND port = ?3",
-            params![network_id, peer_addr.to_bin(), peer_port,],
-        )
-        .map_err(db_error::SqliteError)?;
-
-        if let Some(slot) = slot_opt {
-            Self::drop_stacker_dbs(tx, slot)?;
-        }
         Ok(())
     }
 
@@ -1344,7 +1289,7 @@ impl PeerDB {
         let qry =
             "SELECT slot FROM frontier WHERE network_id = ?1 AND addrbytes = ?2 AND port = ?3";
         let args = params![network_id, addrbytes.to_bin(), port];
-        Ok(query_row::<u32, _>(conn, qry, args)?)
+        query_row::<u32, _>(conn, qry, args)
     }
 
     /// Get the list of stacker DB contract IDs for a given set of slots.
@@ -1355,7 +1300,7 @@ impl PeerDB {
     ) -> Result<Vec<QualifiedContractIdentifier>, db_error> {
         let mut db_set = HashSet::new();
         let qry = "SELECT smart_contract_id FROM stackerdb_peers WHERE peer_slot = ?1";
-        let dbs = query_rows(conn, qry, &[&used_slot])?;
+        let dbs = query_rows(conn, qry, [&used_slot])?;
         for cid in dbs.into_iter() {
             db_set.insert(cid);
         }
@@ -1379,14 +1324,6 @@ impl PeerDB {
         } else {
             Ok(vec![])
         }
-    }
-
-    /// Get a peer's advertized stacker DBs by their IDs.
-    pub fn get_peer_stacker_dbs(
-        &self,
-        neighbor: &Neighbor,
-    ) -> Result<Vec<QualifiedContractIdentifier>, db_error> {
-        PeerDB::static_get_peer_stacker_dbs(&self.conn, neighbor)
     }
 
     /// Update an existing peer's stacker DB IDs.
@@ -1473,7 +1410,7 @@ impl PeerDB {
         }
 
         // no slots free
-        return Ok(false);
+        Ok(false)
     }
 
     /// Add a cidr prefix
@@ -1572,34 +1509,6 @@ impl PeerDB {
             args,
         )
         .map_err(db_error::SqliteError)?;
-        Ok(())
-    }
-
-    /// Set a allowed CIDR prefix
-    pub fn add_allow_cidr(
-        tx: &Transaction,
-        prefix: &PeerAddress,
-        mask: u32,
-    ) -> Result<(), db_error> {
-        assert!(mask > 0 && mask <= 128);
-        PeerDB::add_cidr_prefix(tx, "allowed_prefixes", prefix, mask)?;
-
-        debug!("Apply allow {}/{}", &prefix, mask);
-        PeerDB::apply_cidr_filter(tx, prefix, mask, "allowed", -1)?;
-        Ok(())
-    }
-
-    /// Set a denied CIDR prefix
-    pub fn add_deny_cidr(
-        tx: &Transaction,
-        prefix: &PeerAddress,
-        mask: u32,
-    ) -> Result<(), db_error> {
-        assert!(mask > 0 && mask <= 128);
-        PeerDB::add_cidr_prefix(tx, "denied_prefixes", prefix, mask)?;
-
-        debug!("Apply deny {}/{}", &prefix, mask);
-        PeerDB::apply_cidr_filter(tx, prefix, mask, "denied", i64::MAX)?;
         Ok(())
     }
 
@@ -1723,29 +1632,6 @@ impl PeerDB {
         Ok(ret)
     }
 
-    /// Get an randomized initial set of peers.
-    /// -- always include all allowed neighbors
-    /// -- never include denied neighbors
-    /// -- for neighbors that are neither allowed nor denied, sample them randomly as long as they're fresh.
-    pub fn get_initial_neighbors(
-        conn: &DBConn,
-        network_id: u32,
-        network_epoch: u8,
-        peer_version: u32,
-        count: u32,
-        block_height: u64,
-    ) -> Result<Vec<Neighbor>, db_error> {
-        PeerDB::get_random_neighbors(
-            conn,
-            network_id,
-            network_epoch,
-            peer_version,
-            count,
-            block_height,
-            true,
-        )
-    }
-
     /// Get a randomized set of peers for walking the peer graph.
     /// -- selects peers at random even if not allowed
     /// -- may include private IPs
@@ -1855,6 +1741,104 @@ impl PeerDB {
             max_count_u32,
         ];
         Self::query_peers(conn, qry, args)
+    }
+}
+
+/// Test-only helpers for [`PeerDB`].
+#[cfg(test)]
+impl PeerDB {
+    /// Set the local IP address and port
+    pub fn set_local_ipaddr(
+        tx: &Transaction,
+        addrbytes: &PeerAddress,
+        port: u16,
+    ) -> Result<(), db_error> {
+        tx.execute(
+            "UPDATE local_peer SET addrbytes = ?1, port = ?2",
+            params![to_bin(addrbytes.as_bytes()), port], // TODO: double check if delete as_ref here
+        )
+        .map_err(db_error::SqliteError)?;
+
+        Ok(())
+    }
+
+    /// Remove a peer from the peer database, as well as its stacker DB contracts
+    pub fn drop_peer(
+        tx: &Transaction,
+        network_id: u32,
+        peer_addr: &PeerAddress,
+        peer_port: u16,
+    ) -> Result<(), db_error> {
+        let slot_opt = Self::find_peer_slot(tx, network_id, peer_addr, peer_port)?;
+        tx.execute(
+            "DELETE FROM frontier WHERE network_id = ?1 AND addrbytes = ?2 AND port = ?3",
+            params![network_id, peer_addr.to_bin(), peer_port,],
+        )
+        .map_err(db_error::SqliteError)?;
+
+        if let Some(slot) = slot_opt {
+            Self::drop_stacker_dbs(tx, slot)?;
+        }
+        Ok(())
+    }
+
+    /// Get a peer's advertized stacker DBs by their IDs.
+    pub fn get_peer_stacker_dbs(
+        &self,
+        neighbor: &Neighbor,
+    ) -> Result<Vec<QualifiedContractIdentifier>, db_error> {
+        PeerDB::static_get_peer_stacker_dbs(&self.conn, neighbor)
+    }
+
+    /// Set a allowed CIDR prefix
+    pub fn add_allow_cidr(
+        tx: &Transaction,
+        prefix: &PeerAddress,
+        mask: u32,
+    ) -> Result<(), db_error> {
+        assert!(mask > 0 && mask <= 128);
+        PeerDB::add_cidr_prefix(tx, "allowed_prefixes", prefix, mask)?;
+
+        debug!("Apply allow {}/{}", &prefix, mask);
+        PeerDB::apply_cidr_filter(tx, prefix, mask, "allowed", -1)?;
+        Ok(())
+    }
+
+    /// Set a denied CIDR prefix
+    pub fn add_deny_cidr(
+        tx: &Transaction,
+        prefix: &PeerAddress,
+        mask: u32,
+    ) -> Result<(), db_error> {
+        assert!(mask > 0 && mask <= 128);
+        PeerDB::add_cidr_prefix(tx, "denied_prefixes", prefix, mask)?;
+
+        debug!("Apply deny {}/{}", &prefix, mask);
+        PeerDB::apply_cidr_filter(tx, prefix, mask, "denied", i64::MAX)?;
+        Ok(())
+    }
+
+    /// Get an randomized initial set of peers.
+    /// -- always include all allowed neighbors
+    /// -- never include denied neighbors
+    /// -- for neighbors that are neither allowed nor denied, sample them randomly as long as they're fresh.
+    pub fn get_initial_neighbors(
+        conn: &DBConn,
+        network_id: u32,
+        network_epoch: u8,
+        peer_version: u32,
+        count: u32,
+        block_height: u64,
+    ) -> Result<Vec<Neighbor>, db_error> {
+        PeerDB::get_random_neighbors(
+            conn,
+            network_id,
+            network_epoch,
+            peer_version,
+            count,
+            block_height,
+            true,
+        )
     }
 }
 
@@ -2862,7 +2846,7 @@ mod test {
                     return false;
                 }
             }
-            return true;
+            true
         }
 
         let db = PeerDB::connect_memory(
@@ -2969,7 +2953,7 @@ mod test {
                     return false;
                 }
             }
-            return true;
+            true
         }
 
         let db = PeerDB::connect_memory(

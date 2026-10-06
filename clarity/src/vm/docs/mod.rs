@@ -1103,7 +1103,8 @@ input sequence _and_ the output of a previous application of `func`.
 first element of `sequence_A`. The resulting value of type `B` is used for the
 next application of `func`, along with the next element of `sequence_A` and so
 on. `fold` returns the last value of type `B` returned by these successive
-applications `func`.
+applications of `func`. If `sequence_A` is empty, `func` is never applied and
+`fold` returns `initial_B` unchanged.
 
 Applicable sequence types are `(list A)`, `buff`, `string-ascii` and `string-utf8`,
 for which the corresponding element types are, respectively, `A`, `(buff 1)`, `(string-ascii 1)` and `(string-utf8 1)`.
@@ -1117,10 +1118,14 @@ The `func` argument must be a literal function name.
 (define-private (concat-string (a (string-ascii 20)) (b (string-ascii 20))) (unwrap-panic (as-max-len? (concat a b) u20)))
 (fold concat-string "cdef" "ab")   ;; Returns "fedcab"
 (fold concat-string (list "cd" "ef") "ab")   ;; Returns "efcdab"
+(fold concat-string "" "ab")   ;; Returns "ab"
 (define-private (concat-buff (a (buff 20)) (b (buff 20))) (unwrap-panic (as-max-len? (concat a b) u20)))
 (fold concat-buff 0x03040506 0x0102)   ;; Returns 0x060504030102
 "#,
-    notices: &[],
+    notices: &[DocNotice {
+        level: "info",
+        body: "As of Epoch 4.1, the result type of `fold` covers both `initial_B` and the return type of `func`. Earlier epochs used the return type of `func` alone.",
+    }],
 };
 
 const CONCAT_API: SpecialAPI = SpecialAPI {
@@ -1381,7 +1386,10 @@ associated with the expressions' paired key name.
 There is a shorthand using curly brackets of the form {key0: expr0, key1: expr, ...}",
     example: "(tuple (name \"blockstack\") (id 1337)) ;; using tuple
     {name: \"blockstack\", id: 1337} ;; using curly brackets",
-    notices: &[],
+    notices: &[DocNotice {
+        level: "info",
+        body: "As of Epoch 4.1, tuples that must share one type, such as the two branches of `if`, the arguments of `is-eq` or the elements of a `list`, must have the same fields. Earlier epochs could drop fields that only one of the tuples had.",
+    }],
 };
 
 const TUPLE_GET_API: SpecialAPI = SpecialAPI {
@@ -3102,10 +3110,14 @@ the active PoX contract to `unstake`, `unstake-sbtc`, `update-bond-registration`
 or `announce-l1-early-exit`. `with-pox` is not allowed outside of
 `restrict-assets?` or `as-contract?` contexts. These actions are all-or-nothing
 for a position, so this allowance takes no amount: its presence simply permits
-them, and its absence forbids them within the protected scope. An *attempt* is
-gated whether or not the underlying call succeeds, so the absence of `with-pox`
-catches even a failed attempt to touch the position. Locking STX is covered by
-`with-staking`, not `with-pox`.
+them, and its absence forbids them within the protected scope. A call to one
+of these functions counts as an attempt even when it returns `(err ...)`, so
+without `with-pox` the scope also rejects a failed attempt to touch the
+position. The record of an attempt is an effect like any other: if a public
+function between the PoX contract and the protected scope returns `(err ...)`,
+its effects are rolled back and the attempt is no longer visible to the scope.
+In both of these error cases, the position itself remains unchanged. Locking
+STX is covered by `with-staking`, not `with-pox`.
 ",
     example: r#"
 (restrict-assets? tx-sender

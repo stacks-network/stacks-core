@@ -142,7 +142,7 @@ fn fix_to_pox_contract() {
     test_observer::register_any(&mut conf);
     conf.initial_balances.append(&mut initial_balances);
 
-    let mut epochs = EpochList::new(&*core::STACKS_EPOCHS_REGTEST);
+    let mut epochs = EpochList::new(&core::STACKS_EPOCHS_REGTEST);
     epochs[StacksEpochId::Epoch20].end_height = epoch_2_05;
     epochs[StacksEpochId::Epoch2_05].start_height = epoch_2_05;
     epochs[StacksEpochId::Epoch2_05].end_height = epoch_2_1;
@@ -206,16 +206,16 @@ fn fix_to_pox_contract() {
     wait_for_runloop(&blocks_processed);
 
     // first block wakes up the run loop
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&btc_regtest_controller, &blocks_processed);
 
     // first block will hold our VRF registration
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&btc_regtest_controller, &blocks_processed);
 
     // second block will be the first mined Stacks block
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&btc_regtest_controller, &blocks_processed);
 
     // push us to block 205
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&btc_regtest_controller, &blocks_processed);
 
     // stack right away
     let sort_height = channel.get_sortitions_processed();
@@ -262,7 +262,7 @@ fn fix_to_pox_contract() {
         if tip_info.burn_block_height >= epoch_2_1 - 2 {
             break;
         }
-        next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+        next_block_and_wait(&btc_regtest_controller, &blocks_processed);
     }
 
     // skip a couple sortitions
@@ -274,9 +274,9 @@ fn fix_to_pox_contract() {
     assert!(sort_height > v1_unlock_height);
 
     // *now* advance to 2.1
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&btc_regtest_controller, &blocks_processed);
 
     info!("Test passed processing 2.1");
 
@@ -312,7 +312,7 @@ fn fix_to_pox_contract() {
     // that it can mine _at all_ is a success criterion
     let mut last_block_height = get_chain_info(&conf).burn_block_height;
     for _i in 0..20 {
-        next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+        next_block_and_wait(&btc_regtest_controller, &blocks_processed);
         let tip_info = get_chain_info(&conf);
         if tip_info.burn_block_height > last_block_height {
             last_block_height = tip_info.burn_block_height;
@@ -344,7 +344,7 @@ fn fix_to_pox_contract() {
         if tip_info.burn_block_height > epoch_2_3 {
             break;
         }
-        next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+        next_block_and_wait(&btc_regtest_controller, &blocks_processed);
     }
 
     // invoke stack-increase again, in Epoch-2.3, it should
@@ -370,7 +370,7 @@ fn fix_to_pox_contract() {
         if tip_info.burn_block_height >= epoch_2_4 - 2 {
             break;
         }
-        next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+        next_block_and_wait(&btc_regtest_controller, &blocks_processed);
     }
 
     // skip a couple sortitions
@@ -381,9 +381,9 @@ fn fix_to_pox_contract() {
     assert!(sort_height > epoch_2_4);
 
     // *now* advance to 2.4
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&btc_regtest_controller, &blocks_processed);
 
     info!("Test passed processing 2.4");
 
@@ -431,7 +431,7 @@ fn fix_to_pox_contract() {
     // that it can mine _at all_ is a success criterion
     let mut last_block_height = get_chain_info(&conf).burn_block_height;
     for _i in 0..5 {
-        next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+        next_block_and_wait(&btc_regtest_controller, &blocks_processed);
         let tip_info = get_chain_info(&conf);
         if tip_info.burn_block_height > last_block_height {
             last_block_height = tip_info.burn_block_height;
@@ -456,7 +456,7 @@ fn fix_to_pox_contract() {
     submit_tx(&http_origin, &tx);
 
     for _i in 0..19 {
-        next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+        next_block_and_wait(&btc_regtest_controller, &blocks_processed);
         let tip_info = get_chain_info(&conf);
         if tip_info.burn_block_height > last_block_height {
             last_block_height = tip_info.burn_block_height;
@@ -772,7 +772,7 @@ fn verify_auto_unlock_behavior() {
     test_observer::register_any(&mut conf);
     conf.initial_balances.append(&mut initial_balances);
 
-    let mut epochs = EpochList::new(&*core::STACKS_EPOCHS_REGTEST);
+    let mut epochs = EpochList::new(&core::STACKS_EPOCHS_REGTEST);
     epochs[StacksEpochId::Epoch20].end_height = epoch_2_05;
     epochs[StacksEpochId::Epoch2_05].start_height = epoch_2_05;
     epochs[StacksEpochId::Epoch2_05].end_height = epoch_2_1;
@@ -841,16 +841,16 @@ fn verify_auto_unlock_behavior() {
     wait_for_runloop(&blocks_processed);
 
     // first block wakes up the run loop
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&btc_regtest_controller, &blocks_processed);
 
     // first block will hold our VRF registration
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&btc_regtest_controller, &blocks_processed);
 
     // second block will be the first mined Stacks block
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&btc_regtest_controller, &blocks_processed);
 
     // push us to block 205
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&btc_regtest_controller, &blocks_processed);
 
     // stack right away
     let sort_height = channel.get_sortitions_processed();
@@ -897,7 +897,7 @@ fn verify_auto_unlock_behavior() {
         if tip_info.burn_block_height >= epoch_2_1 - 2 {
             break;
         }
-        next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+        next_block_and_wait(&btc_regtest_controller, &blocks_processed);
     }
 
     // skip a couple sortitions
@@ -909,9 +909,9 @@ fn verify_auto_unlock_behavior() {
     assert!(sort_height > v1_unlock_height);
 
     // *now* advance to 2.1
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&btc_regtest_controller, &blocks_processed);
 
     info!("Test passed processing 2.1");
 
@@ -947,7 +947,7 @@ fn verify_auto_unlock_behavior() {
     // that it can mine _at all_ is a success criterion
     let mut last_block_height = get_chain_info(&conf).burn_block_height;
     for _i in 0..20 {
-        next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+        next_block_and_wait(&btc_regtest_controller, &blocks_processed);
         let tip_info = get_chain_info(&conf);
         if tip_info.burn_block_height > last_block_height {
             last_block_height = tip_info.burn_block_height;
@@ -964,7 +964,7 @@ fn verify_auto_unlock_behavior() {
         if tip_info.burn_block_height > epoch_2_3 {
             break;
         }
-        next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+        next_block_and_wait(&btc_regtest_controller, &blocks_processed);
 
         let pox_info = get_pox_info(&http_origin).unwrap();
         info!(
@@ -983,7 +983,7 @@ fn verify_auto_unlock_behavior() {
         if tip_info.burn_block_height >= epoch_2_4 - 2 {
             break;
         }
-        next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+        next_block_and_wait(&btc_regtest_controller, &blocks_processed);
 
         let pox_info = get_pox_info(&http_origin).unwrap();
         info!(
@@ -1002,9 +1002,9 @@ fn verify_auto_unlock_behavior() {
     assert!(sort_height > epoch_2_4);
 
     // *now* advance to 2.4
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&btc_regtest_controller, &blocks_processed);
 
     info!("Test passed processing 2.4");
 
@@ -1052,7 +1052,7 @@ fn verify_auto_unlock_behavior() {
     // that it can mine _at all_ is a success criterion
     let mut last_block_height = get_chain_info(&conf).burn_block_height;
     for _i in 0..5 {
-        next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+        next_block_and_wait(&btc_regtest_controller, &blocks_processed);
         let tip_info = get_chain_info(&conf);
         if tip_info.burn_block_height > last_block_height {
             last_block_height = tip_info.burn_block_height;
@@ -1127,7 +1127,7 @@ fn verify_auto_unlock_behavior() {
     submit_tx(&http_origin, &tx);
 
     for _i in 0..19 {
-        next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+        next_block_and_wait(&btc_regtest_controller, &blocks_processed);
         let tip_info = get_chain_info(&conf);
         if tip_info.burn_block_height > last_block_height {
             last_block_height = tip_info.burn_block_height;

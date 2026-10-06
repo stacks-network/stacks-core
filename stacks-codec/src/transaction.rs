@@ -2244,10 +2244,15 @@ const _: () =
 /// Condition code for a `Pox` post-condition. A `Pox` post-condition gates the
 /// position-altering PoX-5 operations (`unstake`, `unstake-sbtc`,
 /// `update-bond-registration`, `announce-l1-early-exit`) that act on a
-/// principal's existing stacking/bond position. An *attempt* counts, whether or
-/// not the call succeeded, so the owner can detect (and block) a contract that
-/// merely tries to touch their position. These are all-or-nothing, so the
-/// condition is presence-based rather than an amount comparison, mirroring
+/// principal's existing stacking/bond position. A call that returns `(err ...)`
+/// still counts as an attempt, so the owner can also detect (and block) a
+/// contract that merely tries to touch their position. The attempt is recorded
+/// as an effect of the calling function, so it survives to the post-condition
+/// check only if every public function between the PoX call and the
+/// transaction's entry point returns `(ok ...)`; a function that returns
+/// `(err ...)` rolls the record back with its other effects. The position is
+/// unchanged either way. These are all-or-nothing, so the condition is
+/// presence-based rather than an amount comparison, mirroring
 /// `NonfungibleConditionCode`.
 #[repr(u8)]
 #[derive(Debug, Clone, PartialEq, Copy, Serialize, Deserialize, VariantCount)]
@@ -2536,6 +2541,20 @@ pub struct StacksMicroblockHeader {
     pub signature: MessageSignature,
 }
 
+/// Signer relationship recovered from two valid microblock-header signatures.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum MicroblockSignerMatch {
+    /// Both headers were signed by the same key.
+    Common(Hash160),
+    /// The headers were signed by different keys.
+    Different {
+        /// Signer recovered from the first header.
+        first: Hash160,
+        /// Signer recovered from the second header.
+        second: Hash160,
+    },
+}
+
 impl StacksMessageCodec for StacksMicroblockHeader {
     fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), codec_error> {
         self.serialize(fd, false)
@@ -2614,6 +2633,18 @@ impl StacksMicroblockHeader {
 
         pubk.set_compressed(true);
         Ok(Hash160::from_node_public_key(&pubk))
+    }
+
+    /// Recovers and compares the signers of two microblock headers.
+    pub fn recover_signer_match(&self, other: &Self) -> Result<MicroblockSignerMatch, AuthError> {
+        let first = self.check_recover_pubkey()?;
+        let second = other.check_recover_pubkey()?;
+
+        Ok(if first == second {
+            MicroblockSignerMatch::Common(first)
+        } else {
+            MicroblockSignerMatch::Different { first, second }
+        })
     }
 
     pub fn verify(&self, pubk_hash: &Hash160) -> Result<(), AuthError> {
@@ -4435,6 +4466,41 @@ mod tests {
         header.consensus_serialize(&mut buf).unwrap();
         let decoded = StacksMicroblockHeader::consensus_deserialize(&mut &buf[..]).unwrap();
         assert_eq!(decoded, header);
+    }
+
+    #[test]
+    fn microblock_headers_recover_signer_match() {
+        let signer = StacksPrivateKey::random();
+        let other_signer = StacksPrivateKey::random();
+        let parent = BlockHeaderHash([0x77; 32]);
+
+        let mut first =
+            StacksMicroblockHeader::first_unsigned(&parent, &Sha512Trunc256Sum([0x11; 32]));
+        first.sign(&signer).unwrap();
+
+        let mut same_signer =
+            StacksMicroblockHeader::first_unsigned(&parent, &Sha512Trunc256Sum([0x22; 32]));
+        same_signer.sign(&signer).unwrap();
+
+        let mut different_signer =
+            StacksMicroblockHeader::first_unsigned(&parent, &Sha512Trunc256Sum([0x33; 32]));
+        different_signer.sign(&other_signer).unwrap();
+
+        let first_signer = first.check_recover_pubkey().unwrap();
+        assert_eq!(
+            first.recover_signer_match(&same_signer).unwrap(),
+            MicroblockSignerMatch::Common(first_signer.clone()),
+        );
+        assert_eq!(
+            first.recover_signer_match(&different_signer).unwrap(),
+            MicroblockSignerMatch::Different {
+                first: first_signer,
+                second: different_signer.check_recover_pubkey().unwrap(),
+            },
+        );
+
+        let unsigned = StacksMicroblockHeader::first_empty_unsigned(&parent);
+        assert!(first.recover_signer_match(&unsigned).is_err());
     }
 
     /// Every `TransactionAuthFlags` discriminant must serialize to a single

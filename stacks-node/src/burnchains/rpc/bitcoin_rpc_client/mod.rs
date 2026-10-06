@@ -240,7 +240,7 @@ fn convert_btc_string_to_sat(amount: &str) -> Result<u64, String> {
                     Ok(sat_amount)
                 }
                 (lhs, rhs) => {
-                    return Err(format!("Cannot convert BTC '{amount}' to sat integer: {lhs:?} - fractional: {rhs:?}"));
+                    Err(format!("Cannot convert BTC '{amount}' to sat integer: {lhs:?} - fractional: {rhs:?}"))
                 }
             }
         },
@@ -364,6 +364,14 @@ pub struct BitcoinRpcClient {
 /// Represents errors that can occur when using [`BitcoinRpcClient`].
 #[derive(Debug, thiserror::Error)]
 pub enum BitcoinRpcClientError {
+    /// The mining attempt budget was exhausted before all requested blocks were generated.
+    #[error("Generated {actual} of {requested} requested blocks within the hash-attempt budget")]
+    IncompleteGeneration {
+        /// Number of blocks requested.
+        requested: u64,
+        /// Number of blocks generated.
+        actual: usize,
+    },
     // Missing credential error
     #[error("Missing credential error")]
     MissingCredentials,
@@ -570,6 +578,26 @@ impl BitcoinRpcClient {
             None,
             "generatetoaddress",
             vec![num_blocks.into(), address.to_string().into()],
+        )?;
+        Ok(response.0)
+    }
+
+    /// Mine test blocks with an explicit hash-attempt budget, for custom OP_TRUE signets.
+    pub fn generate_to_address_with_maxtries(
+        &self,
+        num_blocks: u64,
+        address: &BitcoinAddress,
+        maxtries: i32,
+    ) -> BitcoinRpcClientResult<Vec<BurnchainHeaderHash>> {
+        let response = self.endpoint.send::<GenerateToAddressResponse>(
+            &self.client_id,
+            None,
+            "generatetoaddress",
+            vec![
+                num_blocks.into(),
+                address.to_string().into(),
+                maxtries.into(),
+            ],
         )?;
         Ok(response.0)
     }

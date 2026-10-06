@@ -25,9 +25,10 @@ pub use stacks_common::types::{Address, PrivateKey, PublicKey};
 use self::bitcoin::indexer::{
     BITCOIN_MAINNET as BITCOIN_NETWORK_ID_MAINNET, BITCOIN_MAINNET_NAME,
     BITCOIN_REGTEST as BITCOIN_NETWORK_ID_REGTEST, BITCOIN_REGTEST_NAME,
+    BITCOIN_SIGNET as BITCOIN_NETWORK_ID_SIGNET, BITCOIN_SIGNET_NAME,
     BITCOIN_TESTNET as BITCOIN_NETWORK_ID_TESTNET, BITCOIN_TESTNET_NAME,
 };
-use self::bitcoin::{BitcoinBlock, BitcoinTransaction, Error as btc_error};
+use self::bitcoin::{signet, BitcoinBlock, BitcoinTransaction, Error as btc_error};
 use crate::chainstate::burn::distribution::BurnSamplePoint;
 use crate::chainstate::burn::operations::leader_block_commit::{
     MissedBlockCommit, OUTPUTS_PER_COMMIT,
@@ -60,6 +61,11 @@ pub const MAGIC_BYTES_LENGTH: usize = 2;
 pub struct MagicBytes([u8; MAGIC_BYTES_LENGTH]);
 impl_array_newtype!(MagicBytes, u8, MAGIC_BYTES_LENGTH);
 impl MagicBytes {
+    /// Construct a burn-operation prefix from an array of the required length.
+    pub const fn new(bytes: [u8; MAGIC_BYTES_LENGTH]) -> Self {
+        Self(bytes)
+    }
+
     pub fn default() -> MagicBytes {
         BLOCKSTACK_MAGIC_MAINNET
     }
@@ -86,6 +92,7 @@ impl BurnchainParameters {
             ("bitcoin", "mainnet") => Some(BurnchainParameters::bitcoin_mainnet()),
             ("bitcoin", "testnet") => Some(BurnchainParameters::bitcoin_testnet()),
             ("bitcoin", "regtest") => Some(BurnchainParameters::bitcoin_regtest()),
+            ("bitcoin", "signet") => Some(BurnchainParameters::bitcoin_signet()),
             _ => None,
         }
     }
@@ -135,10 +142,26 @@ impl BurnchainParameters {
         }
     }
 
+    /// Signet burnchain defaults; deployment-specific activation heights are configurable.
+    pub fn bitcoin_signet() -> BurnchainParameters {
+        BurnchainParameters {
+            chain_name: "bitcoin".into(),
+            network_name: BITCOIN_SIGNET_NAME.into(),
+            network_id: BITCOIN_NETWORK_ID_SIGNET,
+            stable_confirmations: 7,
+            consensus_hash_lifetime: 24,
+            first_block_height: 0,
+            first_block_hash: BurnchainHeaderHash::from_hex(signet::GENESIS_HASH)
+                .expect("Valid signet genesis hash"),
+            first_block_timestamp: signet::GENESIS_TIMESTAMP,
+            initial_reward_start_block: 0,
+        }
+    }
+
     pub fn is_testnet(network_id: u32) -> bool {
         matches!(
             network_id,
-            BITCOIN_NETWORK_ID_TESTNET | BITCOIN_NETWORK_ID_REGTEST
+            BITCOIN_NETWORK_ID_TESTNET | BITCOIN_NETWORK_ID_REGTEST | BITCOIN_NETWORK_ID_SIGNET
         )
     }
 }
@@ -575,6 +598,15 @@ impl PoxConstants {
         )
     }
 
+    /// Development cycles allow signer registration and a five-block prepare phase.
+    pub fn signet_default() -> PoxConstants {
+        let mut constants = Self::regtest_default();
+        constants.reward_cycle_length = 20;
+        constants.prepare_length = 5;
+        constants.anchor_threshold = 3;
+        constants
+    }
+
     // TODO: add tests from mutation testing results #4838
     #[cfg_attr(test, mutants::skip)]
     pub fn regtest_default() -> PoxConstants {
@@ -629,9 +661,8 @@ impl PoxConstants {
     pub fn prepare_phase_start(&self, first_block_height: u64, reward_cycle: u64) -> u64 {
         let reward_cycle_start =
             self.reward_cycle_to_block_height(first_block_height, reward_cycle);
-        let prepare_phase_start = reward_cycle_start + u64::from(self.reward_cycle_length)
-            - u64::from(self.prepare_length);
-        prepare_phase_start
+
+        reward_cycle_start + u64::from(self.reward_cycle_length) - u64::from(self.prepare_length)
     }
 
     /// Is this the first block to receive rewards in its cycle?
@@ -977,7 +1008,7 @@ impl BurnchainView {
                 let data = {
                     use sha2::{Digest, Sha256};
                     let mut hasher = Sha256::new();
-                    hasher.update(&i.to_le_bytes());
+                    hasher.update(i.to_le_bytes());
                     hasher.finalize()
                 };
                 let mut data_32 = [0x00; 32];

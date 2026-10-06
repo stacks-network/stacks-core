@@ -238,21 +238,13 @@ impl RPCRequestHandler for GetTenuresForkInfo {
                 cursor =
                     SortitionDB::get_block_snapshot(sortdb.conn(), &cursor.parent_sortition_id)?
                         .ok_or_else(|| ChainError::NoSuchBlockError)?;
-                if cursor.sortition
-                    || chainstate
-                        .nakamoto_blocks_db()
-                        .is_shadow_tenure(&cursor.consensus_hash)?
-                {
+                if cursor.sortition {
                     results.push(TenureForkingInfo::from_snapshot(
                         &cursor,
                         sortdb,
                         chainstate,
                         &network.stacks_tip.block_id(),
                     )?);
-                }
-                if cursor.sortition {
-                    // don't count shadow blocks towards the depth, since there can be a large
-                    // swath of them.
                     depth += 1;
                 }
             }
@@ -269,8 +261,7 @@ impl RPCRequestHandler for GetTenuresForkInfo {
                         "Supplied start and end sortitions are not in the same sortition fork"
                     )),
                 )
-                .try_into_contents()
-                .map_err(NetError::from);
+                .try_into_contents();
             }
             Err(ChainError::NoSuchBlockError) => {
                 return StacksHttpResponse::new_error(
@@ -281,7 +272,6 @@ impl RPCRequestHandler for GetTenuresForkInfo {
                     )),
                 )
                 .try_into_contents()
-                .map_err(NetError::from)
             }
             Err(e) => {
                 // nope -- error trying to check
@@ -291,8 +281,7 @@ impl RPCRequestHandler for GetTenuresForkInfo {
                 );
                 warn!("{msg}");
                 return StacksHttpResponse::new_error(&preamble, &HttpServerError::new(msg))
-                    .try_into_contents()
-                    .map_err(NetError::from);
+                    .try_into_contents();
             }
         };
 
@@ -317,6 +306,6 @@ impl HttpResponse for GetTenuresForkInfo {
         body: &[u8],
     ) -> Result<HttpResponsePayload, Error> {
         let tenures_info: Vec<TenureForkingInfo> = parse_json(preamble, body)?;
-        Ok(HttpResponsePayload::try_from_json(tenures_info)?)
+        HttpResponsePayload::try_from_json(tenures_info)
     }
 }

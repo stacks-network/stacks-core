@@ -1,0 +1,1 @@
+Removed the deprecated `[connection_options]` config keys `max_neighbors_per_host`, `max_clients_per_host`, `soft_max_neighbors_per_host` and `full_inv_sync_interval`, which had no effect on node behavior. A node whose config file still sets any of them will fail to start; delete these keys from the config file before upgrading.

@@ -99,10 +99,12 @@ pub fn legacy_address_type_to_version_byte(
             ADDRESS_VERSION_MAINNET_MULTISIG
         }
         (LegacyBitcoinAddressType::PublicKeyHash, BitcoinNetworkType::Testnet)
+        | (LegacyBitcoinAddressType::PublicKeyHash, BitcoinNetworkType::Signet)
         | (LegacyBitcoinAddressType::PublicKeyHash, BitcoinNetworkType::Regtest) => {
             ADDRESS_VERSION_TESTNET_SINGLESIG
         }
         (LegacyBitcoinAddressType::ScriptHash, BitcoinNetworkType::Testnet)
+        | (LegacyBitcoinAddressType::ScriptHash, BitcoinNetworkType::Signet)
         | (LegacyBitcoinAddressType::ScriptHash, BitcoinNetworkType::Regtest) => {
             ADDRESS_VERSION_TESTNET_MULTISIG
         }
@@ -165,7 +167,7 @@ impl LegacyBitcoinAddress {
 
         ret[0] = version_byte;
         ret[1..21].copy_from_slice(&self.bytes.0[0..20]);
-        return ret;
+        ret
     }
 
     pub fn to_b58(&self) -> String {
@@ -279,7 +281,7 @@ impl SegwitBitcoinAddress {
     pub fn hrp(&self) -> &'static str {
         match self.network() {
             BitcoinNetworkType::Mainnet => SEGWIT_MAINNET_HRP,
-            BitcoinNetworkType::Testnet => SEGWIT_TESTNET_HRP,
+            BitcoinNetworkType::Testnet | BitcoinNetworkType::Signet => SEGWIT_TESTNET_HRP,
             BitcoinNetworkType::Regtest => SEGWIT_REGTEST_HRP,
         }
     }
@@ -296,9 +298,9 @@ impl SegwitBitcoinAddress {
         let mut bytes_u5: Vec<u5> = vec![u5::try_from_u8(self.witness_version())
             .expect("FATAL: bad witness version does not fit into a u5")];
         bytes_u5.extend_from_slice(&bytes.to_base32());
-        let addr = bech32::encode(hrp, bytes_u5, self.bech32_variant())
-            .expect("FATAL: could not encode segwit address");
-        addr
+
+        bech32::encode(hrp, bytes_u5, self.bech32_variant())
+            .expect("FATAL: could not encode segwit address")
     }
 
     pub fn to_bech32(&self) -> String {
@@ -519,21 +521,21 @@ impl BitcoinAddress {
         if let BitcoinAddress::Segwit(ref swaddr) = self {
             return swaddr.is_p2wpkh();
         }
-        return false;
+        false
     }
 
     pub fn is_segwit_p2wsh(&self) -> bool {
         if let BitcoinAddress::Segwit(ref swaddr) = self {
             return swaddr.is_p2wsh();
         }
-        return false;
+        false
     }
 
     pub fn is_segwit_p2tr(&self) -> bool {
         if let BitcoinAddress::Segwit(ref swaddr) = self {
             return swaddr.is_p2tr();
         }
-        return false;
+        false
     }
 
     #[cfg(any(test, feature = "testing"))]
@@ -574,7 +576,7 @@ impl BitcoinAddress {
         {
             return Some(BitcoinAddress::Segwit(sw));
         }
-        return None;
+        None
     }
 
     #[cfg(test)]
@@ -598,10 +600,7 @@ impl Address for LegacyBitcoinAddress {
     }
 
     fn from_string(s: &str) -> Option<LegacyBitcoinAddress> {
-        match LegacyBitcoinAddress::from_b58(s) {
-            Ok(a) => Some(a),
-            Err(_e) => None,
-        }
+        LegacyBitcoinAddress::from_b58(s).ok()
     }
 
     fn is_burn(&self) -> bool {
@@ -625,7 +624,7 @@ impl Address for SegwitBitcoinAddress {
                 return false;
             }
         }
-        return true;
+        true
     }
 }
 

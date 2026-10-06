@@ -463,19 +463,6 @@ impl BlocksAvailableData {
     pub fn new() -> BlocksAvailableData {
         BlocksAvailableData { available: vec![] }
     }
-
-    pub fn try_push(
-        &mut self,
-        ch: ConsensusHash,
-        bhh: BurnchainHeaderHash,
-    ) -> Result<(), net_error> {
-        if self.available.len() < BLOCKS_AVAILABLE_MAX_LEN as usize {
-            self.available.push((ch, bhh));
-            return Ok(());
-        } else {
-            return Err(net_error::InvalidMessage);
-        }
-    }
 }
 
 impl StacksMessageCodec for BlocksDatum {
@@ -1550,7 +1537,7 @@ impl ProtocolFamily for StacksP2P {
         &mut self,
         _preamble: &Preamble,
         _fd: &mut R,
-    ) -> Result<(Option<(StacksMessage, usize)>, usize), net_error> {
+    ) -> Result<StreamRead<StacksMessage>, net_error> {
         panic!(
             "BUG: tried to stream a StacksP2P message, even though their lengths are always known"
         )

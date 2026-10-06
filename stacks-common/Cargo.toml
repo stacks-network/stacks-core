@@ -89,6 +89,8 @@ developer-mode = []
 ctrlc-handler = ["dep:nix", "dep:winapi"]
 slog_json = ["slog-json"]
 rusqlite = ["dep:rusqlite", "rand"]
+# Log the duration of every SQLite statement (requires `rusqlite`).
+profile-sqlite = ["rusqlite"]
 # Enables the rand module. This flag must be off on deterministic
 # platforms such as CosmWasm
 rand = ["dep:rand"]

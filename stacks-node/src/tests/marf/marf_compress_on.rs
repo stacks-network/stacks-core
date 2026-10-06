@@ -19,7 +19,7 @@ use crate::tests::marf::marf_compress_dyn;
 
 pub mod utils {
     use std::sync::atomic::Ordering;
-    use std::{env, thread};
+    use std::{env, slice, thread};
 
     use clarity::vm::types::PrincipalData;
     use stacks::chainstate::nakamoto::test_signers::TestSigners;
@@ -80,7 +80,7 @@ pub mod utils {
         boot_to_epoch_3(
             &naka_conf,
             &blocks_processed,
-            &[stacker_sk.clone()],
+            slice::from_ref(&stacker_sk),
             &[sender_signer_sk],
             &mut Some(&mut signers),
             &mut btc_regtest_controller,

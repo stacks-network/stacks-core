@@ -141,7 +141,6 @@ impl NakamotoTenureDownloaderSet {
                 *downloader_slot = Some(downloader);
             } else {
                 error!("TenureDownloader had a mistaken peer pointer while setting the downloader");
-                return;
             }
         } else {
             self.downloaders.push(Some(downloader));
@@ -272,7 +271,7 @@ impl NakamotoTenureDownloaderSet {
             self.peers.insert(naddr, i);
             return true;
         }
-        return false;
+        false
     }
 
     /// Deschedule peers that are bound to downloader slots that are either vacant or correspond to
@@ -478,9 +477,7 @@ impl NakamotoTenureDownloaderSet {
 
             let tenure_download = NakamotoTenureDownloader::new(
                 ch.clone(),
-                tenure_info.start_block_snapshot_consensus_hash.clone(),
                 tenure_info.start_block_id.clone(),
-                tenure_info.end_block_snapshot_consensus_hash.clone(),
                 tenure_info.end_block_id.clone(),
                 naddr.clone(),
                 start_reward_set.clone(),

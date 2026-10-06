@@ -32,7 +32,7 @@ use stacks_common::util::uint::Uint256;
 
 use crate::burnchains::bitcoin::indexer::BitcoinIndexer;
 use crate::burnchains::bitcoin::messages::BitcoinMessageHandler;
-use crate::burnchains::bitcoin::{BitcoinNetworkType, Error as btc_error, PeerMessage};
+use crate::burnchains::bitcoin::{signet, BitcoinNetworkType, Error as btc_error, PeerMessage};
 use crate::util_lib::db::{
     query_row, sqlite_open, tx_begin_immediate, u64_to_sql, DBConn, DBTx, Error as db_error,
     FromColumn, FromRow,
@@ -252,7 +252,7 @@ impl SpvClient {
 
         tx.execute(
             "INSERT INTO db_config (version) VALUES (?1)",
-            &[&SPV_DB_VERSION],
+            [&SPV_DB_VERSION],
         )
         .map_err(db_error::SqliteError)?;
 
@@ -273,7 +273,7 @@ impl SpvClient {
     }
 
     fn db_set_version(tx: &Transaction, version: &str) -> Result<(), btc_error> {
-        tx.execute("UPDATE db_config SET version = ?1", &[version])
+        tx.execute("UPDATE db_config SET version = ?1", [version])
             .map_err(db_error::SqliteError)
             .map_err(|e| e.into())
             .map(|_| ())
@@ -400,7 +400,7 @@ impl SpvClient {
             .conn()
             .query_row(
                 "SELECT work FROM chain_work WHERE interval = ?1",
-                &[&u64_to_sql(interval)?],
+                [&u64_to_sql(interval)?],
                 |row| row.get(0),
             )
             .optional()
@@ -561,7 +561,7 @@ impl SpvClient {
             prev_header = Some(cur_header.header.bitcoin_hash());
         }
 
-        return Ok(());
+        Ok(())
     }
 
     /// Verify that the given headers have the correct amount of work to be appended to our
@@ -577,7 +577,7 @@ impl SpvClient {
             interval_end * BLOCK_DIFFICULTY_CHUNK_SIZE
         );
         assert!(interval_start <= interval_end);
-        if interval_start == 0 {
+        if interval_start == 0 && self.network_id != BitcoinNetworkType::Signet {
             return Ok(());
         }
 
@@ -586,6 +586,9 @@ impl SpvClient {
             for block_height in
                 (i * BLOCK_DIFFICULTY_CHUNK_SIZE)..((i + 1) * BLOCK_DIFFICULTY_CHUNK_SIZE)
             {
+                if block_height == 0 && self.network_id == BitcoinNetworkType::Signet {
+                    continue;
+                }
                 let header_i = match self.read_block_header(block_height)? {
                     None => return Ok(()),
                     Some(res) => res.header,
@@ -641,7 +644,7 @@ impl SpvClient {
                 headers.push_front(header_i);
             }
         }
-        return Ok(());
+        Ok(())
     }
 
     /// Report how many block headers (+ 1) we have downloaded to the given path.
@@ -676,7 +679,7 @@ impl SpvClient {
         let header_opt: Option<BlockHeader> = query_row(
             &self.headers_db,
             "SELECT * FROM headers WHERE height = ?1",
-            &[&u64_to_sql(block_height)?],
+            [&u64_to_sql(block_height)?],
         )?;
         Ok(header_opt.map(|h| LoneBlockHeader {
             header: h,
@@ -692,7 +695,7 @@ impl SpvClient {
         query_row(
             &self.headers_db,
             "SELECT height FROM headers WHERE hash = ?1",
-            &[burn_header_hash],
+            [burn_header_hash],
         )
         .map_err(|e| e.into())
     }
@@ -782,6 +785,7 @@ impl SpvClient {
                 genesis_block(Network::Testnet),
                 BITCOIN_GENESIS_BLOCK_HASH_TESTNET,
             ),
+            BitcoinNetworkType::Signet => (signet::genesis(), signet::GENESIS_HASH),
             BitcoinNetworkType::Regtest => (
                 genesis_block(Network::Regtest),
                 BITCOIN_GENESIS_BLOCK_HASH_REGTEST,
@@ -809,7 +813,7 @@ impl SpvClient {
         if migrate {
             self.update_chain_work()?;
         }
-        return Ok(());
+        Ok(())
     }
 
     /// Handle a Headers message
@@ -887,7 +891,7 @@ impl SpvClient {
             debug!("Handled empty header reply");
         }
 
-        return Ok(());
+        Ok(())
     }
 
     /// Write a run of continuous headers to a particular location.
@@ -1046,7 +1050,7 @@ impl SpvClient {
         let tx = self.tx_begin()?;
         tx.execute(
             "DELETE FROM headers WHERE height > ?1",
-            &[&u64_to_sql(new_max_height)?],
+            [&u64_to_sql(new_max_height)?],
         )
         .map_err(db_error::SqliteError)?;
         tx.commit()
@@ -1054,20 +1058,29 @@ impl SpvClient {
         Ok(())
     }
 
-    /// Determine the (bits, target) between two headers
-    pub fn get_target_between_headers(
+    /// Retarget using the selected network's PoW limit and timestamp rules.
+    fn get_target_between_headers_for_network(
+        network: BitcoinNetworkType,
         first_header: &LoneBlockHeader,
         last_header: &LoneBlockHeader,
     ) -> (u32, Uint256) {
-        let max_target = Uint256([
-            0x0000000000000000,
-            0x0000000000000000,
-            0x0000000000000000,
-            0x00000000ffff0000,
-        ]);
+        let max_target = if network == BitcoinNetworkType::Signet {
+            BlockHeader::compact_target_to_u256(signet::POW_LIMIT_BITS)
+        } else {
+            Uint256([
+                0x0000000000000000,
+                0x0000000000000000,
+                0x0000000000000000,
+                0x00000000ffff0000,
+            ])
+        };
 
         // find actual timespan as being clamped between +/- 4x of the target timespan
-        let mut actual_timespan = (last_header.header.time - first_header.header.time) as u64;
+        let mut actual_timespan = if network == BitcoinNetworkType::Signet {
+            (i64::from(last_header.header.time) - i64::from(first_header.header.time)).max(0) as u64
+        } else {
+            (last_header.header.time - first_header.header.time) as u64
+        };
         let target_timespan = BLOCK_DIFFICULTY_INTERVAL as u64;
         if actual_timespan < (target_timespan / 4) {
             actual_timespan = target_timespan / 4;
@@ -1101,6 +1114,12 @@ impl SpvClient {
         headers_in_range: &VecDeque<BlockHeader>,
         interval: u64,
     ) -> Result<Option<(u32, Uint256)>, btc_error> {
+        if interval == 0 && self.network_id == BitcoinNetworkType::Signet {
+            return Ok(Some((
+                signet::POW_LIMIT_BITS,
+                BlockHeader::compact_target_to_u256(signet::POW_LIMIT_BITS),
+            )));
+        }
         if interval == 0 {
             panic!(
                 "Invalid argument: interval must be positive (got {})",
@@ -1169,7 +1188,8 @@ impl SpvClient {
                 None => return Ok(None),
             };
 
-        Ok(Some(SpvClient::get_target_between_headers(
+        Ok(Some(SpvClient::get_target_between_headers_for_network(
+            self.network_id,
             &first_header,
             &last_header,
         )))
@@ -1313,8 +1333,183 @@ mod test {
     use crate::burnchains::bitcoin::{Error as btc_error, *};
     use crate::util_lib::db::table_exists;
 
+    /// Replay Core-validated public headers across two retargets and a persisted rewind.
+    #[test]
+    fn signet_public_headers_retarget_and_restart() {
+        let headers = testdata::signet_headers()
+            .into_iter()
+            .map(|header| LoneBlockHeader {
+                header,
+                tx_count: VarInt(0),
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(headers.len(), 4034);
+
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("public-signet.sqlite");
+
+        let mut client = SpvClient::new(
+            path.to_str().unwrap(),
+            0,
+            None,
+            BitcoinNetworkType::Signet,
+            true,
+            false,
+        )
+        .unwrap();
+
+        for start in [1usize, 2001, 4001] {
+            let end = (start + 2000).min(headers.len());
+            client
+                .handle_headers((start - 1) as u64, headers[start..end].to_vec())
+                .unwrap();
+        }
+
+        assert_eq!(client.get_highest_header_height().unwrap(), 4033);
+
+        let tip = client.read_block_header(4033).unwrap().unwrap().header;
+        assert_eq!(
+            tip.bitcoin_hash(),
+            Sha256dHash::from_hex(
+                "00000032bf07285ff75154d299d94cd1e9fb563f03440c8ad9f25279650bb222"
+            )
+            .unwrap()
+        );
+
+        let work = client.update_chain_work().unwrap();
+        assert!(work > Uint256::from_u64(0));
+
+        // Rewind across a retarget boundary, then restore the same canonical headers.
+        client.drop_headers(2014).unwrap();
+        drop(client);
+
+        let mut restarted = SpvClient::new(
+            path.to_str().unwrap(),
+            0,
+            None,
+            BitcoinNetworkType::Signet,
+            true,
+            false,
+        )
+        .unwrap();
+
+        restarted
+            .handle_headers(2014, headers[2015..].to_vec())
+            .unwrap();
+
+        assert_eq!(restarted.update_chain_work().unwrap(), work);
+        assert_eq!(
+            restarted.read_block_header(4033).unwrap().unwrap().header,
+            tip
+        );
+    }
+
+    /// Signet retargets with its own limit and does not inherit testnet's time-gap exception.
+    #[test]
+    fn signet_retarget_and_first_interval() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("signet.sqlite");
+        let mut client = SpvClient::new(
+            path.to_str().unwrap(),
+            0,
+            None,
+            BitcoinNetworkType::Signet,
+            true,
+            false,
+        )
+        .unwrap();
+
+        let first = LoneBlockHeader {
+            header: signet::genesis().header,
+            tx_count: VarInt(0),
+        };
+
+        let mut last = first.clone();
+        last.header.time += BLOCK_DIFFICULTY_INTERVAL;
+        let calculate = |last: &LoneBlockHeader| {
+            SpvClient::get_target_between_headers_for_network(
+                BitcoinNetworkType::Signet,
+                &first,
+                last,
+            )
+        };
+        assert_eq!(calculate(&last).0, signet::POW_LIMIT_BITS);
+
+        last.header.time = first.header.time + BLOCK_DIFFICULTY_INTERVAL * 8;
+        assert_eq!(calculate(&last).0, signet::POW_LIMIT_BITS);
+
+        last.header.time = first.header.time - 1;
+        let quarter = first.header.target() / Uint256::from_u64(4);
+        assert_eq!(
+            calculate(&last).0,
+            BlockHeader::compact_target_from_u256(&quarter)
+        );
+
+        last.header.time = first.header.time + BLOCK_DIFFICULTY_INTERVAL / 4;
+        assert_eq!(
+            calculate(&last).0,
+            BlockHeader::compact_target_from_u256(&quarter)
+        );
+
+        // A long timestamp gap must retain signet's initial target, unlike testnet.
+        last.header.time = first.header.time + 1201;
+        assert_eq!(
+            client
+                .get_target(1, &last.header, &VecDeque::new(), 0)
+                .unwrap()
+                .unwrap()
+                .0,
+            signet::POW_LIMIT_BITS
+        );
+
+        let mut tx = client.tx_begin().unwrap();
+        SpvClient::insert_block_header(&mut tx, last.header, BLOCK_DIFFICULTY_CHUNK_SIZE - 1)
+            .unwrap();
+        tx.commit().unwrap();
+
+        assert_eq!(
+            client
+                .get_target(
+                    BLOCK_DIFFICULTY_CHUNK_SIZE,
+                    &first.header,
+                    &VecDeque::new(),
+                    1
+                )
+                .unwrap()
+                .unwrap()
+                .0,
+            BlockHeader::compact_target_from_u256(&quarter)
+        );
+    }
+
+    /// Initial signet headers must be validated even before the first retarget.
+    #[test]
+    fn signet_initial_interval_checks_difficulty() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("signet.sqlite");
+        let mut client = SpvClient::new(
+            path.to_str().unwrap(),
+            0,
+            None,
+            BitcoinNetworkType::Signet,
+            true,
+            false,
+        )
+        .unwrap();
+        let mut header = signet::genesis().header;
+        header.prev_blockhash = header.bitcoin_hash();
+        header.bits = 0x207fffff;
+        let mut tx = client.tx_begin().unwrap();
+        SpvClient::insert_block_header(&mut tx, header, 1).unwrap();
+        tx.commit().unwrap();
+        std::assert_matches!(
+            client.validate_header_work(0, 1),
+            Err(btc_error::InvalidPoW)
+        );
+    }
+
     fn get_genesis_regtest_header() -> LoneBlockHeader {
-        let genesis_regtest_header = LoneBlockHeader {
+        LoneBlockHeader {
             header: BlockHeader {
                 bits: 545259519,
                 merkle_root: Sha256dHash::from_hex(
@@ -1330,8 +1525,7 @@ mod test {
                 version: 1,
             },
             tx_count: VarInt(0),
-        };
-        genesis_regtest_header
+        }
     }
 
     /// Exercises the complete SPV schema migration from version 1 to version 3.

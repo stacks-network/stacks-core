@@ -11,6 +11,11 @@ process clearer. Each fragment should be one or more complete sentences. Each
 line in the fragment file will become a separate bullet point in the final
 CHANGELOG.md.
 
+CI only *enforces* the presence of a fragment on PRs that target `main`. PRs
+into other branches (e.g. long-lived feature branches) are not blocked, but
+should still add a fragment when the change deserves a changelog entry, so the
+entry is present once the branch is merged into `main`.
+
 ## How to add a changelog entry
 
 1. Create a file in this directory named: `<short-description>.<category>`

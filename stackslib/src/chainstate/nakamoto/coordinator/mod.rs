@@ -49,9 +49,6 @@ use crate::monitoring::increment_stx_blocks_processed_counter;
 use crate::net::Error as NetError;
 use crate::util_lib::db::Error as DBError;
 
-#[cfg(any(test, feature = "testing"))]
-pub static TEST_COORDINATOR_STALL: std::sync::Mutex<Option<bool>> = std::sync::Mutex::new(None);
-
 #[cfg(test)]
 pub mod tests;
 
@@ -353,7 +350,7 @@ pub fn get_nakamoto_reward_cycle_info<U: RewardSetProvider>(
         "burn_block_hash" => %anchor_block_header.burn_header_hash
     );
 
-    return Ok(Some(rc_info));
+    Ok(Some(rc_info))
 }
 
 /// Load the reward set that was active when a Nakamoto tenure was elected.
@@ -534,14 +531,7 @@ pub fn load_nakamoto_reward_set<U: RewardSetProvider>(
     let Some(anchor_block_header) = prepare_phase_sortitions
         .into_iter()
         .find_map(|sn| {
-            let shadow_tenure = match chain_state.nakamoto_blocks_db().is_shadow_tenure(&sn.consensus_hash) {
-                Ok(x) => x,
-                Err(e) => {
-                    return Some(Err(e));
-                }
-            };
-
-            if !sn.sortition && !shadow_tenure {
+            if !sn.sortition {
                 return None
             }
 
@@ -559,12 +549,12 @@ pub fn load_nakamoto_reward_set<U: RewardSetProvider>(
                 chain_state.db(),
                 &sn.consensus_hash,
             ) {
-                Ok(Some(x)) => return Some(Ok(x)),
-                Err(e) => return Some(Err(e)),
+                Ok(Some(x)) => Some(Ok(x)),
+                Err(e) => Some(Err(e)),
                 Ok(None) => {
                     // no header for this snapshot (possibly invalid)
                     debug!("Failed to find Stacks block by consensus hash"; "consensus_hash" => %sn.consensus_hash);
-                    return None
+                    None
                 }
             }
         })
@@ -705,12 +695,9 @@ impl<
             }
         };
 
-        let first_epoch3_reward_cycle = self
-            .burnchain
+        self.burnchain
             .block_height_to_reward_cycle(epoch3.start_height)
-            .expect("FATAL: epoch3 block height has no reward cycle");
-
-        first_epoch3_reward_cycle
+            .expect("FATAL: epoch3 block height has no reward cycle")
     }
 
     /// Get the current reward cycle
@@ -724,12 +711,9 @@ impl<
                 .unwrap_or_else(|e| panic!("FATAL: failed to query sortition DB: {:?}", &e))
                 .unwrap_or_else(|| panic!("FATAL: canonical sortition tip has no sortition"));
 
-        let cur_reward_cycle = self
-            .burnchain
+        self.burnchain
             .block_height_to_reward_cycle(canonical_sn.block_height)
-            .expect("FATAL: snapshot has no reward cycle");
-
-        cur_reward_cycle
+            .expect("FATAL: snapshot has no reward cycle")
     }
 
     /// Are we in the first-ever Nakamoto reward cycle?
@@ -818,21 +802,6 @@ impl<
         true
     }
 
-    #[cfg(any(test, feature = "testing"))]
-    fn fault_injection_pause_nakamoto_block_processing() {
-        if *TEST_COORDINATOR_STALL.lock().unwrap() == Some(true) {
-            // Do an extra check just so we don't log EVERY time.
-            warn!("Coordinator is stalled due to testing directive");
-            while *TEST_COORDINATOR_STALL.lock().unwrap() == Some(true) {
-                std::thread::sleep(std::time::Duration::from_millis(10));
-            }
-            warn!("Coordinator is no longer stalled due to testing directive. Continuing...");
-        }
-    }
-
-    #[cfg(not(any(test, feature = "testing")))]
-    fn fault_injection_pause_nakamoto_block_processing() {}
-
     /// Handle one or more new Nakamoto Stacks blocks.
     /// If we process a PoX anchor block, then kick off processing the next sortition to unblock
     /// processing the next reward cycle's burnchain blocks.
@@ -847,8 +816,6 @@ impl<
         })?;
 
         loop {
-            Self::fault_injection_pause_nakamoto_block_processing();
-
             // This loop will (almost always) run without interruption until the node has caught
             // up to the chain tip. When you're doing a sync on chainstate that is a little behind,
             // this can take a long time. Without this check here, it wouldn't be possible to safely
