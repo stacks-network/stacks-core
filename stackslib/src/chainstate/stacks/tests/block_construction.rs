@@ -463,7 +463,9 @@ fn test_build_anchored_blocks_contract_principal_lifecycle() {
     peer_config.chain_config.initial_balances = vec![
         (funder_address.clone().into(), 100_000),
         (caller_address.clone().into(), 1_000),
-        (contract_address.clone().into(), 1_000),
+        // Enough for both publish fees, so the duplicate is skipped for the
+        // existing contract rather than for an unpayable fee.
+        (contract_address.clone().into(), 2 * CONTRACT_FEE),
     ];
     peer_config.chain_config.epochs = Some(epoch_21_test_epochs(ExecutionCost::max_value()));
     let mut peer = TestPeer::new(peer_config);
@@ -584,9 +586,11 @@ fn test_build_anchored_blocks_contract_principal_lifecycle() {
             .amount_unlocked(),
         999
     );
+    let publisher_account = get_stacks_account(&mut peer, &contract_address.clone().into());
+    assert_eq!(publisher_account.nonce, 1);
     assert_eq!(
-        get_stacks_account(&mut peer, &contract_address.clone().into()).nonce,
-        1
+        publisher_account.stx_balance.amount_unlocked(),
+        u128::from(CONTRACT_FEE)
     );
 
     let chained_transfers = (0..MAXIMUM_MEMPOOL_TX_CHAINING)

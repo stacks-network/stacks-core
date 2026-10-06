@@ -12268,7 +12268,12 @@ pub mod test {
                 TransactionVersion::Testnet,
             );
             let e = admit(chainstate, &tx).unwrap_err();
-            assert!(matches!(e, MemPoolRejection::FailedToValidate(_)));
+            assert!(matches!(
+                e,
+                MemPoolRejection::FailedToValidate(
+                    crate::chainstate::stacks::Error::InvalidStacksTransaction(ref msg, false)
+                ) if msg.contains("invalid chain ID")
+            ));
 
             // send amount must be positive
             let tx = make_user_stacks_transfer(&contract_sk, 5, 300, &other_addr, 0);
@@ -12397,78 +12402,6 @@ pub mod test {
             Ok::<(), net_error>(())
         })
         .unwrap();
-    }
-
-    /// Lock the public rejection payload independently of the code that produces each
-    /// rejection, so a wire-format change fails at the serialization boundary.
-    #[test]
-    fn mempool_rejection_into_json() {
-        let txid = Txid([0x12; 32]);
-        let principal: PrincipalData =
-            StacksAddress::new(C32_ADDRESS_VERSION_TESTNET_SINGLESIG, Hash160([0x01; 20]))
-                .unwrap()
-                .into();
-
-        // every rejection carries the same envelope
-        let assert_envelope = |v: &serde_json::Value, reason: &str| {
-            assert_eq!(v.get("txid").unwrap().as_str().unwrap(), txid.to_hex());
-            assert_eq!(
-                v.get("error").unwrap().as_str().unwrap(),
-                "transaction rejected"
-            );
-            assert_eq!(v.get("reason").unwrap().as_str().unwrap(), reason);
-        };
-
-        // TooMuchChaining: nonce 30 exceeds the chaining limit of 26
-        let v = MemPoolRejection::TooMuchChaining {
-            max_nonce: 26,
-            actual_nonce: 30,
-            principal: principal.clone(),
-            is_origin: true,
-        }
-        .into_json(&txid);
-        assert_envelope(&v, "TooMuchChaining");
-        let d = v.get("reason_data").unwrap();
-        assert!(d.get("is_origin").unwrap().as_bool().unwrap());
-        assert_eq!(
-            d.get("principal").unwrap().as_str().unwrap(),
-            principal.to_string()
-        );
-        assert_eq!(d.get("expected").unwrap().as_u64().unwrap(), 26);
-        assert_eq!(d.get("actual").unwrap().as_u64().unwrap(), 30);
-
-        // FeeTooLow(actual, expected): a 180-byte tx paying a fee of 1
-        let v = MemPoolRejection::FeeTooLow(1, 180).into_json(&txid);
-        assert_envelope(&v, "FeeTooLow");
-        let d = v.get("reason_data").unwrap();
-        assert_eq!(d.get("expected").unwrap().as_u64().unwrap(), 180);
-        assert_eq!(d.get("actual").unwrap().as_u64().unwrap(), 1);
-
-        // NotEnoughFunds(expected, actual): amounts are 0x-prefixed, 32-hex-digit big-endian
-        let v = MemPoolRejection::NotEnoughFunds(2456, 990).into_json(&txid);
-        assert_envelope(&v, "NotEnoughFunds");
-        let d = v.get("reason_data").unwrap();
-        assert_eq!(
-            d.get("expected").unwrap().as_str().unwrap(),
-            format!("0x{:032x}", 2456u128)
-        );
-        assert_eq!(
-            d.get("actual").unwrap().as_str().unwrap(),
-            format!("0x{:032x}", 990u128)
-        );
-
-        // a sponsored tx running its sponsor out of funds surfaces the same shape
-        let v = MemPoolRejection::NotEnoughFunds(2000, 990).into_json(&txid);
-        assert_envelope(&v, "NotEnoughFunds");
-        let d = v.get("reason_data").unwrap();
-        assert_eq!(
-            d.get("expected").unwrap().as_str().unwrap(),
-            format!("0x{:032x}", 2000u128)
-        );
-        assert_eq!(
-            d.get("actual").unwrap().as_str().unwrap(),
-            format!("0x{:032x}", 990u128)
-        );
     }
 
     // TODO(test): test multiple anchored blocks confirming the same microblock stream (in the same

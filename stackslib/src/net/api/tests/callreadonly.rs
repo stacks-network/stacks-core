@@ -36,6 +36,14 @@ use crate::net::httpcore::{
 };
 use crate::net::{ProtocolFamily, TipRequest};
 
+const CALL_READ_ONLY_CONTRACT: &str = "
+(define-read-only (ro-test) (ok 1))
+(define-public (public-no-write)
+  (ok (contract-call? .hello-world do-test)))
+(define-public (public-write)
+  (ok (contract-call? .hello-world add-unit)))
+";
+
 fn new_call_read_request_with_hex_args(
     addr: SocketAddr,
     arguments: Vec<String>,
@@ -116,13 +124,6 @@ fn test_restart_clears_parse_retained_mem() {
     handler.restart();
     assert_eq!(handler.parse_retained_mem_bytes, 0);
 }
-const CALL_READ_ONLY_CONTRACT: &str = "
-(define-read-only (ro-test) (ok 1))
-(define-public (public-no-write)
-  (ok (contract-call? .hello-world do-test)))
-(define-public (public-write)
-  (ok (contract-call? .hello-world add-unit)))
-";
 
 #[test]
 fn test_try_parse_request() {
