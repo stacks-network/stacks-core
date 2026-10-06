@@ -160,7 +160,7 @@ impl RPCRequestHandler for RPCFastCallReadOnlyRequestHandler {
         let tip = match node.load_stacks_chain_tip(&preamble, &contents) {
             Ok(tip) => tip,
             Err(error_resp) => {
-                return error_resp.try_into_contents().map_err(NetError::from);
+                return error_resp.try_into_contents();
             }
         };
 
@@ -269,7 +269,6 @@ impl RPCRequestHandler for RPCFastCallReadOnlyRequestHandler {
                         &HttpBadRequest::new("Execution resource budget exceeded".to_string()),
                     )
                     .try_into_contents()
-                    .map_err(NetError::from)
                 }
                 _ => CallReadOnlyResponse {
                     okay: false,
@@ -282,8 +281,7 @@ impl RPCRequestHandler for RPCFastCallReadOnlyRequestHandler {
                     &preamble,
                     &HttpNotFound::new("Chain tip not found".to_string()),
                 )
-                .try_into_contents()
-                .map_err(NetError::from);
+                .try_into_contents();
             }
         };
 
@@ -301,7 +299,7 @@ impl HttpResponse for RPCFastCallReadOnlyRequestHandler {
         body: &[u8],
     ) -> Result<HttpResponsePayload, Error> {
         let map_entry: CallReadOnlyResponse = parse_json(preamble, body)?;
-        Ok(HttpResponsePayload::try_from_json(map_entry)?)
+        HttpResponsePayload::try_from_json(map_entry)
     }
 }
 

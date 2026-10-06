@@ -38,7 +38,7 @@ use libsigner::v0::messages::{
     BlockAccepted, BlockRejection, BlockResponse, MessageSlotID, MockProposal, MockSignature,
     RejectReason, RejectReasonPrefix, SignerMessage, StateMachineUpdate,
 };
-use libsigner::v0::signer_state::GlobalStateEvaluator;
+use libsigner::v0::signer_state::{GlobalStateEvaluator, MinerState};
 use libsigner::{BlockProposal, SignerEvent, SignerSession};
 use stacks_common::types::chainstate::{StacksAddress, StacksPublicKey};
 use stacks_common::util::get_epoch_time_secs;
@@ -53,7 +53,8 @@ use crate::client::{ClientError, SignerSlotID, StackerDB, StacksClient};
 use crate::config::{SignerConfig, SignerConfigMode};
 use crate::runloop::SignerResult;
 use crate::signerdb::{
-    BlockInfo, BlockState, PendingBlockResponses, SignedConflictInfo, SignerDb, MAX_FORK_DEPTH,
+    BlockInfo, BlockState, PendingBlockResponses, ReorgPermit, SignedConflictInfo, SignerDb,
+    MAX_FORK_DEPTH,
 };
 #[cfg(not(any(test, feature = "testing")))]
 use crate::v0::signer_state::SUPPORTED_SIGNER_PROTOCOL_VERSION;
@@ -1979,6 +1980,9 @@ impl Signer {
                 self.create_block_rejection(RejectReason::RewardCycleRetired, proposed_block),
             );
         }
+        if let Some(rejection) = self.check_block_not_in_superseded_tenure(proposed_block) {
+            return Some(rejection);
+        }
         // If this is a tenure change block, ensure that it confirms the correct number of blocks from the parent tenure.
         if let Some(tenure_change) = proposed_block.get_tenure_change_tx_payload() {
             // Ensure that the tenure change block confirms the expected parent block
@@ -2040,6 +2044,71 @@ impl Signer {
             Err(e) => {
                 warn!("{self}: Failed to check block against signer db: {e}";
                     "signer_signature_hash" => %signer_signature_hash,
+                    "block_id" => %proposed_block.block_id()
+                );
+                Some(self.create_block_rejection(
+                    RejectReason::ConnectivityIssues(
+                        "failed to check block against signer db".into(),
+                    ),
+                    proposed_block,
+                ))
+            }
+        }
+    }
+
+    /// Refuse a block from a tenure we have permitted the active
+    /// miner to reorg.
+    ///
+    /// Once we have permitted a reorg, signing more of the reorg'ed
+    /// tenure's blocks would grow a tenure we already agreed may be
+    /// replaced.  Such near-accepted proposals can still reach us
+    /// after the reorg: one validated or pre-committed before the
+    /// reorging burn block arrived.
+    ///
+    /// The freeze only lasts while the (permitted) reorging tenure is
+    /// the active miner. If we move off it (e.g. it times out and we
+    /// fall back to the reorged tenure's miner), the reorged tenure's
+    /// blocks are signable again, and a rejection given here is
+    /// reconsidered on re-proposal (`ConsensusHashMismatch`).
+    fn check_block_not_in_superseded_tenure(
+        &self,
+        proposed_block: &NakamotoBlock,
+    ) -> Option<BlockRejection> {
+        let LocalStateMachine::Initialized(state_machine) = &self.local_state_machine else {
+            return None;
+        };
+        let MinerState::ActiveMiner {
+            tenure_id: active_miner_tenure_id,
+            ..
+        } = &state_machine.current_miner
+        else {
+            return None;
+        };
+        let block_tenure_id = &proposed_block.header.consensus_hash;
+        match self.signer_db.has_reorg_permit(ReorgPermit {
+            reorged_tenure: block_tenure_id,
+            reorging_tenure: active_miner_tenure_id,
+        }) {
+            Ok(false) => None,
+            Ok(true) => {
+                warn!(
+                    "{self}: Block is in a tenure we permitted the active miner's tenure to reorg. Rejecting.";
+                    "signer_signature_hash" => %proposed_block.header.signer_signature_hash(),
+                    "block_height" => proposed_block.header.chain_length,
+                    "block_consensus_hash" => %block_tenure_id,
+                    "active_miner_tenure_id" => %active_miner_tenure_id,
+                );
+                Some(self.create_block_rejection(
+                    RejectReason::ConsensusHashMismatch {
+                        actual: block_tenure_id.clone(),
+                        expected: active_miner_tenure_id.clone(),
+                    },
+                    proposed_block,
+                ))
+            }
+            Err(e) => {
+                warn!("{self}: Failed to check whether the block's tenure was superseded: {e}";
+                    "signer_signature_hash" => %proposed_block.header.signer_signature_hash(),
                     "block_id" => %proposed_block.block_id()
                 );
                 Some(self.create_block_rejection(

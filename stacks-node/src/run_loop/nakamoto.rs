@@ -265,7 +265,7 @@ impl RunLoop {
         )
         .unwrap();
         run_loop::announce_boot_receipts(
-            &mut self.event_dispatcher,
+            &self.event_dispatcher,
             &chain_state_db,
             &burnchain_config.pox_constants,
             &receipts,

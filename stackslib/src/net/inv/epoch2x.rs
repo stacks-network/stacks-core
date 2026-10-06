@@ -686,7 +686,7 @@ impl NeighborBlockStats {
             }
             bit += 1;
         }
-        return bit;
+        bit
     }
 
     /// Determine whether or not a received PoxInv is more certain as the local PoX
@@ -710,7 +710,7 @@ impl NeighborBlockStats {
             }
             bit += 1;
         }
-        return bit;
+        bit
     }
 
     /// Try to finish getting all PoxInvData requests.
@@ -2545,12 +2545,10 @@ impl PeerNetwork {
                 })?;
 
         match blocks_inv {
-            StacksMessageType::BlocksInv(blocks_inv) => {
-                return Ok(blocks_inv);
-            }
+            StacksMessageType::BlocksInv(blocks_inv) => Ok(blocks_inv),
             _ => {
                 debug!("Failed to produce blocks inventory; got {:?}", &blocks_inv);
-                return Err(net_error::NotFoundError);
+                Err(net_error::NotFoundError)
             }
         }
     }

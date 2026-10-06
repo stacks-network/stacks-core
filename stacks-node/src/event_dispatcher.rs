@@ -488,7 +488,7 @@ impl EventDispatcher {
         );
 
         for observer in interested_observers.iter() {
-            self.send_new_burn_block(&observer, &payload);
+            self.send_new_burn_block(observer, &payload);
         }
     }
 
@@ -499,7 +499,6 @@ impl EventDispatcher {
     /// - dispatch_matrix: a vector where each index corresponds to the hashset of event indexes
     ///   that each respective event observer is subscribed to
     /// - events: a vector of all events from all the tx receipts
-    #[allow(clippy::type_complexity)]
     fn create_dispatch_matrix_and_event_vector<'a>(
         &self,
         receipts: &'a [StacksTransactionReceipt],
@@ -657,7 +656,7 @@ impl EventDispatcher {
                     metadata,
                     receipts,
                     parent_index_hash,
-                    &winner_txid,
+                    winner_txid,
                     &mature_rewards,
                     parent_burn_block_hash,
                     parent_burn_block_height,
@@ -737,7 +736,7 @@ impl EventDispatcher {
 
             self.send_new_microblocks(
                 observer,
-                &parent_index_block_hash,
+                parent_index_block_hash,
                 &filtered_events,
                 &serialized_txs,
                 &processed_unconfirmed_state.burn_block_hash,
