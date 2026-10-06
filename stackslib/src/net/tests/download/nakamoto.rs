@@ -15,9 +15,11 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use std::collections::{HashMap, VecDeque};
-use std::sync::mpsc::sync_channel;
+use std::sync::mpsc::{sync_channel, TryRecvError};
 use std::thread;
+use std::time::{Duration, Instant};
 
+use rstest::rstest;
 use stacks_common::bitvec::BitVec;
 use stacks_common::types::chainstate::{
     ConsensusHash, StacksAddress, StacksBlockId, StacksPrivateKey, TrieHash,
@@ -35,6 +37,7 @@ use crate::chainstate::nakamoto::test_signers::TestSigners;
 use crate::chainstate::nakamoto::{
     NakamotoBlock, NakamotoBlockHeader, NakamotoChainState, NakamotoStagingBlocksConnRef,
 };
+use crate::chainstate::stacks::db::StacksChainState;
 use crate::chainstate::stacks::{
     CoinbasePayload, Error as ChainstateError, StacksTransaction, TenureChangeCause,
     TenureChangePayload, TokenTransferMemo, TransactionAnchorMode, TransactionAuth,
@@ -43,6 +46,7 @@ use crate::chainstate::stacks::{
 use crate::clarity::vm::types::StacksAddressExtensions;
 use crate::core::test_util::to_addr;
 use crate::net::api::gettenureinfo::RPCGetTenureInfo;
+use crate::net::download::epoch2x::BLOCK_REREQUEST_INTERVAL;
 use crate::net::download::nakamoto::{TenureStartEnd, WantedTenure, *};
 use crate::net::inv::nakamoto::NakamotoTenureInv;
 use crate::net::test::{dns_thread_start, TestEventObserver};
@@ -2083,6 +2087,36 @@ fn test_make_tenure_downloaders() {
     }
 }
 
+/// Give `boot_peer` the burnchain blocks `peer` has from height 25 up to `tip`, so it can boot off
+/// of `peer`.
+fn copy_burnchain_to_boot_peer(peer: &mut TestPeer, boot_peer: &TestPeer, tip: &BlockSnapshot) {
+    for height in 25..tip.block_height {
+        let ops = peer
+            .get_burnchain_block_ops_at_height(height + 1)
+            .unwrap_or_default();
+        let sn = peer
+            .sortdb()
+            .index_handle(&tip.sortition_id)
+            .get_block_snapshot_by_height(height)
+            .unwrap()
+            .unwrap();
+        test_debug!(
+            "boot_peer tip height={} hash={}",
+            sn.block_height,
+            &sn.burn_header_hash
+        );
+        test_debug!("ops = {:?}", &ops);
+        let block_header = TestPeer::make_next_burnchain_block(
+            &boot_peer.config.chain_config.burnchain,
+            sn.block_height,
+            &sn.burn_header_hash,
+            ops.len() as u64,
+            false,
+        );
+        TestPeer::add_burnchain_block(&boot_peer.config.chain_config.burnchain, &block_header, ops);
+    }
+}
+
 #[test]
 fn test_nakamoto_download_run_2_peers() {
     let observer = TestEventObserver::new();
@@ -2150,34 +2184,7 @@ fn test_nakamoto_download_run_2_peers() {
         SortitionDB::get_canonical_stacks_chain_tip_hash(peer.sortdb().conn()).unwrap();
 
     // boot up the boot peer's burnchain
-    for height in 25..tip.block_height {
-        let ops = peer
-            .get_burnchain_block_ops_at_height(height + 1)
-            .unwrap_or_default();
-        let sn = {
-            let ih = peer.sortdb().index_handle(&tip.sortition_id);
-
-            ih.get_block_snapshot_by_height(height).unwrap().unwrap()
-        };
-        test_debug!(
-            "boot_peer tip height={} hash={}",
-            sn.block_height,
-            &sn.burn_header_hash
-        );
-        test_debug!("ops = {:?}", &ops);
-        let block_header = TestPeer::make_next_burnchain_block(
-            &boot_peer.config.chain_config.burnchain,
-            sn.block_height,
-            &sn.burn_header_hash,
-            ops.len() as u64,
-            false,
-        );
-        TestPeer::add_burnchain_block(
-            &boot_peer.config.chain_config.burnchain,
-            &block_header,
-            ops.clone(),
-        );
-    }
+    copy_burnchain_to_boot_peer(&mut peer, &boot_peer, &tip);
 
     let (mut boot_dns_client, boot_dns_thread_handle) = dns_thread_start(100);
 
@@ -2262,34 +2269,7 @@ fn test_nakamoto_unconfirmed_download_run_2_peers() {
         SortitionDB::get_canonical_stacks_chain_tip_hash(peer.sortdb().conn()).unwrap();
 
     // boot up the boot peer's burnchain
-    for height in 25..tip.block_height {
-        let ops = peer
-            .get_burnchain_block_ops_at_height(height + 1)
-            .unwrap_or_default();
-        let sn = {
-            let ih = peer.sortdb().index_handle(&tip.sortition_id);
-
-            ih.get_block_snapshot_by_height(height).unwrap().unwrap()
-        };
-        test_debug!(
-            "boot_peer tip height={} hash={}",
-            sn.block_height,
-            &sn.burn_header_hash
-        );
-        test_debug!("ops = {:?}", &ops);
-        let block_header = TestPeer::make_next_burnchain_block(
-            &boot_peer.config.chain_config.burnchain,
-            sn.block_height,
-            &sn.burn_header_hash,
-            ops.len() as u64,
-            false,
-        );
-        TestPeer::add_burnchain_block(
-            &boot_peer.config.chain_config.burnchain,
-            &block_header,
-            ops.clone(),
-        );
-    }
+    copy_burnchain_to_boot_peer(&mut peer, &boot_peer, &tip);
 
     let (mut boot_dns_client, boot_dns_thread_handle) = dns_thread_start(100);
 
@@ -2330,6 +2310,140 @@ fn test_nakamoto_unconfirmed_download_run_2_peers() {
             if term_rx.try_recv().is_ok() {
                 break;
             }
+            peer.step_with_ibd(false).unwrap();
+        }
+    });
+
+    boot_dns_thread_handle.join().unwrap();
+}
+
+/// Which kind of downloaded blocks the booting peer drops before relaying them.
+#[derive(Clone, Copy)]
+enum DroppedBlocks {
+    Epoch2,
+    Nakamoto,
+}
+
+/// Downloaded blocks can be dropped before the relayer stores them, as when the epoch 2.x node
+/// exits at the Epoch 3.0 handoff. The downloaders still count them as downloaded, so the booting
+/// peer only gets them again promptly (epoch 2.x) or at all (Nakamoto) if told to forget that.
+#[rstest]
+#[case::epoch2(DroppedBlocks::Epoch2)]
+#[case::nakamoto(DroppedBlocks::Nakamoto)]
+fn test_nakamoto_download_recovers_dropped_blocks(#[case] dropped_kind: DroppedBlocks) {
+    let observer = TestEventObserver::new();
+    // two reward cycles, so a dropped Nakamoto tenure is confirmed rather than one of the newest
+    let bitvecs = vec![
+        vec![true, true, true, true, true, true, true, true, true, true],
+        vec![true, true, true, true, true, true, true, true, true, true],
+    ];
+
+    let rc_len = 10u64;
+    let peer = make_nakamoto_peer_from_invs(function_name!(), &observer, rc_len as u32, 5, bitvecs);
+    let (mut peer, _) = peer_get_nakamoto_invs(peer, &[0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]);
+    let tip = SortitionDB::get_canonical_burn_chain_tip(peer.sortdb().conn()).unwrap();
+
+    let boot_observer = TestEventObserver::new();
+    let privk = StacksPrivateKey::from_seed(&[0, 1, 2, 3, 4]);
+    let mut boot_peer = peer.neighbor_with_observer(privk, Some(&boot_observer));
+
+    let (canonical_stacks_tip_ch, canonical_stacks_tip_bhh) =
+        SortitionDB::get_canonical_stacks_chain_tip_hash(peer.sortdb().conn()).unwrap();
+
+    copy_burnchain_to_boot_peer(&mut peer, &boot_peer, &tip);
+
+    let (mut boot_dns_client, boot_dns_thread_handle) = dns_thread_start(100);
+
+    let (term_sx, term_rx) = sync_channel(1);
+    thread::scope(|s| {
+        s.spawn(move || {
+            // Drop the first blocks of this kind the downloaders yield.
+            let mut dropped_blocks: Vec<StacksBlockId> = vec![];
+            let mut dropped_at = None;
+            let mut stored_after = None;
+            let deadline = Instant::now() + Duration::from_secs(300);
+            loop {
+                assert!(
+                    Instant::now() < deadline,
+                    "booting peer never reached the tip"
+                );
+
+                let mut net_result = boot_peer
+                    .step_with_ibd_and_dns(true, Some(&mut boot_dns_client))
+                    .unwrap();
+                if dropped_blocks.is_empty() {
+                    dropped_blocks = match dropped_kind {
+                        DroppedBlocks::Epoch2 => net_result
+                            .blocks
+                            .drain(..)
+                            .map(|block| block.data.index_block_hash(&block.consensus_hash))
+                            .collect(),
+                        DroppedBlocks::Nakamoto => net_result
+                            .nakamoto_blocks
+                            .drain()
+                            .map(|(id, _)| id)
+                            .collect(),
+                    };
+                    if !dropped_blocks.is_empty() {
+                        dropped_at = Some(Instant::now());
+                        boot_peer.network.forget_completed_downloads();
+                    }
+                }
+                boot_peer.relay_network_result(net_result, true).unwrap();
+
+                if let (DroppedBlocks::Epoch2, Some(dropped_at), None) =
+                    (dropped_kind, dropped_at, stored_after)
+                {
+                    let blocks_path = &boot_peer.chainstate_ref().blocks_path;
+                    let all_stored = dropped_blocks.iter().all(|block_id| {
+                        StacksChainState::has_block_indexed(blocks_path, block_id).unwrap()
+                    });
+                    if all_stored {
+                        stored_after = Some(dropped_at.elapsed());
+                    }
+                }
+
+                let (stacks_tip_ch, stacks_tip_bhh) =
+                    SortitionDB::get_canonical_stacks_chain_tip_hash(boot_peer.sortdb().conn())
+                        .unwrap();
+                if stacks_tip_ch == canonical_stacks_tip_ch
+                    && stacks_tip_bhh == canonical_stacks_tip_bhh
+                {
+                    break;
+                }
+            }
+
+            assert!(!dropped_blocks.is_empty());
+            match dropped_kind {
+                DroppedBlocks::Epoch2 => {
+                    // Without forgetting, the dropped blocks are not re-requested until their
+                    // re-request deadline passes.
+                    let stored_after = stored_after.unwrap();
+                    assert!(
+                        stored_after < Duration::from_secs(BLOCK_REREQUEST_INTERVAL / 2),
+                        "dropped epoch 2.x blocks took {stored_after:?} to come back"
+                    );
+                }
+                DroppedBlocks::Nakamoto => {
+                    for block_id in dropped_blocks.iter() {
+                        let header = NakamotoChainState::get_block_header(
+                            boot_peer.chainstate_ref().db(),
+                            block_id,
+                        )
+                        .unwrap();
+                        assert!(
+                            header.is_some(),
+                            "dropped block {block_id} was never processed"
+                        );
+                    }
+                }
+            }
+
+            term_sx.send(()).unwrap();
+        });
+
+        // stop serving once the booting peer is done, or has panicked
+        while let Err(TryRecvError::Empty) = term_rx.try_recv() {
             peer.step_with_ibd(false).unwrap();
         }
     });
@@ -2447,34 +2561,7 @@ fn test_nakamoto_microfork_download_run_2_peers() {
     assert_eq!(tip.block_height, 53);
 
     // boot up the boot peer's burnchain
-    for height in 25..tip.block_height {
-        let ops = peer
-            .get_burnchain_block_ops_at_height(height + 1)
-            .unwrap_or_default();
-        let sn = {
-            let ih = peer.sortdb().index_handle(&tip.sortition_id);
-
-            ih.get_block_snapshot_by_height(height).unwrap().unwrap()
-        };
-        test_debug!(
-            "boot_peer tip height={} hash={}",
-            sn.block_height,
-            &sn.burn_header_hash
-        );
-        test_debug!("ops = {:?}", &ops);
-        let block_header = TestPeer::make_next_burnchain_block(
-            &boot_peer.config.chain_config.burnchain,
-            sn.block_height,
-            &sn.burn_header_hash,
-            ops.len() as u64,
-            false,
-        );
-        TestPeer::add_burnchain_block(
-            &boot_peer.config.chain_config.burnchain,
-            &block_header,
-            ops.clone(),
-        );
-    }
+    copy_burnchain_to_boot_peer(&mut peer, &boot_peer, &tip);
 
     let (mut boot_dns_client, boot_dns_thread_handle) = dns_thread_start(100);
 

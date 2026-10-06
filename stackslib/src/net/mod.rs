@@ -3312,6 +3312,16 @@ pub mod test {
             dns_client: Option<&mut DNSClient>,
         ) -> Result<(NetworkResult, ProcessedNetReceipts), net_error> {
             let net_result = self.step_with_ibd_and_dns(ibd, dns_client)?;
+            let receipts = self.relay_network_result(net_result.clone(), ibd)?;
+            Ok((net_result, receipts))
+        }
+
+        /// Store and process the data in `net_result`, as the node's relayer would.
+        pub fn relay_network_result(
+            &mut self,
+            mut net_result: NetworkResult,
+            ibd: bool,
+        ) -> Result<ProcessedNetReceipts, net_error> {
             let mut sortdb = self.chain.sortdb.take().unwrap();
             let mut stacks_node = self.chain.stacks_node.take().unwrap();
             let mut mempool = self.mempool.take().unwrap();
@@ -3319,7 +3329,7 @@ pub mod test {
 
             let receipts_res = self.relayer.process_network_result(
                 self.network.get_local_peer(),
-                &mut net_result.clone(),
+                &mut net_result,
                 &self.network.burnchain,
                 &mut sortdb,
                 &mut stacks_node.chainstate,
@@ -3338,7 +3348,7 @@ pub mod test {
             self.chain.coord.handle_new_stacks_block().unwrap();
             self.chain.coord.handle_new_nakamoto_stacks_block().unwrap();
 
-            receipts_res.map(|receipts| (net_result, receipts))
+            receipts_res
         }
 
         pub fn step_dns(&mut self, dns_client: &mut DNSClient) -> Result<NetworkResult, net_error> {
