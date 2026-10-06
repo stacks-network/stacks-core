@@ -1,7 +1,8 @@
 {
-    "summary": "Stacker set response",
+    "summary": "Stacker set response (PoX-4 cycle)",
     "value": {
         "stacker_set": {
+            "reward_set_version": 0,
             "rewarded_addresses": [
                 {
                     "Standard": [

@@ -13,14 +13,8 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-//! Consensus unit tests: small, targeted tests that pin the observable,
-//! consensus-critical behavior of a specific change across epochs and Clarity
-//! versions.
-mod epoch_40_read_budget;
-mod epoch_41_exact_argument_count;
-mod epoch_41_fold_initial_value;
-mod epoch_41_force_latest;
-mod epoch_41_implicit_cast;
-mod epoch_41_reserved_names;
-mod epoch_41_tuple_supertype;
-mod special_map;
+#[cfg(doctest)]
+mod typestate_compile_fail;
+
+// TODO: Move "e2e-style" transaction processing tests here which don't test other specific units
+// in the `transactions/processing` module.

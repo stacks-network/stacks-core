@@ -542,6 +542,12 @@ impl StacksEpochId {
         self >= &StacksEpochId::Epoch40
     }
 
+    /// Whether implicit casts use the list's actual length to avoid overflowing
+    /// a valid argument against the parameter's element size.
+    pub fn fixes_implicit_cast_list_bound(&self) -> bool {
+        self >= &StacksEpochId::Epoch41
+    }
+
     /// Whether typed tuple deserialization requires every declared field to be
     /// present exactly once after sanitization.
     pub fn enforces_exact_typed_tuple_field_set(&self) -> bool {
@@ -848,6 +854,13 @@ impl StacksEpochId {
     /// Whether analysis types a `fold` result to admit its initial value, which an
     /// empty sequence returns unchanged.
     pub fn requires_fold_result_to_admit_initial_value(&self) -> bool {
+        self >= &StacksEpochId::Epoch41
+    }
+
+    /// Whether analysis requires calls to user-defined functions, and to fixed-arity
+    /// natives that used to ignore extra arguments, to pass exactly the expected
+    /// number of arguments.
+    pub fn checks_exact_argument_count(&self) -> bool {
         self >= &StacksEpochId::Epoch41
     }
 
