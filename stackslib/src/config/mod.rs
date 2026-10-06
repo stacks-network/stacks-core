@@ -1342,11 +1342,12 @@ impl std::default::Default for Config {
 
 /// Burnchain modes accepted in the config file. Shared by the required-mode
 /// check and the unsupported-mode check; `get_bitcoin_network()` panics on any
-/// mode outside this list.
+/// mode outside this list. Each mode also needs a run loop in stacks-node's
+/// `main.rs`, or the config validates but the node refuses to start.
 const SUPPORTED_MODES: &[&str] = &[
+    // Deprecated: removed together with the helium run loop (see #7325).
     "helium",
     "neon",
-    "argon",
     "krypton",
     "xenon",
     "mainnet",
@@ -1372,7 +1373,6 @@ pub struct BurnchainConfig {
     /// - `"signet"`: public or custom Bitcoin signet through a trusted Bitcoin Core peer
     /// - `"helium"`: regtest
     /// - `"neon"`: regtest
-    /// - `"argon"`: regtest
     /// - `"krypton"`: regtest
     /// - `"nakamoto-neon"`: regtest
     /// ---
@@ -1809,7 +1809,7 @@ impl BurnchainConfig {
             "mainnet" => ("mainnet".to_string(), BitcoinNetworkType::Mainnet),
             "xenon" => ("testnet".to_string(), BitcoinNetworkType::Testnet),
             "signet" => ("signet".to_string(), BitcoinNetworkType::Signet),
-            "helium" | "neon" | "argon" | "krypton" | "nakamoto-neon" => {
+            "helium" | "neon" | "krypton" | "nakamoto-neon" => {
                 ("regtest".to_string(), BitcoinNetworkType::Regtest)
             }
             other => panic!("Invalid stacks-node mode: {other}"),
@@ -5957,6 +5957,25 @@ mod tests {
         )
         .expect("config with explicit burnchain.mode should parse");
         assert_eq!(config.burnchain.mode, "krypton");
+    }
+
+    /// Modes without a run loop fail config validation instead of panicking in
+    /// `get_bitcoin_network()` or exiting at startup.
+    #[test]
+    fn test_burnchain_mode_unsupported() {
+        for mode in ["mocknet", "argon"] {
+            let err = Config::from_config_file(
+                ConfigFile::from_str(&format!("[burnchain]\nmode = \"{mode}\"")).unwrap(),
+                false,
+            )
+            .unwrap_err();
+            assert!(
+                err.starts_with(&format!(
+                    "Setting burnchain.mode = \"{mode}\" not supported"
+                )),
+                "unexpected error: {err}"
+            );
+        }
     }
 
     #[test]
