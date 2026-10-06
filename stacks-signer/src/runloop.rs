@@ -953,6 +953,8 @@ impl<Signer: SignerTrait<T>, T: StacksMessageCodec + Clone + Send + Debug>
             let next_reward_cycle = current_reward_cycle.saturating_add(1);
             info!("Signer is not registered for the current reward cycle ({current_reward_cycle}). Reward set is not yet determined or signer is not registered for the upcoming reward cycle ({next_reward_cycle}).");
         }
+        // Prune only once the runloop is initialized and the event is processed, although
+        // pruning itself does not depend on either.
         self.pruner.maybe_prune(Instant::now());
         None
     }
