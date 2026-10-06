@@ -305,7 +305,7 @@ fn test_get_block_info() {
         StaticCheckErrorKind::NoSuchBlockInfoProperty("none".to_string()),
         StaticCheckErrorKind::TypeError(Box::new(UIntType), Box::new(BoolType)),
         StaticCheckErrorKind::TypeError(Box::new(UIntType), Box::new(IntType)),
-        StaticCheckErrorKind::RequiresAtLeastArguments(2, 1),
+        StaticCheckErrorKind::IncorrectArgumentCount(2, 1),
     ];
 
     for (good_test, expected) in good.iter().zip(expected.iter()) {
@@ -4850,6 +4850,151 @@ fn test_analysis_fold_result_admits_initial_value() {
             .0;
         assert_eq!(legacy, strict, "{source}");
     }
+}
+
+/// Analyzes `call` at 4.0 and at 4.1, expecting `legacy` (`None` for success)
+/// before 4.1 and `strict` from 4.1.
+fn check_exact_argument_count(
+    call: &str,
+    legacy: Option<StaticCheckErrorKind>,
+    strict: StaticCheckErrorKind,
+    legacy_version: ClarityVersion,
+    strict_version: ClarityVersion,
+) {
+    let source = format!(
+        "(define-private (one (x uint)) x)
+         (define-private (zero) u0)
+         (define-map m uint uint)
+         (define-data-var v uint u0)
+         (define-private (f) {call})"
+    );
+    let result = mem_run_analysis(&source, legacy_version, StacksEpochId::Epoch40);
+    match legacy {
+        None => {
+            result.unwrap();
+        }
+        Some(expected) => assert_eq!(*result.unwrap_err().err, expected),
+    }
+    let error = mem_run_analysis(&source, strict_version, StacksEpochId::Epoch41).unwrap_err();
+    assert_eq!(*error.err, strict);
+}
+
+/// From 4.1, calls to user-defined functions, and to the fixed-arity natives
+/// that used to ignore extra arguments, must pass exactly the expected number.
+#[rstest]
+#[case::user_function_extra_argument(
+    "(one u1 u2)",
+    None,
+    StaticCheckErrorKind::IncorrectArgumentCount(1, 2)
+)]
+#[case::user_function_missing_argument(
+    "(one)",
+    None,
+    StaticCheckErrorKind::IncorrectArgumentCount(1, 0)
+)]
+#[case::zero_parameter_function(
+    "(zero u1)",
+    None,
+    StaticCheckErrorKind::IncorrectArgumentCount(0, 1)
+)]
+// The extra argument is never analyzed before 4.1.
+#[case::unanalyzed_extra_argument(
+    "(one u1 (restrict-assets? tx-sender ((with-all-assets-unsafe)) u1))",
+    None,
+    StaticCheckErrorKind::IncorrectArgumentCount(1, 2)
+)]
+// The lookup comes first, so an unknown function keeps its error.
+#[case::unknown_function(
+    "(unknown u1 u2)",
+    Some(StaticCheckErrorKind::UnknownFunction("unknown".into())),
+    StaticCheckErrorKind::UnknownFunction("unknown".into())
+)]
+#[case::map_delete_extra_argument(
+    "(map-delete m u1 u2)",
+    None,
+    StaticCheckErrorKind::IncorrectArgumentCount(2, 3)
+)]
+#[case::map_set_extra_argument(
+    "(map-set m u1 u2 u3)",
+    None,
+    StaticCheckErrorKind::IncorrectArgumentCount(3, 4)
+)]
+#[case::map_insert_extra_argument(
+    "(map-insert m u1 u2 u3)",
+    None,
+    StaticCheckErrorKind::IncorrectArgumentCount(3, 4)
+)]
+#[case::var_set_extra_argument(
+    "(var-set v u1 u2)",
+    None,
+    StaticCheckErrorKind::IncorrectArgumentCount(2, 3)
+)]
+#[case::map_delete_missing_argument(
+    "(map-delete m)",
+    Some(StaticCheckErrorKind::RequiresAtLeastArguments(2, 1)),
+    StaticCheckErrorKind::IncorrectArgumentCount(2, 1)
+)]
+#[case::map_set_missing_argument(
+    "(map-set m u1)",
+    Some(StaticCheckErrorKind::RequiresAtLeastArguments(3, 2)),
+    StaticCheckErrorKind::IncorrectArgumentCount(3, 2)
+)]
+#[case::map_insert_missing_argument(
+    "(map-insert m u1)",
+    Some(StaticCheckErrorKind::RequiresAtLeastArguments(3, 2)),
+    StaticCheckErrorKind::IncorrectArgumentCount(3, 2)
+)]
+#[case::var_set_missing_argument(
+    "(var-set v)",
+    Some(StaticCheckErrorKind::RequiresAtLeastArguments(2, 1)),
+    StaticCheckErrorKind::IncorrectArgumentCount(2, 1)
+)]
+// Before 4.1 the read-only checker runs first and already checks `map-get?`. From
+// 4.1 the type checker runs first, and the undefined key shows it checks the count
+// before the key.
+#[case::map_get_extra_argument(
+    "(map-get? m undefined u2)",
+    Some(StaticCheckErrorKind::IncorrectArgumentCount(2, 3)),
+    StaticCheckErrorKind::IncorrectArgumentCount(2, 3)
+)]
+fn test_analysis_exact_argument_count(
+    #[case] call: &str,
+    #[case] legacy: Option<StaticCheckErrorKind>,
+    #[case] strict: StaticCheckErrorKind,
+) {
+    check_exact_argument_count(
+        call,
+        legacy,
+        strict,
+        ClarityVersion::Clarity6,
+        ClarityVersion::Clarity7,
+    );
+}
+
+/// `get-block-info?` exists only in Clarity 1 and 2.
+#[rstest]
+#[case::extra_argument(
+    "(get-block-info? time u1 u2)",
+    None,
+    StaticCheckErrorKind::IncorrectArgumentCount(2, 3)
+)]
+#[case::missing_argument(
+    "(get-block-info? time)",
+    Some(StaticCheckErrorKind::RequiresAtLeastArguments(2, 1)),
+    StaticCheckErrorKind::IncorrectArgumentCount(2, 1)
+)]
+fn test_analysis_get_block_info_exact_argument_count(
+    #[case] call: &str,
+    #[case] legacy: Option<StaticCheckErrorKind>,
+    #[case] strict: StaticCheckErrorKind,
+) {
+    check_exact_argument_count(
+        call,
+        legacy,
+        strict,
+        ClarityVersion::Clarity2,
+        ClarityVersion::Clarity2,
+    );
 }
 
 /// From 4.1 every analysis site rejects tuples with different fields, in every

@@ -851,6 +851,13 @@ impl StacksEpochId {
         self >= &StacksEpochId::Epoch41
     }
 
+    /// Whether analysis requires calls to user-defined functions, and to fixed-arity
+    /// natives that used to ignore extra arguments, to pass exactly the expected
+    /// number of arguments.
+    pub fn checks_exact_argument_count(&self) -> bool {
+        self >= &StacksEpochId::Epoch41
+    }
+
     pub fn supports_call_with_constant(&self) -> bool {
         self >= &StacksEpochId::Epoch34
     }
