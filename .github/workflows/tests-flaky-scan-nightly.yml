@@ -57,7 +57,7 @@ on:
         default: false
         type: boolean
       dry-run-issues:
-        description: "Print issue writes instead of making them."
+        description: "Print issue writes instead of creating them."
         required: false
         default: false
         type: boolean
