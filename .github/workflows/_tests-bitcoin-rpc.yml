@@ -5,6 +5,14 @@ name: "Tests: Bitcoin RPC"
 on:
   workflow_call:
     inputs:
+      btc-version:
+        description: "The bitcoin binary version to use for tests"
+        required: true
+        type: string
+      btc-version-sha:
+        description: "The SHA256 of the bitcoin binary to verify before executing tests"
+        required: true
+        type: string
       archive-file:
         description: "The test archive file"
         required: true
@@ -82,6 +90,8 @@ jobs:
         uses: ./.github/actions/cache/bitcoin
         with:
           action: restore
+          btc-version: ${{ inputs.btc-version }}
+          btc-version-sha: ${{ inputs.btc-version-sha }}
      
       # Symlink bitcoind to $PATH
       - name: Link Bitcoin Binary
