@@ -488,7 +488,9 @@ would overwrite that row.
 flowchart TB
     IN["check_block_against_signer_db_state<br/>(validate-ok and signing paths)"] --> RET{"sortition in a later<br/>reward cycle?<br/>is_reward_cycle_retired"}
     RET -- yes --> RCR["fails the check<br/>RewardCycleRetired"]:::bad
-    RET -- no --> TC{"tenure-change block?"}
+    RET -- no --> FROZEN{"block's tenure superseded by<br/>the ACTIVE miner's tenure?<br/>check_block_not_in_superseded_tenure"}
+    FROZEN -- yes --> FRZ["fails the check<br/>(ConsensusHashMismatch)"]:::bad
+    FROZEN -- no --> TC{"tenure-change block?"}
     TC -- yes --> PARENT["check_tenure_change_confirms_parent =<br/>check_latest_block_in_tenure(PARENT tenure, SelfAsTip::Counts)"]
     TC -- no --> SAME["check_latest_block_in_tenure(OWN tenure,<br/>SelfAsTip::Ignored)"]
     PARENT --> CLB
@@ -515,9 +517,20 @@ again here rather than trusted from proposal time.
 
 A failed check becomes a different rejection depending on who asked.
 `check_block_against_signer_db_state` returns `RewardCycleRetired` for the gate,
-`SortitionViewMismatch` for a chainstate mismatch, or `ConnectivityIssues` when
+`ConsensusHashMismatch` for a frozen tenure, `SortitionViewMismatch` for a
+chainstate mismatch, or `ConnectivityIssues` when
 the lookup itself errored rather than answering; the v2 `check_proposal` path
 returns `InvalidParentBlock`.
+
+After the retirement gate, the check freezes a tenure we permitted the active
+miner's tenure to reorg
+(section 8). A block of that tenure can still reach validate-ok or the pre-commit
+threshold after the permit, if it was in flight when the permitting burn block
+arrived; signing it would grow the reorged tenure past the one globally accepted
+block the reorg rules allowed. It is refused with `ConsensusHashMismatch` (what a
+fresh proposal from that tenure would get), which is reconsidered on re-proposal:
+the freeze lasts only while the permitting tenure is the active one, so if the
+signers fall back to the reorged tenure its blocks become signable again.
 
 The check also writes: a node tenure tip that the signer DB holds but not yet as
 `GloballyAccepted` is marked so where the transition is allowed, and its
@@ -610,6 +623,17 @@ serves the reorged tenure as fully live until the replacement lands. The permit
 is scoped to the branch that replacement starts: the record names the permitting
 tenure, and only a block in it or in a tenure built on top of it is excused
 (section 5, `reorg_permit_stands`).
+The record also makes the decision final for the permitting sortition:
+`check_parent_tenure_choice` skips a tenure already superseded by the sortition
+it is checking. That sortition is checked again whenever the signers fall back
+to it (the next winner is invalid or timed out), and by then a reorged tenure
+may have gained globally accepted blocks -- one signed before the reorg was
+permitted can land after it -- which would otherwise revoke the permit and leave
+no valid miner.
+While the permitting tenure is the active miner's, the reorged tenure is also
+frozen: the signer refuses to sign any more of its blocks (section 7,
+`check_block_not_in_superseded_tenure`), so the count the permit was granted on
+cannot grow by our own hand.
 What _is_ still derived from the node is the permit's own validity: the record
 also carries the permitting tenure's sortition, and it only excludes conflicts
 while that sortition remains canonical, so a burnchain fork that orphans the

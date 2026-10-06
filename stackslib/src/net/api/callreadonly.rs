@@ -98,7 +98,7 @@ impl RPCCallReadOnlyRequestHandler {
     /// Starts tracking at call time: build it before any execution-side
     /// allocation, e.g. converting the arguments.
     pub fn execution_resource_limiter(&self) -> ResourceLimiter {
-        ResourceBudget::new()
+        ResourceBudget::unlimited()
             .with_max_duration(Some(self.read_only_max_execution_time))
             .with_max_memory_use(remaining_execution_mem_budget(
                 self.read_only_call_max_mem_bytes,

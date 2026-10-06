@@ -542,6 +542,12 @@ impl StacksEpochId {
         self >= &StacksEpochId::Epoch40
     }
 
+    /// Whether implicit casts use the list's actual length to avoid overflowing
+    /// a valid argument against the parameter's element size.
+    pub fn fixes_implicit_cast_list_bound(&self) -> bool {
+        self >= &StacksEpochId::Epoch41
+    }
+
     /// Whether typed tuple deserialization requires every declared field to be
     /// present exactly once after sanitization.
     pub fn enforces_exact_typed_tuple_field_set(&self) -> bool {
@@ -836,6 +842,12 @@ impl StacksEpochId {
 
     /// Whether `replace-at?` handles a zero-length element at type-checking time.
     pub fn fixes_replace_at_element_arity(&self) -> bool {
+        self >= &StacksEpochId::Epoch41
+    }
+
+    /// Whether analysis requires matching tuple fields when inferring a least
+    /// supertype. Runtime inference is never gated; deployed contracts depend on it.
+    pub fn requires_matching_tuple_fields_in_analysis(&self) -> bool {
         self >= &StacksEpochId::Epoch41
     }
 

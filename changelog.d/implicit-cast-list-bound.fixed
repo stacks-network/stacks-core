@@ -1,0 +1,1 @@
+From Epoch 4.1, calls to Clarity 2+ functions no longer fail with ValueTooLarge when a list argument, such as a filter result, carries a larger bound than its length. Affected calls in previously deployed contracts can now succeed.
