@@ -2765,6 +2765,19 @@ mod tests {
             btc_controller.build_next_block(1); // Now tx is confirmed
         }
 
+        /// Fetches a submitted tx from bitcoind, checking that its txid matches `txid`.
+        pub fn get_submitted_tx(
+            btc_controller: &BitcoinRegtestController,
+            txid: &Txid,
+        ) -> Transaction {
+            let tx = btc_controller
+                .get_rpc_client()
+                .get_raw_transaction(txid)
+                .expect("Submitted tx should be known to bitcoind");
+            assert_eq!(txid.to_hex(), tx.txid().to_string());
+            tx
+        }
+
         pub fn create_templated_commit_op() -> LeaderBlockCommitOp {
             LeaderBlockCommitOp {
                 block_header_hash: BlockHeaderHash::from_hex(
@@ -4102,11 +4115,27 @@ mod tests {
             let op_return = utils::txout_opreturn(&commit_op, &config.burnchain.magic_bytes, 5_500);
             let op_commit_1 = utils::txout_opdup_commit_to(&commit_op.commit_outs[0], 55_005);
             let op_commit_2 = utils::txout_opdup_commit_to(&commit_op.commit_outs[1], 55_005);
-            let op_change = utils::txout_opdup_change_legacy(&mut signer, 4_999_730_640);
+            let op_change = utils::txout_opdup_change_legacy(&mut signer, new_tx.output[3].value);
             assert_eq!(op_return, new_tx.output[0]);
             assert_eq!(op_commit_1, new_tx.output[1]);
             assert_eq!(op_commit_2, new_tx.output[2]);
             assert_eq!(op_change, new_tx.output[3]);
+
+            // The change amount can't be hardcoded: the fee depends on the signature length,
+            // which depends on the funding coinbase txid, which differs across Bitcoin Core
+            // versions. Check that the fee matches the serialized size instead, allowing for
+            // `finalize_tx` sizing it from a trial signature that can be a byte off.
+            let fee_rate = get_satoshis_per_byte(&config);
+            let fee = used_utxos[0].amount - new_tx.output.iter().map(|o| o.value).sum::<u64>();
+            let tx_size = serialize(&new_tx).unwrap().len() as u64;
+            let min_tx_size = config.burnchain.block_commit_tx_estimated_size;
+            let min_fee = cmp::max(min_tx_size, tx_size - 1) * fee_rate;
+            let max_fee = cmp::max(min_tx_size, tx_size + 1) * fee_rate;
+            assert_eq!(0, fee % fee_rate);
+            assert!(
+                (min_fee..=max_fee).contains(&fee),
+                "fee {fee} not in [{min_fee}, {max_fee}]"
+            );
         }
 
         #[test]
@@ -4213,20 +4242,27 @@ mod tests {
             commit_op.sunset_burn = 5_500;
             commit_op.burn_fee = 110_000;
 
+            let utxos = btc_controller.get_all_utxos(&miner_pubkey);
+
             let tx = btc_controller
                 .make_operation_tx(
                     StacksEpochId::Epoch31,
-                    BlockstackOperationType::LeaderBlockCommit(commit_op),
+                    BlockstackOperationType::LeaderBlockCommit(commit_op.clone()),
                     &mut op_signer,
                 )
                 .expect("Make op should work");
 
             assert!(op_signer.is_disposed());
 
+            // Don't compare against a hardcoded txid: it depends on the funding coinbase
+            // txid, which differs across Bitcoin Core versions.
+            assert_eq!(1, tx.input.len());
             assert_eq!(
-                "e6fd541a1d2e5449ee565745b5855656392c1ccea4c608dc84da7cff1ebd4784",
-                tx.txid().to_string()
+                utils::txin_at_index(&tx, &op_signer, &utxos, 0),
+                tx.input[0]
             );
+            let op_return = utils::txout_opreturn(&commit_op, &config.burnchain.magic_bytes, 5_500);
+            assert_eq!(op_return, tx.output[0]);
         }
 
         #[test]
@@ -4259,20 +4295,28 @@ mod tests {
             commit_op.sunset_burn = 5_500;
             commit_op.burn_fee = 110_000;
 
+            let utxos = btc_controller.get_all_utxos(&miner_pubkey);
+
             let tx_id = btc_controller
                 .submit_operation(
                     StacksEpochId::Epoch31,
-                    BlockstackOperationType::LeaderBlockCommit(commit_op),
+                    BlockstackOperationType::LeaderBlockCommit(commit_op.clone()),
                     &mut op_signer,
                 )
                 .expect("Submit op should work");
 
             assert!(op_signer.is_disposed());
 
+            // Don't compare against a hardcoded txid: it depends on the funding coinbase
+            // txid, which differs across Bitcoin Core versions.
+            let tx = utils::get_submitted_tx(&btc_controller, &tx_id);
+            assert_eq!(1, tx.input.len());
             assert_eq!(
-                "e6fd541a1d2e5449ee565745b5855656392c1ccea4c608dc84da7cff1ebd4784",
-                tx_id.to_hex()
+                utils::txin_at_index(&tx, &op_signer, &utxos, 0),
+                tx.input[0]
             );
+            let op_return = utils::txout_opreturn(&commit_op, &config.burnchain.magic_bytes, 5_500);
+            assert_eq!(op_return, tx.output[0]);
         }
 
         #[test]
@@ -4471,20 +4515,27 @@ mod tests {
 
             let leader_key_op = utils::create_templated_leader_key_op();
 
+            let utxos = btc_controller.get_all_utxos(&miner_pubkey);
+
             let tx = btc_controller
                 .make_operation_tx(
                     StacksEpochId::Epoch31,
-                    BlockstackOperationType::LeaderKeyRegister(leader_key_op),
+                    BlockstackOperationType::LeaderKeyRegister(leader_key_op.clone()),
                     &mut op_signer,
                 )
                 .expect("Make op should work");
 
             assert!(op_signer.is_disposed());
 
+            // Don't compare against a hardcoded txid: it depends on the funding coinbase
+            // txid, which differs across Bitcoin Core versions.
+            assert_eq!(1, tx.input.len());
             assert_eq!(
-                "d4a3550a8413e0d00db42c3bd9e74646ab6da63b17952b572956febaf3748b44",
-                tx.txid().to_string()
+                utils::txin_at_index(&tx, &op_signer, &utxos, 0),
+                tx.input[0]
             );
+            let op_return = utils::txout_opreturn(&leader_key_op, &config.burnchain.magic_bytes, 0);
+            assert_eq!(op_return, tx.output[0]);
         }
 
         #[test]
@@ -4511,20 +4562,28 @@ mod tests {
 
             let leader_key_op = utils::create_templated_leader_key_op();
 
+            let utxos = btc_controller.get_all_utxos(&miner_pubkey);
+
             let tx_id = btc_controller
                 .submit_operation(
                     StacksEpochId::Epoch31,
-                    BlockstackOperationType::LeaderKeyRegister(leader_key_op),
+                    BlockstackOperationType::LeaderKeyRegister(leader_key_op.clone()),
                     &mut op_signer,
                 )
                 .expect("Submit op should work");
 
             assert!(op_signer.is_disposed());
 
+            // Don't compare against a hardcoded txid: it depends on the funding coinbase
+            // txid, which differs across Bitcoin Core versions.
+            let tx = utils::get_submitted_tx(&btc_controller, &tx_id);
+            assert_eq!(1, tx.input.len());
             assert_eq!(
-                "d4a3550a8413e0d00db42c3bd9e74646ab6da63b17952b572956febaf3748b44",
-                tx_id.to_hex()
+                utils::txin_at_index(&tx, &op_signer, &utxos, 0),
+                tx.input[0]
             );
+            let op_return = utils::txout_opreturn(&leader_key_op, &config.burnchain.magic_bytes, 0);
+            assert_eq!(op_return, tx.output[0]);
         }
     }
 
@@ -4637,20 +4696,27 @@ mod tests {
             let mut pre_stx_op = utils::create_templated_pre_stx_op();
             pre_stx_op.output = keychain.get_address(false);
 
+            let utxos = btc_controller.get_all_utxos(&miner_pubkey);
+
             let tx = btc_controller
                 .make_operation_tx(
                     StacksEpochId::Epoch31,
-                    BlockstackOperationType::PreStx(pre_stx_op),
+                    BlockstackOperationType::PreStx(pre_stx_op.clone()),
                     &mut op_signer,
                 )
                 .expect("Make op should work");
 
             assert!(op_signer.is_disposed());
 
+            // Don't compare against a hardcoded txid: it depends on the funding coinbase
+            // txid, which differs across Bitcoin Core versions.
+            assert_eq!(1, tx.input.len());
             assert_eq!(
-                "e51cc6a3fb325b5edbfd2debf9edba51df1879eb1559e34a9c5839dc49bc3eb7",
-                tx.txid().to_string()
+                utils::txin_at_index(&tx, &op_signer, &utxos, 0),
+                tx.input[0]
             );
+            let op_return = utils::txout_opreturn(&pre_stx_op, &config.burnchain.magic_bytes, 0);
+            assert_eq!(op_return, tx.output[0]);
         }
 
         #[test]
@@ -4678,20 +4744,28 @@ mod tests {
             let mut pre_stx_op = utils::create_templated_pre_stx_op();
             pre_stx_op.output = keychain.get_address(false);
 
+            let utxos = btc_controller.get_all_utxos(&miner_pubkey);
+
             let tx_id = btc_controller
                 .submit_operation(
                     StacksEpochId::Epoch31,
-                    BlockstackOperationType::PreStx(pre_stx_op),
+                    BlockstackOperationType::PreStx(pre_stx_op.clone()),
                     &mut op_signer,
                 )
                 .expect("submit op should work");
 
             assert!(op_signer.is_disposed());
 
+            // Don't compare against a hardcoded txid: it depends on the funding coinbase
+            // txid, which differs across Bitcoin Core versions.
+            let tx = utils::get_submitted_tx(&btc_controller, &tx_id);
+            assert_eq!(1, tx.input.len());
             assert_eq!(
-                "e51cc6a3fb325b5edbfd2debf9edba51df1879eb1559e34a9c5839dc49bc3eb7",
-                tx_id.to_hex()
+                utils::txin_at_index(&tx, &op_signer, &utxos, 0),
+                tx.input[0]
             );
+            let op_return = utils::txout_opreturn(&pre_stx_op, &config.burnchain.magic_bytes, 0);
+            assert_eq!(op_return, tx.output[0]);
         }
     }
 }
