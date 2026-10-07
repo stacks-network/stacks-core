@@ -2688,6 +2688,15 @@ pub mod test {
         coord_comms: None,
     };
 
+    /// What `FeeResponseEstimator` reports for any contract call.
+    pub const FEE_RESPONSE_CONTRACT_CALL_COST: ExecutionCost = ExecutionCost {
+        write_length: 1,
+        write_count: 1,
+        read_length: 1,
+        read_count: 1,
+        runtime: 1,
+    };
+
     struct FeeResponseEstimator;
 
     impl CostEstimator for FeeResponseEstimator {
@@ -2708,13 +2717,7 @@ pub mod test {
         ) -> Result<ExecutionCost, EstimatorError> {
             match tx {
                 TransactionPayload::TokenTransfer(..) => Ok(ExecutionCost::ZERO),
-                TransactionPayload::ContractCall(..) => Ok(ExecutionCost {
-                    write_length: 1,
-                    write_count: 1,
-                    read_length: 1,
-                    read_count: 1,
-                    runtime: 1,
-                }),
+                TransactionPayload::ContractCall(..) => Ok(FEE_RESPONSE_CONTRACT_CALL_COST),
                 _ => Err(EstimatorError::NoEstimateAvailable),
             }
         }

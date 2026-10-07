@@ -29,7 +29,7 @@ use crate::net::api::tests::TestRPC;
 use crate::net::api::*;
 use crate::net::connection::ConnectionOptions;
 use crate::net::httpcore::{RPCRequestHandler, StacksHttp, StacksHttpRequest};
-use crate::net::test::RPCHandlerArgsType;
+use crate::net::test::{RPCHandlerArgsType, FEE_RESPONSE_CONTRACT_CALL_COST};
 use crate::net::ProtocolFamily;
 
 #[test]
@@ -206,11 +206,10 @@ fn test_try_make_response() {
         .all(|estimate| estimate.fee_rate > 0.0 && estimate.fee > 0));
 
     let contract_response = responses.remove(0).decode_fee_estimate().unwrap();
-    assert!(contract_response.estimated_cost.runtime > 0);
-    assert!(contract_response.estimated_cost.read_count > 0);
-    assert!(contract_response.estimated_cost.read_length > 0);
-    assert!(contract_response.estimated_cost.write_count > 0);
-    assert!(contract_response.estimated_cost.write_length > 0);
+    assert_eq!(
+        contract_response.estimated_cost,
+        FEE_RESPONSE_CONTRACT_CALL_COST
+    );
     assert!(contract_response.estimated_cost_scalar > 0);
     assert_eq!(contract_response.estimations.len(), 3);
 
