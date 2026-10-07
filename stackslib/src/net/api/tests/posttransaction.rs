@@ -309,11 +309,13 @@ fn test_rejection_responses_from_submitted_transactions() {
     let fee_too_low = make_stacks_transfer_tx(&spender_sk, 0, 1, CHAIN_ID_TESTNET, &recipient, 456);
     let origin_cannot_pay =
         make_stacks_transfer_tx(&low_funds_sk, 0, 2000, CHAIN_ID_TESTNET, &recipient, 456);
+    // Both nonces are ahead of their accounts but within the chaining limit, so
+    // admission gets past the chaining checks to the sponsor's balance.
     let sponsored_bytes = make_sponsored_stacks_transfer_on_testnet(
         &spender_sk,
         &low_funds_sk,
-        0,
-        0,
+        1 + MAXIMUM_MEMPOOL_TX_CHAINING,
+        1,
         2000,
         CHAIN_ID_TESTNET,
         &recipient,
