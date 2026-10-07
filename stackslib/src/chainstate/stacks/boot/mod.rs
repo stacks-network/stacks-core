@@ -2133,7 +2133,7 @@ pub mod test {
         )
     }
 
-    fn eval_contract_at_tip(
+    pub fn eval_contract_at_tip(
         peer: &mut TestPeer,
         addr: &StacksAddress,
         name: &str,

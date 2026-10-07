@@ -38,6 +38,7 @@ use stacks_common::util::{get_epoch_time_ms, sleep_ms};
 
 use crate::chainstate::burn::operations::{BlockstackOperationType, LeaderBlockCommitOp};
 use crate::chainstate::coordinator::Error as CoordinatorError;
+use crate::chainstate::stacks::boot::test::eval_contract_at_tip;
 use crate::chainstate::stacks::db::blocks::test::store_staging_block;
 use crate::chainstate::stacks::db::blocks::MemPoolRejection;
 use crate::chainstate::stacks::events::{StacksTransactionEvent, StacksTransactionReceipt};
@@ -119,6 +120,64 @@ where
 
     (stacks_block, block_size, block_cost)
 }
+
+/// Admit `tx` to the mempool against `tip`. The epoch and block limit only feed
+/// fee estimation, which the test mempool's `UnitEstimator` ignores.
+fn submit_at_tip(
+    mempool: &mut MemPoolDB,
+    chainstate: &mut StacksChainState,
+    sortdb: &SortitionDB,
+    tip: &StacksHeaderInfo,
+    tx: &StacksTransaction,
+) -> Result<(), MemPoolRejection> {
+    mempool.submit(
+        chainstate,
+        sortdb,
+        &tip.consensus_hash,
+        &tip.anchored_header.block_hash(),
+        tx,
+        None,
+        &ExecutionCost::max_value(),
+        &StacksEpochId::Epoch21,
+    )
+}
+
+/// Mine one tenure after admitting `txs` against the parent tip. The mempool
+/// persists across tenures, so entries left by earlier tenures are candidates too.
+fn mine_mempool_txs(
+    peer: &mut TestPeer,
+    tenure_id: usize,
+    txs: &[&StacksTransaction],
+) -> StacksBlock {
+    let (block, _, _) = mine_mempool_tenure(
+        peer,
+        tenure_id,
+        |chainstate, sortdb, parent_tip, mempool| {
+            for tx in txs {
+                submit_at_tip(mempool, chainstate, sortdb, parent_tip, tx)
+                    .unwrap_or_else(|e| panic!("{} rejected: {e:?}", tx.txid()));
+            }
+        },
+    );
+    block
+}
+
+/// Mine `tx` in its own tenure and check it is the only transaction after the coinbase.
+#[track_caller]
+fn mine_single_tx(peer: &mut TestPeer, tenure_id: usize, tx: &StacksTransaction) -> StacksBlock {
+    let block = mine_mempool_txs(peer, tenure_id, &[tx]);
+    assert_eq!(block.txs.len(), 2);
+    assert_eq!(block.txs[1].txid(), tx.txid());
+    block
+}
+
+/// Sends 1 uSTX from the contract's own balance to each caller. It refers to
+/// itself as `.faucet`, so it must be deployed under that name.
+const FAUCET_CONTRACT: &str = "
+    (define-public (spout)
+      (let ((recipient tx-sender))
+        (print (as-contract (stx-transfer? u1 .faucet recipient)))))
+";
 
 #[test]
 fn test_build_anchored_blocks_empty() {
@@ -374,28 +433,11 @@ fn test_build_anchored_blocks_release_nonce_gap() {
 
     let mut peer_config = TestPeerConfig::new(function_name!(), 2054, 2055);
     peer_config.chain_config.initial_balances = vec![(sender_addr.clone().into(), 100_000)];
-    peer_config.chain_config.epochs = Some(epoch_21_test_epochs(ExecutionCost::max_value()));
+    peer_config.chain_config.epochs = Some(StacksEpoch::unit_test_2_1_with_heights(0, 0, 0));
     let mut peer = TestPeer::new(peer_config);
 
-    for (tenure_id, tx_to_submit) in submitted_by_tenure.iter().cloned().enumerate() {
-        let (stacks_block, _, _) = mine_mempool_tenure(
-            &mut peer,
-            tenure_id,
-            |chainstate, sortdb, parent_tip, mempool| {
-                mempool
-                    .submit(
-                        chainstate,
-                        sortdb,
-                        &parent_tip.consensus_hash,
-                        &parent_tip.anchored_header.block_hash(),
-                        &tx_to_submit,
-                        None,
-                        &ExecutionCost::max_value(),
-                        &StacksEpochId::Epoch21,
-                    )
-                    .unwrap();
-            },
-        );
+    for (tenure_id, tx_to_submit) in submitted_by_tenure.iter().enumerate() {
+        let stacks_block = mine_mempool_txs(&mut peer, tenure_id, &[tx_to_submit]);
 
         if tenure_id < 3 {
             assert_eq!(stacks_block.txs.len(), 1);
@@ -440,11 +482,6 @@ fn test_build_anchored_blocks_release_nonce_gap() {
 fn test_build_anchored_blocks_contract_principal_lifecycle() {
     const TRANSFER_FEE: u64 = 200;
     const CONTRACT_FEE: u64 = 1_000;
-    const FAUCET_CONTRACT: &str = "
-        (define-public (spout)
-          (let ((recipient tx-sender))
-            (print (as-contract (stx-transfer? u1 .faucet recipient)))))
-    ";
 
     let contract_key = StacksPrivateKey::random();
     let caller_key = StacksPrivateKey::random();
@@ -467,28 +504,12 @@ fn test_build_anchored_blocks_contract_principal_lifecycle() {
         // existing contract rather than for an unpayable fee.
         (contract_address.clone().into(), 2 * CONTRACT_FEE),
     ];
-    peer_config.chain_config.epochs = Some(epoch_21_test_epochs(ExecutionCost::max_value()));
+    peer_config.chain_config.epochs = Some(StacksEpoch::unit_test_2_1_with_heights(0, 0, 0));
     let mut peer = TestPeer::new(peer_config);
 
     let initial_transfer =
         make_user_stacks_transfer(&funder_key, 0, TRANSFER_FEE, &contract_principal, 1_000);
-    let (transfer_block, _, _) =
-        mine_mempool_tenure(&mut peer, 0, |chainstate, sortdb, parent_tip, mempool| {
-            mempool
-                .submit(
-                    chainstate,
-                    sortdb,
-                    &parent_tip.consensus_hash,
-                    &parent_tip.anchored_header.block_hash(),
-                    &initial_transfer,
-                    None,
-                    &ExecutionCost::max_value(),
-                    &StacksEpochId::Epoch21,
-                )
-                .unwrap();
-        });
-    assert_eq!(transfer_block.txs.len(), 2);
-    assert_eq!(transfer_block.txs[1].txid(), initial_transfer.txid());
+    mine_single_tx(&mut peer, 0, &initial_transfer);
     assert_eq!(
         get_stacks_account(&mut peer, &contract_principal)
             .stx_balance
@@ -507,22 +528,8 @@ fn test_build_anchored_blocks_contract_principal_lifecycle() {
     let mut pre_deploy_tip = None;
     let (publish_block, _, _) =
         mine_mempool_tenure(&mut peer, 1, |chainstate, sortdb, parent_tip, mempool| {
-            pre_deploy_tip = Some((
-                parent_tip.consensus_hash.clone(),
-                parent_tip.anchored_header.block_hash(),
-            ));
-            mempool
-                .submit(
-                    chainstate,
-                    sortdb,
-                    &parent_tip.consensus_hash,
-                    &parent_tip.anchored_header.block_hash(),
-                    &publish,
-                    None,
-                    &ExecutionCost::max_value(),
-                    &StacksEpochId::Epoch21,
-                )
-                .unwrap();
+            pre_deploy_tip = Some(parent_tip.clone());
+            submit_at_tip(mempool, chainstate, sortdb, parent_tip, &publish).unwrap();
         });
     assert_eq!(publish_block.txs.len(), 2);
     assert_eq!(publish_block.txs[1].txid(), publish.txid());
@@ -543,30 +550,15 @@ fn test_build_anchored_blocks_contract_principal_lifecycle() {
         mine_mempool_tenure(&mut peer, 2, |chainstate, sortdb, parent_tip, mempool| {
             // Admit the duplicate against the pre-deploy state so block assembly,
             // rather than mempool admission, has to reject it.
-            mempool
-                .submit(
-                    chainstate,
-                    sortdb,
-                    &pre_deploy_tip.0,
-                    &pre_deploy_tip.1,
-                    &duplicate_publish,
-                    None,
-                    &ExecutionCost::max_value(),
-                    &StacksEpochId::Epoch21,
-                )
-                .unwrap();
-            mempool
-                .submit(
-                    chainstate,
-                    sortdb,
-                    &parent_tip.consensus_hash,
-                    &parent_tip.anchored_header.block_hash(),
-                    &contract_call,
-                    None,
-                    &ExecutionCost::max_value(),
-                    &StacksEpochId::Epoch21,
-                )
-                .unwrap();
+            submit_at_tip(
+                mempool,
+                chainstate,
+                sortdb,
+                &pre_deploy_tip,
+                &duplicate_publish,
+            )
+            .unwrap();
+            submit_at_tip(mempool, chainstate, sortdb, parent_tip, &contract_call).unwrap();
         });
     assert_eq!(call_block.txs.len(), 2);
     assert_eq!(call_block.txs[1].txid(), contract_call.txid());
@@ -609,30 +601,16 @@ fn test_build_anchored_blocks_contract_principal_lifecycle() {
     let (chaining_block, _, _) =
         mine_mempool_tenure(&mut peer, 3, |chainstate, sortdb, parent_tip, mempool| {
             for transfer in &chained_transfers {
-                mempool
-                    .submit(
-                        chainstate,
-                        sortdb,
-                        &parent_tip.consensus_hash,
-                        &parent_tip.anchored_header.block_hash(),
-                        transfer,
-                        None,
-                        &ExecutionCost::max_value(),
-                        &StacksEpochId::Epoch21,
-                    )
-                    .unwrap();
+                submit_at_tip(mempool, chainstate, sortdb, parent_tip, transfer).unwrap();
             }
 
             assert!(matches!(
-                mempool.submit(
+                submit_at_tip(
+                    mempool,
                     chainstate,
                     sortdb,
-                    &parent_tip.consensus_hash,
-                    &parent_tip.anchored_header.block_hash(),
-                    &conflicting_transfer,
-                    None,
-                    &ExecutionCost::max_value(),
-                    &StacksEpochId::Epoch21,
+                    parent_tip,
+                    &conflicting_transfer
                 ),
                 Err(MemPoolRejection::ConflictingNonceInMempool)
             ));
@@ -664,12 +642,6 @@ fn test_build_anchored_blocks_contract_principal_lifecycle() {
 
 #[test]
 fn test_build_anchored_blocks_skip_same_candidate_duplicate_contract() {
-    const FAUCET_CONTRACT: &str = "
-        (define-public (spout)
-          (let ((recipient tx-sender))
-            (print (as-contract (stx-transfer? u1 .faucet recipient)))))
-    ";
-
     fn get_contract_source(
         peer: &mut TestPeer,
         contract_id: &QualifiedContractIdentifier,
@@ -708,27 +680,11 @@ fn test_build_anchored_blocks_skip_same_candidate_duplicate_contract() {
         (publisher_address.clone().into(), 10_000),
         (recipient_address.clone().into(), 1_000),
     ];
-    peer_config.chain_config.epochs = Some(epoch_21_test_epochs(ExecutionCost::max_value()));
+    peer_config.chain_config.epochs = Some(StacksEpoch::unit_test_2_1_with_heights(0, 0, 0));
     let mut peer = TestPeer::new(peer_config);
 
     let initial_transfer = make_user_stacks_transfer(&sender, 0, 200, &contract_principal, 1_000);
-    let (initial_block, _, _) =
-        mine_mempool_tenure(&mut peer, 0, |chainstate, sortdb, parent_tip, mempool| {
-            mempool
-                .submit(
-                    chainstate,
-                    sortdb,
-                    &parent_tip.consensus_hash,
-                    &parent_tip.anchored_header.block_hash(),
-                    &initial_transfer,
-                    None,
-                    &ExecutionCost::max_value(),
-                    &StacksEpochId::Epoch21,
-                )
-                .unwrap();
-        });
-    assert_eq!(initial_block.txs.len(), 2);
-    assert_eq!(initial_block.txs[1].txid(), initial_transfer.txid());
+    mine_single_tx(&mut peer, 0, &initial_transfer);
     assert_eq!(
         get_stacks_account(&mut peer, &contract_principal)
             .stx_balance
@@ -747,30 +703,18 @@ fn test_build_anchored_blocks_skip_same_candidate_duplicate_contract() {
     let publish = make_user_contract_publish(&publisher, 0, 1_000, "faucet", FAUCET_CONTRACT);
     let duplicate_publish =
         make_user_contract_publish(&publisher, 1, 1_000, "faucet", FAUCET_CONTRACT);
-    let (rollback_block, _, _) =
-        mine_mempool_tenure(&mut peer, 1, |chainstate, sortdb, parent_tip, mempool| {
-            // Both publishes are valid against the parent. The second must become
-            // invalid only after the first is applied to the candidate state.
-            for tx in [
-                &first_transfer,
-                &second_transfer,
-                &publish,
-                &duplicate_publish,
-            ] {
-                mempool
-                    .submit(
-                        chainstate,
-                        sortdb,
-                        &parent_tip.consensus_hash,
-                        &parent_tip.anchored_header.block_hash(),
-                        tx,
-                        None,
-                        &ExecutionCost::max_value(),
-                        &StacksEpochId::Epoch21,
-                    )
-                    .unwrap();
-            }
-        });
+    // Both publishes are valid against the parent. The second must become
+    // invalid only after the first is applied to the candidate state.
+    let rollback_block = mine_mempool_txs(
+        &mut peer,
+        1,
+        &[
+            &first_transfer,
+            &second_transfer,
+            &publish,
+            &duplicate_publish,
+        ],
+    );
     assert_eq!(rollback_block.txs.len(), 4);
     let included_txids = rollback_block.txs[1..]
         .iter()
@@ -833,34 +777,6 @@ fn test_build_anchored_blocks_preserve_state_and_receipts_across_tenures() {
             (ok true)))
     "#;
 
-    fn mine_transaction(
-        peer: &mut TestPeer,
-        tenure_id: usize,
-        tx: &StacksTransaction,
-    ) -> StacksBlock {
-        let (block, _, _) = mine_mempool_tenure(
-            peer,
-            tenure_id,
-            |chainstate, sortdb, parent_tip, mempool| {
-                mempool
-                    .submit(
-                        chainstate,
-                        sortdb,
-                        &parent_tip.consensus_hash,
-                        &parent_tip.anchored_header.block_hash(),
-                        tx,
-                        None,
-                        &ExecutionCost::max_value(),
-                        &StacksEpochId::Epoch21,
-                    )
-                    .unwrap();
-            },
-        );
-        assert_eq!(block.txs.len(), 2);
-        assert_eq!(block.txs[1].txid(), tx.txid());
-        block
-    }
-
     fn receipt_for(
         observer: &TestEventObserver,
         tx: &StacksTransaction,
@@ -879,6 +795,8 @@ fn test_build_anchored_blocks_preserve_state_and_receipts_across_tenures() {
     let recipient_key = StacksPrivateKey::random();
     let contract_address =
         StacksAddress::p2pkh(false, &StacksPublicKey::from_private(&contract_key));
+    let contract_mainnet_address =
+        StacksAddress::p2pkh(true, &StacksPublicKey::from_private(&contract_key));
     let transfer_address =
         StacksAddress::p2pkh(false, &StacksPublicKey::from_private(&transfer_key));
     let recipient_address =
@@ -893,14 +811,17 @@ fn test_build_anchored_blocks_preserve_state_and_receipts_across_tenures() {
     let mut peer_config = TestPeerConfig::new(function_name!(), 2060, 2061);
     peer_config.chain_config.initial_balances = vec![
         (contract_address.clone().into(), 10_000),
+        // Funded so the version check is the only reason block assembly can
+        // reject the mainnet-version copy of `set-value` below.
+        (contract_mainnet_address.into(), 10_000),
         (transfer_address.clone().into(), 100_000),
     ];
-    peer_config.chain_config.epochs = Some(epoch_21_test_epochs(ExecutionCost::max_value()));
+    peer_config.chain_config.epochs = Some(StacksEpoch::unit_test_2_1_with_heights(0, 0, 0));
     let observer = TestEventObserver::new();
     let mut peer = TestPeer::new_with_observer(peer_config, Some(&observer));
 
     let publish = make_user_contract_publish(&contract_key, 0, 1_000, "store", STORE_CONTRACT);
-    let publish_block = mine_transaction(&mut peer, 0, &publish);
+    let publish_block = mine_single_tx(&mut peer, 0, &publish);
     assert!(matches!(
         publish_block.txs[1].payload,
         TransactionPayload::SmartContract(..)
@@ -916,7 +837,7 @@ fn test_build_anchored_blocks_preserve_state_and_receipts_across_tenures() {
         "get-value",
         vec![foo.clone()],
     );
-    let missing_get_block = mine_transaction(&mut peer, 1, &missing_get);
+    let missing_get_block = mine_single_tx(&mut peer, 1, &missing_get);
     assert!(matches!(
         missing_get_block.txs[1].payload,
         TransactionPayload::ContractCall(..)
@@ -937,8 +858,8 @@ fn test_build_anchored_blocks_preserve_state_and_receipts_across_tenures() {
         "set-value",
         vec![foo.clone(), bar.clone()],
     );
-    // The mainnet-version copy originates from a mainnet principal that has never
-    // transacted on this chain, so nonce 0 is what block assembly expects of it.
+    // The mainnet-version copy originates from the mainnet principal, which has
+    // never transacted on this chain, so nonce 0 is what block assembly expects of it.
     let wrong_version = sign_standard_single_sig_tx_anchor_mode_version(
         set_value.payload.clone(),
         &contract_key,
@@ -988,31 +909,11 @@ fn test_build_anchored_blocks_preserve_state_and_receipts_across_tenures() {
 
     let (set_block, _, _) =
         mine_mempool_tenure(&mut peer, 4, |chainstate, sortdb, parent_tip, mempool| {
-            let rejection = mempool
-                .submit(
-                    chainstate,
-                    sortdb,
-                    &parent_tip.consensus_hash,
-                    &parent_tip.anchored_header.block_hash(),
-                    &wrong_version,
-                    None,
-                    &ExecutionCost::max_value(),
-                    &StacksEpochId::Epoch21,
-                )
-                .unwrap_err();
+            let rejection =
+                submit_at_tip(mempool, chainstate, sortdb, parent_tip, &wrong_version).unwrap_err();
             assert!(matches!(rejection, MemPoolRejection::BadTransactionVersion));
 
-            let rejection = mempool
-                .submit(
-                    chainstate,
-                    sortdb,
-                    &parent_tip.consensus_hash,
-                    &parent_tip.anchored_header.block_hash(),
-                    &wrong_chain_id,
-                    None,
-                    &ExecutionCost::max_value(),
-                    &StacksEpochId::Epoch21,
-                )
+            let rejection = submit_at_tip(mempool, chainstate, sortdb, parent_tip, &wrong_chain_id)
                 .unwrap_err();
             assert!(matches!(
                 rejection,
@@ -1022,18 +923,7 @@ fn test_build_anchored_blocks_preserve_state_and_receipts_across_tenures() {
             ));
 
             // The higher fee lets the valid call displace the stale nonce-2 entry.
-            mempool
-                .submit(
-                    chainstate,
-                    sortdb,
-                    &parent_tip.consensus_hash,
-                    &parent_tip.anchored_header.block_hash(),
-                    &set_value,
-                    None,
-                    &ExecutionCost::max_value(),
-                    &StacksEpochId::Epoch21,
-                )
-                .unwrap();
+            submit_at_tip(mempool, chainstate, sortdb, parent_tip, &set_value).unwrap();
             assert!(mempool.has_tx(&set_value.txid()));
             assert!(!mempool.has_tx(&wrong_chain_id.txid()));
         });
@@ -1060,7 +950,7 @@ fn test_build_anchored_blocks_preserve_state_and_receipts_across_tenures() {
         "get-value",
         vec![foo],
     );
-    mine_transaction(&mut peer, 5, &stored_get);
+    mine_single_tx(&mut peer, 5, &stored_get);
     let stored_get_receipt = receipt_for(&observer, &stored_get);
     assert_eq!(stored_get_receipt.result, Value::okay(bar.clone()).unwrap());
     assert_eq!(stored_get_receipt.events.len(), 1);
@@ -1075,7 +965,7 @@ fn test_build_anchored_blocks_preserve_state_and_receipts_across_tenures() {
 
     let recipient_principal = recipient_address.clone().into();
     let transfer = make_user_stacks_transfer(&transfer_key, 0, 200, &recipient_principal, 1_000);
-    let transfer_block = mine_transaction(&mut peer, 6, &transfer);
+    let transfer_block = mine_single_tx(&mut peer, 6, &transfer);
     assert!(matches!(
         transfer_block.txs[1].payload,
         TransactionPayload::TokenTransfer(..)
@@ -1182,36 +1072,12 @@ fn test_get_block_info_at_block_across_tenures() {
             (store-info (- block-height u1))))
     "#;
 
-    fn eval_at_tip(
-        peer: &mut TestPeer,
-        contract_id: &QualifiedContractIdentifier,
-        program: &str,
-    ) -> Value {
-        peer.with_db_state(|ref mut sortdb, ref mut chainstate, _, _| {
-            let (consensus_hash, block_hash) =
-                SortitionDB::get_canonical_stacks_chain_tip_hash(sortdb.conn()).unwrap();
-            let block_id = StacksBlockHeader::make_index_block_hash(&consensus_hash, &block_hash);
-            let value = chainstate.clarity_eval_read_only(
-                &sortdb.index_handle_at_tip(),
-                &block_id,
-                contract_id,
-                program,
-            );
-            Ok(value)
-        })
-        .unwrap()
-    }
-
     let publisher = StacksPrivateKey::random();
     let publisher_address = StacksAddress::p2pkh(false, &StacksPublicKey::from_private(&publisher));
-    let contract_id = QualifiedContractIdentifier::new(
-        publisher_address.clone().into(),
-        ContractName::try_from("block-info").unwrap(),
-    );
 
     let mut peer_config = TestPeerConfig::new(function_name!(), 2064, 2065);
     peer_config.chain_config.initial_balances = vec![(publisher_address.clone().into(), 10_000)];
-    peer_config.chain_config.epochs = Some(epoch_21_test_epochs(ExecutionCost::max_value()));
+    peer_config.chain_config.epochs = Some(StacksEpoch::unit_test_2_1_with_heights(0, 0, 0));
     let mut peer = TestPeer::new(peer_config);
 
     let (first_block, _, _) = mine_mempool_tenure(&mut peer, 0, |_, _, _, _| {});
@@ -1219,23 +1085,7 @@ fn test_get_block_info_at_block_across_tenures() {
 
     let publish =
         make_user_contract_publish(&publisher, 0, 4_000, "block-info", BLOCK_INFO_CONTRACT);
-    let (publish_block, _, _) =
-        mine_mempool_tenure(&mut peer, 1, |chainstate, sortdb, parent_tip, mempool| {
-            mempool
-                .submit(
-                    chainstate,
-                    sortdb,
-                    &parent_tip.consensus_hash,
-                    &parent_tip.anchored_header.block_hash(),
-                    &publish,
-                    None,
-                    &ExecutionCost::max_value(),
-                    &StacksEpochId::Epoch21,
-                )
-                .unwrap();
-        });
-    assert_eq!(publish_block.txs.len(), 2);
-    assert_eq!(publish_block.txs[1].txid(), publish.txid());
+    mine_single_tx(&mut peer, 1, &publish);
 
     let (third_block, _, _) = mine_mempool_tenure(&mut peer, 2, |_, _, _, _| {});
     assert_eq!(third_block.txs.len(), 1);
@@ -1260,23 +1110,16 @@ fn test_get_block_info_at_block_across_tenures() {
                     // the burn header that will elect the completed block.
                     final_parent_burn_height = Some(parent_tip.burn_header_height);
                 }
-                mempool
-                    .submit(
-                        chainstate,
-                        sortdb,
-                        &parent_tip.consensus_hash,
-                        &parent_tip.anchored_header.block_hash(),
-                        &update,
-                        None,
-                        &ExecutionCost::max_value(),
-                        &StacksEpochId::Epoch21,
-                    )
-                    .unwrap();
+                submit_at_tip(mempool, chainstate, sortdb, parent_tip, &update).unwrap();
             },
         );
         assert_eq!(block.txs.len(), 2);
         assert_eq!(block.txs[1].txid(), update.txid());
     }
+
+    let eval = |peer: &mut TestPeer, expr: &str| {
+        eval_contract_at_tip(peer, &publisher_address, "block-info", expr)
+    };
 
     let (height_one_header, height_one_block, height_one_miner) = peer
         .with_db_state(|_, ref mut chainstate, _, _| {
@@ -1314,19 +1157,15 @@ fn test_get_block_info_at_block_across_tenures() {
         .unwrap();
 
     assert_eq!(
-        eval_at_tip(&mut peer, &contract_id, "(get-block-info? time u1)"),
+        eval(&mut peer, "(get-block-info? time u1)"),
         Value::some(Value::UInt(height_one_header.burn_header_timestamp as u128)).unwrap()
     );
     assert_eq!(
-        eval_at_tip(&mut peer, &contract_id, "(get-block-info? header-hash u1)"),
+        eval(&mut peer, "(get-block-info? header-hash u1)"),
         Value::some(Value::buff_from(height_one_block.block_hash().0.to_vec()).unwrap()).unwrap()
     );
     assert_eq!(
-        eval_at_tip(
-            &mut peer,
-            &contract_id,
-            "(get-block-info? id-header-hash u1)"
-        ),
+        eval(&mut peer, "(get-block-info? id-header-hash u1)"),
         Value::some(
             Value::buff_from(
                 StacksBlockHeader::make_index_block_hash(
@@ -1341,16 +1180,12 @@ fn test_get_block_info_at_block_across_tenures() {
         .unwrap()
     );
     assert_eq!(
-        eval_at_tip(
-            &mut peer,
-            &contract_id,
-            "(get-block-info? burnchain-header-hash u1)"
-        ),
+        eval(&mut peer, "(get-block-info? burnchain-header-hash u1)"),
         Value::some(Value::buff_from(height_one_header.burn_header_hash.0.to_vec()).unwrap())
             .unwrap()
     );
     assert_eq!(
-        eval_at_tip(&mut peer, &contract_id, "(get-block-info? vrf-seed u1)"),
+        eval(&mut peer, "(get-block-info? vrf-seed u1)"),
         Value::some(
             Value::buff_from(
                 VRFSeed::from_proof(&height_one_block.header.proof)
@@ -1362,34 +1197,28 @@ fn test_get_block_info_at_block_across_tenures() {
         .unwrap()
     );
     assert_eq!(
-        eval_at_tip(
-            &mut peer,
-            &contract_id,
-            "(get-block-info? miner-address u1)"
-        ),
+        eval(&mut peer, "(get-block-info? miner-address u1)"),
         Value::some(Value::Principal(
             height_one_miner.address.to_account_principal()
         ))
         .unwrap()
     );
     assert_eq!(
-        eval_at_tip(&mut peer, &contract_id, "burn-block-height"),
+        eval(&mut peer, "burn-block-height"),
         Value::UInt(final_parent_burn_height.unwrap() as u128)
     );
 
     for property in ["time", "header-hash", "miner-address"] {
         assert_eq!(
-            eval_at_tip(
+            eval(
                 &mut peer,
-                &contract_id,
                 &format!("(get-block-info? {property} block-height)")
             ),
             Value::none()
         );
         assert_eq!(
-            eval_at_tip(
+            eval(
                 &mut peer,
-                &contract_id,
                 &format!("(get-block-info? {property} (+ block-height u1))")
             ),
             Value::none()
@@ -1398,21 +1227,13 @@ fn test_get_block_info_at_block_across_tenures() {
 
     for height in 2..=4 {
         assert_eq!(
-            eval_at_tip(
-                &mut peer,
-                &contract_id,
-                &format!("(historical-height-matches u{height})")
-            ),
+            eval(&mut peer, &format!("(historical-height-matches u{height})")),
             Value::Bool(true)
         );
     }
     for height in 3..=4 {
         assert_eq!(
-            eval_at_tip(
-                &mut peer,
-                &contract_id,
-                &format!("(historical-info-matches u{height})")
-            ),
+            eval(&mut peer, &format!("(historical-info-matches u{height})")),
             Value::Bool(true)
         );
     }
@@ -2513,30 +2334,6 @@ fn test_build_anchored_blocks_stop_at_cumulative_runtime_limit() {
         runtime: 8_500_000,
     };
 
-    fn get_call_count(peer: &mut TestPeer, contract_id: &QualifiedContractIdentifier) -> u128 {
-        let value = peer
-            .with_db_state(|ref mut sortdb, ref mut chainstate, _, _| {
-                let (consensus_hash, block_hash) =
-                    SortitionDB::get_canonical_stacks_chain_tip_hash(sortdb.conn()).unwrap();
-                let block_id =
-                    StacksBlockHeader::make_index_block_hash(&consensus_hash, &block_hash);
-                let value = chainstate
-                    .with_read_only_clarity_tx(
-                        &sortdb.index_handle_at_tip(),
-                        &block_id,
-                        |clarity_tx| {
-                            StacksChainState::get_data_var(clarity_tx, contract_id, "calls")
-                                .unwrap()
-                                .unwrap()
-                        },
-                    )
-                    .unwrap();
-                Ok(value)
-            })
-            .unwrap();
-        value.expect_u128().unwrap()
-    }
-
     let mut contract = "
         (define-data-var calls uint u0)
         (define-constant list-0 (list 0))
@@ -2563,10 +2360,6 @@ fn test_build_anchored_blocks_stop_at_cumulative_runtime_limit() {
 
     let publisher = StacksPrivateKey::random();
     let publisher_address = StacksAddress::p2pkh(false, &StacksPublicKey::from_private(&publisher));
-    let contract_id = QualifiedContractIdentifier::new(
-        publisher_address.clone().into(),
-        ContractName::try_from("runtime-limit").unwrap(),
-    );
     let callers = (0..4)
         .map(|_| StacksPrivateKey::random())
         .collect::<Vec<_>>();
@@ -2580,7 +2373,9 @@ fn test_build_anchored_blocks_stop_at_cumulative_runtime_limit() {
     peer_config.chain_config.initial_balances = initial_balances;
     // Keep storage limits out of the decision so only accumulated runtime
     // can defer the fourth call.
-    peer_config.chain_config.epochs = Some(epoch_21_test_epochs(BLOCK_LIMIT));
+    let mut epochs = StacksEpoch::unit_test_2_1_with_heights(0, 0, 0);
+    epochs[StacksEpochId::Epoch21].block_limit = BLOCK_LIMIT;
+    peer_config.chain_config.epochs = Some(epochs);
     let mut peer = TestPeer::new(peer_config);
 
     let publish = make_user_contract_publish(
@@ -2590,23 +2385,7 @@ fn test_build_anchored_blocks_stop_at_cumulative_runtime_limit() {
         "runtime-limit",
         &contract,
     );
-    let (publish_block, _, _) =
-        mine_mempool_tenure(&mut peer, 0, |chainstate, sortdb, parent_tip, mempool| {
-            mempool
-                .submit(
-                    chainstate,
-                    sortdb,
-                    &parent_tip.consensus_hash,
-                    &parent_tip.anchored_header.block_hash(),
-                    &publish,
-                    None,
-                    &ExecutionCost::max_value(),
-                    &StacksEpochId::Epoch21,
-                )
-                .unwrap();
-        });
-    assert_eq!(publish_block.txs.len(), 2);
-    assert_eq!(publish_block.txs[1].txid(), publish.txid());
+    mine_single_tx(&mut peer, 0, &publish);
 
     let calls = callers
         .iter()
@@ -2622,21 +2401,13 @@ fn test_build_anchored_blocks_stop_at_cumulative_runtime_limit() {
             )
         })
         .collect::<Vec<_>>();
+    let call_count = |peer: &mut TestPeer| {
+        eval_contract_at_tip(peer, &publisher_address, "runtime-limit", "(var-get calls)")
+    };
     let (limited_block, _, limited_cost) =
         mine_mempool_tenure(&mut peer, 1, |chainstate, sortdb, parent_tip, mempool| {
             for call in &calls {
-                mempool
-                    .submit(
-                        chainstate,
-                        sortdb,
-                        &parent_tip.consensus_hash,
-                        &parent_tip.anchored_header.block_hash(),
-                        call,
-                        None,
-                        &ExecutionCost::max_value(),
-                        &StacksEpochId::Epoch21,
-                    )
-                    .unwrap();
+                submit_at_tip(mempool, chainstate, sortdb, parent_tip, call).unwrap();
             }
         });
     assert_eq!(limited_block.txs.len(), 4);
@@ -2648,7 +2419,7 @@ fn test_build_anchored_blocks_stop_at_cumulative_runtime_limit() {
         .iter()
         .all(|txid| calls.iter().any(|call| call.txid() == *txid)));
     assert!(limited_cost.runtime <= BLOCK_LIMIT.runtime);
-    assert_eq!(get_call_count(&mut peer, &contract_id), 3);
+    assert_eq!(call_count(&mut peer), Value::UInt(3));
 
     let deferred_call = calls
         .iter()
@@ -2663,7 +2434,7 @@ fn test_build_anchored_blocks_stop_at_cumulative_runtime_limit() {
     assert!(limited_cost.write_count + deferred_cost.write_count < BLOCK_LIMIT.write_count);
     assert!(limited_cost.read_length + deferred_cost.read_length < BLOCK_LIMIT.read_length);
     assert!(limited_cost.read_count + deferred_cost.read_count < BLOCK_LIMIT.read_count);
-    assert_eq!(get_call_count(&mut peer, &contract_id), 4);
+    assert_eq!(call_count(&mut peer), Value::UInt(4));
 
     for caller in callers {
         let address = StacksAddress::p2pkh(false, &StacksPublicKey::from_private(&caller));
