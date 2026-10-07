@@ -1,1 +1,1 @@
-Added a runtime guard `restrict-assets?` running its body with a `with-all-assets-unsafe` allowance. Starting in epoch 4.1, `restrict-assets?` fails with an includable error before running its body.
+Added a runtime guard against `restrict-assets?` running its body with a `with-all-assets-unsafe` allowance. Starting in epoch 4.1, `restrict-assets?` fails with an includable error before running its body.
