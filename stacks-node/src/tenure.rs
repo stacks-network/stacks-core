@@ -1,10 +1,6 @@
 use std::thread;
 use std::time::{Duration, Instant};
 
-#[cfg(test)]
-use stacks::burnchains::PoxConstants;
-#[cfg(test)]
-use stacks::chainstate::burn::db::sortdb::SortitionDB;
 use stacks::chainstate::burn::db::sortdb::SortitionHandleConn;
 use stacks::chainstate::stacks::db::StacksChainState;
 use stacks::chainstate::stacks::miner::BlockBuilderSettings;
@@ -17,7 +13,7 @@ use stacks_common::types::chainstate::VRFSeed;
 use stacks_common::util::hash::Hash160;
 use stacks_common::util::vrf::VRFProof;
 
-/// Only used by the Helium (Mocknet) node
+// Only used by the Helium node
 use super::node::ChainTip;
 use super::{BurnchainTip, Config};
 
@@ -115,30 +111,5 @@ impl Tenure {
             burn_fee: self.burn_fee_cap,
         };
         Some(artifact)
-    }
-
-    #[cfg(test)]
-    pub fn open_chainstate(&self) -> StacksChainState {
-        use stacks::core::CHAIN_ID_TESTNET;
-
-        let (chain_state, _) = StacksChainState::open(
-            false,
-            CHAIN_ID_TESTNET,
-            &self.config.get_chainstate_path_str(),
-            Some(self.config.node.get_marf_opts()),
-        )
-        .unwrap();
-        chain_state
-    }
-
-    #[cfg(test)]
-    pub fn open_fake_sortdb(&self) -> SortitionDB {
-        SortitionDB::open(
-            &self.config.get_burn_db_file_path(),
-            true,
-            PoxConstants::testnet_default(),
-            None,
-        )
-        .unwrap()
     }
 }

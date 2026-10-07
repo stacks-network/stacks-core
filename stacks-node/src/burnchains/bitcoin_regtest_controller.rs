@@ -67,7 +67,7 @@ use stacks_common::util::sleep_ms;
 
 use super::super::operations::BurnchainOpSigner;
 use super::super::Config;
-use super::{BurnchainController, BurnchainTip, Error as BurnchainControllerError};
+use super::{BurnchainTip, Error as BurnchainControllerError};
 use crate::burnchains::rpc::bitcoin_rpc_client::{
     BitcoinRpcClient, BitcoinRpcClientError, BitcoinRpcClientResult, ImportDescriptorsRequest,
     Timestamp,
@@ -155,7 +155,6 @@ pub fn make_bitcoin_indexer(
             peer_host: burnchain_config.peer_host,
             peer_port: burnchain_config.peer_port,
             rpc_port: burnchain_config.rpc_port,
-            rpc_ssl: burnchain_config.rpc_ssl,
             username: burnchain_config.username,
             password: burnchain_config.password,
             timeout: burnchain_config.timeout,
@@ -387,7 +386,6 @@ impl BitcoinRegtestController {
                 peer_host: burnchain_config.peer_host,
                 peer_port: burnchain_config.peer_port,
                 rpc_port: burnchain_config.rpc_port,
-                rpc_ssl: burnchain_config.rpc_ssl,
                 username: burnchain_config.username,
                 password: burnchain_config.password,
                 timeout: burnchain_config.timeout,
@@ -437,7 +435,6 @@ impl BitcoinRegtestController {
                 peer_host: burnchain_config.peer_host,
                 peer_port: burnchain_config.peer_port,
                 rpc_port: burnchain_config.rpc_port,
-                rpc_ssl: burnchain_config.rpc_ssl,
                 username: burnchain_config.username,
                 password: burnchain_config.password,
                 timeout: burnchain_config.timeout,
@@ -2504,14 +2501,14 @@ impl BitcoinRegtestController {
     }
 }
 
-impl BurnchainController for BitcoinRegtestController {
-    fn sortdb_ref(&self) -> &SortitionDB {
+impl BitcoinRegtestController {
+    pub fn sortdb_ref(&self) -> &SortitionDB {
         self.db
             .as_ref()
             .expect("BUG: did not instantiate the burn DB")
     }
 
-    fn sortdb_mut(&mut self) -> &mut SortitionDB {
+    pub fn sortdb_mut(&mut self) -> &mut SortitionDB {
         let burnchain = self.get_burnchain();
 
         let (db, burnchain_db) = burnchain.open_db(true).unwrap();
@@ -2524,7 +2521,7 @@ impl BurnchainController for BitcoinRegtestController {
         }
     }
 
-    fn get_chain_tip(&self) -> BurnchainTip {
+    pub fn get_chain_tip(&self) -> BurnchainTip {
         match &self.chain_tip {
             Some(chain_tip) => chain_tip.clone(),
             None => {
@@ -2533,7 +2530,7 @@ impl BurnchainController for BitcoinRegtestController {
         }
     }
 
-    fn get_headers_height(&self) -> u64 {
+    pub fn get_headers_height(&self) -> u64 {
         let (_, network_id) = self.config.burnchain.get_bitcoin_network();
         let spv_client = SpvClient::new(
             &self.config.get_spv_headers_file_path(),
@@ -2549,7 +2546,9 @@ impl BurnchainController for BitcoinRegtestController {
             .expect("Unable to query number of burnchain headers")
     }
 
-    fn connect_dbs(&mut self) -> Result<(), BurnchainControllerError> {
+    /// Invoke connect() on underlying burnchain and sortition databases, to perform any migration
+    ///  or instantiation before other callers may use open()
+    pub fn connect_dbs(&mut self) -> Result<(), BurnchainControllerError> {
         let burnchain = self.get_burnchain();
         burnchain.connect_db(
             true,
@@ -2560,11 +2559,11 @@ impl BurnchainController for BitcoinRegtestController {
         Ok(())
     }
 
-    fn get_stacks_epochs(&self) -> EpochList {
+    pub fn get_stacks_epochs(&self) -> EpochList {
         self.indexer.get_stacks_epochs()
     }
 
-    fn start(
+    pub fn start(
         &mut self,
         target_block_height_opt: Option<u64>,
     ) -> Result<(BurnchainTip, u64), BurnchainControllerError> {
@@ -2572,7 +2571,7 @@ impl BurnchainController for BitcoinRegtestController {
         self.receive_blocks(false, target_block_height_opt.map_or_else(|| Some(1), Some))
     }
 
-    fn sync(
+    pub fn sync(
         &mut self,
         target_block_height_opt: Option<u64>,
     ) -> Result<(BurnchainTip, u64), BurnchainControllerError> {
@@ -2601,7 +2600,7 @@ impl BurnchainController for BitcoinRegtestController {
     /// Returns the [`Txid`] on success, [`BurnchainControllerError`] otherwise.
     /// On [`BitcoinRegtestController::send_transaction`] failure for block commits,
     /// clears `ongoing_block_commit` so the commit can be resubmitted.
-    fn submit_operation(
+    pub fn submit_operation(
         &mut self,
         epoch_id: StacksEpochId,
         operation: BlockstackOperationType,
@@ -2617,7 +2616,7 @@ impl BurnchainController for BitcoinRegtestController {
     }
 
     #[cfg(test)]
-    fn bootstrap_chain(&self, num_blocks: u64) {
+    pub fn bootstrap_chain(&self, num_blocks: u64) {
         let Some(ref local_mining_pubkey) = &self.config.burnchain.local_mining_public_key else {
             warn!("No local mining pubkey while bootstrapping bitcoin regtest, will not generate bitcoin blocks");
             return;
@@ -2975,6 +2974,7 @@ mod tests {
 
         let mut file = File::create(&file_path).unwrap();
         writeln!(file, "[burnchain]").unwrap();
+        writeln!(file, "mode = \"krypton\"").unwrap();
         writeln!(file, "satoshis_per_byte = 51").unwrap();
         config.config_path = Some(file_path.to_str().unwrap().to_string());
 
