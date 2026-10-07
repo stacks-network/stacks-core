@@ -22,7 +22,7 @@ use clarity::vm::ClarityName;
 use stacks_common::types::chainstate::StacksAddress;
 use stacks_common::types::Address;
 
-use super::TestRPC;
+use super::{test_rpc, TestRPC};
 use crate::net::api::*;
 use crate::net::connection::ConnectionOptions;
 use crate::net::httpcore::{
@@ -30,6 +30,7 @@ use crate::net::httpcore::{
 };
 use crate::net::{ProtocolFamily, TipRequest};
 
+/// Unconfirmed contract that declares the trait instead of only matching it.
 const EXPLICIT_TRAIT_CONTRACT: &str = "
 (impl-trait .hello-world.test-trait)
 (define-public (do-test) (ok u1))
@@ -133,7 +134,7 @@ fn test_try_make_response() {
     );
     requests.push(request);
 
-    // Explicit declarations are persisted separately from structural compliance.
+    // a separate unconfirmed contract that matches the trait without `impl-trait`
     let request = StacksHttpRequest::new_get_is_trait_implemented(
         addr.into(),
         StacksAddress::from_string("ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R").unwrap(),
@@ -181,16 +182,7 @@ fn test_try_make_response() {
     );
     requests.push(request);
 
-    let test = TestRPC::setup_ex_with_unconfirmed_contract(
-        function_name!(),
-        true,
-        None,
-        None,
-        EXPLICIT_TRAIT_CONTRACT,
-        |_| {},
-        |_| {},
-    );
-    let mut responses = test.run(requests);
+    let mut responses = test_rpc(function_name!(), requests);
 
     // latest data
     let response = responses.remove(0);
@@ -250,4 +242,39 @@ fn test_try_make_response() {
 
     let (preamble, body) = response.destruct();
     assert_eq!(preamble.status_code, 404);
+}
+
+/// An `impl-trait` declaration is recorded in the contract analysis, so the
+/// handler answers from it without checking the trait's functions.
+#[test]
+fn test_try_make_response_explicit_impl_trait() {
+    let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 33333);
+    let contract_addr =
+        StacksAddress::from_string("ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R").unwrap();
+    let request = StacksHttpRequest::new_get_is_trait_implemented(
+        addr.into(),
+        contract_addr.clone(),
+        "hello-world-unconfirmed".try_into().unwrap(),
+        contract_addr,
+        "hello-world".try_into().unwrap(),
+        ClarityName::from_literal("test-trait"),
+        TipRequest::UseLatestUnconfirmedTip,
+    );
+
+    let test = TestRPC::setup_ex_with_unconfirmed_contract(
+        function_name!(),
+        true,
+        None,
+        None,
+        EXPLICIT_TRAIT_CONTRACT,
+        |_| {},
+        |_| {},
+    );
+    let mut responses = test.run(vec![request]);
+
+    let resp = responses
+        .remove(0)
+        .decode_is_trait_implemented_response()
+        .unwrap();
+    assert!(resp.is_implemented);
 }
