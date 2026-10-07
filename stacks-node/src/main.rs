@@ -57,6 +57,7 @@ use stacks::chainstate::stacks::db::StacksChainState;
 use stacks::config::chain_data::MinerStats;
 pub use stacks::config::{Config, ConfigFile};
 use stacks_common::alloc_tracker::{tracking_allocator_installed, TrackingAllocator};
+use stacks_common::util::db::{set_sqlite_vfs, SqliteVfs};
 #[cfg(not(any(target_os = "macos", target_os = "windows", target_arch = "arm")))]
 use tikv_jemallocator::Jemalloc;
 
@@ -458,6 +459,20 @@ fn main() {
             process::exit(1);
         }
     };
+
+    // Must happen before the first database is opened: the VFS is fixed for the process.
+    if let Err(active) = set_sqlite_vfs(conf.node.sqlite_vfs) {
+        error!("Cannot apply node.sqlite_vfs: a database was already opened with another VFS";
+            "configured" => %conf.node.sqlite_vfs,
+            "active" => %active
+        );
+        process::exit(1);
+    }
+    if conf.node.sqlite_vfs != SqliteVfs::Default {
+        info!("Opening node databases with a non-default SQLite VFS";
+            "sqlite_vfs" => %conf.node.sqlite_vfs
+        );
+    }
 
     debug!("node configuration {:?}", &conf.node);
     debug!("burnchain configuration {:?}", &conf.burnchain);
