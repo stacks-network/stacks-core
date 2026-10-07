@@ -883,25 +883,12 @@ impl Config {
             ..
         } = default;
 
-        // `burnchain.mode` must be set explicitly in the config file; there is
-        // no implicit default (aligns with the signer, where `network` is required).
-        if config_file
+        // First parse the burnchain config. A missing section still fails,
+        // because `burnchain.mode` is required.
+        let burnchain = config_file
             .burnchain
-            .as_ref()
-            .and_then(|b| b.mode.as_ref())
-            .is_none()
-        {
-            return Err(format!(
-                "Setting burnchain.mode is required (one of: {})",
-                SUPPORTED_MODES.join(", ")
-            ));
-        }
-
-        // First parse the burnchain config
-        let burnchain = match config_file.burnchain {
-            Some(burnchain) => burnchain.into_config_default(default_burnchain_config)?,
-            None => default_burnchain_config,
-        };
+            .unwrap_or_default()
+            .into_config_default(default_burnchain_config)?;
 
         if burnchain.mode == "helium" && burnchain.local_mining_public_key.is_none() {
             return Err("Config is missing the setting `burnchain.local_mining_public_key` (mandatory for helium)".into());
@@ -1340,12 +1327,11 @@ impl std::default::Default for Config {
     }
 }
 
-/// Burnchain modes accepted in the config file. Shared by the required-mode
-/// check and the unsupported-mode check; `get_bitcoin_network()` panics on any
-/// mode outside this list. Each mode also needs a run loop in stacks-node's
-/// `main.rs`, or the config validates but the node refuses to start.
+/// Burnchain modes accepted in the config file; `get_bitcoin_network()` panics
+/// on any mode outside this list. stacks-node's `main.rs` runs every mode except
+/// helium on the Nakamoto boot run loop.
 const SUPPORTED_MODES: &[&str] = &[
-    // Deprecated: removed together with the helium run loop (see #7325).
+    // Deprecated: to be removed with the helium run loop (see #7325).
     "helium",
     "neon",
     "krypton",
@@ -1891,11 +1877,14 @@ impl BurnchainConfigFile {
         mut self,
         default_burnchain_config: BurnchainConfig,
     ) -> Result<BurnchainConfig, String> {
-        if self.mode.as_deref() == Some("xenon") && self.magic_bytes.is_none() {
-            self.magic_bytes = ConfigFile::xenon().burnchain.unwrap().magic_bytes;
-        }
-
-        let mode = self.mode.unwrap_or(default_burnchain_config.mode);
+        // No default: an implicit mode used to mean mocknet. This matches the
+        // signer, where `network` is required too.
+        let Some(mode) = self.mode else {
+            return Err(format!(
+                "Setting burnchain.mode is required (one of: {})",
+                SUPPORTED_MODES.join(", ")
+            ));
+        };
 
         // Validate the mode before anything else: get_bitcoin_network() (called
         // further down) panics on an unknown mode, so an unsupported or removed
@@ -1906,6 +1895,10 @@ impl BurnchainConfigFile {
                 "Setting burnchain.mode = \"{mode}\" not supported (should be: {})",
                 SUPPORTED_MODES.join(", ")
             ));
+        }
+
+        if mode == "xenon" && self.magic_bytes.is_none() {
+            self.magic_bytes = ConfigFile::xenon().burnchain.unwrap().magic_bytes;
         }
 
         let is_mainnet = mode == "mainnet";
@@ -5471,6 +5464,7 @@ mod tests {
         };
 
         let merged = BurnchainConfigFile {
+            mode: Some("krypton".into()),
             wallet_name: configured.map(String::from),
             ..BurnchainConfigFile::default()
         }
@@ -5770,12 +5764,11 @@ mod tests {
     fn test_into_config_default_chain_id() {
         // Helper function to create BurnchainConfigFile with mode and optional chain_id
         fn make_burnchain_config_file(mainnet: bool, chain_id: Option<u32>) -> BurnchainConfigFile {
-            let mut config = BurnchainConfigFile::default();
-            if mainnet {
-                config.mode = Some("mainnet".to_string());
+            BurnchainConfigFile {
+                mode: Some(if mainnet { "mainnet" } else { "krypton" }.to_string()),
+                chain_id,
+                ..BurnchainConfigFile::default()
             }
-            config.chain_id = chain_id;
-            config
         }
         let default_burnchain_config = BurnchainConfig::default();
 

@@ -466,20 +466,13 @@ fn main() {
         if let Err(e) = run_loop.start(num_round) {
             warn!("Helium runloop exited: {e}");
         }
-    } else if conf.burnchain.mode == "neon"
-        || conf.burnchain.mode == "nakamoto-neon"
-        || conf.burnchain.mode == "xenon"
-        || conf.burnchain.mode == "signet"
-        || conf.burnchain.mode == "krypton"
-        || conf.burnchain.mode == "mainnet"
-    {
+    } else {
+        // `Config::from_config_file` already rejected unsupported modes.
         if conf.memory_limit_configured() && !tracking_allocator_installed() {
             panic!("Tracking allocator must be installed to set a memory limit");
         }
         let mut run_loop = boot_nakamoto::BootRunLoop::new(conf).unwrap();
         run_loop.start(None, 0);
-    } else {
-        println!("Burnchain mode '{}' not supported", conf.burnchain.mode);
     }
 }
 
