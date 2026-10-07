@@ -1131,7 +1131,11 @@ fn new_block_event_omits_contract_interface_only_for_opted_out_observer() {
     let contract_interface = |payload: serde_json::Value| {
         let transactions = payload["transactions"].as_array().unwrap().clone();
         assert_eq!(transactions.len(), 1);
-        transactions[0]["contract_interface"].clone()
+        // Observers get an explicit `null` when opted out, never a missing field.
+        transactions[0]
+            .get("contract_interface")
+            .expect("contract_interface field must be present")
+            .clone()
     };
     let with_abi = abi_rx
         .recv_timeout(Duration::from_secs(5))
