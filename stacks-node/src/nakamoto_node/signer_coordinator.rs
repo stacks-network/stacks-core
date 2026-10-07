@@ -78,7 +78,7 @@ pub struct SignerCoordinator {
     burn_tip_at_start: ConsensusHash,
     /// The timeout configuration based on the percentage of rejections
     block_rejection_timeout_steps: BTreeMap<u32, Duration>,
-    /// Cap on the rejection timeout while any signer has rejected the block
+    /// Rejection timeout to apply while any signer has rejected the block
     /// for a transient reason
     transient_rejection_retry_timeout: Duration,
 }
@@ -116,9 +116,11 @@ fn build_block_rejection_timeout_steps(
 /// transient (see [`libsigner::v0::messages::RejectReason::is_transient`]).
 ///
 /// Returns the matching step (the rejection weight key) and its timeout. While
-/// any transient rejections are outstanding, the timeout is capped at
-/// `transient_retry_timeout`: those signers re-evaluate the block once it is
-/// proposed again, so waiting for the full step timeout only delays the block.
+/// any transient rejections are outstanding, the timeout is
+/// `transient_retry_timeout` regardless of the step: those signers re-evaluate
+/// the block once it is proposed again, so a longer step only delays the block,
+/// while a shorter one (e.g. 0) re-sends before they have caught up and only
+/// collects the same rejections again.
 fn select_rejection_timeout(
     block_rejection_timeout_steps: &BTreeMap<u32, Duration>,
     total_weight_rejected: u32,
@@ -129,10 +131,24 @@ fn select_rejection_timeout(
         .range((Included(0), Included(total_weight_rejected)))
         .last()?;
     if total_weight_rejected_transient > 0 {
-        Some((*step, (*timeout).min(transient_retry_timeout)))
+        Some((*step, transient_retry_timeout))
     } else {
         Some((*step, *timeout))
     }
+}
+
+/// Should a block whose rejections exceed the `blocking_minority` be re-sent
+/// rather than abandoned? It should if the rejections that are not transient
+/// (see [`libsigner::v0::messages::RejectReason::is_transient`]) do not exceed
+/// the `blocking_minority` on their own: the transient rejecters re-evaluate the
+/// block when it is proposed again, and may then accept it.
+fn should_resend_on_transient_rejection(
+    total_weight_rejected: u32,
+    total_weight_rejected_transient: u32,
+    blocking_minority: u32,
+) -> bool {
+    let substantive = total_weight_rejected.saturating_sub(total_weight_rejected_transient);
+    substantive <= blocking_minority
 }
 
 impl SignerCoordinator {
@@ -574,11 +590,31 @@ impl SignerCoordinator {
                 counters.set_miner_current_rejections(rejections);
             }
 
-            if block_status
+            let blocking_minority = self.total_weight.saturating_sub(self.weight_threshold);
+            let rejected = block_status
                 .total_weight_rejected
                 .saturating_add(self.weight_threshold)
-                > self.total_weight
-            {
+                > self.total_weight;
+            let resend_after_rejection = rejected
+                && should_resend_on_transient_rejection(
+                    block_status.total_weight_rejected,
+                    block_status.total_weight_rejected_transient,
+                    blocking_minority,
+                );
+            if resend_after_rejection {
+                // Keep waiting rather than abandon the block: once the
+                // rejections timeout (the transient retry timeout) expires, the
+                // same proposal is re-sent and re-evaluated by the signers.
+                info!("Block rejected only on transient grounds, re-sending the same proposal after the retry timeout";
+                    "signer_signature_hash" => %block_signer_sighash,
+                    "total_weight_rejected" => block_status.total_weight_rejected,
+                    "transient_weight_rejected" => block_status.total_weight_rejected_transient,
+                    "blocking_minority" => blocking_minority,
+                    "rejections_timeout" => rejections_timeout.as_secs(),
+                );
+            }
+
+            if rejected && !resend_after_rejection {
                 info!(
                     "{}/{} signer weight votes to reject block",
                     block_status.total_weight_rejected, self.total_weight;
@@ -587,7 +623,6 @@ impl SignerCoordinator {
                 counters.bump_naka_rejected_blocks();
 
                 // Only act on failed txids that a blocking minority (>30% weight) agrees on
-                let blocking_minority = self.total_weight.saturating_sub(self.weight_threshold);
                 let mut temporarily_excluded_txids = HashSet::new();
                 let mut permanently_excluded_txids = HashSet::new();
                 for (txid, info) in &block_status.failed_txids {
@@ -679,7 +714,10 @@ mod tests {
     use std::collections::HashMap;
     use std::time::Duration;
 
-    use super::{build_block_rejection_timeout_steps, select_rejection_timeout};
+    use super::{
+        build_block_rejection_timeout_steps, select_rejection_timeout,
+        should_resend_on_transient_rejection,
+    };
 
     #[test]
     fn timeout_steps_keep_longest_on_collisions() {
@@ -740,7 +778,7 @@ mod tests {
     }
 
     #[test]
-    fn rejection_timeout_capped_by_transient_rejections() {
+    fn rejection_timeout_set_by_transient_rejections() {
         let steps = default_steps(100);
         let retry = Duration::from_secs(5);
 
@@ -749,15 +787,54 @@ mod tests {
             select_rejection_timeout(&steps, 15, 15, retry),
             Some((10, retry))
         );
-        // Mixed rejections: any transient weight caps the timeout
+        // Mixed rejections: any transient weight selects the retry timeout
         assert_eq!(
             select_rejection_timeout(&steps, 25, 5, retry),
             Some((20, retry))
         );
-        // The cap never lengthens a shorter step timeout
+        // A shorter step timeout is lengthened, so the miner does not re-send
+        // before the transient rejecters have had time to catch up
         assert_eq!(
             select_rejection_timeout(&steps, 30, 10, retry),
+            Some((30, retry))
+        );
+        assert_eq!(
+            select_rejection_timeout(&steps, 35, 10, retry),
+            Some((30, retry))
+        );
+        // Without transient rejections, the step applies
+        assert_eq!(
+            select_rejection_timeout(&steps, 35, 0, retry),
             Some((30, Duration::from_secs(0)))
         );
+    }
+
+    #[test]
+    fn resend_only_when_substantive_rejections_within_blocking_minority() {
+        let blocking_minority = 30;
+        // All rejections are transient
+        assert!(should_resend_on_transient_rejection(
+            35,
+            35,
+            blocking_minority
+        ));
+        // Substantive rejections alone do not exceed the blocking minority
+        assert!(should_resend_on_transient_rejection(
+            50,
+            20,
+            blocking_minority
+        ));
+        // Substantive rejections alone exceed the blocking minority
+        assert!(!should_resend_on_transient_rejection(
+            50,
+            19,
+            blocking_minority
+        ));
+        // No transient rejections
+        assert!(!should_resend_on_transient_rejection(
+            35,
+            0,
+            blocking_minority
+        ));
     }
 }

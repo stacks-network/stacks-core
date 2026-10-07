@@ -3285,10 +3285,12 @@ pub struct MinerConfig {
     /// enough state machine updates from its peers to reach consensus on the
     /// signer state. These usually resolve within seconds, and signers
     /// re-evaluate the block when it is proposed again. While any such rejection
-    /// is outstanding, the timeout selected from
-    /// [`MinerConfig::block_rejection_timeout_steps`] is capped at this value so
-    /// the miner re-proposes promptly instead of waiting for the full
-    /// rejection-based timeout.
+    /// is outstanding, the miner re-proposes the block after this duration
+    /// instead of the timeout selected from
+    /// [`MinerConfig::block_rejection_timeout_steps`]. This applies even if the
+    /// rejections exceed the blocking minority (30% of the signing weight), as
+    /// long as they would not without the transient rejections: the miner
+    /// re-proposes the same block rather than abandoning it.
     /// ---
     /// @default: [`DEFAULT_TRANSIENT_REJECTION_RETRY_MS`]
     /// @units: milliseconds
