@@ -1212,8 +1212,8 @@ fn test_trait_with_compatible_trait_arg() {
     (define-trait trait-b (
         (echo (<trait-2>) (response uint uint))
     ))
-    (define-public (wrapped-echo (contract <trait-a>))
-        (internal-echo contract))
+    (define-public (wrapped-echo (contract <trait-a>) (callee <trait-2>))
+        (internal-echo contract callee))
     (define-public (internal-echo (contract <trait-b>) (callee <trait-2>))
         (contract-call? contract echo callee))";
 
@@ -1250,8 +1250,8 @@ fn test_trait_with_bad_trait_arg() {
     (define-trait trait-b (
         (echo (<trait-2>) (response uint uint))
     ))
-    (define-public (wrapped-echo (contract <trait-a>))
-        (internal-echo contract))
+    (define-public (wrapped-echo (contract <trait-a>) (callee <trait-2>))
+        (internal-echo contract callee))
     (define-public (internal-echo (contract <trait-b>) (callee <trait-2>))
         (contract-call? contract echo callee))";
 

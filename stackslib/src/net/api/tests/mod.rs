@@ -148,6 +148,9 @@ const TEST_CONTRACT: &str = "
       (map-set unit-map { account: 'ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R } { units: 123 }))
 
     (define-read-only (ro-confirmed) u1)
+    (define-read-only (ro-confirmed? (value uint)) value)
+    (define-read-only (get-missing)
+      (unwrap-panic (map-get? test-map u100)))
 
     (define-public (do-test) (ok u0))
 
@@ -293,6 +296,30 @@ impl<'a> TestRPC<'a> {
         process_microblock: bool,
         rpc_handler_args_opt_1: Option<RPCHandlerArgsType>,
         rpc_handler_args_opt_2: Option<RPCHandlerArgsType>,
+        with_peer_1_config: F0,
+        with_peer_2_config: F1,
+    ) -> TestRPC<'a>
+    where
+        F0: Fn(&mut TestPeerConfig),
+        F1: Fn(&mut TestPeerConfig),
+    {
+        Self::setup_ex_with_unconfirmed_contract(
+            test_name,
+            process_microblock,
+            rpc_handler_args_opt_1,
+            rpc_handler_args_opt_2,
+            TEST_CONTRACT_UNCONFIRMED,
+            with_peer_1_config,
+            with_peer_2_config,
+        )
+    }
+
+    pub fn setup_ex_with_unconfirmed_contract<F0, F1>(
+        test_name: &str,
+        process_microblock: bool,
+        rpc_handler_args_opt_1: Option<RPCHandlerArgsType>,
+        rpc_handler_args_opt_2: Option<RPCHandlerArgsType>,
+        unconfirmed_contract: &str,
         with_peer_1_config: F0,
         with_peer_2_config: F1,
     ) -> TestRPC<'a>
@@ -455,7 +482,6 @@ impl<'a> TestRPC<'a> {
         };
 
         // make an unconfirmed contract
-        let unconfirmed_contract = TEST_CONTRACT_UNCONFIRMED;
         let mut tx_unconfirmed_contract = StacksTransaction::new(
             TransactionVersion::Testnet,
             TransactionAuth::from_p2pkh(&privk1).unwrap(),

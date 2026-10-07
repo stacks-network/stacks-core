@@ -305,7 +305,7 @@ fn test_get_block_info() {
         StaticCheckErrorKind::NoSuchBlockInfoProperty("none".to_string()),
         StaticCheckErrorKind::TypeError(Box::new(UIntType), Box::new(BoolType)),
         StaticCheckErrorKind::TypeError(Box::new(UIntType), Box::new(IntType)),
-        StaticCheckErrorKind::RequiresAtLeastArguments(2, 1),
+        StaticCheckErrorKind::IncorrectArgumentCount(2, 1),
     ];
 
     for (good_test, expected) in good.iter().zip(expected.iter()) {
@@ -4604,7 +4604,7 @@ fn test_clarity2_inner_type_check_type_aborts_when_deadline_elapsed() {
     let mut db = marf.as_analysis_db();
     let mut cost_tracker = LimitedCostTracker::new_free();
     // A zero-duration deadline is already elapsed at the first check.
-    let resource_limiter = ResourceBudget::new()
+    let resource_limiter = ResourceBudget::unlimited()
         .with_max_duration(Some(Duration::ZERO))
         .start_tracking();
 
@@ -4849,5 +4849,268 @@ fn test_analysis_fold_result_admits_initial_value() {
             .unwrap()
             .0;
         assert_eq!(legacy, strict, "{source}");
+    }
+}
+
+/// Analyzes `call` at 4.0 and at 4.1, expecting `legacy` (`None` for success)
+/// before 4.1 and `strict` from 4.1.
+fn check_exact_argument_count(
+    call: &str,
+    legacy: Option<StaticCheckErrorKind>,
+    strict: StaticCheckErrorKind,
+    legacy_version: ClarityVersion,
+    strict_version: ClarityVersion,
+) {
+    let source = format!(
+        "(define-private (one (x uint)) x)
+         (define-private (zero) u0)
+         (define-map m uint uint)
+         (define-data-var v uint u0)
+         (define-private (f) {call})"
+    );
+    let result = mem_run_analysis(&source, legacy_version, StacksEpochId::Epoch40);
+    match legacy {
+        None => {
+            result.unwrap();
+        }
+        Some(expected) => assert_eq!(*result.unwrap_err().err, expected),
+    }
+    let error = mem_run_analysis(&source, strict_version, StacksEpochId::Epoch41).unwrap_err();
+    assert_eq!(*error.err, strict);
+}
+
+/// From 4.1, calls to user-defined functions, and to the fixed-arity natives
+/// that used to ignore extra arguments, must pass exactly the expected number.
+#[rstest]
+#[case::user_function_extra_argument(
+    "(one u1 u2)",
+    None,
+    StaticCheckErrorKind::IncorrectArgumentCount(1, 2)
+)]
+#[case::user_function_missing_argument(
+    "(one)",
+    None,
+    StaticCheckErrorKind::IncorrectArgumentCount(1, 0)
+)]
+#[case::zero_parameter_function(
+    "(zero u1)",
+    None,
+    StaticCheckErrorKind::IncorrectArgumentCount(0, 1)
+)]
+// The extra argument is never analyzed before 4.1.
+#[case::unanalyzed_extra_argument(
+    "(one u1 (restrict-assets? tx-sender ((with-all-assets-unsafe)) u1))",
+    None,
+    StaticCheckErrorKind::IncorrectArgumentCount(1, 2)
+)]
+// The lookup comes first, so an unknown function keeps its error.
+#[case::unknown_function(
+    "(unknown u1 u2)",
+    Some(StaticCheckErrorKind::UnknownFunction("unknown".into())),
+    StaticCheckErrorKind::UnknownFunction("unknown".into())
+)]
+#[case::map_delete_extra_argument(
+    "(map-delete m u1 u2)",
+    None,
+    StaticCheckErrorKind::IncorrectArgumentCount(2, 3)
+)]
+#[case::map_set_extra_argument(
+    "(map-set m u1 u2 u3)",
+    None,
+    StaticCheckErrorKind::IncorrectArgumentCount(3, 4)
+)]
+#[case::map_insert_extra_argument(
+    "(map-insert m u1 u2 u3)",
+    None,
+    StaticCheckErrorKind::IncorrectArgumentCount(3, 4)
+)]
+#[case::var_set_extra_argument(
+    "(var-set v u1 u2)",
+    None,
+    StaticCheckErrorKind::IncorrectArgumentCount(2, 3)
+)]
+#[case::map_delete_missing_argument(
+    "(map-delete m)",
+    Some(StaticCheckErrorKind::RequiresAtLeastArguments(2, 1)),
+    StaticCheckErrorKind::IncorrectArgumentCount(2, 1)
+)]
+#[case::map_set_missing_argument(
+    "(map-set m u1)",
+    Some(StaticCheckErrorKind::RequiresAtLeastArguments(3, 2)),
+    StaticCheckErrorKind::IncorrectArgumentCount(3, 2)
+)]
+#[case::map_insert_missing_argument(
+    "(map-insert m u1)",
+    Some(StaticCheckErrorKind::RequiresAtLeastArguments(3, 2)),
+    StaticCheckErrorKind::IncorrectArgumentCount(3, 2)
+)]
+#[case::var_set_missing_argument(
+    "(var-set v)",
+    Some(StaticCheckErrorKind::RequiresAtLeastArguments(2, 1)),
+    StaticCheckErrorKind::IncorrectArgumentCount(2, 1)
+)]
+// Before 4.1 the read-only checker runs first and already checks `map-get?`. From
+// 4.1 the type checker runs first, and the undefined key shows it checks the count
+// before the key.
+#[case::map_get_extra_argument(
+    "(map-get? m undefined u2)",
+    Some(StaticCheckErrorKind::IncorrectArgumentCount(2, 3)),
+    StaticCheckErrorKind::IncorrectArgumentCount(2, 3)
+)]
+fn test_analysis_exact_argument_count(
+    #[case] call: &str,
+    #[case] legacy: Option<StaticCheckErrorKind>,
+    #[case] strict: StaticCheckErrorKind,
+) {
+    check_exact_argument_count(
+        call,
+        legacy,
+        strict,
+        ClarityVersion::Clarity6,
+        ClarityVersion::Clarity7,
+    );
+}
+
+/// `get-block-info?` exists only in Clarity 1 and 2.
+#[rstest]
+#[case::extra_argument(
+    "(get-block-info? time u1 u2)",
+    None,
+    StaticCheckErrorKind::IncorrectArgumentCount(2, 3)
+)]
+#[case::missing_argument(
+    "(get-block-info? time)",
+    Some(StaticCheckErrorKind::RequiresAtLeastArguments(2, 1)),
+    StaticCheckErrorKind::IncorrectArgumentCount(2, 1)
+)]
+fn test_analysis_get_block_info_exact_argument_count(
+    #[case] call: &str,
+    #[case] legacy: Option<StaticCheckErrorKind>,
+    #[case] strict: StaticCheckErrorKind,
+) {
+    check_exact_argument_count(
+        call,
+        legacy,
+        strict,
+        ClarityVersion::Clarity2,
+        ClarityVersion::Clarity2,
+    );
+}
+
+/// From 4.1 every analysis site rejects tuples with different fields, in every
+/// Clarity version, with the error of the operation that joined them. Before
+/// 4.1 the narrower tuple first passes. Nesting is covered by the type-level
+/// test in clarity-types.
+#[rstest]
+#[case::if_arms(
+    "(if false {a: u1} {a: u1, b: true})",
+    StaticCheckErrorKind::IfArmsMustMatch
+)]
+#[case::default_to(
+    "(default-to {a: u1} (some {a: u1, b: true}))",
+    StaticCheckErrorKind::DefaultTypesMustMatch
+)]
+#[case::match_optional(
+    "(match (if false (some true) none) x {a: u1} {a: u1, b: true})",
+    StaticCheckErrorKind::MatchArmsMustMatch
+)]
+#[case::match_response(
+    "(match (if false (ok true) (err true)) x {a: u1} e {a: u1, b: true})",
+    StaticCheckErrorKind::MatchArmsMustMatch
+)]
+#[case::equals("(is-eq {a: u1, b: true} {a: u1})", StaticCheckErrorKind::TypeError)]
+#[case::list("(list {a: u1} {a: u1, b: true})", StaticCheckErrorKind::TypeError)]
+#[case::append(
+    "(append (list {a: u1}) {a: u1, b: true})",
+    StaticCheckErrorKind::TypeError
+)]
+#[case::concat(
+    "(concat (list {a: u1}) (list {a: u1, b: true}))",
+    StaticCheckErrorKind::TypeError
+)]
+#[case::final_return(
+    "(define-private (f) (begin (asserts! true {a: u1}) {a: u1, b: true})) (f)",
+    StaticCheckErrorKind::ReturnTypesMustMatch
+)]
+#[case::tracked_returns(
+    "(define-private (f) (begin (asserts! true {a: u1}) (asserts! true {a: u1, b: true}) {a: u1})) (f)",
+    StaticCheckErrorKind::ReturnTypesMustMatch
+)]
+#[case::fold_initial_value(
+    "(define-private (keep-none (x uint) (acc (optional {a: uint, b: bool}))) none) \
+     (default-to {a: u1} (fold keep-none (list u1) (some {a: u1, b: true})))",
+    StaticCheckErrorKind::DefaultTypesMustMatch
+)]
+fn test_analysis_tuple_supertype_epoch_gate(
+    #[case] source: &str,
+    #[case] rejected_as: fn(Box<TypeSignature>, Box<TypeSignature>) -> StaticCheckErrorKind,
+) {
+    // Only the variant matters; its payload differs per site.
+    let expected = rejected_as(
+        Box::new(TypeSignature::NoType),
+        Box::new(TypeSignature::NoType),
+    );
+    for &epoch in (StacksEpochId::Epoch20..).iter() {
+        for &version in ClarityVersion::ALL
+            .iter()
+            .filter(|v| **v <= ClarityVersion::default_for_epoch(epoch))
+        {
+            let result = mem_run_analysis(source, version, epoch);
+            if epoch >= StacksEpochId::Epoch41 {
+                let error =
+                    result.expect_err(&format!("accepted at {epoch:?}/{version:?}: {source}"));
+                assert_eq!(
+                    std::mem::discriminant(&*error.err),
+                    std::mem::discriminant(&expected),
+                    "rejected at {epoch:?}/{version:?} with {error:?}, expected {expected:?}"
+                );
+            } else {
+                result.unwrap_or_else(|e| {
+                    panic!("rejected at {epoch:?}/{version:?}: {source}: {e:?}")
+                });
+            }
+        }
+    }
+}
+
+/// Every accumulated `concat` argument is checked with the deployment epoch, and
+/// at every site tuples with the same fields still unify by widening lengths
+/// rather than requiring identical types.
+#[test]
+fn test_analysis_tuple_supertype_valid_joins_and_variadic_concat() {
+    let variadic = "(concat (list {a: u1}) (list {a: u2}) (list {a: u3, b: true}))";
+    mem_run_analysis(variadic, ClarityVersion::Clarity6, StacksEpochId::Epoch40).unwrap();
+    assert!(mem_run_analysis(variadic, ClarityVersion::Clarity7, StacksEpochId::Epoch41).is_err());
+    for source in [
+        "(if false {a: 0x01} {a: 0x0102})",
+        "(default-to {a: 0x01} (some {a: 0x0102}))",
+        "(match (if true (some {a: 0x01}) none) x x {a: 0x0102})",
+        "(match (if true (ok {a: 0x01}) (err u1)) x x e {a: 0x0102})",
+        "(is-eq {a: 0x01} {a: 0x0102})",
+        "(define-private (f) (begin (asserts! true {a: 0x01}) {a: 0x0102})) (f)",
+        "(list {a: 0x01} {a: 0x0102})",
+        "(append (list {a: 0x01}) {a: 0x0102})",
+        "(concat (list {a: 0x01}) (list {a: 0x0102}) (list {a: 0x010203}))",
+        "(list)",
+        "(list {a: u1} {a: u2})",
+        "(if true none (some {a: u1}))",
+        "(if true (ok {a: u1}) (err {b: true}))",
+    ] {
+        let legacy = mem_run_analysis(source, ClarityVersion::Clarity6, StacksEpochId::Epoch40)
+            .unwrap()
+            .0;
+        let strict = mem_run_analysis(source, ClarityVersion::Clarity7, StacksEpochId::Epoch41)
+            .unwrap()
+            .0;
+        assert_eq!(legacy, strict, "{source}");
+    }
+    for source in [
+        "(if true {a: u1, b: true} {a: u1})",
+        "(list {a: u1, b: true} {a: u1})",
+        "(if true {a: u1} {b: u1})",
+    ] {
+        for epoch in [StacksEpochId::Epoch40, StacksEpochId::Epoch41] {
+            assert!(mem_run_analysis(source, ClarityVersion::Clarity6, epoch).is_err());
+        }
     }
 }
