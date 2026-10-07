@@ -132,6 +132,7 @@ pub mod signers_consider_late_proposals;
 pub mod signers_wait_for_validation;
 mod signet_qualification;
 pub mod tenure_extend;
+pub mod tenure_start_sibling_accepted;
 
 impl<Z: SpawnedSignerTrait> SignerTest<Z> {
     /// Poll until the reward set for the next reward cycle is available.
