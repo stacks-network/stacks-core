@@ -79,16 +79,28 @@ static GLOBAL: TrackingAllocator<std::alloc::System> = TrackingAllocator {
     inner: std::alloc::System,
 };
 
-/// Implmentation of `pick_best_tip` CLI option
-fn cli_pick_best_tip(config_path: &str, at_stacks_height: Option<u64>) -> TipCandidate {
+/// Load and validate the config at `config_path`, exiting on any error.
+fn load_config_or_exit(config_path: &str) -> Config {
     info!("Loading config at path {config_path}");
-    let config = match ConfigFile::from_path(config_path) {
-        Ok(config_file) => Config::from_config_file(config_file, true).unwrap(),
+    let config_file = match ConfigFile::from_path(config_path) {
+        Ok(config_file) => config_file,
         Err(e) => {
             warn!("Invalid config file: {e}");
             process::exit(1);
         }
     };
+    match Config::from_config_file(config_file, true) {
+        Ok(config) => config,
+        Err(e) => {
+            warn!("Invalid config: {e}");
+            process::exit(1);
+        }
+    }
+}
+
+/// Implmentation of `pick_best_tip` CLI option
+fn cli_pick_best_tip(config_path: &str, at_stacks_height: Option<u64>) -> TipCandidate {
+    let config = load_config_or_exit(config_path);
     let burn_db_path = config.get_burn_db_file_path();
     let stacks_chainstate_path = config.get_chainstate_path_str();
     let burnchain = config.get_burnchain();
@@ -127,14 +139,7 @@ fn cli_get_miner_spend(
     mine_start: Option<u64>,
     at_burnchain_height: Option<u64>,
 ) -> u64 {
-    info!("Loading config at path {config_path}");
-    let config = match ConfigFile::from_path(config_path) {
-        Ok(config_file) => Config::from_config_file(config_file, true).unwrap(),
-        Err(e) => {
-            warn!("Invalid config file: {e}");
-            process::exit(1);
-        }
-    };
+    let config = load_config_or_exit(config_path);
     let keychain = Keychain::default(config.node.seed.clone());
     let burn_db_path = config.get_burn_db_file_path();
     let stacks_chainstate_path = config.get_chainstate_path_str();
@@ -392,11 +397,7 @@ fn main() {
             let seed = {
                 let config_path: Option<String> = args.opt_value_from_str("--config").unwrap();
                 if let Some(config_path) = config_path {
-                    let conf = Config::from_config_file(
-                        ConfigFile::from_path(&config_path).unwrap(),
-                        true,
-                    )
-                    .unwrap();
+                    let conf = load_config_or_exit(&config_path);
                     args.finish();
                     conf.node.seed
                 } else {
@@ -439,9 +440,14 @@ fn main() {
             println!("Will spend {spend_amount}");
             process::exit(0);
         }
-        _ => {
+        "" | "help" => {
             print_help();
             return;
+        }
+        other => {
+            eprintln!("Unknown subcommand: {other}");
+            print_help();
+            process::exit(1);
         }
     };
 
