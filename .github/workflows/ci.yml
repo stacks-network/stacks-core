@@ -294,8 +294,6 @@ jobs:
       - setup-env
     uses: ./.github/workflows/_tests-bitcoin-rpc.yml
     with:
-      btc-version: ${{ needs.setup-env.outputs.btc-version }}
-      btc-version-sha: ${{ needs.setup-env.outputs.btc-version-sha }}
       archive-file: ${{ needs.setup-env.outputs.test-archive-file }}
 
   ############################################################################
