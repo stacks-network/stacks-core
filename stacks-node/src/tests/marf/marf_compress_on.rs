@@ -34,7 +34,7 @@ pub mod utils {
     };
     use crate::tests::neon_integrations::{test_observer, wait_for_runloop};
     use crate::tests::{self};
-    use crate::{BitcoinRegtestController, BurnchainController};
+    use crate::BitcoinRegtestController;
 
     /// Just boot chain to epoch 3 using marf compress as node configuration
     pub fn boot_chain_with_marf_compress_cfg(compress: bool) {

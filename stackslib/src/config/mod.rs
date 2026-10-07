@@ -377,58 +377,6 @@ impl ConfigFile {
             ..ConfigFile::default()
         }
     }
-
-    pub fn mocknet() -> ConfigFile {
-        let burnchain = BurnchainConfigFile {
-            mode: Some("mocknet".to_string()),
-            commit_anchor_block_within: Some(10_000),
-            ..BurnchainConfigFile::default()
-        };
-
-        let node = NodeConfigFile {
-            miner: Some(false),
-            stacker: Some(false),
-            ..NodeConfigFile::default()
-        };
-
-        let balances = vec![
-            InitialBalanceFile {
-                // "mnemonic": "point approve language letter cargo rough similar wrap focus edge polar task olympic tobacco cinnamon drop lawn boring sort trade senior screen tiger climb",
-                // "privateKey": "539e35c740079b79f931036651ad01f76d8fe1496dbd840ba9e62c7e7b355db001",
-                // "btcAddress": "n1htkoYKuLXzPbkn9avC2DJxt7X85qVNCK",
-                address: "ST3EQ88S02BXXD0T5ZVT3KW947CRMQ1C6DMQY8H19".to_string(),
-                amount: 10000000000000000,
-            },
-            InitialBalanceFile {
-                // "mnemonic": "laugh capital express view pull vehicle cluster embark service clerk roast glance lumber glove purity project layer lyrics limb junior reduce apple method pear",
-                // "privateKey": "075754fb099a55e351fe87c68a73951836343865cd52c78ae4c0f6f48e234f3601",
-                // "btcAddress": "n2ZGZ7Zau2Ca8CLHGh11YRnLw93b4ufsDR",
-                address: "ST3KCNDSWZSFZCC6BE4VA9AXWXC9KEB16FBTRK36T".to_string(),
-                amount: 10000000000000000,
-            },
-            InitialBalanceFile {
-                // "mnemonic": "level garlic bean design maximum inhale daring alert case worry gift frequent floor utility crowd twenty burger place time fashion slow produce column prepare",
-                // "privateKey": "374b6734eaff979818c5f1367331c685459b03b1a2053310906d1408dc928a0001",
-                // "btcAddress": "mhY4cbHAFoXNYvXdt82yobvVuvR6PHeghf",
-                address: "STB2BWB0K5XZGS3FXVTG3TKS46CQVV66NAK3YVN8".to_string(),
-                amount: 10000000000000000,
-            },
-            InitialBalanceFile {
-                // "mnemonic": "drop guess similar uphold alarm remove fossil riot leaf badge lobster ability mesh parent lawn today student olympic model assault syrup end scorpion lab",
-                // "privateKey": "26f235698d02803955b7418842affbee600fc308936a7ca48bf5778d1ceef9df01",
-                // "btcAddress": "mkEDDqbELrKYGUmUbTAyQnmBAEz4V1MAro",
-                address: "STSTW15D618BSZQB85R058DS46THH86YQQY6XCB7".to_string(),
-                amount: 10000000000000000,
-            },
-        ];
-
-        ConfigFile {
-            burnchain: Some(burnchain),
-            node: Some(node),
-            ustx_balance: Some(balances),
-            ..ConfigFile::default()
-        }
-    }
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -739,7 +687,6 @@ impl Config {
     #[cfg_attr(test, mutants::skip)]
     fn make_epochs(
         conf_epochs: &[StacksEpochConfigFile],
-        burn_mode: &str,
         bitcoin_network: BitcoinNetworkType,
         pox_2_activation: Option<u32>,
     ) -> Result<EpochList<ExecutionCost>, String> {
@@ -852,12 +799,6 @@ impl Config {
                 .map_err(|_| "End height must be a non-negative integer")?;
         }
 
-        if burn_mode == "mocknet" {
-            for epoch in out_epochs.iter_mut() {
-                epoch.block_limit = ExecutionCost::max_value();
-            }
-        }
-
         if let Some(pox_2_activation) = pox_2_activation {
             let last_epoch = out_epochs
                 .iter()
@@ -942,30 +883,12 @@ impl Config {
             ..
         } = default;
 
-        // First parse the burnchain config
-        let burnchain = match config_file.burnchain {
-            Some(burnchain) => burnchain.into_config_default(default_burnchain_config)?,
-            None => default_burnchain_config,
-        };
-
-        let supported_modes = [
-            "mocknet",
-            "helium",
-            "neon",
-            "argon",
-            "krypton",
-            "xenon",
-            "mainnet",
-            "nakamoto-neon",
-            "signet",
-        ];
-
-        if !supported_modes.contains(&burnchain.mode.as_str()) {
-            return Err(format!(
-                "Setting burnchain.network not supported (should be: {})",
-                supported_modes.join(", ")
-            ));
-        }
+        // First parse the burnchain config. A missing section still fails,
+        // because `burnchain.mode` is required.
+        let burnchain = config_file
+            .burnchain
+            .unwrap_or_default()
+            .into_config_default(default_burnchain_config)?;
 
         if burnchain.mode == "helium" && burnchain.local_mining_public_key.is_none() {
             return Err("Config is missing the setting `burnchain.local_mining_public_key` (mandatory for helium)".into());
@@ -1404,6 +1327,20 @@ impl std::default::Default for Config {
     }
 }
 
+/// Burnchain modes accepted in the config file; `get_bitcoin_network()` panics
+/// on any mode outside this list. stacks-node's `main.rs` runs every mode except
+/// helium on the Nakamoto boot run loop.
+const SUPPORTED_MODES: &[&str] = &[
+    // Deprecated: to be removed with the helium run loop (see #7325).
+    "helium",
+    "neon",
+    "krypton",
+    "xenon",
+    "mainnet",
+    "nakamoto-neon",
+    "signet",
+];
+
 #[derive(Clone, Debug, Default, Deserialize, PartialEq)]
 pub struct BurnchainConfig {
     /// The underlying blockchain used for Proof-of-Transfer.
@@ -1420,14 +1357,13 @@ pub struct BurnchainConfig {
     /// - `"mainnet"`: mainnet
     /// - `"xenon"`: testnet
     /// - `"signet"`: public or custom Bitcoin signet through a trusted Bitcoin Core peer
-    /// - `"mocknet"`: regtest
     /// - `"helium"`: regtest
     /// - `"neon"`: regtest
-    /// - `"argon"`: regtest
     /// - `"krypton"`: regtest
     /// - `"nakamoto-neon"`: regtest
     /// ---
-    /// @default: `"mocknet"`
+    /// @default: No default.
+    /// @required: true
     pub mode: String,
     /// The network-specific identifier used in P2P communication and database initialization.
     /// ---
@@ -1544,7 +1480,7 @@ pub struct BurnchainConfig {
     /// public key.
     ///
     /// It is primarily used in modes that rely on a controlled Bitcoin regtest
-    /// backend (e.g., "helium", "mocknet", "neon") where the Stacks node itself
+    /// backend (e.g., "helium", "neon") where the Stacks node itself
     /// needs to instruct the Bitcoin node to generate blocks.
     ///
     /// The key is used to derive the Bitcoin address that receives the coinbase
@@ -1792,7 +1728,7 @@ impl BurnchainConfig {
     fn default() -> BurnchainConfig {
         BurnchainConfig {
             chain: "bitcoin".to_string(),
-            mode: "mocknet".to_string(),
+            mode: "neon".to_string(),
             chain_id: CHAIN_ID_TESTNET,
             peer_version: PEER_VERSION_TESTNET,
             burn_fee_cap: 20000,
@@ -1834,7 +1770,7 @@ impl BurnchainConfig {
             "mainnet" => ("mainnet".to_string(), BitcoinNetworkType::Mainnet),
             "xenon" => ("testnet".to_string(), BitcoinNetworkType::Testnet),
             "signet" => ("signet".to_string(), BitcoinNetworkType::Signet),
-            "helium" | "neon" | "argon" | "krypton" | "mocknet" | "nakamoto-neon" => {
+            "helium" | "neon" | "krypton" | "nakamoto-neon" => {
                 ("regtest".to_string(), BitcoinNetworkType::Regtest)
             }
             other => panic!("Invalid stacks-node mode: {other}"),
@@ -1915,11 +1851,30 @@ impl BurnchainConfigFile {
         mut self,
         default_burnchain_config: BurnchainConfig,
     ) -> Result<BurnchainConfig, String> {
-        if self.mode.as_deref() == Some("xenon") && self.magic_bytes.is_none() {
+        // No default: an implicit mode used to mean mocknet. This matches the
+        // signer, where `network` is required too.
+        let Some(mode) = self.mode else {
+            return Err(format!(
+                "Setting burnchain.mode is required (one of: {})",
+                SUPPORTED_MODES.join(", ")
+            ));
+        };
+
+        // Validate the mode before anything else: get_bitcoin_network() (called
+        // further down) panics on an unknown mode, so an unsupported or removed
+        // mode (e.g. the old "mocknet") must be rejected here with a clean error
+        // rather than aborting the process.
+        if !SUPPORTED_MODES.contains(&mode.as_str()) {
+            return Err(format!(
+                "Setting burnchain.mode = \"{mode}\" not supported (should be: {})",
+                SUPPORTED_MODES.join(", ")
+            ));
+        }
+
+        if mode == "xenon" && self.magic_bytes.is_none() {
             self.magic_bytes = ConfigFile::xenon().burnchain.unwrap().magic_bytes;
         }
 
-        let mode = self.mode.unwrap_or(default_burnchain_config.mode);
         let is_mainnet = mode == "mainnet";
         if mode == "signet" {
             self.signet_challenge
@@ -2093,7 +2048,6 @@ impl BurnchainConfigFile {
         if let Some(ref conf_epochs) = self.epochs {
             config.epochs = Some(Config::make_epochs(
                 conf_epochs,
-                &config.mode,
                 config.get_bitcoin_network().1,
                 self.pox_2_activation,
             )?);
@@ -5173,7 +5127,7 @@ mod tests {
     /// A signet-only setting must not silently alter another network.
     #[test]
     fn signet_config_rejects_other_modes() {
-        for mode in ["mainnet", "xenon", "neon", "mocknet"] {
+        for mode in ["mainnet", "xenon", "neon"] {
             let file = ConfigFile {
                 burnchain: Some(BurnchainConfigFile {
                     mode: Some(mode.into()),
@@ -5234,6 +5188,8 @@ mod tests {
             Config::from_config_file(
                 ConfigFile::from_str(
                     r#"
+                    [burnchain]
+                    mode = "krypton"
                     [node]
                     seed = "invalid-hex-value"
                     "#,
@@ -5249,6 +5205,8 @@ mod tests {
             Config::from_config_file(
                 ConfigFile::from_str(
                     r#"
+                    [burnchain]
+                    mode = "krypton"
                     [node]
                     local_peer_seed = "invalid-hex-value"
                     "#,
@@ -5265,6 +5223,7 @@ mod tests {
             ConfigFile::from_str(
                 r#"
                 [burnchain]
+                mode = "krypton"
                 peer_host = "bitcoin2.blockstack.com"
                 "#,
             )
@@ -5277,7 +5236,39 @@ mod tests {
             &actual_err_msg[..expected_err_prefix.len()]
         );
 
-        assert!(Config::from_config_file(ConfigFile::from_str("").unwrap(), false).is_ok());
+        // An empty config has no `[burnchain] mode`, which is now required.
+        let err = Config::from_config_file(ConfigFile::from_str("").unwrap(), false).unwrap_err();
+        assert!(
+            err.contains("Setting burnchain.mode is required"),
+            "unexpected error: {err}"
+        );
+    }
+
+    #[test]
+    fn test_events_observer_disable_contract_interface_is_per_observer() {
+        let config = utils::config_from_valid_string(
+            r#"
+            [burnchain]
+            mode = "krypton"
+            [[events_observer]]
+            endpoint = "localhost:30000"
+            events_keys = ["*"]
+            disable_contract_interface = true
+            [[events_observer]]
+            endpoint = "localhost:30001"
+            events_keys = ["*"]
+            "#,
+        );
+        let disables_contract_interface = |endpoint: &str| {
+            config
+                .events_observers
+                .iter()
+                .find(|observer| observer.endpoint == endpoint)
+                .unwrap()
+                .disable_contract_interface
+        };
+        assert!(disables_contract_interface("localhost:30000"));
+        assert!(!disables_contract_interface("localhost:30001"));
     }
 
     #[test]
@@ -5289,6 +5280,7 @@ mod tests {
                 miner = true
 
                 [burnchain]
+                mode = "krypton"
                 {wallet_setting}
                 "#
             );
@@ -5308,6 +5300,7 @@ mod tests {
                 miner = true
 
                 [burnchain]
+                mode = "krypton"
                 wallet_name = "miner-wallet"
                 "#,
             )
@@ -5326,6 +5319,9 @@ mod tests {
                 [node]
                 miner = true
                 mock_mining = true
+
+                [burnchain]
+                mode = "krypton"
                 "#,
             )
             .unwrap(),
@@ -5333,8 +5329,17 @@ mod tests {
         )
         .expect("A mock miner does not use wallet RPCs");
 
-        Config::from_config_file(ConfigFile::from_str("").unwrap(), false)
-            .expect("A follower does not need a wallet");
+        Config::from_config_file(
+            ConfigFile::from_str(
+                r#"
+                [burnchain]
+                mode = "krypton"
+                "#,
+            )
+            .unwrap(),
+            false,
+        )
+        .expect("A follower does not need a wallet");
     }
 
     /// Build a miner config with the given `burnchain.wallet_name`.
@@ -5345,6 +5350,7 @@ mod tests {
             miner = true
 
             [burnchain]
+            mode = "krypton"
             wallet_name = "{wallet_name}"
             "#
         );
@@ -5408,6 +5414,7 @@ mod tests {
         let config = format!(
             r#"
             [burnchain]
+            mode = "krypton"
             wallet_name = "{wallet_name}"
             "#
         );
@@ -5430,6 +5437,7 @@ mod tests {
         };
 
         let merged = BurnchainConfigFile {
+            mode: Some("krypton".into()),
             wallet_name: configured.map(String::from),
             ..BurnchainConfigFile::default()
         }
@@ -5440,13 +5448,21 @@ mod tests {
 
     #[test]
     fn test_stackerdb_chunk_source_logging_config() {
-        let config = utils::config_from_valid_string("[node]");
+        let config = utils::config_from_valid_string(
+            r#"
+            [burnchain]
+            mode = "krypton"
+            [node]
+            "#,
+        );
 
         assert!(config.node.log_stackerdb_chunk_sources);
         assert!(NodeConfig::default().log_stackerdb_chunk_sources);
 
         let config = utils::config_from_valid_string(
             r#"
+            [burnchain]
+            mode = "krypton"
             [node]
             log_stackerdb_chunk_sources = false
             "#,
@@ -5498,6 +5514,8 @@ mod tests {
         assert!(Config::from_config_file(
             ConfigFile::from_str(
                 r#"
+                [burnchain]
+                mode = "krypton"
                 [node]
                 pox_5_bond_admin = "ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM"
                 pox_5_pause_admin = "ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM"
@@ -5698,6 +5716,8 @@ mod tests {
         let config = Config::from_config_file(
             ConfigFile::from_str(
                 r#"
+                [burnchain]
+                mode = "krypton"
                 [connection_options]
                 auth_token = "password"
                 "#,
@@ -5717,12 +5737,11 @@ mod tests {
     fn test_into_config_default_chain_id() {
         // Helper function to create BurnchainConfigFile with mode and optional chain_id
         fn make_burnchain_config_file(mainnet: bool, chain_id: Option<u32>) -> BurnchainConfigFile {
-            let mut config = BurnchainConfigFile::default();
-            if mainnet {
-                config.mode = Some("mainnet".to_string());
+            BurnchainConfigFile {
+                mode: Some(if mainnet { "mainnet" } else { "krypton" }.to_string()),
+                chain_id,
+                ..BurnchainConfigFile::default()
             }
-            config.chain_id = chain_id;
-            config
         }
         let default_burnchain_config = BurnchainConfig::default();
 
@@ -5805,6 +5824,8 @@ mod tests {
         // Check MARF defaults
         let config = utils::config_from_valid_string(
             r#"
+                [burnchain]
+                mode = "krypton"
                 [node]
                 "#,
         );
@@ -5828,6 +5849,8 @@ mod tests {
         // Check MARF full config
         let config = utils::config_from_valid_string(
             r#"
+                [burnchain]
+                mode = "krypton"
                 [node]
                 marf_cache_strategy = "everything"
                 marf_defer_hashing = false
@@ -5853,9 +5876,83 @@ mod tests {
     }
 
     #[test]
+    fn test_burnchain_mode_required() {
+        // No `[burnchain]` section at all is rejected.
+        let err = Config::from_config_file(
+            ConfigFile::from_str(
+                r#"
+                [node]
+                "#,
+            )
+            .unwrap(),
+            false,
+        )
+        .unwrap_err();
+        assert!(
+            err.contains("Setting burnchain.mode is required"),
+            "unexpected error: {err}"
+        );
+
+        // `[burnchain]` present but without `mode` is also rejected.
+        let err = Config::from_config_file(
+            ConfigFile::from_str(
+                r#"
+                [burnchain]
+                peer_host = "localhost"
+                "#,
+            )
+            .unwrap(),
+            false,
+        )
+        .unwrap_err();
+        assert!(
+            err.contains("Setting burnchain.mode is required"),
+            "unexpected error: {err}"
+        );
+
+        // With an explicit `mode`, the config parses.
+        let config = Config::from_config_file(
+            ConfigFile::from_str(
+                r#"
+                [burnchain]
+                mode = "krypton"
+                "#,
+            )
+            .unwrap(),
+            false,
+        )
+        .expect("config with explicit burnchain.mode should parse");
+        assert_eq!(config.burnchain.mode, "krypton");
+    }
+
+    /// Modes without a run loop fail config validation instead of panicking in
+    /// `get_bitcoin_network()` or exiting at startup.
+    #[test]
+    fn test_burnchain_mode_unsupported() {
+        for mode in ["mocknet", "argon"] {
+            let err = Config::from_config_file(
+                ConfigFile::from_str(&format!("[burnchain]\nmode = \"{mode}\"")).unwrap(),
+                false,
+            )
+            .unwrap_err();
+            assert!(
+                err.starts_with(&format!(
+                    "Setting burnchain.mode = \"{mode}\" not supported"
+                )),
+                "unexpected error: {err}"
+            );
+        }
+    }
+
+    #[test]
     fn test_load_push_bandwidth_fields_config() {
         // check defaults for omitted fields
-        let config = utils::config_from_valid_string("");
+        let config = utils::config_from_valid_string(
+            r#"
+            [burnchain]
+            mode = "krypton"
+            "#,
+        );
         assert_eq!(0, config.connection_options.max_transaction_push_bandwidth,);
         assert_eq!(
             MB!(4),
@@ -5869,6 +5966,8 @@ mod tests {
         // Check values for configured fields
         let config = utils::config_from_valid_string(
             r#"
+            [burnchain]
+            mode = "krypton"
             [connection_options]
             max_transaction_push_bandwidth = 10
             max_stackerdb_push_bandwidth = 20
