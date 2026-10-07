@@ -382,16 +382,22 @@ where
     pub burnchain_view: Option<SignerBurnView>,
     /// Cache sortitin data from `stacks-node`
     pub sortition_state: Option<SortitionsView>,
-    /// Prunes the signer db shared by all signers of this process
-    pruner: SignerDbPruner,
+    /// Prunes the signer db shared by all signers of this process. None if pruning is disabled
+    /// in the config.
+    pruner: Option<SignerDbPruner>,
 }
 
 impl<Signer: SignerTrait<T>, T: StacksMessageCodec + Clone + Send + Debug> RunLoop<Signer, T> {
     /// Create a new signer runloop from the provided configuration
     pub fn new(config: GlobalConfig) -> Self {
         let stacks_client = StacksClient::from(&config);
-        let pruner = SignerDbPruner::new(&config.db_path, Instant::now())
-            .expect("Failed to connect to the signer db for pruning");
+        let pruner = config.db_pruning.then(|| {
+            SignerDbPruner::new(&config.db_path, Instant::now())
+                .expect("Failed to connect to the signer db for pruning")
+        });
+        if pruner.is_none() {
+            info!("Signer db pruning is disabled in the config");
+        }
         Self {
             config,
             stacks_client,
@@ -402,6 +408,14 @@ impl<Signer: SignerTrait<T>, T: StacksMessageCodec + Clone + Send + Debug> RunLo
             pruner,
         }
     }
+
+    /// Run a signer db pruning pass if pruning is enabled and one is due
+    fn maybe_prune_db(&mut self) {
+        if let Some(pruner) = self.pruner.as_mut() {
+            pruner.maybe_prune(Instant::now());
+        }
+    }
+
     /// Get the registered signers for a specific reward cycle
     /// Returns None if no signers are registered or its not Nakamoto cycle
     pub fn get_parsed_reward_set(
@@ -955,7 +969,7 @@ impl<Signer: SignerTrait<T>, T: StacksMessageCodec + Clone + Send + Debug>
         }
         // Prune only once the runloop is initialized and the event is processed, although
         // pruning itself does not depend on either.
-        self.pruner.maybe_prune(Instant::now());
+        self.maybe_prune_db();
         None
     }
 }
