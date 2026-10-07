@@ -48,9 +48,7 @@ use crate::run_loop::boot_nakamoto::Neon2NakaData;
 use crate::run_loop::neon;
 use crate::run_loop::neon::Counters;
 use crate::syncctl::{PoxSyncWatchdog, PoxSyncWatchdogComms};
-use crate::{
-    run_loop, BitcoinRegtestController, BurnchainController, Config, EventDispatcher, Keychain,
-};
+use crate::{run_loop, BitcoinRegtestController, Config, EventDispatcher, Keychain};
 
 pub const STDERR: i32 = 2;
 pub type Globals = GenericGlobals<nakamoto_node::relayer::RelayerDirective>;
@@ -265,7 +263,7 @@ impl RunLoop {
         )
         .unwrap();
         run_loop::announce_boot_receipts(
-            &mut self.event_dispatcher,
+            &self.event_dispatcher,
             &chain_state_db,
             &burnchain_config.pox_constants,
             &receipts,

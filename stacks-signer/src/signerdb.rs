@@ -322,7 +322,12 @@ impl BlockInfo {
                 prev_state,
                 BlockState::GloballyRejected | BlockState::GloballyAccepted
             ),
-            BlockState::GloballyAccepted => !matches!(prev_state, BlockState::GloballyRejected),
+            // A block only becomes globally accepted on evidence from the node that it is part
+            // of the chain (a new block event, or the node reporting it as a tenure tip). That
+            // overrides any other state, which is only inferred from signer messages: a block
+            // can cross the rejection threshold on rejections that are later reconsidered and
+            // still go on to reach the acceptance threshold.
+            BlockState::GloballyAccepted => true,
             BlockState::GloballyRejected => !matches!(prev_state, BlockState::GloballyAccepted),
             BlockState::PreCommitted => matches!(prev_state, BlockState::Unprocessed),
         }
@@ -1688,6 +1693,16 @@ impl SignerDb {
         Ok(query_row::<i64, _>(&self.db, query, params![consensus_hash])?.is_some())
     }
 
+    /// Whether we recorded the permit described by `permit`: that
+    /// [`ReorgPermit::reorging_tenure`] may reorg [`ReorgPermit::reorged_tenure`] (see
+    /// [`SignerDb::mark_tenure_superseded`]). Only the most recent permitting tenure is
+    /// recorded per reorged tenure, so a permit replaced by a later one reads as absent.
+    pub fn has_reorg_permit(&self, permit: ReorgPermit<'_>) -> Result<bool, DBError> {
+        let query = "SELECT 1 FROM superseded_tenures WHERE consensus_hash = ?1 AND superseded_by_consensus_hash = ?2";
+        let args = params![permit.reorged_tenure, permit.reorging_tenure];
+        Ok(query_row::<i64, _>(&self.db, query, args)?.is_some())
+    }
+
     /// Drop superseded-tenure records for sortitions below `burn_block_height`. A tenure that
     /// old cannot conflict with a proposal anywhere near the chain tip, so the record has no
     /// further use.
@@ -2660,6 +2675,18 @@ pub struct SignedConflictInfo {
     pub superseded_by: Option<SupersededBy>,
 }
 
+/// The two tenures of a reorg permit, as queried by [`SignerDb::has_reorg_permit`]. The two
+/// hashes are named rather than positional because both sides of a reorg are a
+/// [`ConsensusHash`], and swapping them asks a different question that silently answers
+/// `false`.
+#[derive(Debug)]
+pub struct ReorgPermit<'a> {
+    /// The tenure whose blocks we permitted to be replaced
+    pub reorged_tenure: &'a ConsensusHash,
+    /// The tenure we permitted to replace them
+    pub reorging_tenure: &'a ConsensusHash,
+}
+
 /// The sortition of a tenure we permitted to reorg another tenure, as carried by
 /// [`SignedConflictInfo::superseded_by`].
 #[derive(Debug)]
@@ -3470,8 +3497,47 @@ pub mod tests {
         assert!(!block.check_state(BlockState::Unprocessed));
         assert!(!block.check_state(BlockState::LocallyAccepted));
         assert!(!block.check_state(BlockState::LocallyRejected));
-        assert!(!block.check_state(BlockState::GloballyAccepted));
+        // The node accepting the block overrides a global rejection
+        assert!(block.check_state(BlockState::GloballyAccepted));
         assert!(block.check_state(BlockState::GloballyRejected));
+    }
+
+    #[test]
+    fn globally_rejected_then_accepted_counts_toward_tenure_times() {
+        // A block can cross the rejection threshold and still be accepted by the chain. Once the
+        // node confirms it, it must count toward the tenure's extend timing; otherwise the tenure
+        // has no globally accepted blocks and the extend timestamp keeps rolling forward from now.
+        let db_path = tmp_db_path();
+        let mut db = SignerDb::new(db_path).expect("Failed to create signer db");
+        let mut block_info = generate_tenure_blocks().remove(0);
+        let consensus_hash = block_info.block.header.consensus_hash.clone();
+        let change_match = |change_cause| {
+            matches!(
+                change_cause,
+                TenureChangeCause::BlockFound | TenureChangeCause::Extended
+            )
+        };
+
+        block_info.state = BlockState::Unprocessed;
+        block_info.mark_globally_rejected().unwrap();
+        db.insert_block(&block_info).unwrap();
+        let (start_time, _) = db.get_tenure_times(&consensus_hash, change_match).unwrap();
+        assert!(
+            start_time < block_info.proposed_time,
+            "A globally rejected block should not count toward the tenure times"
+        );
+
+        block_info.mark_globally_accepted().unwrap();
+        db.insert_block(&block_info).unwrap();
+        assert_eq!(
+            db.block_lookup(&block_info.signer_signature_hash())
+                .unwrap()
+                .unwrap()
+                .state,
+            BlockState::GloballyAccepted
+        );
+        let (start_time, _) = db.get_tenure_times(&consensus_hash, change_match).unwrap();
+        assert_eq!(start_time, block_info.proposed_time);
     }
 
     #[test]
@@ -3677,6 +3743,25 @@ pub mod tests {
         db.mark_tenure_superseded(&consensus_hash_1, 42, &permitting_ch, &permitting_bbh)
             .unwrap();
         assert!(db.is_tenure_superseded(&consensus_hash_1).unwrap());
+        assert!(db
+            .has_reorg_permit(ReorgPermit {
+                reorged_tenure: &consensus_hash_1,
+                reorging_tenure: &permitting_ch,
+            })
+            .unwrap());
+        // The permit names the tenure it was granted to, and no other.
+        assert!(!db
+            .has_reorg_permit(ReorgPermit {
+                reorged_tenure: &consensus_hash_1,
+                reorging_tenure: &consensus_hash_2,
+            })
+            .unwrap());
+        assert!(!db
+            .has_reorg_permit(ReorgPermit {
+                reorged_tenure: &consensus_hash_2,
+                reorging_tenure: &permitting_ch,
+            })
+            .unwrap());
         let conflicts = db.get_signed_conflicts(2, &unrelated_hash).unwrap();
         assert_eq!(conflicts.len(), 3);
         for conflict in &conflicts {
@@ -3703,6 +3788,18 @@ pub mod tests {
         let superseded_by = annotated.superseded_by.as_ref().unwrap();
         assert_eq!(superseded_by.consensus_hash, repermitting_ch);
         assert_eq!(superseded_by.burn_block_hash, repermitting_bbh);
+        assert!(db
+            .has_reorg_permit(ReorgPermit {
+                reorged_tenure: &consensus_hash_1,
+                reorging_tenure: &repermitting_ch,
+            })
+            .unwrap());
+        assert!(!db
+            .has_reorg_permit(ReorgPermit {
+                reorged_tenure: &consensus_hash_1,
+                reorging_tenure: &permitting_ch,
+            })
+            .unwrap());
 
         db.mark_tenure_superseded(&consensus_hash_2, 43, &permitting_ch, &permitting_bbh)
             .unwrap();
@@ -3716,6 +3813,12 @@ pub mod tests {
         // tenure 2 (burn 43) stays, so tenure 1's blocks lose their annotation.
         db.prune_superseded_tenures(43).unwrap();
         assert!(!db.is_tenure_superseded(&consensus_hash_1).unwrap());
+        assert!(!db
+            .has_reorg_permit(ReorgPermit {
+                reorged_tenure: &consensus_hash_1,
+                reorging_tenure: &repermitting_ch,
+            })
+            .unwrap());
         assert!(db.is_tenure_superseded(&consensus_hash_2).unwrap());
         let conflicts = db.get_signed_conflicts(2, &unrelated_hash).unwrap();
         assert_eq!(conflicts.len(), 3);

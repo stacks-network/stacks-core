@@ -1,0 +1,1 @@
+Removed the `burnchain.rpc_ssl` configuration option, which had no effects. Nodes whose config file still sets `rpc_ssl` will fail to start with an `unknown field "rpc_ssl"` error; delete the `rpc_ssl` line from the `[burnchain]` section before upgrading.

@@ -21,7 +21,7 @@ use std::sync::mpsc::{channel, Receiver, Sender};
 use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
-use std::{env, thread};
+use std::{env, slice, thread};
 
 use clarity::boot_util::boot_code_addr;
 use clarity::vm::costs::{ExecutionCost, LimitedCostTracker};
@@ -133,7 +133,7 @@ use crate::tests::neon_integrations::{
 use crate::tests::signer::v0::{sbtc_registry_stub_source, sbtc_token_stub_source};
 use crate::tests::signer::SignerTest;
 use crate::tests::{gen_random_port, get_chain_info, make_contract_publish, to_addr};
-use crate::{tests, BitcoinRegtestController, BurnchainController, Config, ConfigFile, Keychain};
+use crate::{tests, BitcoinRegtestController, Config, ConfigFile, Keychain};
 
 pub static POX_DEFAULT_STACKER_BALANCE: u64 = 100_000_000_000_000;
 pub static POX_DEFAULT_STACKER_STX_AMT: u128 = 99_000_000_000_000;
@@ -980,7 +980,7 @@ pub fn next_block_and_wait_for_commits(
                     .all(|last_commit_stacks_height| {
                         last_commit_stacks_height.load(Ordering::SeqCst) > stacks_ht_before
                     });
-            return Ok(stacks_tip_committed_to);
+            Ok(stacks_tip_committed_to)
         }
     })
 }
@@ -1896,7 +1896,7 @@ fn simple_neon_integration() {
     boot_to_epoch_3(
         &naka_conf,
         &node_counters.blocks_processed,
-        &[stacker_sk.clone()],
+        slice::from_ref(&stacker_sk),
         &[sender_signer_sk],
         &mut Some(&mut signers),
         &mut btc_regtest_controller,
@@ -1947,7 +1947,7 @@ fn simple_neon_integration() {
     // Mine 15 nakamoto tenures
     let tenures_count = 15;
     for _i in 0..tenures_count {
-        next_block_and_mine_commit(&mut btc_regtest_controller, 60, &naka_conf, &node_counters)
+        next_block_and_mine_commit(&btc_regtest_controller, 60, &naka_conf, &node_counters)
             .unwrap();
     }
     let post_commits = node_counters.naka_submitted_commits.load(Ordering::SeqCst);
@@ -2002,7 +2002,7 @@ fn simple_neon_integration() {
 
     // Mine 15 more nakamoto tenures
     for _i in 0..15 {
-        next_block_and_mine_commit(&mut btc_regtest_controller, 60, &naka_conf, &node_counters)
+        next_block_and_mine_commit(&btc_regtest_controller, 60, &naka_conf, &node_counters)
             .unwrap();
     }
 
@@ -2137,7 +2137,7 @@ fn restarting_miner() {
     boot_to_epoch_3(
         &naka_conf,
         &blocks_processed,
-        &[stacker_sk.clone()],
+        slice::from_ref(&stacker_sk),
         &[sender_signer_sk],
         &mut Some(&mut signers),
         &mut btc_regtest_controller,
@@ -2172,8 +2172,7 @@ fn restarting_miner() {
 
     // Mine 2 nakamoto tenures
     for _i in 0..2 {
-        next_block_and_mine_commit(&mut btc_regtest_controller, 60, &naka_conf, &rl1_counters)
-            .unwrap();
+        next_block_and_mine_commit(&btc_regtest_controller, 60, &naka_conf, &rl1_counters).unwrap();
     }
 
     let last_tip = NakamotoChainState::get_canonical_block_header(chainstate.db(), &sortdb)
@@ -2239,8 +2238,7 @@ fn restarting_miner() {
 
     // Mine 2 more nakamoto tenures
     for _i in 0..2 {
-        next_block_and_mine_commit(&mut btc_regtest_controller, 60, &naka_conf, &rl2_counters)
-            .unwrap();
+        next_block_and_mine_commit(&btc_regtest_controller, 60, &naka_conf, &rl2_counters).unwrap();
     }
 
     // load the chain tip, and assert that it is a nakamoto block and at least 30 blocks have advanced in epoch 3
@@ -2355,7 +2353,7 @@ fn flash_blocks_on_epoch_3_FLAKY() {
     boot_to_pre_epoch_3_boundary(
         &naka_conf,
         &blocks_processed,
-        &[stacker_sk.clone()],
+        slice::from_ref(&stacker_sk),
         &[sender_signer_sk],
         &mut Some(&mut signers),
         &mut btc_regtest_controller,
@@ -2384,7 +2382,7 @@ fn flash_blocks_on_epoch_3_FLAKY() {
 
     // Mine a new block and wait for it to be processed.
     // This should update the canonical burn chain tip to include all 4 new blocks.
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&btc_regtest_controller, &blocks_processed);
     let tip = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn()).unwrap();
     // Verify that the burn chain tip has advanced by 4 blocks
     assert_eq!(
@@ -2421,7 +2419,7 @@ fn flash_blocks_on_epoch_3_FLAKY() {
 
     // Mine 15 nakamoto tenures
     for _i in 0..15 {
-        next_block_and_mine_commit(&mut btc_regtest_controller, 60, &naka_conf, &counters).unwrap();
+        next_block_and_mine_commit(&btc_regtest_controller, 60, &naka_conf, &counters).unwrap();
     }
 
     // Submit a TX
@@ -2457,7 +2455,7 @@ fn flash_blocks_on_epoch_3_FLAKY() {
 
     // Mine 15 more nakamoto tenures
     for _i in 0..15 {
-        next_block_and_mine_commit(&mut btc_regtest_controller, 60, &naka_conf, &counters).unwrap();
+        next_block_and_mine_commit(&btc_regtest_controller, 60, &naka_conf, &counters).unwrap();
     }
 
     // load the chain tip, and assert that it is a nakamoto block and at least 30 blocks have advanced in epoch 3
@@ -2608,7 +2606,7 @@ fn mine_multiple_per_tenure_integration() {
     boot_to_epoch_3(
         &naka_conf,
         &blocks_processed,
-        &[stacker_sk.clone()],
+        slice::from_ref(&stacker_sk),
         &[sender_signer_sk],
         &mut Some(&mut signers),
         &mut btc_regtest_controller,
@@ -2641,7 +2639,7 @@ fn mine_multiple_per_tenure_integration() {
     for tenure_ix in 0..tenure_count {
         debug!("Mining tenure {tenure_ix}");
         let commits_before = commits_submitted.load(Ordering::SeqCst);
-        next_block_and_process_new_stacks_block(&mut btc_regtest_controller, 60, &coord_channel)
+        next_block_and_process_new_stacks_block(&btc_regtest_controller, 60, &coord_channel)
             .unwrap();
 
         let mut last_tip = BlockHeaderHash([0x00; 32]);
@@ -2856,7 +2854,7 @@ fn multiple_miners() {
     boot_to_epoch_3(
         &naka_conf,
         &blocks_processed,
-        &[stacker_sk.clone()],
+        slice::from_ref(&stacker_sk),
         &[sender_signer_sk],
         &mut Some(&mut signers),
         &mut btc_regtest_controller,
@@ -2897,7 +2895,7 @@ fn multiple_miners() {
     for tenure_ix in 0..tenure_count {
         info!("Mining tenure {tenure_ix}");
         let commits_before = commits_submitted.load(Ordering::SeqCst);
-        next_block_and_process_new_stacks_block(&mut btc_regtest_controller, 60, &coord_channel)
+        next_block_and_process_new_stacks_block(&btc_regtest_controller, 60, &coord_channel)
             .unwrap();
 
         let mut last_tip = BlockHeaderHash([0x00; 32]);
@@ -3043,7 +3041,7 @@ fn correct_burn_outs() {
     btcd_controller
         .start_bitcoind()
         .expect("Failed starting bitcoind");
-    let mut btc_regtest_controller = BitcoinRegtestController::new(naka_conf.clone(), None);
+    let btc_regtest_controller = BitcoinRegtestController::new(naka_conf.clone(), None);
     btc_regtest_controller.bootstrap_chain(201);
 
     let mut run_loop = boot_nakamoto::BootRunLoop::new(naka_conf.clone()).unwrap();
@@ -3073,7 +3071,7 @@ fn correct_burn_outs() {
     );
 
     run_until_burnchain_height(
-        &mut btc_regtest_controller,
+        &btc_regtest_controller,
         &blocks_processed,
         epoch_25.start_height + 1,
         &naka_conf,
@@ -3081,7 +3079,7 @@ fn correct_burn_outs() {
 
     info!("Chain bootstrapped to Epoch 2.5, submitting stacker transaction");
 
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&btc_regtest_controller, &blocks_processed);
 
     let http_origin = format!("http://{}", &naka_conf.node.rpc_bind);
     let stacker_accounts_copy = stacker_accounts;
@@ -3182,14 +3180,14 @@ fn correct_burn_outs() {
 
     // Run until the prepare phase
     run_until_burnchain_height(
-        &mut btc_regtest_controller,
+        &btc_regtest_controller,
         &blocks_processed,
         prepare_phase_start,
         &naka_conf,
     );
 
     run_until_burnchain_height(
-        &mut btc_regtest_controller,
+        &btc_regtest_controller,
         &blocks_processed,
         epoch_3.start_height - 1,
         &naka_conf,
@@ -3231,7 +3229,7 @@ fn correct_burn_outs() {
             .unwrap()
             .block_height;
         if let Err(e) =
-            next_block_and_mine_commit(&mut btc_regtest_controller, 30, &naka_conf, &counters)
+            next_block_and_mine_commit(&btc_regtest_controller, 30, &naka_conf, &counters)
         {
             panic!(
                 "Error while minting a bitcoin block and waiting for stacks-node activity: {e:?}"
@@ -3386,7 +3384,7 @@ fn block_proposal_api_endpoint() {
     boot_to_epoch_3(
         &conf,
         &blocks_processed,
-        &[stacker_sk.clone()],
+        slice::from_ref(&stacker_sk),
         &[sender_signer_sk],
         &mut Some(&mut signers),
         &mut btc_regtest_controller,
@@ -3417,7 +3415,7 @@ fn block_proposal_api_endpoint() {
 
     // Mine 3 nakamoto tenures
     for _ in 0..3 {
-        next_block_and_mine_commit(&mut btc_regtest_controller, 60, &conf, &counters).unwrap();
+        next_block_and_mine_commit(&btc_regtest_controller, 60, &conf, &counters).unwrap();
     }
 
     // TODO (hack) instantiate the sortdb in the burnchain
@@ -3447,9 +3445,9 @@ fn block_proposal_api_endpoint() {
     let coinbase = None;
 
     let tenure_cause = tenure_change
-        .and_then(|tx: &StacksTransaction| match &tx.payload {
-            TransactionPayload::TenureChange(tc) => Some(MinerTenureInfoCause::from(tc.cause)),
-            _ => Some(MinerTenureInfoCause::NoTenureChange),
+        .map(|tx: &StacksTransaction| match &tx.payload {
+            TransactionPayload::TenureChange(tc) => MinerTenureInfoCause::from(tc.cause),
+            _ => MinerTenureInfoCause::NoTenureChange,
         })
         .unwrap_or(MinerTenureInfoCause::NoTenureChange);
 
@@ -3474,7 +3472,7 @@ fn block_proposal_api_endpoint() {
             None,
             None,
             None,
-            u64::from(DEFAULT_MAX_TENURE_BYTES),
+            DEFAULT_MAX_TENURE_BYTES,
         )
         .expect("Failed to build Nakamoto block");
 
@@ -3768,7 +3766,7 @@ fn miner_writes_proposed_block_to_stackerdb() {
     boot_to_epoch_3(
         &naka_conf,
         &blocks_processed,
-        &[stacker_sk.clone()],
+        slice::from_ref(&stacker_sk),
         &[sender_signer_sk],
         &mut Some(&mut signers),
         &mut btc_regtest_controller,
@@ -3780,7 +3778,7 @@ fn miner_writes_proposed_block_to_stackerdb() {
     wait_for_first_naka_block_commit(60, &commits_submitted);
 
     // Mine 1 nakamoto tenure
-    next_block_and_mine_commit(&mut btc_regtest_controller, 60, &naka_conf, &counters).unwrap();
+    next_block_and_mine_commit(&btc_regtest_controller, 60, &naka_conf, &counters).unwrap();
 
     let sortdb = naka_conf.get_burnchain().open_sortition_db(true).unwrap();
     let burn_tip = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn());
@@ -3888,8 +3886,8 @@ fn vote_for_aggregate_key_burn_op() {
     boot_to_epoch_3(
         &naka_conf,
         &blocks_processed,
-        &[stacker_sk.clone()],
-        &[signer_sk.clone()],
+        slice::from_ref(&stacker_sk),
+        slice::from_ref(&signer_sk),
         &mut Some(&mut signers),
         &mut btc_regtest_controller,
     );
@@ -3958,7 +3956,7 @@ fn vote_for_aggregate_key_burn_op() {
     );
 
     for _i in 0..(blocks_until_prepare) {
-        next_block_and_mine_commit(&mut btc_regtest_controller, 60, &naka_conf, &counters).unwrap();
+        next_block_and_mine_commit(&btc_regtest_controller, 60, &naka_conf, &counters).unwrap();
     }
 
     let reward_cycle = reward_cycle + 1;
@@ -4007,7 +4005,7 @@ fn vote_for_aggregate_key_burn_op() {
 
     // the second block should process the vote, after which the vote should be set
     for _i in 0..2 {
-        next_block_and_mine_commit(&mut btc_regtest_controller, 60, &naka_conf, &counters).unwrap();
+        next_block_and_mine_commit(&btc_regtest_controller, 60, &naka_conf, &counters).unwrap();
     }
 
     let mut vote_for_aggregate_key_found = false;
@@ -4116,7 +4114,7 @@ fn follower_bootup_simple() {
     boot_to_epoch_3(
         &naka_conf,
         &blocks_processed,
-        &[stacker_sk.clone()],
+        slice::from_ref(&stacker_sk),
         &[sender_signer_sk],
         &mut Some(&mut signers),
         &mut btc_regtest_controller,
@@ -4198,7 +4196,7 @@ fn follower_bootup_simple() {
     for tenure_ix in 0..tenure_count {
         debug!("follower_bootup: Miner runs tenure {tenure_ix}");
         let commits_before = commits_submitted.load(Ordering::SeqCst);
-        next_block_and_process_new_stacks_block(&mut btc_regtest_controller, 60, &coord_channel)
+        next_block_and_process_new_stacks_block(&btc_regtest_controller, 60, &coord_channel)
             .unwrap();
 
         let mut last_tip = BlockHeaderHash([0x00; 32]);
@@ -4437,7 +4435,7 @@ fn follower_bootup_across_multiple_cycles() {
     boot_to_epoch_3(
         &naka_conf,
         &blocks_processed,
-        &[stacker_sk.clone()],
+        slice::from_ref(&stacker_sk),
         &[sender_signer_sk],
         &mut Some(&mut signers),
         &mut btc_regtest_controller,
@@ -4474,7 +4472,7 @@ fn follower_bootup_across_multiple_cycles() {
         * 2
     {
         let commits_before = commits_submitted.load(Ordering::SeqCst);
-        next_block_and_process_new_stacks_block(&mut btc_regtest_controller, 60, &coord_channel)
+        next_block_and_process_new_stacks_block(&btc_regtest_controller, 60, &coord_channel)
             .unwrap();
         wait_for(20, || {
             Ok(commits_submitted.load(Ordering::SeqCst) > commits_before)
@@ -4664,7 +4662,7 @@ fn follower_bootup_custom_chain_id() {
     boot_to_epoch_3(
         &naka_conf,
         &blocks_processed,
-        &[stacker_sk.clone()],
+        slice::from_ref(&stacker_sk),
         &[sender_signer_sk],
         &mut Some(&mut signers),
         &mut btc_regtest_controller,
@@ -4746,7 +4744,7 @@ fn follower_bootup_custom_chain_id() {
     for tenure_ix in 0..tenure_count {
         debug!("follower_bootup: Miner runs tenure {tenure_ix}");
         let commits_before = commits_submitted.load(Ordering::SeqCst);
-        next_block_and_process_new_stacks_block(&mut btc_regtest_controller, 60, &coord_channel)
+        next_block_and_process_new_stacks_block(&btc_regtest_controller, 60, &coord_channel)
             .unwrap();
 
         let mut last_tip = BlockHeaderHash([0x00; 32]);
@@ -5015,8 +5013,8 @@ fn burn_ops_integration_test() {
     boot_to_epoch_3(
         &naka_conf,
         &blocks_processed,
-        &[stacker_sk.clone()],
-        &[signer_sk_1.clone()],
+        slice::from_ref(&stacker_sk),
+        slice::from_ref(&signer_sk_1),
         &mut Some(&mut signers),
         &mut btc_regtest_controller,
     );
@@ -5054,7 +5052,7 @@ fn burn_ops_integration_test() {
         "Pre-stx operation should submit successfully"
     );
 
-    next_block_and_mine_commit(&mut btc_regtest_controller, 60, &naka_conf, &counters).unwrap();
+    next_block_and_mine_commit(&btc_regtest_controller, 60, &naka_conf, &counters).unwrap();
 
     let mut miner_signer_2 = Keychain::default(naka_conf.node.seed.clone()).generate_op_signer();
     info!("Submitting second pre-stx op");
@@ -5180,7 +5178,7 @@ fn burn_ops_integration_test() {
     );
 
     for _i in 0..(blocks_until_prepare) {
-        next_block_and_mine_commit(&mut btc_regtest_controller, 60, &naka_conf, &counters).unwrap();
+        next_block_and_mine_commit(&btc_regtest_controller, 60, &naka_conf, &counters).unwrap();
     }
 
     let reward_cycle = reward_cycle + 1;
@@ -5333,7 +5331,7 @@ fn burn_ops_integration_test() {
     // the second block should process the ops
     // Also mine 2 interim blocks to ensure the stack-stx ops are not processed in them
     for _i in 0..2 {
-        next_block_and_mine_commit(&mut btc_regtest_controller, 60, &naka_conf, &counters).unwrap();
+        next_block_and_mine_commit(&btc_regtest_controller, 60, &naka_conf, &counters).unwrap();
         for interim_block_ix in 0..2 {
             info!("Mining interim block {interim_block_ix}");
             let blocks_processed_before = coord_channel
@@ -5599,7 +5597,7 @@ fn bad_commit_does_not_trigger_fork() {
     boot_to_epoch_3(
         &naka_conf,
         &blocks_processed,
-        &[stacker_sk.clone()],
+        slice::from_ref(&stacker_sk),
         &[sender_signer_sk],
         &mut Some(&mut signers),
         &mut btc_regtest_controller,
@@ -5630,7 +5628,7 @@ fn bad_commit_does_not_trigger_fork() {
         .lock()
         .expect("Mutex poisoned")
         .get_stacks_blocks_processed();
-    next_block_and(&mut btc_regtest_controller, 60, || {
+    next_block_and(&btc_regtest_controller, 60, || {
         let commits_count = commits_submitted.load(Ordering::SeqCst);
         let blocks_count = mined_blocks.load(Ordering::SeqCst);
         let blocks_processed = coord_channel
@@ -5659,7 +5657,7 @@ fn bad_commit_does_not_trigger_fork() {
 
     info!("Starting Tenure B.");
 
-    next_block_and(&mut btc_regtest_controller, 60, || {
+    next_block_and(&btc_regtest_controller, 60, || {
         let commits_count = commits_submitted.load(Ordering::SeqCst);
         Ok(commits_count > commits_before)
     })
@@ -5723,7 +5721,7 @@ fn bad_commit_does_not_trigger_fork() {
         .lock()
         .expect("Mutex poisoned")
         .get_stacks_blocks_processed();
-    next_block_and(&mut btc_regtest_controller, 60, || {
+    next_block_and(&btc_regtest_controller, 60, || {
         test_skip_commit_op.set(false);
         TEST_BLOCK_ANNOUNCE_STALL.set(false);
         let commits_count = commits_submitted.load(Ordering::SeqCst);
@@ -5829,7 +5827,7 @@ fn bad_commit_does_not_trigger_fork() {
         .lock()
         .expect("Mutex poisoned")
         .get_stacks_blocks_processed();
-    next_block_and(&mut btc_regtest_controller, 60, || {
+    next_block_and(&btc_regtest_controller, 60, || {
         let commits_count = commits_submitted.load(Ordering::SeqCst);
         let blocks_count = mined_blocks.load(Ordering::SeqCst);
         let blocks_processed = coord_channel
@@ -5978,7 +5976,7 @@ fn check_block_heights() {
     boot_to_epoch_3(
         &naka_conf,
         &blocks_processed,
-        &[stacker_sk.clone()],
+        slice::from_ref(&stacker_sk),
         &[sender_signer_sk],
         &mut Some(&mut signers),
         &mut btc_regtest_controller,
@@ -6090,7 +6088,7 @@ fn check_block_heights() {
     for tenure_ix in 0..tenure_count {
         info!("Mining tenure {tenure_ix}");
         let commits_before = commits_submitted.load(Ordering::SeqCst);
-        next_block_and_process_new_stacks_block(&mut btc_regtest_controller, 60, &coord_channel)
+        next_block_and_process_new_stacks_block(&btc_regtest_controller, 60, &coord_channel)
             .unwrap();
 
         // in the first tenure, make sure that the contracts are published
@@ -6413,7 +6411,7 @@ fn nakamoto_attempt_time() {
     boot_to_epoch_3(
         &naka_conf,
         &blocks_processed,
-        &[stacker_sk.clone()],
+        slice::from_ref(&stacker_sk),
         &[sender_signer_sk],
         &mut Some(&mut signers),
         &mut btc_regtest_controller,
@@ -6444,7 +6442,7 @@ fn nakamoto_attempt_time() {
 
     // Mine 3 nakamoto tenures
     for _ in 0..3 {
-        next_block_and_mine_commit(&mut btc_regtest_controller, 60, &naka_conf, &counters).unwrap();
+        next_block_and_mine_commit(&btc_regtest_controller, 60, &naka_conf, &counters).unwrap();
     }
 
     // TODO (hack) instantiate the sortdb in the burnchain
@@ -6462,7 +6460,7 @@ fn nakamoto_attempt_time() {
     // Blocks should be produced at least every 20 seconds
     for _ in 0..tenure_count {
         let commits_before = commits_submitted.load(Ordering::SeqCst);
-        next_block_and_process_new_stacks_block(&mut btc_regtest_controller, 60, &coord_channel)
+        next_block_and_process_new_stacks_block(&btc_regtest_controller, 60, &coord_channel)
             .unwrap();
 
         let mut last_tip = BlockHeaderHash([0x00; 32]);
@@ -6718,7 +6716,7 @@ fn clarity_burn_state() {
     boot_to_epoch_3(
         &naka_conf,
         &blocks_processed,
-        &[stacker_sk.clone()],
+        slice::from_ref(&stacker_sk),
         &[sender_signer_sk],
         &mut Some(&mut signers),
         &mut btc_regtest_controller,
@@ -6801,7 +6799,7 @@ fn clarity_burn_state() {
             .lock()
             .expect("Mutex poisoned")
             .get_stacks_blocks_processed();
-        next_block_and(&mut btc_regtest_controller, 60, || {
+        next_block_and(&btc_regtest_controller, 60, || {
             Ok(commits_submitted.load(Ordering::SeqCst) > commits_before)
         })
         .unwrap();
@@ -7004,7 +7002,7 @@ fn signer_chainstate() {
     boot_to_epoch_3(
         &naka_conf,
         &blocks_processed,
-        &[stacker_sk.clone()],
+        slice::from_ref(&stacker_sk),
         &[sender_signer_sk],
         &mut Some(&mut signers),
         &mut btc_regtest_controller,
@@ -7073,7 +7071,7 @@ fn signer_chainstate() {
     // hold the first and last blocks of the first tenure. we'll use this to submit reorging proposals
     let mut first_tenure_blocks: Option<Vec<NakamotoBlock>> = None;
     for i in 0..15 {
-        next_block_and_mine_commit(&mut btc_regtest_controller, 60, &naka_conf, &counters).unwrap();
+        next_block_and_mine_commit(&btc_regtest_controller, 60, &naka_conf, &counters).unwrap();
 
         // this config disallows any reorg due to poorly timed block commits
         let proposal_conf = ProposalEvalConfig {
@@ -7543,7 +7541,7 @@ fn continue_tenure_extend() {
     boot_to_epoch_3(
         &naka_conf,
         &blocks_processed,
-        &[stacker_sk.clone()],
+        slice::from_ref(&stacker_sk),
         &[sender_signer_sk],
         &mut Some(&mut signers),
         &mut btc_regtest_controller,
@@ -7591,10 +7589,9 @@ fn continue_tenure_extend() {
     wait_for_first_naka_block_commit(60, &commits_submitted);
 
     // Mine a regular nakamoto tenure
-    next_block_and_mine_commit(&mut btc_regtest_controller, 60, &naka_conf, &counters).unwrap();
+    next_block_and_mine_commit(&btc_regtest_controller, 60, &naka_conf, &counters).unwrap();
 
-    next_block_and_process_new_stacks_block(&mut btc_regtest_controller, 60, &coord_channel)
-        .unwrap();
+    next_block_and_process_new_stacks_block(&btc_regtest_controller, 60, &coord_channel).unwrap();
 
     // assert that this produces a sortition with a winner
     //  (because the commit was submitted before the commits were paused!)
@@ -7696,7 +7693,7 @@ fn continue_tenure_extend() {
 
     // Mine 5 more regular nakamoto tenures
     for _i in 0..5 {
-        next_block_and_mine_commit(&mut btc_regtest_controller, 60, &naka_conf, &counters).unwrap();
+        next_block_and_mine_commit(&btc_regtest_controller, 60, &naka_conf, &counters).unwrap();
     }
 
     // load the chain tip, and assert that it is a nakamoto block and at least 30 blocks have advanced in epoch 3
@@ -8042,7 +8039,7 @@ fn check_block_times() {
     boot_to_epoch_3(
         &naka_conf,
         &blocks_processed,
-        &[stacker_sk.clone()],
+        slice::from_ref(&stacker_sk),
         &[sender_signer_sk],
         &mut Some(&mut signers),
         &mut btc_regtest_controller,
@@ -8058,7 +8055,7 @@ fn check_block_times() {
     let mut last_stacks_block_height = info.stacks_tip_height as u128;
     let mut last_tenure_height = last_stacks_block_height + 1;
 
-    next_block_and_mine_commit(&mut btc_regtest_controller, 60, &naka_conf, &counters).unwrap();
+    next_block_and_mine_commit(&btc_regtest_controller, 60, &naka_conf, &counters).unwrap();
 
     let time0_value = call_read_only(
         &naka_conf,
@@ -8121,7 +8118,7 @@ fn check_block_times() {
 
     // Repeat these tests for 5 tenures
     for _ in 0..5 {
-        next_block_and_mine_commit(&mut btc_regtest_controller, 60, &naka_conf, &counters).unwrap();
+        next_block_and_mine_commit(&btc_regtest_controller, 60, &naka_conf, &counters).unwrap();
         let info = get_chain_info_result(&naka_conf).unwrap();
         stacks_block_height = info.stacks_tip_height as u128;
 
@@ -8507,7 +8504,7 @@ fn check_block_info() {
     boot_to_epoch_3(
         &naka_conf,
         &blocks_processed,
-        &[stacker_sk.clone()],
+        slice::from_ref(&stacker_sk),
         &[sender_signer_sk],
         &mut Some(&mut signers),
         &mut btc_regtest_controller,
@@ -8549,8 +8546,7 @@ fn check_block_info() {
     submit_tx(&http_origin, &contract_tx3);
 
     // sleep to ensure seconds have changed
-    next_block_and_process_new_stacks_block(&mut btc_regtest_controller, 60, &coord_channel)
-        .unwrap();
+    next_block_and_process_new_stacks_block(&btc_regtest_controller, 60, &coord_channel).unwrap();
 
     // make sure that the contracts are published
     wait_for(30, || {
@@ -8606,8 +8602,7 @@ fn check_block_info() {
     let last_tenure_start_block_ht = last_tenure_start_block_header.stacks_block_height.into();
 
     // lets issue the next bitcoin block
-    next_block_and_process_new_stacks_block(&mut btc_regtest_controller, 60, &coord_channel)
-        .unwrap();
+    next_block_and_process_new_stacks_block(&btc_regtest_controller, 60, &coord_channel).unwrap();
 
     let info = get_chain_info(&naka_conf);
     info!("Chain info: {info:?}");
@@ -9102,7 +9097,7 @@ fn check_block_info_rewards() {
     boot_to_epoch_3(
         &naka_conf,
         &blocks_processed,
-        &[stacker_sk.clone()],
+        slice::from_ref(&stacker_sk),
         &[sender_signer_sk],
         &mut Some(&mut signers),
         &mut btc_regtest_controller,
@@ -9157,8 +9152,7 @@ fn check_block_info_rewards() {
     sender_nonce += 1;
     submit_tx(&http_origin, &contract_tx3);
 
-    next_block_and_process_new_stacks_block(&mut btc_regtest_controller, 60, &coord_channel)
-        .unwrap();
+    next_block_and_process_new_stacks_block(&btc_regtest_controller, 60, &coord_channel).unwrap();
 
     // Sleep to ensure the seconds have changed
     thread::sleep(Duration::from_secs(1));
@@ -9248,7 +9242,7 @@ fn check_block_info_rewards() {
     // (only 2 blocks maturation time in tests)
     info!("Mining 6 tenures to mature the block reward");
     for i in 0..6 {
-        next_block_and_mine_commit(&mut btc_regtest_controller, 20, &naka_conf, &counters).unwrap();
+        next_block_and_mine_commit(&btc_regtest_controller, 20, &naka_conf, &counters).unwrap();
         info!("Mined a block ({i})");
     }
 
@@ -9410,7 +9404,7 @@ fn mock_mining() {
     boot_to_epoch_3(
         &naka_conf,
         &blocks_processed,
-        &[stacker_sk.clone()],
+        slice::from_ref(&stacker_sk),
         &[sender_signer_sk],
         &mut Some(&mut signers),
         &mut btc_regtest_controller,
@@ -9499,7 +9493,7 @@ fn mock_mining() {
         // seeing the block from the real miner.
         TEST_P2P_BROADCAST_STALL.set(true);
         info!("Waiting for the tenure {tenure_ix} start block to be mock-mined");
-        next_block_and(&mut btc_regtest_controller, 60, || {
+        next_block_and(&btc_regtest_controller, 60, || {
             Ok(follower_mined_blocks.load(Ordering::SeqCst) > follower_mined_before)
         })
         .expect("Failed to start a new tenure");
@@ -9645,7 +9639,7 @@ fn run_mock_mining_ongoing_tenure_boot_test(check_empty_sortition_recovery: bool
     boot_to_epoch_3(
         &naka_conf,
         &blocks_processed,
-        &[stacker_sk.clone()],
+        slice::from_ref(&stacker_sk),
         &[sender_signer_sk],
         &mut Some(&mut signers),
         &mut btc_regtest_controller,
@@ -9658,7 +9652,7 @@ fn run_mock_mining_ongoing_tenure_boot_test(check_empty_sortition_recovery: bool
     wait_for_first_naka_block_commit(60, &commits_submitted);
 
     // Mine the next burn block so the regular miner starts a new tenure before the follower boots.
-    next_block_and_process_new_stacks_block(&mut btc_regtest_controller, 60, &coord_channel)
+    next_block_and_process_new_stacks_block(&btc_regtest_controller, 60, &coord_channel)
         .expect("Failed to mine initial tenure start block");
 
     let mut follower_conf = naka_conf.clone();
@@ -9716,7 +9710,7 @@ fn run_mock_mining_ongoing_tenure_boot_test(check_empty_sortition_recovery: bool
     follower_run_loop_stopper.store(false, Ordering::SeqCst);
     follower_thread.join().unwrap();
 
-    next_block_and_process_new_stacks_block(&mut btc_regtest_controller, 60, &coord_channel)
+    next_block_and_process_new_stacks_block(&btc_regtest_controller, 60, &coord_channel)
         .expect("Failed to mine a tenure-start block while follower was offline");
 
     // Mine an interim block in the same tenure while follower is still offline.
@@ -10055,8 +10049,8 @@ fn v3_signer_api_endpoint() {
     boot_to_epoch_3(
         &conf,
         &blocks_processed,
-        &[stacker_sk.clone()],
-        &[signer_sk.clone()],
+        slice::from_ref(&stacker_sk),
+        slice::from_ref(&signer_sk),
         &mut Some(&mut signers),
         &mut btc_regtest_controller,
     );
@@ -10106,7 +10100,7 @@ fn v3_signer_api_endpoint() {
 
     // Mine some nakamoto tenures
     for _i in 0..naka_tenures {
-        next_block_and_mine_commit(&mut btc_regtest_controller, 60, &conf, &counters).unwrap();
+        next_block_and_mine_commit(&btc_regtest_controller, 60, &conf, &counters).unwrap();
     }
     let block_height = btc_regtest_controller.get_headers_height();
     let reward_cycle = btc_regtest_controller
@@ -10219,8 +10213,8 @@ fn v3_blockbyheight_api_endpoint() {
     boot_to_epoch_3(
         &conf,
         &blocks_processed,
-        &[stacker_sk.clone()],
-        &[signer_sk.clone()],
+        slice::from_ref(&stacker_sk),
+        slice::from_ref(&signer_sk),
         &mut Some(&mut signers),
         &mut btc_regtest_controller,
     );
@@ -10232,7 +10226,7 @@ fn v3_blockbyheight_api_endpoint() {
     wait_for_first_naka_block_commit(60, &commits_submitted);
 
     // Mine 1 nakamoto tenure
-    next_block_and_mine_commit(&mut btc_regtest_controller, 60, &conf, &counters).unwrap();
+    next_block_and_mine_commit(&btc_regtest_controller, 60, &conf, &counters).unwrap();
 
     let burnchain = conf.get_burnchain();
     let sortdb = burnchain.open_sortition_db(true).unwrap();
@@ -10336,8 +10330,8 @@ fn nakamoto_lockup_events() {
     boot_to_epoch_3(
         &conf,
         &blocks_processed,
-        &[stacker_sk.clone()],
-        &[signer_sk.clone()],
+        slice::from_ref(&stacker_sk),
+        slice::from_ref(&signer_sk),
         &mut Some(&mut signers),
         &mut btc_regtest_controller,
     );
@@ -10358,7 +10352,7 @@ fn nakamoto_lockup_events() {
 
     info!("------------------------- Setup finished, run test -------------------------");
 
-    next_block_and_mine_commit(&mut btc_regtest_controller, 60, &conf, &counters).unwrap();
+    next_block_and_mine_commit(&btc_regtest_controller, 60, &conf, &counters).unwrap();
 
     let http_origin = format!("http://{}", &conf.node.rpc_bind);
 
@@ -10415,10 +10409,8 @@ fn nakamoto_lockup_events() {
     let events = block.get("events").unwrap().as_array().unwrap();
     let mut found_event = false;
     for event in events {
-        let mint_event = event.get("stx_mint_event");
-        if mint_event.is_some() {
+        if let Some(mint_event) = event.get("stx_mint_event") {
             found_event = true;
-            let mint_event = mint_event.unwrap();
             let recipient = mint_event.get("recipient").unwrap().as_str().unwrap();
             assert_eq!(recipient, unlock_recipient);
             let amount = mint_event.get("amount").unwrap().as_str().unwrap();
@@ -10514,7 +10506,7 @@ fn skip_mining_long_tx() {
     boot_to_epoch_3(
         &naka_conf,
         &blocks_processed,
-        &[stacker_sk.clone()],
+        slice::from_ref(&stacker_sk),
         &[sender_signer_sk],
         &mut Some(&mut signers),
         &mut btc_regtest_controller,
@@ -10542,7 +10534,7 @@ fn skip_mining_long_tx() {
     // Mine a few nakamoto tenures with some interim blocks in them
     for i in 0..5 {
         let mined_before = mined_naka_blocks.load(Ordering::SeqCst);
-        next_block_and_mine_commit(&mut btc_regtest_controller, 60, &naka_conf, &counters).unwrap();
+        next_block_and_mine_commit(&btc_regtest_controller, 60, &naka_conf, &counters).unwrap();
 
         if i == 0 {
             // we trigger the nakamoto miner to evaluate the long running transaction,
@@ -10719,7 +10711,7 @@ fn sip029_coinbase_change() {
     boot_to_epoch_3(
         &naka_conf,
         &blocks_processed,
-        &[stacker_sk.clone()],
+        slice::from_ref(&stacker_sk),
         &[sender_signer_sk],
         &mut Some(&mut signers),
         &mut btc_regtest_controller,
@@ -10745,7 +10737,7 @@ fn sip029_coinbase_change() {
     // mine until burnchain height 270
     loop {
         let commits_before = commits_submitted.load(Ordering::SeqCst);
-        next_block_and_process_new_stacks_block(&mut btc_regtest_controller, 60, &coord_channel)
+        next_block_and_process_new_stacks_block(&btc_regtest_controller, 60, &coord_channel)
             .unwrap();
         wait_for(20, || {
             Ok(commits_submitted.load(Ordering::SeqCst) > commits_before)
@@ -11004,7 +10996,7 @@ fn clarity_cost_spend_down() {
         .lock()
         .expect("Mutex poisoned")
         .get_stacks_blocks_processed();
-    next_block_and(&mut btc_regtest_controller, 60, || {
+    next_block_and(&btc_regtest_controller, 60, || {
         let blocks_count = mined_blocks.load(Ordering::SeqCst);
         let blocks_processed = coord_channel
             .lock()
@@ -11044,7 +11036,7 @@ fn clarity_cost_spend_down() {
             .expect("Mutex poisoned")
             .get_stacks_blocks_processed();
         let commits_before = commits_submitted.load(Ordering::SeqCst);
-        next_block_and(&mut btc_regtest_controller, 60, || {
+        next_block_and(&btc_regtest_controller, 60, || {
             let blocks_count = mined_blocks.load(Ordering::SeqCst);
             let blocks_processed = coord_channel
                 .lock()
@@ -11199,8 +11191,8 @@ fn consensus_hash_event_dispatcher() {
     boot_to_epoch_3(
         &conf,
         &blocks_processed,
-        &[stacker_sk.clone()],
-        &[signer_sk.clone()],
+        slice::from_ref(&stacker_sk),
+        slice::from_ref(&signer_sk),
         &mut Some(&mut signers),
         &mut btc_regtest_controller,
     );
@@ -11641,8 +11633,8 @@ fn mine_invalid_principal_from_consensus_buff() {
     boot_to_epoch_3(
         &conf,
         &blocks_processed,
-        &[stacker_sk.clone()],
-        &[signer_sk.clone()],
+        slice::from_ref(&stacker_sk),
+        slice::from_ref(&signer_sk),
         &mut Some(&mut signers),
         &mut btc_regtest_controller,
     );
@@ -11676,7 +11668,7 @@ fn mine_invalid_principal_from_consensus_buff() {
         .expect("Mutex poisoned")
         .get_stacks_blocks_processed();
     let commits_before = commits_submitted.load(Ordering::SeqCst);
-    next_block_and(&mut btc_regtest_controller, 60, || {
+    next_block_and(&btc_regtest_controller, 60, || {
         let blocks_count = mined_blocks.load(Ordering::SeqCst);
         let blocks_processed = coord_channel
             .lock()
@@ -11757,8 +11749,8 @@ fn miner_stop_reason_reported_to_prometheus() {
     boot_to_epoch_3(
         &conf,
         &blocks_processed,
-        &[stacker_sk.clone()],
-        &[signer_sk.clone()],
+        slice::from_ref(&stacker_sk),
+        slice::from_ref(&signer_sk),
         &mut Some(&mut signers),
         &mut btc_regtest_controller,
     );
@@ -11767,7 +11759,7 @@ fn miner_stop_reason_reported_to_prometheus() {
     blind_signer(&conf, &signers, &counters);
     wait_for_first_naka_block_commit(60, &commits_submitted);
 
-    next_block_and_process_new_stacks_block(&mut btc_regtest_controller, 60, &coord_channel)
+    next_block_and_process_new_stacks_block(&btc_regtest_controller, 60, &coord_channel)
         .expect("failed to mine block");
 
     // --- Wait for prometheus to report no_transactions ---
@@ -11856,6 +11848,7 @@ fn reload_miner_config() {
         let new_config = format!(
             r#"
             [burnchain]
+            mode = "nakamoto-neon"
             burn_fee_cap = {}
             satoshis_per_byte = {}
             "#,
@@ -11883,8 +11876,8 @@ fn reload_miner_config() {
     boot_to_epoch_3(
         &conf,
         &blocks_processed,
-        &[stacker_sk.clone()],
-        &[signer_sk.clone()],
+        slice::from_ref(&stacker_sk),
+        slice::from_ref(&signer_sk),
         &mut Some(&mut signers),
         &mut btc_regtest_controller,
     );
@@ -11895,9 +11888,9 @@ fn reload_miner_config() {
 
     wait_for_first_naka_block_commit(60, &commits_submitted);
 
-    next_block_and_mine_commit(&mut btc_regtest_controller, 60, &conf, &counters).unwrap();
-    next_block_and_mine_commit(&mut btc_regtest_controller, 60, &conf, &counters).unwrap();
-    next_block_and_mine_commit(&mut btc_regtest_controller, 60, &conf, &counters).unwrap();
+    next_block_and_mine_commit(&btc_regtest_controller, 60, &conf, &counters).unwrap();
+    next_block_and_mine_commit(&btc_regtest_controller, 60, &conf, &counters).unwrap();
+    next_block_and_mine_commit(&btc_regtest_controller, 60, &conf, &counters).unwrap();
 
     let burn_blocks = test_observer::get_burn_blocks();
     let burn_block = burn_blocks.last().unwrap();
@@ -11913,7 +11906,7 @@ fn reload_miner_config() {
 
     assert_eq!(reward_amount + burn_amount, old_burn_fee_cap);
 
-    next_block_and_mine_commit(&mut btc_regtest_controller, 60, &conf, &counters).unwrap();
+    next_block_and_mine_commit(&btc_regtest_controller, 60, &conf, &counters).unwrap();
 
     info!("---- Updating config ----");
     let new_amount = 150000;
@@ -11921,8 +11914,8 @@ fn reload_miner_config() {
 
     // Due to timing of commits, just mine two blocks
 
-    next_block_and_mine_commit(&mut btc_regtest_controller, 60, &conf, &counters).unwrap();
-    next_block_and_mine_commit(&mut btc_regtest_controller, 60, &conf, &counters).unwrap();
+    next_block_and_mine_commit(&btc_regtest_controller, 60, &conf, &counters).unwrap();
+    next_block_and_mine_commit(&btc_regtest_controller, 60, &conf, &counters).unwrap();
 
     let burn_blocks = test_observer::get_burn_blocks();
     let burn_block = burn_blocks.last().unwrap();
@@ -12002,6 +11995,7 @@ fn rbf_on_config_change() {
         let new_config = format!(
             r#"
             [burnchain]
+            mode = "nakamoto-neon"
             burn_fee_cap = {}
             satoshis_per_byte = {}
             "#,
@@ -12029,8 +12023,8 @@ fn rbf_on_config_change() {
     boot_to_epoch_3(
         &conf,
         &blocks_processed,
-        &[stacker_sk.clone()],
-        &[signer_sk.clone()],
+        slice::from_ref(&stacker_sk),
+        slice::from_ref(&signer_sk),
         &mut Some(&mut signers),
         &mut btc_regtest_controller,
     );
@@ -12041,7 +12035,7 @@ fn rbf_on_config_change() {
 
     wait_for_first_naka_block_commit(60, &commits_submitted);
 
-    next_block_and_mine_commit(&mut btc_regtest_controller, 60, &conf, &counters).unwrap();
+    next_block_and_mine_commit(&btc_regtest_controller, 60, &conf, &counters).unwrap();
 
     let burnchain = conf.get_burnchain();
     let sortdb = burnchain.open_sortition_db(true).unwrap();
@@ -12191,7 +12185,7 @@ fn large_mempool_base(strategy: MemPoolWalkStrategy, set_fee: impl Fn() -> u64) 
     boot_to_epoch_3(
         &naka_conf,
         &blocks_processed,
-        &[stacker_sk.clone()],
+        slice::from_ref(&stacker_sk),
         &[sender_signer_sk],
         &mut Some(&mut signers),
         &mut btc_regtest_controller,
@@ -12200,7 +12194,7 @@ fn large_mempool_base(strategy: MemPoolWalkStrategy, set_fee: impl Fn() -> u64) 
     info!("Bootstrapped to Epoch-3.0 boundary, starting nakamoto miner");
     blind_signer(&naka_conf, &signers, &counters);
 
-    next_block_and_mine_commit(&mut btc_regtest_controller, 60, &naka_conf, &counters).unwrap();
+    next_block_and_mine_commit(&btc_regtest_controller, 60, &naka_conf, &counters).unwrap();
 
     let burnchain = naka_conf.get_burnchain();
     let sortdb = burnchain.open_sortition_db(true).unwrap();
@@ -12534,7 +12528,7 @@ fn larger_mempool() {
     boot_to_epoch_3(
         &naka_conf,
         &blocks_processed,
-        &[stacker_sk.clone()],
+        slice::from_ref(&stacker_sk),
         &[sender_signer_sk],
         &mut Some(&mut signers),
         &mut btc_regtest_controller,
@@ -12543,7 +12537,7 @@ fn larger_mempool() {
     info!("Bootstrapped to Epoch-3.0 boundary, starting nakamoto miner");
     blind_signer(&naka_conf, &signers, &counters);
 
-    next_block_and_mine_commit(&mut btc_regtest_controller, 60, &naka_conf, &counters).unwrap();
+    next_block_and_mine_commit(&btc_regtest_controller, 60, &naka_conf, &counters).unwrap();
 
     let burnchain = naka_conf.get_burnchain();
     let sortdb = burnchain.open_sortition_db(true).unwrap();
@@ -12806,8 +12800,8 @@ fn v3_transaction_api_endpoint() {
     boot_to_epoch_3(
         &conf,
         &blocks_processed,
-        &[stacker_sk.clone()],
-        &[signer_sk.clone()],
+        slice::from_ref(&stacker_sk),
+        slice::from_ref(&signer_sk),
         &mut Some(&mut signers),
         &mut btc_regtest_controller,
     );
@@ -12819,7 +12813,7 @@ fn v3_transaction_api_endpoint() {
     wait_for_first_naka_block_commit(60, &commits_submitted);
 
     // Mine 1 nakamoto tenure
-    next_block_and_mine_commit(&mut btc_regtest_controller, 60, &conf, &counters).unwrap();
+    next_block_and_mine_commit(&btc_regtest_controller, 60, &conf, &counters).unwrap();
 
     let burnchain = conf.get_burnchain();
     let _sortdb = burnchain.open_sortition_db(true).unwrap();
@@ -12974,7 +12968,7 @@ fn handle_considered_txs_foreign_key_failure() {
     boot_to_epoch_3(
         &naka_conf,
         &blocks_processed,
-        &[stacker_sk.clone()],
+        slice::from_ref(&stacker_sk),
         &[sender_signer_sk],
         &mut Some(&mut signers),
         &mut btc_regtest_controller,
@@ -12987,8 +12981,7 @@ fn handle_considered_txs_foreign_key_failure() {
 
     wait_for_first_naka_block_commit(60, &commits_submitted);
 
-    next_block_and_process_new_stacks_block(&mut btc_regtest_controller, 60, &coord_channel)
-        .unwrap();
+    next_block_and_process_new_stacks_block(&btc_regtest_controller, 60, &coord_channel).unwrap();
 
     let good_transfer_tx = make_stacks_transfer_serialized(
         &good_sender_sk,
@@ -13119,8 +13112,8 @@ fn empty_mempool_sleep_ms() {
     boot_to_epoch_3(
         &conf,
         &blocks_processed,
-        &[stacker_sk.clone()],
-        &[signer_sk.clone()],
+        slice::from_ref(&stacker_sk),
+        slice::from_ref(&signer_sk),
         &mut Some(&mut signers),
         &mut btc_regtest_controller,
     );
@@ -13131,7 +13124,7 @@ fn empty_mempool_sleep_ms() {
 
     wait_for_first_naka_block_commit(60, &commits_submitted);
 
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&btc_regtest_controller, &blocks_processed);
 
     // Sleep for 5 seconds to ensure that the miner tries to mine and sees an
     // empty mempool.
@@ -13242,7 +13235,7 @@ fn test_sip_031_activation() {
     boot_to_epoch_3(
         &naka_conf,
         &blocks_processed,
-        &[stacker_sk.clone()],
+        slice::from_ref(&stacker_sk),
         &[sender_signer_sk],
         &mut Some(&mut signers),
         &mut btc_regtest_controller,
@@ -13290,7 +13283,7 @@ fn test_sip_031_activation() {
     // mine until epoch 3.2 height
     loop {
         let commits_before = commits_submitted.load(Ordering::SeqCst);
-        next_block_and_process_new_stacks_block(&mut btc_regtest_controller, 60, &coord_channel)
+        next_block_and_process_new_stacks_block(&btc_regtest_controller, 60, &coord_channel)
             .unwrap();
         wait_for(20, || {
             Ok(commits_submitted.load(Ordering::SeqCst) > commits_before)
@@ -13421,7 +13414,7 @@ fn test_sip_031_activation() {
                 .is_some());
             let events = block.get("events").unwrap().as_array().unwrap();
             for event in events {
-                if let Some(_) = event.get("stx_mint_event") {
+                if event.get("stx_mint_event").is_some() {
                     mint_event_found = Some(event.clone());
                     break;
                 }
@@ -13572,7 +13565,7 @@ fn test_sip_031_last_phase() {
     boot_to_epoch_3(
         &naka_conf,
         &blocks_processed,
-        &[stacker_sk.clone()],
+        slice::from_ref(&stacker_sk),
         &[sender_signer_sk],
         &mut Some(&mut signers),
         &mut btc_regtest_controller,
@@ -13598,7 +13591,7 @@ fn test_sip_031_last_phase() {
     // mine until epoch 3.2 height
     loop {
         let commits_before = commits_submitted.load(Ordering::SeqCst);
-        next_block_and_process_new_stacks_block(&mut btc_regtest_controller, 60, &coord_channel)
+        next_block_and_process_new_stacks_block(&btc_regtest_controller, 60, &coord_channel)
             .unwrap();
         wait_for(20, || {
             Ok(commits_submitted.load(Ordering::SeqCst) > commits_before)
@@ -13669,7 +13662,7 @@ fn test_sip_031_last_phase() {
     for _ in 0..50 {
         let commits_before = commits_submitted.load(Ordering::SeqCst);
         next_block_and_process_new_stacks_blocks(
-            &mut btc_regtest_controller,
+            &btc_regtest_controller,
             3,
             60,
             &coord_channel,
@@ -13896,7 +13889,7 @@ fn test_sip_031_last_phase_out_of_epoch() {
     boot_to_epoch_3(
         &naka_conf,
         &blocks_processed,
-        &[stacker_sk.clone()],
+        slice::from_ref(&stacker_sk),
         &[sender_signer_sk],
         &mut Some(&mut signers),
         &mut btc_regtest_controller,
@@ -13922,7 +13915,7 @@ fn test_sip_031_last_phase_out_of_epoch() {
     // mine until epoch 3.2 height
     loop {
         let commits_before = commits_submitted.load(Ordering::SeqCst);
-        next_block_and_process_new_stacks_block(&mut btc_regtest_controller, 60, &coord_channel)
+        next_block_and_process_new_stacks_block(&btc_regtest_controller, 60, &coord_channel)
             .unwrap();
         wait_for(20, || {
             Ok(commits_submitted.load(Ordering::SeqCst) > commits_before)
@@ -13992,7 +13985,7 @@ fn test_sip_031_last_phase_out_of_epoch() {
                     LimitedCostTracker::new_free(),
                     |exec_state, invoke_ctx| {
                         exec_state.eval_read_only(
-                            &invoke_ctx,
+                            invoke_ctx,
                             &boot_code_id(SIP_031_NAME, naka_conf.is_mainnet()),
                             "(get-recipient)",
                         )
@@ -14095,7 +14088,7 @@ fn test_sip_031_last_phase_coinbase_matches_activation() {
     boot_to_epoch_3(
         &naka_conf,
         &blocks_processed,
-        &[stacker_sk.clone()],
+        slice::from_ref(&stacker_sk),
         &[sender_signer_sk],
         &mut Some(&mut signers),
         &mut btc_regtest_controller,
@@ -14121,7 +14114,7 @@ fn test_sip_031_last_phase_coinbase_matches_activation() {
     // mine until epoch 3.2 height
     loop {
         let commits_before = commits_submitted.load(Ordering::SeqCst);
-        next_block_and_process_new_stacks_block(&mut btc_regtest_controller, 60, &coord_channel)
+        next_block_and_process_new_stacks_block(&btc_regtest_controller, 60, &coord_channel)
             .unwrap();
         wait_for(20, || {
             Ok(commits_submitted.load(Ordering::SeqCst) > commits_before)
@@ -14251,7 +14244,7 @@ fn test_sip_031_last_phase_coinbase_matches_activation() {
     // 1 more tenures (with 5 stacks blocks)
     let commits_before = commits_submitted.load(Ordering::SeqCst);
     next_block_and_process_new_stacks_blocks(
-        &mut btc_regtest_controller,
+        &btc_regtest_controller,
         5,
         60,
         &coord_channel,
@@ -14467,7 +14460,7 @@ fn test_epoch_3_3_activation() {
     boot_to_epoch_3(
         &naka_conf,
         &blocks_processed,
-        &[stacker_sk.clone()],
+        slice::from_ref(&stacker_sk),
         &[sender_signer_sk],
         &mut Some(&mut signers),
         &mut btc_regtest_controller,
@@ -14493,7 +14486,7 @@ fn test_epoch_3_3_activation() {
     // mine until epoch 3.3 height
     loop {
         let blocks_before = test_observer::get_blocks().len();
-        next_block_and_process_new_stacks_block(&mut btc_regtest_controller, 60, &coord_channel)
+        next_block_and_process_new_stacks_block(&btc_regtest_controller, 60, &coord_channel)
             .unwrap();
 
         // wait for the observer to process the new block
@@ -14728,7 +14721,7 @@ fn contract_limit_percentage_mempool_strategy_high_limit() {
         .expect("Mutex poisoned")
         .get_stacks_blocks_processed();
     let commits_before = commits_submitted.load(Ordering::SeqCst);
-    next_block_and(&mut btc_regtest_controller, 60, || {
+    next_block_and(&btc_regtest_controller, 60, || {
         let blocks_count = mined_blocks.load(Ordering::SeqCst);
         let blocks_processed = coord_channel
             .lock()
@@ -14796,7 +14789,7 @@ fn contract_limit_percentage_mempool_strategy_high_limit() {
     info!("----- Mining BTC block to reset tenure limits -----");
     let blocks_before = test_observer::get_blocks();
     let mined_before = test_observer::get_mined_nakamoto_blocks();
-    next_block_and(&mut btc_regtest_controller, 60, || {
+    next_block_and(&btc_regtest_controller, 60, || {
         let blocks_after = test_observer::get_blocks();
         let mined_after = test_observer::get_mined_nakamoto_blocks();
         Ok(blocks_after.len() > blocks_before.len() && mined_after.len() > mined_before.len())
@@ -14824,7 +14817,7 @@ fn contract_limit_percentage_mempool_strategy_high_limit() {
         // Also fill up the mempool with a bunch of transfers
         let sender_nonce = get_and_increment_nonce(sender_sk, &mut sender_nonces);
         let transfer_tx = make_stacks_transfer_serialized(
-            &sender_sk,
+            sender_sk,
             sender_nonce,
             send_fee,
             naka_conf.burnchain.chain_id,
@@ -15062,7 +15055,7 @@ fn contract_limit_percentage_mempool_strategy_low_limit() {
         .expect("Mutex poisoned")
         .get_stacks_blocks_processed();
     let commits_before = commits_submitted.load(Ordering::SeqCst);
-    next_block_and(&mut btc_regtest_controller, 60, || {
+    next_block_and(&btc_regtest_controller, 60, || {
         let blocks_count = mined_blocks.load(Ordering::SeqCst);
         let blocks_processed = coord_channel
             .lock()
@@ -15133,7 +15126,7 @@ fn contract_limit_percentage_mempool_strategy_low_limit() {
     let blocks_before = test_observer::get_blocks();
     let mined_before = test_observer::get_mined_nakamoto_blocks();
     let stacks_height = get_chain_info(&naka_conf).stacks_tip_height;
-    next_block_and(&mut btc_regtest_controller, 60, || {
+    next_block_and(&btc_regtest_controller, 60, || {
         let blocks_after = test_observer::get_blocks();
         let mined_after = test_observer::get_mined_nakamoto_blocks();
         Ok(blocks_after.len() > blocks_before.len()
@@ -15165,7 +15158,7 @@ fn contract_limit_percentage_mempool_strategy_low_limit() {
         // Also fill up the mempool with a bunch of transfers
         let sender_nonce = get_and_increment_nonce(sender_sk, &mut sender_nonces);
         let transfer_tx = make_stacks_transfer_serialized(
-            &sender_sk,
+            sender_sk,
             sender_nonce,
             send_fee,
             naka_conf.burnchain.chain_id,
@@ -15315,7 +15308,7 @@ fn check_block_time_keyword() {
     boot_to_epoch_3(
         &naka_conf,
         &blocks_processed,
-        &[stacker_sk.clone()],
+        slice::from_ref(&stacker_sk),
         &[sender_signer_sk],
         &mut Some(&mut signers),
         &mut btc_regtest_controller,
@@ -15330,7 +15323,7 @@ fn check_block_time_keyword() {
     // mine until epoch 3.3 height
     loop {
         let blocks_before = test_observer::get_blocks().len();
-        next_block_and_process_new_stacks_block(&mut btc_regtest_controller, 60, &coord_channel)
+        next_block_and_process_new_stacks_block(&btc_regtest_controller, 60, &coord_channel)
             .unwrap();
 
         // wait for the observer to process the new block
@@ -15359,7 +15352,7 @@ fn check_block_time_keyword() {
     let info = get_chain_info_result(&naka_conf).unwrap();
     let last_stacks_block_height = info.stacks_tip_height as u128;
 
-    next_block_and_mine_commit(&mut btc_regtest_controller, 60, &naka_conf, &counters).unwrap();
+    next_block_and_mine_commit(&btc_regtest_controller, 60, &naka_conf, &counters).unwrap();
 
     let mut sender_nonce = 0;
     let contract_name = "test-contract";
@@ -15408,8 +15401,7 @@ fn check_block_time_keyword() {
     })
     .expect("Timed out waiting for contracts to publish");
 
-    next_block_and_process_new_stacks_block(&mut btc_regtest_controller, 30, &coord_channel)
-        .unwrap();
+    next_block_and_process_new_stacks_block(&btc_regtest_controller, 30, &coord_channel).unwrap();
 
     let deploy_time_value = get_constant(&naka_conf, &sender_addr, contract_name, "deploy-time");
     let deploy_time = deploy_time_value.clone().expect_u128().unwrap();
@@ -15599,7 +15591,7 @@ fn check_sip040_post_conditions() {
     boot_to_epoch_3(
         &naka_conf,
         &blocks_processed,
-        &[stacker_sk.clone()],
+        slice::from_ref(&stacker_sk),
         &[sender_signer_sk],
         &mut Some(&mut signers),
         &mut btc_regtest_controller,
@@ -15625,7 +15617,7 @@ fn check_sip040_post_conditions() {
             burn_height < epoch34_start,
             "Missed epoch 3.3 window at burn height {burn_height}"
         );
-        next_block_and_process_new_stacks_block(&mut btc_regtest_controller, 60, &coord_channel)
+        next_block_and_process_new_stacks_block(&btc_regtest_controller, 60, &coord_channel)
             .unwrap();
     }
 
@@ -15728,7 +15720,7 @@ fn check_sip040_post_conditions() {
         if burn_height >= epoch34_start {
             break;
         }
-        next_block_and_process_new_stacks_block(&mut btc_regtest_controller, 60, &coord_channel)
+        next_block_and_process_new_stacks_block(&btc_regtest_controller, 60, &coord_channel)
             .unwrap();
     }
 
@@ -16097,7 +16089,7 @@ fn check_with_stacking_allowances_delegate_stx() {
     boot_to_epoch_3(
         &naka_conf,
         &blocks_processed,
-        &[stacker_sk.clone()],
+        slice::from_ref(&stacker_sk),
         &[sender_signer_sk],
         &mut Some(&mut signers),
         &mut btc_regtest_controller,
@@ -16112,7 +16104,7 @@ fn check_with_stacking_allowances_delegate_stx() {
     // mine until epoch 3.3 height
     loop {
         let blocks_before = test_observer::get_blocks().len();
-        next_block_and_process_new_stacks_block(&mut btc_regtest_controller, 60, &coord_channel)
+        next_block_and_process_new_stacks_block(&btc_regtest_controller, 60, &coord_channel)
             .unwrap();
 
         // wait for the observer to process the new block
@@ -16141,7 +16133,7 @@ fn check_with_stacking_allowances_delegate_stx() {
     let info = get_chain_info_result(&naka_conf).unwrap();
     let last_stacks_block_height = info.stacks_tip_height as u128;
 
-    next_block_and_mine_commit(&mut btc_regtest_controller, 60, &naka_conf, &counters).unwrap();
+    next_block_and_mine_commit(&btc_regtest_controller, 60, &naka_conf, &counters).unwrap();
 
     let mut sender_nonce = 0;
     let contract_name = "test-contract";
@@ -16204,8 +16196,7 @@ fn check_with_stacking_allowances_delegate_stx() {
     })
     .expect("Timed out waiting for contracts to publish");
 
-    next_block_and_process_new_stacks_block(&mut btc_regtest_controller, 30, &coord_channel)
-        .unwrap();
+    next_block_and_process_new_stacks_block(&btc_regtest_controller, 30, &coord_channel).unwrap();
 
     test_observer::clear();
 
@@ -16507,7 +16498,7 @@ fn check_with_stacking_allowances_stack_stx() {
     boot_to_epoch_3(
         &naka_conf,
         &blocks_processed,
-        &[stacker_sk.clone()],
+        slice::from_ref(&stacker_sk),
         &[sender_signer_sk],
         &mut Some(&mut signers),
         &mut btc_regtest_controller,
@@ -16522,7 +16513,7 @@ fn check_with_stacking_allowances_stack_stx() {
     // mine until epoch 3.3 height
     loop {
         let blocks_before = test_observer::get_blocks().len();
-        next_block_and_process_new_stacks_block(&mut btc_regtest_controller, 60, &coord_channel)
+        next_block_and_process_new_stacks_block(&btc_regtest_controller, 60, &coord_channel)
             .unwrap();
 
         // wait for the observer to process the new block
@@ -16551,7 +16542,7 @@ fn check_with_stacking_allowances_stack_stx() {
     let info = get_chain_info_result(&naka_conf).unwrap();
     let last_stacks_block_height = info.stacks_tip_height as u128;
 
-    next_block_and_mine_commit(&mut btc_regtest_controller, 60, &naka_conf, &counters).unwrap();
+    next_block_and_mine_commit(&btc_regtest_controller, 60, &naka_conf, &counters).unwrap();
 
     let signer_key_hex = Value::buff_from(signer_pk.to_bytes_compressed()).unwrap();
     let mut sender_nonce = 0;
@@ -16630,8 +16621,7 @@ fn check_with_stacking_allowances_stack_stx() {
     })
     .expect("Timed out waiting for contracts to publish");
 
-    next_block_and_process_new_stacks_block(&mut btc_regtest_controller, 30, &coord_channel)
-        .unwrap();
+    next_block_and_process_new_stacks_block(&btc_regtest_controller, 30, &coord_channel).unwrap();
 
     let block_height = btc_regtest_controller.get_headers_height();
     let reward_cycle = btc_regtest_controller
@@ -17106,7 +17096,7 @@ fn check_restrict_assets_rollback() {
     boot_to_epoch_3(
         &naka_conf,
         &blocks_processed,
-        &[stacker_sk.clone()],
+        slice::from_ref(&stacker_sk),
         &[sender_signer_sk],
         &mut Some(&mut signers),
         &mut btc_regtest_controller,
@@ -17121,7 +17111,7 @@ fn check_restrict_assets_rollback() {
     // mine until epoch 3.3 height
     loop {
         let blocks_before = test_observer::get_blocks().len();
-        next_block_and_process_new_stacks_block(&mut btc_regtest_controller, 60, &coord_channel)
+        next_block_and_process_new_stacks_block(&btc_regtest_controller, 60, &coord_channel)
             .unwrap();
 
         // wait for the observer to process the new block
@@ -17150,7 +17140,7 @@ fn check_restrict_assets_rollback() {
     let info = get_chain_info_result(&naka_conf).unwrap();
     let last_stacks_block_height = info.stacks_tip_height as u128;
 
-    next_block_and_mine_commit(&mut btc_regtest_controller, 60, &naka_conf, &counters).unwrap();
+    next_block_and_mine_commit(&btc_regtest_controller, 60, &naka_conf, &counters).unwrap();
 
     let mut sender_nonce = 0;
     let contract_name = "test-contract";
@@ -17320,8 +17310,7 @@ fn check_restrict_assets_rollback() {
     })
     .expect("Timed out waiting for contracts to publish");
 
-    next_block_and_process_new_stacks_block(&mut btc_regtest_controller, 30, &coord_channel)
-        .unwrap();
+    next_block_and_process_new_stacks_block(&btc_regtest_controller, 30, &coord_channel).unwrap();
 
     let mut sender_balance = get_account(&http_origin, &sender_addr).balance;
     let mut recipient_balance = get_account(&http_origin, &recipient).balance;
@@ -17352,7 +17341,7 @@ fn check_restrict_assets_rollback() {
             call_fee,
             chain_id,
             sender_addr,
-            contract_name.try_into().unwrap(),
+            contract_name,
             function_name,
             function_args,
         );
@@ -17826,7 +17815,7 @@ fn check_as_contract_rollback() {
     boot_to_epoch_3(
         &naka_conf,
         &blocks_processed,
-        &[stacker_sk.clone()],
+        slice::from_ref(&stacker_sk),
         &[sender_signer_sk],
         &mut Some(&mut signers),
         &mut btc_regtest_controller,
@@ -17841,7 +17830,7 @@ fn check_as_contract_rollback() {
     // mine until epoch 3.3 height
     loop {
         let blocks_before = test_observer::get_blocks().len();
-        next_block_and_process_new_stacks_block(&mut btc_regtest_controller, 60, &coord_channel)
+        next_block_and_process_new_stacks_block(&btc_regtest_controller, 60, &coord_channel)
             .unwrap();
 
         // wait for the observer to process the new block
@@ -17870,7 +17859,7 @@ fn check_as_contract_rollback() {
     let info = get_chain_info_result(&naka_conf).unwrap();
     let last_stacks_block_height = info.stacks_tip_height as u128;
 
-    next_block_and_mine_commit(&mut btc_regtest_controller, 60, &naka_conf, &counters).unwrap();
+    next_block_and_mine_commit(&btc_regtest_controller, 60, &naka_conf, &counters).unwrap();
 
     let mut sender_nonce = 0;
     let contract = r#"
@@ -18039,8 +18028,7 @@ fn check_as_contract_rollback() {
     })
     .expect("Timed out waiting for contracts to publish");
 
-    next_block_and_process_new_stacks_block(&mut btc_regtest_controller, 30, &coord_channel)
-        .unwrap();
+    next_block_and_process_new_stacks_block(&btc_regtest_controller, 30, &coord_channel).unwrap();
 
     let mut contract_balance = get_account(&http_origin, &contract_addr).balance;
     let mut recipient_balance = get_account(&http_origin, &recipient).balance;
@@ -18584,7 +18572,7 @@ fn smaller_tenure_size_for_miner() {
     boot_to_epoch_3(
         &naka_conf,
         &blocks_processed,
-        &[stacker_sk.clone()],
+        slice::from_ref(&stacker_sk),
         &[signer_sk],
         &mut Some(&mut signers),
         &mut btc_regtest_controller,
@@ -18626,19 +18614,16 @@ fn smaller_tenure_size_for_miner() {
         submit_tx(&http_origin, &contract_tx);
     }
 
-    next_block_and(&mut btc_regtest_controller, 60, || {
+    next_block_and(&btc_regtest_controller, 60, || {
         let nakamoto_block_events = test_observer::get_mined_nakamoto_blocks();
         if !nakamoto_block_events.is_empty() {
             let nakamoto_block_event = nakamoto_block_events.last().unwrap();
             let mut skipped_transactions = 0;
             for tx_event in &nakamoto_block_event.tx_events {
-                match tx_event {
-                    TransactionEvent::Skipped(reason) => {
-                        if reason.error == "Too much data in tenure" {
-                            skipped_transactions += 1;
-                        }
+                if let TransactionEvent::Skipped(reason) = tx_event {
+                    if reason.error == "Too much data in tenure" {
+                        skipped_transactions += 1;
                     }
-                    _ => (),
                 }
             }
             // assume 2 blocks, the first one with 3 transactions the second with 2
@@ -18779,7 +18764,7 @@ fn smaller_tenure_size_for_miner_on_two_tenures() {
     boot_to_epoch_3(
         &naka_conf,
         &blocks_processed,
-        &[stacker_sk.clone()],
+        slice::from_ref(&stacker_sk),
         &[signer_sk],
         &mut Some(&mut signers),
         &mut btc_regtest_controller,
@@ -18821,19 +18806,16 @@ fn smaller_tenure_size_for_miner_on_two_tenures() {
         submit_tx(&http_origin, &contract_tx);
     }
 
-    next_block_and(&mut btc_regtest_controller, 60, || {
+    next_block_and(&btc_regtest_controller, 60, || {
         let nakamoto_block_events = test_observer::get_mined_nakamoto_blocks();
         if !nakamoto_block_events.is_empty() {
             let nakamoto_block_event = nakamoto_block_events.last().unwrap();
             let mut skipped_transactions = 0;
             for tx_event in &nakamoto_block_event.tx_events {
-                match tx_event {
-                    TransactionEvent::Skipped(reason) => {
-                        if reason.error == "Too much data in tenure" {
-                            skipped_transactions += 1;
-                        }
+                if let TransactionEvent::Skipped(reason) = tx_event {
+                    if reason.error == "Too much data in tenure" {
+                        skipped_transactions += 1;
                     }
-                    _ => (),
                 }
             }
             // assume 2 blocks, the first one with 3 transactions the second with 2
@@ -18851,19 +18833,16 @@ fn smaller_tenure_size_for_miner_on_two_tenures() {
         .expect("Timed out waiting for signers");
 
     // start the second tenure and wait till no more transactions are skipped
-    next_block_and(&mut btc_regtest_controller, 60, || {
+    next_block_and(&btc_regtest_controller, 60, || {
         let nakamoto_block_events = test_observer::get_mined_nakamoto_blocks();
         if !nakamoto_block_events.is_empty() {
             let nakamoto_block_event = nakamoto_block_events.last().unwrap();
             let mut skipped_transactions = 0;
             for tx_event in &nakamoto_block_event.tx_events {
-                match tx_event {
-                    TransactionEvent::Skipped(reason) => {
-                        if reason.error == "Too much data in tenure" {
-                            skipped_transactions += 1;
-                        }
+                if let TransactionEvent::Skipped(reason) = tx_event {
+                    if reason.error == "Too much data in tenure" {
+                        skipped_transactions += 1;
                     }
-                    _ => (),
                 }
             }
             if skipped_transactions == 0 {
@@ -19000,7 +18979,7 @@ fn smaller_tenure_size_for_miner_with_tenure_extend() {
     boot_to_epoch_3(
         &naka_conf,
         &blocks_processed,
-        &[stacker_sk.clone()],
+        slice::from_ref(&stacker_sk),
         &[signer_sk],
         &mut Some(&mut signers),
         &mut btc_regtest_controller,
@@ -19042,7 +19021,7 @@ fn smaller_tenure_size_for_miner_with_tenure_extend() {
         submit_tx(&http_origin, &contract_tx);
     }
 
-    next_block_and(&mut btc_regtest_controller, 60, || {
+    next_block_and(&btc_regtest_controller, 60, || {
         let mut deployed_contracts = 0;
         for sender in &senders[..num_deploys] {
             if get_account(&http_origin, &sender.1).nonce == 1 {
@@ -19141,7 +19120,7 @@ fn tenure_extend_no_commits() {
     boot_to_epoch_3(
         &naka_conf,
         &blocks_processed,
-        &[stacker_sk.clone()],
+        slice::from_ref(&stacker_sk),
         &[sender_signer_sk],
         &mut Some(&mut signers),
         &mut btc_regtest_controller,
@@ -19153,7 +19132,7 @@ fn tenure_extend_no_commits() {
     wait_for_first_naka_block_commit(60, &commits_submitted);
 
     // Mine a regular nakamoto tenure
-    next_block_and_mine_commit(&mut btc_regtest_controller, 60, &naka_conf, &counters).unwrap();
+    next_block_and_mine_commit(&btc_regtest_controller, 60, &naka_conf, &counters).unwrap();
 
     let expected_height = get_chain_tip_height(&http_origin) + 1;
     test_observer::clear();

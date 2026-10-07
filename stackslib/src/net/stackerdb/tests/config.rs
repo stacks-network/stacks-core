@@ -52,9 +52,8 @@ fn make_smart_contract(
 
     let mut tx_signer = StacksTransactionSigner::new(&tx_contract);
     tx_signer.sign_origin(pk).unwrap();
-    let tx_contract_signed = tx_signer.get_tx().unwrap();
 
-    tx_contract_signed
+    tx_signer.get_tx().unwrap()
 }
 /// ;; Any StackerDB smart contract must conform to this trait.
 /// (define-trait stackerdb-trait

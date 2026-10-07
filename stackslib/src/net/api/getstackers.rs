@@ -164,7 +164,7 @@ impl RPCRequestHandler for GetStackersRequestHandler {
         let tip = match node.load_stacks_chain_tip(&preamble, &contents) {
             Ok(tip) => tip,
             Err(error_resp) => {
-                return error_resp.try_into_contents().map_err(NetError::from);
+                return error_resp.try_into_contents();
             }
         };
         let Some(cycle_number) = self.cycle_number else {
@@ -172,8 +172,7 @@ impl RPCRequestHandler for GetStackersRequestHandler {
                     &preamble,
                     &HttpBadRequest::new_json(json!({"response": "error", "err_msg": "Failed to read cycle number in request"}))
                 )
-                    .try_into_contents()
-                    .map_err(NetError::from);
+                    .try_into_contents();
         };
 
         let stacker_response =
@@ -198,7 +197,6 @@ impl RPCRequestHandler for GetStackersRequestHandler {
                         "err_msg": error.to_string()})),
                 )
                 .try_into_contents()
-                .map_err(NetError::from)
             }
         };
 
@@ -215,7 +213,7 @@ impl HttpResponse for GetStackersRequestHandler {
         body: &[u8],
     ) -> Result<HttpResponsePayload, Error> {
         let response: GetStackersResponse = parse_json(preamble, body)?;
-        Ok(HttpResponsePayload::try_from_json(response)?)
+        HttpResponsePayload::try_from_json(response)
     }
 }
 
