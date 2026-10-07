@@ -15,7 +15,7 @@
 
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::ops::Bound::Included;
-use std::sync::atomic::AtomicBool;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
@@ -26,16 +26,15 @@ use libsigner::{BlockProposal, BlockProposalData, SignerSession, StackerDBSessio
 use stacks::burnchains::Burnchain;
 use stacks::chainstate::burn::db::sortdb::SortitionDB;
 use stacks::chainstate::burn::{BlockSnapshot, ConsensusHash};
-use stacks::chainstate::nakamoto::{NakamotoBlock, NakamotoChainState};
+use stacks::chainstate::nakamoto::{NakamotoBlock, NakamotoBlockHeader, NakamotoChainState};
 use stacks::chainstate::stacks::boot::{RewardSet, MINERS_NAME};
 use stacks::chainstate::stacks::db::{StacksBlockHeaderTypes, StacksChainState};
 use stacks::chainstate::stacks::Error as ChainstateError;
 use stacks::codec::StacksMessageCodec;
 use stacks::libstackerdb::StackerDBChunkData;
 use stacks::net::stackerdb::StackerDBs;
-use stacks::types::chainstate::{StacksBlockId, StacksPrivateKey, StacksPublicKey};
+use stacks::types::chainstate::{StacksPrivateKey, StacksPublicKey};
 use stacks::types::MinerDiagnosticData;
-use stacks::util::hash::Sha512Trunc256Sum;
 use stacks::util::secp256k1::MessageSignature;
 use stacks::util_lib::boot::boot_code_id;
 
@@ -66,6 +65,9 @@ pub struct SignerCoordinator {
     stackerdb_comms: StackerDBListenerComms,
     /// Keep running flag for the signer DB listener thread
     keep_running: Arc<AtomicBool>,
+    /// The miner thread's abort flag, set by the relayer to stop the miner thread. While waiting
+    /// for signatures, the coordinator gives up as soon as it is set.
+    miner_abort_flag: Arc<AtomicBool>,
     /// Handle for the signer DB listener thread
     listener_thread: Option<JoinHandle<()>>,
     /// The current tip when this miner thread was started.
@@ -112,6 +114,7 @@ impl SignerCoordinator {
     pub fn new(
         stackerdb_channel: Arc<Mutex<StackerDBChannel>>,
         node_keep_running: Arc<AtomicBool>,
+        miner_abort_flag: Arc<AtomicBool>,
         reward_set: &RewardSet,
         initial_chunks_loader: InitialChunksLoader,
         election_block: &BlockSnapshot,
@@ -160,6 +163,7 @@ impl SignerCoordinator {
             weight_threshold: listener.weight_threshold,
             stackerdb_comms: listener.get_comms(),
             keep_running,
+            miner_abort_flag,
             listener_thread: None,
             burn_tip_at_start: burn_tip_at_start.clone(),
             block_rejection_timeout_steps,
@@ -338,14 +342,7 @@ impl SignerCoordinator {
                 }
             }
 
-            let res = self.get_block_status(
-                &block.header.signer_signature_hash(),
-                &block.block_id(),
-                &block.header.parent_block_id,
-                chain_state,
-                sortdb,
-                counters,
-            );
+            let res = self.get_block_status(&block.header, chain_state, sortdb, counters);
 
             match res {
                 Err(NakamotoNodeError::SignatureTimeout) => {
@@ -364,13 +361,15 @@ impl SignerCoordinator {
     /// there. If a new burnchain tip is detected, we will return an error.
     fn get_block_status(
         &self,
-        block_signer_sighash: &Sha512Trunc256Sum,
-        block_id: &StacksBlockId,
-        parent_block_id: &StacksBlockId,
+        block_header: &NakamotoBlockHeader,
         chain_state: &mut StacksChainState,
         sortdb: &SortitionDB,
         counters: &Counters,
     ) -> Result<Vec<MessageSignature>, NakamotoNodeError> {
+        let block_signer_sighash = &block_header.signer_signature_hash();
+        let block_id = &block_header.block_id();
+        let parent_block_id = &block_header.parent_block_id;
+        let block_consensus_hash = &block_header.consensus_hash;
         // the amount of current rejections (used to eventually modify the timeout)
         let mut rejections: u32 = 0;
         // default timeout (the 0 entry must be always present)
@@ -390,6 +389,12 @@ impl SignerCoordinator {
         // this is used to track the start of the waiting cycle
         let rejections_timer = Instant::now();
         loop {
+            if self.miner_abort_flag.load(Ordering::SeqCst) {
+                info!("SignCoordinator: Exiting due to miner abort";
+                    "signer_signature_hash" => %block_signer_sighash,
+                );
+                return Err(ChainstateError::MinerAborted.into());
+            }
             // At every iteration wait for the block_status.
             // Exit when the amount of confirmations/rejections reaches the threshold (or until timeout)
             // Based on the amount of rejections, eventually modify the timeout.
@@ -406,7 +411,7 @@ impl SignerCoordinator {
                         return false;
                     }
                     // enough signatures?
-                    return status.total_weight_approved < self.weight_threshold;
+                    status.total_weight_approved < self.weight_threshold
                 },
             )? {
                 Some(status) => status,
@@ -457,8 +462,8 @@ impl SignerCoordinator {
                     // Check if a new Stacks block has arrived in the parent tenure
                     let highest_in_tenure =
                         NakamotoChainState::find_highest_known_block_header_in_tenure(
-                            &chain_state,
-                            &sortdb,
+                            chain_state,
+                            sortdb,
                             &parent_tenure_header.consensus_hash,
                         )?
                         .ok_or(NakamotoNodeError::UnexpectedChainState)?;
@@ -478,6 +483,38 @@ impl SignerCoordinator {
                               "new_block_height" => %highest_in_tenure.anchored_header.height(),
                         );
                         return Err(NakamotoNodeError::StacksTipChanged);
+                    }
+
+                    // A tenure-start block's parent lives in the previous tenure, so the
+                    // check above cannot see a *sibling* tenure-start block landing in the
+                    // proposal's own tenure. That happens when an earlier proposal for this
+                    // tenure (e.g. from the miner thread this one replaced) is signed and
+                    // pushed by the signers while we wait on ours. Without this check the
+                    // miner keeps re-proposing a block the signers will never sign.
+                    if &parent_tenure_header.consensus_hash != block_consensus_hash {
+                        if let Some(highest_in_own_tenure) =
+                            NakamotoChainState::find_highest_known_block_header_in_tenure(
+                                chain_state,
+                                sortdb,
+                                block_consensus_hash,
+                            )?
+                        {
+                            if &highest_in_own_tenure.index_block_hash() == block_id {
+                                let StacksBlockHeaderTypes::Nakamoto(stored_block) =
+                                    highest_in_own_tenure.anchored_header
+                                else {
+                                    error!("Nakamoto miner produced a non-nakamoto block");
+                                    return Err(NakamotoNodeError::UnexpectedChainState);
+                                };
+                                return Ok(stored_block.signer_signature);
+                            }
+                            info!("SignCoordinator: Exiting due to a different block in the proposed block's tenure";
+                                  "new_block_hash" => %highest_in_own_tenure.anchored_header.block_hash(),
+                                  "new_block_height" => %highest_in_own_tenure.anchored_header.height(),
+                                  "consensus_hash" => %block_consensus_hash,
+                            );
+                            return Err(NakamotoNodeError::StacksTipChanged);
+                        }
                     }
 
                     continue;

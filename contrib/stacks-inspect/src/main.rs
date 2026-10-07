@@ -74,7 +74,7 @@ use stackslib::burnchains::bitcoin::{BitcoinNetworkType, spv};
 use stackslib::burnchains::db::BurnchainDB;
 use stackslib::burnchains::{Address, Burnchain, PoxConstants};
 use stackslib::chainstate::burn::db::sortdb::{
-    SortitionDB, SortitionHandle, get_block_commit_by_txid,
+    PoxAnchorSelection, SortitionDB, SortitionHandle, get_block_commit_by_txid,
 };
 use stackslib::chainstate::burn::operations::BlockstackOperationType;
 use stackslib::chainstate::burn::{BlockSnapshot, ConsensusHash};
@@ -349,7 +349,6 @@ fn build_common_opts(cli: &Cli) -> CommonOpts {
         let config_file = match network.to_lowercase().as_str() {
             "helium" => ConfigFile::helium(),
             "mainnet" => ConfigFile::mainnet(),
-            "mocknet" => ConfigFile::mocknet(),
             "xenon" => ConfigFile::xenon(),
             other => {
                 eprintln!("Unknown network choice `{other}`");
@@ -1142,8 +1141,12 @@ fn main() {
                     .expect("Failed to compute PoX cycle");
 
                 match result {
-                    Ok((_, _, _, confirmed_by)) => results.push((eval_height, true, confirmed_by)),
-                    Err(confirmed_by) => results.push((eval_height, false, confirmed_by)),
+                    PoxAnchorSelection::Selected { confirmations, .. } => {
+                        results.push((eval_height, true, confirmations))
+                    }
+                    PoxAnchorSelection::NotSelected { max_confirmations } => {
+                        results.push((eval_height, false, max_confirmations))
+                    }
                 };
             }
 

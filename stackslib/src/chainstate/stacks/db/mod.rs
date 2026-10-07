@@ -58,13 +58,13 @@ use crate::chainstate::stacks::address::StacksAddressExtensions;
 use crate::chainstate::stacks::boot::*;
 use crate::chainstate::stacks::db::accounts::*;
 use crate::chainstate::stacks::db::blocks::*;
+use crate::chainstate::stacks::db::transactions::TransactionProcessor;
 use crate::chainstate::stacks::db::unconfirmed::UnconfirmedState;
 use crate::chainstate::stacks::events::*;
 use crate::chainstate::stacks::index::marf::{
     test_override_marf_compression, MARFOpenOpts, MarfConnection, MARF,
 };
 use crate::chainstate::stacks::index::ClarityMarfTrieId;
-use crate::chainstate::stacks::miner::TransactionResourceBudgets;
 use crate::chainstate::stacks::{
     Error, StacksBlockHeader, StacksMicroblockHeader, C32_ADDRESS_VERSION_MAINNET_MULTISIG,
     C32_ADDRESS_VERSION_MAINNET_SINGLESIG, C32_ADDRESS_VERSION_TESTNET_MULTISIG,
@@ -980,28 +980,43 @@ impl ChainstateAccountLockup {
     }
 }
 
+/// Unprocessed Stacks operations from the burnchain, ordered within each operation kind.
+#[derive(Default)]
+pub struct StacksOnBurnchainOperations {
+    /// STX stacking operations enabled for the current epoch.
+    pub stack: Vec<StackStxOp>,
+    /// STX transfer operations.
+    pub transfer: Vec<TransferStxOp>,
+    /// Delegation operations enabled for the current epoch.
+    pub delegate: Vec<DelegateStxOp>,
+    /// Aggregate-key votes enabled for the current epoch.
+    pub vote_for_aggregate_key: Vec<VoteForAggregateKeyOp>,
+}
+
+/// One-shot callback invoked after chainstate boot initialization.
+pub type PostFlightCallback = Box<dyn FnOnce(&mut ClarityTx)>;
+
+/// One-shot factory for lazily streamed genesis records.
+pub type BulkInitialData<T> = Box<dyn FnOnce() -> Box<dyn Iterator<Item = T>>>;
+
 pub struct ChainStateBootData {
     pub first_burnchain_block_hash: BurnchainHeaderHash,
     pub first_burnchain_block_height: u32,
     pub first_burnchain_block_timestamp: u32,
     pub initial_balances: Vec<(PrincipalData, u64)>,
     pub pox_constants: PoxConstants,
-    pub post_flight_callback: Option<Box<dyn FnOnce(&mut ClarityTx)>>,
-    pub get_bulk_initial_lockups:
-        Option<Box<dyn FnOnce() -> Box<dyn Iterator<Item = ChainstateAccountLockup>>>>,
-    pub get_bulk_initial_balances:
-        Option<Box<dyn FnOnce() -> Box<dyn Iterator<Item = ChainstateAccountBalance>>>>,
-    pub get_bulk_initial_namespaces:
-        Option<Box<dyn FnOnce() -> Box<dyn Iterator<Item = ChainstateBNSNamespace>>>>,
-    pub get_bulk_initial_names:
-        Option<Box<dyn FnOnce() -> Box<dyn Iterator<Item = ChainstateBNSName>>>>,
+    pub post_flight_callback: Option<PostFlightCallback>,
+    pub get_bulk_initial_lockups: Option<BulkInitialData<ChainstateAccountLockup>>,
+    pub get_bulk_initial_balances: Option<BulkInitialData<ChainstateAccountBalance>>,
+    pub get_bulk_initial_namespaces: Option<BulkInitialData<ChainstateBNSNamespace>>,
+    pub get_bulk_initial_names: Option<BulkInitialData<ChainstateBNSName>>,
 }
 
 impl ChainStateBootData {
     pub fn new(
         burnchain: &Burnchain,
         initial_balances: Vec<(PrincipalData, u64)>,
-        post_flight_callback: Option<Box<dyn FnOnce(&mut ClarityTx)>>,
+        post_flight_callback: Option<PostFlightCallback>,
     ) -> ChainStateBootData {
         ChainStateBootData {
             first_burnchain_block_hash: burnchain.first_block_hash.clone(),
@@ -1353,7 +1368,7 @@ impl StacksChainState {
             .expect("FATAL: infallible constant version byte is not valid")
             .into();
 
-        return principal;
+        principal
     }
 
     /// Instantiate the boot code and genesis state into a given [`ClarityTx`].
@@ -1414,12 +1429,10 @@ impl StacksChainState {
                 StacksTransaction::new(tx_version, boot_code_auth.clone(), smart_contract);
 
             let tx_receipt = clarity_tx.connection().as_transaction(|clarity| {
-                StacksChainState::process_transaction_payload(
-                    clarity,
-                    &boot_code_smart_contract,
-                    &boot_code_account,
-                    &TransactionResourceBudgets::unlimited(),
-                )
+                TransactionProcessor::from(&boot_code_smart_contract)
+                    .using_clarity_transaction(clarity, &boot_code_account)
+                    .with_unlimited_resource_policy()
+                    .process_payload()
             })?;
             receipts.push(tx_receipt);
 
@@ -2835,7 +2848,7 @@ impl StacksChainState {
         new_burnchain_timestamp: u64,
         microblock_tail_opt: Option<StacksMicroblockHeader>,
         block_reward: &MinerPaymentSchedule,
-        mature_miner_payouts: Option<(MinerReward, Vec<MinerReward>, MinerReward, MinerRewardInfo)>, // (miner, [users], parent, matured rewards)
+        mature_miner_payouts: Option<MaturedMinerPayouts>,
         anchor_block_cost: &ExecutionCost,
         anchor_block_size: u64,
         applied_epoch_transition: bool,
@@ -2910,7 +2923,12 @@ impl StacksChainState {
             burn_vote_for_aggregate_key_ops,
         )?;
 
-        if let Some((miner_payout, user_payouts, parent_payout, reward_info)) = mature_miner_payouts
+        if let Some(MaturedMinerPayouts {
+            miner: miner_payout,
+            users: user_payouts,
+            parent: parent_payout,
+            info: reward_info,
+        }) = mature_miner_payouts
         {
             let rewarded_miner_block_id = StacksBlockHeader::make_index_block_hash(
                 &reward_info.from_block_consensus_hash,
