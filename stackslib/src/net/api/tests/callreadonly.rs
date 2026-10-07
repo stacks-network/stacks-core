@@ -26,7 +26,7 @@ use rstest::rstest;
 use stacks_common::types::chainstate::StacksAddress;
 use stacks_common::types::Address;
 
-use super::{bool_list_hex, TestRPC};
+use super::{bool_list_hex, test_rpc, TestRPC};
 use crate::core::BLOCK_LIMIT_MAINNET_21;
 use crate::net::api::*;
 use crate::net::connection::ConnectionOptions;
@@ -36,13 +36,28 @@ use crate::net::httpcore::{
 };
 use crate::net::{ProtocolFamily, TipRequest};
 
+/// Unconfirmed contract whose public functions call into the confirmed `hello-world`.
 const CALL_READ_ONLY_CONTRACT: &str = "
-(define-read-only (ro-test) (ok 1))
 (define-public (public-no-write)
   (ok (contract-call? .hello-world do-test)))
 (define-public (public-write)
   (ok (contract-call? .hello-world add-unit)))
 ";
+
+fn new_unconfirmed_call_request(addr: SocketAddr, function: &str) -> StacksHttpRequest {
+    let contract_addr =
+        StacksAddress::from_string("ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R").unwrap();
+    StacksHttpRequest::new_callreadonlyfunction(
+        addr.into(),
+        contract_addr.clone(),
+        "hello-world-unconfirmed".try_into().unwrap(),
+        contract_addr.to_account_principal(),
+        None,
+        function.try_into().unwrap(),
+        vec![],
+        TipRequest::UseLatestUnconfirmedTip,
+    )
+}
 
 fn new_call_read_request_with_hex_args(
     addr: SocketAddr,
@@ -221,34 +236,6 @@ fn test_try_make_response() {
     );
     requests.push(request);
 
-    let request = StacksHttpRequest::new_callreadonlyfunction(
-        addr.into(),
-        StacksAddress::from_string("ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R").unwrap(),
-        "hello-world-unconfirmed".try_into().unwrap(),
-        StacksAddress::from_string("ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R")
-            .unwrap()
-            .to_account_principal(),
-        None,
-        "public-no-write".try_into().unwrap(),
-        vec![],
-        TipRequest::UseLatestUnconfirmedTip,
-    );
-    requests.push(request);
-
-    let request = StacksHttpRequest::new_callreadonlyfunction(
-        addr.into(),
-        StacksAddress::from_string("ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R").unwrap(),
-        "hello-world-unconfirmed".try_into().unwrap(),
-        StacksAddress::from_string("ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R")
-            .unwrap()
-            .to_account_principal(),
-        None,
-        "public-write".try_into().unwrap(),
-        vec![],
-        TipRequest::UseLatestUnconfirmedTip,
-    );
-    requests.push(request);
-
     let mut request = StacksHttpRequest::new_for_peer(
         addr.into(),
         "POST".into(),
@@ -267,20 +254,6 @@ fn test_try_make_response() {
     request.preamble_mut().path_and_query_str = format!(
         "/v2/contracts/call-read/{}/hello-world/ro-confirmed%3F",
         StacksAddress::from_string("ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R").unwrap()
-    );
-    requests.push(request);
-
-    let request = StacksHttpRequest::new_callreadonlyfunction(
-        addr.into(),
-        StacksAddress::from_string("ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R").unwrap(),
-        "hello-world".try_into().unwrap(),
-        StacksAddress::from_string("ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R")
-            .unwrap()
-            .to_account_principal(),
-        None,
-        "get-missing".try_into().unwrap(),
-        vec![],
-        TipRequest::UseLatestAnchoredTip,
     );
     requests.push(request);
 
@@ -344,16 +317,7 @@ fn test_try_make_response() {
     );
     requests.push(request);
 
-    let test = TestRPC::setup_ex_with_unconfirmed_contract(
-        function_name!(),
-        true,
-        None,
-        None,
-        CALL_READ_ONLY_CONTRACT,
-        |config| config.connection_opts.read_only_call_limit = ExecutionCost::max_value(),
-        |config| config.connection_opts.read_only_call_limit = ExecutionCost::max_value(),
-    );
-    let mut responses = test.run(requests);
+    let mut responses = test_rpc(function_name!(), requests);
 
     // confirmed tip
     let response = responses.remove(0);
@@ -373,39 +337,12 @@ fn test_try_make_response() {
 
     let response = responses.remove(0);
     let resp = response.decode_call_readonly_response().unwrap();
-    assert!(resp.okay, "{resp:?}");
-    assert_eq!(
-        resp.result.unwrap(),
-        format!(
-            "0x{}",
-            Value::okay(Value::okay(Value::UInt(0)).unwrap())
-                .unwrap()
-                .serialize_to_hex()
-                .unwrap()
-        )
-    );
-    assert!(resp.cause.is_none());
-
-    let response = responses.remove(0);
-    let resp = response.decode_call_readonly_response().unwrap();
-    assert!(!resp.okay);
-    assert!(resp.result.is_none());
-    assert!(resp.cause.unwrap().contains("NotReadOnly"));
-
-    let response = responses.remove(0);
-    let resp = response.decode_call_readonly_response().unwrap();
     assert!(resp.okay);
     assert_eq!(
         resp.result.unwrap(),
         format!("0x{}", Value::UInt(3).serialize_to_hex().unwrap())
     );
     assert!(resp.cause.is_none());
-
-    let response = responses.remove(0);
-    let resp = response.decode_call_readonly_response().unwrap();
-    assert!(!resp.okay);
-    assert!(resp.result.is_none());
-    assert!(resp.cause.unwrap().contains("UnwrapFailure"));
 
     // unconfirmed tip
     let response = responses.remove(0);
@@ -465,4 +402,87 @@ fn test_try_make_response() {
 
     let (preamble, payload) = response.destruct();
     assert_eq!(preamble.status_code, 404);
+}
+
+/// Calls that read more than the fixture's read-only budget allows, so this
+/// test lifts it.
+#[test]
+fn test_try_make_response_lifted_budget() {
+    let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 33333);
+    let contract_addr =
+        StacksAddress::from_string("ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R").unwrap();
+    let requests = vec![
+        new_unconfirmed_call_request(addr, "public-no-write"),
+        new_unconfirmed_call_request(addr, "public-write"),
+        StacksHttpRequest::new_callreadonlyfunction(
+            addr.into(),
+            contract_addr.clone(),
+            "hello-world".try_into().unwrap(),
+            contract_addr.to_account_principal(),
+            None,
+            "get-missing".try_into().unwrap(),
+            vec![],
+            TipRequest::UseLatestAnchoredTip,
+        ),
+    ];
+
+    let test = TestRPC::setup_ex_with_unconfirmed_contract(
+        function_name!(),
+        true,
+        None,
+        None,
+        CALL_READ_ONLY_CONTRACT,
+        |config| config.connection_opts.read_only_call_limit = ExecutionCost::max_value(),
+        |config| config.connection_opts.read_only_call_limit = ExecutionCost::max_value(),
+    );
+    let mut responses = test.run(requests);
+
+    // a public function that does not write can be called read-only
+    let resp = responses.remove(0).decode_call_readonly_response().unwrap();
+    assert!(resp.okay, "{resp:?}");
+    assert_eq!(
+        resp.result.unwrap(),
+        format!(
+            "0x{}",
+            Value::okay(Value::okay(Value::UInt(0)).unwrap())
+                .unwrap()
+                .serialize_to_hex()
+                .unwrap()
+        )
+    );
+    assert!(resp.cause.is_none());
+
+    // a public function that writes cannot
+    let resp = responses.remove(0).decode_call_readonly_response().unwrap();
+    assert!(!resp.okay);
+    assert!(resp.result.is_none());
+    assert!(resp.cause.unwrap().contains("NotReadOnly"));
+
+    // a runtime error is reported as the cause
+    let resp = responses.remove(0).decode_call_readonly_response().unwrap();
+    assert!(!resp.okay);
+    assert!(resp.result.is_none());
+    assert!(resp.cause.unwrap().contains("UnwrapFailure"));
+}
+
+/// Under the fixture's read-only budget, a cross-contract call is rejected for cost.
+#[test]
+fn test_try_make_response_over_budget() {
+    let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 33333);
+
+    let test = TestRPC::setup_ex_with_unconfirmed_contract(
+        function_name!(),
+        true,
+        None,
+        None,
+        CALL_READ_ONLY_CONTRACT,
+        |_| {},
+        |_| {},
+    );
+    let mut responses = test.run(vec![new_unconfirmed_call_request(addr, "public-no-write")]);
+
+    let resp = responses.remove(0).decode_call_readonly_response().unwrap();
+    assert!(!resp.okay);
+    assert!(resp.result.is_none());
+    assert!(resp.cause.unwrap().contains("CostBalanceExceeded"));
 }
