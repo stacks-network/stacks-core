@@ -141,7 +141,8 @@ came from, and the opposite-parity set's traffic is never processed.
 Every proposal tracked in the signer DB carries a `BlockState`. **`PreCommitted`
 carries no signature**: it means "validated, willing to sign if the pre-commit
 threshold is met." The first signature appears at `mark_locally_accepted`.
-Global states are terminal against each other.
+`GloballyAccepted` is terminal. `GloballyRejected` blocks every move except the
+node's override to `GloballyAccepted`.
 
 ```mermaid
 stateDiagram-v2
@@ -156,13 +157,25 @@ stateDiagram-v2
     LocallyAccepted --> LocallyRejected : re-evaluated
     LocallyAccepted --> GloballyAccepted : mark_globally_accepted
     LocallyRejected --> GloballyRejected : mark_globally_rejected
+    GloballyRejected --> GloballyAccepted : mark_globally_accepted (node overrides)
     GloballyAccepted --> [*]
     GloballyRejected --> [*]
 ```
 
 Canonical paths shown; the exact rule in `BlockInfo::check_state` is: either
 local state is reachable from anything not yet global, `PreCommitted` only from
-`Unprocessed`, and each global state is unreachable from the other.
+`Unprocessed`, `GloballyRejected` from anything but `GloballyAccepted`, and
+`GloballyAccepted` from any state.
+
+The asymmetry follows the evidence behind each mark. `GloballyRejected` is
+inferred from peers' rejection messages, and those can be reconsidered: a block
+can cross the rejection threshold and still go on to collect 70% of signatures
+and be adopted by the chain. `GloballyAccepted` is only ever marked on evidence
+from the node that the block is part of the chain (a `NewBlock` event, section 1,
+or the node reporting it as a tenure tip, section 7), so it overrides whatever
+the signer messages suggested. Leaving such a block in `GloballyRejected` would
+hide it from everything that counts globally accepted blocks, such as the tenure
+extend timing and the parent-tenure view.
 
 Timestamps: `approved_time` is stamped at pre-commit _or_ at our own local
 acceptance (first wins), `signed_self` only when we sign, `signed_group` when the
@@ -411,7 +424,7 @@ or by a tenure it builds on, and `check_parent_tenure_choice` records neither,
 so the `DuplicateBlockFound` gap that branch backstops stays covered.
 
 This is the only path that mints a signature: a re-proposal (section 3) either
-recreates an acceptance we already gave or comes back here. A row in a terminal
+recreates an acceptance we already gave or comes back here. A row in a global
 state can still be signed here, e.g. `GloballyRejected` on peers' rejections and
 then cleared on re-proposal: `mark_locally_accepted` records `signed_self` even
 though the state move fails, which is why the conflict queries key on the
@@ -461,7 +474,9 @@ _locally_ accepted with the group timestamp; global acceptance waits for the nod
 to adopt it. Marking the miner invalid on `ReorgNotAllowed` rejections is
 skipped once the active protocol version uses global signer state. Global
 rejection changes only the state: `valid` and `reject_reason` keep this signer's
-own verdict (section 3).
+own verdict (section 3). A globally rejected block can still be adopted by the
+chain, since rejections can be reconsidered after the threshold is crossed; if
+it is, the `NewBlock` event moves it to `GloballyAccepted`.
 
 > Anchors: `handle_block_response`, `handle_block_signature`,
 > `store_and_process_block_signature`, `broadcast_signed_block`,
@@ -533,7 +548,7 @@ the freeze lasts only while the permitting tenure is the active one, so if the
 signers fall back to the reorged tenure its blocks become signable again.
 
 The check also writes: a node tenure tip that the signer DB holds but not yet as
-`GloballyAccepted` is marked so where the transition is allowed, and its
+`GloballyAccepted` is marked so (overriding a `GloballyRejected` state), and its
 `signed_group` is filled if empty, which pins the tenure for the state machine
 (section 8).
 

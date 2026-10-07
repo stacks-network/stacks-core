@@ -216,7 +216,7 @@ use stacks_common::util::secp256k1::Secp256k1PrivateKey;
 use stacks_common::util::vrf::{VRFProof, VRFPublicKey};
 use stacks_common::util::{get_epoch_time_ms, get_epoch_time_secs};
 
-use super::{BurnchainController, Config, EventDispatcher, Keychain};
+use super::{Config, EventDispatcher, Keychain};
 use crate::burnchains::bitcoin_regtest_controller::{
     burnchain_params_from_config, BitcoinRegtestController, OngoingBlockCommit,
 };

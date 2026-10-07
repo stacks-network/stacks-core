@@ -95,10 +95,6 @@ peer_host = "127.0.0.1"
 username = "<BITCOIN_RPC_USERNAME>"
 password = "<BITCOIN_RPC_PASSWORD>"
 
-# Use SSL for Bitcoin RPC connection.
-# Default: false
-# rpc_ssl = false
-
 # Maximum amount (in sats) of "burn commitment" to broadcast for
 # the next block's leader election.
 # Default: 20_000
