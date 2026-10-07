@@ -2549,6 +2549,8 @@ impl BitcoinRegtestController {
             .expect("Unable to query number of burnchain headers")
     }
 
+    /// Invoke connect() on underlying burnchain and sortition databases, to perform any migration
+    ///  or instantiation before other callers may use open()
     pub fn connect_dbs(&mut self) -> Result<(), BurnchainControllerError> {
         let burnchain = self.get_burnchain();
         burnchain.connect_db(

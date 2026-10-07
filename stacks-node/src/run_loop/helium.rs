@@ -6,8 +6,8 @@ use stacks::chainstate::stacks::{
 use crate::burnchains::Error as BurnchainControllerError;
 use crate::{BitcoinRegtestController, BurnchainTip, ChainTip, Config, Node};
 
-/// RunLoop is coordinating a simulated burnchain and some simulated nodes
-/// taking turns in producing blocks.
+/// RunLoop coordinates a single node with a local bitcoind regtest, taking
+/// turns producing burnchain and Stacks blocks.
 pub struct RunLoop {
     config: Config,
     pub node: Node,
