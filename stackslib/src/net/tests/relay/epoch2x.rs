@@ -26,7 +26,7 @@ use rand::{thread_rng, Rng};
 use stacks_common::address::AddressHashMode;
 use stacks_common::types::chainstate::{BlockHeaderHash, StacksBlockId};
 use stacks_common::types::Address;
-use stacks_common::util::hash::{MerkleTree, Sha512Trunc256Sum};
+use stacks_common::util::hash::{Hash160, MerkleTree, Sha512Trunc256Sum};
 use stacks_common::util::vrf::VRFProof;
 
 use crate::burnchains::tests::TestMiner;
@@ -56,14 +56,11 @@ use crate::util_lib::test::*;
 #[test]
 fn test_sample_neighbors() {
     let neighbors: Vec<_> = (0..10)
-        .map(|i| {
-            let nk = NeighborKey {
-                peer_version: 12345,
-                network_id: 0x80000000,
-                addrbytes: PeerAddress([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0xff, 0xff, 127, 0, 0, 1]),
-                port: i,
-            };
-            nk
+        .map(|i| NeighborKey {
+            peer_version: 12345,
+            network_id: 0x80000000,
+            addrbytes: PeerAddress([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0xff, 0xff, 127, 0, 0, 1]),
+            port: i,
         })
         .collect();
 
@@ -192,8 +189,8 @@ fn test_relayer_stats_add_relyed_messages() {
         MAX_RECENT_MESSAGES
     );
 
-    for i in (all_transactions.len() - MAX_RECENT_MESSAGES)..MAX_RECENT_MESSAGES {
-        let digest = all_transactions[i].get_digest();
+    for transaction in all_transactions.iter().rev().take(MAX_RECENT_MESSAGES) {
+        let digest = transaction.get_digest();
         let mut found = false;
         for (_, hash) in relay_stats.recent_messages.get(&nk).unwrap().iter() {
             found = found || (*hash == digest);
@@ -517,12 +514,8 @@ fn is_peer_connected(peer: &TestPeer, dest: &NeighborKey) -> bool {
     };
 
     match peer.network.peers.get(&event_id) {
-        Some(convo) => {
-            return convo.is_authenticated();
-        }
-        None => {
-            return false;
-        }
+        Some(convo) => convo.is_authenticated(),
+        None => false,
     }
 }
 
@@ -554,15 +547,13 @@ fn push_message(
     };
 
     match peer.network.relay_signed_message(dest, relay_msg) {
-        Ok(_) => {
-            return true;
-        }
+        Ok(_) => true,
         Err(net_error::OutboxOverflow) => {
             test_debug!(
                 "{:?} outbox overflow; try again later",
                 &peer.to_neighbor().addr
             );
-            return false;
+            false
         }
         Err(net_error::SendError(msg)) => {
             warn!(
@@ -570,7 +561,7 @@ fn push_message(
                 &peer.to_neighbor().addr,
                 msg
             );
-            return false;
+            false
         }
         Err(e) => {
             panic!(
@@ -585,7 +576,7 @@ fn http_rpc(peer_http: u16, request: StacksHttpRequest) -> Result<StacksHttpResp
     use std::net::TcpStream;
 
     let mut sock = TcpStream::connect(
-        &format!("127.0.0.1:{}", peer_http)
+        format!("127.0.0.1:{}", peer_http)
             .parse::<SocketAddr>()
             .unwrap(),
     )
@@ -773,8 +764,8 @@ fn http_get_info(http_port: u16) -> RPCPeerInfoData {
     request.keep_alive = false;
     let getinfo = StacksHttpRequest::new(request, HttpRequestContents::new());
     let response = http_rpc(http_port, getinfo).unwrap();
-    let peer_info = response.decode_peer_info().unwrap();
-    peer_info
+
+    response.decode_peer_info().unwrap()
 }
 
 fn http_post_block(http_port: u16, consensus_hash: &ConsensusHash, block: &StacksBlock) -> bool {
@@ -828,13 +819,10 @@ fn http_post_microblock(
     let response = http_rpc(http_port, post_microblock).unwrap();
     let payload = response.get_http_payload_ok().unwrap();
     let bhh: BlockHeaderHash = serde_json::from_value(payload.try_into().unwrap()).unwrap();
-    return true;
+    true
 }
 
-fn test_get_blocks_and_microblocks_2_peers_push_blocks_and_microblocks(
-    outbound_test: bool,
-    disable_push: bool,
-) {
+fn test_get_blocks_and_microblocks_2_peers_push_blocks_and_microblocks(outbound_test: bool) {
     with_timeout(600, move || {
         let original_blocks_and_microblocks = RefCell::new(vec![]);
         let blocks_and_microblocks = RefCell::new(vec![]);
@@ -863,14 +851,6 @@ fn test_get_blocks_and_microblocks_2_peers_push_blocks_and_microblocks(
                 // clears inv state
                 peer_configs[0].connection_opts.disable_natpunch = true;
                 peer_configs[1].connection_opts.disable_natpunch = true;
-
-                // force usage of blocksavailable/microblocksavailable?
-                if disable_push {
-                    peer_configs[0].connection_opts.disable_block_push = true;
-                    peer_configs[0].connection_opts.disable_microblock_push = true;
-                    peer_configs[1].connection_opts.disable_block_push = true;
-                    peer_configs[1].connection_opts.disable_microblock_push = true;
-                }
 
                 let peer_0 = peer_configs[0].to_neighbor();
                 let peer_1 = peer_configs[1].to_neighbor();
@@ -943,12 +923,9 @@ fn test_get_blocks_and_microblocks_2_peers_push_blocks_and_microblocks(
                 block_data
             },
             |ref mut peers| {
-                if !disable_push {
-                    for peer in peers.iter_mut() {
-                        // force peers to keep trying to process buffered data
-                        peer.network.burnchain_tip.burn_header_hash =
-                            BurnchainHeaderHash([0u8; 32]);
-                    }
+                for peer in peers.iter_mut() {
+                    // force peers to keep trying to process buffered data
+                    peer.network.burnchain_tip.burn_header_hash = BurnchainHeaderHash([0u8; 32]);
                 }
 
                 // make sure peer 1's inv has an entry for peer 0, even
@@ -1077,26 +1054,10 @@ fn test_get_blocks_and_microblocks_2_peers_push_blocks_and_microblocks(
 
 #[test]
 #[ignore]
-fn test_get_blocks_and_microblocks_2_peers_push_blocks_and_microblocks_outbound() {
-    // simulates node 0 pushing blocks to node 1, but node 0 is publicly routable.
-    // nodes rely on blocksavailable/microblocksavailable to discover blocks
-    test_get_blocks_and_microblocks_2_peers_push_blocks_and_microblocks(true, true)
-}
-
-#[test]
-#[ignore]
-fn test_get_blocks_and_microblocks_2_peers_push_blocks_and_microblocks_inbound() {
-    // simulates node 0 pushing blocks to node 1, where node 0 is behind a NAT
-    // nodes rely on blocksavailable/microblocksavailable to discover blocks
-    test_get_blocks_and_microblocks_2_peers_push_blocks_and_microblocks(false, true)
-}
-
-#[test]
-#[ignore]
 fn test_get_blocks_and_microblocks_2_peers_push_blocks_and_microblocks_outbound_direct() {
     // simulates node 0 pushing blocks to node 1, but node 0 is publicly routable.
     // nodes may push blocks and microblocks directly to each other
-    test_get_blocks_and_microblocks_2_peers_push_blocks_and_microblocks(true, false)
+    test_get_blocks_and_microblocks_2_peers_push_blocks_and_microblocks(true)
 }
 
 #[test]
@@ -1104,7 +1065,7 @@ fn test_get_blocks_and_microblocks_2_peers_push_blocks_and_microblocks_outbound_
 fn test_get_blocks_and_microblocks_2_peers_push_blocks_and_microblocks_inbound_direct() {
     // simulates node 0 pushing blocks to node 1, where node 0 is behind a NAT
     // nodes may push blocks and microblocks directly to each other
-    test_get_blocks_and_microblocks_2_peers_push_blocks_and_microblocks(false, false)
+    test_get_blocks_and_microblocks_2_peers_push_blocks_and_microblocks(false)
 }
 
 #[test]
@@ -1756,8 +1717,6 @@ fn test_get_blocks_and_microblocks_peers_broadcast() {
                     peer_configs[i].connection_opts.inv_sync_interval = 0;
 
                     let max_inflight = peer_configs[i].connection_opts.max_inflight_blocks;
-                    peer_configs[i].connection_opts.max_clients_per_host =
-                        ((num_peers + 1) as u64) * max_inflight;
                     peer_configs[i].connection_opts.soft_max_clients_per_host =
                         ((num_peers + 1) as u64) * max_inflight;
                     peer_configs[i].connection_opts.num_neighbors = (num_peers + 1) as u64;
@@ -2019,8 +1978,8 @@ fn test_get_blocks_and_microblocks_peers_broadcast() {
         let blocks_and_microblocks = blocks_and_microblocks.into_inner();
         let expected_txs = sent_txs.into_inner();
 
-        for i in 1..peers.len() {
-            let txs = MemPoolDB::get_all_txs(peers[i].mempool.as_ref().unwrap().conn()).unwrap();
+        for peer in peers.iter().skip(1) {
+            let txs = MemPoolDB::get_all_txs(peer.mempool.as_ref().unwrap().conn()).unwrap();
             for tx in txs.iter() {
                 let mut found = false;
                 for expected_tx in expected_txs.iter() {
@@ -2040,7 +1999,7 @@ fn test_get_blocks_and_microblocks_peers_broadcast() {
             {
                 let block_hash = block.block_hash();
                 let tx_infos = MemPoolDB::get_txs_after(
-                    peers[i].mempool.as_ref().unwrap().conn(),
+                    peer.mempool.as_ref().unwrap().conn(),
                     consensus_hash,
                     &block_hash,
                     0,
@@ -2344,23 +2303,16 @@ fn test_get_blocks_and_microblocks_2_peers_buffered_messages() {
                         - 1
                         == *i as u64
                     {
-                        let event_id = {
-                            let mut ret = 0;
-                            for (nk, event_id) in peers[1].network.events.iter() {
-                                ret = *event_id;
-                                break;
-                            }
-                            if ret == 0 {
-                                return;
-                            }
-                            ret
+                        let event_id = match peers[1].network.events.values().next().copied() {
+                            Some(0) | None => return,
+                            Some(event_id) => event_id,
                         };
                         let mut update_sortition = false;
                         for ((event_id, _neighbor_key), pending) in
                             peers[1].network.pending_messages.iter()
                         {
-                            debug!("Pending at {i} is ({event_id}, {})", pending.len());
-                            if !pending.is_empty() {
+                            debug!("Pending at {i} is ({event_id}, {})", pending.messages.len());
+                            if !pending.messages.is_empty() {
                                 update_sortition = true;
                             }
                         }
@@ -2841,7 +2793,13 @@ fn process_new_blocks_rejects_problematic_asts() {
         },
     ];
     let mut unsolicited = HashMap::new();
-    unsolicited.insert((1, nk), bad_msgs.clone());
+    unsolicited.insert(
+        (1, nk.clone()),
+        PendingMessagesFrom::new(
+            NeighborAddress::from_neighbor_key(nk, Hash160([0u8; 20])),
+            bad_msgs.clone(),
+        ),
+    );
 
     let mut network_result = NetworkResult::new(
         peer.network.stacks_tip.block_id(),
@@ -2879,22 +2837,30 @@ fn process_new_blocks_rejects_problematic_asts() {
     assert_eq!(network_result.pushed_blocks.len(), 1);
     assert_eq!(network_result.pushed_microblocks.len(), 1);
 
-    network_result
-        .blocks
-        .push((new_consensus_hash.clone(), bad_block.clone(), 123));
-    network_result
-        .confirmed_microblocks
-        .push((new_consensus_hash.clone(), vec![bad_mblock], 234));
+    network_result.blocks.push(Downloaded {
+        consensus_hash: new_consensus_hash.clone(),
+        data: bad_block.clone(),
+        download_time_secs: 123,
+    });
+    network_result.confirmed_microblocks.push(Downloaded {
+        consensus_hash: new_consensus_hash.clone(),
+        data: vec![bad_mblock],
+        download_time_secs: 234,
+    });
 
     let mut sortdb = peer.chain.sortdb.take().unwrap();
-    let (processed_blocks, processed_mblocks, relay_mblocks, bad_neighbors) =
-        Relayer::process_new_blocks(
-            &mut network_result,
-            &mut sortdb,
-            &mut peer.chain.stacks_node.as_mut().unwrap().chainstate,
-            None,
-        )
-        .unwrap();
+    let ProcessedBlocks {
+        blocks: processed_blocks,
+        confirmed_microblocks: processed_mblocks,
+        unconfirmed_microblocks: relay_mblocks,
+        bad_neighbors,
+    } = Relayer::process_new_blocks(
+        &mut network_result,
+        &mut sortdb,
+        &mut peer.chain.stacks_node.as_mut().unwrap().chainstate,
+        None,
+    )
+    .unwrap();
 
     // despite this data showing up in all aspects of the network result, none of it actually
     // gets relayed

@@ -14,16 +14,20 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use stacks_common::bounded_format;
 use stacks_common::types::StacksEpochId;
 
 use super::{
     TypeChecker, TypingContext, check_argument_count, check_arguments_at_least,
     check_arguments_at_most, compute_typecheck_cost, no_type,
 };
-use crate::vm::analysis::errors::{StaticCheckError, StaticCheckErrorKind, SyntaxBindingErrorType};
+use crate::vm::analysis::errors::{
+    StaticCheckError, StaticCheckErrorKind, SyntaxBindingErrorType, get_arguments_exact,
+};
 use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::costs::{CostErrors, CostTracker, analysis_typecheck_cost, runtime_cost};
 use crate::vm::diagnostic::DiagnosableError;
+use crate::vm::functions::bitcoin::VERIFY_MERKLE_PROOF_MAX_DEPTH;
 use crate::vm::functions::{NativeFunctions, handle_binding_list};
 use crate::vm::types::signatures::{
     CallableSubtype, FunctionArgSignature, FunctionReturnsSignature, SequenceSubtype,
@@ -48,14 +52,14 @@ pub enum TypedNativeFunction {
     Simple(SimpleNativeFunction),
 }
 
-#[allow(clippy::type_complexity)]
-pub struct SpecialNativeFunction(
-    &'static dyn Fn(
-        &mut TypeChecker,
-        &[SymbolicExpression],
-        &TypingContext,
-    ) -> Result<TypeSignature, StaticCheckError>,
-);
+/// Type-checks a special native function in this epoch's checker.
+type SpecialNativeFn = dyn Fn(
+    &mut TypeChecker,
+    &[SymbolicExpression],
+    &TypingContext,
+) -> Result<TypeSignature, StaticCheckError>;
+
+pub struct SpecialNativeFunction(&'static SpecialNativeFn);
 pub struct SimpleNativeFunction(pub FunctionType);
 
 fn check_special_list_cons(
@@ -103,7 +107,7 @@ fn check_special_list_cons(
         return Err(StaticCheckErrorKind::ValueTooLarge.into());
     }
     let typed_args = result;
-    TypeSignature::parent_list_type(&typed_args)
+    TypeSignature::parent_list_type_for_analysis(&checker.epoch, &typed_args)
         .map_err(StaticCheckError::from)
         .map(TypeSignature::from)
 }
@@ -224,7 +228,7 @@ fn check_special_merge(
         update.len(),
     )?;
 
-    base.shallow_merge(&mut update);
+    base.shallow_merge(&mut update)?;
     Ok(TypeSignature::TupleType(base))
 }
 
@@ -264,7 +268,7 @@ pub fn check_special_tuple_cons(
                         .saturating_add(var_type.size()?);
                     tuple_type_data.push((var_name.clone(), var_type));
                 } else {
-                    cons_error = Err(StaticCheckErrorKind::BadTupleConstruction(format!(
+                    cons_error = Err(StaticCheckErrorKind::BadTupleConstruction(bounded_format!(
                         "type size of {type_size} bytes exceeds maximum of {MAX_VALUE_SIZE} bytes"
                     )));
                 }
@@ -369,13 +373,13 @@ fn check_special_set_var(
     args: &[SymbolicExpression],
     context: &TypingContext,
 ) -> Result<TypeSignature, StaticCheckError> {
-    check_arguments_at_least(2, args)?;
+    let [var_name, value] = checker.get_fixed_arguments(args)?;
 
-    let var_name = args[0]
+    let var_name = var_name
         .match_atom()
         .ok_or(StaticCheckErrorKind::BadMapName)?;
 
-    let value_type = checker.type_check(&args[1], context)?;
+    let value_type = checker.type_check(value, context)?;
 
     let expected_value_type = checker
         .contract_context
@@ -420,7 +424,7 @@ fn check_special_equals(
             let cost = compute_typecheck_cost(checker, &x_type, &cur_type);
             costs.push(cost);
             arg_type = Some(
-                TypeSignature::least_supertype(&StacksEpochId::Epoch21, &x_type, &cur_type)
+                TypeSignature::least_supertype_for_analysis(&checker.epoch, &x_type, &cur_type)
                     .map_err(|_| {
                         StaticCheckErrorKind::TypeError(Box::new(x_type), Box::new(cur_type))
                     }),
@@ -458,7 +462,7 @@ fn check_special_if(
 
     analysis_typecheck_cost(checker, expr1, expr2)?;
 
-    TypeSignature::least_supertype(&StacksEpochId::Epoch21, expr1, expr2)
+    TypeSignature::least_supertype_for_analysis(&checker.epoch, expr1, expr2)
         .and_then(|t| t.concretize())
         .map_err(|_| {
             StaticCheckErrorKind::IfArmsMustMatch(Box::new(expr1.clone()), Box::new(expr2.clone()))
@@ -775,14 +779,41 @@ fn check_secp256r1_verify(
     Ok(TypeSignature::BoolType)
 }
 
+fn check_ed25519_verify(
+    checker: &mut TypeChecker,
+    args: &[SymbolicExpression],
+    context: &TypingContext,
+) -> Result<TypeSignature, StaticCheckError> {
+    let [message, signature, public_key] = get_arguments_exact::<_, 3>(args)?;
+
+    check_argument_count(3, args)?;
+    checker.type_check_expects(message, context, &TypeSignature::BUFFER_MAX)?;
+    checker.type_check_expects(signature, context, &TypeSignature::BUFFER_64)?;
+    checker.type_check_expects(public_key, context, &TypeSignature::BUFFER_32)?;
+    Ok(TypeSignature::BoolType)
+}
+
+fn check_secp256k1_decompress(
+    checker: &mut TypeChecker,
+    args: &[SymbolicExpression],
+    context: &TypingContext,
+) -> Result<TypeSignature, StaticCheckError> {
+    check_argument_count(1, args)?;
+    checker.type_check_expects(&args[0], context, &TypeSignature::BUFFER_33)?;
+    Ok(
+        TypeSignature::new_response(TypeSignature::BUFFER_65, TypeSignature::UIntType)
+            .map_err(|_| StaticCheckErrorKind::Unreachable("Bad constructor".into()))?,
+    )
+}
+
 fn check_get_block_info(
     checker: &mut TypeChecker,
     args: &[SymbolicExpression],
     context: &TypingContext,
 ) -> Result<TypeSignature, StaticCheckError> {
-    check_arguments_at_least(2, args)?;
+    let [property, block_height] = checker.get_fixed_arguments(args)?;
 
-    let block_info_prop_str = args[0].match_atom().ok_or(StaticCheckError::new(
+    let block_info_prop_str = property.match_atom().ok_or(StaticCheckError::new(
         StaticCheckErrorKind::GetBlockInfoExpectPropertyName,
     ))?;
 
@@ -792,7 +823,7 @@ fn check_get_block_info(
                 StaticCheckErrorKind::NoSuchBlockInfoProperty(block_info_prop_str.to_string()),
             ))?;
 
-    checker.type_check_expects(&args[1], context, &TypeSignature::UIntType)?;
+    checker.type_check_expects(block_height, context, &TypeSignature::UIntType)?;
 
     Ok(TypeSignature::new_option(block_info_prop.type_result())?)
 }
@@ -866,6 +897,63 @@ fn check_get_tenure_info(
     checker.type_check_expects(&args[1], context, &TypeSignature::UIntType)?;
 
     Ok(TypeSignature::new_option(block_info_prop.type_result())?)
+}
+
+fn check_verify_merkle_proof(
+    checker: &mut TypeChecker,
+    args: &[SymbolicExpression],
+    context: &TypingContext,
+) -> Result<TypeSignature, StaticCheckError> {
+    let [leaf_hash, root_hash, tx_index, tx_count, sibling_hashes] =
+        get_arguments_exact::<_, 5>(args)?;
+
+    check_argument_count(5, args)?;
+    checker.type_check_expects(leaf_hash, context, &TypeSignature::BUFFER_32)?;
+    checker.type_check_expects(root_hash, context, &TypeSignature::BUFFER_32)?;
+    checker.type_check_expects(tx_index, context, &TypeSignature::UIntType)?;
+    checker.type_check_expects(tx_count, context, &TypeSignature::UIntType)?;
+    let siblings_type = TypeSignature::list_of(
+        TypeSignature::BUFFER_32,
+        VERIFY_MERKLE_PROOF_MAX_DEPTH,
+    )
+    .map_err(|_| {
+        StaticCheckErrorKind::Unreachable("FATAL: failed to build (list 24 (buff 32)) type".into())
+    })?;
+    checker.type_check_expects(sibling_hashes, context, &siblings_type)?;
+    Ok(TypeSignature::BoolType)
+}
+
+fn check_get_bitcoin_tx_output(
+    checker: &mut TypeChecker,
+    args: &[SymbolicExpression],
+    context: &TypingContext,
+) -> Result<TypeSignature, StaticCheckError> {
+    let [tx_bytes, vout_index] = get_arguments_exact::<_, 2>(args)?;
+
+    checker.type_check_expects(tx_bytes, context, &TypeSignature::BUFFER_MAX)?;
+    checker.type_check_expects(vout_index, context, &TypeSignature::UIntType)?;
+
+    let ok_type: TypeSignature = TupleTypeSignature::try_from(vec![
+        (
+            ClarityName::from_literal("script"),
+            TypeSignature::BUFFER_1024,
+        ),
+        (ClarityName::from_literal("amount"), TypeSignature::UIntType),
+        (ClarityName::from_literal("txid"), TypeSignature::BUFFER_32),
+    ])
+    .map_err(|_| {
+        StaticCheckErrorKind::Unreachable(
+            "FATAL: failed to build get-bitcoin-tx-output? ok-tuple type".into(),
+        )
+    })?
+    .into();
+
+    TypeSignature::new_response(ok_type, TypeSignature::UIntType).map_err(|_| {
+        StaticCheckErrorKind::Unreachable(
+            "FATAL: failed to build get-bitcoin-tx-output? response type".into(),
+        )
+        .into()
+    })
 }
 
 impl TypedNativeFunction {
@@ -1270,8 +1358,14 @@ impl TypedNativeFunction {
             | AllowanceWithFt
             | AllowanceWithNft
             | AllowanceWithStacking
+            | AllowanceWithStaking
+            | AllowanceWithPox
             | AllowanceAll => Special(SpecialNativeFunction(&post_conditions::check_allowance_err)),
             Secp256r1Verify => Special(SpecialNativeFunction(&check_secp256r1_verify)),
+            VerifyMerkleProof => Special(SpecialNativeFunction(&check_verify_merkle_proof)),
+            GetBitcoinTxOutput => Special(SpecialNativeFunction(&check_get_bitcoin_tx_output)),
+            Ed25519Verify => Special(SpecialNativeFunction(&check_ed25519_verify)),
+            Secp256k1Decompress => Special(SpecialNativeFunction(&check_secp256k1_decompress)),
         };
 
         Ok(out)

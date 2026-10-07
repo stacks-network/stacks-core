@@ -51,7 +51,6 @@ use pico_args::Arguments;
 use stacks::chainstate::burn::db::sortdb::SortitionDB;
 use stacks::chainstate::burn::operations::leader_block_commit::RewardSetInfo;
 use stacks::chainstate::coordinator::{get_next_recipients, OnChainRewardSetProvider};
-use stacks::chainstate::stacks::address::PoxAddress;
 use stacks::chainstate::stacks::db::blocks::DummyEventDispatcher;
 use stacks::chainstate::stacks::db::StacksChainState;
 use stacks::config::chain_data::MinerStats;
@@ -60,7 +59,7 @@ use stacks_common::alloc_tracker::{tracking_allocator_installed, TrackingAllocat
 #[cfg(not(any(target_os = "macos", target_os = "windows", target_arch = "arm")))]
 use tikv_jemallocator::Jemalloc;
 
-pub use self::burnchains::{BitcoinRegtestController, BurnchainController, BurnchainTip};
+pub use self::burnchains::{BitcoinRegtestController, BurnchainTip};
 pub use self::event_dispatcher::EventDispatcher;
 pub use self::genesis::ChainTip;
 pub use self::keychain::Keychain;
@@ -78,16 +77,28 @@ static GLOBAL: TrackingAllocator<std::alloc::System> = TrackingAllocator {
     inner: std::alloc::System,
 };
 
-/// Implmentation of `pick_best_tip` CLI option
-fn cli_pick_best_tip(config_path: &str, at_stacks_height: Option<u64>) -> TipCandidate {
+/// Load and validate the config at `config_path`, exiting on any error.
+fn load_config_or_exit(config_path: &str) -> Config {
     info!("Loading config at path {config_path}");
-    let config = match ConfigFile::from_path(config_path) {
-        Ok(config_file) => Config::from_config_file(config_file, true).unwrap(),
+    let config_file = match ConfigFile::from_path(config_path) {
+        Ok(config_file) => config_file,
         Err(e) => {
             warn!("Invalid config file: {e}");
             process::exit(1);
         }
     };
+    match Config::from_config_file(config_file, true) {
+        Ok(config) => config,
+        Err(e) => {
+            warn!("Invalid config: {e}");
+            process::exit(1);
+        }
+    }
+}
+
+/// Implmentation of `pick_best_tip` CLI option
+fn cli_pick_best_tip(config_path: &str, at_stacks_height: Option<u64>) -> TipCandidate {
+    let config = load_config_or_exit(config_path);
     let burn_db_path = config.get_burn_db_file_path();
     let stacks_chainstate_path = config.get_chainstate_path_str();
     let burnchain = config.get_burnchain();
@@ -126,14 +137,7 @@ fn cli_get_miner_spend(
     mine_start: Option<u64>,
     at_burnchain_height: Option<u64>,
 ) -> u64 {
-    info!("Loading config at path {config_path}");
-    let config = match ConfigFile::from_path(config_path) {
-        Ok(config_file) => Config::from_config_file(config_file, true).unwrap(),
-        Err(e) => {
-            warn!("Invalid config file: {e}");
-            process::exit(1);
-        }
-    };
+    let config = load_config_or_exit(config_path);
     let keychain = Keychain::default(config.node.seed.clone());
     let burn_db_path = config.get_burn_db_file_path();
     let stacks_chainstate_path = config.get_chainstate_path_str();
@@ -172,11 +176,11 @@ fn cli_get_miner_spend(
     )
     .unwrap();
 
-    let commit_outs = if !burnchain.is_in_prepare_phase(tip.block_height + 1) {
-        RewardSetInfo::into_commit_outs(recipients, config.is_mainnet())
-    } else {
-        vec![PoxAddress::standard_burn_address(config.is_mainnet())]
-    };
+    let commit_outs = RewardSetInfo::commit_outs_for(
+        recipients,
+        burnchain.is_in_prepare_phase(tip.block_height + 1),
+        config.is_mainnet(),
+    );
 
     let spend_amount = BlockMinerThread::get_mining_spend_amount(
         &config,
@@ -387,11 +391,7 @@ fn main() {
             let seed = {
                 let config_path: Option<String> = args.opt_value_from_str("--config").unwrap();
                 if let Some(config_path) = config_path {
-                    let conf = Config::from_config_file(
-                        ConfigFile::from_path(&config_path).unwrap(),
-                        true,
-                    )
-                    .unwrap();
+                    let conf = load_config_or_exit(&config_path);
                     args.finish();
                     conf.node.seed
                 } else {
@@ -434,9 +434,14 @@ fn main() {
             println!("Will spend {spend_amount}");
             process::exit(0);
         }
-        _ => {
+        "" | "help" => {
             print_help();
             return;
+        }
+        other => {
+            eprintln!("Unknown subcommand: {other}");
+            print_help();
+            process::exit(1);
         }
     };
 
@@ -454,24 +459,12 @@ fn main() {
 
     send_pending_event_payloads(&conf);
 
-    if conf.burnchain.mode == "neon"
-        || conf.burnchain.mode == "nakamoto-neon"
-        || conf.burnchain.mode == "xenon"
-        || conf.burnchain.mode == "krypton"
-        || conf.burnchain.mode == "mainnet"
-    {
-        if conf.miner.max_assembly_mem_bytes > 0
-            || conf.connection_options.block_proposal_max_tx_mem_bytes > 0
-        {
-            if !tracking_allocator_installed() {
-                panic!("Tracking allocator must be installed to set a memory limit");
-            }
-        }
-        let mut run_loop = boot_nakamoto::BootRunLoop::new(conf).unwrap();
-        run_loop.start(None, 0);
-    } else {
-        println!("Burnchain mode '{}' not supported", conf.burnchain.mode);
+    // `Config::from_config_file` already rejected unsupported modes.
+    if conf.memory_limit_configured() && !tracking_allocator_installed() {
+        panic!("Tracking allocator must be installed to set a memory limit");
     }
+    let mut run_loop = boot_nakamoto::BootRunLoop::new(conf).unwrap();
+    run_loop.start(None, 0);
 }
 
 fn version() -> String {

@@ -12,7 +12,7 @@
 //
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
-use stacks_common::types::StacksEpochId;
+use stacks_common::types::{StacksEpochId, StacksEpochRangeTestExt as _};
 
 use crate::vm::ClarityVersion;
 
@@ -21,7 +21,7 @@ use crate::vm::ClarityVersion;
 #[test]
 fn test_default_for_epoch_is_monotonic() {
     // No Clarity in Epoch10.
-    let clarity_epochs = &StacksEpochId::since(StacksEpochId::Epoch20);
+    let clarity_epochs = (StacksEpochId::Epoch20..).as_slice();
     for window in clarity_epochs.windows(2) {
         let earlier = ClarityVersion::default_for_epoch(window[0]);
         let later = ClarityVersion::default_for_epoch(window[1]);
@@ -42,7 +42,8 @@ fn test_default_for_epoch_is_monotonic() {
 /// predicates.
 #[test]
 fn test_epoch34_feature_gates_are_consistent() {
-    for &epoch in StacksEpochId::ALL {
+    // No Clarity in Epoch10.
+    for &epoch in (StacksEpochId::Epoch20..).as_slice() {
         let is_34_plus = epoch >= StacksEpochId::Epoch34;
         let version = ClarityVersion::default_for_epoch(epoch);
 

@@ -17,7 +17,6 @@ path = "./src/libsigner.rs"
 [dependencies]
 clarity = { path = "../clarity" }
 hashbrown = { workspace = true }
-libc = "0.2"
 libstackerdb = { path = "../libstackerdb" }
 serde = "1"
 slog = { version = "2.5.2", features = [ "max_level_trace" ] }
@@ -31,6 +30,8 @@ mutants = "0.0.3"
 rand_core = { workspace = true }
 rand = { workspace = true }
 stacks-common = { path = "../stacks-common", features = ["testing"] }
+clarity = { path = "../clarity", features = ["testing"] }
+stackslib = { path = "../stackslib", features = ["testing"] }
 
 
 [dependencies.serde_json]

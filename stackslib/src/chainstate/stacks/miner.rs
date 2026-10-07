@@ -14,17 +14,16 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::cmp;
 use std::collections::HashSet;
 #[cfg(any(test, feature = "testing"))]
 use std::sync::LazyLock;
 use std::sync::{Arc, Mutex};
 use std::thread::ThreadId;
 use std::time::Instant;
+use std::{cmp, slice};
 
-use clarity::vm::contexts::AbortCallback;
 use clarity::vm::database::BurnStateDB;
-use clarity::vm::errors::VmExecutionError;
+use clarity::vm::resource_limiter::ResourceBudget;
 use serde::Deserialize;
 use stacks_common::codec::StacksMessageCodec;
 use stacks_common::types::chainstate::{
@@ -35,20 +34,20 @@ use stacks_common::util::hash::{MerkleTree, Sha512Trunc256Sum};
 use stacks_common::util::secp256k1::Secp256k1PrivateKey;
 #[cfg(any(test, feature = "testing"))]
 use stacks_common::util::tests::TestFlag;
-use stacks_common::util::vrf::*;
 
 use crate::burnchains::{Burnchain, Txid};
 use crate::chainstate::burn::db::sortdb::{SortitionDB, SortitionHandleConn};
 use crate::chainstate::burn::*;
-use crate::chainstate::nakamoto::miner::make_mem_abort_callback;
 use crate::chainstate::stacks::address::StacksAddressExtensions;
+use crate::chainstate::stacks::db::accounts::MaturedMinerPayouts;
 use crate::chainstate::stacks::db::blocks::SetupBlockResult;
 use crate::chainstate::stacks::db::transactions::{
     finalize_failed_transaction, handle_clarity_runtime_error, ClarityRuntimeTxError,
+    RejectedRuntimeTxError, TransactionProcessor,
 };
 use crate::chainstate::stacks::db::unconfirmed::UnconfirmedState;
 use crate::chainstate::stacks::db::{ChainstateTx, ClarityTx, StacksChainState};
-use crate::chainstate::stacks::events::StacksTransactionReceipt;
+use crate::chainstate::stacks::events::{BoundedErrorString, StacksTransactionReceipt};
 use crate::chainstate::stacks::{Error, StacksBlockHeader, StacksMicroblockHeader, *};
 use crate::clarity_vm::clarity::{ClarityError, ClarityInstance};
 use crate::config::DEFAULT_MAX_TENURE_BYTES;
@@ -79,40 +78,6 @@ fn fault_injection_stall_tx() {
 
 #[cfg(not(any(test, feature = "testing")))]
 fn fault_injection_stall_tx() {}
-
-#[cfg(any(test, feature = "testing"))]
-/// Test flag to exclude replay txs from the next block
-pub static TEST_EXCLUDE_REPLAY_TXS: LazyLock<TestFlag<bool>> = LazyLock::new(TestFlag::default);
-
-#[cfg(any(test, feature = "testing"))]
-/// Test flag to mine specific txs belonging to the replay set
-pub static TEST_MINE_ALLOWED_REPLAY_TXS: LazyLock<TestFlag<Vec<String>>> =
-    LazyLock::new(TestFlag::default);
-
-#[cfg(any(test, feature = "testing"))]
-/// Given a tx id, check if it is should be skipped
-/// if not listed in `TEST_MINE_ALLOWED_REPLAY_TXS` flag.
-/// If flag is empty means no tx should be skipped
-fn fault_injection_should_skip_replay_tx(tx_id: Txid) -> bool {
-    let minable_txs = TEST_MINE_ALLOWED_REPLAY_TXS.get();
-    let allowed =
-        minable_txs.len() == 0 || minable_txs.iter().any(|tx_ids| *tx_ids == tx_id.to_hex());
-    if !allowed {
-        info!(
-            "Tx skipped due to test flag TEST_MINE_ALLOWED_REPLAY_TXS: {}",
-            tx_id.to_hex()
-        );
-    }
-    !allowed
-}
-
-#[cfg(not(any(test, feature = "testing")))]
-/// Given a tx id, check if it is should be skipped
-/// if not listed in `TEST_MINE_ALLOWED_REPLAY_TXS` flag.
-/// If flag is empty means no tx should be skipped
-fn fault_injection_should_skip_replay_tx(_tx_id: Txid) -> bool {
-    false
-}
 
 /// Fully-assembled Stacks anchored, block as well as some extra metadata pertaining to how it was
 /// linked to the burnchain and what view(s) the miner had of the burnchain before and after
@@ -176,7 +141,7 @@ impl MinerStatus {
     }
 
     pub fn get_spend_amount(&self) -> u64 {
-        return self.spend_amount;
+        self.spend_amount
     }
 
     pub fn set_spend_amount(&mut self, amt: u64) {
@@ -243,12 +208,15 @@ pub struct BlockBuilderSettings {
     /// Should the builder attempt to confirm any parent microblocks
     pub confirm_microblocks: bool,
     pub max_execution_time: Option<std::time::Duration>,
+    /// Wall-clock deadline for the contract-analysis phase of a single tx
+    pub max_analysis_time: Option<std::time::Duration>,
     pub max_tenure_bytes: u64,
     /// Transaction IDs to temporarily exclude from block building (e.g., signer-rejected txs)
     pub temporarily_excluded_txids: HashSet<Txid>,
     /// Sets a limit for the bytes that the miner thread may have
-    /// allocated at any one time during block assembly. 0 means no
-    /// limit.
+    /// allocated at any one time during block assembly. Measured separately
+    /// during analysis phase and execution phase of a contract deploy tx.
+    /// 0 means no limit.
     pub max_assembly_mem_bytes: u64,
 }
 
@@ -262,7 +230,8 @@ impl BlockBuilderSettings {
             miner_status: Arc::new(Mutex::new(MinerStatus::make_ready(0))),
             confirm_microblocks: true,
             max_execution_time: None,
-            max_tenure_bytes: u64::from(DEFAULT_MAX_TENURE_BYTES),
+            max_analysis_time: None,
+            max_tenure_bytes: DEFAULT_MAX_TENURE_BYTES,
             temporarily_excluded_txids: HashSet::new(),
             max_assembly_mem_bytes: 0,
         }
@@ -277,7 +246,8 @@ impl BlockBuilderSettings {
             miner_status: Arc::new(Mutex::new(MinerStatus::make_ready(0))),
             confirm_microblocks: true,
             max_execution_time: None,
-            max_tenure_bytes: u64::from(DEFAULT_MAX_TENURE_BYTES),
+            max_analysis_time: None,
+            max_tenure_bytes: DEFAULT_MAX_TENURE_BYTES,
             temporarily_excluded_txids: HashSet::new(),
             max_assembly_mem_bytes: 0,
         }
@@ -387,7 +357,7 @@ pub struct TransactionSuccessEvent {
 pub struct TransactionErrorEvent {
     #[serde(deserialize_with = "hex_deserialize", serialize_with = "hex_serialize")]
     pub txid: Txid,
-    pub error: String,
+    pub error: BoundedErrorString,
 }
 
 /// Represents an event for a transaction that was skipped, but might succeed later.
@@ -395,7 +365,7 @@ pub struct TransactionErrorEvent {
 pub struct TransactionSkippedEvent {
     #[serde(deserialize_with = "hex_deserialize", serialize_with = "hex_serialize")]
     pub txid: Txid,
-    pub error: String,
+    pub error: BoundedErrorString,
 }
 
 /// Represents an event for a transaction that needs to be dropped from the mempool for some reason
@@ -403,7 +373,7 @@ pub struct TransactionSkippedEvent {
 pub struct TransactionProblematicEvent {
     #[serde(deserialize_with = "hex_deserialize", serialize_with = "hex_serialize")]
     pub txid: Txid,
-    pub error: String,
+    pub error: BoundedErrorString,
 }
 
 fn hex_serialize<S: serde::Serializer>(txid: &Txid, s: S) -> Result<S::Ok, S::Error> {
@@ -605,19 +575,19 @@ impl TransactionResult {
             TransactionResult::ProcessingError(TransactionError { tx, error }) => {
                 TransactionEvent::ProcessingError(TransactionErrorEvent {
                     txid: tx.txid(),
-                    error: error.to_string(),
+                    error: BoundedErrorString::from_display(error),
                 })
             }
             TransactionResult::Skipped(TransactionSkipped { tx, error }) => {
                 TransactionEvent::Skipped(TransactionSkippedEvent {
                     txid: tx.txid(),
-                    error: error.to_string(),
+                    error: BoundedErrorString::from_display(error),
                 })
             }
             TransactionResult::Problematic(TransactionProblematic { tx, error }) => {
                 TransactionEvent::Problematic(TransactionProblematicEvent {
                     txid: tx.txid(),
-                    error: error.to_string(),
+                    error: BoundedErrorString::from_display(error),
                 })
             }
         }
@@ -661,57 +631,33 @@ impl TransactionResult {
         epoch_id: StacksEpochId,
     ) -> (bool, Error) {
         let error = match error {
-            Error::ClarityError(e) => match handle_clarity_runtime_error(e) {
-                ClarityRuntimeTxError::Rejectable(e) => {
+            Error::ClarityError(e) => match handle_clarity_runtime_error(e, epoch_id) {
+                ClarityRuntimeTxError::Rejected(RejectedRuntimeTxError::Clarity {
+                    error: e,
+                    ..
+                }) => {
                     // this transaction would invalidate the whole block, so don't re-consider it
                     info!("Problematic transaction would invalidate the block, so dropping from mempool"; "txid" => %tx.txid(), "error" => %e);
                     return (true, Error::ClarityError(e));
                 }
-                // recover original ClarityError
-                ClarityRuntimeTxError::Acceptable { error, .. } => {
-                    if let ClarityError::Parse(ref parse_err) = error {
-                        info!("Parse error: {}", parse_err; "txid" => %tx.txid());
-                        if parse_err.rejectable_in_epoch(epoch_id) {
-                            info!("Problematic transaction failed parse checks"; "txid" => %tx.txid());
-                            return (true, Error::ClarityError(error));
-                        }
-                    }
-                    Error::ClarityError(error)
-                }
-                ClarityRuntimeTxError::CostError(cost, budget) => {
-                    Error::ClarityError(ClarityError::CostError(cost, budget))
-                }
-                ClarityRuntimeTxError::AnalysisError(e) => {
-                    let clarity_err = Error::ClarityError(ClarityError::Interpreter(
-                        VmExecutionError::RuntimeCheck(e),
-                    ));
-                    if epoch_id < StacksEpochId::Epoch21 {
-                        // this would invalidate the block, so it's problematic
-                        return (true, clarity_err);
-                    } else {
-                        // in 2.1 and later, this can be mined
-                        clarity_err
-                    }
-                }
-                ClarityRuntimeTxError::AbortedByCallback {
-                    output,
-                    assets_modified,
-                    tx_events,
-                    reason,
-                } => Error::ClarityError(ClarityError::AbortedByCallback {
-                    output: output.map(Box::new),
-                    assets_modified: Box::new(assets_modified),
-                    tx_events,
-                    reason,
-                }),
-                ClarityRuntimeTxError::ExecutionTimeExpired => {
-                    // This transaction took too long to execute. Consider it problematic.
-                    info!("Problematic transaction caused ExecutionTimeExpired";
+                // An included failure is still mineable: recover the original `ClarityError`.
+                ClarityRuntimeTxError::Included(included) => Error::ClarityError(included.into()),
+                ClarityRuntimeTxError::Rejected(RejectedRuntimeTxError::Cost {
+                    cost,
+                    budget,
+                    ..
+                }) => Error::ClarityError(ClarityError::CostError(cost, budget)),
+                ClarityRuntimeTxError::Rejected(
+                    RejectedRuntimeTxError::ExecutionResourceBudgetExceeded { message: s, .. },
+                ) => {
+                    // This transaction took too long to execute or used too much heap memory. Consider it problematic.
+                    info!("Problematic transaction caused ExecutionResourceBudgetExceeded";
+                          "error" => s.clone(),
                           "txid" => %tx.txid(),
                           "origin" => %tx.get_origin().get_address(false),
                           "payload" => ?tx.payload,
                     );
-                    return (true, Error::ExecutionTimeExpired);
+                    return (true, Error::ExecutionResourceBudgetExceeded(s));
                 }
             },
             Error::InvalidFee => {
@@ -727,18 +673,97 @@ impl TransactionResult {
                 );
                 return (true, Error::InvalidFee);
             }
-            Error::ExecutionTimeExpired => {
-                // The transaction took too long to execute. Consider it problematic.
-                info!("Problematic transaction caused ExecutionTimeExpired";
+            Error::ExecutionResourceBudgetExceeded(s) => {
+                // The transaction took too long to execute or used too much heap memory. Consider it problematic.
+                info!("Problematic transaction caused ExecutionResourceBudgetExceeded";
+                      "error" => s.clone(),
                       "txid" => %tx.txid(),
                       "origin" => %tx.get_origin().get_address(false),
                       "payload" => ?tx.payload,
                 );
-                return (true, Error::ExecutionTimeExpired);
+                return (true, Error::ExecutionResourceBudgetExceeded(s));
+            }
+            Error::AnalysisResourceBudgetExceeded(s) => {
+                // The transaction's contract analysis took too long or used too much memory. Consider it problematic
+                // so the contract-publish is dropped and blacklisted instead of being re-mined.
+                info!("Problematic transaction caused AnalysisResourceBudgetExceeded";
+                      "error" => s.clone(),
+                      "txid" => %tx.txid(),
+                      "origin" => %tx.get_origin().get_address(false),
+                      "payload" => ?tx.payload,
+                );
+                return (true, Error::AnalysisResourceBudgetExceeded(s));
             }
             e => e,
         };
         (false, error)
+    }
+}
+
+/// Defines limits on computing resources (heap allocation and wallclock time)
+/// during processing of contract deploy and call transaction. These are
+/// independent of cost tracking and MUST be [`ResourceBudget::unlimited`]
+/// during consensus-critical processing, because that must remain deterministic.
+///
+/// The budgets are limited during the miner's block construction and the
+/// signer node's proposal validation to ensure that a smart contract that
+/// triggers excessive memory usage or delays is not included in the chain.
+/// This is a defense-in-depth measure -- if these budgets are exceeded, that
+/// probably means there's an underlying bug in the VM or analysis engine that
+/// should be fixed.
+#[derive(Debug, Clone, Copy)]
+pub struct TransactionResourceBudgets {
+    /// The budget that applies during clarity evalution, used both during
+    /// contract deploy and contract call transactions.
+    execution_budget: ResourceBudget,
+
+    /// The budget that applies during contract analysis, only used during
+    /// contract deploy transactions.
+    analysis_budget: ResourceBudget,
+}
+
+impl TransactionResourceBudgets {
+    /// Creates resource budgets with no configured limits.
+    pub fn unlimited() -> Self {
+        Self {
+            execution_budget: ResourceBudget::unlimited(),
+            analysis_budget: ResourceBudget::unlimited(),
+        }
+    }
+
+    pub fn from_settings(settings: &BlockBuilderSettings) -> Self {
+        let memory_limit = if settings.max_assembly_mem_bytes > 0 {
+            Some(settings.max_assembly_mem_bytes)
+        } else {
+            None
+        };
+
+        Self {
+            execution_budget: ResourceBudget::unlimited()
+                .with_max_duration(settings.max_execution_time)
+                .with_max_memory_use(memory_limit),
+            analysis_budget: ResourceBudget::unlimited()
+                .with_max_duration(settings.max_analysis_time)
+                .with_max_memory_use(memory_limit),
+        }
+    }
+
+    pub fn with_execution_budget(mut self, execution_budget: ResourceBudget) -> Self {
+        self.execution_budget = execution_budget;
+        self
+    }
+
+    pub fn with_analysis_budget(mut self, analysis_budget: ResourceBudget) -> Self {
+        self.analysis_budget = analysis_budget;
+        self
+    }
+
+    pub fn get_execution_budget(&self) -> &ResourceBudget {
+        &self.execution_budget
+    }
+
+    pub fn get_analysis_budget(&self) -> &ResourceBudget {
+        &self.analysis_budget
     }
 }
 
@@ -750,7 +775,7 @@ pub trait BlockBuilder {
         tx: &StacksTransaction,
         tx_len: u64,
         limit_behavior: &BlockLimitFunction,
-        max_execution_time: Option<std::time::Duration>,
+        resource_budgets: &TransactionResourceBudgets,
         total_receipts_size: &mut u64,
     ) -> TransactionResult;
 
@@ -760,7 +785,7 @@ pub trait BlockBuilder {
         &mut self,
         clarity_tx: &mut ClarityTx,
         tx: &StacksTransaction,
-        max_execution_time: Option<std::time::Duration>,
+        resource_budgets: &TransactionResourceBudgets,
         total_receipts_size: &mut u64,
     ) -> Result<TransactionResult, Error> {
         let tx_len = tx.tx_len();
@@ -769,7 +794,7 @@ pub trait BlockBuilder {
             tx,
             tx_len,
             &BlockLimitFunction::NO_LIMIT_HIT,
-            max_execution_time,
+            resource_budgets,
             total_receipts_size,
         ) {
             TransactionResult::Success(s) => Ok(TransactionResult::Success(s)),
@@ -794,10 +819,7 @@ pub trait BlockBuilder {
 pub struct StacksMicroblockBuilder<'a> {
     anchor_block: BlockHeaderHash,
     anchor_block_consensus_hash: ConsensusHash,
-    anchor_block_height: u64,
-    header_reader: StacksChainState,
     clarity_tx: Option<ClarityTx<'a, 'a>>,
-    unconfirmed: bool,
     runtime: MicroblockMinerRuntime,
     settings: BlockBuilderSettings,
 }
@@ -817,9 +839,8 @@ impl<'a> StacksMicroblockBuilder<'a> {
             return Err(Error::NoSuchBlockError);
         };
 
-        let (header_reader, _) = chainstate.reopen()?;
-        let anchor_block_header = StacksChainState::get_anchored_block_header_info(
-            header_reader.db(),
+        StacksChainState::get_anchored_block_header_info(
+            chainstate.db(),
             &anchor_block_consensus_hash,
             &anchor_block,
         )?
@@ -830,7 +851,6 @@ impl<'a> StacksMicroblockBuilder<'a> {
             );
             Error::NoSuchBlockError
         })?;
-        let anchor_block_height = anchor_block_header.stacks_block_height;
 
         // when we drop the miner, the underlying clarity instance will be rolled back
         chainstate.set_unconfirmed_dirty(true);
@@ -863,11 +883,8 @@ impl<'a> StacksMicroblockBuilder<'a> {
         Ok(StacksMicroblockBuilder {
             anchor_block,
             anchor_block_consensus_hash,
-            anchor_block_height,
             runtime,
             clarity_tx: Some(clarity_tx),
-            header_reader,
-            unconfirmed: false,
             settings,
         })
     }
@@ -880,38 +897,25 @@ impl<'a> StacksMicroblockBuilder<'a> {
         cost_so_far: &ExecutionCost,
         settings: BlockBuilderSettings,
     ) -> Result<StacksMicroblockBuilder<'a>, Error> {
-        let runtime = if let Some(unconfirmed_state) = chainstate.unconfirmed_state.as_ref() {
-            MicroblockMinerRuntime::from(unconfirmed_state)
-        } else {
+        let Some(unconfirmed) = chainstate.unconfirmed_state.as_ref() else {
             warn!("No unconfirmed state instantiated; cannot mine microblocks");
             return Err(Error::NoSuchBlockError);
         };
+        let runtime = MicroblockMinerRuntime::from(unconfirmed);
 
-        let (header_reader, _) = chainstate.reopen()?;
-        let (anchored_consensus_hash, anchored_block_hash, anchored_block_height) =
-            if let Some(unconfirmed) = chainstate.unconfirmed_state.as_ref() {
-                let header_info =
-                    StacksChainState::get_stacks_block_header_info_by_index_block_hash(
-                        chainstate.db(),
-                        &unconfirmed.confirmed_chain_tip,
-                    )?
-                    .ok_or_else(|| {
-                        warn!(
-                            "No such confirmed block {}",
-                            &unconfirmed.confirmed_chain_tip
-                        );
-                        Error::NoSuchBlockError
-                    })?;
-                (
-                    header_info.consensus_hash,
-                    header_info.anchored_header.block_hash(),
-                    header_info.stacks_block_height,
-                )
-            } else {
-                // unconfirmed state needs to be initialized
-                debug!("Unconfirmed chainstate not initialized");
-                return Err(Error::NoSuchBlockError)?;
-            };
+        let header_info = StacksChainState::get_stacks_block_header_info_by_index_block_hash(
+            chainstate.db(),
+            &unconfirmed.confirmed_chain_tip,
+        )?
+        .ok_or_else(|| {
+            warn!(
+                "No such confirmed block {}",
+                &unconfirmed.confirmed_chain_tip
+            );
+            Error::NoSuchBlockError
+        })?;
+        let anchored_consensus_hash = header_info.consensus_hash;
+        let anchored_block_hash = header_info.anchored_header.block_hash();
 
         let mut clarity_tx = chainstate.begin_unconfirmed(burn_dbconn).ok_or_else(|| {
             warn!(
@@ -934,11 +938,8 @@ impl<'a> StacksMicroblockBuilder<'a> {
         Ok(StacksMicroblockBuilder {
             anchor_block: anchored_block_hash,
             anchor_block_consensus_hash: anchored_consensus_hash,
-            anchor_block_height: anchored_block_height,
             runtime,
             clarity_tx: Some(clarity_tx),
-            header_reader,
-            unconfirmed: true,
             settings,
         })
     }
@@ -1027,7 +1028,7 @@ impl<'a> StacksMicroblockBuilder<'a> {
     /// Returns Ok(TransactionResult::Problematic) if the transaction should be dropped from the mempool.
     /// Returns Err(e) if an error occurs during the function.
     ///
-    /// This calls `StacksChainState::process_transaction` and also checks certain pre-conditions
+    /// This configures a `TransactionProcessor` and also checks certain pre-conditions
     /// and handles errors.
     ///
     /// # Pre-Checks
@@ -1109,7 +1110,13 @@ impl<'a> StacksMicroblockBuilder<'a> {
 
         let quiet = !cfg!(test);
         let cost_before = clarity_tx.cost_so_far();
-        match StacksChainState::process_transaction(clarity_tx, &tx, quiet, None) {
+        match TransactionProcessor::from(&tx)
+            .for_execution()
+            .using_clarity_tx(clarity_tx)
+            .with_unlimited_resource_policy()
+            .quiet(quiet)
+            .process()
+        {
             Ok((_fee, receipt)) => TransactionResult::success(&tx, receipt),
             Err(e) => finalize_failed_transaction(clarity_tx, &tx, &cost_before, e),
         }
@@ -1444,12 +1451,7 @@ impl<'a> StacksMicroblockBuilder<'a> {
             }
         }
 
-        return self.make_next_microblock(
-            txs_included,
-            miner_key,
-            tx_events,
-            Some(event_dispatcher),
-        );
+        self.make_next_microblock(txs_included, miner_key, tx_events, Some(event_dispatcher))
     }
 
     pub fn get_bytes_so_far(&self) -> u64 {
@@ -1631,7 +1633,7 @@ impl StacksBlockBuilder {
         }
 
         self.header.microblock_pubkey_hash = pubkh;
-        return true;
+        true
     }
 
     /// Set the block miner's private key
@@ -1670,7 +1672,13 @@ impl StacksBlockBuilder {
         let quiet = !cfg!(test);
         if !self.anchored_done {
             // save
-            match StacksChainState::process_transaction(clarity_tx, tx, quiet, None) {
+            match TransactionProcessor::from(tx)
+                .for_execution()
+                .using_clarity_tx(clarity_tx)
+                .with_unlimited_resource_policy()
+                .quiet(quiet)
+                .process()
+            {
                 Ok((fee, receipt)) => {
                     self.total_anchored_fees += fee;
                 }
@@ -1681,7 +1689,13 @@ impl StacksBlockBuilder {
 
             self.txs.push(tx.clone());
         } else {
-            match StacksChainState::process_transaction(clarity_tx, tx, quiet, None) {
+            match TransactionProcessor::from(tx)
+                .for_execution()
+                .using_clarity_tx(clarity_tx)
+                .with_unlimited_resource_policy()
+                .quiet(quiet)
+                .process()
+            {
                 Ok((fee, receipt)) => {
                     self.total_streamed_fees += fee;
                 }
@@ -1768,7 +1782,7 @@ impl StacksBlockBuilder {
     }
 
     /// Cut the next microblock.
-    pub fn mine_next_microblock<'a>(&mut self) -> Result<StacksMicroblock, Error> {
+    pub fn mine_next_microblock(&mut self) -> Result<StacksMicroblock, Error> {
         let txid_vecs: Vec<_> = self
             .micro_txs
             .iter()
@@ -1848,15 +1862,15 @@ impl StacksBlockBuilder {
                 &self.parent_consensus_hash,
                 &self.parent_header_hash,
             );
-            let (parent_microblocks, _) =
+            let parent_microblocks =
                 match StacksChainState::load_descendant_staging_microblock_stream_with_poison(
                     chainstate.db(),
                     &parent_index_hash,
                     0,
                     u16::MAX,
                 )? {
-                    Some(x) => x,
-                    None => (vec![], None),
+                    Some(stream) => stream.microblocks,
+                    None => vec![],
                 };
 
             debug!(
@@ -1891,8 +1905,12 @@ impl StacksBlockBuilder {
                                     self.header.parent_block)
         );
 
-        if let Some((ref _miner_payout, ref _user_payouts, ref _parent_reward, ref _reward_info)) =
-            self.miner_payouts
+        if let Some(MaturedMinerPayouts {
+            miner: ref _miner_payout,
+            users: ref _user_payouts,
+            parent: ref _parent_reward,
+            ..
+        }) = self.miner_payouts
         {
             test_debug!(
                 "Miner payout to process: {_miner_payout:?}; user payouts: {_user_payouts:?}; parent payout: {_parent_reward:?}"
@@ -2071,7 +2089,12 @@ impl StacksBlockBuilder {
         let mut miner_epoch_info = builder.pre_epoch_begin(&mut chainstate, burn_dbconn, true)?;
         let (mut epoch_tx, _) = builder.epoch_begin(burn_dbconn, &mut miner_epoch_info)?;
         for tx in txs.into_iter() {
-            match builder.try_mine_tx(&mut epoch_tx, &tx, None, &mut 0) {
+            match builder.try_mine_tx(
+                &mut epoch_tx,
+                &tx,
+                &TransactionResourceBudgets::unlimited(),
+                &mut 0,
+            ) {
                 Ok(_) => {
                     debug!("Included {}", &tx.txid());
                 }
@@ -2226,7 +2249,6 @@ impl StacksBlockBuilder {
         initial_txs: &[StacksTransaction],
         settings: BlockBuilderSettings,
         event_observer: Option<&dyn MemPoolEventDispatcher>,
-        replay_transactions: &[StacksTransaction],
     ) -> Result<(bool, Vec<TransactionEvent>), Error> {
         let mut tx_events = Vec::new();
 
@@ -2238,7 +2260,7 @@ impl StacksBlockBuilder {
                     .try_mine_tx(
                         epoch_tx,
                         initial_tx,
-                        settings.max_execution_time,
+                        &TransactionResourceBudgets::from_settings(&settings),
                         &mut receipts_total,
                     )?
                     .convert_to_event(),
@@ -2260,32 +2282,15 @@ impl StacksBlockBuilder {
             }
         }
 
-        #[cfg(any(test, feature = "testing"))]
-        let use_mempool_txs = replay_transactions.is_empty() || TEST_EXCLUDE_REPLAY_TXS.get();
-        #[cfg(not(any(test, feature = "testing")))]
-        let use_mempool_txs = replay_transactions.is_empty();
-
-        let result = if use_mempool_txs {
-            select_and_apply_transactions_from_mempool(
-                epoch_tx,
-                builder,
-                mempool,
-                tip_height,
-                settings,
-                event_observer,
-                receipts_total,
-            )
-        } else {
-            info!("Miner: constructing block with replay transactions");
-            let txs = select_and_apply_transactions_from_vec(
-                epoch_tx,
-                builder,
-                tip_height,
-                replay_transactions,
-                receipts_total,
-            );
-            Ok((txs, false))
-        };
+        let result = select_and_apply_transactions_from_mempool(
+            epoch_tx,
+            builder,
+            mempool,
+            tip_height,
+            settings,
+            event_observer,
+            receipts_total,
+        );
 
         match result {
             Ok((events, blocked)) => {
@@ -2371,10 +2376,9 @@ impl StacksBlockBuilder {
             &mut builder,
             mempool,
             parent_stacks_header.stacks_block_height,
-            &[coinbase_tx.clone()],
+            slice::from_ref(coinbase_tx),
             settings,
             event_observer,
-            &vec![],
         ) {
             Ok(x) => x,
             Err(e) => {
@@ -2445,7 +2449,7 @@ impl BlockBuilder for StacksBlockBuilder {
         tx: &StacksTransaction,
         tx_len: u64,
         limit_behavior: &BlockLimitFunction,
-        _max_execution_time: Option<std::time::Duration>,
+        _resource_budgets: &TransactionResourceBudgets,
         _total_receipt_size: &mut u64,
     ) -> TransactionResult {
         if self.bytes_so_far + tx_len >= u64::from(MAX_EPOCH_SIZE) {
@@ -2511,13 +2515,18 @@ impl BlockBuilder for StacksBlockBuilder {
                 return TransactionResult::problematic(tx, Error::NetError(e));
             }
             let cost_before = clarity_tx.cost_so_far();
-            let (fee, receipt) =
-                match StacksChainState::process_transaction(clarity_tx, tx, quiet, None) {
-                    Ok((fee, receipt)) => (fee, receipt),
-                    Err(e) => {
-                        return finalize_failed_transaction(clarity_tx, tx, &cost_before, e);
-                    }
-                };
+            let (fee, receipt) = match TransactionProcessor::from(tx)
+                .for_execution()
+                .using_clarity_tx(clarity_tx)
+                .with_unlimited_resource_policy()
+                .quiet(quiet)
+                .process()
+            {
+                Ok((fee, receipt)) => (fee, receipt),
+                Err(e) => {
+                    return finalize_failed_transaction(clarity_tx, tx, &cost_before, e);
+                }
+            };
             info!("Include tx";
                   "tx" => %tx.txid(),
                   "payload" => tx.payload.name(),
@@ -2555,13 +2564,18 @@ impl BlockBuilder for StacksBlockBuilder {
                 return TransactionResult::problematic(tx, Error::NetError(e));
             }
             let cost_before = clarity_tx.cost_so_far();
-            let (fee, receipt) =
-                match StacksChainState::process_transaction(clarity_tx, tx, quiet, None) {
-                    Ok((fee, receipt)) => (fee, receipt),
-                    Err(e) => {
-                        return finalize_failed_transaction(clarity_tx, tx, &cost_before, e);
-                    }
-                };
+            let (fee, receipt) = match TransactionProcessor::from(tx)
+                .for_execution()
+                .using_clarity_tx(clarity_tx)
+                .with_unlimited_resource_policy()
+                .quiet(quiet)
+                .process()
+            {
+                Ok((fee, receipt)) => (fee, receipt),
+                Err(e) => {
+                    return finalize_failed_transaction(clarity_tx, tx, &cost_before, e);
+                }
+            };
             debug!(
                 "Include tx {} ({}) in microblock",
                 tx.txid(),
@@ -2709,22 +2723,14 @@ fn select_and_apply_transactions_from_mempool<B: BlockBuilder>(
 
                 fault_injection_stall_tx();
 
-                if settings.max_assembly_mem_bytes > 0 {
-                    epoch_tx.set_abort_callback(make_mem_abort_callback(
-                        settings.max_assembly_mem_bytes,
-                    ));
-                }
-
                 let tx_result = builder.try_mine_tx_with_len(
                     epoch_tx,
                     &txinfo.tx,
                     txinfo.metadata.len,
                     &block_limit_hit,
-                    settings.max_execution_time,
+                    &TransactionResourceBudgets::from_settings(&settings),
                     &mut receipts_total,
                 );
-
-                epoch_tx.set_abort_callback(AbortCallback::None);
 
                 let result_event = tx_result.convert_to_event();
                 match tx_result {
@@ -2868,65 +2874,4 @@ fn select_and_apply_transactions_from_mempool<B: BlockBuilder>(
     }
     loop_result?;
     Ok((tx_events, blocked))
-}
-
-fn select_and_apply_transactions_from_vec<B: BlockBuilder>(
-    epoch_tx: &mut ClarityTx,
-    builder: &mut B,
-    tip_height: u64,
-    replay_transactions: &[StacksTransaction],
-    initial_receipts_total: u64,
-) -> Vec<TransactionEvent> {
-    let mut tx_events = vec![];
-
-    let mut num_txs = 0;
-    let mut num_considered = 0;
-
-    debug!("Replay block transaction selection begins (parent height = {tip_height})");
-    let mut receipts_total = initial_receipts_total;
-    for replay_tx in replay_transactions {
-        fault_injection_stall_tx();
-        if fault_injection_should_skip_replay_tx(replay_tx.txid()) {
-            continue;
-        }
-
-        let txid = replay_tx.txid();
-        let tx_result = builder.try_mine_tx_with_len(
-            epoch_tx,
-            replay_tx,
-            replay_tx.tx_len(),
-            &BlockLimitFunction::NO_LIMIT_HIT,
-            None,
-            &mut receipts_total,
-        );
-        let tx_event = tx_result.convert_to_event();
-        match tx_result {
-            TransactionResult::Success(TransactionSuccess { .. }) => {
-                num_txs += 1;
-            }
-            TransactionResult::Skipped(TransactionSkipped { error, .. })
-            | TransactionResult::ProcessingError(TransactionError { error, .. }) => {
-                match &error {
-                    Error::BlockTooBigError | Error::BlockCostLimitError => {
-                        // done mining -- our execution budget is exceeded.
-                        // Make the block from the transactions we did manage
-                        // (We cannot simply skip as this would put the replay txs out of order)
-                        debug!("Block budget exceeded on tx {txid}");
-                        info!("Miner stopping due to limit reached");
-                        break;
-                    }
-                    e => {
-                        info!("Failed to apply tx {txid}: {e:?}");
-                    }
-                }
-            }
-            TransactionResult::Problematic(TransactionProblematic { .. }) => {
-                info!("Failed to apply problematic tx {txid}");
-            }
-        }
-        tx_events.push(tx_event);
-        num_considered += 1;
-    }
-    debug!("Replay block transaction selection finished (parent height {tip_height}): {num_txs} transactions selected ({num_considered} considered)");
-    tx_events
 }

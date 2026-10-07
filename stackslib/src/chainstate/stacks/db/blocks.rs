@@ -24,6 +24,7 @@ use clarity::vm::clarity::TransactionConnection;
 use clarity::vm::costs::LimitedCostTracker;
 use clarity::vm::database::BurnStateDB;
 use clarity::vm::errors::VmExecutionError;
+use clarity::vm::resource_limiter::ResourceBudget;
 use clarity::vm::types::{
     BuffData, PrincipalData, QualifiedContractIdentifier, SequenceData,
     StacksAddressExtensions as ClarityStacksAddressExtensions, StandardPrincipalData, TupleData,
@@ -48,14 +49,16 @@ use crate::chainstate::coordinator::BlockEventDispatcher;
 use crate::chainstate::nakamoto::signer_set::{NakamotoSigners, SignerCalculation};
 use crate::chainstate::nakamoto::NakamotoChainState;
 use crate::chainstate::stacks::address::PoxAddress;
-use crate::chainstate::stacks::db::accounts::MinerReward;
-use crate::chainstate::stacks::db::transactions::TransactionNonceMismatch;
+use crate::chainstate::stacks::db::accounts::{MaturedMinerPayouts, MinerReward};
+use crate::chainstate::stacks::db::transactions::{
+    NonceCheckFailure, TransactionNonceMismatch, TransactionProcessor, TxToProcess,
+};
 use crate::chainstate::stacks::db::*;
 use crate::chainstate::stacks::events::StacksBlockEventData;
 use crate::chainstate::stacks::{
-    Error, StacksBlockHeader, StacksMicroblockHeader, C32_ADDRESS_VERSION_MAINNET_MULTISIG,
-    C32_ADDRESS_VERSION_MAINNET_SINGLESIG, C32_ADDRESS_VERSION_TESTNET_MULTISIG,
-    C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
+    Error, MicroblockSignerMatch, StacksBlockHeader, StacksMicroblockHeader,
+    C32_ADDRESS_VERSION_MAINNET_MULTISIG, C32_ADDRESS_VERSION_MAINNET_SINGLESIG,
+    C32_ADDRESS_VERSION_TESTNET_MULTISIG, C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
 };
 use crate::clarity_vm::clarity::{ClarityConnection, ClarityInstance};
 use crate::clarity_vm::database::SortitionDBRef;
@@ -100,6 +103,15 @@ pub struct StagingBlock {
     pub block_data: Vec<u8>,
 }
 
+/// A transaction-processing failure tied to the microblock that contained it.
+#[derive(Debug)]
+pub struct MicroblockProcessingFailure {
+    /// Chainstate error raised while processing the transaction.
+    pub source: Error,
+    /// Hash of the microblock containing the invalid transaction.
+    pub microblock_hash: BlockHeaderHash,
+}
+
 #[derive(Debug)]
 pub enum MemPoolRejection {
     SerializationFailure(codec_error),
@@ -135,6 +147,23 @@ pub enum MemPoolRejection {
     Other(String),
 }
 
+/// A loaded descendant microblock stream and evidence of a fork, if found.
+pub struct StagingMicroblockStream {
+    /// Non-forked prefix of the descendant stream.
+    pub microblocks: Vec<StacksMicroblock>,
+    /// Poison transaction payload identifying conflicting microblocks.
+    pub poison_payload: Option<TransactionPayload>,
+}
+
+/// Receipt and optional fork evidence from processing one staging block.
+#[derive(Debug, Clone, Default)]
+pub struct StagingBlockOutcome {
+    /// Processed block receipt; absent for invalid blocks or when no block was processed.
+    pub receipt: Option<StacksEpochReceipt>,
+    /// Poison transaction payload for a discovered microblock fork.
+    pub poison_payload: Option<TransactionPayload>,
+}
+
 pub struct SetupBlockResult<'a, 'b> {
     pub clarity_tx: ClarityTx<'a, 'b>,
     pub tx_receipts: Vec<StacksTransactionReceipt>,
@@ -142,8 +171,7 @@ pub struct SetupBlockResult<'a, 'b> {
     pub microblock_fees: u128,
     pub microblock_burns: u128,
     pub microblock_txs_receipts: Vec<StacksTransactionReceipt>,
-    pub matured_miner_rewards_opt:
-        Option<(MinerReward, Vec<MinerReward>, MinerReward, MinerRewardInfo)>,
+    pub matured_miner_rewards_opt: Option<MaturedMinerPayouts>,
     pub evaluated_epoch: StacksEpochId,
     pub applied_epoch_transition: bool,
     pub burn_stack_stx_ops: Vec<StackStxOp>,
@@ -290,7 +318,7 @@ impl MemPoolRejection {
             Other(s) => ("ServerFailureOther", Some(json!({ "message": s }))),
         };
         let mut result = json!({
-            "txid": format!("{}", txid.to_hex()),
+            "txid": txid.to_hex(),
             "error": "transaction rejected",
             "reason": reason_code,
         });
@@ -404,21 +432,20 @@ impl FromRow<StagingBlock> for StagingBlock {
 
 impl StagingMicroblock {
     #[cfg(test)]
-    pub fn try_into_microblock(self) -> Result<StacksMicroblock, StagingMicroblock> {
-        StacksMicroblock::consensus_deserialize(&mut &self.block_data[..]).map_err(|_e| self)
+    pub fn try_into_microblock(self) -> Result<StacksMicroblock, Box<StagingMicroblock>> {
+        StacksMicroblock::consensus_deserialize(&mut &self.block_data[..]).map_err(|_e| self.into())
     }
 }
 
 impl StacksChainState {
-    fn get_index_block_pathbuf(blocks_dir: &str, index_block_hash: &StacksBlockId) -> PathBuf {
+    /// Relative path, under a blocks dir, at which the block with this index
+    /// hash is stored: two 2-byte hex directory segments, then the full hash.
+    pub fn index_block_hash_to_rel_path(index_block_hash: &StacksBlockId) -> PathBuf {
         let block_hash_bytes = index_block_hash.as_bytes();
-        let mut block_path = PathBuf::from(blocks_dir);
 
-        block_path.push(to_hex(&block_hash_bytes[0..2]));
-        block_path.push(to_hex(&block_hash_bytes[2..4]));
-        block_path.push(index_block_hash.to_string());
-
-        block_path
+        PathBuf::from(to_hex(&block_hash_bytes[0..2]))
+            .join(to_hex(&block_hash_bytes[2..4]))
+            .join(index_block_hash.to_string())
     }
 
     /// Get the path to a block in the chunk store
@@ -426,7 +453,9 @@ impl StacksChainState {
         blocks_dir: &str,
         index_block_hash: &StacksBlockId,
     ) -> Result<String, Error> {
-        let block_path = StacksChainState::get_index_block_pathbuf(blocks_dir, index_block_hash);
+        let block_path = PathBuf::from(blocks_dir).join(
+            StacksChainState::index_block_hash_to_rel_path(index_block_hash),
+        );
 
         let blocks_path_str = block_path
             .to_str()
@@ -506,7 +535,7 @@ impl StacksChainState {
         // atomically put this file in place
         // TODO: this is atomic but not crash-consistent!  need to fsync the dir as well
         trace!("Rename {:?} to {:?}", &path_tmp, &path);
-        fs::rename(&path_tmp, &path).map_err(|e| Error::DBError(db_error::IOError(e)))?;
+        fs::rename(&path_tmp, path).map_err(|e| Error::DBError(db_error::IOError(e)))?;
 
         Ok(())
     }
@@ -677,12 +706,13 @@ impl StacksChainState {
             let random_bytes = thread_rng().gen::<[u8; 8]>();
             let random_bytes_str = to_hex(&random_bytes);
             let index_block_hash = StacksBlockId::new(consensus_hash, block_header_hash);
-            let mut invalid_path =
-                StacksChainState::get_index_block_pathbuf(blocks_dir, &index_block_hash);
+            let mut invalid_path = PathBuf::from(blocks_dir).join(
+                StacksChainState::index_block_hash_to_rel_path(&index_block_hash),
+            );
             invalid_path
                 .file_name()
                 .expect("FATAL: index block path did not have file name");
-            invalid_path.set_extension(&format!("invalid-{}", &random_bytes_str));
+            invalid_path.set_extension(format!("invalid-{}", &random_bytes_str));
 
             fs::copy(&block_path, &invalid_path).unwrap_or_else(|_| {
                 panic!(
@@ -868,15 +898,6 @@ impl StacksChainState {
         StacksChainState::inner_load_block_header(&block_path)
     }
 
-    /// Closure for defaulting to an empty microblock stream if a microblock stream file is not found
-    fn empty_stream(e: Error) -> Result<Option<Vec<StacksMicroblock>>, Error> {
-        if matches!(e, Error::DBError(db_error::NotFoundError)) {
-            Ok(Some(vec![]))
-        } else {
-            Err(e)
-        }
-    }
-
     /// Load up a blob of data.
     /// Query should be structured to return rows of BLOBs
     fn load_block_data_blobs<P>(
@@ -915,7 +936,7 @@ impl StacksChainState {
     ) -> Result<Option<Vec<u8>>, Error> {
         let sql = format!("SELECT block_data FROM {table} WHERE block_hash = ?1");
         let args = [&block_hash];
-        let mut blobs = StacksChainState::load_block_data_blobs(block_conn, &sql, &args)?;
+        let mut blobs = StacksChainState::load_block_data_blobs(block_conn, &sql, args)?;
         let len = blobs.len();
         match len {
             0 => Ok(None),
@@ -943,20 +964,6 @@ impl StacksChainState {
             "staging_microblocks_data",
             block_hash,
         )
-    }
-
-    fn has_blocks_with_microblock_pubkh(
-        block_conn: &DBConn,
-        pubkey_hash: &Hash160,
-        minimum_block_height: i64,
-    ) -> bool {
-        let sql = "SELECT 1 FROM staging_blocks WHERE microblock_pubkey_hash = ?1 AND height >= ?2";
-        let args = params![pubkey_hash, minimum_block_height];
-        block_conn
-            .query_row(sql, args, |_r| Ok(()))
-            .optional()
-            .expect("DB CORRUPTION: block header DB corrupted!")
-            .is_some()
     }
 
     /// Load up a preprocessed (queued) but still unprocessed block.
@@ -1007,7 +1014,7 @@ impl StacksChainState {
     ) -> Result<Option<BlockHeaderHash>, Error> {
         let sql = "SELECT parent_microblock_hash FROM staging_blocks WHERE index_block_hash = ?1 AND orphaned = 0";
         block_conn
-            .query_row(sql, &[index_block_hash], |row| row.get(0))
+            .query_row(sql, [index_block_hash], |row| row.get(0))
             .optional()
             .map_err(|e| Error::DBError(db_error::from(e)))
     }
@@ -1294,7 +1301,7 @@ impl StacksChainState {
             start_seq,
             last_seq,
         )?;
-        Ok(res.map(|(microblocks, _)| microblocks))
+        Ok(res.map(|stream| stream.microblocks))
     }
 
     /// Load up a block's longest non-forked descendant microblock stream, given its block hash and burn header hash.
@@ -1307,7 +1314,7 @@ impl StacksChainState {
         parent_index_block_hash: &StacksBlockId,
         start_seq: u16,
         last_seq: u16,
-    ) -> Result<Option<(Vec<StacksMicroblock>, Option<TransactionPayload>)>, Error> {
+    ) -> Result<Option<StagingMicroblockStream>, Error> {
         assert!(last_seq >= start_seq);
 
         let sql = if start_seq == last_seq {
@@ -1419,7 +1426,10 @@ impl StacksChainState {
             // just as if there were no blocks loaded
             Ok(None)
         } else {
-            Ok(Some((ret, fork_poison)))
+            Ok(Some(StagingMicroblockStream {
+                microblocks: ret,
+                poison_payload: fork_poison,
+            }))
         }
     }
 
@@ -1448,7 +1458,7 @@ impl StacksChainState {
     pub fn get_parent(&self, stacks_block: &StacksBlockId) -> Result<StacksBlockId, Error> {
         let sql = "SELECT parent_block_id FROM block_headers WHERE index_block_hash = ?";
         self.db()
-            .query_row(sql, &[stacks_block], |row| row.get(0))
+            .query_row(sql, [stacks_block], |row| row.get(0))
             .map_err(|e| Error::from(db_error::from(e)))
     }
 
@@ -1472,7 +1482,7 @@ impl StacksChainState {
                 return Ok(Some(possible_parent.consensus_hash));
             }
         }
-        return Ok(None);
+        Ok(None)
     }
 
     /// Get an anchored block's parent block header.
@@ -1516,7 +1526,7 @@ impl StacksChainState {
                 return Ok(ret);
             }
         }
-        return Ok(None);
+        Ok(None)
     }
 
     #[cfg(test)]
@@ -1657,7 +1667,7 @@ impl StacksChainState {
             "UPDATE staging_blocks SET attachable = 0 WHERE parent_anchored_block_hash = ?1";
         let children_args = [&block_hash];
 
-        tx.execute(children_sql, &children_args)
+        tx.execute(children_sql, children_args)
             .map_err(|e| Error::DBError(db_error::SqliteError(e)))?;
 
         Ok(())
@@ -1773,12 +1783,12 @@ impl StacksChainState {
         block_hash: &BlockHeaderHash,
     ) -> Result<Option<bool>, Error> {
         StacksChainState::read_one_i64(blocks_conn, "SELECT processed FROM staging_blocks WHERE anchored_block_hash = ?1 AND consensus_hash = ?2", &[block_hash, consensus_hash])
-            .and_then(|processed| {
+            .map(|processed| {
                 let Some(processed_head) = processed else {
                     // if empty, return false
-                    return Ok(None)
+                    return None
                 };
-                Ok(Some(processed_head != 0))
+                Some(processed_head != 0)
             })
     }
 
@@ -1802,12 +1812,12 @@ impl StacksChainState {
         block_hash: &BlockHeaderHash,
     ) -> Result<bool, Error> {
         StacksChainState::read_one_i64(blocks_conn, "SELECT orphaned FROM staging_blocks WHERE anchored_block_hash = ?1 AND consensus_hash = ?2", &[block_hash, consensus_hash])
-            .and_then(|orphaned| {
+            .map(|orphaned| {
                 let Some(orphaned_head) = orphaned else {
                     // if empty, return false
-                    return Ok(false)
+                    return false
                 };
-                Ok(orphaned_head != 0)
+                orphaned_head != 0
             })
     }
 
@@ -1822,11 +1832,9 @@ impl StacksChainState {
         microblock_hash: &BlockHeaderHash,
     ) -> Result<Option<bool>, Error> {
         StacksChainState::read_one_i64(self.db(), "SELECT processed FROM staging_microblocks WHERE anchored_block_hash = ?1 AND microblock_hash = ?2 AND consensus_hash = ?3", &[&parent_block_hash, microblock_hash, &parent_consensus_hash])
-            .and_then(|processed| {
-                let Some(processed_head) = processed else {
-                    return Ok(None)
-                };
-                Ok(Some(processed_head != 0))
+            .map(|processed| {
+                let processed_head = processed?;
+                Some(processed_head != 0)
             })
     }
 
@@ -1891,12 +1899,12 @@ impl StacksChainState {
         StacksChainState::read_one_i64(self.db(), "SELECT staging_microblocks.processed
                                                 FROM staging_blocks JOIN staging_microblocks ON staging_blocks.parent_anchored_block_hash = staging_microblocks.anchored_block_hash AND staging_blocks.parent_consensus_hash = staging_microblocks.consensus_hash
                                                 WHERE staging_blocks.index_block_hash = ?1 AND staging_microblocks.microblock_hash = ?2 AND staging_microblocks.orphaned = 0", &[child_index_block_hash, &parent_microblock_hash])
-            .and_then(|processed| {
+            .map(|processed| {
                 let Some(processed_head) = processed else {
                     // if empty, return false
-                    return Ok(false)
+                    return false
                 };
-                Ok(processed_head != 0)
+                processed_head != 0
             })
     }
 
@@ -2042,10 +2050,10 @@ impl StacksChainState {
             .query_row(sql, args, |row| {
                 let start_height_i64: i64 = row.get_unwrap(0);
                 let end_height_i64: i64 = row.get_unwrap(1);
-                return Ok((
+                Ok((
                     u64::try_from(start_height_i64).expect("FATAL: height exceeds i64::MAX"),
                     u64::try_from(end_height_i64).expect("FATAL: height exceeds i64::MAX"),
-                ));
+                ))
             })
             .optional()?
             .ok_or_else(|| Error::DBError(db_error::NotFoundError))
@@ -2166,18 +2174,6 @@ impl StacksChainState {
         query_rows(conn, qry, args).map_err(|e| e.into())
     }
 
-    /// Determine if we have the block data for a given block-commit.
-    /// Used to see if we have the block data for an unaffirmed PoX anchor block
-    /// (hence the test_debug! macros referring to PoX anchor blocks)
-    fn has_stacks_block_for(chainstate_conn: &DBConn, block_commit: LeaderBlockCommitOp) -> bool {
-        !StacksChainState::get_known_consensus_hashes_for_block(
-            chainstate_conn,
-            &block_commit.block_header_hash,
-        )
-        .expect("FATAL: failed to query staging blocks DB")
-        .is_empty()
-    }
-
     /// Delete a microblock's data from the DB
     fn delete_microblock_data(
         tx: &mut DBTx,
@@ -2187,11 +2183,11 @@ impl StacksChainState {
 
         // copy into the invalidated_microblocks_data table
         let copy_sql = "INSERT OR REPLACE INTO invalidated_microblocks_data SELECT * FROM staging_microblocks_data WHERE block_hash = ?1";
-        tx.execute(copy_sql, &args)?;
+        tx.execute(copy_sql, args)?;
 
         // clear out the block data from staging
         let clear_sql = "DELETE FROM staging_microblocks_data WHERE block_hash = ?1";
-        tx.execute(clear_sql, &args)?;
+        tx.execute(clear_sql, args)?;
 
         Ok(())
     }
@@ -2376,7 +2372,7 @@ impl StacksChainState {
                     .to_string();
             let update_children_args = [&anchored_block_hash];
 
-            tx.execute(&update_children_sql, &update_children_args)
+            tx.execute(&update_children_sql, update_children_args)
                 .map_err(|e| Error::DBError(db_error::SqliteError(e)))?;
 
             // mark this block as processed in the burn db too
@@ -2535,7 +2531,7 @@ impl StacksChainState {
             let update_block_children_sql = "UPDATE staging_blocks SET orphaned = 1, processed = 0, attachable = 0 WHERE parent_microblock_hash = ?1".to_string();
             let update_block_children_args = [&mblock_hash];
 
-            tx.execute(&update_block_children_sql, &update_block_children_args)
+            tx.execute(&update_block_children_sql, update_block_children_args)
                 .map_err(|e| Error::DBError(db_error::SqliteError(e)))?;
         }
 
@@ -2622,12 +2618,12 @@ impl StacksChainState {
         let parent_index_block_hash =
             StacksBlockHeader::make_index_block_hash(&parent_consensus_hash, &parent_block_hash);
         StacksChainState::read_one_i64(self.db(), "SELECT processed FROM staging_microblocks WHERE index_block_hash = ?1 AND sequence = ?2", &[&parent_index_block_hash, &seq])
-            .and_then(|processed| {
+            .map(|processed| {
                 let Some(processed_head) = processed else {
                     // if empty, return false
-                    return Ok(false)
+                    return false
                 };
-                Ok(processed_head == 0)
+                processed_head == 0
             })
     }
 
@@ -2890,6 +2886,7 @@ impl StacksChainState {
     /// Given a microblock stream, does it connect the parent and child anchored blocks?
     /// * verify that the blocks are a contiguous sequence, with no duplicate sequence numbers
     /// * verify that each microblock is signed by the parent anchor block's key
+    ///
     /// The stream must be in order by sequence number, and there must be no duplicates.
     /// If the stream connects to the anchored block, then
     /// return the index in the given microblocks vec that corresponds to the highest valid
@@ -2966,7 +2963,12 @@ impl StacksChainState {
         let mut prior_microblock = first_microblock;
         for cur_microblock in signed_microblocks.iter().skip(1) {
             if prior_microblock.header.sequence > cur_microblock.header.sequence {
-                panic!("BUG: out-of-sequence microblock stream");
+                warn!(
+                    "Out-of-sequence microblock stream";
+                    "cur" => cur_microblock.header.sequence,
+                    "prior" => prior_microblock.header.sequence,
+                );
+                return None;
             }
             let cur_seq = u32::from(prior_microblock.header.sequence) + 1;
             if cur_seq < u32::from(cur_microblock.header.sequence) {
@@ -2984,14 +2986,13 @@ impl StacksChainState {
         // miner equivocated.
         let mut parent_hashes: HashMap<BlockHeaderHash, StacksMicroblockHeader> = HashMap::new();
         for (i, signed_microblock) in signed_microblocks.iter().enumerate() {
-            if parent_hashes.contains_key(&signed_microblock.header.prev_block) {
+            if let Some(conflicting_microblock_header) =
+                parent_hashes.get(&signed_microblock.header.prev_block)
+            {
                 debug!(
                     "Deliberate microblock fork: duplicate parent {}",
                     signed_microblock.header.prev_block
                 );
-                let conflicting_microblock_header = parent_hashes
-                    .get(&signed_microblock.header.prev_block)
-                    .unwrap();
 
                 return Some((
                     i - 1,
@@ -3067,7 +3068,7 @@ impl StacksChainState {
             return None;
         }
 
-        return Some((end, None));
+        Some((end, None))
     }
 
     /// Determine whether or not a block executed an epoch transition.  That is, did this block
@@ -3097,7 +3098,7 @@ impl StacksChainState {
     /// Returns Some(commit burn, total burn) if valid
     /// Returns None if not valid
     /// * consensus_hash is the PoX history hash of the burnchain block whose sortition
-    /// (ostensibly) selected this block for inclusion.
+    ///   (ostensibly) selected this block for inclusion.
     fn validate_anchored_block_burnchain(
         blocks_conn: &DBConn,
         db_handle: &SortitionHandleConn,
@@ -3633,15 +3634,13 @@ impl StacksChainState {
             parent_anchored_block_hash,
             parent_microblock_hash,
         )? {
-            Some(microblocks) => {
-                return Ok(Some(microblocks));
-            }
+            Some(microblocks) => Ok(Some(microblocks)),
             None => {
                 // parent microblocks haven't arrived yet, or there are none
                 debug!(
                     "No parent microblock stream for {anchored_block_hash}: expected a stream with tail {parent_microblock_hash},{parent_microblock_seq}",
                 );
-                return Ok(None);
+                Ok(None)
             }
         }
     }
@@ -3695,7 +3694,7 @@ impl StacksChainState {
         let cnt = query_count(
             blocks_conn,
             &sql,
-            &[&u64_to_sql(min_arrival_time)?, &u64_to_sql(limit)?],
+            [&u64_to_sql(min_arrival_time)?, &u64_to_sql(limit)?],
         )
         .map_err(Error::DBError)?;
         Ok(u64::try_from(cnt).expect("more than i64::MAX rows"))
@@ -3712,7 +3711,7 @@ impl StacksChainState {
         let cnt = query_count(
             blocks_conn,
             &sql,
-            &[&u64_to_sql(min_arrival_time)?, &u64_to_sql(limit)?],
+            [&u64_to_sql(min_arrival_time)?, &u64_to_sql(limit)?],
         )
         .map_err(Error::DBError)?;
         Ok(u64::try_from(cnt).expect("more than i64::MAX rows"))
@@ -3923,16 +3922,24 @@ impl StacksChainState {
     pub fn process_microblocks_transactions(
         clarity_tx: &mut ClarityTx,
         microblocks: &[StacksMicroblock],
-    ) -> Result<(u128, u128, Vec<StacksTransactionReceipt>), (Error, BlockHeaderHash)> {
+    ) -> Result<(u128, u128, Vec<StacksTransactionReceipt>), Box<MicroblockProcessingFailure>> {
         let mut fees = 0u128;
         let mut burns = 0u128;
         let mut receipts = vec![];
         for microblock in microblocks.iter() {
             debug!("Process microblock {}", &microblock.block_hash());
             for (tx_index, tx) in microblock.txs.iter().enumerate() {
-                let (tx_fee, mut tx_receipt) =
-                    StacksChainState::process_transaction(clarity_tx, tx, false, None)
-                        .map_err(|e| (e, microblock.block_hash()))?;
+                let (tx_fee, mut tx_receipt) = TransactionProcessor::from(tx)
+                    .for_execution()
+                    .using_clarity_tx(clarity_tx)
+                    .with_unlimited_resource_policy()
+                    .process()
+                    .map_err(|source| {
+                        Box::new(MicroblockProcessingFailure {
+                            source,
+                            microblock_hash: microblock.block_hash(),
+                        })
+                    })?;
 
                 tx_receipt.microblock_header = Some(microblock.header.clone());
                 tx_receipt.tx_index = u32::try_from(tx_index).expect("more than 2^32 items");
@@ -4028,7 +4035,15 @@ impl StacksChainState {
                         current_epoch = StacksEpochId::Epoch34;
                     }
                     StacksEpochId::Epoch34 => {
-                        panic!("No defined transition from Epoch34 forward")
+                        receipts.append(&mut clarity_tx.block.initialize_epoch_4_0()?);
+                        current_epoch = StacksEpochId::Epoch40;
+                    }
+                    StacksEpochId::Epoch40 => {
+                        receipts.append(&mut clarity_tx.block.initialize_epoch_4_1()?);
+                        current_epoch = StacksEpochId::Epoch41;
+                    }
+                    StacksEpochId::Epoch41 => {
+                        panic!("No defined transition from Epoch41 forward")
                     }
                 }
 
@@ -4109,7 +4124,7 @@ impl StacksChainState {
                     "stack-stx",
                     &args,
                     |_, _| None,
-                    None,
+                    &ResourceBudget::unlimited(),
                 )
             });
             match result {
@@ -4148,6 +4163,7 @@ impl StacksChainState {
                             microblock_header: None,
                             tx_index: 0,
                             vm_error: None,
+                            problematic_skipped: None,
                         };
 
                         all_receipts.push(receipt);
@@ -4244,6 +4260,7 @@ impl StacksChainState {
                                     microblock_header: None,
                                     tx_index: 0,
                                     vm_error: None,
+                                    problematic_skipped: None,
                                 })
                             }
                             Err(e) => {
@@ -4318,7 +4335,7 @@ impl StacksChainState {
                         reward_addr_val,
                     ],
                     |_, _| None,
-                    None,
+                    &ResourceBudget::unlimited(),
                 )
             });
             match result {
@@ -4361,6 +4378,7 @@ impl StacksChainState {
                             microblock_header: None,
                             tx_index: 0,
                             vm_error: None,
+                            problematic_skipped: None,
                         };
 
                         all_receipts.push(receipt);
@@ -4425,7 +4443,7 @@ impl StacksChainState {
                         Value::UInt((*reward_cycle).into()),
                     ],
                     |_, _| None,
-                    None,
+                    &ResourceBudget::unlimited(),
                 )
             });
             match result {
@@ -4470,6 +4488,7 @@ impl StacksChainState {
                             microblock_header: None,
                             tx_index: 0,
                             vm_error: None,
+                            problematic_skipped: None,
                         };
 
                         all_receipts.push(receipt);
@@ -4492,18 +4511,28 @@ impl StacksChainState {
 
     /// Process a single anchored block.
     /// Return the fees and burns.
-    pub fn process_block_transactions(
+    ///
+    /// `block_txs` pairs each transaction with its replay disposition (execute
+    /// vs. skip-as-problematic). Build it from a Nakamoto block with
+    /// [`NakamotoBlock::txs`]; for pre-Nakamoto blocks, wrap the
+    /// transaction list with [`TxToProcess::all_execute`]. Carrying the
+    /// disposition alongside each transaction makes it impossible for this loop
+    /// to execute a problematic transaction by overlooking a separate marker
+    /// list.
+    pub fn process_block_transactions<'a>(
         clarity_tx: &mut ClarityTx,
-        block_txs: &[StacksTransaction],
+        block_txs: impl IntoIterator<Item = TxToProcess<'a>>,
         mut tx_index: u32,
     ) -> Result<(u128, u128, Vec<StacksTransactionReceipt>), Error> {
         let mut fees = 0u128;
         let mut burns = 0u128;
         let mut receipts = vec![];
         let mut total_size = 0u64;
-        for tx in block_txs.iter() {
-            let (tx_fee, mut tx_receipt) =
-                StacksChainState::process_transaction(clarity_tx, tx, false, None)?;
+        for tx_to_process in block_txs {
+            let (tx_fee, mut tx_receipt) = TransactionProcessor::from(tx_to_process)
+                .using_clarity_tx(clarity_tx)
+                .with_unlimited_resource_policy()
+                .process()?;
             fees = fees.checked_add(u128::from(tx_fee)).expect("Fee overflow");
             tx_receipt.tx_index = tx_index;
             total_size = total_size.saturating_add(tx_receipt.size().ok_or_else(|| {
@@ -4709,15 +4738,7 @@ impl StacksChainState {
         burn_tip: &BurnchainHeaderHash,
         burn_tip_height: u64,
         epoch_start_height: u64,
-    ) -> Result<
-        (
-            Vec<StackStxOp>,
-            Vec<TransferStxOp>,
-            Vec<DelegateStxOp>,
-            Vec<VoteForAggregateKeyOp>,
-        ),
-        Error,
-    > {
+    ) -> Result<StacksOnBurnchainOperations, Error> {
         // only consider transactions in Stacks 2.1
         let search_window: u8 =
             if epoch_start_height + u64::from(BURNCHAIN_TX_SEARCH_WINDOW) > burn_tip_height {
@@ -4790,12 +4811,12 @@ impl StacksChainState {
                 }
             }
         }
-        Ok((
-            all_stacking_burn_ops,
-            all_transfer_burn_ops,
-            all_delegate_burn_ops,
-            all_vote_for_aggregate_key_ops,
-        ))
+        Ok(StacksOnBurnchainOperations {
+            stack: all_stacking_burn_ops,
+            transfer: all_transfer_burn_ops,
+            delegate: all_delegate_burn_ops,
+            vote_for_aggregate_key: all_vote_for_aggregate_key_ops,
+        })
     }
 
     /// Get the list of burnchain-hosted stacking and transfer operations to apply when evaluating
@@ -4803,14 +4824,14 @@ impl StacksChainState {
     /// The rules are different for different epochs:
     ///
     /// * In Stacks 2.0/2.05, only the operations in the burnchain block will be considered.
-    /// So if a transaction was mined in burnchain block N, it will be processed in the Stacks
-    /// block mined in burnchain block N (if there is one).
+    ///   So if a transaction was mined in burnchain block N, it will be processed in the Stacks
+    ///   block mined in burnchain block N (if there is one).
     ///
     /// * In Stacks 2.1+, the operations in the last K burnchain blocks that have not yet been
-    /// considered in this Stacks block's fork will be processed in the order in which they are
-    /// mined in the burnchain.  So if a transaction was mined in an burnchain block between N and
-    /// N-K inclusive, it will be processed in each Stacks fork that contains at least one Stacks
-    /// block mined in the same burnchain interval.
+    ///   considered in this Stacks block's fork will be processed in the order in which they are
+    ///   mined in the burnchain.  So if a transaction was mined in an burnchain block between N and
+    ///   N-K inclusive, it will be processed in each Stacks fork that contains at least one Stacks
+    ///   block mined in the same burnchain interval.
     ///
     /// The rationale for the new behavior in Stacks 2.1+ is that burnchain-hosted STX operations
     /// can get picked up in Stacks blocks that only live on short-lived forks, or get mined in
@@ -4830,62 +4851,37 @@ impl StacksChainState {
         sortdb_conn: &Connection,
         burn_tip: &BurnchainHeaderHash,
         burn_tip_height: u64,
-    ) -> Result<
-        (
-            Vec<StackStxOp>,
-            Vec<TransferStxOp>,
-            Vec<DelegateStxOp>,
-            Vec<VoteForAggregateKeyOp>,
-        ),
-        Error,
-    > {
+    ) -> Result<StacksOnBurnchainOperations, Error> {
         let cur_epoch = SortitionDB::get_stacks_epoch(sortdb_conn, burn_tip_height)?
             .expect("FATAL: no epoch defined for current burnchain tip height");
 
-        match cur_epoch.epoch_id {
-            StacksEpochId::Epoch10 => {
-                panic!("FATAL: processed a block in Epoch 1.0");
-            }
-            StacksEpochId::Epoch20 | StacksEpochId::Epoch2_05 => {
-                let (stack_ops, transfer_ops) =
-                    StacksChainState::get_stacking_and_transfer_burn_ops_v205(
-                        sortdb_conn,
-                        burn_tip,
-                    )?;
-                // The DelegateStx bitcoin wire format does not exist before Epoch 2.1.
-                Ok((stack_ops, transfer_ops, vec![], vec![]))
-            }
-            StacksEpochId::Epoch21
-            | StacksEpochId::Epoch22
-            | StacksEpochId::Epoch23
-            | StacksEpochId::Epoch24 => {
-                let (stack_ops, transfer_ops, delegate_ops, _) =
-                    StacksChainState::get_stacking_and_transfer_and_delegate_burn_ops_v210(
-                        chainstate_tx,
-                        parent_index_hash,
-                        sortdb_conn,
-                        burn_tip,
-                        burn_tip_height,
-                        cur_epoch.start_height,
-                    )?;
-                Ok((stack_ops, transfer_ops, delegate_ops, vec![]))
-            }
-            StacksEpochId::Epoch25
-            | StacksEpochId::Epoch30
-            | StacksEpochId::Epoch31
-            | StacksEpochId::Epoch32
-            | StacksEpochId::Epoch33
-            | StacksEpochId::Epoch34 => {
-                StacksChainState::get_stacking_and_transfer_and_delegate_burn_ops_v210(
-                    chainstate_tx,
-                    parent_index_hash,
-                    sortdb_conn,
-                    burn_tip,
-                    burn_tip_height,
-                    cur_epoch.start_height,
-                )
-            }
+        if cur_epoch.epoch_id < StacksEpochId::Epoch21 {
+            let (stack, transfer) =
+                Self::get_stacking_and_transfer_burn_ops_v205(sortdb_conn, burn_tip)?;
+            // The DelegateStx bitcoin wire format does not exist before Epoch 2.1.
+            return Ok(StacksOnBurnchainOperations {
+                stack,
+                transfer,
+                ..StacksOnBurnchainOperations::default()
+            });
         }
+
+        let mut ops = Self::get_stacking_and_transfer_and_delegate_burn_ops_v210(
+            chainstate_tx,
+            parent_index_hash,
+            sortdb_conn,
+            burn_tip,
+            burn_tip_height,
+            cur_epoch.start_height,
+        )?;
+
+        // Epochs 2.1+ use the same operation lookup, but aggregate-key votes are only included from
+        // epoch 2.5 onward.
+        if cur_epoch.epoch_id < StacksEpochId::Epoch25 {
+            ops.vote_for_aggregate_key = vec![];
+        }
+
+        Ok(ops)
     }
 
     /// Check if current PoX reward cycle (as of `burn_tip_height`) has handled any
@@ -4975,10 +4971,17 @@ impl StacksChainState {
                     pox_reward_cycle,
                     pox_start_cycle_info,
                 ),
+                StacksEpochId::Epoch40 | StacksEpochId::Epoch41 => {
+                    Self::handle_pox_cycle_start_pox_5(
+                        clarity_tx,
+                        pox_reward_cycle,
+                        pox_start_cycle_info,
+                    )
+                }
             }
         })?;
         debug!("check_and_handle_reward_start: handled pox cycle start");
-        return Ok(events);
+        Ok(events)
     }
 
     /// Called in both follower and miner block assembly paths.
@@ -5030,14 +5033,18 @@ impl StacksChainState {
             (latest_miners, parent_miner)
         };
 
-        let (stacking_burn_ops, transfer_burn_ops, delegate_burn_ops, vote_for_agg_key_burn_ops) =
-            StacksChainState::get_stacking_and_transfer_and_delegate_burn_ops(
-                chainstate_tx,
-                &parent_index_hash,
-                conn,
-                burn_tip,
-                burn_tip_height.into(),
-            )?;
+        let StacksOnBurnchainOperations {
+            stack: stacking_burn_ops,
+            transfer: transfer_burn_ops,
+            delegate: delegate_burn_ops,
+            vote_for_aggregate_key: vote_for_agg_key_burn_ops,
+        } = StacksChainState::get_stacking_and_transfer_and_delegate_burn_ops(
+            chainstate_tx,
+            &parent_index_hash,
+            conn,
+            burn_tip,
+            burn_tip_height.into(),
+        )?;
 
         // load the execution cost of the parent block if the executor is the follower.
         // otherwise, if the executor is the miner, only load the parent cost if the parent
@@ -5114,17 +5121,20 @@ impl StacksChainState {
                 parent_microblocks,
             ) {
                 Ok((fees, burns, events)) => (fees, burns, events),
-                Err((e, mblock_header_hash)) => {
+                Err(error) => {
                     let msg = format!(
                         "Invalid Stacks microblocks {},{} (offender {}): {:?}",
-                        parent_consensus_hash, parent_header_hash, mblock_header_hash, &e
+                        parent_consensus_hash,
+                        parent_header_hash,
+                        error.microblock_hash,
+                        error.source,
                     );
                     warn!("{}", &msg);
 
                     if miner_id_opt.is_none() {
                         clarity_tx.rollback_block();
                     }
-                    return Err(Error::InvalidStacksMicroblock(msg, mblock_header_hash));
+                    return Err(Error::InvalidStacksMicroblock(msg, error.microblock_hash));
                 }
             };
 
@@ -5174,7 +5184,7 @@ impl StacksChainState {
                 &mut clarity_tx,
                 first_block_height.into(),
                 pox_constants,
-                burn_tip_height.into(),
+                burn_tip_height,
                 // this is the block height that the write occurs *during*
                 chain_tip.stacks_block_height + 1,
             )?;
@@ -5275,12 +5285,18 @@ impl StacksChainState {
     /// Returns stx lockup events.
     pub fn finish_block(
         clarity_tx: &mut ClarityTx,
-        miner_payouts: Option<&(MinerReward, Vec<MinerReward>, MinerReward, MinerRewardInfo)>,
+        miner_payouts: Option<&MaturedMinerPayouts>,
         block_height: u32,
         mblock_pubkey_hash: &Hash160,
     ) -> Result<Vec<StacksTransactionEvent>, Error> {
         // add miner payments
-        if let Some((ref miner_reward, ref user_rewards, ref parent_reward, _)) = miner_payouts {
+        if let Some(MaturedMinerPayouts {
+            miner: miner_reward,
+            users: user_rewards,
+            parent: parent_reward,
+            ..
+        }) = miner_payouts
+        {
             // grant in order by miner, then users
             let matured_ustx = StacksChainState::process_matured_miner_rewards(
                 clarity_tx,
@@ -5572,7 +5588,7 @@ impl StacksChainState {
             let (block_fees, block_burns, txs_receipts) =
                 match StacksChainState::process_block_transactions(
                     &mut clarity_tx,
-                    &block.txs,
+                    TxToProcess::all_execute(&block.txs),
                     u32::try_from(microblock_txs_receipts.len())
                         .expect("more than 2^32 tx receipts"),
                 ) {
@@ -5593,22 +5609,30 @@ impl StacksChainState {
             let block_cost = clarity_tx.cost_so_far();
 
             // obtain reward info for receipt -- consolidate miner, user, and parent rewards into a
-            // single list, but keep the miner/user/parent/info tuple for advancing the chain tip
-            let (matured_rewards, miner_payouts_opt) =
-                if let Some((miner_reward, mut user_rewards, parent_reward, reward_ptr)) =
-                    matured_miner_rewards_opt
-                {
-                    let mut ret = vec![];
-                    ret.push(miner_reward.clone());
-                    ret.append(&mut user_rewards);
-                    ret.push(parent_reward.clone());
-                    (
-                        ret,
-                        Some((miner_reward, user_rewards, parent_reward, reward_ptr)),
-                    )
-                } else {
-                    (vec![], None)
-                };
+            // single list, but keep the separate reward components for advancing the chain tip
+            let (matured_rewards, miner_payouts_opt) = if let Some(MaturedMinerPayouts {
+                miner: miner_reward,
+                users: mut user_rewards,
+                parent: parent_reward,
+                info: reward_ptr,
+            }) = matured_miner_rewards_opt
+            {
+                let mut ret = vec![];
+                ret.push(miner_reward.clone());
+                ret.append(&mut user_rewards);
+                ret.push(parent_reward.clone());
+                (
+                    ret,
+                    Some(MaturedMinerPayouts {
+                        miner: miner_reward,
+                        users: user_rewards,
+                        parent: parent_reward,
+                        info: reward_ptr,
+                    }),
+                )
+            } else {
+                (vec![], None)
+            };
 
             // total burns
             let total_burnt = block_burns
@@ -5734,7 +5758,7 @@ impl StacksChainState {
 
         let matured_rewards_info = miner_payouts_opt
             .as_ref()
-            .map(|(_, _, _, info)| info.clone());
+            .map(|rewards| rewards.info.clone());
 
         if do_not_advance {
             let regtest_genesis_header = StacksHeaderInfo::regtest_genesis();
@@ -5873,7 +5897,7 @@ impl StacksChainState {
             return false;
         }
 
-        return true;
+        true
     }
 
     /// Get the parent header info for a block we're processing, if it's known.
@@ -5994,7 +6018,7 @@ impl StacksChainState {
         &mut self,
         sort_tx: &mut SortitionHandleTx,
         dispatcher_opt: Option<&T>,
-    ) -> Result<(Option<StacksEpochReceipt>, Option<TransactionPayload>), Error> {
+    ) -> Result<StagingBlockOutcome, Error> {
         let blocks_path = self.blocks_path.clone();
         let (mut chainstate_tx, clarity_instance) = self.chainstate_tx_begin();
 
@@ -6014,7 +6038,7 @@ impl StacksChainState {
 
                     // save any orphaning we did
                     chainstate_tx.commit().map_err(Error::DBError)?;
-                    return Ok((None, None));
+                    return Ok(StagingBlockOutcome::default());
                 }
             };
 
@@ -6082,7 +6106,7 @@ impl StacksChainState {
         let parent_header_info =
             match StacksChainState::get_parent_header_info(&chainstate_tx, &next_staging_block)? {
                 Some(hinfo) => hinfo,
-                None => return Ok((None, None)),
+                None => return Ok(StagingBlockOutcome::default()),
             };
 
         let block = StacksChainState::extract_stacks_block(&next_staging_block)?;
@@ -6118,7 +6142,7 @@ impl StacksChainState {
             )?;
             chainstate_tx.commit().map_err(Error::DBError)?;
 
-            return Ok((None, None));
+            return Ok(StagingBlockOutcome::default());
         }
 
         // validation check -- the block must attach to its accepted parent
@@ -6341,7 +6365,10 @@ impl StacksChainState {
                 panic!()
             });
 
-        Ok((Some(epoch_receipt), None))
+        Ok(StagingBlockOutcome {
+            receipt: Some(epoch_receipt),
+            poison_payload: None,
+        })
     }
 
     /// Process staging blocks at the canonical chain tip,
@@ -6354,7 +6381,7 @@ impl StacksChainState {
         &mut self,
         sort_db: &mut SortitionDB,
         max_blocks: usize,
-    ) -> Result<Vec<(Option<StacksEpochReceipt>, Option<TransactionPayload>)>, Error> {
+    ) -> Result<Vec<StagingBlockOutcome>, Error> {
         let tx = sort_db.tx_begin_at_tip();
         let null_event_dispatcher: Option<&DummyEventDispatcher> = None;
         self.process_blocks(tx, max_blocks, null_event_dispatcher)
@@ -6370,7 +6397,7 @@ impl StacksChainState {
         mut sort_tx: SortitionHandleTx,
         max_blocks: usize,
         dispatcher_opt: Option<&T>,
-    ) -> Result<Vec<(Option<StacksEpochReceipt>, Option<TransactionPayload>)>, Error> {
+    ) -> Result<Vec<StagingBlockOutcome>, Error> {
         // first, clear out orphans
         let blocks_path = self.blocks_path.clone();
         let mut block_tx = self.db_tx_begin()?;
@@ -6400,13 +6427,22 @@ impl StacksChainState {
         for i in 0..max_blocks {
             // process up to max_blocks pending blocks
             match self.process_next_staging_block(&mut sort_tx, dispatcher_opt) {
-                Ok((next_tip_opt, next_microblock_poison_opt)) => match next_tip_opt {
+                Ok(StagingBlockOutcome {
+                    receipt: next_tip_opt,
+                    poison_payload: next_microblock_poison_opt,
+                }) => match next_tip_opt {
                     Some(next_tip) => {
-                        ret.push((Some(next_tip), next_microblock_poison_opt));
+                        ret.push(StagingBlockOutcome {
+                            receipt: Some(next_tip),
+                            poison_payload: next_microblock_poison_opt,
+                        });
                     }
                     None => match next_microblock_poison_opt {
                         Some(poison) => {
-                            ret.push((None, Some(poison)));
+                            ret.push(StagingBlockOutcome {
+                                receipt: None,
+                                poison_payload: Some(poison),
+                            });
                         }
                         None => {
                             debug!("No more staging blocks -- processed {} in total", i);
@@ -6416,18 +6452,18 @@ impl StacksChainState {
                 },
                 Err(Error::InvalidStacksBlock(msg)) => {
                     warn!("Encountered invalid block: {}", &msg);
-                    ret.push((None, None));
+                    ret.push(StagingBlockOutcome::default());
                     continue;
                 }
                 Err(Error::InvalidStacksMicroblock(msg, hash)) => {
                     warn!("Encountered invalid microblock {}: {}", hash, &msg);
-                    ret.push((None, None));
+                    ret.push(StagingBlockOutcome::default());
                     continue;
                 }
                 Err(Error::NetError(net_error::DeserializeError(msg))) => {
                     // happens if we load a zero-sized block (i.e. an invalid block)
                     warn!("Encountered invalid block: {}", &msg);
-                    ret.push((None, None));
+                    ret.push(StagingBlockOutcome::default());
                     continue;
                 }
                 Err(e) => {
@@ -6592,19 +6628,11 @@ impl StacksChainState {
 
         // 2: it must be validly signed.
         let epoch = clarity_connection.get_epoch();
+        let tx_processor = TransactionProcessor::from(tx);
 
-        // Enforce low-S on the transaction signatures. While consensus allows high-S
-        // signatures at the time of writing, they are a concern because the ambiguity
-        // makes transaction ids malleable. That's why we don't admit them to the mempol,
-        // and signers reject blocks with them. In a future hard fork, they will also
-        // not be allowed by consensus anymore.
-        StacksChainState::process_transaction_precheck(
-            chainstate_config,
-            tx,
-            epoch,
-            Some(TransactionAuthVerificationMode::EnforceLowS),
-        )
-        .map_err(MemPoolRejection::FailedToValidate)?;
+        tx_processor
+            .precheck(chainstate_config, epoch)
+            .map_err(MemPoolRejection::FailedToValidate)?;
 
         // 3: it must pay a tx fee
         let fee = tx.get_tx_fee();
@@ -6624,43 +6652,47 @@ impl StacksChainState {
         }
 
         // 5: the account nonces must be correct
-        let (origin, payer) =
-            match StacksChainState::check_transaction_nonces(clarity_connection, tx, true) {
-                Ok(x) => x,
-                // if errored, check if MEMPOOL_TX_CHAINING would admit this TX
-                Err((e, (origin, payer))) => {
-                    // if the nonce is less than expected, then TX_CHAINING would not allow in any case
-                    if e.actual < e.expected {
-                        return Err(e.into());
-                    }
+        let (origin, payer) = match tx_processor.check_nonces(clarity_connection, true) {
+            Ok(x) => x,
+            // if errored, check if MEMPOOL_TX_CHAINING would admit this TX
+            Err(failure) => {
+                let NonceCheckFailure {
+                    mismatch: e,
+                    origin_account: origin,
+                    payer_account: payer,
+                } = *failure;
+                // if the nonce is less than expected, then TX_CHAINING would not allow in any case
+                if e.actual < e.expected {
+                    return Err(e.into());
+                }
 
-                    let tx_origin_nonce = tx.get_origin().nonce();
+                let tx_origin_nonce = tx.get_origin().nonce();
 
-                    let origin_max_nonce = origin.nonce + 1 + MAXIMUM_MEMPOOL_TX_CHAINING;
-                    if origin_max_nonce < tx_origin_nonce {
+                let origin_max_nonce = origin.nonce + 1 + MAXIMUM_MEMPOOL_TX_CHAINING;
+                if origin_max_nonce < tx_origin_nonce {
+                    return Err(MemPoolRejection::TooMuchChaining {
+                        max_nonce: origin_max_nonce,
+                        actual_nonce: tx_origin_nonce,
+                        principal: tx.origin_address().into(),
+                        is_origin: true,
+                    });
+                }
+
+                if let Some(sponsor_addr) = tx.sponsor_address() {
+                    let tx_sponsor_nonce = tx.get_payer().nonce();
+                    let sponsor_max_nonce = payer.nonce + 1 + MAXIMUM_MEMPOOL_TX_CHAINING;
+                    if sponsor_max_nonce < tx_sponsor_nonce {
                         return Err(MemPoolRejection::TooMuchChaining {
-                            max_nonce: origin_max_nonce,
-                            actual_nonce: tx_origin_nonce,
-                            principal: tx.origin_address().into(),
-                            is_origin: true,
+                            max_nonce: sponsor_max_nonce,
+                            actual_nonce: tx_sponsor_nonce,
+                            principal: sponsor_addr.into(),
+                            is_origin: false,
                         });
                     }
-
-                    if let Some(sponsor_addr) = tx.sponsor_address() {
-                        let tx_sponsor_nonce = tx.get_payer().nonce();
-                        let sponsor_max_nonce = payer.nonce + 1 + MAXIMUM_MEMPOOL_TX_CHAINING;
-                        if sponsor_max_nonce < tx_sponsor_nonce {
-                            return Err(MemPoolRejection::TooMuchChaining {
-                                max_nonce: sponsor_max_nonce,
-                                actual_nonce: tx_sponsor_nonce,
-                                principal: sponsor_addr.into(),
-                                is_origin: false,
-                            });
-                        }
-                    }
-                    (origin, payer)
                 }
-            };
+                (origin, payer)
+            }
+        };
 
         if !StacksChainState::is_valid_address_version(
             chainstate_config.mainnet,
@@ -6672,7 +6704,7 @@ impl StacksChainState {
             return Err(MemPoolRejection::BadAddressVersionByte);
         }
 
-        let (block_height, v1_unlock_height, v2_unlock_height, v3_unlock_height) =
+        let (block_height, v1_unlock_height, v2_unlock_height, v3_unlock_height, v4_unlock_height) =
             clarity_connection.with_clarity_db_readonly::<_, Result<_, VmExecutionError>>(
                 |ref mut db| {
                     Ok((
@@ -6680,6 +6712,7 @@ impl StacksChainState {
                         db.get_v1_unlock_height(),
                         db.get_v2_unlock_height()?,
                         db.get_v3_unlock_height()?,
+                        db.get_v4_unlock_height()?,
                     ))
                 },
             )?;
@@ -6691,6 +6724,7 @@ impl StacksChainState {
             v1_unlock_height,
             v2_unlock_height,
             v3_unlock_height,
+            v4_unlock_height,
         )? {
             match &tx.payload {
                 TransactionPayload::TokenTransfer(..) => {
@@ -6704,6 +6738,7 @@ impl StacksChainState {
                             v1_unlock_height,
                             v2_unlock_height,
                             v3_unlock_height,
+                            v4_unlock_height,
                         )?,
                     ));
                 }
@@ -6730,6 +6765,7 @@ impl StacksChainState {
                     v1_unlock_height,
                     v2_unlock_height,
                     v3_unlock_height,
+                    v4_unlock_height,
                 )? {
                     return Err(MemPoolRejection::NotEnoughFunds(
                         total_spent,
@@ -6738,6 +6774,7 @@ impl StacksChainState {
                             v1_unlock_height,
                             v2_unlock_height,
                             v3_unlock_height,
+                            v4_unlock_height,
                         )?,
                     ));
                 }
@@ -6750,6 +6787,7 @@ impl StacksChainState {
                         v1_unlock_height,
                         v2_unlock_height,
                         v3_unlock_height,
+                        v4_unlock_height,
                     )?
                 {
                     return Err(MemPoolRejection::NotEnoughFunds(
@@ -6759,6 +6797,7 @@ impl StacksChainState {
                             v1_unlock_height,
                             v2_unlock_height,
                             v3_unlock_height,
+                            v4_unlock_height,
                         )?,
                     ));
                 }
@@ -6829,20 +6868,19 @@ impl StacksChainState {
                     return Err(MemPoolRejection::PoisonMicroblocksDoNotConflict);
                 }
 
-                let microblock_pkh_1 = microblock_header_1
-                    .check_recover_pubkey()
-                    .map_err(|_e| MemPoolRejection::InvalidMicroblocks)?;
-                let microblock_pkh_2 = microblock_header_2
-                    .check_recover_pubkey()
-                    .map_err(|_e| MemPoolRejection::InvalidMicroblocks)?;
-
-                if microblock_pkh_1 != microblock_pkh_2 {
-                    return Err(MemPoolRejection::PoisonMicroblocksDoNotConflict);
-                }
+                let microblock_pkh = match microblock_header_1
+                    .recover_signer_match(microblock_header_2)
+                    .map_err(|_e| MemPoolRejection::InvalidMicroblocks)?
+                {
+                    MicroblockSignerMatch::Common(signer) => signer,
+                    MicroblockSignerMatch::Different { .. } => {
+                        return Err(MemPoolRejection::PoisonMicroblocksDoNotConflict);
+                    }
+                };
 
                 if !has_microblock_pubkey {
                     return Err(MemPoolRejection::NoAnchorBlockWithPubkeyHash(
-                        microblock_pkh_1,
+                        microblock_pkh,
                     ));
                 }
             }
@@ -6869,7 +6907,7 @@ pub mod test {
     use super::*;
     use crate::burnchains::*;
     use crate::chainstate::stacks::boot::test::eval_at_tip;
-    use crate::chainstate::stacks::db::test::*;
+    use crate::chainstate::stacks::db::testing::*;
     use crate::chainstate::stacks::miner::*;
     use crate::chainstate::stacks::tests::*;
     use crate::chainstate::stacks::*;
@@ -7509,7 +7547,7 @@ pub mod test {
 
     #[test]
     fn stacks_db_block_load_store_empty() {
-        let chainstate = instantiate_chainstate(false, 0x80000000, function_name!());
+        let chainstate = TestChainstateBuilder::new_testnet(function_name!()).build();
 
         let path = StacksChainState::get_block_path(
             &chainstate.blocks_path,
@@ -7553,7 +7591,7 @@ pub mod test {
 
     #[test]
     fn stacks_db_block_load_store() {
-        let mut chainstate = instantiate_chainstate(false, 0x80000000, function_name!());
+        let mut chainstate = TestChainstateBuilder::new_testnet(function_name!()).build();
         let privk = StacksPrivateKey::from_hex(
             "eb05c83546fdd2c79f10f5ad5434a90dd28f7e3acb7c092157aa1bc3656b012c01",
         )
@@ -7714,7 +7752,7 @@ pub mod test {
 
     #[test]
     fn stacks_db_staging_block_load_store_accept() {
-        let mut chainstate = instantiate_chainstate(false, 0x80000000, function_name!());
+        let mut chainstate = TestChainstateBuilder::new_testnet(function_name!()).build();
         let privk = StacksPrivateKey::from_hex(
             "eb05c83546fdd2c79f10f5ad5434a90dd28f7e3acb7c092157aa1bc3656b012c01",
         )
@@ -7765,7 +7803,7 @@ pub mod test {
 
     #[test]
     fn stacks_db_staging_block_load_store_reject() {
-        let mut chainstate = instantiate_chainstate(false, 0x80000000, function_name!());
+        let mut chainstate = TestChainstateBuilder::new_testnet(function_name!()).build();
         let privk = StacksPrivateKey::from_hex(
             "eb05c83546fdd2c79f10f5ad5434a90dd28f7e3acb7c092157aa1bc3656b012c01",
         )
@@ -7816,7 +7854,7 @@ pub mod test {
 
     #[test]
     fn stacks_db_load_store_microblock_stream() {
-        let mut chainstate = instantiate_chainstate(false, 0x80000000, function_name!());
+        let mut chainstate = TestChainstateBuilder::new_testnet(function_name!()).build();
         let privk = StacksPrivateKey::from_hex(
             "eb05c83546fdd2c79f10f5ad5434a90dd28f7e3acb7c092157aa1bc3656b012c01",
         )
@@ -7876,7 +7914,7 @@ pub mod test {
 
     #[test]
     fn stacks_db_staging_microblock_stream_load_store_confirm_all() {
-        let mut chainstate = instantiate_chainstate(false, 0x80000000, function_name!());
+        let mut chainstate = TestChainstateBuilder::new_testnet(function_name!()).build();
         let privk = StacksPrivateKey::from_hex(
             "eb05c83546fdd2c79f10f5ad5434a90dd28f7e3acb7c092157aa1bc3656b012c01",
         )
@@ -8094,7 +8132,7 @@ pub mod test {
 
     #[test]
     fn stacks_db_staging_microblock_stream_load_store_partial_confirm() {
-        let mut chainstate = instantiate_chainstate(false, 0x80000000, function_name!());
+        let mut chainstate = TestChainstateBuilder::new_testnet(function_name!()).build();
         let privk = StacksPrivateKey::from_hex(
             "eb05c83546fdd2c79f10f5ad5434a90dd28f7e3acb7c092157aa1bc3656b012c01",
         )
@@ -8346,7 +8384,7 @@ pub mod test {
 
     #[test]
     fn stacks_db_staging_microblock_stream_load_continuous_streams() {
-        let mut chainstate = instantiate_chainstate(false, 0x80000000, function_name!());
+        let mut chainstate = TestChainstateBuilder::new_testnet(function_name!()).build();
         let privk = StacksPrivateKey::from_hex(
             "eb05c83546fdd2c79f10f5ad5434a90dd28f7e3acb7c092157aa1bc3656b012c01",
         )
@@ -8588,8 +8626,8 @@ pub mod test {
         // non-empty stream, but missing first microblock
         {
             let mut broken_microblocks = vec![];
-            for i in 1..num_mblocks {
-                broken_microblocks.push(microblocks[i].clone());
+            for microblock in microblocks[..num_mblocks].iter().skip(1) {
+                broken_microblocks.push(microblock.clone());
             }
 
             let mut new_child_block_header = child_block_header.clone();
@@ -8609,9 +8647,9 @@ pub mod test {
         {
             let mut broken_microblocks = vec![];
             let missing = num_mblocks / 2;
-            for i in 0..num_mblocks {
+            for (i, microblock) in microblocks[..num_mblocks].iter().enumerate() {
                 if i != missing {
-                    broken_microblocks.push(microblocks[i].clone());
+                    broken_microblocks.push(microblock.clone());
                 }
             }
 
@@ -8788,7 +8826,7 @@ pub mod test {
 
     #[test]
     fn stacks_db_staging_block_load_store_accept_attachable() {
-        let mut chainstate = instantiate_chainstate(false, 0x80000000, function_name!());
+        let mut chainstate = TestChainstateBuilder::new_testnet(function_name!()).build();
         let privk = StacksPrivateKey::from_hex(
             "eb05c83546fdd2c79f10f5ad5434a90dd28f7e3acb7c092157aa1bc3656b012c01",
         )
@@ -8920,7 +8958,7 @@ pub mod test {
 
     #[test]
     fn stacks_db_staging_block_load_store_accept_attachable_reversed() {
-        let mut chainstate = instantiate_chainstate(false, 0x80000000, function_name!());
+        let mut chainstate = TestChainstateBuilder::new_testnet(function_name!()).build();
         let privk = StacksPrivateKey::from_hex(
             "eb05c83546fdd2c79f10f5ad5434a90dd28f7e3acb7c092157aa1bc3656b012c01",
         )
@@ -9053,7 +9091,7 @@ pub mod test {
 
     #[test]
     fn stacks_db_staging_block_load_store_accept_attachable_fork() {
-        let mut chainstate = instantiate_chainstate(false, 0x80000000, function_name!());
+        let mut chainstate = TestChainstateBuilder::new_testnet(function_name!()).build();
         let privk = StacksPrivateKey::from_hex(
             "eb05c83546fdd2c79f10f5ad5434a90dd28f7e3acb7c092157aa1bc3656b012c01",
         )
@@ -9230,7 +9268,7 @@ pub mod test {
     #[test]
     fn stacks_db_staging_microblocks_multiple_descendants() {
         // multiple anchored blocks build off of different microblock parents
-        let mut chainstate = instantiate_chainstate(false, 0x80000000, function_name!());
+        let mut chainstate = TestChainstateBuilder::new_testnet(function_name!()).build();
         let privk = StacksPrivateKey::from_hex(
             "eb05c83546fdd2c79f10f5ad5434a90dd28f7e3acb7c092157aa1bc3656b012c01",
         )
@@ -9365,7 +9403,7 @@ pub mod test {
 
     #[test]
     fn stacks_db_staging_blocks_orphaned() {
-        let mut chainstate = instantiate_chainstate(false, 0x80000000, function_name!());
+        let mut chainstate = TestChainstateBuilder::new_testnet(function_name!()).build();
         let privk = StacksPrivateKey::from_hex(
             "eb05c83546fdd2c79f10f5ad5434a90dd28f7e3acb7c092157aa1bc3656b012c01",
         )
@@ -9376,7 +9414,7 @@ pub mod test {
         let block_3 = make_empty_coinbase_block(&privk);
         let block_4 = make_empty_coinbase_block(&privk);
 
-        let mut blocks = vec![block_1, block_2, block_3, block_4];
+        let mut blocks = [block_1, block_2, block_3, block_4];
 
         let mut microblocks = vec![];
 
@@ -9533,7 +9571,7 @@ pub mod test {
 
     #[test]
     fn stacks_db_drop_staging_microblocks() {
-        let mut chainstate = instantiate_chainstate(false, 0x80000000, function_name!());
+        let mut chainstate = TestChainstateBuilder::new_testnet(function_name!()).build();
         let privk = StacksPrivateKey::from_hex(
             "eb05c83546fdd2c79f10f5ad5434a90dd28f7e3acb7c092157aa1bc3656b012c01",
         )
@@ -9624,7 +9662,7 @@ pub mod test {
 
     #[test]
     fn stacks_db_has_blocks_and_microblocks() {
-        let mut chainstate = instantiate_chainstate(false, 0x80000000, function_name!());
+        let mut chainstate = TestChainstateBuilder::new_testnet(function_name!()).build();
         let privk = StacksPrivateKey::from_hex(
             "eb05c83546fdd2c79f10f5ad5434a90dd28f7e3acb7c092157aa1bc3656b012c01",
         )
@@ -9848,7 +9886,7 @@ pub mod test {
 
     #[test]
     fn stacks_db_get_blocks_inventory() {
-        let mut chainstate = instantiate_chainstate(false, 0x80000000, function_name!());
+        let mut chainstate = TestChainstateBuilder::new_testnet(function_name!()).build();
 
         let mut blocks: Vec<StacksBlock> = vec![];
         let mut privks = vec![];
@@ -9994,12 +10032,12 @@ pub mod test {
             assert!(!block_inv_all.has_ith_microblock_stream((i + 1) as u16));
 
             if i < blocks.len() - 1 {
-                for k in 0..3 {
+                for (k, microblock) in microblocks[i][..3].iter().enumerate() {
                     set_microblocks_processed(
                         &mut chainstate,
                         &consensus_hashes[i + 1],
                         &block_hashes[i + 1],
-                        &microblocks[i][k].block_hash(),
+                        &microblock.block_hash(),
                     );
 
                     let block_inv_all =
@@ -10518,7 +10556,7 @@ pub mod test {
     #[test]
     fn stacks_db_staging_microblocks_fork() {
         // multiple anchored blocks build off of a forked microblock stream
-        let mut chainstate = instantiate_chainstate(false, 0x80000000, function_name!());
+        let mut chainstate = TestChainstateBuilder::new_testnet(function_name!()).build();
         let privk = StacksPrivateKey::from_hex(
             "eb05c83546fdd2c79f10f5ad5434a90dd28f7e3acb7c092157aa1bc3656b012c01",
         )
@@ -10678,7 +10716,7 @@ pub mod test {
     fn stacks_db_staging_microblocks_multiple_forks() {
         // multiple anchored blocks build off of a microblock stream that gets forked multiple
         // times
-        let mut chainstate = instantiate_chainstate(false, 0x80000000, function_name!());
+        let mut chainstate = TestChainstateBuilder::new_testnet(function_name!()).build();
         let privk = StacksPrivateKey::from_hex(
             "eb05c83546fdd2c79f10f5ad5434a90dd28f7e3acb7c092157aa1bc3656b012c01",
         )
@@ -10693,11 +10731,11 @@ pub mod test {
         let mut mblocks_branches = vec![];
         let mut consensus_hashes = vec![ConsensusHash([2u8; 20])];
 
-        for i in 1..4 {
+        for (i, mblock) in mblocks[..4].iter().enumerate().skip(1) {
             let mut mblocks_branch = make_sample_microblock_stream_fork(
                 &privk,
-                &mblocks[i].block_hash(),
-                mblocks[i].header.sequence + 1,
+                &mblock.block_hash(),
+                mblock.header.sequence + 1,
             );
             mblocks_branch.truncate(3);
 
@@ -10794,8 +10832,8 @@ pub mod test {
 
         for (i, mblock_branch) in mblocks_branches.iter().enumerate() {
             let mut expected_mblocks = vec![];
-            for j in 0..((mblock_branch[0].header.sequence) as usize) {
-                expected_mblocks.push(mblocks[j].clone());
+            for mblock in mblocks[..(mblock_branch[0].header.sequence) as usize].iter() {
+                expected_mblocks.push(mblock.clone());
             }
             expected_mblocks.append(&mut mblock_branch.clone());
 
@@ -10836,7 +10874,7 @@ pub mod test {
         burn_height: u64,
         tenure_id: usize,
     ) -> TransferStxOp {
-        let transfer_op = TransferStxOp {
+        TransferStxOp {
             sender: addr.clone(),
             recipient: recipient_addr.clone(),
             transfered_ustx: ((tenure_id + 1) * 1000) as u128,
@@ -10851,8 +10889,7 @@ pub mod test {
             vtxindex: (10 + tenure_id) as u32,
             block_height: burn_height,
             burn_header_hash: BurnchainHeaderHash([0x00; 32]),
-        };
-        transfer_op
+        }
     }
 
     fn make_delegate_op(
@@ -10861,7 +10898,7 @@ pub mod test {
         burn_height: u64,
         tenure_id: usize,
     ) -> DelegateStxOp {
-        let del_op = DelegateStxOp {
+        DelegateStxOp {
             sender: addr.clone(),
             delegate_to: delegate_addr.clone(),
             reward_addr: None,
@@ -10877,9 +10914,7 @@ pub mod test {
             vtxindex: (11 + tenure_id) as u32,
             block_height: burn_height,
             burn_header_hash: BurnchainHeaderHash([0x00; 32]),
-        };
-
-        del_op
+        }
     }
 
     /// Verify that the stacking, transfer, and delegate operations on the burnchain work as expected in
@@ -10932,7 +10967,7 @@ pub mod test {
             .collect();
         init_balances.push((addr.to_account_principal(), initial_balance));
         peer_config.chain_config.initial_balances = init_balances;
-        let mut epochs = StacksEpoch::unit_test_2_1(0);
+        let mut epochs = StacksEpoch::unit_test_up_to(0, StacksEpochId::Epoch21);
         let last_epoch = epochs.last_mut().unwrap();
         last_epoch.block_limit.runtime = 10_000_000;
         peer_config.chain_config.epochs = Some(epochs);
@@ -11126,16 +11161,20 @@ pub mod test {
             {
                 let chainstate = peer.chainstate();
                 let (mut chainstate_tx, clarity_instance) = chainstate.chainstate_tx_begin();
-                let (stack_stx_ops, transfer_stx_ops, delegate_stx_ops, vote_for_aggregate_key_ops) =
-                    StacksChainState::get_stacking_and_transfer_and_delegate_burn_ops_v210(
-                        &mut chainstate_tx,
-                        &last_block_id,
-                        sortdb.conn(),
-                        &tip.burn_header_hash,
-                        tip.block_height,
-                        0,
-                    )
-                    .unwrap();
+                let StacksOnBurnchainOperations {
+                    stack: stack_stx_ops,
+                    transfer: transfer_stx_ops,
+                    delegate: delegate_stx_ops,
+                    vote_for_aggregate_key: vote_for_aggregate_key_ops,
+                } = StacksChainState::get_stacking_and_transfer_and_delegate_burn_ops_v210(
+                    &mut chainstate_tx,
+                    &last_block_id,
+                    sortdb.conn(),
+                    &tip.burn_header_hash,
+                    tip.block_height,
+                    0,
+                )
+                .unwrap();
 
                 assert_eq!(transfer_stx_ops.len(), expected_transfer_ops.len());
                 assert_eq!(delegate_stx_ops.len(), expected_del_ops.len());
@@ -11185,8 +11224,7 @@ pub mod test {
             1000000000 - (1000 + 2000 + 3000 + 4000 + 5000 + 6000 + 7000 + 8000 + 9000)
         );
 
-        for i in 0..(num_blocks - 1) {
-            let del_addr = &del_addrs[i];
+        for (i, del_addr) in del_addrs[..num_blocks - 1].iter().enumerate() {
             let result = eval_at_tip(
                 &mut peer,
                 "pox-2",
@@ -11260,7 +11298,7 @@ pub mod test {
             .collect();
         init_balances.push((addr.to_account_principal(), initial_balance));
         peer_config.chain_config.initial_balances = init_balances;
-        let mut epochs = StacksEpoch::unit_test_2_1(0);
+        let mut epochs = StacksEpoch::unit_test_up_to(0, StacksEpochId::Epoch21);
         let last_epoch = epochs.last_mut().unwrap();
         last_epoch.block_limit.runtime = 10_000_000;
         last_epoch.block_limit.read_length = 10_000_000;
@@ -11812,16 +11850,20 @@ pub mod test {
             {
                 let chainstate = peer.chainstate();
                 let (mut chainstate_tx, clarity_instance) = chainstate.chainstate_tx_begin();
-                let (stack_stx_ops, transfer_stx_ops, delegate_stx_ops, _) =
-                    StacksChainState::get_stacking_and_transfer_and_delegate_burn_ops_v210(
-                        &mut chainstate_tx,
-                        &last_block_id,
-                        sortdb.conn(),
-                        &tip.burn_header_hash,
-                        tip.block_height,
-                        0,
-                    )
-                    .unwrap();
+                let StacksOnBurnchainOperations {
+                    stack: stack_stx_ops,
+                    transfer: transfer_stx_ops,
+                    delegate: delegate_stx_ops,
+                    ..
+                } = StacksChainState::get_stacking_and_transfer_and_delegate_burn_ops_v210(
+                    &mut chainstate_tx,
+                    &last_block_id,
+                    sortdb.conn(),
+                    &tip.burn_header_hash,
+                    tip.block_height,
+                    0,
+                )
+                .unwrap();
 
                 assert_eq!(transfer_stx_ops.len(), expected_transfer_ops.len());
                 assert_eq!(delegate_stx_ops.len(), expected_delegate_ops.len());
@@ -11893,12 +11935,11 @@ pub mod test {
                     + 19000)
         );
 
-        for i in 0..(num_blocks - 1) {
+        for (i, del_addr) in del_addrs[..num_blocks - 1].iter().enumerate() {
             // skipped tenure 6's DelegateSTX
             if i == 5 {
                 continue;
             }
-            let del_addr = &del_addrs[i];
             let result = eval_at_tip(
                 &mut peer,
                 "pox-2",
@@ -11924,6 +11965,421 @@ pub mod test {
 
             assert_eq!(delegation_amt, 1000 * (i as u128 + 1));
         }
+    }
+
+    /// Keep every authorization field valid except the signing key so admission
+    /// reaches signature verification.
+    fn make_bad_stacks_transfer(
+        sender: &StacksPrivateKey,
+        nonce: u64,
+        tx_fee: u64,
+        recipient: &PrincipalData,
+        amount: u64,
+    ) -> StacksTransaction {
+        let payload = TransactionPayload::TokenTransfer(
+            recipient.clone(),
+            amount,
+            TokenTransferMemo([0; 34]),
+        );
+
+        let mut spending_condition = TransactionSpendingCondition::new_singlesig_p2pkh(
+            StacksPublicKey::from_private(sender),
+        )
+        .expect("Failed to create p2pkh spending condition from public key.");
+        spending_condition.set_nonce(nonce);
+        spending_condition.set_tx_fee(tx_fee);
+        let auth = TransactionAuth::Standard(spending_condition);
+
+        let mut unsigned_tx = StacksTransaction::new(TransactionVersion::Testnet, auth, payload);
+        unsigned_tx.chain_id = 0x80000000;
+
+        let mut tx_signer = StacksTransactionSigner::new(&unsigned_tx);
+        tx_signer.sign_origin(&StacksPrivateKey::random()).unwrap();
+        tx_signer.get_tx().unwrap()
+    }
+
+    /// All probes share one processed tip so calls, trait checks, nonces, and balances
+    /// are evaluated against the same state. The five publish fees deliberately leave
+    /// 99_500 uSTX for the insufficient-funds boundary.
+    ///
+    /// The chain runs in Epoch 2.1: the authorization, signature-mode, and argument
+    /// type checks behind these rejections are epoch-gated.
+    ///
+    /// One poison payload is sufficient because admission rejects this payload type
+    /// before inspecting its microblock headers.
+    #[test]
+    fn mempool_will_admit_tx_rejection_matrix() {
+        use clarity::vm::database::NULL_BURN_STATE_DB;
+
+        use crate::core::test_util::sign_standard_single_sig_tx_anchor_mode_version;
+        use crate::core::{StacksEpoch, StacksEpochExtension};
+
+        const FOO_CONTRACT: &str = "(define-public (foo) (ok 1))
+                                    (define-public (bar (x uint)) (ok x))";
+        const TRAIT_CONTRACT: &str = "(define-trait tr ((value () (response uint uint))))";
+        const USE_TRAIT_CONTRACT: &str = "(use-trait tr-trait .trait-contract.tr)
+                                         (define-public (baz (abc <tr-trait>)) (ok (contract-of abc)))";
+        const IMPLEMENT_TRAIT_CONTRACT: &str = "(define-public (value) (ok u1))";
+        const BAD_TRAIT_CONTRACT: &str = "(define-public (foo-bar) (ok u1))";
+
+        let chain_id = 0x80000000;
+
+        // the publisher of all contracts and origin of every probe tx
+        let contract_sk = StacksPrivateKey::from_hex(
+            "a1289f6438855da7decf9b61b852c882c398cff1446b2a0f823538aa2ebef92e01",
+        )
+        .unwrap();
+        let contract_addr = StacksAddress::from_public_keys(
+            C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
+            &AddressHashMode::SerializeP2PKH,
+            1,
+            &vec![StacksPublicKey::from_private(&contract_sk)],
+        )
+        .unwrap();
+
+        // the "other" account used as a recipient and for network-mismatch probes
+        let other_sk = StacksPrivateKey::from_hex(
+            "4ce9a8f7539ea93753a36405b16e8b57e15a552430410709c2b6d65dca5c02e201",
+        )
+        .unwrap();
+        let other_addr: PrincipalData = StacksAddress::from_public_keys(
+            C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
+            &AddressHashMode::SerializeP2PKH,
+            1,
+            &vec![StacksPublicKey::from_private(&other_sk)],
+        )
+        .unwrap()
+        .into();
+
+        let mut peer_config = TestPeerConfig::new(function_name!(), 21319, 21320);
+        peer_config.chain_config.initial_balances =
+            vec![(contract_addr.to_account_principal(), 100_000)];
+        peer_config.chain_config.epochs = Some(StacksEpoch::unit_test_2_1_with_heights(0, 0, 0));
+        let mut peer = TestPeer::new(peer_config);
+
+        let mut coinbase_nonce = 0;
+
+        // mine one empty tenure to get a Stacks chain tip past genesis
+        peer.tenure_with_txs(&[], &mut coinbase_nonce);
+
+        // publish the five contracts in a single tenure (nonces 0..=4, fee 100 each).
+        // 5 * 100 = 500 uSTX in fees, leaving the publisher with 99_500.
+        let publish_txs = vec![
+            make_user_contract_publish(&contract_sk, 0, 100, "foo_contract", FOO_CONTRACT),
+            make_user_contract_publish(&contract_sk, 1, 100, "trait-contract", TRAIT_CONTRACT),
+            make_user_contract_publish(
+                &contract_sk,
+                2,
+                100,
+                "use-trait-contract",
+                USE_TRAIT_CONTRACT,
+            ),
+            make_user_contract_publish(
+                &contract_sk,
+                3,
+                100,
+                "implement-trait-contract",
+                IMPLEMENT_TRAIT_CONTRACT,
+            ),
+            make_user_contract_publish(
+                &contract_sk,
+                4,
+                100,
+                "bad-trait-contract",
+                BAD_TRAIT_CONTRACT,
+            ),
+        ];
+        peer.tenure_with_txs(&publish_txs, &mut coinbase_nonce);
+
+        peer.with_db_state(|sortdb, chainstate, _relayer, _mempool| {
+            let (consensus_hash, block_hash) =
+                SortitionDB::get_canonical_stacks_chain_tip_hash(sortdb.conn()).unwrap();
+            let consensus_hash = &consensus_hash;
+            let block_hash = &block_hash;
+
+            let admit = |chainstate: &mut StacksChainState, tx: &StacksTransaction| {
+                let len = tx.serialize_to_vec().len() as u64;
+                chainstate.will_admit_mempool_tx(
+                    &NULL_BURN_STATE_DB,
+                    consensus_hash,
+                    block_hash,
+                    tx,
+                    len,
+                )
+            };
+
+            // a couple of valid ones first
+            let tx =
+                make_user_contract_publish(&contract_sk, 5, 1000, "bar_contract", FOO_CONTRACT);
+            admit(chainstate, &tx).unwrap();
+
+            let tx = make_user_contract_call(
+                &contract_sk,
+                5,
+                200,
+                &contract_addr,
+                "foo_contract",
+                "bar",
+                vec![Value::UInt(1)],
+            );
+            admit(chainstate, &tx).unwrap();
+
+            let tx = make_user_stacks_transfer(&contract_sk, 5, 200, &other_addr, 1000);
+            admit(chainstate, &tx).unwrap();
+
+            // bad signature (signed by the wrong key)
+            let tx = make_bad_stacks_transfer(&contract_sk, 5, 200, &other_addr, 1000);
+            let e = admit(chainstate, &tx).unwrap_err();
+            assert!(matches!(
+                e,
+                MemPoolRejection::FailedToValidate(crate::chainstate::stacks::Error::NetError(
+                    net_error::VerifyingError(_)
+                ))
+            ));
+
+            // contract-call to an address whose version byte is valid on neither network
+            let bad_addr = StacksAddress::from_public_keys(
+                18,
+                &AddressHashMode::SerializeP2PKH,
+                1,
+                &vec![StacksPublicKey::from_private(&other_sk)],
+            )
+            .unwrap();
+            let tx = make_user_contract_call(
+                &contract_sk,
+                5,
+                200,
+                &bad_addr,
+                "foo_contract",
+                "bar",
+                vec![Value::UInt(1), Value::Int(2)],
+            );
+            let e = admit(chainstate, &tx).unwrap_err();
+            assert!(matches!(e, MemPoolRejection::BadAddressVersionByte));
+
+            // mismatched network on transfer (mainnet recipient)
+            let bad_recipient: PrincipalData = StacksAddress::from_public_keys(
+                C32_ADDRESS_VERSION_MAINNET_SINGLESIG,
+                &AddressHashMode::SerializeP2PKH,
+                1,
+                &vec![StacksPublicKey::from_private(&other_sk)],
+            )
+            .unwrap()
+            .into();
+            let tx = make_user_stacks_transfer(&contract_sk, 5, 200, &bad_recipient, 1000);
+            let e = admit(chainstate, &tx).unwrap_err();
+            assert!(matches!(e, MemPoolRejection::BadAddressVersionByte));
+
+            // bad fee
+            let tx = make_user_stacks_transfer(&contract_sk, 5, 0, &other_addr, 1000);
+            let e = admit(chainstate, &tx).unwrap_err();
+            assert!(matches!(e, MemPoolRejection::FeeTooLow(0, _)));
+
+            // bad nonce (already used)
+            let tx = make_user_stacks_transfer(&contract_sk, 0, 200, &other_addr, 1000);
+            let e = admit(chainstate, &tx).unwrap_err();
+            assert!(matches!(e, MemPoolRejection::BadNonces(_)));
+
+            // a nonce far beyond the account's exceeds the mempool chaining limit:
+            // origin_max_nonce = account nonce (5) + 1 + MAXIMUM_MEMPOOL_TX_CHAINING
+            let tx = make_user_stacks_transfer(&contract_sk, 40, 200, &other_addr, 1000);
+            let e = admit(chainstate, &tx).unwrap_err();
+            match e {
+                MemPoolRejection::TooMuchChaining {
+                    max_nonce,
+                    actual_nonce,
+                    is_origin,
+                    ..
+                } => {
+                    assert_eq!(max_nonce, 5 + 1 + MAXIMUM_MEMPOOL_TX_CHAINING);
+                    assert_eq!(actual_nonce, 40);
+                    assert!(is_origin);
+                }
+                _ => panic!("unexpected error {e:?} from too-much-chaining tx"),
+            }
+
+            // not enough funds (fee 110000 + amount 1000 = 111000 > 99500)
+            let tx = make_user_stacks_transfer(&contract_sk, 5, 110000, &other_addr, 1000);
+            let e = admit(chainstate, &tx).unwrap_err();
+            assert!(matches!(e, MemPoolRejection::NotEnoughFunds(111000, 99500)));
+
+            // sender == recipient
+            let contract_princ = PrincipalData::from(contract_addr.clone());
+            let tx = make_user_stacks_transfer(&contract_sk, 5, 300, &contract_princ, 1000);
+            let e = admit(chainstate, &tx).unwrap_err();
+            assert!(if let MemPoolRejection::TransferRecipientIsSender(r) = e {
+                r == contract_princ
+            } else {
+                false
+            });
+
+            // tx version must be testnet
+            let payload = TransactionPayload::TokenTransfer(
+                PrincipalData::from(contract_addr.clone()),
+                1000,
+                TokenTransferMemo([0; 34]),
+            );
+            let tx = sign_standard_single_sig_tx_anchor_mode_version(
+                payload,
+                &contract_sk,
+                5,
+                300,
+                chain_id,
+                TransactionAnchorMode::OnChainOnly,
+                TransactionVersion::Mainnet,
+            );
+            let e = admit(chainstate, &tx).unwrap_err();
+            assert!(matches!(e, MemPoolRejection::BadTransactionVersion));
+
+            // tx chain id must match the chain's. Signed WITH the wrong chain id so the
+            // signature stays internally consistent and rejection comes from the chain-id
+            // check in process_transaction_precheck, not from signature verification.
+            // Recipient must differ from sender: the recipient-is-sender semantic check
+            // runs before the precheck.
+            let payload = TransactionPayload::TokenTransfer(
+                PrincipalData::from(other_addr.clone()),
+                1000,
+                TokenTransferMemo([0; 34]),
+            );
+            let tx = sign_standard_single_sig_tx_anchor_mode_version(
+                payload,
+                &contract_sk,
+                5,
+                300,
+                chain_id + 1,
+                TransactionAnchorMode::OnChainOnly,
+                TransactionVersion::Testnet,
+            );
+            let e = admit(chainstate, &tx).unwrap_err();
+            assert!(matches!(
+                e,
+                MemPoolRejection::FailedToValidate(
+                    crate::chainstate::stacks::Error::InvalidStacksTransaction(ref msg, false)
+                ) if msg.contains("invalid chain ID")
+            ));
+
+            // send amount must be positive
+            let tx = make_user_stacks_transfer(&contract_sk, 5, 300, &other_addr, 0);
+            let e = admit(chainstate, &tx).unwrap_err();
+            assert!(matches!(e, MemPoolRejection::TransferAmountMustBePositive));
+
+            // not enough funds (fee 99700 + amount 1000 = 100700 > 99500)
+            let tx = make_user_stacks_transfer(&contract_sk, 5, 99700, &other_addr, 1000);
+            let e = admit(chainstate, &tx).unwrap_err();
+            assert!(matches!(e, MemPoolRejection::NotEnoughFunds(100700, 99500)));
+
+            // contract-call against a contract that does not exist
+            let tx = make_user_contract_call(
+                &contract_sk,
+                5,
+                200,
+                &contract_addr,
+                "bar_contract",
+                "bar",
+                vec![Value::UInt(1)],
+            );
+            let e = admit(chainstate, &tx).unwrap_err();
+            assert!(matches!(e, MemPoolRejection::NoSuchContract));
+
+            // contract-call against a function that does not exist
+            let tx = make_user_contract_call(
+                &contract_sk,
+                5,
+                200,
+                &contract_addr,
+                "foo_contract",
+                "foobar",
+                vec![Value::UInt(1)],
+            );
+            let e = admit(chainstate, &tx).unwrap_err();
+            assert!(matches!(e, MemPoolRejection::NoSuchPublicFunction));
+
+            // contract-call with wrong argument types
+            let tx = make_user_contract_call(
+                &contract_sk,
+                5,
+                200,
+                &contract_addr,
+                "foo_contract",
+                "bar",
+                vec![Value::UInt(1), Value::Int(2)],
+            );
+            let e = admit(chainstate, &tx).unwrap_err();
+            assert!(matches!(e, MemPoolRejection::BadFunctionArgument(_)));
+
+            // re-publishing an existing contract
+            let tx =
+                make_user_contract_publish(&contract_sk, 5, 1000, "foo_contract", FOO_CONTRACT);
+            let e = admit(chainstate, &tx).unwrap_err();
+            assert!(matches!(e, MemPoolRejection::ContractAlreadyExists(_)));
+
+            // poison-microblock: rejected outright by will_admit_mempool_tx's guard,
+            // regardless of the microblock contents/keys (see method-level comment).
+            let microblock_1 = StacksMicroblockHeader {
+                version: 0,
+                sequence: 0,
+                prev_block: BlockHeaderHash([0; 32]),
+                tx_merkle_root: Sha512Trunc256Sum::from_data(&[]),
+                signature: MessageSignature([1; 65]),
+            };
+            let microblock_2 = StacksMicroblockHeader {
+                version: 0,
+                sequence: 1,
+                prev_block: BlockHeaderHash([0; 32]),
+                tx_merkle_root: Sha512Trunc256Sum::from_data(&[]),
+                signature: MessageSignature([1; 65]),
+            };
+            let tx = make_user_poison_microblock(
+                &contract_sk,
+                5,
+                1000,
+                TransactionPayload::PoisonMicroblock(microblock_1, microblock_2),
+            );
+            let e = admit(chainstate, &tx).unwrap_err();
+            assert!(matches!(e, MemPoolRejection::Other(_)));
+
+            // coinbase via mempool
+            let tx = make_user_coinbase(&contract_sk, 5, 1000);
+            let e = admit(chainstate, &tx).unwrap_err();
+            assert!(matches!(e, MemPoolRejection::NoCoinbaseViaMempool));
+
+            // trait argument that satisfies the trait -> accepted
+            let implement_trait_principal =
+                PrincipalData::Contract(QualifiedContractIdentifier::new(
+                    StandardPrincipalData::from(contract_addr.clone()),
+                    ContractName::from_literal("implement-trait-contract"),
+                ));
+            let tx = make_user_contract_call(
+                &contract_sk,
+                5,
+                250,
+                &contract_addr,
+                "use-trait-contract",
+                "baz",
+                vec![Value::Principal(implement_trait_principal)],
+            );
+            admit(chainstate, &tx).unwrap();
+
+            // trait argument that does NOT satisfy the trait -> rejected
+            let bad_trait_principal = PrincipalData::Contract(QualifiedContractIdentifier::new(
+                StandardPrincipalData::from(contract_addr.clone()),
+                ContractName::from_literal("bad-trait-contract"),
+            ));
+            let tx = make_user_contract_call(
+                &contract_sk,
+                5,
+                250,
+                &contract_addr,
+                "use-trait-contract",
+                "baz",
+                vec![Value::Principal(bad_trait_principal)],
+            );
+            let e = admit(chainstate, &tx).unwrap_err();
+            assert!(matches!(e, MemPoolRejection::BadFunctionArgument(_)));
+
+            Ok::<(), net_error>(())
+        })
+        .unwrap();
     }
 
     // TODO(test): test multiple anchored blocks confirming the same microblock stream (in the same

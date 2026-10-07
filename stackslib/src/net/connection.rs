@@ -1,5 +1,5 @@
 // Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
-// Copyright (C) 2020-2023 Stacks Open Internet Foundation
+// Copyright (C) 2020-2026 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -28,7 +28,7 @@ use stacks_common::util::get_epoch_time_secs;
 use stacks_common::util::pipe::*;
 use stacks_common::util::secp256k1::Secp256k1PublicKey;
 
-use crate::config::DEFAULT_PROPOSAL_MEMORY_BYTES;
+use crate::config::{DEFAULT_PROPOSAL_MEMORY_BYTES, DEFAULT_READ_ONLY_CALL_MAX_MEM_BYTES};
 use crate::monitoring::{update_inbound_bandwidth, update_outbound_bandwidth};
 use crate::net::download::BLOCK_DOWNLOAD_INTERVAL;
 use crate::net::inv::{INV_REWARD_CYCLES, INV_SYNC_INTERVAL};
@@ -38,7 +38,8 @@ use crate::net::neighbors::{
     WALK_SEED_PROBABILITY, WALK_STATE_TIMEOUT,
 };
 use crate::net::{
-    Error as net_error, MessageSequence, NeighborAddress, ProtocolFamily, StacksHttp, StacksP2P,
+    CompletedPayload, Error as net_error, MessageSequence, NeighborAddress, ProtocolFamily,
+    StacksHttp, StacksP2P, StreamRead,
 };
 
 /// The default maximum age in seconds of a block that can be validated by the block proposal endpoint
@@ -50,6 +51,10 @@ pub const DEFAULT_BLOCK_PROPOSAL_VALIDATION_TIMEOUT_SECS: u64 = 60;
 /// The default maximum time, in seconds, to spend executing a single
 /// transaction during block proposal validation.
 pub const DEFAULT_BLOCK_PROPOSAL_MAX_TX_EXECUTION_TIME_SECS: u64 = 30;
+
+/// The default maximum time, in seconds, to spend on the contract-analysis
+/// phase of a single transaction during block proposal validation.
+pub const DEFAULT_BLOCK_PROPOSAL_MAX_TX_ANALYSIS_TIME_SECS: u64 = 30;
 
 /// Receiver notification handle.
 /// When a message with the expected `seq` value arrives, send it to an expected receiver (possibly
@@ -338,9 +343,6 @@ pub struct ConnectionOptions {
     pub num_clients: u64,
     pub soft_num_neighbors: u64,
     pub soft_num_clients: u64,
-    pub max_neighbors_per_host: u64,
-    pub max_clients_per_host: u64,
-    pub soft_max_neighbors_per_host: u64,
     pub soft_max_neighbors_per_org: u64,
     pub soft_max_clients_per_host: u64,
     pub max_neighbors_of_neighbor: u64,
@@ -389,10 +391,15 @@ pub struct ConnectionOptions {
     pub max_attachment_retry_count: u64,
     pub read_only_call_limit: ExecutionCost,
     pub maximum_call_argument_size: u32,
+    /// maximum bytes/sec a single peer may push as Stacks 2.x Blocks before being NACKed
     pub max_block_push_bandwidth: u64,
+    /// maximum bytes/sec a single peer may push as Stacks 2.x Microblocks before being NACKed
     pub max_microblocks_push_bandwidth: u64,
+    /// maximum bytes/sec a single peer may push as Transaction messages before being NACKed
     pub max_transaction_push_bandwidth: u64,
+    /// maximum bytes/sec a single peer may push as StackerDB chunks before being NACKed
     pub max_stackerdb_push_bandwidth: u64,
+    /// maximum bytes/sec a single peer may push as Nakamoto Block messages before being NACKed
     pub max_nakamoto_block_push_bandwidth: u64,
     pub max_sockets: usize,
     pub public_ip_address: Option<(PeerAddress, u16)>,
@@ -452,10 +459,6 @@ pub struct ConnectionOptions {
     pub disable_network_bans: bool,
     /// Disable block availability advertisement
     pub disable_block_advertisement: bool,
-    /// Disable block pushing
-    pub disable_block_push: bool,
-    /// Disable microblock pushing
-    pub disable_microblock_push: bool,
     /// Disable walk pingbacks -- don't attempt to walk to a remote peer even if it contacted us
     /// first
     pub disable_pingbacks: bool,
@@ -486,6 +489,11 @@ pub struct ConnectionOptions {
     /// max execution time of readonly calls when cost tracking is disabled
     pub read_only_max_execution_time_secs: u64,
 
+    /// Maximum bytes a single read-only RPC call may allocate on the heap before
+    /// it is aborted. Tracked via per-thread allocation counters in
+    /// `TrackingAllocator`. A value of `0` disables the limit.
+    pub read_only_call_max_mem_bytes: u64,
+
     /// Maximum time to spend validating a block proposal in seconds
     pub block_proposal_validation_timeout_secs: u64,
 
@@ -496,9 +504,17 @@ pub struct ConnectionOptions {
     /// exceeded is not.
     pub block_proposal_max_tx_execution_time_secs: u64,
 
+    /// Maximum time, in seconds, to spend on the contract-analysis
+    /// phase of a single transaction during block proposal validation.
+    /// A transaction whose analysis exceeds this on its own is
+    /// classified as problematic.
+    pub block_proposal_max_tx_analysis_time_secs: u64,
+
     /// Maximum bytes a single transaction may allocate on the heap during
     /// block-proposal validation before it is rejected. Tracked via
-    /// per-thread allocation counters in `TrackingAllocator`.
+    /// per-thread allocation counters in `TrackingAllocator`. Measured
+    /// independently for the analysis phase and the execution phase of
+    /// a contract deploy.
     /// A value of `0` disables the limit.
     pub block_proposal_max_tx_mem_bytes: u64,
 }
@@ -509,7 +525,7 @@ impl std::default::Default for ConnectionOptions {
             inbox_maxlen: 1024,
             outbox_maxlen: 1024,
             connect_timeout: 10, // how long a socket can be in a connecting state
-            handshake_timeout: 30, // how long before a peer must send a handshake, after connecting
+            handshake_timeout: 5, // how long before a peer must send a handshake, after connecting
             timeout: 30,         // how long to wait for a reply to a request
             idle_timeout: 15, // how long a non-request HTTP connection can be idle before it's closed
             heartbeat: 3600,  // send a heartbeat once an hour by default
@@ -518,9 +534,6 @@ impl std::default::Default for ConnectionOptions {
             num_clients: 256, // how many inbound connections we can have, full-stop
             soft_num_neighbors: 20, // how many outbound connections we can have, before we start pruning them
             soft_num_clients: 128, // how many inbound connections we can have, before we start pruning them
-            max_neighbors_per_host: 10, // how many outbound connections we can have per IP address, full-stop
-            max_clients_per_host: 10, // how many inbound connections we can have per IP address, full-stop
-            soft_max_neighbors_per_host: 10, // how many outbound connections we can have per IP address, before we start pruning them
             soft_max_neighbors_per_org: 10, // how many outbound connections we can have per AS-owning organization, before we start pruning them
             soft_max_clients_per_host: 10, // how many inbound connections we can have per IP address, before we start pruning them,
             max_neighbors_of_neighbor: 10,
@@ -549,15 +562,15 @@ impl std::default::Default for ConnectionOptions {
             read_only_call_limit: ExecutionCost {
                 write_length: 0,
                 write_count: 0,
-                read_length: 100000,
-                read_count: 30,
+                read_length: 200000,
+                read_count: 100,
                 runtime: 1_000_000_000,
             },
             maximum_call_argument_size: 20 * BOUND_VALUE_SERIALIZATION_HEX,
             max_block_push_bandwidth: 0, // infinite upload bandwidth allowed
             max_microblocks_push_bandwidth: 0, // infinite upload bandwidth allowed
             max_transaction_push_bandwidth: 0, // infinite upload bandwidth allowed
-            max_stackerdb_push_bandwidth: 0, // infinite upload bandwidth allowed
+            max_stackerdb_push_bandwidth: MB!(4), // 4 MB/sec upload bandwidth allowed
             max_nakamoto_block_push_bandwidth: 0, // infinite upload bandwidth allowed
             max_sockets: 800,            // maximum number of client sockets we'll ever register
             public_ip_address: None,     // resolve it at runtime by default
@@ -575,7 +588,7 @@ impl std::default::Default for ConnectionOptions {
             mempool_sync_timeout: 180, // how long a mempool sync can go for (3 minutes)
             socket_recv_buffer_size: 131072, // Linux default
             socket_send_buffer_size: 16384, // Linux default
-            private_neighbors: true,
+            private_neighbors: false,
             max_nakamoto_block_relay_age: 6,
             nakamoto_push_interval_ms: 30_000, // re-send a block no more than once every 30 seconds
             nakamoto_inv_sync_burst_interval_ms: 1_000, // wait 1 second after a sortition before running inventory sync
@@ -593,8 +606,6 @@ impl std::default::Default for ConnectionOptions {
             disable_network_prune: false,
             disable_network_bans: false,
             disable_block_advertisement: false,
-            disable_block_push: false,
-            disable_microblock_push: false,
             disable_pingbacks: false,
             disable_inbound_walks: false,
             disable_natpunch: false,
@@ -609,11 +620,22 @@ impl std::default::Default for ConnectionOptions {
             test_disable_unsolicited_message_authentication: false,
 
             read_only_max_execution_time_secs: 30,
+            read_only_call_max_mem_bytes: DEFAULT_READ_ONLY_CALL_MAX_MEM_BYTES,
             block_proposal_validation_timeout_secs: DEFAULT_BLOCK_PROPOSAL_VALIDATION_TIMEOUT_SECS,
             block_proposal_max_tx_execution_time_secs:
                 DEFAULT_BLOCK_PROPOSAL_MAX_TX_EXECUTION_TIME_SECS,
+            block_proposal_max_tx_analysis_time_secs:
+                DEFAULT_BLOCK_PROPOSAL_MAX_TX_ANALYSIS_TIME_SECS,
             block_proposal_max_tx_mem_bytes: DEFAULT_PROPOSAL_MEMORY_BYTES,
         }
+    }
+}
+
+#[cfg(any(test, feature = "testing"))]
+impl ConnectionOptions {
+    pub fn with_private_neighbors(mut self) -> Self {
+        self.private_neighbors = true;
+        self
     }
 }
 
@@ -838,7 +860,10 @@ impl<P: ProtocolFamily> ConnectionInbox<P> {
         })?;
 
         trace!("Stream up to {} payload bytes", to_buffer.len());
-        let (message_opt, bytes_consumed) = protocol.stream_payload(preamble, &mut to_buffer)?;
+        let StreamRead {
+            completed: message_opt,
+            consumed: bytes_consumed,
+        } = protocol.stream_payload(preamble, &mut to_buffer)?;
 
         trace!("Streamed {} payload bytes", bytes_consumed);
         self.payload_ptr =
@@ -849,7 +874,10 @@ impl<P: ProtocolFamily> ConnectionInbox<P> {
                 ))?;
 
         let ret = match message_opt {
-            Some((message, _message_len)) => {
+            Some(CompletedPayload {
+                payload: message,
+                total_encoded_bytes: _message_len,
+            }) => {
                 test_debug!(
                     "Streamed {} bytes to form a message from preamble {:?}",
                     _message_len,
@@ -1153,16 +1181,12 @@ impl<P: ProtocolFamily> ConnectionOutbox<P> {
         assert!(!self.outbox.is_empty());
 
         // wake up any receivers when (if) we get a reply
-        let mut inflight_message = self.outbox.pop_front();
-        let receiver_notify_opt = inflight_message.take();
-
-        match receiver_notify_opt {
-            None => {}
-            Some(receiver_notify) => {
-                if receiver_notify.notify.is_some() {
-                    self.inflight.push_back(receiver_notify.notify.unwrap());
-                }
-            }
+        if let Some(notify) = self
+            .outbox
+            .pop_front()
+            .and_then(|receiver_notify| receiver_notify.notify)
+        {
+            self.inflight.push_back(notify);
         }
     }
 
@@ -1419,7 +1443,7 @@ impl<P: ProtocolFamily + Clone> NetworkConnection<P> {
             }
         }
 
-        return unsolicited;
+        unsolicited
     }
 
     /// Clear out timed-out requests.
@@ -1753,9 +1777,9 @@ mod test {
         let expected_messages = messages.clone();
 
         let mut handles = vec![]; // keep pipes in-scope
-        for i in 0..conn.options.outbox_maxlen {
+        for message in &messages[..conn.options.outbox_maxlen] {
             let handle = conn
-                .make_request_handle(messages[i].request_id(), 60, 0)
+                .make_request_handle(message.request_id(), 60, 0)
                 .unwrap();
             handles.push(handle);
         }
@@ -1911,9 +1935,11 @@ mod test {
 
     #[test]
     fn test_connection_ping_relay_producer_consumer() {
-        let mut conn_opts = ConnectionOptions::default();
-        conn_opts.inbox_maxlen = 5000;
-        conn_opts.outbox_maxlen = 5000;
+        let conn_opts = ConnectionOptions {
+            inbox_maxlen: 5000,
+            outbox_maxlen: 5000,
+            ..Default::default()
+        };
 
         let conn = ConnectionP2P::new(StacksP2P::new(), &conn_opts, None);
 
@@ -1922,9 +1948,11 @@ mod test {
 
     #[test]
     fn test_connection_ping_request_producer_consumer() {
-        let mut conn_opts = ConnectionOptions::default();
-        conn_opts.inbox_maxlen = 5000;
-        conn_opts.outbox_maxlen = 5000;
+        let conn_opts = ConnectionOptions {
+            inbox_maxlen: 5000,
+            outbox_maxlen: 5000,
+            ..Default::default()
+        };
 
         let conn = ConnectionP2P::new(StacksP2P::new(), &conn_opts, None);
 
@@ -1933,9 +1961,11 @@ mod test {
 
     #[test]
     fn connection_relay_send() {
-        let mut conn_opts = ConnectionOptions::default();
-        conn_opts.inbox_maxlen = 5;
-        conn_opts.outbox_maxlen = 5;
+        let conn_opts = ConnectionOptions {
+            inbox_maxlen: 5,
+            outbox_maxlen: 5,
+            ..Default::default()
+        };
 
         let mut conn = ConnectionP2P::new(StacksP2P::new(), &conn_opts, None);
 
@@ -1961,7 +1991,7 @@ mod test {
             pipes.push(pipe);
         }
 
-        fn flush_all(pipes: &mut Vec<ReplyHandleP2P>) {
+        fn flush_all(pipes: &mut [ReplyHandleP2P]) {
             for ref mut p in pipes.iter_mut() {
                 let _ = p.try_flush();
             }
@@ -2096,9 +2126,11 @@ mod test {
             out_degree: 0,
         };
 
-        let mut conn_opts = ConnectionOptions::default();
-        conn_opts.inbox_maxlen = 5;
-        conn_opts.outbox_maxlen = 5;
+        let conn_opts = ConnectionOptions {
+            inbox_maxlen: 5,
+            outbox_maxlen: 5,
+            ..Default::default()
+        };
 
         let mut conn = ConnectionP2P::new(StacksP2P::new(), &conn_opts, Some(neighbor.public_key));
 
@@ -2194,9 +2226,11 @@ mod test {
                 out_degree: 0,
             };
 
-            let mut conn_opts = ConnectionOptions::default();
-            conn_opts.inbox_maxlen = 5;
-            conn_opts.outbox_maxlen = 5;
+            let conn_opts = ConnectionOptions {
+                inbox_maxlen: 5,
+                outbox_maxlen: 5,
+                ..Default::default()
+            };
 
             let mut conn =
                 ConnectionP2P::new(StacksP2P::new(), &conn_opts, Some(neighbor.public_key));
@@ -2309,9 +2343,11 @@ mod test {
             out_degree: 0,
         };
 
-        let mut conn_opts = ConnectionOptions::default();
-        conn_opts.inbox_maxlen = 5;
-        conn_opts.outbox_maxlen = 5;
+        let conn_opts = ConnectionOptions {
+            inbox_maxlen: 5,
+            outbox_maxlen: 5,
+            ..Default::default()
+        };
 
         let mut conn = ConnectionP2P::new(StacksP2P::new(), &conn_opts, Some(neighbor.public_key));
 

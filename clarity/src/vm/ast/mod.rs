@@ -23,6 +23,7 @@ pub mod errors;
 pub mod stack_depth_checker;
 pub mod sugar_expander;
 pub mod types;
+use stacks_common::bounded_format;
 use stacks_common::types::StacksEpochId;
 
 use self::definition_sorter::DefinitionSorter;
@@ -121,8 +122,7 @@ fn inner_build_ast<T: CostTracker>(
     source_code: &str,
     cost_track: &mut T,
     clarity_version: ClarityVersion,
-    // the epoch_id argument can be removed as part of #3662 (removing parser v1)
-    #[allow(unused_variables)] epoch: StacksEpochId,
+    epoch: StacksEpochId,
     error_early: bool,
 ) -> ParseResult<(ContractAST, Vec<Diagnostic>, bool)> {
     let cost_err = match runtime_cost(
@@ -167,7 +167,7 @@ fn inner_build_ast<T: CostTracker>(
             0,
             Diagnostic {
                 level: Level::Error,
-                message: format!("runtime_cost error: {e:?}"),
+                message: bounded_format!("runtime_cost error: {e:?}"),
                 spans: vec![],
                 suggestion: None,
             },
@@ -202,7 +202,7 @@ fn inner_build_ast<T: CostTracker>(
         }
         _ => (),
     }
-    match DefinitionSorter::run_pass(&mut contract_ast, cost_track, clarity_version) {
+    match DefinitionSorter::run_pass(&mut contract_ast, cost_track, clarity_version, epoch) {
         Err(e) if error_early => return Err(e),
         Err(e) => {
             diagnostics.push(e.diagnostic);
@@ -269,9 +269,7 @@ mod test {
     use crate::vm::costs::{LimitedCostTracker, *};
     use crate::vm::representations::depth_traverse;
     use crate::vm::types::QualifiedContractIdentifier;
-    use crate::vm::{
-        ClarityCostFunction, ClarityName, ClarityVersion, max_call_stack_depth_for_epoch,
-    };
+    use crate::vm::{ClarityCostFunction, ClarityVersion, max_call_stack_depth_for_epoch};
 
     #[derive(PartialEq, Debug)]
     struct UnitTestTracker {
@@ -309,14 +307,6 @@ mod test {
             Ok(())
         }
         fn reset_memory(&mut self) {}
-        fn short_circuit_contract_call(
-            &mut self,
-            _contract: &QualifiedContractIdentifier,
-            _function: &ClarityName,
-            _input: &[u64],
-        ) -> Result<bool, CostErrors> {
-            Ok(false)
-        }
     }
 
     #[test]

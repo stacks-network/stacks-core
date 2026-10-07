@@ -15,19 +15,21 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
+use std::sync::LazyLock;
 use std::thread;
 use std::time::{Duration, Instant};
 
 use clarity::types::net::PeerHost;
 use clarity::vm::costs::ExecutionCost;
+use clarity::vm::types::serialization::TypePrefix;
 use clarity::vm::types::{QualifiedContractIdentifier, StacksAddressExtensions};
 use clarity::vm::ContractName;
 use libstackerdb::SlotMetadata;
 use stacks_common::address::{AddressHashMode, C32_ADDRESS_VERSION_TESTNET_SINGLESIG};
 use stacks_common::codec::StacksMessageCodec;
 use stacks_common::types::chainstate::{
-    BlockHeaderHash, BurnchainHeaderHash, ConsensusHash, StacksAddress, StacksBlockId,
-    StacksPrivateKey, StacksPublicKey,
+    BurnchainHeaderHash, ConsensusHash, StacksAddress, StacksBlockId, StacksPrivateKey,
+    StacksPublicKey,
 };
 use stacks_common::util::get_epoch_time_secs;
 use stacks_common::util::hash::{to_hex, Hash160, Sha512Trunc256Sum};
@@ -109,6 +111,13 @@ mod postmempoolquery;
 mod postmicroblock;
 mod poststackerdbchunk;
 mod posttransaction;
+mod txsimulate;
+
+/// Contract identifier of `TEST_CONTRACT`, deployed as `hello-world` by `TestRPC::setup`.
+static TEST_CONTRACT_ID: LazyLock<QualifiedContractIdentifier> = LazyLock::new(|| {
+    QualifiedContractIdentifier::parse("ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R.hello-world")
+        .unwrap()
+});
 
 const TEST_CONTRACT: &str = "
     (define-trait test-trait
@@ -139,6 +148,9 @@ const TEST_CONTRACT: &str = "
       (map-set unit-map { account: 'ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R } { units: 123 }))
 
     (define-read-only (ro-confirmed) u1)
+    (define-read-only (ro-confirmed? (value uint)) value)
+    (define-read-only (get-missing)
+      (unwrap-panic (map-get? test-map u100)))
 
     (define-public (do-test) (ok u0))
 
@@ -172,6 +184,16 @@ const TEST_CONTRACT_UNCONFIRMED: &str = "
 (map-set test-map-unconfirmed 3 4)
 (define-public (do-test) (ok u1))
 ";
+
+fn bool_list_hex(len: u32) -> String {
+    let mut data = vec![TypePrefix::List as u8];
+    data.extend_from_slice(&len.to_be_bytes());
+    data.extend(std::iter::repeat_n(
+        TypePrefix::BoolTrue as u8,
+        len as usize,
+    ));
+    to_hex(&data)
+}
 
 /// This helper function drives I/O between a sender and receiver Http conversation.
 fn convo_send_recv(sender: &mut ConversationHttp, receiver: &mut ConversationHttp) {
@@ -217,14 +239,10 @@ pub struct TestRPC<'a> {
     pub convo_2: ConversationHttp,
     /// hash of the chain tip
     pub canonical_tip: StacksBlockId,
-    /// block header hash of the chain tip
-    pub tip_hash: BlockHeaderHash,
     /// block height of the chain tip
     pub tip_height: u64,
     /// consensus hash of the chain tip
     pub consensus_hash: ConsensusHash,
-    /// hash of last microblock
-    pub microblock_tip_hash: BlockHeaderHash,
     /// list of mempool transactions
     pub mempool_txids: Vec<Txid>,
     /// list of microblock transactions
@@ -278,6 +296,30 @@ impl<'a> TestRPC<'a> {
         process_microblock: bool,
         rpc_handler_args_opt_1: Option<RPCHandlerArgsType>,
         rpc_handler_args_opt_2: Option<RPCHandlerArgsType>,
+        with_peer_1_config: F0,
+        with_peer_2_config: F1,
+    ) -> TestRPC<'a>
+    where
+        F0: Fn(&mut TestPeerConfig),
+        F1: Fn(&mut TestPeerConfig),
+    {
+        Self::setup_ex_with_unconfirmed_contract(
+            test_name,
+            process_microblock,
+            rpc_handler_args_opt_1,
+            rpc_handler_args_opt_2,
+            TEST_CONTRACT_UNCONFIRMED,
+            with_peer_1_config,
+            with_peer_2_config,
+        )
+    }
+
+    pub fn setup_ex_with_unconfirmed_contract<F0, F1>(
+        test_name: &str,
+        process_microblock: bool,
+        rpc_handler_args_opt_1: Option<RPCHandlerArgsType>,
+        rpc_handler_args_opt_2: Option<RPCHandlerArgsType>,
+        unconfirmed_contract: &str,
         with_peer_1_config: F0,
         with_peer_2_config: F1,
     ) -> TestRPC<'a>
@@ -440,7 +482,6 @@ impl<'a> TestRPC<'a> {
         };
 
         // make an unconfirmed contract
-        let unconfirmed_contract = TEST_CONTRACT_UNCONFIRMED;
         let mut tx_unconfirmed_contract = StacksTransaction::new(
             TransactionVersion::Testnet,
             TransactionAuth::from_p2pkh(&privk1).unwrap(),
@@ -568,7 +609,8 @@ impl<'a> TestRPC<'a> {
                     BlockBuilderSettings::max_value(),
                 )
                 .unwrap();
-                let microblock = microblock_builder
+
+                microblock_builder
                     .mine_next_microblock_from_txs(
                         vec![
                             (tx_cc_signed, tx_cc_len),
@@ -576,8 +618,7 @@ impl<'a> TestRPC<'a> {
                         ],
                         &microblock_privkey,
                     )
-                    .unwrap();
-                microblock
+                    .unwrap()
             };
             peer_1.chain.sortdb = Some(sortdb);
             mblock
@@ -586,7 +627,6 @@ impl<'a> TestRPC<'a> {
         let microblock_txids = microblock.txs.iter().map(|tx| tx.txid()).collect();
         let canonical_tip =
             StacksBlockHeader::make_index_block_hash(&consensus_hash, &stacks_block.block_hash());
-        let tip_hash = stacks_block.block_hash();
 
         if process_microblock {
             // store microblock stream
@@ -838,10 +878,7 @@ impl<'a> TestRPC<'a> {
         slot_metadata.sign(&privk1).unwrap();
 
         for peer_server in [&mut peer_1, &mut peer_2] {
-            let contract_id = QualifiedContractIdentifier::parse(
-                "ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R.hello-world",
-            )
-            .unwrap();
+            let contract_id = TEST_CONTRACT_ID.clone();
             let tx = peer_server
                 .network
                 .stackerdbs
@@ -886,10 +923,8 @@ impl<'a> TestRPC<'a> {
             convo_1,
             convo_2,
             canonical_tip,
-            tip_hash,
             tip_height,
             consensus_hash,
-            microblock_tip_hash: microblock.block_hash(),
             mempool_txids,
             microblock_txids,
             next_block: Some((next_consensus_hash, next_stacks_block)),
@@ -906,7 +941,7 @@ impl<'a> TestRPC<'a> {
         ]];
 
         let (mut peer, mut other_peers) =
-            make_nakamoto_peers_from_invs_ext(function_name!(), observer, bitvecs, |boot_plan| {
+            make_nakamoto_peers_from_invs_ext(test_name, observer, bitvecs, |boot_plan| {
                 boot_plan
                     .with_pox_constants(10, 3)
                     .with_extra_peers(1)
@@ -982,9 +1017,7 @@ impl<'a> TestRPC<'a> {
             convo_2,
             canonical_tip: nakamoto_tip.index_block_hash(),
             consensus_hash: nakamoto_tip.consensus_hash.clone(),
-            tip_hash: nakamoto_tip.anchored_header.block_hash(),
             tip_height: nakamoto_tip.stacks_block_height,
-            microblock_tip_hash: BlockHeaderHash([0x00; 32]),
             mempool_txids: vec![],
             microblock_txids: vec![],
             next_block: None,
@@ -1086,9 +1119,7 @@ impl<'a> TestRPC<'a> {
             convo_2,
             canonical_tip: nakamoto_tip.index_block_hash(),
             consensus_hash: nakamoto_tip.consensus_hash.clone(),
-            tip_hash: nakamoto_tip.anchored_header.block_hash(),
             tip_height: nakamoto_tip.stacks_block_height,
-            microblock_tip_hash: BlockHeaderHash([0x00; 32]),
             mempool_txids: vec![],
             microblock_txids: vec![],
             next_block: None,
@@ -1100,6 +1131,13 @@ impl<'a> TestRPC<'a> {
 
     pub fn run(self, requests: Vec<StacksHttpRequest>) -> Vec<StacksHttpResponse> {
         self.run_with_observer(requests, None, |_, _| true)
+    }
+
+    /// Convenience wrapper around [`Self::run`] for the single-request case: send one
+    /// request and return its single response.
+    pub fn run_one(self, request: StacksHttpRequest) -> StacksHttpResponse {
+        let mut responses = self.run(vec![request]);
+        responses.remove(0)
     }
 
     /// Run zero or more HTTP requests on this setup RPC test harness.
@@ -1298,7 +1336,7 @@ impl<'a> TestRPC<'a> {
             responses.push(resp);
         }
 
-        return responses;
+        responses
     }
 }
 

@@ -16,6 +16,8 @@ required:
   - contract_versions
   - epochs
   - current_epoch
+  - pox_5_sbtc_contract
+  - pox_5_sbtc_registry_contract
 properties:
   contract_id:
     type: string
@@ -35,13 +37,13 @@ properties:
   pox_activation_threshold_ustx:
     type: integer
     description:
-      The threshold of stacking participation that must be reached for
-      PoX to activate in any cycle
+      The threshold of stacking participation that must be reached for PoX to
+      activate in any cycle
   rejection_fraction:
     type: [integer, "null"]
     description:
-      The fraction of liquid STX that must vote to reject PoX in order
-      to prevent the next reward cycle from activating.
+      The fraction of liquid STX that must vote to reject PoX in order to
+      prevent the next reward cycle from activating.
   reward_phase_block_length:
     type: integer
     minimum: 0
@@ -62,8 +64,8 @@ properties:
     type: integer
     minimum: 0
     description:
-      The length in burn blocks of a whole PoX cycle (reward phase and
-      prepare phase)
+      The length in burn blocks of a whole PoX cycle (reward phase and prepare
+      phase)
   current_cycle:
     type: object
     additionalProperties: false
@@ -80,11 +82,13 @@ properties:
       min_threshold_ustx:
         type: integer
         minimum: 0
-        description: The threshold amount for obtaining a slot in this reward cycle.
+        description:
+          The threshold amount for obtaining a slot in this reward cycle.
       stacked_ustx:
         type: integer
         minimum: 0
-        description: The total amount of stacked microstacks in this reward cycle.
+        description:
+          The total amount of stacked microstacks in this reward cycle.
       is_pox_active:
         type: boolean
         description: Whether or not PoX is active during this reward cycle.
@@ -108,15 +112,18 @@ properties:
       min_threshold_ustx:
         type: integer
         minimum: 0
-        description: The threshold amount for obtaining a slot in this reward cycle.
+        description:
+          The threshold amount for obtaining a slot in this reward cycle.
       stacked_ustx:
         type: integer
         minimum: 0
-        description: The total amount of stacked microstacks in this reward cycle.
+        description:
+          The total amount of stacked microstacks in this reward cycle.
       min_increment_ustx:
         type: integer
         minimum: 0
-        description: The minimum amount that can be used to submit a `stack-stx` call.
+        description:
+          The minimum amount that can be used to submit a `stack-stx` call.
       prepare_phase_start_block_height:
         type: integer
         minimum: 0
@@ -127,14 +134,14 @@ properties:
         type: integer
         description:
           The number of burn blocks until the prepare phase for this cycle
-          starts. If the prepare phase for this cycle already started, this value
-          will be a negative number.
+          starts. If the prepare phase for this cycle already started, this
+          value will be a negative number.
       reward_phase_start_block_height:
         type: integer
         minimum: 0
         description:
-          The burn block height when the reward phase for this cycle begins.
-          Any eligible stacks must be stacked before this block.
+          The burn block height when the reward phase for this cycle begins. Any
+          eligible stacks must be stacked before this block.
       blocks_until_reward_phase:
         type: integer
         minimum: 0
@@ -143,8 +150,8 @@ properties:
         type: [integer, "null"]
         minimum: 0
         description:
-          The remaining amount of liquid STX that must vote to reject the
-          next reward cycle to prevent the next reward cycle from activating.
+          The remaining amount of liquid STX that must vote to reject the next
+          reward cycle to prevent the next reward cycle from activating.
   reward_cycle_id:
     type: integer
     minimum: 0
@@ -183,11 +190,26 @@ properties:
         activation_burnchain_block_height:
           type: integer
           minimum: 0
-          description: The burn block height at which this version of PoX is activated
+          description:
+            The burn block height at which this version of PoX is activated
         first_reward_cycle_id:
           type: integer
           minimum: 0
-          description: The first reward cycle number that uses this version of PoX
+          description:
+            The first reward cycle number that uses this version of PoX
+  pox_5_sbtc_contract:
+    type: string
+    description:
+      The sBTC token contract used for PoX payments in epoch 4+. On mainnet this
+      is the canonical sBTC token; on non-mainnet it reflects this node's
+      configuration.
+  pox_5_sbtc_registry_contract:
+    type: string
+    description:
+      The sBTC registry contract from which the node derives the per-cycle sBTC
+      waterfall recipient (epoch 4+) via a call to
+      `get-current-aggregate-pubkey`. On mainnet this is the canonical sBTC
+      registry; on non-mainnet it reflects this node's configuration.
   epochs:
     type: array
     description: Epochs

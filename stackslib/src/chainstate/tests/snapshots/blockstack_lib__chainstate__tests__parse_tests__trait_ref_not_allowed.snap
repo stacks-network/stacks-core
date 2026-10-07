@@ -1,131 +1,10 @@
 ---
 source: stackslib/src/chainstate/tests/parse_tests.rs
-expression: result
-snapshot_kind: text
+expression: result.get_expected_results()
 ---
 [
   Success(ExpectedBlockOutput(
-    marf_hash: "e836b27dc98963cd51e7c722911d58bb206c3dfca4f7af0cc60f43643204f385",
-    evaluated_epoch: Epoch33,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "SmartContract(name: my-contract-Epoch3_3-Clarity1, code_body: [..], clarity_version: Some(Clarity1))",
-        vm_error: "Some(trait references can not be stored) [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: false,
-          data: Optional(OptionalData(
-            data: None,
-          )),
-        )),
-        cost: ExecutionCost(
-          write_length: 0,
-          write_count: 0,
-          read_length: 0,
-          read_count: 0,
-          runtime: 4857,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 0,
-      write_count: 0,
-      read_length: 0,
-      read_count: 0,
-      runtime: 4857,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "f69bffc1726cc18881ead58582c5de2dcf411aed986165a1bac1f2ab87764a6a",
-    evaluated_epoch: Epoch33,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "SmartContract(name: my-contract-Epoch3_3-Clarity2, code_body: [..], clarity_version: Some(Clarity2))",
-        vm_error: "Some(trait references can not be stored) [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: false,
-          data: Optional(OptionalData(
-            data: None,
-          )),
-        )),
-        cost: ExecutionCost(
-          write_length: 0,
-          write_count: 0,
-          read_length: 0,
-          read_count: 0,
-          runtime: 4857,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 0,
-      write_count: 0,
-      read_length: 0,
-      read_count: 0,
-      runtime: 4857,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "891afcfbd7fe8456005a74b30f67bea00c242f102156a36309525b27e0fe3266",
-    evaluated_epoch: Epoch33,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "SmartContract(name: my-contract-Epoch3_3-Clarity3, code_body: [..], clarity_version: Some(Clarity3))",
-        vm_error: "Some(trait references can not be stored) [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: false,
-          data: Optional(OptionalData(
-            data: None,
-          )),
-        )),
-        cost: ExecutionCost(
-          write_length: 0,
-          write_count: 0,
-          read_length: 0,
-          read_count: 0,
-          runtime: 4857,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 0,
-      write_count: 0,
-      read_length: 0,
-      read_count: 0,
-      runtime: 4857,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "de96dec3b18cce824a609ddf73908d2b1257fe44165bf156f8cc69f4343daaf2",
-    evaluated_epoch: Epoch33,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "SmartContract(name: my-contract-Epoch3_3-Clarity4, code_body: [..], clarity_version: Some(Clarity4))",
-        vm_error: "Some(trait references can not be stored) [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: false,
-          data: Optional(OptionalData(
-            data: None,
-          )),
-        )),
-        cost: ExecutionCost(
-          write_length: 0,
-          write_count: 0,
-          read_length: 0,
-          read_count: 0,
-          runtime: 4857,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 0,
-      write_count: 0,
-      read_length: 0,
-      read_count: 0,
-      runtime: 4857,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "c1c838275cb2fd6c286d85bfe6caaed964f34b3a7830528ea84fab3bd161b6e4",
+    marf_hash: "cd71f318e089f033338110fa6972c05ba29e9118ebe3cf47cff94e8541926251",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -142,7 +21,7 @@ snapshot_kind: text
           write_count: 0,
           read_length: 0,
           read_count: 0,
-          runtime: 4857,
+          runtime: 4830,
         ),
       ),
     ],
@@ -151,11 +30,11 @@ snapshot_kind: text
       write_count: 0,
       read_length: 0,
       read_count: 0,
-      runtime: 4857,
+      runtime: 4830,
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "8de60fdb4952772c14e34ac893261e2087d9f6d4c4e316a85cdefe7d98439edb",
+    marf_hash: "4bc82dc0f54709d82f91a786414d18b52a6a3708537d80a59699130eddb8a5f2",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -172,7 +51,7 @@ snapshot_kind: text
           write_count: 0,
           read_length: 0,
           read_count: 0,
-          runtime: 4857,
+          runtime: 4830,
         ),
       ),
     ],
@@ -181,11 +60,11 @@ snapshot_kind: text
       write_count: 0,
       read_length: 0,
       read_count: 0,
-      runtime: 4857,
+      runtime: 4830,
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "85f50754851bd8e0817c627582f1dccffd25d65c4a1579c15edead9fb3859009",
+    marf_hash: "eb4763670ff630001e6a98756ae6e5ed57c7c7960e658ebb114570885ef2f9a4",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -202,7 +81,7 @@ snapshot_kind: text
           write_count: 0,
           read_length: 0,
           read_count: 0,
-          runtime: 4857,
+          runtime: 4830,
         ),
       ),
     ],
@@ -211,11 +90,11 @@ snapshot_kind: text
       write_count: 0,
       read_length: 0,
       read_count: 0,
-      runtime: 4857,
+      runtime: 4830,
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "9d4007362122db4154d7e79cb2f25fd32e047ed706a04a88395723ac8c9648f9",
+    marf_hash: "bb8a4809da93db55a32f3f4a0e56474f2e73873ec0496fa3dd2d8123f5c789f7",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -232,7 +111,7 @@ snapshot_kind: text
           write_count: 0,
           read_length: 0,
           read_count: 0,
-          runtime: 4857,
+          runtime: 4830,
         ),
       ),
     ],
@@ -241,11 +120,11 @@ snapshot_kind: text
       write_count: 0,
       read_length: 0,
       read_count: 0,
-      runtime: 4857,
+      runtime: 4830,
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "d6190b9780071723398e2eafe9d7ed760aaabee67c515607dbccf9bfa4b32ba3",
+    marf_hash: "864c9f8a095f026c58ee93948003b5f5206299394362ea5cc6a1c6de952cefb5",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -262,7 +141,7 @@ snapshot_kind: text
           write_count: 0,
           read_length: 0,
           read_count: 0,
-          runtime: 4857,
+          runtime: 4830,
         ),
       ),
     ],
@@ -271,7 +150,187 @@ snapshot_kind: text
       write_count: 0,
       read_length: 0,
       read_count: 0,
-      runtime: 4857,
+      runtime: 4830,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "bfbb33dc2f78f0e0faacefbc20734e42c28bd2aebf23d5604790464dd050ee7b",
+    evaluated_epoch: Epoch40,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: my-contract-Epoch4_0-Clarity1, code_body: [..], clarity_version: Some(Clarity1))",
+        vm_error: "Some(trait references can not be stored) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 0,
+          write_count: 0,
+          read_length: 0,
+          read_count: 0,
+          runtime: 4830,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 0,
+      write_count: 0,
+      read_length: 0,
+      read_count: 0,
+      runtime: 4830,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "8e44f728811f723768b1fb652dcebec46ab2c00d3fcf53765f4a5f715cc00853",
+    evaluated_epoch: Epoch40,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: my-contract-Epoch4_0-Clarity2, code_body: [..], clarity_version: Some(Clarity2))",
+        vm_error: "Some(trait references can not be stored) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 0,
+          write_count: 0,
+          read_length: 0,
+          read_count: 0,
+          runtime: 4830,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 0,
+      write_count: 0,
+      read_length: 0,
+      read_count: 0,
+      runtime: 4830,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "67e25c9c1bc690e34ff11e05a8c8924f5ab3e8859f8ec2ae7f6fb0df52e2c426",
+    evaluated_epoch: Epoch40,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: my-contract-Epoch4_0-Clarity3, code_body: [..], clarity_version: Some(Clarity3))",
+        vm_error: "Some(trait references can not be stored) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 0,
+          write_count: 0,
+          read_length: 0,
+          read_count: 0,
+          runtime: 4830,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 0,
+      write_count: 0,
+      read_length: 0,
+      read_count: 0,
+      runtime: 4830,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "5ee4067e6fa2ec22dc24c789a978018ad450b3e2479674a609840a16c8ce5d83",
+    evaluated_epoch: Epoch40,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: my-contract-Epoch4_0-Clarity4, code_body: [..], clarity_version: Some(Clarity4))",
+        vm_error: "Some(trait references can not be stored) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 0,
+          write_count: 0,
+          read_length: 0,
+          read_count: 0,
+          runtime: 4830,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 0,
+      write_count: 0,
+      read_length: 0,
+      read_count: 0,
+      runtime: 4830,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "7211479a8c33124e6c2fbf54e600ac2304062ba1e6a1837256092ec43edb90e5",
+    evaluated_epoch: Epoch40,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: my-contract-Epoch4_0-Clarity5, code_body: [..], clarity_version: Some(Clarity5))",
+        vm_error: "Some(trait references can not be stored) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 0,
+          write_count: 0,
+          read_length: 0,
+          read_count: 0,
+          runtime: 4830,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 0,
+      write_count: 0,
+      read_length: 0,
+      read_count: 0,
+      runtime: 4830,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "fc4b24cb844c810b15856a4ba817528394192862d0f7195d5602cd04d89858fd",
+    evaluated_epoch: Epoch40,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: my-contract-Epoch4_0-Clarity6, code_body: [..], clarity_version: Some(Clarity6))",
+        vm_error: "Some(trait references can not be stored) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 0,
+          write_count: 0,
+          read_length: 0,
+          read_count: 0,
+          runtime: 4830,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 0,
+      write_count: 0,
+      read_length: 0,
+      read_count: 0,
+      runtime: 4830,
     ),
   )),
 ]

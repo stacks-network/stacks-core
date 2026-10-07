@@ -65,7 +65,7 @@ pub const BANDWIDTH_POINT_LIFETIME: u64 = 600;
 pub const MAX_PEER_HEARTBEAT_INTERVAL: usize = 3600 * 6; // 6 hours
 
 /// Statistics on relayer hints in Stacks messages.  Used to deduce network choke points.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct RelayStats {
     pub num_messages: u64, // how many messages a relayer has pushed to this neighbor
     pub num_bytes: u64,    // how many bytes a relayer has pushed to this neighbor
@@ -231,8 +231,7 @@ impl NeighborStats {
     }
 
     pub fn take_relayers(&mut self) -> HashMap<NeighborAddress, RelayStats> {
-        let ret = mem::replace(&mut self.relayed_messages, HashMap::new());
-        ret
+        mem::take(&mut self.relayed_messages)
     }
 
     /// Get a peer's perceived health -- the last $NUM_HEALTH_POINTS successful messages divided by
@@ -272,7 +271,8 @@ impl NeighborStats {
             }
         }
 
-        if elapsed_time_start == elapsed_time_end {
+        // "greater than" is possible if the system clock was adjusted between recordings
+        if elapsed_time_start >= elapsed_time_end {
             total_bytes as f64
         } else {
             (total_bytes as f64) / ((elapsed_time_end - elapsed_time_start) as f64)
@@ -308,6 +308,7 @@ impl NeighborStats {
     }
 
     /// Determine how many of a particular message this peer has received
+    #[cfg(test)]
     pub fn get_message_recv_count(&self, msg_id: StacksMessageID) -> u64 {
         *(self.msg_rx_counts.get(&msg_id).unwrap_or(&0))
     }
@@ -446,10 +447,7 @@ impl Neighbor {
         let asn_opt =
             PeerDB::asn_lookup(conn, &handshake_data.addrbytes).map_err(net_error::DBError)?;
 
-        let asn = match asn_opt {
-            Some(a) => a,
-            None => 0,
-        };
+        let asn = asn_opt.unwrap_or_default();
 
         self.public_key = pubk;
         self.expire_block = handshake_data.expire_block_height;
@@ -466,9 +464,10 @@ impl Neighbor {
     /// Instantiate a Neighbor from HandshakeData, merging the information we have on-disk in the
     /// PeerDB with information in the handshake.
     /// * If we already know about this neighbor, then all previously-calculated state and local
-    /// configuration state will be loaded as well.  This includes things like the calculated
-    /// in/out-degree and last-contact time, as well as the allow/deny time limits.
+    ///   configuration state will be loaded as well.  This includes things like the calculated
+    ///   in/out-degree and last-contact time, as well as the allow/deny time limits.
     /// * If we do not know about this neighbor, then the above state will not be loaded.
+    ///
     /// Returns (the neighbor, whether or not the neighbor was known)
     pub fn load_and_update(
         conn: &DBConn,
@@ -795,7 +794,7 @@ impl ConversationP2P {
             return true;
         }
 
-        return false;
+        false
     }
 
     /// Validate an inbound message's preamble against our knowledge of the burn chain.
@@ -1194,13 +1193,13 @@ impl ConversationP2P {
             port: self.peer_port,
             nonce,
         };
-        let msg = StacksMessage::from_chain_view(
+
+        StacksMessage::from_chain_view(
             self.version,
             self.network_id,
             chain_view,
             StacksMessageType::NatPunchReply(natpunch_data),
-        );
-        msg
+        )
     }
 
     /// Handle an inbound handshake request, and generate either a HandshakeAccept or a HandshakeReject
@@ -2044,12 +2043,13 @@ impl ConversationP2P {
                 return false;
             }
         }
-        return true;
+        true
     }
 
     /// Check that a message was properly relayed.
     /// * there are no relay cycles
     /// * we didn't send this
+    ///
     /// Update relayer statistics for this conversation
     fn process_relayers(
         &mut self,
@@ -2078,7 +2078,7 @@ impl ConversationP2P {
                 .add_relayer(&relayer.peer, (preamble.payload_len - 1) as u64);
         }
 
-        return true;
+        true
     }
 
     /// Validate pushed blocks.
@@ -2482,11 +2482,6 @@ impl ConversationP2P {
         Ok(())
     }
 
-    /// How many pending outgoing messages are there
-    pub fn num_pending_outbound(&self) -> usize {
-        self.reply_handles.len()
-    }
-
     /// Validate an inbound p2p message
     /// Return Ok(true) if valid, Ok(false) if invalid, and Err if we should disconnect.
     fn validate_inbound_message(
@@ -2519,7 +2514,7 @@ impl ConversationP2P {
                 }
             }
         }
-        return Ok(true);
+        Ok(true)
     }
 
     /// Handle an inbound authenticated p2p control-plane message
@@ -3026,14 +3021,23 @@ impl ConversationP2P {
         }
     }
 
-    /// Get a ref to the conversation stats
-    pub fn get_stats(&self) -> &NeighborStats {
-        &self.stats
-    }
-
     /// Get a mut ref to the conversation stats
     pub fn get_stats_mut(&mut self) -> &mut NeighborStats {
         &mut self.stats
+    }
+}
+
+/// Test-only helpers for [`ConversationP2P`].
+#[cfg(test)]
+impl ConversationP2P {
+    /// How many pending outgoing messages are there
+    pub fn num_pending_outbound(&self) -> usize {
+        self.reply_handles.len()
+    }
+
+    /// Get a ref to the conversation stats
+    pub fn get_stats(&self) -> &NeighborStats {
+        &self.stats
     }
 }
 
@@ -3044,7 +3048,6 @@ mod test {
 
     use stacks_common::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash, SortitionId};
     use stacks_common::util::pipe::*;
-    use stacks_common::util::secp256k1::*;
     use stacks_common::util::uint::*;
     use stacks_common::util::*;
 
@@ -3112,7 +3115,7 @@ mod test {
             burnchain.first_block_height,
             &burnchain.first_block_hash,
             get_epoch_time_secs(),
-            &StacksEpoch::unit_test_pre_2_05(burnchain.first_block_height),
+            &StacksEpoch::unit_test_up_to(burnchain.first_block_height, StacksEpochId::Epoch20),
             burnchain.pox_constants.clone(),
             None,
             true,
@@ -3159,8 +3162,8 @@ mod test {
 
         loop {
             let mut res = true;
-            for i in 0..sender_handles.len() {
-                let r = sender_handles[i].try_flush().unwrap();
+            for sender_handle in &mut sender_handles {
+                let r = sender_handle.try_flush().unwrap();
                 res = r && res;
             }
 
@@ -3283,7 +3286,8 @@ mod test {
         let burnchain_db = burnchain.open_burnchain_db(false).unwrap();
 
         let local_peer = PeerDB::get_local_peer(peerdb.conn()).unwrap();
-        let network = PeerNetwork::new(
+
+        PeerNetwork::new(
             peerdb,
             atlasdb,
             stackerdbs,
@@ -3294,9 +3298,8 @@ mod test {
             chain_view.clone(),
             ConnectionOptions::default(),
             HashMap::new(),
-            StacksEpoch::unit_test_pre_2_05(0),
-        );
-        network
+            StacksEpoch::unit_test_up_to(0, StacksEpochId::Epoch20),
+        )
     }
 
     fn testing_burnchain_config(test_name: &str) -> Burnchain {
@@ -3457,7 +3460,7 @@ mod test {
                 &conn_opts,
                 true,
                 0,
-                StacksEpoch::unit_test_pre_2_05(0),
+                StacksEpoch::unit_test_up_to(0, StacksEpochId::Epoch20),
             );
             let mut convo_2 = ConversationP2P::new(
                 123,
@@ -3467,7 +3470,7 @@ mod test {
                 &conn_opts,
                 true,
                 0,
-                StacksEpoch::unit_test_pre_2_05(0),
+                StacksEpoch::unit_test_up_to(0, StacksEpochId::Epoch20),
             );
 
             // no peer public keys known yet
@@ -3738,7 +3741,7 @@ mod test {
                 &conn_opts,
                 true,
                 0,
-                StacksEpoch::unit_test_pre_2_05(0),
+                StacksEpoch::unit_test_up_to(0, StacksEpochId::Epoch20),
             );
             let mut convo_2 = ConversationP2P::new(
                 123,
@@ -3748,7 +3751,7 @@ mod test {
                 &conn_opts,
                 true,
                 0,
-                StacksEpoch::unit_test_pre_2_05(0),
+                StacksEpoch::unit_test_up_to(0, StacksEpochId::Epoch20),
             );
 
             // no peer public keys known yet
@@ -3921,7 +3924,7 @@ mod test {
             &conn_opts,
             true,
             0,
-            StacksEpoch::unit_test_pre_2_05(0),
+            StacksEpoch::unit_test_up_to(0, StacksEpochId::Epoch20),
         );
         let mut convo_2 = ConversationP2P::new(
             123,
@@ -3931,7 +3934,7 @@ mod test {
             &conn_opts,
             true,
             0,
-            StacksEpoch::unit_test_pre_2_05(0),
+            StacksEpoch::unit_test_up_to(0, StacksEpochId::Epoch20),
         );
 
         // no peer public keys known yet
@@ -4064,7 +4067,7 @@ mod test {
             &conn_opts,
             true,
             0,
-            StacksEpoch::unit_test_pre_2_05(0),
+            StacksEpoch::unit_test_up_to(0, StacksEpochId::Epoch20),
         );
         let mut convo_2 = ConversationP2P::new(
             123,
@@ -4074,7 +4077,7 @@ mod test {
             &conn_opts,
             true,
             0,
-            StacksEpoch::unit_test_pre_2_05(0),
+            StacksEpoch::unit_test_up_to(0, StacksEpochId::Epoch20),
         );
 
         // no peer public keys known yet
@@ -4207,7 +4210,7 @@ mod test {
             &conn_opts,
             true,
             0,
-            StacksEpoch::unit_test_pre_2_05(0),
+            StacksEpoch::unit_test_up_to(0, StacksEpochId::Epoch20),
         );
         let mut convo_2 = ConversationP2P::new(
             123,
@@ -4217,7 +4220,7 @@ mod test {
             &conn_opts,
             true,
             0,
-            StacksEpoch::unit_test_pre_2_05(0),
+            StacksEpoch::unit_test_up_to(0, StacksEpochId::Epoch20),
         );
 
         // no peer public keys known yet
@@ -4362,7 +4365,7 @@ mod test {
             &conn_opts,
             true,
             0,
-            StacksEpoch::unit_test_pre_2_05(0),
+            StacksEpoch::unit_test_up_to(0, StacksEpochId::Epoch20),
         );
         let mut convo_2 = ConversationP2P::new(
             123,
@@ -4372,7 +4375,7 @@ mod test {
             &conn_opts,
             true,
             0,
-            StacksEpoch::unit_test_pre_2_05(0),
+            StacksEpoch::unit_test_up_to(0, StacksEpochId::Epoch20),
         );
 
         // no peer public keys known yet
@@ -4559,7 +4562,7 @@ mod test {
             &conn_opts,
             true,
             0,
-            StacksEpoch::unit_test_pre_2_05(0),
+            StacksEpoch::unit_test_up_to(0, StacksEpochId::Epoch20),
         );
         let mut convo_2 = ConversationP2P::new(
             123,
@@ -4569,7 +4572,7 @@ mod test {
             &conn_opts,
             true,
             0,
-            StacksEpoch::unit_test_pre_2_05(0),
+            StacksEpoch::unit_test_up_to(0, StacksEpochId::Epoch20),
         );
 
         // no peer public keys known yet
@@ -4701,7 +4704,7 @@ mod test {
             &conn_opts,
             true,
             0,
-            StacksEpoch::unit_test_pre_2_05(0),
+            StacksEpoch::unit_test_up_to(0, StacksEpochId::Epoch20),
         );
         let mut convo_2 = ConversationP2P::new(
             123,
@@ -4711,7 +4714,7 @@ mod test {
             &conn_opts,
             true,
             0,
-            StacksEpoch::unit_test_pre_2_05(0),
+            StacksEpoch::unit_test_up_to(0, StacksEpochId::Epoch20),
         );
 
         // convo_1 sends a handshake to convo_2
@@ -4871,7 +4874,7 @@ mod test {
             &conn_opts,
             true,
             0,
-            StacksEpoch::unit_test_pre_2_05(0),
+            StacksEpoch::unit_test_up_to(0, StacksEpochId::Epoch20),
         );
         let mut convo_2 = ConversationP2P::new(
             123,
@@ -4881,7 +4884,7 @@ mod test {
             &conn_opts,
             true,
             1,
-            StacksEpoch::unit_test_pre_2_05(0),
+            StacksEpoch::unit_test_up_to(0, StacksEpochId::Epoch20),
         );
 
         for i in 0..5 {
@@ -5092,7 +5095,7 @@ mod test {
             &conn_opts,
             true,
             0,
-            StacksEpoch::unit_test_pre_2_05(0),
+            StacksEpoch::unit_test_up_to(0, StacksEpochId::Epoch20),
         );
         let mut convo_2 = ConversationP2P::new(
             123,
@@ -5102,7 +5105,7 @@ mod test {
             &conn_opts,
             true,
             0,
-            StacksEpoch::unit_test_pre_2_05(0),
+            StacksEpoch::unit_test_up_to(0, StacksEpochId::Epoch20),
         );
 
         // no peer public keys known yet
@@ -5239,7 +5242,7 @@ mod test {
             &conn_opts,
             true,
             0,
-            StacksEpoch::unit_test_pre_2_05(0),
+            StacksEpoch::unit_test_up_to(0, StacksEpochId::Epoch20),
         );
         let mut convo_2 = ConversationP2P::new(
             123,
@@ -5249,7 +5252,7 @@ mod test {
             &conn_opts,
             true,
             0,
-            StacksEpoch::unit_test_pre_2_05(0),
+            StacksEpoch::unit_test_up_to(0, StacksEpochId::Epoch20),
         );
 
         // no peer public keys known yet
@@ -5410,7 +5413,7 @@ mod test {
                 &conn_opts,
                 true,
                 0,
-                StacksEpoch::unit_test_pre_2_05(0),
+                StacksEpoch::unit_test_up_to(0, StacksEpochId::Epoch20),
             );
             let mut convo_2 = ConversationP2P::new(
                 123,
@@ -5420,7 +5423,7 @@ mod test {
                 &conn_opts,
                 true,
                 0,
-                StacksEpoch::unit_test_pre_2_05(0),
+                StacksEpoch::unit_test_up_to(0, StacksEpochId::Epoch20),
             );
 
             // no peer public keys known yet
@@ -5685,7 +5688,7 @@ mod test {
                 &conn_opts,
                 true,
                 0,
-                StacksEpoch::unit_test_pre_2_05(0),
+                StacksEpoch::unit_test_up_to(0, StacksEpochId::Epoch20),
             );
             let mut convo_2 = ConversationP2P::new(
                 123,
@@ -5695,7 +5698,7 @@ mod test {
                 &conn_opts,
                 true,
                 0,
-                StacksEpoch::unit_test_pre_2_05(0),
+                StacksEpoch::unit_test_up_to(0, StacksEpochId::Epoch20),
             );
 
             // no peer public keys known yet
@@ -5958,7 +5961,7 @@ mod test {
             &conn_opts,
             true,
             0,
-            StacksEpoch::unit_test_pre_2_05(0),
+            StacksEpoch::unit_test_up_to(0, StacksEpochId::Epoch20),
         );
         let mut convo_2 = ConversationP2P::new(
             123,
@@ -5968,7 +5971,7 @@ mod test {
             &conn_opts,
             true,
             0,
-            StacksEpoch::unit_test_pre_2_05(0),
+            StacksEpoch::unit_test_up_to(0, StacksEpochId::Epoch20),
         );
 
         // convo_1 sends natpunch request to convo_2
@@ -6071,7 +6074,7 @@ mod test {
                 &conn_opts,
                 true,
                 0,
-                StacksEpoch::unit_test_pre_2_05(0),
+                StacksEpoch::unit_test_up_to(0, StacksEpochId::Epoch20),
             );
 
             let ping_data = PingData::new();
@@ -6101,7 +6104,7 @@ mod test {
                 &conn_opts,
                 true,
                 0,
-                StacksEpoch::unit_test_pre_2_05(0),
+                StacksEpoch::unit_test_up_to(0, StacksEpochId::Epoch20),
             );
 
             let ping_data = PingData::new();
@@ -6133,7 +6136,7 @@ mod test {
                 &conn_opts,
                 true,
                 0,
-                StacksEpoch::unit_test_pre_2_05(0),
+                StacksEpoch::unit_test_up_to(0, StacksEpochId::Epoch20),
             );
 
             let ping_data = PingData::new();
@@ -6171,7 +6174,7 @@ mod test {
                 &conn_opts,
                 true,
                 0,
-                StacksEpoch::unit_test_pre_2_05(0),
+                StacksEpoch::unit_test_up_to(0, StacksEpochId::Epoch20),
             );
 
             let ping_data = PingData::new();
@@ -6201,7 +6204,10 @@ mod test {
         // stale peer version max-epoch
         {
             // convo thinks its epoch 2.05
-            let epochs = StacksEpoch::unit_test_2_05(chain_view.burn_block_height - 4);
+            let epochs = StacksEpoch::unit_test_up_to(
+                chain_view.burn_block_height - 4,
+                StacksEpochId::Epoch2_05,
+            );
             let cur_epoch = epochs
                 .epoch_at_height(chain_view.burn_block_height)
                 .unwrap();
@@ -6296,7 +6302,10 @@ mod test {
 
         // 3.3/3.2 compatibility: allow peers that still report 3.2 in epoch 3.3.
         {
-            let epochs = StacksEpoch::unit_test_3_3(chain_view.burn_block_height - 40);
+            let epochs = StacksEpoch::unit_test_up_to(
+                chain_view.burn_block_height - 40,
+                StacksEpochId::Epoch33,
+            );
             let cur_epoch = epochs
                 .epoch_at_height(chain_view.burn_block_height)
                 .unwrap();
@@ -6389,7 +6398,7 @@ mod test {
             &conn_opts,
             true,
             0,
-            StacksEpoch::unit_test_pre_2_05(0),
+            StacksEpoch::unit_test_up_to(0, StacksEpochId::Epoch20),
         );
 
         let payload = StacksMessageType::Nack(NackData { error_code: 123 });
@@ -6789,7 +6798,7 @@ mod test {
             &conn_opts,
             true,
             0,
-            StacksEpoch::unit_test_pre_2_05(0),
+            StacksEpoch::unit_test_up_to(0, StacksEpochId::Epoch20),
         );
 
         let payload = StacksMessageType::Nack(NackData { error_code: 123 });
@@ -6903,7 +6912,7 @@ mod test {
             &conn_opts,
             true,
             0,
-            StacksEpoch::unit_test_pre_2_05(0),
+            StacksEpoch::unit_test_up_to(0, StacksEpochId::Epoch20),
         );
 
         let payload = StacksMessageType::Nack(NackData { error_code: 123 });
@@ -6916,8 +6925,10 @@ mod test {
 
     #[test]
     fn test_validate_block_push() {
-        let mut conn_opts = ConnectionOptions::default();
-        conn_opts.max_block_push_bandwidth = 100;
+        let conn_opts = ConnectionOptions {
+            max_block_push_bandwidth: 100,
+            ..Default::default()
+        };
 
         let socketaddr_1 = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(1, 2, 3, 4)), 8081);
 
@@ -6970,7 +6981,7 @@ mod test {
             &conn_opts,
             true,
             0,
-            StacksEpoch::unit_test_pre_2_05(0),
+            StacksEpoch::unit_test_up_to(0, StacksEpochId::Epoch20),
         );
 
         // NOTE: payload can be anything since we only look at premable length here
@@ -7043,8 +7054,10 @@ mod test {
 
     #[test]
     fn test_validate_transaction_push() {
-        let mut conn_opts = ConnectionOptions::default();
-        conn_opts.max_transaction_push_bandwidth = 100;
+        let conn_opts = ConnectionOptions {
+            max_transaction_push_bandwidth: 100,
+            ..Default::default()
+        };
 
         let socketaddr_1 = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(1, 2, 3, 4)), 8081);
 
@@ -7097,7 +7110,7 @@ mod test {
             &conn_opts,
             true,
             0,
-            StacksEpoch::unit_test_pre_2_05(0),
+            StacksEpoch::unit_test_up_to(0, StacksEpochId::Epoch20),
         );
 
         // NOTE: payload can be anything since we only look at premable length here
@@ -7170,8 +7183,10 @@ mod test {
 
     #[test]
     fn test_validate_microblocks_push() {
-        let mut conn_opts = ConnectionOptions::default();
-        conn_opts.max_microblocks_push_bandwidth = 100;
+        let conn_opts = ConnectionOptions {
+            max_microblocks_push_bandwidth: 100,
+            ..Default::default()
+        };
 
         let socketaddr_1 = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(1, 2, 3, 4)), 8081);
 
@@ -7224,7 +7239,7 @@ mod test {
             &conn_opts,
             true,
             0,
-            StacksEpoch::unit_test_pre_2_05(0),
+            StacksEpoch::unit_test_up_to(0, StacksEpochId::Epoch20),
         );
 
         // NOTE: payload can be anything since we only look at premable length here
@@ -7297,8 +7312,10 @@ mod test {
 
     #[test]
     fn test_validate_stackerdb_push() {
-        let mut conn_opts = ConnectionOptions::default();
-        conn_opts.max_stackerdb_push_bandwidth = 100;
+        let conn_opts = ConnectionOptions {
+            max_stackerdb_push_bandwidth: 100,
+            ..Default::default()
+        };
 
         let socketaddr_1 = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(1, 2, 3, 4)), 8081);
 
@@ -7351,7 +7368,7 @@ mod test {
             &conn_opts,
             true,
             0,
-            StacksEpoch::unit_test_pre_2_05(0),
+            StacksEpoch::unit_test_up_to(0, StacksEpochId::Epoch20),
         );
 
         // NOTE: payload can be anything since we only look at premable length here
@@ -7420,5 +7437,38 @@ mod test {
             .unwrap()
             .is_some());
         assert_eq!(convo_1.stats.msgs_err, err_before);
+    }
+
+    #[test]
+    fn test_get_bandwidth() {
+        let recently = get_epoch_time_secs() - 1;
+        let longer_ago = recently - 6;
+
+        let mut counts = VecDeque::<(u64, u64)>::new();
+        counts.push_back((recently, 54));
+        counts.push_back((longer_ago, 18));
+        assert_eq!(
+            NeighborStats::get_bandwidth(&counts, 1000),
+            72f64,
+            "non-monotonous timestamps should be treated like 1 second apart"
+        );
+
+        let mut counts = VecDeque::<(u64, u64)>::new();
+        counts.push_back((recently, 54));
+        counts.push_back((recently, 18));
+        assert_eq!(
+            NeighborStats::get_bandwidth(&counts, 1000),
+            72f64,
+            "identical timestamps should be treated like 1 second apart"
+        );
+
+        let mut counts = VecDeque::<(u64, u64)>::new();
+        counts.push_back((longer_ago, 54));
+        counts.push_back((recently, 18));
+        assert_eq!(
+            NeighborStats::get_bandwidth(&counts, 1000),
+            12f64, // 72 divided by 6
+            "properly ordered timestamps should be handled correctly"
+        );
     }
 }

@@ -11,25 +11,57 @@ process clearer. Each fragment should be one or more complete sentences. Each
 line in the fragment file will become a separate bullet point in the final
 CHANGELOG.md.
 
+CI only *enforces* the presence of a fragment on PRs that target `main`. PRs
+into other branches (e.g. long-lived feature branches) are not blocked, but
+should still add a fragment when the change deserves a changelog entry, so the
+entry is present once the branch is merged into `main`.
+
 ## How to add a changelog entry
 
 1. Create a file in this directory named: `<short-description>.<category>`
 
-   **Categories:** `added`, `changed`, `fixed`, `removed`
+   **Categories:** `breaking`, `added`, `changed`, `fixed`, `removed`
 
    **Examples:**
    - `marf-compress.added`
    - `tenure-mining-fix.fixed`
    - `remove-deprecated-rpc.removed`
+   - `rename-miner-config-field.breaking`
 
 2. Write the changelog entry text in the file (one or more lines of markdown):
 
-   ```
+   ```text
    Added `marf_compress` as a node configuration parameter to enable MARF compression feature ([#6811](https://github.com/stacks-network/stacks-core/pull/6811))
    ```
 
 3. That's it. The fragment will be assembled into `CHANGELOG.md` at release time
    using `contrib/tools/assemble-changelog.sh`.
+
+## Breaking changes
+
+Use the `breaking` category for changes that require node or signer operators to
+take action during an upgrade to keep their deployment functioning correctly,
+for example:
+
+- renamed, removed, or newly-required configuration options
+- removed or incompatibly-changed RPC endpoints, event payloads, or CLI flags
+- changes to on-disk formats that require a resync, migration, or one-way
+  upgrade
+- changed defaults that alter node or signer behavior in a way operators must
+  notice
+
+Public Rust API changes alone do not warrant `breaking` entries in the context
+of this changelog.
+
+`breaking` entries are assembled into a dedicated **⚠️ Breaking Changes**
+section placed _first_ in the release's changelog section, ahead of Added /
+Changed / Fixed / Removed, and that section is carried into the GitHub release
+notes. Write the entry so it says both **what breaks** and **what the reader
+must do about it**.
+
+If a PR has both a breaking aspect and ordinary changes worth listing, add two
+fragments (e.g. `foo.breaking` and `foo.changed`) rather than duplicating the
+whole entry.
 
 ## Notes
 

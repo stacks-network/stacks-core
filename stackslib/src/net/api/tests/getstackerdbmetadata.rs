@@ -20,7 +20,7 @@ use clarity::vm::types::QualifiedContractIdentifier;
 use stacks_common::util::hash::Sha512Trunc256Sum;
 use stacks_common::util::secp256k1::MessageSignature;
 
-use super::test_rpc;
+use super::{test_rpc, TEST_CONTRACT_ID};
 use crate::net::api::*;
 use crate::net::connection::ConnectionOptions;
 use crate::net::httpcore::{RPCRequestHandler, StacksHttp, StacksHttpRequest};
@@ -69,9 +69,7 @@ fn test_try_make_response() {
 
     let mut requests = vec![];
 
-    let contract_identifier =
-        QualifiedContractIdentifier::parse("ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R.hello-world")
-            .unwrap();
+    let contract_identifier = TEST_CONTRACT_ID.clone();
     let none_contract_identifier = QualifiedContractIdentifier::parse(
         "ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R.does-not-ext",
     )

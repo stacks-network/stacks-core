@@ -1,41 +1,10 @@
 ---
 source: stackslib/src/chainstate/tests/runtime_analysis_tests.rs
-expression: result
-snapshot_kind: text
+expression: result.get_expected_results()
 ---
 [
   Success(ExpectedBlockOutput(
-    marf_hash: "64a0ebec2287977d98f9d5c5dc0d12db71e7226a837f21a84f8f888db1c3934f",
-    evaluated_epoch: Epoch33,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "SmartContract(name: contract-2-Epoch3_3-Clarity4, code_body: [..], clarity_version: Some(Clarity4))",
-        vm_error: "Some(UnionTypeValueError([IntType, UIntType, BoolType, PrincipalType, SequenceType(BufferType(BufferLength(524284))), SequenceType(StringType(UTF8(StringUTF8Length(262144))))], \"CallableContract(CallableData { contract_identifier: QualifiedContractIdentifier { issuer: StandardPrincipalData(ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP), name: ContractName(\\\"contract-1\\\") }, trait_identifier: Some(TraitIdentifier { name: ClarityName(\\\"trait-1\\\"), contract_identifier: QualifiedContractIdentifier { issuer: StandardPrincipalData(ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP), name: ContractName(\\\"contract-2-Epoch3_3-Clarity4\\\") } }) })\")) [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: false,
-          data: Optional(OptionalData(
-            data: None,
-          )),
-        )),
-        cost: ExecutionCost(
-          write_length: 287,
-          write_count: 2,
-          read_length: 3,
-          read_count: 2,
-          runtime: 25164,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 287,
-      write_count: 2,
-      read_length: 3,
-      read_count: 2,
-      runtime: 25164,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "c2ce54dd4fd2f553c00e817fd13b44d8ab8e39b60acce198da015f788ac984d9",
+    marf_hash: "60d2afa3747cd7b9bf5cbe4fbcad15166b0ae59ebbb5c478e5a62267c361fc55",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -65,7 +34,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "9d875f1184fe4da9a93762d05963a043441b162aed63f91f3e43722fbd48684e",
+    marf_hash: "8d20478eb6272733c78983ab5588a97340737ebb12fc2b0246af9efa0d121f3c",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -92,6 +61,96 @@ snapshot_kind: text
       read_length: 3,
       read_count: 2,
       runtime: 24611,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "e7ef9e50f481fc56c4f7f8beaa168055cabaedccf31f4536109814ef313ea054",
+    evaluated_epoch: Epoch40,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: contract-2-Epoch4_0-Clarity4, code_body: [..], clarity_version: Some(Clarity4))",
+        vm_error: "Some(UnionTypeValueError([IntType, UIntType, BoolType, PrincipalType, SequenceType(BufferType(BufferLength(524284))), SequenceType(StringType(UTF8(StringUTF8Length(262144))))], \"CallableContract(CallableData { contract_identifier: QualifiedContractIdentifier { issuer: StandardPrincipalData(ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP), name: ContractName(\\\"contract-1\\\") }, trait_identifier: Some(TraitIdentifier { name: ClarityName(\\\"trait-1\\\"), contract_identifier: QualifiedContractIdentifier { issuer: StandardPrincipalData(ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP), name: ContractName(\\\"contract-2-Epoch4_0-Clarity4\\\") } }) })\")) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 287,
+          write_count: 2,
+          read_length: 3,
+          read_count: 2,
+          runtime: 20806,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 287,
+      write_count: 2,
+      read_length: 3,
+      read_count: 2,
+      runtime: 20806,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "3dd876bc63bea88656c64c99a395da33d26ac4a4db1f4ac04349011884b706db",
+    evaluated_epoch: Epoch40,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: contract-2-Epoch4_0-Clarity5, code_body: [..], clarity_version: Some(Clarity5))",
+        vm_error: "Some(UnionTypeValueError([IntType, UIntType, BoolType, PrincipalType, SequenceType(BufferType(BufferLength(524284))), SequenceType(StringType(UTF8(StringUTF8Length(262144))))], \"CallableContract(CallableData { contract_identifier: QualifiedContractIdentifier { issuer: StandardPrincipalData(ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP), name: ContractName(\\\"contract-1\\\") }, trait_identifier: Some(TraitIdentifier { name: ClarityName(\\\"trait-1\\\"), contract_identifier: QualifiedContractIdentifier { issuer: StandardPrincipalData(ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP), name: ContractName(\\\"contract-2-Epoch4_0-Clarity5\\\") } }) })\")) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 287,
+          write_count: 2,
+          read_length: 3,
+          read_count: 2,
+          runtime: 20806,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 287,
+      write_count: 2,
+      read_length: 3,
+      read_count: 2,
+      runtime: 20806,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "f8a682fbd7537bcd04d55ee9fc3490c38c713c3f58fbcc6764e7d203a4a299f3",
+    evaluated_epoch: Epoch40,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: contract-2-Epoch4_0-Clarity6, code_body: [..], clarity_version: Some(Clarity6))",
+        vm_error: "Some(UnionTypeValueError([IntType, UIntType, BoolType, PrincipalType, SequenceType(BufferType(BufferLength(524284))), SequenceType(StringType(UTF8(StringUTF8Length(262144))))], \"CallableContract(CallableData { contract_identifier: QualifiedContractIdentifier { issuer: StandardPrincipalData(ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP), name: ContractName(\\\"contract-1\\\") }, trait_identifier: Some(TraitIdentifier { name: ClarityName(\\\"trait-1\\\"), contract_identifier: QualifiedContractIdentifier { issuer: StandardPrincipalData(ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP), name: ContractName(\\\"contract-2-Epoch4_0-Clarity6\\\") } }) })\")) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 287,
+          write_count: 2,
+          read_length: 3,
+          read_count: 2,
+          runtime: 20806,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 287,
+      write_count: 2,
+      read_length: 3,
+      read_count: 2,
+      runtime: 20806,
     ),
   )),
 ]

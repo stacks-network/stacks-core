@@ -112,17 +112,6 @@ pub struct DataVariableMetadata {
 
 clarity_serializable!(DataVariableMetadata);
 
-#[derive(Serialize, Deserialize)]
-pub struct SimmedBlock {
-    pub block_height: u64,
-    pub block_time: u64,
-    pub block_header_hash: [u8; 32],
-    pub burn_chain_header_hash: [u8; 32],
-    pub vrf_seed: [u8; 32],
-}
-
-clarity_serializable!(SimmedBlock);
-
 clarity_serializable!(PrincipalData);
 clarity_serializable!(i128);
 clarity_serializable!(u128);
@@ -180,6 +169,11 @@ pub enum STXBalance {
         unlock_height: u64,
     },
     LockedPoxFour {
+        amount_unlocked: u128,
+        amount_locked: u128,
+        unlock_height: u64,
+    },
+    LockedPoxFive {
         amount_unlocked: u128,
         amount_locked: u128,
         unlock_height: u64,
@@ -280,6 +274,24 @@ impl ClaritySerializable for STXBalance {
                     .write_all(&unlock_height.to_be_bytes())
                     .expect("STXBalance serialization: failed writing unlock_height.");
             }
+            STXBalance::LockedPoxFive {
+                amount_unlocked,
+                amount_locked,
+                unlock_height,
+            } => {
+                buffer
+                    .write_all(&[STXBalance::pox_5_version])
+                    .expect("STXBalance serialization: failed to write PoX version byte");
+                buffer
+                    .write_all(&amount_unlocked.to_be_bytes())
+                    .expect("STXBalance serialization: failed writing amount_unlocked.");
+                buffer
+                    .write_all(&amount_locked.to_be_bytes())
+                    .expect("STXBalance serialization: failed writing amount_locked.");
+                buffer
+                    .write_all(&unlock_height.to_be_bytes())
+                    .expect("STXBalance serialization: failed writing unlock_height.");
+            }
         }
         to_hex(buffer.as_slice())
     }
@@ -323,6 +335,7 @@ impl ClarityDeserializable<STXBalance> for STXBalance {
             if version != &STXBalance::pox_2_version
                 && version != &STXBalance::pox_3_version
                 && version != &STXBalance::pox_4_version
+                && version != &STXBalance::pox_5_version
             {
                 return Err(VmInternalError::Expect(format!(
                     "Bad version byte in STX Balance serialization = {version}"
@@ -367,9 +380,16 @@ impl ClarityDeserializable<STXBalance> for STXBalance {
                     amount_locked,
                     unlock_height,
                 }
+            } else if version == &STXBalance::pox_5_version {
+                STXBalance::LockedPoxFive {
+                    amount_unlocked,
+                    amount_locked,
+                    unlock_height,
+                }
             } else {
                 return Err(VmInternalError::Expect(
-                    "Version is checked for pox_3 or pox_2 version compliance above".into(),
+                    "Version is checked for pox-2, pox-3, pox-4, or pox-5 version compliance above"
+                        .into(),
                 )
                 .into());
             }
@@ -440,11 +460,13 @@ impl<'db, 'conn> STXBalanceSnapshot<'db, 'conn> {
         let v1_unlock_height = self.db_ref.get_v1_unlock_height();
         let v2_unlock_height = self.db_ref.get_v2_unlock_height()?;
         let v3_unlock_height = self.db_ref.get_v3_unlock_height()?;
+        let v4_unlock_height = self.db_ref.get_v4_unlock_height()?;
         self.balance.get_available_balance_at_burn_block(
             self.burn_block_height,
             v1_unlock_height,
             v2_unlock_height,
             v3_unlock_height,
+            v4_unlock_height,
         )
     }
 
@@ -452,6 +474,7 @@ impl<'db, 'conn> STXBalanceSnapshot<'db, 'conn> {
         let v1_unlock_height = self.db_ref.get_v1_unlock_height();
         let v2_unlock_height = self.db_ref.get_v2_unlock_height()?;
         let v3_unlock_height = self.db_ref.get_v3_unlock_height()?;
+        let v4_unlock_height = self.db_ref.get_v4_unlock_height()?;
         Ok(self
             .balance
             .canonical_repr_at_block(
@@ -459,6 +482,7 @@ impl<'db, 'conn> STXBalanceSnapshot<'db, 'conn> {
                 v1_unlock_height,
                 v2_unlock_height,
                 v3_unlock_height,
+                v4_unlock_height,
             )?
             .0)
     }
@@ -467,11 +491,13 @@ impl<'db, 'conn> STXBalanceSnapshot<'db, 'conn> {
         let v1_unlock_height = self.db_ref.get_v1_unlock_height();
         let v2_unlock_height = self.db_ref.get_v2_unlock_height()?;
         let v3_unlock_height = self.db_ref.get_v3_unlock_height()?;
+        let v4_unlock_height = self.db_ref.get_v4_unlock_height()?;
         Ok(self.balance.has_locked_tokens_at_burn_block(
             self.burn_block_height,
             v1_unlock_height,
             v2_unlock_height,
             v3_unlock_height,
+            v4_unlock_height,
         ))
     }
 
@@ -479,11 +505,13 @@ impl<'db, 'conn> STXBalanceSnapshot<'db, 'conn> {
         let v1_unlock_height = self.db_ref.get_v1_unlock_height();
         let v2_unlock_height = self.db_ref.get_v2_unlock_height()?;
         let v3_unlock_height = self.db_ref.get_v3_unlock_height()?;
+        let v4_unlock_height = self.db_ref.get_v4_unlock_height()?;
         Ok(self.balance.has_unlockable_tokens_at_burn_block(
             self.burn_block_height,
             v1_unlock_height,
             v2_unlock_height,
             v3_unlock_height,
+            v4_unlock_height,
         ))
     }
 
@@ -527,7 +555,9 @@ impl<'db, 'conn> STXBalanceSnapshot<'db, 'conn> {
         }
 
         // caller needs to have checked this
-        assert!(amount_to_lock > 0, "BUG: cannot lock 0 tokens");
+        if amount_to_lock == 0 {
+            return Err(VmInternalError::Expect("BUG: cannot lock 0 tokens".into()).into());
+        }
 
         if unlock_burn_height <= self.burn_block_height {
             // caller needs to have checked this
@@ -573,7 +603,7 @@ impl<'db, 'conn> STXBalanceSnapshot<'db, 'conn> {
     }
 
     /// Increase the account's current lock to `new_total_locked`.
-    /// Panics if `self` was not locked by V2 PoX.
+    /// Errors if `self` was not locked by V2 PoX.
     pub fn increase_lock_v2(&mut self, new_total_locked: u128) -> Result<(), VmExecutionError> {
         let unlocked = self.unlock_available_tokens_if_any()?;
         if unlocked > 0 {
@@ -719,7 +749,9 @@ impl<'db, 'conn> STXBalanceSnapshot<'db, 'conn> {
         }
 
         // caller needs to have checked this
-        assert!(amount_to_lock > 0, "BUG: cannot lock 0 tokens");
+        if amount_to_lock == 0 {
+            return Err(VmInternalError::Expect("BUG: cannot lock 0 tokens".into()).into());
+        }
 
         if unlock_burn_height <= self.burn_block_height {
             // caller needs to have checked this
@@ -792,7 +824,7 @@ impl<'db, 'conn> STXBalanceSnapshot<'db, 'conn> {
     }
 
     /// Increase the account's current lock to `new_total_locked`.
-    /// Panics if `self` was not locked by V3 PoX.
+    /// Errors if `self` was not locked by V3 PoX.
     pub fn increase_lock_v3(&mut self, new_total_locked: u128) -> Result<(), VmExecutionError> {
         let unlocked = self.unlock_available_tokens_if_any()?;
         if unlocked > 0 {
@@ -814,10 +846,12 @@ impl<'db, 'conn> STXBalanceSnapshot<'db, 'conn> {
             );
         }
 
-        assert!(
-            self.balance.amount_locked() <= new_total_locked,
-            "FATAL: account must lock more after `increase_lock_v3`"
-        );
+        if self.balance.amount_locked() > new_total_locked {
+            return Err(VmInternalError::Expect(
+                "FATAL: account must lock more after `increase_lock_v3`".into(),
+            )
+            .into());
+        }
 
         let total_amount = self
             .balance
@@ -861,16 +895,22 @@ impl<'db, 'conn> STXBalanceSnapshot<'db, 'conn> {
         }
 
         // caller needs to have checked this
-        assert!(amount_to_lock > 0, "BUG: cannot lock 0 tokens");
+        if amount_to_lock == 0 {
+            return Err(VmInternalError::Expect("BUG: cannot lock 0 tokens".into()).into());
+        }
 
         if unlock_burn_height <= self.burn_block_height {
             // caller needs to have checked this
-            panic!("FATAL: cannot set a lock with expired unlock burn height");
+            return Err(
+                VmInternalError::Expect("FATAL: account must be locked by pox-3".into()).into(),
+            );
         }
 
         if self.has_locked_tokens()? {
             // caller needs to have checked this
-            panic!("FATAL: account already has locked tokens");
+            return Err(
+                VmInternalError::Expect("FATAL: account already has locked tokens".into()).into(),
+            );
         }
 
         // from `unlock_available_tokens_if_any` call above, `self.balance` should
@@ -901,12 +941,18 @@ impl<'db, 'conn> STXBalanceSnapshot<'db, 'conn> {
 
         if !self.has_locked_tokens()? {
             // caller needs to have checked this
-            panic!("FATAL: account does not have locked tokens");
+            return Err(VmInternalError::Expect(
+                "FATAL: account does not have locked tokens".into(),
+            )
+            .into());
         }
 
         if unlock_burn_height <= self.burn_block_height {
             // caller needs to have checked this
-            panic!("FATAL: cannot set a lock with expired unlock burn height");
+            return Err(VmInternalError::Expect(
+                "FATAL: cannot set a lock with expired unlock burn height".into(),
+            )
+            .into());
         }
 
         self.balance = STXBalance::LockedPoxFour {
@@ -918,7 +964,7 @@ impl<'db, 'conn> STXBalanceSnapshot<'db, 'conn> {
     }
 
     /// Increase the account's current lock to `new_total_locked`.
-    /// Panics if `self` was not locked by V3 PoX.
+    /// Errors if `self` was not locked by V4 PoX.
     pub fn increase_lock_v4(&mut self, new_total_locked: u128) -> Result<(), VmExecutionError> {
         let unlocked = self.unlock_available_tokens_if_any()?;
         if unlocked > 0 {
@@ -927,18 +973,25 @@ impl<'db, 'conn> STXBalanceSnapshot<'db, 'conn> {
 
         if !self.has_locked_tokens()? {
             // caller needs to have checked this
-            panic!("FATAL: account does not have locked tokens");
+            return Err(VmInternalError::Expect(
+                "FATAL: account does not have locked tokens".into(),
+            )
+            .into());
         }
 
         if !self.is_v4_locked()? {
             // caller needs to have checked this
-            panic!("FATAL: account must be locked by pox-3");
+            return Err(
+                VmInternalError::Expect("FATAL: account must be locked by pox-4".into()).into(),
+            );
         }
 
-        assert!(
-            self.balance.amount_locked() <= new_total_locked,
-            "FATAL: account must lock more after `increase_lock_v3`"
-        );
+        if self.balance.amount_locked() > new_total_locked {
+            return Err(VmInternalError::Expect(
+                "FATAL: account must lock more after `increase_lock_v4`".into(),
+            )
+            .into());
+        }
 
         let total_amount = self
             .balance
@@ -958,10 +1011,220 @@ impl<'db, 'conn> STXBalanceSnapshot<'db, 'conn> {
     }
 
     /// Return true iff `self` represents a snapshot that has a lock
-    ///  created by PoX v3.
+    ///  created by PoX v4.
     pub fn is_v4_locked(&mut self) -> Result<bool, VmExecutionError> {
         match self.canonical_balance_repr()? {
             STXBalance::LockedPoxFour { .. } => Ok(true),
+            _ => Ok(false),
+        }
+    }
+
+    //////////////// Pox-5 //////////////////
+
+    /// Lock `amount_to_lock` tokens on this account until `unlock_burn_height`.
+    /// After calling, this method will set the balance to a "LockedPoxFive" balance,
+    /// because this method is only invoked as a result of PoX5 interactions
+    pub fn lock_tokens_v5(
+        &mut self,
+        amount_to_lock: u128,
+        unlock_burn_height: u64,
+    ) -> Result<(), VmExecutionError> {
+        let unlocked = self.unlock_available_tokens_if_any()?;
+        if unlocked > 0 {
+            debug!("Consolidated after account-token-lock");
+        }
+
+        // caller needs to have checked this
+        if amount_to_lock == 0 {
+            return Err(VmInternalError::Expect("BUG: cannot lock 0 tokens".into()).into());
+        }
+
+        if unlock_burn_height <= self.burn_block_height {
+            // caller needs to have checked this
+            return Err(VmInternalError::Expect(
+                "FATAL: cannot set a lock with expired unlock burn height".into(),
+            )
+            .into());
+        }
+
+        if self.has_locked_tokens()? {
+            // caller needs to have checked this
+            return Err(
+                VmInternalError::Expect("FATAL: account already has locked tokens".into()).into(),
+            );
+        }
+
+        // from `unlock_available_tokens_if_any` call above, `self.balance` should
+        //  be canonicalized already
+
+        let new_amount_unlocked = self
+            .balance
+            .get_total_balance()?
+            .checked_sub(amount_to_lock)
+            .ok_or_else(|| {
+                VmInternalError::Expect(
+                    "FATAL: account locks more STX than balance possessed".into(),
+                )
+            })?;
+
+        self.balance = STXBalance::LockedPoxFive {
+            amount_unlocked: new_amount_unlocked,
+            amount_locked: amount_to_lock,
+            unlock_height: unlock_burn_height,
+        };
+        Ok(())
+    }
+
+    /// Extend this account's current lock to `unlock_burn_height`.
+    /// After calling, this method will set the balance to a "LockedPoxFive" balance,
+    ///  because this method is only invoked as a result of PoX5 interactions
+    pub fn update_unlock_v5(&mut self, unlock_burn_height: u64) -> Result<(), VmExecutionError> {
+        let unlocked = self.unlock_available_tokens_if_any()?;
+        if unlocked > 0 {
+            debug!("Consolidated after extend-token-lock");
+        }
+
+        if !self.has_locked_tokens()? {
+            // caller needs to have checked this
+            return Err(VmInternalError::Expect(
+                "FATAL: account does not have locked tokens".into(),
+            )
+            .into());
+        }
+
+        if unlock_burn_height <= self.burn_block_height {
+            // caller needs to have checked this
+            return Err(VmInternalError::Expect(
+                "FATAL: cannot set a lock with expired unlock burn height".into(),
+            )
+            .into());
+        }
+
+        self.balance = STXBalance::LockedPoxFive {
+            amount_unlocked: self.balance.amount_unlocked(),
+            amount_locked: self.balance.amount_locked(),
+            unlock_height: unlock_burn_height,
+        };
+        Ok(())
+    }
+
+    /// Increase the account's current lock to `new_total_locked`.
+    /// Errors if `self` was not locked by V5 PoX.
+    pub fn increase_lock_v5(&mut self, new_total_locked: u128) -> Result<(), VmExecutionError> {
+        let unlocked = self.unlock_available_tokens_if_any()?;
+        if unlocked > 0 {
+            debug!("Consolidated after extend-token-lock");
+        }
+
+        if !self.has_locked_tokens()? {
+            // caller needs to have checked this
+            return Err(VmInternalError::Expect(
+                "FATAL: account does not have locked tokens".into(),
+            )
+            .into());
+        }
+
+        if !self.is_v5_locked()? {
+            // caller needs to have checked this
+            return Err(
+                VmInternalError::Expect("FATAL: account must be locked by pox-5".into()).into(),
+            );
+        }
+
+        if self.balance.amount_locked() > new_total_locked {
+            return Err(VmInternalError::Expect(
+                "FATAL: account must lock more after `increase_lock_v5`".into(),
+            )
+            .into());
+        }
+
+        let total_amount = self
+            .balance
+            .amount_unlocked()
+            .checked_add(self.balance.amount_locked())
+            .ok_or_else(|| VmInternalError::Expect("STX balance overflowed u128".into()))?;
+        let amount_unlocked = total_amount.checked_sub(new_total_locked).ok_or_else(|| {
+            VmInternalError::Expect("STX underflow: more is locked than total balance".into())
+        })?;
+
+        self.balance = STXBalance::LockedPoxFive {
+            amount_unlocked,
+            amount_locked: new_total_locked,
+            unlock_height: self.balance.unlock_height(),
+        };
+        Ok(())
+    }
+
+    /// Reset an existing pox-5 lock to `new_total_locked` and reschedule it to
+    /// unlock at `unlock_burn_height`, in a single step. Unlike
+    /// [`Self::increase_lock_v5`], the new amount may be lower than the
+    /// current locked amount (the difference is returned to the unlocked
+    /// balance); unlike [`Self::update_unlock_v5`], the amount may also change.
+    ///
+    /// Backs every pox-5 cross-mode roll-over the contract permits:
+    /// bond → bond (`register-for-bond` from a previous bond), stake → bond
+    /// (`register-for-bond` from an STX-only stake), and bond → stake (`stake`
+    /// from a previous bond). In every case the lock is carried over (never
+    /// released) to the new position's amount and unlock height.
+    ///
+    /// Errors if `self` was not already locked by pox-5, if the requested
+    /// unlock height is not in the future, or if the account cannot cover
+    /// `new_total_locked`.
+    pub fn set_lock_v5(
+        &mut self,
+        new_total_locked: u128,
+        unlock_burn_height: u64,
+    ) -> Result<(), VmExecutionError> {
+        let unlocked = self.unlock_available_tokens_if_any()?;
+        if unlocked > 0 {
+            debug!("Consolidated after set-token-lock");
+        }
+
+        if !self.has_locked_tokens()? {
+            // caller needs to have checked this
+            return Err(VmInternalError::Expect(
+                "FATAL: account does not have locked tokens".into(),
+            )
+            .into());
+        }
+
+        if !self.is_v5_locked()? {
+            // caller needs to have checked this
+            return Err(
+                VmInternalError::Expect("FATAL: account must be locked by pox-5".into()).into(),
+            );
+        }
+
+        if unlock_burn_height <= self.burn_block_height {
+            // caller needs to have checked this
+            return Err(VmInternalError::Expect(
+                "FATAL: cannot set a lock with expired unlock burn height".into(),
+            )
+            .into());
+        }
+
+        let total_amount = self
+            .balance
+            .amount_unlocked()
+            .checked_add(self.balance.amount_locked())
+            .ok_or_else(|| VmInternalError::Expect("STX balance overflowed u128".into()))?;
+        let amount_unlocked = total_amount.checked_sub(new_total_locked).ok_or_else(|| {
+            VmInternalError::Expect("STX underflow: more is locked than total balance".into())
+        })?;
+
+        self.balance = STXBalance::LockedPoxFive {
+            amount_unlocked,
+            amount_locked: new_total_locked,
+            unlock_height: unlock_burn_height,
+        };
+        Ok(())
+    }
+
+    /// Return true iff `self` represents a snapshot that has a lock
+    ///  created by PoX v5.
+    pub fn is_v5_locked(&mut self) -> Result<bool, VmExecutionError> {
+        match self.canonical_balance_repr()? {
+            STXBalance::LockedPoxFive { .. } => Ok(true),
             _ => Ok(false),
         }
     }
@@ -1012,6 +1275,15 @@ impl<'db, 'conn> STXBalanceSnapshot<'db, 'conn> {
                 amount_locked,
                 unlock_height: new_unlock_height,
             },
+            STXBalance::LockedPoxFive {
+                amount_unlocked,
+                amount_locked,
+                ..
+            } => STXBalance::LockedPoxFive {
+                amount_unlocked,
+                amount_locked,
+                unlock_height: new_unlock_height,
+            },
         };
         Ok(())
     }
@@ -1024,6 +1296,7 @@ impl<'db, 'conn> STXBalanceSnapshot<'db, 'conn> {
             self.db_ref.get_v1_unlock_height(),
             self.db_ref.get_v2_unlock_height()?,
             self.db_ref.get_v3_unlock_height()?,
+            self.db_ref.get_v4_unlock_height()?,
         )?;
         self.balance = new_balance;
         Ok(unlocked)
@@ -1043,6 +1316,7 @@ impl STXBalance {
     pub const pox_2_version: u8 = 0;
     pub const pox_3_version: u8 = 1;
     pub const pox_4_version: u8 = 2;
+    pub const pox_5_version: u8 = 3;
 
     pub fn zero() -> STXBalance {
         STXBalance::Unlocked { amount: 0 }
@@ -1060,7 +1334,8 @@ impl STXBalance {
             STXBalance::LockedPoxOne { unlock_height, .. }
             | STXBalance::LockedPoxTwo { unlock_height, .. }
             | STXBalance::LockedPoxThree { unlock_height, .. }
-            | STXBalance::LockedPoxFour { unlock_height, .. } => *unlock_height,
+            | STXBalance::LockedPoxFour { unlock_height, .. }
+            | STXBalance::LockedPoxFive { unlock_height, .. } => *unlock_height,
         }
     }
 
@@ -1073,6 +1348,7 @@ impl STXBalance {
         v1_unlock_height: u32,
         v2_unlock_height: u32,
         v3_unlock_height: u32,
+        v4_unlock_height: u32,
     ) -> u64 {
         match self {
             STXBalance::Unlocked { .. } => 0,
@@ -1097,7 +1373,14 @@ impl STXBalance {
                     *unlock_height
                 }
             }
-            STXBalance::LockedPoxFour { unlock_height, .. } => *unlock_height,
+            STXBalance::LockedPoxFour { unlock_height, .. } => {
+                if *unlock_height >= u64::from(v4_unlock_height) {
+                    u64::from(v4_unlock_height)
+                } else {
+                    *unlock_height
+                }
+            }
+            STXBalance::LockedPoxFive { unlock_height, .. } => *unlock_height,
         }
     }
 
@@ -1109,7 +1392,8 @@ impl STXBalance {
             STXBalance::LockedPoxOne { amount_locked, .. }
             | STXBalance::LockedPoxTwo { amount_locked, .. }
             | STXBalance::LockedPoxThree { amount_locked, .. }
-            | STXBalance::LockedPoxFour { amount_locked, .. } => *amount_locked,
+            | STXBalance::LockedPoxFour { amount_locked, .. }
+            | STXBalance::LockedPoxFive { amount_locked, .. } => *amount_locked,
         }
     }
 
@@ -1131,6 +1415,9 @@ impl STXBalance {
             }
             | STXBalance::LockedPoxFour {
                 amount_unlocked, ..
+            }
+            | STXBalance::LockedPoxFive {
+                amount_unlocked, ..
             } => *amount_unlocked,
         }
     }
@@ -1150,6 +1437,9 @@ impl STXBalance {
                 amount_unlocked, ..
             }
             | STXBalance::LockedPoxFour {
+                amount_unlocked, ..
+            }
+            | STXBalance::LockedPoxFive {
                 amount_unlocked, ..
             } => {
                 *amount_unlocked = amount_unlocked
@@ -1176,6 +1466,9 @@ impl STXBalance {
             }
             | STXBalance::LockedPoxFour {
                 amount_unlocked, ..
+            }
+            | STXBalance::LockedPoxFive {
+                amount_unlocked, ..
             } => {
                 if let Some(new_amount) = amount_unlocked.checked_add(delta) {
                     *amount_unlocked = new_amount;
@@ -1197,12 +1490,14 @@ impl STXBalance {
         v1_unlock_height: u32,
         v2_unlock_height: u32,
         v3_unlock_height: u32,
+        v4_unlock_height: u32,
     ) -> Result<(STXBalance, u128), VmExecutionError> {
         if self.has_unlockable_tokens_at_burn_block(
             burn_block_height,
             v1_unlock_height,
             v2_unlock_height,
             v3_unlock_height,
+            v4_unlock_height,
         ) {
             Ok((
                 STXBalance::Unlocked {
@@ -1221,12 +1516,14 @@ impl STXBalance {
         v1_unlock_height: u32,
         v2_unlock_height: u32,
         v3_unlock_height: u32,
+        v4_unlock_height: u32,
     ) -> Result<u128, VmExecutionError> {
         if self.has_unlockable_tokens_at_burn_block(
             burn_block_height,
             v1_unlock_height,
             v2_unlock_height,
             v3_unlock_height,
+            v4_unlock_height,
         ) {
             self.get_total_balance()
         } else {
@@ -1244,6 +1541,9 @@ impl STXBalance {
                 STXBalance::LockedPoxFour {
                     amount_unlocked, ..
                 } => *amount_unlocked,
+                STXBalance::LockedPoxFive {
+                    amount_unlocked, ..
+                } => *amount_unlocked,
             };
             Ok(out)
         }
@@ -1255,12 +1555,14 @@ impl STXBalance {
         v1_unlock_height: u32,
         v2_unlock_height: u32,
         v3_unlock_height: u32,
+        v4_unlock_height: u32,
     ) -> (u128, u64) {
         if self.has_unlockable_tokens_at_burn_block(
             burn_block_height,
             v1_unlock_height,
             v2_unlock_height,
             v3_unlock_height,
+            v4_unlock_height,
         ) {
             (0, 0)
         } else {
@@ -1282,6 +1584,11 @@ impl STXBalance {
                     ..
                 } => (*amount_locked, *unlock_height),
                 STXBalance::LockedPoxFour {
+                    amount_locked,
+                    unlock_height,
+                    ..
+                } => (*amount_locked, *unlock_height),
+                STXBalance::LockedPoxFive {
                     amount_locked,
                     unlock_height,
                     ..
@@ -1313,6 +1620,11 @@ impl STXBalance {
                 amount_locked,
                 ..
             } => (*amount_unlocked, *amount_locked),
+            STXBalance::LockedPoxFive {
+                amount_unlocked,
+                amount_locked,
+                ..
+            } => (*amount_unlocked, *amount_locked),
         };
         unlocked
             .checked_add(locked)
@@ -1337,6 +1649,7 @@ impl STXBalance {
         v1_unlock_height: u32,
         v2_unlock_height: u32,
         v3_unlock_height: u32,
+        v4_unlock_height: u32,
     ) -> bool {
         match self {
             STXBalance::Unlocked { .. } => false,
@@ -1403,6 +1716,23 @@ impl STXBalance {
                 if *unlock_height <= burn_block_height {
                     return false;
                 }
+                // if unlockable due to Stacks 4.0 early unlock
+                if u64::from(v4_unlock_height) <= burn_block_height {
+                    return false;
+                }
+                true
+            }
+            STXBalance::LockedPoxFive {
+                amount_locked,
+                unlock_height,
+                ..
+            } => {
+                if *amount_locked == 0 {
+                    return false;
+                }
+                if *unlock_height <= burn_block_height {
+                    return false;
+                }
                 true
             }
         }
@@ -1414,6 +1744,7 @@ impl STXBalance {
         v1_unlock_height: u32,
         v2_unlock_height: u32,
         v3_unlock_height: u32,
+        v4_unlock_height: u32,
     ) -> bool {
         match self {
             STXBalance::Unlocked { .. } => false,
@@ -1483,6 +1814,24 @@ impl STXBalance {
                 if *unlock_height <= burn_block_height {
                     return true;
                 }
+                // if unlockable due to Stacks 4.0 early unlock
+                if u64::from(v4_unlock_height) <= burn_block_height {
+                    return true;
+                }
+                false
+            }
+            STXBalance::LockedPoxFive {
+                amount_locked,
+                unlock_height,
+                ..
+            } => {
+                if *amount_locked == 0 {
+                    return false;
+                }
+                // if normally unlockable, return true
+                if *unlock_height <= burn_block_height {
+                    return true;
+                }
                 false
             }
         }
@@ -1495,12 +1844,14 @@ impl STXBalance {
         v1_unlock_height: u32,
         v2_unlock_height: u32,
         v3_unlock_height: u32,
+        v4_unlock_height: u32,
     ) -> Result<bool, VmExecutionError> {
         Ok(self.get_available_balance_at_burn_block(
             burn_block_height,
             v1_unlock_height,
             v2_unlock_height,
             v3_unlock_height,
+            v4_unlock_height,
         )? >= amount)
     }
 }

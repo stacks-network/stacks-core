@@ -14,6 +14,16 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+// The doc comments on the config structs below are parsed by
+// `contrib/tools/config-docs-generator` to produce the node configuration
+// reference. That parser is whitespace-sensitive: it locates `@notes`,
+// `@units`, `@toml_example` and friends by their indentation, and collects each
+// annotation's body from the lines indented beneath it. Re-indenting a doc line
+// to satisfy rustdoc's list-continuation rules silently detaches annotations
+// from their content and mangles the generated examples, so these two lints are
+// off for this module.
+#![allow(clippy::doc_lazy_continuation, clippy::doc_overindented_list_items)]
+
 pub mod chain_data;
 
 use std::collections::{HashMap, HashSet};
@@ -36,9 +46,12 @@ use stacks_common::util::get_epoch_time_ms;
 use stacks_common::util::hash::hex_bytes;
 use stacks_common::util::secp256k1::{Secp256k1PrivateKey, Secp256k1PublicKey};
 
-use crate::burnchains::bitcoin::BitcoinNetworkType;
+use crate::burnchains::bitcoin::{signet, BitcoinNetworkType};
 use crate::burnchains::{Burnchain, MagicBytes, BLOCKSTACK_MAGIC_MAINNET};
-use crate::chainstate::nakamoto::signer_set::NakamotoSigners;
+use crate::chainstate::nakamoto::signer_set::{
+    set_pox_5_bond_admin, set_pox_5_pause_admin, set_pox_5_sbtc_contract,
+    set_pox_5_sbtc_registry_contract, NakamotoSigners,
+};
 use crate::chainstate::stacks::boot::MINERS_NAME;
 use crate::chainstate::stacks::index::marf::MARFOpenOpts;
 use crate::chainstate::stacks::index::storage::TrieHashCalculationMode;
@@ -47,7 +60,7 @@ use crate::chainstate::stacks::MAX_BLOCK_LEN;
 use crate::config::chain_data::MinerStats;
 use crate::core::mempool::{MemPoolWalkSettings, MemPoolWalkStrategy, MemPoolWalkTxTypes};
 use crate::core::{
-    MemPoolDB, StacksEpoch, StacksEpochExtension, StacksEpochId, CHAIN_ID_MAINNET,
+    MemPoolDB, StacksEpoch, StacksEpochExtension, StacksEpochId, CHAIN_ID_MAINNET, CHAIN_ID_SIGNET,
     CHAIN_ID_TESTNET, PEER_VERSION_MAINNET, PEER_VERSION_TESTNET, STACKS_EPOCHS_REGTEST,
     STACKS_EPOCHS_TESTNET,
 };
@@ -59,9 +72,11 @@ use crate::cost_estimates::{CostEstimator, FeeEstimator, PessimisticEstimator, U
 use crate::net::atlas::AtlasConfig;
 use crate::net::connection::{
     ConnectionOptions, DEFAULT_BLOCK_PROPOSAL_MAX_AGE_SECS,
+    DEFAULT_BLOCK_PROPOSAL_MAX_TX_ANALYSIS_TIME_SECS,
     DEFAULT_BLOCK_PROPOSAL_MAX_TX_EXECUTION_TIME_SECS,
     DEFAULT_BLOCK_PROPOSAL_VALIDATION_TIMEOUT_SECS,
 };
+use crate::net::stackerdb::set_log_stackerdb_chunk_sources;
 use crate::net::{Neighbor, NeighborAddress, NeighborKey};
 use crate::types::chainstate::BurnchainHeaderHash;
 use crate::types::EpochList;
@@ -70,6 +85,10 @@ use crate::util_lib::boot::boot_code_id;
 use crate::util_lib::db::Error as DBError;
 
 pub const DEFAULT_SATS_PER_VB: u64 = 50;
+/// Default two-byte Stacks burn-operation prefix on Bitcoin signet.
+pub const DEFAULT_SIGNET_MAGIC_BYTES: MagicBytes = MagicBytes::new(*b"S2");
+/// Bitcoin Core's public signet challenge, as hexadecimal script bytes.
+pub const DEFAULT_SIGNET_CHALLENGE: &str = "512103ad5e0edad18cb1f0fc0d28a3d4f1f3e445640337489abb10404f2d1e086be430210359ef5021964fe22d6f8e05b2463c9540ce96883fe3b278760f048f5189f2e6c452ae";
 pub const OP_TX_BLOCK_COMMIT_ESTIM_SIZE: u64 = 380;
 pub const OP_TX_DELEGATE_STACKS_ESTIM_SIZE: u64 = 230;
 pub const OP_TX_LEADER_KEY_ESTIM_SIZE: u64 = 290;
@@ -120,6 +139,9 @@ pub const DEFAULT_CONTRACT_COST_LIMIT_PERCENTAGE: u8 = 95;
 const DEFAULT_TENURE_EXTEND_POLL_SECS: u64 = 1;
 /// Default number of millis to wait before trying to continue a tenure because the next miner did not produce blocks
 const DEFAULT_TENURE_EXTEND_WAIT_MS: u64 = 120_000;
+/// Default duration to wait for an already-proposed tenure-start block to be processed
+/// before presuming it lost, in milliseconds.
+const DEFAULT_BLOCK_FOUND_IN_FLIGHT_WAIT_MS: u64 = 15_000;
 /// Default duration to wait before attempting to issue a tenure extend.
 /// This should be greater than the signers' timeout. This is used for issuing
 /// fallback tenure extends
@@ -136,8 +158,11 @@ const DEFAULT_EMPTY_MEMPOOL_SLEEP_MS: u64 = 2_500;
 /// Default maximum execution time in seconds for a miner to process a transaction
 /// before timing out.
 const DEFAULT_MAX_EXECUTION_TIME_SECS: u64 = 30;
+/// Default maximum wall-clock time in seconds for a miner to run contract-analysis
+/// phase of a transaction before timing out.
+const DEFAULT_MAX_ANALYSIS_TIME_SECS: u64 = 30;
 /// Default number of seconds that a miner should wait before timing out an HTTP request to StackerDB.
-const DEFAULT_STACKERDB_TIMEOUT_SECS: u64 = 120;
+const DEFAULT_STACKERDB_TIMEOUT_SECS: u64 = 10;
 /// Default maximum size for a tenure (note: the counter is reset on tenure extend).
 pub const DEFAULT_MAX_TENURE_BYTES: u64 = 10 * 1024 * 1024; // 10 MB
 /// Default maximum memory allocation during miner block assembly
@@ -145,6 +170,8 @@ const DEFAULT_MINER_ASSEMBLY_MEMORY_BYTES: u64 = 2 * 1024 * 1024 * 1024; // 2 GB
 /// Default maximum memory allocation during block proposal evaluation. Defaults higher than miner default
 ///  to avoid miner/signer environment skews.
 pub const DEFAULT_PROPOSAL_MEMORY_BYTES: u64 = 3 * 1024 * 1024 * 1024; // 3 GB
+/// Default maximum heap allocation for a single read-only RPC call before it is aborted.
+pub const DEFAULT_READ_ONLY_CALL_MAX_MEM_BYTES: u64 = 1024 * 1024 * 1024; // 1 GB
 
 static HELIUM_DEFAULT_CONNECTION_OPTIONS: LazyLock<ConnectionOptions> =
     LazyLock::new(|| ConnectionOptions {
@@ -155,13 +182,10 @@ static HELIUM_DEFAULT_CONNECTION_OPTIONS: LazyLock<ConnectionOptions> =
         heartbeat: 3600,
         // can't use u64::max, because sqlite stores as i64.
         private_key_lifetime: 9223372036854775807,
-        num_neighbors: 32,         // number of neighbors whose inventories we track
-        num_clients: 750,          // number of inbound p2p connections
+        num_neighbors: 32,      // number of neighbors whose inventories we track
+        num_clients: 750,       // number of inbound p2p connections
         soft_num_neighbors: 16, // soft-limit on the number of neighbors whose inventories we track
         soft_num_clients: 750,  // soft limit on the number of inbound p2p connections
-        max_neighbors_per_host: 1, // maximum number of neighbors per host we permit
-        max_clients_per_host: 4, // maximum number of inbound p2p connections per host we permit
-        soft_max_neighbors_per_host: 1, // soft limit on the number of neighbors per host we permit
         soft_max_neighbors_per_org: 32, // soft limit on the number of neighbors per AS we permit (TODO: for now it must be greater than num_neighbors)
         soft_max_clients_per_host: 4, // soft limit on how many inbound p2p connections per host we permit
         max_http_clients: 1000,       // maximum number of HTTP connections
@@ -297,8 +321,8 @@ impl ConfigFile {
             rpc_port: Some(8332),
             peer_port: Some(8333),
             peer_host: Some("0.0.0.0".to_string()),
-            username: Some("bitcoin".to_string()),
-            password: Some("bitcoin".to_string()),
+            username: None,
+            password: None,
             magic_bytes: Some("X2".to_string()),
             ..BurnchainConfigFile::default()
         };
@@ -319,7 +343,7 @@ impl ConfigFile {
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Config {
     pub config_path: Option<String>,
     pub burnchain: BurnchainConfig,
@@ -333,6 +357,14 @@ pub struct Config {
 }
 
 impl Config {
+    /// Whether any allocation-limit is enabled (it requires the
+    /// tracking allocator to be installed as the global allocator).
+    pub fn memory_limit_configured(&self) -> bool {
+        self.miner.max_assembly_mem_bytes > 0
+            || self.connection_options.block_proposal_max_tx_mem_bytes > 0
+            || self.connection_options.read_only_call_max_mem_bytes > 0
+    }
+
     /// get the up-to-date burnchain options from the config.
     /// If the config file can't be loaded, then return the existing config
     pub fn get_burnchain_config(&self) -> BurnchainConfig {
@@ -389,6 +421,10 @@ impl Config {
                 burnchain.first_block_height
             );
             burnchain.first_block_height = first_burn_block_height;
+            if self.burnchain.get_bitcoin_network().1 == BitcoinNetworkType::Signet {
+                // A new signet-backed Stacks chain has no rewards before its launch anchor.
+                burnchain.initial_reward_start_block = first_burn_block_height;
+            }
         }
 
         if let Some(first_burn_block_timestamp) = self.burnchain.first_burn_block_timestamp {
@@ -480,6 +516,15 @@ impl Config {
                 );
                 burnchain.pox_constants.pox_4_activation_height = epoch.start_height as u32;
                 burnchain.pox_constants.v3_unlock_height = epoch.start_height as u32 + 1;
+            }
+
+            if let Some(epoch) = epochs.get(StacksEpochId::Epoch40) {
+                // Override pox_5_activation_height to the start_height of epoch4.0
+                debug!(
+                    "Override pox_5_activation_height from {} to {}",
+                    burnchain.pox_constants.pox_5_activation_height, epoch.start_height
+                );
+                burnchain.pox_constants.pox_5_activation_height = epoch.start_height as u32;
             }
         }
 
@@ -580,7 +625,8 @@ impl Config {
 
         assert!(
             v1_unlock_height > epoch21.start_height,
-            "FATAL: v1 unlock height occurs at or before pox-2 activation: {v1_unlock_height} <= {}\nburnchain: {burnchain:?}", epoch21.start_height
+            "FATAL: v1 unlock height occurs at or before pox-2 activation: {v1_unlock_height} <= {}\nburnchain: {burnchain:?}",
+            epoch21.start_height
         );
 
         let epoch21_rc = burnchain
@@ -614,6 +660,7 @@ impl Config {
             }
             BitcoinNetworkType::Testnet => Ok(STACKS_EPOCHS_TESTNET.clone().to_vec()),
             BitcoinNetworkType::Regtest => Ok(STACKS_EPOCHS_REGTEST.clone().to_vec()),
+            BitcoinNetworkType::Signet => Ok(signet::default_epochs().to_vec()),
         }?;
         let mut matched_epochs = vec![];
         for configured_epoch in conf_epochs.iter() {
@@ -644,6 +691,10 @@ impl Config {
                 Ok(StacksEpochId::Epoch33)
             } else if epoch_name == EPOCH_CONFIG_3_4_0 {
                 Ok(StacksEpochId::Epoch34)
+            } else if epoch_name == EPOCH_CONFIG_4_0_0 {
+                Ok(StacksEpochId::Epoch40)
+            } else if epoch_name == EPOCH_CONFIG_4_1_0 {
+                Ok(StacksEpochId::Epoch41)
             } else {
                 Err(format!("Unknown epoch name specified: {epoch_name}"))
             }?;
@@ -660,34 +711,21 @@ impl Config {
             );
         }
 
-        let expected_list = [
-            StacksEpochId::Epoch10,
-            StacksEpochId::Epoch20,
-            StacksEpochId::Epoch2_05,
-            StacksEpochId::Epoch21,
-            StacksEpochId::Epoch22,
-            StacksEpochId::Epoch23,
-            StacksEpochId::Epoch24,
-            StacksEpochId::Epoch25,
-            StacksEpochId::Epoch30,
-            StacksEpochId::Epoch31,
-            StacksEpochId::Epoch32,
-            StacksEpochId::Epoch33,
-            StacksEpochId::Epoch34,
-        ];
-        for (expected_epoch, configured_epoch) in expected_list
+        for (expected_epoch, configured_epoch) in StacksEpochId::ALL
             .iter()
             .zip(matched_epochs.iter().map(|(epoch_id, _)| epoch_id))
         {
             if expected_epoch != configured_epoch {
-                return Err(format!("Configured epochs may not skip an epoch. Expected epoch = {expected_epoch}, Found epoch = {configured_epoch}"));
+                return Err(format!(
+                    "Configured epochs may not skip an epoch. Expected epoch = {expected_epoch}, Found epoch = {configured_epoch}"
+                ));
             }
         }
 
         // Stacks 1.0 must start at 0
         if matched_epochs
             .first()
-            .ok_or_else(|| "Must configure at least 1 epoch")?
+            .ok_or("Must configure at least 1 epoch")?
             .1
             != 0
         {
@@ -708,9 +746,10 @@ impl Config {
             matched_epochs.iter().zip(out_epochs.iter_mut()).enumerate()
         {
             if epoch_id != &out_epoch.epoch_id {
-                return Err(
-                    format!("Unmatched epochs in configuration and node implementation. Implemented = {epoch_id}, Configured = {}",
-                            &out_epoch.epoch_id));
+                return Err(format!(
+                    "Unmatched epochs in configuration and node implementation. Implemented = {epoch_id}, Configured = {}",
+                    &out_epoch.epoch_id
+                ));
             }
             // end_height = next epoch's start height || i64::max if last epoch
             let end_height = if let Some(next_epoch) = matched_epochs.get(i + 1) {
@@ -730,7 +769,10 @@ impl Config {
                 .find(|&e| e.epoch_id == StacksEpochId::Epoch21)
                 .ok_or("Cannot configure pox_2_activation if epoch 2.1 is not configured")?;
             if last_epoch.start_height > pox_2_activation as u64 {
-                Err(format!("Cannot configure pox_2_activation at a lower height than the Epoch 2.1 start height. pox_2_activation = {pox_2_activation}, epoch 2.1 start height = {}", last_epoch.start_height))?;
+                Err(format!(
+                    "Cannot configure pox_2_activation at a lower height than the Epoch 2.1 start height. pox_2_activation = {pox_2_activation}, epoch 2.1 start height = {}",
+                    last_epoch.start_height
+                ))?;
             }
         }
 
@@ -742,6 +784,54 @@ impl Config {
         resolve_bootstrap_nodes: bool,
     ) -> Result<Config, String> {
         Self::from_config_default(config_file, Config::default(), resolve_bootstrap_nodes)
+    }
+
+    /// A real (non-mock) miner needs a named bitcoin wallet: Bitcoin Core >= 31
+    /// removed the default unnamed wallet, so RPCs must target one explicitly.
+    ///
+    /// Any configured name must also be safe to route with; see
+    /// [`Self::validate_wallet_name_is_path_safe`].
+    fn validate_wallet_name(node: &NodeConfig, burnchain: &BurnchainConfig) -> Result<(), String> {
+        let Some(wallet_name) = burnchain.wallet_name.as_deref() else {
+            if node.miner && !node.mock_mining {
+                return Err("Config is missing the setting `burnchain.wallet_name` \
+                     (mandatory and non-empty for miners)"
+                    .into());
+            }
+            return Ok(());
+        };
+        Self::validate_wallet_name_is_path_safe(wallet_name)
+    }
+
+    /// Wallet RPCs interpolate the name into a `/wallet/<name>` request path,
+    /// which the HTTP layer parses, percent-decodes and normalizes before
+    /// sending. A name that does not survive that round trip unchanged silently
+    /// targets a *different* wallet (`a?b` becomes `a`, `a/../b` becomes `b`).
+    /// bitcoind accepts such names; we fail at startup instead.
+    fn validate_wallet_name_is_path_safe(wallet_name: &str) -> Result<(), String> {
+        // `/` is allowed: bitcoind resolves wallet names beneath `-walletdir`,
+        // so nested wallet paths are legitimate and survive the path unchanged
+        const ALLOWED_PUNCTUATION: [char; 4] = ['.', '_', '-', '/'];
+
+        if let Some(bad) = wallet_name
+            .chars()
+            .find(|c| !c.is_ascii_alphanumeric() && !ALLOWED_PUNCTUATION.contains(c))
+        {
+            return Err(format!(
+                "Invalid setting `burnchain.wallet_name` (`{wallet_name}`): \
+                 character {bad:?} is not allowed; use ASCII letters, digits, \
+                 `.`, `_`, `-` or `/`"
+            ));
+        }
+
+        // a `..` segment is resolved away when the request path is parsed
+        if wallet_name.contains("..") {
+            return Err(format!(
+                "Invalid setting `burnchain.wallet_name` (`{wallet_name}`): \
+                 `..` is not allowed"
+            ));
+        }
+        Ok(())
     }
 
     fn from_config_default(
@@ -757,27 +847,12 @@ impl Config {
             ..
         } = default;
 
-        // First parse the burnchain config
-        let burnchain = match config_file.burnchain {
-            Some(burnchain) => burnchain.into_config_default(default_burnchain_config)?,
-            None => default_burnchain_config,
-        };
-
-        let supported_modes = [
-            "neon",
-            "argon",
-            "krypton",
-            "xenon",
-            "mainnet",
-            "nakamoto-neon",
-        ];
-
-        if !supported_modes.contains(&burnchain.mode.as_str()) {
-            return Err(format!(
-                "Setting burnchain.network not supported (should be: {})",
-                supported_modes.join(", ")
-            ));
-        }
+        // First parse the burnchain config. A missing section still fails,
+        // because `burnchain.mode` is required.
+        let burnchain = config_file
+            .burnchain
+            .unwrap_or_default()
+            .into_config_default(default_burnchain_config)?;
 
         let is_mainnet = burnchain.mode == "mainnet";
 
@@ -813,6 +888,40 @@ impl Config {
             return Err("Attempted to run mainnet node with `use_test_genesis_chainstate`".into());
         }
 
+        if is_mainnet && node.pox_5_sbtc_contract.is_some() {
+            return Err(
+                "Attempted to run mainnet node with `pox_5_sbtc_contract` set. \
+                 The pox-5 contract always references the canonical sBTC token on mainnet."
+                    .into(),
+            );
+        }
+
+        if is_mainnet && node.pox_5_sbtc_registry_contract.is_some() {
+            return Err(
+                "Attempted to run mainnet node with `pox_5_sbtc_registry_contract` set. \
+                 Signer-set computation always reads the canonical sBTC registry on mainnet."
+                    .into(),
+            );
+        }
+
+        if is_mainnet && node.pox_5_bond_admin.is_some() {
+            return Err(
+                "Attempted to run mainnet node with `pox_5_bond_admin` set. \
+                 The pox-5 contract always uses its default bond-admin initializer on mainnet."
+                    .into(),
+            );
+        }
+
+        if is_mainnet && node.pox_5_pause_admin.is_some() {
+            return Err(
+                "Attempted to run mainnet node with `pox_5_pause_admin` set. \
+                 The pox-5 contract always uses its default pause-admin initializer on mainnet."
+                    .into(),
+            );
+        }
+
+        Self::validate_wallet_name(&node, &burnchain)?;
+
         if node.stacker || node.miner {
             node.add_miner_stackerdb(is_mainnet);
             node.add_signers_stackerdbs(is_mainnet);
@@ -828,9 +937,6 @@ impl Config {
             None => miner_default_config,
         };
 
-        if is_mainnet && miner.replay_transactions {
-            return Err("Attempted to run mainnet node with `replay_transactions` set to true. This feature is still incomplete and may not be enabled on a mainnet node".into());
-        }
         let initial_balances: Vec<InitialBalance> = match config_file.ustx_balance {
             Some(balances) => {
                 if is_mainnet && !balances.is_empty() {
@@ -870,6 +976,9 @@ impl Config {
                         events_keys,
                         timeout_ms: observer.timeout_ms.unwrap_or(1_000),
                         disable_retries: observer.disable_retries.unwrap_or(false),
+                        disable_contract_interface: observer
+                            .disable_contract_interface
+                            .unwrap_or(false),
                     });
                 }
                 observers
@@ -884,6 +993,7 @@ impl Config {
                 events_keys: vec![EventKeyType::AnyEvent],
                 timeout_ms: 1_000,
                 disable_retries: false,
+                disable_contract_interface: false,
             });
         };
 
@@ -1015,7 +1125,7 @@ impl Config {
 
     pub fn add_initial_balance(&mut self, address: String, amount: u64) {
         let new_balance = InitialBalance {
-            address: PrincipalData::parse(&address).unwrap().into(),
+            address: PrincipalData::parse(&address).unwrap(),
             amount,
         };
         self.initial_balances.push(new_balance);
@@ -1031,6 +1141,18 @@ impl Config {
 
     pub fn is_mainnet(&self) -> bool {
         matches!(self.burnchain.mode.as_str(), "mainnet")
+    }
+
+    /// Apply config-driven process-wide runtime state. Call once from a run
+    /// loop's lifecycle entry point, before chainstate is opened. This picks
+    /// up direct field mutations on `Config` (e.g., from integration tests)
+    /// in addition to values populated by [`Config::from_config_file`].
+    pub fn apply_runtime_state(&self) {
+        set_pox_5_sbtc_contract(self.node.pox_5_sbtc_contract.clone());
+        set_pox_5_sbtc_registry_contract(self.node.pox_5_sbtc_registry_contract.clone());
+        set_pox_5_bond_admin(self.node.pox_5_bond_admin.clone());
+        set_pox_5_pause_admin(self.node.pox_5_pause_admin.clone());
+        set_log_stackerdb_chunk_sources(self.node.log_stackerdb_chunk_sources);
     }
 
     pub fn is_node_event_driven(&self) -> bool {
@@ -1060,6 +1182,7 @@ impl Config {
             miner_status,
             confirm_microblocks: false,
             max_execution_time: Some(Duration::from_secs(miner_config.max_execution_time_secs)),
+            max_analysis_time: Some(Duration::from_secs(miner_config.max_analysis_time_secs)),
             max_tenure_bytes: miner_config.max_tenure_bytes,
             temporarily_excluded_txids: HashSet::new(),
             max_assembly_mem_bytes: miner_config.max_assembly_mem_bytes,
@@ -1109,6 +1232,7 @@ impl Config {
             miner_status,
             confirm_microblocks: true,
             max_execution_time: Some(Duration::from_secs(miner_config.max_execution_time_secs)),
+            max_analysis_time: Some(Duration::from_secs(miner_config.max_analysis_time_secs)),
             max_tenure_bytes: miner_config.max_tenure_bytes,
             temporarily_excluded_txids: HashSet::new(),
             max_assembly_mem_bytes: miner_config.max_assembly_mem_bytes,
@@ -1163,6 +1287,18 @@ impl std::default::Default for Config {
     }
 }
 
+/// Burnchain modes accepted in the config file; `get_bitcoin_network()` panics
+/// on any mode outside this list. stacks-node's `main.rs` runs every mode on the
+/// Nakamoto boot run loop.
+const SUPPORTED_MODES: &[&str] = &[
+    "neon",
+    "krypton",
+    "xenon",
+    "mainnet",
+    "nakamoto-neon",
+    "signet",
+];
+
 #[derive(Clone, Debug, Default, Deserialize, PartialEq)]
 pub struct BurnchainConfig {
     /// The underlying blockchain used for Proof-of-Transfer.
@@ -1178,21 +1314,24 @@ pub struct BurnchainConfig {
     /// Supported values:
     /// - `"mainnet"`: mainnet
     /// - `"xenon"`: testnet
+    /// - `"signet"`: public or custom Bitcoin signet through a trusted Bitcoin Core peer
     /// - `"neon"`: regtest
-    /// - `"argon"`: regtest
     /// - `"krypton"`: regtest
     /// - `"nakamoto-neon"`: regtest
     /// ---
-    /// @default: `"neon"`
+    /// @default: No default.
+    /// @required: true
     pub mode: String,
     /// The network-specific identifier used in P2P communication and database initialization.
     /// ---
     /// @default: |
     ///   - if [`BurnchainConfig::mode`] is `"mainnet"`: [`CHAIN_ID_MAINNET`]
+    ///   - if [`BurnchainConfig::mode`] is `"signet"`: [`CHAIN_ID_SIGNET`]
     ///   - else: [`CHAIN_ID_TESTNET`]
     /// @notes:
-    ///   - **Warning:** Do not modify this unless you really know what you're doing.
-    ///   - This is intended strictly for testing purposes.
+    ///   - All nodes, signers, and transaction clients in a deployment must agree.
+    ///   - Choose a distinct ID for independent non-mainnet deployments.
+    ///   - The ID is fixed when chainstate is initialized; changing it requires fresh chainstate.
     pub chain_id: u32,
     /// The peer protocol version number used in P2P communication.
     /// This parameter cannot be set via the configuration file.
@@ -1236,17 +1375,12 @@ pub struct BurnchainConfig {
     pub peer_host: String,
     /// The P2P network port of the bitcoin node specified by [`BurnchainConfig::peer_host`].
     /// ---
-    /// @default: `8333`
+    /// @default: `38333` for signet; `8333` otherwise
     pub peer_port: u16,
     /// The RPC port of the bitcoin node specified by [`BurnchainConfig::peer_host`].
     /// ---
-    /// @default: `8332`
+    /// @default: `38332` for signet; `8332` otherwise
     pub rpc_port: u16,
-    /// Flag indicating whether to use SSL/TLS when connecting to the bitcoin node's
-    /// RPC interface.
-    /// ---
-    /// @default: `false`
-    pub rpc_ssl: bool,
     /// The username for authenticating with the bitcoin node's RPC interface.
     /// Required if the bitcoin node requires RPC authentication.
     /// ---
@@ -1287,8 +1421,17 @@ pub struct BurnchainConfig {
     /// ---
     /// @default: |
     ///   - if [`BurnchainConfig::mode`] is `"xenon"`: `"T2"`
+    ///   - if [`BurnchainConfig::mode`] is `"signet"`: `"S2"`
     ///   - else: `"X2"`
     pub magic_bytes: MagicBytes,
+    /// Bitcoin signet challenge script, distinct from Stacks operation magic bytes.
+    /// The configured Bitcoin Core peer must fully validate this challenge.
+    /// ---
+    /// @default: Public signet challenge in signet mode; `None` otherwise.
+    /// @notes:
+    ///   - Set `signet_challenge` to the same hex script as Bitcoin Core's `signetchallenge`.
+    ///   - Valid only in `signet` mode; changing the challenge requires a new working directory.
+    pub signet_challenge: Option<Vec<u8>>,
     /// The public key associated with the local mining address for the underlying
     /// Bitcoin regtest node. Provided as a hex string representing an uncompressed
     /// public key.
@@ -1490,14 +1633,23 @@ pub struct BurnchainConfig {
     /// node. Used to interact with a specific named wallet if the bitcoin node
     /// manages multiple wallets.
     ///
-    /// If the specified wallet doesn't exist, the node will attempt to create it via
-    /// the `createwallet` RPC call. This is particularly useful for miners who need
-    /// to manage separate wallets.
+    /// If the specified wallet exists but is not loaded, the node will load it for
+    /// the current session via the `loadwallet` RPC call. Miner startup fails if
+    /// the wallet does not exist. A name is required for mining nodes; followers
+    /// and mock miners do not use wallet RPCs and leave this unset.
     /// ---
-    /// @default: `""` (empty string, implying the default wallet or no specific wallet needed)
+    /// @default: `None` (valid only for followers and mock miners)
     /// @notes:
-    ///   - Primarily relevant for miners interacting with multi-wallet Bitcoin nodes.
-    pub wallet_name: String,
+    ///   - Required when [`NodeConfig::miner`] is `true`, unless
+    ///     [`NodeConfig::mock_mining`] is also `true`.
+    ///   - A blank value is treated as unset. The name is restricted to ASCII
+    ///     alphanumerics and `. _ - /`.
+    ///   - Loading is session-only; configure `wallet=<name>` in `bitcoin.conf` so
+    ///     the wallet survives a bitcoind restart.
+    ///   - On Bitcoin Core >= 31 `migratewallet` may split a legacy wallet into a
+    ///     primary and a `<name>_watchonly` wallet; set `wallet_name` to the one
+    ///     holding the miner's watched addresses.
+    pub wallet_name: Option<String>,
     /// Fault injection setting for testing. Introduces an artificial delay (in
     /// milliseconds) before processing each burnchain block download. Simulates a
     /// slow burnchain connection.
@@ -1540,12 +1692,12 @@ impl BurnchainConfig {
             peer_host: "0.0.0.0".to_string(),
             peer_port: 8333,
             rpc_port: 8332,
-            rpc_ssl: false,
             username: None,
             password: None,
             timeout: 300,
             socket_timeout: 30,
             magic_bytes: BLOCKSTACK_MAGIC_MAINNET,
+            signet_challenge: None,
             local_mining_public_key: None,
             process_exit_at_block_height: None,
             poll_time_secs: 10, // TODO: this is a testnet specific value.
@@ -1563,36 +1715,18 @@ impl BurnchainConfig {
             pox_reward_length: None,
             sunset_start: None,
             sunset_end: None,
-            wallet_name: "".to_string(),
+            wallet_name: None,
             fault_injection_burnchain_block_delay: 0,
             max_unspent_utxos: Some(1024),
         }
-    }
-    pub fn get_rpc_url(&self, wallet: Option<String>) -> String {
-        let scheme = match self.rpc_ssl {
-            true => "https://",
-            false => "http://",
-        };
-        let wallet_path = if let Some(wallet_id) = wallet.as_ref() {
-            format!("/wallet/{wallet_id}")
-        } else {
-            "".to_string()
-        };
-        format!("{scheme}{}:{}{wallet_path}", self.peer_host, self.rpc_port)
-    }
-
-    pub fn get_rpc_socket_addr(&self) -> SocketAddr {
-        let mut addrs_iter = format!("{}:{}", self.peer_host, self.rpc_port)
-            .to_socket_addrs()
-            .unwrap();
-        addrs_iter.next().unwrap()
     }
 
     pub fn get_bitcoin_network(&self) -> (String, BitcoinNetworkType) {
         match self.mode.as_str() {
             "mainnet" => ("mainnet".to_string(), BitcoinNetworkType::Mainnet),
             "xenon" => ("testnet".to_string(), BitcoinNetworkType::Testnet),
-            "neon" | "argon" | "krypton" | "nakamoto-neon" => {
+            "signet" => ("signet".to_string(), BitcoinNetworkType::Signet),
+            "neon" | "krypton" | "nakamoto-neon" => {
                 ("regtest".to_string(), BitcoinNetworkType::Regtest)
             }
             other => panic!("Invalid stacks-node mode: {other}"),
@@ -1623,6 +1757,8 @@ pub const EPOCH_CONFIG_3_1_0: &str = "3.1";
 pub const EPOCH_CONFIG_3_2_0: &str = "3.2";
 pub const EPOCH_CONFIG_3_3_0: &str = "3.3";
 pub const EPOCH_CONFIG_3_4_0: &str = "3.4";
+pub const EPOCH_CONFIG_4_0_0: &str = "4.0";
+pub const EPOCH_CONFIG_4_1_0: &str = "4.1";
 
 #[derive(Clone, Deserialize, Default, Debug)]
 #[serde(deny_unknown_fields)]
@@ -1635,7 +1771,6 @@ pub struct BurnchainConfigFile {
     pub peer_host: Option<String>,
     pub peer_port: Option<u16>,
     pub rpc_port: Option<u16>,
-    pub rpc_ssl: Option<bool>,
     pub username: Option<String>,
     pub password: Option<String>,
     /// Timeout, in seconds, for communication with bitcoind
@@ -1643,6 +1778,8 @@ pub struct BurnchainConfigFile {
     /// Socket timeout, in seconds, for socket operations with bitcoind
     pub socket_timeout: Option<u64>,
     pub magic_bytes: Option<String>,
+    /// Hex-encoded BIP 325 challenge; omitted for public signet.
+    pub signet_challenge: Option<String>,
     pub local_mining_public_key: Option<String>,
     pub process_exit_at_block_height: Option<u64>,
     pub poll_time_secs: Option<u64>,
@@ -1670,14 +1807,47 @@ impl BurnchainConfigFile {
         mut self,
         default_burnchain_config: BurnchainConfig,
     ) -> Result<BurnchainConfig, String> {
-        if self.mode.as_deref() == Some("xenon") {
-            if self.magic_bytes.is_none() {
-                self.magic_bytes = ConfigFile::xenon().burnchain.unwrap().magic_bytes;
-            }
+        // No default: an implicit mode used to mean mocknet. This matches the
+        // signer, where `network` is required too.
+        let Some(mode) = self.mode else {
+            return Err(format!(
+                "Setting burnchain.mode is required (one of: {})",
+                SUPPORTED_MODES.join(", ")
+            ));
+        };
+
+        // Validate the mode before anything else: get_bitcoin_network() (called
+        // further down) panics on an unknown mode, so an unsupported or removed
+        // mode (e.g. the old "mocknet") must be rejected here with a clean error
+        // rather than aborting the process.
+        if !SUPPORTED_MODES.contains(&mode.as_str()) {
+            return Err(format!(
+                "Setting burnchain.mode = \"{mode}\" not supported (should be: {})",
+                SUPPORTED_MODES.join(", ")
+            ));
         }
 
-        let mode = self.mode.unwrap_or(default_burnchain_config.mode);
+        if mode == "xenon" && self.magic_bytes.is_none() {
+            self.magic_bytes = ConfigFile::xenon().burnchain.unwrap().magic_bytes;
+        }
+
         let is_mainnet = mode == "mainnet";
+        if mode == "signet" {
+            self.signet_challenge
+                .get_or_insert_with(|| DEFAULT_SIGNET_CHALLENGE.into());
+            self.peer_port.get_or_insert(signet::P2P_PORT);
+            self.rpc_port.get_or_insert(signet::RPC_PORT);
+        } else if self.signet_challenge.is_some() {
+            return Err(
+                "burnchain.signet_challenge is only valid when burnchain.mode = \"signet\"".into(),
+            );
+        }
+        let signet_challenge = self
+            .signet_challenge
+            .as_deref()
+            .map(signet::parse_challenge)
+            .transpose()
+            .map_err(|e| format!("Invalid burnchain.signet_challenge: {e}"))?;
         if is_mainnet {
             // check magic bytes and set if not defined
             let mainnet_magic = ConfigFile::mainnet().burnchain.unwrap().magic_bytes;
@@ -1693,6 +1863,7 @@ impl BurnchainConfigFile {
         }
 
         let mut config = BurnchainConfig {
+            signet_challenge,
             chain: self.chain.unwrap_or(default_burnchain_config.chain),
             chain_id: match self.chain_id {
                 Some(chain_id) => {
@@ -1703,20 +1874,17 @@ impl BurnchainConfigFile {
                     }
                     chain_id
                 }
-                None => {
-                    if is_mainnet {
-                        CHAIN_ID_MAINNET
-                    } else {
-                        CHAIN_ID_TESTNET
-                    }
-                }
+                None => match mode.as_str() {
+                    "mainnet" => CHAIN_ID_MAINNET,
+                    "signet" => CHAIN_ID_SIGNET,
+                    _ => CHAIN_ID_TESTNET,
+                },
             },
             peer_version: if is_mainnet {
                 PEER_VERSION_MAINNET
             } else {
                 PEER_VERSION_TESTNET
             },
-            mode,
             burn_fee_cap: self
                 .burn_fee_cap
                 .unwrap_or(default_burnchain_config.burn_fee_cap),
@@ -1730,30 +1898,29 @@ impl BurnchainConfigFile {
                         .map_err(|e| format!("Invalid burnchain.peer_host: {}", &e))?
                         .next()
                         .is_none()
-                        .then(|| {
-                            return format!("No IP address could be queried for '{}'", &peer_host);
-                        });
+                        .then(|| format!("No IP address could be queried for '{}'", &peer_host));
                     peer_host.clone()
                 }
                 None => default_burnchain_config.peer_host,
             },
             peer_port: self.peer_port.unwrap_or(default_burnchain_config.peer_port),
             rpc_port: self.rpc_port.unwrap_or(default_burnchain_config.rpc_port),
-            rpc_ssl: self.rpc_ssl.unwrap_or(default_burnchain_config.rpc_ssl),
             username: self.username,
             password: self.password,
             timeout: self.timeout.unwrap_or(default_burnchain_config.timeout),
             socket_timeout: self
                 .socket_timeout
                 .unwrap_or(default_burnchain_config.socket_timeout),
-            magic_bytes: self
-                .magic_bytes
-                .map(|magic_ascii| {
+            magic_bytes: match self.magic_bytes {
+                Some(magic_ascii) => {
                     assert_eq!(magic_ascii.len(), 2, "Magic bytes must be length-2");
                     assert!(magic_ascii.is_ascii(), "Magic bytes must be ASCII");
                     MagicBytes::from(magic_ascii.as_bytes())
-                })
-                .unwrap_or(default_burnchain_config.magic_bytes),
+                }
+                None if mode == "signet" => DEFAULT_SIGNET_MAGIC_BYTES,
+                None => default_burnchain_config.magic_bytes,
+            },
+            mode,
             local_mining_public_key: self.local_mining_public_key,
             process_exit_at_block_height: self.process_exit_at_block_height,
             poll_time_secs: self
@@ -1789,9 +1956,14 @@ impl BurnchainConfigFile {
                 .or(default_burnchain_config.pox_2_activation),
             sunset_start: self.sunset_start.or(default_burnchain_config.sunset_start),
             sunset_end: self.sunset_end.or(default_burnchain_config.sunset_end),
-            wallet_name: self
-                .wallet_name
-                .unwrap_or(default_burnchain_config.wallet_name.clone()),
+            // a blank name is "unset", not a wallet: deployment templates emit
+            // `wallet_name = ""` unconditionally, including for followers
+            wallet_name: match self.wallet_name {
+                Some(name) if !name.trim().is_empty() => Some(name),
+                // present but blank means unset
+                Some(_) => None,
+                None => default_burnchain_config.wallet_name.clone(),
+            },
             pox_reward_length: self
                 .pox_reward_length
                 .or(default_burnchain_config.pox_reward_length),
@@ -1826,6 +1998,9 @@ impl BurnchainConfigFile {
             }
         }
 
+        if config.mode == "signet" && self.epochs.is_none() {
+            config.epochs = Some(signet::default_epochs());
+        }
         if let Some(ref conf_epochs) = self.epochs {
             config.epochs = Some(Config::make_epochs(
                 conf_epochs,
@@ -1838,7 +2013,7 @@ impl BurnchainConfigFile {
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct NodeConfig {
     /// Human-readable name for the node. Primarily used for identification in testing
     /// environments (e.g., deriving log file names, temporary directory names).
@@ -1994,18 +2169,6 @@ pub struct NodeConfig {
     /// ---
     /// @default: `None` (Prometheus server disabled)
     pub prometheus_bind: Option<String>,
-    /// The strategy to use for MARF trie node caching in memory.
-    /// Controls the trade-off between memory usage and performance for state access.
-    ///
-    /// Possible values:
-    /// - `"noop"`: No caching (least memory).
-    /// - `"everything"`: Cache all nodes (most memory, potentially fastest).
-    /// - `"node256"`: Cache only larger `TrieNode256` nodes.
-    ///
-    /// If the value is `None` or an unrecognized string, it defaults to `"noop"`.
-    /// ---
-    /// @default: `None` (effectively `"noop"`)
-    pub marf_cache_strategy: Option<String>,
     /// Controls the timing of hash calculations for MARF trie nodes.
     /// - If `true`, hashes are calculated only when the MARF is flushed to disk
     ///   (deferred hashing).
@@ -2109,6 +2272,11 @@ pub struct NodeConfig {
     ///     "SP2C2YFP12AJZB4M4KUPSTMZQR0SNHNPH204SCQJM.stx-oracle-v1"
     ///   ]
     pub stacker_dbs: Vec<QualifiedContractIdentifier>,
+    /// Enables INFO logging for each newly stored StackerDB chunk, including
+    /// whether it arrived via polling, P2P push, or HTTP.
+    /// ---
+    /// @default: `false`
+    pub log_stackerdb_chunk_sources: bool,
     /// Enables the transaction index, which maps transaction IDs to the blocks
     /// containing them. Setting this to `true` allows the use of RPC endpoints
     /// that look up transactions by ID (e.g., `/extended/v1/tx/{txid}`), but
@@ -2116,22 +2284,48 @@ pub struct NodeConfig {
     /// ---
     /// @default: `false`
     pub txindex: bool,
+    /// Epoch 4.0 / PoX-5 scaffolding: the sBTC token contract that pox-5
+    /// references via `get-balance`. Devnet/test only; different operators
+    /// configuring different contracts will fork the chain.
+    /// ---
+    /// @default: `None`
+    pub pox_5_sbtc_contract: Option<QualifiedContractIdentifier>,
+    /// Epoch 4.0 / PoX-5 scaffolding: the sBTC registry contract that
+    /// signer-set computation reads `get-current-aggregate-pubkey` from to
+    /// derive the per-cycle sBTC waterfall recipient. Devnet/test only;
+    /// different operators configuring different contracts will fork the
+    /// chain.
+    /// ---
+    /// @default: `None`
+    pub pox_5_sbtc_registry_contract: Option<QualifiedContractIdentifier>,
+    /// Epoch 4.0 / PoX-5 scaffolding: the principal that pox-5 initializes
+    /// the `bond-admin` data var to. By default the contract source
+    /// initializes it to `tx-sender`, which at boot deploy time is the
+    /// unsignable boot principal — making `setup-bond` uncallable. Devnets
+    /// and integration tests can set this to a key they control. Devnet/test
+    /// only — different operators configuring different admins will fork
+    /// the chain.
+    /// ---
+    /// @default: `None`
+    pub pox_5_bond_admin: Option<PrincipalData>,
+    /// Principal that can permanently pause PoX-5 signer reward claims.
+    pub pox_5_pause_admin: Option<PrincipalData>,
 }
 
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub enum CostEstimatorName {
     #[default]
     NaivePessimistic,
 }
 
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub enum FeeEstimatorName {
     #[default]
     ScalarFeeRate,
     FuzzedWeightedMedianFeeRate,
 }
 
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub enum CostMetricName {
     #[default]
     ProportionDotProduct,
@@ -2169,7 +2363,7 @@ impl CostMetricName {
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct FeeEstimationConfig {
     pub cost_estimator: Option<CostEstimatorName>,
     pub fee_estimator: Option<FeeEstimatorName>,
@@ -2368,7 +2562,6 @@ impl Default for NodeConfig {
             wait_time_for_blocks: 30_000,
             next_initiative_delay: 10_000,
             prometheus_bind: None,
-            marf_cache_strategy: None,
             marf_defer_hashing: true,
             marf_compress: true,
             pox_sync_sample_secs: 30,
@@ -2379,7 +2572,15 @@ impl Default for NodeConfig {
             event_dispatcher_blocking: true,
             event_dispatcher_queue_size: 1000,
             stacker_dbs: vec![],
+            #[cfg(any(test, feature = "testing"))]
+            log_stackerdb_chunk_sources: true,
+            #[cfg(not(any(test, feature = "testing")))]
+            log_stackerdb_chunk_sources: false,
             txindex: false,
+            pox_5_sbtc_contract: None,
+            pox_5_sbtc_registry_contract: None,
+            pox_5_bond_admin: None,
+            pox_5_pause_admin: None,
         }
     }
 }
@@ -2533,12 +2734,7 @@ impl NodeConfig {
             TrieHashCalculationMode::Immediate
         };
 
-        MARFOpenOpts::new(
-            hash_mode,
-            self.marf_cache_strategy.as_deref().unwrap_or("noop"),
-            false,
-        )
-        .with_compression(self.marf_compress)
+        MARFOpenOpts::new(hash_mode, false).with_compression(self.marf_compress)
     }
 
     pub fn effective_event_dispatcher_queue_size(&self) -> usize {
@@ -2937,6 +3133,28 @@ pub struct MinerConfig {
     /// @default: [`DEFAULT_TENURE_EXTEND_WAIT_MS`]
     /// @units: milliseconds
     pub tenure_extend_wait_timeout: Duration,
+    /// Duration to wait for an already-proposed tenure-start (`BlockFound`) block to be
+    /// processed before presuming it lost.
+    ///
+    /// When an empty sortition arrives after this node proposed the tenure-start block
+    /// for the last winning sortition but before that block was processed, the signers
+    /// may still sign and push it. Issuing a second `BlockFound` in that window only
+    /// produces a sibling of the in-flight block, which the signers will refuse to sign,
+    /// so the relayer waits instead. The wait is measured from the moment the block was
+    /// proposed, not from the empty sortition, so a run of empty sortitions cannot
+    /// extend it. Once it elapses the proposal is presumed lost and the relayer issues a
+    /// late `BlockFound`.
+    ///
+    /// This only has to cover the signers aggregating signatures over a block this node
+    /// has already proposed and pushing it back, which takes seconds.
+    ///
+    /// Note: this is a heuristic optimization, even if the miner spawns a new
+    /// `BlockFound` thread, that thread can discover an in-flight `BlockFound` being
+    /// processed.
+    /// ---
+    /// @default: [`DEFAULT_BLOCK_FOUND_IN_FLIGHT_WAIT_MS`]
+    /// @units: milliseconds
+    pub block_found_in_flight_wait: Duration,
     /// Duration to wait before attempting to issue a time-based tenure extend.
     ///
     /// A miner can proactively attempt to extend its tenure if a significant amount
@@ -3021,13 +3239,20 @@ pub struct MinerConfig {
     ///
     /// Mining always enforces a limit; there is no way to disable it. To effectively
     /// "turn it off," set this to a value larger than any tx is expected to take.
+    ///
+    /// If execution exceeds this limit, the transaction is classified as problematic.
     /// ---
     /// @default: [`DEFAULT_MAX_EXECUTION_TIME_SECS`]
     /// @units: seconds
     pub max_execution_time_secs: u64,
-    /// TODO: remove this option when its no longer a testing feature and it becomes default behaviour
-    /// The miner will attempt to replay transactions that a threshold number of signers are expecting in the next block
-    pub replay_transactions: bool,
+    /// Maximum wall-clock time (in seconds) that the contract-analysis
+    /// phase of a single transaction may take during mining before timing out.
+    ///
+    /// If analysis exceeds this limit, the transaction is classified as problematic.
+    /// ---
+    /// @default: [`DEFAULT_MAX_ANALYSIS_TIME_SECS`]
+    /// @units: seconds
+    pub max_analysis_time_secs: u64,
     /// Defines the socket timeout (in seconds) for stackerdb communcation.
     /// ---
     /// @default: [`DEFAULT_STACKERDB_TIMEOUT_SECS`]
@@ -3094,6 +3319,9 @@ impl Default for MinerConfig {
             contract_cost_limit_percentage: Some(DEFAULT_CONTRACT_COST_LIMIT_PERCENTAGE),
             tenure_extend_poll_timeout: Duration::from_secs(DEFAULT_TENURE_EXTEND_POLL_SECS),
             tenure_extend_wait_timeout: Duration::from_millis(DEFAULT_TENURE_EXTEND_WAIT_MS),
+            block_found_in_flight_wait: Duration::from_millis(
+                DEFAULT_BLOCK_FOUND_IN_FLIGHT_WAIT_MS,
+            ),
             tenure_timeout: Duration::from_secs(DEFAULT_TENURE_TIMEOUT_SECS),
             tenure_extend_cost_threshold: DEFAULT_TENURE_EXTEND_COST_THRESHOLD,
             read_count_extend_cost_threshold: DEFAULT_READ_COUNT_EXTEND_COST_THRESHOLD,
@@ -3107,7 +3335,7 @@ impl Default for MinerConfig {
                 rejections_timeouts_default_map
             },
             max_execution_time_secs: DEFAULT_MAX_EXECUTION_TIME_SECS,
-            replay_transactions: false,
+            max_analysis_time_secs: DEFAULT_MAX_ANALYSIS_TIME_SECS,
             stackerdb_timeout: Duration::from_secs(DEFAULT_STACKERDB_TIMEOUT_SECS),
             max_tenure_bytes: DEFAULT_MAX_TENURE_BYTES,
             log_skipped_transactions: false,
@@ -3245,21 +3473,6 @@ pub struct ConnectionOptionsFile {
     /// ---
     /// @default: `750`
     pub soft_num_clients: Option<u64>,
-    /// Maximum number of neighbors per host we permit.
-    /// ---
-    /// @default: `1`
-    /// @deprecated: It does not have any effect on the node's behavior.
-    pub max_neighbors_per_host: Option<u64>,
-    /// Maximum number of inbound p2p connections per host we permit.
-    /// ---
-    /// @default: `4`
-    /// @deprecated: It does not have any effect on the node's behavior.
-    pub max_clients_per_host: Option<u64>,
-    /// Soft limit on the number of neighbors per host we permit.
-    /// ---
-    /// @default: `1`
-    /// @deprecated: It does not have any effect on the node's behavior.
-    pub soft_max_neighbors_per_host: Option<u64>,
     /// Soft limit on the number of outbound P2P connections per network organization (ASN).
     ///
     /// During connection pruning (when total outbound connections >
@@ -3362,7 +3575,7 @@ pub struct ConnectionOptionsFile {
     /// Maximum total size (in bytes) of data allowed to be read from Clarity data
     /// space (variables, maps) during a read-only call.
     /// ---
-    /// @default: `100_000` (100 KB).
+    /// @default: `200_000` (~200 KB).
     /// @units: bytes
     pub read_only_call_limit_read_length: Option<u64>,
     /// Maximum number of distinct write operations allowed during a read-only call.
@@ -3375,7 +3588,7 @@ pub struct ConnectionOptionsFile {
     /// Maximum number of distinct read operations from Clarity data space allowed
     /// during a read-only call.
     /// ---
-    /// @default: `30`
+    /// @default: `100`
     pub read_only_call_limit_read_count: Option<u64>,
     /// Runtime cost limit for an individual read-only function call. This represents
     /// computation effort within the Clarity VM.
@@ -3418,11 +3631,6 @@ pub struct ConnectionOptionsFile {
     /// @default: `45`
     /// @units: seconds
     pub inv_sync_interval: Option<u64>,
-    /// Deprecated: it does not have any effect on the node's behavior.
-    /// ---
-    /// @default: `None`
-    /// @deprecated: It does not have any effect on the node's behavior.
-    pub full_inv_sync_interval: Option<u64>,
     /// Lookback depth (in PoX reward cycles) for Nakamoto inventory synchronization requests.
     ///
     /// When initiating an inventory sync cycle with a peer, the node requests data
@@ -3608,6 +3816,14 @@ pub struct ConnectionOptionsFile {
     /// @units: seconds
     pub read_only_max_execution_time_secs: Option<u64>,
 
+    /// Maximum bytes a single read-only RPC call may allocate on the heap before
+    /// it is aborted.
+    /// `0` disables the limit.
+    /// ---
+    /// @default: [`DEFAULT_READ_ONLY_CALL_MAX_MEM_BYTES`]
+    /// @units: bytes
+    pub read_only_call_max_mem_bytes: Option<u64>,
+
     /// Maximum time (in seconds) to spend validating a block when processing
     /// a block proposal received via the `/v3/block_proposal` RPC endpoint.
     ///
@@ -3630,6 +3846,15 @@ pub struct ConnectionOptionsFile {
     /// @units: seconds
     pub block_proposal_max_tx_execution_time_secs: Option<u64>,
 
+    /// Maximum time (in seconds) to spend on the contract-analysis
+    /// phase of a single transaction during block proposal validation.
+    /// A transaction whose analysis exceeds this on its own is
+    /// classified as problematic.
+    /// ---
+    /// @default: [`DEFAULT_BLOCK_PROPOSAL_MAX_TX_ANALYSIS_TIME_SECS`]
+    /// @units: seconds
+    pub block_proposal_max_tx_analysis_time_secs: Option<u64>,
+
     /// Maximum bytes a single transaction may allocate on the heap during
     /// block-proposal validation before it is rejected.
     /// `0` disables the limit.
@@ -3637,6 +3862,27 @@ pub struct ConnectionOptionsFile {
     /// @default: [`DEFAULT_PROPOSAL_MEMORY_BYTES`]
     /// @units: bytes
     pub block_proposal_max_tx_mem_bytes: Option<u64>,
+
+    /// Maximum bytes/sec a single peer may push as transactions before being NACKed
+    /// with Throttled. Zero disables the cap.
+    /// ---
+    /// @default: `0` (disabled)
+    /// @units: bytes/second
+    pub max_transaction_push_bandwidth: Option<u64>,
+
+    /// Maximum bytes/sec a single peer may push as StackerDB chunks before being
+    /// NACKed with Throttled. Zero disables the cap.
+    /// ---
+    /// @default: `4_194_304` (4 MB/sec)
+    /// @units: bytes/second
+    pub max_stackerdb_push_bandwidth: Option<u64>,
+
+    /// Maximum bytes/sec a single peer may push as Nakamoto blocks before being
+    /// NACKed with Throttled. Zero disables the cap.
+    /// ---
+    /// @default: `0` (disabled)
+    /// @units: bytes/second
+    pub max_nakamoto_block_push_bandwidth: Option<u64>,
 }
 
 impl ConnectionOptionsFile {
@@ -3701,15 +3947,6 @@ impl ConnectionOptionsFile {
             soft_num_clients: self
                 .soft_num_clients
                 .unwrap_or_else(|| HELIUM_DEFAULT_CONNECTION_OPTIONS.soft_num_clients),
-            max_neighbors_per_host: self
-                .max_neighbors_per_host
-                .unwrap_or_else(|| HELIUM_DEFAULT_CONNECTION_OPTIONS.max_neighbors_per_host),
-            max_clients_per_host: self
-                .max_clients_per_host
-                .unwrap_or_else(|| HELIUM_DEFAULT_CONNECTION_OPTIONS.max_clients_per_host),
-            soft_max_neighbors_per_host: self
-                .soft_max_neighbors_per_host
-                .unwrap_or_else(|| HELIUM_DEFAULT_CONNECTION_OPTIONS.soft_max_neighbors_per_host),
             soft_max_neighbors_per_org: self
                 .soft_max_neighbors_per_org
                 .unwrap_or_else(|| HELIUM_DEFAULT_CONNECTION_OPTIONS.soft_max_neighbors_per_org),
@@ -3763,10 +4000,10 @@ impl ConnectionOptionsFile {
                 .max_http_clients
                 .unwrap_or_else(|| HELIUM_DEFAULT_CONNECTION_OPTIONS.max_http_clients),
             connect_timeout: self.connect_timeout.unwrap_or(10),
-            handshake_timeout: self.handshake_timeout.unwrap_or(5),
+            handshake_timeout: self.handshake_timeout.unwrap_or(default.handshake_timeout),
             max_sockets: self.max_sockets.unwrap_or(800) as usize,
             antientropy_public: self.antientropy_public.unwrap_or(true),
-            private_neighbors: self.private_neighbors.unwrap_or(false),
+            private_neighbors: self.private_neighbors.unwrap_or(default.private_neighbors),
             auth_token: self.auth_token,
             antientropy_retry: self.antientropy_retry.unwrap_or(default.antientropy_retry),
             reject_blocks_pushed: self
@@ -3791,15 +4028,30 @@ impl ConnectionOptionsFile {
             read_only_max_execution_time_secs: self
                 .read_only_max_execution_time_secs
                 .unwrap_or(default.read_only_max_execution_time_secs),
+            read_only_call_max_mem_bytes: self
+                .read_only_call_max_mem_bytes
+                .unwrap_or(default.read_only_call_max_mem_bytes),
             block_proposal_validation_timeout_secs: self
                 .block_proposal_validation_timeout_secs
                 .unwrap_or(DEFAULT_BLOCK_PROPOSAL_VALIDATION_TIMEOUT_SECS),
             block_proposal_max_tx_execution_time_secs: self
                 .block_proposal_max_tx_execution_time_secs
                 .unwrap_or(DEFAULT_BLOCK_PROPOSAL_MAX_TX_EXECUTION_TIME_SECS),
+            block_proposal_max_tx_analysis_time_secs: self
+                .block_proposal_max_tx_analysis_time_secs
+                .unwrap_or(DEFAULT_BLOCK_PROPOSAL_MAX_TX_ANALYSIS_TIME_SECS),
             block_proposal_max_tx_mem_bytes: self
                 .block_proposal_max_tx_mem_bytes
                 .unwrap_or(default.block_proposal_max_tx_mem_bytes),
+            max_transaction_push_bandwidth: self
+                .max_transaction_push_bandwidth
+                .unwrap_or(default.max_transaction_push_bandwidth),
+            max_stackerdb_push_bandwidth: self
+                .max_stackerdb_push_bandwidth
+                .unwrap_or(default.max_stackerdb_push_bandwidth),
+            max_nakamoto_block_push_bandwidth: self
+                .max_nakamoto_block_push_bandwidth
+                .unwrap_or(default.max_nakamoto_block_push_bandwidth),
             ..default
         })
     }
@@ -3829,6 +4081,7 @@ pub struct NodeConfigFile {
     pub wait_time_for_blocks: Option<u64>,
     pub next_initiative_delay: Option<u64>,
     pub prometheus_bind: Option<String>,
+    /// @deprecated: MARF node caching has been removed. This setting is ignored.
     pub marf_cache_strategy: Option<String>,
     pub marf_defer_hashing: Option<bool>,
     pub marf_compress: Option<bool>,
@@ -3842,14 +4095,37 @@ pub struct NodeConfigFile {
     pub event_dispatcher_queue_size: Option<usize>,
     /// Stacker DBs we replicate
     pub stacker_dbs: Option<Vec<String>>,
+    /// Enable INFO logging for each newly stored StackerDB chunk, including its origin.
+    pub log_stackerdb_chunk_sources: Option<bool>,
     /// fault injection: fail to push blocks with this probability (0-100)
     pub fault_injection_block_push_fail_probability: Option<u8>,
     /// enable transactions indexing, note this will require additional storage (in the order of gigabytes)
     pub txindex: Option<bool>,
+    /// Epoch 4.0 / PoX-5 scaffolding: contract id (as `principal.contract-name`)
+    /// of the sBTC token contract that pox-5 references for `get-balance`.
+    pub pox_5_sbtc_contract: Option<String>,
+    /// Epoch 4.0 / PoX-5 scaffolding: contract id (as `principal.contract-name`)
+    /// of the sBTC registry contract from which signer-set computation reads
+    /// `get-current-aggregate-pubkey` to derive the per-cycle sBTC waterfall
+    /// recipient.
+    pub pox_5_sbtc_registry_contract: Option<String>,
+    /// Epoch 4.0 / PoX-5 scaffolding: principal (standard or contract) that
+    /// pox-5 initializes the `bond-admin` data var to. Used to override the
+    /// default initializer (`tx-sender`, the unsignable boot principal) so
+    /// `setup-bond` is callable from a key controlled by the operator.
+    pub pox_5_bond_admin: Option<String>,
+    /// Principal that can permanently pause PoX-5 signer reward claims.
+    pub pox_5_pause_admin: Option<String>,
 }
 
 impl NodeConfigFile {
     fn into_config_default(self, default_node_config: NodeConfig) -> Result<NodeConfig, String> {
+        if let Some(marf_cache_strategy) = self.marf_cache_strategy.as_deref() {
+            warn!(
+                "node.marf_cache_strategy is deprecated and ignored; MARF node caching has been removed (configured value: {marf_cache_strategy})"
+            );
+        }
+
         let rpc_bind = self.rpc_bind.unwrap_or(default_node_config.rpc_bind);
         let miner = self.miner.unwrap_or(default_node_config.miner);
         let stacker = self.stacker.unwrap_or(default_node_config.stacker);
@@ -3906,7 +4182,6 @@ impl NodeConfigFile {
                 .next_initiative_delay
                 .unwrap_or(default_node_config.next_initiative_delay),
             prometheus_bind: self.prometheus_bind,
-            marf_cache_strategy: self.marf_cache_strategy,
             marf_defer_hashing: self
                 .marf_defer_hashing
                 .unwrap_or(default_node_config.marf_defer_hashing),
@@ -3935,6 +4210,9 @@ impl NodeConfigFile {
                 .iter()
                 .filter_map(|contract_id| QualifiedContractIdentifier::parse(contract_id).ok())
                 .collect(),
+            log_stackerdb_chunk_sources: self
+                .log_stackerdb_chunk_sources
+                .unwrap_or(default_node_config.log_stackerdb_chunk_sources),
             fault_injection_block_push_fail_probability: if self
                 .fault_injection_block_push_fail_probability
                 .is_some()
@@ -3945,6 +4223,30 @@ impl NodeConfigFile {
             },
 
             txindex: self.txindex.unwrap_or(default_node_config.txindex),
+            pox_5_sbtc_contract: self
+                .pox_5_sbtc_contract
+                .as_deref()
+                .map(QualifiedContractIdentifier::parse)
+                .transpose()
+                .map_err(|e| format!("Invalid pox_5_sbtc_contract: {e}"))?,
+            pox_5_sbtc_registry_contract: self
+                .pox_5_sbtc_registry_contract
+                .as_deref()
+                .map(QualifiedContractIdentifier::parse)
+                .transpose()
+                .map_err(|e| format!("Invalid pox_5_sbtc_registry_contract: {e}"))?,
+            pox_5_bond_admin: self
+                .pox_5_bond_admin
+                .as_deref()
+                .map(PrincipalData::parse)
+                .transpose()
+                .map_err(|e| format!("Invalid pox_5_bond_admin: {e}"))?,
+            pox_5_pause_admin: self
+                .pox_5_pause_admin
+                .as_deref()
+                .map(PrincipalData::parse)
+                .transpose()
+                .map_err(|e| format!("Invalid pox_5_pause_admin: {e}"))?,
         };
         Ok(node_config)
     }
@@ -4088,12 +4390,12 @@ pub struct MinerConfigFile {
     pub contract_cost_limit_percentage: Option<u8>,
     pub tenure_extend_poll_secs: Option<u64>,
     pub tenure_extend_wait_timeout_ms: Option<u64>,
+    pub block_found_in_flight_wait_ms: Option<u64>,
     pub tenure_timeout_secs: Option<u64>,
     pub tenure_extend_cost_threshold: Option<u64>,
     pub block_rejection_timeout_steps: Option<HashMap<String, u64>>,
     pub max_execution_time_secs: Option<u64>,
-    /// TODO: remove this config option once its no longer a testing feature
-    pub replay_transactions: Option<bool>,
+    pub max_analysis_time_secs: Option<u64>,
     pub stackerdb_timeout_secs: Option<u64>,
     pub max_tenure_bytes: Option<u64>,
     pub log_skipped_transactions: Option<bool>,
@@ -4266,6 +4568,7 @@ impl MinerConfigFile {
             contract_cost_limit_percentage,
             tenure_extend_poll_timeout: self.tenure_extend_poll_secs.map(Duration::from_secs).unwrap_or(miner_default_config.tenure_extend_poll_timeout),
             tenure_extend_wait_timeout: self.tenure_extend_wait_timeout_ms.map(Duration::from_millis).unwrap_or(miner_default_config.tenure_extend_wait_timeout),
+            block_found_in_flight_wait: self.block_found_in_flight_wait_ms.map(Duration::from_millis).unwrap_or(miner_default_config.block_found_in_flight_wait),
             tenure_timeout: self.tenure_timeout_secs.map(Duration::from_secs).unwrap_or(miner_default_config.tenure_timeout),
             tenure_extend_cost_threshold: self.tenure_extend_cost_threshold.unwrap_or(miner_default_config.tenure_extend_cost_threshold),
 
@@ -4290,7 +4593,9 @@ impl MinerConfigFile {
             max_execution_time_secs: self
                 .max_execution_time_secs
                 .unwrap_or(miner_default_config.max_execution_time_secs),
-            replay_transactions: self.replay_transactions.unwrap_or_default(),
+            max_analysis_time_secs: self
+                .max_analysis_time_secs
+                .unwrap_or(miner_default_config.max_analysis_time_secs),
             stackerdb_timeout: self.stackerdb_timeout_secs.map(Duration::from_secs).unwrap_or(miner_default_config.stackerdb_timeout),
             max_tenure_bytes: self.max_tenure_bytes.unwrap_or(miner_default_config.max_tenure_bytes),
             log_skipped_transactions: self.log_skipped_transactions.unwrap_or(miner_default_config.log_skipped_transactions),
@@ -4455,6 +4760,17 @@ pub struct EventObserverConfigFile {
     ///   - **Warning:** Setting this to `true` can lead to missed events if the
     ///     observer endpoint is temporarily unavailable or experiences issues.
     pub disable_retries: Option<bool>,
+    /// Controls whether the generated contract interface (ABI) is included in the
+    /// event payloads sent to this observer.
+    ///
+    /// If `true`, the `contract_interface` field of every transaction in `new_block`
+    /// and `new_microblocks` event payloads sent to this observer is emitted as
+    /// `null`, regardless of whether the transaction deployed a contract. This only
+    /// affects the event stream sent to this observer; it does not affect consensus,
+    /// block validation, other observers, or any other event field.
+    /// ---
+    /// @default: `false` (contract interfaces are included)
+    pub disable_contract_interface: Option<bool>,
 }
 
 #[derive(Clone, Default, Debug, Hash, PartialEq, Eq, PartialOrd)]
@@ -4463,6 +4779,7 @@ pub struct EventObserverConfig {
     pub events_keys: Vec<EventKeyType>,
     pub timeout_ms: u64,
     pub disable_retries: bool,
+    pub disable_contract_interface: bool,
 }
 
 #[derive(Clone, Debug, Hash, PartialEq, Eq, PartialOrd)]
@@ -4547,7 +4864,7 @@ impl EventKeyType {
     }
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, PartialEq)]
 pub struct InitialBalance {
     pub address: PrincipalData,
     pub amount: u64,
@@ -4575,7 +4892,10 @@ pub struct InitialBalanceFile {
 mod tests {
     use std::path::Path;
 
+    use rstest::rstest;
+
     use super::*;
+    use crate::core::STACKS_EPOCH_MAX;
 
     mod utils {
         use super::*;
@@ -4586,14 +4906,232 @@ mod tests {
         }
     }
 
+    /// Resolve signet defaults and overrides without parsing TOML or resolving bootstrap peers.
+    fn signet_config(burnchain: BurnchainConfigFile) -> Config {
+        Config::from_config_file(
+            ConfigFile {
+                burnchain: Some(BurnchainConfigFile {
+                    mode: Some("signet".into()),
+                    ..burnchain
+                }),
+                ..ConfigFile::default()
+            },
+            false,
+        )
+        .unwrap()
+    }
+
+    /// Public and custom challenges select the expected network and epoch defaults.
+    #[test]
+    fn signet_config_defaults() {
+        let public = signet_config(BurnchainConfigFile::default());
+        assert_eq!(
+            public.burnchain.get_bitcoin_network().1,
+            BitcoinNetworkType::Signet
+        );
+        assert_eq!(public.burnchain.peer_host, "0.0.0.0");
+        assert_eq!(public.burnchain.peer_port, signet::P2P_PORT);
+        assert_eq!(public.burnchain.rpc_port, signet::RPC_PORT);
+        assert_eq!(public.burnchain.magic_bytes.as_bytes(), b"S2");
+        assert_eq!(public.burnchain.chain_id, CHAIN_ID_SIGNET);
+        assert_eq!(public.burnchain.peer_version, PEER_VERSION_TESTNET);
+        assert!(!public.is_mainnet());
+        let burnchain = public.get_burnchain();
+        assert_eq!(burnchain.peer_version, public.burnchain.peer_version);
+        assert_eq!(burnchain.pox_constants.reward_cycle_length, 20);
+        assert_eq!(burnchain.pox_constants.prepare_length, 5);
+        assert!(
+            burnchain.pox_constants.anchor_threshold > burnchain.pox_constants.prepare_length / 2
+        );
+        let epochs = public.burnchain.get_epoch_list();
+        assert_eq!(
+            epochs.get(StacksEpochId::Epoch30).unwrap().start_height,
+            231
+        );
+        assert_eq!(
+            epochs.get(StacksEpochId::Epoch40).unwrap().start_height,
+            262
+        );
+        assert_eq!(
+            epochs.get(StacksEpochId::Epoch40).unwrap().end_height,
+            STACKS_EPOCH_MAX
+        );
+        assert_eq!(
+            epochs.get(StacksEpochId::Epoch41).unwrap().start_height,
+            STACKS_EPOCH_MAX
+        );
+        assert_eq!(burnchain.first_block_hash.to_hex(), signet::GENESIS_HASH);
+        Config::assert_valid_epoch_settings(&burnchain, &public.burnchain.get_epoch_list());
+        let explicit_public = signet_config(BurnchainConfigFile {
+            signet_challenge: Some(DEFAULT_SIGNET_CHALLENGE.into()),
+            ..BurnchainConfigFile::default()
+        });
+        assert_eq!(
+            public.burnchain.signet_challenge,
+            Some(signet::parse_challenge(DEFAULT_SIGNET_CHALLENGE).unwrap())
+        );
+        assert_eq!(
+            explicit_public.burnchain.signet_challenge,
+            public.burnchain.signet_challenge
+        );
+        assert_eq!(
+            signet_config(BurnchainConfigFile {
+                signet_challenge: Some("51".into()),
+                ..BurnchainConfigFile::default()
+            })
+            .burnchain
+            .chain_id,
+            CHAIN_ID_SIGNET
+        );
+    }
+
+    /// Validate the shipped templates after supplying the miner's required seed.
+    #[test]
+    fn signet_sample_config() {
+        for (contents, is_miner) in [
+            (
+                include_str!("../../../sample/conf/signet-follower-conf.toml"),
+                false,
+            ),
+            (
+                include_str!("../../../sample/conf/signet-miner-conf.toml"),
+                true,
+            ),
+        ] {
+            let mut file = ConfigFile::from_str(contents).unwrap();
+            if is_miner {
+                let node = file.node.as_mut().unwrap();
+                assert_eq!(node.seed.as_deref(), Some("<YOUR_SEED>"));
+                node.seed = Some("11".repeat(32));
+            }
+            let parsed = Config::from_config_file(file, false).unwrap();
+            assert_eq!(
+                parsed.burnchain.get_bitcoin_network().1,
+                BitcoinNetworkType::Signet
+            );
+            assert_eq!(parsed.burnchain.peer_port, signet::P2P_PORT);
+            assert_eq!(parsed.burnchain.chain_id, CHAIN_ID_SIGNET);
+            assert_eq!(parsed.node.miner, is_miner);
+            if is_miner {
+                assert!(parsed.miner.segwit);
+                assert!(parsed.miner.mining_key.is_some());
+                assert_eq!(
+                    parsed.burnchain.wallet_name.as_deref(),
+                    Some("stacks-signet-miner")
+                );
+            }
+        }
+    }
+
+    /// A public-signet deployment can anchor its chain and epoch schedule after genesis.
+    #[test]
+    fn signet_public_launch_at_nonzero_height() {
+        let anchor_height = 4000u64;
+        // Public signet block 4000, also present in the offline SPV header fixture.
+        let anchor_hash = "000001161700ffd5935f85b23fa160d767e6bd35c563b1b51937e189586a81e8";
+        let anchor_timestamp = 1600572600;
+
+        let epochs = [
+            ("1.0", 0),
+            ("2.0", anchor_height),
+            ("2.05", anchor_height + 1),
+            ("2.1", anchor_height + 2),
+            ("2.2", anchor_height + 3),
+            ("2.3", anchor_height + 4),
+            ("2.4", anchor_height + 5),
+            ("2.5", anchor_height + 6),
+            ("3.0", anchor_height + 42),
+            ("3.1", anchor_height + 43),
+            ("3.2", anchor_height + 44),
+            ("3.3", anchor_height + 45),
+            ("3.4", anchor_height + 46),
+            ("4.0", anchor_height + 62),
+        ];
+
+        let config = signet_config(BurnchainConfigFile {
+            first_burn_block_height: Some(anchor_height),
+            first_burn_block_hash: Some(anchor_hash.into()),
+            first_burn_block_timestamp: Some(anchor_timestamp),
+            epochs: Some(
+                epochs
+                    .into_iter()
+                    .map(|(name, height)| StacksEpochConfigFile {
+                        epoch_name: name.into(),
+                        start_height: i64::try_from(height).unwrap(),
+                    })
+                    .collect(),
+            ),
+            ..BurnchainConfigFile::default()
+        });
+        let burnchain = config.get_burnchain();
+
+        assert_eq!(burnchain.first_block_height, anchor_height);
+        assert_eq!(burnchain.initial_reward_start_block, anchor_height);
+        assert_eq!(burnchain.first_block_hash.to_hex(), anchor_hash);
+        assert_eq!(burnchain.first_block_timestamp, anchor_timestamp);
+        assert_eq!(
+            burnchain.block_height_to_reward_cycle(anchor_height + 42),
+            Some(2)
+        );
+        assert_eq!(
+            burnchain.pox_constants.pox_5_activation_height,
+            (anchor_height + 62) as u32
+        );
+        Config::assert_valid_epoch_settings(&burnchain, &config.burnchain.get_epoch_list());
+    }
+
+    /// A signet-only setting must not silently alter another network.
+    #[test]
+    fn signet_config_rejects_other_modes() {
+        for mode in ["mainnet", "xenon", "neon"] {
+            let file = ConfigFile {
+                burnchain: Some(BurnchainConfigFile {
+                    mode: Some(mode.into()),
+                    signet_challenge: Some("51".into()),
+                    ..BurnchainConfigFile::default()
+                }),
+                ..ConfigFile::default()
+            };
+            assert_eq!(
+                Config::from_config_file(file, false).unwrap_err(),
+                "burnchain.signet_challenge is only valid when burnchain.mode = \"signet\""
+            );
+        }
+    }
+
+    /// TOML signet settings are decoded and resolved into the runtime configuration.
+    #[test]
+    fn signet_config_parses_custom_settings() {
+        let config = utils::config_from_valid_string(
+            r#"
+            [burnchain]
+            mode = "signet"
+            signet_challenge = "51"
+            peer_port = 39333
+            rpc_port = 39332
+            magic_bytes = "Q2"
+            chain_id = 0x80000100
+            "#,
+        );
+        assert_eq!(
+            config.burnchain.get_bitcoin_network().1,
+            BitcoinNetworkType::Signet
+        );
+        assert_eq!(config.burnchain.signet_challenge, Some(vec![0x51]));
+        assert_eq!(config.burnchain.peer_port, 39333);
+        assert_eq!(config.burnchain.rpc_port, 39332);
+        assert_eq!(config.burnchain.magic_bytes.as_bytes(), b"Q2");
+        assert_eq!(config.burnchain.chain_id, 0x80000100);
+    }
+
     #[test]
     fn test_config_file() {
         assert_eq!(
-            format!("Invalid path: No such file or directory (os error 2)"),
+            "Invalid path: No such file or directory (os error 2)".to_string(),
             ConfigFile::from_path("some_path").unwrap_err()
         );
         assert_eq!(
-            format!("Invalid toml: unexpected character found: `/` at line 1 column 1"),
+            "Invalid toml: unexpected character found: `/` at line 1 column 1".to_string(),
             ConfigFile::from_str("//[node]").unwrap_err()
         );
         assert!(ConfigFile::from_str("").is_ok());
@@ -4602,10 +5140,12 @@ mod tests {
     #[test]
     fn test_config() {
         assert_eq!(
-            format!("node.seed should be a hex encoded string"),
+            "node.seed should be a hex encoded string".to_string(),
             Config::from_config_file(
                 ConfigFile::from_str(
                     r#"
+                    [burnchain]
+                    mode = "krypton"
                     [node]
                     seed = "invalid-hex-value"
                     "#,
@@ -4617,10 +5157,12 @@ mod tests {
         );
 
         assert_eq!(
-            format!("node.local_peer_seed should be a hex encoded string"),
+            "node.local_peer_seed should be a hex encoded string".to_string(),
             Config::from_config_file(
                 ConfigFile::from_str(
                     r#"
+                    [burnchain]
+                    mode = "krypton"
                     [node]
                     local_peer_seed = "invalid-hex-value"
                     "#,
@@ -4637,6 +5179,7 @@ mod tests {
             ConfigFile::from_str(
                 r#"
                 [burnchain]
+                mode = "krypton"
                 peer_host = "bitcoin2.blockstack.com"
                 "#,
             )
@@ -4649,7 +5192,295 @@ mod tests {
             &actual_err_msg[..expected_err_prefix.len()]
         );
 
-        assert!(Config::from_config_file(ConfigFile::from_str("").unwrap(), false).is_ok());
+        // An empty config has no `[burnchain] mode`, which is now required.
+        let err = Config::from_config_file(ConfigFile::from_str("").unwrap(), false).unwrap_err();
+        assert!(
+            err.contains("Setting burnchain.mode is required"),
+            "unexpected error: {err}"
+        );
+    }
+
+    #[test]
+    fn test_events_observer_disable_contract_interface_is_per_observer() {
+        let config = utils::config_from_valid_string(
+            r#"
+            [burnchain]
+            mode = "krypton"
+            [[events_observer]]
+            endpoint = "localhost:30000"
+            events_keys = ["*"]
+            disable_contract_interface = true
+            [[events_observer]]
+            endpoint = "localhost:30001"
+            events_keys = ["*"]
+            "#,
+        );
+        let disables_contract_interface = |endpoint: &str| {
+            config
+                .events_observers
+                .iter()
+                .find(|observer| observer.endpoint == endpoint)
+                .unwrap()
+                .disable_contract_interface
+        };
+        assert!(disables_contract_interface("localhost:30000"));
+        assert!(!disables_contract_interface("localhost:30001"));
+    }
+
+    #[test]
+    fn test_wallet_name_is_required_for_real_miners() {
+        for wallet_setting in ["", "wallet_name = \"   \""] {
+            let config = format!(
+                r#"
+                [node]
+                miner = true
+
+                [burnchain]
+                mode = "krypton"
+                {wallet_setting}
+                "#
+            );
+            let err = Config::from_config_file(ConfigFile::from_str(&config).unwrap(), false)
+                .unwrap_err();
+            assert_eq!(
+                err,
+                "Config is missing the setting `burnchain.wallet_name` \
+                 (mandatory and non-empty for miners)"
+            );
+        }
+
+        let named_miner = Config::from_config_file(
+            ConfigFile::from_str(
+                r#"
+                [node]
+                miner = true
+
+                [burnchain]
+                mode = "krypton"
+                wallet_name = "miner-wallet"
+                "#,
+            )
+            .unwrap(),
+            false,
+        )
+        .expect("A real miner with a named wallet should be valid");
+        assert_eq!(
+            named_miner.burnchain.wallet_name.as_deref(),
+            Some("miner-wallet")
+        );
+
+        Config::from_config_file(
+            ConfigFile::from_str(
+                r#"
+                [node]
+                miner = true
+                mock_mining = true
+
+                [burnchain]
+                mode = "krypton"
+                "#,
+            )
+            .unwrap(),
+            false,
+        )
+        .expect("A mock miner does not use wallet RPCs");
+
+        Config::from_config_file(
+            ConfigFile::from_str(
+                r#"
+                [burnchain]
+                mode = "krypton"
+                "#,
+            )
+            .unwrap(),
+            false,
+        )
+        .expect("A follower does not need a wallet");
+    }
+
+    /// Build a miner config with the given `burnchain.wallet_name`.
+    fn config_for_wallet_name(wallet_name: &str) -> Result<Config, String> {
+        let config = format!(
+            r#"
+            [node]
+            miner = true
+
+            [burnchain]
+            mode = "krypton"
+            wallet_name = "{wallet_name}"
+            "#
+        );
+        Config::from_config_file(ConfigFile::from_str(&config).unwrap(), false)
+    }
+
+    // these names do not survive the `/wallet/<name>` request path unchanged,
+    // and would silently route wallet RPCs to a different wallet
+    #[rstest]
+    #[case::embedded_space("my wallet", ' ')]
+    #[case::trailing_space("trailing ", ' ')]
+    #[case::leading_space(" leading", ' ')]
+    #[case::tab("tab\there", '\t')]
+    #[case::query("a?b", '?')]
+    #[case::fragment("a#b", '#')]
+    #[case::percent_escape("a%2Fb", '%')]
+    #[case::colon("wallet:1", ':')]
+    #[case::non_ascii("wallét", 'é')]
+    fn test_wallet_name_rejects_path_unsafe_characters(
+        #[case] wallet_name: &str,
+        #[case] bad: char,
+    ) {
+        let err = config_for_wallet_name(wallet_name).unwrap_err();
+        assert_eq!(
+            err,
+            format!(
+                "Invalid setting `burnchain.wallet_name` (`{wallet_name}`): \
+                 character {bad:?} is not allowed; use ASCII letters, digits, \
+                 `.`, `_`, `-` or `/`"
+            )
+        );
+    }
+
+    #[test]
+    fn test_wallet_name_rejects_parent_dir_traversal() {
+        // `..` is made of allowed characters but is resolved away by path parsing
+        let err = config_for_wallet_name("nested/../escape").unwrap_err();
+        assert_eq!(
+            err,
+            "Invalid setting `burnchain.wallet_name` (`nested/../escape`): `..` is not allowed"
+        );
+    }
+
+    #[rstest]
+    #[case::hyphen("miner-wallet")]
+    #[case::underscore_and_dot("miner_wallet.v2")]
+    #[case::nested_path("nested/miner")]
+    #[case::alphanumeric("w1")]
+    fn test_wallet_name_accepts_path_safe_characters(#[case] wallet_name: &str) {
+        let config = config_for_wallet_name(wallet_name)
+            .unwrap_or_else(|e| panic!("{wallet_name:?} should be valid, got: {e}"));
+        assert_eq!(config.burnchain.wallet_name.as_deref(), Some(wallet_name));
+    }
+
+    // deployment templates (e.g. the helm chart) emit `wallet_name = ""`
+    // unconditionally, so a follower must not be rejected for it
+    #[rstest]
+    #[case::empty("")]
+    #[case::whitespace("   ")]
+    fn test_blank_wallet_name_is_treated_as_unset(#[case] wallet_name: &str) {
+        let config = format!(
+            r#"
+            [burnchain]
+            mode = "krypton"
+            wallet_name = "{wallet_name}"
+            "#
+        );
+        let follower = Config::from_config_file(ConfigFile::from_str(&config).unwrap(), false)
+            .expect("A blank wallet name is unset, which is valid for a follower");
+        assert_eq!(follower.burnchain.wallet_name, None);
+    }
+
+    // a blank name is explicitly unset: the default must not win over it
+    #[rstest]
+    #[case::absent_inherits_default(None, Some("default-wallet"))]
+    #[case::blank_stays_unset(Some("  "), None)]
+    fn test_blank_wallet_name_does_not_fall_back_to_default(
+        #[case] configured: Option<&str>,
+        #[case] expected: Option<&str>,
+    ) {
+        let default_burnchain_config = BurnchainConfig {
+            wallet_name: Some("default-wallet".into()),
+            ..BurnchainConfig::default()
+        };
+
+        let merged = BurnchainConfigFile {
+            mode: Some("krypton".into()),
+            wallet_name: configured.map(String::from),
+            ..BurnchainConfigFile::default()
+        }
+        .into_config_default(default_burnchain_config)
+        .unwrap();
+        assert_eq!(merged.wallet_name.as_deref(), expected);
+    }
+
+    #[test]
+    fn test_stackerdb_chunk_source_logging_config() {
+        let config = utils::config_from_valid_string(
+            r#"
+            [burnchain]
+            mode = "krypton"
+            [node]
+            "#,
+        );
+
+        assert!(config.node.log_stackerdb_chunk_sources);
+        assert!(NodeConfig::default().log_stackerdb_chunk_sources);
+
+        let config = utils::config_from_valid_string(
+            r#"
+            [burnchain]
+            mode = "krypton"
+            [node]
+            log_stackerdb_chunk_sources = false
+            "#,
+        );
+        assert!(!config.node.log_stackerdb_chunk_sources);
+    }
+
+    #[test]
+    fn test_mainnet_rejects_pox_5_admin_overrides() {
+        // A mainnet node may not override the pox-5 bond admin.
+        let err = Config::from_config_file(
+            ConfigFile::from_str(
+                r#"
+                [burnchain]
+                mode = "mainnet"
+                [node]
+                pox_5_bond_admin = "ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM"
+                "#,
+            )
+            .unwrap(),
+            false,
+        )
+        .unwrap_err();
+        assert!(
+            err.contains("`pox_5_bond_admin` set"),
+            "unexpected error: {err}"
+        );
+
+        // Likewise for the pause admin.
+        let err = Config::from_config_file(
+            ConfigFile::from_str(
+                r#"
+                [burnchain]
+                mode = "mainnet"
+                [node]
+                pox_5_pause_admin = "ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM"
+                "#,
+            )
+            .unwrap(),
+            false,
+        )
+        .unwrap_err();
+        assert!(
+            err.contains("`pox_5_pause_admin` set"),
+            "unexpected error: {err}"
+        );
+
+        // The same overrides are accepted on a non-mainnet node.
+        assert!(Config::from_config_file(
+            ConfigFile::from_str(
+                r#"
+                [burnchain]
+                mode = "krypton"
+                [node]
+                pox_5_bond_admin = "ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM"
+                pox_5_pause_admin = "ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM"
+                "#,
+            )
+            .unwrap(),
+            false,
+        )
+        .is_ok());
     }
 
     #[test]
@@ -4841,6 +5672,8 @@ mod tests {
         let config = Config::from_config_file(
             ConfigFile::from_str(
                 r#"
+                [burnchain]
+                mode = "krypton"
                 [connection_options]
                 auth_token = "password"
                 "#,
@@ -4860,12 +5693,11 @@ mod tests {
     fn test_into_config_default_chain_id() {
         // Helper function to create BurnchainConfigFile with mode and optional chain_id
         fn make_burnchain_config_file(mainnet: bool, chain_id: Option<u32>) -> BurnchainConfigFile {
-            let mut config = BurnchainConfigFile::default();
-            if mainnet {
-                config.mode = Some("mainnet".to_string());
+            BurnchainConfigFile {
+                mode: Some(if mainnet { "mainnet" } else { "krypton" }.to_string()),
+                chain_id,
+                ..BurnchainConfigFile::default()
             }
-            config.chain_id = chain_id;
-            config
         }
         let default_burnchain_config = BurnchainConfig::default();
 
@@ -4923,42 +5755,58 @@ mod tests {
         }
     }
 
+    /// Network profiles select independent chain identities without changing other defaults.
+    #[test]
+    fn test_network_identity_defaults() {
+        for (mode, chain_id, peer_version) in [
+            ("mainnet", CHAIN_ID_MAINNET, PEER_VERSION_MAINNET),
+            ("xenon", CHAIN_ID_TESTNET, PEER_VERSION_TESTNET),
+            ("krypton", CHAIN_ID_TESTNET, PEER_VERSION_TESTNET),
+            ("signet", CHAIN_ID_SIGNET, PEER_VERSION_TESTNET),
+        ] {
+            let config = BurnchainConfigFile {
+                mode: Some(mode.into()),
+                ..Default::default()
+            }
+            .into_config_default(BurnchainConfig::default())
+            .unwrap();
+            assert_eq!(config.chain_id, chain_id, "{mode}");
+            assert_eq!(config.peer_version, peer_version, "{mode}");
+        }
+    }
+
     #[test]
     fn test_load_node_marf_config() {
         // Check MARF defaults
         let config = utils::config_from_valid_string(
             r#"
+                [burnchain]
+                mode = "krypton"
                 [node]
                 "#,
         );
 
-        assert_eq!(None, config.node.marf_cache_strategy, "default cache");
-        assert_eq!(
-            true, config.node.marf_defer_hashing,
-            "default defer hashing"
-        );
-        assert_eq!(true, config.node.marf_compress, "default compress");
+        assert!(config.node.marf_defer_hashing, "default defer hashing");
+        assert!(config.node.marf_compress, "default compress");
 
         let cfg_opts = config.node.get_marf_opts();
-        assert_eq!("noop", cfg_opts.cache_strategy, "default cache opt");
         assert_eq!(
             TrieHashCalculationMode::Deferred,
             cfg_opts.hash_calculation_mode,
             "default defer hashing opt"
         );
-        assert_eq!(true, cfg_opts.compress, "default compress opt");
-        assert_eq!(
-            false, cfg_opts.external_blobs,
-            "internal default blob setting"
-        );
-        assert_eq!(
-            false, cfg_opts.force_db_migrate,
+        assert!(cfg_opts.compress, "default compress opt");
+        assert!(!cfg_opts.external_blobs, "internal default blob setting");
+        assert!(
+            !cfg_opts.force_db_migrate,
             "internal default migrate setting"
         );
 
         // Check MARF full config
         let config = utils::config_from_valid_string(
             r#"
+                [burnchain]
+                mode = "krypton"
                 [node]
                 marf_cache_strategy = "everything"
                 marf_defer_hashing = false
@@ -4966,35 +5814,220 @@ mod tests {
                 "#,
         );
 
-        assert_eq!(
-            Some("everything".to_string()),
-            config.node.marf_cache_strategy,
-            "configured cache"
-        );
-        assert_eq!(
-            false, config.node.marf_defer_hashing,
-            "configured defer hashing"
-        );
-        assert_eq!(false, config.node.marf_compress, "configured compress");
+        assert!(!config.node.marf_defer_hashing, "configured defer hashing");
+        assert!(!config.node.marf_compress, "configured compress");
 
         let cfg_opts = config.node.get_marf_opts();
-        assert_eq!(
-            "everything", cfg_opts.cache_strategy,
-            "configured cache opt"
-        );
         assert_eq!(
             TrieHashCalculationMode::Immediate,
             cfg_opts.hash_calculation_mode,
             "configured hash opt"
         );
-        assert_eq!(false, cfg_opts.compress, "configured compress opt");
-        assert_eq!(
-            false, cfg_opts.external_blobs,
-            "internal default blob setting"
-        );
-        assert_eq!(
-            false, cfg_opts.force_db_migrate,
+        assert!(!cfg_opts.compress, "configured compress opt");
+        assert!(!cfg_opts.external_blobs, "internal default blob setting");
+        assert!(
+            !cfg_opts.force_db_migrate,
             "internal default migrate setting"
         );
+    }
+
+    #[test]
+    fn test_burnchain_mode_required() {
+        // No `[burnchain]` section at all is rejected.
+        let err = Config::from_config_file(
+            ConfigFile::from_str(
+                r#"
+                [node]
+                "#,
+            )
+            .unwrap(),
+            false,
+        )
+        .unwrap_err();
+        assert!(
+            err.contains("Setting burnchain.mode is required"),
+            "unexpected error: {err}"
+        );
+
+        // `[burnchain]` present but without `mode` is also rejected.
+        let err = Config::from_config_file(
+            ConfigFile::from_str(
+                r#"
+                [burnchain]
+                peer_host = "localhost"
+                "#,
+            )
+            .unwrap(),
+            false,
+        )
+        .unwrap_err();
+        assert!(
+            err.contains("Setting burnchain.mode is required"),
+            "unexpected error: {err}"
+        );
+
+        // With an explicit `mode`, the config parses.
+        let config = Config::from_config_file(
+            ConfigFile::from_str(
+                r#"
+                [burnchain]
+                mode = "krypton"
+                "#,
+            )
+            .unwrap(),
+            false,
+        )
+        .expect("config with explicit burnchain.mode should parse");
+        assert_eq!(config.burnchain.mode, "krypton");
+    }
+
+    /// Modes without a run loop fail config validation instead of panicking in
+    /// `get_bitcoin_network()` or exiting at startup.
+    #[test]
+    fn test_burnchain_mode_unsupported() {
+        for mode in ["mocknet", "argon", "helium"] {
+            let err = Config::from_config_file(
+                ConfigFile::from_str(&format!("[burnchain]\nmode = \"{mode}\"")).unwrap(),
+                false,
+            )
+            .unwrap_err();
+            assert!(
+                err.starts_with(&format!(
+                    "Setting burnchain.mode = \"{mode}\" not supported"
+                )),
+                "unexpected error: {err}"
+            );
+        }
+    }
+
+    #[test]
+    fn test_load_push_bandwidth_fields_config() {
+        // check defaults for omitted fields
+        let config = utils::config_from_valid_string(
+            r#"
+            [burnchain]
+            mode = "krypton"
+            "#,
+        );
+        assert_eq!(0, config.connection_options.max_transaction_push_bandwidth,);
+        assert_eq!(
+            MB!(4),
+            config.connection_options.max_stackerdb_push_bandwidth,
+        );
+        assert_eq!(
+            0,
+            config.connection_options.max_nakamoto_block_push_bandwidth,
+        );
+
+        // Check values for configured fields
+        let config = utils::config_from_valid_string(
+            r#"
+            [burnchain]
+            mode = "krypton"
+            [connection_options]
+            max_transaction_push_bandwidth = 10
+            max_stackerdb_push_bandwidth = 20
+            max_nakamoto_block_push_bandwidth = 30
+            "#,
+        );
+        assert_eq!(10, config.connection_options.max_transaction_push_bandwidth,);
+        assert_eq!(20, config.connection_options.max_stackerdb_push_bandwidth,);
+        assert_eq!(
+            30,
+            config.connection_options.max_nakamoto_block_push_bandwidth,
+        );
+    }
+
+    /// There are three different ways to start a node with a default config:
+    ///
+    /// - via `stacks-node mainnet`
+    /// - via `stacks-node start --config for/bar/baz.toml`, where the config
+    ///   file is largely empty
+    /// - same as the previous, but the config file also contains empty [sections]
+    ///
+    /// This tests asserts that they all yield the same configuration (with the
+    /// exception of one documented consequence of having a [miner] section).
+    ///
+    /// This is necessary because the situations take different codepaths. In fact
+    /// this test is a regression test for a bug where the default
+    /// `private_neighbours` setting was `false` if there was a [connection_options]
+    /// section, even if empty, and `true` if not.
+    #[test]
+    fn test_mainnet_config_equivalences() {
+        // These three settings get random values if unspecified. Fix them
+        // to make sure they're always the same.
+        let working_dir = "/path/to/chainstate";
+        let seed = "d6f382770fde6b5563afadab79d1a7aa548e15dd2a171152131765df605ab035";
+        let local_peer_seed = "9daf9eb08d7fff77ef22a9155fa2a9695ba33f1c9aacdc45e28f54138179e7d5";
+
+        // Create the default mainnet config, as happens when you run `stacks-node mainnet`
+        let mut default_file = ConfigFile::mainnet();
+        let Some(node) = default_file.node.as_mut() else {
+            panic!("node section must exist");
+        };
+        node.working_dir = Some(working_dir.to_string());
+        node.seed = Some(seed.to_string());
+        node.local_peer_seed = Some(local_peer_seed.to_string());
+        let default_config =
+            Config::from_config_file(default_file, true).expect("config should be valid");
+
+        // Create a Config from a barebones config toml
+        let base_toml = format!(
+            r#"
+                [node]
+                working_dir = "{working_dir}"
+                seed = "{seed}"
+                local_peer_seed = "{local_peer_seed}"
+
+                [burnchain]
+                mode = "mainnet"
+            "#
+        );
+
+        let base_config = build_config_from_toml(&base_toml);
+
+        assert_eq!(
+            base_config, default_config,
+            "barebones config toml should yield the default config"
+        );
+
+        // This closure adds an empty section of the given name. This should not
+        // change anything, because it should use the same default values, with
+        // the exception of the documented difference for the [miner] section.
+        let assert_empty_section_makes_no_difference = |section: &str| {
+            let modified_toml = format!(
+                r#"{base_toml}
+                [{section}]
+            "#
+            );
+            let mut modified_config = build_config_from_toml(&modified_toml);
+
+            if section == "miner" {
+                // These two are expected to be different based on the presence of the
+                // miner section, even if empty (see documentation of `mining_key`).
+                // Therefore we assert the expected values, and then set them back
+                // to the default values for the comparison.
+                assert!(modified_config.miner.mining_key.is_some());
+                modified_config.miner.mining_key = None;
+
+                assert!(modified_config.miner.pre_nakamoto_mock_signing);
+                modified_config.miner.pre_nakamoto_mock_signing = false;
+            }
+
+            assert_eq!(
+                base_config, modified_config,
+                "adding an empty [{section}] section should not change the generated config"
+            );
+        };
+
+        assert_empty_section_makes_no_difference("connection_options");
+        assert_empty_section_makes_no_difference("fee_estimation");
+        assert_empty_section_makes_no_difference("miner");
+        assert_empty_section_makes_no_difference("atlas");
+    }
+
+    fn build_config_from_toml(s: &str) -> super::Config {
+        let config_file = super::ConfigFile::from_str(s).expect("config toml should be valid");
+        Config::from_config_file(config_file, true).expect("config should be valid")
     }
 }

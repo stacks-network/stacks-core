@@ -43,10 +43,6 @@ pub enum CostErrors {
     /// The `String` wraps the specific reason for the failure.
     /// Invalidates Block: false.
     CostComputationFailed(String),
-    // Time checker errors
-    /// Type-checking time exceeds the allowed budget, halting analysis to ensure responsiveness.
-    /// Invalidates Block: true.
-    ExecutionTimeExpired,
     /// Unexpected condition or failure, indicating a bug or invalid state.
     /// Invalidates Block: true.
     InterpreterFailure,
@@ -69,7 +65,6 @@ impl fmt::Display for CostErrors {
             CostErrors::CostContractLoadFailure => write!(f, "Failed to load cost contract"),
             CostErrors::InterpreterFailure => write!(f, "Interpreter failure"),
             CostErrors::Expect(s) => write!(f, "Expectation failed: {s}"),
-            CostErrors::ExecutionTimeExpired => write!(f, "Execution time expired"),
         }
     }
 }

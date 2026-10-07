@@ -35,7 +35,9 @@ use crate::chainstate::stacks::db::StacksChainState;
 use crate::chainstate::stacks::index::marf::MARFOpenOpts;
 use crate::chainstate::stacks::index::storage::TrieHashCalculationMode;
 use crate::chainstate::stacks::index::ClarityMarfTrieId;
-use crate::chainstate::stacks::miner::{BlockBuilder, BlockLimitFunction, TransactionResult};
+use crate::chainstate::stacks::miner::{
+    BlockBuilder, BlockLimitFunction, TransactionResourceBudgets, TransactionResult,
+};
 use crate::chainstate::stacks::{
     StacksTransaction, StacksTransactionSigner, TransactionAnchorMode, TransactionAuth,
     TransactionContractCall, TransactionPayload, TransactionPostConditionMode,
@@ -54,9 +56,9 @@ use crate::util_lib::strings::StacksString;
 /// MARF.
 /// * Verify that keys inserted into the ephemeral MARF land in the RAM-backed MARF
 /// * Verify that the ephemeral MARF store can read all keys inserted into the RAM-backed MARF, as
-/// well as all keys in the disk-backed MARF.
+///   well as all keys in the disk-backed MARF.
 /// * Verify that discarding the ephemeral MARF store leaves the disk-backed MARF unaltered (no new
-/// keys)
+///   keys)
 #[test]
 fn test_ephemeral_marf_store() {
     let path = format!("/tmp/{}.marf", function_name!());
@@ -67,11 +69,7 @@ fn test_ephemeral_marf_store() {
     let mut marfed_kv = MarfedKV::open(
         &path,
         None,
-        Some(MARFOpenOpts::new(
-            TrieHashCalculationMode::Deferred,
-            "noop",
-            false,
-        )),
+        Some(MARFOpenOpts::new(TrieHashCalculationMode::Deferred, false)),
     )
     .unwrap();
 
@@ -100,9 +98,8 @@ fn test_ephemeral_marf_store() {
     for (i, block_id) in blocks.iter().enumerate() {
         debug!("readonly: open block #{}: {}", i, block_id);
         let mut marf_ro = marfed_kv.begin_read_only(Some(block_id));
-        for j in 0..=i {
+        for keys_and_values in &block_data[..i + 1] {
             // all values up to those inserted in the block with this ID are present
-            let keys_and_values = &block_data[j];
             for (key, expected_value) in keys_and_values.iter() {
                 let value = marf_ro.get_data(key).unwrap().unwrap();
                 assert_eq!(expected_value, &value);
@@ -112,9 +109,8 @@ fn test_ephemeral_marf_store() {
                 );
             }
         }
-        for j in i + 1..blocks.len() {
+        for keys_and_values in block_data[..blocks.len()].iter().skip(i + 1) {
             // all values afterwards are not present
-            let keys_and_values = &block_data[j];
             for (key, _) in keys_and_values.iter() {
                 assert!(marf_ro.get_data(key).unwrap().is_none());
                 debug!("readonly: at block #{} {}: {} not mapped", i, block_id, key);
@@ -131,12 +127,9 @@ fn test_ephemeral_marf_store() {
         }
         debug!("ephemeral: open block #{}: {}", i, block_id);
         let ephemeral_tip = StacksBlockId([0xf0; 32]);
-        let mut marf_ephemeral = marfed_kv
-            .begin_ephemeral(&block_id, &ephemeral_tip)
-            .unwrap();
-        for j in 0..=i {
+        let mut marf_ephemeral = marfed_kv.begin_ephemeral(block_id, &ephemeral_tip).unwrap();
+        for keys_and_values in &block_data[..i + 1] {
             // all values up to those inserted in the block with this ID are present
-            let keys_and_values = &block_data[j];
             for (key, expected_value) in keys_and_values.iter() {
                 let value = marf_ephemeral.get_data(key).unwrap().unwrap();
                 assert_eq!(expected_value, &value);
@@ -146,9 +139,8 @@ fn test_ephemeral_marf_store() {
                 );
             }
         }
-        for j in i + 1..blocks.len() {
+        for keys_and_values in block_data[..blocks.len()].iter().skip(i + 1) {
             // all values afterwards are not present
-            let keys_and_values = &block_data[j];
             for (key, _) in keys_and_values.iter() {
                 assert!(marf_ephemeral.get_data(key).unwrap().is_none());
                 debug!(
@@ -181,9 +173,7 @@ fn test_ephemeral_marf_store() {
             "ephemeral: open block #{}: {} --> {}",
             i, block_id, &ephemeral_tip
         );
-        let mut marf_ephemeral = marfed_kv
-            .begin_ephemeral(&block_id, &ephemeral_tip)
-            .unwrap();
+        let mut marf_ephemeral = marfed_kv.begin_ephemeral(block_id, &ephemeral_tip).unwrap();
         marf_ephemeral
             .put_all_data(keys_and_values.clone())
             .unwrap();
@@ -199,9 +189,8 @@ fn test_ephemeral_marf_store() {
         }
 
         // can read back all disk-backed data represented up to the base_tip
-        for j in 0..=i {
+        for keys_and_values in &block_data[..i + 1] {
             // all values up to those inserted in the block with this ID are present
-            let keys_and_values = &block_data[j];
             for (key, expected_value) in keys_and_values.iter() {
                 let value = marf_ephemeral.get_data(key).unwrap().unwrap();
                 assert_eq!(expected_value, &value);
@@ -213,9 +202,8 @@ fn test_ephemeral_marf_store() {
         }
 
         // cannot read data beyond the base tip
-        for j in i + 1..blocks.len() {
+        for keys_and_values in block_data[..blocks.len()].iter().skip(i + 1) {
             // all values afterwards are not present
-            let keys_and_values = &block_data[j];
             for (key, _) in keys_and_values.iter() {
                 assert!(marf_ephemeral.get_data(key).unwrap().is_none());
                 debug!(
@@ -226,11 +214,8 @@ fn test_ephemeral_marf_store() {
         }
 
         // can read all ephemeral values and all disk-backed values up to base_tip in random order
-        let mut all_keys_and_values: Vec<(String, String)> = block_data[0..=i]
-            .iter()
-            .map(|keys_and_values| keys_and_values.clone())
-            .flatten()
-            .collect();
+        let mut all_keys_and_values: Vec<(String, String)> =
+            block_data[0..=i].iter().flatten().cloned().collect();
 
         all_keys_and_values.append(&mut keys_and_values.clone());
         all_keys_and_values.shuffle(&mut thread_rng());
@@ -249,9 +234,7 @@ fn test_ephemeral_marf_store() {
             .unwrap();
 
         // data is _not_ persisted
-        let mut marf_ephemeral = marfed_kv
-            .begin_ephemeral(&block_id, &ephemeral_tip)
-            .unwrap();
+        let mut marf_ephemeral = marfed_kv.begin_ephemeral(block_id, &ephemeral_tip).unwrap();
         for (key, _) in keys_and_values.iter() {
             assert!(marf_ephemeral.get_data(key).unwrap().is_none());
             debug!(
@@ -261,9 +244,8 @@ fn test_ephemeral_marf_store() {
         }
 
         // can still read back all disk-backed data represented up to the base_tip
-        for j in 0..=i {
+        for keys_and_values in &block_data[..i + 1] {
             // all values up to those inserted in the block with this ID are present
-            let keys_and_values = &block_data[j];
             for (key, expected_value) in keys_and_values.iter() {
                 let value = marf_ephemeral.get_data(key).unwrap().unwrap();
                 assert_eq!(expected_value, &value);
@@ -275,9 +257,8 @@ fn test_ephemeral_marf_store() {
         }
 
         // cannot still read data beyond the base tip
-        for j in i + 1..blocks.len() {
+        for keys_and_values in block_data[..blocks.len()].iter().skip(i + 1) {
             // all values afterwards are not present
-            let keys_and_values = &block_data[j];
             for (key, _) in keys_and_values.iter() {
                 assert!(marf_ephemeral.get_data(key).unwrap().is_none());
                 debug!(
@@ -332,9 +313,9 @@ fn replay_block(
         .iter()
         .find(|tx| matches!(tx.payload, TransactionPayload::Coinbase(..)));
     let tenure_cause = tenure_change
-        .and_then(|tx| match &tx.payload {
-            TransactionPayload::TenureChange(tc) => Some(MinerTenureInfoCause::from(tc.cause)),
-            _ => Some(MinerTenureInfoCause::NoTenureChange),
+        .map(|tx| match &tx.payload {
+            TransactionPayload::TenureChange(tc) => MinerTenureInfoCause::from(tc.cause),
+            _ => MinerTenureInfoCause::NoTenureChange,
         })
         .unwrap_or(MinerTenureInfoCause::NoTenureChange);
 
@@ -348,7 +329,7 @@ fn replay_block(
         None,
         Some(100),
         Some(original_block.header.timestamp),
-        u64::from(DEFAULT_MAX_TENURE_BYTES),
+        DEFAULT_MAX_TENURE_BYTES,
     )
     .unwrap();
 
@@ -369,7 +350,7 @@ fn replay_block(
             tx,
             tx_len,
             &BlockLimitFunction::NO_LIMIT_HIT,
-            None,
+            &TransactionResourceBudgets::unlimited(),
             &mut total_receipts,
         );
         let err = match &tx_result {
@@ -653,7 +634,7 @@ fn test_ephemeral_nakamoto_block_replay_smart_contract() {
         let smart_contract_payload = TransactionPayload::SmartContract(
             TransactionSmartContract {
                 name: ContractName::try_from("test-clarity-db").unwrap(),
-                code_body: StacksString::from_str(&code_body).expect("FATAL: invalid code body"),
+                code_body: StacksString::from_str(code_body).expect("FATAL: invalid code body"),
             },
             None,
         );
@@ -670,9 +651,8 @@ fn test_ephemeral_nakamoto_block_replay_smart_contract() {
 
         let mut tx_signer = StacksTransactionSigner::new(&smart_contract);
         tx_signer.sign_origin(&private_key).unwrap();
-        let smart_contract_signed = tx_signer.get_tx().unwrap();
 
-        smart_contract_signed
+        tx_signer.get_tx().unwrap()
     };
 
     let mut sender_nonce = 1;
@@ -696,9 +676,8 @@ fn test_ephemeral_nakamoto_block_replay_smart_contract() {
 
         let mut tx_signer = StacksTransactionSigner::new(&cc);
         tx_signer.sign_origin(&private_key).unwrap();
-        let cc_signed = tx_signer.get_tx().unwrap();
 
-        cc_signed
+        tx_signer.get_tx().unwrap()
     };
 
     let mut boot_tenures = vec![];
@@ -759,8 +738,7 @@ fn test_ephemeral_nakamoto_block_replay_smart_contract() {
         all_nakamoto_blocks.append(&mut nakamoto_blocks);
     }
 
-    all_nakamoto_blocks
-        .sort_by(|blk1, blk2| blk1.header.chain_length.cmp(&blk2.header.chain_length));
+    all_nakamoto_blocks.sort_by_key(|blk1| blk1.header.chain_length);
 
     for naka_block in all_nakamoto_blocks {
         replay_block(&sortdb, &mut stacks_node.chainstate, naka_block, &observer);
@@ -779,11 +757,7 @@ fn prop_ephemeral_tip_height_matches_current() {
         let mut marfed_kv = MarfedKV::open(
             &path,
             None,
-            Some(MARFOpenOpts::new(
-                TrieHashCalculationMode::Deferred,
-                "noop",
-                false,
-            )),
+            Some(MARFOpenOpts::new(TrieHashCalculationMode::Deferred, false)),
         )
         .unwrap();
 

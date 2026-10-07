@@ -1,43 +1,42 @@
 ---
 source: stackslib/src/chainstate/tests/consensus.rs
-expression: result
-snapshot_kind: text
+expression: result.get_expected_results()
 ---
 [
   Failure(ExpectedFailureOutput(
     evaluated_epoch: Epoch20,
-    error: "Invalid Stacks block 2497a74a4c083ae8dd1a5a19e2561ad0057ae0076673f84a9820d9ac17e298f8: ClarityError(Interpreter(Internal(DBError(\"Deserialization expected the type of the input to be: (tuple (a int))\"))))",
+    error: "Invalid Stacks block 6a3b9f724e26ba97721b4aec787c4d0821e9492f4b094acdf3c061fc84e6872d: ClarityError(Interpreter(Internal(DBError(\"Deserialization expected the type of the input to be: (tuple (a int))\"))))",
   )),
   Failure(ExpectedFailureOutput(
     evaluated_epoch: Epoch2_05,
-    error: "Invalid Stacks block d969ebbca482ca8174ff579a5330d6efa521b9202b020da14b29df59cec96539: ClarityError(Interpreter(Internal(DBError(\"Deserialization expected the type of the input to be: (tuple (a int))\"))))",
+    error: "Invalid Stacks block b4b247ba3e967babcaac0451d9266f31654e6786963272c8bb8bc514b66f53bc: ClarityError(Interpreter(Internal(DBError(\"Deserialization expected the type of the input to be: (tuple (a int))\"))))",
   )),
   Failure(ExpectedFailureOutput(
     evaluated_epoch: Epoch21,
-    error: "Invalid Stacks block fb2598cd40d6303df9e62dc3a4f7619c30e170237f5e06417c1ca712d194c640: ClarityError(Interpreter(Internal(DBError(\"Deserialization expected the type of the input to be: (tuple (a int))\"))))",
+    error: "Invalid Stacks block 848dd2ea113c52e2d3a626d09b9a4ec3658b7f024adbc5b0fad136857a5e934b: ClarityError(Interpreter(Internal(DBError(\"Deserialization expected the type of the input to be: (tuple (a int))\"))))",
   )),
   Failure(ExpectedFailureOutput(
     evaluated_epoch: Epoch21,
-    error: "Invalid Stacks block 9583f08764512b94407d233c838ba832f66639d6b6bfa7d9e648148b8378df60: ClarityError(Interpreter(Internal(DBError(\"Deserialization expected the type of the input to be: (tuple (a int))\"))))",
+    error: "Invalid Stacks block 6e3283157224402160e39fa42c7a7ade018fa619835582cea2a0881daeeb3bbf: ClarityError(Interpreter(Internal(DBError(\"Deserialization expected the type of the input to be: (tuple (a int))\"))))",
   )),
   Failure(ExpectedFailureOutput(
     evaluated_epoch: Epoch22,
-    error: "Invalid Stacks block 212168190ba63dea87a7be8ceb749a06be51fb6b21005afe53d632d5772d24f7: ClarityError(Interpreter(Internal(DBError(\"Deserialization expected the type of the input to be: (tuple (a int))\"))))",
+    error: "Invalid Stacks block 959420ced698d49c96db58c8a16faf949f30c7fbecc714e46d1cd702f81e9fe4: ClarityError(Interpreter(Internal(DBError(\"Deserialization expected the type of the input to be: (tuple (a int))\"))))",
   )),
   Failure(ExpectedFailureOutput(
     evaluated_epoch: Epoch22,
-    error: "Invalid Stacks block e955c75c1fadfd9865dc552bf7b2200b00c331b9936ed5fa434d1f0a74162664: ClarityError(Interpreter(Internal(DBError(\"Deserialization expected the type of the input to be: (tuple (a int))\"))))",
+    error: "Invalid Stacks block ddec42056d5bd65c47043cc66f551ef84109268b287e02b2cc21358bc1263c9e: ClarityError(Interpreter(Internal(DBError(\"Deserialization expected the type of the input to be: (tuple (a int))\"))))",
   )),
   Failure(ExpectedFailureOutput(
     evaluated_epoch: Epoch23,
-    error: "Invalid Stacks block 74548b77eee036e12742b2a6eed2cedc4bd7703ea19b9a00d4e02c56d09d18ab: ClarityError(Interpreter(Internal(DBError(\"Deserialization expected the type of the input to be: (tuple (a int))\"))))",
+    error: "Invalid Stacks block 877da70fddbb6c7c3394fd9211c20fb1e58d385801bb1e778dcd0b4327862433: ClarityError(Interpreter(Internal(DBError(\"Deserialization expected the type of the input to be: (tuple (a int))\"))))",
   )),
   Failure(ExpectedFailureOutput(
     evaluated_epoch: Epoch23,
-    error: "Invalid Stacks block cccc271c245f1a9c46ec752b9300ceb2ad90794665b075b6fce46da905b219b6: ClarityError(Interpreter(Internal(DBError(\"Deserialization expected the type of the input to be: (tuple (a int))\"))))",
+    error: "Invalid Stacks block d3131b96160edbac2dd3ac3c2fc4fc7bccdecb82579d556e2a26f2eac72f0110: ClarityError(Interpreter(Internal(DBError(\"Deserialization expected the type of the input to be: (tuple (a int))\"))))",
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "a4991f7925480baa821e38d10b035a4d9614f3203095057bca1c32e84fe650e1",
+    marf_hash: "37d7a06463528d44a5620357b3364f999362b0adfefa23942abd3f2902a5f602",
     evaluated_epoch: Epoch24,
     transactions: [
       ExpectedTransactionOutput(
@@ -65,7 +64,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "1120fefad29bb7d62644e74b68a22ec17fe04338f450a88b2445ba73ae3f5ee6",
+    marf_hash: "5486159b03baf7f95f9a9cff7231c0ca9220361538bab39d39eb9d759a240aa1",
     evaluated_epoch: Epoch24,
     transactions: [
       ExpectedTransactionOutput(
@@ -93,7 +92,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "fd1c6bd8941c18ff431cbbc965087790a12fe09f82fa42e450e7055b178a6b3e",
+    marf_hash: "ed07624daee0d5a05cf3ab7299bf58cb4418cdd17a0a1307f991f3eec402dacd",
     evaluated_epoch: Epoch25,
     transactions: [
       ExpectedTransactionOutput(
@@ -121,7 +120,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "dce7c156df1d3e16662f6e2b52b28773fbfd1bf95bbd88864a5e719c776fb293",
+    marf_hash: "b65ee009eacf403b9c3fd5b4dd7531636a6f2d216680054f8e6ff3d8e12d2719",
     evaluated_epoch: Epoch25,
     transactions: [
       ExpectedTransactionOutput(
@@ -149,7 +148,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "ad7271c404b353e6b558dc911d7879d82d8309979724bfa148b2fbaba9a85e3e",
+    marf_hash: "b444b3342c83f58e16db9bf8a81a5f6670c7461832f41d22ffa28b2409f24f40",
     evaluated_epoch: Epoch30,
     transactions: [
       ExpectedTransactionOutput(
@@ -177,7 +176,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "796d6a4c244414a13a7cd8dc2d749df4fc504e9165b8d1a3891f8de98d0fb671",
+    marf_hash: "50651e257564a9d54e8619694b7e992a557c46d92b35eb2e5c9731acc196b75b",
     evaluated_epoch: Epoch30,
     transactions: [
       ExpectedTransactionOutput(
@@ -205,7 +204,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "5ee50acfabbb2cf959a8e3d8f37ff9aa719a8ebb8592786da0cea36adc6c7deb",
+    marf_hash: "6c3e530e842024527ad0e71df1a812324f873c5dd3f7b28e21e07af6fb4de260",
     evaluated_epoch: Epoch30,
     transactions: [
       ExpectedTransactionOutput(
@@ -233,7 +232,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "eaa8f974803421b89992e354a92afc746ff01ca5432564f57a0f365918b885b9",
+    marf_hash: "5f2a90ca99512f5dab76ba97d180c6fd8840368f04a39e6b46a356913747c726",
     evaluated_epoch: Epoch31,
     transactions: [
       ExpectedTransactionOutput(
@@ -261,7 +260,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "43f041f990eb0b8a00fa8648d16701ecc2cf87ef5d8e45ac1c9605f8fcce4f0a",
+    marf_hash: "f1c741d0ce928d6791f20c2cc25311914e97bff62c3b916621ea373e3c4418cf",
     evaluated_epoch: Epoch31,
     transactions: [
       ExpectedTransactionOutput(
@@ -289,7 +288,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "a904de956aaca4fe1cf2f399d6f581346111552f4ebf98b0f650bca47405ff4d",
+    marf_hash: "eb2edc6a50410453eec3e478a93011b8fb730eb4aa8e36bf84778075e684da3f",
     evaluated_epoch: Epoch31,
     transactions: [
       ExpectedTransactionOutput(
@@ -317,7 +316,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "dfce82f2740eca1880791ff5c3dd5e19e693233360566c8312ec9e4ea03a0d9a",
+    marf_hash: "3a5ddc4f9e5c21d8deb5f4daa660b216101e5308c9a15acf78de60245ee6f441",
     evaluated_epoch: Epoch32,
     transactions: [
       ExpectedTransactionOutput(
@@ -345,7 +344,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "de8595a71de0a611c134b94dce24b367c55a94dc61d82a1ee5d12f4fe64952f0",
+    marf_hash: "15cfa272cc5f0e623ea192f1439a28157451397d3a3d7bc94e0b205ac35c42b5",
     evaluated_epoch: Epoch32,
     transactions: [
       ExpectedTransactionOutput(
@@ -373,7 +372,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "1f04f7e7e2cc382e5610f0f8e7a1906c0187df5e038a9ec61b5705dbeeadd2e2",
+    marf_hash: "f469e1915443d368b377edadb9a4f73b6163c6b30ac78bc18d505f212b91de5b",
     evaluated_epoch: Epoch32,
     transactions: [
       ExpectedTransactionOutput(
@@ -401,7 +400,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "f8154215c1f1e3a1daa951061ba9ebbba42c9eef9427a78cc339c49b8953d4a4",
+    marf_hash: "12ea8a4b06661cc7dd11eec2d1ecae2a7e17406075ca4b1e9ea142492836acca",
     evaluated_epoch: Epoch33,
     transactions: [
       ExpectedTransactionOutput(
@@ -429,7 +428,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "a8c36678342cc1449cce9543b9d77fedf860cb36130a6a7eadd1aa8b65943417",
+    marf_hash: "0990a9e8220a73700bb93b6a2a2a9af5df095244ff39ba03148908a0934b7d1b",
     evaluated_epoch: Epoch33,
     transactions: [
       ExpectedTransactionOutput(
@@ -457,7 +456,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "4aaf36dd58f0f250301f90068392d3c5e50e5e910466f17486a8abe97303990e",
+    marf_hash: "e36d998ea482896e4b1beefff385fbca731beb2ecccfdd5ecc7f33389c952eec",
     evaluated_epoch: Epoch33,
     transactions: [
       ExpectedTransactionOutput(
@@ -485,7 +484,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "32ebc3a53b62e74fd955e372a4527179f41639f7ae53cfef12b84c23de79ef94",
+    marf_hash: "461f7ede34f2c42950414d12379264ed20b6815fca52faa23874b82c21ee28c0",
     evaluated_epoch: Epoch33,
     transactions: [
       ExpectedTransactionOutput(
@@ -513,7 +512,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "db0f49d28bf90ff4b671009f30d8c6dc8bb195aa2991f96f7ede66b08e39504f",
+    marf_hash: "6c258feb6449ab34c6a2f09921930085b4664191025da62c4aef2dda811333e3",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -541,7 +540,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "219960cfa8ec4f1cacdb21602bf86ff5b5d36a087770ae33169aed5377d31f11",
+    marf_hash: "b357fa5b668911af060abbe6379d105692c7d48e071e5a43e378133be2e00e93",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -569,7 +568,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "97733e990fd610218c2f739f8c0cdcb72960b4341fb47e38cd02d0ddb3dba9df",
+    marf_hash: "ef9ec5dfbab9395cbea37b48387c151230461bf82c5dd34e28c5245fb4c873bb",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -597,7 +596,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "b996e07ae54d6cb94a994a4c3a81970780adf8e71c37e2f38024d8b4a7de3a0f",
+    marf_hash: "65bedbad0988d3ad7f5f7a76f5ae0779f2e6fd8654e8fbbfbe6d5d7839c0e3fe",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -625,7 +624,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "c150db20aa404b784d9585ae24463bd717966176ec3bc1db1ceaf35978a62bfb",
+    marf_hash: "72ad286ccc2b53a5bf4ee4c07f629b7b4352112af307b13c43ea5c7545c4a906",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -650,6 +649,174 @@ snapshot_kind: text
       read_length: 85,
       read_count: 4,
       runtime: 40472,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "23e94eca704c657ccb095bb325d2576f836c5d19b02196ef4d4bbde9258898f4",
+    evaluated_epoch: Epoch40,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: problematic-Epoch4_0-Clarity1, code_body: [..], clarity_version: Some(Clarity1))",
+        vm_error: "None [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: true,
+          data: Bool(true),
+        )),
+        cost: ExecutionCost(
+          write_length: 581,
+          write_count: 5,
+          read_length: 85,
+          read_count: 4,
+          runtime: 25027,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 581,
+      write_count: 5,
+      read_length: 85,
+      read_count: 4,
+      runtime: 25027,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "a29209284c5a86bbdf7311cb719cfa36559dbfa6afdaef43bb2c4d766cf27b49",
+    evaluated_epoch: Epoch40,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: problematic-Epoch4_0-Clarity2, code_body: [..], clarity_version: Some(Clarity2))",
+        vm_error: "None [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: true,
+          data: Bool(true),
+        )),
+        cost: ExecutionCost(
+          write_length: 581,
+          write_count: 5,
+          read_length: 85,
+          read_count: 4,
+          runtime: 25026,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 581,
+      write_count: 5,
+      read_length: 85,
+      read_count: 4,
+      runtime: 25026,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "c906aaddf2ddbc0bc07c4bda15138b51bda74668c58b9d9a3725bf643226ad8b",
+    evaluated_epoch: Epoch40,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: problematic-Epoch4_0-Clarity3, code_body: [..], clarity_version: Some(Clarity3))",
+        vm_error: "None [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: true,
+          data: Bool(true),
+        )),
+        cost: ExecutionCost(
+          write_length: 581,
+          write_count: 5,
+          read_length: 85,
+          read_count: 4,
+          runtime: 25026,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 581,
+      write_count: 5,
+      read_length: 85,
+      read_count: 4,
+      runtime: 25026,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "ce7c5074496ad57b7a56b00fe0d95da89432fd02ed1ae13c544ad9cee972b370",
+    evaluated_epoch: Epoch40,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: problematic-Epoch4_0-Clarity4, code_body: [..], clarity_version: Some(Clarity4))",
+        vm_error: "None [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: true,
+          data: Bool(true),
+        )),
+        cost: ExecutionCost(
+          write_length: 581,
+          write_count: 5,
+          read_length: 85,
+          read_count: 4,
+          runtime: 25026,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 581,
+      write_count: 5,
+      read_length: 85,
+      read_count: 4,
+      runtime: 25026,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "8680cc7a3f244484206acc1ccab507cffbcf368808f2a15d6fef636769444325",
+    evaluated_epoch: Epoch40,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: problematic-Epoch4_0-Clarity5, code_body: [..], clarity_version: Some(Clarity5))",
+        vm_error: "None [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: true,
+          data: Bool(true),
+        )),
+        cost: ExecutionCost(
+          write_length: 581,
+          write_count: 5,
+          read_length: 85,
+          read_count: 4,
+          runtime: 25026,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 581,
+      write_count: 5,
+      read_length: 85,
+      read_count: 4,
+      runtime: 25026,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "a6e2f228cf0e5fbf8d3fdc341a5cf290d64705186b70e5c01c9e365cb17bcb3a",
+    evaluated_epoch: Epoch40,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: problematic-Epoch4_0-Clarity6, code_body: [..], clarity_version: Some(Clarity6))",
+        vm_error: "None [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: true,
+          data: Bool(true),
+        )),
+        cost: ExecutionCost(
+          write_length: 581,
+          write_count: 5,
+          read_length: 85,
+          read_count: 4,
+          runtime: 25026,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 581,
+      write_count: 5,
+      read_length: 85,
+      read_count: 4,
+      runtime: 25026,
     ),
   )),
 ]

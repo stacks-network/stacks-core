@@ -18,15 +18,16 @@ use std::{env, thread};
 
 use clarity::vm::types::QualifiedContractIdentifier;
 use clarity::vm::ContractName;
+use reqwest;
+use serde_json;
 use stacks::chainstate::stacks::StacksPrivateKey;
 use stacks::config::{EventKeyType, InitialBalance};
 use stacks::libstackerdb::{StackerDBChunkAckData, StackerDBChunkData};
 use stacks_common::types::chainstate::StacksAddress;
 use stacks_common::util::hash::Sha512Trunc256Sum;
-use {reqwest, serde_json};
 
 use crate::burnchains::bitcoin::core_controller::BitcoinCoreController;
-use crate::burnchains::BurnchainController;
+use crate::tests::nakamoto_integrations::wait_for;
 use crate::tests::neon_integrations::{
     neon_integration_test_conf, next_block_and_wait, submit_tx, test_observer, wait_for_runloop,
 };
@@ -170,7 +171,7 @@ fn test_stackerdb_load_store() {
         .map_err(|_e| ())
         .expect("Failed starting bitcoind");
 
-    let mut btc_regtest_controller = BitcoinRegtestController::new(conf.clone(), None);
+    let btc_regtest_controller = BitcoinRegtestController::new(conf.clone(), None);
 
     btc_regtest_controller.bootstrap_chain(201);
 
@@ -187,15 +188,15 @@ fn test_stackerdb_load_store() {
 
     // First block wakes up the run loop.
     eprintln!("Mine first block...");
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&btc_regtest_controller, &blocks_processed);
 
     // Second block will hold our VRF registration.
     eprintln!("Mine second block...");
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&btc_regtest_controller, &blocks_processed);
 
     // Third block will be the first mined Stacks block.
     eprintln!("Mine third block...");
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&btc_regtest_controller, &blocks_processed);
 
     let http_origin = format!("http://{}", &conf.node.rpc_bind);
 
@@ -212,8 +213,8 @@ fn test_stackerdb_load_store() {
 
     // mine it
     eprintln!("Mine it...");
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&btc_regtest_controller, &blocks_processed);
 
     // write some chunks and read them back
     for i in 0..3 {
@@ -307,7 +308,7 @@ fn test_stackerdb_event_observer() {
         .map_err(|_e| ())
         .expect("Failed starting bitcoind");
 
-    let mut btc_regtest_controller = BitcoinRegtestController::new(conf.clone(), None);
+    let btc_regtest_controller = BitcoinRegtestController::new(conf.clone(), None);
 
     btc_regtest_controller.bootstrap_chain(201);
 
@@ -324,15 +325,15 @@ fn test_stackerdb_event_observer() {
 
     // First block wakes up the run loop.
     eprintln!("Mine first block...");
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&btc_regtest_controller, &blocks_processed);
 
     // Second block will hold our VRF registration.
     eprintln!("Mine second block...");
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&btc_regtest_controller, &blocks_processed);
 
     // Third block will be the first mined Stacks block.
     eprintln!("Mine third block...");
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&btc_regtest_controller, &blocks_processed);
 
     let http_origin = format!("http://{}", &conf.node.rpc_bind);
 
@@ -349,8 +350,8 @@ fn test_stackerdb_event_observer() {
 
     // mine it
     eprintln!("Mine it...");
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&btc_regtest_controller, &blocks_processed);
 
     // write some chunks and read them back
     for i in 0..6 {
@@ -374,14 +375,24 @@ fn test_stackerdb_event_observer() {
         assert_eq!(data, chunk_str.as_bytes().to_vec());
     }
 
-    // get events, verifying that they're all for the same contract (i.e. this one)
-    let stackerdb_events: Vec<_> = test_observer::get_stackerdb_chunks()
-        .into_iter()
-        .flat_map(|stackerdb_event| {
-            assert_eq!(stackerdb_event.contract_id, contract_id);
-            stackerdb_event.modified_slots
-        })
-        .collect();
+    // Wait for the relayer to deliver all uploaded chunks to the observer.
+    let mut stackerdb_events = vec![];
+    wait_for(30, || {
+        stackerdb_events = test_observer::get_stackerdb_chunks()
+            .into_iter()
+            .flat_map(|stackerdb_event| {
+                assert_eq!(stackerdb_event.contract_id, contract_id);
+                stackerdb_event.modified_slots
+            })
+            .collect();
+        Ok(stackerdb_events.len() >= 6)
+    })
+    .unwrap_or_else(|err| {
+        panic!(
+            "{err} waiting for six StackerDB chunks; received {}",
+            stackerdb_events.len()
+        )
+    });
 
     assert_eq!(stackerdb_events.len(), 6);
     for (i, event) in stackerdb_events.iter().enumerate() {

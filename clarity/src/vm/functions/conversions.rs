@@ -352,10 +352,10 @@ pub fn from_consensus_buff(
     // Perform the deserialization and check that it deserialized to the expected
     // type. A type mismatch at this point is an error that should be surfaced in
     // Clarity (as a none return).
-    let result = match Value::try_deserialize_bytes_exact(
+    let result = match Value::try_deserialize_bytes_exact_at_epoch(
         input_bytes,
         &type_arg,
-        exec_state.epoch().value_sanitizing(),
+        exec_state.epoch(),
     ) {
         Ok(value) => value,
         Err(SerializationError::UnexpectedSerialization) => {

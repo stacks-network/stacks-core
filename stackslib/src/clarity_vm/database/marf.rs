@@ -26,7 +26,7 @@ use clarity::vm::database::sqlite::{
 use clarity::vm::database::{ClarityBackingStore, SpecialCaseHandler, SqliteConnection};
 use clarity::vm::errors::{IncomparableError, RuntimeError, VmExecutionError, VmInternalError};
 use clarity::vm::types::QualifiedContractIdentifier;
-use rusqlite::{self, Connection};
+use rusqlite::Connection;
 use stacks_common::codec::StacksMessageCodec;
 use stacks_common::types::chainstate::{BlockHeaderHash, StacksBlockId, TrieHash};
 
@@ -292,7 +292,7 @@ impl MarfedKV {
         ephemeral_next: &StacksBlockId,
     ) -> Result<EphemeralMarfStore<'a>, VmExecutionError> {
         // sanity check -- `base_tip` must be mapped
-        self.marf.open_block(&base_tip).map_err(|e| {
+        self.marf.open_block(base_tip).map_err(|e| {
             debug!(
                 "Failed to open read only connection at {}: {:?}",
                 &base_tip, &e
@@ -303,7 +303,7 @@ impl MarfedKV {
         // set up ephemeral MARF
         let ephemeral_marf_storage = TrieFileStorage::open(
             ":memory:",
-            MARFOpenOpts::new(TrieHashCalculationMode::Deferred, "noop", false),
+            MARFOpenOpts::new(TrieHashCalculationMode::Deferred, false),
         )
         .map_err(|e| {
             VmInternalError::Expect(format!("Failed to instantiate ephemeral MARF: {:?}", &e))
@@ -331,7 +331,7 @@ impl MarfedKV {
         };
 
         // attach the disk-backed MARF to the ephemeral MARF
-        EphemeralMarfStore::attach_read_only_marf(&ephemeral_marf, &read_only_marf).map_err(
+        EphemeralMarfStore::attach_read_only_marf(ephemeral_marf, &read_only_marf).map_err(
             |e| {
                 VmInternalError::Expect(format!(
                     "Failed to attach read-only MARF to ephemeral MARF: {:?}",

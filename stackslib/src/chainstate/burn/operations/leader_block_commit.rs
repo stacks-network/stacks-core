@@ -56,6 +56,13 @@ pub enum Treatment {
     Punish(PoxAddress),
 }
 
+struct CommitCalculation {
+    commit_outs: Vec<PoxAddress>,
+    sunset_burn: u64,
+    burn_fee: u64,
+    apparent_sender: BurnchainSigner,
+}
+
 impl Treatment {
     pub fn is_reward(&self) -> bool {
         matches!(self, Treatment::Reward(_))
@@ -172,8 +179,8 @@ impl LeaderBlockCommitOp {
             .expect("FATAL: unreachable: 3-bit number is not a u8");
     }
 
-    pub fn expected_chained_utxo(burn_only: bool) -> u32 {
-        if burn_only {
+    pub fn expected_chained_utxo(single_commit: bool) -> u32 {
+        if single_commit {
             2 // if sunset has occurred, or we're in the prepare phase, then chained commits should spend the output after the burn commit
         } else {
             // otherwise, it's the output after the last PoX output
@@ -246,6 +253,7 @@ impl LeaderBlockCommitOp {
         burnchain: &Burnchain,
         block_header: &BurnchainBlockHeader,
         epoch_id: StacksEpochId,
+        first_pox_waterfall_block: u64,
         tx: &BurnchainTransaction,
     ) -> Result<LeaderBlockCommitOp, op_error> {
         LeaderBlockCommitOp::parse_from_tx(
@@ -253,6 +261,7 @@ impl LeaderBlockCommitOp {
             block_header.block_height,
             &block_header.block_hash,
             epoch_id,
+            first_pox_waterfall_block,
             tx,
         )
     }
@@ -262,12 +271,158 @@ impl LeaderBlockCommitOp {
         self.parent_block_ptr == 0 && self.parent_vtxindex == 0
     }
 
+    fn parse_pox_waterfall_commits(
+        outputs: &[Option<BurnchainRecipient>],
+        output_0: &Option<BurnchainRecipient>,
+    ) -> Result<CommitCalculation, op_error> {
+        let output_0 = output_0.clone().ok_or_else(|| {
+            warn!("Invalid commit tx: unrecognized output 0");
+            op_error::InvalidInput
+        })?;
+
+        if output_0.amount == 0 {
+            warn!("Invalid commit tx: waterfall commit output 0 has zero amount");
+            return Err(op_error::InvalidInput);
+        }
+
+        let BurnchainRecipient { address, amount } = output_0;
+        let apparent_sender = BurnchainSigner(
+            outputs
+                .get(1)
+                .map(|out| {
+                    out.as_ref()
+                        .map(|out| out.address.clone().to_b58())
+                        .unwrap_or(BurnchainSigner::UNDECODABLE_OUTPUT.to_string())
+                })
+                .unwrap_or(BurnchainSigner::NO_CHANGE_OUTPUT.to_string()),
+        );
+
+        let sunset_burn = 0;
+        Ok(CommitCalculation {
+            commit_outs: vec![address],
+            sunset_burn,
+            burn_fee: amount,
+            apparent_sender,
+        })
+    }
+
+    fn parse_pre_pox_waterfall_commits(
+        burnchain: &Burnchain,
+        block_height: u64,
+        epoch_id: StacksEpochId,
+        tx: &BurnchainTransaction,
+        outputs: &[Option<BurnchainRecipient>],
+        output_0: &Option<BurnchainRecipient>,
+    ) -> Result<CommitCalculation, op_error> {
+        // check if we've reached PoX disable
+        if burnchain
+            .pox_constants
+            .is_after_pox_sunset_end(block_height, epoch_id)
+            || burnchain.is_in_prepare_phase(block_height)
+        {
+            // PoX is disabled by sunset (not possible in epoch 2.1 or later), OR,
+            // we're in the prepare phase.
+            // should be only one burn output.
+            let output_0 = output_0.clone().ok_or_else(|| {
+                warn!("Invalid commit tx: unrecognized output 0");
+                op_error::InvalidInput
+            })?;
+
+            if !output_0.address.is_burn() {
+                return Err(op_error::BlockCommitBadOutputs);
+            }
+            let BurnchainRecipient { address, amount } = output_0;
+            let apparent_sender = BurnchainSigner(
+                outputs
+                    .get(1)
+                    .map(|out| {
+                        out.as_ref()
+                            .map(|out| out.address.clone().to_b58())
+                            .unwrap_or(BurnchainSigner::UNDECODABLE_OUTPUT.to_string())
+                    })
+                    .unwrap_or(BurnchainSigner::NO_CHANGE_OUTPUT.to_string()),
+            );
+
+            let sunset_burn = tx.get_burn_amount();
+            Ok(CommitCalculation {
+                commit_outs: vec![address],
+                sunset_burn,
+                burn_fee: amount,
+                apparent_sender,
+            })
+        } else {
+            // we're in a reward phase, which may or may not be PoX.
+            // check if this transaction provided a sunset burn (which is still allowed in epoch
+            // 2.1; it's just not doing anything for the miner).
+            let sunset_burn = tx.get_burn_amount();
+
+            let mut commit_outs = vec![];
+            let mut pox_fee = None;
+            for (ix, output_opt) in outputs.iter().enumerate() {
+                let output = output_opt.clone().ok_or_else(|| {
+                    warn!("Invalid commit tx: unrecognized output {}", ix);
+                    op_error::InvalidInput
+                })?;
+
+                // only look at the first OUTPUTS_PER_COMMIT outputs
+                if ix >= OUTPUTS_PER_COMMIT {
+                    break;
+                }
+                // all pox outputs must have the same fee
+                if let Some(pox_fee) = pox_fee {
+                    if output.amount != pox_fee {
+                        warn!("Invalid commit tx: different output amounts for different PoX reward addresses ({} != {})", pox_fee, output.amount);
+                        return Err(op_error::ParseError);
+                    }
+                } else {
+                    pox_fee.replace(output.amount);
+                }
+                commit_outs.push(output.address);
+            }
+
+            if commit_outs.len() != OUTPUTS_PER_COMMIT {
+                warn!("Invalid commit tx: {} commit addresses, but {} PoX addresses should be committed to", commit_outs.len(), OUTPUTS_PER_COMMIT);
+                return Err(op_error::InvalidInput);
+            }
+
+            // compute the total amount transferred/burned, and check that the burn amount
+            //   is expected given the amount transferred.
+            let burn_fee = pox_fee
+                .expect("A 0-len output should have already errored")
+                .checked_mul(u64::try_from(OUTPUTS_PER_COMMIT).expect(">2^64 outputs per commit")) // total commitment is the pox_amount * outputs
+                .ok_or_else(|| op_error::ParseError)?;
+
+            if burn_fee == 0 {
+                warn!("Invalid commit tx: burn/transfer amount is 0");
+                return Err(op_error::ParseError);
+            }
+
+            let apparent_sender = BurnchainSigner(
+                outputs
+                    .get(2)
+                    .map(|out| {
+                        out.as_ref()
+                            .map(|out| out.address.clone().to_b58())
+                            .unwrap_or(BurnchainSigner::UNDECODABLE_OUTPUT.to_string())
+                    })
+                    .unwrap_or(BurnchainSigner::NO_CHANGE_OUTPUT.to_string()),
+            );
+            Ok(CommitCalculation {
+                commit_outs,
+                sunset_burn,
+                burn_fee,
+                apparent_sender,
+            })
+        }
+    }
+
     /// parse a LeaderBlockCommitOp
     pub fn parse_from_tx(
         burnchain: &Burnchain,
         block_height: u64,
         block_hash: &BurnchainHeaderHash,
         epoch_id: StacksEpochId,
+        first_pox_waterfall_block: u64,
         tx: &BurnchainTransaction,
     ) -> Result<LeaderBlockCommitOp, op_error> {
         // can't be too careful...
@@ -330,96 +485,26 @@ impl LeaderBlockCommitOp {
             return Err(op_error::ParseError);
         }
 
-        // check if we've reached PoX disable
-        let (commit_outs, sunset_burn, burn_fee, apparent_sender) = if burnchain
-            .pox_constants
-            .is_after_pox_sunset_end(block_height, epoch_id)
-            || burnchain.is_in_prepare_phase(block_height)
-        {
-            // PoX is disabled by sunset (not possible in epoch 2.1 or later), OR,
-            // we're in the prepare phase.
-            // should be only one burn output.
-            let output_0 = output_0.clone().ok_or_else(|| {
-                warn!("Invalid commit tx: unrecognized output 0");
-                op_error::InvalidInput
-            })?;
-
-            if !output_0.address.is_burn() {
-                return Err(op_error::BlockCommitBadOutputs);
-            }
-            let BurnchainRecipient { address, amount } = output_0;
-            let apparent_sender = BurnchainSigner(
-                outputs
-                    .get(1)
-                    .map(|out| {
-                        out.as_ref()
-                            .map(|out| out.address.clone().to_b58())
-                            .unwrap_or("<undecodable-output>".to_string())
-                    })
-                    .unwrap_or("<no-change-output>".to_string()),
-            );
-
-            let sunset_burn = tx.get_burn_amount();
-            (vec![address], sunset_burn, amount, apparent_sender)
+        // Gate the parse format on whether or not the first waterfall block has been
+        // reached (this primarily switches between expecting 1 or 2 commits).
+        let commits_calc = if block_height >= first_pox_waterfall_block {
+            Self::parse_pox_waterfall_commits(&outputs, output_0)?
         } else {
-            // we're in a reward phase, which may or may not be PoX.
-            // check if this transaction provided a sunset burn (which is still allowed in epoch
-            // 2.1; it's just not doing anything for the miner).
-            let sunset_burn = tx.get_burn_amount();
-
-            let mut commit_outs = vec![];
-            let mut pox_fee = None;
-            for (ix, output_opt) in outputs.iter().enumerate() {
-                let output = output_opt.clone().ok_or_else(|| {
-                    warn!("Invalid commit tx: unrecognized output {}", ix);
-                    op_error::InvalidInput
-                })?;
-
-                // only look at the first OUTPUTS_PER_COMMIT outputs
-                if ix >= OUTPUTS_PER_COMMIT {
-                    break;
-                }
-                // all pox outputs must have the same fee
-                if let Some(pox_fee) = pox_fee {
-                    if output.amount != pox_fee {
-                        warn!("Invalid commit tx: different output amounts for different PoX reward addresses ({} != {})", pox_fee, output.amount);
-                        return Err(op_error::ParseError);
-                    }
-                } else {
-                    pox_fee.replace(output.amount);
-                }
-                commit_outs.push(output.address);
-            }
-
-            if commit_outs.len() != OUTPUTS_PER_COMMIT {
-                warn!("Invalid commit tx: {} commit addresses, but {} PoX addresses should be committed to", commit_outs.len(), OUTPUTS_PER_COMMIT);
-                return Err(op_error::InvalidInput);
-            }
-
-            // compute the total amount transferred/burned, and check that the burn amount
-            //   is expected given the amount transferred.
-            let burn_fee = pox_fee
-                .expect("A 0-len output should have already errored")
-                .checked_mul(u64::try_from(OUTPUTS_PER_COMMIT).expect(">2^64 outputs per commit")) // total commitment is the pox_amount * outputs
-                .ok_or_else(|| op_error::ParseError)?;
-
-            if burn_fee == 0 {
-                warn!("Invalid commit tx: burn/transfer amount is 0");
-                return Err(op_error::ParseError);
-            }
-
-            let apparent_sender = BurnchainSigner(
-                outputs
-                    .get(2)
-                    .map(|out| {
-                        out.as_ref()
-                            .map(|out| out.address.clone().to_b58())
-                            .unwrap_or("<undecodable-output>".to_string())
-                    })
-                    .unwrap_or("<no-change-output>".to_string()),
-            );
-            (commit_outs, sunset_burn, burn_fee, apparent_sender)
+            Self::parse_pre_pox_waterfall_commits(
+                burnchain,
+                block_height,
+                epoch_id,
+                tx,
+                &outputs,
+                output_0,
+            )?
         };
+        let CommitCalculation {
+            commit_outs,
+            sunset_burn,
+            burn_fee,
+            apparent_sender,
+        } = commits_calc;
 
         let input = tx
             .get_input_tx_ref(0)
@@ -489,7 +574,7 @@ impl StacksMessageCodec for LeaderBlockCommitOp {
         write_next(fd, &self.key_block_ptr)?;
         write_next(fd, &self.key_vtxindex)?;
         let memo_burn_parent_modulus =
-            (self.memo.get(0).copied().unwrap_or(0x00) << 3) + (self.burn_parent_modulus & 0b111);
+            (self.memo.first().copied().unwrap_or(0x00) << 3) + (self.burn_parent_modulus & 0b111);
         write_next(fd, &memo_burn_parent_modulus)?;
         Ok(())
     }
@@ -501,10 +586,72 @@ impl StacksMessageCodec for LeaderBlockCommitOp {
 }
 
 #[derive(Debug, Clone)]
-pub struct RewardSetInfo {
+pub struct RewardSetInfoV0 {
     pub anchor_block: BlockHeaderHash,
     pub recipients: Vec<(PoxAddress, u16)>,
     pub allow_nakamoto_punishment: bool,
+}
+
+#[derive(Debug, Clone)]
+pub struct RewardSetInfoWaterfall {
+    pub anchor_block: BlockHeaderHash,
+    pub sbtc_address: PoxAddress,
+}
+
+#[derive(Debug, Clone)]
+pub enum RewardSetInfo {
+    V0(RewardSetInfoV0),
+    Waterfall(RewardSetInfoWaterfall),
+}
+
+impl RewardSetInfo {
+    /// Return the anchor block hash for this reward set info.
+    pub fn anchor_block(&self) -> &BlockHeaderHash {
+        match self {
+            RewardSetInfo::V0(v0) => &v0.anchor_block,
+            RewardSetInfo::Waterfall(wf) => &wf.anchor_block,
+        }
+    }
+
+    /// Return a reference to the inner V0 variant, if applicable.
+    pub fn as_v0(&self) -> Option<&RewardSetInfoV0> {
+        match self {
+            RewardSetInfo::V0(v0) => Some(v0),
+            _ => None,
+        }
+    }
+
+    /// Return a mutable reference to the inner V0 variant, if applicable.
+    pub fn as_v0_mut(&mut self) -> Option<&mut RewardSetInfoV0> {
+        match self {
+            RewardSetInfo::V0(v0) => Some(v0),
+            _ => None,
+        }
+    }
+
+    /// Return a reference to the inner Waterfall variant, if applicable.
+    pub fn as_waterfall(&self) -> Option<&RewardSetInfoWaterfall> {
+        match self {
+            RewardSetInfo::Waterfall(wf) => Some(wf),
+            _ => None,
+        }
+    }
+
+    /// Whether this reward set info allows nakamoto punishment (V0 only).
+    pub fn allow_nakamoto_punishment(&self) -> bool {
+        match self {
+            RewardSetInfo::V0(v0) => v0.allow_nakamoto_punishment,
+            RewardSetInfo::Waterfall(_) => false,
+        }
+    }
+
+    /// Consume the enum and return the inner V0 variant, or panic.
+    pub fn unwrap_v0(self) -> RewardSetInfoV0 {
+        match self {
+            RewardSetInfo::V0(v0) => v0,
+            _ => panic!("Expected RewardSetInfo::V0"),
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -525,7 +672,7 @@ impl MissedBlockCommit {
 }
 
 impl RewardSetInfo {
-    /// Create a RewardSetInfo struct for a missed block commit
+    /// Create a RewardSetInfo struct for a missed block commit.
     fn from_missed_commit(
         tx: &mut SortitionHandleTx,
         intended_sortition: &SortitionId,
@@ -544,36 +691,76 @@ impl RewardSetInfo {
             .ok_or_else(|| op_error::BlockCommitBadOutputs)?
             .epoch_id
             .allows_pox_punishment();
-
-        Ok(tx.get_last_anchor_block_hash()?.map(|bhh| RewardSetInfo {
-            allow_nakamoto_punishment,
-            anchor_block: bhh,
-            recipients: intended_recipients
-                .into_iter()
-                .enumerate()
-                .map(|(i, addr)| (addr, i as u16))
-                .collect(),
-        }))
+        let first_wf_block_height = tx
+            .get_first_pox_waterfall_block()
+            .map_err(|_e| op_error::BlockCommitBadOutputs)?;
+        let Some(anchor_block) = tx.get_last_anchor_block_hash()? else {
+            return Ok(None);
+        };
+        if block_height >= first_wf_block_height {
+            let Some([intended_recipient]) = intended_recipients.as_array() else {
+                warn!(
+                    "While processing a missed commit intended for a waterfall block, fetch non-len-1 recipients set from sortdb";
+                    "intended_recipients" => ?intended_recipients
+                );
+                return Err(op_error::BlockCommitBadOutputs);
+            };
+            Ok(Some(RewardSetInfo::Waterfall(RewardSetInfoWaterfall {
+                sbtc_address: intended_recipient.clone(),
+                anchor_block,
+            })))
+        } else {
+            Ok(Some(RewardSetInfo::V0(RewardSetInfoV0 {
+                allow_nakamoto_punishment,
+                anchor_block,
+                recipients: intended_recipients
+                    .into_iter()
+                    .enumerate()
+                    .map(|(i, addr)| (addr, i as u16))
+                    .collect(),
+            })))
+        }
     }
 
     /// Takes an Option<RewardSetInfo> and produces the commit_outs
     ///   for a corresponding LeaderBlockCommitOp. If RewardSetInfo is none,
     ///   the LeaderBlockCommitOp will use burn addresses.
     pub fn into_commit_outs(from: Option<RewardSetInfo>, mainnet: bool) -> Vec<PoxAddress> {
-        if let Some(recipient_set) = from {
-            let mut outs: Vec<_> = recipient_set
-                .recipients
-                .into_iter()
-                .map(|(recipient, _)| recipient)
-                .collect();
-            while outs.len() < OUTPUTS_PER_COMMIT {
-                outs.push(PoxAddress::standard_burn_address(mainnet));
+        match from {
+            Some(RewardSetInfo::V0(v0)) => {
+                let mut outs: Vec<_> = v0
+                    .recipients
+                    .into_iter()
+                    .map(|(recipient, _)| recipient)
+                    .collect();
+                while outs.len() < OUTPUTS_PER_COMMIT {
+                    outs.push(PoxAddress::standard_burn_address(mainnet));
+                }
+                outs
             }
-            outs
-        } else {
-            (0..OUTPUTS_PER_COMMIT)
+            Some(RewardSetInfo::Waterfall(wf)) => {
+                vec![wf.sbtc_address]
+            }
+            None => (0..OUTPUTS_PER_COMMIT)
                 .map(|_| PoxAddress::standard_burn_address(mainnet))
-                .collect()
+                .collect(),
+        }
+    }
+
+    /// Select the block-commit outputs for a commit that will land at a burnchain height whose
+    /// prepare-phase status is `in_prepare_phase`, given the recipient set `from`.
+    ///  * Waterfall PoX (Epoch 4.0+): a single sBTC output for every block of the cycle
+    ///  * Classic PoX prepare phase (or no reward set): a single burn output.
+    ///  * Classic PoX reward phase: the full PoX recipient output set.
+    pub fn commit_outs_for(
+        from: Option<RewardSetInfo>,
+        in_prepare_phase: bool,
+        mainnet: bool,
+    ) -> Vec<PoxAddress> {
+        match from.as_ref() {
+            Some(RewardSetInfo::Waterfall(_)) => Self::into_commit_outs(from, mainnet),
+            _ if in_prepare_phase => vec![PoxAddress::standard_burn_address(mainnet)],
+            _ => Self::into_commit_outs(from, mainnet),
         }
     }
 }
@@ -590,6 +777,57 @@ impl LeaderBlockCommitOp {
     /// indexes are *ignored* (and *must be* ignored, since this method gets called by
     /// `check_intneded_sortition()`, which does not have this information).
     fn check_pox<SH: SortitionHandle>(
+        &self,
+        epoch_id: StacksEpochId,
+        burnchain: &Burnchain,
+        tx: &mut SH,
+        reward_set_info: Option<&RewardSetInfo>,
+    ) -> Result<Vec<Treatment>, op_error> {
+        let first_wf_block_height = tx.get_first_pox_waterfall_block().map_err(|e| {
+            error!("Error while loading first waterfall block height"; "err" => ?e);
+            op_error::BlockCommitBadEpoch
+        })?;
+        if self.block_height >= first_wf_block_height {
+            self.check_pox_waterfall(reward_set_info)
+        } else {
+            self.check_pox_pre_waterfall(epoch_id, burnchain, tx, reward_set_info)
+        }
+    }
+
+    fn check_pox_waterfall(
+        &self,
+        reward_set_info: Option<&RewardSetInfo>,
+    ) -> Result<Vec<Treatment>, op_error> {
+        let Some(reward_set_info) = reward_set_info else {
+            // no recipient info for this sortition, which should never happen
+            // in pox-waterfall. out of caution, reject all block commits.
+            error!("Expected reward set to be present during waterfall-enabled epoch-id, but no reward set found");
+            return Err(op_error::BlockCommitBadEpoch);
+        };
+
+        let wf_info = match reward_set_info {
+            RewardSetInfo::Waterfall(wf) => wf,
+            RewardSetInfo::V0(_) => {
+                error!("Expected V0 reward outputs during a waterfall-enabled epoch-id");
+                return Err(op_error::BlockCommitBadEpoch);
+            }
+        };
+
+        if self.commit_outs.len() != 1 {
+            warn!("Invalid waterfall block commit: should have exactly one commit output");
+            return Err(op_error::BlockCommitBadOutputs);
+        }
+
+        if self.commit_outs.first() != Some(&wf_info.sbtc_address) {
+            warn!("Invalid waterfall block commit: unexpected output"; "expected" => %wf_info.sbtc_address, "found" => ?self.commit_outs.first());
+            return Err(op_error::BlockCommitBadOutputs);
+        }
+
+        Ok(vec![Treatment::Reward(wf_info.sbtc_address.clone())])
+    }
+
+    /// The Pre-Waterfall PoX checks: these expect V0 RewardSetInfo, multiple commit outs, etc.
+    fn check_pox_pre_waterfall<SH: SortitionHandle>(
         &self,
         epoch_id: StacksEpochId,
         burnchain: &Burnchain,
@@ -636,6 +874,14 @@ impl LeaderBlockCommitOp {
             return Ok(vec![]);
         };
 
+        let v0 = match reward_set_info {
+            RewardSetInfo::V0(v0) => v0,
+            RewardSetInfo::Waterfall(_) => {
+                error!("Expected waterfall reward output during a pre-waterfall epoch-id");
+                return Err(op_error::BlockCommitBadEpoch);
+            }
+        };
+
         // we do some check-inversion here so that we check the commit_outs _before_
         //   we check whether or not the block is descended from the anchor.
         // we do this because the descended_from check isn't particularly cheap, so
@@ -660,7 +906,7 @@ impl LeaderBlockCommitOp {
         //    all of the commitment outputs are _burns_
         //    _and_ the reward set chose two burn addresses as reward addresses.
         // then, don't need to do a pox descendant check.
-        let recipient_set_all_burns = reward_set_info
+        let recipient_set_all_burns = v0
             .recipients
             .iter()
             .fold(true, |prior_is_burn, (addr, ..)| {
@@ -680,24 +926,23 @@ impl LeaderBlockCommitOp {
 
         // first, if we're in a nakamoto epoch, any block commit building directly off of the anchor block
         //  is descendant
-        let directly_descended_from_anchor = epoch_id.block_commits_to_parent()
-            && self.block_header_hash == reward_set_info.anchor_block;
+        let directly_descended_from_anchor =
+            epoch_id.block_commits_to_parent() && self.block_header_hash == v0.anchor_block;
 
-        // second, if we're in a nakamoto epoch, and the parent block has vtxindex 0 (i.e. the
-        // coinbase of the burnchain block), then assume that this block descends from the anchor
-        // block for the purposes of validating its PoX payouts.  The block validation logic will
-        // check that the parent block is indeed a shadow block, and that `self.parent_block_ptr`
-        // points to the shadow block's tenure's burnchain block.
-        let maybe_shadow_parent = epoch_id.supports_shadow_blocks()
+        // second, epochs 3.0 through 4.0 assume that a commit whose parent has vtxindex 0 (i.e.
+        // the burnchain coinbase) built atop a shadow block, and so descends from the anchor
+        // block.  Shadow blocks are gone, but the commits this admitted are part of sortition
+        // history, so those epochs must preserve it.
+        let assumed_shadow_parent = epoch_id.allows_missing_vtxindex_zero_commit_parent()
             && self.parent_block_ptr != 0
             && self.parent_vtxindex == 0;
 
         let descended_from_anchor = directly_descended_from_anchor
-            || maybe_shadow_parent
-            || tx.descended_from(parent_block_height, &reward_set_info.anchor_block)
+            || assumed_shadow_parent
+            || tx.descended_from(parent_block_height, &v0.anchor_block)
             .map_err(|e| {
                 error!("Failed to check whether parent (height={}) is descendent of anchor block={}: {}",
-                       parent_block_height, &reward_set_info.anchor_block, e);
+                       parent_block_height, &v0.anchor_block, e);
                 op_error::BlockCommitAnchorCheck
             })?;
 
@@ -708,25 +953,25 @@ impl LeaderBlockCommitOp {
             if !descended_from_anchor {
                 return Ok(vec![]);
             }
-            if reward_set_info.allow_nakamoto_punishment {
+            if v0.allow_nakamoto_punishment {
                 // all non-burn recipients were punished -- when we do the block processing
                 //  enforcement check, "burn recipients" can be treated as 1 or a 0 in the
                 //  bitvec interchangeably (whether they are punished or not doesn't matter).
-                let punished = reward_set_info
+                let punished = v0
                     .recipients
                     .iter()
                     .map(|(addr, _)| Treatment::Punish(addr.clone()))
                     .collect();
-                return Ok(punished);
+                Ok(punished)
             } else {
                 warn!(
                     "Invalid block commit: descended from PoX anchor {}, but used burn outputs",
-                    &reward_set_info.anchor_block
+                    &v0.anchor_block
                 );
-                return Err(op_error::BlockCommitBadOutputs);
+                Err(op_error::BlockCommitBadOutputs)
             }
         } else {
-            let mut check_recipients: Vec<_> = reward_set_info
+            let mut check_recipients: Vec<_> = v0
                 .recipients
                 .iter()
                 .map(|(addr, ix)| (addr.clone(), *ix))
@@ -743,7 +988,7 @@ impl LeaderBlockCommitOp {
             if self.commit_outs.len() != check_recipients.len() {
                 warn!(
                     "Invalid block commit: expected {} PoX transfers, but commit has {}",
-                    reward_set_info.recipients.len(),
+                    v0.recipients.len(),
                     self.commit_outs.len()
                 );
                 return Err(op_error::BlockCommitBadOutputs);
@@ -767,7 +1012,7 @@ impl LeaderBlockCommitOp {
                     rewarded.push(Treatment::Reward(check_recipients.remove(index).0));
                 } else {
                     // if we didn't find the pox output, then maybe its a pox punishment?
-                    if reward_set_info.allow_nakamoto_punishment && self_commit.is_burn() {
+                    if v0.allow_nakamoto_punishment && self_commit.is_burn() {
                         continue;
                     } else {
                         warn!("Invalid block commit: committed output {} does not match expected recipient set: {:?}",
@@ -780,7 +1025,7 @@ impl LeaderBlockCommitOp {
             if !descended_from_anchor {
                 warn!(
                     "Invalid block commit: not descended from PoX anchor {}, but used PoX outputs",
-                    &reward_set_info.anchor_block
+                    &v0.anchor_block
                 );
                 return Err(op_error::BlockCommitBadOutputs);
             }
@@ -790,7 +1035,7 @@ impl LeaderBlockCommitOp {
                 .map(|x| Treatment::Punish(x.0))
                 .collect();
             treated_outputs.extend(rewarded);
-            return Ok(treated_outputs);
+            Ok(treated_outputs)
         }
     }
 
@@ -860,71 +1105,58 @@ impl LeaderBlockCommitOp {
         miss_distance: u64,
     ) -> Result<SortitionId, op_error> {
         let tx_tip = tx.context.chain_tip.clone();
-        let intended_sortition = match epoch_id {
-            StacksEpochId::Epoch21
-            | StacksEpochId::Epoch22
-            | StacksEpochId::Epoch23
-            | StacksEpochId::Epoch24
-            | StacksEpochId::Epoch25
-            | StacksEpochId::Epoch30
-            | StacksEpochId::Epoch31
-            | StacksEpochId::Epoch32
-            | StacksEpochId::Epoch33
-            | StacksEpochId::Epoch34 => {
-                // correct behavior -- uses *sortition height* to find the intended sortition ID
-                let sortition_height = self
-                    .block_height
-                    .checked_sub(burnchain.first_block_height)
-                    .ok_or_else(|| op_error::BlockCommitPredatesGenesis)?;
+        let intended_sortition = if epoch_id >= StacksEpochId::Epoch21 {
+            // correct behavior -- uses *sortition height* to find the intended sortition ID
+            let sortition_height = self
+                .block_height
+                .checked_sub(burnchain.first_block_height)
+                .ok_or_else(|| op_error::BlockCommitPredatesGenesis)?;
 
-                if miss_distance > sortition_height {
-                    return Err(op_error::BlockCommitBadModulus);
-                }
-
-                if miss_distance > 1 {
-                    // can't miss by more than 1 block; otherwise a miner can just bunch up all
-                    // their block-commits into a single burnchain block and mine when they want
-                    // without the 6-block warm-up period.
-                    return Err(op_error::BlockCommitMissDistanceTooBig);
-                }
-
-                let intended_sortition = tx
-                    .get_ancestor_block_hash(sortition_height - miss_distance, &tx_tip)?
-                    .ok_or_else(|| op_error::BlockCommitNoParent)?;
-
-                let intended_sn = SortitionDB::get_block_snapshot(tx, &intended_sortition)?
-                    .expect("FATAL: no snapshot for known sortition");
-                debug!("Block commit for {} missed, meant to land in burnchain block {} (sortition {})", &self.block_header_hash, intended_sn.block_height, &intended_sortition);
-
-                // NOTE: we're not doing the checks in check_common() because it doesn't matter if
-                // the late block-commit does not meet them -- it will never be a sortition winner
-                // anyway.
-                //
-                // But, we must disincentivize deliberately sending late block-commits (e.g. to
-                // improve the miner's median sortition spend), so it's necessary to require the
-                // miner to pay burnchain tokens to the intended sortition's reward addresses.  Then,
-                // doing this on purpose is at least as costly as mining honestly.
-                let reward_set_info_opt =
-                    RewardSetInfo::from_missed_commit(tx, &intended_sortition)?;
-                self.check_pox(epoch_id, burnchain, tx, reward_set_info_opt.as_ref())?;
-
-                intended_sortition
+            if miss_distance > sortition_height {
+                return Err(op_error::BlockCommitBadModulus);
             }
-            StacksEpochId::Epoch20 | StacksEpochId::Epoch2_05 => {
-                // buggy behavior that must be preserved for compatibility :(
-                // bug: uses self.block_height to find the intended sortition ID (which won't work)
-                if miss_distance > self.block_height {
-                    return Err(op_error::BlockCommitBadModulus);
-                }
-                tx.get_ancestor_block_hash(self.block_height - miss_distance, &tx_tip)?
-                    .ok_or_else(|| op_error::BlockCommitNoParent)?
 
-                // also buggy behavior -- the block-commit can pay to any PoX output it wants, so
-                // sending them deliberately is "free" because the sender can just pay themselves.
+            if miss_distance > 1 {
+                // can't miss by more than 1 block; otherwise a miner can just bunch up all
+                // their block-commits into a single burnchain block and mine when they want
+                // without the 6-block warm-up period.
+                return Err(op_error::BlockCommitMissDistanceTooBig);
             }
-            StacksEpochId::Epoch10 => {
-                panic!("Block commits are not supported in epoch 1.0");
+
+            let intended_sortition = tx
+                .get_ancestor_block_hash(sortition_height - miss_distance, &tx_tip)?
+                .ok_or_else(|| op_error::BlockCommitNoParent)?;
+
+            let intended_sn = SortitionDB::get_block_snapshot(tx, &intended_sortition)?
+                .expect("FATAL: no snapshot for known sortition");
+            debug!(
+                "Block commit for {} missed, meant to land in burnchain block {} (sortition {})",
+                &self.block_header_hash, intended_sn.block_height, &intended_sortition
+            );
+
+            // NOTE: we're not doing the checks in check_common() because it doesn't matter if
+            // the late block-commit does not meet them -- it will never be a sortition winner
+            // anyway.
+            //
+            // But, we must disincentivize deliberately sending late block-commits (e.g. to
+            // improve the miner's median sortition spend), so it's necessary to require the
+            // miner to pay burnchain tokens to the intended sortition's reward addresses.  Then,
+            // doing this on purpose is at least as costly as mining honestly.
+            let reward_set_info_opt = RewardSetInfo::from_missed_commit(tx, &intended_sortition)?;
+            self.check_pox(epoch_id, burnchain, tx, reward_set_info_opt.as_ref())?;
+
+            intended_sortition
+        } else {
+            // buggy behavior that must be preserved for compatibility :(
+            // bug: uses self.block_height to find the intended sortition ID (which won't work)
+            if miss_distance > self.block_height {
+                return Err(op_error::BlockCommitBadModulus);
             }
+            tx.get_ancestor_block_hash(self.block_height - miss_distance, &tx_tip)?
+                .ok_or_else(|| op_error::BlockCommitNoParent)?
+
+            // also buggy behavior -- the block-commit can pay to any PoX output it wants, so
+            // sending them deliberately is "free" because the sender can just pay themselves.
         };
         Ok(intended_sortition)
     }
@@ -1012,20 +1244,24 @@ impl LeaderBlockCommitOp {
             );
             return Err(op_error::BlockCommitNoParent);
         } else if self.parent_block_ptr != 0 || self.parent_vtxindex != 0 {
-            // not building off of genesis, so the parent block must exist
-            // unless the parent is a shadow block
+            // not building off of genesis, so the parent block-commit must exist.
+            // Epochs 3.0 through 4.0 accept a missing parent at `parent_vtxindex == 0` (an
+            // assumed shadow parent) if a burnchain block was processed at that height in this
+            // fork, sortition or not.  The commits this admitted are part of sortition history,
+            // so those epochs must preserve it.
             let has_parent = tx
                 .get_block_commit_parent(parent_block_height, self.parent_vtxindex.into(), &tx_tip)?
                 .is_some();
-            let maybe_shadow_block = self.parent_vtxindex == 0 && epoch_id.supports_shadow_blocks();
-            if !has_parent && !maybe_shadow_block {
+            let assumed_shadow_parent =
+                self.parent_vtxindex == 0 && epoch_id.allows_missing_vtxindex_zero_commit_parent();
+            if !has_parent && !assumed_shadow_parent {
                 warn!("Invalid block commit: no parent block in this fork";
                       "apparent_sender" => %apparent_sender_repr
                 );
                 return Err(op_error::BlockCommitNoParent);
             }
             if !has_parent
-                && maybe_shadow_block
+                && assumed_shadow_parent
                 && tx
                     .get_block_snapshot_by_height(parent_block_height)?
                     .is_none()
@@ -1130,7 +1366,7 @@ impl LeaderBlockCommitOp {
 
         self.check_common(epoch.epoch_id, tx)?;
 
-        if reward_set_info.is_some_and(|r| r.allow_nakamoto_punishment) {
+        if reward_set_info.is_some_and(|r| r.allow_nakamoto_punishment()) {
             self.treatment = punished;
         }
 
@@ -1164,7 +1400,8 @@ mod tests {
     use crate::core::{
         StacksEpoch, StacksEpochExtension, StacksEpochId, PEER_VERSION_EPOCH_1_0,
         PEER_VERSION_EPOCH_2_0, PEER_VERSION_EPOCH_2_05, PEER_VERSION_EPOCH_2_1,
-        STACKS_EPOCH_2_05_MARKER, STACKS_EPOCH_2_1_MARKER, STACKS_EPOCH_MAX,
+        STACKS_EPOCH_2_05_MARKER, STACKS_EPOCH_2_1_MARKER, STACKS_EPOCH_LATEST_MARKER,
+        STACKS_EPOCH_MAX,
     };
 
     struct OpFixture {
@@ -1198,6 +1435,99 @@ mod tests {
                 LegacyBitcoinAddress::to_p2sh_tx_out(addr.bytes(), value)
             }
         }
+    }
+
+    /// `commit_outs_for` is the single source of truth shared by the miner (relayer) and the
+    /// miner-spend estimators. Assert it models the commit outputs correctly in both the classic
+    /// and waterfall regimes, so the estimators can't drift back to the pre-waterfall scheme.
+    #[test]
+    fn test_commit_outs_for_classic_and_waterfall() {
+        let anchor_block = BlockHeaderHash([0xaa; 32]);
+        fn reward_addr(i: usize) -> PoxAddress {
+            let addr = StacksAddress::new(1, Hash160::from_data(&i.to_be_bytes())).unwrap();
+            PoxAddress::Standard(addr, None)
+        }
+        let sbtc_addr = reward_addr(42);
+
+        let v0 = RewardSetInfo::V0(RewardSetInfoV0 {
+            anchor_block: anchor_block.clone(),
+            recipients: vec![(reward_addr(0), 0), (reward_addr(1), 1)],
+            allow_nakamoto_punishment: true,
+        });
+        let waterfall = RewardSetInfo::Waterfall(RewardSetInfoWaterfall {
+            anchor_block: anchor_block.clone(),
+            sbtc_address: sbtc_addr.clone(),
+        });
+
+        for mainnet in [false, true] {
+            let burn = PoxAddress::standard_burn_address(mainnet);
+
+            // Classic PoX, reward phase: full PoX recipient set (must match `into_commit_outs`).
+            assert_eq!(
+                RewardSetInfo::commit_outs_for(Some(v0.clone()), false, mainnet),
+                RewardSetInfo::into_commit_outs(Some(v0.clone()), mainnet),
+            );
+            assert_eq!(
+                RewardSetInfo::commit_outs_for(Some(v0.clone()), false, mainnet),
+                vec![reward_addr(0), reward_addr(1)],
+            );
+
+            // Classic PoX, prepare phase: a single burn output, regardless of recipients.
+            assert_eq!(
+                RewardSetInfo::commit_outs_for(Some(v0.clone()), true, mainnet),
+                vec![burn.clone()],
+            );
+            assert_eq!(
+                RewardSetInfo::commit_outs_for(None, true, mainnet),
+                vec![burn.clone()],
+            );
+
+            // Waterfall PoX: always a single sBTC output, even in the prepare phase (the
+            // classic prepare-phase burn-output override must not clobber it).
+            assert_eq!(
+                RewardSetInfo::commit_outs_for(Some(waterfall.clone()), false, mainnet),
+                vec![sbtc_addr.clone()],
+            );
+            assert_eq!(
+                RewardSetInfo::commit_outs_for(Some(waterfall.clone()), true, mainnet),
+                vec![sbtc_addr.clone()],
+            );
+            // ...and it agrees with `into_commit_outs` for the same reward-set input.
+            assert_eq!(
+                RewardSetInfo::commit_outs_for(Some(waterfall.clone()), false, mainnet),
+                RewardSetInfo::into_commit_outs(Some(waterfall.clone()), mainnet),
+            );
+        }
+    }
+
+    /// A pox-waterfall block commit whose first (sBTC) output pays 0 must be
+    /// rejected: such an output is dust (non-standard on the Bitcoin network),
+    /// and accepting it would let a miner commit at zero cost. A positive-amount
+    /// output parses into a commit whose `burn_fee` carries that amount.
+    #[test]
+    fn test_parse_pox_waterfall_rejects_zero_amount() {
+        fn recipient(amount: u64) -> Option<BurnchainRecipient> {
+            let addr = StacksAddress::new(1, Hash160([1; 20])).unwrap();
+            Some(BurnchainRecipient {
+                address: PoxAddress::Standard(addr, None),
+                amount,
+            })
+        }
+
+        // zero-amount first output -> rejected as invalid input
+        let output_0 = recipient(0);
+        let outputs = vec![output_0.clone()];
+        assert!(matches!(
+            LeaderBlockCommitOp::parse_pox_waterfall_commits(&outputs, &output_0),
+            Err(op_error::InvalidInput)
+        ));
+
+        // positive-amount first output -> parsed, burn_fee carries the amount
+        let output_0 = recipient(10);
+        let outputs = vec![output_0.clone()];
+        let calc = LeaderBlockCommitOp::parse_pox_waterfall_commits(&outputs, &output_0)
+            .expect("positive-amount waterfall commit should parse");
+        assert_eq!(calc.burn_fee, 10);
     }
 
     #[test]
@@ -1253,6 +1583,7 @@ mod tests {
             16843022,
             &BurnchainHeaderHash([0; 32]),
             StacksEpochId::Epoch2_05,
+            u64::MAX,
             &tx,
         )
         .unwrap_err();
@@ -1265,6 +1596,7 @@ mod tests {
             16843022,
             &BurnchainHeaderHash([0; 32]),
             StacksEpochId::Epoch21,
+            u64::MAX,
             &tx,
         )
         .unwrap();
@@ -1320,6 +1652,7 @@ mod tests {
             16843022,
             &BurnchainHeaderHash([0; 32]),
             StacksEpochId::Epoch2_05,
+            u64::MAX,
             &tx,
         )
         .unwrap();
@@ -1334,6 +1667,7 @@ mod tests {
             16843022,
             &BurnchainHeaderHash([0; 32]),
             StacksEpochId::Epoch21,
+            u64::MAX,
             &tx,
         )
         .unwrap();
@@ -1397,6 +1731,7 @@ mod tests {
             16843019,
             &BurnchainHeaderHash([0; 32]),
             StacksEpochId::Epoch2_05,
+            u64::MAX,
             &tx,
         )
         .unwrap();
@@ -1452,6 +1787,7 @@ mod tests {
             16843019,
             &BurnchainHeaderHash([0; 32]),
             StacksEpochId::Epoch2_05,
+            u64::MAX,
             &tx,
         )
         .unwrap_err()
@@ -1528,6 +1864,7 @@ mod tests {
             16843019,
             &BurnchainHeaderHash([0; 32]),
             StacksEpochId::Epoch2_05,
+            u64::MAX,
             &tx,
         )
         .unwrap();
@@ -1573,6 +1910,7 @@ mod tests {
             16843019,
             &BurnchainHeaderHash([0; 32]),
             StacksEpochId::Epoch2_05,
+            u64::MAX,
             &tx,
         )
         .unwrap_err()
@@ -1626,6 +1964,7 @@ mod tests {
             16843019,
             &BurnchainHeaderHash([0; 32]),
             StacksEpochId::Epoch2_05,
+            u64::MAX,
             &tx,
         )
         .unwrap_err()
@@ -1703,6 +2042,7 @@ mod tests {
             16843019,
             &BurnchainHeaderHash([0; 32]),
             StacksEpochId::Epoch2_05,
+            u64::MAX,
             &tx,
         )
         .unwrap_err()
@@ -1819,6 +2159,7 @@ mod tests {
                 &burnchain,
                 &header,
                 StacksEpochId::Epoch2_05,
+                u64::MAX,
                 &burnchain_tx,
             );
 
@@ -1857,6 +2198,7 @@ mod tests {
             5,
             5000,
             10000,
+            u32::MAX,
             u32::MAX,
             u32::MAX,
             u32::MAX,
@@ -2007,7 +2349,7 @@ mod tests {
         let mut db = SortitionDB::connect_test_with_epochs(
             first_block_height,
             &first_burn_hash,
-            StacksEpoch::all(0, 0, first_block_height),
+            StacksEpoch::unit_test_2_1_with_heights(0, 0, first_block_height),
         )
         .unwrap();
         let block_ops = [
@@ -2110,7 +2452,7 @@ mod tests {
             prev_snapshot.index_root
         };
 
-        let mut fixtures = vec![
+        let mut fixtures = [
             CheckFixture {
                 // accept -- consumes leader_key_2
                 op: LeaderBlockCommitOp {
@@ -2399,6 +2741,258 @@ mod tests {
             assert_eq!(
                 format!("{:?}", &fixture.res),
                 format!("{:?}", &fixture.op.check(&burnchain, &mut ic, None))
+            );
+        }
+    }
+
+    /// Build a sortition DB under `epochs` whose first block is 121, with a leader key at height
+    /// 124 and a block-commit at height 125 with the given `vtxindex`, then `check()` a commit at
+    /// height 126 whose parent pointer is `(125, 0)`.
+    fn check_commit_with_vtxindex_zero_parent(
+        epochs: stacks_common::types::EpochList<ExecutionCost>,
+        parent_commit_vtxindex: u32,
+    ) -> Result<(), op_error> {
+        let first_block_height = 121;
+        let first_burn_hash = BurnchainHeaderHash([0x79; 32]);
+        let block_hashes: Vec<_> = (0x7au8..=0x7e)
+            .map(|b| BurnchainHeaderHash([b; 32]))
+            .collect();
+
+        let burnchain = Burnchain {
+            pox_constants: pox_constants(),
+            peer_version: 0x012345678,
+            network_id: 0x9abcdef0,
+            chain_name: "bitcoin".to_string(),
+            network_name: "testnet".to_string(),
+            working_dir: "/nope".to_string(),
+            consensus_hash_lifetime: 24,
+            stable_confirmations: 7,
+            first_block_height,
+            initial_reward_start_block: first_block_height,
+            first_block_timestamp: 0,
+            first_block_hash: first_burn_hash.clone(),
+            marf_opts: None,
+        };
+
+        let apparent_sender = BurnchainSigner::mock_parts(
+            AddressHashMode::SerializeP2PKH,
+            1,
+            vec![StacksPublicKey::from_hex(
+                "02d8015134d9db8178ac93acbc43170a2f20febba5087a5b0437058765ad5133d0",
+            )
+            .unwrap()],
+        );
+
+        // height 124
+        let leader_key = LeaderKeyRegisterOp {
+            consensus_hash: ConsensusHash([0x22; 20]),
+            public_key: VRFPublicKey::from_bytes(
+                &hex_bytes("a366b51292bef4edd64063d9145c617fec373bceb0758e98cd72becd84d54c7a")
+                    .unwrap(),
+            )
+            .unwrap(),
+            memo: vec![],
+            txid: Txid([0x11; 32]),
+            vtxindex: 456,
+            block_height: 124,
+            burn_header_hash: block_hashes[2].clone(),
+        };
+
+        // height 125; the only block-commit the commit under test could build on
+        let parent_commit = LeaderBlockCommitOp {
+            treatment: vec![],
+            sunset_burn: 0,
+            block_header_hash: BlockHeaderHash([0x22; 32]),
+            new_seed: VRFSeed([0x33; 32]),
+            parent_block_ptr: 0,
+            parent_vtxindex: 0,
+            key_block_ptr: 124,
+            key_vtxindex: 456,
+            memo: vec![STACKS_EPOCH_LATEST_MARKER],
+            commit_outs: vec![],
+            burn_fee: 12345,
+            input: (Txid([0; 32]), 0),
+            apparent_sender: apparent_sender.clone(),
+            txid: Txid([0x44; 32]),
+            vtxindex: parent_commit_vtxindex,
+            block_height: 125,
+            burn_parent_modulus: (124 % BURN_BLOCK_MINED_AT_MODULUS) as u8,
+            burn_header_hash: block_hashes[3].clone(),
+        };
+
+        let mut db =
+            SortitionDB::connect_test_with_epochs(first_block_height, &first_burn_hash, epochs)
+                .unwrap();
+        // heights 122 through 126
+        test_append_snapshot(&mut db, block_hashes[0].clone(), &[]);
+        test_append_snapshot(&mut db, block_hashes[1].clone(), &[]);
+        test_append_snapshot(
+            &mut db,
+            block_hashes[2].clone(),
+            &[BlockstackOperationType::LeaderKeyRegister(leader_key)],
+        );
+        test_append_snapshot(
+            &mut db,
+            block_hashes[3].clone(),
+            &[BlockstackOperationType::LeaderBlockCommit(parent_commit)],
+        );
+        let tip = test_append_snapshot(&mut db, block_hashes[4].clone(), &[]);
+
+        // height 126, claiming a parent at (125, 0)
+        let mut commit = LeaderBlockCommitOp {
+            treatment: vec![],
+            sunset_burn: 0,
+            block_header_hash: BlockHeaderHash([0x55; 32]),
+            new_seed: VRFSeed([0x66; 32]),
+            parent_block_ptr: 125,
+            parent_vtxindex: 0,
+            key_block_ptr: 124,
+            key_vtxindex: 456,
+            memo: vec![STACKS_EPOCH_LATEST_MARKER],
+            commit_outs: vec![],
+            burn_fee: 12345,
+            input: (Txid([0; 32]), 0),
+            apparent_sender,
+            txid: Txid([0x77; 32]),
+            vtxindex: 1,
+            block_height: 126,
+            burn_parent_modulus: (125 % BURN_BLOCK_MINED_AT_MODULUS) as u8,
+            burn_header_hash: tip.burn_header_hash.clone(),
+        };
+
+        let mut ic = SortitionHandleTx::begin(&mut db, &tip.sortition_id).unwrap();
+        commit.check(&burnchain, &mut ic, None)
+    }
+
+    /// Epochs 3.0 through 4.0 accept a block-commit whose parent is `(height > 0, vtxindex 0)`
+    /// even though no block-commit exists there (an assumed shadow-block parent).  Those epochs
+    /// must preserve this; from 4.1 the parent block-commit must exist, as in 2.x.  A block-commit
+    /// that does exist at vtxindex 0 is a valid parent in every epoch.
+    #[test]
+    fn test_check_vtxindex_zero_parent() {
+        let first_block_height = 121;
+        let epoch_2_1 = || StacksEpoch::unit_test_2_1_with_heights(0, 0, first_block_height);
+        let nakamoto = |epoch_id| StacksEpoch::unit_test_epoch_only(first_block_height, epoch_id);
+
+        // no block-commit at (125, 0)
+        for (epochs, accepted) in [
+            (epoch_2_1(), false),
+            (nakamoto(StacksEpochId::Epoch30), true),
+            (nakamoto(StacksEpochId::Epoch40), true),
+            (nakamoto(StacksEpochId::Epoch41), false),
+        ] {
+            let res = check_commit_with_vtxindex_zero_parent(epochs, 444);
+            if accepted {
+                assert!(res.is_ok(), "{res:?}");
+            } else {
+                assert!(matches!(res, Err(op_error::BlockCommitNoParent)), "{res:?}");
+            }
+        }
+
+        // a block-commit does exist at (125, 0)
+        for epochs in [
+            epoch_2_1(),
+            nakamoto(StacksEpochId::Epoch30),
+            nakamoto(StacksEpochId::Epoch40),
+            nakamoto(StacksEpochId::Epoch41),
+        ] {
+            let res = check_commit_with_vtxindex_zero_parent(epochs, 0);
+            assert!(res.is_ok(), "{res:?}");
+        }
+    }
+
+    /// Before the PoX waterfall, a block-commit that pays the reward set must descend from the
+    /// anchor block.  Epochs 3.0 through 4.0 assume that a commit whose parent is
+    /// `(height > 0, vtxindex 0)` built atop a shadow block and skip that check.  Those epochs
+    /// must preserve the assumption; it is absent before 3.0 and from 4.1 on.
+    #[test]
+    fn test_check_pox_vtxindex_zero_parent_skips_descent() {
+        let burnchain = Burnchain {
+            pox_constants: pox_constants(),
+            peer_version: 0x012345678,
+            network_id: 0x9abcdef0,
+            chain_name: "bitcoin".to_string(),
+            network_name: "testnet".to_string(),
+            working_dir: "/nope".to_string(),
+            consensus_hash_lifetime: 24,
+            stable_confirmations: 7,
+            initial_reward_start_block: 0,
+            first_block_height: 0,
+            first_block_timestamp: 0,
+            first_block_hash: BurnchainHeaderHash([0x05; 32]),
+            marf_opts: None,
+        };
+
+        let recipient =
+            PoxAddress::Standard(StacksAddress::new(1, Hash160([0x11; 20])).unwrap(), None);
+        let reward_set_info = RewardSetInfo::V0(RewardSetInfoV0 {
+            anchor_block: BlockHeaderHash([0xaa; 32]),
+            recipients: vec![(recipient.clone(), 0), (recipient.clone(), 1)],
+            allow_nakamoto_punishment: true,
+        });
+
+        // pays the reward set, does not commit to the anchor block itself, and claims a parent at
+        // vtxindex 0.  The stubbed handle reports that the parent does not descend from the anchor.
+        let commit = LeaderBlockCommitOp {
+            treatment: vec![],
+            sunset_burn: 0,
+            block_header_hash: BlockHeaderHash([0x22; 32]),
+            new_seed: VRFSeed([0x33; 32]),
+            parent_block_ptr: 125,
+            parent_vtxindex: 0,
+            key_block_ptr: 124,
+            key_vtxindex: 456,
+            memo: vec![STACKS_EPOCH_LATEST_MARKER],
+            commit_outs: vec![recipient.clone(), recipient],
+            burn_fee: 12345,
+            input: (Txid([0; 32]), 0),
+            apparent_sender: BurnchainSigner::mock_parts(
+                AddressHashMode::SerializeP2PKH,
+                1,
+                vec![StacksPublicKey::from_hex(
+                    "02d8015134d9db8178ac93acbc43170a2f20febba5087a5b0437058765ad5133d0",
+                )
+                .unwrap()],
+            ),
+            txid: Txid([0x55; 32]),
+            vtxindex: 1,
+            block_height: 200,
+            burn_parent_modulus: (199 % BURN_BLOCK_MINED_AT_MODULUS) as u8,
+            burn_header_hash: BurnchainHeaderHash([0x06; 32]),
+        };
+        let check_pox = |commit: &LeaderBlockCommitOp, epoch_id| {
+            commit.check_pox(
+                epoch_id,
+                &burnchain,
+                &mut PreWaterfallSortitionStub {
+                    descended_from_anchor: false,
+                },
+                Some(&reward_set_info),
+            )
+        };
+
+        // the assumed shadow parent stands in for anchor descent...
+        for epoch_id in [StacksEpochId::Epoch30, StacksEpochId::Epoch40] {
+            let res = check_pox(&commit, epoch_id);
+            assert!(res.is_ok(), "{epoch_id}: {res:?}");
+        }
+        // ...but only in those epochs...
+        for epoch_id in [StacksEpochId::Epoch25, StacksEpochId::Epoch41] {
+            let res = check_pox(&commit, epoch_id);
+            assert!(
+                matches!(res, Err(op_error::BlockCommitBadOutputs)),
+                "{epoch_id}: {res:?}"
+            );
+        }
+        // ...and only for a parent at vtxindex 0 with a non-zero height
+        for (parent_block_ptr, parent_vtxindex) in [(125, 1), (0, 0)] {
+            let mut other_parent = commit.clone();
+            other_parent.parent_block_ptr = parent_block_ptr;
+            other_parent.parent_vtxindex = parent_vtxindex;
+            let res = check_pox(&other_parent, StacksEpochId::Epoch30);
+            assert!(
+                matches!(res, Err(op_error::BlockCommitBadOutputs)),
+                "({parent_block_ptr}, {parent_vtxindex}): {res:?}"
             );
         }
     }
@@ -3131,12 +3725,13 @@ mod tests {
         }
     }
 
-    pub enum DescendencyStubbedSortitionHandle {
-        Descended,
-        NotDescended,
+    /// Sortition handle keeping PoX waterfall inactive with configurable anchor descent.
+    pub struct PreWaterfallSortitionStub {
+        /// Result returned for every anchor descent check.
+        descended_from_anchor: bool,
     }
 
-    impl SortitionHandle for DescendencyStubbedSortitionHandle {
+    impl SortitionHandle for PreWaterfallSortitionStub {
         fn sqlite(&self) -> &Connection {
             panic!("Cannot evaluate");
         }
@@ -3171,10 +3766,11 @@ mod tests {
             _block_at_burn_height: u64,
             _potential_ancestor: &BlockHeaderHash,
         ) -> Result<bool, db_error> {
-            match self {
-                DescendencyStubbedSortitionHandle::Descended => Ok(true),
-                DescendencyStubbedSortitionHandle::NotDescended => Ok(false),
-            }
+            Ok(self.descended_from_anchor)
+        }
+
+        fn get_first_pox_waterfall_block(&self) -> Result<u64, db_error> {
+            Ok(u64::MAX)
         }
     }
 
@@ -3234,31 +3830,31 @@ mod tests {
         }
         let burn_addr_0 = PoxAddress::Standard(StacksAddress::burn_address(false), None);
         let burn_addr_1 = PoxAddress::Standard(StacksAddress::burn_address(true), None);
-        let rs_pox_addrs = RewardSetInfo {
+        let rs_pox_addrs = RewardSetInfo::V0(RewardSetInfoV0 {
             anchor_block: anchor_block_hash.clone(),
             recipients: vec![(reward_addrs(0), 0), (reward_addrs(1), 1)],
             allow_nakamoto_punishment: true,
-        };
-        let rs_pox_addrs_0b = RewardSetInfo {
+        });
+        let rs_pox_addrs_0b = RewardSetInfo::V0(RewardSetInfoV0 {
             anchor_block: anchor_block_hash.clone(),
             recipients: vec![(reward_addrs(0), 0), (burn_addr_0.clone(), 5)],
             allow_nakamoto_punishment: true,
-        };
-        let rs_pox_addrs_1b = RewardSetInfo {
+        });
+        let rs_pox_addrs_1b = RewardSetInfo::V0(RewardSetInfoV0 {
             anchor_block: anchor_block_hash.clone(),
             recipients: vec![(reward_addrs(1), 1), (burn_addr_1.clone(), 5)],
             allow_nakamoto_punishment: true,
-        };
+        });
 
         fn rev(rs: &RewardSetInfo) -> RewardSetInfo {
             let mut out = rs.clone();
-            out.recipients.reverse();
+            out.as_v0_mut().unwrap().recipients.reverse();
             out
         }
 
         fn no_punish(rs: &RewardSetInfo) -> RewardSetInfo {
             let mut out = rs.clone();
-            out.allow_nakamoto_punishment = false;
+            out.as_v0_mut().unwrap().allow_nakamoto_punishment = false;
             out
         }
 
@@ -3416,7 +4012,9 @@ mod tests {
                     reward_set_info.clone()
                 };
                 eprintln!("Processing {}", ix);
-                let mut ic = DescendencyStubbedSortitionHandle::Descended;
+                let mut ic = PreWaterfallSortitionStub {
+                    descended_from_anchor: true,
+                };
                 let output = op.check_pox(
                     StacksEpochId::Epoch30,
                     &burnchain,
@@ -3802,7 +4400,7 @@ mod tests {
             burn_header_hash: BurnchainHeaderHash([0x00; 32]), // to be filled in
         };
 
-        let all_leader_key_ops = vec![leader_key];
+        let all_leader_key_ops = [leader_key];
 
         let mut all_block_commit_ops = vec![
             (block_commit_pre_2_05, true),

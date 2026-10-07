@@ -54,6 +54,7 @@ use crate::strings::StacksString;
 /// Max size of a serialized Stacks transaction (consensus-encoded).
 pub const MAX_BLOCK_LEN: u32 = 2 * 1024 * 1024;
 pub const MAX_TRANSACTION_LEN: u32 = MAX_BLOCK_LEN;
+pub const MIN_TRANSACTION_LEN: u32 = 180;
 use stacks_common::{
     define_u8_enum, impl_array_hexstring_fmt, impl_array_newtype, impl_byte_array_message_codec,
     impl_byte_array_newtype, impl_byte_array_serde, impl_index_newtype,
@@ -532,6 +533,7 @@ define_u8_enum!(TransactionPayloadID {
     Coinbase = 4,
     // has an alt principal, but no VRF proof
     CoinbaseToAltRecipient = 5,
+    // pins a Clarity version; only accepted in Epochs 2.1 through 4.0
     VersionedSmartContract = 6,
     TenureChange = 7,
     // has a VRF proof, and may have an alt principal
@@ -545,6 +547,8 @@ pub enum AssetInfoID {
     STX = 0,
     FungibleAsset = 1,
     NonfungibleAsset = 2,
+    Staking = 3,
+    Pox = 4,
 }
 
 impl AssetInfoID {
@@ -553,6 +557,8 @@ impl AssetInfoID {
             0 => Some(AssetInfoID::STX),
             1 => Some(AssetInfoID::FungibleAsset),
             2 => Some(AssetInfoID::NonfungibleAsset),
+            3 => Some(AssetInfoID::Staking),
+            4 => Some(AssetInfoID::Pox),
             _ => None,
         }
     }
@@ -1288,7 +1294,7 @@ impl SinglesigSpendingCondition {
             return Err(AuthError::VerifyingError(format!(
                 "Signer hash does not equal hash of public key(s): {} != {}",
                 addr.bytes(),
-                &self.signer
+                self.signer
             )));
         }
 
@@ -2235,6 +2241,63 @@ impl NonfungibleConditionCode {
 const _: () =
     assert!(NonfungibleConditionCode::ALL.len() == NonfungibleConditionCode::VARIANT_COUNT);
 
+/// Condition code for a `Pox` post-condition. A `Pox` post-condition gates the
+/// position-altering PoX-5 operations (`unstake`, `unstake-sbtc`,
+/// `update-bond-registration`, `announce-l1-early-exit`) that act on a
+/// principal's existing stacking/bond position. A call that returns `(err ...)`
+/// still counts as an attempt, so the owner can also detect (and block) a
+/// contract that merely tries to touch their position. The attempt is recorded
+/// as an effect of the calling function, so it survives to the post-condition
+/// check only if every public function between the PoX call and the
+/// transaction's entry point returns `(ok ...)`; a function that returns
+/// `(err ...)` rolls the record back with its other effects. The position is
+/// unchanged either way. These are all-or-nothing, so the condition is
+/// presence-based rather than an amount comparison, mirroring
+/// `NonfungibleConditionCode`.
+#[repr(u8)]
+#[derive(Debug, Clone, PartialEq, Copy, Serialize, Deserialize, VariantCount)]
+pub enum PoxConditionCode {
+    /// The principal must NOT have performed a gated PoX action (blocks an
+    /// unwanted position change).
+    NotPerformed = 0x30,
+    /// The principal may or may not have performed a gated PoX action (always
+    /// passes; used to opt in under `Deny`/`Originator` post-condition mode).
+    MaybePerformed = 0x31,
+    /// The principal must have performed a gated PoX action.
+    Performed = 0x32,
+}
+
+impl PoxConditionCode {
+    /// All variants of this enum, in declaration order. Kept in sync with the
+    /// enum definition by the `const _` assertion below.
+    pub const ALL: &'static [PoxConditionCode] = &[
+        PoxConditionCode::NotPerformed,
+        PoxConditionCode::MaybePerformed,
+        PoxConditionCode::Performed,
+    ];
+
+    pub fn from_u8(b: u8) -> Option<PoxConditionCode> {
+        match b {
+            0x30 => Some(PoxConditionCode::NotPerformed),
+            0x31 => Some(PoxConditionCode::MaybePerformed),
+            0x32 => Some(PoxConditionCode::Performed),
+            _ => None,
+        }
+    }
+
+    /// Evaluate the condition given whether the principal performed a gated PoX
+    /// action during the transaction.
+    pub fn check(&self, performed: bool) -> bool {
+        match *self {
+            PoxConditionCode::NotPerformed => !performed,
+            PoxConditionCode::MaybePerformed => true,
+            PoxConditionCode::Performed => performed,
+        }
+    }
+}
+
+const _: () = assert!(PoxConditionCode::ALL.len() == PoxConditionCode::VARIANT_COUNT);
+
 /// Post-condition principal.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum PostConditionPrincipal {
@@ -2306,19 +2369,32 @@ impl StacksMessageCodec for PostConditionPrincipal {
 /// Post-condition on a transaction
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum TransactionPostCondition {
+    /// Constrains how much STX may be sent by the transaction.
     STX(PostConditionPrincipal, FungibleConditionCode, u64),
+    /// Constrains how much of a specific fungible asset may be sent by the
+    /// transaction.
     Fungible(
         PostConditionPrincipal,
         AssetInfo,
         FungibleConditionCode,
         u64,
     ),
+    /// Constrains whether a specific non-fungible token asset is sent or not
+    /// sent by the transaction.
     Nonfungible(
         PostConditionPrincipal,
         AssetInfo,
         Value,
         NonfungibleConditionCode,
     ),
+    /// Constrains how much STX the principal may stake (lock for PoX) during
+    /// the transaction. Only valid in Stacks epoch 4.0 and later.
+    Staking(PostConditionPrincipal, FungibleConditionCode, u64),
+    /// Constrains whether the principal may perform a position-altering PoX
+    /// operation (`unstake`, `unstake-sbtc`, `update-bond-registration`,
+    /// `announce-l1-early-exit`) during the transaction. Only valid in Stacks
+    /// epoch 4.0 and later.
+    Pox(PostConditionPrincipal, PoxConditionCode),
 }
 
 impl StacksMessageCodec for TransactionPostCondition {
@@ -2353,6 +2429,21 @@ impl StacksMessageCodec for TransactionPostCondition {
                 write_next(fd, asset_info)?;
                 write_next(fd, asset_value)?;
                 write_next(fd, &(*nonfungible_condition as u8))?;
+            }
+            TransactionPostCondition::Staking(
+                ref principal,
+                ref fungible_condition,
+                ref amount,
+            ) => {
+                write_next(fd, &(AssetInfoID::Staking as u8))?;
+                write_next(fd, principal)?;
+                write_next(fd, &(*fungible_condition as u8))?;
+                write_next(fd, amount)?;
+            }
+            TransactionPostCondition::Pox(ref principal, ref pox_condition) => {
+                write_next(fd, &(AssetInfoID::Pox as u8))?;
+                write_next(fd, principal)?;
+                write_next(fd, &(*pox_condition as u8))?;
             }
         };
         Ok(())
@@ -2401,9 +2492,36 @@ impl StacksMessageCodec for TransactionPostCondition {
 
                 TransactionPostCondition::Nonfungible(principal, asset, asset_value, condition_code)
             }
+            x if x == AssetInfoID::Staking as u8 => {
+                let principal: PostConditionPrincipal = read_next(fd)?;
+                let condition_u8: u8 = read_next(fd)?;
+                let amount: u64 = read_next(fd)?;
+
+                let condition_code = FungibleConditionCode::from_u8(condition_u8).ok_or(
+                    codec_error::DeserializeError(format!(
+                    "Failed to parse transaction: Failed to parse Staking fungible condition code {}",
+                    condition_u8
+                )),
+                )?;
+
+                TransactionPostCondition::Staking(principal, condition_code, amount)
+            }
+            x if x == AssetInfoID::Pox as u8 => {
+                let principal: PostConditionPrincipal = read_next(fd)?;
+                let condition_u8: u8 = read_next(fd)?;
+
+                let condition_code = PoxConditionCode::from_u8(condition_u8).ok_or(
+                    codec_error::DeserializeError(format!(
+                        "Failed to parse transaction: Failed to parse Pox condition code {}",
+                        condition_u8
+                    )),
+                )?;
+
+                TransactionPostCondition::Pox(principal, condition_code)
+            }
             _ => {
                 return Err(codec_error::DeserializeError(format!(
-                    "Failed to aprse transaction: unknown asset info ID {}",
+                    "Failed to parse transaction: unknown asset info ID {}",
                     asset_info_id
                 )));
             }
@@ -2421,6 +2539,20 @@ pub struct StacksMicroblockHeader {
     pub prev_block: BlockHeaderHash,
     pub tx_merkle_root: Sha512Trunc256Sum,
     pub signature: MessageSignature,
+}
+
+/// Signer relationship recovered from two valid microblock-header signatures.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum MicroblockSignerMatch {
+    /// Both headers were signed by the same key.
+    Common(Hash160),
+    /// The headers were signed by different keys.
+    Different {
+        /// Signer recovered from the first header.
+        first: Hash160,
+        /// Signer recovered from the second header.
+        second: Hash160,
+    },
 }
 
 impl StacksMessageCodec for StacksMicroblockHeader {
@@ -2503,6 +2635,18 @@ impl StacksMicroblockHeader {
         Ok(Hash160::from_node_public_key(&pubk))
     }
 
+    /// Recovers and compares the signers of two microblock headers.
+    pub fn recover_signer_match(&self, other: &Self) -> Result<MicroblockSignerMatch, AuthError> {
+        let first = self.check_recover_pubkey()?;
+        let second = other.check_recover_pubkey()?;
+
+        Ok(if first == second {
+            MicroblockSignerMatch::Common(first)
+        } else {
+            MicroblockSignerMatch::Different { first, second }
+        })
+    }
+
     pub fn verify(&self, pubk_hash: &Hash160) -> Result<(), AuthError> {
         let pubkh = self.check_recover_pubkey()?;
 
@@ -2571,6 +2715,9 @@ impl StacksMicroblockHeader {
 pub enum TransactionPayload {
     TokenTransfer(PrincipalData, u64, TokenTransferMemo),
     ContractCall(TransactionContractCall),
+    /// A pinned Clarity version (`VersionedSmartContract` on the wire) is only
+    /// accepted in Epochs 2.1 through 4.0; elsewhere the deploy must be
+    /// unversioned and runs as the epoch default.
     SmartContract(TransactionSmartContract, Option<ClarityVersion>),
     // the previous epoch leader sent two microblocks with the same sequence, and this is proof
     PoisonMicroblock(StacksMicroblockHeader, StacksMicroblockHeader),
@@ -2669,6 +2816,8 @@ fn clarity_version_consensus_serialize<W: Write>(
         ClarityVersion::Clarity3 => write_next(fd, &3u8)?,
         ClarityVersion::Clarity4 => write_next(fd, &4u8)?,
         ClarityVersion::Clarity5 => write_next(fd, &5u8)?,
+        ClarityVersion::Clarity6 => write_next(fd, &6u8)?,
+        ClarityVersion::Clarity7 => write_next(fd, &7u8)?,
     }
     Ok(())
 }
@@ -2683,9 +2832,11 @@ fn clarity_version_consensus_deserialize<R: Read>(
         3u8 => Ok(ClarityVersion::Clarity3),
         4u8 => Ok(ClarityVersion::Clarity4),
         5u8 => Ok(ClarityVersion::Clarity5),
+        6u8 => Ok(ClarityVersion::Clarity6),
+        7u8 => Ok(ClarityVersion::Clarity7),
         _ => Err(codec_error::DeserializeError(format!(
             "Unrecognized ClarityVersion byte {}",
-            &version_byte
+            version_byte
         ))),
     }
 }
@@ -2965,20 +3116,20 @@ impl StacksTransaction {
         // Otherwise, if the offending leader is the next leader, they can just orphan their proof
         // of malfeasance.
         match payload {
-            TransactionPayload::PoisonMicroblock(_, _) => {
-                if anchor_mode != TransactionAnchorMode::OnChainOnly {
-                    return Err(codec_error::DeserializeError(
-                        "Failed to parse transaction: invalid anchor mode for PoisonMicroblock"
-                            .to_string(),
-                    ));
-                }
+            TransactionPayload::PoisonMicroblock(_, _)
+                if anchor_mode != TransactionAnchorMode::OnChainOnly =>
+            {
+                return Err(codec_error::DeserializeError(
+                    "Failed to parse transaction: invalid anchor mode for PoisonMicroblock"
+                        .to_string(),
+                ));
             }
-            TransactionPayload::Coinbase(..) => {
-                if anchor_mode != TransactionAnchorMode::OnChainOnly {
-                    return Err(codec_error::DeserializeError(
-                        "Failed to parse transaction: invalid anchor mode for Coinbase".to_string(),
-                    ));
-                }
+            TransactionPayload::Coinbase(..)
+                if anchor_mode != TransactionAnchorMode::OnChainOnly =>
+            {
+                return Err(codec_error::DeserializeError(
+                    "Failed to parse transaction: invalid anchor mode for Coinbase".to_string(),
+                ));
             }
             _ => {}
         }
@@ -3871,6 +4022,15 @@ mod tests {
                 NonfungibleConditionCode::NotSent,
             );
 
+            let staking_pc = TransactionPostCondition::Staking(
+                tx_pcp.clone(),
+                FungibleConditionCode::SentLe,
+                31337,
+            );
+
+            let pox_pc =
+                TransactionPostCondition::Pox(tx_pcp.clone(), PoxConditionCode::NotPerformed);
+
             let mut stx_pc_bytes = vec![];
             (AssetInfoID::STX as u8)
                 .consensus_serialize(&mut stx_pc_bytes)
@@ -3914,9 +4074,44 @@ mod tests {
                 .unwrap();
             nonfungible_pc_bytes.push(NonfungibleConditionCode::NotSent as u8);
 
-            let pcs = [stx_pc, fungible_pc, nonfungible_pc];
-            let pc_bytes = [stx_pc_bytes, fungible_pc_bytes, nonfungible_pc_bytes];
-            for i in 0..3 {
+            let mut staking_pc_bytes = vec![];
+            (AssetInfoID::Staking as u8)
+                .consensus_serialize(&mut staking_pc_bytes)
+                .unwrap();
+            tx_pcp.consensus_serialize(&mut staking_pc_bytes).unwrap();
+            staking_pc_bytes.append(&mut vec![
+                // condition code
+                FungibleConditionCode::SentLe as u8,
+                // amount (31337 = 0x7a69)
+                0x00,
+                0x00,
+                0x00,
+                0x00,
+                0x00,
+                0x00,
+                0x7a,
+                0x69,
+            ]);
+
+            let mut pox_pc_bytes = vec![];
+            (AssetInfoID::Pox as u8)
+                .consensus_serialize(&mut pox_pc_bytes)
+                .unwrap();
+            tx_pcp.consensus_serialize(&mut pox_pc_bytes).unwrap();
+            pox_pc_bytes.append(&mut vec![
+                // condition code
+                PoxConditionCode::NotPerformed as u8,
+            ]);
+
+            let pcs = [stx_pc, fungible_pc, nonfungible_pc, staking_pc, pox_pc];
+            let pc_bytes = [
+                stx_pc_bytes,
+                fungible_pc_bytes,
+                nonfungible_pc_bytes,
+                staking_pc_bytes,
+                pox_pc_bytes,
+            ];
+            for i in 0..5 {
                 check_codec_and_corruption::<TransactionPostCondition>(&pcs[i], &pc_bytes[i]);
             }
         }
@@ -4271,6 +4466,41 @@ mod tests {
         header.consensus_serialize(&mut buf).unwrap();
         let decoded = StacksMicroblockHeader::consensus_deserialize(&mut &buf[..]).unwrap();
         assert_eq!(decoded, header);
+    }
+
+    #[test]
+    fn microblock_headers_recover_signer_match() {
+        let signer = StacksPrivateKey::random();
+        let other_signer = StacksPrivateKey::random();
+        let parent = BlockHeaderHash([0x77; 32]);
+
+        let mut first =
+            StacksMicroblockHeader::first_unsigned(&parent, &Sha512Trunc256Sum([0x11; 32]));
+        first.sign(&signer).unwrap();
+
+        let mut same_signer =
+            StacksMicroblockHeader::first_unsigned(&parent, &Sha512Trunc256Sum([0x22; 32]));
+        same_signer.sign(&signer).unwrap();
+
+        let mut different_signer =
+            StacksMicroblockHeader::first_unsigned(&parent, &Sha512Trunc256Sum([0x33; 32]));
+        different_signer.sign(&other_signer).unwrap();
+
+        let first_signer = first.check_recover_pubkey().unwrap();
+        assert_eq!(
+            first.recover_signer_match(&same_signer).unwrap(),
+            MicroblockSignerMatch::Common(first_signer.clone()),
+        );
+        assert_eq!(
+            first.recover_signer_match(&different_signer).unwrap(),
+            MicroblockSignerMatch::Different {
+                first: first_signer,
+                second: different_signer.check_recover_pubkey().unwrap(),
+            },
+        );
+
+        let unsigned = StacksMicroblockHeader::first_empty_unsigned(&parent);
+        assert!(first.recover_signer_match(&unsigned).is_err());
     }
 
     /// Every `TransactionAuthFlags` discriminant must serialize to a single

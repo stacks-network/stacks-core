@@ -625,6 +625,57 @@ fn test_from_consensus_buff_unexpected_serialization_epoch_gate(
     );
 }
 
+#[apply(test_clarity_versions)]
+fn test_from_consensus_buff_duplicate_tuple_fields_epoch_gate(
+    version: ClarityVersion,
+    epoch: StacksEpochId,
+) {
+    if version < ClarityVersion::Clarity2 {
+        return;
+    }
+
+    const DUPLICATE_FIELDS: &str =
+        "0c000000020161000000000000000000000000000000000101610000000000000000000000000000000002";
+    const DUPLICATE_WITH_UNKNOWN_FIELD: &str = "0c00000003016100000000000000000000000000000000010161000000000000000000000000000000000201630000000000000000000000000000000003";
+    const LEGACY_TUPLE_RESULT: &str = "0a0c0000000101610000000000000000000000000000000002";
+    const LEGACY_LIST_RESULT: &str = "0a0b000000010c0000000101610000000000000000000000000000000002";
+
+    let nested_duplicate_fields = format!("0b00000001{DUPLICATE_FIELDS}");
+    let cases = [
+        ("{ a: int, b: int }", DUPLICATE_FIELDS, LEGACY_TUPLE_RESULT),
+        (
+            "(list 1 (tuple (a int) (b int)))",
+            nested_duplicate_fields.as_str(),
+            LEGACY_LIST_RESULT,
+        ),
+    ];
+
+    for (type_repr, serialized, legacy_result) in cases {
+        let program = format!("(from-consensus-buff? {type_repr} 0x{serialized})");
+        let value = execute_with_parameters(&program, version, epoch, false)
+            .expect("from-consensus-buff? should not raise a runtime error")
+            .expect("from-consensus-buff? should return a value");
+        let expected = if epoch >= StacksEpochId::Epoch41 {
+            "09"
+        } else {
+            legacy_result
+        };
+        assert_eq!(value.serialize_to_hex().unwrap(), expected);
+    }
+
+    let program =
+        format!("(from-consensus-buff? {{ a: int, b: int }} 0x{DUPLICATE_WITH_UNKNOWN_FIELD})");
+    let value = execute_with_parameters(&program, version, epoch, false)
+        .expect("from-consensus-buff? should not raise a runtime error")
+        .expect("from-consensus-buff? should return a value");
+    let expected = if epoch >= StacksEpochId::Epoch24 && epoch < StacksEpochId::Epoch41 {
+        LEGACY_TUPLE_RESULT
+    } else {
+        "09"
+    };
+    assert_eq!(value.serialize_to_hex().unwrap(), expected);
+}
+
 fn evaluate_to_ascii(snippet: &str) -> Value {
     execute_versioned(snippet, ClarityVersion::latest())
         .unwrap_or_else(|e| panic!("Execution failed for snippet `{snippet}`: {e:?}"))

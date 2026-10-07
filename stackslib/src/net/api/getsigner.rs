@@ -90,7 +90,9 @@ impl HttpRequest for GetSignerRequestHandler {
         let signer_pubkey = Secp256k1PublicKey::from_hex(signer_pubkey_str.into())
             .map_err(|e| Error::DecodeError(format!("Failed to signer public key: {e}")))?;
 
-        let cycle_num = u64::from_str_radix(cycle_num_str.into(), 10)
+        let cycle_num = cycle_num_str
+            .as_str()
+            .parse::<u64>()
             .map_err(|e| Error::DecodeError(format!("Failed to parse cycle number: {e}")))?;
 
         self.signer_pubkey = Some(signer_pubkey);
@@ -139,8 +141,7 @@ impl RPCRequestHandler for GetSignerRequestHandler {
                     &preamble,
                     &HttpNotFound::new(error.to_string()),
                 )
-                .try_into_contents()
-                .map_err(NetError::from);
+                .try_into_contents();
             }
         };
 
@@ -159,7 +160,7 @@ impl HttpResponse for GetSignerRequestHandler {
         body: &[u8],
     ) -> Result<HttpResponsePayload, Error> {
         let response: GetSignerResponse = parse_json(preamble, body)?;
-        Ok(HttpResponsePayload::try_from_json(response)?)
+        HttpResponsePayload::try_from_json(response)
     }
 }
 

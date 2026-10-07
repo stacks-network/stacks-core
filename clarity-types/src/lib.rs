@@ -24,6 +24,7 @@ pub use stacks_common::{
     impl_byte_array_serde, types as stacks_types, util,
 };
 
+pub mod effects;
 pub mod errors;
 pub mod representations;
 pub mod types;

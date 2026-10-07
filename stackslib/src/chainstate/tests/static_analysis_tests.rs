@@ -25,8 +25,8 @@ use clarity::vm::types::MAX_TYPE_DEPTH;
 use clarity::vm::ClarityVersion;
 
 use crate::chainstate::tests::consensus::{
-    clarity_versions_for_epoch, contract_deploy_consensus_snap_test, ConsensusTest, ConsensusUtils,
-    SetupContract, TestBlock, EPOCHS_TO_TEST,
+    clarity_versions_for_epoch, contract_deploy_consensus_snap_test, tested_epochs_since,
+    ConsensusTest, ConsensusUtils, SetupContract, TestBlock, EPOCHS_TO_TEST,
 };
 use crate::core::BLOCK_LIMIT_MAINNET_21;
 use crate::util_lib::boot::boot_code_test_addr;
@@ -62,8 +62,19 @@ fn variant_coverage_report(variant: StaticCheckErrorKind) {
         CostBalanceExceeded(execution_cost, execution_cost1) => Tested(vec![static_check_error_cost_balance_exceeded]),
         MemoryBalanceExceeded(_, _) => Tested(vec![static_check_error_memory_balance_exceeded]),
         CostComputationFailed(_) => Unreachable_ExpectLike,
-        ExecutionTimeExpired => Unreachable_Functionally("Can only be triggered at runtime."),
-        ValueTooLarge => Tested(vec![static_check_error_value_too_large]),
+        AnalysisResourceBudgetExceeded(_) => Unreachable_Functionally(
+            "All consensus-critical code paths (block validation and transaction processing) pass
+             an unlimited resource budget, so the analysis-phase time tracking and memory limit stays
+             unlimited and check_analysis_resource_limits always returns Ok(()). The analysis
+             deadline is only enforced on the miner-local block-assembly and block-proposal
+             validation paths; it is exercised by the analysis-deadline integration tests, not
+             by this consensus harness.",
+        ),
+        ReadOnlyCheckerRecursionLimitExceeded => todo!(),
+        ValueTooLarge => Tested(vec![
+            static_check_error_value_too_large,
+            tuple_merge_exceeds_max_value_size_cdeploy,
+        ]),
         ValueOutOfBounds => Tested(vec![static_check_error_value_out_of_bounds]),
         TypeSignatureTooDeep => Tested(vec![static_check_error_type_signature_too_deep]),
         ExpectedName => Tested(vec![static_check_error_expected_name]),
@@ -126,7 +137,7 @@ fn variant_coverage_report(variant: StaticCheckErrorKind) {
         ReturnTypesMustMatch(type_signature, type_signature1) => Tested(vec![static_check_error_return_types_must_match]),
         NoSuchContract(_) => Tested(vec![static_check_error_no_such_contract]),
         NoSuchPublicFunction(_, _) => Tested(vec![static_check_error_no_such_public_function]),
-        ContractAlreadyExists(_) => Unreachable_Functionally("During normal operations, `StacksChainState::process_transaction_payload` will check if the contract exists already, invalidating the block before executing analysis. see `error_invalid_stacks_transaction_duplicate_contract`"),
+        ContractAlreadyExists(_) => Unreachable_Functionally("During normal operations, `TransactionProcessor::process_payload` will check if the contract exists already, invalidating the block before executing analysis. see `error_invalid_stacks_transaction_duplicate_contract`"),
         ContractCallExpectName => Tested(vec![static_check_error_contract_call_expect_name]),
         ExpectedCallableType(type_signature) => Tested(vec![static_check_error_expected_callable_type]),
         NoSuchBlockInfoProperty(_) => Tested(vec![static_check_error_no_such_block_info_property]),
@@ -177,6 +188,7 @@ fn variant_coverage_report(variant: StaticCheckErrorKind) {
         WithNftExpectedListOfIdentifiers => Tested(vec![static_check_error_with_nft_expected_list_of_identifiers]),
         MaxIdentifierLengthExceeded(_, _) => Tested(vec![static_check_error_max_identifier_length_exceeded]),
         TooManyAllowances(_, _) => Tested(vec![static_check_error_too_many_allowances]),
+        TraitReferenceChainTooDeep => todo!(),
     }
 }
 
@@ -1242,7 +1254,7 @@ fn static_check_error_at_block_unavailable() {
         (define-public (trigger-error)
             (ok (at-block 0x0101010101010101010101010101010101010101010101010101010101010101
                     u1)))",
-        deploy_epochs: &StacksEpochId::since(StacksEpochId::Epoch34),
+        deploy_epochs: &tested_epochs_since(StacksEpochId::Epoch34),
         clarity_versions: ClarityVersion::up_to(ClarityVersion::Clarity4),
     );
 }
@@ -1417,4 +1429,55 @@ fn error_invalid_stacks_transaction_duplicate_contract() {
     let result = ConsensusTest::new(function_name!(), vec![], epochs_blocks).run();
 
     insta::assert_ron_snapshot!(result);
+}
+
+/// StaticCheckErrorKind: [`StaticCheckErrorKind::ValueTooLarge`].
+/// Caused by: `(ok (merge ta tb))` of two individually-valid ~512 KiB tuples whose combined
+/// size exceeds `MAX_VALUE_SIZE`. `TupleTypeSignature::shallow_merge` rejects the merge at
+/// the merge site, so the oversized type never propagates to a later `.size()` call.
+///
+/// Outcome: block accepted, deploy tx mined with `committed:false`.
+#[test]
+fn tuple_merge_exceeds_max_value_size_cdeploy() {
+    contract_deploy_consensus_snap_test!(
+        contract_name: "tuple-merge-overflow",
+        contract_code: r#"
+        (define-private (make-buff-256)
+            (let ((b16 0x00112233445566778899aabbccddeeff)
+                  (b32 (concat b16 b16))
+                  (b64 (concat b32 b32))
+                  (b128 (concat b64 b64))
+                  (b256 (concat b128 b128)))
+              b256))
+
+        (define-private (make-buff-4096)
+            (let ((b256 (make-buff-256))
+                  (b512 (concat b256 b256))
+                  (b1024 (concat b512 b512))
+                  (b2048 (concat b1024 b1024))
+                  (b4096 (concat b2048 b2048)))
+              b4096))
+
+        (define-private (make-buff-65536)
+            (let ((b4096 (make-buff-4096))
+                  (b8192 (concat b4096 b4096))
+                  (b16384 (concat b8192 b8192))
+                  (b32768 (concat b16384 b16384))
+                  (b65536 (concat b32768 b32768)))
+              b65536))
+
+        (define-private (make-buff-524288)
+            (let ((b65536 (make-buff-65536))
+                  (b131072 (concat b65536 b65536))
+                  (b262144 (concat b131072 b131072))
+                  (b524288 (concat b262144 b262144)))
+              b524288))
+
+        (define-public (trigger-merge-overflow)
+            (let ((big (unwrap-panic (as-max-len? (make-buff-524288) u524288))))
+                (let ((ta (tuple (a big)))
+                      (tb (tuple (b big))))
+                    (ok (merge ta tb)))))
+    "#,
+    );
 }

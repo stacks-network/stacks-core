@@ -26,7 +26,7 @@ use stacks::chainstate::stacks::{
 };
 #[cfg(any(test, feature = "testing"))]
 use stacks::core::test_util::{make_contract_publish, to_addr};
-use stacks::core::{StacksEpoch, StacksEpochExtension, StacksEpochId, CHAIN_ID_TESTNET};
+use stacks::core::{StacksEpoch, StacksEpochExtension, StacksEpochId};
 use stacks_common::address::AddressHashMode;
 use stacks_common::codec::StacksMessageCodec;
 use stacks_common::types::chainstate::BlockHeaderHash;
@@ -49,43 +49,15 @@ mod marf;
 mod mem_abort;
 pub mod nakamoto_integrations;
 pub mod neon_integrations;
+mod pox_5_integrations;
 mod signer;
 mod stackerdb;
-
-// $ cat /tmp/out.clar
-pub const STORE_CONTRACT: &str = r#"(define-map store { key: (string-ascii 32) } { value: (string-ascii 32) })
- (define-public (get-value (key (string-ascii 32)))
-    (begin
-      (print (concat "Getting key " key))
-      (match (map-get? store { key: key })
-        entry (ok (get value entry))
-        (err 0))))
- (define-public (set-value (key (string-ascii 32)) (value (string-ascii 32)))
-    (begin
-        (print (concat "Setting key " key))
-        (map-set store { key: key } { value: value })
-        (ok true)))"#;
-// ./blockstack-cli --testnet publish 043ff5004e3d695060fa48ac94c96049b8c14ef441c50a184a6a3875d2a000f3 0 0 store /tmp/out.clar
 
 pub const SK_1: &str = "a1289f6438855da7decf9b61b852c882c398cff1446b2a0f823538aa2ebef92e01";
 pub const SK_2: &str = "4ce9a8f7539ea93753a36405b16e8b57e15a552430410709c2b6d65dca5c02e201";
 pub const SK_3: &str = "cb95ddd0fe18ec57f4f3533b95ae564b3f1ae063dbf75b46334bd86245aef78501";
 
 pub const ADDR_4: &str = "ST31DA6FTSJX2WGTZ69SFY11BH51NZMB0ZZ239N96";
-
-lazy_static! {
-    pub static ref PUBLISH_CONTRACT: Vec<u8> = make_contract_publish(
-        &StacksPrivateKey::from_hex(
-            "043ff5004e3d695060fa48ac94c96049b8c14ef441c50a184a6a3875d2a000f3"
-        )
-        .unwrap(),
-        0,
-        10,
-        CHAIN_ID_TESTNET,
-        "store",
-        STORE_CONTRACT
-    );
-}
 
 lazy_static! {
     static ref USED_PORTS: Mutex<HashSet<u16>> = Mutex::new({
@@ -127,6 +99,7 @@ pub fn new_test_conf() -> Config {
     let p2p_port = gen_random_port();
 
     let mut conf = Config::default();
+    conf.connection_options = conf.connection_options.with_private_neighbors();
     conf.node.working_dir = format!(
         "/tmp/stacks-node-tests/integrations-neon/{}-{}",
         to_hex(format!("{rpc_port}{p2p_port}").as_bytes()),
@@ -139,7 +112,8 @@ pub fn new_test_conf() -> Config {
         10000,
     );
 
-    conf.burnchain.epochs = Some(StacksEpoch::all(0, 0, 0));
+    conf.burnchain.epochs = Some(StacksEpoch::unit_test_2_1_with_heights(0, 0, 0));
+    conf.burnchain.wallet_name = Some("test-miner".to_string());
 
     let localhost = "127.0.0.1";
     conf.node.rpc_bind = format!("{localhost}:{rpc_port}");

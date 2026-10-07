@@ -36,7 +36,6 @@ use stacks_common::util::hash::Hash160;
 use stacks_common::util::{get_epoch_time_secs, sleep_ms};
 use stx_genesis::GenesisData;
 
-use crate::burnchains::make_bitcoin_indexer;
 use crate::genesis::{
     get_account_balances, get_account_lockups, get_names, get_namespaces,
     use_test_genesis_chainstate,
@@ -49,9 +48,7 @@ use crate::run_loop::boot_nakamoto::Neon2NakaData;
 use crate::run_loop::neon;
 use crate::run_loop::neon::Counters;
 use crate::syncctl::{PoxSyncWatchdog, PoxSyncWatchdogComms};
-use crate::{
-    run_loop, BitcoinRegtestController, BurnchainController, Config, EventDispatcher, Keychain,
-};
+use crate::{run_loop, BitcoinRegtestController, Config, EventDispatcher, Keychain};
 
 pub const STDERR: i32 = 2;
 pub type Globals = GenericGlobals<nakamoto_node::relayer::RelayerDirective>;
@@ -96,16 +93,8 @@ impl RunLoop {
             config.burnchain.burn_fee_cap,
         )));
 
-        let event_dispatcher = event_dispatcher.unwrap_or_else(|| {
-            let mut event_dispatcher = EventDispatcher::new_with_custom_queue_size(
-                config.get_working_dir(),
-                config.node.effective_event_dispatcher_queue_size(),
-            );
-            for observer in config.events_observers.iter() {
-                event_dispatcher.register_observer(observer);
-            }
-            event_dispatcher
-        });
+        let event_dispatcher =
+            event_dispatcher.unwrap_or_else(|| EventDispatcher::from_config(&config));
 
         Self {
             config,
@@ -183,9 +172,10 @@ impl RunLoop {
             }
             let keychain = Keychain::default(self.config.node.seed.clone());
             let mut op_signer = keychain.generate_op_signer();
-            if let Err(e) = burnchain.create_wallet_if_dne() {
-                warn!("Error when creating wallet: {e:?}");
-            }
+
+            // a miner cannot operate without a wallet; retry: bitcoind may
+            // still be starting up
+            burnchain.ensure_miner_wallet_loaded();
             let mut btc_addrs = vec![(
                 StacksEpochId::Epoch2_05,
                 // legacy
@@ -273,7 +263,7 @@ impl RunLoop {
         )
         .unwrap();
         run_loop::announce_boot_receipts(
-            &mut self.event_dispatcher,
+            &self.event_dispatcher,
             &chain_state_db,
             &burnchain_config.pox_constants,
             &receipts,
@@ -313,8 +303,6 @@ impl RunLoop {
             true,
         )
         .expect("Failed to connect Atlas DB during startup");
-        let coordinator_indexer =
-            make_bitcoin_indexer(&self.config, Some(self.should_keep_running.clone()));
 
         let rpc_port = moved_config
             .node
@@ -345,7 +333,6 @@ impl RunLoop {
                     cost_estimator.as_deref_mut(),
                     fee_estimator.as_deref_mut(),
                     miner_status,
-                    coordinator_indexer,
                     atlas_db,
                 );
             })
@@ -422,6 +409,9 @@ impl RunLoop {
             .coordinator_channels
             .take()
             .expect("Run loop already started, can only start once after initialization.");
+
+        // Apply config-driven process-wide state before any chainstate is opened.
+        self.config.apply_runtime_state();
 
         // setup the termination handler, allow it to error if a prior runloop already set it
         neon::RunLoop::setup_termination_handler(self.should_keep_running.clone(), true);

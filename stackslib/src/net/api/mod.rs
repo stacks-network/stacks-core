@@ -69,6 +69,8 @@ pub mod postmempoolquery;
 pub mod postmicroblock;
 pub mod poststackerdbchunk;
 pub mod posttransaction;
+mod read_only;
+pub mod txsimulate;
 
 #[cfg(test)]
 mod tests;
@@ -83,13 +85,19 @@ impl StacksHttp {
         self.register_rpc_endpoint(blocksimulate::RPCNakamotoBlockSimulateRequestHandler::new(
             self.auth_token.clone(),
         ));
+        self.register_rpc_endpoint(txsimulate::RPCTransactionSimulateRequestHandler::new(
+            self.auth_token.clone(),
+        ));
         self.register_rpc_endpoint(callreadonly::RPCCallReadOnlyRequestHandler::new(
             self.maximum_call_argument_size,
             self.read_only_call_limit.clone(),
+            self.read_only_max_execution_time,
+            self.read_only_call_max_mem_bytes,
         ));
         self.register_rpc_endpoint(fastcallreadonly::RPCFastCallReadOnlyRequestHandler::new(
             self.maximum_call_argument_size,
             self.read_only_max_execution_time,
+            self.read_only_call_max_mem_bytes,
             self.auth_token.clone(),
         ));
         self.register_rpc_endpoint(getaccount::RPCGetAccountRequestHandler::new());
@@ -109,7 +117,9 @@ impl StacksHttp {
         self.register_rpc_endpoint(
             getistraitimplemented::RPCGetIsTraitImplementedRequestHandler::new(),
         );
-        self.register_rpc_endpoint(getmapentry::RPCGetMapEntryRequestHandler::new());
+        self.register_rpc_endpoint(getmapentry::RPCGetMapEntryRequestHandler::new(
+            self.read_only_call_max_mem_bytes,
+        ));
         self.register_rpc_endpoint(
             getmicroblocks_confirmed::RPCMicroblocksConfirmedRequestHandler::new(),
         );

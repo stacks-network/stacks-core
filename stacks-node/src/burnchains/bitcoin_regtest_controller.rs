@@ -69,17 +69,28 @@ use stacks_common::util::sleep_ms;
 
 use super::super::operations::BurnchainOpSigner;
 use super::super::Config;
-use super::{BurnchainController, BurnchainTip, Error as BurnchainControllerError};
+use super::{BurnchainTip, Error as BurnchainControllerError};
 use crate::burnchains::rpc::bitcoin_rpc_client::{
     BitcoinRpcClient, BitcoinRpcClientError, BitcoinRpcClientResult, ImportDescriptorsRequest,
     Timestamp,
 };
+use crate::burnchains::rpc::rpc_transport::RpcError;
 
 /// The number of bitcoin blocks that can have
 ///  passed since the UTXO cache was last refreshed before
 ///  the cache is force-reset.
 const UTXO_CACHE_STALENESS_LIMIT: u64 = 6;
 const DUST_UTXO_LIMIT: u64 = 5500;
+
+/// Hash-attempt allowance per requested block for custom-signet development/test mining.
+///
+/// The value 100M is about 20.7x the initial expected work (~4.84M hashes), versus Core's 1M
+/// default.
+///
+/// This budget neither sets block cadence nor guarantees success after difficulty increases, but it
+/// provides ample headroom against unlucky nonce searches at the initial difficulty.
+#[cfg(test)]
+const SIGNET_MINING_MAX_TRIES_PER_BLOCK: u64 = 100_000_000;
 
 #[cfg(test)]
 // Used to inject invalid block commits during testing.
@@ -147,7 +158,6 @@ pub fn make_bitcoin_indexer(
             peer_host: burnchain_config.peer_host,
             peer_port: burnchain_config.peer_port,
             rpc_port: burnchain_config.rpc_port,
-            rpc_ssl: burnchain_config.rpc_ssl,
             username: burnchain_config.username,
             password: burnchain_config.password,
             timeout: burnchain_config.timeout,
@@ -156,6 +166,7 @@ pub fn make_bitcoin_indexer(
             first_block: burnchain_params.first_block_height,
             magic_bytes: burnchain_config.magic_bytes,
             epochs: burnchain_config.epochs,
+            signet_challenge: burnchain_config.signet_challenge,
         }
     };
 
@@ -309,10 +320,32 @@ pub enum BitcoinRegtestControllerError {
     /// Error related to invalid or malformed [`Secp256k1PublicKey`].
     #[error("Invalid public key: {0}")]
     InvalidPublicKey(btc_error),
+    /// A descriptor import was rejected by the bitcoin node.
+    #[error("Importing descriptor failed: {0}")]
+    ImportDescriptors(String),
+    /// The configured mining wallet does not exist in the bitcoin node's wallet directory.
+    #[error("Configured bitcoin wallet `{0}` was not found; create or restore it before starting the miner")]
+    WalletNotFound(String),
 }
 
 /// Alias for results returned from [`BitcoinRegtestController`] operations.
 pub type BitcoinRegtestControllerResult<T> = Result<T, BitcoinRegtestControllerError>;
+
+impl BitcoinRegtestControllerError {
+    /// Whether retrying could plausibly succeed, i.e. bitcoind is not reachable
+    /// yet. Only connection-level failures clear on their own: a rejection from
+    /// bitcoind, or a serialization failure, will fail again identically.
+    fn is_transient(&self) -> bool {
+        matches!(
+            self,
+            Self::Rpc(BitcoinRpcClientError::Rpc(
+                RpcError::NetworkIO(_)
+                    | RpcError::NetworkStacksLib(_)
+                    | RpcError::NetworkStacksCommon(_)
+            ))
+        )
+    }
+}
 
 impl BitcoinRegtestController {
     pub fn new(config: Config, coordinator_channel: Option<CoordinatorChannels>) -> Self {
@@ -356,7 +389,6 @@ impl BitcoinRegtestController {
                 peer_host: burnchain_config.peer_host,
                 peer_port: burnchain_config.peer_port,
                 rpc_port: burnchain_config.rpc_port,
-                rpc_ssl: burnchain_config.rpc_ssl,
                 username: burnchain_config.username,
                 password: burnchain_config.password,
                 timeout: burnchain_config.timeout,
@@ -365,6 +397,7 @@ impl BitcoinRegtestController {
                 first_block: burnchain_params.first_block_height,
                 magic_bytes: burnchain_config.magic_bytes,
                 epochs: burnchain_config.epochs,
+                signet_challenge: burnchain_config.signet_challenge,
             }
         };
 
@@ -405,7 +438,6 @@ impl BitcoinRegtestController {
                 peer_host: burnchain_config.peer_host,
                 peer_port: burnchain_config.peer_port,
                 rpc_port: burnchain_config.rpc_port,
-                rpc_ssl: burnchain_config.rpc_ssl,
                 username: burnchain_config.username,
                 password: burnchain_config.password,
                 timeout: burnchain_config.timeout,
@@ -414,6 +446,7 @@ impl BitcoinRegtestController {
                 first_block: burnchain_params.first_block_height,
                 magic_bytes: burnchain_config.magic_bytes,
                 epochs: burnchain_config.epochs,
+                signet_challenge: burnchain_config.signet_challenge,
             }
         };
 
@@ -487,7 +520,7 @@ impl BitcoinRegtestController {
     /// If the node is **not** a miner, returns None (e.g. follower node).
     fn create_rpc_client_unchecked(config: &Config) -> Option<BitcoinRpcClient> {
         config.node.miner.then(|| {
-            BitcoinRpcClient::from_stx_config(&config)
+            BitcoinRpcClient::from_stx_config(config)
                 .expect("unable to instantiate the RPC client for miner node!")
         })
     }
@@ -718,15 +751,70 @@ impl BitcoinRegtestController {
         Ok(self.get_rpc_client().list_wallets()?)
     }
 
-    /// Checks if the config-supplied wallet exists.
-    /// If it does not exist, this function creates it.
-    pub fn create_wallet_if_dne(&self) -> BitcoinRegtestControllerResult<()> {
-        let wallets = self.list_wallets()?;
-        let wallet = self.get_wallet_name();
-        if !wallets.contains(wallet) {
-            self.get_rpc_client().create_wallet(wallet, Some(true))?
+    /// Ensures the configured wallet exists and is loaded in the connected
+    /// bitcoin node, loading it from disk when needed.
+    ///
+    /// Operators who want the wallet to survive a bitcoind restart set
+    /// `wallet=<name>` in `bitcoin.conf`.
+    pub fn ensure_wallet_loaded(&self) -> BitcoinRegtestControllerResult<()> {
+        let wallet_name = self.get_wallet_name();
+
+        if self.list_wallets()?.iter().any(|name| name == wallet_name) {
+            return Ok(());
+        }
+
+        let on_disk_wallets = self.get_rpc_client().list_wallet_dir()?;
+        if on_disk_wallets.iter().any(|name| name == wallet_name) {
+            self.get_rpc_client().load_wallet(wallet_name)?;
+        } else {
+            return Err(BitcoinRegtestControllerError::WalletNotFound(
+                wallet_name.to_string(),
+            ));
         }
         Ok(())
+    }
+
+    /// Block until the miner's bitcoin wallet is loaded, retrying while
+    /// bitcoind may still be starting up. Fatal on misconfiguration or timeout.
+    pub fn ensure_miner_wallet_loaded(&self) {
+        /// Milliseconds to wait between wallet load attempts during startup
+        const WALLET_LOAD_INTERVAL_MS: u64 = 10_000;
+        /// Total wallet load attempts before giving up on bitcoind
+        const WALLET_LOAD_ATTEMPTS: u64 = 6;
+
+        let mut last_error = String::from("none recorded");
+        for attempt in 1..=WALLET_LOAD_ATTEMPTS {
+            match self.ensure_wallet_loaded() {
+                Ok(()) => return,
+                Err(e) if e.is_transient() => {
+                    warn!("Error ensuring bitcoin wallet is loaded, will retry: {e:?}");
+                    last_error = e.to_string();
+                }
+                // misconfiguration or a bug: retrying cannot fix it
+                Err(e) => panic!("FATAL: {e}"),
+            }
+            if attempt < WALLET_LOAD_ATTEMPTS {
+                sleep_ms(WALLET_LOAD_INTERVAL_MS);
+            }
+        }
+        panic!(
+            "FATAL: unable to load a bitcoin wallet after {WALLET_LOAD_ATTEMPTS} attempts, \
+             exiting. Last error: {last_error}"
+        );
+    }
+
+    /// Creates the configured test wallet when absent, then ensures it is
+    /// loaded. Production miners must provision their wallet before startup.
+    #[cfg(test)]
+    fn ensure_test_wallet_loaded(&self) -> BitcoinRegtestControllerResult<()> {
+        match self.ensure_wallet_loaded() {
+            Err(BitcoinRegtestControllerError::WalletNotFound(_)) => {
+                self.get_rpc_client()
+                    .create_wallet(self.get_wallet_name(), Some(true))?;
+                Ok(())
+            }
+            result => result,
+        }
     }
 
     pub fn get_utxos(
@@ -1949,6 +2037,35 @@ impl BitcoinRegtestController {
         }
     }
 
+    /// Ask Bitcoin Core to generate blocks for development and tests.
+    #[cfg(test)]
+    fn generate_blocks_to_address(
+        &self,
+        num_blocks: u64,
+        address: &BitcoinAddress,
+    ) -> Result<Vec<BurnchainHeaderHash>, BitcoinRpcClientError> {
+        if self.config.burnchain.get_bitcoin_network().1 == BitcoinNetworkType::Signet {
+            // Normal signet operation waits for externally mined blocks.
+            // Core parses maxtries as a signed 32-bit JSON integer.
+            let maxtries = num_blocks
+                .saturating_mul(SIGNET_MINING_MAX_TRIES_PER_BLOCK)
+                .min(i32::MAX as u64) as i32;
+            let blocks = self
+                .get_rpc_client()
+                .generate_to_address_with_maxtries(num_blocks, address, maxtries)?;
+            if blocks.len() as u64 != num_blocks {
+                return Err(BitcoinRpcClientError::IncompleteGeneration {
+                    requested: num_blocks,
+                    actual: blocks.len(),
+                });
+            }
+            Ok(blocks)
+        } else {
+            self.get_rpc_client()
+                .generate_to_address(num_blocks, address)
+        }
+    }
+
     /// Instruct a regtest Bitcoin node to build the next block.
     #[cfg(test)]
     pub fn build_next_block(&self, num_blocks: u64) {
@@ -1963,8 +2080,7 @@ impl BitcoinRegtestController {
             .expect("FATAL: invalid public key bytes");
         let address = self.get_miner_address(StacksEpochId::Epoch21, &public_key);
 
-        self.get_rpc_client()
-            .generate_to_address(num_blocks, &address)
+        self.generate_blocks_to_address(num_blocks, &address)
             .ok_or_log_panic("error generating block");
     }
 
@@ -2062,13 +2178,91 @@ impl BitcoinRegtestController {
             .unwrap_or_log_panic("retrieve raw tx")
     }
 
+    /// Build, sign, and broadcast a regular Bitcoin payment from the
+    /// miner address to `recipient`.
+    ///
+    /// Internally this is the same UTXO-selection + signing flow used
+    /// by `build_leader_block_commit_tx` / `build_leader_key_register_tx`
+    /// — `prepare_tx` picks miner UTXOs, then `finalize_tx` adds a
+    /// change output, fills inputs, and signs each one with the keychain
+    /// `BurnchainOpSigner` the caller supplies. The resulting tx is
+    /// broadcast via `sendrawtransaction`; the next regtest block (e.g.
+    /// `build_next_block(1)`) confirms it.
+    ///
+    /// Intended for tests that need the bondholder / a third party to
+    /// receive BTC on regtest without relying on bitcoind's wallet to
+    /// sign for the miner (the wallet is created with
+    /// `disable_private_keys=true`, so it can't).
+    #[cfg(test)]
+    pub fn send_btc(
+        &mut self,
+        epoch_id: StacksEpochId,
+        op_signer: &mut BurnchainOpSigner,
+        recipient: &BitcoinAddress,
+        amount: u64,
+    ) -> Result<Txid, BurnchainControllerError> {
+        let public_key = op_signer.get_public_key();
+
+        let fee_rate = get_satoshis_per_byte(&self.config);
+        // Rough upper-bound for a 1-input, 2-output P2PKH/P2WPKH tx. The
+        // `finalize_tx` flow re-serializes to compute the real size; this
+        // is just for UTXO selection / change accounting.
+        let min_tx_size: u64 = 250;
+        let total_required = amount + min_tx_size * fee_rate;
+
+        let (mut tx, mut utxos) =
+            self.prepare_tx(epoch_id, &public_key, total_required, None, None, 0)?;
+
+        let recipient_output = match recipient {
+            BitcoinAddress::Legacy(legacy) => match legacy.addrtype {
+                LegacyBitcoinAddressType::PublicKeyHash => {
+                    LegacyBitcoinAddress::to_p2pkh_tx_out(&legacy.bytes, amount)
+                }
+                LegacyBitcoinAddressType::ScriptHash => {
+                    LegacyBitcoinAddress::to_p2sh_tx_out(&legacy.bytes, amount)
+                }
+            },
+            BitcoinAddress::Segwit(segwit) => match segwit {
+                SegwitBitcoinAddress::P2WPKH(_, bytes) => {
+                    SegwitBitcoinAddress::to_p2wpkh_tx_out(bytes, amount)
+                }
+                SegwitBitcoinAddress::P2WSH(_, bytes) => {
+                    SegwitBitcoinAddress::to_p2wsh_tx_out(bytes, amount)
+                }
+                SegwitBitcoinAddress::P2TR(_, bytes) => {
+                    SegwitBitcoinAddress::to_p2tr_tx_out(bytes, amount)
+                }
+            },
+        };
+        tx.output = vec![recipient_output];
+
+        self.finalize_tx(
+            epoch_id,
+            &mut tx,
+            amount,
+            0,
+            min_tx_size,
+            fee_rate,
+            &mut utxos,
+            op_signer,
+            true,
+        );
+
+        info!(
+            "Test send_btc: paying {amount} sats to {recipient}";
+            "fee_rate" => fee_rate,
+        );
+
+        self.send_transaction(&tx)
+    }
+
     /// Produce `num_blocks` regtest bitcoin blocks, sending the bitcoin coinbase rewards
     ///  to the bitcoin single sig addresses corresponding to `pks` in a round robin fashion.
     #[cfg(test)]
     pub fn bootstrap_chain_to_pks(&self, num_blocks: u64, pks: &[Secp256k1PublicKey]) {
-        info!("Creating wallet if it does not exist");
-        if let Err(e) = self.create_wallet_if_dne() {
-            error!("Error when creating wallet: {e:?}");
+        info!("Ensuring the test wallet is loaded, creating it if needed");
+        if let Err(e) = self.ensure_test_wallet_loaded() {
+            error!("Error ensuring wallet is loaded: {e:?}");
         }
 
         for pk in pks {
@@ -2085,8 +2279,7 @@ impl BitcoinRegtestController {
                 "Generate to address '{address}' for public key '{}'",
                 &pks[0].to_hex()
             );
-            self.get_rpc_client()
-                .generate_to_address(num_blocks, &address)
+            self.generate_blocks_to_address(num_blocks, &address)
                 .ok_or_log_panic("generating block");
             return;
         }
@@ -2103,8 +2296,7 @@ impl BitcoinRegtestController {
                     &pk.to_hex(),
                 );
             }
-            self.get_rpc_client()
-                .generate_to_address(1, &address)
+            self.generate_blocks_to_address(1, &address)
                 .ok_or_log_panic("generating block");
         }
     }
@@ -2132,9 +2324,15 @@ impl BitcoinRegtestController {
         }
     }
 
-    /// Returns the configured wallet name from [`Config`].
-    fn get_wallet_name(&self) -> &String {
-        &self.config.burnchain.wallet_name
+    /// Returns the configured wallet name used for wallet RPC routing.
+    ///
+    /// Panics if no wallet is configured. Only miner paths route wallet RPCs, and
+    /// [`Config::from_config_file`] rejects a miner without a wallet name, so an
+    /// absent name here is a bug. Same as [`Self::get_rpc_client`].
+    fn get_wallet_name(&self) -> &str {
+        self.config.burnchain.wallet_name.as_deref().expect(
+            "BUG: `burnchain.wallet_name` is required for miners, but it is not configured!",
+        )
     }
 
     /// Imports a public key into configured wallet by registering its
@@ -2182,8 +2380,21 @@ impl BitcoinRegtestController {
                 internal: Some(true),
             };
 
-            self.get_rpc_client()
+            let results = self
+                .get_rpc_client()
                 .import_descriptors(self.get_wallet_name(), &[&descr_req])?;
+            // the RPC reports per-descriptor failures in the response body,
+            // e.g. when the target wallet has private keys enabled
+            for result in results {
+                if !result.success {
+                    return Err(BitcoinRegtestControllerError::ImportDescriptors(
+                        result.error.map_or_else(
+                            || format!("importing addr({address}) failed with no error message"),
+                            |e| format!("importing addr({address}) failed: {}", e.message),
+                        ),
+                    ));
+                }
+            }
         }
         Ok(())
     }
@@ -2212,7 +2423,7 @@ impl BitcoinRegtestController {
         if self.config.miner.segwit && epoch_id >= StacksEpochId::Epoch21 {
             reviewed.set_compressed(true);
         }
-        return reviewed;
+        reviewed
     }
 
     /// Retrieves the set of UTXOs for a given address at a specific block height.
@@ -2248,13 +2459,13 @@ impl BitcoinRegtestController {
         const MIN_CONFIRMATIONS: u64 = 0;
         const MAX_CONFIRMATIONS: u64 = 9_999_999;
         let unspents = self.get_rpc_client().list_unspent(
-            &self.get_wallet_name(),
+            self.get_wallet_name(),
             Some(MIN_CONFIRMATIONS),
             Some(MAX_CONFIRMATIONS),
             Some(&[address]),
             Some(include_unsafe),
             Some(minimum_sum_amount),
-            self.config.burnchain.max_unspent_utxos.clone(),
+            self.config.burnchain.max_unspent_utxos,
         )?;
 
         let txids_to_exclude = utxos_to_exclude.as_ref().map_or_else(HashSet::new, |set| {
@@ -2280,14 +2491,14 @@ impl BitcoinRegtestController {
     }
 }
 
-impl BurnchainController for BitcoinRegtestController {
-    fn sortdb_ref(&self) -> &SortitionDB {
+impl BitcoinRegtestController {
+    pub fn sortdb_ref(&self) -> &SortitionDB {
         self.db
             .as_ref()
             .expect("BUG: did not instantiate the burn DB")
     }
 
-    fn sortdb_mut(&mut self) -> &mut SortitionDB {
+    pub fn sortdb_mut(&mut self) -> &mut SortitionDB {
         let burnchain = self.get_burnchain();
 
         let (db, burnchain_db) = burnchain.open_db(true).unwrap();
@@ -2300,7 +2511,7 @@ impl BurnchainController for BitcoinRegtestController {
         }
     }
 
-    fn get_chain_tip(&self) -> BurnchainTip {
+    pub fn get_chain_tip(&self) -> BurnchainTip {
         match &self.chain_tip {
             Some(chain_tip) => chain_tip.clone(),
             None => {
@@ -2309,7 +2520,7 @@ impl BurnchainController for BitcoinRegtestController {
         }
     }
 
-    fn get_headers_height(&self) -> u64 {
+    pub fn get_headers_height(&self) -> u64 {
         let (_, network_id) = self.config.burnchain.get_bitcoin_network();
         let spv_client = SpvClient::new(
             &self.config.get_spv_headers_file_path(),
@@ -2325,7 +2536,9 @@ impl BurnchainController for BitcoinRegtestController {
             .expect("Unable to query number of burnchain headers")
     }
 
-    fn connect_dbs(&mut self) -> Result<(), BurnchainControllerError> {
+    /// Invoke connect() on underlying burnchain and sortition databases, to perform any migration
+    ///  or instantiation before other callers may use open()
+    pub fn connect_dbs(&mut self) -> Result<(), BurnchainControllerError> {
         let burnchain = self.get_burnchain();
         burnchain.connect_db(
             true,
@@ -2336,11 +2549,11 @@ impl BurnchainController for BitcoinRegtestController {
         Ok(())
     }
 
-    fn get_stacks_epochs(&self) -> EpochList {
+    pub fn get_stacks_epochs(&self) -> EpochList {
         self.indexer.get_stacks_epochs()
     }
 
-    fn start(
+    pub fn start(
         &mut self,
         target_block_height_opt: Option<u64>,
     ) -> Result<(BurnchainTip, u64), BurnchainControllerError> {
@@ -2348,7 +2561,7 @@ impl BurnchainController for BitcoinRegtestController {
         self.receive_blocks(false, target_block_height_opt.map_or_else(|| Some(1), Some))
     }
 
-    fn sync(
+    pub fn sync(
         &mut self,
         target_block_height_opt: Option<u64>,
     ) -> Result<(BurnchainTip, u64), BurnchainControllerError> {
@@ -2371,7 +2584,7 @@ impl BurnchainController for BitcoinRegtestController {
     /// Returns the [`Txid`] on success, [`BurnchainControllerError`] otherwise.
     /// On [`BitcoinRegtestController::send_transaction`] failure for block commits,
     /// clears `ongoing_block_commit` so the commit can be resubmitted.
-    fn submit_operation(
+    pub fn submit_operation(
         &mut self,
         epoch_id: StacksEpochId,
         operation: BlockstackOperationType,
@@ -2387,7 +2600,7 @@ impl BurnchainController for BitcoinRegtestController {
     }
 
     #[cfg(test)]
-    fn bootstrap_chain(&self, num_blocks: u64) {
+    pub fn bootstrap_chain(&self, num_blocks: u64) {
         let Some(ref local_mining_pubkey) = &self.config.burnchain.local_mining_public_key else {
             warn!("No local mining pubkey while bootstrapping bitcoin regtest, will not generate bitcoin blocks");
             return;
@@ -2468,6 +2681,7 @@ mod tests {
         pub fn create_miner_config() -> Config {
             let mut config = Config::default();
             config.node.miner = true;
+            config.burnchain.wallet_name = Some("test-miner".to_string());
             config.burnchain.magic_bytes = "T3".as_bytes().into();
             config.burnchain.username = Some(String::from("user"));
             config.burnchain.password = Some(String::from("12345"));
@@ -2498,8 +2712,8 @@ mod tests {
 
         pub fn create_keychain_with_seed(value: u8) -> Keychain {
             let seed = vec![value; 4];
-            let keychain = Keychain::default(seed);
-            keychain
+
+            Keychain::default(seed)
         }
 
         pub fn create_miner1_pubkey() -> Secp256k1PublicKey {
@@ -2714,7 +2928,7 @@ mod tests {
             config.burnchain.password = None;
             config.burnchain.peer_host = String::from("127.0.0.1");
             config.burnchain.peer_port = 8333;
-            config.node.working_dir = format!("/tmp/follower");
+            config.node.working_dir = "/tmp/follower".to_string();
             config
         }
     }
@@ -2731,6 +2945,7 @@ mod tests {
 
         let mut file = File::create(&file_path).unwrap();
         writeln!(file, "[burnchain]").unwrap();
+        writeln!(file, "mode = \"krypton\"").unwrap();
         writeln!(file, "satoshis_per_byte = 51").unwrap();
         config.config_path = Some(file_path.to_str().unwrap().to_string());
 
@@ -2898,15 +3113,13 @@ mod tests {
         let btc_controller = BitcoinRegtestController::new(config.clone(), None);
 
         let reviewed = btc_controller.to_epoch_aware_pubkey(StacksEpochId::Epoch20, &pubkey);
-        assert_eq!(
-            false,
-            reviewed.compressed(),
+        assert!(
+            !reviewed.compressed(),
             "Segwit disabled with Epoch < 2.1: not compressed"
         );
         let reviewed = btc_controller.to_epoch_aware_pubkey(StacksEpochId::Epoch21, &pubkey);
-        assert_eq!(
-            false,
-            reviewed.compressed(),
+        assert!(
+            !reviewed.compressed(),
             "Segwit disabled with Epoch >= 2.1: not compressed"
         );
 
@@ -2914,14 +3127,12 @@ mod tests {
         let btc_controller = BitcoinRegtestController::new(config.clone(), None);
 
         let reviewed = btc_controller.to_epoch_aware_pubkey(StacksEpochId::Epoch20, &pubkey);
-        assert_eq!(
-            false,
-            reviewed.compressed(),
+        assert!(
+            !reviewed.compressed(),
             "Segwit enabled with Epoch < 2.1: not compressed"
         );
         let reviewed = btc_controller.to_epoch_aware_pubkey(StacksEpochId::Epoch21, &pubkey);
-        assert_eq!(
-            true,
+        assert!(
             reviewed.compressed(),
             "Segwit enabled with Epoch >= 2.1: compressed"
         );
@@ -2988,8 +3199,8 @@ mod tests {
 
         let btc_controller = BitcoinRegtestController::with_burnchain(config, None, None, None);
 
+        // Accessing the RPC client must not panic for a miner.
         let _ = btc_controller.get_rpc_client();
-        assert!(true, "Invoking any Bitcoin RPC related method should work.");
     }
 
     #[test]
@@ -3028,8 +3239,8 @@ mod tests {
 
         let btc_controller = BitcoinRegtestController::new_dummy(config);
 
+        // Accessing the RPC client must not panic for a miner.
         let _ = btc_controller.get_rpc_client();
-        assert!(true, "Invoking any Bitcoin RPC related method should work.");
     }
 
     #[test]
@@ -3047,12 +3258,66 @@ mod tests {
         );
     }
 
+    // `Config::from_config_file` rejects a miner without a wallet name, so
+    // reaching a wallet RPC without one is a bug, not a recoverable error
+    #[test]
+    #[should_panic(expected = "burnchain.wallet_name")]
+    fn test_ensure_wallet_loaded_panics_without_wallet_name() {
+        let mut config = utils::create_miner_config();
+        config.burnchain.wallet_name = None;
+
+        let btc_controller = BitcoinRegtestController::new(config, None);
+
+        _ = btc_controller.ensure_wallet_loaded();
+    }
+
     #[test]
     #[ignore]
-    fn test_create_wallet_from_default_empty_name() {
+    fn test_ensure_wallet_loaded_reloads_unloaded_wallet() {
         if env::var("BITCOIND_TEST") != Ok("1".into()) {
             return;
         }
+
+        let config = utils::create_miner_config();
+        let wallet_name = config
+            .burnchain
+            .wallet_name
+            .clone()
+            .expect("miner config sets a wallet name");
+
+        let mut btcd_controller = BitcoinCoreController::from_stx_config(&config);
+        btcd_controller
+            .start_bitcoind()
+            .expect("bitcoind should be started!");
+
+        let btc_controller = BitcoinRegtestController::new(config.clone(), None);
+        btc_controller
+            .ensure_test_wallet_loaded()
+            .expect("Test wallet should be created!");
+
+        // simulate a bitcoind restart, after which no wallet is loaded
+        btc_controller
+            .get_rpc_client()
+            .unload_wallet(&wallet_name)
+            .expect("Wallet should be unloaded!");
+        assert_eq!(0, btc_controller.list_wallets().unwrap().len());
+
+        btc_controller
+            .ensure_wallet_loaded()
+            .expect("Wallet should be loaded from disk, not re-created!");
+
+        let wallets = btc_controller.list_wallets().unwrap();
+        assert_eq!(vec![wallet_name], wallets);
+    }
+
+    #[test]
+    #[ignore]
+    fn test_wallet_rpcs_route_to_configured_wallet() {
+        if env::var("BITCOIND_TEST") != Ok("1".into()) {
+            return;
+        }
+
+        let miner_pubkey = utils::create_miner1_pubkey();
 
         let config = utils::create_miner_config();
 
@@ -3062,28 +3327,68 @@ mod tests {
             .expect("bitcoind should be started!");
 
         let btc_controller = BitcoinRegtestController::new(config.clone(), None);
+        btc_controller
+            .ensure_test_wallet_loaded()
+            .expect("Test wallet should be created!");
 
-        let wallets = btc_controller.list_wallets().unwrap();
-        assert_eq!(0, wallets.len());
+        // A second loaded wallet breaks node-level routing. The miner's RPCs
+        // must continue to use its configured wallet.
+        btc_controller
+            .get_rpc_client()
+            .create_wallet("other_wallet", Some(true))
+            .expect("other_wallet should be created!");
 
         btc_controller
-            .create_wallet_if_dne()
-            .expect("Wallet should now exists!");
-
-        let wallets = btc_controller.list_wallets().unwrap();
-        assert_eq!(1, wallets.len());
-        assert_eq!("".to_owned(), wallets[0]);
+            .import_public_key(&miner_pubkey)
+            .expect("Import should succeed via explicit routing to the configured wallet!");
     }
 
     #[test]
     #[ignore]
-    fn test_create_wallet_from_custom_name() {
+    fn test_import_public_key_fails_on_wallet_with_private_keys() {
+        if env::var("BITCOIND_TEST") != Ok("1".into()) {
+            return;
+        }
+
+        let miner_pubkey = utils::create_miner1_pubkey();
+
+        let mut config = utils::create_miner_config();
+        config.burnchain.wallet_name = Some("keyed".to_string());
+
+        let mut btcd_controller = BitcoinCoreController::from_stx_config(&config);
+        btcd_controller
+            .start_bitcoind()
+            .expect("bitcoind should be started!");
+
+        let btc_controller = BitcoinRegtestController::new(config.clone(), None);
+        btc_controller
+            .get_rpc_client()
+            .create_wallet("keyed", Some(false))
+            .expect("keyed wallet should be created!");
+
+        btc_controller
+            .ensure_wallet_loaded()
+            .expect("Configured wallet should already be loaded!");
+
+        let result = btc_controller.import_public_key(&miner_pubkey);
+        assert!(
+            matches!(
+                result,
+                Err(BitcoinRegtestControllerError::ImportDescriptors(_))
+            ),
+            "Watch-only import into a wallet with private keys should fail, got: {result:?}"
+        );
+    }
+
+    #[test]
+    #[ignore]
+    fn test_ensure_wallet_loaded_fails_if_wallet_missing() {
         if env::var("BITCOIND_TEST") != Ok("1".into()) {
             return;
         }
 
         let mut config = utils::create_miner_config();
-        config.burnchain.wallet_name = String::from("mywallet");
+        config.burnchain.wallet_name = Some(String::from("mywallet"));
 
         let mut btcd_controller = BitcoinCoreController::from_stx_config(&config);
         btcd_controller
@@ -3092,13 +3397,11 @@ mod tests {
 
         let btc_controller = BitcoinRegtestController::new(config.clone(), None);
 
-        btc_controller
-            .create_wallet_if_dne()
-            .expect("Wallet should now exists!");
-
-        let wallets = btc_controller.list_wallets().unwrap();
-        assert_eq!(1, wallets.len());
-        assert_eq!("mywallet".to_owned(), wallets[0]);
+        assert!(matches!(
+            btc_controller.ensure_wallet_loaded(),
+            Err(BitcoinRegtestControllerError::WalletNotFound(ref name)) if name == "mywallet"
+        ));
+        assert!(btc_controller.list_wallets().unwrap().is_empty());
     }
 
     #[test]
@@ -3225,7 +3528,7 @@ mod tests {
 
         btc_controller.build_next_block(1);
         let mut utxos = btc_controller.get_all_utxos(&miner_pubkey);
-        utxos.sort_by(|a, b| b.confirmations.cmp(&a.confirmations));
+        utxos.sort_by_key(|utxo| cmp::Reverse(utxo.confirmations));
 
         assert_eq!(2, utxos.len());
         assert_eq!(102, utxos[0].confirmations);
@@ -3252,11 +3555,12 @@ mod tests {
             .start_bitcoind()
             .expect("bitcoind should be started!");
 
+        // Miner RPC routing must survive another miner's wallet being loaded.
         let miner1_btc_controller = BitcoinRegtestController::new(config.clone(), None);
         miner1_btc_controller.bootstrap_chain(1); // one utxo for miner_pubkey related address
 
         config.burnchain.local_mining_public_key = Some(miner2_pubkey.to_hex());
-        config.burnchain.wallet_name = "miner2_wallet".to_string();
+        config.burnchain.wallet_name = Some("miner2_wallet".to_string());
         let miner2_btc_controller = BitcoinRegtestController::new(config, None);
         miner2_btc_controller.bootstrap_chain(102); // two utxo for other_pubkeys related address
 
@@ -3314,7 +3618,7 @@ mod tests {
         assert_eq!(2, uxto_set.num_utxos());
         assert_eq!(10_000_000_000, uxto_set.total_available());
         let mut utxos = uxto_set.utxos;
-        utxos.sort_by(|a, b| b.confirmations.cmp(&a.confirmations));
+        utxos.sort_by_key(|utxo| cmp::Reverse(utxo.confirmations));
         assert_eq!(102, utxos[0].confirmations);
         assert_eq!(5_000_000_000, utxos[0].amount);
         assert_eq!(101, utxos[1].confirmations);
@@ -3464,8 +3768,8 @@ mod tests {
 
         let btc_controller = BitcoinRegtestController::new(config.clone(), None);
         btc_controller
-            .create_wallet_if_dne()
-            .expect("Wallet should be created!");
+            .ensure_test_wallet_loaded()
+            .expect("Test wallet should be created!");
 
         let result = btc_controller.import_public_key(&miner_pubkey);
         assert!(
@@ -3493,8 +3797,8 @@ mod tests {
 
         let btc_controller = BitcoinRegtestController::new(config.clone(), None);
         btc_controller
-            .create_wallet_if_dne()
-            .expect("Wallet should be created!");
+            .ensure_test_wallet_loaded()
+            .expect("Test wallet should be created!");
 
         btc_controller
             .import_public_key(&miner_pubkey)
@@ -3528,8 +3832,8 @@ mod tests {
 
         let btc_controller = BitcoinRegtestController::new(config.clone(), None);
         btc_controller
-            .create_wallet_if_dne()
-            .expect("Wallet should be created!");
+            .ensure_test_wallet_loaded()
+            .expect("Test wallet should be created!");
 
         let result = btc_controller.import_public_key(&miner_pubkey);
         assert!(

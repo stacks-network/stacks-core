@@ -113,23 +113,6 @@ impl MessageSignature {
 
         LibSecp256k1RecoverableSignature::from_compact(&sig_bytes, recid).ok()
     }
-
-    /// Convert from VRS to RSV
-    pub fn to_rsv(&self) -> Vec<u8> {
-        [&self.0[1..], &self.0[0..1]].concat()
-    }
-
-    /// Convert from RSV (what Clarity uses) to VSR (what we use here)
-    pub fn from_rsv(source: &[u8]) -> Option<Self> {
-        if source.len() != 65 {
-            return None;
-        }
-        let swapped: [u8; 65] = *[&source[64..], &source[0..64]]
-            .concat()
-            .as_array()
-            .expect("source has len 65, thus this is guaranteed to work");
-        Some(Self(swapped))
-    }
 }
 
 #[cfg(any(test, feature = "testing"))]
@@ -462,6 +445,7 @@ fn secp256k1_privkey_deserialize<'de, D: serde::Deserializer<'de>>(
     LibSecp256k1PrivateKey::from_slice(&key_bytes[..]).map_err(de_Error::custom)
 }
 
+/// Recover a public key from a 32-byte message hash and a 65-byte RSV signature.
 pub fn secp256k1_recover(
     message_arr: &[u8],
     serialized_signature_arr: &[u8],
@@ -490,8 +474,14 @@ pub fn secp256k1_verify(
         let message = LibSecp256k1Message::from_slice(message_arr)?;
         let expanded_sig = LibSecp256k1Signature::from_compact(&serialized_signature_arr[..64])?; // ignore 65th byte if present
         let pubkey = LibSecp256k1PublicKey::from_slice(pubkey_arr)?;
+        // `verify_ecdsa()` rejects high-S signatures
         ctx.verify_ecdsa(&message, &expanded_sig, &pubkey)
     })
+}
+
+pub fn secp256k1_decompress(compressed_pubkey_arr: &[u8]) -> Result<[u8; 65], LibSecp256k1Error> {
+    let pubkey = LibSecp256k1PublicKey::from_slice(compressed_pubkey_arr)?;
+    Ok(pubkey.serialize_uncompressed())
 }
 
 #[cfg(test)]
@@ -688,13 +678,13 @@ mod tests {
                     test_debug!("Failed to verify signature: {}", e1);
                     panic!(
                         "failed fixture (verification: {:?}): {:#?}",
-                        &ver_res, &fixture
+                        ver_res, fixture
                     );
                 }
                 (_, _) => {
                     panic!(
                         "failed fixture (verification: {:?}): {:#?}",
-                        &ver_res, &fixture
+                        ver_res, fixture
                     );
                 }
             }
@@ -765,6 +755,23 @@ mod tests {
             runtime_recover,
             runtime_verify - runtime_recover
         );
+    }
+
+    #[test]
+    fn test_decompress() {
+        let mut sk = Secp256k1PrivateKey::random();
+        sk.set_compress_public(true);
+        let pk = Secp256k1PublicKey::from_private(&sk);
+
+        assert_eq!(pk.to_bytes().len(), 33);
+
+        let decompressed_pk = secp256k1_decompress(pk.to_bytes().as_slice()).unwrap();
+        assert_eq!(decompressed_pk.len(), 65);
+
+        sk.set_compress_public(false);
+        let pk_uncompressed = Secp256k1PublicKey::from_private(&sk);
+
+        assert_eq!(pk_uncompressed.to_bytes(), decompressed_pk);
     }
 
     #[test]

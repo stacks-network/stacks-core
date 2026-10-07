@@ -29,7 +29,7 @@ use crate::net::{Error as NetError, HttpServerError, StacksNodeState};
 
 pub(crate) const SINGLESIG_TX_TRANSFER_LEN: u64 = 180;
 
-#[derive(Clone)]
+#[derive(Clone, Default)]
 pub struct RPCGetStxTransferCostRequestHandler {}
 
 impl RPCGetStxTransferCostRequestHandler {
@@ -135,7 +135,7 @@ impl RPCRequestHandler for RPCGetStxTransferCostRequestHandler {
         let fee = match fee_resp {
             Ok(fee) => fee,
             Err(response) => {
-                return response.try_into_contents().map_err(NetError::from);
+                return response.try_into_contents();
             }
         };
 
@@ -153,7 +153,7 @@ impl HttpResponse for RPCGetStxTransferCostRequestHandler {
         body: &[u8],
     ) -> Result<HttpResponsePayload, Error> {
         let fee: u64 = parse_json(preamble, body)?;
-        Ok(HttpResponsePayload::try_from_json(fee)?)
+        HttpResponsePayload::try_from_json(fee)
     }
 }
 

@@ -15,7 +15,6 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use clarity::types::chainstate::TenureBlockId;
-use clarity::vm::types::*;
 use rusqlite::{params, Row};
 use stacks_common::types::chainstate::{StacksAddress, StacksBlockId};
 
@@ -25,6 +24,19 @@ use crate::clarity::vm::types::StacksAddressExtensions;
 use crate::clarity_vm::clarity::{ClarityConnection, ClarityTransactionConnection};
 use crate::core::StacksEpochId;
 use crate::util_lib::db::{Error as db_error, *};
+
+/// Mature rewards for a block, its supporting burners, and its parent.
+#[derive(Debug, Clone)]
+pub struct MaturedMinerPayouts {
+    /// Child miner reward, possibly redirected to a poison reporter.
+    pub miner: MinerReward,
+    /// Rewards for user-support burns, in payment order.
+    pub users: Vec<MinerReward>,
+    /// Parent miner's reward for produced microblocks.
+    pub parent: MinerReward,
+    /// Chain locations of the rewarded child and parent blocks.
+    pub info: MinerRewardInfo,
+}
 
 /// A record of a coin reward for a miner.  There will be at most two of these for a miner: one for
 /// the coinbase + block-txs + confirmed-mblock-txs, and one for the produced-mblock-txs.  The
@@ -665,7 +677,7 @@ impl StacksChainState {
         )?;
         if ret.len() == 2 {
             // unwrap, because we do a len check above.
-            let ret_0 = ret.get(0).unwrap();
+            let ret_0 = ret.first().unwrap();
             let ret_1 = ret.get(1).unwrap();
             let reward = if ret_0.is_child() {
                 ret_0
@@ -851,21 +863,23 @@ impl StacksChainState {
             burn_total
         );
 
-        // in the case of shadow blocks, there will be zero burns.
-        // the coinbase is still generated, but it's rendered unspendable
-        let (this_burn_total, burn_total) = if burn_total == 0 {
-            (1, 1)
+        // LeaderBlockCommitOp::check rejects zero-burn commits.
+        // If a schedule still has zero total burn, warn and skip coinbase without panicking.
+        let coinbase_reward = if burn_total == 0 {
+            warn!("Cannot award coinbase: total burn is zero";
+                "consensus_hash" => %participant.consensus_hash,
+                "stacks_block_hash" => %participant.block_hash,
+                "participant" => %participant.address
+            );
+            0
         } else {
-            (this_burn_total, burn_total)
+            // Split coinbase in proportion to each participant's burn.
+            participant
+                .coinbase
+                .checked_mul(this_burn_total)
+                .expect("FATAL: STX coinbase reward overflow")
+                / burn_total
         };
-
-        // each participant gets a share of the coinbase proportional to the fraction it burned out
-        // of all participants' burns.
-        let coinbase_reward = participant
-            .coinbase
-            .checked_mul(this_burn_total)
-            .expect("FATAL: STX coinbase reward overflow")
-            / burn_total;
 
         // process poison -- someone can steal a fraction of the total coinbase if they can present
         // evidence that the miner forked the microblock stream.  The remainder of the coinbase is
@@ -989,7 +1003,7 @@ impl StacksChainState {
         tip_stacks_height: u64,
         mut latest_matured_miners: Vec<MinerPaymentSchedule>,
         parent_miner: MinerPaymentSchedule,
-    ) -> Result<Option<(MinerReward, Vec<MinerReward>, MinerReward, MinerRewardInfo)>, Error> {
+    ) -> Result<Option<MaturedMinerPayouts>, Error> {
         let mainnet = clarity_tx.config.mainnet;
         if tip_stacks_height <= MINER_REWARD_MATURITY {
             // no mature rewards exist
@@ -1068,25 +1082,26 @@ impl StacksChainState {
             user_rewards.push(reward);
         }
 
-        Ok(Some((
-            miner_reward,
-            user_rewards,
-            parent_miner_reward,
-            reward_info,
-        )))
+        Ok(Some(MaturedMinerPayouts {
+            miner: miner_reward,
+            users: user_rewards,
+            parent: parent_miner_reward,
+            info: reward_info,
+        }))
     }
 }
 
 #[cfg(test)]
 mod test {
+    use std::slice;
+
     use clarity::vm::costs::ExecutionCost;
     use clarity::vm::types::StacksAddressExtensions;
     use stacks_common::types::chainstate::BurnchainHeaderHash;
-    use stacks_common::util::hash::*;
 
     use super::*;
     use crate::burnchains::*;
-    use crate::chainstate::stacks::db::test::*;
+    use crate::chainstate::stacks::db::testing::*;
     use crate::core::StacksEpochId;
 
     fn make_dummy_miner_payment_schedule(
@@ -1201,7 +1216,7 @@ mod test {
 
     #[test]
     fn get_tip_ancestor() {
-        let mut chainstate = instantiate_chainstate(false, 0x80000000, function_name!());
+        let mut chainstate = TestChainstateBuilder::new_testnet(function_name!()).build();
         let miner_1 =
             StacksAddress::from_string("SP1A2K3ENNA6QQ7G8DVJXM24T6QMBDVS7D0TRTAR5").unwrap();
         let user_1 =
@@ -1266,7 +1281,7 @@ mod test {
 
     #[test]
     fn load_store_miner_payment_schedule() {
-        let mut chainstate = instantiate_chainstate(false, 0x80000000, function_name!());
+        let mut chainstate = TestChainstateBuilder::new_testnet(function_name!()).build();
         let miner_1 =
             StacksAddress::from_string("SP1A2K3ENNA6QQ7G8DVJXM24T6QMBDVS7D0TRTAR5").unwrap();
 
@@ -1311,7 +1326,7 @@ mod test {
 
     #[test]
     fn load_store_miner_payment_schedule_pay_contract() {
-        let mut chainstate = instantiate_chainstate(false, 0x80000000, function_name!());
+        let mut chainstate = TestChainstateBuilder::new_testnet(function_name!()).build();
         let miner_1 =
             StacksAddress::from_string("SP1A2K3ENNA6QQ7G8DVJXM24T6QMBDVS7D0TRTAR5").unwrap();
 
@@ -1384,6 +1399,67 @@ mod test {
         assert_eq!(parent_reward.tx_fees_streamed_confirmed, 0);
     }
 
+    /// Zero burn pays no coinbase while preserving miner and parent transaction fees.
+    #[test]
+    fn miner_reward_zero_burn() {
+        let miner_address =
+            StacksAddress::from_string("SP1A2K3ENNA6QQ7G8DVJXM24T6QMBDVS7D0TRTAR5").unwrap();
+        let parent_address =
+            StacksAddress::from_string("SP2QDF700V0FWXVNQJJ4XFGBWE6R2Y4APTSFQNBVE").unwrap();
+        let parent = make_dummy_miner_payment_schedule(&parent_address, 500, 100, 395, 1000, 1000);
+
+        for (epoch, tx_fees, anchored_fees, parent_fees, confirmed_fees) in [
+            (
+                StacksEpochId::Epoch2_05,
+                MinerPaymentTxFees::Epoch2 {
+                    anchored: 100,
+                    streamed: 105,
+                },
+                100,
+                // Before epoch 2.1, use the parent's own streamed fees.
+                (395 * 2) / 5,
+                // Miner's share of confirmed stream fees.
+                (105 * 3) / 5,
+            ),
+            (
+                StacksEpochId::Epoch30,
+                MinerPaymentTxFees::Nakamoto { parent_fees: 105 },
+                0,
+                105,
+                0,
+            ),
+        ] {
+            let mut participant =
+                make_dummy_miner_payment_schedule(&miner_address, 500, 0, 0, 0, 0);
+            participant.tx_fees = tx_fees;
+
+            let (parent_reward, miner_reward) = StacksChainState::calculate_miner_reward(
+                false,
+                epoch,
+                &participant,
+                &participant,
+                &[],
+                &parent,
+                None,
+            );
+
+            assert_eq!(miner_reward.coinbase, 0, "{epoch}: miner coinbase");
+            assert_eq!(miner_reward.tx_fees_anchored, anchored_fees, "{epoch}");
+            assert_eq!(miner_reward.tx_fees_streamed_produced, 0, "{epoch}");
+            assert_eq!(
+                miner_reward.tx_fees_streamed_confirmed, confirmed_fees,
+                "{epoch}"
+            );
+            assert_eq!(parent_reward.coinbase, 0, "{epoch}: parent coinbase");
+            assert_eq!(parent_reward.tx_fees_anchored, 0, "{epoch}");
+            assert_eq!(
+                parent_reward.tx_fees_streamed_produced, parent_fees,
+                "{epoch}"
+            );
+            assert_eq!(parent_reward.tx_fees_streamed_confirmed, 0, "{epoch}");
+        }
+    }
+
     #[test]
     fn miner_reward_one_miner_no_tx_fees_no_users_pay_contract() {
         let miner_1 =
@@ -1437,7 +1513,7 @@ mod test {
             StacksEpochId::Epoch2_05,
             &miner,
             &miner,
-            &[user.clone()],
+            slice::from_ref(&user),
             &MinerPaymentSchedule::genesis(true),
             None,
         );
@@ -1446,7 +1522,7 @@ mod test {
             StacksEpochId::Epoch2_05,
             &user,
             &miner,
-            &[user.clone()],
+            slice::from_ref(&user),
             &MinerPaymentSchedule::genesis(true),
             None,
         );

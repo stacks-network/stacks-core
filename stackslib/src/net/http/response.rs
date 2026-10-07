@@ -18,6 +18,8 @@ use std::collections::{BTreeMap, HashSet};
 use std::fmt;
 use std::io::{Read, Write};
 
+use serde;
+use serde_json;
 use stacks_common::codec::{Error as CodecError, StacksMessageCodec};
 use stacks_common::deps_common::httparse;
 use stacks_common::util::chunked_encoding::{
@@ -25,7 +27,6 @@ use stacks_common::util::chunked_encoding::{
 };
 use stacks_common::util::hash::to_hex;
 use stacks_common::util::pipe::PipeWrite;
-use {serde, serde_json};
 
 use crate::net::http::common::{
     HttpReservedHeader, HTTP_PREAMBLE_MAX_ENCODED_SIZE, HTTP_PREAMBLE_MAX_NUM_HEADERS,
@@ -472,9 +473,9 @@ impl StacksMessageCodec for HttpResponsePreamble {
         })? {
             httparse::Status::Partial => {
                 // try again
-                return Err(CodecError::UnderflowError(
+                Err(CodecError::UnderflowError(
                     "Not enough bytes to form a HTTP response preamble".to_string(),
-                ));
+                ))
             }
             httparse::Status::Complete(_) => {
                 // consumed all headers.
@@ -651,7 +652,7 @@ impl HttpResponsePayload {
                 Some(value.len() as u32)
             }
             Self::Text(value) => {
-                if value.as_bytes().len() > (u32::MAX as usize) {
+                if value.len() > (u32::MAX as usize) {
                     return None;
                 }
                 Some(value.len() as u32)
@@ -683,7 +684,7 @@ impl HttpResponsePayload {
                 serde_json::to_writer(&mut bytes, &value).map_err(Error::JsonError)?
             }
             Self::Bytes(value) => bytes.extend_from_slice(&value[..]),
-            Self::Text(value) => bytes.extend_from_slice(&value.as_bytes()[..]),
+            Self::Text(value) => bytes.extend_from_slice(value.as_bytes()),
         }
         let mut encoded_bytes = vec![];
         {

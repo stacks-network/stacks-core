@@ -52,7 +52,10 @@ use crate::net::http::{
 };
 use crate::net::p2p::PeerNetwork;
 use crate::net::server::HttpPeer;
-use crate::net::{Error as NetError, MessageSequence, ProtocolFamily, StacksNodeState, UrlString};
+use crate::net::{
+    CompletedPayload, Error as NetError, MessageSequence, ProtocolFamily, StacksNodeState,
+    StreamRead, UrlString,
+};
 
 const CHUNK_BUF_LEN: usize = 32768;
 
@@ -862,12 +865,9 @@ impl StacksHttpRecvStream {
     }
 
     /// Feed data into our chunked transfer reader state.  If we finish reading a stream, return
-    /// the decoded bytes (as Some(Vec<u8>) and the total number of encoded bytes consumed).
-    /// Always returns the number of bytes consumed.
-    pub fn consume_data<R: Read>(
-        &mut self,
-        fd: &mut R,
-    ) -> Result<(Option<(Vec<u8>, usize)>, usize), NetError> {
+    /// the decoded bytes and total encoded size in `completed`.
+    /// Always reports the encoded bytes consumed during this call in `consumed`.
+    pub fn consume_data<R: Read>(&mut self, fd: &mut R) -> Result<StreamRead<Vec<u8>>, NetError> {
         let mut consumed = 0;
         let mut blocked = false;
         while !blocked {
@@ -915,15 +915,24 @@ impl StacksHttpRecvStream {
         // did we get a message?
         if self.state.is_eof() {
             // reset
-            let message_data = mem::replace(&mut self.data, vec![]);
+            let message_data = mem::take(&mut self.data);
             let total_consumed = self.total_consumed;
 
             self.state = HttpChunkedTransferReaderState::new(self.state.max_size);
             self.total_consumed = 0;
 
-            Ok((Some((message_data, total_consumed)), consumed))
+            Ok(StreamRead {
+                completed: Some(CompletedPayload {
+                    payload: message_data,
+                    total_encoded_bytes: total_consumed,
+                }),
+                consumed,
+            })
         } else {
-            Ok((None, consumed))
+            Ok(StreamRead {
+                completed: None,
+                consumed,
+            })
         }
     }
 }
@@ -993,8 +1002,6 @@ pub struct StacksHttp {
     last_four_preamble_bytes: [u8; 4],
     /// Incoming reply state
     reply: Option<StacksHttpReplyData>,
-    /// Size of HTTP chunks to write
-    chunk_size: usize,
     /// Which request handler is active.
     /// This is only used if this state-machine is used by a client to issue a request and then
     /// parse a reply.  If instead this state-machine is used by the server to parse a request and
@@ -1013,6 +1020,8 @@ pub struct StacksHttp {
     allow_arbitrary_response: bool,
     /// Maximum execution time of a read-only call when in zero cost-tracking mode
     pub read_only_max_execution_time: Duration,
+    /// Maximum heap allocation for a single read-only call before it is aborted
+    pub read_only_call_max_mem_bytes: u64,
 }
 
 impl StacksHttp {
@@ -1025,7 +1034,6 @@ impl StacksHttp {
             num_preamble_bytes: 0,
             last_four_preamble_bytes: [0u8; 4],
             reply: None,
-            chunk_size: 8192,
             request_handler_index: None,
             request_handlers: vec![],
             maximum_call_argument_size: conn_opts.maximum_call_argument_size,
@@ -1035,6 +1043,7 @@ impl StacksHttp {
             read_only_max_execution_time: Duration::from_secs(
                 conn_opts.read_only_max_execution_time_secs,
             ),
+            read_only_call_max_mem_bytes: conn_opts.read_only_call_max_mem_bytes,
         };
         http.register_rpc_methods();
         http
@@ -1049,7 +1058,6 @@ impl StacksHttp {
             num_preamble_bytes: 0,
             last_four_preamble_bytes: [0u8; 4],
             reply: None,
-            chunk_size: 8192,
             request_handler_index: None,
             request_handlers: vec![],
             maximum_call_argument_size: conn_opts.maximum_call_argument_size,
@@ -1059,6 +1067,7 @@ impl StacksHttp {
             read_only_max_execution_time: Duration::from_secs(
                 conn_opts.read_only_max_execution_time_secs,
             ),
+            read_only_call_max_mem_bytes: conn_opts.read_only_call_max_mem_bytes,
         }
     }
 
@@ -1108,10 +1117,10 @@ impl StacksHttp {
         let mut allowed_methods = Vec::new();
         for (verb, regex, permissive_regex, _) in self.request_handlers.iter() {
             // Check if either the strict or permissive regex matches
-            if regex.is_match(request_path) || permissive_regex.is_match(request_path) {
-                if !allowed_methods.contains(verb) {
-                    allowed_methods.push(verb.clone());
-                }
+            if (regex.is_match(request_path) || permissive_regex.is_match(request_path))
+                && !allowed_methods.contains(verb)
+            {
+                allowed_methods.push(verb.clone());
             }
         }
         allowed_methods
@@ -1288,7 +1297,7 @@ impl StacksHttp {
             .expect("FATAL: tried to use nonexistent response handler");
         let payload = parser.try_parse_response(preamble, body)?;
         let response = StacksHttpResponse::new(preamble.clone(), payload);
-        return Ok(response);
+        Ok(response)
     }
 
     /// Handle an HTTP request by generating an HTTP response.
@@ -1406,13 +1415,13 @@ impl StacksHttp {
     /// Used for processing chunk-encoded streams.
     /// Given the preamble and a Read, stream the bytes into a chunk-decoder.  Return the decoded
     /// bytes if we decode an entire stream.  Always return the number of bytes consumed.
-    /// Returns Ok((Some(decoded bytes we got, total number of encoded bytes), number of bytes gotten in this call)) if we're done decoding.
-    /// Returns Ok((None, number of bytes gotten in this call)) if there's more to decode.
+    /// `completed` contains the decoded bytes and total encoded size once the stream ends.
+    /// `consumed` counts encoded bytes read during this call, including incomplete reads.
     pub fn consume_data<R: Read>(
         &mut self,
         preamble: &HttpResponsePreamble,
         fd: &mut R,
-    ) -> Result<(Option<(Vec<u8>, usize)>, usize), NetError> {
+    ) -> Result<StreamRead<Vec<u8>>, NetError> {
         if !preamble.is_chunked() {
             return Err(NetError::InvalidState);
         }
@@ -1420,15 +1429,17 @@ impl StacksHttp {
             match reply.stream.consume_data(fd).inspect_err(|_e| {
                 self.reset();
             })? {
-                (Some((byte_vec, bytes_total)), sz) => {
+                progress @ StreamRead {
+                    completed: Some(_), ..
+                } => {
                     // done receiving
                     self.reply = None;
-                    Ok((Some((byte_vec, bytes_total)), sz))
+                    Ok(progress)
                 }
                 res => Ok(res),
             }
         } else {
-            return Err(NetError::InvalidState);
+            Err(NetError::InvalidState)
         }
     }
 
@@ -1445,7 +1456,7 @@ impl StacksHttp {
     /// `buf`.  Otherwise, we just check `buf[i-4..i]`.
     #[allow(clippy::indexing_slicing)]
     fn body_start_search_window(&self, i: usize, buf: &[u8]) -> [u8; 4] {
-        let window = match i {
+        match i {
             0 => [
                 self.last_four_preamble_bytes[0],
                 self.last_four_preamble_bytes[1],
@@ -1466,8 +1477,7 @@ impl StacksHttp {
             ],
             3 => [self.last_four_preamble_bytes[3], buf[0], buf[1], buf[2]],
             _ => [buf[i - 4], buf[i - 3], buf[i - 2], buf[i - 1]],
-        };
-        window
+        }
     }
 
     /// Get a unique `&str` identifier for each request type
@@ -1521,8 +1531,16 @@ impl StacksHttp {
 
         if is_chunked {
             match http.stream_payload(&preamble, &mut message_bytes)? {
-                (Some((message, _)), _) => Ok(message),
-                (None, _) => Err(NetError::UnderflowError(
+                StreamRead {
+                    completed:
+                        Some(CompletedPayload {
+                            payload: message, ..
+                        }),
+                    ..
+                } => Ok(message),
+                StreamRead {
+                    completed: None, ..
+                } => Err(NetError::UnderflowError(
                     "Not enough bytes to form a streamed HTTP response".to_string(),
                 )),
             }
@@ -1562,7 +1580,7 @@ impl ProtocolFamily for StacksHttp {
         if self.body_start.is_none() {
             for i in 0..=buf.len() {
                 let window = self.body_start_search_window(i, buf);
-                if window == [b'\r', b'\n', b'\r', b'\n'] {
+                if window == *b"\r\n\r\n" {
                     self.body_start = Some(self.num_preamble_bytes + i);
                 }
             }
@@ -1594,28 +1612,29 @@ impl ProtocolFamily for StacksHttp {
         Ok((preamble, preamble_len))
     }
 
-    /// Stream a payload of unknown length.  Only gets called if payload_len() returns None.
+    /// Stream a payload of unknown length. Only called if `payload_len()` returns `None`.
     ///
-    /// Returns Ok((Some((message, num-bytes-consumed)), num-bytes-read)) if we read enough data to
-    /// form a message.  `num-bytes-consumed` is the number of bytes required to parse the message,
-    /// and `num-bytes-read` is the number of bytes read in this call.
+    /// On success, `completed` contains the decoded message in `payload` and the total encoded
+    /// payload bytes consumed across all calls in `total_encoded_bytes`, including chunk framing
+    /// but excluding the HTTP preamble. If more input is required, `completed` is `None` and the
+    /// caller should try again.
     ///
-    /// Returns Ok((None, num-bytes-read)) if we consumed data (i.e. `num-bytes-read` bytes), but
-    /// did not yet have enough of the message to parse it.  The caller should try again.
+    /// `consumed` counts encoded bytes read during this call only, including incomplete reads,
+    /// and may be zero.
     ///
-    /// Returns Error on irrecoverable error.
+    /// Returns `Err` on an irrecoverable error.
     fn stream_payload<R: Read>(
         &mut self,
         preamble: &StacksHttpPreamble,
         fd: &mut R,
-    ) -> Result<(Option<(StacksHttpMessage, usize)>, usize), NetError> {
+    ) -> Result<StreamRead<StacksHttpMessage>, NetError> {
         if self.payload_len(preamble).is_some() {
             return Err(NetError::InvalidState);
         }
         match preamble {
             StacksHttpPreamble::Request(_) => {
                 // HTTP requests can't be chunk-encoded, so this should never be reached
-                return Err(NetError::InvalidState);
+                Err(NetError::InvalidState)
             }
             StacksHttpPreamble::Response(ref http_response_preamble) => {
                 if !http_response_preamble.is_chunked() {
@@ -1633,14 +1652,20 @@ impl ProtocolFamily for StacksHttp {
                 }
 
                 // message of unknown length.  Buffer up and maybe we can parse it.
-                let (message_bytes_opt, num_read) = self
+                let StreamRead {
+                    completed: message_bytes_opt,
+                    consumed: num_read,
+                } = self
                     .consume_data(http_response_preamble, fd)
                     .inspect_err(|_e| {
-                    self.reset();
-                })?;
+                        self.reset();
+                    })?;
 
                 match message_bytes_opt {
-                    Some((message_bytes, total_bytes_consumed)) => {
+                    Some(CompletedPayload {
+                        payload: message_bytes,
+                        total_encoded_bytes: total_bytes_consumed,
+                    }) => {
                         // can parse!
                         test_debug!(
                             "read http response payload of {} bytes (just buffered {})",
@@ -1676,13 +1701,13 @@ impl ProtocolFamily for StacksHttp {
                         // done parsing
                         self.reset();
                         match parse_res {
-                            Ok(data_response) => Ok((
-                                Some((
-                                    StacksHttpMessage::Response(data_response),
-                                    total_bytes_consumed,
-                                )),
-                                num_read,
-                            )),
+                            Ok(data_response) => Ok(StreamRead {
+                                completed: Some(CompletedPayload {
+                                    payload: StacksHttpMessage::Response(data_response),
+                                    total_encoded_bytes: total_bytes_consumed,
+                                }),
+                                consumed: num_read,
+                            }),
                             Err(e) => {
                                 info!("Failed to parse HTTP response: {:?}", &e);
                                 Err(e)
@@ -1695,7 +1720,10 @@ impl ProtocolFamily for StacksHttp {
                             "did not read http response payload, but buffered {}",
                             num_read
                         );
-                        Ok((None, num_read))
+                        Ok(StreamRead {
+                            completed: None,
+                            consumed: num_read,
+                        })
                     }
                 }
             }
@@ -1741,13 +1769,13 @@ impl ProtocolFamily for StacksHttp {
                             extra_headers,
                         );
                         self.reset();
-                        return Ok((
+                        Ok((
                             StacksHttpMessage::Error(
                                 http_request_preamble.path_and_query_str.clone(),
                                 resp,
                             ),
                             len,
-                        ));
+                        ))
                     }
                     Err(e) => {
                         info!("Failed to parse HTTP request: {:?}", &e);

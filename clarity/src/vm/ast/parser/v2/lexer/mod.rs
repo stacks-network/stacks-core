@@ -845,18 +845,18 @@ impl<'a> Lexer<'a> {
             | Token::Less
             | Token::LessEqual
             | Token::Greater
-            | Token::GreaterEqual => {
-                if !is_separator(self.next) {
-                    self.add_diagnostic(
-                        LexerError::ExpectedSeparator,
-                        Span {
-                            start_line: self.line as u32,
-                            start_column: self.column as u32,
-                            end_line: self.line as u32,
-                            end_column: self.column as u32,
-                        },
-                    )?;
-                }
+            | Token::GreaterEqual
+                if !is_separator(self.next) =>
+            {
+                self.add_diagnostic(
+                    LexerError::ExpectedSeparator,
+                    Span {
+                        start_line: self.line as u32,
+                        start_column: self.column as u32,
+                        end_line: self.line as u32,
+                        end_column: self.column as u32,
+                    },
+                )?;
             }
             _ => (),
         }

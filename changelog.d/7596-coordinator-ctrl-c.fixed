@@ -1,0 +1,1 @@
+Fixed long delay between shutdown signal (Ctrl-C or SIGTERM) and actual stop while the node was working on catching up to chain tip.

@@ -1,9 +1,32 @@
 # Changelog
 
+> [!IMPORTANT]
+> This changelog is no longer updated. For releases after 4.0.2, signer changes
+> are recorded in the main [CHANGELOG.md](../CHANGELOG.md) at the repository
+> root, via fragments added to [changelog.d/](../changelog.d/README.md). The
+> entries below are preserved as a historical record.
+
 All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to the versioning scheme outlined in the [README.md](README.md).
+
+## [4.0.2]
+
+### ⚠️ Breaking Changes
+
+* The signer now refuses to start if its configuration file contains unrecognized fields, instead of silently ignoring them. This catches misspelled option names that previously would have slipped by without warning.
+
+### Fixed
+
+* Accept a replacement tenure-start block when the previous proposal in the tenure was only pre-committed (never signed), instead of rejecting it with `DuplicateBlockFound`. This prevents a stall that occasionally shows up on mainnet.
+* Refuse to sign a block at the pre-commit threshold if a different block at the same or higher height in the tenure has been signed or accepted within `tenure_last_block_proposal_timeout`. After that timeout, the signer consults the node and only signs the replacement if the canonical tip of the tenure is still below the proposed height (e.g. because the conflicting blocks were orphaned by a Bitcoin reorg).
+
+## [3.4.0.0.4.0]
+
+### Fixed
+
+* Signers now reject blocks that contain transactions with non-normalized "high S" secp256k1 signatures.
 
 ## [3.4.0.0.3.0]
 

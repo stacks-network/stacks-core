@@ -74,7 +74,7 @@ impl StacksMessageCodec for BlockProposalData_v2 {
         let mut inner_reader = inner_bytes.as_slice();
         let server_version: Vec<u8> = read_next(&mut inner_reader)?;
         let server_version = String::from_utf8(server_version).map_err(|e| {
-            CodecError::DeserializeError(format!("Failed to decode server version: {:?}", &e))
+            CodecError::DeserializeError(format!("Failed to decode server version: {:?}", e))
         })?;
         Ok(Self {
             version,

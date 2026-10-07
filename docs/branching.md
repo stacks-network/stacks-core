@@ -1,25 +1,19 @@
 # Git Branching
 
-The following is a slightly modified version of the gitflow branching strategy described in <https://nvie.com/posts/a-successful-git-branching-model/>
-
 ## Main Branches
 
-- **master** - `master` is the main branch where the source code of HEAD always reflects a production-ready state.
-- **develop** - `develop` is the branch where the source code of HEAD always reflects a state with the latest delivered development changes for the next release.
-- **next** - `next` may contain consensus-breaking changes for a future release.
-- **release/X.Y.Z.A.n** is the release branch.
+- **main** - `main` is the default branch and the single trunk for development. The source code of HEAD always reflects the latest delivered changes for the next release.
+- **release/X.Y.Z** is the release branch.
 
-When the source code in the develop branch reaches a stable point and is ready to be released, a release branch is created as `release/X.Y.Z.A.n` (see [release-process.md](./release-process.md)).
-After release, the following will happen:
+When the source code in `main` reaches a stable point and is ready to be released, a release branch is created as `release/X.Y.Z` (see [release-process.md](./release-process.md)).
+After release, `release/X.Y.Z` is merged back into `main`.
 
-- `release/X.Y.Z.A.n` branch is merged back to `master`.
-- `master` is then merged into `develop`, and development continues in the `develop` branch.
-- `develop` is then merged into `next`.
+The older `master`, `develop`, and `next` branches are retired and are no longer merge targets.
 
 ## Supporting Branches
 
 Branch names should use a prefix that conveys the overall goal of the branch.
-All branches should be based off of `develop`, with the exception being a hotfix branch which may be based off of `master`.
+All branches should be based off of `main`.
 
 - `feat/some-fancy-new-thing`: For new features.
 - `fix/some-broken-thing`: For hot fixes and bug fixes.

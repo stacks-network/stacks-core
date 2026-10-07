@@ -29,7 +29,7 @@ extern crate toml;
 use std::io::{self, Write};
 use std::time::Duration;
 
-use blockstack_lib::util_lib::signed_structured_data::pox4::make_pox_4_signer_key_signature;
+use blockstack_lib::util_lib::signed_structured_data::pox5::make_pox_5_signer_grant_signature;
 use clap::{CommandFactory, Parser};
 use clarity::types::chainstate::StacksPublicKey;
 use clarity::util::sleep_ms;
@@ -39,9 +39,8 @@ use stacks_common::util::hash::to_hex;
 use stacks_common::util::secp256k1::MessageSignature;
 use stacks_common::{debug, error};
 use stacks_signer::cli::{
-    Cli, Command, GenerateStackingSignatureArgs, GenerateVoteArgs, GetChunkArgs,
-    GetLatestChunkArgs, MonitorSignersArgs, PutChunkArgs, RunSignerArgs, StackerDBArgs,
-    VerifyVoteArgs,
+    Cli, Command, GenerateStakingSignatureArgs, GenerateVoteArgs, GetChunkArgs, GetLatestChunkArgs,
+    MonitorSignersArgs, PutChunkArgs, RunSignerArgs, StackerDBArgs, VerifyVoteArgs,
 };
 use stacks_signer::config::GlobalConfig;
 use stacks_signer::monitor_signers::SignerMonitor;
@@ -122,8 +121,8 @@ fn handle_run(args: RunSignerArgs) {
     let _ = spawned_signer.join();
 }
 
-fn handle_generate_stacking_signature(
-    args: GenerateStackingSignatureArgs,
+fn handle_generate_staking_signature(
+    args: GenerateStakingSignatureArgs,
     do_print: bool,
 ) -> MessageSignature {
     let config = GlobalConfig::try_from(&args.config).unwrap();
@@ -132,15 +131,11 @@ fn handle_generate_stacking_signature(
     let public_key = StacksPublicKey::from_private(&private_key);
     let pk_hex = to_hex(&public_key.to_bytes_compressed());
 
-    let signature = make_pox_4_signer_key_signature(
-        &args.pox_address,
-        &private_key, //
-        args.reward_cycle.into(),
-        args.method.topic(),
-        config.to_chain_id(),
-        args.period.into(),
-        args.max_amount,
+    let signature = make_pox_5_signer_grant_signature(
+        &args.signer_manager,
         args.auth_id,
+        config.to_chain_id(),
+        &private_key,
     )
     .expect("Failed to generate signature");
 
@@ -149,11 +144,7 @@ fn handle_generate_stacking_signature(
             "signerKey": pk_hex,
             "signerSignature": to_hex(signature.to_rsv().as_slice()),
             "authId": format!("{}", args.auth_id),
-            "rewardCycle": args.reward_cycle,
-            "maxAmount": format!("{}", args.max_amount),
-            "period": args.period,
-            "poxAddress": args.pox_address.to_b58(),
-            "method": args.method.topic().to_string(),
+            "signerManager": args.signer_manager.to_string(),
         }))
         .expect("Failed to serialize JSON")
     } else {
@@ -247,8 +238,8 @@ fn main() {
         Command::Run(args) => {
             handle_run(args);
         }
-        Command::GenerateStackingSignature(args) => {
-            handle_generate_stacking_signature(args, true);
+        Command::GenerateStakingSignature(args) => {
+            handle_generate_staking_signature(args, true);
         }
         Command::CheckConfig(args) => {
             handle_check_config(args);
@@ -267,146 +258,74 @@ fn main() {
 
 #[cfg(test)]
 pub mod tests {
-    use blockstack_lib::chainstate::stacks::address::PoxAddress;
-    use blockstack_lib::chainstate::stacks::boot::POX_4_CODE;
-    use blockstack_lib::util_lib::signed_structured_data::pox4::{
-        make_pox_4_signer_key_message_hash, Pox4SignatureTopic,
-    };
+    use blockstack_lib::util_lib::signed_structured_data::pox5::make_pox_5_signer_grant_message_hash;
     use clarity::util::secp256k1::Secp256k1PrivateKey;
-    use clarity::vm::{execute_v2, Value};
+    use clarity::vm::types::PrincipalData;
     use rand::{Rng, RngCore};
     use stacks_common::consts::CHAIN_ID_TESTNET;
     use stacks_common::types::PublicKey;
-    use stacks_common::util::secp256k1::Secp256k1PublicKey;
-    use stacks_signer::cli::{parse_pox_addr, VerifyVoteArgs, Vote, VoteInfo};
+    use stacks_common::util::hash::hex_bytes;
+    use stacks_common::util::secp256k1::{MessageSignature, Secp256k1PublicKey};
+    use stacks_signer::cli::{VerifyVoteArgs, Vote, VoteInfo};
 
-    use super::{handle_generate_stacking_signature, *};
-    use crate::{GenerateStackingSignatureArgs, GlobalConfig};
-
-    #[allow(clippy::too_many_arguments)]
-    fn call_verify_signer_sig(
-        pox_addr: &PoxAddress,
-        reward_cycle: u128,
-        topic: &Pox4SignatureTopic,
-        lock_period: u128,
-        public_key: &Secp256k1PublicKey,
-        signature: Vec<u8>,
-        amount: u128,
-        max_amount: u128,
-        auth_id: u128,
-    ) -> bool {
-        let program = format!(
-            r#"
-            {}
-            (verify-signer-key-sig {} u{} "{}" u{} (some 0x{}) 0x{} u{} u{} u{})
-        "#,
-            &*POX_4_CODE,                                               //s
-            Value::Tuple(pox_addr.clone().as_clarity_tuple().unwrap()), //p
-            reward_cycle,
-            topic.get_name_str(),
-            lock_period,
-            to_hex(signature.as_slice()),
-            to_hex(public_key.to_bytes_compressed().as_slice()),
-            amount,
-            max_amount,
-            auth_id,
-        );
-        execute_v2(&program)
-            .expect("FATAL: could not execute program")
-            .expect("Expected result")
-            .expect_result_ok()
-            .expect("Expected ok result")
-            .expect_bool()
-            .expect("Expected buff")
-    }
-
-    #[test]
-    fn test_stacking_signature_with_pox_code() {
-        let config = GlobalConfig::load_from_file("./src/tests/conf/signer-0.toml").unwrap();
-        let btc_address = "bc1p8vg588hldsnv4a558apet4e9ff3pr4awhqj2hy8gy6x2yxzjpmqsvvpta4";
-        let mut args = GenerateStackingSignatureArgs {
-            config: "./src/tests/conf/signer-0.toml".into(),
-            pox_address: parse_pox_addr(btc_address).unwrap(),
-            reward_cycle: 6,
-            method: Pox4SignatureTopic::StackStx.into(),
-            period: 12,
-            max_amount: u128::MAX,
-            auth_id: 1,
-            json: false,
-        };
-
-        let signature = handle_generate_stacking_signature(args.clone(), false);
-        let public_key = Secp256k1PublicKey::from_private(&config.stacks_private_key);
-
-        let valid = call_verify_signer_sig(
-            &args.pox_address,
-            args.reward_cycle.into(),
-            &Pox4SignatureTopic::StackStx,
-            args.period.into(),
-            &public_key,
-            signature.to_rsv(),
-            100,
-            args.max_amount,
-            args.auth_id,
-        );
-        assert!(valid);
-
-        // change up some args
-        args.period = 6;
-        args.method = Pox4SignatureTopic::AggregationCommit.into();
-        args.reward_cycle = 7;
-        args.auth_id = 2;
-        args.max_amount = 100;
-
-        let signature = handle_generate_stacking_signature(args.clone(), false);
-        let public_key = Secp256k1PublicKey::from_private(&config.stacks_private_key);
-
-        let valid = call_verify_signer_sig(
-            &args.pox_address,
-            args.reward_cycle.into(),
-            &Pox4SignatureTopic::AggregationCommit,
-            args.period.into(),
-            &public_key,
-            signature.to_rsv(),
-            100,
-            args.max_amount,
-            args.auth_id,
-        );
-        assert!(valid);
-    }
+    use super::{handle_generate_staking_signature, *};
+    use crate::{GenerateStakingSignatureArgs, GlobalConfig};
 
     #[test]
     fn test_generate_stacking_signature() {
         let config = GlobalConfig::load_from_file("./src/tests/conf/signer-0.toml").unwrap();
-        let btc_address = "bc1p8vg588hldsnv4a558apet4e9ff3pr4awhqj2hy8gy6x2yxzjpmqsvvpta4";
-        let args = GenerateStackingSignatureArgs {
+        let signer_manager =
+            PrincipalData::parse("ST000000000000000000002AMW42H.test-signer").unwrap();
+        let args = GenerateStakingSignatureArgs {
             config: "./src/tests/conf/signer-0.toml".into(),
-            pox_address: parse_pox_addr(btc_address).unwrap(),
-            reward_cycle: 6,
-            method: Pox4SignatureTopic::StackStx.into(),
-            period: 12,
-            max_amount: u128::MAX,
+            signer_manager: signer_manager.clone(),
             auth_id: 1,
             json: false,
         };
 
-        let signature = handle_generate_stacking_signature(args.clone(), false);
+        let signature = handle_generate_staking_signature(args.clone(), false);
 
         let public_key = Secp256k1PublicKey::from_private(&config.stacks_private_key);
 
-        let message_hash = make_pox_4_signer_key_message_hash(
-            &args.pox_address,
-            args.reward_cycle.into(),
-            &Pox4SignatureTopic::StackStx,
-            CHAIN_ID_TESTNET,
-            args.period.into(),
-            args.max_amount,
-            args.auth_id,
-        );
+        let message_hash =
+            make_pox_5_signer_grant_message_hash(&signer_manager, args.auth_id, CHAIN_ID_TESTNET);
 
         let verify_result = public_key.verify(&message_hash.0, &signature);
         assert!(verify_result.is_ok());
         assert!(verify_result.unwrap());
+    }
+
+    /// Use a fixture generated from our typescript implementation
+    /// ([`pox-5-helpers.ts`](../../contrib/core-contract-tests/tests/pox-5/pox-5-helpers.ts))
+    #[test]
+    fn test_pox_5_signer_grant_signature_typescript_fixture() {
+        let config = GlobalConfig::load_from_file("./src/tests/conf/signer-0.toml").unwrap();
+        let signer_manager =
+            PrincipalData::parse("ST000000000000000000002AMW42H.test-signer").unwrap();
+        let message_hash =
+            make_pox_5_signer_grant_message_hash(&signer_manager, 1, CHAIN_ID_TESTNET);
+        let signature = handle_generate_staking_signature(
+            GenerateStakingSignatureArgs {
+                config: "./src/tests/conf/signer-0.toml".into(),
+                signer_manager,
+                auth_id: 1,
+                json: false,
+            },
+            false,
+        );
+
+        let expected_hash =
+            hex_bytes("41339a30baf6f207fb56882c0d5246a91af8db0e6d3a2c07eb455c2330441256").unwrap();
+        let expected_signature = MessageSignature::from_rsv(
+            &hex_bytes("2c83b6442a993d54ed2696789908fa963a50f748d0d06ca61445baed8bfb809a63f1182b350a46984e3b7cb67baa8e952b6c342f3354370bb7a7060e1bbc535e01").unwrap(),
+        )
+        .unwrap();
+
+        assert_eq!(message_hash.as_bytes(), expected_hash.as_slice());
+        assert_eq!(signature, expected_signature);
+        assert!(Secp256k1PublicKey::from_private(&config.stacks_private_key)
+            .verify(message_hash.as_bytes(), &signature)
+            .unwrap());
     }
 
     #[test]

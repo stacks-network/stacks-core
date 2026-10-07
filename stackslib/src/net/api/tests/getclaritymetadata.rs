@@ -18,10 +18,10 @@ use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use clarity::types::chainstate::StacksBlockId;
 use clarity::types::Address;
 use clarity::vm::database::{ClaritySerializable, DataMapMetadata, DataVariableMetadata};
-use clarity::vm::types::{QualifiedContractIdentifier, TypeSignature};
+use clarity::vm::types::TypeSignature;
 use stacks_common::types::chainstate::StacksAddress;
 
-use super::test_rpc;
+use super::{test_rpc, TEST_CONTRACT, TEST_CONTRACT_ID};
 use crate::net::api::*;
 use crate::net::connection::ConnectionOptions;
 use crate::net::http::Error as HttpError;
@@ -67,15 +67,7 @@ fn test_try_parse_request() {
         handler.clarity_metadata_key,
         Some("vm-metadata::9::contract-size".to_string())
     );
-    assert_eq!(
-        handler.contract_identifier,
-        Some(
-            QualifiedContractIdentifier::parse(
-                "ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R.hello-world"
-            )
-            .unwrap()
-        )
-    );
+    assert_eq!(handler.contract_identifier, Some(TEST_CONTRACT_ID.clone()));
 
     assert_eq!(&preamble, request.preamble());
 
@@ -187,15 +179,7 @@ fn test_try_parse_request_for_analysis() {
 
     // consumed path args
     assert_eq!(handler.clarity_metadata_key, Some("analysis".to_string()));
-    assert_eq!(
-        handler.contract_identifier,
-        Some(
-            QualifiedContractIdentifier::parse(
-                "ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R.hello-world"
-            )
-            .unwrap()
-        )
-    );
+    assert_eq!(handler.contract_identifier, Some(TEST_CONTRACT_ID.clone()));
 
     assert_eq!(&preamble, request.preamble());
 
@@ -306,10 +290,10 @@ fn test_try_make_response() {
     let (preamble, body) = response.destruct();
     assert_eq!(preamble.status_code, 400);
 
-    // contract size metadata
+    // contract size metadata: the length of the published source
     let response = responses.remove(0);
     let resp = response.decode_clarity_metadata_response().unwrap();
-    assert_eq!(resp.data, "1432");
+    assert_eq!(resp.data, TEST_CONTRACT.len().to_string());
 
     // data map metadata
     let response = responses.remove(0);
@@ -352,7 +336,7 @@ fn test_try_make_response() {
     // contract size metadata
     let response = responses.remove(0);
     let resp = response.decode_clarity_metadata_response().unwrap();
-    assert_eq!(resp.data, "1432");
+    assert_eq!(resp.data, TEST_CONTRACT.len().to_string());
 
     // unknwnon data var
     let response = responses.remove(0);

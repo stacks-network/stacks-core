@@ -27,16 +27,12 @@ use blockstack_lib::chainstate::stacks::{
     TransactionPayload, TransactionPostConditionMode, TransactionPublicKeyEncoding,
     TransactionSpendingCondition, TransactionVersion,
 };
-use blockstack_lib::core::test_util::make_stacks_transfer_tx;
 use blockstack_lib::net::api::get_tenures_fork_info::TenureForkingInfo;
 use clarity::types::chainstate::{BurnchainHeaderHash, SortitionId, StacksAddress};
 use clarity::types::PrivateKey;
-use clarity::util::secp256k1::Secp256k1PublicKey;
 use clarity::util::vrf::VRFProof;
 use libsigner::v0::messages::RejectReason;
-use libsigner::v0::signer_state::{
-    GlobalStateEvaluator, MinerState, ReplayTransactionSet, SignerStateMachine,
-};
+use libsigner::v0::signer_state::{GlobalStateEvaluator, MinerState, SignerStateMachine};
 use libsigner::{BlockProposal, BlockProposalData};
 use stacks_common::bitvec::BitVec;
 use stacks_common::consts::CHAIN_ID_TESTNET;
@@ -50,10 +46,9 @@ use stacks_common::{function_name, info};
 
 use crate::chainstate::tests::make_parent_header_meta;
 use crate::chainstate::v2::{GlobalStateView, SortitionState};
-use crate::chainstate::{ProposalEvalConfig, SignerChainstateError, SortitionData};
+use crate::chainstate::{ProposalEvalConfig, SelfAsTip, SignerChainstateError, SortitionData};
 use crate::client::tests::MockServerClient;
 use crate::client::StacksClient;
-use crate::config::DEFAULT_RESET_REPLAY_SET_AFTER_FORK_BLOCKS;
 use crate::signerdb::tests::tmp_db_path;
 use crate::signerdb::{BlockInfo, SignerDb};
 
@@ -101,7 +96,6 @@ fn setup_test_environment(
         tenure_idle_timeout_buffer: Duration::from_secs(2),
         reorg_attempts_activity_timeout: Duration::from_secs(3),
         proposal_wait_for_parent_time: Duration::from_secs(0),
-        reset_replay_set_after_fork_blocks: DEFAULT_RESET_REPLAY_SET_AFTER_FORK_BLOCKS,
         read_count_idle_timeout: Duration::from_secs(12000),
     };
 
@@ -118,8 +112,8 @@ fn setup_test_environment(
     fs::create_dir_all(signer_db_dir).unwrap();
     let signer_db = SignerDb::new(signer_db_path).unwrap();
 
-    let mut block = NakamotoBlock {
-        header: NakamotoBlockHeader {
+    let mut block = NakamotoBlock::new(
+        NakamotoBlockHeader {
             version: 1,
             chain_length: 10,
             burn_spent: 10,
@@ -131,9 +125,10 @@ fn setup_test_environment(
             miner_signature: MessageSignature::empty(),
             signer_signature: vec![],
             pox_treatment: BitVec::ones(1).unwrap(),
+            problematic_txs: vec![],
         },
-        txs: vec![],
-    };
+        vec![],
+    );
 
     block.header.miner_signature = block_sk
         .sign(block.header.miner_signature_hash().as_bytes())
@@ -150,7 +145,6 @@ fn setup_test_environment(
             parent_tenure_last_block_height: 1,
         },
         active_signer_protocol_version: 0,
-        tx_replay_set: ReplayTransactionSet::none(),
     };
 
     let sortitions_view = GlobalStateView {
@@ -253,31 +247,27 @@ fn check_proposal_accepts_high_s_miner_sign() {
     );
 }
 
-fn reorg_timing_testing(
+/// Set up a sortition (`cur_sortition`) that reorgs the prior
+/// sortition's tenure, whose first block we approved
+/// `sortition_timing_secs` before `cur_sortition`'s burn block
+/// arrived.
+///
+/// Returns the signer DB, `cur_sortition`, the approved block of the
+/// reorged tenure, and the fork info the node reports for the reorg.
+fn setup_reorg_of_prior_sortition(
     test_name: &str,
-    first_proposal_burn_block_timing_secs: u64,
     sortition_timing_secs: u64,
-) -> Result<bool, SignerChainstateError> {
-    let (
-        _stacks_client,
-        mut signer_db,
-        block_sk,
-        mut block,
-        mut cur_sortition,
-        last_sortition,
-        mut sortitions_view,
-    ) = setup_test_environment(test_name);
-    sortitions_view.config.first_proposal_burn_block_timing =
-        Duration::from_secs(first_proposal_burn_block_timing_secs);
+) -> (SignerDb, SortitionState, BlockInfo, Vec<TenureForkingInfo>) {
+    let (_stacks_client, mut signer_db, block_sk, _block, mut cur_sortition, last_sortition, _) =
+        setup_test_environment(test_name);
     cur_sortition.data.parent_tenure_id = last_sortition.data.parent_tenure_id.clone();
-    block.header.consensus_hash = cur_sortition.data.consensus_hash.clone();
     let block_pk = StacksPublicKey::from_private(&block_sk);
     cur_sortition.data.miner_pkh = Hash160::from_node_public_key(&block_pk);
     cur_sortition.data.miner_pubkey = Some(block_pk);
 
     let block_proposal_1 = BlockProposal {
-        block: NakamotoBlock {
-            header: NakamotoBlockHeader {
+        block: NakamotoBlock::new(
+            NakamotoBlockHeader {
                 version: 1,
                 chain_length: 10,
                 burn_spent: 10,
@@ -289,9 +279,10 @@ fn reorg_timing_testing(
                 miner_signature: MessageSignature::empty(),
                 signer_signature: vec![],
                 pox_treatment: BitVec::ones(1).unwrap(),
+                problematic_txs: vec![],
             },
-            txs: vec![],
-        },
+            vec![],
+        ),
         burn_height: 2,
         reward_cycle: 1,
         block_proposal_data: BlockProposalData::empty(),
@@ -312,7 +303,7 @@ fn reorg_timing_testing(
         )
         .unwrap();
 
-    let expected_result = vec![
+    let forking_info = vec![
         TenureForkingInfo {
             burn_block_hash: last_sortition.data.burn_block_hash,
             burn_block_height: 2,
@@ -334,34 +325,221 @@ fn reorg_timing_testing(
             nakamoto_blocks: None,
         },
     ];
+    (signer_db, cur_sortition, block_info_1, forking_info)
+}
+
+/// Record a second, globally accepted block in the tenure of `first_block`, and mark
+/// `first_block` globally accepted too, so the tenure has two globally accepted blocks.
+fn add_second_globally_accepted_block(signer_db: &mut SignerDb, first_block: &BlockInfo) {
+    let mut first_block = first_block.clone();
+    first_block.mark_globally_accepted().unwrap();
+    signer_db.insert_block(&first_block).unwrap();
+
+    let mut second_block = first_block.clone();
+    second_block.block.header.chain_length += 1;
+    second_block.block.header.parent_block_id = first_block.block.block_id();
+    signer_db.insert_block(&second_block).unwrap();
+    assert_eq!(
+        signer_db
+            .get_globally_accepted_block_count_in_tenure(&first_block.block.header.consensus_hash)
+            .unwrap(),
+        2
+    );
+}
+
+/// Answer one fork-info request from the node mock with `forking_info`
+fn respond_with_forking_info(server: &std::net::TcpListener, forking_info: &[TenureForkingInfo]) {
+    crate::client::tests::write_response(
+        server.try_clone().unwrap(),
+        format!("HTTP/1.1 200 Ok\n\n{}", serde_json::json!(forking_info)).as_bytes(),
+    );
+}
+
+fn reorg_timing_testing(
+    test_name: &str,
+    first_proposal_burn_block_timing_secs: u64,
+    sortition_timing_secs: u64,
+) -> (Result<bool, SignerChainstateError>, bool) {
+    let (mut signer_db, cur_sortition, block_info_1, forking_info) =
+        setup_reorg_of_prior_sortition(test_name, sortition_timing_secs);
+    let reorged_tenure = block_info_1.block.header.consensus_hash.clone();
     let MockServerClient { server, client, .. } = MockServerClient::new();
     let h = std::thread::spawn(move || {
-        cur_sortition.data.check_parent_tenure_choice(
-            &signer_db,
+        let result = cur_sortition.data.check_parent_tenure_choice(
+            &mut signer_db,
             &client,
-            &sortitions_view.config.first_proposal_burn_block_timing,
-        )
+            &Duration::from_secs(first_proposal_burn_block_timing_secs),
+        );
+        // Report whether the reorg of the prior sortition was recorded as sanctioned, so the
+        // caller can check that our own signature over its block stops blocking a replacement.
+        let superseded = signer_db.is_tenure_superseded(&reorged_tenure).unwrap();
+        (result, superseded)
     });
 
-    crate::client::tests::write_response(
-        server,
-        format!("HTTP/1.1 200 Ok\n\n{}", serde_json::json!(expected_result)).as_bytes(),
-    );
-    let result = h.join().unwrap();
-    info!("Result: {result:?}");
-    result
+    respond_with_forking_info(&server, &forking_info);
+    let (result, superseded) = h.join().unwrap();
+    info!("Result: {result:?}, superseded: {superseded}");
+    (result, superseded)
 }
 
 #[test]
 fn check_parent_tenure_choice_reorg_timing_bad() {
-    let is_good = reorg_timing_testing(function_name!(), 30, 31).unwrap();
-    assert!(!is_good, "Tenure choice should be bad because the reorg occurred in a block whose proposed time was long enough before the sortition");
+    let (result, superseded) = reorg_timing_testing(function_name!(), 30, 31);
+    assert!(!result.unwrap(), "Tenure choice should be bad because the reorg occurred in a block whose proposed time was long enough before the sortition");
+    assert!(
+        !superseded,
+        "A reorg we refused must not void the tenure it would have replaced"
+    );
 }
 
 #[test]
 fn check_parent_tenure_choice_reorg_timing_ok() {
-    let is_good = reorg_timing_testing(function_name!(), 30, 29).unwrap();
-    assert!(is_good, "Tenure choice should be okay because the reorg occurred in a block whose proposed time was close to the sortition");
+    let (result, superseded) = reorg_timing_testing(function_name!(), 30, 29);
+    assert!(result.unwrap(), "Tenure choice should be okay because the reorg occurred in a block whose proposed time was close to the sortition");
+    assert!(
+        superseded,
+        "Having sanctioned the reorg, our signature over the reorged tenure's block must stop counting as a conflict"
+    );
+}
+
+#[test]
+fn refused_reorg_supersedes_nothing() {
+    // A multi-tenure reorg where the FIRST reorged tenure qualifies (the node saw no blocks in
+    // it) but a LATER one fails the rules. The sanction is a verdict on the reorg as a whole,
+    // so the qualifying tenure must not be left recorded as superseded: that record voids our
+    // signatures over its blocks as conflicts, for a replacement we never permitted.
+    let (_stacks_client, mut signer_db, _block_sk, _block, mut cur_sortition, last_sortition, _) =
+        setup_test_environment(function_name!());
+    cur_sortition.data.parent_tenure_id = last_sortition.data.parent_tenure_id.clone();
+
+    let empty_tenure_ch = ConsensusHash([64; 20]);
+    let expected_result = vec![
+        // Evaluated first: qualifies via the empty-tenure branch.
+        TenureForkingInfo {
+            burn_block_hash: BurnchainHeaderHash([64; 32]),
+            burn_block_height: 2,
+            sortition_id: SortitionId([2; 32]),
+            parent_sortition_id: SortitionId([1; 32]),
+            consensus_hash: empty_tenure_ch.clone(),
+            was_sortition: true,
+            first_block_mined: None,
+            nakamoto_blocks: None,
+        },
+        // Evaluated second: fails, because it mined a block and we have no local knowledge of
+        // that block's timing.
+        TenureForkingInfo {
+            burn_block_hash: last_sortition.data.burn_block_hash,
+            burn_block_height: 1,
+            sortition_id: SortitionId([1; 32]),
+            parent_sortition_id: SortitionId([0; 32]),
+            consensus_hash: last_sortition.data.consensus_hash,
+            was_sortition: true,
+            first_block_mined: Some(StacksBlockId([1; 32])),
+            nakamoto_blocks: None,
+        },
+        // The built-upon parent tenure itself: skipped by the check, but the client paginates
+        // fork info until it reaches it, so the response must end here.
+        TenureForkingInfo {
+            burn_block_hash: BurnchainHeaderHash([128; 32]),
+            burn_block_height: 0,
+            sortition_id: SortitionId([0; 32]),
+            parent_sortition_id: SortitionId([128; 32]),
+            consensus_hash: cur_sortition.data.parent_tenure_id.clone(),
+            was_sortition: true,
+            first_block_mined: Some(StacksBlockId([2; 32])),
+            nakamoto_blocks: None,
+        },
+    ];
+    let MockServerClient { server, client, .. } = MockServerClient::new();
+    let h = std::thread::spawn(move || {
+        let result = cur_sortition.data.check_parent_tenure_choice(
+            &mut signer_db,
+            &client,
+            &Duration::from_secs(30),
+        );
+        let superseded = signer_db.is_tenure_superseded(&empty_tenure_ch).unwrap();
+        (result, superseded)
+    });
+    crate::client::tests::write_response(
+        server,
+        format!("HTTP/1.1 200 Ok\n\n{}", serde_json::json!(expected_result)).as_bytes(),
+    );
+    let (result, superseded) = h.join().unwrap();
+    assert!(
+        !result.unwrap(),
+        "the reorg must be refused: a reorged tenure mined a block we know nothing about"
+    );
+    assert!(
+        !superseded,
+        "a refused reorg must supersede nothing, even the tenures in it that individually qualified"
+    );
+}
+
+#[test]
+fn permitted_reorg_survives_recheck() {
+    // The mainnet stall at Bitcoin heights 968312-968315: we permit a reorg of a tenure that
+    // has one globally accepted block. A second block of that tenure, signed before the reorg
+    // was permitted, then lands. When the next sortition's winner is invalid, we fall back to
+    // the reorging tenure and check its parent choice again. That re-check must not count
+    // the late block and revoke the reorg we already permitted.
+    let (mut signer_db, cur_sortition, block_info_1, forking_info) =
+        setup_reorg_of_prior_sortition(function_name!(), 29);
+    let MockServerClient { server, client, .. } = MockServerClient::new();
+    let h = std::thread::spawn(move || {
+        let timing = Duration::from_secs(30);
+        let first_check = cur_sortition
+            .data
+            .check_parent_tenure_choice(&mut signer_db, &client, &timing)
+            .unwrap();
+        add_second_globally_accepted_block(&mut signer_db, &block_info_1);
+        let recheck = cur_sortition
+            .data
+            .check_parent_tenure_choice(&mut signer_db, &client, &timing)
+            .unwrap();
+        (first_check, recheck)
+    });
+    respond_with_forking_info(&server, &forking_info);
+    respond_with_forking_info(&server, &forking_info);
+    let (first_check, recheck) = h.join().unwrap();
+    assert!(
+        first_check,
+        "The reorg should be permitted: the reorged tenure's only block was poorly timed"
+    );
+    assert!(
+        recheck,
+        "A reorg we already permitted for this sortition must stay permitted"
+    );
+}
+
+#[test]
+fn reorg_permitted_for_other_sortition_is_rechecked() {
+    // Only a permit granted to *this* sortition is final for it. A tenure that another
+    // sortition was permitted to reorg is still judged by the rules, so its two globally
+    // accepted blocks refuse this reorg.
+    let (mut signer_db, cur_sortition, block_info_1, forking_info) =
+        setup_reorg_of_prior_sortition(function_name!(), 29);
+    let reorged_tenure = block_info_1.block.header.consensus_hash.clone();
+    signer_db
+        .mark_tenure_superseded(
+            &reorged_tenure,
+            2,
+            &ConsensusHash([0x42; 20]),
+            &BurnchainHeaderHash([0x42; 32]),
+        )
+        .unwrap();
+    add_second_globally_accepted_block(&mut signer_db, &block_info_1);
+    let MockServerClient { server, client, .. } = MockServerClient::new();
+    let h = std::thread::spawn(move || {
+        cur_sortition
+            .data
+            .check_parent_tenure_choice(&mut signer_db, &client, &Duration::from_secs(30))
+            .unwrap()
+    });
+    respond_with_forking_info(&server, &forking_info);
+    assert!(
+        !h.join().unwrap(),
+        "A permit granted to another sortition must not exempt this reorg from the rules"
+    );
 }
 
 fn make_tenure_change_payload() -> TenureChangePayload {
@@ -406,6 +584,7 @@ where
         client: stacks_client,
         config: _,
     } = MockServerClient::new();
+    let port = server.local_addr().unwrap().port();
     let (
         _stacks_client,
         mut signer_db,
@@ -414,7 +593,7 @@ where
         mut cur_sortition,
         _,
         mut sortitions_view,
-    ) = setup_test_environment(function_name!());
+    ) = setup_test_environment(&format!("{}_{port}", function_name!()));
     block.header.consensus_hash = cur_sortition.data.consensus_hash.clone();
     let mut parent_block_header = make_parent_header_meta(&block_sk, &mut block);
     parent_block_header.burn_view = Some(cur_sortition.data.consensus_hash.clone());
@@ -423,7 +602,7 @@ where
     let mut payload = make_payload(&mut cur_sortition, &block);
     payload.previous_tenure_end = block.header.parent_block_id.clone();
     let tx = make_tenure_change_tx(payload);
-    block.txs = vec![tx];
+    *block.executed_and_skipped_txs_mut() = vec![tx];
     block.header.sign_miner(&block_sk).unwrap();
 
     let exit_flag = Arc::new(AtomicBool::new(false));
@@ -497,53 +676,6 @@ fn check_tenure_extend_read_count() {
 }
 
 #[test]
-fn check_proposal_with_extend_during_replay() {
-    let MockServerClient {
-        server,
-        client: stacks_client,
-        config: _,
-    } = MockServerClient::new();
-
-    let rand_int = server.local_addr().unwrap().port();
-
-    let (_, mut signer_db, block_sk, mut block, cur_sortition, _, mut sortitions_view) =
-        setup_test_environment(&format!("{}_{rand_int}", function_name!()));
-
-    let parent_block_header = make_parent_header_meta(&block_sk, &mut block);
-    let response = crate::client::tests::build_get_tenure_tip_response(&parent_block_header);
-
-    block.header.consensus_hash = cur_sortition.data.consensus_hash.clone();
-    let mut extend_payload = make_tenure_change_payload();
-    extend_payload.burn_view_consensus_hash = cur_sortition.data.consensus_hash.clone();
-    extend_payload.tenure_consensus_hash = block.header.consensus_hash.clone();
-    extend_payload.prev_tenure_consensus_hash = block.header.consensus_hash.clone();
-    let tx = make_tenure_change_tx(extend_payload);
-    block.txs = vec![tx];
-    block.header.sign_miner(&block_sk).unwrap();
-
-    let replay_tx = make_stacks_transfer_tx(
-        &block_sk,
-        0,
-        0,
-        1,
-        &StacksAddress::p2pkh(true, &Secp256k1PublicKey::new()).into(),
-        1000000,
-    );
-    let replay_set = ReplayTransactionSet::new(vec![replay_tx]);
-
-    sortitions_view.signer_state.tx_replay_set = replay_set;
-
-    let j = std::thread::spawn(move || {
-        sortitions_view
-            .check_proposal(&stacks_client, &mut signer_db, &block)
-            .expect("Proposal should validate");
-    });
-
-    crate::client::tests::write_response(server, response.as_bytes());
-    j.join().unwrap();
-}
-
-#[test]
 fn check_sortition_timeout() {
     let signer_db_path = tmp_db_path();
     let mut signer_db = SignerDb::new(signer_db_path).unwrap();
@@ -603,8 +735,8 @@ fn check_sortition_timeout() {
 
     // Insert a signed over block so its no longer an empty tenure
     let block_proposal = BlockProposal {
-        block: NakamotoBlock {
-            header: NakamotoBlockHeader {
+        block: NakamotoBlock::new(
+            NakamotoBlockHeader {
                 version: 1,
                 chain_length: 10,
                 burn_spent: 10,
@@ -616,9 +748,10 @@ fn check_sortition_timeout() {
                 miner_signature: MessageSignature::empty(),
                 signer_signature: vec![],
                 pox_treatment: BitVec::ones(1).unwrap(),
+                problematic_txs: vec![],
             },
-            txs: vec![],
-        },
+            vec![],
+        ),
         burn_height: 2,
         reward_cycle: 1,
         block_proposal_data: BlockProposalData::empty(),
@@ -628,7 +761,23 @@ fn check_sortition_timeout() {
     block_info.mark_pre_committed().unwrap();
     signer_db.insert_block(&block_info).unwrap();
 
-    // This will no longer be timed out as we have a non-empty tenure
+    // A block we have only pre-committed to must NOT suppress the timeout. A pre-commit carries
+    // no signature over the block, and if it never reaches the pre-commit threshold the tenure
+    // would otherwise stall forever: the signers that pre-committed could never time the miner
+    // out and fall back to the prior miner.
+    assert!(SortitionState::is_timed_out(
+        &consensus_hash,
+        &signer_db,
+        &eval,
+        &address,
+        Duration::from_secs(1),
+    )
+    .unwrap());
+
+    // Once we actually sign the block, the tenure is no longer empty and must not time out.
+    block_info.mark_locally_accepted(false).unwrap();
+    signer_db.insert_block(&block_info).unwrap();
+
     assert!(!SortitionState::is_timed_out(
         &consensus_hash,
         &signer_db,
@@ -671,8 +820,8 @@ fn check_tenure_change_rejects_when_locally_accepted_block_exists() {
     // only queries by consensus_hash and block state — the block's transactions
     // are irrelevant to the duplicate check.
     let existing_block_proposal = BlockProposal {
-        block: NakamotoBlock {
-            header: NakamotoBlockHeader {
+        block: NakamotoBlock::new(
+            NakamotoBlockHeader {
                 version: 1,
                 chain_length: 10,
                 burn_spent: 10,
@@ -684,9 +833,10 @@ fn check_tenure_change_rejects_when_locally_accepted_block_exists() {
                 miner_signature: MessageSignature::empty(),
                 signer_signature: vec![],
                 pox_treatment: BitVec::ones(1).unwrap(),
+                problematic_txs: vec![],
             },
-            txs: vec![],
-        },
+            vec![],
+        ),
         burn_height: 2,
         reward_cycle: 1,
         block_proposal_data: BlockProposalData::empty(),
@@ -714,7 +864,7 @@ fn check_tenure_change_rejects_when_locally_accepted_block_exists() {
         TransactionAuth::Standard(TransactionSpendingCondition::new_initial_sighash()),
         TransactionPayload::Coinbase(CoinbasePayload([0; 32]), None, Some(VRFProof::empty())),
     );
-    block.txs = vec![tenure_change_tx, coinbase_tx];
+    *block.executed_and_skipped_txs_mut() = vec![tenure_change_tx, coinbase_tx];
     block.header.sign_miner(&block_sk).unwrap();
 
     let exit_flag = Arc::new(AtomicBool::new(false));
@@ -740,4 +890,198 @@ fn check_tenure_change_rejects_when_locally_accepted_block_exists() {
         matches!(result, Err(RejectReason::DuplicateBlockFound)),
         "Expected DuplicateBlockFound rejection when a locally-accepted block exists in the tenure, got: {result:?}"
     );
+}
+
+/// Test that a tenure change proposal is accepted when the only block in the
+/// same tenure is one the signer has merely pre-committed to (but not signed).
+///
+/// This is a regression test for a stall seen on mainnet: a signer
+/// pre-committed to a tenure-start block that never reached consensus, and
+/// then rejected the miner's replacement tenure-start block with
+/// `DuplicateBlockFound` because the pre-committed block was treated as
+/// accepted. A pre-commit carries no signature, so it is safe to accept a
+/// competing proposal at the same height.
+#[test]
+fn check_tenure_change_accepts_when_only_pre_committed_block_exists() {
+    let MockServerClient {
+        server,
+        client: stacks_client,
+        config: _,
+    } = MockServerClient::new();
+    let rand_int = server.local_addr().unwrap().port();
+
+    let (_stacks_client, mut signer_db, block_sk, mut block, cur_sortition, _, sortitions_view) =
+        setup_test_environment(&format!("{}_{rand_int}", function_name!()));
+
+    // Set up the block in the current tenure
+    block.header.consensus_hash = cur_sortition.data.consensus_hash.clone();
+    let parent_block_header = make_parent_header_meta(&block_sk, &mut block);
+    let response = crate::client::tests::build_get_tenure_tip_response(&parent_block_header);
+
+    // Insert a pre-committed block in the same tenure (same consensus_hash).
+    // This simulates a miner's first tenure-start block that the signer
+    // broadcast a pre-commit for, but that never gathered enough pre-commits
+    // to be signed.
+    let existing_block_proposal = BlockProposal {
+        block: NakamotoBlock::new(
+            NakamotoBlockHeader {
+                version: 1,
+                chain_length: 10,
+                burn_spent: 10,
+                consensus_hash: cur_sortition.data.consensus_hash.clone(),
+                parent_block_id: StacksBlockId([0; 32]),
+                tx_merkle_root: Sha512Trunc256Sum([0; 32]),
+                state_index_root: TrieHash([0; 32]),
+                timestamp: 11,
+                miner_signature: MessageSignature::empty(),
+                signer_signature: vec![],
+                pox_treatment: BitVec::ones(1).unwrap(),
+                problematic_txs: vec![],
+            },
+            vec![],
+        ),
+        burn_height: 2,
+        reward_cycle: 1,
+        block_proposal_data: BlockProposalData::empty(),
+    };
+    let mut existing_block_info = BlockInfo::from(existing_block_proposal);
+    existing_block_info.mark_pre_committed().unwrap();
+    signer_db.insert_block(&existing_block_info).unwrap();
+
+    // Now build a *second* tenure-start block proposal for the same tenure.
+    // This simulates the miner re-proposing its tenure-start block after the
+    // first proposal failed to reach consensus.
+    let tenure_change_payload = TenureChangePayload {
+        tenure_consensus_hash: cur_sortition.data.consensus_hash.clone(),
+        prev_tenure_consensus_hash: cur_sortition.data.parent_tenure_id.clone(),
+        burn_view_consensus_hash: cur_sortition.data.consensus_hash.clone(),
+        previous_tenure_end: block.header.parent_block_id.clone(),
+        previous_tenure_blocks: 1,
+        cause: TenureChangeCause::BlockFound,
+        pubkey_hash: Hash160::from_node_public_key(&StacksPublicKey::from_private(&block_sk)),
+    };
+    let tenure_change_tx = make_tenure_change_tx(tenure_change_payload);
+    let coinbase_tx = StacksTransaction::new(
+        TransactionVersion::Testnet,
+        TransactionAuth::Standard(TransactionSpendingCondition::new_initial_sighash()),
+        TransactionPayload::Coinbase(CoinbasePayload([0; 32]), None, Some(VRFProof::empty())),
+    );
+    *block.executed_and_skipped_txs_mut() = vec![tenure_change_tx, coinbase_tx];
+    block.header.sign_miner(&block_sk).unwrap();
+
+    let exit_flag = Arc::new(AtomicBool::new(false));
+    let moved_exit_flag = exit_flag.clone();
+
+    let serve = std::thread::spawn(move || {
+        crate::client::tests::write_response_nonblockinig(
+            &server,
+            response.as_bytes(),
+            moved_exit_flag,
+        );
+    });
+
+    let result = sortitions_view.check_proposal(&stacks_client, &mut signer_db, &block);
+
+    exit_flag.store(true, Ordering::SeqCst);
+    serve.join().unwrap();
+
+    // The proposal should be accepted: the signer never signed the
+    // pre-committed block, so the replacement tenure-start block does not
+    // conflict with anything the signer has committed a signature to.
+    assert!(
+        result.is_ok(),
+        "Expected the tenure change to be accepted when only a pre-committed block exists in the tenure, got: {result:?}"
+    );
+}
+
+/// A block we have only pre-committed to must not be treated as the tenure's tip: a competing
+/// proposal at the same height must pass the block-height check (a pre-commit is supersedable),
+/// but it must still count toward miner activity. Once the block is signed, it becomes the
+/// tenure's tip and a competing proposal at the same height must be rejected.
+#[test]
+fn pre_committed_block_does_not_veto_replacement() {
+    let (stacks_client, mut signer_db, _block_sk, mut block, cur_sortition, _, _) =
+        setup_test_environment(function_name!());
+
+    let tenure_id = cur_sortition.data.consensus_hash.clone();
+    block.header.consensus_hash = tenure_id.clone();
+
+    // The originally-proposed block, which we pre-committed to but never signed.
+    let existing_block_proposal = BlockProposal {
+        block: block.clone(),
+        burn_height: 2,
+        reward_cycle: 1,
+        block_proposal_data: BlockProposalData::empty(),
+    };
+    let mut existing_block_info = BlockInfo::from(existing_block_proposal);
+    existing_block_info.mark_pre_committed().unwrap();
+    signer_db.insert_block(&existing_block_info).unwrap();
+
+    // The pre-committed block must not be reported as the tenure's last (signed) block.
+    assert!(SortitionData::get_tenure_last_block_info(
+        &tenure_id,
+        &signer_db,
+        Duration::from_secs(30),
+        None,
+    )
+    .unwrap()
+    .is_none());
+
+    // A replacement block at the same height.
+    let mut replacement = block.clone();
+    replacement.header.timestamp += 1;
+    assert_ne!(
+        replacement.header.signer_signature_hash(),
+        block.header.signer_signature_hash()
+    );
+
+    assert!(signer_db
+        .get_last_activity_time(&tenure_id)
+        .unwrap()
+        .is_none());
+
+    // The replacement passes the height check. (The stacks-node call inside fails since nothing
+    // is listening, which makes the check fall back to assuming the proposal is higher; the
+    // point here is that the pre-committed block does not early-reject it.)
+    assert!(SortitionData::check_latest_block_in_tenure(
+        &tenure_id,
+        &replacement,
+        &mut signer_db,
+        &stacks_client,
+        Duration::from_secs(30),
+        Duration::from_secs(3),
+        SelfAsTip::Counts,
+    )
+    .unwrap());
+
+    // But conflicting with a fresh pre-commit still counts as miner activity.
+    assert!(signer_db
+        .get_last_activity_time(&tenure_id)
+        .unwrap()
+        .is_some());
+
+    // Once we actually sign the original block, it becomes the tenure's tip and the replacement
+    // at the same height must be rejected.
+    existing_block_info.mark_locally_accepted(false).unwrap();
+    signer_db.insert_block(&existing_block_info).unwrap();
+
+    assert!(SortitionData::get_tenure_last_block_info(
+        &tenure_id,
+        &signer_db,
+        Duration::from_secs(30),
+        None,
+    )
+    .unwrap()
+    .is_some());
+
+    assert!(!SortitionData::check_latest_block_in_tenure(
+        &tenure_id,
+        &replacement,
+        &mut signer_db,
+        &stacks_client,
+        Duration::from_secs(30),
+        Duration::from_secs(3),
+        SelfAsTip::Counts,
+    )
+    .unwrap());
 }

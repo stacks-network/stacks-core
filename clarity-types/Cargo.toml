@@ -26,6 +26,7 @@ rstest = "0.17.0"
 
 [features]
 default = []
+asset-map-json = ["dep:serde_json"]
 testing = ["stacks_common/testing"]
 developer-mode = ["stacks_common/developer-mode"]
 slog_json = ["stacks_common/slog_json"]

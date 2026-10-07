@@ -24,7 +24,11 @@ use crate::vm::contexts::OwnedEnvironment;
 pub use crate::vm::database::BurnStateDB;
 use crate::vm::database::MemoryBackingStore;
 
+#[cfg(test)]
 mod assets;
+#[cfg(test)]
+mod bitcoin;
+#[cfg(test)]
 mod contracts;
 #[cfg(test)]
 mod conversions;
@@ -32,12 +36,18 @@ mod conversions;
 mod crypto;
 #[cfg(test)]
 mod datamaps;
+#[cfg(test)]
 mod defines;
 #[cfg(test)]
 mod epoch_gating;
 #[cfg(test)]
+mod hooks;
+#[cfg(test)]
 mod post_conditions;
+#[cfg(test)]
 mod principals;
+#[cfg(test)]
+pub(crate) mod proptest_strategies;
 #[cfg(test)]
 pub mod proptest_utils;
 #[cfg(test)]
@@ -46,7 +56,9 @@ mod representations;
 mod sequences;
 #[cfg(test)]
 mod simple_apply_eval;
+#[cfg(test)]
 mod traits;
+#[cfg(test)]
 mod variables;
 
 #[cfg(any(test, feature = "testing"))]
@@ -142,6 +154,31 @@ macro_rules! clarity_template {
                 (StacksEpochId::Epoch31, ClarityVersion::Clarity5) => (),
                 (StacksEpochId::Epoch32, ClarityVersion::Clarity5) => (),
                 (StacksEpochId::Epoch33, ClarityVersion::Clarity5) => (),
+                (StacksEpochId::Epoch20, ClarityVersion::Clarity6) => (),
+                (StacksEpochId::Epoch2_05, ClarityVersion::Clarity6) => (),
+                (StacksEpochId::Epoch21, ClarityVersion::Clarity6) => (),
+                (StacksEpochId::Epoch22, ClarityVersion::Clarity6) => (),
+                (StacksEpochId::Epoch23, ClarityVersion::Clarity6) => (),
+                (StacksEpochId::Epoch24, ClarityVersion::Clarity6) => (),
+                (StacksEpochId::Epoch25, ClarityVersion::Clarity6) => (),
+                (StacksEpochId::Epoch30, ClarityVersion::Clarity6) => (),
+                (StacksEpochId::Epoch31, ClarityVersion::Clarity6) => (),
+                (StacksEpochId::Epoch32, ClarityVersion::Clarity6) => (),
+                (StacksEpochId::Epoch33, ClarityVersion::Clarity6) => (),
+                (StacksEpochId::Epoch34, ClarityVersion::Clarity6) => (),
+                (StacksEpochId::Epoch20, ClarityVersion::Clarity7) => (),
+                (StacksEpochId::Epoch2_05, ClarityVersion::Clarity7) => (),
+                (StacksEpochId::Epoch21, ClarityVersion::Clarity7) => (),
+                (StacksEpochId::Epoch22, ClarityVersion::Clarity7) => (),
+                (StacksEpochId::Epoch23, ClarityVersion::Clarity7) => (),
+                (StacksEpochId::Epoch24, ClarityVersion::Clarity7) => (),
+                (StacksEpochId::Epoch25, ClarityVersion::Clarity7) => (),
+                (StacksEpochId::Epoch30, ClarityVersion::Clarity7) => (),
+                (StacksEpochId::Epoch31, ClarityVersion::Clarity7) => (),
+                (StacksEpochId::Epoch32, ClarityVersion::Clarity7) => (),
+                (StacksEpochId::Epoch33, ClarityVersion::Clarity7) => (),
+                (StacksEpochId::Epoch34, ClarityVersion::Clarity7) => (),
+                (StacksEpochId::Epoch40, ClarityVersion::Clarity7) => (),
                 // this will lead to a compile time failure if a pair is left out
                 //  of the clarity_template! macro list
                 $((StacksEpochId::$epoch, ClarityVersion::$clarity))|* => (),
@@ -170,6 +207,8 @@ epochs_template! {
     Epoch32,
     Epoch33,
     Epoch34,
+    Epoch40,
+    Epoch41,
 }
 #[cfg(any(test, feature = "testing"))]
 clarity_template! {
@@ -203,8 +242,23 @@ clarity_template! {
     Epoch34_Clarity3: (Epoch34, Clarity3),
     Epoch34_Clarity4: (Epoch34, Clarity4),
     Epoch34_Clarity5: (Epoch34, Clarity5),
+    Epoch40_Clarity1: (Epoch40, Clarity1),
+    Epoch40_Clarity2: (Epoch40, Clarity2),
+    Epoch40_Clarity3: (Epoch40, Clarity3),
+    Epoch40_Clarity4: (Epoch40, Clarity4),
+    Epoch40_Clarity5: (Epoch40, Clarity5),
+    Epoch40_Clarity6: (Epoch40, Clarity6),
+    Epoch41_Clarity1: (Epoch41, Clarity1),
+    Epoch41_Clarity2: (Epoch41, Clarity2),
+    Epoch41_Clarity3: (Epoch41, Clarity3),
+    Epoch41_Clarity4: (Epoch41, Clarity4),
+    Epoch41_Clarity5: (Epoch41, Clarity5),
+    Epoch41_Clarity6: (Epoch41, Clarity6),
+    Epoch41_Clarity7: (Epoch41, Clarity7),
 }
 
+/// Creates the transaction-scoped environment fixture for this crate's unit tests.
+#[cfg(test)]
 #[fixture]
 pub fn env_factory() -> MemoryEnvironmentGenerator {
     MemoryEnvironmentGenerator(MemoryBackingStore::new())
@@ -215,7 +269,10 @@ pub fn tl_env_factory() -> TopLevelMemoryEnvironmentGenerator {
     TopLevelMemoryEnvironmentGenerator(MemoryBackingStore::new())
 }
 
+/// Owns the backing store for transaction-scoped unit-test environments.
+#[cfg(test)]
 pub struct MemoryEnvironmentGenerator(MemoryBackingStore);
+#[cfg(test)]
 impl MemoryEnvironmentGenerator {
     fn get_env(&mut self, epoch: StacksEpochId) -> OwnedEnvironment<'_, '_> {
         let mut db = self.0.as_clarity_db();

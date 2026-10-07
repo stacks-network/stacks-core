@@ -350,7 +350,7 @@ mod test {
                         assert!(
                             outputs[i].is_ok(),
                             "Expected {:?}, got Ok({num_bytes})",
-                            &outputs[i]
+                            outputs[i]
                         );
 
                         let num_bytes_expected = outputs[i].as_ref().ok().unwrap();
@@ -365,7 +365,7 @@ mod test {
                         assert!(
                             outputs[i].is_err(),
                             "Expected {:?}, got Err({e:?})",
-                            &outputs[i]
+                            outputs[i]
                         );
 
                         let expected_output_err = outputs[i].as_ref().err().unwrap();

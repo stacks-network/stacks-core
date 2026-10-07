@@ -23,6 +23,7 @@ use stacks_common::types::chainstate::{
     ConsensusHash, StacksAddress, StacksBlockId, StacksPrivateKey, TrieHash,
 };
 use stacks_common::types::net::PeerAddress;
+use stacks_common::types::StacksEpochId;
 use stacks_common::util::hash::{hex_bytes, Sha512Trunc256Sum};
 use stacks_common::util::secp256k1::MessageSignature;
 use stacks_common::util::vrf::VRFProof;
@@ -95,8 +96,12 @@ impl NakamotoDownloadStateMachine {
         );
 
         // find all sortitions in this reward cycle
-        let ih = sortdb.index_handle(&tip.sortition_id);
-        Self::load_wanted_tenures(&ih, first_block_height, last_block_height)
+        Self::load_wanted_tenures(
+            sortdb,
+            &tip.sortition_id,
+            first_block_height,
+            last_block_height,
+        )
     }
 }
 
@@ -155,6 +160,7 @@ fn test_nakamoto_tenure_downloader() {
         miner_signature: MessageSignature::empty(),
         signer_signature: vec![],
         pox_treatment: BitVec::zeros(1).unwrap(),
+        problematic_txs: vec![],
     };
 
     let tenure_change_payload = TenureChangePayload {
@@ -223,6 +229,7 @@ fn test_nakamoto_tenure_downloader() {
             miner_signature: MessageSignature::empty(),
             signer_signature: vec![],
             pox_treatment: BitVec::zeros(1).unwrap(),
+            problematic_txs: vec![],
         };
 
         let mut block = NakamotoBlock {
@@ -245,6 +252,7 @@ fn test_nakamoto_tenure_downloader() {
         miner_signature: MessageSignature::empty(),
         signer_signature: vec![],
         pox_treatment: BitVec::zeros(1).unwrap(),
+        problematic_txs: vec![],
     };
 
     let next_tenure_change_payload = TenureChangePayload {
@@ -279,13 +287,12 @@ fn test_nakamoto_tenure_downloader() {
 
     let mut td = NakamotoTenureDownloader::new(
         tenure_start_block.header.consensus_hash.clone(),
-        tenure_start_block.header.consensus_hash.clone(),
         tenure_start_block.header.block_id(),
-        next_tenure_start_block.header.consensus_hash.clone(),
         next_tenure_start_block.header.block_id(),
         naddr,
         reward_set.clone(),
         reward_set,
+        StacksEpochId::latest(),
         false,
     );
 
@@ -1075,6 +1082,7 @@ fn test_tenure_start_end_from_inventory() {
         u32::MAX,
         u32::MAX,
         u32::MAX,
+        u32::MAX,
     );
     let first_burn_height = 100u64;
 
@@ -1201,14 +1209,16 @@ fn test_tenure_start_end_from_inventory() {
                     j += 1;
                 }
 
-                if tenure_start_index.is_some() && tenure_end_index.is_some() {
+                if let (Some(tenure_start_index), Some(tenure_end_index)) =
+                    (tenure_start_index, tenure_end_index)
+                {
                     let tenure_start_end = tenure_start_end_opt.unwrap();
                     assert_eq!(
-                        wanted_tenures[tenure_start_index.unwrap() as usize].winning_block_id,
+                        wanted_tenures[tenure_start_index as usize].winning_block_id,
                         tenure_start_end.start_block_id
                     );
                     assert_eq!(
-                        wanted_tenures[tenure_end_index.unwrap() as usize].winning_block_id,
+                        wanted_tenures[tenure_end_index as usize].winning_block_id,
                         tenure_start_end.end_block_id
                     );
                 } else {
@@ -1279,7 +1289,9 @@ fn test_tenure_start_end_from_inventory() {
                     j += 1;
                 }
 
-                if tenure_start_index.is_some() && tenure_end_index.is_some() {
+                if let (Some(tenure_start_index), Some(tenure_end_index)) =
+                    (tenure_start_index, tenure_end_index)
+                {
                     debug!(
                         "rc = {rc}, i = {i}, tenure_start_index = {tenure_start_index:?}, tenure_end_index = {tenure_end_index:?}"
                     );
@@ -1287,11 +1299,11 @@ fn test_tenure_start_end_from_inventory() {
                         panic!("failed to get tenure_start_end_opt: i = {i}, wt = {wt:?}")
                     });
                     assert_eq!(
-                        all_tenures[tenure_start_index.unwrap() as usize].winning_block_id,
+                        all_tenures[tenure_start_index as usize].winning_block_id,
                         tenure_start_end.start_block_id
                     );
                     assert_eq!(
-                        all_tenures[tenure_end_index.unwrap() as usize].winning_block_id,
+                        all_tenures[tenure_end_index as usize].winning_block_id,
                         tenure_start_end.end_block_id
                     );
                 } else {
@@ -1337,9 +1349,10 @@ fn test_make_tenure_downloaders() {
 
     // test load_wanted_tenures()
     {
-        let ih = peer.sortdb().index_handle(&tip.sortition_id);
+        let sortdb = peer.sortdb();
         let wanted_tenures = NakamotoDownloadStateMachine::load_wanted_tenures(
-            &ih,
+            sortdb,
+            &tip.sortition_id,
             tip.block_height - rc_len,
             tip.block_height,
         )
@@ -1361,7 +1374,8 @@ fn test_make_tenure_downloaders() {
         }
 
         let err = NakamotoDownloadStateMachine::load_wanted_tenures(
-            &ih,
+            sortdb,
+            &tip.sortition_id,
             tip.block_height + 1,
             tip.block_height + 2,
         )
@@ -1369,7 +1383,8 @@ fn test_make_tenure_downloaders() {
         assert!(matches!(err, NetError::DBError(DBError::NotFoundError)));
 
         let wanted_tenures = NakamotoDownloadStateMachine::load_wanted_tenures(
-            &ih,
+            sortdb,
+            &tip.sortition_id,
             tip.block_height + 3,
             tip.block_height,
         )
@@ -1472,9 +1487,9 @@ fn test_make_tenure_downloaders() {
     // test inner_update_processed_wanted_tenures
     {
         let sortdb = peer.sortdb();
-        let ih = peer.sortdb().index_handle(&tip.sortition_id);
         let mut wanted_tenures = NakamotoDownloadStateMachine::load_wanted_tenures(
-            &ih,
+            sortdb,
+            &tip.sortition_id,
             nakamoto_start,
             tip.block_height,
         )
@@ -1994,6 +2009,8 @@ fn test_make_tenure_downloaders() {
         let old_schedule = ibd_schedule.clone();
         let sched_len = ibd_schedule.len();
 
+        let epochs = SortitionDB::get_stacks_epochs(sortdb.conn()).unwrap();
+
         // make 6 downloaders
         downloaders.make_tenure_downloaders(
             &mut ibd_schedule,
@@ -2001,6 +2018,7 @@ fn test_make_tenure_downloaders() {
             &tenure_block_ids,
             6,
             &current_reward_sets,
+            &epochs,
         );
 
         // made all 6 downloaders
@@ -2039,6 +2057,7 @@ fn test_make_tenure_downloaders() {
             &tenure_block_ids,
             12,
             &current_reward_sets,
+            &epochs,
         );
 
         // only made 4 downloaders got created
@@ -2137,8 +2156,8 @@ fn test_nakamoto_download_run_2_peers() {
             .unwrap_or_default();
         let sn = {
             let ih = peer.sortdb().index_handle(&tip.sortition_id);
-            let sn = ih.get_block_snapshot_by_height(height).unwrap().unwrap();
-            sn
+
+            ih.get_block_snapshot_by_height(height).unwrap().unwrap()
         };
         test_debug!(
             "boot_peer tip height={} hash={}",
@@ -2249,8 +2268,8 @@ fn test_nakamoto_unconfirmed_download_run_2_peers() {
             .unwrap_or_default();
         let sn = {
             let ih = peer.sortdb().index_handle(&tip.sortition_id);
-            let sn = ih.get_block_snapshot_by_height(height).unwrap().unwrap();
-            sn
+
+            ih.get_block_snapshot_by_height(height).unwrap().unwrap()
         };
         test_debug!(
             "boot_peer tip height={} hash={}",
@@ -2434,8 +2453,8 @@ fn test_nakamoto_microfork_download_run_2_peers() {
             .unwrap_or_default();
         let sn = {
             let ih = peer.sortdb().index_handle(&tip.sortition_id);
-            let sn = ih.get_block_snapshot_by_height(height).unwrap().unwrap();
-            sn
+
+            ih.get_block_snapshot_by_height(height).unwrap().unwrap()
         };
         test_debug!(
             "boot_peer tip height={} hash={}",
@@ -2485,610 +2504,6 @@ fn test_nakamoto_microfork_download_run_2_peers() {
                 if stacks_tip_ch == canonical_stacks_tip_ch
                     && stacks_tip_bhh == canonical_stacks_tip_bhh
                 {
-                    break;
-                }
-            }
-
-            term_sx.send(()).unwrap();
-        });
-
-        loop {
-            if term_rx.try_recv().is_ok() {
-                break;
-            }
-            peer.step_with_ibd(false).unwrap();
-        }
-    });
-
-    boot_dns_thread_handle.join().unwrap();
-}
-
-/// Test booting up a node where there is one shadow block in the prepare phase, as well as some
-/// blocks that mine atop it.
-#[test]
-fn test_nakamoto_download_run_2_peers_with_one_shadow_block() {
-    let observer = TestEventObserver::new();
-    let sender_key = StacksPrivateKey::random();
-    let sender_addr = to_addr(&sender_key);
-    let initial_balances = vec![(sender_addr.to_account_principal(), 1000000000)];
-    let bitvecs = vec![vec![true, true, false, false]];
-
-    let rc_len = 10u64;
-    let (mut peer, _) =
-        make_nakamoto_peers_from_invs_ext(function_name!(), &observer, bitvecs, |boot_plan| {
-            boot_plan
-                .with_pox_constants(rc_len as u32, 5)
-                .with_extra_peers(0)
-                .with_initial_balances(initial_balances)
-                .with_malleablized_blocks(false)
-        });
-    peer.refresh_burnchain_view();
-    let (mut peer, reward_cycle_invs) =
-        peer_get_nakamoto_invs(peer, &[0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]);
-
-    let nakamoto_start = NakamotoBootPlan::nakamoto_first_tenure_height(
-        &peer.config.chain_config.burnchain.pox_constants,
-    );
-
-    // create a shadow block
-    let naka_tip_ch = peer.network.stacks_tip.consensus_hash.clone();
-    let naka_tip_bh = peer.network.stacks_tip.block_hash.clone();
-    let naka_tip = peer.network.stacks_tip.block_id();
-
-    let sortdb = peer.sortdb_ref().reopen().unwrap();
-    let (chainstate, _) = peer.chainstate_ref().reopen().unwrap();
-
-    let naka_tip_header = NakamotoChainState::get_block_header_nakamoto(chainstate.db(), &naka_tip)
-        .unwrap()
-        .unwrap();
-
-    let naka_tip_tenure = chainstate
-        .nakamoto_blocks_db()
-        .load_nakamoto_tenure(&naka_tip)
-        .unwrap()
-        .unwrap();
-
-    assert!(naka_tip_tenure.len() > 1);
-
-    peer.mine_nakamoto_on(naka_tip_tenure);
-    let shadow_block = peer.make_shadow_tenure(None);
-    debug!(
-        "test: produced shadow block {}: {:?}",
-        &shadow_block.block_id(),
-        &shadow_block
-    );
-
-    peer.refresh_burnchain_view();
-
-    peer.mine_nakamoto_on(vec![shadow_block.clone()]);
-    let (next_block, ..) = peer.single_block_tenure(&sender_key, |_| {}, |_| {}, |_| true);
-    debug!(
-        "test: confirmed shadow block with {}: {:?}",
-        &next_block.block_id(),
-        &next_block
-    );
-
-    peer.refresh_burnchain_view();
-    peer.mine_nakamoto_on(vec![next_block]);
-
-    for _ in 0..9 {
-        let (next_block, ..) = peer.single_block_tenure(&sender_key, |_| {}, |_| {}, |_| true);
-        debug!(
-            "test: confirmed shadow block with {}: {:?}",
-            &next_block.block_id(),
-            &next_block
-        );
-
-        peer.refresh_burnchain_view();
-        peer.mine_nakamoto_on(vec![next_block.clone()]);
-    }
-
-    let all_sortitions = peer.sortdb().get_all_snapshots().unwrap();
-    let tip = SortitionDB::get_canonical_burn_chain_tip(peer.sortdb().conn()).unwrap();
-    let nakamoto_tip = peer
-        .sortdb()
-        .index_handle(&tip.sortition_id)
-        .get_nakamoto_tip_block_id()
-        .unwrap()
-        .unwrap();
-
-    /*
-    assert_eq!(
-        tip.block_height,
-        56
-    );
-    */
-
-    // make a neighbor from this peer
-    let boot_observer = TestEventObserver::new();
-    let privk = StacksPrivateKey::from_seed(&[0, 1, 2, 3, 4]);
-    let mut boot_peer = peer.neighbor_with_observer(privk, Some(&boot_observer));
-
-    let (canonical_stacks_tip_ch, canonical_stacks_tip_bhh) =
-        SortitionDB::get_canonical_stacks_chain_tip_hash(peer.sortdb().conn()).unwrap();
-
-    // boot up the boot peer's burnchain
-    for height in 25..tip.block_height {
-        let ops = peer
-            .get_burnchain_block_ops_at_height(height + 1)
-            .unwrap_or_default();
-        let sn = {
-            let ih = peer.sortdb().index_handle(&tip.sortition_id);
-            let sn = ih.get_block_snapshot_by_height(height).unwrap().unwrap();
-            sn
-        };
-        test_debug!(
-            "boot_peer tip height={} hash={}",
-            sn.block_height,
-            &sn.burn_header_hash
-        );
-        test_debug!("ops = {:?}", &ops);
-        let block_header = TestPeer::make_next_burnchain_block(
-            &boot_peer.config.chain_config.burnchain,
-            sn.block_height,
-            &sn.burn_header_hash,
-            ops.len() as u64,
-            false,
-        );
-        TestPeer::add_burnchain_block(
-            &boot_peer.config.chain_config.burnchain,
-            &block_header,
-            ops.clone(),
-        );
-    }
-
-    {
-        let mut node = boot_peer.chain.stacks_node.take().unwrap();
-        let tx = node.chainstate.staging_db_tx_begin().unwrap();
-        tx.add_shadow_block(&shadow_block).unwrap();
-        tx.commit().unwrap();
-        boot_peer.chain.stacks_node = Some(node);
-    }
-
-    let (mut boot_dns_client, boot_dns_thread_handle) = dns_thread_start(100);
-
-    // start running that peer so we can boot off of it
-    let (term_sx, term_rx) = sync_channel(1);
-    thread::scope(|s| {
-        s.spawn(move || {
-            let (mut last_stacks_tip_ch, mut last_stacks_tip_bhh) =
-                SortitionDB::get_canonical_stacks_chain_tip_hash(boot_peer.sortdb().conn())
-                    .unwrap();
-            loop {
-                boot_peer
-                    .run_with_ibd(true, Some(&mut boot_dns_client))
-                    .unwrap();
-
-                let (stacks_tip_ch, stacks_tip_bhh) =
-                    SortitionDB::get_canonical_stacks_chain_tip_hash(boot_peer.sortdb().conn())
-                        .unwrap();
-
-                last_stacks_tip_ch = stacks_tip_ch.clone();
-                last_stacks_tip_bhh = stacks_tip_bhh;
-
-                debug!(
-                    "Booting peer's stacks tip is now {:?}",
-                    &boot_peer.network.stacks_tip
-                );
-                if stacks_tip_ch == canonical_stacks_tip_ch {
-                    break;
-                }
-            }
-
-            term_sx.send(()).unwrap();
-        });
-
-        loop {
-            if term_rx.try_recv().is_ok() {
-                break;
-            }
-            peer.step_with_ibd(false).unwrap();
-        }
-    });
-
-    boot_dns_thread_handle.join().unwrap();
-}
-
-/// Test booting up a node where the whole prepare phase is shadow blocks
-#[test]
-fn test_nakamoto_download_run_2_peers_shadow_prepare_phase() {
-    let observer = TestEventObserver::new();
-    let sender_key = StacksPrivateKey::random();
-    let sender_addr = to_addr(&sender_key);
-    let initial_balances = vec![(sender_addr.to_account_principal(), 1000000000)];
-    let bitvecs = vec![vec![true, true]];
-
-    let rc_len = 10u64;
-    let (mut peer, _) =
-        make_nakamoto_peers_from_invs_ext(function_name!(), &observer, bitvecs, |boot_plan| {
-            boot_plan
-                .with_pox_constants(rc_len as u32, 5)
-                .with_extra_peers(0)
-                .with_initial_balances(initial_balances)
-                .with_malleablized_blocks(false)
-        });
-    peer.refresh_burnchain_view();
-    let (mut peer, reward_cycle_invs) =
-        peer_get_nakamoto_invs(peer, &[0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]);
-
-    let nakamoto_start = NakamotoBootPlan::nakamoto_first_tenure_height(
-        &peer.config.chain_config.burnchain.pox_constants,
-    );
-
-    // create a shadow block
-    let naka_tip_ch = peer.network.stacks_tip.consensus_hash.clone();
-    let naka_tip_bh = peer.network.stacks_tip.block_hash.clone();
-    let naka_tip = peer.network.stacks_tip.block_id();
-
-    let sortdb = peer.sortdb_ref().reopen().unwrap();
-    let (chainstate, _) = peer.chainstate_ref().reopen().unwrap();
-
-    let naka_tip_header = NakamotoChainState::get_block_header_nakamoto(chainstate.db(), &naka_tip)
-        .unwrap()
-        .unwrap();
-
-    let naka_tip_tenure = chainstate
-        .nakamoto_blocks_db()
-        .load_nakamoto_tenure(&naka_tip)
-        .unwrap()
-        .unwrap();
-
-    assert!(naka_tip_tenure.len() > 1);
-
-    peer.mine_nakamoto_on(naka_tip_tenure);
-
-    let mut shadow_blocks = vec![];
-    for _ in 0..10 {
-        let shadow_block = peer.make_shadow_tenure(None);
-        debug!(
-            "test: produced shadow block {}: {:?}",
-            &shadow_block.block_id(),
-            &shadow_block
-        );
-        shadow_blocks.push(shadow_block.clone());
-        peer.refresh_burnchain_view();
-
-        peer.mine_nakamoto_on(vec![shadow_block.clone()]);
-    }
-
-    match peer.single_block_tenure_fallible(&sender_key, |_| {}, |_| {}, |_| true) {
-        Ok((next_block, ..)) => {
-            debug!(
-                "test: confirmed shadow block with {}: {:?}",
-                &next_block.block_id(),
-                &next_block
-            );
-
-            peer.refresh_burnchain_view();
-            peer.mine_nakamoto_on(vec![next_block]);
-        }
-        Err(ChainstateError::NoSuchBlockError) => {
-            // tried to mine but our commit was invalid (e.g. because we haven't mined often
-            // enough)
-            peer.refresh_burnchain_view();
-        }
-        Err(e) => {
-            panic!("FATAL: {:?}", &e);
-        }
-    };
-
-    for _ in 0..10 {
-        let (next_block, ..) =
-            match peer.single_block_tenure_fallible(&sender_key, |_| {}, |_| {}, |_| true) {
-                Ok(x) => x,
-                Err(ChainstateError::NoSuchBlockError) => {
-                    // tried to mine but our commit was invalid (e.g. because we haven't mined often
-                    // enough)
-                    peer.refresh_burnchain_view();
-                    continue;
-                }
-                Err(e) => {
-                    panic!("FATAL: {:?}", &e);
-                }
-            };
-
-        debug!(
-            "test: confirmed shadow block with {}: {:?}",
-            &next_block.block_id(),
-            &next_block
-        );
-
-        peer.refresh_burnchain_view();
-        peer.mine_nakamoto_on(vec![next_block.clone()]);
-    }
-
-    let all_sortitions = peer.sortdb().get_all_snapshots().unwrap();
-    let tip = SortitionDB::get_canonical_burn_chain_tip(peer.sortdb().conn()).unwrap();
-    let nakamoto_tip = peer
-        .sortdb()
-        .index_handle(&tip.sortition_id)
-        .get_nakamoto_tip_block_id()
-        .unwrap()
-        .unwrap();
-
-    // make a neighbor from this peer
-    let boot_observer = TestEventObserver::new();
-    let privk = StacksPrivateKey::from_seed(&[0, 1, 2, 3, 4]);
-    let mut boot_peer = peer.neighbor_with_observer(privk, Some(&boot_observer));
-
-    let (canonical_stacks_tip_ch, canonical_stacks_tip_bhh) =
-        SortitionDB::get_canonical_stacks_chain_tip_hash(peer.sortdb().conn()).unwrap();
-
-    // boot up the boot peer's burnchain
-    for height in 25..tip.block_height {
-        let ops = peer
-            .get_burnchain_block_ops_at_height(height + 1)
-            .unwrap_or_default();
-        let sn = {
-            let ih = peer.sortdb().index_handle(&tip.sortition_id);
-            let sn = ih.get_block_snapshot_by_height(height).unwrap().unwrap();
-            sn
-        };
-        test_debug!(
-            "boot_peer tip height={} hash={}",
-            sn.block_height,
-            &sn.burn_header_hash
-        );
-        test_debug!("ops = {:?}", &ops);
-        let block_header = TestPeer::make_next_burnchain_block(
-            &boot_peer.config.chain_config.burnchain,
-            sn.block_height,
-            &sn.burn_header_hash,
-            ops.len() as u64,
-            false,
-        );
-        TestPeer::add_burnchain_block(
-            &boot_peer.config.chain_config.burnchain,
-            &block_header,
-            ops.clone(),
-        );
-    }
-    {
-        let mut node = boot_peer.chain.stacks_node.take().unwrap();
-        let tx = node.chainstate.staging_db_tx_begin().unwrap();
-        for shadow_block in shadow_blocks.into_iter() {
-            tx.add_shadow_block(&shadow_block).unwrap();
-        }
-        tx.commit().unwrap();
-        boot_peer.chain.stacks_node = Some(node);
-    }
-
-    let (mut boot_dns_client, boot_dns_thread_handle) = dns_thread_start(100);
-
-    // start running that peer so we can boot off of it
-    let (term_sx, term_rx) = sync_channel(1);
-    thread::scope(|s| {
-        s.spawn(move || {
-            let (mut last_stacks_tip_ch, mut last_stacks_tip_bhh) =
-                SortitionDB::get_canonical_stacks_chain_tip_hash(boot_peer.sortdb().conn())
-                    .unwrap();
-            loop {
-                boot_peer
-                    .run_with_ibd(true, Some(&mut boot_dns_client))
-                    .unwrap();
-
-                let (stacks_tip_ch, stacks_tip_bhh) =
-                    SortitionDB::get_canonical_stacks_chain_tip_hash(boot_peer.sortdb().conn())
-                        .unwrap();
-
-                last_stacks_tip_ch = stacks_tip_ch.clone();
-                last_stacks_tip_bhh = stacks_tip_bhh;
-
-                debug!(
-                    "Booting peer's stacks tip is now {:?}",
-                    &boot_peer.network.stacks_tip
-                );
-                if stacks_tip_ch == canonical_stacks_tip_ch {
-                    break;
-                }
-            }
-
-            term_sx.send(()).unwrap();
-        });
-
-        loop {
-            if term_rx.try_recv().is_ok() {
-                break;
-            }
-            peer.step_with_ibd(false).unwrap();
-        }
-    });
-
-    boot_dns_thread_handle.join().unwrap();
-}
-
-/// Test booting up a node where multiple reward cycles are shadow blocks
-#[test]
-fn test_nakamoto_download_run_2_peers_shadow_reward_cycles() {
-    let observer = TestEventObserver::new();
-    let sender_key = StacksPrivateKey::random();
-    let sender_addr = to_addr(&sender_key);
-    let initial_balances = vec![(sender_addr.to_account_principal(), 1000000000)];
-    let bitvecs = vec![vec![true, true]];
-
-    let rc_len = 10u64;
-    let (mut peer, _) =
-        make_nakamoto_peers_from_invs_ext(function_name!(), &observer, bitvecs, |boot_plan| {
-            boot_plan
-                .with_pox_constants(rc_len as u32, 5)
-                .with_extra_peers(0)
-                .with_initial_balances(initial_balances)
-                .with_malleablized_blocks(false)
-        });
-    peer.refresh_burnchain_view();
-    let (mut peer, reward_cycle_invs) =
-        peer_get_nakamoto_invs(peer, &[0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]);
-
-    let nakamoto_start = NakamotoBootPlan::nakamoto_first_tenure_height(
-        &peer.config.chain_config.burnchain.pox_constants,
-    );
-
-    // create a shadow block
-    let naka_tip_ch = peer.network.stacks_tip.consensus_hash.clone();
-    let naka_tip_bh = peer.network.stacks_tip.block_hash.clone();
-    let naka_tip = peer.network.stacks_tip.block_id();
-
-    let sortdb = peer.sortdb_ref().reopen().unwrap();
-    let (chainstate, _) = peer.chainstate_ref().reopen().unwrap();
-
-    let naka_tip_header = NakamotoChainState::get_block_header_nakamoto(chainstate.db(), &naka_tip)
-        .unwrap()
-        .unwrap();
-
-    let naka_tip_tenure = chainstate
-        .nakamoto_blocks_db()
-        .load_nakamoto_tenure(&naka_tip)
-        .unwrap()
-        .unwrap();
-
-    assert!(naka_tip_tenure.len() > 1);
-
-    peer.mine_nakamoto_on(naka_tip_tenure);
-
-    let mut shadow_blocks = vec![];
-    for _ in 0..30 {
-        let shadow_block = peer.make_shadow_tenure(None);
-        debug!(
-            "test: produced shadow block {}: {:?}",
-            &shadow_block.block_id(),
-            &shadow_block
-        );
-        shadow_blocks.push(shadow_block.clone());
-        peer.refresh_burnchain_view();
-
-        peer.mine_nakamoto_on(vec![shadow_block.clone()]);
-    }
-
-    match peer.single_block_tenure_fallible(&sender_key, |_| {}, |_| {}, |_| true) {
-        Ok((next_block, ..)) => {
-            debug!(
-                "test: confirmed shadow block with {}: {:?}",
-                &next_block.block_id(),
-                &next_block
-            );
-
-            peer.refresh_burnchain_view();
-            peer.mine_nakamoto_on(vec![next_block]);
-        }
-        Err(ChainstateError::NoSuchBlockError) => {
-            // tried to mine but our commit was invalid (e.g. because we haven't mined often
-            // enough)
-            peer.refresh_burnchain_view();
-        }
-        Err(e) => {
-            panic!("FATAL: {:?}", &e);
-        }
-    };
-
-    for _ in 0..10 {
-        let (next_block, ..) =
-            match peer.single_block_tenure_fallible(&sender_key, |_| {}, |_| {}, |_| true) {
-                Ok(x) => x,
-                Err(ChainstateError::NoSuchBlockError) => {
-                    // tried to mine but our commit was invalid (e.g. because we haven't mined often
-                    // enough)
-                    peer.refresh_burnchain_view();
-                    continue;
-                }
-                Err(e) => {
-                    panic!("FATAL: {:?}", &e);
-                }
-            };
-
-        debug!(
-            "test: confirmed shadow block with {}: {:?}",
-            &next_block.block_id(),
-            &next_block
-        );
-
-        peer.refresh_burnchain_view();
-        peer.mine_nakamoto_on(vec![next_block.clone()]);
-    }
-
-    let all_sortitions = peer.sortdb().get_all_snapshots().unwrap();
-    let tip = SortitionDB::get_canonical_burn_chain_tip(peer.sortdb().conn()).unwrap();
-    let nakamoto_tip = peer
-        .sortdb()
-        .index_handle(&tip.sortition_id)
-        .get_nakamoto_tip_block_id()
-        .unwrap()
-        .unwrap();
-
-    assert_eq!(tip.block_height, 84);
-
-    // make a neighbor from this peer
-    let boot_observer = TestEventObserver::new();
-    let privk = StacksPrivateKey::from_seed(&[0, 1, 2, 3, 4]);
-    let mut boot_peer = peer.neighbor_with_observer(privk, Some(&boot_observer));
-
-    let (canonical_stacks_tip_ch, canonical_stacks_tip_bhh) =
-        SortitionDB::get_canonical_stacks_chain_tip_hash(peer.sortdb().conn()).unwrap();
-
-    // boot up the boot peer's burnchain
-    for height in 25..tip.block_height {
-        let ops = peer
-            .get_burnchain_block_ops_at_height(height + 1)
-            .unwrap_or_default();
-        let sn = {
-            let ih = peer.sortdb().index_handle(&tip.sortition_id);
-            let sn = ih.get_block_snapshot_by_height(height).unwrap().unwrap();
-            sn
-        };
-        test_debug!(
-            "boot_peer tip height={} hash={}",
-            sn.block_height,
-            &sn.burn_header_hash
-        );
-        test_debug!("ops = {ops:?}");
-        let block_header = TestPeer::make_next_burnchain_block(
-            &boot_peer.config.chain_config.burnchain,
-            sn.block_height,
-            &sn.burn_header_hash,
-            ops.len() as u64,
-            false,
-        );
-        TestPeer::add_burnchain_block(
-            &boot_peer.config.chain_config.burnchain,
-            &block_header,
-            ops.clone(),
-        );
-    }
-    {
-        let mut node = boot_peer.chain.stacks_node.take().unwrap();
-        let tx = node.chainstate.staging_db_tx_begin().unwrap();
-        for shadow_block in shadow_blocks.into_iter() {
-            tx.add_shadow_block(&shadow_block).unwrap();
-        }
-        tx.commit().unwrap();
-        boot_peer.chain.stacks_node = Some(node);
-    }
-
-    let (mut boot_dns_client, boot_dns_thread_handle) = dns_thread_start(100);
-
-    // start running that peer so we can boot off of it
-    let (term_sx, term_rx) = sync_channel(1);
-    thread::scope(|s| {
-        s.spawn(move || {
-            let (mut last_stacks_tip_ch, mut last_stacks_tip_bhh) =
-                SortitionDB::get_canonical_stacks_chain_tip_hash(boot_peer.sortdb().conn())
-                    .unwrap();
-            loop {
-                boot_peer
-                    .run_with_ibd(true, Some(&mut boot_dns_client))
-                    .unwrap();
-
-                let (stacks_tip_ch, stacks_tip_bhh) =
-                    SortitionDB::get_canonical_stacks_chain_tip_hash(boot_peer.sortdb().conn())
-                        .unwrap();
-
-                last_stacks_tip_ch = stacks_tip_ch.clone();
-                last_stacks_tip_bhh = stacks_tip_bhh;
-
-                debug!(
-                    "Booting peer's stacks tip is now {:?}",
-                    &boot_peer.network.stacks_tip
-                );
-                if stacks_tip_ch == canonical_stacks_tip_ch {
                     break;
                 }
             }

@@ -19,7 +19,7 @@ use crate::tests::marf::marf_compress_dyn;
 
 pub mod utils {
     use std::sync::atomic::Ordering;
-    use std::{env, thread};
+    use std::{env, slice, thread};
 
     use clarity::vm::types::PrincipalData;
     use stacks::chainstate::nakamoto::test_signers::TestSigners;
@@ -34,7 +34,7 @@ pub mod utils {
     };
     use crate::tests::neon_integrations::{test_observer, wait_for_runloop};
     use crate::tests::{self};
-    use crate::{BitcoinRegtestController, BurnchainController};
+    use crate::BitcoinRegtestController;
 
     /// Just boot chain to epoch 3 using marf compress as node configuration
     pub fn boot_chain_with_marf_compress_cfg(compress: bool) {
@@ -80,7 +80,7 @@ pub mod utils {
         boot_to_epoch_3(
             &naka_conf,
             &blocks_processed,
-            &[stacker_sk.clone()],
+            slice::from_ref(&stacker_sk),
             &[sender_signer_sk],
             &mut Some(&mut signers),
             &mut btc_regtest_controller,

@@ -105,6 +105,7 @@ mod linux {
 mod windows {
     /// Win32 FILETIME (100-nanosecond intervals).
     #[repr(C)]
+    #[allow(clippy::upper_case_acronyms)]
     struct FILETIME {
         low: u32,
         high: u32,

@@ -369,7 +369,7 @@ impl ListTypeData {
         };
         let would_be_size = list_data
             .inner_size()?
-            .ok_or_else(|| ClarityTypeError::ValueTooLarge)?;
+            .ok_or(ClarityTypeError::ValueTooLarge)?;
         if would_be_size > MAX_VALUE_SIZE {
             Err(ClarityTypeError::ValueTooLarge)
         } else {
@@ -445,19 +445,10 @@ impl TypeSignature {
         epoch: &StacksEpochId,
         other: &TypeSignature,
     ) -> Result<bool, ClarityTypeError> {
-        match epoch {
-            StacksEpochId::Epoch20 | StacksEpochId::Epoch2_05 => self.admits_type_v2_0(other),
-            StacksEpochId::Epoch21
-            | StacksEpochId::Epoch22
-            | StacksEpochId::Epoch23
-            | StacksEpochId::Epoch24
-            | StacksEpochId::Epoch25
-            | StacksEpochId::Epoch30
-            | StacksEpochId::Epoch31
-            | StacksEpochId::Epoch32
-            | StacksEpochId::Epoch33
-            | StacksEpochId::Epoch34 => self.admits_type_v2_1(other),
-            StacksEpochId::Epoch10 => Err(ClarityTypeError::UnsupportedEpoch(*epoch)),
+        if *epoch < StacksEpochId::Epoch21 {
+            self.admits_type_v2_0(other)
+        } else {
+            self.admits_type_v2_1(other)
         }
     }
 
@@ -650,22 +641,11 @@ impl TypeSignature {
     /// This method will convert types from previous epochs with the appropriate
     /// types for the specified epoch.
     pub fn canonicalize(&self, epoch: &StacksEpochId) -> TypeSignature {
-        match epoch {
-            StacksEpochId::Epoch10
-            | StacksEpochId::Epoch20
-            | StacksEpochId::Epoch2_05
-            // Epoch-2.2 had a regression in canonicalization, so it must be preserved here.
-            | StacksEpochId::Epoch22 => self.clone(),
-            // Note for future epochs: Epochs >= 2.3 should use the canonicalize_v2_1() routine
-            StacksEpochId::Epoch21
-            | StacksEpochId::Epoch23
-            | StacksEpochId::Epoch24
-            | StacksEpochId::Epoch25
-            | StacksEpochId::Epoch30
-            | StacksEpochId::Epoch31
-            | StacksEpochId::Epoch32
-            | StacksEpochId::Epoch33
-            | StacksEpochId::Epoch34 => self.canonicalize_v2_1(),
+        // Epoch-2.2 had a regression in canonicalization, so it must be preserved here.
+        if *epoch < StacksEpochId::Epoch21 || *epoch == StacksEpochId::Epoch22 {
+            self.clone()
+        } else {
+            self.canonicalize_v2_1()
         }
     }
 
@@ -778,7 +758,7 @@ impl TryFrom<BTreeMap<ClarityName, TypeSignature>> for TupleTypeSignature {
         let result = TupleTypeSignature { type_map };
         let would_be_size = result
             .inner_size()?
-            .ok_or_else(|| ClarityTypeError::ValueTooLarge)?;
+            .ok_or(ClarityTypeError::ValueTooLarge)?;
         if would_be_size > MAX_VALUE_SIZE {
             Err(ClarityTypeError::ValueTooLarge)
         } else {
@@ -828,8 +808,16 @@ impl TupleTypeSignature {
         Ok(true)
     }
 
-    pub fn shallow_merge(&mut self, update: &mut TupleTypeSignature) {
+    /// Merge `update`'s fields into `self`, rejecting a merged tuple whose value size
+    /// exceeds [`MAX_VALUE_SIZE`] with [`ClarityTypeError::ValueTooLarge`].
+    pub fn shallow_merge(
+        &mut self,
+        update: &mut TupleTypeSignature,
+    ) -> Result<(), ClarityTypeError> {
         Arc::make_mut(&mut self.type_map).append(Arc::make_mut(&mut update.type_map));
+        // inner_size() returns Ok(None) exactly when the tuple is oversized.
+        self.inner_size()?.ok_or(ClarityTypeError::ValueTooLarge)?;
+        Ok(())
     }
 }
 
@@ -850,6 +838,8 @@ impl TypeSignature {
     pub const BUFFER_64: TypeSignature = Self::type_buffer_const(64);
     /// Buffer type with length 65.
     pub const BUFFER_65: TypeSignature = Self::type_buffer_const(65);
+    /// Buffer type with length 1024.
+    pub const BUFFER_1024: TypeSignature = Self::type_buffer_const(1024);
 
     /// String ASCII type with minimum length (`1`).
     pub const STRING_ASCII_MIN: TypeSignature = Self::type_ascii_const(1);
@@ -952,9 +942,12 @@ impl TypeSignature {
         }
     }
 
-    /// Returns the most-restrictive type that admits _both_ A and B (something like a least common supertype),
-    /// or Errors if no such type exists. On error, it throws TypeError(A,B), unless a constructor error'ed,
-    /// in which case, it throws SupertypeTooLarge.
+    /// Returns the least supertype of `a` and `b`, as the runtime has always
+    /// computed it. For tuples this is asymmetric: extra fields in `b` are
+    /// dropped, so the result need not admit `b`. Deployed contracts depend on
+    /// it, so it holds in every epoch; analysis uses
+    /// [`Self::least_supertype_for_analysis`].
+    /// On error, returns `TypeMismatch`, or a type-construction error.
     ///
     /// The behavior varies by epoch:
     /// - Epoch 2.0/2.05: Uses [`TypeSignature::least_supertype_v2_0`]
@@ -994,20 +987,25 @@ impl TypeSignature {
         a: &TypeSignature,
         b: &TypeSignature,
     ) -> Result<TypeSignature, ClarityTypeError> {
-        match epoch {
-            StacksEpochId::Epoch20 | StacksEpochId::Epoch2_05 => Self::least_supertype_v2_0(a, b),
-            StacksEpochId::Epoch21
-            | StacksEpochId::Epoch22
-            | StacksEpochId::Epoch23
-            | StacksEpochId::Epoch24
-            | StacksEpochId::Epoch25
-            | StacksEpochId::Epoch30
-            | StacksEpochId::Epoch31
-            | StacksEpochId::Epoch32
-            | StacksEpochId::Epoch33
-            | StacksEpochId::Epoch34 => Self::least_supertype_v2_1(a, b),
-            StacksEpochId::Epoch10 => Err(ClarityTypeError::UnsupportedEpoch(*epoch)),
+        if *epoch < StacksEpochId::Epoch21 {
+            Self::least_supertype_v2_0(a, b)
+        } else {
+            Self::least_supertype_v2_1(a, b)
         }
+    }
+
+    /// Least supertype for the 2.1 type checker, using the deployment epoch.
+    ///
+    /// From Epoch 4.1, tuples must have identical field sets; an empty list
+    /// still takes the other list's entry type, since it holds no values.
+    /// Returns `TypeMismatch` for incompatible types, or a construction error
+    /// if the result exceeds the size or depth limits.
+    pub fn least_supertype_for_analysis(
+        epoch: &StacksEpochId,
+        a: &TypeSignature,
+        b: &TypeSignature,
+    ) -> Result<TypeSignature, ClarityTypeError> {
+        Self::least_supertype_v2_1_impl(a, b, epoch.requires_matching_tuple_fields_in_analysis())
     }
 
     fn least_supertype_v2_0(
@@ -1123,18 +1121,36 @@ impl TypeSignature {
         a: &TypeSignature,
         b: &TypeSignature,
     ) -> Result<TypeSignature, ClarityTypeError> {
+        Self::least_supertype_v2_1_impl(a, b, false)
+    }
+
+    /// The v2.1 rules with one knob: `exact_tuple_fields` requires identical
+    /// tuple field sets at every nesting level, which analysis needs from Epoch
+    /// 4.1. Without it, extra fields in `b` are dropped, as the runtime requires.
+    fn least_supertype_v2_1_impl(
+        a: &TypeSignature,
+        b: &TypeSignature,
+        exact_tuple_fields: bool,
+    ) -> Result<TypeSignature, ClarityTypeError> {
         match (a, b) {
             (
                 TupleType(TupleTypeSignature { type_map: types_a }),
                 TupleType(TupleTypeSignature { type_map: types_b }),
             ) => {
+                if exact_tuple_fields && types_a.len() != types_b.len() {
+                    return Err(ClarityTypeError::TypeMismatch(
+                        Box::new(a.clone()),
+                        Box::new(b.clone()),
+                    ));
+                }
                 let mut type_map_out = BTreeMap::new();
                 for (name, entry_a) in types_a.iter() {
                     let entry_b = types_b.get(name).ok_or(ClarityTypeError::TypeMismatch(
                         Box::new(a.clone()),
                         Box::new(b.clone()),
                     ))?;
-                    let entry_out = Self::least_supertype_v2_1(entry_a, entry_b)?;
+                    let entry_out =
+                        Self::least_supertype_v2_1_impl(entry_a, entry_b, exact_tuple_fields)?;
                     type_map_out.insert(name.clone(), entry_out);
                 }
                 Ok(TupleTypeSignature::try_from(type_map_out)
@@ -1156,7 +1172,7 @@ impl TypeSignature {
                 } else if *len_b == 0 {
                     *(entry_a.clone())
                 } else {
-                    Self::least_supertype_v2_1(entry_a, entry_b)?
+                    Self::least_supertype_v2_1_impl(entry_a, entry_b, exact_tuple_fields)?
                 };
                 let max_len = cmp::max(len_a, len_b);
                 Ok(Self::list_of(entry_type, *max_len)
@@ -1164,13 +1180,14 @@ impl TypeSignature {
             }
             (ResponseType(resp_a), ResponseType(resp_b)) => {
                 let ok_type =
-                    Self::factor_out_no_type(&StacksEpochId::Epoch21, &resp_a.0, &resp_b.0)?;
+                    Self::least_supertype_v2_1_impl(&resp_a.0, &resp_b.0, exact_tuple_fields)?;
                 let err_type =
-                    Self::factor_out_no_type(&StacksEpochId::Epoch21, &resp_a.1, &resp_b.1)?;
+                    Self::least_supertype_v2_1_impl(&resp_a.1, &resp_b.1, exact_tuple_fields)?;
                 Ok(Self::new_response(ok_type, err_type)?)
             }
             (OptionalType(some_a), OptionalType(some_b)) => {
-                let some_type = Self::factor_out_no_type(&StacksEpochId::Epoch21, some_a, some_b)?;
+                let some_type =
+                    Self::least_supertype_v2_1_impl(some_a, some_b, exact_tuple_fields)?;
                 Ok(Self::new_option(some_type)?)
             }
             (
@@ -1296,7 +1313,7 @@ impl TypeSignature {
             Value::Response(v) => v.type_signature()?,
             Value::CallableContract(v) => {
                 if let Some(trait_identifier) = &v.trait_identifier {
-                    CallableType(CallableSubtype::Trait(trait_identifier.clone()))
+                    CallableType(CallableSubtype::Trait(trait_identifier.as_ref().clone()))
                 } else {
                     CallableType(CallableSubtype::Principal(v.contract_identifier.clone()))
                 }
@@ -1317,21 +1334,62 @@ impl TypeSignature {
 
     // Checks if resulting type signature is of valid size.
     pub fn construct_parent_list_type(args: &[Value]) -> Result<ListTypeData, ClarityTypeError> {
-        let children_types: Result<Vec<_>, ClarityTypeError> =
-            args.iter().map(TypeSignature::type_of).collect();
-        TypeSignature::parent_list_type(&children_types?)
+        Self::parent_list_type_from_iter(
+            args.len(),
+            args.iter().map(TypeSignature::type_of),
+            Self::least_supertype_v2_1,
+        )
     }
 
+    /// List inference for the 2.05 checker; runtime construction goes through
+    /// [`Self::construct_parent_list_type`] and the 2.1 checker through
+    /// [`Self::parent_list_type_for_analysis`].
     pub fn parent_list_type(children: &[TypeSignature]) -> Result<ListTypeData, ClarityTypeError> {
-        if let Some((first, rest)) = children.split_first() {
-            let mut current_entry_type = first.clone();
-            for next_entry in rest.iter() {
-                current_entry_type = Self::least_supertype_v2_1(&current_entry_type, next_entry)?;
+        Self::parent_list_type_from_iter(
+            children.len(),
+            children.iter().cloned().map(Ok),
+            Self::least_supertype_v2_1,
+        )
+    }
+
+    /// List type inference for analysis. Runtime list construction keeps the
+    /// un-gated rules for deployed contracts, so analysis gets its own entry point.
+    pub fn parent_list_type_for_analysis(
+        epoch: &StacksEpochId,
+        children: &[TypeSignature],
+    ) -> Result<ListTypeData, ClarityTypeError> {
+        Self::parent_list_type_from_iter(
+            children.len(),
+            children.iter().cloned().map(Ok),
+            |a, b| Self::least_supertype_for_analysis(epoch, a, b),
+        )
+    }
+
+    /// Left-to-right fold of `join` over the entry types, shared so the list
+    /// constructors cannot drift. The runtime and the 2.05 checker pass
+    /// `least_supertype_v2_1` without an epoch gate: this matches shipped
+    /// behavior, and pre-2.1 values cannot produce the types where v2_0 differs.
+    fn parent_list_type_from_iter(
+        len: usize,
+        entry_types: impl Iterator<Item = Result<TypeSignature, ClarityTypeError>>,
+        join: impl Fn(&TypeSignature, &TypeSignature) -> Result<TypeSignature, ClarityTypeError>,
+    ) -> Result<ListTypeData, ClarityTypeError> {
+        let mut entry_type: Option<TypeSignature> = None;
+        for next in entry_types {
+            let next = next?;
+            entry_type = Some(match entry_type {
+                None => next,
+                // Idempotent so equal types skip the fold.
+                Some(current) if current == next => current,
+                Some(current) => join(&current, &next)?,
+            });
+        }
+        match entry_type {
+            Some(entry_type) => {
+                let len = u32::try_from(len).map_err(|_| ClarityTypeError::ValueTooLarge)?;
+                ListTypeData::new_list(entry_type, len)
             }
-            let len = u32::try_from(children.len()).map_err(|_| ClarityTypeError::ValueTooLarge)?;
-            ListTypeData::new_list(current_entry_type, len)
-        } else {
-            Ok(TypeSignature::empty_list())
+            None => Ok(TypeSignature::empty_list()),
         }
     }
 }
@@ -1412,7 +1470,7 @@ impl TypeSignature {
 
     pub fn type_size(&self) -> Result<u32, ClarityTypeError> {
         self.inner_type_size()
-            .ok_or_else(|| ClarityTypeError::ValueTooLarge)
+            .ok_or(ClarityTypeError::ValueTooLarge)
     }
 
     /// Returns the size of the _type signature_
@@ -1549,7 +1607,7 @@ impl TupleTypeSignature {
 
     fn max_depth(&self) -> u8 {
         let mut max = 0;
-        for (_name, type_signature) in self.type_map.iter() {
+        for type_signature in self.type_map.values() {
             max = cmp::max(max, type_signature.depth())
         }
         max
@@ -1624,10 +1682,8 @@ impl TupleTypeSignature {
 impl fmt::Display for TupleTypeSignature {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "(tuple")?;
-        let mut type_strs: Vec<_> = self.type_map.iter().collect();
-        type_strs.sort_unstable_by_key(|x| x.0);
-        for (field_name, field_type) in type_strs {
-            write!(f, " ({} {})", &**field_name, field_type)?;
+        for (field_name, field_type) in self.type_map.iter() {
+            write!(f, " ({field_name} {field_type})")?;
         }
         write!(f, ")")
     }
@@ -1637,7 +1693,7 @@ impl fmt::Debug for TupleTypeSignature {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "TupleTypeSignature {{")?;
         for (field_name, field_type) in self.type_map.iter() {
-            write!(f, " \"{}\": {},", &**field_name, field_type)?;
+            write!(f, " \"{field_name}\": {field_type},")?;
         }
         write!(f, "}}")
     }

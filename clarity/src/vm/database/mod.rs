@@ -24,7 +24,7 @@ pub use self::clarity_db::{
 pub use self::clarity_store::{ClarityBackingStore, SpecialCaseHandler};
 pub use self::key_value_wrapper::{RollbackWrapper, RollbackWrapperPersistedLog};
 #[cfg(feature = "rusqlite")]
-pub use self::sqlite::SqliteConnection;
+pub use self::sqlite::{DATA_TABLE_NAME, METADATA_TABLE_NAME, MetadataRow, SqliteConnection};
 pub use self::structures::{
     ClarityDeserializable, ClaritySerializable, DataMapMetadata, DataVariableMetadata,
     FungibleTokenMetadata, NonFungibleTokenMetadata, STXBalance,
