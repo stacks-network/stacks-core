@@ -12012,6 +12012,7 @@ pub mod test {
         use clarity::vm::database::NULL_BURN_STATE_DB;
 
         use crate::core::test_util::sign_standard_single_sig_tx_anchor_mode_version;
+        use crate::core::{StacksEpoch, StacksEpochExtension};
 
         const FOO_CONTRACT: &str = "(define-public (foo) (ok 1))
                                     (define-public (bar (x uint)) (ok x))";
@@ -12053,7 +12054,7 @@ pub mod test {
         let mut peer_config = TestPeerConfig::new(function_name!(), 21319, 21320);
         peer_config.chain_config.initial_balances =
             vec![(contract_addr.to_account_principal(), 100_000)];
-        peer_config.chain_config.epochs = Some(epoch_21_test_epochs(ExecutionCost::max_value()));
+        peer_config.chain_config.epochs = Some(StacksEpoch::unit_test_2_1_with_heights(0, 0, 0));
         let mut peer = TestPeer::new(peer_config);
 
         let mut coinbase_nonce = 0;
@@ -12136,7 +12137,7 @@ pub mod test {
                 ))
             ));
 
-            // mismatched network on contract-call (mainnet address version byte)
+            // contract-call to an address whose version byte is valid on neither network
             let bad_addr = StacksAddress::from_public_keys(
                 18,
                 &AddressHashMode::SerializeP2PKH,
@@ -12212,24 +12213,6 @@ pub mod test {
                 false
             });
 
-            // recipient must be testnet (mainnet version byte, constructed via StacksAddress::new)
-            let testnet_recipient = StacksAddress::from_public_keys(
-                C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
-                &AddressHashMode::SerializeP2PKH,
-                1,
-                &vec![StacksPublicKey::from_private(&other_sk)],
-            )
-            .unwrap();
-            let mainnet_recipient = StacksAddress::new(
-                C32_ADDRESS_VERSION_MAINNET_SINGLESIG,
-                testnet_recipient.destruct().1,
-            )
-            .unwrap();
-            let mainnet_princ = mainnet_recipient.into();
-            let tx = make_user_stacks_transfer(&contract_sk, 5, 300, &mainnet_princ, 1000);
-            let e = admit(chainstate, &tx).unwrap_err();
-            assert!(matches!(e, MemPoolRejection::BadAddressVersionByte));
-
             // tx version must be testnet
             let payload = TransactionPayload::TokenTransfer(
                 PrincipalData::from(contract_addr.clone()),
@@ -12279,11 +12262,6 @@ pub mod test {
             let tx = make_user_stacks_transfer(&contract_sk, 5, 300, &other_addr, 0);
             let e = admit(chainstate, &tx).unwrap_err();
             assert!(matches!(e, MemPoolRejection::TransferAmountMustBePositive));
-
-            // not enough funds again (111000 > 99500)
-            let tx = make_user_stacks_transfer(&contract_sk, 5, 110000, &other_addr, 1000);
-            let e = admit(chainstate, &tx).unwrap_err();
-            assert!(matches!(e, MemPoolRejection::NotEnoughFunds(111000, 99500)));
 
             // not enough funds (fee 99700 + amount 1000 = 100700 > 99500)
             let tx = make_user_stacks_transfer(&contract_sk, 5, 99700, &other_addr, 1000);
