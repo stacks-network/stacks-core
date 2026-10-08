@@ -32,27 +32,6 @@ jobs:
           sparse-checkout: |
             .github
 
-      ### TEMP: bootstraps the Bitcoin cache for the target version until `main`
-      ### has one (create-test-caches.yml runs on push to main). Does nothing
-      ### once a matching cache exists. Remove in the follow-up PR.
-      ### DO NOT RELEASE
-      - name: Pre-check Bitcoin Cache (TEMP)
-        id: bitcoin-precheck
-        uses: ./.github/actions/cache/bitcoin
-        with:
-          action: check
-          btc-version: ${{ inputs.btc-version }}
-          btc-version-sha: ${{ inputs.btc-version-sha }}
-      
-      - name: Create Bitcoin Cache (DO NOT RELEASE)
-        if: >-
-          !steps.bitcoin-precheck.outputs.cache-matched-key
-        uses: ./.github/actions/cache/bitcoin
-        with:
-          action: create
-          btc-version: ${{ inputs.btc-version }}
-          btc-version-sha: ${{ inputs.btc-version-sha }}
-
       # Check cache for bitcoin binary
       - name: Check Bitcoin Cache
         id: bitcoin
