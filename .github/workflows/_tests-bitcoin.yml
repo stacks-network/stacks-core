@@ -5,6 +5,14 @@ name: "Tests: Bitcoin"
 on:
   workflow_call:
     inputs:
+      btc-version:
+        description: "The bitcoin binary version to use for tests"
+        required: true
+        type: string
+      btc-version-sha:
+        description: "The SHA256 of the bitcoin binary to verify before executing tests"
+        required: true
+        type: string
       archive-file:
         description: "The test archive file"
         required: true
@@ -40,8 +48,6 @@ permissions:
 #   - transferred to composite action steps
 env:
   BITCOIND_TEST: 1
-  # Docker tag for the Bitcoin Core image used when spinning up container with `testcontainers` crate.
-  BITCOIN_IMAGE_TAG: "25"
   RUST_BACKTRACE: full
   TEST_TIMEOUT: 30
   TEST_TAG_CI_SKIP: ci_skip
@@ -110,6 +116,8 @@ jobs:
         uses: ./.github/actions/run-tests
         timeout-minutes: ${{ fromJSON(env.TEST_TIMEOUT) }}
         with:
+          btc-version: ${{ inputs.btc-version }}
+          btc-version-sha: ${{ inputs.btc-version-sha }}
           test-names: ${{ matrix.batch.csv }}
           archive-file: ${{ inputs.archive-file }}
           codecov-test-name: isolated-test-${{ matrix.batch.index }}
@@ -138,6 +146,8 @@ jobs:
         uses: ./.github/actions/run-tests
         timeout-minutes: ${{ fromJSON(env.TEST_TIMEOUT) }}
         with:
+          btc-version: ${{ inputs.btc-version }}
+          btc-version-sha: ${{ inputs.btc-version-sha }}
           test-names: ${{ matrix.batch.csv }}
           archive-file: ${{ inputs.archive-file }}
           codecov-test-name: isolated-test-${{ matrix.batch.index }}
@@ -166,6 +176,8 @@ jobs:
         uses: ./.github/actions/run-tests
         timeout-minutes: ${{ fromJSON(env.TEST_TIMEOUT) }}
         with:
+          btc-version: ${{ inputs.btc-version }}
+          btc-version-sha: ${{ inputs.btc-version-sha }}
           test-names: ${{ matrix.batch.csv }}
           archive-file: ${{ inputs.archive-file }}
           codecov-test-name: isolated-test-${{ matrix.batch.index }}
@@ -194,6 +206,8 @@ jobs:
         uses: ./.github/actions/run-tests
         timeout-minutes: ${{ fromJSON(env.TEST_TIMEOUT) }}
         with:
+          btc-version: ${{ inputs.btc-version }}
+          btc-version-sha: ${{ inputs.btc-version-sha }}
           test-names: ${{ matrix.batch.csv }}
           archive-file: ${{ inputs.archive-file }}
           codecov-test-name: isolated-test-${{ matrix.batch.index }}
