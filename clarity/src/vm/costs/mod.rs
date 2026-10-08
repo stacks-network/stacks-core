@@ -124,13 +124,13 @@ pub fn analysis_typecheck_cost<T: CostTracker>(
 }
 
 pub trait MemoryConsumer {
-    fn get_memory_use(&self) -> Result<u64, CostErrors>;
+    fn get_memory_use(&self, epoch: &StacksEpochId) -> Result<u64, CostErrors>;
 }
 
 impl MemoryConsumer for Value {
-    fn get_memory_use(&self) -> Result<u64, CostErrors> {
+    fn get_memory_use(&self, epoch: &StacksEpochId) -> Result<u64, CostErrors> {
         Ok(self
-            .size()
+            .size_for_epoch(epoch)
             .map_err(|_| CostErrors::InterpreterFailure)?
             .into())
     }
@@ -812,7 +812,59 @@ fn int_log2(input: u64) -> Option<u64> {
 
 #[cfg(test)]
 mod unit_tests {
+    use clarity_types::types::{CallableData, TraitIdentifier};
+    use pinny::tag;
+    use proptest::prelude::*;
+    use rstest::rstest;
+
     use super::*;
+    use crate::vm::ClarityName;
+    use crate::vm::tests::proptest_utils::clarity_values;
+    use crate::vm::types::{QualifiedContractIdentifier, TypeSignature};
+
+    proptest! {
+        /// Values without callable types are charged the same from Epoch 4.1.
+        #[tag(t_prop)]
+        #[test]
+        fn prop_non_callable_charges_unchanged_in_epoch41(value in clarity_values()) {
+            let epoch = StacksEpochId::Epoch41;
+            let ty = TypeSignature::type_of(&value).unwrap();
+            prop_assert_eq!(ty.type_size_for_epoch(&epoch).unwrap(), ty.type_size().unwrap());
+            prop_assert_eq!(ty.size_for_epoch(&epoch).unwrap(), ty.size().unwrap());
+            prop_assert_eq!(
+                value.get_memory_use(&epoch).unwrap(),
+                u64::from(value.size().unwrap())
+            );
+        }
+    }
+
+    fn trait_id(name: &'static str) -> TraitIdentifier {
+        TraitIdentifier {
+            name: ClarityName::from_literal(name),
+            contract_identifier: QualifiedContractIdentifier::transient(),
+        }
+    }
+
+    /// A list of two values of one trait.
+    fn trait_list() -> Value {
+        let trait_ref = Value::CallableContract(CallableData {
+            contract_identifier: QualifiedContractIdentifier::local("impl").unwrap(),
+            trait_identifier: Some(Box::new(trait_id("trait-a"))),
+        });
+        Value::cons_list(vec![trait_ref.clone(), trait_ref], &StacksEpochId::Epoch41).unwrap()
+    }
+
+    /// From Epoch 4.1, a list's memory use counts the traits its type holds.
+    #[rstest]
+    #[case::trait_list_before_epoch41(trait_list(), StacksEpochId::Epoch40, 2 * 276 + 1 + 5)]
+    #[case::trait_list_from_epoch41(trait_list(), StacksEpochId::Epoch41, 2 * 276 + 1 + 276 + 5)]
+    fn test_memory_use_counts_callable_types_from_epoch41(
+        #[case] value: Value,
+        #[case] epoch: StacksEpochId,
+        #[case] expected: u64,
+    ) {
+        assert_eq!(value.get_memory_use(&epoch).unwrap(), expected);
+    }
 
     #[test]
     fn test_simple_overflows() {

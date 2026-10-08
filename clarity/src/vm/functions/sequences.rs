@@ -49,7 +49,7 @@ pub fn list_cons(
 
     let mut arg_size = 0;
     for a in args.iter() {
-        arg_size = arg_size.cost_overflow_add(a.size()?.into())?;
+        arg_size = arg_size.cost_overflow_add(a.size_for_epoch(exec_state.epoch())?.into())?;
     }
 
     runtime_cost(ClarityCostFunction::ListCons, exec_state, arg_size)?;
@@ -365,10 +365,14 @@ pub fn special_append(
             } = list;
             let (entry_type, size) = type_signature.destruct();
             let element_type = TypeSignature::type_of(element.as_ref())?;
+            let epoch = *exec_state.epoch();
             runtime_cost(
                 ClarityCostFunction::Append,
                 exec_state,
-                u64::from(cmp::max(entry_type.size()?, element_type.size()?)),
+                u64::from(cmp::max(
+                    entry_type.size_for_epoch(&epoch)?,
+                    element_type.size_for_epoch(&epoch)?,
+                )),
             )?;
             let element = element.clone_with_cost(exec_state)?;
             if entry_type.is_no_type() {
@@ -751,10 +755,13 @@ pub fn special_slice(
                     return Ok(Value::none());
                 }
 
+                // From Epoch 4.1 an element can be charged more than the value size
+                // limit, so multiply in u64.
+                let element_size = seq.element_size_for_epoch(exec_state.epoch())?;
                 runtime_cost(
                     ClarityCostFunction::Slice,
                     exec_state,
-                    (right_position - left_position) * seq.element_size()?,
+                    u64::from(right_position - left_position) * u64::from(element_size),
                 )?;
                 let seq_value = seq.slice(
                     exec_state.epoch(),
@@ -788,7 +795,8 @@ pub fn special_replace_at(
     let seq_type = TypeSignature::type_of(seq.as_ref())?;
 
     // runtime is the cost to copy over one element into its place
-    runtime_cost(ClarityCostFunction::ReplaceAt, exec_state, seq_type.size()?)?;
+    let seq_size = seq_type.size_for_epoch(exec_state.epoch())?;
+    runtime_cost(ClarityCostFunction::ReplaceAt, exec_state, seq_size)?;
 
     let expected_elem_type = if let TypeSignature::SequenceType(seq_subtype) = &seq_type {
         seq_subtype.unit_type()

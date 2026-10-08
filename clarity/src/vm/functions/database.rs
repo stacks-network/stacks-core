@@ -364,7 +364,7 @@ pub fn special_set_variable_v200(
         data_types.value_type.size()?,
     )?;
 
-    exec_state.add_memory(value.as_ref().get_memory_use()?)?;
+    exec_state.add_memory(value.as_ref().get_memory_use(exec_state.epoch())?)?;
 
     let value = value.clone_with_cost(exec_state)?;
     let epoch = *exec_state.epoch();
@@ -588,8 +588,8 @@ pub fn special_set_entry_v200(
         data_types.value_type.size()? + data_types.key_type.size()?,
     )?;
 
-    exec_state.add_memory(key.as_ref().get_memory_use()?)?;
-    exec_state.add_memory(value.as_ref().get_memory_use()?)?;
+    exec_state.add_memory(key.as_ref().get_memory_use(exec_state.epoch())?)?;
+    exec_state.add_memory(value.as_ref().get_memory_use(exec_state.epoch())?)?;
 
     let key = key.clone_with_cost(exec_state)?;
     let value = value.clone_with_cost(exec_state)?;
@@ -693,8 +693,8 @@ pub fn special_insert_entry_v200(
         data_types.value_type.size()? + data_types.key_type.size()?,
     )?;
 
-    exec_state.add_memory(key.as_ref().get_memory_use()?)?;
-    exec_state.add_memory(value.as_ref().get_memory_use()?)?;
+    exec_state.add_memory(key.as_ref().get_memory_use(exec_state.epoch())?)?;
+    exec_state.add_memory(value.as_ref().get_memory_use(exec_state.epoch())?)?;
 
     let epoch = *exec_state.epoch();
 
@@ -797,7 +797,7 @@ pub fn special_delete_entry_v200(
         data_types.key_type.size()?,
     )?;
 
-    exec_state.add_memory(key.as_ref().get_memory_use()?)?;
+    exec_state.add_memory(key.as_ref().get_memory_use(exec_state.epoch())?)?;
 
     let epoch = *exec_state.epoch();
     exec_state

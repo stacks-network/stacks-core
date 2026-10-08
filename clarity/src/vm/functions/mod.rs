@@ -657,11 +657,8 @@ fn special_print(
     })?;
     let input = eval(arg, exec_state, invoke_ctx, context)?;
 
-    runtime_cost(
-        ClarityCostFunction::Print,
-        exec_state,
-        input.as_ref().size()?,
-    )?;
+    let input_size = input.as_ref().size_for_epoch(exec_state.epoch())?;
+    runtime_cost(ClarityCostFunction::Print, exec_state, input_size)?;
 
     if cfg!(feature = "developer-mode") {
         debug!("{}", input.as_ref());
@@ -821,7 +818,7 @@ fn special_let(
 
             let binding_value = eval(var_sexp, exec_state, invoke_ctx, &inner_context)?;
 
-            let bind_mem_use = binding_value.as_ref().get_memory_use()?;
+            let bind_mem_use = binding_value.as_ref().get_memory_use(exec_state.epoch())?;
             exec_state.add_memory(bind_mem_use)?;
             memory_use += bind_mem_use; // no check needed, b/c it's done in add_memory.
             let binding_value = binding_value.clone_with_cost(exec_state)?;

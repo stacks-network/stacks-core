@@ -213,10 +213,11 @@ impl DefinedFunction {
 
         if exec_state.epoch().uses_arg_size_for_cost() {
             for arg in args.iter() {
+                let arg_size = arg.size_for_epoch(exec_state.epoch())?;
                 runtime_cost(
                     ClarityCostFunction::InnerTypeCheckCost,
                     exec_state,
-                    arg.size()?,
+                    arg_size,
                 )?;
             }
         } else {
