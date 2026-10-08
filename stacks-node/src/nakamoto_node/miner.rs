@@ -593,6 +593,7 @@ impl BlockMinerThread {
         let mut coordinator = SignerCoordinator::new(
             self.event_dispatcher.stackerdb_channel.clone(),
             self.globals.should_keep_running.clone(),
+            self.abort_flag.clone(),
             &reward_set,
             initial_chunks_loader,
             &self.burn_election_block,
@@ -864,6 +865,12 @@ impl BlockMinerThread {
                 info!("Miner: new parent block discovered while mining. Will try again.");
                 Ok(None)
             }
+            Err(NakamotoNodeError::StacksTipChanged) => {
+                // A late tenure adopted the canonical tip of its tenure. Retry. The next
+                // attempt exits through the late-tenure check.
+                info!("Miner: Stacks tip changed while mining. Will try again.");
+                Ok(None)
+            }
             Err(
                 ref e @ (NakamotoNodeError::MiningFailure(ChainstateError::DBError(_))
                 | NakamotoNodeError::DBError(_)),
@@ -926,6 +933,16 @@ impl BlockMinerThread {
                         "consensus_hash" => %new_block.header.consensus_hash,
                     );
                     return Ok(false);
+                }
+                NakamotoNodeError::MiningFailure(ChainstateError::MinerAborted) => {
+                    info!("Miner interrupted while waiting for signatures in order to shut down";
+                        "signer_signature_hash" => %new_block.header.signer_signature_hash(),
+                        "block_height" => new_block.header.chain_length,
+                        "consensus_hash" => %new_block.header.consensus_hash,
+                    );
+                    self.globals
+                        .raise_initiative("MiningFailure: aborted by node".to_string());
+                    return Err(e);
                 }
                 NakamotoNodeError::BurnchainTipChanged => {
                     info!("Burnchain tip changed while waiting for signatures";
@@ -1710,7 +1727,7 @@ impl BlockMinerThread {
         }
 
         let target_epoch_id =
-            SortitionDB::get_stacks_epoch(burn_db.conn(), self.burn_block.block_height + 1)?
+            SortitionDB::get_stacks_epoch(burn_db.conn(), self.burn_election_block.block_height)?
                 .expect("FATAL: no epoch defined")
                 .epoch_id;
         let mut parent_block_info = self.load_block_parent_info(&mut burn_db, &mut chain_state)?;
@@ -1742,6 +1759,55 @@ impl BlockMinerThread {
                     // should act as though we haven't mined anything yet.
                     self.last_block_mined = None;
                 }
+            }
+        } else if self.last_block_mined.is_none()
+            && parent_block_info.parent_tenure.is_none()
+            && parent_block_info.stacks_parent_header.consensus_hash
+                == self.burn_election_block.consensus_hash
+        {
+            // Our tenure already has a canonical tip, but we never saw it accepted: a
+            // different proposal for this tenure reached consensus (e.g. an earlier proposal
+            // of ours that the signers pushed after we had re-mined). Adopt it and continue
+            // the tenure on top of it.
+            let stacks_parent_header = &parent_block_info.stacks_parent_header;
+            let stacks_parent_id = stacks_parent_header.index_block_hash();
+            let tenure_len = NakamotoChainState::get_nakamoto_tenure_length(
+                chain_state.db(),
+                &stacks_parent_id,
+            )?;
+            let tenure_cost =
+                NakamotoChainState::get_total_tenure_cost_at(chain_state.db(), &stacks_parent_id)?
+                    .ok_or_else(|| {
+                        error!("Miner: no total tenure cost for the canonical tip of our tenure";
+                            "block_id" => %stacks_parent_id,
+                        );
+                        NakamotoNodeError::UnexpectedChainState
+                    })?;
+            info!("Miner: adopting the canonical tip of our tenure, which we did not see accepted";
+                "block_hash" => %stacks_parent_header.anchored_header.block_hash(),
+                "block_height" => stacks_parent_header.stacks_block_height,
+                "consensus_hash" => %stacks_parent_header.consensus_hash,
+                "tenure_length" => tenure_len,
+                "tenure_cost" => %tenure_cost,
+            );
+            self.globals.counters.bump_naka_mined_tenures();
+            self.last_block_mined = Some((
+                stacks_parent_header.consensus_hash.clone(),
+                stacks_parent_header.anchored_header.block_hash(),
+            ));
+            self.mined_blocks = u64::from(tenure_len);
+            self.tenure_cost = tenure_cost;
+            // The tenure budget is determined by the epoch of the parent block.
+            self.tenure_budget = SortitionDB::get_stacks_epoch(
+                burn_db.conn(),
+                u64::from(stacks_parent_header.burn_header_height),
+            )?
+            .expect("FATAL: no epoch defined")
+            .block_limit;
+            if self.reason.is_late_block() {
+                // A late tenure only exists to get its BlockFound block on chain, and the
+                // adopted tip has done that.
+                return Err(NakamotoNodeError::StacksTipChanged);
             }
         }
 

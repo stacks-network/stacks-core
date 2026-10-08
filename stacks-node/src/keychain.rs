@@ -193,11 +193,6 @@ impl Keychain {
         BurnchainSigner(format!("{}", &self.get_address(true)))
     }
 
-    /// Convenience wrapper around make_stacks_keypair
-    pub fn get_microblock_key(&self, block_height: u64) -> StacksPrivateKey {
-        self.make_stacks_keypair(block_height, &[]).1
-    }
-
     /// Sign a transaction as if we were the origin
     pub fn sign_as_origin(&self, tx_signer: &mut StacksTransactionSigner) {
         let sk = self.get_secret_key();
@@ -233,11 +228,7 @@ impl Keychain {
 }
 
 #[cfg(test)]
-#[allow(dead_code)]
 mod tests {
-    use std::collections::HashMap;
-
-    use stacks::burnchains::PrivateKey;
     use stacks::chainstate::stacks::{
         StacksPrivateKey, StacksPublicKey, StacksTransaction, StacksTransactionSigner,
         TokenTransferMemo, TransactionAuth, TransactionPayload, TransactionPostConditionMode,
@@ -245,11 +236,9 @@ mod tests {
     };
     use stacks_common::address::AddressHashMode;
     use stacks_common::types::chainstate::StacksAddress;
-    use stacks_common::util::hash::{Hash160, Sha256Sum};
-    use stacks_common::util::vrf::{VRFPrivateKey, VRFProof, VRFPublicKey, VRF};
+    use stacks_common::util::hash::Sha256Sum;
 
     use super::Keychain;
-    use crate::operations::BurnchainOpSigner;
     use crate::stacks_common::types::Address;
 
     /// Legacy implementation; kept around for testing
@@ -258,10 +247,6 @@ mod tests {
         secret_keys: Vec<StacksPrivateKey>,
         threshold: u16,
         hash_mode: AddressHashMode,
-        pub hashed_secret_state: Sha256Sum,
-        microblocks_secret_keys: Vec<StacksPrivateKey>,
-        vrf_secret_keys: Vec<VRFPrivateKey>,
-        vrf_map: HashMap<VRFPublicKey, VRFPrivateKey>,
     }
 
     impl KeychainOld {
@@ -270,25 +255,10 @@ mod tests {
             threshold: u16,
             hash_mode: AddressHashMode,
         ) -> KeychainOld {
-            // Compute hashed secret state
-            let hashed_secret_state = {
-                let mut buf: Vec<u8> = secret_keys.iter().flat_map(|sk| sk.to_bytes()).collect();
-                buf.extend_from_slice(&[
-                    (threshold >> 8) as u8,
-                    (threshold & 0xff) as u8,
-                    hash_mode as u8,
-                ]);
-                Sha256Sum::from_data(&buf[..])
-            };
-
             Self {
                 hash_mode,
-                hashed_secret_state,
-                microblocks_secret_keys: vec![],
                 secret_keys,
                 threshold,
-                vrf_secret_keys: vec![],
-                vrf_map: HashMap::new(),
             }
         }
 
@@ -311,62 +281,6 @@ mod tests {
             KeychainOld::new(vec![secret_key], threshold, hash_mode)
         }
 
-        pub fn rotate_vrf_keypair(&mut self, block_height: u64) -> VRFPublicKey {
-            let mut seed = {
-                let mut secret_state = self.hashed_secret_state.to_bytes().to_vec();
-                secret_state.extend_from_slice(&block_height.to_be_bytes());
-                Sha256Sum::from_data(&secret_state)
-            };
-
-            // Not every 256-bit number is a valid Ed25519 secret key.
-            // As such, we continuously generate seeds through re-hashing until one works.
-            let sk = loop {
-                match VRFPrivateKey::from_bytes(seed.as_bytes()) {
-                    Some(sk) => break sk,
-                    None => seed = Sha256Sum::from_data(seed.as_bytes()),
-                }
-            };
-            let pk = VRFPublicKey::from_private(&sk);
-
-            self.vrf_secret_keys.push(sk.clone());
-            self.vrf_map.insert(pk.clone(), sk);
-            pk
-        }
-
-        pub fn rotate_microblock_keypair(&mut self, burn_block_height: u64) -> StacksPrivateKey {
-            let mut secret_state = match self.microblocks_secret_keys.last() {
-                // First key is the hash of the secret state
-                None => self.hashed_secret_state.to_bytes().to_vec(),
-                // Next key is the hash of the last
-                Some(last_sk) => last_sk.to_bytes().to_vec(),
-            };
-
-            secret_state.extend_from_slice(&burn_block_height.to_be_bytes());
-
-            let mut seed = Sha256Sum::from_data(&secret_state);
-
-            // Not every 256-bit number is a valid secp256k1 secret key.
-            // As such, we continuously generate seeds through re-hashing until one works.
-            let mut sk = loop {
-                match StacksPrivateKey::from_slice(&seed.to_bytes()[..]) {
-                    Ok(sk) => break sk,
-                    Err(_) => seed = Sha256Sum::from_data(seed.as_bytes()),
-                }
-            };
-            sk.set_compress_public(true);
-            self.microblocks_secret_keys.push(sk.clone());
-
-            debug!("Microblock keypair rotated";
-                   "burn_block_height" => %burn_block_height,
-                   "pubkey_hash" => %Hash160::from_node_public_key(&StacksPublicKey::from_private(&sk)).to_string(),);
-
-            sk
-        }
-
-        pub fn get_microblock_key(&self) -> Option<StacksPrivateKey> {
-            self.microblocks_secret_keys.last().cloned()
-        }
-
         pub fn sign_as_origin(&self, tx_signer: &mut StacksTransactionSigner) {
             let num_keys = if self.secret_keys.len() < self.threshold as usize {
                 self.secret_keys.len()
@@ -377,25 +291,6 @@ mod tests {
             for i in 0..num_keys {
                 tx_signer.sign_origin(&self.secret_keys[i]).unwrap();
             }
-        }
-
-        /// Given a VRF public key, generates a VRF Proof
-        pub fn generate_proof(&self, vrf_pk: &VRFPublicKey, bytes: &[u8; 32]) -> Option<VRFProof> {
-            // Retrieve the corresponding VRF secret key
-            let vrf_sk = match self.vrf_map.get(vrf_pk) {
-                Some(vrf_pk) => vrf_pk,
-                None => {
-                    warn!("No VRF secret key on file for {vrf_pk:?}");
-                    return None;
-                }
-            };
-
-            // Generate the proof
-            let proof = VRF::prove(vrf_sk, bytes.as_ref())?;
-            // Ensure that the proof is valid by verifying
-            let is_valid = VRF::verify(vrf_pk, &proof, bytes.as_ref()).unwrap_or(false);
-            assert!(is_valid);
-            Some(proof)
         }
 
         /// Given the keychain's secret keys, computes and returns the corresponding Stack address.
@@ -448,10 +343,6 @@ mod tests {
                 }
                 None => None,
             }
-        }
-
-        pub fn generate_op_signer(&self) -> BurnchainOpSigner {
-            BurnchainOpSigner::new(self.secret_keys[0].clone())
         }
     }
 

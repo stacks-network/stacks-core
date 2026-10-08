@@ -115,7 +115,7 @@ use crate::tests::neon_integrations::{
 use crate::tests::signer::commands::*;
 use crate::tests::signer::SpawnedSignerTrait;
 use crate::tests::{self, gen_random_port};
-use crate::{nakamoto_node, BitcoinRegtestController, BurnchainController, Config, Keychain};
+use crate::{nakamoto_node, BitcoinRegtestController, Config, Keychain};
 
 pub mod capitulate_parent_tenure_view;
 pub mod epoch_4_0_multi_miner_distribution;
@@ -132,6 +132,7 @@ pub mod signers_consider_late_proposals;
 pub mod signers_wait_for_validation;
 mod signet_qualification;
 pub mod tenure_extend;
+pub mod tenure_start_sibling_accepted;
 
 impl<Z: SpawnedSignerTrait> SignerTest<Z> {
     /// Poll until the reward set for the next reward cycle is available.

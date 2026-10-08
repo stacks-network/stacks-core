@@ -1,0 +1,30 @@
+name: Generate Cargo Cache Key
+description: |
+    Generates Cargo cache key used in CI.
+
+outputs:
+  cargo-cache-key:
+    description: "Cargo Cache Key"
+    value: ${{ steps.cargo-cache-key.outputs.cache-key }}
+  cargo-restore-key:
+    description: "Cargo restore-key prefix (to match latest)"
+    value: ${{ steps.cargo-cache-key.outputs.restore-key }}
+
+runs:
+  using: "composite"
+  steps:
+    - name: Generate UTC Timestamp
+      id: timestamp
+      shell: bash
+      run: |
+        # %Y%m%d%H%M%S maps exactly to yyyyMMddhhmmss in UTC
+        echo "now=$(date -u +'%Y%m%d%H%M%S')" >> "$GITHUB_OUTPUT"
+
+    - name: Generate Cargo Cache Key
+      id: cargo-cache-key
+      shell: bash
+      env:
+        TIMESTAMP: ${{ steps.timestamp.outputs.now }}
+      run: |
+        echo "cache-key=cargo-crates--${{ runner.os }}--${{ env.TIMESTAMP }}" >> "$GITHUB_OUTPUT"
+        echo "restore-key=cargo-crates--${{ runner.os }}" >> "$GITHUB_OUTPUT"

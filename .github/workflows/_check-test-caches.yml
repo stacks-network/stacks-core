@@ -4,7 +4,15 @@ name: "Check: Test Caches"
 
 on:
   workflow_call:
-
+    inputs:
+      btc-version:
+        description: "The bitcoin binary version to use for tests"
+        required: true
+        type: string
+      btc-version-sha:
+        description: "The SHA256 of the bitcoin binary to verify before executing tests"
+        required: true
+        type: string
 # Set default permissions
 permissions:
   contents: read
@@ -28,11 +36,17 @@ jobs:
       - name: Check Bitcoin Cache
         id: bitcoin
         uses: ./.github/actions/cache/bitcoin
+        with:
+          action: check
+          btc-version: ${{ inputs.btc-version }}
+          btc-version-sha: ${{ inputs.btc-version-sha }}
 
       # Check cache for cargo binaries
       - name: Check Cargo Cache
         id: cargo
         uses: ./.github/actions/cache/cargo
+        with:
+          action: check
 
       # Output a job summary of cache status and crash the CI run if a cache is missing
       - name: Output GitHub Job Summary
