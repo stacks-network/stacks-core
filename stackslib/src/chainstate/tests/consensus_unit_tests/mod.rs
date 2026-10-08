@@ -17,6 +17,7 @@
 //! consensus-critical behavior of a specific change across epochs and Clarity
 //! versions.
 mod epoch_40_read_budget;
+mod epoch_41_contract_name_limit;
 mod epoch_41_exact_argument_count;
 mod epoch_41_fold_initial_value;
 mod epoch_41_force_latest;

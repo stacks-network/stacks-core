@@ -189,6 +189,17 @@ pub fn special_principal_destruct(
             (version, bytes, None)
         }
         Value::Principal(PrincipalData::Contract(QualifiedContractIdentifier { issuer, name })) => {
+            // From Epoch 4.1, reject contract names longer than
+            // `CONTRACT_MAX_NAME_LENGTH`.
+            if exec_state.epoch().enforces_contract_name_length_limit()
+                && usize::from(name.len()) > CONTRACT_MAX_NAME_LENGTH
+            {
+                return Err(RuntimeCheckErrorKind::TypeValueError(
+                    Box::new(TypeSignature::CONTRACT_NAME_STRING_ASCII_MAX),
+                    Value::from(ASCIIData::from(name)).to_error_string(),
+                )
+                .into());
+            }
             let issuer = issuer.destruct();
             (issuer.0, issuer.1, Some(name))
         }

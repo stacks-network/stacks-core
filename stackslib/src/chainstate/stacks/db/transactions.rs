@@ -854,6 +854,69 @@ pub mod test {
         };
     }
 
+    /// The precheck gates mempool admission and mining, so it must reject an
+    /// over-long contract name in a call argument exactly when static block
+    /// validation does (from Epoch 4.1). Otherwise a miner would include a
+    /// transaction that makes its own block fail validation.
+    #[rstest]
+    #[case(StacksEpochId::Epoch40, 40, true)]
+    #[case(StacksEpochId::Epoch40, 41, true)]
+    #[case(StacksEpochId::Epoch41, 40, true)]
+    #[case(StacksEpochId::Epoch41, 41, false)]
+    fn precheck_rejects_long_contract_names_from_epoch41(
+        #[case] epoch_id: StacksEpochId,
+        #[case] name_len: usize,
+        #[case] should_succeed: bool,
+    ) {
+        let sk = Secp256k1PrivateKey::random();
+        let auth = TransactionAuth::from_p2pkh(&sk).unwrap();
+        let chain_id = 0x80000000;
+
+        let arg = Value::Principal(PrincipalData::Contract(QualifiedContractIdentifier::new(
+            StandardPrincipalData::transient(),
+            ContractName::try_from("a".repeat(name_len)).unwrap(),
+        )));
+        let tx = StacksTransaction {
+            version: TransactionVersion::Testnet,
+            chain_id,
+            auth,
+            anchor_mode: TransactionAnchorMode::Any,
+            post_condition_mode: TransactionPostConditionMode::Allow,
+            post_conditions: vec![],
+            payload: TransactionPayload::ContractCall(TransactionContractCall {
+                address: StacksAddress::new(1, Hash160([0x01; 20])).unwrap(),
+                contract_name: ContractName::from_literal("target"),
+                function_name: ClarityName::from_literal("take"),
+                function_args: vec![arg],
+            }),
+        };
+        let mut signer = StacksTransactionSigner::new(&tx);
+        signer.sign_origin(&sk).unwrap();
+        let tx = signer.get_tx().unwrap();
+
+        let config = DBConfig {
+            version: CHAINSTATE_VERSION.to_string(),
+            mainnet: false,
+            chain_id,
+        };
+        let result = TransactionProcessor::from(&tx).precheck(&config, epoch_id);
+        // The precheck and static block validation must agree.
+        assert_eq!(
+            should_succeed,
+            StacksBlock::validate_transaction_static_epoch(&tx, epoch_id)
+        );
+        if should_succeed {
+            result.unwrap();
+        } else {
+            match result.unwrap_err() {
+                Error::InvalidStacksTransaction(msg, false) => {
+                    assert!(msg.contains("not supported since Stacks 4.1"), "{msg}");
+                }
+                e => panic!("Expected InvalidStacksTransaction for epoch {epoch_id:?}, got {e:?}"),
+            }
+        };
+    }
+
     #[rstest]
     #[case(StacksEpochId::Epoch30, false)]
     #[case(StacksEpochId::Epoch31, false)]
@@ -2077,7 +2140,8 @@ pub mod test {
     }
 
     // Verify that a contract call transaction which passes a long contract
-    // name (> 40 chars and < 128) is processed successfully.
+    // name (> 40 chars and < 128) is processed successfully before Epoch 4.1,
+    // and rejected by the precheck from Epoch 4.1.
     #[test]
     fn process_contract_call_long_contract_name_transaction() {
         let contract = "
@@ -2114,7 +2178,7 @@ pub mod test {
         )
         .unwrap();
         let auth_2 = TransactionAuth::from_p2pkh(&privk_2).unwrap();
-        let addr_2 = auth.origin().address_testnet();
+        let addr_2 = auth_2.origin().address_testnet();
 
         let contractPrincipalValue =
             Value::Principal(PrincipalData::Contract(QualifiedContractIdentifier::new(
@@ -2173,22 +2237,36 @@ pub mod test {
             let (fee, _) =
                 process_transaction_for_test(&mut conn, &signed_tx, false, None).unwrap();
 
+            let deployer_principal = Value::Principal(PrincipalData::from(addr.clone()));
             let var_before_set_res =
                 StacksChainState::get_data_var(&mut conn, &contract_id, "savedContract").unwrap();
-            assert_eq!(
-                var_before_set_res,
-                Some(Value::Principal(PrincipalData::from(addr.clone())))
-            );
+            assert_eq!(var_before_set_res, Some(deployer_principal.clone()));
 
-            let (fee_2, _) =
-                process_transaction_for_test(&mut conn, &signed_tx_2, false, None).unwrap();
+            // From Epoch 4.1, a call argument may not carry a contract name
+            // longer than 40 bytes: the precheck rejects the transaction
+            // before it touches state.
+            let limit_enforced = conn.get_epoch().enforces_contract_name_length_limit();
+            let result = process_transaction_for_test(&mut conn, &signed_tx_2, false, None);
+            let (expected_nonce_2, expected_var) = if limit_enforced {
+                match result.unwrap_err() {
+                    Error::InvalidStacksTransaction(msg, false) => {
+                        assert!(msg.contains("not supported since Stacks 4.1"), "{msg}");
+                    }
+                    e => panic!("Expected InvalidStacksTransaction, got {e:?}"),
+                }
+                (0, deployer_principal)
+            } else {
+                let (fee_2, _) = result.unwrap();
+                assert_eq!(fee_2, 0);
+                (1, contractPrincipalValue.clone())
+            };
 
             let account = StacksChainState::get_account(&mut conn, &addr.to_account_principal());
             assert_eq!(account.nonce, 1);
 
             let account_2 =
                 StacksChainState::get_account(&mut conn, &addr_2.to_account_principal());
-            assert_eq!(account_2.nonce, 1);
+            assert_eq!(account_2.nonce, expected_nonce_2);
 
             let contract_res = StacksChainState::get_contract(&mut conn, &contract_id).unwrap();
             let var_res =
@@ -2197,10 +2275,8 @@ pub mod test {
             conn.commit_block();
 
             assert_eq!(fee, 0);
-            assert_eq!(fee_2, 0);
             assert!(contract_res.is_some());
-            assert!(var_res.is_some());
-            assert_eq!(var_res, Some(contractPrincipalValue.clone()));
+            assert_eq!(var_res, Some(expected_var));
         }
     }
 
