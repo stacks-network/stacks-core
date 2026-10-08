@@ -505,22 +505,44 @@ impl TypeSignatureExt for TypeSignature {
 }
 
 impl FixedFunction {
+    /// [`Self::total_type_size_for_epoch`] with legacy type sizes, for the
+    /// 2.05 type checker.
     pub fn total_type_size(&self) -> Result<u64, StaticCheckErrorKind> {
-        let mut function_type_size = u64::from(self.returns.type_size()?);
+        self.total_type_size_for_epoch(&StacksEpochId::Epoch2_05)
+    }
+
+    /// [`Self::total_type_size`] to charge for in `epoch`; see
+    /// [`TypeSignature::type_size_for_epoch`].
+    pub fn total_type_size_for_epoch(
+        &self,
+        epoch: &StacksEpochId,
+    ) -> Result<u64, StaticCheckErrorKind> {
+        let mut function_type_size = u64::from(self.returns.type_size_for_epoch(epoch)?);
         for arg in self.args.iter() {
-            function_type_size =
-                function_type_size.cost_overflow_add(u64::from(arg.signature.type_size()?))?;
+            function_type_size = function_type_size
+                .cost_overflow_add(u64::from(arg.signature.type_size_for_epoch(epoch)?))?;
         }
         Ok(function_type_size)
     }
 }
 
 impl FunctionSignature {
+    /// [`Self::total_type_size_for_epoch`] with legacy type sizes, for the
+    /// 2.05 type checker.
     pub fn total_type_size(&self) -> Result<u64, StaticCheckErrorKind> {
-        let mut function_type_size = u64::from(self.returns.type_size()?);
+        self.total_type_size_for_epoch(&StacksEpochId::Epoch2_05)
+    }
+
+    /// [`Self::total_type_size`] to charge for in `epoch`; see
+    /// [`TypeSignature::type_size_for_epoch`].
+    pub fn total_type_size_for_epoch(
+        &self,
+        epoch: &StacksEpochId,
+    ) -> Result<u64, StaticCheckErrorKind> {
+        let mut function_type_size = u64::from(self.returns.type_size_for_epoch(epoch)?);
         for arg in self.args.iter() {
             function_type_size = function_type_size
-                .cost_overflow_add(u64::from(arg.type_size()?))
+                .cost_overflow_add(u64::from(arg.type_size_for_epoch(epoch)?))
                 .map_err(|_| StaticCheckErrorKind::CostOverflow)?;
         }
         Ok(function_type_size)

@@ -25,8 +25,9 @@ use stacks_common::types::StacksEpochId;
 use crate::representations::{CONTRACT_MAX_NAME_LENGTH, ClarityName, ContractName};
 use crate::types::{
     CharType, ClarityTypeError, MAX_TO_ASCII_BUFFER_LEN, MAX_TO_ASCII_RESULT_LEN, MAX_TYPE_DEPTH,
-    MAX_UTF8_VALUE_SIZE, MAX_VALUE_SIZE, PrincipalData, QualifiedContractIdentifier, SequenceData,
-    SequencedValue, StandardPrincipalData, TraitIdentifier, Value, WRAPPER_VALUE_SIZE,
+    MAX_UTF8_VALUE_SIZE, MAX_VALUE_SIZE, PRINCIPAL_SIZE, PrincipalData,
+    QualifiedContractIdentifier, SequenceData, SequencedValue, StandardPrincipalData, TRAIT_SIZE,
+    TraitIdentifier, Value, WRAPPER_VALUE_SIZE,
 };
 
 #[derive(Debug, Clone, PartialEq, PartialOrd, Eq, Serialize, Deserialize, Hash)]
@@ -328,6 +329,16 @@ pub enum StringSubtype {
 pub enum CallableSubtype {
     Principal(QualifiedContractIdentifier),
     Trait(TraitIdentifier),
+}
+
+impl CallableSubtype {
+    /// Charged size of one callable value of this type.
+    fn size(&self) -> u32 {
+        match self {
+            CallableSubtype::Principal(_) => PRINCIPAL_SIZE,
+            CallableSubtype::Trait(_) => TRAIT_SIZE,
+        }
+    }
 }
 
 use self::TypeSignature::{
@@ -1426,6 +1437,9 @@ impl TypeSignature {
         }
     }
 
+    /// Legacy value size, used by size limits and by runtime charges on
+    /// declared storage types, whose signatures never contain callable types.
+    /// Other charges use [`Self::size_for_epoch`].
     pub fn size(&self) -> Result<u32, ClarityTypeError> {
         self.inner_size()?.ok_or_else(|| {
             ClarityTypeError::InvariantViolation(
@@ -1443,7 +1457,7 @@ impl TypeSignature {
             IntType => Some(16),
             UIntType => Some(16),
             BoolType => Some(1),
-            PrincipalType => Some(148), // 20+128
+            PrincipalType => Some(PRINCIPAL_SIZE),
             TupleType(tuple_sig) => tuple_sig.inner_size()?,
             SequenceType(SequenceSubtype::BufferType(len))
             | SequenceType(SequenceSubtype::StringType(StringSubtype::ASCII(len))) => {
@@ -1462,12 +1476,15 @@ impl TypeSignature {
                 let s_size = s.size()?;
                 cmp::max(t_size, s_size).checked_add(WRAPPER_VALUE_SIZE)
             }
-            CallableType(CallableSubtype::Principal(_)) | ListUnionType(_) => Some(148), // 20+128
-            CallableType(CallableSubtype::Trait(_)) | TraitReferenceType(_) => Some(276), // 20+128+128
+            CallableType(CallableSubtype::Principal(_)) | ListUnionType(_) => Some(PRINCIPAL_SIZE),
+            CallableType(CallableSubtype::Trait(_)) | TraitReferenceType(_) => Some(TRAIT_SIZE),
         };
         Ok(out)
     }
 
+    /// Legacy type-signature size, used by size limits, the 2.05 type checker,
+    /// and runtime charges on declared storage types, whose signatures never
+    /// contain callable types. Other charges use [`Self::type_size_for_epoch`].
     pub fn type_size(&self) -> Result<u32, ClarityTypeError> {
         self.inner_type_size()
             .ok_or(ClarityTypeError::ValueTooLarge)
@@ -1494,6 +1511,84 @@ impl TypeSignature {
                     .checked_add(1)
             }
             CallableType(_) | TraitReferenceType(_) | ListUnionType(_) => Some(1),
+        }
+    }
+
+    /// Type-signature size to charge for in `epoch`.
+    ///
+    /// From Epoch 4.1, callable types count the identifiers they hold. It is a
+    /// charge, not a limit, so it saturates instead of failing.
+    pub fn type_size_for_epoch(&self, epoch: &StacksEpochId) -> Result<u32, ClarityTypeError> {
+        if epoch.charges_callable_type_size() {
+            Ok(self.charged_type_size())
+        } else {
+            self.type_size()
+        }
+    }
+
+    /// Value size to charge for in `epoch`. From Epoch 4.1, list and tuple
+    /// types are sized by [`Self::type_size_for_epoch`], and a value of a
+    /// union type by its largest member. Like [`Self::type_size_for_epoch`],
+    /// it saturates instead of failing.
+    pub fn size_for_epoch(&self, epoch: &StacksEpochId) -> Result<u32, ClarityTypeError> {
+        if epoch.charges_callable_type_size() {
+            Ok(self.charged_size())
+        } else {
+            self.size()
+        }
+    }
+
+    /// [`Self::inner_type_size`], plus the identifiers callable types hold.
+    fn charged_type_size(&self) -> u32 {
+        match self {
+            NoType | IntType | UIntType | BoolType | PrincipalType => 1,
+            TupleType(tuple_sig) => tuple_sig.charged_type_size(),
+            SequenceType(SequenceSubtype::BufferType(_))
+            | SequenceType(SequenceSubtype::StringType(_)) => 1 + 4,
+            SequenceType(SequenceSubtype::ListType(list_type)) => list_type.charged_type_size(),
+            OptionalType(t) => t.charged_type_size().saturating_add(1),
+            ResponseType(v) => {
+                v.0.charged_type_size()
+                    .saturating_add(v.1.charged_type_size())
+                    .saturating_add(1)
+            }
+            CallableType(subtype) => subtype.size().saturating_add(1),
+            TraitReferenceType(_) => TRAIT_SIZE + 1,
+            ListUnionType(subtypes) => subtypes
+                .iter()
+                .fold(1, |total, subtype| total.saturating_add(subtype.size())),
+        }
+    }
+
+    /// [`Self::inner_size`], with types sized by [`Self::charged_type_size`],
+    /// a union by its largest member, and no `MAX_VALUE_SIZE` cap.
+    fn charged_size(&self) -> u32 {
+        match self {
+            NoType => 1,
+            IntType | UIntType => 16,
+            BoolType => 1,
+            PrincipalType => PRINCIPAL_SIZE,
+            TupleType(tuple_sig) => tuple_sig.charged_size(),
+            SequenceType(SequenceSubtype::BufferType(len))
+            | SequenceType(SequenceSubtype::StringType(StringSubtype::ASCII(len))) => {
+                4 + u32::from(len)
+            }
+            SequenceType(SequenceSubtype::ListType(list_type)) => list_type.charged_size(),
+            SequenceType(SequenceSubtype::StringType(StringSubtype::UTF8(len))) => {
+                4 + 4 * u32::from(len)
+            }
+            OptionalType(t) => t.charged_size().saturating_add(WRAPPER_VALUE_SIZE),
+            ResponseType(v) => {
+                cmp::max(v.0.charged_size(), v.1.charged_size()).saturating_add(WRAPPER_VALUE_SIZE)
+            }
+            CallableType(subtype) => subtype.size(),
+            TraitReferenceType(_) => TRAIT_SIZE,
+            // A list entry of this type is one of the members.
+            ListUnionType(subtypes) => subtypes
+                .iter()
+                .map(CallableSubtype::size)
+                .max()
+                .unwrap_or(PRINCIPAL_SIZE),
         }
     }
 
@@ -1535,13 +1630,13 @@ impl TypeSignature {
                 // The actual value size is not computed for these types, so we need to just always
                 // return the size that `size()` returns for them, which is the maximum size of a
                 // contract principal with a 128 byte contract name.
-                Some(148)
+                Some(PRINCIPAL_SIZE)
             }
             CallableType(CallableSubtype::Trait(_)) | TraitReferenceType(_) => {
                 // The actual value size is not computed for these types, so we need to just always
                 // return the size that `size()` returns for them, which is the maximum size of a
                 // trait reference with a 128 byte contract name and 128 byte trait name.
-                Some(276)
+                Some(TRAIT_SIZE)
             }
         };
         Ok(out)
@@ -1576,6 +1671,17 @@ impl ListTypeData {
             Some(total_size)
         }
     }
+
+    fn charged_size(&self) -> u32 {
+        self.entry_type
+            .charged_size()
+            .saturating_mul(self.max_len)
+            .saturating_add(self.charged_type_size())
+    }
+
+    fn charged_type_size(&self) -> u32 {
+        self.entry_type.charged_type_size().saturating_add(4 + 1)
+    }
 }
 
 impl TupleTypeSignature {
@@ -1603,6 +1709,32 @@ impl TupleTypeSignature {
         self.inner_size()?.ok_or_else(|| {
             ClarityTypeError::InvariantViolation("size() overflowed on a constructed type.".into())
         })
+    }
+
+    fn charged_type_size(&self) -> u32 {
+        let field_count = u32::try_from(self.type_map.len()).unwrap_or(u32::MAX);
+        self.type_map.iter().fold(
+            field_count.saturating_mul(2),
+            |total, (name, type_signature)| {
+                total
+                    .saturating_add(type_signature.charged_type_size())
+                    .saturating_add(name.len() as u32)
+            },
+        )
+    }
+
+    fn charged_size(&self) -> u32 {
+        let field_count = u32::try_from(self.type_map.len()).unwrap_or(u32::MAX);
+        self.type_map.iter().fold(
+            field_count
+                .saturating_mul(2)
+                .saturating_add(self.charged_type_size()),
+            |total, (name, type_signature)| {
+                total
+                    .saturating_add(type_signature.charged_size())
+                    .saturating_add(name.len() as u32)
+            },
+        )
     }
 
     fn max_depth(&self) -> u8 {

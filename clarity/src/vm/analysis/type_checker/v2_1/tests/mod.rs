@@ -4756,7 +4756,7 @@ fn test_in_contract_trait_entry_metered_from_epoch40() {
     // contracts, so the runtime difference must be exactly the two in-contract
     // lookups (trait-a and trait-b, equally sized) newly charged at Epoch 4.0.
     let trait_sig = post.defined_traits.get("trait-a").expect("trait-a defined");
-    let type_size = super::trait_type_size(trait_sig).expect("trait size");
+    let type_size = super::trait_type_size(trait_sig, &StacksEpochId::Epoch40).expect("trait size");
     let mut expected =
         LimitedCostTracker::new_with_limit(StacksEpochId::Epoch40, ExecutionCost::max_value());
     for _ in 0..2 {
@@ -4780,15 +4780,162 @@ fn test_in_contract_trait_entry_metered_from_epoch40() {
     assert_eq!(post_cost.write_length, pre_cost.write_length);
 }
 
+/// Analyzes `contract` as `version` at `epoch`. A 4.1 deploy runs as the latest
+/// Clarity version on chain; pinning the version isolates the epoch.
+fn analyze_contract_at(
+    contract: &str,
+    epoch: StacksEpochId,
+    version: ClarityVersion,
+) -> Result<ContractAnalysis, StaticCheckError> {
+    let id = QualifiedContractIdentifier::transient();
+    let ast = build_ast(&id, contract, &mut (), version, epoch).expect("ast");
+    let mut marf = MemoryBackingStore::new();
+    let mut adb = marf.as_analysis_db();
+    let tracker = LimitedCostTracker::new_with_limit(epoch, ExecutionCost::max_value());
+    run_analysis(
+        &id,
+        &ast.expressions,
+        &mut adb,
+        false,
+        tracker,
+        epoch,
+        version,
+        true,
+        ResourceLimiter::unlimited(),
+    )
+    .map_err(|e| e.0)
+}
+
+fn analysis_cost_at(
+    contract: &str,
+    epoch: StacksEpochId,
+    version: ClarityVersion,
+) -> ExecutionCost {
+    analyze_contract_at(contract, epoch, version)
+        .expect("analysis succeeds")
+        .cost_track
+        .as_ref()
+        .expect("cost tracker present")
+        .get_total()
+}
+
+/// From Epoch 4.1, analysis charges memory for the identifiers callable types
+/// hold, compared with a `uint` twin of the same contract: the constant's list
+/// type holds three contract principals (148 bytes each), and the stored
+/// function signature holds a trait (276 bytes).
+#[rstest]
+#[case::before_epoch41(StacksEpochId::Epoch40, 0)]
+#[case::from_epoch41(StacksEpochId::Epoch41, 3 * 148 + 276)]
+fn test_callable_type_memory_charged_from_epoch41(
+    #[case] epoch: StacksEpochId,
+    #[case] extra_memory: u64,
+) {
+    let contract = |items: &str, arg_type: &str| {
+        format!(
+            "(define-trait trait-a ((f (uint) (response bool bool))))
+             (define-constant items (list {items}))
+             (define-private (call (t {arg_type})) true)"
+        )
+    };
+    let memory = |contract: &str| {
+        analyze_contract_at(contract, epoch, ClarityVersion::Clarity2)
+            .expect("analysis succeeds")
+            .cost_track
+            .as_ref()
+            .expect("cost tracker present")
+            .get_memory()
+    };
+
+    let callables = memory(&contract(".a .b .c", "<trait-a>"));
+    let uints = memory(&contract("u1 u2 u3", "uint"));
+    assert_eq!(callables - uints, extra_memory);
+}
+
+/// Every analysis charge for a constant list of contract principals sizes its
+/// types for the epoch: each item's annotation and list-item check, and the
+/// list's annotation and binding. A `uint` item and its list type are sized 1
+/// and 1 + 5 bytes in every epoch, so the `uint` twin is the control.
+#[rstest]
+#[case::before_epoch41(StacksEpochId::Epoch40, 1, 1 + 5)]
+#[case::from_epoch41(StacksEpochId::Epoch41, 1 + 148, 1 + 2 * 148 + 5)]
+fn test_principal_list_analysis_cost(
+    #[case] epoch: StacksEpochId,
+    #[case] item_size: u64,
+    #[case] list_size: u64,
+) {
+    let runtime_of = |item: u64, list: u64| -> u64 {
+        let mut tracker = LimitedCostTracker::new_with_limit(epoch, ExecutionCost::max_value());
+        let charges = [
+            (ClarityCostFunction::AnalysisTypeAnnotate, item),
+            (ClarityCostFunction::AnalysisListItemsCheck, item),
+            (ClarityCostFunction::AnalysisTypeAnnotate, item),
+            (ClarityCostFunction::AnalysisListItemsCheck, item),
+            (ClarityCostFunction::AnalysisTypeAnnotate, list),
+            (ClarityCostFunction::AnalysisBindName, list),
+        ];
+        for (cost_function, size) in charges {
+            runtime_cost(cost_function, &mut tracker, size).expect("charge");
+        }
+        tracker.get_total().runtime
+    };
+
+    let cost = |contract| analysis_cost_at(contract, epoch, ClarityVersion::Clarity2);
+    let principals = cost("(define-constant items (list .a .b))");
+    let uints = cost("(define-constant items (list u1 u2))");
+    assert_eq!(
+        principals.runtime - uints.runtime,
+        runtime_of(item_size, list_size) - runtime_of(1, 1 + 5)
+    );
+}
+
+/// Trait arguments, `let`, `match` and `map` over trait values cost more to
+/// analyze from Epoch 4.1, compared with a `uint` twin of the same contract.
+#[test]
+fn test_trait_value_analysis_cost_from_epoch41() {
+    let contract = |arg_type: &str| {
+        format!(
+            "(define-trait trait-a ((f () (response bool uint))))
+             (define-private (id (t {arg_type})) t)
+             (define-private (uses (t {arg_type}))
+               (let ((ts (list t t)))
+                 (match (some ts) found (len (map id found)) u0)))"
+        )
+    };
+    let extra_cost = |epoch: StacksEpochId| {
+        let cost =
+            |arg_type| analysis_cost_at(&contract(arg_type), epoch, ClarityVersion::Clarity2);
+        i128::from(cost("<trait-a>").runtime) - i128::from(cost("uint").runtime)
+    };
+
+    assert!(extra_cost(StacksEpochId::Epoch41) > extra_cost(StacksEpochId::Epoch40));
+}
+
+/// The 2.05 type checker and its cost contract are frozen, so this contract's
+/// analysis cost never changes.
+#[test]
+fn test_epoch2_05_checker_keeps_legacy_type_sizes() {
+    let contract = "(define-trait trait-a ((f (uint) (response bool bool))))
+                    (define-private (pick (t <trait-a>)) t)";
+    let cost = analysis_cost_at(contract, StacksEpochId::Epoch2_05, ClarityVersion::Clarity1);
+    assert_eq!(cost.runtime, 530);
+}
+
 /// Argument errors retain any computed cost, while arity-only checks omit costs.
 #[test]
 fn test_argument_visitor_retains_cost_on_type_error() {
-    let first = FunctionType::ArithmeticVariadic.check_args_visitor_2_1(&mut (), &IntType, 0, None);
+    let first = FunctionType::ArithmeticVariadic.check_args_visitor_2_1(
+        &mut (),
+        StacksEpochId::latest(),
+        &IntType,
+        0,
+        None,
+    );
     assert!(matches!(first.cost, Some(Ok(_))));
     assert_eq!(first.result.unwrap(), Some(IntType));
 
     let mismatch = FunctionType::ArithmeticVariadic.check_args_visitor_2_1(
         &mut (),
+        StacksEpochId::latest(),
         &UIntType,
         1,
         Some(&IntType),
@@ -4799,8 +4946,13 @@ fn test_argument_visitor_retains_cost_on_type_error() {
         StaticCheckErrorKind::TypeError(expected, actual) if *expected == IntType && *actual == UIntType
     ));
 
-    let extra_argument =
-        FunctionType::ArithmeticUnary.check_args_visitor_2_1(&mut (), &IntType, 1, None);
+    let extra_argument = FunctionType::ArithmeticUnary.check_args_visitor_2_1(
+        &mut (),
+        StacksEpochId::latest(),
+        &IntType,
+        1,
+        None,
+    );
     assert!(extra_argument.cost.is_none());
     assert!(matches!(
         *extra_argument.result.unwrap_err().err,

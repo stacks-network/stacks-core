@@ -546,6 +546,147 @@ fn test_type_min_size_tuple_with_list_matches_minimum_value() {
     assert_eq!(min_value.size().unwrap(), declared_type.min_size().unwrap());
 }
 
+fn tuple_type(fields: Vec<(&str, TypeSignature)>) -> TypeSignature {
+    let fields = fields
+        .into_iter()
+        .map(|(name, ty)| (ClarityName::try_from(name.to_string()).unwrap(), ty))
+        .collect::<Vec<_>>();
+    TypeSignature::from(TupleTypeSignature::try_from(fields).unwrap())
+}
+
+/// Before Epoch 4.1 the charged sizes are the legacy ones. From 4.1, callable
+/// types count the identifiers they hold, and a union counts every member.
+#[rstest]
+#[case::principal(
+    TypeSignature::CallableType(callable_principal_subtype("foo")),
+    1,
+    148,
+    149,
+    148
+)]
+#[case::trait_value(
+    TypeSignature::CallableType(callable_trait_subtype("traits", "foo")),
+    1,
+    276,
+    277,
+    276
+)]
+#[case::trait_reference(
+    TypeSignature::TraitReferenceType(trait_id("traits", "foo")),
+    1,
+    276,
+    277,
+    276
+)]
+#[case::union(
+    list_union_type(vec![
+        callable_principal_subtype("foo"),
+        callable_principal_subtype("bar"),
+        callable_trait_subtype("traits", "foo"),
+    ]),
+    1,
+    148,
+    1 + 148 + 148 + 276,
+    276
+)]
+#[case::list_of_union(
+    TypeSignature::list_of(
+        list_union_type(vec![
+            callable_principal_subtype("foo"),
+            callable_trait_subtype("traits", "foo"),
+        ]),
+        2,
+    )
+    .unwrap(),
+    1 + 5,
+    148 * 2 + 1 + 5,
+    1 + 148 + 276 + 5,
+    276 * 2 + 1 + 148 + 276 + 5
+)]
+#[case::tuple_with_trait(
+    tuple_type(vec![("t", TypeSignature::CallableType(callable_trait_subtype("traits", "foo")))]),
+    2 + 1 + 1,
+    2 + (2 + 1 + 1) + 276 + 1,
+    2 + 277 + 1,
+    2 + (2 + 277 + 1) + 276 + 1
+)]
+#[case::optional_principal(
+    TypeSignature::new_option(TypeSignature::CallableType(callable_principal_subtype("foo"))).unwrap(),
+    1 + 1,
+    148 + 1,
+    149 + 1,
+    148 + 1
+)]
+#[case::response_with_principal(
+    TypeSignature::new_response(TypeSignature::CallableType(callable_principal_subtype("foo")), UIntType)
+        .unwrap(),
+    1 + 1 + 1,
+    148 + 1,
+    149 + 1 + 1,
+    148 + 1
+)]
+fn test_callable_type_size_for_epoch(
+    #[case] ty: TypeSignature,
+    #[case] legacy_type_size: u32,
+    #[case] legacy_size: u32,
+    #[case] type_size: u32,
+    #[case] size: u32,
+    #[values(StacksEpochId::Epoch21, StacksEpochId::Epoch40)] legacy_epoch: StacksEpochId,
+) {
+    assert_eq!(ty.type_size().unwrap(), legacy_type_size);
+    assert_eq!(ty.size().unwrap(), legacy_size);
+    assert_eq!(
+        ty.type_size_for_epoch(&legacy_epoch).unwrap(),
+        legacy_type_size
+    );
+    assert_eq!(ty.size_for_epoch(&legacy_epoch).unwrap(), legacy_size);
+
+    let epoch = StacksEpochId::Epoch41;
+    assert_eq!(ty.type_size_for_epoch(&epoch).unwrap(), type_size);
+    assert_eq!(ty.size_for_epoch(&epoch).unwrap(), size);
+}
+
+/// Types without callable parts are sized the same in every epoch.
+#[rstest]
+#[case::no_type(TypeSignature::NoType)]
+#[case::int(IntType)]
+#[case::uint(UIntType)]
+#[case::bool(BoolType)]
+#[case::principal(TypeSignature::PrincipalType)]
+#[case::buffer(TypeSignature::BUFFER_MAX)]
+#[case::ascii(TypeSignature::new_ascii_type_checked(17))]
+#[case::utf8(utf8_type(9))]
+#[case::empty_list(TypeSignature::list_of(IntType, 0).unwrap())]
+#[case::list_of_lists(
+    TypeSignature::list_of(TypeSignature::list_of(BoolType, 3).unwrap(), 4).unwrap()
+)]
+#[case::list_of_tuples(
+    TypeSignature::list_of(
+        tuple_type(vec![
+            ("a", IntType),
+            ("b", TypeSignature::new_option(TypeSignature::BUFFER_MIN).unwrap()),
+        ]),
+        10,
+    )
+    .unwrap()
+)]
+#[case::tuple_with_list(tuple_type(vec![("items", TypeSignature::list_of(UIntType, 5).unwrap())]))]
+#[case::optional_no_type(TypeSignature::new_option(TypeSignature::NoType).unwrap())]
+#[case::response(
+    TypeSignature::new_response(tuple_type(vec![("a", IntType)]), UIntType).unwrap()
+)]
+#[case::lopsided_response(
+    TypeSignature::new_response(TypeSignature::NoType, TypeSignature::BUFFER_MIN).unwrap()
+)]
+fn test_non_callable_type_size_unchanged_in_epoch_41(#[case] ty: TypeSignature) {
+    let epoch = StacksEpochId::Epoch41;
+    assert_eq!(
+        ty.type_size_for_epoch(&epoch).unwrap(),
+        ty.type_size().unwrap()
+    );
+    assert_eq!(ty.size_for_epoch(&epoch).unwrap(), ty.size().unwrap());
+}
+
 #[rstest]
 #[case::runtime(false)]
 #[case::analysis(true)]

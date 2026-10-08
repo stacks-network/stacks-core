@@ -83,18 +83,44 @@ macro_rules! finally_drop_memory {
     }};
 }
 
+/// Cost of checking `t1` against `t2`, with types sized for `epoch`.
+pub fn compute_typecheck_cost<T: CostTracker>(
+    track: &mut T,
+    epoch: StacksEpochId,
+    t1: &TypeSignature,
+    t2: &TypeSignature,
+) -> Result<ExecutionCost, CostErrors> {
+    let t1_size = t1
+        .type_size_for_epoch(&epoch)
+        .map_err(|_| CostErrors::CostOverflow)?;
+    let t2_size = t2
+        .type_size_for_epoch(&epoch)
+        .map_err(|_| CostErrors::CostOverflow)?;
+    track.compute_cost(
+        ClarityCostFunction::AnalysisTypeCheck,
+        &[cmp::max(t1_size, t2_size).into()],
+    )
+}
+
+/// Charges for checking `t1` against `t2`, with types sized for `epoch`.
+pub fn analysis_typecheck_cost_for_epoch<T: CostTracker>(
+    track: &mut T,
+    epoch: StacksEpochId,
+    t1: &TypeSignature,
+    t2: &TypeSignature,
+) -> Result<(), CostErrors> {
+    let cost = compute_typecheck_cost(track, epoch, t1, t2)?;
+    track.add_cost(cost)
+}
+
+/// [`analysis_typecheck_cost_for_epoch`] with legacy type sizes, for the 2.05
+/// type checker.
 pub fn analysis_typecheck_cost<T: CostTracker>(
     track: &mut T,
     t1: &TypeSignature,
     t2: &TypeSignature,
 ) -> Result<(), CostErrors> {
-    let t1_size = t1.type_size().map_err(|_| CostErrors::CostOverflow)?;
-    let t2_size = t2.type_size().map_err(|_| CostErrors::CostOverflow)?;
-    let cost = track.compute_cost(
-        ClarityCostFunction::AnalysisTypeCheck,
-        &[cmp::max(t1_size, t2_size) as u64],
-    )?;
-    track.add_cost(cost)
+    analysis_typecheck_cost_for_epoch(track, StacksEpochId::Epoch2_05, t1, t2)
 }
 
 pub trait MemoryConsumer {

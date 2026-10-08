@@ -62,6 +62,18 @@ pub const MAX_TO_ASCII_BUFFER_LEN: u32 = (MAX_TO_ASCII_RESULT_LEN - 2) / 2;
 pub const MAX_TYPE_DEPTH: u8 = 32;
 /// this is the charged size for wrapped values, i.e., response or optionals
 pub const WRAPPER_VALUE_SIZE: u32 = 1;
+/// Pessimistic upper-bound size of a principal value.
+///
+/// 20 bytes (Hash160) + 128 bytes ([`MAX_STRING_LEN`](crate::representations::MAX_STRING_LEN)).
+///
+/// Note: contract names are actually limited to 40 bytes
+/// ([`CONTRACT_MAX_NAME_LENGTH`](crate::representations::CONTRACT_MAX_NAME_LENGTH)),
+/// but this constant conservatively uses the general `ClarityName` max of 128.
+pub const PRINCIPAL_SIZE: u32 = 148;
+/// Pessimistic upper-bound size of a trait reference.
+///
+/// [`PRINCIPAL_SIZE`] + 128 bytes for the trait name.
+pub const TRAIT_SIZE: u32 = PRINCIPAL_SIZE + 128;
 /// Maximum byte length for Value string representations in error messages.
 /// Deliberately smaller than `MAX_ERROR_MESSAGE_LEN` so a rendered value
 /// cannot eat the whole message budget.
@@ -436,6 +448,18 @@ impl SequenceData {
             SequenceData::String(CharType::UTF8(..)) => TypeSignature::STRING_UTF8_MIN.size(),
         }?;
         Ok(out)
+    }
+
+    /// [`Self::element_size`] to charge for in `epoch`; see
+    /// [`TypeSignature::size_for_epoch`].
+    pub fn element_size_for_epoch(&self, epoch: &StacksEpochId) -> Result<u32, ClarityTypeError> {
+        match self {
+            SequenceData::List(data) => data
+                .type_signature
+                .get_list_item_type()
+                .size_for_epoch(epoch),
+            _ => self.element_size(),
+        }
     }
 
     pub fn len(&self) -> usize {
@@ -1064,6 +1088,11 @@ impl Value {
 
     pub fn size(&self) -> Result<u32, ClarityTypeError> {
         TypeSignature::type_of(self)?.size()
+    }
+
+    /// Size to charge for this value in `epoch`; see [`TypeSignature::size_for_epoch`].
+    pub fn size_for_epoch(&self, epoch: &StacksEpochId) -> Result<u32, ClarityTypeError> {
+        TypeSignature::type_of(self)?.size_for_epoch(epoch)
     }
 
     pub fn depth(&self) -> Result<u8, ClarityTypeError> {
