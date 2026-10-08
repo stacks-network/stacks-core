@@ -33,7 +33,9 @@ use crate::vm::analysis::{AnalysisDatabase, ContractAnalysis};
 use crate::vm::contexts::ContractContext;
 use crate::vm::contracts::Contract;
 use crate::vm::costs::{CostOverflowingMath, ExecutionCost};
-use crate::vm::database::caching::{CachedContract, ClarityExecutionCache};
+use crate::vm::database::caching::{
+    CachedContract, ClarityExecutionCache, EXISTING_CONTRACTS_LIMIT,
+};
 use crate::vm::database::structures::{
     ClarityDeserializable, ClaritySerializable, DataMapMetadata, DataVariableMetadata,
     FungibleTokenMetadata, NonFungibleTokenMetadata, STXBalance, STXBalanceSnapshot,
@@ -908,6 +910,7 @@ impl<'a> ClarityDatabase<'a> {
                 .store
                 .has_pending_metadata(contract_identifier, &[&key])
             && let Some(cache) = self.execution_cache.as_deref_mut()
+            && cache.existing_contracts.len() < EXISTING_CONTRACTS_LIMIT
         {
             cache.existing_contracts.insert(contract_identifier.clone());
         }
@@ -2937,6 +2940,20 @@ mod tests {
         db.roll_back().unwrap();
     }
 
+    /// The store lacks this planted entry, so `true` proves the set answered without a read.
+    #[test]
+    fn has_contract_serves_existing_contract() {
+        let mut cache = ClarityExecutionCache::default();
+        let mut store = MemoryBackingStore::new();
+        let id = QualifiedContractIdentifier::local("planted").unwrap();
+        cache.existing_contracts.insert(id.clone());
+
+        let mut db = store.as_clarity_db().with_cache(&mut cache);
+        db.begin();
+        assert!(db.has_contract(&id));
+        db.roll_back().unwrap();
+    }
+
     #[test]
     fn has_contract_remembers_stored_contract() {
         let mut cache = ClarityExecutionCache::default();
@@ -2949,6 +2966,26 @@ mod tests {
         assert!(db.has_contract(&id));
         db.roll_back().unwrap();
         assert!(cache.existing_contracts.contains(&id));
+    }
+
+    /// A full set still finds the stored contract in the store, but no longer remembers it.
+    #[test]
+    fn has_contract_stops_remembering_at_limit() {
+        let mut cache = ClarityExecutionCache::default();
+        let mut store = MemoryBackingStore::new();
+        let id = QualifiedContractIdentifier::local("stored").unwrap();
+        deploy_stub_contract(&mut store.as_clarity_db(), &id);
+        for i in 0..EXISTING_CONTRACTS_LIMIT {
+            let filler = QualifiedContractIdentifier::local(&format!("filler-{i}")).unwrap();
+            cache.existing_contracts.insert(filler);
+        }
+
+        let mut db = store.as_clarity_db().with_cache(&mut cache);
+        db.begin();
+        assert!(db.has_contract(&id));
+        db.roll_back().unwrap();
+        assert!(!cache.existing_contracts.contains(&id));
+        assert_eq!(cache.existing_contracts.len(), EXISTING_CONTRACTS_LIMIT);
     }
 
     #[test]

@@ -36,6 +36,9 @@ mod weight_limited_fifo;
 /// allocator abort callback, however, and this mechanism serves as a conservative & deterministic
 /// policy for if/when costs are optimized to account for cached reads.
 pub const DEFAULT_CONTRACT_CACHE_BYTE_LIMIT: u64 = 5 * 1024 * 1024;
+
+/// Maximum number of entries in [`ClarityExecutionCache::existing_contracts`].
+pub const EXISTING_CONTRACTS_LIMIT: usize = 1024;
 /// A parsed contract and its load-cost size.
 #[derive(Clone)]
 pub struct CachedContract {
@@ -56,6 +59,8 @@ pub struct ClarityExecutionCache {
     /// semantics.
     pub contracts: WeightLimitedFifo<QualifiedContractIdentifier, CachedContract>,
     /// Contracts `has_contract` found in the backing store at the starting view.
+    ///
+    /// Holds at most [`EXISTING_CONTRACTS_LIMIT`] entries
     pub existing_contracts: HashSet<QualifiedContractIdentifier>,
 }
 
