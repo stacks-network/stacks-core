@@ -245,6 +245,7 @@ jobs:
             // 4. Action Extraction Engine (Group by User)
             const userActionsMap = {}; // login -> { mention, actions: [] }
             const actionablePrs = new Set();
+            const waitingOnExternal = []; // action lines for external PRs blocked on their author
 
             const addAction = (login, actionText, prNumber) => {
               const cleanLogin = login.toLowerCase();
@@ -266,9 +267,18 @@ jobs:
               const authorLogin = pr.user.login.toLowerCase();
               
               const isExternal = !allowedUsers.has(authorLogin);
-              // Once a team member has been brought in to review, triage has happened.
-              const hasTeamReviewer = pr.requested_reviewers.some(r => allowedUsers.has(r.login.toLowerCase()));
-              const needsTriage = isExternal && (pr.assignees || []).length === 0 && !hasTeamReviewer;
+
+              // Group the author-blocking states
+              const needsAuthorAction = changesRequested || resolveCount > 0 || pr.merge_conflict_present || pr.out_of_date_with_base;
+
+              // The triager can stand down on an unassigned external PR once the team has engaged and the next step
+              // is someone else's: a team reviewer owes a review (and is nagged below), or the ball is in the
+              // author's court (and the PR just sits until they act). Otherwise, e.g. after a lone approval or a
+              // drive-by comment with nothing left for the author to do, it falls back to the triager.
+              const teamReviewers = pr.requested_reviewers.filter(r => allowedUsers.has(r.login.toLowerCase()));
+              const teamOwesReview = teamReviewers.some(r => r.state === 'AWAITING_REVIEW');
+              const waitingOnAuthor = teamReviewers.length > 0 && needsAuthorAction;
+              const needsTriage = isExternal && (pr.assignees || []).length === 0 && !teamOwesReview && !waitingOnAuthor;
 
               let triagerLogin = null;
               if (needsTriage) {
@@ -281,27 +291,29 @@ jobs:
               }
 
               // Assign whomever owns the next step: the author on internal PRs, the assignee(s) on external ones.
-              // An unassigned external PR has no owner here - either the triage branch above already nagged the
-              // rotation, or team reviewers are on it and get nagged in the reviewer section below.
+              // An unassigned external PR has no owner here - the triage decision above already covered it.
               const owners = isExternal ? (pr.assignees || []).map(a => a.login.toLowerCase()) : [authorLogin];
               // A review already sitting in someone's queue is not the owner's problem.
               const someoneOwesReview = pr.requested_reviewers.some(r => r.state === 'AWAITING_REVIEW');
-              
-              // Group the author-blocking states
-              const needsAuthorAction = changesRequested || resolveCount > 0 || pr.merge_conflict_present || pr.out_of_date_with_base;
 
               if (needsAuthorAction) {
-                // Tasks that strictly belong to the PR author (only nag if they are internal)
-                if (allowedUsers.has(authorLogin)) {
-                  if (changesRequested) {
-                    addAction(authorLogin, `🛑 Changes requested: ${link}`, pr.number);
-                  } else if (resolveCount > 0) {
-                    addAction(authorLogin, `💬 ${resolveCount} ${resolveCount === 1 ? 'comment' : 'comments'} to resolve: ${link}`, pr.number);
-                  } else if (pr.merge_conflict_present) {
-                    addAction(authorLogin, `⚠️ Needs merge conflicts fixed: ${link}`, pr.number);
-                  } else if (pr.out_of_date_with_base) {
-                    addAction(authorLogin, `⏩ Needs rebase/merge: ${link}`, pr.number);
-                  }
+                // Tasks that strictly belong to the PR author
+                let authorAction;
+                if (changesRequested) {
+                  authorAction = `🛑 Changes requested: ${link}`;
+                } else if (resolveCount > 0) {
+                  authorAction = `💬 ${resolveCount} ${resolveCount === 1 ? 'comment' : 'comments'} to resolve: ${link}`;
+                } else if (pr.merge_conflict_present) {
+                  authorAction = `⚠️ Needs merge conflicts fixed: ${link}`;
+                } else {
+                  authorAction = `⏩ Needs rebase/merge: ${link}`;
+                }
+                if (!isExternal) {
+                  addAction(authorLogin, authorAction, pr.number);
+                } else if (!needsTriage) {
+                  // External authors can't be tagged; list the PR without nagging anyone so it stays visible.
+                  // (An untriaged one is already on the triager's list.)
+                  waitingOnExternal.push(authorAction);
                 }
               } else {
                 // If the PR is NOT blocked by the author, check PR management tasks
@@ -353,12 +365,10 @@ jobs:
               return getPlainName(a).localeCompare(getPlainName(b));
             });
 
-            for (const login of sortedLogins) {
-              const userData = userActionsMap[login];
-              if (userData.actions.length === 0) continue;
-              
-              let actionText = userData.mention;
-              for (const action of userData.actions) {
+            // Push a heading followed by its action lines, split across blocks to stay under Slack's text limit
+            const pushActionSections = (heading, actions) => {
+              let actionText = heading;
+              for (const action of actions) {
                 const candidate = `${actionText}\n${action}`;
                 if (candidate.length > 2900) {
                   payload.blocks.push({
@@ -370,11 +380,17 @@ jobs:
                   actionText = candidate;
                 }
               }
-              
+
               payload.blocks.push({
                 type: 'section',
                 text: { type: 'mrkdwn', text: actionText }
               });
+            };
+
+            for (const login of sortedLogins) {
+              const userData = userActionsMap[login];
+              if (userData.actions.length === 0) continue;
+              pushActionSections(userData.mention, userData.actions);
             }
 
             if (sortedLogins.length === 0) {
@@ -382,6 +398,11 @@ jobs:
                 type: 'section',
                 text: { type: 'mrkdwn', text: "_All caught up! No actions required._" }
               });
+            }
+
+            if (waitingOnExternal.length > 0) {
+              payload.blocks.push({ type: 'divider' });
+              pushActionSections('*Waiting on external contributors*', waitingOnExternal);
             }
 
             // 6. Send payload via Webhook
