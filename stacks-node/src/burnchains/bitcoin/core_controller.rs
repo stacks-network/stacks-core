@@ -139,9 +139,12 @@ impl BitcoinCoreController {
                 .duration_since(std::time::UNIX_EPOCH)
                 .unwrap()
                 .as_micros();
-            
+
             // Convert the resulting PathBuf into a String to match self.data_path
-            shm_path.join(format!("bitcoin_test_datadir_{}", unique_id)).to_string_lossy().to_string()
+            shm_path
+                .join(format!("bitcoin_test_datadir_{}", unique_id))
+                .to_string_lossy()
+                .to_string()
         } else {
             // Fallback to the standard path for macOS/Windows local development
             self.data_path.clone()
