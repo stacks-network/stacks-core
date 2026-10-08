@@ -126,15 +126,59 @@ impl BitcoinCoreController {
         self.args.push(arg.into());
         self
     }
-
+    
     /// Start Bitcoind process
     pub fn start_bitcoind(&mut self) -> BitcoinResult<()> {
-        std::fs::create_dir_all(&self.data_path).unwrap();
+        // --- RAMDISK OPTIMIZATION ---
+        // Check if Linux RAM disk is available. If so, use it to dramatically speed up disk I/O.
+        // This is primarily used for CI pipeline tests against Linux action runners
+        let shm_path = std::path::Path::new("/dev/shm");
+        let optimized_data_dir = if shm_path.exists() {
+            // Generate a unique folder name to prevent parallel test collisions
+            let unique_id = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_micros();
+            shm_path.join(format!("bitcoin_test_datadir_{}", unique_id))
+        } else {
+            // Fallback to the standard path for macOS/Windows local development
+            self.data_path.clone() 
+        };
+
+        std::fs::create_dir_all(&optimized_data_dir).unwrap();
+        
+        // Update the struct's path so the rest of the test framework knows where the data is
+        self.data_path = optimized_data_dir.clone();
 
         let mut command = Command::new("bitcoind");
         command.stdout(Stdio::piped());
 
-        command.args(self.args.clone());
+        // --- ARGUMENTS INJECTION ---
+        // 1. Strip any existing `-datadir=` from self.args to avoid conflicts
+        let mut final_args: Vec<String> = self.args
+            .iter()
+            .filter(|arg| !arg.starts_with("-datadir="))
+            .cloned()
+            .collect();
+
+        // 2. Inject the optimized datadir path
+        final_args.push(format!("-datadir={}", self.data_path.display()));
+
+        // 3. Inject P2P and Wallet speedup flags (if not already provided)
+        let speedup_flags = [ 
+            "-discover=0", 
+            "-dnsseed=0", 
+            "-upnp=0", 
+            "-natpmp=0"
+        ];
+        
+        for flag in speedup_flags {
+            if !final_args.contains(&flag.to_string()) {
+                final_args.push(flag.to_string());
+            }
+        }
+
+        command.args(&final_args);
 
         info!("bitcoind spawn: {command:?}");
 
