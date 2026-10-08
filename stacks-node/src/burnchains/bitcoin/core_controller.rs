@@ -126,7 +126,7 @@ impl BitcoinCoreController {
         self.args.push(arg.into());
         self
     }
-    
+
     /// Start Bitcoind process
     pub fn start_bitcoind(&mut self) -> BitcoinResult<()> {
         // --- RAMDISK OPTIMIZATION ---
@@ -142,11 +142,11 @@ impl BitcoinCoreController {
             shm_path.join(format!("bitcoin_test_datadir_{}", unique_id))
         } else {
             // Fallback to the standard path for macOS/Windows local development
-            self.data_path.clone() 
+            self.data_path.clone()
         };
 
         std::fs::create_dir_all(&optimized_data_dir).unwrap();
-        
+
         // Update the struct's path so the rest of the test framework knows where the data is
         self.data_path = optimized_data_dir.clone();
 
@@ -155,7 +155,8 @@ impl BitcoinCoreController {
 
         // --- ARGUMENTS INJECTION ---
         // 1. Strip any existing `-datadir=` from self.args to avoid conflicts
-        let mut final_args: Vec<String> = self.args
+        let mut final_args: Vec<String> = self
+            .args
             .iter()
             .filter(|arg| !arg.starts_with("-datadir="))
             .cloned()
@@ -165,13 +166,8 @@ impl BitcoinCoreController {
         final_args.push(format!("-datadir={}", self.data_path.display()));
 
         // 3. Inject P2P and Wallet speedup flags (if not already provided)
-        let speedup_flags = [ 
-            "-discover=0", 
-            "-dnsseed=0", 
-            "-upnp=0", 
-            "-natpmp=0"
-        ];
-        
+        let speedup_flags = ["-discover=0", "-dnsseed=0", "-upnp=0", "-natpmp=0"];
+
         for flag in speedup_flags {
             if !final_args.contains(&flag.to_string()) {
                 final_args.push(flag.to_string());
