@@ -133,6 +133,7 @@ pub mod signers_wait_for_validation;
 mod signet_qualification;
 pub mod tenure_extend;
 pub mod tenure_start_sibling_accepted;
+pub mod transient_rejection_retry;
 
 impl<Z: SpawnedSignerTrait> SignerTest<Z> {
     /// Poll until the reward set for the next reward cycle is available.
@@ -3588,7 +3589,7 @@ fn snapshot_test() {
 #[ignore]
 /// This test checks the behaviour of signers when a sortition is empty. Specifically:
 /// - An empty tenure will cause the signers to mark a miner as misbehaving once a timeout is exceeded.
-/// - The miner will stop trying to mine once it sees a threshold of signers reject the block
+/// - The miner will resend the proposal since the rejection is categorized as transient
 fn empty_tenure_delayed() {
     if env::var("BITCOIND_TEST") != Ok("1".into()) {
         return;
@@ -3637,6 +3638,7 @@ fn empty_tenure_delayed() {
         naka_mined_blocks: mined_blocks,
         naka_submitted_commits: submitted_commits,
         naka_rejected_blocks: rejected_blocks,
+        naka_proposed_blocks: proposed_blocks,
         ..
     } = signer_test.running_nodes.counters.clone();
 
@@ -3745,13 +3747,22 @@ fn empty_tenure_delayed() {
                 info!("Latest message from slot #{slot_id} isn't a block rejection, will wait to see if the signer updates to a rejection");
             }
         }
-        let rejections = rejected_blocks
-            .load(Ordering::SeqCst);
-
-        // wait until we've found rejections for all the signers, and the miner has confirmed that
-        // the signers have rejected the block
-        Ok(found_rejections.len() == signer_slot_ids.len() && rejections > rejected_before)
+        // wait until we've found rejections for all the signers
+        Ok(found_rejections.len() == signer_slot_ids.len())
     }).unwrap();
+
+    // `ConsensusHashMismatch` is a transient rejection, so rather than abandon
+    // the block, the miner re-sends the same proposal.
+    let proposed_before = proposed_blocks.get();
+    wait_for(short_timeout.as_secs(), || {
+        Ok(proposed_blocks.get() > proposed_before)
+    })
+    .expect("Miner did not re-send the transiently rejected proposal");
+    assert_eq!(
+        rejected_blocks.load(Ordering::SeqCst),
+        rejected_before,
+        "Miner should not treat a transiently rejected block as rejected"
+    );
     info!("------------------------- Shutting Down -------------------------");
     signer_test.shutdown();
 }
