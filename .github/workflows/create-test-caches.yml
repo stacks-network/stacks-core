@@ -133,7 +133,7 @@ jobs:
   cache-cargo:
     name: "Create: Cargo Cache"
     needs:
-      - check-ci
+      - setup-env
     if: needs.check-ci.outputs.enabled == 'true'
     runs-on: ubuntu-latest
     steps:
