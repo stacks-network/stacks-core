@@ -164,31 +164,8 @@ pub trait MarfConnection<T: MarfTrieId> {
 
     fn sqlite_conn(&self) -> &Connection;
 
-    /// Get and check a value against get_from_hash
-    /// (test only)
-    #[cfg(test)]
-    fn get_and_check_with_hash(&mut self, block_hash: &T, key: &str) {
-        let res = self.with_conn(|c| MARF::get_by_key(c, block_hash, key));
-        let res_with_hash =
-            self.with_conn(|c| MARF::get_by_hash(c, block_hash, &TrieHash::from_key(key)));
-        match (res, res_with_hash) {
-            (Ok(Some(x)), Ok(Some(y))) => {
-                assert_eq!(x, y);
-            }
-            (Ok(None), Ok(None)) => {}
-            (Err(_), Err(_)) => {}
-            (x, y) => {
-                panic!("Inconsistency: {x:?} != {y:?}");
-            }
-        }
-    }
-
-    #[cfg(not(test))]
-    fn get_and_check_with_hash(&mut self, _block_hash: &T, _key: &str) {}
-
     /// Resolve a key from the MARF to a MARFValue with respect to the given block height.
     fn get(&mut self, block_hash: &T, key: &str) -> Result<Option<MARFValue>, Error> {
-        self.get_and_check_with_hash(block_hash, key);
         self.with_conn(|c| MARF::get_by_key(c, block_hash, key))
     }
 
@@ -1252,6 +1229,11 @@ impl<T: MarfTrieId> MARF<T> {
         Ok(MARF::from_storage(file_storage))
     }
 
+    /// Load up a MARF value by TrieHash path, given a handle to the storage connection and a tip
+    /// to work off of.
+    ///
+    /// The shared implementation behind [`Self::get_by_hash`] and [`Self::get_by_key`]; the trie
+    /// is addressed by path in every case, those two only differ in how the path is obtained.
     pub fn get_by_path(
         storage: &mut TrieStorageConnection<T>,
         block_hash: &T,
@@ -1282,24 +1264,7 @@ impl<T: MarfTrieId> MARF<T> {
         block_hash: &T,
         key: &str,
     ) -> Result<Option<MARFValue>, Error> {
-        let (cur_block_hash, cur_block_id) = storage.get_cur_block_and_id();
-
-        let path = TrieHash::from_key(key);
-
-        let result = MARF::get_path(storage, block_hash, &path).or_else(|e| match e {
-            Error::NotFoundError => Ok(None),
-            _ => Err(e),
-        });
-
-        // restore
-        storage
-            .open_block_maybe_id(&cur_block_hash, cur_block_id)
-            .inspect_err(|e| {
-                warn!("Failed to re-open {cur_block_hash} {cur_block_id:?}: {e:?}");
-                warn!("Result of failed key lookup '{key}': {result:?}");
-            })?;
-
-        result.map(|option_result| option_result.map(|leaf| leaf.data))
+        MARF::get_by_path(storage, block_hash, &TrieHash::from_key(key))
     }
 
     /// Load up a MARF value by TrieHash, given a handle to the storage connection and a tip to
@@ -1309,22 +1274,7 @@ impl<T: MarfTrieId> MARF<T> {
         block_hash: &T,
         path: &TrieHash,
     ) -> Result<Option<MARFValue>, Error> {
-        let (cur_block_hash, cur_block_id) = storage.get_cur_block_and_id();
-
-        let result = MARF::get_path(storage, block_hash, path).or_else(|e| match e {
-            Error::NotFoundError => Ok(None),
-            _ => Err(e),
-        });
-
-        // restore
-        storage
-            .open_block_maybe_id(&cur_block_hash, cur_block_id)
-            .inspect_err(|e| {
-                warn!("Failed to re-open {cur_block_hash} {cur_block_id:?}: {e:?}");
-                warn!("Result of failed hash lookup '{path}': {result:?}");
-            })?;
-
-        result.map(|option_result| option_result.map(|leaf| leaf.data))
+        MARF::get_by_path(storage, block_hash, path)
     }
 
     /// Read `OWN_BLOCK_HEIGHT_KEY` for the block the caller is standing on.

@@ -10,6 +10,15 @@ on:
     types:
       - checks_requested
   workflow_dispatch: # Allows manual triggering
+    inputs:
+      btc-version:
+        description: 'The version of the bitcoin binary to use for tests'
+        required: false
+        type: string
+      btc-version-sha:
+        description: 'The SHA of the binary to verify before executing the tests. Find these in the official SHA256SUMS file for each release. Example: https://bitcoincore.org/bin/bitcoin-core-31.1/SHA256SUMS'
+        required: false
+        type: string
   pull_request:
     types:
       - opened
@@ -33,6 +42,7 @@ concurrency:
 
 # Env vars
 env:
+  # The name of the test archive file that is generated
   TEST_ARCHIVE_FILE: "./test_archive.tar.zst"
   # Whether or not to create the slow and failed tests summary
   CREATE_SLOW_FAILED_TESTS_SUMMARY: ${{ (vars.ENABLE_CI_WORKFLOWS == 'true' || github.repository == 'stacks-network/stacks-core') && github.event_name != 'merge_group' }}
@@ -59,10 +69,29 @@ jobs:
     if: needs.check-ci.outputs.enabled == 'true'
     runs-on: &shared_config ubuntu-latest
     outputs:
+      btc-version: ${{ steps.btc-version.outputs.version }}
+      btc-version-sha: ${{ steps.btc-version.outputs.sha }}
       test-archive-file: ${{ steps.set-env.outputs.test_archive_file }}
       create-slow-failed-tests-summary: ${{ steps.set-env.outputs.create_slow_failed_tests_summary }}
       create-code-coverage-report: ${{ steps.set-env.outputs.create_code_coverage_report }}
     steps:
+      # Checkout the code
+      #   - only .github is required for this job
+      - name: Checkout the latest code
+        uses: $/.github/wrappers/checkout
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.ref }}
+          sparse-checkout: |
+            .github
+
+      # Resolve target bitcoin version
+      - name: Resolve Target Bitcoin Version
+        id: btc-version
+        uses: ./.github/actions/bitcoin-version
+        with:
+          btc-version: ${{ inputs.btc-version }}
+          btc-version-sha: ${{ inputs.btc-version-sha }}
+          
       - name: Export Env Variables
         id: set-env
         run: |
@@ -146,6 +175,9 @@ jobs:
       - check-rustfmt
       - setup-env
     uses: ./.github/workflows/_check-test-caches.yml
+    with:
+      btc-version: ${{ needs.setup-env.outputs.btc-version }}
+      btc-version-sha: ${{ needs.setup-env.outputs.btc-version-sha }}
 
   ############################################################################
   ### Cargo Hack Check
@@ -158,17 +190,6 @@ jobs:
       - setup-env
       - check-test-caches
     uses: ./.github/workflows/_check-cargo-hack.yml
-  
-  ############################################################################
-  ### WASM Tests
-  ############################################################################
-  tests-wasm:
-    name: "Tests: WASM"
-    needs:
-      - check-changelog
-      - check-rustfmt
-      - setup-env
-    uses: ./.github/workflows/_tests-wasm.yml
 
   ############################################################################
   ### Constant Check (stacks-inspect)
@@ -181,6 +202,18 @@ jobs:
       - setup-env
       - check-test-caches
     uses: ./.github/workflows/_check-constants.yml
+    
+  ############################################################################
+  ### WASM Tests
+  ############################################################################
+  tests-wasm:
+    name: "Tests: WASM"
+    needs:
+      - check-changelog
+      - check-rustfmt
+      - setup-env
+      - check-test-caches
+    uses: ./.github/workflows/_tests-wasm.yml
 
   ############################################################################
   ### Create Nextest Archive Artifact for Tests
@@ -223,6 +256,8 @@ jobs:
       - setup-env
     uses: ./.github/workflows/_tests-stacks-core.yml
     with:
+      btc-version: ${{ needs.setup-env.outputs.btc-version }}
+      btc-version-sha: ${{ needs.setup-env.outputs.btc-version-sha }}
       archive-file: ${{ needs.setup-env.outputs.test-archive-file }}
       upload-junit-xml: ${{ needs.setup-env.outputs.create-slow-failed-tests-summary }}
       upload-code-coverage: ${{ needs.setup-env.outputs.create-code-coverage-report }}
@@ -240,6 +275,8 @@ jobs:
       - setup-env
     uses: ./.github/workflows/_tests-bitcoin.yml
     with:
+      btc-version: ${{ needs.setup-env.outputs.btc-version }}
+      btc-version-sha: ${{ needs.setup-env.outputs.btc-version-sha }}
       archive-file: ${{ needs.setup-env.outputs.test-archive-file }}
       upload-junit-xml: ${{ needs.setup-env.outputs.create-slow-failed-tests-summary }}
       upload-code-coverage: ${{ needs.setup-env.outputs.create-code-coverage-report }}
@@ -272,6 +309,8 @@ jobs:
       - setup-env
     uses: ./.github/workflows/_tests-p2p.yml
     with:
+      btc-version: ${{ needs.setup-env.outputs.btc-version }}
+      btc-version-sha: ${{ needs.setup-env.outputs.btc-version-sha }}
       archive-file: ${{ needs.setup-env.outputs.test-archive-file }}
       upload-junit-xml: ${{ needs.setup-env.outputs.create-slow-failed-tests-summary }}
       upload-code-coverage: ${{ needs.setup-env.outputs.create-code-coverage-report }}

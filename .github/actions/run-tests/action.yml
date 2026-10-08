@@ -6,9 +6,11 @@ description: |
 
 inputs:
   btc-version:
-    description: "Bitcoin version"
-    required: false
-    default: "25.0"
+    description: "Bitcoin binary version"
+    required: true
+  btc-version-sha:
+    description: "The SHA256 of the bitcoin binary to verify before executing tests"
+    required: true
   test-names:
     description: "Comma-separated list of literal test names to run (Required if not partitioning)"
     required: false
@@ -65,6 +67,7 @@ runs:
       with:
         action: restore
         btc-version: ${{ inputs.btc-version }}
+        btc-version-sha: ${{ inputs.btc-version-sha }}
 
     # Symlink bitoind to $PATH
     - name: Link Bitcoin Binary
