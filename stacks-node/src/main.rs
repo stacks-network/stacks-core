@@ -33,16 +33,14 @@ pub mod monitoring;
 
 pub mod burnchains;
 pub mod event_dispatcher;
-pub mod genesis_data;
+pub mod genesis;
 pub mod globals;
 pub mod keychain;
 pub mod nakamoto_node;
 pub mod neon_node;
-pub mod node;
 pub mod operations;
 pub mod run_loop;
 pub mod syncctl;
-pub mod tenure;
 
 use std::collections::HashMap;
 use std::{env, panic, process};
@@ -60,12 +58,10 @@ use stacks_common::alloc_tracker::{tracking_allocator_installed, TrackingAllocat
 #[cfg(not(any(target_os = "macos", target_os = "windows", target_arch = "arm")))]
 use tikv_jemallocator::Jemalloc;
 
-pub use self::burnchains::{BitcoinRegtestController, BurnchainTip};
+pub use self::burnchains::BitcoinRegtestController;
 pub use self::event_dispatcher::EventDispatcher;
 pub use self::keychain::Keychain;
-pub use self::node::{ChainTip, Node};
-pub use self::run_loop::{helium, neon};
-pub use self::tenure::Tenure;
+pub use self::run_loop::neon;
 use crate::neon_node::{BlockMinerThread, TipCandidate};
 use crate::run_loop::boot_nakamoto;
 
@@ -340,10 +336,6 @@ fn main() {
     }
 
     let config_file = match subcommand.as_str() {
-        "helium" => {
-            args.finish();
-            ConfigFile::helium()
-        }
         "testnet" => {
             args.finish();
             ConfigFile::xenon()
@@ -465,21 +457,11 @@ fn main() {
 
     send_pending_event_payloads(&conf);
 
-    let num_round: u64 = 0; // Infinite number of rounds
-
-    if conf.burnchain.mode == "helium" {
-        let mut run_loop = helium::RunLoop::new(conf);
-        if let Err(e) = run_loop.start(num_round) {
-            warn!("Helium runloop exited: {e}");
-        }
-    } else {
-        // `Config::from_config_file` already rejected unsupported modes.
-        if conf.memory_limit_configured() && !tracking_allocator_installed() {
-            panic!("Tracking allocator must be installed to set a memory limit");
-        }
-        let mut run_loop = boot_nakamoto::BootRunLoop::new(conf).unwrap();
-        run_loop.start(None, 0);
+    if conf.memory_limit_configured() && !tracking_allocator_installed() {
+        panic!("Tracking allocator must be installed to set a memory limit");
     }
+    let mut run_loop = boot_nakamoto::BootRunLoop::new(conf).unwrap();
+    run_loop.start(None, 0);
 }
 
 fn version() -> String {
@@ -500,15 +482,6 @@ stacks-node <SUBCOMMAND>
 SUBCOMMANDS:
 
 mainnet\t\tStart a node that will join and stream blocks from the public mainnet.
-
-helium\t\tStart a node based on a local setup relying on a local instance of bitcoind.
-\t\tThe following bitcoin.conf is expected:
-\t\t  chain=regtest
-\t\t  disablewallet=0
-\t\t  txindex=1
-\t\t  server=1
-\t\t  rpcuser=helium
-\t\t  rpcpassword=helium
 
 testnet\t\tStart a node that will join and stream blocks from the public testnet, relying on Bitcoin Testnet.
 

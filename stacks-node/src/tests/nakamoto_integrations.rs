@@ -72,14 +72,13 @@ use stacks::core::test_util::{
     make_contract_publish_versioned, make_stacks_transfer_serialized,
 };
 use stacks::core::{
-    EpochList, StacksEpoch, StacksEpochId, BLOCK_LIMIT_MAINNET_10, HELIUM_BLOCK_LIMIT_20,
+    EpochList, StacksEpoch, StacksEpochId, BLOCK_LIMIT_MAINNET_10, BLOCK_LIMIT_REGTEST_20,
     PEER_VERSION_EPOCH_1_0, PEER_VERSION_EPOCH_2_0, PEER_VERSION_EPOCH_2_05,
     PEER_VERSION_EPOCH_2_1, PEER_VERSION_EPOCH_2_2, PEER_VERSION_EPOCH_2_3, PEER_VERSION_EPOCH_2_4,
     PEER_VERSION_EPOCH_2_5, PEER_VERSION_EPOCH_3_0, PEER_VERSION_EPOCH_3_1, PEER_VERSION_EPOCH_3_2,
     PEER_VERSION_EPOCH_3_3, PEER_VERSION_EPOCH_3_4, PEER_VERSION_EPOCH_4_0, PEER_VERSION_EPOCH_4_1,
     PEER_VERSION_TESTNET,
 };
-use stacks::libstackerdb::SlotMetadata;
 use stacks::net::api::callreadonly::CallReadOnlyRequestBody;
 use stacks::net::api::get_tenures_fork_info::TenureForkingInfo;
 use stacks::net::api::getsigner::GetSignerResponse;
@@ -158,84 +157,84 @@ lazy_static! {
             epoch_id: StacksEpochId::Epoch20,
             start_height: 0,
             end_height: 1,
-            block_limit: HELIUM_BLOCK_LIMIT_20,
+            block_limit: BLOCK_LIMIT_REGTEST_20,
             network_epoch: PEER_VERSION_EPOCH_2_0
         },
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch2_05,
             start_height: 1,
             end_height: 2,
-            block_limit: HELIUM_BLOCK_LIMIT_20,
+            block_limit: BLOCK_LIMIT_REGTEST_20,
             network_epoch: PEER_VERSION_EPOCH_2_05
         },
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch21,
             start_height: 2,
             end_height: 3,
-            block_limit: HELIUM_BLOCK_LIMIT_20,
+            block_limit: BLOCK_LIMIT_REGTEST_20,
             network_epoch: PEER_VERSION_EPOCH_2_1
         },
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch22,
             start_height: 3,
             end_height: 4,
-            block_limit: HELIUM_BLOCK_LIMIT_20,
+            block_limit: BLOCK_LIMIT_REGTEST_20,
             network_epoch: PEER_VERSION_EPOCH_2_2
         },
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch23,
             start_height: 4,
             end_height: 5,
-            block_limit: HELIUM_BLOCK_LIMIT_20,
+            block_limit: BLOCK_LIMIT_REGTEST_20,
             network_epoch: PEER_VERSION_EPOCH_2_3
         },
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch24,
             start_height: 5,
             end_height: 201,
-            block_limit: HELIUM_BLOCK_LIMIT_20,
+            block_limit: BLOCK_LIMIT_REGTEST_20,
             network_epoch: PEER_VERSION_EPOCH_2_4
         },
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch25,
             start_height: 201,
             end_height: 231,
-            block_limit: HELIUM_BLOCK_LIMIT_20,
+            block_limit: BLOCK_LIMIT_REGTEST_20,
             network_epoch: PEER_VERSION_EPOCH_2_5
         },
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch30,
             start_height: 231,
             end_height: 241,
-            block_limit: HELIUM_BLOCK_LIMIT_20,
+            block_limit: BLOCK_LIMIT_REGTEST_20,
             network_epoch: PEER_VERSION_EPOCH_3_0
         },
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch31,
             start_height: 241,
             end_height: 251,
-            block_limit: HELIUM_BLOCK_LIMIT_20,
+            block_limit: BLOCK_LIMIT_REGTEST_20,
             network_epoch: PEER_VERSION_EPOCH_3_1
         },
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch32,
             start_height: 251,
             end_height: 252,
-            block_limit: HELIUM_BLOCK_LIMIT_20,
+            block_limit: BLOCK_LIMIT_REGTEST_20,
             network_epoch: PEER_VERSION_EPOCH_3_2
         },
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch33,
             start_height: 252,
             end_height: 253,
-            block_limit: HELIUM_BLOCK_LIMIT_20,
+            block_limit: BLOCK_LIMIT_REGTEST_20,
             network_epoch: PEER_VERSION_EPOCH_3_3
         },
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch34,
             start_height: 253,
             end_height: 1_002,
-            block_limit: HELIUM_BLOCK_LIMIT_20,
+            block_limit: BLOCK_LIMIT_REGTEST_20,
             network_epoch: PEER_VERSION_EPOCH_3_4
         },
         // Epoch 4.0 is pushed out by default so the typical signer integration
@@ -252,7 +251,7 @@ lazy_static! {
             epoch_id: StacksEpochId::Epoch40,
             start_height: 1_002,
             end_height: STACKS_EPOCH_MAX,
-            block_limit: HELIUM_BLOCK_LIMIT_20,
+            block_limit: BLOCK_LIMIT_REGTEST_20,
             network_epoch: PEER_VERSION_EPOCH_4_0
         },
         // Epoch 4.1 is present but disabled: zero-width at STACKS_EPOCH_MAX, so
@@ -261,7 +260,7 @@ lazy_static! {
             epoch_id: StacksEpochId::Epoch41,
             start_height: STACKS_EPOCH_MAX,
             end_height: STACKS_EPOCH_MAX,
-            block_limit: HELIUM_BLOCK_LIMIT_20,
+            block_limit: BLOCK_LIMIT_REGTEST_20,
             network_epoch: PEER_VERSION_EPOCH_4_1
         },
     ];
@@ -381,32 +380,6 @@ pub fn get_stacker_set(http_origin: &str, cycle: u64) -> Result<GetStackersRespo
         .map_err(|e| format!("{e}"))?;
     info!("Stacker set response: {res}");
     serde_json::from_value(res).map_err(|e| format!("{e}"))
-}
-
-pub fn get_stackerdb_slot_version(
-    http_origin: &str,
-    contract: &QualifiedContractIdentifier,
-    slot_id: u64,
-) -> Option<u32> {
-    let client = reqwest::blocking::Client::new();
-    let path = format!(
-        "{http_origin}/v2/stackerdb/{}/{}",
-        &contract.issuer, &contract.name
-    );
-    let res = client
-        .get(&path)
-        .send()
-        .unwrap()
-        .json::<Vec<SlotMetadata>>()
-        .unwrap();
-    debug!("StackerDB metadata response: {res:?}");
-    res.iter().find_map(|slot| {
-        if u64::from(slot.slot_id) == slot_id {
-            Some(slot.slot_version)
-        } else {
-            None
-        }
-    })
 }
 
 pub fn get_last_block_in_current_tenure(
@@ -731,7 +704,6 @@ pub fn naka_neon_integration_conf(seed: Option<&[u8]>) -> (Config, StacksAddress
     conf.burnchain.peer_host = "127.0.0.1".into();
     conf.burnchain.local_mining_public_key =
         Some(keychain.generate_op_signer().get_public_key().to_hex());
-    conf.burnchain.commit_anchor_block_within = 0;
     conf.node.add_signers_stackerdbs(false);
     conf.node.add_miner_stackerdb(false);
 
@@ -913,23 +885,6 @@ pub fn next_block_and_mine_commit(
         &[node_conf],
         &[node_counters],
         true,
-    )
-}
-
-/// Mine a bitcoin block, and wait until a block-commit has been issued, **or** a timeout occurs
-/// (timeout_secs)
-pub fn next_block_and_commits_only(
-    btc_controller: &BitcoinRegtestController,
-    timeout_secs: u64,
-    node_conf: &Config,
-    node_counters: &Counters,
-) -> Result<(), String> {
-    next_block_and_wait_for_commits(
-        btc_controller,
-        timeout_secs,
-        &[node_conf],
-        &[node_counters],
-        false,
     )
 }
 
@@ -1499,16 +1454,6 @@ pub fn get_key_for_cycle(
         }
         None => Ok(None),
     }
-}
-
-/// Use the read-only to check if the aggregate key is set for a given reward cycle
-pub fn is_key_set_for_cycle(
-    reward_cycle: u64,
-    is_mainnet: bool,
-    http_origin: &str,
-) -> Result<bool, String> {
-    let key = get_key_for_cycle(reward_cycle, is_mainnet, http_origin)?;
-    Ok(key.is_some())
 }
 
 pub fn setup_epoch_3_reward_set(
@@ -14675,9 +14620,9 @@ fn contract_limit_percentage_mempool_strategy_high_limit() {
     let small_proportion: usize = 5;
     let large_proportion: usize = 22;
     let small_contract =
-        make_big_read_count_contract(HELIUM_BLOCK_LIMIT_20, small_proportion as u64);
+        make_big_read_count_contract(BLOCK_LIMIT_REGTEST_20, small_proportion as u64);
     let large_contract =
-        make_big_read_count_contract(HELIUM_BLOCK_LIMIT_20, large_proportion as u64);
+        make_big_read_count_contract(BLOCK_LIMIT_REGTEST_20, large_proportion as u64);
     let expected_big = 100 / large_proportion;
     let expected_small = (100 - large_proportion * expected_big) / small_proportion;
 
@@ -15011,9 +14956,9 @@ fn contract_limit_percentage_mempool_strategy_low_limit() {
     let small_proportion: usize = 5;
     let large_proportion: usize = 22;
     let small_contract =
-        make_big_read_count_contract(HELIUM_BLOCK_LIMIT_20, small_proportion as u64);
+        make_big_read_count_contract(BLOCK_LIMIT_REGTEST_20, small_proportion as u64);
     let large_contract =
-        make_big_read_count_contract(HELIUM_BLOCK_LIMIT_20, large_proportion as u64);
+        make_big_read_count_contract(BLOCK_LIMIT_REGTEST_20, large_proportion as u64);
     let expected_big = 100 / large_proportion;
 
     let call_large = |sender_sk: &_, sender_nonces: &mut _| {

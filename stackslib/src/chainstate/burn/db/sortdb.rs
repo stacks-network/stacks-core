@@ -31,9 +31,11 @@ use stacks_common::types::StacksPublicKeyBuffer;
 use stacks_common::util::hash::{hex_bytes, to_hex, Sha512Trunc256Sum};
 use stacks_common::util::vrf::*;
 
+#[cfg(test)]
+use crate::burnchains::BurnchainStateTransitionOps;
 use crate::burnchains::{
-    Burnchain, BurnchainBlockHeader, BurnchainStateTransition, BurnchainStateTransitionOps,
-    BurnchainView, Error as BurnchainError, PoxConstants, Txid,
+    Burnchain, BurnchainBlockHeader, BurnchainStateTransition, BurnchainView,
+    Error as BurnchainError, PoxConstants, Txid,
 };
 use crate::chainstate::burn::operations::leader_block_commit::{
     MissedBlockCommit, RewardSetInfo, RewardSetInfoV0, RewardSetInfoWaterfall, OUTPUTS_PER_COMMIT,
@@ -4218,6 +4220,7 @@ impl SortitionDB {
         handle.get_pox_id().map_err(BurnchainError::from)
     }
 
+    #[cfg(test)]
     pub fn get_sortition_result(
         &self,
         id: &SortitionId,
