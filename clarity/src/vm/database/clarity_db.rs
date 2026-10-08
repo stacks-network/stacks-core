@@ -154,9 +154,6 @@ pub struct ClarityDatabase<'a> {
     /// Exclusive borrow — the contained caches have no interior mutability, so the borrow
     /// checker enforces single-writer for the lifetime of this database.
     execution_cache: Option<&'a mut ClarityExecutionCache>,
-    /// Backing-store value of the epoch key at the current block view, never a pending value.
-    /// Cleared when the view or the key changes.
-    clarity_epoch_version: Option<StacksEpochId>,
 }
 
 pub trait HeadersDB {
@@ -486,7 +483,6 @@ impl<'a> ClarityDatabase<'a> {
             headers_db,
             burn_state_db,
             execution_cache: None,
-            clarity_epoch_version: None,
         }
     }
 
@@ -500,7 +496,6 @@ impl<'a> ClarityDatabase<'a> {
             headers_db,
             burn_state_db,
             execution_cache: None,
-            clarity_epoch_version: None,
         }
     }
 
@@ -523,7 +518,12 @@ impl<'a> ClarityDatabase<'a> {
 
     /// Commit current key-value wrapper layer
     pub fn commit(&mut self) -> Result<(), VmExecutionError> {
-        self.store.commit().map_err(|e| e.into())
+        self.store.commit()?;
+        if self.is_stack_empty() {
+            // The edits are now in the backing store, so a cached store value may be stale.
+            self.set_cached_epoch_version(None);
+        }
+        Ok(())
     }
 
     /// Drop current key-value wrapper layer
@@ -536,7 +536,8 @@ impl<'a> ClarityDatabase<'a> {
         bhh: StacksBlockId,
         query_pending_data: bool,
     ) -> Result<StacksBlockId, VmExecutionError> {
-        self.clarity_epoch_version = None;
+        // The cached epoch version belongs to the view being left.
+        self.set_cached_epoch_version(None);
         self.store.set_block_hash(bhh, query_pending_data)
     }
 
@@ -1037,6 +1038,19 @@ impl<'a> ClarityDatabase<'a> {
         }
     }
 
+    /// The cached backing-store epoch version, if a cache is attached and holds one.
+    fn cached_epoch_version(&self) -> Option<StacksEpochId> {
+        self.execution_cache.as_deref()?.epoch_version
+    }
+
+    /// Set or clear the cached backing-store epoch version if a cache is attached; otherwise this
+    /// is a no-op.
+    fn set_cached_epoch_version(&mut self, epoch: Option<StacksEpochId>) {
+        if let Some(cache) = self.execution_cache.as_deref_mut() {
+            cache.epoch_version = epoch;
+        }
+    }
+
     pub fn ustx_liquid_supply_key() -> &'static str {
         "_stx-data::ustx_liquid_supply"
     }
@@ -1045,11 +1059,16 @@ impl<'a> ClarityDatabase<'a> {
     /// Since Clarity did not exist in stacks 1.0, the lowest valid epoch ID is stacks 2.0.
     /// The instantiation of subsequent epochs may bump up the epoch version in the clarity DB if
     /// Clarity is updated in that epoch.
+    ///
+    /// When a cache is attached, the backing-store value is served from
+    /// [`ClarityExecutionCache::epoch_version`] after the first read at a block view, so one
+    /// transaction reads the key once rather than once per data operation. A pending write to the
+    /// key is always served from the rollback layer and never cached.
     pub fn get_clarity_epoch_version(&mut self) -> Result<StacksEpochId, VmExecutionError> {
         let key = Self::clarity_state_epoch_key();
         // An empty stack must still reach `get_data`, which rejects it.
         let from_store = !self.is_stack_empty() && !self.store.has_pending_data(key);
-        if from_store && let Some(epoch) = self.clarity_epoch_version {
+        if from_store && let Some(epoch) = self.cached_epoch_version() {
             return Ok(epoch);
         }
         let out = match self.get_data(key)? {
@@ -1059,7 +1078,7 @@ impl<'a> ClarityDatabase<'a> {
             None => StacksEpochId::Epoch20,
         };
         if from_store {
-            self.clarity_epoch_version = Some(out);
+            self.set_cached_epoch_version(Some(out));
         }
         Ok(out)
     }
@@ -1070,7 +1089,7 @@ impl<'a> ClarityDatabase<'a> {
         epoch: StacksEpochId,
     ) -> Result<(), VmExecutionError> {
         // The cached store value goes stale once this write is committed.
-        self.clarity_epoch_version = None;
+        self.set_cached_epoch_version(None);
         self.put_data(Self::clarity_state_epoch_key(), &(epoch as u32))
     }
 
@@ -2993,8 +3012,9 @@ mod tests {
 
     #[test]
     fn epoch_version_rollback_restores_stored_value() {
+        let mut cache = ClarityExecutionCache::default();
         let mut store = MemoryBackingStore::new();
-        let mut db = store.as_clarity_db();
+        let mut db = store.as_clarity_db().with_cache(&mut cache);
         commit_epoch(&mut db, StacksEpochId::Epoch30);
 
         db.begin();
@@ -3019,8 +3039,9 @@ mod tests {
 
     #[test]
     fn epoch_version_transition_is_seen_after_commit() {
+        let mut cache = ClarityExecutionCache::default();
         let mut store = MemoryBackingStore::new();
-        let mut db = store.as_clarity_db();
+        let mut db = store.as_clarity_db().with_cache(&mut cache);
         commit_epoch(&mut db, StacksEpochId::Epoch30);
 
         db.begin();
@@ -3044,10 +3065,12 @@ mod tests {
         db.roll_back().unwrap();
     }
 
+    /// A cached value must not be served once the stack is empty: `get_data` rejects that read.
     #[test]
     fn epoch_version_read_without_open_context_errors() {
+        let mut cache = ClarityExecutionCache::default();
         let mut store = MemoryBackingStore::new();
-        let mut db = store.as_clarity_db();
+        let mut db = store.as_clarity_db().with_cache(&mut cache);
         commit_epoch(&mut db, StacksEpochId::Epoch30);
 
         db.begin();
@@ -3143,14 +3166,23 @@ mod tests {
         }
     }
 
+    impl EpochReadCounter {
+        fn new() -> (Self, Rc<Cell<u32>>) {
+            let reads = Rc::new(Cell::new(0));
+            let store = EpochReadCounter {
+                inner: MemoryBackingStore::new(),
+                reads: reads.clone(),
+            };
+            (store, reads)
+        }
+    }
+
     #[test]
     fn epoch_version_reads_store_once_per_view() {
-        let reads = Rc::new(Cell::new(0));
-        let mut store = EpochReadCounter {
-            inner: MemoryBackingStore::new(),
-            reads: reads.clone(),
-        };
-        let mut db = ClarityDatabase::new(&mut store, &NULL_HEADER_DB, &NULL_BURN_STATE_DB);
+        let (mut store, reads) = EpochReadCounter::new();
+        let mut cache = ClarityExecutionCache::default();
+        let mut db = ClarityDatabase::new(&mut store, &NULL_HEADER_DB, &NULL_BURN_STATE_DB)
+            .with_cache(&mut cache);
         commit_epoch(&mut db, StacksEpochId::Epoch30);
 
         db.begin();
@@ -3173,6 +3205,82 @@ mod tests {
         db.get_clarity_epoch_version().unwrap();
         db.get_clarity_epoch_version().unwrap();
         assert_eq!(reads.get(), 3);
+        db.roll_back().unwrap();
+    }
+
+    #[test]
+    fn epoch_version_without_cache_reads_store_every_time() {
+        let (mut store, reads) = EpochReadCounter::new();
+        let mut db = ClarityDatabase::new(&mut store, &NULL_HEADER_DB, &NULL_BURN_STATE_DB);
+        commit_epoch(&mut db, StacksEpochId::Epoch30);
+
+        db.begin();
+        assert_eq!(
+            db.get_clarity_epoch_version().unwrap(),
+            StacksEpochId::Epoch30
+        );
+        assert_eq!(
+            db.get_clarity_epoch_version().unwrap(),
+            StacksEpochId::Epoch30
+        );
+        assert_eq!(reads.get(), 2);
+        db.roll_back().unwrap();
+    }
+
+    /// The cache outlives any one `ClarityDatabase`, so a later instance over the same store, as
+    /// each closure of one transaction creates, is served without a store read.
+    #[test]
+    fn epoch_version_cache_is_shared_across_database_instances() {
+        let (mut store, reads) = EpochReadCounter::new();
+        let mut cache = ClarityExecutionCache::default();
+        commit_epoch(
+            &mut ClarityDatabase::new(&mut store, &NULL_HEADER_DB, &NULL_BURN_STATE_DB),
+            StacksEpochId::Epoch30,
+        );
+
+        for _ in 0..2 {
+            let mut db = ClarityDatabase::new(&mut store, &NULL_HEADER_DB, &NULL_BURN_STATE_DB)
+                .with_cache(&mut cache);
+            db.begin();
+            assert_eq!(
+                db.get_clarity_epoch_version().unwrap(),
+                StacksEpochId::Epoch30
+            );
+            db.roll_back().unwrap();
+        }
+        assert_eq!(reads.get(), 1);
+    }
+
+    /// Only the commit that empties the stack reaches the store, so only that commit drops the
+    /// cached value: a write that bypasses `set_clarity_epoch_version` is still seen afterwards.
+    #[test]
+    fn epoch_version_cache_is_cleared_by_bottom_commit() {
+        let (mut store, reads) = EpochReadCounter::new();
+        let mut cache = ClarityExecutionCache::default();
+        let mut db = ClarityDatabase::new(&mut store, &NULL_HEADER_DB, &NULL_BURN_STATE_DB)
+            .with_cache(&mut cache);
+        commit_epoch(&mut db, StacksEpochId::Epoch30);
+
+        db.begin();
+        db.begin();
+        db.get_clarity_epoch_version().unwrap();
+        db.commit().unwrap();
+        db.get_clarity_epoch_version().unwrap();
+        assert_eq!(reads.get(), 1, "a nested commit keeps the cached value");
+
+        db.put_data(
+            ClarityDatabase::clarity_state_epoch_key(),
+            &(StacksEpochId::Epoch31 as u32),
+        )
+        .unwrap();
+        db.commit().unwrap();
+
+        db.begin();
+        assert_eq!(
+            db.get_clarity_epoch_version().unwrap(),
+            StacksEpochId::Epoch31
+        );
+        assert_eq!(reads.get(), 2);
         db.roll_back().unwrap();
     }
 }

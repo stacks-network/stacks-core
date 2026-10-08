@@ -13,6 +13,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use stacks_common::types::StacksEpochId;
 pub use weight_limited_fifo::WeightLimitedFifo;
 
 use crate::vm::contracts::Contract;
@@ -53,12 +54,16 @@ pub struct ClarityExecutionCache {
     /// is exceeded. See the `weight_limited_fifo` module for cache mechanics and counter
     /// semantics.
     pub contracts: WeightLimitedFifo<QualifiedContractIdentifier, CachedContract>,
+    /// Stored Clarity epoch version at the current block view, never a pending value. Cleared on
+    /// `set_block_hash`, `set_clarity_epoch_version`, and the commit that empties the stack.
+    pub epoch_version: Option<StacksEpochId>,
 }
 
 impl Default for ClarityExecutionCache {
     fn default() -> Self {
         Self {
             contracts: WeightLimitedFifo::new(DEFAULT_CONTRACT_CACHE_BYTE_LIMIT),
+            epoch_version: None,
         }
     }
 }

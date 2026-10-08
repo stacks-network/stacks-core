@@ -15,6 +15,7 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 use clarity::vm::analysis::errors::RuntimeCheckErrorKind;
 use clarity::vm::contexts::OwnedEnvironment;
+use clarity::vm::database::ClarityExecutionCache;
 use clarity::vm::errors::{ClarityEvalError, RuntimeError, VmExecutionError};
 use clarity::vm::test_util::{
     execute, is_committed, is_err_code, symbols_from_values, TEST_BURN_STATE_DB, TEST_HEADER_DB,
@@ -456,9 +457,12 @@ fn clarity_epoch_version_follows_block_view() {
         parent = block.clone();
     }
 
+    let mut cache = ClarityExecutionCache::default();
     let mut store = marf_kv.begin(&blocks[1], &blocks[2]);
     {
-        let mut db = store.as_clarity_db(&TEST_HEADER_DB, &TEST_BURN_STATE_DB);
+        let mut db = store
+            .as_clarity_db(&TEST_HEADER_DB, &TEST_BURN_STATE_DB)
+            .with_cache(&mut cache);
         db.begin();
         assert_eq!(
             db.get_clarity_epoch_version().unwrap(),
