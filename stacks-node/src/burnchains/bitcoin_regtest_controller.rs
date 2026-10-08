@@ -32,7 +32,7 @@ use stacks::burnchains::db::BurnchainDB;
 use stacks::burnchains::indexer::BurnchainIndexer;
 use stacks::burnchains::{
     Burnchain, BurnchainParameters, BurnchainStateTransitionOps, Error as burnchain_error,
-    PoxConstants, PublicKey, Txid,
+    PublicKey, Txid,
 };
 use stacks::chainstate::burn::db::sortdb::SortitionDB;
 use stacks::chainstate::burn::operations::{
@@ -497,12 +497,6 @@ impl BitcoinRegtestController {
             Some(burnchain) => burnchain.clone(),
             None => self.config.get_burnchain(),
         }
-    }
-
-    /// Get the PoX constants in use
-    pub fn get_pox_constants(&self) -> PoxConstants {
-        let burnchain = self.get_burnchain();
-        burnchain.pox_constants
     }
 
     /// Get the Burnchain in use

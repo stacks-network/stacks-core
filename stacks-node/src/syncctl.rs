@@ -25,10 +25,6 @@ use crate::Config;
 
 #[derive(Clone)]
 pub struct PoxSyncWatchdogComms {
-    /// how many passes in the p2p state machine have taken place since startup?
-    p2p_state_passes: Arc<AtomicU64>,
-    /// how many times have we done an inv sync?
-    inv_sync_passes: Arc<AtomicU64>,
     /// how many times have we done a download pass?
     download_passes: Arc<AtomicU64>,
     /// What's our last IBD status?
@@ -40,20 +36,10 @@ pub struct PoxSyncWatchdogComms {
 impl PoxSyncWatchdogComms {
     pub fn new(should_keep_running: Arc<AtomicBool>) -> PoxSyncWatchdogComms {
         PoxSyncWatchdogComms {
-            p2p_state_passes: Arc::new(AtomicU64::new(0)),
-            inv_sync_passes: Arc::new(AtomicU64::new(0)),
             download_passes: Arc::new(AtomicU64::new(0)),
             last_ibd: Arc::new(AtomicBool::new(true)),
             should_keep_running,
         }
-    }
-
-    pub fn get_p2p_state_passes(&self) -> u64 {
-        self.p2p_state_passes.load(Ordering::SeqCst)
-    }
-
-    pub fn get_inv_sync_passes(&self) -> u64 {
-        self.inv_sync_passes.load(Ordering::SeqCst)
     }
 
     pub fn get_download_passes(&self) -> u64 {
@@ -77,14 +63,6 @@ impl PoxSyncWatchdogComms {
 
     pub fn should_keep_running(&self) -> bool {
         self.should_keep_running.load(Ordering::SeqCst)
-    }
-
-    pub fn notify_p2p_state_pass(&mut self) {
-        self.p2p_state_passes.fetch_add(1, Ordering::SeqCst);
-    }
-
-    pub fn notify_inv_sync_pass(&mut self) {
-        self.inv_sync_passes.fetch_add(1, Ordering::SeqCst);
     }
 
     pub fn notify_download_pass(&mut self) {
@@ -122,10 +100,6 @@ impl PoxSyncWatchdog {
             steady_state_burnchain_sync_interval: burnchain_poll_time,
             relayer_comms: watchdog_comms,
         })
-    }
-
-    pub fn make_comms_handle(&self) -> PoxSyncWatchdogComms {
-        self.relayer_comms.clone()
     }
 
     /// Are we in the initial burnchain block download? i.e. is the burn tip snapshot far enough away

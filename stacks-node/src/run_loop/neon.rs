@@ -119,10 +119,7 @@ impl std::ops::Deref for RunLoopCounter {
 #[derive(Clone, Default)]
 pub struct Counters {
     pub blocks_processed: RunLoopCounter,
-    pub microblocks_processed: RunLoopCounter,
     pub missed_tenures: RunLoopCounter,
-    pub missed_microblock_tenures: RunLoopCounter,
-    pub cancelled_commits: RunLoopCounter,
 
     pub sortitions_processed: RunLoopCounter,
 
@@ -189,20 +186,8 @@ impl Counters {
         Counters::inc(&self.sortitions_processed);
     }
 
-    pub fn bump_microblocks_processed(&self) {
-        Counters::inc(&self.microblocks_processed);
-    }
-
     pub fn bump_missed_tenures(&self) {
         Counters::inc(&self.missed_tenures);
-    }
-
-    pub fn bump_missed_microblock_tenures(&self) {
-        Counters::inc(&self.missed_microblock_tenures);
-    }
-
-    pub fn bump_cancelled_commits(&self) {
-        Counters::inc(&self.cancelled_commits);
     }
 
     pub fn bump_neon_submitted_commits(&self, committed_burn_height: u64) {
@@ -265,10 +250,6 @@ impl Counters {
 
     pub fn bump_naka_miner_directives(&self) {
         Counters::inc(&self.naka_miner_directives);
-    }
-
-    pub fn set_microblocks_processed(&self, value: u64) {
-        Counters::set(&self.microblocks_processed, value)
     }
 
     pub fn set_miner_current_rejections_timeout_secs(&self, value: u64) {
@@ -362,20 +343,8 @@ impl RunLoop {
         self.counters.blocks_processed.clone()
     }
 
-    pub fn get_microblocks_processed_arc(&self) -> RunLoopCounter {
-        self.counters.microblocks_processed.clone()
-    }
-
     pub fn get_missed_tenures_arc(&self) -> RunLoopCounter {
         self.counters.missed_tenures.clone()
-    }
-
-    pub fn get_missed_microblock_tenures_arc(&self) -> RunLoopCounter {
-        self.counters.missed_microblock_tenures.clone()
-    }
-
-    pub fn get_cancelled_commits_arc(&self) -> RunLoopCounter {
-        self.counters.cancelled_commits.clone()
     }
 
     pub fn get_counters(&self) -> Counters {

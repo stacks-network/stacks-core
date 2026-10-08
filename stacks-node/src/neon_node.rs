@@ -206,8 +206,7 @@ use stacks::util_lib::strings::{UrlString, VecDisplay};
 use stacks::{monitoring, version_string};
 use stacks_common::codec::StacksMessageCodec;
 use stacks_common::types::chainstate::{
-    BlockHeaderHash, BurnchainHeaderHash, SortitionId, StacksAddress, StacksBlockId,
-    StacksPrivateKey, VRFSeed,
+    BlockHeaderHash, BurnchainHeaderHash, SortitionId, StacksAddress, StacksBlockId, VRFSeed,
 };
 use stacks_common::types::net::PeerAddress;
 use stacks_common::types::{PublicKey, StacksEpochId};
@@ -3912,7 +3911,6 @@ impl RelayerThread {
                 "Relayer: miner is blocked as of {}; cannot mine microblock at this time",
                 &burnchain_tip.burn_header_hash
             );
-            self.globals.counters.set_microblocks_processed(0);
             return false;
         }
 
@@ -4036,7 +4034,6 @@ impl RelayerThread {
                                 next_microblock.header.sequence,
                                 next_microblock.txs.len()
                             );
-                            self.globals.counters.set_microblocks_processed(num_mblocks);
 
                             let parent_index_block_hash = StacksBlockHeader::make_index_block_hash(
                                 &miner_tip.consensus_hash,
@@ -4191,10 +4188,6 @@ impl RelayerThread {
                 debug!("Relayer: directive Ran tenure");
                 true
             }
-            RelayerDirective::NakamotoTenureStartProcessed(_, _) => {
-                warn!("Relayer: Nakamoto tenure start notification received while still operating 2.x neon node");
-                true
-            }
             RelayerDirective::Exit => false,
         };
         if !continue_running {
@@ -4347,11 +4340,7 @@ pub struct PeerThread {
     /// channel, because we need to know when backpressure occurs in order to throttle the p2p
     /// thread's downloader.
     results_with_data: VecDeque<RelayerDirective>,
-    /// total number of p2p state-machine passes so far. Used to signal when to download the next
-    /// reward cycle of blocks
-    num_p2p_state_machine_passes: u64,
-    /// total number of inventory state-machine passes so far. Used to signal when to download the
-    /// next reward cycle of blocks.
+    /// total number of inventory state-machine passes so far. The relayer acts on new passes.
     num_inv_sync_passes: u64,
     /// total number of download state-machine passes so far. Used to signal when to download the
     /// next reward cycle of blocks.
@@ -4440,7 +4429,6 @@ impl PeerThread {
             chainstate: Some(chainstate),
             mempool: Some(mempool),
             results_with_data: VecDeque::new(),
-            num_p2p_state_machine_passes: 0,
             num_inv_sync_passes: 0,
             num_download_passes: 0,
             last_burn_block_height: 0,
@@ -4558,15 +4546,8 @@ impl PeerThread {
         match p2p_res {
             Ok(network_result) => {
                 let mut have_update = false;
-                if self.num_p2p_state_machine_passes < network_result.num_state_machine_passes {
-                    // p2p state-machine did a full pass. Notify anyone listening.
-                    self.globals.sync_comms.notify_p2p_state_pass();
-                    self.num_p2p_state_machine_passes = network_result.num_state_machine_passes;
-                }
-
                 if self.num_inv_sync_passes < network_result.num_inv_sync_passes {
-                    // inv-sync state-machine did a full pass. Notify anyone listening.
-                    self.globals.sync_comms.notify_inv_sync_pass();
+                    // inv-sync state-machine did a full pass.
                     self.num_inv_sync_passes = network_result.num_inv_sync_passes;
 
                     // the relayer cares about the number of inventory passes, so pass this along
@@ -4635,25 +4616,6 @@ impl PeerThread {
 }
 
 impl StacksNode {
-    /// Create a StacksPrivateKey from a given seed buffer
-    pub fn make_node_private_key_from_seed(seed: &[u8]) -> StacksPrivateKey {
-        let node_privkey = {
-            let mut re_hashed_seed = seed.to_vec();
-            let my_private_key = loop {
-                match Secp256k1PrivateKey::from_slice(&re_hashed_seed[..]) {
-                    Ok(sk) => break sk,
-                    Err(_) => {
-                        re_hashed_seed = Sha256Sum::from_data(&re_hashed_seed[..])
-                            .as_bytes()
-                            .to_vec()
-                    }
-                }
-            };
-            my_private_key
-        };
-        node_privkey
-    }
-
     /// Set up the mempool DB by making sure it exists.
     /// Panics on failure.
     fn setup_mempool_db(config: &Config) -> MemPoolDB {

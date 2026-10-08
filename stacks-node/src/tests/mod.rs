@@ -123,36 +123,6 @@ pub fn new_test_conf() -> Config {
     conf
 }
 
-/// Randomly change the config's network ports to new ports.
-pub fn set_random_binds(config: &mut Config) {
-    // Just in case prior config was not created with `new_test_conf`, we need to add the prior generated ports
-    let prior_rpc_port: u16 = config
-        .node
-        .rpc_bind
-        .split(":")
-        .last()
-        .unwrap()
-        .parse()
-        .unwrap();
-    let prior_p2p_port: u16 = config
-        .node
-        .p2p_bind
-        .split(":")
-        .last()
-        .unwrap()
-        .parse()
-        .unwrap();
-    insert_new_port(prior_rpc_port);
-    insert_new_port(prior_p2p_port);
-    let rpc_port = gen_random_port();
-    let p2p_port = gen_random_port();
-    let localhost = "127.0.0.1";
-    config.node.rpc_bind = format!("{localhost}:{rpc_port}");
-    config.node.p2p_bind = format!("{localhost}:{p2p_port}");
-    config.node.data_url = format!("http://{localhost}:{rpc_port}");
-    config.node.p2p_address = format!("{localhost}:{p2p_port}");
-}
-
 /// Deserializes the `StacksTransaction` objects from `blocks` and returns all those that
 /// match `test_fn`.
 pub fn select_transactions_where(

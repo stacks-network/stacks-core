@@ -75,7 +75,6 @@ use stacks::net::api::getinfo::RPCPeerInfoData;
 use stacks::net::api::getpoxinfo::RPCPoxInfoData;
 use stacks::net::api::getsortition::SortitionInfo;
 use stacks::net::api::gettransaction_unconfirmed::UnconfirmedTransactionResponse;
-use stacks::net::api::postblock::StacksBlockAcceptedData;
 use stacks::net::api::postfeerate::RPCFeeEstimateResponse;
 use stacks::net::api::posttransaction::PostTransactionRequestBody;
 use stacks::net::atlas::{
@@ -162,7 +161,6 @@ fn inner_neon_integration_test_conf(seed: Option<Vec<u8>>) -> (Config, StacksAdd
     conf.burnchain.peer_host = "127.0.0.1".into();
     conf.burnchain.local_mining_public_key =
         Some(keychain.generate_op_signer().get_public_key().to_hex());
-    conf.burnchain.commit_anchor_block_within = 0;
 
     // test to make sure config file parsing is correct
     let mut cfile = ConfigFile::xenon();
@@ -319,11 +317,9 @@ pub mod test_observer {
     pub static NEW_MICROBLOCKS: Mutex<Vec<serde_json::Value>> = Mutex::new(Vec::new());
     pub static NEW_STACKERDB_CHUNKS: Mutex<Vec<StackerDBChunksEvent>> = Mutex::new(Vec::new());
     pub static BURN_BLOCKS: Mutex<Vec<BurnBlockEvent>> = Mutex::new(Vec::new());
-    pub static MEMTXS: Mutex<Vec<String>> = Mutex::new(Vec::new());
     pub static MEMTXS_DROPPED: Mutex<Vec<(String, String)>> = Mutex::new(Vec::new());
     pub static ATTACHMENTS: Mutex<Vec<serde_json::Value>> = Mutex::new(Vec::new());
     pub static PROPOSAL_RESPONSES: Mutex<Vec<BlockValidateResponse>> = Mutex::new(Vec::new());
-    pub static STACKER_SETS: Mutex<Vec<(StacksBlockId, u64, RewardSet)>> = Mutex::new(Vec::new());
 
     async fn handle_proposal_response(
         response: serde_json::Value,
@@ -409,10 +405,10 @@ pub mod test_observer {
         Ok(warp::http::StatusCode::OK)
     }
 
+    /// Nothing reads stacker set events; parse them so a malformed payload still fails the test.
     async fn handle_pox_stacker_set(
         stacker_set: serde_json::Value,
     ) -> Result<impl warp::Reply, Infallible> {
-        let mut stacker_sets = STACKER_SETS.lock().unwrap();
         let block_id = stacker_set
             .as_object()
             .expect("Expected JSON object for stacker set event")
@@ -421,16 +417,16 @@ pub mod test_observer {
             .as_str()
             .expect("Expected string for block id")
             .to_string();
-        let block_id = StacksBlockId::from_hex(&block_id)
+        StacksBlockId::from_hex(&block_id)
             .expect("Failed to parse block id field as StacksBlockId hex");
-        let cycle_number = stacker_set
+        stacker_set
             .as_object()
             .expect("Expected JSON object for stacker set event")
             .get("cycle_number")
             .expect("Expected field")
             .as_u64()
             .expect("Expected u64 for cycle number");
-        let stacker_set = serde_json::from_value(
+        let _: RewardSet = serde_json::from_value(
             stacker_set
                 .as_object()
                 .expect("Expected JSON object for stacker set event")
@@ -439,7 +435,6 @@ pub mod test_observer {
                 .clone(),
         )
         .expect("Failed to parse stacker set object");
-        stacker_sets.push((block_id, cycle_number, stacker_set));
         Ok(warp::http::StatusCode::OK)
     }
 
@@ -492,15 +487,10 @@ pub mod test_observer {
         Ok(warp::http::StatusCode::OK)
     }
 
+    /// Nothing reads mempool events; check they are a list of raw tx strings.
     async fn handle_mempool_txs(txs: serde_json::Value) -> Result<impl warp::Reply, Infallible> {
-        let new_rawtxs = txs
-            .as_array()
-            .unwrap()
-            .iter()
-            .map(|x| x.as_str().unwrap().to_string());
-        let mut memtxs = MEMTXS.lock().unwrap();
-        for new_tx in new_rawtxs {
-            memtxs.push(new_tx);
+        for tx in txs.as_array().unwrap() {
+            tx.as_str().unwrap();
         }
         Ok(warp::http::StatusCode::OK)
     }
@@ -533,14 +523,6 @@ pub mod test_observer {
             attachments.push(new_attachment.clone());
         }
         Ok(warp::http::StatusCode::OK)
-    }
-
-    pub fn get_stacker_sets() -> Vec<(StacksBlockId, u64, RewardSet)> {
-        STACKER_SETS.lock().unwrap().clone()
-    }
-
-    pub fn get_memtxs() -> Vec<String> {
-        MEMTXS.lock().unwrap().clone()
     }
 
     pub fn get_memtx_drops() -> Vec<(String, String)> {
@@ -661,14 +643,6 @@ pub mod test_observer {
         });
     }
 
-    pub fn spawn_at(port: u16) {
-        clear();
-        thread::spawn(move || {
-            let rt = tokio::runtime::Runtime::new().expect("Failed to initialize tokio");
-            rt.block_on(serve(port));
-        });
-    }
-
     pub fn clear() {
         NEW_BLOCKS.lock().unwrap().clear();
         MINED_BLOCKS.lock().unwrap().clear();
@@ -676,7 +650,6 @@ pub mod test_observer {
         NEW_MICROBLOCKS.lock().unwrap().clear();
         NEW_STACKERDB_CHUNKS.lock().unwrap().clear();
         BURN_BLOCKS.lock().unwrap().clear();
-        MEMTXS.lock().unwrap().clear();
         MEMTXS_DROPPED.lock().unwrap().clear();
         ATTACHMENTS.lock().unwrap().clear();
         PROPOSAL_RESPONSES.lock().unwrap().clear();
@@ -934,35 +907,6 @@ pub fn wait_for_runloop(blocks_processed: &Arc<AtomicU64>) {
     }
 }
 
-/// Wait for at least one microblock to be mined, up to a given timeout (in seconds).
-/// Returns true if the microblock was mined; false if we timed out.
-pub fn wait_for_microblocks(microblocks_processed: &Arc<AtomicU64>, timeout: u64) -> bool {
-    let mut current = microblocks_processed.load(Ordering::SeqCst);
-    let start = Instant::now();
-    info!("Waiting for next microblock (current = {current})");
-    loop {
-        let now = microblocks_processed.load(Ordering::SeqCst);
-        if now == 0 && current != 0 {
-            // wrapped around -- a new epoch started
-            info!("New microblock epoch started while waiting (originally {current})");
-            current = 0;
-        }
-
-        if now > current {
-            break;
-        }
-
-        if start.elapsed() > Duration::from_secs(timeout) {
-            warn!("Timed out waiting for microblocks to process ({timeout})");
-            return false;
-        }
-
-        thread::sleep(Duration::from_millis(100));
-    }
-    info!("Next microblock acknowledged");
-    true
-}
-
 /// returns Txid string upon success
 pub fn submit_tx_fallible(http_origin: &str, tx: &[u8]) -> Result<String, String> {
     let client = reqwest::blocking::Client::new();
@@ -1004,78 +948,6 @@ pub fn get_unconfirmed_tx(http_origin: &str, txid: &Txid) -> Option<String> {
     if res.status().is_success() {
         let res: UnconfirmedTransactionResponse = res.json().unwrap();
         Some(res.tx)
-    } else {
-        None
-    }
-}
-
-pub fn submit_block(
-    http_origin: &str,
-    consensus_hash: &ConsensusHash,
-    block: &[u8],
-) -> StacksBlockAcceptedData {
-    let client = reqwest::blocking::Client::new();
-    let path = format!("{http_origin}/v2/blocks/upload/{consensus_hash}");
-    let res = client
-        .post(&path)
-        .header("Content-Type", "application/octet-stream")
-        .body(block.to_owned())
-        .send()
-        .unwrap();
-
-    if res.status().is_success() {
-        let res: StacksBlockAcceptedData = res.json().unwrap();
-        assert_eq!(
-            res.stacks_block_id,
-            StacksBlockId::new(
-                consensus_hash,
-                &StacksBlock::consensus_deserialize(&mut &block[..])
-                    .unwrap()
-                    .block_hash()
-            )
-        );
-        res
-    } else {
-        eprintln!("{}", res.text().unwrap());
-        panic!("");
-    }
-}
-
-pub fn submit_microblock(http_origin: &str, mblock: &[u8]) -> BlockHeaderHash {
-    let client = reqwest::blocking::Client::new();
-    let microblock = StacksMicroblock::consensus_deserialize(&mut &mblock[..]).unwrap();
-    let path = format!("{http_origin}/v2/microblocks/{}", microblock.block_hash());
-    let res = client
-        .post(&path)
-        .header("Content-Type", "application/octet-stream")
-        .body(mblock.to_owned())
-        .send()
-        .unwrap();
-
-    if res.status().is_success() {
-        let res: BlockHeaderHash = res.json().unwrap();
-        assert_eq!(
-            res,
-            StacksMicroblock::consensus_deserialize(&mut &mblock[..])
-                .unwrap()
-                .block_hash()
-        );
-        res
-    } else {
-        eprintln!("{}", res.text().unwrap());
-        panic!("");
-    }
-}
-
-pub fn get_block(http_origin: &str, block_id: &StacksBlockId) -> Option<StacksBlock> {
-    let client = reqwest::blocking::Client::new();
-    let path = format!("{http_origin}/v2/blocks/{block_id}");
-    let res = client.get(&path).send().unwrap();
-
-    if res.status().is_success() {
-        let res: Vec<u8> = res.bytes().unwrap().to_vec();
-        let block = StacksBlock::consensus_deserialize(&mut &res[..]).unwrap();
-        Some(block)
     } else {
         None
     }

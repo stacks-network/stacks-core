@@ -79,7 +79,6 @@ use stacks::core::{
     PEER_VERSION_EPOCH_3_3, PEER_VERSION_EPOCH_3_4, PEER_VERSION_EPOCH_4_0, PEER_VERSION_EPOCH_4_1,
     PEER_VERSION_TESTNET,
 };
-use stacks::libstackerdb::SlotMetadata;
 use stacks::net::api::callreadonly::CallReadOnlyRequestBody;
 use stacks::net::api::get_tenures_fork_info::TenureForkingInfo;
 use stacks::net::api::getsigner::GetSignerResponse;
@@ -381,32 +380,6 @@ pub fn get_stacker_set(http_origin: &str, cycle: u64) -> Result<GetStackersRespo
         .map_err(|e| format!("{e}"))?;
     info!("Stacker set response: {res}");
     serde_json::from_value(res).map_err(|e| format!("{e}"))
-}
-
-pub fn get_stackerdb_slot_version(
-    http_origin: &str,
-    contract: &QualifiedContractIdentifier,
-    slot_id: u64,
-) -> Option<u32> {
-    let client = reqwest::blocking::Client::new();
-    let path = format!(
-        "{http_origin}/v2/stackerdb/{}/{}",
-        &contract.issuer, &contract.name
-    );
-    let res = client
-        .get(&path)
-        .send()
-        .unwrap()
-        .json::<Vec<SlotMetadata>>()
-        .unwrap();
-    debug!("StackerDB metadata response: {res:?}");
-    res.iter().find_map(|slot| {
-        if u64::from(slot.slot_id) == slot_id {
-            Some(slot.slot_version)
-        } else {
-            None
-        }
-    })
 }
 
 pub fn get_last_block_in_current_tenure(
@@ -731,7 +704,6 @@ pub fn naka_neon_integration_conf(seed: Option<&[u8]>) -> (Config, StacksAddress
     conf.burnchain.peer_host = "127.0.0.1".into();
     conf.burnchain.local_mining_public_key =
         Some(keychain.generate_op_signer().get_public_key().to_hex());
-    conf.burnchain.commit_anchor_block_within = 0;
     conf.node.add_signers_stackerdbs(false);
     conf.node.add_miner_stackerdb(false);
 
@@ -913,23 +885,6 @@ pub fn next_block_and_mine_commit(
         &[node_conf],
         &[node_counters],
         true,
-    )
-}
-
-/// Mine a bitcoin block, and wait until a block-commit has been issued, **or** a timeout occurs
-/// (timeout_secs)
-pub fn next_block_and_commits_only(
-    btc_controller: &BitcoinRegtestController,
-    timeout_secs: u64,
-    node_conf: &Config,
-    node_counters: &Counters,
-) -> Result<(), String> {
-    next_block_and_wait_for_commits(
-        btc_controller,
-        timeout_secs,
-        &[node_conf],
-        &[node_counters],
-        false,
     )
 }
 
@@ -1499,16 +1454,6 @@ pub fn get_key_for_cycle(
         }
         None => Ok(None),
     }
-}
-
-/// Use the read-only to check if the aggregate key is set for a given reward cycle
-pub fn is_key_set_for_cycle(
-    reward_cycle: u64,
-    is_mainnet: bool,
-    http_origin: &str,
-) -> Result<bool, String> {
-    let key = get_key_for_cycle(reward_cycle, is_mainnet, http_origin)?;
-    Ok(key.is_some())
 }
 
 pub fn setup_epoch_3_reward_set(

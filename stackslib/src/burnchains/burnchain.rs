@@ -685,15 +685,6 @@ impl Burnchain {
         dirpath
     }
 
-    pub fn get_chainstate_config_path(working_dir: &String, chain_name: &String) -> String {
-        let chainstate_dir = Burnchain::get_chainstate_path_str(working_dir);
-        let mut config_pathbuf = PathBuf::from(&chainstate_dir);
-        let chainstate_config_name = format!("{}.ini", chain_name);
-        config_pathbuf.push(&chainstate_config_name);
-
-        config_pathbuf.to_str().unwrap().to_string()
-    }
-
     pub fn setup_chainstate_dirs(working_dir: &String) -> Result<(), burnchain_error> {
         let chainstate_dir = Burnchain::get_chainstate_path_str(working_dir);
         let chainstate_pathbuf = PathBuf::from(&chainstate_dir);
@@ -1187,25 +1178,6 @@ impl Burnchain {
             // no reorg
             Ok((headers_height, false))
         }
-    }
-
-    /// Top-level burnchain sync.
-    /// Returns new latest block height.
-    pub fn sync<I: BurnchainIndexer + BurnchainHeaderReader + 'static + Send>(
-        &mut self,
-        indexer: &mut I,
-        comms: &CoordinatorChannels,
-        target_block_height_opt: Option<u64>,
-        max_blocks_opt: Option<u64>,
-    ) -> Result<u64, burnchain_error> {
-        let chain_tip = self.sync_with_indexer(
-            indexer,
-            comms.clone(),
-            target_block_height_opt,
-            max_blocks_opt,
-            None,
-        )?;
-        Ok(chain_tip.block_height)
     }
 
     /// Deprecated top-level burnchain sync.

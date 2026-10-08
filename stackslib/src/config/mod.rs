@@ -1131,14 +1131,6 @@ impl Config {
         self.initial_balances.push(new_balance);
     }
 
-    pub fn get_initial_liquid_ustx(&self) -> u128 {
-        let mut total = 0;
-        for ib in self.initial_balances.iter() {
-            total += ib.amount as u128
-        }
-        total
-    }
-
     pub fn is_mainnet(&self) -> bool {
         matches!(self.burnchain.mode.as_str(), "mainnet")
     }
@@ -1153,10 +1145,6 @@ impl Config {
         set_pox_5_bond_admin(self.node.pox_5_bond_admin.clone());
         set_pox_5_pause_admin(self.node.pox_5_pause_admin.clone());
         set_log_stackerdb_chunk_sources(self.node.log_stackerdb_chunk_sources);
-    }
-
-    pub fn is_node_event_driven(&self) -> bool {
-        !self.events_observers.is_empty()
     }
 
     pub fn make_nakamoto_block_builder_settings(
@@ -1342,16 +1330,6 @@ pub struct BurnchainConfig {
     /// @notes:
     ///   - **Warning:** Do not modify this unless you really know what you're doing.
     pub peer_version: u32,
-    /// Specifies a mandatory wait period (in milliseconds) after receiving a burnchain tip
-    /// before the node attempts to build the anchored block for the new tenure.
-    /// This duration effectively schedules the start of the block-building process
-    /// relative to the tip's arrival time.
-    /// ---
-    /// @default: `5_000`
-    /// @units: milliseconds
-    /// @notes:
-    ///   - This is intended strictly for testing purposes.
-    pub commit_anchor_block_within: u64,
     /// The maximum amount (in sats) of "burn commitment" to broadcast for the next
     /// block's leader election. Acts as a safety cap to limit the maximum amount
     /// spent on mining. It serves as both the target fee and a fallback if dynamic
@@ -1688,7 +1666,6 @@ impl BurnchainConfig {
             chain_id: CHAIN_ID_TESTNET,
             peer_version: PEER_VERSION_TESTNET,
             burn_fee_cap: 20000,
-            commit_anchor_block_within: 5000,
             peer_host: "0.0.0.0".to_string(),
             peer_port: 8333,
             rpc_port: 8332,
@@ -1767,7 +1744,6 @@ pub struct BurnchainConfigFile {
     pub mode: Option<String>,
     pub chain_id: Option<u32>,
     pub burn_fee_cap: Option<u64>,
-    pub commit_anchor_block_within: Option<u64>,
     pub peer_host: Option<String>,
     pub peer_port: Option<u16>,
     pub rpc_port: Option<u16>,
@@ -1888,9 +1864,6 @@ impl BurnchainConfigFile {
             burn_fee_cap: self
                 .burn_fee_cap
                 .unwrap_or(default_burnchain_config.burn_fee_cap),
-            commit_anchor_block_within: self
-                .commit_anchor_block_within
-                .unwrap_or(default_burnchain_config.commit_anchor_block_within),
             peer_host: match self.peer_host.as_ref() {
                 Some(peer_host) => {
                     format!("{}:1", &peer_host)
@@ -2015,11 +1988,6 @@ impl BurnchainConfigFile {
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct NodeConfig {
-    /// Human-readable name for the node. Primarily used for identification in testing
-    /// environments (e.g., deriving log file names, temporary directory names).
-    /// ---
-    /// @default: `"stacks-node"`
-    pub name: String,
     /// The node's Bitcoin wallet private key, provided as a hex string in the config file.
     /// Used to initialize the node's keychain for signing operations.
     /// If [`MinerConfig::mining_key`] is not set, this seed may also be used for
@@ -2131,11 +2099,6 @@ pub struct NodeConfig {
     ///   - Only applies when [`NodeConfig::mine_microblocks`] is true and before Epoch 2.5.
     /// @units: milliseconds
     pub microblock_frequency: u64,
-    /// The maximum number of microblocks allowed per Stacks block.
-    /// ---
-    /// @default: `65535` (u16::MAX)
-    /// @deprecated: This setting is ignored in Epoch 2.5+.
-    pub max_microblocks: u64,
     /// Cooldown period after a microblock is produced, in milliseconds.
     /// ---
     /// @default: `30_000` (30 seconds)
@@ -2223,13 +2186,6 @@ pub struct NodeConfig {
     ///   - This parameter cannot be set via the configuration file; it must be modified
     ///     programmatically.
     pub fault_injection_hide_blocks: bool,
-    /// The polling interval, in seconds, for the background thread that monitors
-    /// chain liveness. This thread periodically wakes up the main coordinator to
-    /// check for chain progress or other conditions requiring action.
-    /// ---
-    /// @default: `300` (5 minutes)
-    /// @units: seconds
-    pub chain_liveness_poll_time_secs: u64,
     /// By default, HTTP requests to event observers block the operation of the node
     /// until a successful response is received from the observer. This creates a
     /// predictable order of operations, but it also means that an event observer that
@@ -2539,9 +2495,7 @@ impl Default for NodeConfig {
         let mut seed = [0u8; 32];
         rng.fill_bytes(&mut seed);
 
-        let name = "stacks-node";
         NodeConfig {
-            name: name.to_string(),
             seed: seed.to_vec(),
             working_dir: format!("/tmp/{testnet_id}"),
             rpc_bind: format!("0.0.0.0:{rpc_port}"),
@@ -2557,7 +2511,6 @@ impl Default for NodeConfig {
             mock_mining_output_dir: None,
             mine_microblocks: true,
             microblock_frequency: 30_000,
-            max_microblocks: u16::MAX as u64,
             wait_time_for_microblocks: 30_000,
             wait_time_for_blocks: 30_000,
             next_initiative_delay: 10_000,
@@ -2568,7 +2521,6 @@ impl Default for NodeConfig {
             use_test_genesis_chainstate: None,
             fault_injection_block_push_fail_probability: None,
             fault_injection_hide_blocks: false,
-            chain_liveness_poll_time_secs: 300,
             event_dispatcher_blocking: true,
             event_dispatcher_queue_size: 1000,
             stacker_dbs: vec![],
@@ -4060,7 +4012,6 @@ impl ConnectionOptionsFile {
 #[derive(Clone, Deserialize, Default, Debug)]
 #[serde(deny_unknown_fields)]
 pub struct NodeConfigFile {
-    pub name: Option<String>,
     pub seed: Option<String>,
     pub deny_nodes: Option<String>,
     pub working_dir: Option<String>,
@@ -4076,7 +4027,6 @@ pub struct NodeConfigFile {
     pub mock_mining_output_dir: Option<String>,
     pub mine_microblocks: Option<bool>,
     pub microblock_frequency: Option<u64>,
-    pub max_microblocks: Option<u64>,
     pub wait_time_for_microblocks: Option<u64>,
     pub wait_time_for_blocks: Option<u64>,
     pub next_initiative_delay: Option<u64>,
@@ -4087,9 +4037,6 @@ pub struct NodeConfigFile {
     pub marf_compress: Option<bool>,
     pub pox_sync_sample_secs: Option<u64>,
     pub use_test_genesis_chainstate: Option<bool>,
-    /// At most, how often should the chain-liveness thread
-    ///  wake up the chains-coordinator. Defaults to 300s (5 min).
-    pub chain_liveness_poll_time_secs: Option<u64>,
     pub event_dispatcher_blocking: Option<bool>,
     /// Only relevant if `event_dispatcher_blocking` is false
     pub event_dispatcher_queue_size: Option<usize>,
@@ -4130,7 +4077,6 @@ impl NodeConfigFile {
         let miner = self.miner.unwrap_or(default_node_config.miner);
         let stacker = self.stacker.unwrap_or(default_node_config.stacker);
         let node_config = NodeConfig {
-            name: self.name.unwrap_or(default_node_config.name),
             seed: match self.seed {
                 Some(seed) => hex_bytes(&seed)
                     .map_err(|_e| "node.seed should be a hex encoded string".to_string())?,
@@ -4169,9 +4115,6 @@ impl NodeConfigFile {
             microblock_frequency: self
                 .microblock_frequency
                 .unwrap_or(default_node_config.microblock_frequency),
-            max_microblocks: self
-                .max_microblocks
-                .unwrap_or(default_node_config.max_microblocks),
             wait_time_for_microblocks: self
                 .wait_time_for_microblocks
                 .unwrap_or(default_node_config.wait_time_for_microblocks),
@@ -4195,9 +4138,6 @@ impl NodeConfigFile {
             // chainstate fault_injection activation for hide_blocks.
             // you can't set this in the config file.
             fault_injection_hide_blocks: false,
-            chain_liveness_poll_time_secs: self
-                .chain_liveness_poll_time_secs
-                .unwrap_or(default_node_config.chain_liveness_poll_time_secs),
             event_dispatcher_blocking: self
                 .event_dispatcher_blocking
                 .unwrap_or(default_node_config.event_dispatcher_blocking),
@@ -5489,7 +5429,7 @@ mod tests {
             let err = ConfigFile::from_str(
                 r#"
             [node]
-            name = "test"
+            working_dir = "test"
             unknown_field = "test"
             "#,
             )
