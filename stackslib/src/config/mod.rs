@@ -173,7 +173,7 @@ pub const DEFAULT_PROPOSAL_MEMORY_BYTES: u64 = 3 * 1024 * 1024 * 1024; // 3 GB
 /// Default maximum heap allocation for a single read-only RPC call before it is aborted.
 pub const DEFAULT_READ_ONLY_CALL_MAX_MEM_BYTES: u64 = 1024 * 1024 * 1024; // 1 GB
 
-static HELIUM_DEFAULT_CONNECTION_OPTIONS: LazyLock<ConnectionOptions> =
+static DEFAULT_CONNECTION_OPTIONS: LazyLock<ConnectionOptions> =
     LazyLock::new(|| ConnectionOptions {
         inbox_maxlen: 100,
         outbox_maxlen: 100,
@@ -999,7 +999,7 @@ impl Config {
 
         let connection_options = match config_file.connection_options {
             Some(opts) => opts.into_config(is_mainnet)?,
-            None => HELIUM_DEFAULT_CONNECTION_OPTIONS.clone(),
+            None => DEFAULT_CONNECTION_OPTIONS.clone(),
         };
 
         let estimation = match config_file.fee_estimation {
@@ -1257,7 +1257,7 @@ impl std::default::Default for Config {
         let node = NodeConfig::default();
         let burnchain = BurnchainConfig::default();
 
-        let connection_options = HELIUM_DEFAULT_CONNECTION_OPTIONS.clone();
+        let connection_options = DEFAULT_CONNECTION_OPTIONS.clone();
         let estimation = FeeEstimationConfig::default();
         let mainnet = burnchain.mode == "mainnet";
 
@@ -1414,12 +1414,8 @@ pub struct BurnchainConfig {
     /// Bitcoin regtest node. Provided as a hex string representing an uncompressed
     /// public key.
     ///
-    /// It is primarily used in modes that rely on a controlled Bitcoin regtest
-    /// backend (e.g., "neon") where the Stacks node itself
-    /// needs to instruct the Bitcoin node to generate blocks.
-    ///
-    /// The key is used to derive the Bitcoin address that receives the coinbase
-    /// rewards when generating blocks on the regtest network.
+    /// Only test helpers read it, to have the regtest Bitcoin node generate blocks
+    /// that pay their coinbase to this key's address.
     /// ---
     /// @default: `None`
     /// @notes:
@@ -3848,9 +3844,7 @@ impl ConnectionOptionsFile {
                     .map_err(|e| format!("Invalid connection_option.public_ip_address: {e}"))
             })
             .transpose()?;
-        let mut read_only_call_limit = HELIUM_DEFAULT_CONNECTION_OPTIONS
-            .read_only_call_limit
-            .clone();
+        let mut read_only_call_limit = DEFAULT_CONNECTION_OPTIONS.read_only_call_limit.clone();
         if let Some(x) = self.read_only_call_limit_write_length {
             read_only_call_limit.write_length = x;
         }
@@ -3871,71 +3865,71 @@ impl ConnectionOptionsFile {
             read_only_call_limit,
             inbox_maxlen: self
                 .inbox_maxlen
-                .unwrap_or_else(|| HELIUM_DEFAULT_CONNECTION_OPTIONS.inbox_maxlen),
+                .unwrap_or_else(|| DEFAULT_CONNECTION_OPTIONS.inbox_maxlen),
             outbox_maxlen: self
                 .outbox_maxlen
-                .unwrap_or_else(|| HELIUM_DEFAULT_CONNECTION_OPTIONS.outbox_maxlen),
+                .unwrap_or_else(|| DEFAULT_CONNECTION_OPTIONS.outbox_maxlen),
             timeout: self
                 .timeout
-                .unwrap_or_else(|| HELIUM_DEFAULT_CONNECTION_OPTIONS.timeout),
+                .unwrap_or_else(|| DEFAULT_CONNECTION_OPTIONS.timeout),
             idle_timeout: self
                 .idle_timeout
-                .unwrap_or_else(|| HELIUM_DEFAULT_CONNECTION_OPTIONS.idle_timeout),
+                .unwrap_or_else(|| DEFAULT_CONNECTION_OPTIONS.idle_timeout),
             heartbeat: self
                 .heartbeat
-                .unwrap_or_else(|| HELIUM_DEFAULT_CONNECTION_OPTIONS.heartbeat),
+                .unwrap_or_else(|| DEFAULT_CONNECTION_OPTIONS.heartbeat),
             private_key_lifetime: self
                 .private_key_lifetime
-                .unwrap_or_else(|| HELIUM_DEFAULT_CONNECTION_OPTIONS.private_key_lifetime),
+                .unwrap_or_else(|| DEFAULT_CONNECTION_OPTIONS.private_key_lifetime),
             num_neighbors: self
                 .num_neighbors
-                .unwrap_or_else(|| HELIUM_DEFAULT_CONNECTION_OPTIONS.num_neighbors),
+                .unwrap_or_else(|| DEFAULT_CONNECTION_OPTIONS.num_neighbors),
             num_clients: self
                 .num_clients
-                .unwrap_or_else(|| HELIUM_DEFAULT_CONNECTION_OPTIONS.num_clients),
+                .unwrap_or_else(|| DEFAULT_CONNECTION_OPTIONS.num_clients),
             soft_num_neighbors: self
                 .soft_num_neighbors
-                .unwrap_or_else(|| HELIUM_DEFAULT_CONNECTION_OPTIONS.soft_num_neighbors),
+                .unwrap_or_else(|| DEFAULT_CONNECTION_OPTIONS.soft_num_neighbors),
             soft_num_clients: self
                 .soft_num_clients
-                .unwrap_or_else(|| HELIUM_DEFAULT_CONNECTION_OPTIONS.soft_num_clients),
+                .unwrap_or_else(|| DEFAULT_CONNECTION_OPTIONS.soft_num_clients),
             soft_max_neighbors_per_org: self
                 .soft_max_neighbors_per_org
-                .unwrap_or_else(|| HELIUM_DEFAULT_CONNECTION_OPTIONS.soft_max_neighbors_per_org),
+                .unwrap_or_else(|| DEFAULT_CONNECTION_OPTIONS.soft_max_neighbors_per_org),
             soft_max_clients_per_host: self
                 .soft_max_clients_per_host
-                .unwrap_or_else(|| HELIUM_DEFAULT_CONNECTION_OPTIONS.soft_max_clients_per_host),
+                .unwrap_or_else(|| DEFAULT_CONNECTION_OPTIONS.soft_max_clients_per_host),
             walk_interval: self
                 .walk_interval
-                .unwrap_or_else(|| HELIUM_DEFAULT_CONNECTION_OPTIONS.walk_interval),
+                .unwrap_or_else(|| DEFAULT_CONNECTION_OPTIONS.walk_interval),
             walk_seed_probability: self
                 .walk_seed_probability
-                .unwrap_or_else(|| HELIUM_DEFAULT_CONNECTION_OPTIONS.walk_seed_probability),
+                .unwrap_or_else(|| DEFAULT_CONNECTION_OPTIONS.walk_seed_probability),
             log_neighbors_freq: self
                 .log_neighbors_freq
-                .unwrap_or_else(|| HELIUM_DEFAULT_CONNECTION_OPTIONS.log_neighbors_freq),
+                .unwrap_or_else(|| DEFAULT_CONNECTION_OPTIONS.log_neighbors_freq),
             dns_timeout: self
                 .dns_timeout
                 .map(|dns_timeout| dns_timeout as u128)
-                .unwrap_or_else(|| HELIUM_DEFAULT_CONNECTION_OPTIONS.dns_timeout),
+                .unwrap_or_else(|| DEFAULT_CONNECTION_OPTIONS.dns_timeout),
             max_inflight_blocks: self
                 .max_inflight_blocks
-                .unwrap_or_else(|| HELIUM_DEFAULT_CONNECTION_OPTIONS.max_inflight_blocks),
+                .unwrap_or_else(|| DEFAULT_CONNECTION_OPTIONS.max_inflight_blocks),
             max_inflight_attachments: self
                 .max_inflight_attachments
-                .unwrap_or_else(|| HELIUM_DEFAULT_CONNECTION_OPTIONS.max_inflight_attachments),
+                .unwrap_or_else(|| DEFAULT_CONNECTION_OPTIONS.max_inflight_attachments),
             maximum_call_argument_size: self
                 .maximum_call_argument_size
-                .unwrap_or_else(|| HELIUM_DEFAULT_CONNECTION_OPTIONS.maximum_call_argument_size),
+                .unwrap_or_else(|| DEFAULT_CONNECTION_OPTIONS.maximum_call_argument_size),
             download_interval: self
                 .download_interval
-                .unwrap_or_else(|| HELIUM_DEFAULT_CONNECTION_OPTIONS.download_interval),
+                .unwrap_or_else(|| DEFAULT_CONNECTION_OPTIONS.download_interval),
             inv_sync_interval: self
                 .inv_sync_interval
-                .unwrap_or_else(|| HELIUM_DEFAULT_CONNECTION_OPTIONS.inv_sync_interval),
+                .unwrap_or_else(|| DEFAULT_CONNECTION_OPTIONS.inv_sync_interval),
             inv_reward_cycles: self.inv_reward_cycles.unwrap_or_else(|| {
                 if is_mainnet {
-                    HELIUM_DEFAULT_CONNECTION_OPTIONS.inv_reward_cycles
+                    DEFAULT_CONNECTION_OPTIONS.inv_reward_cycles
                 } else {
                     // testnet reward cycles are a bit smaller (and blocks can go by
                     // faster), so make our inventory
@@ -3950,7 +3944,7 @@ impl ConnectionOptionsFile {
             force_disconnect_interval: self.force_disconnect_interval,
             max_http_clients: self
                 .max_http_clients
-                .unwrap_or_else(|| HELIUM_DEFAULT_CONNECTION_OPTIONS.max_http_clients),
+                .unwrap_or_else(|| DEFAULT_CONNECTION_OPTIONS.max_http_clients),
             connect_timeout: self.connect_timeout.unwrap_or(10),
             handshake_timeout: self.handshake_timeout.unwrap_or(default.handshake_timeout),
             max_sockets: self.max_sockets.unwrap_or(800) as usize,

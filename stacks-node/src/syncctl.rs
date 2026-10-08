@@ -18,9 +18,9 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
 
 use stacks::burnchains::{Burnchain, Error as burnchain_error};
+use stacks::chainstate::burn::BlockSnapshot;
 use stacks_common::util::{get_epoch_time_secs, sleep_ms};
 
-use crate::burnchains::BurnchainTip;
 use crate::Config;
 
 #[derive(Clone)]
@@ -132,20 +132,20 @@ impl PoxSyncWatchdog {
     pub fn pox_sync_wait(
         &mut self,
         burnchain: &Burnchain,
-        burnchain_tip: &BurnchainTip, // this is the highest burnchain snapshot we've sync'ed to
-        burnchain_height: u64,        // this is the absolute burnchain block height
+        burnchain_tip: &BlockSnapshot, // this is the highest burnchain snapshot we've sync'ed to
+        burnchain_height: u64,         // this is the absolute burnchain block height
     ) -> Result<(bool, u64), burnchain_error> {
         let burnchain_rc = burnchain
             .block_height_to_reward_cycle(burnchain_height)
             .expect("FATAL: burnchain height is before system start");
 
         let sortition_rc = burnchain
-            .block_height_to_reward_cycle(burnchain_tip.block_snapshot.block_height)
+            .block_height_to_reward_cycle(burnchain_tip.block_height)
             .expect("FATAL: sortition height is before system start");
 
         let ibbd = PoxSyncWatchdog::infer_initial_burnchain_block_download(
             burnchain,
-            burnchain_tip.block_snapshot.block_height,
+            burnchain_tip.block_height,
             burnchain_height,
         );
 
@@ -154,10 +154,7 @@ impl PoxSyncWatchdog {
                 .reward_cycle_to_block_height(sortition_rc + 1)
                 .min(burnchain_height)
         } else {
-            burnchain_tip
-                .block_snapshot
-                .block_height
-                .max(burnchain_height)
+            burnchain_tip.block_height.max(burnchain_height)
         };
 
         self.relayer_comms.set_ibd(ibbd);

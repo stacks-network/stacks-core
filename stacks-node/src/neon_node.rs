@@ -206,7 +206,8 @@ use stacks::util_lib::strings::{UrlString, VecDisplay};
 use stacks::{monitoring, version_string};
 use stacks_common::codec::StacksMessageCodec;
 use stacks_common::types::chainstate::{
-    BlockHeaderHash, BurnchainHeaderHash, SortitionId, StacksAddress, StacksBlockId, VRFSeed,
+    BlockHeaderHash, BurnchainHeaderHash, SortitionId, StacksAddress, StacksBlockId, TrieHash,
+    VRFSeed,
 };
 use stacks_common::types::net::PeerAddress;
 use stacks_common::types::{PublicKey, StacksEpochId};
@@ -225,7 +226,6 @@ use crate::nakamoto_node::miner_db::MinerDB;
 use crate::nakamoto_node::signer_coordinator::SignerCoordinator;
 use crate::run_loop::neon::RunLoop;
 use crate::run_loop::RegisteredKey;
-use crate::ChainTip;
 
 pub const RELAYER_MAX_BUFFER: usize = 100;
 const VRF_MOCK_MINER_KEY: u64 = 1;
@@ -1566,15 +1566,16 @@ impl BlockMinerThread {
             debug!("No Stacks chain tip known, will return a genesis block");
             let burnchain_params = burnchain_params_from_config(&self.config.burnchain);
 
-            let chain_tip = ChainTip::genesis(
+            let genesis_header = StacksHeaderInfo::genesis(
+                TrieHash([0u8; 32]),
                 &burnchain_params.first_block_hash,
-                burnchain_params.first_block_height,
+                burnchain_params.first_block_height as u32,
                 burnchain_params.first_block_timestamp.into(),
             );
 
             (
                 Some(ParentStacksBlockInfo {
-                    stacks_parent_header: chain_tip.metadata,
+                    stacks_parent_header: genesis_header,
                     parent_consensus_hash: FIRST_BURNCHAIN_CONSENSUS_HASH,
                     parent_block_burn_height: 0,
                     parent_block_total_burn: 0,

@@ -1,45 +1,36 @@
+// Copyright (C) 2026 Stacks Open Internet Foundation
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program.  If not, see <http://www.gnu.org/licenses/>.
+
+//! Genesis data for booting a node: the initial account balances, lockups and BNS
+//! namespaces and names that the neon and nakamoto run loops load into chainstate.
+
 use std::env;
 
 use stacks::chainstate::stacks::db::{
     ChainstateAccountBalance, ChainstateAccountLockup, ChainstateBNSName, ChainstateBNSNamespace,
 };
 
-pub use self::chain_tip::ChainTip;
-use crate::genesis_data::USE_TEST_GENESIS_CHAINSTATE;
 use crate::Config;
 
-mod chain_tip {
-    use stacks::chainstate::stacks::db::StacksHeaderInfo;
-    use stacks::chainstate::stacks::events::StacksTransactionReceipt;
-    use stacks::chainstate::stacks::StacksBlock;
-    use stacks_common::types::chainstate::{BurnchainHeaderHash, TrieHash};
+/// Builds use the full production `chainstate.txt` (e.g. `cargo build`); tests use a small test
+/// file (e.g. `cargo test`) unless the `prod-genesis-chainstate` feature is enabled.
+#[cfg(any(not(test), feature = "prod-genesis-chainstate"))]
+const USE_TEST_GENESIS_CHAINSTATE: bool = false;
 
-    #[derive(Debug, Clone)]
-    pub struct ChainTip {
-        pub metadata: StacksHeaderInfo,
-        pub block: StacksBlock,
-        pub receipts: Vec<StacksTransactionReceipt>,
-    }
-
-    impl ChainTip {
-        pub fn genesis(
-            first_burnchain_block_hash: &BurnchainHeaderHash,
-            first_burnchain_block_height: u64,
-            first_burnchain_block_timestamp: u64,
-        ) -> ChainTip {
-            ChainTip {
-                metadata: StacksHeaderInfo::genesis(
-                    TrieHash([0u8; 32]),
-                    first_burnchain_block_hash,
-                    first_burnchain_block_height as u32,
-                    first_burnchain_block_timestamp,
-                ),
-                block: StacksBlock::genesis_block(),
-                receipts: vec![],
-            }
-        }
-    }
-}
+#[cfg(all(test, not(feature = "prod-genesis-chainstate")))]
+const USE_TEST_GENESIS_CHAINSTATE: bool = true;
 
 pub fn get_account_lockups(
     use_test_chainstate_data: bool,

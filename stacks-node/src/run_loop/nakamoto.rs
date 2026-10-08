@@ -482,7 +482,6 @@ impl RunLoop {
             burnchain
                 .wait_for_sortitions(globals.coord().clone(), sn.block_height + 1)
                 .expect("Unable to get burnchain tip")
-                .block_snapshot
         } else {
             sn
         };
@@ -560,7 +559,7 @@ impl RunLoop {
 
             // calculate burnchain sync percentage
             let percent: f64 = if remote_chain_height > 0 {
-                burnchain_tip.block_snapshot.block_height as f64 / remote_chain_height as f64
+                burnchain_tip.block_height as f64 / remote_chain_height as f64
             } else {
                 0.0
             };
@@ -576,7 +575,7 @@ impl RunLoop {
                     .block_height_to_reward_cycle(target_burnchain_block_height)
                     .expect("FATAL: target burnchain block height does not have a reward cycle");
                 "total_burn_sync_percent" => %percent,
-                "local_burn_height" => burnchain_tip.block_snapshot.block_height,
+                "local_burn_height" => burnchain_tip.block_height,
                 "remote_tip_height" => remote_chain_height
             );
 
@@ -592,7 +591,7 @@ impl RunLoop {
                 poll_deadline = get_epoch_time_secs() + self.config().burnchain.poll_time_secs;
 
                 let (next_burnchain_tip, tip_burnchain_height) =
-                    match burnchain.sync(Some(target_burnchain_block_height)) {
+                    match burnchain.sync(target_burnchain_block_height) {
                         Ok(x) => x,
                         Err(e) => {
                             warn!("Runloop: Burnchain controller stopped: {e}");
@@ -604,8 +603,8 @@ impl RunLoop {
                 burnchain_tip = next_burnchain_tip;
                 burnchain_height = tip_burnchain_height;
 
-                let sortition_tip = &burnchain_tip.block_snapshot.sortition_id;
-                let next_sortition_height = burnchain_tip.block_snapshot.block_height;
+                let sortition_tip = &burnchain_tip.sortition_id;
+                let next_sortition_height = burnchain_tip.block_height;
 
                 if next_sortition_height != last_tenure_sortition_height {
                     info!(

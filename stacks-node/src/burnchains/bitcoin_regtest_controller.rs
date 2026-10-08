@@ -18,7 +18,6 @@ use std::cmp;
 use std::collections::HashSet;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
-use std::time::Instant;
 
 use stacks::burnchains::bitcoin::address::{
     BitcoinAddress, LegacyBitcoinAddress, LegacyBitcoinAddressType, SegwitBitcoinAddress,
@@ -31,14 +30,14 @@ use stacks::burnchains::bitcoin::{BitcoinNetworkType, Error as btc_error};
 use stacks::burnchains::db::BurnchainDB;
 use stacks::burnchains::indexer::BurnchainIndexer;
 use stacks::burnchains::{
-    Burnchain, BurnchainParameters, BurnchainStateTransitionOps, Error as burnchain_error,
-    PublicKey, Txid,
+    Burnchain, BurnchainParameters, Error as burnchain_error, PublicKey, Txid,
 };
 use stacks::chainstate::burn::db::sortdb::SortitionDB;
 use stacks::chainstate::burn::operations::{
     BlockstackOperationType, DelegateStxOp, LeaderBlockCommitOp, LeaderKeyRegisterOp, PreStxOp,
     StackStxOp, TransferStxOp, VoteForAggregateKeyOp,
 };
+use stacks::chainstate::burn::BlockSnapshot;
 #[cfg(test)]
 use stacks::chainstate::burn::Opcodes;
 use stacks::chainstate::coordinator::comm::CoordinatorChannels;
@@ -69,7 +68,7 @@ use stacks_common::util::sleep_ms;
 
 use super::super::operations::BurnchainOpSigner;
 use super::super::Config;
-use super::{BurnchainTip, Error as BurnchainControllerError};
+use super::Error as BurnchainControllerError;
 use crate::burnchains::rpc::bitcoin_rpc_client::{
     BitcoinRpcClient, BitcoinRpcClientError, BitcoinRpcClientResult, ImportDescriptorsRequest,
     Timestamp,
@@ -101,7 +100,7 @@ pub struct BitcoinRegtestController {
     indexer: BitcoinIndexer,
     db: Option<SortitionDB>,
     burnchain_db: Option<BurnchainDB>,
-    chain_tip: Option<BurnchainTip>,
+    chain_tip: Option<BlockSnapshot>,
     use_coordinator: Option<CoordinatorChannels>,
     burnchain_config: Option<Burnchain>,
     ongoing_block_commit: Option<OngoingBlockCommit>,
@@ -348,10 +347,6 @@ impl BitcoinRegtestControllerError {
 }
 
 impl BitcoinRegtestController {
-    pub fn new(config: Config, coordinator_channel: Option<CoordinatorChannels>) -> Self {
-        BitcoinRegtestController::with_burnchain(config, coordinator_channel, None, None)
-    }
-
     // TODO: add tests from mutation testing results #4864
     #[cfg_attr(test, mutants::skip)]
     pub fn with_burnchain(
@@ -533,82 +528,19 @@ impl BitcoinRegtestController {
             .expect("BUG: BitcoinRpcClient is required, but it has not been configured properly!")
     }
 
-    /// Helium (devnet) blocks receiver.  Returns the new burnchain tip.
-    fn receive_blocks_helium(&mut self) -> BurnchainTip {
-        let mut burnchain = self.get_burnchain();
-        let (block_snapshot, state_transition) = loop {
-            match burnchain.sync_with_indexer_deprecated(&mut self.indexer) {
-                Ok(x) => {
-                    break x;
-                }
-                Err(e) => {
-                    // keep trying
-                    error!("Unable to sync with burnchain: {e}");
-                    match e {
-                        burnchain_error::TrySyncAgain => {
-                            // try again immediately
-                            continue;
-                        }
-                        burnchain_error::BurnchainPeerBroken => {
-                            // remote burnchain peer broke, and produced a shorter blockchain fork.
-                            // just keep trying
-                            sleep_ms(5000);
-                            continue;
-                        }
-                        _ => {
-                            // delay and try again
-                            sleep_ms(5000);
-                            continue;
-                        }
-                    }
-                }
-            }
-        };
-
-        let rest = match (state_transition, &self.chain_tip) {
-            (None, Some(chain_tip)) => chain_tip.clone(),
-            (Some(state_transition), _) => {
-                let burnchain_tip = BurnchainTip {
-                    block_snapshot,
-                    state_transition: BurnchainStateTransitionOps::from(state_transition),
-                    received_at: Instant::now(),
-                };
-                self.chain_tip = Some(burnchain_tip.clone());
-                burnchain_tip
-            }
-            (None, None) => {
-                // can happen at genesis
-                let burnchain_tip = BurnchainTip {
-                    block_snapshot,
-                    state_transition: BurnchainStateTransitionOps::noop(),
-                    received_at: Instant::now(),
-                };
-                self.chain_tip = Some(burnchain_tip.clone());
-                burnchain_tip
-            }
-        };
-
-        debug!("Done receiving blocks");
-        rest
-    }
-
     fn receive_blocks(
         &mut self,
         block_for_sortitions: bool,
-        target_block_height_opt: Option<u64>,
-    ) -> Result<(BurnchainTip, u64), BurnchainControllerError> {
-        let coordinator_comms = match self.use_coordinator.as_ref() {
-            Some(x) => x.clone(),
-            None => {
-                // no coordinator — fall back to direct indexer sync
-                let tip = self.receive_blocks_helium();
-                let height = tip.block_snapshot.block_height;
-                return Ok((tip, height));
-            }
-        };
+        target_block_height: u64,
+    ) -> Result<(BlockSnapshot, u64), BurnchainControllerError> {
+        // Only the run loop's controller syncs; the coordinator-less dummies just submit ops.
+        let coordinator_comms = self
+            .use_coordinator
+            .clone()
+            .expect("BUG: syncing the burnchain requires a coordinator");
 
         let mut burnchain = self.get_burnchain();
-        let (block_snapshot, burnchain_height, state_transition) = loop {
+        let (burnchain_tip, burnchain_height) = loop {
             if !self.should_keep_running() {
                 return Err(BurnchainControllerError::CoordinatorClosed);
             }
@@ -616,23 +548,19 @@ impl BitcoinRegtestController {
             match burnchain.sync_with_indexer(
                 &mut self.indexer,
                 coordinator_comms.clone(),
-                target_block_height_opt,
+                Some(target_block_height),
                 Some(burnchain.pox_constants.reward_cycle_length as u64),
                 self.should_keep_running.clone(),
             ) {
-                Ok(x) => {
+                Ok(_) => {
                     increment_btc_blocks_received_counter();
 
                     // initialize the dbs...
                     self.sortdb_mut();
 
                     // wait for the chains coordinator to catch up with us.
-                    // don't wait for heights beyond the burnchain tip.
                     if block_for_sortitions {
-                        self.wait_for_sortitions(
-                            coordinator_comms,
-                            target_block_height_opt.unwrap_or(x.block_height),
-                        )?;
+                        self.wait_for_sortitions(coordinator_comms, target_block_height)?;
                     }
 
                     // NOTE: This is the latest _sortition_ on the canonical sortition history, not the latest burnchain block!
@@ -640,17 +568,11 @@ impl BitcoinRegtestController {
                         SortitionDB::get_canonical_burn_chain_tip(self.sortdb_ref().conn())
                             .expect("Sortition DB error.");
 
-                    let (snapshot, state_transition) = self
-                        .sortdb_ref()
-                        .get_sortition_result(&sort_tip.sortition_id)
-                        .expect("Sortition DB error.")
-                        .expect("BUG: no data for the canonical chain tip");
-
                     let burnchain_height = self
                         .indexer
                         .get_highest_header_height()
                         .map_err(BurnchainControllerError::IndexerError)?;
-                    break (snapshot, burnchain_height, state_transition);
+                    break (sort_tip, burnchain_height);
                 }
                 Err(e) => {
                     // keep trying
@@ -679,18 +601,12 @@ impl BitcoinRegtestController {
             }
         };
 
-        let burnchain_tip = BurnchainTip {
-            block_snapshot,
-            state_transition,
-            received_at: Instant::now(),
-        };
-
         let received = self
             .chain_tip
             .as_ref()
-            .map(|tip| tip.block_snapshot.block_height)
+            .map(|tip| tip.block_height)
             .unwrap_or(0)
-            == burnchain_tip.block_snapshot.block_height;
+            == burnchain_tip.block_height;
         self.chain_tip = Some(burnchain_tip.clone());
         debug!("Done receiving blocks");
 
@@ -1542,7 +1458,7 @@ impl BitcoinRegtestController {
         &self,
         coord_comms: CoordinatorChannels,
         height_to_wait: u64,
-    ) -> Result<BurnchainTip, BurnchainControllerError> {
+    ) -> Result<BlockSnapshot, BurnchainControllerError> {
         let mut debug_ctr = 0;
         loop {
             let canonical_sortition_tip =
@@ -1557,17 +1473,7 @@ impl BitcoinRegtestController {
             debug_ctr += 1;
 
             if canonical_sortition_tip.block_height >= height_to_wait {
-                let (_, state_transition) = self
-                    .sortdb_ref()
-                    .get_sortition_result(&canonical_sortition_tip.sortition_id)
-                    .expect("Sortition DB error.")
-                    .expect("BUG: no data for the canonical chain tip");
-
-                return Ok(BurnchainTip {
-                    block_snapshot: canonical_sortition_tip,
-                    received_at: Instant::now(),
-                    state_transition,
-                });
+                return Ok(canonical_sortition_tip);
             }
 
             if !self.should_keep_running() {
@@ -1824,15 +1730,6 @@ impl BitcoinRegtestController {
         }
     }
 
-    pub fn get_chain_tip(&self) -> BurnchainTip {
-        match &self.chain_tip {
-            Some(chain_tip) => chain_tip.clone(),
-            None => {
-                unreachable!();
-            }
-        }
-    }
-
     pub fn get_headers_height(&self) -> u64 {
         let (_, network_id) = self.config.burnchain.get_bitcoin_network();
         let spv_client = SpvClient::new(
@@ -1868,22 +1765,20 @@ impl BitcoinRegtestController {
 
     pub fn start(
         &mut self,
-        target_block_height_opt: Option<u64>,
-    ) -> Result<(BurnchainTip, u64), BurnchainControllerError> {
-        // if no target block height is given, just fetch the first burnchain block.
-        self.receive_blocks(false, target_block_height_opt.map_or_else(|| Some(1), Some))
+        target_block_height: u64,
+    ) -> Result<(BlockSnapshot, u64), BurnchainControllerError> {
+        self.receive_blocks(false, target_block_height)
     }
 
     pub fn sync(
         &mut self,
-        target_block_height_opt: Option<u64>,
-    ) -> Result<(BurnchainTip, u64), BurnchainControllerError> {
-        let (burnchain_tip, burnchain_height) =
-            self.receive_blocks(true, target_block_height_opt)?;
+        target_block_height: u64,
+    ) -> Result<(BlockSnapshot, u64), BurnchainControllerError> {
+        let (burnchain_tip, burnchain_height) = self.receive_blocks(true, target_block_height)?;
 
         // Evaluate process_exit_at_block_height setting
         if let Some(cap) = self.config.burnchain.process_exit_at_block_height {
-            if burnchain_tip.block_snapshot.block_height >= cap {
+            if burnchain_tip.block_height >= cap {
                 info!("Node succesfully reached the end of the ongoing {cap} blocks epoch!");
                 info!("This process will automatically terminate in 30s, restart your node for participating in the next epoch.");
                 sleep_ms(30000);
@@ -1915,6 +1810,10 @@ impl BitcoinRegtestController {
 
 #[cfg(test)]
 impl BitcoinRegtestController {
+    pub fn new(config: Config, coordinator_channel: Option<CoordinatorChannels>) -> Self {
+        BitcoinRegtestController::with_burnchain(config, coordinator_channel, None, None)
+    }
+
     /// Retrieves all UTXOs associated with the given public key.
     ///
     /// The address to query is computed from the public key,

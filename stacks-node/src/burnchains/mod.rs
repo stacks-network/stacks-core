@@ -2,12 +2,7 @@ pub mod bitcoin;
 pub mod bitcoin_regtest_controller;
 pub mod rpc;
 
-use std::time::Instant;
-
 use stacks::burnchains;
-use stacks::burnchains::BurnchainStateTransitionOps;
-use stacks::chainstate::burn::operations::BlockstackOperationType;
-use stacks::chainstate::burn::BlockSnapshot;
 use stacks_common::codec::Error as CodecError;
 
 pub use self::bitcoin_regtest_controller::{make_bitcoin_indexer, BitcoinRegtestController};
@@ -49,28 +44,5 @@ impl PartialEq for Error {
                 )
                 | (SerializerError(_), SerializerError(_))
         )
-    }
-}
-
-#[derive(Debug, Clone)]
-pub struct BurnchainTip {
-    pub block_snapshot: BlockSnapshot,
-    pub state_transition: BurnchainStateTransitionOps,
-    pub received_at: Instant,
-}
-
-impl BurnchainTip {
-    pub fn get_winning_tx_index(&self) -> Option<u32> {
-        let winning_tx_id = &self.block_snapshot.winning_block_txid;
-        let mut winning_tx_vtindex = None;
-
-        for op in self.state_transition.accepted_ops.iter() {
-            if let BlockstackOperationType::LeaderBlockCommit(op) = op {
-                if &op.txid == winning_tx_id {
-                    winning_tx_vtindex = Some(op.vtxindex)
-                }
-            }
-        }
-        winning_tx_vtindex
     }
 }

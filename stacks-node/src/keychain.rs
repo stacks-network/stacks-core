@@ -193,11 +193,6 @@ impl Keychain {
         BurnchainSigner(format!("{}", &self.get_address(true)))
     }
 
-    /// Convenience wrapper around make_stacks_keypair
-    pub fn get_microblock_key(&self, block_height: u64) -> StacksPrivateKey {
-        self.make_stacks_keypair(block_height, &[]).1
-    }
-
     /// Sign a transaction as if we were the origin
     pub fn sign_as_origin(&self, tx_signer: &mut StacksTransactionSigner) {
         let sk = self.get_secret_key();

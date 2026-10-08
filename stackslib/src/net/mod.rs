@@ -2208,15 +2208,6 @@ impl NetworkResult {
             || !self.pushed_stackerdb_chunks.is_empty()
     }
 
-    pub fn transactions(&self) -> Vec<StacksTransaction> {
-        self.pushed_transactions
-            .values()
-            .flat_map(|pushed_txs| pushed_txs.iter().map(|(_, tx)| tx.clone()))
-            .chain(self.uploaded_transactions.iter().cloned())
-            .chain(self.synced_transactions.iter().cloned())
-            .collect()
-    }
-
     pub fn has_data_to_store(&self) -> bool {
         self.has_blocks()
             || self.has_microblocks()

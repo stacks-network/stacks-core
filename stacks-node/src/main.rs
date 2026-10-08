@@ -34,7 +34,6 @@ pub mod monitoring;
 pub mod burnchains;
 pub mod event_dispatcher;
 pub mod genesis;
-pub mod genesis_data;
 pub mod globals;
 pub mod keychain;
 pub mod nakamoto_node;
@@ -59,9 +58,8 @@ use stacks_common::alloc_tracker::{tracking_allocator_installed, TrackingAllocat
 #[cfg(not(any(target_os = "macos", target_os = "windows", target_arch = "arm")))]
 use tikv_jemallocator::Jemalloc;
 
-pub use self::burnchains::{BitcoinRegtestController, BurnchainTip};
+pub use self::burnchains::BitcoinRegtestController;
 pub use self::event_dispatcher::EventDispatcher;
-pub use self::genesis::ChainTip;
 pub use self::keychain::Keychain;
 pub use self::run_loop::neon;
 use crate::neon_node::{BlockMinerThread, TipCandidate};
@@ -459,7 +457,6 @@ fn main() {
 
     send_pending_event_payloads(&conf);
 
-    // `Config::from_config_file` already rejected unsupported modes.
     if conf.memory_limit_configured() && !tracking_allocator_installed() {
         panic!("Tracking allocator must be installed to set a memory limit");
     }
