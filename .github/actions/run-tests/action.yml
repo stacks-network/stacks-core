@@ -148,8 +148,8 @@ runs:
     - name: Run Tests
       shell: bash
       run: |
-        # Add bitcoind to $PATH
-        echo "$HOME/bitcoin/bin" >> $GITHUB_PATH
+        # Export bitcoind to the CURRENT step's path so cargo can see it right now
+        export PATH="$HOME/bitcoin/bin:$PATH"
 
         # Adjust file descriptor limit
         ulimit -n 4096

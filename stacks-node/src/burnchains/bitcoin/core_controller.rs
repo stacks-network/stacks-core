@@ -170,15 +170,6 @@ impl BitcoinCoreController {
         // 2. Inject the optimized datadir path
         final_args.push(format!("-datadir={}", self.data_path));
 
-        // 3. Inject P2P and Wallet speedup flags (if not already provided)
-        let speedup_flags = ["-discover=0", "-dnsseed=0", "-upnp=0", "-natpmp=0"];
-
-        for flag in speedup_flags {
-            if !final_args.contains(&flag.to_string()) {
-                final_args.push(flag.to_string());
-            }
-        }
-
         command.args(&final_args);
 
         info!("bitcoind spawn: {command:?}");
