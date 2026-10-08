@@ -155,7 +155,8 @@ runs:
         ulimit -n 4096
         
         # Back test working dirs (bitcoind datadir + chainstate) with RAM disk
-        sudo mount -t tmpfs -o size=8G,mode=1777 tmpfs /tmp
+        # Keep the size below the RAM allocated to the runner: https://docs.github.com/en/actions/reference/runners/github-hosted-runners
+        sudo mount -t tmpfs -o size=2G,mode=1777 tmpfs /tmp
 
         # Determine run mode arguments
         if [ -n "${{ inputs.partition }}" ]; then
