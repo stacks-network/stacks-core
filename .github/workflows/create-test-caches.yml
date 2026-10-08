@@ -134,8 +134,7 @@ jobs:
     name: "Create: Cargo Cache"
     needs:
       - setup-env
-    if: needs.check-ci.outputs.enabled == 'true'
-    runs-on: ubuntu-latest
+    runs-on: *shared_config
     steps:
       # Checkout the code
       #   - only .github is required for this job
