@@ -139,7 +139,9 @@ impl BitcoinCoreController {
                 .duration_since(std::time::UNIX_EPOCH)
                 .unwrap()
                 .as_micros();
-            shm_path.join(format!("bitcoin_test_datadir_{}", unique_id))
+            
+            // Convert the resulting PathBuf into a String to match self.data_path
+            shm_path.join(format!("bitcoin_test_datadir_{}", unique_id)).to_string_lossy().to_string()
         } else {
             // Fallback to the standard path for macOS/Windows local development
             self.data_path.clone()
@@ -163,7 +165,7 @@ impl BitcoinCoreController {
             .collect();
 
         // 2. Inject the optimized datadir path
-        final_args.push(format!("-datadir={}", self.data_path.display()));
+        final_args.push(format!("-datadir={}", self.data_path));
 
         // 3. Inject P2P and Wallet speedup flags (if not already provided)
         let speedup_flags = ["-discover=0", "-dnsseed=0", "-upnp=0", "-natpmp=0"];
