@@ -4,7 +4,7 @@
 //!
 //!
 // Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
-// Copyright (C) 2020-2024 Stacks Open Internet Foundation
+// Copyright (C) 2020-2026 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -40,10 +40,13 @@ use stacks_common::util::secp256k1::MessageSignature;
 use stacks_common::{debug, error};
 use stacks_signer::cli::{
     Cli, Command, GenerateStakingSignatureArgs, GenerateVoteArgs, GetChunkArgs, GetLatestChunkArgs,
-    MonitorSignersArgs, PutChunkArgs, RunSignerArgs, StackerDBArgs, VerifyVoteArgs,
+    MonitorSignersArgs, PruneDbArgs, PutChunkArgs, RunSignerArgs, StackerDBArgs, VerifyVoteArgs,
 };
 use stacks_signer::config::GlobalConfig;
 use stacks_signer::monitor_signers::SignerMonitor;
+use stacks_signer::signerdb_offline::{
+    is_database_in_use, is_disk_full, prune_offline, OfflinePruneOptions,
+};
 use stacks_signer::utils::stackerdb_session;
 use stacks_signer::v0::SpawnedSigner;
 use tracing_subscriber::prelude::*;
@@ -205,6 +208,50 @@ fn handle_monitor_signers(args: MonitorSignersArgs) {
     }
 }
 
+fn handle_prune_db(args: PruneDbArgs) {
+    let db_path = match (args.db_path, args.config) {
+        (Some(db_path), _) => db_path,
+        (None, Some(config)) => match GlobalConfig::try_from(&config) {
+            Ok(config) => config.db_path,
+            Err(e) => {
+                eprintln!("Invalid config {}: {e}", config.display());
+                std::process::exit(1);
+            }
+        },
+        (None, None) => unreachable!("clap requires --config or --db-path"),
+    };
+    let options = OfflinePruneOptions {
+        batch_size: args.batch_size,
+        vacuum: !args.no_vacuum,
+        temp_dir: args.temp_dir,
+        dry_run: args.dry_run,
+    };
+    match prune_offline(&db_path, &options) {
+        Ok(report) => print!("{report}"),
+        Err(e) => {
+            if is_database_in_use(&e) {
+                eprintln!(
+                    "The signer database {} is in use: stop the signer, then run this again.",
+                    db_path.display()
+                );
+            } else if is_disk_full(&e) {
+                eprintln!(
+                    "Not enough disk space to compact the signer database {}. It is pruned as far \
+                     as the run got. Compacting needs about its live data free next to it; free \
+                     some space, or use --temp-dir to build the temporary copy on another disk.",
+                    db_path.display()
+                );
+            } else {
+                eprintln!(
+                    "Failed to prune the signer database {}: {e}",
+                    db_path.display()
+                );
+            }
+            std::process::exit(1);
+        }
+    }
+}
+
 fn main() {
     // If no args were passed, exit 0.
     // This differs from the default behavior, which exits with code 2.
@@ -252,6 +299,9 @@ fn main() {
         }
         Command::MonitorSigners(args) => {
             handle_monitor_signers(args);
+        }
+        Command::PruneDb(args) => {
+            handle_prune_db(args);
         }
     }
 }
