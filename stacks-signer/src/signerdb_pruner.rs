@@ -28,7 +28,7 @@ use crate::signerdb::{PruneParams, PruneStats, SignerDb, MAX_FORK_DEPTH};
 /// does not depend on the event stream going quiet.
 pub const PRUNE_INTERVAL: Duration = Duration::from_secs(10);
 /// The parameters of every pruning pass (see [`PruneParams`]).
-const PRUNE_PARAMS: PruneParams = PruneParams {
+pub(crate) const PRUNE_PARAMS: PruneParams = PruneParams {
     // Blocks are counted in Stacks blocks because they carry almost all of the cost of a pass.
     // Together with `PRUNE_INTERVAL` this bounds the time spent pruning, and drains an existing
     // backlog over repeated passes.

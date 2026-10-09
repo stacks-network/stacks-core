@@ -5,7 +5,7 @@ Usage documentation can be found in the [README](https://github.com/Trust-Machin
 */
 
 // Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
-// Copyright (C) 2020-2024 Stacks Open Internet Foundation
+// Copyright (C) 2020-2026 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -37,6 +37,8 @@ pub mod monitoring;
 pub mod runloop;
 /// The signer state module
 pub mod signerdb;
+/// Offline pruning and compaction of the signer db
+pub mod signerdb_offline;
 /// Online pruning of the signer db
 pub mod signerdb_pruner;
 /// The util module for the signer
