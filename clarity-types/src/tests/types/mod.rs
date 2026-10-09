@@ -771,6 +771,51 @@ fn string_utf8_from_bytes_too_large() {
 }
 
 #[test]
+fn string_utf8_from_bytes_multibyte_over_max_bytes_is_ok() {
+    // MAX_UTF8_VALUE_SIZE - 1 ASCII codepoints plus one 2-byte codepoint is
+    // MAX_UTF8_VALUE_SIZE + 1 bytes but only MAX_UTF8_VALUE_SIZE codepoints,
+    // so it must be accepted: the limit applies to codepoints, not bytes.
+    let mut bytes = vec![b'a'; MAX_UTF8_VALUE_SIZE as usize - 1];
+    bytes.extend_from_slice("é".as_bytes());
+
+    let value = Value::string_utf8_from_bytes(bytes).unwrap();
+
+    let mut expected = vec![vec![b'a']; MAX_UTF8_VALUE_SIZE as usize - 1];
+    expected.push("é".as_bytes().to_vec());
+    assert_eq!(
+        Value::Sequence(SequenceData::String(CharType::UTF8(UTF8Data {
+            data: expected,
+        }))),
+        value
+    );
+}
+
+#[test]
+fn string_utf8_from_bytes_four_byte_at_max_size_is_ok() {
+    // MAX_UTF8_VALUE_SIZE 4-byte codepoints is exactly at the limit.
+    let bytes = "🤗".repeat(MAX_UTF8_VALUE_SIZE as usize).into_bytes();
+
+    let value = Value::string_utf8_from_bytes(bytes).unwrap();
+
+    assert_eq!(
+        Value::Sequence(SequenceData::String(CharType::UTF8(UTF8Data {
+            data: vec!["🤗".as_bytes().to_vec(); MAX_UTF8_VALUE_SIZE as usize],
+        }))),
+        value
+    );
+}
+
+#[test]
+fn string_utf8_from_bytes_four_byte_too_large() {
+    // one 4-byte codepoint over MAX_UTF8_VALUE_SIZE must be rejected.
+    let bytes = "🤗".repeat(MAX_UTF8_VALUE_SIZE as usize + 1).into_bytes();
+
+    let err = Value::string_utf8_from_bytes(bytes).unwrap_err();
+
+    assert_eq!(ClarityTypeError::ValueTooLarge, err);
+}
+
+#[test]
 fn test_sequence_try_retain_list_empty() {
     let seq = utils::make_int_sequence(&[]);
     let result = seq.try_retain::<(), _>(utils::keep_all).unwrap();
