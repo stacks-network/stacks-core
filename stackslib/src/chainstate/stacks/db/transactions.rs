@@ -14,6 +14,8 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use std::time::Instant;
+
 use clar2wasm::compile_contract;
 use clarity::vm::analysis::types::ContractAnalysis;
 use clarity::vm::clarity::TransactionConnection;
@@ -1253,6 +1255,7 @@ impl StacksChainState {
                 let sponsor = tx.sponsor_address().map(|a| a.to_account_principal());
 
                 debug!("Compiling the contract to wasm binary");
+                let compile_start = Instant::now();
                 let mut module = clarity_tx
                     .with_analysis_db_readonly(|analysis_db| {
                         compile_contract(contract_analysis.clone(), &contract_ast, analysis_db)
@@ -1263,6 +1266,9 @@ impl StacksChainState {
                         )))
                     })?;
                 contract_ast.wasm_module = Some(module.emit_wasm());
+                info!("Compiled deployed contract to Wasm";
+                      "contract" => %contract_id,
+                      "compile_ms" => compile_start.elapsed().as_secs_f64() * 1000.0);
 
                 // execution -- if this fails due to a runtime error, then the transaction is still
                 // accepted, but the contract does not materialize (but the sender is out their fee).

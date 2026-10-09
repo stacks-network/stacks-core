@@ -28,6 +28,8 @@
 //! running transaction serves as the [`clar2wasm::AnalysisLookup`], so the compile sees the
 //! contract source and dependency analyses through the rollback-aware metadata layer.
 
+use std::time::Instant;
+
 use clarity::vm::database::{ClarityDatabase, WasmCompilation};
 use clarity::vm::types::QualifiedContractIdentifier;
 use clarity::vm::ClarityVersion;
@@ -45,13 +47,18 @@ pub fn compile_deployed_contract(
     clarity_version: ClarityVersion,
     epoch: StacksEpochId,
 ) -> Result<WasmCompilation, String> {
+    let start = Instant::now();
     let compiled =
         clar2wasm::compile_deployed_contract(db, contract_identifier, clarity_version, epoch)
             .map_err(|e| e.to_string())?;
 
     let mut module = compiled.module;
+    let module = module.emit_wasm();
+    info!("JIT-compiled deployed contract to Wasm";
+          "contract" => %contract_identifier,
+          "compile_ms" => start.elapsed().as_secs_f64() * 1000.0);
     Ok(WasmCompilation {
-        module: module.emit_wasm(),
+        module,
         analysis: compiled.contract_analysis,
     })
 }

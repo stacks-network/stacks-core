@@ -3,6 +3,7 @@ use std::io::{Cursor, Write as _};
 use std::marker::PhantomData;
 use std::ops::{AddAssign, Deref, DerefMut, SubAssign};
 use std::sync::Mutex;
+use std::time::Instant;
 
 use clarity_types::types::MAX_VALUE_SIZE;
 use stacks_common::bounded_format;
@@ -531,12 +532,10 @@ pub fn initialize_contract(
         sponsor.clone(),
         Some(contract_analysis),
     );
-    let module = init_context
-        .contract_context()
-        .with_wasm_module(|wasm_module| {
-            Module::new(&engine, wasm_module)
-                .map_err(|e| VmExecutionError::Wasm(WasmError::UnableToLoadModule(e)))
-        })?;
+    let contract_context = init_context.contract_context();
+    let module = contract_context.with_wasm_module(|wasm_module| {
+        load_module(&engine, &contract_context.contract_identifier, wasm_module)
+    })?;
     let mut store = ClarityWasmStore::new(&engine, init_context);
     let mut linker = Linker::new(&engine);
 
@@ -632,6 +631,22 @@ fn function_return_type(
 /// Call a function in the contract, using the Wasm module which was compiled when the contract
 /// was deployed.
 #[allow(clippy::too_many_arguments)]
+/// Compile `wasm_module` into a wasmi [`Module`], logging how long it took.
+fn load_module(
+    engine: &Engine,
+    contract_id: &QualifiedContractIdentifier,
+    wasm_module: &[u8],
+) -> Result<Module, VmExecutionError> {
+    let start = Instant::now();
+    let module = Module::new(engine, wasm_module)
+        .map_err(|e| VmExecutionError::Wasm(WasmError::UnableToLoadModule(e)));
+    info!("Loaded Wasm module";
+          "contract" => %contract_id,
+          "size_bytes" => wasm_module.len(),
+          "load_ms" => start.elapsed().as_secs_f64() * 1000.0);
+    module
+}
+
 pub fn call_function<'a>(
     function_name: &str,
     args: &[Value],
@@ -644,8 +659,7 @@ pub fn call_function<'a>(
 ) -> Result<Value, VmExecutionError> {
     let engine = global_context.engine.clone();
     let module = contract_context.with_wasm_module(|wasm_module| {
-        Module::new(&engine, wasm_module)
-            .map_err(|e| VmExecutionError::Wasm(WasmError::UnableToLoadModule(e)))
+        load_module(&engine, &contract_context.contract_identifier, wasm_module)
     })?;
 
     call_function_with_module(
@@ -711,8 +725,7 @@ pub fn compile_and_call_function<'a>(
     .map_err(|e| VmExecutionError::Wasm(WasmError::WasmGeneratorError(e)))?;
 
     let engine = global_context.engine.clone();
-    let module = Module::new(&engine, &compilation.module)
-        .map_err(|e| VmExecutionError::Wasm(WasmError::UnableToLoadModule(e)))?;
+    let module = load_module(&engine, &contract_identifier, &compilation.module)?;
 
     // Complete the contract context for the Wasm runtime: attach the compiled module bytes,
     // which `call_function` loads, and fill in the function return types which the
