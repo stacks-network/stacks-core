@@ -3,7 +3,7 @@
 ############################################################################
 
 name: "CI"
-run-name: "CI: [${{ github.ref_name }}]"
+run-name: "CI: [${{ github.ref_name || github.event_name }}]"
 
 on:
   merge_group:
@@ -19,11 +19,14 @@ on:
         description: 'The SHA of the binary to verify before executing the tests. Find these in the official SHA256SUMS file for each release. Example: https://bitcoincore.org/bin/bitcoin-core-31.1/SHA256SUMS'
         required: false
         type: string
-  pull_request:
+  pull_request: # Trigger on pull requests
     types:
       - opened
       - reopened
       - synchronize
+  schedule: # For code coverage
+    # Run at 00:21 UTC daily
+    - cron: "21 0 * * *"
 
 # Set default permissions for all jobs
 permissions:
@@ -46,8 +49,8 @@ env:
   TEST_ARCHIVE_FILE: "./test_archive.tar.zst"
   # Whether or not to create the slow and failed tests summary
   CREATE_SLOW_FAILED_TESTS_SUMMARY: ${{ (vars.ENABLE_CI_WORKFLOWS == 'true' || github.repository == 'stacks-network/stacks-core') && github.event_name != 'merge_group' }}
-  # Whether or not to create the code coverage report
-  CREATE_CODE_COVERAGE_REPORT: ${{ github.repository == 'stacks-network/stacks-core' }}
+  # Whether or not to create the code coverage report. We create the code coverage report daily on a CRON schedule, rather than on each PR or merge
+  CREATE_CODE_COVERAGE_REPORT: ${{ github.repository == 'stacks-network/stacks-core' && github.event_name == 'schedule' && github.ref == 'refs/heads/main' }}
 
 jobs:
   # Check if CI is enabled
@@ -144,7 +147,7 @@ jobs:
   check-rustfmt:
     name: "Check: Rust Formatting"
     needs:
-      - check-changelog
+      - setup-env
     runs-on: *shared_config
     steps:
       - name: Checkout the latest code
@@ -171,8 +174,6 @@ jobs:
   check-test-caches:
     name: "Check: Test Caches"
     needs:
-      - check-changelog
-      - check-rustfmt
       - setup-env
     uses: ./.github/workflows/_check-test-caches.yml
     with:
@@ -187,8 +188,8 @@ jobs:
     needs:
       - check-changelog
       - check-rustfmt
-      - setup-env
       - check-test-caches
+      - setup-env
     uses: ./.github/workflows/_check-cargo-hack.yml
 
   ############################################################################
@@ -199,8 +200,8 @@ jobs:
     needs:
       - check-changelog
       - check-rustfmt
-      - setup-env
       - check-test-caches
+      - setup-env
     uses: ./.github/workflows/_check-constants.yml
     
   ############################################################################
@@ -211,8 +212,8 @@ jobs:
     needs:
       - check-changelog
       - check-rustfmt
-      - setup-env
       - check-test-caches
+      - setup-env
     uses: ./.github/workflows/_tests-wasm.yml
 
   ############################################################################
@@ -603,16 +604,6 @@ jobs:
 
           cd ..
 
-      # Extract and clean the base branch name if running in a merge queue
-      - name: Extract base branch (merge_group only)
-        if: >-
-          github.event_name == 'merge_group'
-        run: |
-          RAW_REF="${{ github.event.merge_group.base_ref }}"
-          # Strips 'refs/heads/' or 'refs/head/' prefix
-          CLEAN_REF=$(echo "$RAW_REF" | sed -E 's|^refs/head(s)?/||')
-          echo "MERGE_GROUP_BASE_BRANCH=$CLEAN_REF" >> $GITHUB_ENV
-
       # Upload the merged code coverage file to Coveralls, retrying transient failures
       - name: Upload code coverage to Coveralls
         timeout-minutes: 15
@@ -621,6 +612,3 @@ jobs:
         with:
           files: ${{ env.REPORT_FILES_DIR }}/code-coverage-report.${{ env.REPORT_FILES_EXT }}
           build-number: ${{ github.run_id }}-${{ github.run_attempt }} # include run attempt in build so that repeated CI job runs don't cause a "job already closed" error on upload
-          # When running in the merge queue, override the branch to be the base branch of the merge.
-          # This creates correct base coverage for future code coverage comparisons / diffs working off of this base branch's latest commit.
-          git-branch: ${{ env.MERGE_GROUP_BASE_BRANCH || null }} # attribute coverage to base branch when in merge queue
