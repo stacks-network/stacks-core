@@ -1,0 +1,2 @@
+Signers now prune their database in small batches every 10 seconds, keeping at least the last `MAX_FORK_DEPTH` (100) burn blocks of tenures plus the tip's tenure, so `signerdb.sqlite` no longer grows without bound. An existing database is drained over the following days and stops growing, but its file keeps its size until it is compacted offline.
+Signers database pruning is on by default and can be disabled with `db_pruning = false` in the signer config.
