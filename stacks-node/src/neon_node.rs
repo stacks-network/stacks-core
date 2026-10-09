@@ -4923,6 +4923,14 @@ impl StacksNode {
             warn!("Failed to direct relayer thread to exit, sleeping and trying again");
             thread::sleep(Duration::from_secs(5));
         }
+
+        // Blocks still queued in `results_with_data` or for the relayer (which exits without
+        // handling them) are dropped, but the downloaders already count them as downloaded. The
+        // Nakamoto node reuses this network at the Epoch 3.0 handoff, and would otherwise never
+        // fetch the Nakamoto tenures among them again.
+        if let Some(net) = p2p_thread.net.as_mut() {
+            net.forget_completed_downloads();
+        }
         info!("P2P thread exit!");
         p2p_thread.net
     }

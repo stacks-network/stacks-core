@@ -1028,6 +1028,16 @@ impl BlockDownloader {
         self.hint_microblock_sortition_height_available(target_sortition_height, ibd, false);
     }
 
+    /// Forget which blocks and microblocks were recently requested, so that any not yet stored
+    /// can be requested again without waiting out `BLOCK_REREQUEST_INTERVAL`.
+    /// Returns how many request entries were cleared.
+    pub fn clear_requested_blocks(&mut self) -> usize {
+        let forgotten = self.requested_blocks.len() + self.requested_microblocks.len();
+        self.requested_blocks.clear();
+        self.requested_microblocks.clear();
+        forgotten
+    }
+
     // are we doing the initial block download?
     pub fn is_initial_download(&self) -> bool {
         self.finished_scan_at == 0
