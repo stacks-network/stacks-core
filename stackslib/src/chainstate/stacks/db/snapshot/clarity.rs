@@ -21,15 +21,15 @@ use clarity::vm::database::{SqliteConnection, DATA_TABLE_NAME, METADATA_TABLE_NA
 use clarity::vm::types::QualifiedContractIdentifier;
 use rusqlite::{Connection, OpenFlags};
 use stacks_common::types::chainstate::StacksBlockId;
+use stacks_marf::marf::{MARFOpenOpts, MarfConnection as _, MARF};
+use stacks_marf::storage::{TrieFileStorage, TrieHashCalculationMode};
+use stacks_marf::Error;
 
 use super::common::{
     assert_source_schema, clone_schemas_from_source, with_indexes_dropped,
     with_offline_write_session, MARF_INFRA_TABLES,
 };
 use super::fork_storage::{collect_leaf_value_hashes, copy_leaf_referenced_rows};
-use crate::chainstate::stacks::index::marf::{MARFOpenOpts, MarfConnection as _, MARF};
-use crate::chainstate::stacks::index::storage::{TrieFileStorage, TrieHashCalculationMode};
-use crate::chainstate::stacks::index::Error;
 use crate::util_lib::db::sqlite_open;
 
 /// Clarity side-storage tables copied by [`copy_clarity_side_tables`].

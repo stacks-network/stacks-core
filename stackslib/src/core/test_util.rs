@@ -28,9 +28,9 @@ use clarity::vm::{ClarityName, ClarityVersion, ContractName, Value};
 use crate::chainstate::stacks::db::StacksChainState;
 use crate::chainstate::stacks::miner::{BlockBuilderSettings, StacksMicroblockBuilder};
 use crate::chainstate::stacks::{
-    CoinbasePayload, StacksBlock, StacksMicroblock, StacksMicroblockHeader, StacksTransaction,
-    StacksTransactionSigner, TenureChangePayload, TokenTransferMemo, TransactionAnchorMode,
-    TransactionAuth, TransactionContractCall, TransactionPayload, TransactionPostCondition,
+    CoinbasePayload, StacksBlock, StacksMicroblock, StacksTransaction, StacksTransactionSigner,
+    TenureChangePayload, TokenTransferMemo, TransactionAnchorMode, TransactionAuth,
+    TransactionContractCall, TransactionPayload, TransactionPostCondition,
     TransactionPostConditionMode, TransactionSmartContract, TransactionSpendingCondition,
     TransactionVersion,
 };
@@ -189,35 +189,6 @@ pub fn sign_tx_anchor_mode_version(
     }
 
     tx_signer.get_tx().unwrap()
-}
-
-#[allow(clippy::too_many_arguments)]
-pub fn serialize_sign_tx_anchor_mode_version(
-    payload: TransactionPayload,
-    sender: &StacksPrivateKey,
-    payer: Option<&StacksPrivateKey>,
-    sender_nonce: u64,
-    payer_nonce: Option<u64>,
-    tx_fee: u64,
-    chain_id: u32,
-    anchor_mode: TransactionAnchorMode,
-    version: TransactionVersion,
-) -> Vec<u8> {
-    let tx = sign_tx_anchor_mode_version(
-        payload,
-        sender,
-        payer,
-        sender_nonce,
-        payer_nonce,
-        tx_fee,
-        chain_id,
-        anchor_mode,
-        version,
-    );
-
-    let mut buf = vec![];
-    tx.consensus_serialize(&mut buf).unwrap();
-    buf
 }
 
 pub fn make_contract_publish_tx(
@@ -409,21 +380,6 @@ pub fn make_stacks_transfer_mblock_only(
     tx_bytes
 }
 
-pub fn make_poison(
-    sender: &StacksPrivateKey,
-    nonce: u64,
-    tx_fee: u64,
-    chain_id: u32,
-    header_1: StacksMicroblockHeader,
-    header_2: StacksMicroblockHeader,
-) -> Vec<u8> {
-    let payload = TransactionPayload::PoisonMicroblock(header_1, header_2);
-    let tx = sign_standard_single_sig_tx(payload, sender, nonce, tx_fee, chain_id);
-    let mut tx_bytes = vec![];
-    tx.consensus_serialize(&mut tx_bytes).unwrap();
-    tx_bytes
-}
-
 pub fn make_coinbase_tx(
     sender: &StacksPrivateKey,
     nonce: u64,
@@ -431,8 +387,8 @@ pub fn make_coinbase_tx(
     chain_id: u32,
 ) -> StacksTransaction {
     let payload = TransactionPayload::Coinbase(CoinbasePayload([0; 32]), None, None);
-    let tx = sign_standard_single_sig_tx(payload, sender, nonce, tx_fee, chain_id);
-    tx
+
+    sign_standard_single_sig_tx(payload, sender, nonce, tx_fee, chain_id)
 }
 
 pub fn make_coinbase(sender: &StacksPrivateKey, nonce: u64, tx_fee: u64, chain_id: u32) -> Vec<u8> {

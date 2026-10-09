@@ -55,10 +55,10 @@ pub fn try_parse_error_response(
 
         Ok(HttpResponsePayload::JSON(json_val))
     } else {
-        return Err(Error::DecodeError(format!(
+        Err(Error::DecodeError(format!(
             "Invalid error response: expected text/plain or application/json, got {:?}",
             &content_type
-        )));
+        )))
     }
 }
 
@@ -169,10 +169,10 @@ impl HttpErrorResponse for HttpBadRequest {
         if self.content_type == HttpContentType::JSON {
             // the inner error_text is serialized from a JSON value, so it should always parse
             // back to JSON.
-            return HttpResponsePayload::JSON(serde_json::from_str(&self.error_text)
+            HttpResponsePayload::JSON(serde_json::from_str(&self.error_text)
                                                 .unwrap_or(serde_json::from_str(
                                                             "{\"error\": \"Failed to decode serialized JSON text. This is a bug in the Stacks node or in serde_json.\"}"
-                                                           ).expect("FATAL: failed to decode known-good constant JSON string")));
+                                                           ).expect("FATAL: failed to decode known-good constant JSON string")))
         } else {
             HttpResponsePayload::Text(self.error_text.clone())
         }

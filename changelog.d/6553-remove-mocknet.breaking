@@ -1,0 +1,2 @@
+`burnchain.mode` is now required in the node config file (it previously defaulted to `mocknet`), and the `mocknet` and `argon` modes are rejected at startup. Set `[burnchain] mode` explicitly, e.g. `nakamoto-neon` for a private regtest network.
+The signer no longer accepts `network = "mocknet"`; use `network = "testnet"`, which has the same chain ID and address version.

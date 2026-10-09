@@ -20,7 +20,6 @@ use std::path::PathBuf;
 use std::{error, fmt, fs, io};
 
 use clarity::vm::types::QualifiedContractIdentifier;
-use rusqlite::types::ToSql;
 use rusqlite::{params, Connection, Error as sqlite_error, Params, Row};
 use serde_json::Error as serde_error;
 use stacks_common::types::chainstate::{SortitionId, StacksAddress, StacksBlockId, TrieHash};
@@ -29,8 +28,9 @@ use stacks_common::types::Address;
 // Generic SQLite plumbing now lives in `stacks_common`; re-exported here so that
 // the many `util_lib::db::*` call sites keep working unchanged.
 pub use stacks_common::util::db::{
-    sqlite_open, table_exists, tx_begin_immediate as tx_begin_immediate_sqlite, tx_busy_handler,
-    update_lock_table, SQLITE_MARF_PAGE_SIZE, SQLITE_MMAP_SIZE, SQLITE_STATEMENT_CACHE_CAPACITY,
+    sql_pragma, sql_vacuum, sqlite_open, table_exists,
+    tx_begin_immediate as tx_begin_immediate_sqlite, tx_busy_handler, update_lock_table,
+    SQLITE_MARF_PAGE_SIZE, SQLITE_MMAP_SIZE, SQLITE_STATEMENT_CACHE_CAPACITY,
 };
 use stacks_common::util::hash::to_hex;
 use stacks_common::util::secp256k1::{Secp256k1PrivateKey, Secp256k1PublicKey};
@@ -548,21 +548,6 @@ where
     query_int(conn, sql_query, sql_args)
 }
 
-/// Run a PRAGMA statement.  This can't always be done via execute(), because it may return a result (and
-/// rusqlite does not like this).
-pub fn sql_pragma(
-    conn: &Connection,
-    pragma_name: &str,
-    pragma_value: &dyn ToSql,
-) -> Result<(), Error> {
-    stacks_common::util::db::sql_pragma(conn, pragma_name, pragma_value).map_err(Error::SqliteError)
-}
-
-/// Run a VACUUM command
-pub fn sql_vacuum(conn: &Connection) -> Result<(), Error> {
-    stacks_common::util::db::sql_vacuum(conn).map_err(Error::SqliteError)
-}
-
 /// Set up an on-disk database with a MARF index if they don't exist yet.
 /// Either way, returns the MARF path
 pub fn db_mkdirs(path_str: &str) -> Result<String, Error> {
@@ -614,7 +599,7 @@ impl<'a, C, T: MarfTrieId> IndexDBConn<'a, C, T> {
         ancestor_block_hash: &T,
         tip_block_hash: &T,
     ) -> Result<Option<u64>, Error> {
-        get_ancestor_block_height(&self.index, ancestor_block_hash, tip_block_hash)
+        get_ancestor_block_height(self.index, ancestor_block_hash, tip_block_hash)
     }
 
     /// Get a value from the fork index
@@ -820,7 +805,7 @@ impl<'a, C: Clone, T: MarfTrieId> IndexDBTx<'a, C, T> {
         let marf_value = MARFValue::from_value(value);
         self.tx().execute(
             "INSERT OR REPLACE INTO __fork_storage (value_hash, value) VALUES (?1, ?2)",
-            &[&to_hex(&marf_value.to_vec()), value],
+            [&to_hex(&marf_value.to_vec()), value],
         )?;
         Ok(marf_value)
     }

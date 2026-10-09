@@ -1,0 +1,1 @@
+Removed the `helium` network mode and its legacy Stacks 2.x run loop, which was incompatible with Epoch 3 (Nakamoto). Use [Clarinet](https://github.com/hirosystems/clarinet) or a private testnet (`nakamoto-neon` mode) for local development.

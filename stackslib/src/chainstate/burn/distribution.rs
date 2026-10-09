@@ -1313,8 +1313,8 @@ mod tests {
             eprintln!("Fixture #{}", i);
             let dist = BurnSamplePoint::make_distribution(
                 MINING_COMMITMENT_WINDOW,
-                fixture.block_commits.iter().cloned().collect(),
-                fixture.consumed_leader_keys.iter().cloned().collect(),
+                fixture.block_commits.to_vec(),
+                fixture.consumed_leader_keys.to_vec(),
             );
             assert_eq!(dist, fixture.res);
         }

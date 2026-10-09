@@ -38,7 +38,7 @@ use libsigner::v0::messages::{
     BlockAccepted, BlockRejection, BlockResponse, MessageSlotID, MockProposal, MockSignature,
     RejectReason, RejectReasonPrefix, SignerMessage, StateMachineUpdate,
 };
-use libsigner::v0::signer_state::GlobalStateEvaluator;
+use libsigner::v0::signer_state::{GlobalStateEvaluator, MinerState};
 use libsigner::{BlockProposal, SignerEvent, SignerSession};
 use stacks_common::types::chainstate::{StacksAddress, StacksPublicKey};
 use stacks_common::util::get_epoch_time_secs;
@@ -52,10 +52,12 @@ use crate::chainstate::{ProposalEvalConfig, SelfAsTip, SortitionData, SortitionS
 use crate::client::{ClientError, SignerSlotID, StackerDB, StacksClient};
 use crate::config::{SignerConfig, SignerConfigMode};
 use crate::runloop::SignerResult;
-use crate::signerdb::{BlockInfo, BlockState, PendingBlockResponses, SignedConflictInfo, SignerDb};
-use crate::v0::signer_state::NewBurnBlock;
+use crate::signerdb::{
+    BlockInfo, BlockState, PendingBlockResponses, ReorgPermit, SignedConflictInfo, SignerDb,
+};
 #[cfg(not(any(test, feature = "testing")))]
 use crate::v0::signer_state::SUPPORTED_SIGNER_PROTOCOL_VERSION;
+use crate::v0::signer_state::{NewBurnBlock, PendingRetryBackoff};
 #[cfg(test)]
 use crate::v0::tests::BlockMessageRecorder;
 use crate::Signer as SignerTrait;
@@ -128,6 +130,8 @@ pub struct Signer {
     pub block_proposal_max_age_secs: u64,
     /// The signer's local state machine used in signer set agreement
     pub local_state_machine: LocalStateMachine,
+    /// Throttles retries of the local state machine's pending update after node errors
+    pending_retry_backoff: PendingRetryBackoff,
     /// Cache of stacks block IDs for blocks recently processed by our stacks-node
     recently_processed: RecentlyProcessedBlocks<100>,
     /// The signer's global state evaluator
@@ -298,11 +302,7 @@ impl SignerTrait<SignerMessage> for Signer {
             &proposal_config,
             &global_state_evaluator,
             version,
-        )
-        .unwrap_or_else(|e| {
-            warn!("Failed to initialize local state machine for signer: {e:?}");
-            LocalStateMachine::Uninitialized
-        });
+        );
         Self {
             private_key: signer_config.stacks_private_key,
             stacks_address,
@@ -319,6 +319,7 @@ impl SignerTrait<SignerMessage> for Signer {
             block_proposal_validation_timeout: signer_config.block_proposal_validation_timeout,
             block_proposal_max_age_secs: signer_config.block_proposal_max_age_secs,
             local_state_machine: signer_state,
+            pending_retry_backoff: PendingRetryBackoff::default(),
             recently_processed: RecentlyProcessedBlocks::new(),
             global_state_evaluator,
             capitulate_miner_view_timeout: signer_config.capitulate_miner_view_timeout,
@@ -361,7 +362,8 @@ impl SignerTrait<SignerMessage> for Signer {
         if self.reward_cycle <= current_reward_cycle {
             self.local_state_machine.handle_pending_update(&mut self.signer_db, stacks_client,
                 &self.proposal_config,
-                &self.global_state_evaluator, local_signer_protocol_version)
+                &self.global_state_evaluator, local_signer_protocol_version,
+                &mut self.pending_retry_backoff)
                 .unwrap_or_else(|e| error!("{self}: failed to update local state machine for pending update"; "err" => ?e));
         }
         // See if we should capitulate our viewpoint...
@@ -697,6 +699,9 @@ impl Signer {
                     }),
                     &self.global_state_evaluator, active_signer_protocol_version)
                     .unwrap_or_else(|e| error!("{self}: failed to update local state machine for latest bitcoin block arrival"; "err" => ?e));
+                // This arrival is a fresh attempt, so if it failed, its first retry must not
+                // wait out a backoff built up by failures of an earlier arrival.
+                self.pending_retry_backoff.reset();
                 *sortition_state = None;
             }
             SignerEvent::NewBlock {
@@ -1978,6 +1983,9 @@ impl Signer {
                 self.create_block_rejection(RejectReason::RewardCycleRetired, proposed_block),
             );
         }
+        if let Some(rejection) = self.check_block_not_in_superseded_tenure(proposed_block) {
+            return Some(rejection);
+        }
         // If this is a tenure change block, ensure that it confirms the correct number of blocks from the parent tenure.
         if let Some(tenure_change) = proposed_block.get_tenure_change_tx_payload() {
             // Ensure that the tenure change block confirms the expected parent block
@@ -2039,6 +2047,71 @@ impl Signer {
             Err(e) => {
                 warn!("{self}: Failed to check block against signer db: {e}";
                     "signer_signature_hash" => %signer_signature_hash,
+                    "block_id" => %proposed_block.block_id()
+                );
+                Some(self.create_block_rejection(
+                    RejectReason::ConnectivityIssues(
+                        "failed to check block against signer db".into(),
+                    ),
+                    proposed_block,
+                ))
+            }
+        }
+    }
+
+    /// Refuse a block from a tenure we have permitted the active
+    /// miner to reorg.
+    ///
+    /// Once we have permitted a reorg, signing more of the reorg'ed
+    /// tenure's blocks would grow a tenure we already agreed may be
+    /// replaced.  Such near-accepted proposals can still reach us
+    /// after the reorg: one validated or pre-committed before the
+    /// reorging burn block arrived.
+    ///
+    /// The freeze only lasts while the (permitted) reorging tenure is
+    /// the active miner. If we move off it (e.g. it times out and we
+    /// fall back to the reorged tenure's miner), the reorged tenure's
+    /// blocks are signable again, and a rejection given here is
+    /// reconsidered on re-proposal (`ConsensusHashMismatch`).
+    fn check_block_not_in_superseded_tenure(
+        &self,
+        proposed_block: &NakamotoBlock,
+    ) -> Option<BlockRejection> {
+        let LocalStateMachine::Initialized(state_machine) = &self.local_state_machine else {
+            return None;
+        };
+        let MinerState::ActiveMiner {
+            tenure_id: active_miner_tenure_id,
+            ..
+        } = &state_machine.current_miner
+        else {
+            return None;
+        };
+        let block_tenure_id = &proposed_block.header.consensus_hash;
+        match self.signer_db.has_reorg_permit(ReorgPermit {
+            reorged_tenure: block_tenure_id,
+            reorging_tenure: active_miner_tenure_id,
+        }) {
+            Ok(false) => None,
+            Ok(true) => {
+                warn!(
+                    "{self}: Block is in a tenure we permitted the active miner's tenure to reorg. Rejecting.";
+                    "signer_signature_hash" => %proposed_block.header.signer_signature_hash(),
+                    "block_height" => proposed_block.header.chain_length,
+                    "block_consensus_hash" => %block_tenure_id,
+                    "active_miner_tenure_id" => %active_miner_tenure_id,
+                );
+                Some(self.create_block_rejection(
+                    RejectReason::ConsensusHashMismatch {
+                        actual: block_tenure_id.clone(),
+                        expected: active_miner_tenure_id.clone(),
+                    },
+                    proposed_block,
+                ))
+            }
+            Err(e) => {
+                warn!("{self}: Failed to check whether the block's tenure was superseded: {e}";
+                    "signer_signature_hash" => %proposed_block.header.signer_signature_hash(),
                     "block_id" => %proposed_block.block_id()
                 );
                 Some(self.create_block_rejection(
@@ -2852,41 +2925,82 @@ impl Signer {
     }
 }
 
-/// Determine if a block should be re-evaluated based on its rejection reason˝
+/// Determine if a block should be re-evaluated based on its rejection reason.
+///
+/// Every transient rejection (see [`RejectReason::is_transient`]) is
+/// re-evaluated, since miners re-propose promptly after receiving one.
 fn should_reevaluate_reject_reason(block_info: &BlockInfo) -> bool {
-    if let Some(reject_reason) = &block_info.reject_reason {
-        match reject_reason {
-            RejectReason::ValidationFailed(ValidateRejectCode::UnknownParent)
-            | RejectReason::ValidationFailed(ValidateRejectCode::NotFoundError)
-            | RejectReason::NoSortitionView
-            | RejectReason::ConnectivityIssues(_)
-            | RejectReason::TestingDirective
-            | RejectReason::InvalidTenureExtend
-            | RejectReason::ConsensusHashMismatch { .. }
-            | RejectReason::NoSignerConsensus
-            | RejectReason::NotRejected
-            // A burnchain reorg can orphan the later-cycle sortition that retired
-            // this signer set, which re-opens the gate.
-            | RejectReason::RewardCycleRetired
-            | RejectReason::Unknown(_) => true,
-            RejectReason::ValidationFailed(_)
-            | RejectReason::RejectedInPriorRound
-            | RejectReason::SortitionViewMismatch
-            | RejectReason::ReorgNotAllowed
-            | RejectReason::InvalidBitvec
-            | RejectReason::PubkeyHashMismatch
-            | RejectReason::InvalidMiner
-            | RejectReason::NotLatestSortitionWinner
-            | RejectReason::InvalidParentBlock
-            | RejectReason::DuplicateBlockFound
-            | RejectReason::IrrecoverablePubkeyHash
-            | RejectReason::ProblematicTransactions
-            | RejectReason::ProposalTooOld => {
-                // No need to re-validate these types of rejections.
-                false
-            }
+    block_info
+        .reject_reason
+        .as_ref()
+        .is_some_and(should_reevaluate_reason)
+}
+
+/// Determine if a block rejected for `reject_reason` should be re-evaluated.
+fn should_reevaluate_reason(reject_reason: &RejectReason) -> bool {
+    reject_reason.is_transient()
+        || matches!(
+            reject_reason,
+            RejectReason::TestingDirective
+                | RejectReason::InvalidTenureExtend
+                | RejectReason::NotRejected
+                // A burnchain reorg can orphan the later-cycle sortition that retired
+                // this signer set, which re-opens the gate.
+                | RejectReason::RewardCycleRetired
+                | RejectReason::Unknown(_)
+        )
+}
+
+#[cfg(test)]
+mod reject_reason_tests {
+    use clarity::types::chainstate::ConsensusHash;
+    use libsigner::v0::messages::RejectReason;
+
+    use super::*;
+
+    #[test]
+    fn transient_rejections_are_reevaluated() {
+        let reevaluated = [
+            RejectReason::ValidationFailed(ValidateRejectCode::UnknownParent),
+            RejectReason::ValidationFailed(ValidateRejectCode::NotFoundError),
+            RejectReason::NoSortitionView,
+            RejectReason::ConnectivityIssues("test".into()),
+            RejectReason::TestingDirective,
+            RejectReason::InvalidTenureExtend,
+            RejectReason::ConsensusHashMismatch {
+                expected: ConsensusHash([0x01; 20]),
+                actual: ConsensusHash([0x02; 20]),
+            },
+            RejectReason::NoSignerConsensus,
+            RejectReason::NotRejected,
+            RejectReason::RewardCycleRetired,
+            RejectReason::Unknown(0xff),
+        ];
+        let not_reevaluated = [
+            RejectReason::ValidationFailed(ValidateRejectCode::InvalidBlock),
+            RejectReason::ValidationFailed(ValidateRejectCode::BadTransaction),
+            RejectReason::RejectedInPriorRound,
+            RejectReason::SortitionViewMismatch,
+            RejectReason::ReorgNotAllowed,
+            RejectReason::InvalidBitvec,
+            RejectReason::PubkeyHashMismatch,
+            RejectReason::InvalidMiner,
+            RejectReason::NotLatestSortitionWinner,
+            RejectReason::InvalidParentBlock,
+            RejectReason::DuplicateBlockFound,
+            RejectReason::IrrecoverablePubkeyHash,
+            RejectReason::ProblematicTransactions,
+            RejectReason::ProposalTooOld,
+        ];
+
+        for reason in &reevaluated {
+            assert!(should_reevaluate_reason(reason), "{reason:?}");
         }
-    } else {
-        false
+        for reason in &not_reevaluated {
+            assert!(!should_reevaluate_reason(reason), "{reason:?}");
+            // Miners re-propose promptly after a transient rejection, so every
+            // transient rejection must be re-evaluated.
+            assert!(!reason.is_transient(), "{reason:?}");
+        }
     }
 }

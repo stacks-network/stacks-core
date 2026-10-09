@@ -45,22 +45,19 @@ use stacks_common::types::PublicKey;
 use stacks_common::util::hash::Hash160;
 use stx_genesis::GenesisData;
 
-use super::RunLoopCallbacks;
 use crate::burnchains::Error;
+use crate::genesis::{
+    get_account_balances, get_account_lockups, get_names, get_namespaces,
+    use_test_genesis_chainstate,
+};
 use crate::globals::NeonGlobals as Globals;
 use crate::monitoring::{start_serving_monitoring_metrics, MonitoringError};
 use crate::neon_node::{
     LeaderKeyRegistrationState, StacksNode, BLOCK_PROCESSOR_STACK_SIZE, RELAYER_MAX_BUFFER,
 };
-use crate::node::{
-    get_account_balances, get_account_lockups, get_names, get_namespaces,
-    use_test_genesis_chainstate,
-};
 use crate::run_loop::boot_nakamoto::Neon2NakaData;
 use crate::syncctl::{PoxSyncWatchdog, PoxSyncWatchdogComms};
-use crate::{
-    run_loop, BitcoinRegtestController, BurnchainController, Config, EventDispatcher, Keychain,
-};
+use crate::{run_loop, BitcoinRegtestController, Config, EventDispatcher, Keychain};
 
 pub const STDERR: i32 = 2;
 
@@ -122,10 +119,7 @@ impl std::ops::Deref for RunLoopCounter {
 #[derive(Clone, Default)]
 pub struct Counters {
     pub blocks_processed: RunLoopCounter,
-    pub microblocks_processed: RunLoopCounter,
     pub missed_tenures: RunLoopCounter,
-    pub missed_microblock_tenures: RunLoopCounter,
-    pub cancelled_commits: RunLoopCounter,
 
     pub sortitions_processed: RunLoopCounter,
 
@@ -192,20 +186,8 @@ impl Counters {
         Counters::inc(&self.sortitions_processed);
     }
 
-    pub fn bump_microblocks_processed(&self) {
-        Counters::inc(&self.microblocks_processed);
-    }
-
     pub fn bump_missed_tenures(&self) {
         Counters::inc(&self.missed_tenures);
-    }
-
-    pub fn bump_missed_microblock_tenures(&self) {
-        Counters::inc(&self.missed_microblock_tenures);
-    }
-
-    pub fn bump_cancelled_commits(&self) {
-        Counters::inc(&self.cancelled_commits);
     }
 
     pub fn bump_neon_submitted_commits(&self, committed_burn_height: u64) {
@@ -270,10 +252,6 @@ impl Counters {
         Counters::inc(&self.naka_miner_directives);
     }
 
-    pub fn set_microblocks_processed(&self, value: u64) {
-        Counters::set(&self.microblocks_processed, value)
-    }
-
     pub fn set_miner_current_rejections_timeout_secs(&self, value: u64) {
         Counters::set(&self.naka_miner_current_rejections_timeout_secs, value)
     }
@@ -286,7 +264,6 @@ impl Counters {
 /// Coordinating a node running in neon mode.
 pub struct RunLoop {
     config: Config,
-    pub callbacks: RunLoopCallbacks,
     globals: Option<Globals>,
     counters: Counters,
     coordinator_channels: Option<(CoordinatorReceivers, CoordinatorChannels)>,
@@ -336,7 +313,6 @@ impl RunLoop {
             config,
             globals: None,
             coordinator_channels: Some(channels),
-            callbacks: RunLoopCallbacks::new(),
             counters: Counters::default(),
             should_keep_running,
             event_dispatcher,
@@ -367,20 +343,8 @@ impl RunLoop {
         self.counters.blocks_processed.clone()
     }
 
-    pub fn get_microblocks_processed_arc(&self) -> RunLoopCounter {
-        self.counters.microblocks_processed.clone()
-    }
-
     pub fn get_missed_tenures_arc(&self) -> RunLoopCounter {
         self.counters.missed_tenures.clone()
-    }
-
-    pub fn get_missed_microblock_tenures_arc(&self) -> RunLoopCounter {
-        self.counters.missed_microblock_tenures.clone()
-    }
-
-    pub fn get_cancelled_commits_arc(&self) -> RunLoopCounter {
-        self.counters.cancelled_commits.clone()
     }
 
     pub fn get_counters(&self) -> Counters {
@@ -582,7 +546,7 @@ impl RunLoop {
         };
 
         burnchain_controller
-            .start(Some(target_burnchain_block_height))
+            .start(target_burnchain_block_height)
             .map_err(|e| {
                 if matches!(e, Error::CoordinatorClosed)
                     && !should_keep_running.load(Ordering::SeqCst)
@@ -649,7 +613,7 @@ impl RunLoop {
         )
         .unwrap();
         run_loop::announce_boot_receipts(
-            &mut self.event_dispatcher,
+            &self.event_dispatcher,
             &chain_state_db,
             &burnchain_config.pox_constants,
             &receipts,
@@ -874,7 +838,6 @@ impl RunLoop {
             burnchain
                 .wait_for_sortitions(globals.coord().clone(), sn.block_height + 1)
                 .expect("Unable to get burnchain tip")
-                .block_snapshot
         } else {
             sn
         };
@@ -945,7 +908,7 @@ impl RunLoop {
 
             // calculate burnchain sync percentage
             let percent: f64 = if remote_chain_height > 0 {
-                burnchain_tip.block_snapshot.block_height as f64 / remote_chain_height as f64
+                burnchain_tip.block_height as f64 / remote_chain_height as f64
             } else {
                 0.0
             };
@@ -961,7 +924,7 @@ impl RunLoop {
                     .block_height_to_reward_cycle(target_burnchain_block_height)
                     .expect("FATAL: target burnchain block height does not have a reward cycle");
                 "total_burn_sync_percent" => %percent,
-                "local_burn_height" => burnchain_tip.block_snapshot.block_height,
+                "local_burn_height" => burnchain_tip.block_height,
                 "remote_tip_height" => remote_chain_height
             );
 
@@ -971,7 +934,7 @@ impl RunLoop {
                 }
 
                 let (next_burnchain_tip, tip_burnchain_height) =
-                    match burnchain.sync(Some(target_burnchain_block_height)) {
+                    match burnchain.sync(target_burnchain_block_height) {
                         Ok(x) => x,
                         Err(e) => {
                             warn!("Runloop: Burnchain controller stopped: {e}");
@@ -983,8 +946,8 @@ impl RunLoop {
                 burnchain_tip = next_burnchain_tip;
                 burnchain_height = tip_burnchain_height;
 
-                let sortition_tip = &burnchain_tip.block_snapshot.sortition_id;
-                let next_sortition_height = burnchain_tip.block_snapshot.block_height;
+                let sortition_tip = &burnchain_tip.sortition_id;
+                let next_sortition_height = burnchain_tip.block_height;
 
                 if next_sortition_height != last_tenure_sortition_height {
                     info!(
