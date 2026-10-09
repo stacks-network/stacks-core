@@ -33,14 +33,17 @@ use crate::vm::ClarityVersion;
 use crate::vm::analysis::errors::RuntimeCheckErrorKind;
 use crate::vm::analysis::type_checker::v2_1::natives::post_conditions::MAX_ALLOWANCES;
 use crate::vm::contexts::AssetMap;
-use crate::vm::errors::{ClarityEvalError, EarlyReturnError, VmExecutionError, VmInternalError};
+use crate::vm::errors::{
+    ClarityEvalError, EarlyReturnError, RuntimeError, VmExecutionError, VmInternalError,
+};
 use crate::vm::tests::proptest_utils::{
     allowance_list_snippets, begin_block, body_with_allowances_snippets,
     clarity_values_no_response, execute, execute_and_check, execute_and_check_versioned,
-    execute_with_epoch, ft_mint_snippets, ft_transfer_snippets, match_response_snippets,
-    nft_mint_snippets, nft_transfer_snippets, standard_principal_strategy, try_response_snippets,
-    value_to_clarity_literal,
+    execute_with_epoch, execute_with_version_and_epoch, ft_mint_snippets, ft_transfer_snippets,
+    match_response_snippets, nft_mint_snippets, nft_transfer_snippets, standard_principal_strategy,
+    try_response_snippets, value_to_clarity_literal,
 };
+use crate::vm::tests::test_clarity_versions;
 
 // ---------- Tests for as-contract? ----------
 
@@ -874,14 +877,97 @@ fn test_restrict_assets_with_stx_no_allowance() {
     assert_eq!(expected, execute(snippet).unwrap().unwrap());
 }
 
-#[test]
-fn test_restrict_assets_stx_all() {
+/// Runs `snippet` with a funded sender and no analysis. Expects `before_41`
+/// until Epoch 4.1, then the runtime rejection of `with-all-assets-unsafe`.
+/// Skips versions without `restrict-assets?`.
+fn assert_with_all_assets_gate(
+    snippet: &str,
+    version: ClarityVersion,
+    epoch: StacksEpochId,
+    before_41: Result<Option<Value>, ClarityEvalError>,
+) {
+    if version < ClarityVersion::Clarity4 {
+        return;
+    }
+    let expected = if epoch.checks_with_all_assets_in_restrict_assets() {
+        Err(
+            VmExecutionError::RuntimeCheck(RuntimeCheckErrorKind::WithAllAllowanceNotAllowed)
+                .into(),
+        )
+    } else {
+        before_41
+    };
+    assert_eq!(
+        execute_with_version_and_epoch(snippet, version, epoch),
+        expected,
+        "{snippet}",
+    );
+}
+
+/// Covers mixed and duplicate allowances, nesting in `as-contract?` and in a
+/// violated scope, and a body that would fail if it ran.
+#[apply(test_clarity_versions)]
+fn test_restrict_assets_rejects_with_all_assets_unsafe(
+    #[case] version: ClarityVersion,
+    #[case] epoch: StacksEpochId,
+) {
+    if version < ClarityVersion::Clarity4 {
+        return;
+    }
+
+    for allowances in [
+        "((with-all-assets-unsafe))",
+        "((with-all-assets-unsafe) (with-stx u0))",
+        "((with-stx u0) (with-all-assets-unsafe))",
+        "((with-all-assets-unsafe) (with-all-assets-unsafe))",
+    ] {
+        let restricted = format!("(restrict-assets? tx-sender {allowances} true)");
+        let nested =
+            format!("(as-contract? ((with-all-assets-unsafe)) (unwrap-panic {restricted}))");
+        for snippet in [&restricted, &nested] {
+            assert_with_all_assets_gate(snippet, version, epoch, Ok(Some(Value::okay_true())));
+        }
+    }
+
+    // The check runs before the body.
+    assert_with_all_assets_gate(
+        "(restrict-assets? tx-sender ((with-all-assets-unsafe)) (unwrap-panic none))",
+        version,
+        epoch,
+        Err(VmExecutionError::from(RuntimeError::UnwrapFailure).into()),
+    );
+
+    // An outer scope whose allowance is already violated turns the error into
+    // `(err u128)`, like any includable error in its body.
+    let snippet = r#"
+(restrict-assets? tx-sender ()
+  (try! (stx-transfer? u50 tx-sender 'SP000000000000000000002Q6VF78))
+  (restrict-assets? tx-sender ((with-all-assets-unsafe)) true))"#;
+    assert_eq!(
+        execute_with_version_and_epoch(snippet, version, epoch),
+        Ok(Some(
+            Value::error(Value::UInt(MAX_ALLOWANCES as u128)).unwrap()
+        )),
+    );
+
+    // Unrestricted access remains valid inside `as-contract?`.
+    assert_eq!(
+        execute_with_version_and_epoch(
+            "(as-contract? ((with-all-assets-unsafe)) true)",
+            version,
+            epoch,
+        ),
+        Ok(Some(Value::okay_true())),
+    );
+}
+
+#[apply(test_clarity_versions)]
+fn test_restrict_assets_stx_all(#[case] version: ClarityVersion, #[case] epoch: StacksEpochId) {
     let snippet = r#"
 (restrict-assets? tx-sender ((with-all-assets-unsafe))
   (try! (stx-transfer? u50 tx-sender 'SP000000000000000000002Q6VF78))
 )"#;
-    let expected = Value::okay_true();
-    assert_eq!(expected, execute(snippet).unwrap().unwrap());
+    assert_with_all_assets_gate(snippet, version, epoch, Ok(Some(Value::okay_true())));
 }
 
 #[test]
@@ -924,14 +1010,16 @@ fn test_restrict_assets_with_stx_burn_no_allowance() {
     assert_eq!(expected, execute(snippet).unwrap().unwrap());
 }
 
-#[test]
-fn test_restrict_assets_stx_burn_all() {
+#[apply(test_clarity_versions)]
+fn test_restrict_assets_stx_burn_all(
+    #[case] version: ClarityVersion,
+    #[case] epoch: StacksEpochId,
+) {
     let snippet = r#"
 (restrict-assets? tx-sender ((with-all-assets-unsafe))
   (try! (stx-burn? u50 tx-sender))
 )"#;
-    let expected = Value::okay_true();
-    assert_eq!(expected, execute(snippet).unwrap().unwrap());
+    assert_with_all_assets_gate(snippet, version, epoch, Ok(Some(Value::okay_true())));
 }
 
 #[test]
@@ -1016,8 +1104,8 @@ fn test_restrict_assets_with_ft_no_allowance() {
     assert_eq!(expected, execute(snippet).unwrap().unwrap());
 }
 
-#[test]
-fn test_restrict_assets_with_ft_all() {
+#[apply(test_clarity_versions)]
+fn test_restrict_assets_with_ft_all(#[case] version: ClarityVersion, #[case] epoch: StacksEpochId) {
     let snippet = r#"
 (define-fungible-token stackaroo)
 (ft-mint? stackaroo u200 tx-sender)
@@ -1026,8 +1114,7 @@ fn test_restrict_assets_with_ft_all() {
     (try! (ft-transfer? stackaroo u50 tx-sender recipient))
   )
 )"#;
-    let expected = Value::okay_true();
-    assert_eq!(expected, execute(snippet).unwrap().unwrap());
+    assert_with_all_assets_gate(snippet, version, epoch, Ok(Some(Value::okay_true())));
 }
 
 #[test]
@@ -1253,8 +1340,11 @@ fn test_restrict_assets_with_nft_no_allowance() {
     assert_eq!(expected, execute(snippet).unwrap().unwrap());
 }
 
-#[test]
-fn test_restrict_assets_with_nft_all() {
+#[apply(test_clarity_versions)]
+fn test_restrict_assets_with_nft_all(
+    #[case] version: ClarityVersion,
+    #[case] epoch: StacksEpochId,
+) {
     let snippet = r#"
 (define-non-fungible-token stackaroo uint)
 (nft-mint? stackaroo u123 tx-sender)
@@ -1263,8 +1353,7 @@ fn test_restrict_assets_with_nft_all() {
     (try! (nft-transfer? stackaroo u123 tx-sender recipient))
   )
 )"#;
-    let expected = Value::okay_true();
-    assert_eq!(expected, execute(snippet).unwrap().unwrap());
+    assert_with_all_assets_gate(snippet, version, epoch, Ok(Some(Value::okay_true())));
 }
 
 #[test]

@@ -322,7 +322,12 @@ impl BlockInfo {
                 prev_state,
                 BlockState::GloballyRejected | BlockState::GloballyAccepted
             ),
-            BlockState::GloballyAccepted => !matches!(prev_state, BlockState::GloballyRejected),
+            // A block only becomes globally accepted on evidence from the node that it is part
+            // of the chain (a new block event, or the node reporting it as a tenure tip). That
+            // overrides any other state, which is only inferred from signer messages: a block
+            // can cross the rejection threshold on rejections that are later reconsidered and
+            // still go on to reach the acceptance threshold.
+            BlockState::GloballyAccepted => true,
             BlockState::GloballyRejected => !matches!(prev_state, BlockState::GloballyAccepted),
             BlockState::PreCommitted => matches!(prev_state, BlockState::Unprocessed),
         }
@@ -4769,8 +4774,47 @@ pub mod tests {
         assert!(!block.check_state(BlockState::Unprocessed));
         assert!(!block.check_state(BlockState::LocallyAccepted));
         assert!(!block.check_state(BlockState::LocallyRejected));
-        assert!(!block.check_state(BlockState::GloballyAccepted));
+        // The node accepting the block overrides a global rejection
+        assert!(block.check_state(BlockState::GloballyAccepted));
         assert!(block.check_state(BlockState::GloballyRejected));
+    }
+
+    #[test]
+    fn globally_rejected_then_accepted_counts_toward_tenure_times() {
+        // A block can cross the rejection threshold and still be accepted by the chain. Once the
+        // node confirms it, it must count toward the tenure's extend timing; otherwise the tenure
+        // has no globally accepted blocks and the extend timestamp keeps rolling forward from now.
+        let db_path = tmp_db_path();
+        let mut db = SignerDb::new(db_path).expect("Failed to create signer db");
+        let mut block_info = generate_tenure_blocks().remove(0);
+        let consensus_hash = block_info.block.header.consensus_hash.clone();
+        let change_match = |change_cause| {
+            matches!(
+                change_cause,
+                TenureChangeCause::BlockFound | TenureChangeCause::Extended
+            )
+        };
+
+        block_info.state = BlockState::Unprocessed;
+        block_info.mark_globally_rejected().unwrap();
+        db.insert_block(&block_info).unwrap();
+        let (start_time, _) = db.get_tenure_times(&consensus_hash, change_match).unwrap();
+        assert!(
+            start_time < block_info.proposed_time,
+            "A globally rejected block should not count toward the tenure times"
+        );
+
+        block_info.mark_globally_accepted().unwrap();
+        db.insert_block(&block_info).unwrap();
+        assert_eq!(
+            db.block_lookup(&block_info.signer_signature_hash())
+                .unwrap()
+                .unwrap()
+                .state,
+            BlockState::GloballyAccepted
+        );
+        let (start_time, _) = db.get_tenure_times(&consensus_hash, change_match).unwrap();
+        assert_eq!(start_time, block_info.proposed_time);
     }
 
     #[test]

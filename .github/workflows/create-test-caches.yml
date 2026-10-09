@@ -24,6 +24,15 @@ run-name: "Create: Test Caches [${{ github.ref_name }}]"
 
 on:
   workflow_dispatch: # Allows manual triggering / seeding
+    inputs:
+      btc-version:
+        description: 'The version of the bitcoin binary to use for tests'
+        required: false
+        type: string
+      btc-version-sha:
+        description: 'The SHA of the binary to verify before executing the tests. Find these in the official SHA256SUMS file for each release. Example: https://bitcoincore.org/bin/bitcoin-core-31.1/SHA256SUMS'
+        required: false
+        type: string
   push:
     branches:
       - main
@@ -45,6 +54,40 @@ jobs:
     name: "Check: CI Enabled"
     uses: ./.github/workflows/__check-ci.yml
 
+  ############################################################################
+  ### Global Variables Setup
+  ###
+  ### Bridges global env variables to the jobs context so they are safely
+  ### accessible by downstream reusable workflows.
+  ### Also defines default runs-on anchor.
+  ############################################################################
+  setup-env:
+    name: "Setup: Global Variables"
+    needs:
+      - check-ci
+    if: needs.check-ci.outputs.enabled == 'true'
+    runs-on: &shared_config ubuntu-latest
+    outputs:
+      btc-version: ${{ steps.btc-version.outputs.version }}
+      btc-version-sha: ${{ steps.btc-version.outputs.sha }}
+    steps:
+      # Checkout the code
+      #   - only .github is required for this job
+      - name: Checkout the latest code
+        uses: $/.github/wrappers/checkout
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.ref }}
+          sparse-checkout: |
+            .github
+
+      # Resolve target bitcoin version
+      - name: Resolve Target Bitcoin Version
+        id: btc-version
+        uses: ./.github/actions/bitcoin-version
+        with:
+          btc-version: ${{ inputs.btc-version }}
+          btc-version-sha: ${{ inputs.btc-version-sha }}
+
   #######################################################################################################################
   ### Create Reusable Caches for Tests
   ###
@@ -55,9 +98,8 @@ jobs:
   cache-bitcoin-binary:
     name: "Create: Bitcoin Binary Cache"
     needs:
-      - check-ci
-    if: needs.check-ci.outputs.enabled == 'true'
-    runs-on: ubuntu-latest
+      - setup-env
+    runs-on: *shared_config
     steps:
       # Checkout the code
       #   - only .github is required for this job
@@ -73,6 +115,10 @@ jobs:
       - name: Check Bitcoin Cache
         id: bitcoin
         uses: ./.github/actions/cache/bitcoin
+        with:
+          action: check
+          btc-version: ${{ needs.setup-env.outputs.btc-version }}
+          btc-version-sha: ${{ needs.setup-env.outputs.btc-version-sha }}
 
       # Only create when a binary doesn't already exist
       - name: Create Bitcoin Cache
@@ -81,13 +127,14 @@ jobs:
         uses: ./.github/actions/cache/bitcoin
         with:
           action: create
+          btc-version: ${{ needs.setup-env.outputs.btc-version }}
+          btc-version-sha: ${{ needs.setup-env.outputs.btc-version-sha }}
 
   cache-cargo:
     name: "Create: Cargo Cache"
     needs:
-      - check-ci
-    if: needs.check-ci.outputs.enabled == 'true'
-    runs-on: ubuntu-latest
+      - setup-env
+    runs-on: *shared_config
     steps:
       # Checkout the code
       #   - only .github is required for this job

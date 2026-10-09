@@ -38,6 +38,14 @@ on:
     - cron: "0 6 * * *"
   workflow_dispatch:
     inputs:
+      btc-version:
+        description: 'The version of the bitcoin binary to use for tests'
+        required: false
+        type: string
+      btc-version-sha:
+        description: 'The SHA of the binary to verify before executing the tests. Find these in the official SHA256SUMS file for each release. Example: https://bitcoincore.org/bin/bitcoin-core-31.1/SHA256SUMS'
+        required: false
+        type: string
       only-tests:
         description: "Fully qualified test name(s), comma-separated. Empty runs the full set."
         required: false
@@ -49,7 +57,7 @@ on:
         default: false
         type: boolean
       dry-run-issues:
-        description: "Print issue writes instead of making them."
+        description: "Print issue writes instead of creating them."
         required: false
         default: false
         type: boolean
@@ -124,9 +132,28 @@ jobs:
     if: needs.check-ci.outputs.enabled == 'true'
     runs-on: ubuntu-latest
     outputs:
+      btc-version: ${{ steps.btc-version.outputs.version }}
+      btc-version-sha: ${{ steps.btc-version.outputs.sha }}
       test-archive-file: ${{ steps.set-env.outputs.test_archive_file }}
       nextest-profile: ${{ steps.set-env.outputs.nextest_profile }}
     steps:
+      # Checkout the code
+      #   - only .github is required for this job
+      - name: Checkout the latest code
+        uses: $/.github/wrappers/checkout
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.ref }}
+          sparse-checkout: |
+            .github
+
+      # Resolve target bitcoin version
+      - name: Resolve Target Bitcoin Version
+        id: btc-version
+        uses: ./.github/actions/bitcoin-version
+        with:
+          btc-version: ${{ inputs.btc-version }}
+          btc-version-sha: ${{ inputs.btc-version-sha }}
+
       - name: Export Env Variables
         id: set-env
         run: |
@@ -136,17 +163,17 @@ jobs:
   ############################################################################
   ### Check Reusable Test Caches
   ###
-  ### Check test cashes existence
-  ###
-  ### Caches are only ever created by create-test-caches.yml (push to `main`, or
-  ### manual dispatch).
+  ### Caches can only be created from `main`. The workflow will fail
+  ### if caches are missing, with instructions on how to manually seed them.
   ############################################################################
   check-test-caches:
     needs:
-      - check-ci
-    if: needs.check-ci.outputs.enabled == 'true'
+      - setup-env
     name: "Check: Test Caches"
     uses: ./.github/workflows/_check-test-caches.yml
+    with:
+      btc-version: ${{ needs.setup-env.outputs.btc-version }}
+      btc-version-sha: ${{ needs.setup-env.outputs.btc-version-sha }}
 
   ############################################################################
   ### Create Nextest Archive Artifact for Tests
@@ -186,6 +213,8 @@ jobs:
       - setup-env
     uses: ./.github/workflows/_tests-bitcoin.yml
     with:
+      btc-version: ${{ needs.setup-env.outputs.btc-version }}
+      btc-version-sha: ${{ needs.setup-env.outputs.btc-version-sha }}
       archive-file: ${{ needs.setup-env.outputs.test-archive-file }}
       nextest-profile: ${{ needs.setup-env.outputs.nextest-profile }}
       only-tests: ${{ inputs.only-tests }}

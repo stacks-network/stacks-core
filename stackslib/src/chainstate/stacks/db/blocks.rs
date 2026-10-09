@@ -44,19 +44,22 @@ use stacks_common::util::{get_epoch_time_ms, get_epoch_time_secs};
 
 use crate::chainstate::burn::db::sortdb::*;
 use crate::chainstate::burn::operations::*;
+#[cfg(test)]
 use crate::chainstate::burn::BlockSnapshot;
 use crate::chainstate::coordinator::BlockEventDispatcher;
 use crate::chainstate::nakamoto::signer_set::{NakamotoSigners, SignerCalculation};
-use crate::chainstate::nakamoto::{NakamotoChainState, TxToProcess};
+use crate::chainstate::nakamoto::NakamotoChainState;
 use crate::chainstate::stacks::address::PoxAddress;
 use crate::chainstate::stacks::db::accounts::{MaturedMinerPayouts, MinerReward};
-use crate::chainstate::stacks::db::transactions::{NonceCheckFailure, TransactionNonceMismatch};
+use crate::chainstate::stacks::db::transactions::{
+    NonceCheckFailure, TransactionNonceMismatch, TransactionProcessor, TxToProcess,
+};
 use crate::chainstate::stacks::db::*;
 use crate::chainstate::stacks::events::StacksBlockEventData;
 use crate::chainstate::stacks::{
-    Error, StacksBlockHeader, StacksMicroblockHeader, C32_ADDRESS_VERSION_MAINNET_MULTISIG,
-    C32_ADDRESS_VERSION_MAINNET_SINGLESIG, C32_ADDRESS_VERSION_TESTNET_MULTISIG,
-    C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
+    Error, MicroblockSignerMatch, StacksBlockHeader, StacksMicroblockHeader,
+    C32_ADDRESS_VERSION_MAINNET_MULTISIG, C32_ADDRESS_VERSION_MAINNET_SINGLESIG,
+    C32_ADDRESS_VERSION_TESTNET_MULTISIG, C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
 };
 use crate::clarity_vm::clarity::{ClarityConnection, ClarityInstance};
 use crate::clarity_vm::database::SortitionDBRef;
@@ -1458,29 +1461,6 @@ impl StacksChainState {
         self.db()
             .query_row(sql, [stacks_block], |row| row.get(0))
             .map_err(|e| Error::from(db_error::from(e)))
-    }
-
-    /// only used in integration tests with stacks-node
-    pub fn get_parent_consensus_hash(
-        sort_ic: &SortitionDBConn,
-        parent_block_hash: &BlockHeaderHash,
-        my_consensus_hash: &ConsensusHash,
-    ) -> Result<Option<ConsensusHash>, Error> {
-        let sort_handle = SortitionHandleConn::open_reader_consensus(sort_ic, my_consensus_hash)?;
-
-        // find all blocks that we have that could be this block's parent
-        let sql = "SELECT * FROM snapshots WHERE winning_stacks_block_hash = ?1";
-        let possible_parent_snapshots =
-            query_rows::<BlockSnapshot, _>(&sort_handle, sql, &[parent_block_hash])?;
-        for possible_parent in possible_parent_snapshots.into_iter() {
-            let burn_ancestor =
-                sort_handle.get_block_snapshot(&possible_parent.burn_header_hash)?;
-            if let Some(_ancestor) = burn_ancestor {
-                // found!
-                return Ok(Some(possible_parent.consensus_hash));
-            }
-        }
-        Ok(None)
     }
 
     /// Get an anchored block's parent block header.
@@ -3927,15 +3907,17 @@ impl StacksChainState {
         for microblock in microblocks.iter() {
             debug!("Process microblock {}", &microblock.block_hash());
             for (tx_index, tx) in microblock.txs.iter().enumerate() {
-                let (tx_fee, mut tx_receipt) = StacksChainState::process_transaction(
-                    clarity_tx, tx, false, None,
-                )
-                .map_err(|source| {
-                    Box::new(MicroblockProcessingFailure {
-                        source,
-                        microblock_hash: microblock.block_hash(),
-                    })
-                })?;
+                let (tx_fee, mut tx_receipt) = TransactionProcessor::from(tx)
+                    .for_execution()
+                    .using_clarity_tx(clarity_tx)
+                    .with_unlimited_resource_policy()
+                    .process()
+                    .map_err(|source| {
+                        Box::new(MicroblockProcessingFailure {
+                            source,
+                            microblock_hash: microblock.block_hash(),
+                        })
+                    })?;
 
                 tx_receipt.microblock_header = Some(microblock.header.clone());
                 tx_receipt.tx_index = u32::try_from(tx_index).expect("more than 2^32 items");
@@ -4525,14 +4507,10 @@ impl StacksChainState {
         let mut receipts = vec![];
         let mut total_size = 0u64;
         for tx_to_process in block_txs {
-            let (tx_fee, mut tx_receipt) = match tx_to_process {
-                TxToProcess::Skip { tx, category } => {
-                    StacksChainState::process_skipped_transaction(clarity_tx, tx, category, false)?
-                }
-                TxToProcess::Execute(tx) => {
-                    StacksChainState::process_transaction(clarity_tx, tx, false, None)?
-                }
-            };
+            let (tx_fee, mut tx_receipt) = TransactionProcessor::from(tx_to_process)
+                .using_clarity_tx(clarity_tx)
+                .with_unlimited_resource_policy()
+                .process()?;
             fees = fees.checked_add(u128::from(tx_fee)).expect("Fee overflow");
             tx_receipt.tx_index = tx_index;
             total_size = total_size.saturating_add(tx_receipt.size().ok_or_else(|| {
@@ -4903,7 +4881,7 @@ impl StacksChainState {
         ).expect("FATAL: Unrecoverable chainstate corruption: Epoch 2.1 code evaluated before first burn block height");
         // Do not try to handle auto-unlocks on pox_reward_cycle 0
         // This cannot even occur in the mainchain, because 2.1 starts much
-        //  after the 1st reward cycle, however, this could come up in mocknets or regtest.
+        //  after the 1st reward cycle, however, this could come up in regtest.
         if pox_reward_cycle <= 1 {
             return Ok(vec![]);
         }
@@ -6628,8 +6606,10 @@ impl StacksChainState {
 
         // 2: it must be validly signed.
         let epoch = clarity_connection.get_epoch();
+        let tx_processor = TransactionProcessor::from(tx);
 
-        StacksChainState::process_transaction_precheck(chainstate_config, tx, epoch)
+        tx_processor
+            .precheck(chainstate_config, epoch)
             .map_err(MemPoolRejection::FailedToValidate)?;
 
         // 3: it must pay a tx fee
@@ -6650,48 +6630,47 @@ impl StacksChainState {
         }
 
         // 5: the account nonces must be correct
-        let (origin, payer) =
-            match StacksChainState::check_transaction_nonces(clarity_connection, tx, true) {
-                Ok(x) => x,
-                // if errored, check if MEMPOOL_TX_CHAINING would admit this TX
-                Err(failure) => {
-                    let NonceCheckFailure {
-                        mismatch: e,
-                        origin_account: origin,
-                        payer_account: payer,
-                    } = *failure;
-                    // if the nonce is less than expected, then TX_CHAINING would not allow in any case
-                    if e.actual < e.expected {
-                        return Err(e.into());
-                    }
+        let (origin, payer) = match tx_processor.check_nonces(clarity_connection, true) {
+            Ok(x) => x,
+            // if errored, check if MEMPOOL_TX_CHAINING would admit this TX
+            Err(failure) => {
+                let NonceCheckFailure {
+                    mismatch: e,
+                    origin_account: origin,
+                    payer_account: payer,
+                } = *failure;
+                // if the nonce is less than expected, then TX_CHAINING would not allow in any case
+                if e.actual < e.expected {
+                    return Err(e.into());
+                }
 
-                    let tx_origin_nonce = tx.get_origin().nonce();
+                let tx_origin_nonce = tx.get_origin().nonce();
 
-                    let origin_max_nonce = origin.nonce + 1 + MAXIMUM_MEMPOOL_TX_CHAINING;
-                    if origin_max_nonce < tx_origin_nonce {
+                let origin_max_nonce = origin.nonce + 1 + MAXIMUM_MEMPOOL_TX_CHAINING;
+                if origin_max_nonce < tx_origin_nonce {
+                    return Err(MemPoolRejection::TooMuchChaining {
+                        max_nonce: origin_max_nonce,
+                        actual_nonce: tx_origin_nonce,
+                        principal: tx.origin_address().into(),
+                        is_origin: true,
+                    });
+                }
+
+                if let Some(sponsor_addr) = tx.sponsor_address() {
+                    let tx_sponsor_nonce = tx.get_payer().nonce();
+                    let sponsor_max_nonce = payer.nonce + 1 + MAXIMUM_MEMPOOL_TX_CHAINING;
+                    if sponsor_max_nonce < tx_sponsor_nonce {
                         return Err(MemPoolRejection::TooMuchChaining {
-                            max_nonce: origin_max_nonce,
-                            actual_nonce: tx_origin_nonce,
-                            principal: tx.origin_address().into(),
-                            is_origin: true,
+                            max_nonce: sponsor_max_nonce,
+                            actual_nonce: tx_sponsor_nonce,
+                            principal: sponsor_addr.into(),
+                            is_origin: false,
                         });
                     }
-
-                    if let Some(sponsor_addr) = tx.sponsor_address() {
-                        let tx_sponsor_nonce = tx.get_payer().nonce();
-                        let sponsor_max_nonce = payer.nonce + 1 + MAXIMUM_MEMPOOL_TX_CHAINING;
-                        if sponsor_max_nonce < tx_sponsor_nonce {
-                            return Err(MemPoolRejection::TooMuchChaining {
-                                max_nonce: sponsor_max_nonce,
-                                actual_nonce: tx_sponsor_nonce,
-                                principal: sponsor_addr.into(),
-                                is_origin: false,
-                            });
-                        }
-                    }
-                    (origin, payer)
                 }
-            };
+                (origin, payer)
+            }
+        };
 
         if !StacksChainState::is_valid_address_version(
             chainstate_config.mainnet,
@@ -6867,20 +6846,19 @@ impl StacksChainState {
                     return Err(MemPoolRejection::PoisonMicroblocksDoNotConflict);
                 }
 
-                let microblock_pkh_1 = microblock_header_1
-                    .check_recover_pubkey()
-                    .map_err(|_e| MemPoolRejection::InvalidMicroblocks)?;
-                let microblock_pkh_2 = microblock_header_2
-                    .check_recover_pubkey()
-                    .map_err(|_e| MemPoolRejection::InvalidMicroblocks)?;
-
-                if microblock_pkh_1 != microblock_pkh_2 {
-                    return Err(MemPoolRejection::PoisonMicroblocksDoNotConflict);
-                }
+                let microblock_pkh = match microblock_header_1
+                    .recover_signer_match(microblock_header_2)
+                    .map_err(|_e| MemPoolRejection::InvalidMicroblocks)?
+                {
+                    MicroblockSignerMatch::Common(signer) => signer,
+                    MicroblockSignerMatch::Different { .. } => {
+                        return Err(MemPoolRejection::PoisonMicroblocksDoNotConflict);
+                    }
+                };
 
                 if !has_microblock_pubkey {
                     return Err(MemPoolRejection::NoAnchorBlockWithPubkeyHash(
-                        microblock_pkh_1,
+                        microblock_pkh,
                     ));
                 }
             }
@@ -11965,6 +11943,421 @@ pub mod test {
 
             assert_eq!(delegation_amt, 1000 * (i as u128 + 1));
         }
+    }
+
+    /// Keep every authorization field valid except the signing key so admission
+    /// reaches signature verification.
+    fn make_bad_stacks_transfer(
+        sender: &StacksPrivateKey,
+        nonce: u64,
+        tx_fee: u64,
+        recipient: &PrincipalData,
+        amount: u64,
+    ) -> StacksTransaction {
+        let payload = TransactionPayload::TokenTransfer(
+            recipient.clone(),
+            amount,
+            TokenTransferMemo([0; 34]),
+        );
+
+        let mut spending_condition = TransactionSpendingCondition::new_singlesig_p2pkh(
+            StacksPublicKey::from_private(sender),
+        )
+        .expect("Failed to create p2pkh spending condition from public key.");
+        spending_condition.set_nonce(nonce);
+        spending_condition.set_tx_fee(tx_fee);
+        let auth = TransactionAuth::Standard(spending_condition);
+
+        let mut unsigned_tx = StacksTransaction::new(TransactionVersion::Testnet, auth, payload);
+        unsigned_tx.chain_id = 0x80000000;
+
+        let mut tx_signer = StacksTransactionSigner::new(&unsigned_tx);
+        tx_signer.sign_origin(&StacksPrivateKey::random()).unwrap();
+        tx_signer.get_tx().unwrap()
+    }
+
+    /// All probes share one processed tip so calls, trait checks, nonces, and balances
+    /// are evaluated against the same state. The five publish fees deliberately leave
+    /// 99_500 uSTX for the insufficient-funds boundary.
+    ///
+    /// The chain runs in Epoch 2.1: the authorization, signature-mode, and argument
+    /// type checks behind these rejections are epoch-gated.
+    ///
+    /// One poison payload is sufficient because admission rejects this payload type
+    /// before inspecting its microblock headers.
+    #[test]
+    fn mempool_will_admit_tx_rejection_matrix() {
+        use clarity::vm::database::NULL_BURN_STATE_DB;
+
+        use crate::core::test_util::sign_standard_single_sig_tx_anchor_mode_version;
+        use crate::core::{StacksEpoch, StacksEpochExtension};
+
+        const FOO_CONTRACT: &str = "(define-public (foo) (ok 1))
+                                    (define-public (bar (x uint)) (ok x))";
+        const TRAIT_CONTRACT: &str = "(define-trait tr ((value () (response uint uint))))";
+        const USE_TRAIT_CONTRACT: &str = "(use-trait tr-trait .trait-contract.tr)
+                                         (define-public (baz (abc <tr-trait>)) (ok (contract-of abc)))";
+        const IMPLEMENT_TRAIT_CONTRACT: &str = "(define-public (value) (ok u1))";
+        const BAD_TRAIT_CONTRACT: &str = "(define-public (foo-bar) (ok u1))";
+
+        let chain_id = 0x80000000;
+
+        // the publisher of all contracts and origin of every probe tx
+        let contract_sk = StacksPrivateKey::from_hex(
+            "a1289f6438855da7decf9b61b852c882c398cff1446b2a0f823538aa2ebef92e01",
+        )
+        .unwrap();
+        let contract_addr = StacksAddress::from_public_keys(
+            C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
+            &AddressHashMode::SerializeP2PKH,
+            1,
+            &vec![StacksPublicKey::from_private(&contract_sk)],
+        )
+        .unwrap();
+
+        // the "other" account used as a recipient and for network-mismatch probes
+        let other_sk = StacksPrivateKey::from_hex(
+            "4ce9a8f7539ea93753a36405b16e8b57e15a552430410709c2b6d65dca5c02e201",
+        )
+        .unwrap();
+        let other_addr: PrincipalData = StacksAddress::from_public_keys(
+            C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
+            &AddressHashMode::SerializeP2PKH,
+            1,
+            &vec![StacksPublicKey::from_private(&other_sk)],
+        )
+        .unwrap()
+        .into();
+
+        let mut peer_config = TestPeerConfig::new(function_name!(), 21319, 21320);
+        peer_config.chain_config.initial_balances =
+            vec![(contract_addr.to_account_principal(), 100_000)];
+        peer_config.chain_config.epochs = Some(StacksEpoch::unit_test_2_1_with_heights(0, 0, 0));
+        let mut peer = TestPeer::new(peer_config);
+
+        let mut coinbase_nonce = 0;
+
+        // mine one empty tenure to get a Stacks chain tip past genesis
+        peer.tenure_with_txs(&[], &mut coinbase_nonce);
+
+        // publish the five contracts in a single tenure (nonces 0..=4, fee 100 each).
+        // 5 * 100 = 500 uSTX in fees, leaving the publisher with 99_500.
+        let publish_txs = vec![
+            make_user_contract_publish(&contract_sk, 0, 100, "foo_contract", FOO_CONTRACT),
+            make_user_contract_publish(&contract_sk, 1, 100, "trait-contract", TRAIT_CONTRACT),
+            make_user_contract_publish(
+                &contract_sk,
+                2,
+                100,
+                "use-trait-contract",
+                USE_TRAIT_CONTRACT,
+            ),
+            make_user_contract_publish(
+                &contract_sk,
+                3,
+                100,
+                "implement-trait-contract",
+                IMPLEMENT_TRAIT_CONTRACT,
+            ),
+            make_user_contract_publish(
+                &contract_sk,
+                4,
+                100,
+                "bad-trait-contract",
+                BAD_TRAIT_CONTRACT,
+            ),
+        ];
+        peer.tenure_with_txs(&publish_txs, &mut coinbase_nonce);
+
+        peer.with_db_state(|sortdb, chainstate, _relayer, _mempool| {
+            let (consensus_hash, block_hash) =
+                SortitionDB::get_canonical_stacks_chain_tip_hash(sortdb.conn()).unwrap();
+            let consensus_hash = &consensus_hash;
+            let block_hash = &block_hash;
+
+            let admit = |chainstate: &mut StacksChainState, tx: &StacksTransaction| {
+                let len = tx.serialize_to_vec().len() as u64;
+                chainstate.will_admit_mempool_tx(
+                    &NULL_BURN_STATE_DB,
+                    consensus_hash,
+                    block_hash,
+                    tx,
+                    len,
+                )
+            };
+
+            // a couple of valid ones first
+            let tx =
+                make_user_contract_publish(&contract_sk, 5, 1000, "bar_contract", FOO_CONTRACT);
+            admit(chainstate, &tx).unwrap();
+
+            let tx = make_user_contract_call(
+                &contract_sk,
+                5,
+                200,
+                &contract_addr,
+                "foo_contract",
+                "bar",
+                vec![Value::UInt(1)],
+            );
+            admit(chainstate, &tx).unwrap();
+
+            let tx = make_user_stacks_transfer(&contract_sk, 5, 200, &other_addr, 1000);
+            admit(chainstate, &tx).unwrap();
+
+            // bad signature (signed by the wrong key)
+            let tx = make_bad_stacks_transfer(&contract_sk, 5, 200, &other_addr, 1000);
+            let e = admit(chainstate, &tx).unwrap_err();
+            assert!(matches!(
+                e,
+                MemPoolRejection::FailedToValidate(crate::chainstate::stacks::Error::NetError(
+                    net_error::VerifyingError(_)
+                ))
+            ));
+
+            // contract-call to an address whose version byte is valid on neither network
+            let bad_addr = StacksAddress::from_public_keys(
+                18,
+                &AddressHashMode::SerializeP2PKH,
+                1,
+                &vec![StacksPublicKey::from_private(&other_sk)],
+            )
+            .unwrap();
+            let tx = make_user_contract_call(
+                &contract_sk,
+                5,
+                200,
+                &bad_addr,
+                "foo_contract",
+                "bar",
+                vec![Value::UInt(1), Value::Int(2)],
+            );
+            let e = admit(chainstate, &tx).unwrap_err();
+            assert!(matches!(e, MemPoolRejection::BadAddressVersionByte));
+
+            // mismatched network on transfer (mainnet recipient)
+            let bad_recipient: PrincipalData = StacksAddress::from_public_keys(
+                C32_ADDRESS_VERSION_MAINNET_SINGLESIG,
+                &AddressHashMode::SerializeP2PKH,
+                1,
+                &vec![StacksPublicKey::from_private(&other_sk)],
+            )
+            .unwrap()
+            .into();
+            let tx = make_user_stacks_transfer(&contract_sk, 5, 200, &bad_recipient, 1000);
+            let e = admit(chainstate, &tx).unwrap_err();
+            assert!(matches!(e, MemPoolRejection::BadAddressVersionByte));
+
+            // bad fee
+            let tx = make_user_stacks_transfer(&contract_sk, 5, 0, &other_addr, 1000);
+            let e = admit(chainstate, &tx).unwrap_err();
+            assert!(matches!(e, MemPoolRejection::FeeTooLow(0, _)));
+
+            // bad nonce (already used)
+            let tx = make_user_stacks_transfer(&contract_sk, 0, 200, &other_addr, 1000);
+            let e = admit(chainstate, &tx).unwrap_err();
+            assert!(matches!(e, MemPoolRejection::BadNonces(_)));
+
+            // a nonce far beyond the account's exceeds the mempool chaining limit:
+            // origin_max_nonce = account nonce (5) + 1 + MAXIMUM_MEMPOOL_TX_CHAINING
+            let tx = make_user_stacks_transfer(&contract_sk, 40, 200, &other_addr, 1000);
+            let e = admit(chainstate, &tx).unwrap_err();
+            match e {
+                MemPoolRejection::TooMuchChaining {
+                    max_nonce,
+                    actual_nonce,
+                    is_origin,
+                    ..
+                } => {
+                    assert_eq!(max_nonce, 5 + 1 + MAXIMUM_MEMPOOL_TX_CHAINING);
+                    assert_eq!(actual_nonce, 40);
+                    assert!(is_origin);
+                }
+                _ => panic!("unexpected error {e:?} from too-much-chaining tx"),
+            }
+
+            // not enough funds (fee 110000 + amount 1000 = 111000 > 99500)
+            let tx = make_user_stacks_transfer(&contract_sk, 5, 110000, &other_addr, 1000);
+            let e = admit(chainstate, &tx).unwrap_err();
+            assert!(matches!(e, MemPoolRejection::NotEnoughFunds(111000, 99500)));
+
+            // sender == recipient
+            let contract_princ = PrincipalData::from(contract_addr.clone());
+            let tx = make_user_stacks_transfer(&contract_sk, 5, 300, &contract_princ, 1000);
+            let e = admit(chainstate, &tx).unwrap_err();
+            assert!(if let MemPoolRejection::TransferRecipientIsSender(r) = e {
+                r == contract_princ
+            } else {
+                false
+            });
+
+            // tx version must be testnet
+            let payload = TransactionPayload::TokenTransfer(
+                PrincipalData::from(contract_addr.clone()),
+                1000,
+                TokenTransferMemo([0; 34]),
+            );
+            let tx = sign_standard_single_sig_tx_anchor_mode_version(
+                payload,
+                &contract_sk,
+                5,
+                300,
+                chain_id,
+                TransactionAnchorMode::OnChainOnly,
+                TransactionVersion::Mainnet,
+            );
+            let e = admit(chainstate, &tx).unwrap_err();
+            assert!(matches!(e, MemPoolRejection::BadTransactionVersion));
+
+            // tx chain id must match the chain's. Signed WITH the wrong chain id so the
+            // signature stays internally consistent and rejection comes from the chain-id
+            // check in process_transaction_precheck, not from signature verification.
+            // Recipient must differ from sender: the recipient-is-sender semantic check
+            // runs before the precheck.
+            let payload = TransactionPayload::TokenTransfer(
+                PrincipalData::from(other_addr.clone()),
+                1000,
+                TokenTransferMemo([0; 34]),
+            );
+            let tx = sign_standard_single_sig_tx_anchor_mode_version(
+                payload,
+                &contract_sk,
+                5,
+                300,
+                chain_id + 1,
+                TransactionAnchorMode::OnChainOnly,
+                TransactionVersion::Testnet,
+            );
+            let e = admit(chainstate, &tx).unwrap_err();
+            assert!(matches!(
+                e,
+                MemPoolRejection::FailedToValidate(
+                    crate::chainstate::stacks::Error::InvalidStacksTransaction(ref msg, false)
+                ) if msg.contains("invalid chain ID")
+            ));
+
+            // send amount must be positive
+            let tx = make_user_stacks_transfer(&contract_sk, 5, 300, &other_addr, 0);
+            let e = admit(chainstate, &tx).unwrap_err();
+            assert!(matches!(e, MemPoolRejection::TransferAmountMustBePositive));
+
+            // not enough funds (fee 99700 + amount 1000 = 100700 > 99500)
+            let tx = make_user_stacks_transfer(&contract_sk, 5, 99700, &other_addr, 1000);
+            let e = admit(chainstate, &tx).unwrap_err();
+            assert!(matches!(e, MemPoolRejection::NotEnoughFunds(100700, 99500)));
+
+            // contract-call against a contract that does not exist
+            let tx = make_user_contract_call(
+                &contract_sk,
+                5,
+                200,
+                &contract_addr,
+                "bar_contract",
+                "bar",
+                vec![Value::UInt(1)],
+            );
+            let e = admit(chainstate, &tx).unwrap_err();
+            assert!(matches!(e, MemPoolRejection::NoSuchContract));
+
+            // contract-call against a function that does not exist
+            let tx = make_user_contract_call(
+                &contract_sk,
+                5,
+                200,
+                &contract_addr,
+                "foo_contract",
+                "foobar",
+                vec![Value::UInt(1)],
+            );
+            let e = admit(chainstate, &tx).unwrap_err();
+            assert!(matches!(e, MemPoolRejection::NoSuchPublicFunction));
+
+            // contract-call with wrong argument types
+            let tx = make_user_contract_call(
+                &contract_sk,
+                5,
+                200,
+                &contract_addr,
+                "foo_contract",
+                "bar",
+                vec![Value::UInt(1), Value::Int(2)],
+            );
+            let e = admit(chainstate, &tx).unwrap_err();
+            assert!(matches!(e, MemPoolRejection::BadFunctionArgument(_)));
+
+            // re-publishing an existing contract
+            let tx =
+                make_user_contract_publish(&contract_sk, 5, 1000, "foo_contract", FOO_CONTRACT);
+            let e = admit(chainstate, &tx).unwrap_err();
+            assert!(matches!(e, MemPoolRejection::ContractAlreadyExists(_)));
+
+            // poison-microblock: rejected outright by will_admit_mempool_tx's guard,
+            // regardless of the microblock contents/keys (see method-level comment).
+            let microblock_1 = StacksMicroblockHeader {
+                version: 0,
+                sequence: 0,
+                prev_block: BlockHeaderHash([0; 32]),
+                tx_merkle_root: Sha512Trunc256Sum::from_data(&[]),
+                signature: MessageSignature([1; 65]),
+            };
+            let microblock_2 = StacksMicroblockHeader {
+                version: 0,
+                sequence: 1,
+                prev_block: BlockHeaderHash([0; 32]),
+                tx_merkle_root: Sha512Trunc256Sum::from_data(&[]),
+                signature: MessageSignature([1; 65]),
+            };
+            let tx = make_user_poison_microblock(
+                &contract_sk,
+                5,
+                1000,
+                TransactionPayload::PoisonMicroblock(microblock_1, microblock_2),
+            );
+            let e = admit(chainstate, &tx).unwrap_err();
+            assert!(matches!(e, MemPoolRejection::Other(_)));
+
+            // coinbase via mempool
+            let tx = make_user_coinbase(&contract_sk, 5, 1000);
+            let e = admit(chainstate, &tx).unwrap_err();
+            assert!(matches!(e, MemPoolRejection::NoCoinbaseViaMempool));
+
+            // trait argument that satisfies the trait -> accepted
+            let implement_trait_principal =
+                PrincipalData::Contract(QualifiedContractIdentifier::new(
+                    StandardPrincipalData::from(contract_addr.clone()),
+                    ContractName::from_literal("implement-trait-contract"),
+                ));
+            let tx = make_user_contract_call(
+                &contract_sk,
+                5,
+                250,
+                &contract_addr,
+                "use-trait-contract",
+                "baz",
+                vec![Value::Principal(implement_trait_principal)],
+            );
+            admit(chainstate, &tx).unwrap();
+
+            // trait argument that does NOT satisfy the trait -> rejected
+            let bad_trait_principal = PrincipalData::Contract(QualifiedContractIdentifier::new(
+                StandardPrincipalData::from(contract_addr.clone()),
+                ContractName::from_literal("bad-trait-contract"),
+            ));
+            let tx = make_user_contract_call(
+                &contract_sk,
+                5,
+                250,
+                &contract_addr,
+                "use-trait-contract",
+                "baz",
+                vec![Value::Principal(bad_trait_principal)],
+            );
+            let e = admit(chainstate, &tx).unwrap_err();
+            assert!(matches!(e, MemPoolRejection::BadFunctionArgument(_)));
+
+            Ok::<(), net_error>(())
+        })
+        .unwrap();
     }
 
     // TODO(test): test multiple anchored blocks confirming the same microblock stream (in the same

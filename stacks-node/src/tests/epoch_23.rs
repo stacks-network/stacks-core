@@ -27,7 +27,7 @@ use stacks_common::util::sleep_ms;
 use crate::burnchains::bitcoin::core_controller::BitcoinCoreController;
 use crate::tests::neon_integrations::*;
 use crate::tests::*;
-use crate::{neon, BitcoinRegtestController, BurnchainController};
+use crate::{neon, BitcoinRegtestController};
 
 #[test]
 #[ignore]
