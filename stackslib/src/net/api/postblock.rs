@@ -158,7 +158,7 @@ impl RPCRequestHandler for RPCPostBlockRequestHandler {
                                     "Received POSTed Stacks block {}/{}: {:?}",
                                     &consensus_hash, &block_hash, &accepted
                                 );
-                                return Ok(BlockAcceptResponse::Accepted == accepted);
+                                Ok(BlockAcceptResponse::Accepted == accepted)
                             }
                             Err(e) => {
                                 let msg = format!(
@@ -168,10 +168,10 @@ impl RPCRequestHandler for RPCPostBlockRequestHandler {
                                     &e
                                 );
                                 error!("{}", &msg);
-                                return Err(StacksHttpResponse::new_error(
+                                Err(StacksHttpResponse::new_error(
                                     &preamble,
                                     &HttpServerError::new(msg),
-                                ));
+                                ))
                             }
                         }
                     }
@@ -182,10 +182,10 @@ impl RPCRequestHandler for RPCPostBlockRequestHandler {
                             &block.block_hash()
                         );
                         debug!("{}", &msg);
-                        return Err(StacksHttpResponse::new_error(
+                        Err(StacksHttpResponse::new_error(
                             &preamble,
                             &HttpNotFound::new(msg),
-                        ));
+                        ))
                     }
                     Err(e) => {
                         let msg = format!(
@@ -193,10 +193,10 @@ impl RPCRequestHandler for RPCPostBlockRequestHandler {
                             consensus_hash, &e
                         );
                         error!("{}", &msg);
-                        return Err(StacksHttpResponse::new_error(
+                        Err(StacksHttpResponse::new_error(
                             &preamble,
                             &HttpServerError::new(msg),
-                        ));
+                        ))
                     }
                 }
             });
@@ -210,7 +210,7 @@ impl RPCRequestHandler for RPCPostBlockRequestHandler {
                 ),
             },
             Err(response) => {
-                return response.try_into_contents().map_err(NetError::from);
+                return response.try_into_contents();
             }
         };
 
@@ -235,7 +235,7 @@ impl HttpResponse for RPCPostBlockRequestHandler {
         body: &[u8],
     ) -> Result<HttpResponsePayload, Error> {
         let accepted: StacksBlockAcceptedData = parse_json(preamble, body)?;
-        Ok(HttpResponsePayload::try_from_json(accepted)?)
+        HttpResponsePayload::try_from_json(accepted)
     }
 }
 

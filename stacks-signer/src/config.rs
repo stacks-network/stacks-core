@@ -88,8 +88,6 @@ pub enum Network {
     Testnet,
     /// A Stacks network backed by public or custom Bitcoin signet.
     Signet,
-    /// The mocknet network
-    Mocknet,
 }
 
 impl std::fmt::Display for Network {
@@ -98,7 +96,6 @@ impl std::fmt::Display for Network {
             Self::Mainnet => write!(f, "mainnet"),
             Self::Testnet => write!(f, "testnet"),
             Self::Signet => write!(f, "signet"),
-            Self::Mocknet => write!(f, "mocknet"),
         }
     }
 }
@@ -108,7 +105,7 @@ impl Network {
     pub const fn to_address_version(&self) -> u8 {
         match self {
             Self::Mainnet => C32_ADDRESS_VERSION_MAINNET_SINGLESIG,
-            Self::Testnet | Self::Signet | Self::Mocknet => C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
+            Self::Testnet | Self::Signet => C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
         }
     }
 
@@ -116,7 +113,7 @@ impl Network {
     pub const fn to_transaction_version(&self) -> TransactionVersion {
         match self {
             Self::Mainnet => TransactionVersion::Mainnet,
-            Self::Testnet | Self::Signet | Self::Mocknet => TransactionVersion::Testnet,
+            Self::Testnet | Self::Signet => TransactionVersion::Testnet,
         }
     }
 
@@ -124,7 +121,7 @@ impl Network {
     pub const fn is_mainnet(&self) -> bool {
         match self {
             Self::Mainnet => true,
-            Self::Testnet | Self::Signet | Self::Mocknet => false,
+            Self::Testnet | Self::Signet => false,
         }
     }
 }
@@ -297,7 +294,7 @@ struct RawConfigFile {
     ///   - 64 or 66 hex characters (with optional `01` compression suffix).
     ///   - This key determines the signer's on-chain identity and address.
     pub stacks_private_key: String,
-    /// The network to use. One of `"mainnet"`, `"testnet"`, `"signet"`, or `"mocknet"`.
+    /// The network to use. One of `"mainnet"`, `"testnet"`, or `"signet"`.
     /// ---
     /// @default: (required, no default)
     /// @notes:
@@ -359,7 +356,7 @@ struct RawConfigFile {
     pub block_proposal_timeout_ms: Option<u64>,
     /// An optional custom Chain ID. Overrides the default for the selected network.
     /// ---
-    /// @default: `0x00000001` (mainnet), `0x80000001` (signet), or `0x80000000` (testnet/mocknet)
+    /// @default: `0x00000001` (mainnet), `0x80000001` (signet), or `0x80000000` (testnet)
     /// @notes:
     ///   - Only set this for custom/private networks.
     pub chain_id: Option<u32>,
@@ -682,7 +679,7 @@ Dry run: {dry_run}
         self.chain_id.unwrap_or(match self.network {
             Network::Mainnet => CHAIN_ID_MAINNET,
             Network::Signet => CHAIN_ID_SIGNET,
-            Network::Testnet | Network::Mocknet => CHAIN_ID_TESTNET,
+            Network::Testnet => CHAIN_ID_TESTNET,
         })
     }
 }

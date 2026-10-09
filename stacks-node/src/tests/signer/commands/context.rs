@@ -107,8 +107,8 @@ impl SignerTestContext {
     pub fn get_sortition_db(&self, miner_index: usize) -> SortitionDB {
         let conf = self.get_node_config(miner_index);
         let burnchain = conf.get_burnchain();
-        let sortdb = burnchain.open_sortition_db(true).unwrap();
-        sortdb
+
+        burnchain.open_sortition_db(true).unwrap()
     }
 
     pub fn get_miner_blocks_after_specified_block_height(

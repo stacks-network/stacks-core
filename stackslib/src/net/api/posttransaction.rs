@@ -187,7 +187,7 @@ impl RPCRequestHandler for RPCPostTransactionRequestHandler {
                 return Ok(false);
             }
 
-            let event_observer = rpc_args.event_observer.as_deref();
+            let event_observer = rpc_args.event_observer;
             let burn_tip = self.get_canonical_burn_chain_tip(&preamble, sortdb)?;
             let stacks_epoch = self.get_stacks_epoch(&preamble, sortdb, burn_tip.block_height)?;
 
@@ -256,7 +256,7 @@ impl RPCRequestHandler for RPCPostTransactionRequestHandler {
         let (accepted, txid) = match data_resp {
             Ok(accepted) => (accepted, txid),
             Err(response) => {
-                return response.try_into_contents().map_err(NetError::from);
+                return response.try_into_contents();
             }
         };
 
@@ -279,7 +279,7 @@ impl HttpResponse for RPCPostTransactionRequestHandler {
         body: &[u8],
     ) -> Result<HttpResponsePayload, Error> {
         let txid: Txid = parse_json(preamble, body)?;
-        Ok(HttpResponsePayload::try_from_json(txid)?)
+        HttpResponsePayload::try_from_json(txid)
     }
 }
 

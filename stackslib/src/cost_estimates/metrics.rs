@@ -54,7 +54,7 @@ pub struct ProportionalDotProduct {
 pub struct UnitMetric;
 
 impl ProportionalDotProduct {
-    pub fn new(block_size_limit: u64) -> ProportionalDotProduct {
+    pub const fn new(block_size_limit: u64) -> ProportionalDotProduct {
         ProportionalDotProduct { block_size_limit }
     }
 

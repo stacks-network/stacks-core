@@ -77,6 +77,10 @@ pub struct BlockStatus {
     pub total_weight_approved: u32,
     /// Total weight of signers who have rejected the block
     pub total_weight_rejected: u32,
+    /// Portion of `total_weight_rejected` from signers whose rejection is
+    /// transient (see [`libsigner::v0::messages::RejectReason::is_transient`]). These signers
+    /// re-evaluate the block when it is proposed again.
+    pub total_weight_rejected_transient: u32,
     /// Per-txid rejection tracking from signers
     pub failed_txids: HashMap<Txid, FailedTxInfo>,
 }
@@ -360,7 +364,7 @@ impl StackerDBListener {
                 continue;
             };
             let slot_ids = modified_slots
-                .into_iter()
+                .iter()
                 .map(|chunk| chunk.slot_id)
                 .collect::<Vec<_>>();
 
@@ -516,32 +520,34 @@ impl StackerDBListener {
                             block.total_weight_rejected = block
                                 .total_weight_rejected
                                 .saturating_add(signer_entry.weight);
+                            if rejected_data.response_data.reject_reason.is_transient() {
+                                block.total_weight_rejected_transient = block
+                                    .total_weight_rejected_transient
+                                    .saturating_add(signer_entry.weight);
+                            }
 
                             // Track transactions that failed validation, accumulating
                             // per-txid signer weight and whether any signer flagged
                             // the tx as genuinely problematic.
                             if let Some(txid) = &rejected_data.response_data.failed_txid {
-                                match &rejected_data.reason_code {
-                                    RejectCode::ValidationFailed(
-                                        ValidateRejectCode::BadTransaction
-                                        | ValidateRejectCode::ProblematicTransaction,
-                                    ) => {
-                                        let info =
-                                            block.failed_txids.entry(txid.clone()).or_default();
-                                        info.total_weight =
-                                            info.total_weight.saturating_add(signer_entry.weight);
-                                        if matches!(
-                                            rejected_data.reason_code,
-                                            RejectCode::ValidationFailed(
-                                                ValidateRejectCode::ProblematicTransaction
-                                            )
-                                        ) {
-                                            info.problematic_weight = info
-                                                .problematic_weight
-                                                .saturating_add(signer_entry.weight);
-                                        }
+                                if let RejectCode::ValidationFailed(
+                                    ValidateRejectCode::BadTransaction
+                                    | ValidateRejectCode::ProblematicTransaction,
+                                ) = &rejected_data.reason_code
+                                {
+                                    let info = block.failed_txids.entry(txid.clone()).or_default();
+                                    info.total_weight =
+                                        info.total_weight.saturating_add(signer_entry.weight);
+                                    if matches!(
+                                        rejected_data.reason_code,
+                                        RejectCode::ValidationFailed(
+                                            ValidateRejectCode::ProblematicTransaction
+                                        )
+                                    ) {
+                                        info.problematic_weight = info
+                                            .problematic_weight
+                                            .saturating_add(signer_entry.weight);
                                     }
-                                    _ => {}
                                 }
                             }
 
@@ -698,6 +704,7 @@ impl StackerDBListenerComms {
             gathered_signatures: BTreeMap::new(),
             total_weight_approved: 0,
             total_weight_rejected: 0,
+            total_weight_rejected_transient: 0,
             failed_txids: HashMap::new(),
         };
         blocks.insert(block.signer_signature_hash(), block_status);
@@ -714,6 +721,7 @@ impl StackerDBListenerComms {
         if let Some(block) = blocks.get_mut(signer_sighash) {
             block.responded_signers.clear();
             block.total_weight_rejected = 0;
+            block.total_weight_rejected_transient = 0;
 
             // Add approving signers back to the responded signers set
             for (slot_id, _) in block.gathered_signatures.iter() {

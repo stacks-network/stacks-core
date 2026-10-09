@@ -1,0 +1,1 @@
+From Epoch 4.1, contract analysis rejects mixing tuples with different fields where one type is inferred (`if`, `match`, `default-to`, `is-eq`, `fold`, `concat`, `append`, list construction, function returns). Contracts deployed earlier execute unchanged, and calls into them can still return values wider than their declared types.

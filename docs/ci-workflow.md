@@ -2,7 +2,7 @@
 
 All releases are built via a Github Actions workflow named [`Release`](../.github/workflows/release.yml), and is responsible for:
 
-- Checking for the absence of various "DO NOT RELEASE" preconditions
+- Checking for the absence of release-blocker markers (see [CONTRIBUTING.md](../CONTRIBUTING.md)).
 - Executing Epoch tests
 - Creating releases
   - Building binary archives and calculating checksums

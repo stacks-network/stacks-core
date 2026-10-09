@@ -527,9 +527,9 @@ mod test {
         let f = || {
             *call_count.borrow_mut() += 1;
             if *call_count.borrow() < 5 {
-                return Err("keep trying");
+                Err("keep trying")
             } else {
-                return Ok("you did it");
+                Ok("you did it")
             }
         };
         let now = Instant::now();
