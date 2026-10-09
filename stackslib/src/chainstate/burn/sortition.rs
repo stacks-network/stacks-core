@@ -19,6 +19,7 @@ use stacks_common::types::chainstate::{
     BlockHeaderHash, PoxId, SortitionId, StacksBlockId, TrieHash, VRFSeed,
 };
 use stacks_common::util::uint::{BitArray, Uint256};
+use stacks_marf::ClarityMarfTrieId;
 
 use crate::burnchains::{
     Burnchain, BurnchainBlockHeader, BurnchainSigner, BurnchainStateTransition, Txid,
@@ -32,7 +33,6 @@ use crate::chainstate::burn::{
     SortitionHash,
 };
 use crate::chainstate::stacks::db::StacksChainState;
-use crate::chainstate::stacks::index::ClarityMarfTrieId;
 use crate::core::*;
 use crate::util_lib::db::Error as db_error;
 
