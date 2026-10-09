@@ -816,7 +816,7 @@ impl<'a, 'b, 'hooks> ExecutionState<'a, 'b, 'hooks> {
         // `contract_size` after the contract execution has completed, but the contracts will remain
         // in the cache (up to the cache eviction policy's limits).
         finally_drop_memory!(self.global_context, contract_size; {
-            let contract = self.global_context.database.get_contract(contract_identifier)?;
+            let contract = self.global_context.database.get_contract_with_size(contract_identifier, contract_size)?;
 
             let func = contract.lookup_function(tx_name)
                 .ok_or_else(|| { RuntimeCheckErrorKind::UndefinedFunction(tx_name.to_string()) })?;
