@@ -66,6 +66,14 @@ use crate::Signer as SignerTrait;
 /// a tenure. A fork deeper than this would cause much bigger problems than a stale conflict.
 const MAX_FORK_DEPTH: u64 = 100;
 
+/// How long a block proposal that arrives while the global signer state has not formed yet is
+/// held back before it is evaluated regardless.
+pub const DEFAULT_GLOBAL_STATE_DEFER_TIMEOUT: Duration = Duration::from_secs(30);
+
+/// Upper bound on proposals held back for the global signer state. Anything beyond it is
+/// evaluated immediately, so a flood of proposals cannot grow the queue.
+const MAX_DEFERRED_PROPOSALS: usize = 16;
+
 /// A global variable that can be used to make signers repeat their proposal
 /// response if their public key is in the provided list
 #[cfg(any(test, feature = "testing"))]
@@ -136,6 +144,12 @@ pub struct Signer {
     recently_processed: RecentlyProcessedBlocks<100>,
     /// The signer's global state evaluator
     pub global_state_evaluator: GlobalStateEvaluator,
+    /// Block proposals held back because the global signer state had not formed when they
+    /// arrived, each with the time it was first seen. Evaluated as soon as the state forms, or
+    /// regardless once `global_state_defer_timeout` has passed.
+    pub(crate) deferred_proposals: Vec<(BlockProposal, Instant)>,
+    /// How long a proposal may wait in `deferred_proposals` for the global signer state
+    pub global_state_defer_timeout: Duration,
     /// Time to wait between updating our local state machine view point and capitulating to other signers miner view
     pub capitulate_miner_view_timeout: Duration,
     /// The last time we capitulated our miner viewpoint
@@ -322,6 +336,8 @@ impl SignerTrait<SignerMessage> for Signer {
             pending_retry_backoff: PendingRetryBackoff::default(),
             recently_processed: RecentlyProcessedBlocks::new(),
             global_state_evaluator,
+            deferred_proposals: Vec::new(),
+            global_state_defer_timeout: DEFAULT_GLOBAL_STATE_DEFER_TIMEOUT,
             capitulate_miner_view_timeout: signer_config.capitulate_miner_view_timeout,
             last_capitulate_miner_view: SystemTime::now(),
             latest_sortition_reward_cycle: None,
@@ -356,6 +372,7 @@ impl SignerTrait<SignerMessage> for Signer {
         self.current_reward_cycle = current_reward_cycle;
         self.check_submitted_block_proposal();
         self.check_pending_block_validations(stacks_client);
+        self.process_deferred_proposals(stacks_client, sortition_state);
 
         let mut prior_state = self.local_state_machine.clone();
         let local_signer_protocol_version = self.get_signer_protocol_version();
@@ -422,6 +439,9 @@ impl SignerTrait<SignerMessage> for Signer {
 
         self.handle_event_match(stacks_client, sortition_state, event, current_reward_cycle);
 
+        // A state update in this event may have completed the global signer state; judge any
+        // proposal that was waiting for it now rather than on the next pass.
+        self.process_deferred_proposals(stacks_client, sortition_state);
         self.check_submitted_block_proposal();
         self.check_pending_block_validations(stacks_client);
 
@@ -1716,12 +1736,114 @@ impl Signer {
         is_pending
     }
 
+    /// Whether a block proposal can be judged right now: either the active protocol version
+    /// does not use the global signer state, or the signer set has converged on one.
+    fn can_judge_proposal_now(&mut self) -> bool {
+        match self.determine_active_signer_protocol_version() {
+            // No protocol-version consensus either; `check_block_against_state` rejects for that.
+            None => true,
+            Some(version) if !version.uses_global_state() => true,
+            Some(_) => self
+                .global_state_evaluator
+                .determine_global_state()
+                .is_some(),
+        }
+    }
+
+    /// Hold back a proposal that cannot be judged yet because the global signer state has not
+    /// formed, instead of rejecting it with `NoSignerConsensus`.
+    ///
+    /// Returns true if the proposal is now (or already was) held back.
+    fn defer_until_global_state(&mut self, block_proposal: &BlockProposal) -> bool {
+        if self.can_judge_proposal_now() {
+            return false;
+        }
+        let signer_signature_hash = block_proposal.block.header.signer_signature_hash();
+        if self.deferred_proposals.iter().any(|(proposal, _)| {
+            proposal.block.header.signer_signature_hash() == signer_signature_hash
+        }) {
+            debug!(
+                "{self}: Block proposal is already waiting for the global signer state";
+                "signer_signature_hash" => %signer_signature_hash,
+            );
+            return true;
+        }
+        if self.deferred_proposals.len() >= MAX_DEFERRED_PROPOSALS {
+            warn!(
+                "{self}: Too many block proposals are waiting for the global signer state; judging this one now";
+                "signer_signature_hash" => %signer_signature_hash,
+                "block_id" => %block_proposal.block.block_id(),
+                "waiting" => self.deferred_proposals.len(),
+            );
+            return false;
+        }
+        info!(
+            "{self}: No global signer state yet; holding back the block proposal instead of rejecting it";
+            "signer_signature_hash" => %signer_signature_hash,
+            "block_id" => %block_proposal.block.block_id(),
+            "block_height" => block_proposal.block.header.chain_length,
+            "burn_height" => block_proposal.burn_height,
+            "consensus_hash" => %block_proposal.block.header.consensus_hash,
+            "defer_timeout_secs" => self.global_state_defer_timeout.as_secs(),
+        );
+        self.deferred_proposals
+            .push((block_proposal.clone(), Instant::now()));
+        true
+    }
+
+    /// Judge the held-back proposals once the global signer state has formed, or once they
+    /// have waited `global_state_defer_timeout`; in the latter case the usual path rejects
+    /// them with `NoSignerConsensus` if the state is still missing.
+    fn process_deferred_proposals(
+        &mut self,
+        stacks_client: &StacksClient,
+        sortition_state: &mut Option<SortitionsView>,
+    ) {
+        if self.deferred_proposals.is_empty() {
+            return;
+        }
+        let state_formed = self.can_judge_proposal_now();
+        let timeout = self.global_state_defer_timeout;
+        let (due, waiting): (Vec<_>, Vec<_>) = std::mem::take(&mut self.deferred_proposals)
+            .into_iter()
+            .partition(|(_, first_seen)| state_formed || first_seen.elapsed() >= timeout);
+        self.deferred_proposals = waiting;
+        for (block_proposal, first_seen) in due {
+            info!(
+                "{self}: Judging a block proposal that was waiting for the global signer state";
+                "signer_signature_hash" => %block_proposal.block.header.signer_signature_hash(),
+                "block_id" => %block_proposal.block.block_id(),
+                "waited_secs" => first_seen.elapsed().as_secs(),
+                "global_state_formed" => state_formed,
+            );
+            self.handle_block_proposal_inner(
+                stacks_client,
+                sortition_state,
+                &block_proposal,
+                false,
+            );
+        }
+    }
+
     /// Handle block proposal messages submitted to signers stackerdb
     fn handle_block_proposal(
         &mut self,
         stacks_client: &StacksClient,
         sortition_state: &mut Option<SortitionsView>,
         block_proposal: &BlockProposal,
+    ) {
+        self.handle_block_proposal_inner(stacks_client, sortition_state, block_proposal, true);
+    }
+
+    /// The body of [`Self::handle_block_proposal`]. `allow_defer` is false when re-judging a
+    /// proposal that already waited for the global signer state, so that it cannot be held
+    /// back a second time.
+    fn handle_block_proposal_inner(
+        &mut self,
+        stacks_client: &StacksClient,
+        sortition_state: &mut Option<SortitionsView>,
+        block_proposal: &BlockProposal,
+        allow_defer: bool,
     ) {
         debug!("{self}: Received a block proposal: {block_proposal:?}");
         if block_proposal.reward_cycle != self.reward_cycle {
@@ -1786,6 +1908,12 @@ impl Signer {
             let rejection =
                 self.create_block_rejection(RejectReason::ProposalTooOld, &block_proposal.block);
             self.send_block_response(&block_proposal.block, rejection.into());
+            return;
+        }
+
+        // Checked after the cheap, final verdicts above, so that a proposal that is refused
+        // anyway is never held back.
+        if allow_defer && self.defer_until_global_state(block_proposal) {
             return;
         }
 
