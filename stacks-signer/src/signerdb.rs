@@ -16,7 +16,7 @@
 
 use std::collections::HashMap;
 use std::fmt::Display;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use blockstack_lib::chainstate::nakamoto::NakamotoBlock;
@@ -444,10 +444,19 @@ impl PruneStats {
     pub fn is_skipped(&self) -> bool {
         self.cutoff_height.is_none()
     }
+
+    /// Add what another pass removed, e.g. to total a run of passes. The cutoff becomes the
+    /// other pass's, if it placed the fork horizon.
+    pub fn add(&mut self, other: &PruneStats) {
+        self.cutoff_height = other.cutoff_height.or(self.cutoff_height);
+        self.blocks = self.blocks.saturating_add(other.blocks);
+        self.block_rows = self.block_rows.saturating_add(other.block_rows);
+        self.other_rows = self.other_rows.saturating_add(other.other_rows);
+    }
 }
 
 /// Where a pruning pass places the fork horizon, and what it may remove behind it (see
-/// [`SignerDb::prune`]).
+/// [`SignerDb::prune`] and [`SignerDb::prune_horizon`]).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct PruneHorizon {
     /// The highest burn block recorded in the database
@@ -3226,6 +3235,169 @@ impl FromRow<SignedConflictInfo> for SignedConflictInfo {
     }
 }
 
+/// How the signer db file is used, in pages (see [`SignerDb::space_usage`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SpaceUsage {
+    /// Size of a page, in bytes
+    pub page_size: u64,
+    /// Pages in the database file
+    pub page_count: u64,
+    /// Pages on the freelist: freed by deletes, reused by later writes, and only given back to
+    /// the OS by a `VACUUM`
+    pub freelist_count: u64,
+}
+
+impl SpaceUsage {
+    /// Size of the database file, in bytes, once the WAL is checkpointed
+    pub fn file_bytes(&self) -> u64 {
+        self.page_count.saturating_mul(self.page_size)
+    }
+
+    /// Bytes holding data: what a `VACUUM` keeps
+    pub fn live_bytes(&self) -> u64 {
+        self.page_count
+            .saturating_sub(self.freelist_count)
+            .saturating_mul(self.page_size)
+    }
+
+    /// Bytes on the freelist: what a `VACUUM` gives back to the OS
+    pub fn free_bytes(&self) -> u64 {
+        self.freelist_count.saturating_mul(self.page_size)
+    }
+}
+
+/// Where a `VACUUM` builds its temporary copy of the database (see [`SignerDb::vacuum`]). The copy
+/// is about the size of the live data.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum VacuumTemp {
+    /// In memory: no temporary file at all
+    Memory,
+    /// In a file in this directory, e.g. on another disk
+    Dir(PathBuf),
+    /// In a file in SQLite's default temporary directory
+    SystemDefault,
+}
+
+/// Offline maintenance of the signer db (see [`crate::signerdb_offline`]): only with the signer
+/// stopped, from a connection opened with [`SignerDb::open_exclusive`].
+impl SignerDb {
+    /// Open an existing signer db for offline maintenance. With `migrate`, migrate it as
+    /// [`Self::new`] does; without it, fail if it is not at the current schema version, so that
+    /// nothing is written.
+    ///
+    /// The connection takes an exclusive lock on the database and keeps it until it is dropped,
+    /// without waiting for it: if another process has the database open (e.g. a running signer,
+    /// even idle), this fails at once with `SQLITE_BUSY` (see
+    /// [`crate::signerdb_offline::is_database_in_use`]). A signer started meanwhile waits in its
+    /// busy handler until the lock is released.
+    ///
+    /// Unlike [`Self::new`], it never creates a database.
+    pub fn open_exclusive(db_path: impl AsRef<Path>, migrate: bool) -> Result<Self, DBError> {
+        let db_path = db_path.as_ref();
+        if !db_path.is_file() {
+            return Err(DBError::NoDBError);
+        }
+        let connection = Connection::open_with_flags(
+            db_path,
+            OpenFlags::SQLITE_OPEN_READ_WRITE | OpenFlags::SQLITE_OPEN_NO_MUTEX,
+        )?;
+        connection.busy_timeout(Duration::ZERO)?;
+        // Before the first access, so that SQLite keeps the WAL index in heap memory and never
+        // shares the `-shm` file with another process
+        connection.pragma_update(None, "locking_mode", "EXCLUSIVE")?;
+        connection.execute_batch("BEGIN EXCLUSIVE; COMMIT;")?;
+        connection.pragma_update(None, "journal_mode", "WAL")?;
+        connection.pragma_update(None, "synchronous", "NORMAL")?;
+
+        let mut signer_db = Self { db: connection };
+        if migrate {
+            signer_db.create_or_migrate()?;
+        } else {
+            let version = Self::get_schema_version(&signer_db.db)?;
+            if version != Self::SCHEMA_VERSION {
+                return Err(DBError::Other(format!(
+                    "the database schema is version {version}, this binary uses version {}",
+                    Self::SCHEMA_VERSION
+                )));
+            }
+        }
+        Ok(signer_db)
+    }
+
+    /// How the database file is used, in pages
+    pub fn space_usage(&self) -> Result<SpaceUsage, DBError> {
+        let pragma = |name: &str| -> Result<u64, DBError> {
+            let value: i64 = self
+                .db
+                .query_row(&format!("PRAGMA {name}"), [], |row| row.get(0))?;
+            u64::try_from(value).map_err(|_| DBError::Corruption)
+        };
+        Ok(SpaceUsage {
+            page_size: pragma("page_size")?,
+            page_count: pragma("page_count")?,
+            freelist_count: pragma("freelist_count")?,
+        })
+    }
+
+    /// Write the whole WAL back into the database file, then truncate the WAL to zero bytes.
+    /// Fails if another connection keeps part of the WAL from being written back.
+    pub fn checkpoint(&self) -> Result<(), DBError> {
+        let busy: i64 = self
+            .db
+            .query_row("PRAGMA wal_checkpoint(TRUNCATE)", [], |row| row.get(0))?;
+        if busy != 0 {
+            return Err(DBError::Other(
+                "WAL checkpoint incomplete: another connection is using the database".into(),
+            ));
+        }
+        Ok(())
+    }
+
+    /// Rebuild the database file in place with only its live data, giving the freelist back to
+    /// the OS. Run it only when no other connection uses the database, e.g. after
+    /// [`Self::open_exclusive`].
+    ///
+    /// Besides the temporary copy (see [`VacuumTemp`]), it writes a WAL of about the live data
+    /// next to the database, which [`Self::checkpoint`] then truncates. If it fails, e.g. for
+    /// lack of space, the database is left as it was.
+    pub fn vacuum(&self, temp: &VacuumTemp) -> Result<(), DBError> {
+        match temp {
+            VacuumTemp::Memory => self.db.pragma_update(None, "temp_store", "MEMORY")?,
+            VacuumTemp::Dir(dir) => {
+                self.db.pragma_update(None, "temp_store", "FILE")?;
+                // Rejected at once if the directory is missing or not writable
+                let dir = dir.to_str().ok_or_else(|| {
+                    DBError::Other(format!(
+                        "temporary directory {} is not valid UTF-8",
+                        dir.display()
+                    ))
+                })?;
+                self.db.pragma_update(None, "temp_store_directory", dir)?;
+            }
+            VacuumTemp::SystemDefault => self.db.pragma_update(None, "temp_store", "FILE")?,
+        }
+        let result = self.db.execute_batch("VACUUM");
+        if matches!(temp, VacuumTemp::Dir(_)) {
+            // The directory setting is process-wide: put the default back
+            self.db.pragma_update(None, "temp_store_directory", "")?;
+        }
+        Ok(result?)
+    }
+
+    /// Where a pruning pass with these parameters would place the fork horizon, without removing
+    /// anything. `None` if it cannot be placed, i.e. the pass would be skipped.
+    pub fn prune_horizon(&self, params: &PruneParams) -> Result<Option<PruneHorizon>, DBError> {
+        PruneHorizon::place(&self.db, params)
+    }
+
+    /// Number of blocks stored
+    pub fn block_count(&self) -> Result<u64, DBError> {
+        Ok(self
+            .db
+            .query_row("SELECT COUNT(*) FROM blocks", [], |row| row.get(0))?)
+    }
+}
+
 /// For tests, a struct to represent a pending block validation
 #[cfg(any(test, feature = "testing"))]
 pub struct PendingBlockValidation {
@@ -3278,6 +3450,7 @@ pub mod tests {
 
     use super::*;
     use crate::signerdb::NakamotoBlockVote;
+    use crate::signerdb_offline::is_database_in_use;
 
     fn _wipe_db(db_path: &PathBuf) {
         if fs::metadata(db_path).is_ok() {
@@ -4160,6 +4333,169 @@ pub mod tests {
             .unwrap();
         assert_eq!(remaining, 1);
         assert!(db.block_lookup(&unknown).unwrap().is_some());
+    }
+
+    /// Size of a file, or 0 if it does not exist
+    fn file_size(path: &Path) -> u64 {
+        fs::metadata(path).map(|m| m.len()).unwrap_or(0)
+    }
+
+    /// The WAL file of the database at `db_path`
+    fn wal_path(db_path: &Path) -> PathBuf {
+        let mut wal = db_path.as_os_str().to_owned();
+        wal.push("-wal");
+        PathBuf::from(wal)
+    }
+
+    /// A signer db file with `blocks` blocks stored, then all but the first `kept` deleted, and
+    /// its WAL checkpointed: most of the file is on the freelist
+    fn offline_test_bloated_db(blocks: u64, kept: u64) -> PathBuf {
+        let path = tmp_db_path();
+        let mut db = SignerDb::new(&path).unwrap();
+        for height in 0..blocks {
+            prune_test_insert_stx_block(&mut db, 1, height, BlockState::GloballyAccepted);
+        }
+        db.db
+            .execute(
+                "DELETE FROM blocks WHERE stacks_height >= ?1",
+                params![u64_to_sql(kept).unwrap()],
+            )
+            .unwrap();
+        db.checkpoint().unwrap();
+        path
+    }
+
+    #[test]
+    fn test_open_exclusive_migrates_and_keeps_the_lock() {
+        let path = tmp_db_path();
+        drop(SignerDb::new(&path).unwrap());
+
+        let db = SignerDb::open_exclusive(&path, true).unwrap();
+        assert_eq!(
+            SignerDb::get_schema_version(&db.db).unwrap(),
+            SignerDb::SCHEMA_VERSION
+        );
+        // A second exclusive open is refused while the first one is held, without waiting
+        let start = std::time::Instant::now();
+        let err = SignerDb::open_exclusive(&path, true)
+            .map(|_| ())
+            .unwrap_err();
+        assert!(is_database_in_use(&err), "{err:?}");
+        assert!(start.elapsed() < Duration::from_secs(1));
+
+        drop(db);
+        SignerDb::open_exclusive(&path, true).unwrap();
+    }
+
+    #[test]
+    fn test_open_exclusive_refuses_a_database_in_use() {
+        let path = tmp_db_path();
+        // A connection opened the way a signer opens it
+        let signer = SignerDb::new(&path).unwrap();
+
+        // idle
+        let err = SignerDb::open_exclusive(&path, true)
+            .map(|_| ())
+            .unwrap_err();
+        assert!(is_database_in_use(&err), "{err:?}");
+
+        // in a read transaction
+        signer.db.execute_batch("BEGIN").unwrap();
+        signer.get_canonical_tip().unwrap();
+        let err = SignerDb::open_exclusive(&path, true)
+            .map(|_| ())
+            .unwrap_err();
+        assert!(is_database_in_use(&err), "{err:?}");
+        signer.db.execute_batch("COMMIT").unwrap();
+
+        drop(signer);
+        SignerDb::open_exclusive(&path, true).unwrap();
+    }
+
+    #[test]
+    fn test_open_exclusive_without_migration_writes_nothing() {
+        // A current database opens as is
+        let path = tmp_db_path();
+        drop(SignerDb::new(&path).unwrap());
+        SignerDb::open_exclusive(&path, false).unwrap();
+
+        // An older one (here, an empty SQLite file: version 0) is refused, and left as it was
+        let path = tmp_db_path();
+        drop(Connection::open(&path).unwrap());
+        let err = SignerDb::open_exclusive(&path, false)
+            .map(|_| ())
+            .unwrap_err();
+        assert!(err.to_string().contains("schema is version 0"), "{err}");
+        let conn = Connection::open(&path).unwrap();
+        assert!(!table_exists(&conn, "db_config").unwrap());
+    }
+
+    #[test]
+    fn test_open_exclusive_never_creates_a_database() {
+        let path = tmp_db_path();
+        let err = SignerDb::open_exclusive(&path, true)
+            .map(|_| ())
+            .unwrap_err();
+        assert!(matches!(err, DBError::NoDBError), "{err:?}");
+        assert!(!path.exists());
+    }
+
+    #[test]
+    fn test_checkpoint_truncates_the_wal() {
+        let path = tmp_db_path();
+        let mut db = SignerDb::new(&path).unwrap();
+        prune_test_insert_stx_block(&mut db, 1, 1, BlockState::GloballyAccepted);
+        assert!(file_size(&wal_path(&path)) > 0);
+
+        db.checkpoint().unwrap();
+        assert_eq!(file_size(&wal_path(&path)), 0);
+    }
+
+    #[test]
+    fn test_vacuum_gives_the_freelist_back() {
+        for temp in [
+            VacuumTemp::Memory,
+            VacuumTemp::SystemDefault,
+            VacuumTemp::Dir(std::env::temp_dir()),
+        ] {
+            let path = offline_test_bloated_db(300, 10);
+            let db = SignerDb::open_exclusive(&path, true).unwrap();
+            let before = db.space_usage().unwrap();
+            assert!(before.free_bytes() > before.live_bytes(), "{before:?}");
+            assert_eq!(file_size(&path), before.file_bytes());
+
+            db.vacuum(&temp).unwrap();
+            db.checkpoint().unwrap();
+
+            let after = db.space_usage().unwrap();
+            assert_eq!(after.freelist_count, 0, "{temp:?}");
+            assert!(
+                after.file_bytes() <= before.live_bytes(),
+                "{temp:?}: {after:?} {before:?}"
+            );
+            assert_eq!(file_size(&path), after.file_bytes(), "{temp:?}");
+            assert_eq!(file_size(&wal_path(&path)), 0, "{temp:?}");
+            // The data is still there
+            assert_eq!(prune_test_table_count(&db, "blocks"), 10, "{temp:?}");
+            drop(db);
+            assert_eq!(
+                prune_test_table_count(&SignerDb::new(&path).unwrap(), "blocks"),
+                10
+            );
+        }
+    }
+
+    #[test]
+    fn test_vacuum_refuses_a_missing_temp_dir_and_leaves_the_database() {
+        let path = offline_test_bloated_db(100, 10);
+        let db = SignerDb::open_exclusive(&path, true).unwrap();
+        let before = db.space_usage().unwrap();
+
+        let missing = std::env::temp_dir().join(format!("missing-{}", rand::random::<u64>()));
+        db.vacuum(&VacuumTemp::Dir(missing)).unwrap_err();
+
+        assert_eq!(db.space_usage().unwrap(), before);
+        assert_eq!(file_size(&path), before.file_bytes());
     }
 
     /// Create a temporary db path for testing purposes
