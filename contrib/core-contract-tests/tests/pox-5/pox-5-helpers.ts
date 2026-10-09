@@ -1,3 +1,15 @@
+import {
+  contractFactory,
+  err,
+  extractErrors,
+  projectErrors,
+  projectFactory,
+} from '@clarigen/core';
+import { rov, rovOk, tx, txOk } from '@clarigen/test';
+import { secp256k1 } from '@noble/curves/secp256k1.js';
+import { sha256 } from '@noble/hashes/sha2.js';
+import { concatBytes } from '@noble/hashes/utils.js';
+import { hex } from '@scure/base';
 import * as BTC from '@scure/btc-signer';
 import {
   Cl,
@@ -7,20 +19,8 @@ import {
   serializeCV,
   signWithKey,
 } from '@stacks/transactions';
-import { hex } from '@scure/base';
-import {
-  err,
-  extractErrors,
-  projectErrors,
-  projectFactory,
-  contractFactory,
-} from '@clarigen/core';
-import { accounts, project } from '../clarigen-types';
-import { rov, rovOk, tx, txOk } from '@clarigen/test';
-import { sha256 } from '@noble/hashes/sha2.js';
-import { concatBytes } from '@noble/hashes/utils.js';
-import { secp256k1 } from '@noble/curves/secp256k1.js';
 import { expect } from 'vitest';
+import { accounts, project } from '../clarigen-types';
 import { randomPoxAddress } from '../test-helpers';
 
 const contracts = projectFactory(project, 'simnet');
@@ -43,6 +43,11 @@ export const testSigner = contracts.testPox5Signer;
 export const testSignerErrors = extractErrors(testSigner);
 export const signerManager = contracts.signerManager;
 export const signerManagerErrors = extractErrors(signerManager);
+export const signerManagerCore = contracts.signerManagerCore;
+export const signerManagerCoreErrors = extractErrors(signerManagerCore);
+export const signerManagerV1 = contracts.signerManagerV1;
+export const signerManagerV1Errors = extractErrors(signerManagerV1);
+export const testSignerManagerV2 = contracts.testSignerManagerV2;
 export const sbtc = contracts.sbtcToken;
 
 export const REWARD_CYCLE_LENGTH = 100n;
@@ -429,7 +434,7 @@ export function deployTestSignerContract(name: string) {
   simnet.deployContract(
     name,
     signerSource,
-    // @ts-ignore
+    // @ts-expect-error
     { clarityVersion: 6 },
     accounts.deployer.address,
   );
@@ -460,6 +465,30 @@ export function registerSignerManager() {
       signerKey: secp256k1.getPublicKey(signerSk, true),
       signerManager: signerManager.identifier,
       authId: 1n,
+      signerSig: signature,
+    }),
+    deployer,
+  );
+}
+
+/**
+ * Bootstrap a signer-manager-core contract to set
+ * `signer-manager-v1` as the current module.
+ */
+export function registerSignerManagerCore() {
+  txOk(signerManagerCore.setModule(signerManagerV1.identifier), deployer);
+  const signerSk = secp256k1.utils.randomSecretKey();
+  const authId = grantAuthIdCounter++;
+  const signature = signSignerKeyGrant({
+    signerManager: signerManagerCore.identifier,
+    authId,
+    signerSk,
+  });
+  txOk(
+    signerManagerV1.registerSelf({
+      signerKey: secp256k1.getPublicKey(signerSk, true),
+      signerManager: signerManagerCore.identifier,
+      authId,
       signerSig: signature,
     }),
     deployer,
@@ -524,7 +553,7 @@ export function getAllStakers(): string[] {
 /** Get all stakers for a given reward cycle */
 function getAllStakersForCycle(cycle: bigint): string[] {
   const first = rov(pox5.getSignerSetFirstItemForCycle(cycle));
-  let signers: string[] = [];
+  const signers: string[] = [];
   let cur: string | null = first;
   if (cur) signers.push(cur);
   while (cur) {
@@ -615,4 +644,53 @@ export function makePoxAddrCalldata(
       ),
     ),
   };
+}
+
+export type PayoutConfig = {
+  l1Withdrawal: {
+    poxAddr: { version: Uint8Array; hashbytes: Uint8Array };
+    maxFee: bigint;
+    minClaim: bigint;
+  } | null;
+  sbtcRecipient: string | null;
+};
+
+/** A payout config withdrawing to a random L1 address. */
+export function randomPayoutConfig({
+  maxFee,
+  minClaim,
+}: {
+  maxFee: bigint;
+  minClaim: bigint;
+}): PayoutConfig {
+  return {
+    l1Withdrawal: { poxAddr: randomPoxAddress(), maxFee, minClaim },
+    sbtcRecipient: null,
+  };
+}
+
+/** Encode a payout config as `signer-manager-core` calldata. */
+export function payoutConfigCalldata(config: PayoutConfig) {
+  const l1 = config.l1Withdrawal;
+  return hex.decode(
+    serializeCV(
+      Cl.tuple({
+        'l1-withdrawal': l1
+          ? Cl.some(
+              Cl.tuple({
+                'pox-addr': Cl.tuple({
+                  version: Cl.buffer(l1.poxAddr.version),
+                  hashbytes: Cl.buffer(l1.poxAddr.hashbytes),
+                }),
+                'max-fee': Cl.uint(l1.maxFee),
+                'min-claim': Cl.uint(l1.minClaim),
+              }),
+            )
+          : Cl.none(),
+        'sbtc-recipient': config.sbtcRecipient
+          ? Cl.some(Cl.principal(config.sbtcRecipient))
+          : Cl.none(),
+      }),
+    ),
+  );
 }
