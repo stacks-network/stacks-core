@@ -15,8 +15,8 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use std::collections::VecDeque;
-use std::fs;
 use std::io::{Seek, SeekFrom};
+use std::{assert_matches, fs};
 
 use tempfile::tempdir;
 
@@ -86,8 +86,8 @@ fn trie_cmp<T: MarfTrieId>(
     let (n1_data, n1_hash) = t1.data()[0].clone();
     let (n2_data, n2_hash) = t2.data()[0].clone();
 
-    assert!(matches!(n1_data, TrieNodeType::Node256(_)));
-    assert!(matches!(n2_data, TrieNodeType::Node256(_)));
+    assert_matches!(n1_data, TrieNodeType::Node256(_));
+    assert_matches!(n2_data, TrieNodeType::Node256(_));
 
     frontier_1.push_back((n1_data, n1_hash));
     frontier_2.push_back((n2_data, n2_hash));
