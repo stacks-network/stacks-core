@@ -33,7 +33,9 @@ use crate::vm::analysis::{AnalysisDatabase, ContractAnalysis};
 use crate::vm::contexts::ContractContext;
 use crate::vm::contracts::Contract;
 use crate::vm::costs::{CostOverflowingMath, ExecutionCost};
-use crate::vm::database::caching::{CachedContract, ClarityExecutionCache};
+use crate::vm::database::caching::{
+    CachedContract, ClarityExecutionCache, EXISTING_CONTRACTS_LIMIT,
+};
 use crate::vm::database::structures::{
     ClarityDeserializable, ClaritySerializable, DataMapMetadata, DataVariableMetadata,
     FungibleTokenMetadata, NonFungibleTokenMetadata, STXBalance, STXBalanceSnapshot,
@@ -154,6 +156,8 @@ pub struct ClarityDatabase<'a> {
     /// Exclusive borrow — the contained caches have no interior mutability, so the borrow
     /// checker enforces single-writer for the lifetime of this database.
     execution_cache: Option<&'a mut ClarityExecutionCache>,
+    /// Set by any `set_block_hash`. `is_retargeted()` misses a view restored by a nested `at-block`.
+    view_moved: bool,
 }
 
 pub trait HeadersDB {
@@ -483,6 +487,7 @@ impl<'a> ClarityDatabase<'a> {
             headers_db,
             burn_state_db,
             execution_cache: None,
+            view_moved: false,
         }
     }
 
@@ -496,6 +501,7 @@ impl<'a> ClarityDatabase<'a> {
             headers_db,
             burn_state_db,
             execution_cache: None,
+            view_moved: false,
         }
     }
 
@@ -531,6 +537,7 @@ impl<'a> ClarityDatabase<'a> {
         bhh: StacksBlockId,
         query_pending_data: bool,
     ) -> Result<StacksBlockId, VmExecutionError> {
+        self.view_moved = true;
         self.store.set_block_hash(bhh, query_pending_data)
     }
 
@@ -888,11 +895,26 @@ impl<'a> ClarityDatabase<'a> {
     }
 
     pub fn has_contract(&mut self, contract_identifier: &QualifiedContractIdentifier) -> bool {
-        let key = ClarityDatabase::make_metadata_key(
-            StoreType::Contract,
-            ContractDataVarName::Contract.as_str(),
-        );
-        self.store.has_metadata_entry(contract_identifier, &key)
+        if !self.view_moved
+            && let Some(cache) = self.execution_cache.as_deref()
+            && (cache.contracts.peek(contract_identifier).is_some()
+                || cache.existing_contracts.contains(contract_identifier))
+        {
+            return true;
+        }
+        let key = ContractDataVarName::Contract.metadata_key();
+        let exists = self.store.has_metadata_entry(contract_identifier, &key);
+        if exists
+            && !self.view_moved
+            && !self
+                .store
+                .has_pending_metadata(contract_identifier, &[&key])
+            && let Some(cache) = self.execution_cache.as_deref_mut()
+            && cache.existing_contracts.len() < EXISTING_CONTRACTS_LIMIT
+        {
+            cache.existing_contracts.insert(contract_identifier.clone());
+        }
+        exists
     }
 
     /// Read and deserialize the contract blob from the backing store, canonicalizing its types to
@@ -2894,6 +2916,97 @@ mod tests {
             );
             db.roll_back().unwrap();
         }
+    }
+
+    /// The store lacks this planted entry, so `true` proves the cache answered without a read.
+    #[test]
+    fn has_contract_serves_cached_contract() {
+        let mut cache = ClarityExecutionCache::default();
+        let mut store = MemoryBackingStore::new();
+        let id = QualifiedContractIdentifier::local("planted").unwrap();
+        let contract = ContractContext::new(id.clone(), ClarityVersion::Clarity2).into();
+        cache.contracts.insert(
+            id.clone(),
+            CachedContract {
+                contract,
+                load_cost_size: 1,
+            },
+            1,
+        );
+
+        let mut db = store.as_clarity_db().with_cache(&mut cache);
+        db.begin();
+        assert!(db.has_contract(&id));
+        db.roll_back().unwrap();
+    }
+
+    /// The store lacks this planted entry, so `true` proves the set answered without a read.
+    #[test]
+    fn has_contract_serves_existing_contract() {
+        let mut cache = ClarityExecutionCache::default();
+        let mut store = MemoryBackingStore::new();
+        let id = QualifiedContractIdentifier::local("planted").unwrap();
+        cache.existing_contracts.insert(id.clone());
+
+        let mut db = store.as_clarity_db().with_cache(&mut cache);
+        db.begin();
+        assert!(db.has_contract(&id));
+        db.roll_back().unwrap();
+    }
+
+    #[test]
+    fn has_contract_remembers_stored_contract() {
+        let mut cache = ClarityExecutionCache::default();
+        let mut store = MemoryBackingStore::new();
+        let id = QualifiedContractIdentifier::local("stored").unwrap();
+        deploy_stub_contract(&mut store.as_clarity_db(), &id);
+
+        let mut db = store.as_clarity_db().with_cache(&mut cache);
+        db.begin();
+        assert!(db.has_contract(&id));
+        db.roll_back().unwrap();
+        assert!(cache.existing_contracts.contains(&id));
+    }
+
+    /// A full set still finds the stored contract in the store, but no longer remembers it.
+    #[test]
+    fn has_contract_stops_remembering_at_limit() {
+        let mut cache = ClarityExecutionCache::default();
+        let mut store = MemoryBackingStore::new();
+        let id = QualifiedContractIdentifier::local("stored").unwrap();
+        deploy_stub_contract(&mut store.as_clarity_db(), &id);
+        for i in 0..EXISTING_CONTRACTS_LIMIT {
+            let filler = QualifiedContractIdentifier::local(&format!("filler-{i}")).unwrap();
+            cache.existing_contracts.insert(filler);
+        }
+
+        let mut db = store.as_clarity_db().with_cache(&mut cache);
+        db.begin();
+        assert!(db.has_contract(&id));
+        db.roll_back().unwrap();
+        assert!(!cache.existing_contracts.contains(&id));
+        assert_eq!(cache.existing_contracts.len(), EXISTING_CONTRACTS_LIMIT);
+    }
+
+    #[test]
+    fn has_contract_does_not_cache_pending_deploy() {
+        let mut cache = ClarityExecutionCache::default();
+        let mut store = MemoryBackingStore::new();
+        let id = QualifiedContractIdentifier::local("pending").unwrap();
+
+        {
+            let mut db = store.as_clarity_db().with_cache(&mut cache);
+            db.begin();
+            deploy_stub_contract(&mut db, &id);
+            assert!(db.has_contract(&id));
+            db.roll_back().unwrap();
+        }
+        assert!(cache.existing_contracts.is_empty());
+
+        let mut db = store.as_clarity_db().with_cache(&mut cache);
+        db.begin();
+        assert!(!db.has_contract(&id));
+        db.roll_back().unwrap();
     }
 
     /// Guards that the DB read path applies the epoch gate, never returning a
