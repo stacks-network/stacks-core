@@ -15,6 +15,7 @@
 
 //! MARF tests related to [`TrieNodePatch`] node type.
 
+use std::assert_matches;
 use std::io::Cursor;
 
 use stacks_common::codec::{Error as codec_error, StacksMessageCodec};
@@ -84,10 +85,7 @@ fn trie_node_patch_serialize_fails_with_ptr_diffs_len_0() {
         .consensus_serialize(&mut buffer)
         .expect_err("serialization should fail");
 
-    assert!(
-        matches!(&error, codec_error::SerializeError(msg) if msg.contains("len 0")),
-        "instead got: {error}"
-    );
+    assert_matches!(&error, codec_error::SerializeError(msg) if msg.contains("len 0"), "instead got: {error}");
 }
 
 #[test]
@@ -118,10 +116,7 @@ fn trie_node_patch_serialize_fails_with_ptr_diffs_len_257() {
         .consensus_serialize(&mut buffer)
         .expect_err("serialization should fail");
 
-    assert!(
-        matches!(&error, codec_error::SerializeError(msg) if msg.contains("len 257")),
-        "instead got: {error}"
-    );
+    assert_matches!(&error, codec_error::SerializeError(msg) if msg.contains("len 257"), "instead got: {error}");
 }
 
 #[test]
@@ -189,10 +184,7 @@ fn trie_node_patch_u64_ptr_serialize_fails_with_ptr_diffs_len_0() {
     let error = patch_node
         .consensus_serialize(&mut buffer)
         .expect_err("u64 ptr serialization should fail");
-    assert!(
-        matches!(&error, codec_error::SerializeError(msg) if msg.contains("len 0")),
-        "instead got: {error}"
-    );
+    assert_matches!(&error, codec_error::SerializeError(msg) if msg.contains("len 0"), "instead got: {error}");
 }
 
 #[test]
@@ -205,10 +197,7 @@ fn trie_node_patch_u64_ptr_serialize_fails_with_ptr_diffs_len_257() {
     let error = patch_node
         .consensus_serialize(&mut buffer)
         .expect_err("u64 ptr serialization should fail");
-    assert!(
-        matches!(&error, codec_error::SerializeError(msg) if msg.contains("len 257")),
-        "instead got: {error}"
-    );
+    assert_matches!(&error, codec_error::SerializeError(msg) if msg.contains("len 257"), "instead got: {error}");
 }
 
 #[test]
