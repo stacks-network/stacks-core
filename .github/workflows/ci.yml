@@ -19,11 +19,14 @@ on:
         description: 'The SHA of the binary to verify before executing the tests. Find these in the official SHA256SUMS file for each release. Example: https://bitcoincore.org/bin/bitcoin-core-31.1/SHA256SUMS'
         required: false
         type: string
-  pull_request:
+  pull_request: # Trigger on pull requests
     types:
       - opened
       - reopened
       - synchronize
+  schedule: # For code coverage
+    # Run at 00:00 UTC daily
+    - cron: "0 0 * * *"
 
 # Set default permissions for all jobs
 permissions:
@@ -46,8 +49,8 @@ env:
   TEST_ARCHIVE_FILE: "./test_archive.tar.zst"
   # Whether or not to create the slow and failed tests summary
   CREATE_SLOW_FAILED_TESTS_SUMMARY: ${{ (vars.ENABLE_CI_WORKFLOWS == 'true' || github.repository == 'stacks-network/stacks-core') && github.event_name != 'merge_group' }}
-  # Whether or not to create the code coverage report
-  CREATE_CODE_COVERAGE_REPORT: ${{ github.repository == 'stacks-network/stacks-core' }}
+  # Whether or not to create the code coverage report. We create the code coverage report daily on a CRON schedule, rather than on each PR or merge
+  CREATE_CODE_COVERAGE_REPORT: ${{ github.repository == 'stacks-network/stacks-core' && github.event_name == 'schedule' && github.ref == 'refs/heads/main' }}
 
 jobs:
   # Check if CI is enabled
