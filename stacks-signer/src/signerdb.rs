@@ -446,10 +446,88 @@ impl PruneStats {
     }
 }
 
+/// Where a pruning pass places the fork horizon, and what it may remove behind it (see
+/// [`SignerDb::prune`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PruneHorizon {
+    /// The highest burn block recorded in the database
+    pub burn_tip: u64,
+    /// Burn height of the tenure in charge at the fork horizon
+    pub in_charge_burn_height: u64,
+    /// The lowest accepted Stacks height of the tenure in charge: blocks below it may be removed
+    pub cutoff_height: u64,
+    /// Records whose burn block was never recorded are removed once their last activity is
+    /// before this time (epoch seconds)
+    pub orphan_cutoff: u64,
+}
+
+impl PruneHorizon {
+    /// Place the fork horizon `params.fork_depth` burn blocks below the burn tip, from local data
+    /// only (see [`PruneTx`]). `None` if it cannot be placed. Only reads.
+    fn place(conn: &Connection, params: &PruneParams) -> Result<Option<Self>, DBError> {
+        let accepted = BlockState::GloballyAccepted.to_string();
+
+        let tip: Option<(u64, u64)> = conn
+            .query_row(
+                "SELECT block_height, received_time FROM burn_blocks
+                 ORDER BY block_height DESC LIMIT 1",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .optional()?;
+        let Some((burn_tip, tip_received_time)) = tip else {
+            return Ok(None);
+        };
+        let Some(horizon) = burn_tip.checked_sub(params.fork_depth) else {
+            return Ok(None);
+        };
+
+        // The tenure in charge at the horizon: the latest sortition at or below it whose tenure
+        // has accepted blocks.
+        let in_charge: Option<(String, u64, u64)> = conn
+            .query_row(
+                "SELECT bb.consensus_hash, bb.block_height, bb.received_time FROM burn_blocks bb
+                 WHERE bb.block_height <= ?1 AND bb.block_height >= ?2
+                   AND EXISTS (SELECT 1 FROM blocks b
+                               WHERE b.consensus_hash = bb.consensus_hash AND b.state = ?3)
+                 ORDER BY bb.block_height DESC LIMIT 1",
+                params![
+                    horizon,
+                    horizon.saturating_sub(params.fork_depth),
+                    &accepted
+                ],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            )
+            .optional()?;
+        let Some((in_charge_tenure, in_charge_burn_height, in_charge_received_time)) = in_charge
+        else {
+            return Ok(None);
+        };
+        let cutoff_height: Option<u64> = conn.query_row(
+            "SELECT MIN(stacks_height) FROM blocks WHERE consensus_hash = ?1 AND state = ?2",
+            params![&in_charge_tenure, &accepted],
+            |row| row.get(0),
+        )?;
+        let Some(cutoff_height) = cutoff_height else {
+            return Ok(None);
+        };
+        let orphan_cutoff = in_charge_received_time
+            .min(tip_received_time)
+            .saturating_sub(params.orphaned_update_max_age.as_secs());
+
+        Ok(Some(Self {
+            burn_tip,
+            in_charge_burn_height,
+            cutoff_height,
+            orphan_cutoff,
+        }))
+    }
+}
+
 /// One pruning pass over the signer db (run by [`SignerDb::prune`]), in a single `IMMEDIATE`
-/// transaction: [`PruneTx::begin`] places the fork horizon, [`PruneTx::execute`] removes what
-/// lies behind it and [`PruneTx::commit`] keeps the result. Dropping it before the commit rolls
-/// the whole pass back.
+/// transaction: [`PruneTx::begin`] opens it and places the fork horizon (a [`PruneHorizon`]),
+/// [`PruneTx::execute`] removes what lies behind it and [`PruneTx::commit`] keeps the result.
+/// Dropping it before the commit rolls the whole pass back.
 ///
 /// A pass removes what no fork can reach any more: every tenure elected before the one in charge
 /// at the fork horizon ([`PruneParams::fork_depth`] burn blocks below the burn tip), together
@@ -494,81 +572,24 @@ struct PruneTx<'a> {
     tx: DBTx<'a>,
     /// The parameters of this pass
     params: PruneParams,
-    /// Burn height of the tenure in charge at the fork horizon
-    in_charge_burn_height: i64,
-    /// The lowest accepted Stacks height of the tenure in charge: blocks below it may be removed
-    cutoff: i64,
-    /// Records whose burn block was never recorded are removed once their last activity is
-    /// before this time (epoch seconds)
-    orphan_cutoff: i64,
+    /// The fork horizon of this pass
+    horizon: PruneHorizon,
     /// What the pass has removed so far
     stats: PruneStats,
 }
 
 impl<'a> PruneTx<'a> {
-    /// Open the transaction and place the fork horizon `params.fork_depth` burn blocks below the
-    /// burn tip. `None` if it cannot be placed; the transaction is then dropped and nothing is
-    /// written.
+    /// Open the transaction and place the fork horizon in it. `None` if it cannot be placed; the
+    /// transaction is then dropped and nothing is written.
     fn begin(conn: &'a mut Connection, params: PruneParams) -> Result<Option<Self>, DBError> {
-        let accepted = BlockState::GloballyAccepted.to_string();
         let tx = tx_begin_immediate(conn)?;
-
-        let burn_tip: Option<i64> =
-            tx.query_row("SELECT MAX(block_height) FROM burn_blocks", [], |row| {
-                row.get(0)
-            })?;
-        let Some(horizon) = burn_tip
-            .and_then(|tip| u64::try_from(tip).ok())
-            .and_then(|tip| tip.checked_sub(params.fork_depth))
-        else {
+        let Some(horizon) = PruneHorizon::place(&tx, &params)? else {
             return Ok(None);
         };
-
-        // The tenure in charge at the horizon: the latest sortition at or below it whose tenure
-        // has accepted blocks.
-        let in_charge: Option<(String, i64, i64)> = tx
-            .query_row(
-                "SELECT bb.consensus_hash, bb.block_height, bb.received_time FROM burn_blocks bb
-                 WHERE bb.block_height <= ?1 AND bb.block_height >= ?2
-                   AND EXISTS (SELECT 1 FROM blocks b
-                               WHERE b.consensus_hash = bb.consensus_hash AND b.state = ?3)
-                 ORDER BY bb.block_height DESC LIMIT 1",
-                params![
-                    u64_to_sql(horizon)?,
-                    u64_to_sql(horizon.saturating_sub(params.fork_depth))?,
-                    &accepted
-                ],
-                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
-            )
-            .optional()?;
-        let Some((in_charge_tenure, in_charge_burn_height, in_charge_received_time)) = in_charge
-        else {
-            return Ok(None);
-        };
-        let cutoff: Option<i64> = tx.query_row(
-            "SELECT MIN(stacks_height) FROM blocks WHERE consensus_hash = ?1 AND state = ?2",
-            params![&in_charge_tenure, &accepted],
-            |row| row.get(0),
-        )?;
-        let Some(cutoff) = cutoff else {
-            return Ok(None);
-        };
-        let tip_received_time: i64 = tx.query_row(
-            "SELECT received_time FROM burn_blocks ORDER BY block_height DESC LIMIT 1",
-            [],
-            |row| row.get(0),
-        )?;
-        let orphan_cutoff = in_charge_received_time
-            .min(tip_received_time)
-            .saturating_sub(u64_to_sql(params.orphaned_update_max_age.as_secs())?)
-            .max(0);
-
         Ok(Some(Self {
             tx,
             params,
-            in_charge_burn_height,
-            cutoff,
-            orphan_cutoff,
+            horizon,
             stats: PruneStats::default(),
         }))
     }
@@ -586,12 +607,12 @@ impl<'a> PruneTx<'a> {
     fn commit(self) -> Result<PruneStats, DBError> {
         let Self {
             tx,
-            cutoff,
+            horizon,
             mut stats,
             ..
         } = self;
         tx.commit()?;
-        stats.cutoff_height = u64::try_from(cutoff).ok();
+        stats.cutoff_height = Some(horizon.cutoff_height);
         Ok(stats)
     }
 
@@ -663,8 +684,8 @@ impl<'a> PruneTx<'a> {
         )?;
         let rows = stmt.query_map(
             params![
-                self.cutoff,
-                self.in_charge_burn_height,
+                self.horizon.cutoff_height,
+                self.horizon.in_charge_burn_height,
                 u64_to_sql(self.params.batch_size)?
             ],
             |row| row.get(0),
@@ -714,8 +735,8 @@ impl<'a> PruneTx<'a> {
         )?;
         let rows = stmt.query_map(
             params![
-                self.cutoff,
-                self.orphan_cutoff,
+                self.horizon.cutoff_height,
+                self.horizon.orphan_cutoff,
                 u64_to_sql(self.params.batch_size)?
             ],
             |row| row.get(0),
@@ -751,7 +772,7 @@ impl<'a> PruneTx<'a> {
                 JOIN burn_blocks bb ON bb.consensus_hash = u.burn_block_consensus_hash
                 WHERE bb.block_height < ?1
                 ORDER BY bb.block_height LIMIT ?2)",
-            params![self.in_charge_burn_height, batch_size_sql],
+            params![self.horizon.in_charge_burn_height, batch_size_sql],
         )?;
         let removed_count = Self::count(removed);
         self.stats.other_rows = self.stats.other_rows.saturating_add(removed_count);
@@ -769,7 +790,7 @@ impl<'a> PruneTx<'a> {
                       AND NOT EXISTS (SELECT 1 FROM burn_blocks bb
                                       WHERE bb.consensus_hash = u.burn_block_consensus_hash)
                     ORDER BY u.received_time LIMIT ?2)",
-                params![self.orphan_cutoff, batch_size_sql],
+                params![self.horizon.orphan_cutoff, batch_size_sql],
             )?;
             self.stats.other_rows = self.stats.other_rows.saturating_add(Self::count(removed));
         }
@@ -781,7 +802,7 @@ impl<'a> PruneTx<'a> {
                 WHERE bb.block_height < ?1
                   AND NOT EXISTS (SELECT 1 FROM blocks b WHERE b.consensus_hash = ta.consensus_hash)
                 ORDER BY bb.block_height LIMIT ?2)",
-            params![self.in_charge_burn_height, batch_size_sql],
+            params![self.horizon.in_charge_burn_height, batch_size_sql],
         )?;
         let removed_count = Self::count(removed);
         self.stats.other_rows = self.stats.other_rows.saturating_add(removed_count);
@@ -799,7 +820,7 @@ impl<'a> PruneTx<'a> {
                                       WHERE b.consensus_hash = ta.consensus_hash)
                     ORDER BY ta.last_activity_time LIMIT ?2)",
                 params![
-                    self.orphan_cutoff,
+                    self.horizon.orphan_cutoff,
                     u64_to_sql(self.params.batch_size - removed_count)?
                 ],
             )?;
@@ -818,7 +839,7 @@ impl<'a> PruneTx<'a> {
                                   WHERE ta.consensus_hash = candidate.consensus_hash)
                   AND NOT EXISTS (SELECT 1 FROM burn_block_updates_received_times u
                                   WHERE u.burn_block_consensus_hash = candidate.consensus_hash))",
-            params![self.in_charge_burn_height, batch_size_sql],
+            params![self.horizon.in_charge_burn_height, batch_size_sql],
         )?;
         self.stats.other_rows = self.stats.other_rows.saturating_add(Self::count(removed));
         Ok(())
