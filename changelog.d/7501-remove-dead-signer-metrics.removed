@@ -1,0 +1,1 @@
+Removed the unused `stacks_signer_agreement_capitulation_latencies_histogram` Prometheus series, whose backing latency calculation no longer exists.
