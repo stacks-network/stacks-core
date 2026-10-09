@@ -23,6 +23,8 @@ use clarity::vm::database::sqlite::{
     sqlite_get_contract_hash, sqlite_get_metadata, sqlite_get_metadata_manual,
     sqlite_insert_metadata,
 };
+#[cfg(feature = "clarity-wasm")]
+use clarity::vm::database::WasmCompiler;
 use clarity::vm::database::{ClarityBackingStore, SpecialCaseHandler, SqliteConnection};
 use clarity::vm::errors::{IncomparableError, RuntimeError, VmExecutionError, VmInternalError};
 use clarity::vm::types::QualifiedContractIdentifier;
@@ -40,6 +42,8 @@ use crate::clarity_vm::clarity::{
 };
 use crate::clarity_vm::database::ephemeral::EphemeralMarfStore;
 use crate::clarity_vm::special::handle_contract_call_special_cases;
+#[cfg(feature = "clarity-wasm")]
+use crate::clarity_vm::wasm_compiler::compile_deployed_contract;
 use crate::core::{FIRST_BURNCHAIN_CONSENSUS_HASH, FIRST_STACKS_BLOCK_HASH};
 use crate::util_lib::db::{Error as DatabaseError, IndexDBConn};
 
@@ -539,6 +543,13 @@ impl ClarityBackingStore for ReadOnlyMarfStore<'_> {
         Some(&handle_contract_call_special_cases)
     }
 
+    /// Compile contracts which were deployed without a Wasm module, so that they can still be
+    /// executed by the Wasm runtime
+    #[cfg(feature = "clarity-wasm")]
+    fn get_wasm_compiler(&self) -> Option<WasmCompiler> {
+        Some(&compile_deployed_contract)
+    }
+
     /// Sets the chain tip at which queries will happen.  Used for `(at-block ..)`
     fn set_block_hash(&mut self, bhh: StacksBlockId) -> Result<StacksBlockId, VmExecutionError> {
         self.marf
@@ -827,6 +838,13 @@ impl ClarityBackingStore for PersistentWritableMarfStore<'_> {
 
     fn get_cc_special_cases_handler(&self) -> Option<SpecialCaseHandler> {
         Some(&handle_contract_call_special_cases)
+    }
+
+    /// Compile contracts which were deployed without a Wasm module, so that they can still be
+    /// executed by the Wasm runtime
+    #[cfg(feature = "clarity-wasm")]
+    fn get_wasm_compiler(&self) -> Option<WasmCompiler> {
+        Some(&compile_deployed_contract)
     }
 
     fn get_data(&mut self, key: &str) -> Result<Option<String>, VmExecutionError> {
@@ -1210,6 +1228,11 @@ impl<'a> ClarityBackingStore for Box<dyn WritableMarfStore + 'a> {
 
     fn get_cc_special_cases_handler(&self) -> Option<SpecialCaseHandler> {
         ClarityBackingStore::get_cc_special_cases_handler(&**self)
+    }
+
+    #[cfg(feature = "clarity-wasm")]
+    fn get_wasm_compiler(&self) -> Option<WasmCompiler> {
+        ClarityBackingStore::get_wasm_compiler(&**self)
     }
 
     fn get_contract_hash(
