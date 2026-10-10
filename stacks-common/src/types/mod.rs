@@ -920,6 +920,12 @@ impl StacksEpochId {
         self >= &StacksEpochId::Epoch40
     }
 
+    /// Whether a Nakamoto block may contain exactly `MAX_EPOCH_SIZE` bytes of
+    /// transactions. Earlier epochs reject proposals that reach this limit.
+    pub fn fixes_block_size_off_by_one(&self) -> bool {
+        self >= &StacksEpochId::Epoch41
+    }
+
     /// Whether trait-compliance type-checking surfaces cost-tracking errors
     /// (e.g. `CostBalanceExceeded` / `CostOverflow`) as their real error instead
     /// of masking them as `IncompatibleTrait`.
