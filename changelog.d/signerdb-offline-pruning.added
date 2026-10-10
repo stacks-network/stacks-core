@@ -1,0 +1,1 @@
+Added the `stacks-signer prune-db` command: with the signer stopped, it removes everything the signer would prune, at full speed, then compacts the database file in place so the freed space goes back to the OS.

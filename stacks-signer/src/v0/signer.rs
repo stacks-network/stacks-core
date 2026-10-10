@@ -54,6 +54,7 @@ use crate::config::{SignerConfig, SignerConfigMode};
 use crate::runloop::SignerResult;
 use crate::signerdb::{
     BlockInfo, BlockState, PendingBlockResponses, ReorgPermit, SignedConflictInfo, SignerDb,
+    MAX_FORK_DEPTH,
 };
 #[cfg(not(any(test, feature = "testing")))]
 use crate::v0::signer_state::SUPPORTED_SIGNER_PROTOCOL_VERSION;
@@ -61,10 +62,6 @@ use crate::v0::signer_state::{NewBurnBlock, PendingRetryBackoff};
 #[cfg(test)]
 use crate::v0::tests::BlockMessageRecorder;
 use crate::Signer as SignerTrait;
-
-/// How far below the burnchain tip the signer keeps a record that it sanctioned the reorg of
-/// a tenure. A fork deeper than this would cause much bigger problems than a stale conflict.
-const MAX_FORK_DEPTH: u64 = 100;
 
 /// A global variable that can be used to make signers repeat their proposal
 /// response if their public key is in the provided list
