@@ -22,12 +22,12 @@ use rusqlite::Connection;
 use stacks_common::deps_common::bitcoin::blockdata::block::{BlockHeader, LoneBlockHeader};
 use stacks_common::deps_common::bitcoin::network::encodable::VarInt;
 use stacks_common::deps_common::bitcoin::util::hash::Sha256dHash;
+use stacks_marf::Error;
 use tempfile::tempdir;
 
 use super::super::spv::{assert_source_tables_classified, copy_spv_headers, spv_copy_specs};
 use crate::burnchains::bitcoin::spv::{SpvClient, BLOCK_DIFFICULTY_CHUNK_SIZE, SPV_DB_VERSION};
 use crate::burnchains::bitcoin::BitcoinNetworkType;
-use crate::chainstate::stacks::index::Error;
 
 /// Drift guard: every table the SPV migrations create must be classified, so a
 /// future migration can't silently drop one from the copy. Runs the exact
