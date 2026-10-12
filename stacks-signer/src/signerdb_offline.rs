@@ -18,6 +18,7 @@
 //! freed space goes back to the OS.
 
 use std::fmt::{self, Display};
+use std::num::NonZeroU64;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
@@ -29,7 +30,7 @@ use crate::signerdb::{PruneHorizon, PruneParams, PruneStats, SignerDb, SpaceUsag
 use crate::signerdb_pruner::PRUNE_PARAMS;
 
 /// Default number of blocks removed per pruning transaction
-pub const DEFAULT_BATCH_SIZE: u64 = 1_000;
+pub const DEFAULT_BATCH_SIZE: NonZeroU64 = NonZeroU64::new(1_000).unwrap();
 /// Live data up to which `VACUUM` builds its temporary copy in memory, unless a temporary
 /// directory is given
 const VACUUM_IN_MEMORY_MAX_BYTES: u64 = MB!(1024);
@@ -39,8 +40,9 @@ const PASSES_PER_CHECKPOINT: u64 = 10;
 /// What [`prune_offline`] does
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct OfflinePruneOptions {
-    /// Blocks removed per pruning transaction
-    pub batch_size: u64,
+    /// Blocks removed per pruning transaction. Never zero: a pass would then remove no blocks,
+    /// and the run would stop at once with all of them kept.
+    pub batch_size: NonZeroU64,
     /// Whether to compact the file with `VACUUM` after pruning
     pub vacuum: bool,
     /// Where `VACUUM` builds its temporary copy. If `None`, in memory when the live data is small
@@ -133,7 +135,7 @@ pub fn prune_offline(
         db.checkpoint()?;
     }
     let params = PruneParams {
-        batch_size: options.batch_size,
+        batch_size: options.batch_size.get(),
         ..PRUNE_PARAMS
     };
     let before = db.space_usage()?;
@@ -311,7 +313,7 @@ mod tests {
     fn test_prune_offline_drains_the_backlog_and_compacts() {
         let path = seeded_db(250);
         let options = OfflinePruneOptions {
-            batch_size: 10,
+            batch_size: NonZeroU64::new(10).unwrap(),
             ..OfflinePruneOptions::default()
         };
         let report = prune_offline(&path, &options).unwrap();

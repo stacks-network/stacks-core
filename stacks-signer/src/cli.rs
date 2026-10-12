@@ -14,6 +14,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 use std::io::{self, Read};
+use std::num::NonZeroU64;
 use std::path::PathBuf;
 
 use blockstack_lib::chainstate::stacks::address::PoxAddress;
@@ -284,9 +285,9 @@ pub struct PruneDbArgs {
     /// Prune only, without compacting: the freed space stays in the file and is reused
     #[arg(long)]
     pub no_vacuum: bool,
-    /// Blocks removed per transaction
+    /// Blocks removed per transaction (at least 1)
     #[arg(long, value_name = "N", default_value_t = DEFAULT_BATCH_SIZE)]
-    pub batch_size: u64,
+    pub batch_size: NonZeroU64,
     /// Report the database's size and where pruning would start, and change nothing
     #[arg(long)]
     pub dry_run: bool,
@@ -568,7 +569,7 @@ mod tests {
         .unwrap();
         assert_eq!(args.db_path, Some(PathBuf::from("signerdb.sqlite")));
         assert_eq!(args.temp_dir, Some(PathBuf::from("/mnt/other")));
-        assert_eq!(args.batch_size, 500);
+        assert_eq!(args.batch_size.get(), 500);
         assert!(args.dry_run);
 
         // One of --config and --db-path is required
@@ -582,5 +583,7 @@ mod tests {
             "/tmp",
         ])
         .unwrap_err();
+        // A batch removes at least one block
+        parse(&["--config", "signer.toml", "--batch-size", "0"]).unwrap_err();
     }
 }
