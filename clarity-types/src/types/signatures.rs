@@ -273,7 +273,7 @@ impl TryFrom<i128> for StringUTF8Length {
 }
 
 /// Width of the enum discriminant in a type signature.
-const TYPE_ENUM_SIZE: u32 = 1;
+const TYPE_DISCRIMINANT_SIZE: u32 = 1;
 /// Width of the length field a sequence type signature carries: `max_len` for lists, the
 /// length bound for buffers and strings.
 const TYPE_LENGTH_FIELD_SIZE: u32 = 4;
@@ -1490,26 +1490,28 @@ impl TypeSignature {
             // NoType's may be asked for their size at runtime --
             //  legal constructions like `(ok 1)` have NoType parts (if they have unknown error variant types).
             // These types carry no payload, so they cost only their discriminant.
-            NoType | IntType | UIntType | BoolType | PrincipalType => Some(TYPE_ENUM_SIZE),
+            NoType | IntType | UIntType | BoolType | PrincipalType => Some(TYPE_DISCRIMINANT_SIZE),
             TupleType(tuple_sig) => tuple_sig.type_size(),
             SequenceType(SequenceSubtype::BufferType(_)) => {
-                Some(TYPE_ENUM_SIZE + TYPE_LENGTH_FIELD_SIZE)
+                Some(TYPE_DISCRIMINANT_SIZE + TYPE_LENGTH_FIELD_SIZE)
             }
             SequenceType(SequenceSubtype::ListType(list_type)) => list_type.type_size(),
             SequenceType(SequenceSubtype::StringType(StringSubtype::ASCII(_))) => {
-                Some(TYPE_ENUM_SIZE + TYPE_LENGTH_FIELD_SIZE)
+                Some(TYPE_DISCRIMINANT_SIZE + TYPE_LENGTH_FIELD_SIZE)
             }
             SequenceType(SequenceSubtype::StringType(StringSubtype::UTF8(_))) => {
-                Some(TYPE_ENUM_SIZE + TYPE_LENGTH_FIELD_SIZE)
+                Some(TYPE_DISCRIMINANT_SIZE + TYPE_LENGTH_FIELD_SIZE)
             }
-            OptionalType(t) => t.inner_type_size()?.checked_add(TYPE_ENUM_SIZE),
+            OptionalType(t) => t.inner_type_size()?.checked_add(TYPE_DISCRIMINANT_SIZE),
             ResponseType(v) => {
                 let (t, s) = (&v.0, &v.1);
                 t.inner_type_size()?
                     .checked_add(s.inner_type_size()?)?
-                    .checked_add(TYPE_ENUM_SIZE)
+                    .checked_add(TYPE_DISCRIMINANT_SIZE)
             }
-            CallableType(_) | TraitReferenceType(_) | ListUnionType(_) => Some(TYPE_ENUM_SIZE),
+            CallableType(_) | TraitReferenceType(_) | ListUnionType(_) => {
+                Some(TYPE_DISCRIMINANT_SIZE)
+            }
         }
     }
 
@@ -1606,7 +1608,7 @@ impl ListTypeData {
     fn compute_type_size(entry_type: &TypeSignature) -> Option<u32> {
         let total_size = entry_type
             .inner_type_size()?
-            .checked_add(TYPE_LENGTH_FIELD_SIZE + TYPE_ENUM_SIZE)?;
+            .checked_add(TYPE_LENGTH_FIELD_SIZE + TYPE_DISCRIMINANT_SIZE)?;
         if total_size > MAX_VALUE_SIZE {
             None
         } else {
