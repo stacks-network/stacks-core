@@ -37,7 +37,7 @@ runs:
     - name: Checkout the latest code
       if: |
         inputs.action == 'create'
-      uses: $/.github/wrappers/checkout
+      uses: ./.github/wrappers/checkout
       with:
         ref: ${{ github.event.pull_request.head.sha || github.ref }}
 
