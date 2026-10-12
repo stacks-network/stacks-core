@@ -29,12 +29,12 @@ use clarity::vm::types::QualifiedContractIdentifier;
 use rusqlite::Connection;
 use stacks_common::codec::StacksMessageCodec;
 use stacks_common::types::chainstate::{BlockHeaderHash, StacksBlockId, TrieHash};
-
-use crate::chainstate::stacks::index::marf::{
+use stacks_marf::marf::{
     test_override_marf_compression, MARFOpenOpts, MarfConnection, MarfTransaction, MARF,
 };
-use crate::chainstate::stacks::index::storage::{TrieFileStorage, TrieHashCalculationMode};
-use crate::chainstate::stacks::index::{ClarityMarfTrieId, Error, MARFValue};
+use stacks_marf::storage::{TrieFileStorage, TrieHashCalculationMode};
+use stacks_marf::{ClarityMarfTrieId, Error, MARFValue};
+
 use crate::clarity_vm::clarity::{
     ClarityMarfStore, ClarityMarfStoreTransaction, WritableMarfStore,
 };
