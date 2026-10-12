@@ -88,6 +88,7 @@ jobs:
           btc-version: ${{ inputs.btc-version }}
           btc-version-sha: ${{ inputs.btc-version-sha }}
           test-names: ${{ matrix.test-name }}
+          binary-id: stackslib
           archive-file: ${{ inputs.archive-file }}
           codecov-test-name: ${{ matrix.test-name }}
           upload-junit-xml: ${{ inputs.upload-junit-xml }}
