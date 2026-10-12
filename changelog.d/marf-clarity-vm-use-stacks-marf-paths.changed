@@ -1,0 +1,1 @@
+`clarity_vm` now imports the MARF from `stacks_marf` directly instead of through the `stackslib::chainstate::stacks::index` re-export. No behaviour change.
