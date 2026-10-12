@@ -59,7 +59,7 @@ jobs:
     uses: ./.github/workflows/__check-ci.yml
 
   ############################################################################
-  ### Check Scheduled Run (CRON) Commit Hash
+  ### Check Commit Hash (Scheduled Run / CRON Only)
   ###
   ### Skips the rest of the CI pipeline if the CRON schedule runs on the same
   ### commit hash as the last scheduled run. We use the CRON run to report 
