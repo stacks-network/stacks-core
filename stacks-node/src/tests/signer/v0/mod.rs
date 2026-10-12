@@ -9395,10 +9395,6 @@ fn test_vtxindex_zero_two_miners() {
     // Let miner 2 submit a commit (it will be bad due to fault injection)
     miners.ensure_commit_miner_2(&sortdb);
 
-    // Disable fault injection now that the bad commit is submitted
-    std::env::remove_var("FAULT_INJECTION_BLOCK_COMMIT_VTXINDEX_SENTINEL");
-    std::env::remove_var("FAULT_INJECTION_BLOCK_COMMIT_PARENT_SENTINEL");
-
     info!("------------------------- Miner 2 wins sortition with bad commit -------------------------");
     test_observer::clear();
 
@@ -9406,6 +9402,10 @@ fn test_vtxindex_zero_two_miners() {
     miners
         .mine_bitcoin_blocks_and_confirm(&sortdb, 1, 60)
         .expect("Failed to mine bitcoin block");
+
+    // Disable fault injection now that the bad commit is mined
+    std::env::remove_var("FAULT_INJECTION_BLOCK_COMMIT_VTXINDEX_SENTINEL");
+    std::env::remove_var("FAULT_INJECTION_BLOCK_COMMIT_PARENT_SENTINEL");
 
     info!("------------------------- Verify signers reject miner 2's proposals -------------------------");
     // Wait for signers to reject miner 2's block with InvalidParentBlock
