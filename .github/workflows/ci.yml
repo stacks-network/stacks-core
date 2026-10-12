@@ -131,7 +131,7 @@ jobs:
             
             # Add Proceeding message to summary
             echo "### 🟢 Pipeline Proceeding" >> $GITHUB_STEP_SUMMARY
-            echo "New commits detected since last CRON run. The CI pipeline will run." >> $GITHUB_STEP_SUMMARY
+            echo "New commits detected on the `main` branch since the last scheduled execution. The CI pipeline will run." >> $GITHUB_STEP_SUMMARY
           fi
 
       # Only save the new cache if it's a schedule and we detected a new hash
