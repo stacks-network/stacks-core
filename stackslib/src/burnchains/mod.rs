@@ -21,6 +21,7 @@ use std::{error, fmt, io};
 use rusqlite::Error as sqlite_error;
 use stacks_common::types::chainstate::{BurnchainHeaderHash, ConsensusHash, PoxId};
 pub use stacks_common::types::{Address, PrivateKey, PublicKey};
+use stacks_marf::marf::MARFOpenOpts;
 
 use self::bitcoin::indexer::{
     BITCOIN_MAINNET as BITCOIN_NETWORK_ID_MAINNET, BITCOIN_MAINNET_NAME,
@@ -38,7 +39,6 @@ use crate::chainstate::burn::operations::{
 };
 use crate::chainstate::stacks::address::PoxAddress;
 use crate::chainstate::stacks::boot::{POX_1_NAME, POX_2_NAME, POX_3_NAME, POX_4_NAME, POX_5_NAME};
-use crate::chainstate::stacks::index::marf::MARFOpenOpts;
 use crate::core::*;
 #[cfg(test)]
 use crate::net::neighbors::MAX_NEIGHBOR_BLOCK_DELAY;
