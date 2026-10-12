@@ -1,1 +1,0 @@
-The MARF's tests now use `assert_matches!` instead of `assert!(matches!(..))`, which reports the actual value on failure. Test-only change.
