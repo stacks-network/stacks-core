@@ -11,7 +11,7 @@ inputs:
 outputs:
   cache-key:
     description: "Cache Key"
-    value: ${{ steps.generate-keys.outputs.cargo-cache-key }}
+    value: ${{ steps.generate-key.outputs.cargo-cache-key }}
   cache-matched-key:
     description: "Key of the cache that was checked or restored, it could either be the primary key on cache-hit or a partial/complete match of one of the restore keys."
     value: ${{ steps.check-cache.outputs.cache-matched-key || steps.restore-cache.outputs.cache-matched-key }}
@@ -20,9 +20,9 @@ runs:
   using: "composite"
   steps:
     # Generate cache keys
-    - name: Generate Cache Keys
-      id: generate-keys
-      uses: ./.github/actions/cache/generate-keys
+    - name: Generate Cargo Cache Key
+      id: generate-key
+      uses: ./.github/actions/cache/generate-cargo-key
       
     # Check if cache data exists
     - name: Check Cache
@@ -38,9 +38,9 @@ runs:
           ~/.cargo/registry/cache/
           ~/.cargo/git/db/
           target/
-        key: ${{ steps.generate-keys.outputs.cargo-cache-key }}
+        key: ${{ steps.generate-key.outputs.cargo-cache-key }}
         # Allows cache to "fallback" to `main` generated cache, using a prefix. The most recently created cache will be selected.
-        restore-keys: ${{ steps.generate-keys.outputs.cargo-restore-key }}
+        restore-keys: ${{ steps.generate-key.outputs.cargo-restore-key }}
 
     # Restore cache data
     - name: Restore Cache
@@ -55,9 +55,9 @@ runs:
           ~/.cargo/registry/cache/
           ~/.cargo/git/db/
           target/
-        key: ${{ steps.generate-keys.outputs.cargo-cache-key }}
+        key: ${{ steps.generate-key.outputs.cargo-cache-key }}
         # Allows cache to "fallback" to `main` generated cache, using a prefix. The most recently created cache will be selected.
-        restore-keys: ${{ steps.generate-keys.outputs.cargo-restore-key }}
+        restore-keys: ${{ steps.generate-key.outputs.cargo-restore-key }}
         fail-on-cache-miss: true
 
     # Checkout the code
@@ -124,4 +124,4 @@ runs:
           ~/.cargo/registry/cache/
           ~/.cargo/git/db/
           target/
-        key: ${{ steps.generate-keys.outputs.cargo-cache-key }}
+        key: ${{ steps.generate-key.outputs.cargo-cache-key }}

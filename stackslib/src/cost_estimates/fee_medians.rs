@@ -289,7 +289,7 @@ pub fn fee_rate_estimate_from_sorted_weighted_fees(
 /// place** that takes up the remaining space.
 fn maybe_add_minimum_fee_rate(working_rates: &mut Vec<FeeRateAndWeight>, full_block_weight: u64) {
     let mut total_weight = 0u64;
-    for rate_and_weight in working_rates.into_iter() {
+    for rate_and_weight in working_rates.iter_mut() {
         total_weight = match total_weight.checked_add(rate_and_weight.weight) {
             Some(result) => result,
             None => return,

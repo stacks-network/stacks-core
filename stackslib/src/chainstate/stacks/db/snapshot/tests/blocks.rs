@@ -26,6 +26,7 @@ use stacks_common::types::chainstate::{
 };
 use stacks_common::util::hash::{Hash160, MerkleTree, Sha512Trunc256Sum};
 use stacks_common::util::secp256k1::{MessageSignature, Secp256k1PrivateKey, Secp256k1PublicKey};
+use stacks_marf::Error;
 use tempfile::tempdir;
 
 use super::super::blocks::{
@@ -39,7 +40,6 @@ use super::{
 };
 use crate::chainstate::nakamoto::staging_blocks::NAKAMOTO_STAGING_DB_SCHEMA_LATEST;
 use crate::chainstate::stacks::db::StacksChainState;
-use crate::chainstate::stacks::index::Error;
 use crate::chainstate::stacks::{
     StacksMicroblock, StacksMicroblockHeader, StacksTransaction, TokenTransferMemo,
     TransactionAuth, TransactionPayload, TransactionSpendingCondition, TransactionVersion,

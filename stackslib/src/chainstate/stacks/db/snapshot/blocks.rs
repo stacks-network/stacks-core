@@ -20,13 +20,13 @@ use std::path::Path;
 use rusqlite::types::Value;
 use rusqlite::{params, Connection, OpenFlags};
 use stacks_common::types::chainstate::{BlockHeaderHash, ConsensusHash, StacksBlockId};
+use stacks_marf::Error;
 
 use super::common::{
     classify_hint, clone_schemas_from_source, copied_rows, execute_copy_specs,
     with_offline_write_session, DbSnapshotSpec, NoBind, TableCopySpec, TableCopySpecs,
 };
 use crate::chainstate::stacks::db::StacksChainState;
-use crate::chainstate::stacks::index::Error;
 use crate::core::EMPTY_MICROBLOCK_PARENT_HASH;
 use crate::util_lib::db::sqlite_open;
 

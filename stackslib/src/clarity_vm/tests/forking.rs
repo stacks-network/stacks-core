@@ -260,10 +260,10 @@ fn test_at_block_missing_defines(#[case] version: ClarityVersion, #[case] epoch:
             ";
 
         eprintln!("Initializing contract...");
-        let e = owned_env
+
+        owned_env
             .initialize_contract(c_b, contract, None)
-            .unwrap_err();
-        e
+            .unwrap_err()
     }
 
     with_separate_forks_environment(

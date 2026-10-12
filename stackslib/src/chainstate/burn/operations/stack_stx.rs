@@ -208,15 +208,11 @@ impl StackStxOp {
             signer_key = Some(StacksPublicKeyBuffer::from(data.get(17..50)?));
         }
         if data.len() >= 66 {
-            let Some(amt) = parse_u128_from_be(data.get(50..66)?) else {
-                return None;
-            };
+            let amt = parse_u128_from_be(data.get(50..66)?)?;
             max_amount = Some(amt);
         }
         if data.len() >= 70 {
-            let Some(id) = parse_u32_from_be(data.get(66..70)?) else {
-                return None;
-            };
+            let id = parse_u32_from_be(data.get(66..70)?)?;
             auth_id = Some(id);
         }
 

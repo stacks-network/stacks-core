@@ -1,0 +1,1 @@
+Fixed the miner's signer coordinator ignoring the miner's abort flag while waiting for signatures on a block proposal, which could keep a miner thread alive after the relayer tried to stop it ([#7703](https://github.com/stacks-network/stacks-core/issues/7703)).

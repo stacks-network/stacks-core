@@ -1,0 +1,1 @@
+The signer's local state machine no longer stays `Uninitialized` until the next burn block when a transient stacks-node error interrupts its burn-block arrival processing or its startup initialization; the arrival is parked as pending and retried, with exponential backoff (up to 16 seconds) while the node keeps erroring.

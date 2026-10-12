@@ -542,9 +542,33 @@ impl StacksEpochId {
         self >= &StacksEpochId::Epoch40
     }
 
+    /// Whether implicit casts use the list's actual length to avoid overflowing
+    /// a valid argument against the parameter's element size.
+    pub fn fixes_implicit_cast_list_bound(&self) -> bool {
+        self >= &StacksEpochId::Epoch41
+    }
+
     /// Whether typed tuple deserialization requires every declared field to be
     /// present exactly once after sanitization.
     pub fn enforces_exact_typed_tuple_field_set(&self) -> bool {
+        self >= &StacksEpochId::Epoch41
+    }
+
+    /// Whether contract names longer than 40 bytes (`CONTRACT_MAX_NAME_LENGTH`) are
+    /// rejected wherever a new Clarity value can enter the VM.
+    ///
+    /// Before this epoch, contract principals *inside Clarity values* could carry
+    /// names up to 128 bytes (`MAX_STRING_LEN`), even though deployed contracts are
+    /// limited to 40. From Epoch 4.1, `from-consensus-buff?` and transaction
+    /// arguments reject such names, and `principal-destruct?` rejects them.
+    /// Values already stored in chainstate remain readable.
+    pub fn enforces_contract_name_length_limit(&self) -> bool {
+        self >= &StacksEpochId::Epoch41
+    }
+
+    /// Whether `concat` fails the transaction with `ValueTooLarge` when it would
+    /// build a buffer or string larger than `MAX_VALUE_SIZE`.
+    pub fn checks_concat_result_size(&self) -> bool {
         self >= &StacksEpochId::Epoch41
     }
 
@@ -573,11 +597,12 @@ impl StacksEpochId {
     /// Whether a block-commit whose parent is `(height > 0, vtxindex 0)` is accepted without
     /// that parent block-commit existing, and is assumed to descend from the PoX anchor block.
     ///
-    /// Nakamoto epochs did this so that miners could build atop shadow blocks, which were never
-    /// used and have since been removed.  The commits it admitted are part of sortition history,
-    /// so the rule must be preserved.  Building off of genesis (`(0, 0)`) is unaffected.
+    /// Epochs 3.0 through 4.0 did this so that miners could build atop shadow blocks, which were
+    /// never used and have since been removed.  The commits it admitted are part of sortition
+    /// history, so those epochs must preserve it.  From Epoch 4.1 the parent block-commit must
+    /// exist.  Building off of genesis (`(0, 0)`) is unaffected.
     pub fn allows_missing_vtxindex_zero_commit_parent(&self) -> bool {
-        self >= &StacksEpochId::Epoch30
+        self >= &StacksEpochId::Epoch30 && self < &StacksEpochId::Epoch41
     }
 
     /// Does this epoch support unlocking PoX contributors that miss a slot?
@@ -838,9 +863,28 @@ impl StacksEpochId {
         self >= &StacksEpochId::Epoch41
     }
 
+    /// Whether analysis requires matching tuple fields when inferring a least
+    /// supertype. Runtime inference is never gated; deployed contracts depend on it.
+    pub fn requires_matching_tuple_fields_in_analysis(&self) -> bool {
+        self >= &StacksEpochId::Epoch41
+    }
+
     /// Whether analysis types a `fold` result to admit its initial value, which an
     /// empty sequence returns unchanged.
     pub fn requires_fold_result_to_admit_initial_value(&self) -> bool {
+        self >= &StacksEpochId::Epoch41
+    }
+
+    /// Whether analysis requires calls to user-defined functions, and to fixed-arity
+    /// natives that used to ignore extra arguments, to pass exactly the expected
+    /// number of arguments.
+    pub fn checks_exact_argument_count(&self) -> bool {
+        self >= &StacksEpochId::Epoch41
+    }
+
+    /// Whether `restrict-assets?` fails at runtime on `with-all-assets-unsafe`,
+    /// which analysis already rejects.
+    pub fn checks_with_all_assets_in_restrict_assets(&self) -> bool {
         self >= &StacksEpochId::Epoch41
     }
 

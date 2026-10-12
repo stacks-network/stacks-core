@@ -107,7 +107,7 @@ fn check_special_list_cons(
         return Err(StaticCheckErrorKind::ValueTooLarge.into());
     }
     let typed_args = result;
-    TypeSignature::parent_list_type(&typed_args)
+    TypeSignature::parent_list_type_for_analysis(&checker.epoch, &typed_args)
         .map_err(StaticCheckError::from)
         .map(TypeSignature::from)
 }
@@ -373,13 +373,13 @@ fn check_special_set_var(
     args: &[SymbolicExpression],
     context: &TypingContext,
 ) -> Result<TypeSignature, StaticCheckError> {
-    check_arguments_at_least(2, args)?;
+    let [var_name, value] = checker.get_fixed_arguments(args)?;
 
-    let var_name = args[0]
+    let var_name = var_name
         .match_atom()
         .ok_or(StaticCheckErrorKind::BadMapName)?;
 
-    let value_type = checker.type_check(&args[1], context)?;
+    let value_type = checker.type_check(value, context)?;
 
     let expected_value_type = checker
         .contract_context
@@ -424,7 +424,7 @@ fn check_special_equals(
             let cost = compute_typecheck_cost(checker, &x_type, &cur_type);
             costs.push(cost);
             arg_type = Some(
-                TypeSignature::least_supertype(&StacksEpochId::Epoch21, &x_type, &cur_type)
+                TypeSignature::least_supertype_for_analysis(&checker.epoch, &x_type, &cur_type)
                     .map_err(|_| {
                         StaticCheckErrorKind::TypeError(Box::new(x_type), Box::new(cur_type))
                     }),
@@ -462,7 +462,7 @@ fn check_special_if(
 
     analysis_typecheck_cost(checker, expr1, expr2)?;
 
-    TypeSignature::least_supertype(&StacksEpochId::Epoch21, expr1, expr2)
+    TypeSignature::least_supertype_for_analysis(&checker.epoch, expr1, expr2)
         .and_then(|t| t.concretize())
         .map_err(|_| {
             StaticCheckErrorKind::IfArmsMustMatch(Box::new(expr1.clone()), Box::new(expr2.clone()))
@@ -811,9 +811,9 @@ fn check_get_block_info(
     args: &[SymbolicExpression],
     context: &TypingContext,
 ) -> Result<TypeSignature, StaticCheckError> {
-    check_arguments_at_least(2, args)?;
+    let [property, block_height] = checker.get_fixed_arguments(args)?;
 
-    let block_info_prop_str = args[0].match_atom().ok_or(StaticCheckError::new(
+    let block_info_prop_str = property.match_atom().ok_or(StaticCheckError::new(
         StaticCheckErrorKind::GetBlockInfoExpectPropertyName,
     ))?;
 
@@ -823,7 +823,7 @@ fn check_get_block_info(
                 StaticCheckErrorKind::NoSuchBlockInfoProperty(block_info_prop_str.to_string()),
             ))?;
 
-    checker.type_check_expects(&args[1], context, &TypeSignature::UIntType)?;
+    checker.type_check_expects(block_height, context, &TypeSignature::UIntType)?;
 
     Ok(TypeSignature::new_option(block_info_prop.type_result())?)
 }

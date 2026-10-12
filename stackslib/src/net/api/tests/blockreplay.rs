@@ -40,7 +40,7 @@ use crate::stacks_common::codec::StacksMessageCodec;
 #[test]
 fn test_try_parse_request() {
     let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 33333);
-    let mut http = StacksHttp::new(addr.clone(), &ConnectionOptions::default());
+    let mut http = StacksHttp::new(addr, &ConnectionOptions::default());
 
     let mut request = StacksHttpRequest::new_block_replay(addr.into(), &StacksBlockId([0x01; 32]));
 
@@ -78,7 +78,7 @@ fn test_try_parse_request() {
 #[test]
 fn test_try_parse_request_with_profiler() {
     let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 33333);
-    let mut http = StacksHttp::new(addr.clone(), &ConnectionOptions::default());
+    let mut http = StacksHttp::new(addr, &ConnectionOptions::default());
 
     let mut request = StacksHttpRequest::new_block_replay_with_profiler(
         addr.into(),
@@ -148,7 +148,7 @@ fn test_try_make_response() {
 
     // query existing, non-empty Nakamoto block
     let mut request = StacksHttpRequest::new_block_replay_with_profiler(
-        addr.clone().into(),
+        addr.into(),
         &rpc_test.canonical_tip,
         true,
     );
@@ -157,15 +157,13 @@ fn test_try_make_response() {
     requests.push(request);
 
     // query non-existent block
-    let mut request =
-        StacksHttpRequest::new_block_replay(addr.clone().into(), &StacksBlockId([0x01; 32]));
+    let mut request = StacksHttpRequest::new_block_replay(addr.into(), &StacksBlockId([0x01; 32]));
     // add the authorization header
     request.add_header("authorization".into(), "password".into());
     requests.push(request);
 
     // unauthenticated request
-    let request =
-        StacksHttpRequest::new_block_replay(addr.clone().into(), &StacksBlockId([0x00; 32]));
+    let request = StacksHttpRequest::new_block_replay(addr.into(), &StacksBlockId([0x00; 32]));
     requests.push(request);
 
     let mut responses = rpc_test.run(requests);
@@ -250,8 +248,8 @@ fn replay_block_with_pc_failure() {
                 0,
                 1000,
                 CHAIN_ID_TESTNET,
-                &"test",
-                &code_body,
+                "test",
+                code_body,
                 None,
             );
 
@@ -296,8 +294,7 @@ fn replay_block_with_pc_failure() {
 
     let mut requests = vec![];
 
-    let mut request =
-        StacksHttpRequest::new_block_replay(addr.clone().into(), &rpc_test.canonical_tip);
+    let mut request = StacksHttpRequest::new_block_replay(addr.into(), &rpc_test.canonical_tip);
     request.add_header("authorization".into(), "password".into());
     requests.push(request);
 
@@ -344,8 +341,8 @@ fn test_try_make_response_with_unsuccessful_transaction() {
                 100,
                 1000,
                 CHAIN_ID_TESTNET,
-                &"err-contract",
-                &contract_code,
+                "err-contract",
+                contract_code,
             );
             let deploy_tx =
                 StacksTransaction::consensus_deserialize(&mut deploy_tx_bytes.as_slice()).unwrap();
@@ -362,8 +359,7 @@ fn test_try_make_response_with_unsuccessful_transaction() {
 
     let mut requests = vec![];
 
-    let mut request =
-        StacksHttpRequest::new_block_replay(addr.clone().into(), &rpc_test.canonical_tip);
+    let mut request = StacksHttpRequest::new_block_replay(addr.into(), &rpc_test.canonical_tip);
     // add the authorization header
     request.add_header("authorization".into(), "password".into());
     requests.push(request);

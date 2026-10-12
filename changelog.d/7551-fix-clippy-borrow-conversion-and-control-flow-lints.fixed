@@ -1,0 +1,1 @@
+Removed redundant borrows, clones, conversions, temporary bindings, and control flow reported by Clippy.
