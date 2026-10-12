@@ -3,8 +3,8 @@ name: Slack Open PR Nag Bot
 on:
   schedule:
     # Run at 6am Eastern Time on Mon, Weds, Fri
-    - cron: '0 6 * * 1,3,5'
-      timezone: 'America/New_York'
+    - cron: "0 6 * * 1,3,5"
+      timezone: "America/New_York"
   workflow_dispatch: # Allows manual testing
 
 permissions:
@@ -31,13 +31,13 @@ jobs:
         uses: $/.github/wrappers/github-script
         env:
           SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_CORE_PR_NAG_BOT }}
-          
+
           # CONFIGURABLE VARIABLES
-          TARGET_OWNER: 'stacks-network'
-          TARGET_REPO: 'stacks-core'
-          IGNORE_DRAFTS: 'true'
+          TARGET_OWNER: "stacks-network"
+          TARGET_REPO: "stacks-core"
+          IGNORE_DRAFTS: "true"
           MANUAL_RUN: ${{ github.event_name == 'workflow_dispatch' }}
-          
+
           # CENTRAL TEAM REGISTRY
           # Membership in this registry is what marks a PR author as internal;
           # anyone absent from it is treated as an external contributor.
@@ -60,7 +60,7 @@ jobs:
               "rob-stacks":        { "name": "Roberto",   "slack": "U07UNFAS4BD", "triage": true  }
             }
           # ------------------------------
-          
+
         with:
           script: |
             const owner = process.env.TARGET_OWNER;
@@ -129,7 +129,7 @@ jobs:
 
             // 3. Enrich PR data with unresolved review comments and precise reviewer state maps via GraphQL
             console.log(`Enriching ${filteredSortedPrs.length} PRs with merge metrics, comments, and reviewer status tokens...`);
-            
+
             const reviewsGroup = await Promise.all(filteredSortedPrs.map(async (pr) => {
               let unresolvedComments = [];
               let allReviewersSuperset = [];
@@ -137,7 +137,7 @@ jobs:
               let approvedCount = 0;
               let mergeableState = 'UNKNOWN';
               let mergeStateStatus = 'UNKNOWN';
-            
+
               try {
                 const gqlResponse = await github.graphql(`
                   query($owner: String!, $repo: String!, $number: Int!) {
@@ -177,11 +177,11 @@ jobs:
                     }
                   }
                 `, { owner, repo, number: pr.number });
-            
+
                 const prNode = gqlResponse.repository?.pullRequest;
                 mergeableState = prNode?.mergeable || 'UNKNOWN';
                 mergeStateStatus = prNode?.mergeStateStatus || 'UNKNOWN';
-            
+
                 // Process unresolved comments
                 const threads = prNode?.reviewThreads?.nodes || [];
                 unresolvedComments = threads
@@ -193,7 +193,7 @@ jobs:
                       text_snippet: topComment?.body ? topComment.body.substring(0, 100).replace(/\r?\n|\r/g, " ") : ""
                     };
                   });
-            
+
                 // Populate historical review statuses (APPROVED, CHANGES_REQUESTED, COMMENTED)
                 const latestReviewsNodes = prNode?.latestReviews?.nodes || [];
                 latestReviewsNodes.forEach(node => {
@@ -205,31 +205,31 @@ jobs:
                     }
                   }
                 });
-            
+
                 // Extract active pending reviewers and overwrite map state to 'AWAITING_REVIEW'
                 const pendingLogins = prNode?.reviewRequests?.nodes
                   ?.map(node => node.requestedReviewer?.login)
                   .filter(Boolean) || [];
-                  
+
                 pendingLogins.forEach(login => {
                   reviewerStateMap[login.toLowerCase()] = 'AWAITING_REVIEW';
                 });
-            
+
                 // Deduplicate all unique reviewer handles and filter out Copilot
                 allReviewersSuperset = Object.keys(reviewerStateMap)
                   .filter(login => login !== 'copilot-pull-request-reviewer');
-            
+
               } catch (err) {
                 console.error(`Failed to fetch GraphQL data for PR #${pr.number}:`, err);
                 allReviewersSuperset = pr.requested_reviewers
                   .map(r => r.login)
                   .filter(login => login.toLowerCase() !== 'copilot-pull-request-reviewer');
-                  
+
                 allReviewersSuperset.forEach(login => {
                   reviewerStateMap[login.toLowerCase()] = 'AWAITING_REVIEW';
                 });
               }
-            
+
               // Package structural models back up for the line builder to scan
               pr.requested_reviewers = allReviewersSuperset.map(login => ({
                 login,
@@ -237,7 +237,7 @@ jobs:
               }));
               pr.merge_conflict_present = mergeableState === 'CONFLICTING';
               pr.out_of_date_with_base = mergeStateStatus === 'BEHIND';
-            
+
               return { pr, unresolvedComments, approvedCount, allReviewersSuperset };
             }));
 
@@ -264,36 +264,31 @@ jobs:
               const changesRequested = pr.requested_reviewers.some(r => r.state === 'CHANGES_REQUESTED');
               const resolveCount = item.unresolvedComments.length;
               const authorLogin = pr.user.login.toLowerCase();
-              
+
               const isExternal = !allowedUsers.has(authorLogin);
 
-              // Group the author-blocking states
-              const needsAuthorAction = changesRequested || resolveCount > 0 || pr.merge_conflict_present || pr.out_of_date_with_base;
-
-              // The triager can stand down on an unassigned external PR once the team has engaged and the next step
-              // is someone else's: a team reviewer owes a review (and is nagged below), or the ball is in the
-              // author's court (and the PR just sits until they act). Otherwise, e.g. after a lone approval or a
-              // drive-by comment with nothing left for the author to do, it falls back to the triager.
-              const teamReviewers = pr.requested_reviewers.filter(r => allowedUsers.has(r.login.toLowerCase()));
-              const teamOwesReview = teamReviewers.some(r => r.state === 'AWAITING_REVIEW');
-              const waitingOnAuthor = teamReviewers.length > 0 && needsAuthorAction;
-              const needsTriage = isExternal && (pr.assignees || []).length === 0 && !teamOwesReview && !waitingOnAuthor;
+              // An unassigned external PR goes to the triage rotation until someone is assigned as its owner;
+              // from then on the owner logic below drives it like any other PR.
+              const needsTriage = isExternal && (pr.assignees || []).length === 0;
 
               let triagerLogin = null;
               if (needsTriage) {
-                triagerLogin = triagerPool.length > 0 
-                  ? triagerPool[pr.number % triagerPool.length] 
+                triagerLogin = triagerPool.length > 0
+                  ? triagerPool[pr.number % triagerPool.length]
                   : null;
                 if (triagerLogin) {
-                  addAction(triagerLogin, `🆕 External PR to triage: ${link}`, pr.number);
+                  addAction(triagerLogin, `🆕 External PR to triage (assign an owner): ${link}`, pr.number);
                 }
               }
 
               // Assign whomever owns the next step: the author on internal PRs, the assignee(s) on external ones.
-              // An unassigned external PR has no owner here - the triage decision above already covered it.
+              // An unassigned external PR has no owner here - the triage branch above already nagged the rotation.
               const owners = isExternal ? (pr.assignees || []).map(a => a.login.toLowerCase()) : [authorLogin];
               // A review already sitting in someone's queue is not the owner's problem.
               const someoneOwesReview = pr.requested_reviewers.some(r => r.state === 'AWAITING_REVIEW');
+
+              // Group the author-blocking states
+              const needsAuthorAction = changesRequested || resolveCount > 0 || pr.merge_conflict_present || pr.out_of_date_with_base;
 
               if (needsAuthorAction) {
                 // Tasks that strictly belong to the PR author
@@ -358,7 +353,7 @@ jobs:
                 text: `*📋 Open PR Status Report (${actionablePrs.size} Actionable PRs)*${manualRun ? ' | _(Manual Run)_' : ''}\n`
               }
             });
-            
+
             // Sort users alphabetically by display name
             const sortedLogins = Object.keys(userActionsMap).sort((a, b) => {
               return getPlainName(a).localeCompare(getPlainName(b));
