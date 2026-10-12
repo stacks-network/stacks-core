@@ -1582,8 +1582,7 @@ fn test_list_type_data_new_list_rejects_too_deep() {
     assert_eq!(ClarityTypeError::TypeSignatureTooDeep, err);
 }
 
-/// `reduce_max_len` mutates `max_len`, so it must keep the cached size in step. It had no
-/// direct coverage at all: its only caller in the tree is `special_as_max_len`.
+/// `reduce_max_len` mutates `max_len`, so it must keep the cached size in step.
 ///
 /// The strongest form of the assertion is that shrinking to `n` lands on exactly the size a
 /// list constructed at `n` would have — that is what makes the cache indistinguishable from a
