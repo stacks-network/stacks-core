@@ -14,6 +14,8 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 use std::collections::HashMap;
 use std::fs;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime};
 
 use blockstack_lib::chainstate::nakamoto::NakamotoBlockHeader;
@@ -1286,6 +1288,156 @@ fn check_miner_inactivity_timeout() {
     server = crate::client::tests::mock_server_from_config(&config);
     crate::client::tests::write_response(server, to_send_3.as_bytes());
     h.join().unwrap();
+}
+
+/// Two blocking-minority views of the same tenure that disagree only on the parent tenure's
+/// last block must be ranked deterministically: the view with the more recent parent-tenure
+/// knowledge wins every time. Before the fix the tie was left to HashSet iteration order, so
+/// a signer could capitulate to the stale view, be corrected by its node on the next check,
+/// and capitulate again, broadcasting a state update on every flip.
+#[test]
+fn capitulate_miner_view_tie_break_is_deterministic() {
+    let MockServerClient { server, client, .. } = MockServerClient::new();
+
+    let mut address_weights = HashMap::new();
+    let local_address = client.get_signer_address().clone();
+    address_weights.insert(local_address.clone(), 10);
+    for _ in 1..10 {
+        let stacks_address = StacksAddress::p2pkh(false, &StacksPublicKey::new());
+        address_weights.insert(stacks_address, 10);
+    }
+
+    let burn_block = ConsensusHash([0x55; 20]);
+    let burn_block_height = 100;
+    let tenure_id = ConsensusHash([0x01; 20]);
+    let parent_tenure_id = ConsensusHash([0x22; 20]);
+    let stale_parent_height = 35;
+    let fresh_parent_height = 36;
+
+    let make_view = |parent_last_block: StacksBlockId, parent_height: u64| {
+        StateMachineUpdateMinerState::ActiveMiner {
+            current_miner_pkh: Hash160([0xab; 20]),
+            tenure_id: tenure_id.clone(),
+            parent_tenure_id: parent_tenure_id.clone(),
+            parent_tenure_last_block: parent_last_block,
+            parent_tenure_last_block_height: parent_height,
+        }
+    };
+    let make_update = |view: &StateMachineUpdateMinerState| {
+        StateMachineUpdateMessage::new(
+            0,
+            0,
+            StateMachineUpdateContent::V0 {
+                burn_block: burn_block.clone(),
+                burn_block_height,
+                current_miner: view.clone(),
+            },
+        )
+        .unwrap()
+    };
+    let stale_view = make_view(StacksBlockId([0x35; 32]), stale_parent_height);
+    let fresh_view = make_view(StacksBlockId([0x36; 32]), fresh_parent_height);
+    let stale_update = make_update(&stale_view);
+    let fresh_update = make_update(&fresh_view);
+
+    // 40% of the weight on each view (both past the >30% blocking minority, neither at 70%),
+    // the local signer among the fresh ones, and the remaining 20% seeing no valid miner.
+    let mut address_updates = HashMap::new();
+    let others: Vec<_> = address_weights
+        .keys()
+        .filter(|a| **a != local_address)
+        .cloned()
+        .collect();
+    address_updates.insert(local_address.clone(), fresh_update.clone());
+    for (i, address) in others.into_iter().enumerate() {
+        let update = match i {
+            0..=3 => stale_update.clone(),
+            4..=6 => fresh_update.clone(),
+            _ => StateMachineUpdateMessage::new(
+                0,
+                0,
+                StateMachineUpdateContent::V0 {
+                    burn_block: burn_block.clone(),
+                    burn_block_height,
+                    current_miner: StateMachineUpdateMinerState::NoValidMiner,
+                },
+            )
+            .unwrap(),
+        };
+        address_updates.insert(address, update);
+    }
+    let mut global_eval = GlobalStateEvaluator::new(address_updates, address_weights);
+
+    // The tenure is known and has a globally accepted block, so both views qualify.
+    let mut db = SignerDb::new(tmp_db_path()).expect("Failed to create signer db");
+    db.insert_burn_block(
+        &BurnchainHeaderHash([0u8; 32]),
+        &tenure_id,
+        burn_block_height,
+        &SystemTime::now(),
+        &BurnchainHeaderHash([1u8; 32]),
+    )
+    .unwrap();
+    let (mut block_info, _) = create_block_override(|b| {
+        b.block.header.consensus_hash = tenure_id.clone();
+        b.block.header.chain_length = fresh_parent_height + 1;
+        b.burn_height = burn_block_height;
+    });
+    block_info.mark_globally_accepted().unwrap();
+    db.insert_block(&block_info).unwrap();
+
+    // The node already knows the fresh parent block, so neither view is "ahead" of us.
+    let anchored_header = StacksBlockHeaderTypes::Nakamoto(NakamotoBlockHeader {
+        version: 1,
+        chain_length: fresh_parent_height,
+        burn_spent: 0,
+        consensus_hash: parent_tenure_id.clone(),
+        parent_block_id: StacksBlockId([0x35; 32]),
+        tx_merkle_root: Sha512Trunc256Sum([0u8; 32]),
+        state_index_root: TrieHash([0u8; 32]),
+        timestamp: 0,
+        miner_signature: MessageSignature([0u8; 65]),
+        signer_signature: vec![],
+        pox_treatment: BitVec::ones(1).unwrap(),
+        problematic_txs: vec![],
+    });
+    let tenure_tip = build_get_tenure_tip_response(&BlockHeaderWithMetadata {
+        anchored_header,
+        burn_view: Some(parent_tenure_id.clone()),
+    });
+    let exit = Arc::new(AtomicBool::new(false));
+    let exit_clone = exit.clone();
+    let server_thread = std::thread::spawn(move || {
+        crate::client::tests::write_response_nonblockinig(
+            &server,
+            tenure_tip.as_bytes(),
+            exit_clone,
+        );
+    });
+
+    let mut local_state_machine = LocalStateMachine::Initialized(SignerStateMachine {
+        burn_block: burn_block.clone(),
+        burn_block_height,
+        current_miner: fresh_view.clone().into(),
+        active_signer_protocol_version: 0,
+    });
+    for attempt in 0..25 {
+        let chosen = local_state_machine
+            .capitulate_miner_view(
+                &client,
+                &mut global_eval,
+                &mut db,
+                &fresh_update,
+                Duration::from_secs(u64::MAX),
+            )
+            .expect("both views are blocking minorities of a tenure with an accepted block");
+        assert_eq!(
+            chosen, fresh_view,
+            "attempt {attempt}: the view with the newer parent-tenure block must always win"
+        );
+    }
+    exit.store(true, Ordering::SeqCst);
+    server_thread.join().unwrap();
 }
 
 /// A transient node error while reacting to a burn block must not strand the local state

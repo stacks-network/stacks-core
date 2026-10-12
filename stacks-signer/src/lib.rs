@@ -37,6 +37,8 @@ pub mod monitoring;
 pub mod runloop;
 /// The signer state module
 pub mod signerdb;
+/// Online pruning of the signer db
+pub mod signerdb_pruner;
 /// The util module for the signer
 pub mod utils;
 /// The v0 implementation of the signer.
