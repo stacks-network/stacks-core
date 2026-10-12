@@ -42,6 +42,14 @@ use stacks_common::util::secp256k1::MessageSignature;
 use stacks_common::util::secp256k1::Secp256k1PrivateKey;
 use stacks_common::{debug, define_u8_enum, error, warn};
 
+/// How far below the burnchain tip, in burn blocks, a fork can still matter to the signer. It
+/// bounds everything the signer database keeps by age.
+/// Used as an input for pruning operations such as [`SignerDb::prune_superseded_tenures`] and
+/// [`SignerDb::prune`].
+/// NOTE: A fork deeper than this would cause much bigger problems than a stale conflict or
+/// a missing local record.
+pub const MAX_FORK_DEPTH: u64 = 100;
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 /// A vote across the signer set for a block
 pub struct NakamotoBlockVote {
@@ -384,14 +392,6 @@ impl BlockInfo {
         true
     }
 }
-
-/// How far below the burnchain tip, in burn blocks, a fork can still matter to the signer. It
-/// bounds everything the signer database keeps by age.
-/// Used as an input for pruning operations such as [`SignerDb::prune_superseded_tenures`] and
-/// [`SignerDb::prune`].
-/// NOTE: A fork deeper than this would cause much bigger problems than a stale conflict or
-/// a missing local record.
-pub const MAX_FORK_DEPTH: u64 = 100;
 
 /// The parameters of one pruning pass (see [`SignerDb::prune`]).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
