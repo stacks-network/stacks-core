@@ -20,13 +20,8 @@ use clarity::codec::StacksMessageCodec;
 /// are appropriately distributed.
 use clarity::vm::clarity::ClarityConnection;
 use clarity::vm::costs::LimitedCostTracker;
-use clarity::vm::types::*;
-use stacks_common::address::*;
 
-use crate::chainstate::burn::db::sortdb::*;
 use crate::chainstate::burn::operations::BlockstackOperationType;
-use crate::chainstate::stacks::db::*;
-use crate::chainstate::stacks::miner::*;
 use crate::chainstate::stacks::tests::*;
 use crate::chainstate::stacks::C32_ADDRESS_VERSION_TESTNET_SINGLESIG;
 use crate::core::*;
@@ -185,8 +180,8 @@ fn test_bad_microblock_fees_pre_v210() {
 
                         let mut tx_signer = StacksTransactionSigner::new(&tx_coinbase);
                         tx_signer.sign_origin(&pk).unwrap();
-                        let tx_coinbase_signed = tx_signer.get_tx().unwrap();
-                        tx_coinbase_signed
+
+                        tx_signer.get_tx().unwrap()
                     };
 
                 let mut anchored_txs = vec![coinbase_tx];
@@ -510,8 +505,8 @@ fn test_bad_microblock_fees_fix_transition() {
 
                         let mut tx_signer = StacksTransactionSigner::new(&tx_coinbase);
                         tx_signer.sign_origin(&pk).unwrap();
-                        let tx_coinbase_signed = tx_signer.get_tx().unwrap();
-                        tx_coinbase_signed
+
+                        tx_signer.get_tx().unwrap()
                     };
 
                 let mut anchored_txs = vec![coinbase_tx];
@@ -868,8 +863,8 @@ fn test_get_block_info_v210() {
 
                         let mut tx_signer = StacksTransactionSigner::new(&tx_coinbase);
                         tx_signer.sign_origin(&pk).unwrap();
-                        let tx_coinbase_signed = tx_signer.get_tx().unwrap();
-                        tx_coinbase_signed
+
+                        tx_signer.get_tx().unwrap()
                     };
 
                 let mut anchored_txs = vec![coinbase_tx];
@@ -1028,7 +1023,7 @@ fn test_get_block_info_v210() {
                     .unwrap();
 
                     let list = list_val.expect_list().unwrap();
-                    let block_reward_opt = list.get(0).cloned().unwrap().expect_optional().unwrap();
+                    let block_reward_opt = list.first().cloned().unwrap().expect_optional().unwrap();
                     let miner_spend_winner = list.get(1).cloned().unwrap().expect_optional().unwrap().unwrap().expect_u128().unwrap();
                     let miner_spend_total = list.get(2).cloned().unwrap().expect_optional().unwrap().unwrap().expect_u128().unwrap();
 
@@ -1178,7 +1173,7 @@ fn test_get_block_info_v210_no_microblocks() {
     let recipient_addr_str = "ST1RFD5Q2QPK3E0F08HG9XDX7SSC7CNRS0QR0SGEV";
     let recipient = StacksAddress::from_string(recipient_addr_str).unwrap();
 
-    for tenure_id in 0..num_blocks {
+    for (tenure_id, mblock_privk) in mblock_privks[..num_blocks].iter().enumerate() {
         // send transactions to the mempool
         let tip =
             SortitionDB::get_canonical_burn_chain_tip(peer.chain.sortdb.as_ref().unwrap().conn())
@@ -1241,8 +1236,8 @@ fn test_get_block_info_v210_no_microblocks() {
 
                         let mut tx_signer = StacksTransactionSigner::new(&tx_coinbase);
                         tx_signer.sign_origin(&pk).unwrap();
-                        let tx_coinbase_signed = tx_signer.get_tx().unwrap();
-                        tx_coinbase_signed
+
+                        tx_signer.get_tx().unwrap()
                     };
 
                 let mut anchored_txs = vec![coinbase_tx];
@@ -1262,11 +1257,11 @@ fn test_get_block_info_v210_no_microblocks() {
                 }
 
                 let mblock_pubkey_hash = {
-                    let parent_microblock_privkey = mblock_privks[tenure_id].clone();
-                    let mblock_pubkey_hash = Hash160::from_node_public_key(
-                        &StacksPublicKey::from_private(&parent_microblock_privkey),
-                    );
-                    mblock_pubkey_hash
+                    let parent_microblock_privkey = mblock_privk.clone();
+
+                    Hash160::from_node_public_key(&StacksPublicKey::from_private(
+                        &parent_microblock_privkey,
+                    ))
                 };
                 let builder = StacksBlockBuilder::make_block_builder(
                     &burnchain,
@@ -1333,7 +1328,7 @@ fn test_get_block_info_v210_no_microblocks() {
                     .unwrap();
 
                     let list = list_val.expect_list().unwrap();
-                    let block_reward_opt = list.get(0).cloned().unwrap().expect_optional().unwrap();
+                    let block_reward_opt = list.first().cloned().unwrap().expect_optional().unwrap();
                     let miner_spend_winner = list.get(1).cloned().unwrap().expect_optional().unwrap().unwrap().expect_u128().unwrap();
                     let miner_spend_total = list.get(2).cloned().unwrap().expect_optional().unwrap().unwrap().expect_u128().unwrap();
 
@@ -1625,8 +1620,8 @@ fn test_coinbase_pay_to_alt_recipient_v210(pay_to_contract: bool) {
 
                         let mut tx_signer = StacksTransactionSigner::new(&tx_coinbase);
                         tx_signer.sign_origin(&pk).unwrap();
-                        let tx_coinbase_signed = tx_signer.get_tx().unwrap();
-                        tx_coinbase_signed
+
+                        tx_signer.get_tx().unwrap()
                     }
                 };
 
@@ -1802,7 +1797,7 @@ fn test_coinbase_pay_to_alt_recipient_v210(pay_to_contract: bool) {
                     .unwrap();
 
                     let list = list_val.expect_list().unwrap();
-                    let block_reward_opt = list.get(0).cloned().unwrap().expect_optional().unwrap();
+                    let block_reward_opt = list.first().cloned().unwrap().expect_optional().unwrap();
                     let miner_spend_winner = list.get(1).cloned().unwrap().expect_optional().unwrap().unwrap().expect_u128().unwrap();
                     let miner_spend_total = list.get(2).cloned().unwrap().expect_optional().unwrap().unwrap().expect_u128().unwrap();
 

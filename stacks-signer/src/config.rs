@@ -1,5 +1,5 @@
 // Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
-// Copyright (C) 2020-2024 Stacks Open Internet Foundation
+// Copyright (C) 2020-2026 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -28,7 +28,7 @@ use serde::Deserialize;
 use stacks_common::address::{
     C32_ADDRESS_VERSION_MAINNET_SINGLESIG, C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
 };
-use stacks_common::consts::{CHAIN_ID_MAINNET, CHAIN_ID_TESTNET};
+use stacks_common::consts::{CHAIN_ID_MAINNET, CHAIN_ID_SIGNET, CHAIN_ID_TESTNET};
 use stacks_common::types::chainstate::{StacksAddress, StacksPrivateKey, StacksPublicKey};
 use stacks_common::util::hash::Hash160;
 
@@ -42,6 +42,7 @@ const BLOCK_PROPOSAL_VALIDATION_TIMEOUT_MS: u64 = 120_000;
 const DEFAULT_FIRST_PROPOSAL_BURN_BLOCK_TIMING_SECS: u64 = 60;
 const DEFAULT_TENURE_LAST_BLOCK_PROPOSAL_TIMEOUT_SECS: u64 = 30;
 const DEFAULT_DRY_RUN: bool = false;
+const DEFAULT_DB_PRUNING: bool = true;
 /// Default number of idle seconds before the signer will accept a
 ///  tenure extend from the miner
 const TENURE_IDLE_TIMEOUT_SECS: u64 = 30;
@@ -77,16 +78,17 @@ pub enum ConfigError {
     UnsupportedAddressVersion,
 }
 
+/// Signer configuration profile selecting the default chain ID and encoding family.
+/// Non-mainnet profiles share address and transaction encodings.
 #[derive(serde::Deserialize, Debug, Clone, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
-/// The Stacks network to use.
 pub enum Network {
     /// The mainnet network
     Mainnet,
     /// The testnet network
     Testnet,
-    /// The mocknet network
-    Mocknet,
+    /// A Stacks network backed by public or custom Bitcoin signet.
+    Signet,
 }
 
 impl std::fmt::Display for Network {
@@ -94,7 +96,7 @@ impl std::fmt::Display for Network {
         match self {
             Self::Mainnet => write!(f, "mainnet"),
             Self::Testnet => write!(f, "testnet"),
-            Self::Mocknet => write!(f, "mocknet"),
+            Self::Signet => write!(f, "signet"),
         }
     }
 }
@@ -104,7 +106,7 @@ impl Network {
     pub const fn to_address_version(&self) -> u8 {
         match self {
             Self::Mainnet => C32_ADDRESS_VERSION_MAINNET_SINGLESIG,
-            Self::Testnet | Self::Mocknet => C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
+            Self::Testnet | Self::Signet => C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
         }
     }
 
@@ -112,7 +114,7 @@ impl Network {
     pub const fn to_transaction_version(&self) -> TransactionVersion {
         match self {
             Self::Mainnet => TransactionVersion::Mainnet,
-            Self::Testnet | Self::Mocknet => TransactionVersion::Testnet,
+            Self::Testnet | Self::Signet => TransactionVersion::Testnet,
         }
     }
 
@@ -120,7 +122,7 @@ impl Network {
     pub const fn is_mainnet(&self) -> bool {
         match self {
             Self::Mainnet => true,
-            Self::Testnet | Self::Mocknet => false,
+            Self::Testnet | Self::Signet => false,
         }
     }
 }
@@ -214,7 +216,7 @@ pub struct GlobalConfig {
     pub stacks_private_key: StacksPrivateKey,
     /// The signer's Stacks address
     pub stacks_address: StacksAddress,
-    /// The network to use. One of "mainnet" or "testnet".
+    /// The network whose address, transaction, and chain-ID defaults to use.
     pub network: Network,
     /// The time to wait for a response from the stacker-db instance
     pub event_timeout: Duration,
@@ -222,6 +224,8 @@ pub struct GlobalConfig {
     pub auth_password: String,
     /// The path to the signer's database file
     pub db_path: PathBuf,
+    /// Whether the signer db is pruned online
+    pub db_pruning: bool,
     /// Metrics endpoint
     pub metrics_endpoint: Option<SocketAddr>,
     /// How much time between the first block proposal in a tenure and the next bitcoin block
@@ -293,11 +297,11 @@ struct RawConfigFile {
     ///   - 64 or 66 hex characters (with optional `01` compression suffix).
     ///   - This key determines the signer's on-chain identity and address.
     pub stacks_private_key: String,
-    /// The network to use. One of `"mainnet"`, `"testnet"`, or `"mocknet"`.
+    /// The network to use. One of `"mainnet"`, `"testnet"`, or `"signet"`.
     /// ---
     /// @default: (required, no default)
     /// @notes:
-    ///   - Determines address version and transaction version.
+    ///   - Determines address version, transaction version, and default chain ID.
     pub network: Network,
     /// The time to wait for a response from the stacker-db instance.
     /// ---
@@ -319,6 +323,15 @@ struct RawConfigFile {
     ///   - Use an absolute path for production (e.g., `"/var/lib/stacks-signer/signerdb.sqlite"`).
     ///   - Use `":memory:"` only for testing.
     pub db_path: String,
+    /// Prune the signer database online. Every 10 seconds, a small batch of records older than
+    /// the last 100 burn blocks of tenures is removed, so the database no longer grows without
+    /// bound.
+    /// ---
+    /// @default: `true`
+    /// @notes:
+    ///   - Freed space is reused but not returned to the OS: an existing large database file
+    ///     keeps its size until it is compacted offline.
+    pub db_pruning: Option<bool>,
     /// Optional Prometheus metrics endpoint.
     /// ---
     /// @default: `None` (disabled)
@@ -355,7 +368,7 @@ struct RawConfigFile {
     pub block_proposal_timeout_ms: Option<u64>,
     /// An optional custom Chain ID. Overrides the default for the selected network.
     /// ---
-    /// @default: `0x00000001` (mainnet) or `0x80000000` (testnet)
+    /// @default: `0x00000001` (mainnet), `0x80000001` (signet), or `0x80000000` (testnet)
     /// @notes:
     ///   - Only set this for custom/private networks.
     pub chain_id: Option<u32>,
@@ -507,6 +520,7 @@ impl TryFrom<RawConfigFile> for GlobalConfig {
                 .unwrap_or(DEFAULT_FIRST_PROPOSAL_BURN_BLOCK_TIMING_SECS),
         );
         let db_path = raw_data.db_path.into();
+        let db_pruning = raw_data.db_pruning.unwrap_or(DEFAULT_DB_PRUNING);
 
         let metrics_endpoint = match raw_data.metrics_endpoint {
             Some(endpoint) => Some(
@@ -600,6 +614,7 @@ impl TryFrom<RawConfigFile> for GlobalConfig {
             event_timeout,
             auth_password: raw_data.auth_password,
             db_path,
+            db_pruning,
             metrics_endpoint,
             first_proposal_burn_block_timing,
             block_proposal_timeout,
@@ -657,6 +672,7 @@ Public key: {public_key}
 Network: {network}
 Chain ID: 0x{chain_id}
 Database path: {db_path}
+DB pruning: {db_pruning}
 Metrics endpoint: {metrics_endpoint}
 Dry run: {dry_run}
 "#,
@@ -668,6 +684,7 @@ Dry run: {dry_run}
             ),
             network = self.network,
             db_path = self.db_path.to_str().unwrap_or_default(),
+            db_pruning = self.db_pruning,
             metrics_endpoint = metrics_endpoint,
             dry_run = self.dry_run,
         )
@@ -677,7 +694,8 @@ Dry run: {dry_run}
     pub fn to_chain_id(&self) -> u32 {
         self.chain_id.unwrap_or(match self.network {
             Network::Mainnet => CHAIN_ID_MAINNET,
-            Network::Testnet | Network::Mocknet => CHAIN_ID_TESTNET,
+            Network::Signet => CHAIN_ID_SIGNET,
+            Network::Testnet => CHAIN_ID_TESTNET,
         })
     }
 }
@@ -858,6 +876,7 @@ Public key: 03bc489f27da3701d9f9e577c88de5567cf4023111b7577042d55cde4d823a3505
 Network: testnet
 Chain ID: 0x80000000
 Database path: :memory:
+DB pruning: true
 Metrics endpoint: 0.0.0.0:9090
 Dry run: false
 "#;
@@ -870,6 +889,7 @@ Public key: 03bc489f27da3701d9f9e577c88de5567cf4023111b7577042d55cde4d823a3505
 Network: testnet
 Chain ID: 0x80000000
 Database path: :memory:
+DB pruning: true
 Metrics endpoint: 0.0.0.0:9090
 Dry run: false
 "#;
@@ -928,6 +948,37 @@ capitulate_miner_view_timeout_secs = 1000
         );
     }
 
+    /// Signet defaults and explicit deployment IDs survive config serialization and parsing.
+    #[test]
+    fn test_signet_network_defaults_and_override() {
+        let key = StacksPrivateKey::from_seed(b"signet-signer-config");
+        for chain_id in [None, Some(0x80000100)] {
+            let configs = build_signer_config_tomls(
+                std::slice::from_ref(&key),
+                "127.0.0.1:20443",
+                None,
+                &Network::Signet,
+                "test-password",
+                0,
+                3000,
+                None,
+                chain_id,
+            );
+            let config = GlobalConfig::load_from_str(&configs[0]).unwrap();
+            assert_eq!(config.network, Network::Signet);
+            assert_eq!(config.to_chain_id(), chain_id.unwrap_or(CHAIN_ID_SIGNET));
+            assert!(!config.network.is_mainnet());
+            assert_eq!(
+                config.network.to_transaction_version(),
+                TransactionVersion::Testnet
+            );
+            assert_eq!(
+                config.network.to_address_version(),
+                C32_ADDRESS_VERSION_TESTNET_SINGLESIG
+            );
+        }
+    }
+
     #[test]
     fn test_custom_chain_id() {
         let pk = StacksPrivateKey::from_hex(
@@ -955,5 +1006,34 @@ capitulate_miner_view_timeout_secs = 1000
         assert_eq!(config.chain_id, Some(0x80000100));
         let global_config = GlobalConfig::try_from(config).unwrap();
         assert_eq!(global_config.to_chain_id(), 0x80000100);
+    }
+
+    #[test]
+    fn test_db_pruning_defaults_to_enabled_and_can_be_disabled() {
+        let pk = StacksPrivateKey::from_hex(
+            "eb05c83546fdd2c79f10f5ad5434a90dd28f7e3acb7c092157aa1bc3656b012c01",
+        )
+        .unwrap();
+        let config_toml = build_signer_config_tomls(
+            &[pk],
+            "localhost",
+            None,
+            &Network::Testnet,
+            "melon",
+            rand::random(),
+            3000,
+            Some(4000),
+            None,
+        )
+        .remove(0);
+
+        // Default to `true` when the field is missing
+        let config = GlobalConfig::load_from_str(&config_toml).unwrap();
+        assert!(config.db_pruning);
+
+        // Use the configured value when the field is present
+        let config =
+            GlobalConfig::load_from_str(&format!("{config_toml}\ndb_pruning = false\n")).unwrap();
+        assert!(!config.db_pruning);
     }
 }

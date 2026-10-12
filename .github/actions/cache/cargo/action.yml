@@ -11,7 +11,7 @@ inputs:
 outputs:
   cache-key:
     description: "Cache Key"
-    value: ${{ steps.generate-keys.outputs.cargo-cache-key }}
+    value: ${{ steps.generate-key.outputs.cargo-cache-key }}
   cache-matched-key:
     description: "Key of the cache that was checked or restored, it could either be the primary key on cache-hit or a partial/complete match of one of the restore keys."
     value: ${{ steps.check-cache.outputs.cache-matched-key || steps.restore-cache.outputs.cache-matched-key }}
@@ -20,15 +20,15 @@ runs:
   using: "composite"
   steps:
     # Generate cache keys
-    - name: Generate Cache Keys
-      id: generate-keys
-      uses: ./.github/actions/cache/generate-keys
+    - name: Generate Cargo Cache Key
+      id: generate-key
+      uses: ./.github/actions/cache/generate-cargo-key
       
     # Check if cache data exists
     - name: Check Cache
       if: |
         inputs.action == 'check'
-      uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      uses: ./.github/wrappers/cache/restore
       id: check-cache
       with:
         lookup-only: true
@@ -38,15 +38,15 @@ runs:
           ~/.cargo/registry/cache/
           ~/.cargo/git/db/
           target/
-        key: ${{ steps.generate-keys.outputs.cargo-cache-key }}
+        key: ${{ steps.generate-key.outputs.cargo-cache-key }}
         # Allows cache to "fallback" to `main` generated cache, using a prefix. The most recently created cache will be selected.
-        restore-keys: ${{ steps.generate-keys.outputs.cargo-restore-key }}
+        restore-keys: ${{ steps.generate-key.outputs.cargo-restore-key }}
 
     # Restore cache data
     - name: Restore Cache
       if: |
         inputs.action == 'restore'
-      uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      uses: ./.github/wrappers/cache/restore
       id: restore-cache
       with:
         path: |
@@ -55,16 +55,16 @@ runs:
           ~/.cargo/registry/cache/
           ~/.cargo/git/db/
           target/
-        key: ${{ steps.generate-keys.outputs.cargo-cache-key }}
+        key: ${{ steps.generate-key.outputs.cargo-cache-key }}
         # Allows cache to "fallback" to `main` generated cache, using a prefix. The most recently created cache will be selected.
-        restore-keys: ${{ steps.generate-keys.outputs.cargo-restore-key }}
+        restore-keys: ${{ steps.generate-key.outputs.cargo-restore-key }}
         fail-on-cache-miss: true
 
     # Checkout the code
     - name: Checkout the latest code
       if: |
         inputs.action == 'create'
-      uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      uses: $/.github/wrappers/checkout
       with:
         ref: ${{ github.ref }}
   
@@ -116,7 +116,7 @@ runs:
     - name: Save Cache
       if: |
         inputs.action == 'create'
-      uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      uses: ./.github/wrappers/cache/save
       with:
         path: |
           ~/.cargo/bin/
@@ -124,4 +124,4 @@ runs:
           ~/.cargo/registry/cache/
           ~/.cargo/git/db/
           target/
-        key: ${{ steps.generate-keys.outputs.cargo-cache-key }}
+        key: ${{ steps.generate-key.outputs.cargo-cache-key }}

@@ -25,9 +25,9 @@ use crate::vm::analysis::type_checker::v2_1::tests::mem_type_check as run_analys
 use crate::vm::ast::definition_sorter::DefinitionSorter;
 use crate::vm::ast::errors::{ParseErrorKind, ParseResult};
 use crate::vm::ast::expression_identifier::ExpressionIdentifier;
-use crate::vm::ast::parser;
 use crate::vm::ast::stack_depth_checker::StackDepthLimits;
 use crate::vm::ast::types::ContractAST;
+use crate::vm::ast::{build_ast, parser};
 use crate::vm::types::QualifiedContractIdentifier;
 
 #[template]
@@ -294,4 +294,120 @@ fn should_not_conflict_with_atoms_from_trait_definitions(#[case] version: Clarit
     "#;
 
     run_scoped_parsing_helper(contract, version).unwrap();
+}
+
+/// Full AST pipeline, including the sorter.
+fn build_ast_at(
+    contract: &str,
+    version: ClarityVersion,
+    epoch: StacksEpochId,
+) -> ParseResult<ContractAST> {
+    build_ast(
+        &QualifiedContractIdentifier::transient(),
+        contract,
+        &mut (),
+        version,
+        epoch,
+    )
+}
+
+/// Calling the native inside the same-named implementation is not a cycle.
+#[test]
+fn epoch41_native_application_in_same_named_function_is_not_a_cycle() {
+    let contract = "(define-read-only (slice? (a int) (b int))
+                        (len (unwrap-panic (slice? (list a b) u0 u1))))";
+    build_ast_at(contract, ClarityVersion::Clarity7, StacksEpochId::Epoch41).unwrap();
+    // The gate is the epoch, not the version (a pinned Clarity 6 cannot deploy
+    // at Epoch 4.1 on chain, but tooling may still parse one).
+    build_ast_at(contract, ClarityVersion::Clarity6, StacksEpochId::Epoch41).unwrap();
+
+    // Before Epoch 4.1 behavior is unchanged, whatever the version (such
+    // contracts fail at initialization anyway).
+    let err = build_ast_at(contract, ClarityVersion::Clarity6, StacksEpochId::Epoch40).unwrap_err();
+    assert!(matches!(*err.err, ParseErrorKind::CircularReference(_)));
+    let err = build_ast_at(contract, ClarityVersion::Clarity7, StacksEpochId::Epoch40).unwrap_err();
+    assert!(matches!(*err.err, ParseErrorKind::CircularReference(_)));
+}
+
+/// Same for reading a keyword inside the same-named implementation.
+#[test]
+fn epoch41_native_keyword_in_same_named_function_is_not_a_cycle() {
+    let contract = "(define-read-only (stacks-block-height) (ok stacks-block-height))";
+    build_ast_at(contract, ClarityVersion::Clarity7, StacksEpochId::Epoch41).unwrap();
+
+    let err = build_ast_at(contract, ClarityVersion::Clarity6, StacksEpochId::Epoch40).unwrap_err();
+    assert!(matches!(*err.err, ParseErrorKind::CircularReference(_)));
+}
+
+/// Only native names are affected: user-definition cycles are still detected.
+#[test]
+fn epoch41_user_function_cycle_is_still_detected() {
+    let contract = "(define-private (a (x int)) (b x))
+                    (define-private (b (x int)) (a x))";
+    let err = build_ast_at(contract, ClarityVersion::Clarity7, StacksEpochId::Epoch41).unwrap_err();
+    assert!(matches!(*err.err, ParseErrorKind::CircularReference(_)));
+
+    // A user function called from a native application is still a dependency.
+    let contract = "(define-read-only (b) (a 1))
+                    (define-read-only (a (x int)) (len (unwrap-panic (slice? (list (b)) u0 u1))))";
+    let err = build_ast_at(contract, ClarityVersion::Clarity7, StacksEpochId::Epoch41).unwrap_err();
+    assert!(matches!(*err.err, ParseErrorKind::CircularReference(_)));
+}
+
+/// The names of the top-level definitions of `ast`, in sorted order.
+fn sorted_definition_names(ast: &ContractAST) -> Vec<String> {
+    ast.expressions
+        .iter()
+        .filter_map(|expr| {
+            let define = expr.match_list()?;
+            let signature = define.get(1)?;
+            let name = signature
+                .match_atom()
+                .or_else(|| signature.match_list()?.first()?.match_atom())?;
+            Some(name.to_string())
+        })
+        .collect()
+}
+
+/// Applying a keyword-named user function, directly or as a `map`/`fold`/
+/// `filter` callback, makes the caller depend on it. One contract per case:
+/// in a shared one the direct-call edge alone would satisfy the assertion.
+#[rstest]
+#[case::direct_call("(stacks-block-height u1)")]
+#[case::map("(map stacks-block-height (list u1 u2))")]
+#[case::fold("(fold stacks-block-height (list u1 u2) u0)")]
+#[case::filter("(filter stacks-block-height (list u1 u2))")]
+fn epoch41_keyword_named_function_is_a_dependency_in_function_position(#[case] call: &str) {
+    let contract = format!(
+        "(define-read-only (caller) {call})
+         (define-read-only (stacks-block-height (x uint)) (ok x))"
+    );
+    let ast = build_ast_at(&contract, ClarityVersion::Clarity7, StacksEpochId::Epoch41).unwrap();
+    let names = sorted_definition_names(&ast);
+    assert_eq!(
+        names,
+        ["stacks-block-height", "caller"],
+        "sorted: {names:?}"
+    );
+}
+
+/// The remaining `fold` arguments are still probed: the seed is a dependency.
+#[test]
+fn epoch41_fold_seed_is_still_a_dependency() {
+    let contract = "(define-read-only (fold-seed) (fold + (list u1 u2) seed))
+                    (define-constant seed u0)";
+    let ast = build_ast_at(contract, ClarityVersion::Clarity7, StacksEpochId::Epoch41).unwrap();
+    let names = sorted_definition_names(&ast);
+    assert_eq!(names, ["seed", "fold-seed"], "sorted: {names:?}");
+}
+
+/// A native function name used as a callback still means the native.
+#[test]
+fn epoch41_native_function_name_in_function_position_is_not_a_dependency() {
+    let contract =
+        "(define-read-only (use-native) (map slice? (list (list 1 2)) (list u0) (list u1)))
+                    (define-read-only (slice? (a int) (b int)) (ok (+ a b)))";
+    let ast = build_ast_at(contract, ClarityVersion::Clarity7, StacksEpochId::Epoch41).unwrap();
+    let names = sorted_definition_names(&ast);
+    assert_eq!(names, ["use-native", "slice?"], "sorted: {names:?}");
 }

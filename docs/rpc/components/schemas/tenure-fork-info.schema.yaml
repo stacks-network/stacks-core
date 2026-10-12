@@ -35,6 +35,9 @@ properties:
     description: 0x-prefixed index-block ID of the first Stacks block in the tenure (if any)
     pattern: '^0x[0-9a-fA-F]{64}$'
   nakamoto_blocks:
-    type: [string, "null"]
-    description: 0x-prefixed SIP-003 binary encoding of all Nakamoto blocks mined in this tenure
+    type: "null"
+    deprecated: true
+    description: >-
+      Deprecated and always null. Retained for compatibility with signers
+      released before it stopped being populated, and will be removed in a future release.
 additionalProperties: false

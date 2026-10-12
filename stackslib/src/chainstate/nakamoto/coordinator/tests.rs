@@ -15,6 +15,7 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use std::collections::{HashMap, HashSet};
+use std::path::PathBuf;
 use std::sync::Mutex;
 
 use clarity::consts::CHAIN_ID_TESTNET;
@@ -396,14 +397,10 @@ pub fn make_replay_peer<'a>(peer: &mut TestPeer<'a>) -> TestPeer<'a> {
         let sort_db = peer.sortdb_ref();
         let tip = SortitionDB::get_canonical_burn_chain_tip(sort_db.conn()).unwrap();
         let sort_ic = sort_db.index_conn();
-        let ancestor_tip = SortitionDB::get_ancestor_snapshot(
-            &sort_ic,
-            replay_tip.block_height,
-            &tip.sortition_id,
-        )
-        .unwrap()
-        .unwrap();
-        ancestor_tip
+
+        SortitionDB::get_ancestor_snapshot(&sort_ic, replay_tip.block_height, &tip.sortition_id)
+            .unwrap()
+            .unwrap()
     };
 
     assert_eq!(tip, replay_tip);
@@ -436,9 +433,8 @@ pub fn make_token_transfer(
 
     let mut tx_signer = StacksTransactionSigner::new(&stx_transfer);
     tx_signer.sign_origin(private_key).unwrap();
-    let stx_transfer_signed = tx_signer.get_tx().unwrap();
 
-    stx_transfer_signed
+    tx_signer.get_tx().unwrap()
 }
 
 /// Make contract publish
@@ -535,6 +531,36 @@ fn replay_reward_cycle(
     peer.chain.stacks_node = Some(node);
 
     peer.check_nakamoto_migration();
+}
+
+/// Rebuild populated epoch-2 reward sets without a burnchain blocks database.
+#[test]
+fn test_sortition_migration_without_burnchain_db() {
+    let (mut test_signers, test_stackers) = TestStacker::common_signing_set();
+    let mut peer = boot_nakamoto(
+        function_name!(),
+        vec![],
+        &mut test_signers,
+        &test_stackers,
+        None,
+    );
+
+    let reward_sets =
+        SortitionDB::get_all_preprocessed_reward_sets(peer.sortdb_ref().conn()).unwrap();
+    assert!(reward_sets
+        .iter()
+        .filter_map(|(_, info)| info.known_selected_anchor_block())
+        .filter_map(|rewards| rewards.rewarded_addresses())
+        .any(|addresses| !addresses.is_empty()));
+
+    let missing_dir = PathBuf::from(&peer.config.chain_config.burnchain.working_dir)
+        .join("absent-migration-burnchain");
+    assert!(!missing_dir.exists());
+    peer.config.chain_config.burnchain.working_dir = missing_dir.to_str().unwrap().to_owned();
+
+    peer.check_nakamoto_migration();
+
+    assert!(!missing_dir.exists());
 }
 
 /// Mine a single Nakamoto tenure with a single Nakamoto block
@@ -2009,7 +2035,7 @@ fn transactions_indexing() {
     let (tracked_block, burn_height, ..) =
         peer.single_block_tenure(&private_key, |_| {}, |_| {}, |_| false);
 
-    assert_eq!(peer.try_process_block(&tracked_block).unwrap(), true);
+    assert!(peer.try_process_block(&tracked_block).unwrap());
 
     let tracked_block_id = tracked_block.block_id();
 
@@ -2074,7 +2100,7 @@ fn transactions_not_indexing() {
     let (untracked_block, burn_height, ..) =
         peer.single_block_tenure(&private_key, |_| {}, |_| {}, |_| false);
 
-    assert_eq!(peer.try_process_block(&untracked_block).unwrap(), true);
+    assert!(peer.try_process_block(&untracked_block).unwrap());
 
     let untracked_block_id = untracked_block.block_id();
 
@@ -2082,11 +2108,10 @@ fn transactions_not_indexing() {
 
     // ensure untracked transactions are not recorded
     for tx in untracked_block.txs {
-        assert_eq!(
+        assert!(
             NakamotoChainState::get_tx_info_from_txid(&chainstate.index_conn(), &tx.txid(),)
                 .unwrap()
-                .is_none(),
-            true
+                .is_none()
         );
     }
 }
@@ -2837,7 +2862,7 @@ pub fn simple_nakamoto_coordinator_10_tenures_10_sortitions<'a>() -> TestPeer<'a
             matured_rewards.push(matured_reward_opt);
         }
     }
-    for (i, matured_reward_opt) in matured_rewards[4..].into_iter().enumerate() {
+    for (i, matured_reward_opt) in matured_rewards[4..].iter().enumerate() {
         let matured_reward = (*matured_reward_opt).clone().unwrap();
         debug!("{}: {:?}", i, &matured_reward);
 
@@ -2935,7 +2960,7 @@ pub fn simple_nakamoto_coordinator_10_tenures_10_sortitions<'a>() -> TestPeer<'a
     );
 
     peer.check_nakamoto_migration();
-    return peer;
+    peer
 }
 
 #[test]
@@ -3291,7 +3316,7 @@ pub fn simple_nakamoto_coordinator_2_tenures_3_sortitions<'a>() -> TestPeer<'a> 
     );
 
     peer.check_nakamoto_migration();
-    return peer;
+    peer
 }
 
 #[test]
@@ -3589,7 +3614,7 @@ pub fn simple_nakamoto_coordinator_10_extended_tenures_10_sortitions() -> TestPe
 
     peer.check_nakamoto_migration();
     peer.check_malleablized_blocks(all_blocks, 2);
-    return peer;
+    peer
 }
 
 #[test]
@@ -3938,7 +3963,7 @@ pub fn simple_nakamoto_coordinator_sip034_tenure_extensions(
 
     peer.check_nakamoto_migration();
     peer.check_malleablized_blocks(all_blocks, 2);
-    return peer;
+    peer
 }
 
 #[test]
@@ -4578,7 +4603,7 @@ fn test_stacks_on_burnchain_ops() {
         debug!("Expected: {:?}", &expected_burnchain_txids);
         assert_eq!(block_burn_txids, expected_burnchain_txids);
 
-        observed_burn_txids.extend(block_burn_txids.into_iter());
+        observed_burn_txids.extend(block_burn_txids);
     }
 
     // all extra burn ops are represented

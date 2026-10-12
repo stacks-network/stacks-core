@@ -987,8 +987,9 @@ paths:
       description: |
         Used to get stacker and signer set information for a given cycle.
 
-        This will only return information for cycles started in Epoch-2.5
-        where PoX-4 was active and subsequent cycles.
+        This will only return information for cycles starting in Epoch 2.5
+        (PoX-4) or later, including PoX-5 cycles. The response shape depends on
+        `reward_set_version`: `0` for PoX-4 cycles, `1` for PoX-5 cycles.
       parameters:
         - name: cycle_number
           in: path
@@ -1005,8 +1006,10 @@ paths:
               schema:
                 $ref: "#/components/schemas/GetStackerSet"
               examples:
-                stacker-set:
-                  $ref: "./components/examples/get-stacker-set.example.json"
+                stacker-set-pox4:
+                  $ref: "./components/examples/get-stacker-set-pox4.example.json"
+                stacker-set-pox5:
+                  $ref: "./components/examples/get-stacker-set-pox5.example.json"
         "400":
           description: Could not fetch the given reward set
           content:

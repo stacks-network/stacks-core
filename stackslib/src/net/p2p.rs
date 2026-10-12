@@ -48,6 +48,7 @@ use crate::net::atlas::{AtlasDB, AttachmentsDownloader};
 use crate::net::chat::{ConversationP2P, NeighborStats};
 use crate::net::connection::{ConnectionOptions, ReplyHandleP2P};
 use crate::net::db::{LocalPeer, PeerDB};
+use crate::net::download::epoch2x::{BlockDownloadOutcome, DownloadProgress};
 use crate::net::download::nakamoto::NakamotoDownloadStateMachine;
 use crate::net::download::BlockDownloader;
 use crate::net::inv::inv2x::*;
@@ -833,10 +834,10 @@ impl PeerNetwork {
             return false;
         };
         if block_proposal_thread.is_finished() {
-            return false;
+            false
         } else {
             self.block_proposal_thread = Some(block_proposal_thread);
-            return true;
+            true
         }
     }
 
@@ -1160,10 +1161,9 @@ impl PeerNetwork {
         event_id: usize,
         handle: &mut ReplyHandleP2P,
     ) -> Result<(usize, bool), net_error> {
-        let res = self.with_p2p_convo(event_id, |_network, convo, client_sock| {
+        self.with_p2p_convo(event_id, |_network, convo, client_sock| {
             PeerNetwork::do_saturate_p2p_socket(convo, client_sock, handle)
-        })?;
-        res
+        })?
     }
 
     /// Send a message via a given conversation
@@ -1179,9 +1179,9 @@ impl PeerNetwork {
             return Ok(rh);
         }
         info!("No ongoing conversation for event {event_id}");
-        return Err(net_error::PeerNotConnected(format!(
+        Err(net_error::PeerNotConnected(format!(
             "No ongoing conversation for event {event_id}",
-        )));
+        )))
     }
 
     /// Send a message to a peer.
@@ -1197,7 +1197,7 @@ impl PeerNetwork {
             return self.send_p2p_message(*event_id, message, ttl);
         }
         info!("Not connected to {:?}", &neighbor_key);
-        return Err(net_error::NoSuchNeighbor);
+        Err(net_error::NoSuchNeighbor)
     }
 
     /// Add an ongoing message handle to the network's internal relay handles
@@ -1345,22 +1345,6 @@ impl PeerNetwork {
             if convo.stats.outbound {
                 ret += 1;
             }
-        }
-        ret
-    }
-
-    /// Count how many connections to a given IP address we have
-    pub fn count_ip_connections(
-        ipaddr: &SocketAddr,
-        sockets: &HashMap<usize, mio_net::TcpStream>,
-    ) -> u64 {
-        let mut ret = 0;
-        for (_, socket) in sockets.iter() {
-            if let Ok(addr) = socket.peer_addr() {
-                if addr.ip() == ipaddr.ip() {
-                    ret += 1;
-                }
-            };
         }
         ret
     }
@@ -1967,7 +1951,7 @@ impl PeerNetwork {
                     }
                 }
             }
-            return Ok(());
+            Ok(())
         })
     }
 
@@ -2838,7 +2822,7 @@ impl PeerNetwork {
         let mut drained = vec![];
 
         // flush each outgoing conversation
-        let mut relay_handles = std::mem::replace(&mut self.relay_handles, HashMap::new());
+        let mut relay_handles = mem::take(&mut self.relay_handles);
         for (event_id, handle_list) in relay_handles.iter_mut() {
             if handle_list.is_empty() {
                 debug!("No handles for event {}", event_id);
@@ -2872,9 +2856,9 @@ impl PeerNetwork {
                         );
                         return Ok((num_sent, flushed));
                     }
-                    return Err(net_error::PeerNotConnected(format!(
+                    Err(net_error::PeerNotConnected(format!(
                         "No relay handles for event {event_id}",
-                    )));
+                    )))
                 });
 
                 let (num_sent, flushed) = match res {
@@ -2964,7 +2948,7 @@ impl PeerNetwork {
         // pick a random outbound conversation to one of the initial neighbors
         let mut idx = thread_rng().gen::<usize>() % self.peers.len();
         for _ in 0..self.peers.len() + 1 {
-            let event_id = match self.peers.keys().skip(idx).next() {
+            let event_id = match self.peers.keys().nth(idx) {
                 Some(eid) => *eid,
                 None => {
                     idx = 0;
@@ -3122,7 +3106,7 @@ impl PeerNetwork {
             }
         }
 
-        return Ok(true);
+        Ok(true)
     }
 
     /// Do we need to (re)fetch our public IP?
@@ -3162,7 +3146,7 @@ impl PeerNetwork {
             }
         }
 
-        return true;
+        true
     }
 
     /// Reset all state for querying our public IP address
@@ -3242,15 +3226,18 @@ impl PeerNetwork {
             self.init_block_downloader();
         }
 
-        let (
-            done,
-            at_chain_tip,
-            old_pox_id,
-            mut blocks,
-            mut microblocks,
+        let BlockDownloadOutcome {
+            progress:
+                DownloadProgress {
+                    done,
+                    at_chain_tip,
+                    old_pox_id,
+                    mut blocks,
+                    mut microblocks,
+                },
             broken_http_peers,
             broken_p2p_peers,
-        ) = match self.download_blocks(sortdb, chainstate, dns_client, ibd) {
+        } = match self.download_blocks(sortdb, chainstate, dns_client, ibd) {
             Ok(x) => x,
             Err(net_error::NotConnected) => {
                 // there was simply nothing to do
@@ -3285,14 +3272,14 @@ impl PeerNetwork {
             let mut block_set = HashSet::new();
             let mut microblock_set = HashSet::new();
 
-            for (_, block, _) in network_result.blocks.iter() {
+            for Downloaded { data: block, .. } in network_result.blocks.iter() {
                 if block_set.contains(&block.block_hash()) {
                     debug!("Duplicate block {}", block.block_hash());
                 }
                 block_set.insert(block.block_hash());
             }
 
-            for (_, mblocks, _) in network_result.confirmed_microblocks.iter() {
+            for Downloaded { data: mblocks, .. } in network_result.confirmed_microblocks.iter() {
                 for mblock in mblocks.iter() {
                     if microblock_set.contains(&mblock.block_hash()) {
                         debug!("Duplicate microblock {}", mblock.block_hash());
@@ -3397,9 +3384,9 @@ impl PeerNetwork {
                 "{:?}: AntiEntropy: Peer {:?} is missing Stacks block {} from height {}, which we have",
                 &self.local_peer, nk, &index_block_hash, height
             );
-            return Some((ancestor_sn.consensus_hash, block));
+            Some((ancestor_sn.consensus_hash, block))
         } else {
-            return None;
+            None
         }
     }
 
@@ -3501,13 +3488,13 @@ impl PeerNetwork {
                 "{:?}: AntiEntropy: Peer {:?} is missing Stacks microblocks {} from height {}, which we have",
                 &self.local_peer, nk, &index_block_hash, height
             );
-            return Some((
+            Some((
                 block_info.parent_consensus_hash,
                 block_info.parent_anchored_block_hash,
                 microblocks,
-            ));
+            ))
         } else {
-            return None;
+            None
         }
     }
 
@@ -4062,7 +4049,7 @@ impl PeerNetwork {
                             let done = self.do_network_block_download(
                                 sortdb,
                                 chainstate,
-                                *dns_client,
+                                dns_client,
                                 ibd,
                                 network_result,
                             );
@@ -4146,9 +4133,9 @@ impl PeerNetwork {
                     |network, attachments_downloader| {
                         let mut dead_events = vec![];
                         match attachments_downloader.run(dns_client, network) {
-                            Ok((ref mut attachments, ref mut events_to_deregister)) => {
-                                network_result.attachments.append(attachments);
-                                dead_events.append(events_to_deregister);
+                            Ok(mut progress) => {
+                                network_result.attachments.append(&mut progress.resolved_attachments);
+                                dead_events.append(&mut progress.events_to_deregister);
                             }
                             Err(e) => {
                                 warn!(
@@ -4372,7 +4359,7 @@ impl PeerNetwork {
                     if self.walk_pingbacks.len() > MAX_NEIGHBORS_DATA_LEN as usize {
                         // drop one at random
                         let idx = thread_rng().gen::<usize>() % self.walk_pingbacks.len();
-                        let drop_addr = match self.walk_pingbacks.keys().skip(idx).next() {
+                        let drop_addr = match self.walk_pingbacks.keys().nth(idx) {
                             Some(addr) => (*addr).clone(),
                             None => {
                                 continue;
@@ -4467,7 +4454,7 @@ impl PeerNetwork {
         sortdb: &SortitionDB,
         chainstate: &mut StacksChainState,
     ) -> Result<(), net_error> {
-        let stacker_db_configs = mem::replace(&mut self.stacker_db_configs, HashMap::new());
+        let stacker_db_configs = mem::take(&mut self.stacker_db_configs);
         self.stacker_db_configs = self.stackerdbs.create_or_reconfigure_stackerdbs(
             chainstate,
             sortdb,
@@ -4947,7 +4934,7 @@ impl PeerNetwork {
                     .iter()
                     .fold(0, |acc, (_, inbox)| acc + inbox.messages.len())
             );
-            let buffered_messages = mem::replace(&mut self.pending_messages, HashMap::new());
+            let buffered_messages = mem::take(&mut self.pending_messages);
             let unhandled = self.handle_unsolicited_sortition_messages(
                 sortdb,
                 chainstate,
@@ -4968,8 +4955,7 @@ impl PeerNetwork {
                     .iter()
                     .fold(0, |acc, (_, inbox)| acc + inbox.messages.len())
             );
-            let buffered_stacks_messages =
-                mem::replace(&mut self.pending_stacks_messages, HashMap::new());
+            let buffered_stacks_messages = mem::take(&mut self.pending_stacks_messages);
             let unhandled = self.handle_unsolicited_stacks_messages(
                 chainstate,
                 buffered_stacks_messages,
@@ -5242,7 +5228,7 @@ impl PeerNetwork {
         }
 
         debug!("Stored tx {}", txid);
-        return true;
+        true
     }
 
     /// Store all inbound transactions, and return the ones that we actually stored so they can be
@@ -5485,10 +5471,7 @@ impl PeerNetwork {
                 debug!("{:?}: network not connected", &self.local_peer);
                 Err(net_error::NotConnected)
             }
-            Some(ref mut network) => {
-                let poll_result = network.poll(poll_timeout);
-                poll_result
-            }
+            Some(ref mut network) => network.poll(poll_timeout),
         }?;
 
         let p2p_poll_state = poll_states
@@ -5594,7 +5577,6 @@ mod test {
     use std::{thread, time};
 
     use clarity::util::sleep_ms;
-    use rand::{self, RngCore};
     use stacks_common::types::chainstate::BurnchainHeaderHash;
 
     use super::*;
@@ -5606,15 +5588,8 @@ mod test {
     use crate::net::*;
     use crate::util_lib::test::*;
 
-    fn make_random_peer_address() -> PeerAddress {
-        let mut rng = rand::thread_rng();
-        let mut bytes = [0u8; 16];
-        rng.fill_bytes(&mut bytes);
-        PeerAddress(bytes)
-    }
-
     fn make_test_neighbor(port: u16) -> Neighbor {
-        let neighbor = Neighbor {
+        Neighbor {
             addr: NeighborKey {
                 peer_version: 0x12345678,
                 network_id: 0x9abcdef0,
@@ -5636,8 +5611,7 @@ mod test {
             org: 45678,
             in_degree: 1,
             out_degree: 1,
-        };
-        neighbor
+        }
     }
 
     fn make_test_p2p_network(initial_neighbors: &[Neighbor]) -> PeerNetwork {
@@ -5691,7 +5665,8 @@ mod test {
         let burnchain_db = BurnchainDB::connect(":memory:", &burnchain, true).unwrap();
 
         let local_peer = PeerDB::get_local_peer(db.conn()).unwrap();
-        let p2p = PeerNetwork::new(
+
+        PeerNetwork::new(
             db,
             atlasdb,
             stacker_db,
@@ -5703,8 +5678,7 @@ mod test {
             conn_opts,
             HashMap::new(),
             StacksEpoch::unit_test_up_to(0, StacksEpochId::Epoch20),
-        );
-        p2p
+        )
     }
 
     #[test]

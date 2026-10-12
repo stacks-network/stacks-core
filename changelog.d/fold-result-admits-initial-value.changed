@@ -1,0 +1,1 @@
+From Epoch 4.1, contract analysis types a `fold` result to admit its initial value, which an empty sequence returns unchanged, instead of the callback's return type alone. Contracts deployed earlier execute unchanged.

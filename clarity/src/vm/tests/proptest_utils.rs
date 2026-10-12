@@ -44,7 +44,6 @@ use crate::vm::{ClarityVersion, execute_with_parameters_and_call_in_global_conte
 const DEFAULT_EPOCH: StacksEpochId = StacksEpochId::latest();
 const DEFAULT_CLARITY_VERSION: ClarityVersion = ClarityVersion::latest();
 const INITIAL_BALANCE: u128 = 1_000_000_000;
-const UTF8_SNIPPET_MAX_SEGMENTS: usize = 16;
 const UTF8_SIMPLE_ESCAPES: [&str; 6] = ["\\\"", "\\\\", "\\n", "\\t", "\\r", "\\0"];
 
 fn initialize_balances(
@@ -92,8 +91,6 @@ pub fn execute_versioned(
 ) -> Result<Option<Value>, ClarityEvalError> {
     let sender_pk = StacksPrivateKey::random();
     let sender: StandardPrincipalData = (&sender_pk).into();
-    let contract_id =
-        QualifiedContractIdentifier::new(sender.clone(), ContractName::from_literal("contract"));
     let sender_for_init = sender.clone();
     execute_with_parameters_and_call_in_global_context(
         snippet,
@@ -110,11 +107,21 @@ pub fn execute_with_epoch(
     snippet: &str,
     epoch: StacksEpochId,
 ) -> Result<Option<Value>, ClarityEvalError> {
+    execute_with_version_and_epoch(snippet, ClarityVersion::latest(), epoch)
+}
+
+/// Execute a Clarity code snippet with the given Clarity version and epoch in a
+/// fresh global context, setting up initial balances.
+pub fn execute_with_version_and_epoch(
+    snippet: &str,
+    version: ClarityVersion,
+    epoch: StacksEpochId,
+) -> Result<Option<Value>, ClarityEvalError> {
     let sender = StandardPrincipalData::transient();
     let sender_for_init = sender.clone();
     execute_with_parameters_and_call_in_global_context(
         snippet,
-        ClarityVersion::latest(),
+        version,
         epoch,
         false,
         sender,

@@ -137,10 +137,10 @@ pub mod pox4 {
         structured_data_message_hash(data_tuple, domain_tuple)
     }
 
-    impl Into<Pox4SignatureTopic> for &'static str {
+    impl From<&'static str> for Pox4SignatureTopic {
         #[cfg_attr(test, mutants::skip)]
-        fn into(self) -> Pox4SignatureTopic {
-            match self {
+        fn from(topic: &'static str) -> Self {
+            match topic {
                 "stack-stx" => Pox4SignatureTopic::StackStx,
                 "agg-commit" => Pox4SignatureTopic::AggregationCommit,
                 "stack-extend" => Pox4SignatureTopic::StackExtend,

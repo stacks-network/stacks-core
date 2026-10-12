@@ -141,7 +141,7 @@ pub enum Error {
     SigningCoordinatorFailure(String),
     /// An error occurred on StackerDB post
     #[error("An error occurred while uploading data to StackerDB: {0}")]
-    StackerDBUploadError(StackerDBChunkAckData),
+    StackerDBUploadError(Box<StackerDBChunkAckData>),
     // The thread that we tried to send to has closed
     #[error("The thread that we tried to send to has closed")]
     ChannelClosed,

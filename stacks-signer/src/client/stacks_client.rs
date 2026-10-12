@@ -48,7 +48,7 @@ use stacks_common::{debug, warn};
 use super::SignerSlotID;
 use crate::client::{retry_with_exponential_backoff, ClientError};
 use crate::config::GlobalConfig;
-use crate::runloop::RewardCycleInfo;
+use crate::runloop::{PoxGeometry, RewardCycleInfo};
 
 /// The Stacks signer client used to communicate with the stacks node
 #[derive(Clone, Debug)]
@@ -441,37 +441,6 @@ impl StacksClient {
         })
     }
 
-    /// Get the sortition info for a given burn block height, resolved against
-    /// the node's canonical burnchain fork.
-    pub fn get_sortition_by_burn_height(
-        &self,
-        burn_height: u64,
-    ) -> Result<SortitionInfo, ClientError> {
-        debug!("StacksClient: Getting sortition at burn height {burn_height}");
-        let path = self.sortition_by_burn_height_path(burn_height);
-        let metrics_path = format!(
-            "{}{RPC_SORTITION_INFO_PATH}/burn_height/:burn_height",
-            self.http_origin
-        );
-        let timer =
-            crate::monitoring::actions::new_rpc_call_timer(&metrics_path, &self.http_origin);
-        let send_request = || {
-            self.stacks_node_client
-                .get(&path)
-                .send()
-                .map_err(backoff::Error::transient)
-        };
-        let response = retry_with_exponential_backoff(send_request)?;
-        timer.stop_and_record();
-        if !response.status().is_success() {
-            return Err(ClientError::RequestFailure(response.status()));
-        }
-        let sortition_info = response.json::<Vec<SortitionInfo>>()?;
-        sortition_info.first().cloned().ok_or_else(|| {
-            ClientError::InvalidResponse("No sortition info found for given burn height".into())
-        })
-    }
-
     /// Get the sortition info for a given burnchain block hash.
     ///
     /// The node resolves the burn block hash against its *canonical* burnchain fork, so a
@@ -587,24 +556,30 @@ impl StacksClient {
         Ok(pox_info_data)
     }
 
+    /// Get the PoX reward cycle geometry from the stacks node
+    pub fn get_pox_geometry(&self) -> Result<PoxGeometry, ClientError> {
+        debug!("StacksClient: Getting PoX geometry");
+        Ok(Self::pox_geometry_of(&self.get_pox_data()?))
+    }
+
     /// Get the current reward cycle info from the stacks node
     pub fn get_current_reward_cycle_info(&self) -> Result<RewardCycleInfo, ClientError> {
         debug!("StacksClient: Getting current reward cycle info");
         let pox_data = self.get_pox_data()?;
-        let blocks_mined = pox_data
-            .current_burnchain_block_height
-            .saturating_sub(pox_data.first_burnchain_block_height);
-        let reward_cycle_length = pox_data
-            .reward_phase_block_length
-            .saturating_add(pox_data.prepare_phase_block_length);
-        let reward_cycle = blocks_mined / reward_cycle_length;
-        Ok(RewardCycleInfo {
-            reward_cycle,
-            reward_cycle_length,
+        Ok(RewardCycleInfo::at_height(
+            &Self::pox_geometry_of(&pox_data),
+            pox_data.current_burnchain_block_height,
+        ))
+    }
+
+    fn pox_geometry_of(pox_data: &RPCPoxInfoData) -> PoxGeometry {
+        PoxGeometry {
+            reward_cycle_length: pox_data
+                .reward_phase_block_length
+                .saturating_add(pox_data.prepare_phase_block_length),
             prepare_phase_block_length: pox_data.prepare_phase_block_length,
             first_burnchain_block_height: pox_data.first_burnchain_block_height,
-            last_burnchain_block_height: pox_data.current_burnchain_block_height,
-        })
+        }
     }
 
     /// Helper function to retrieve the account info from the stacks node for a specific address
@@ -755,13 +730,6 @@ impl StacksClient {
             "{}{RPC_SORTITION_INFO_PATH}/consensus/{}",
             self.http_origin,
             consensus_hash.to_hex()
-        )
-    }
-
-    fn sortition_by_burn_height_path(&self, burn_height: u64) -> String {
-        format!(
-            "{}{RPC_SORTITION_INFO_PATH}/burn_height/{burn_height}",
-            self.http_origin
         )
     }
 

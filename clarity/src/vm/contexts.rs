@@ -278,7 +278,10 @@ impl EventBatch {
 
 impl<'a, 'hooks> OwnedEnvironment<'a, 'hooks> {
     #[cfg(any(test, feature = "testing"))]
-    pub fn new(database: ClarityDatabase<'a>, epoch: StacksEpochId) -> OwnedEnvironment<'a, 'a> {
+    pub fn new(
+        database: ClarityDatabase<'a>,
+        epoch: StacksEpochId,
+    ) -> OwnedEnvironment<'a, 'hooks> {
         OwnedEnvironment {
             context: GlobalContext::new(
                 false,
@@ -292,7 +295,7 @@ impl<'a, 'hooks> OwnedEnvironment<'a, 'hooks> {
     }
 
     #[cfg(any(test, feature = "testing"))]
-    pub fn new_toplevel(mut database: ClarityDatabase<'a>) -> OwnedEnvironment<'a, 'a> {
+    pub fn new_toplevel(mut database: ClarityDatabase<'a>) -> OwnedEnvironment<'a, 'hooks> {
         database.begin();
         let epoch = database.get_clarity_epoch_version().unwrap();
         let version = ClarityVersion::default_for_epoch(epoch);
@@ -316,7 +319,7 @@ impl<'a, 'hooks> OwnedEnvironment<'a, 'hooks> {
         mut database: ClarityDatabase<'a>,
         epoch: StacksEpochId,
         use_mainnet: bool,
-    ) -> OwnedEnvironment<'a, 'a> {
+    ) -> OwnedEnvironment<'a, 'hooks> {
         use crate::vm::tests::test_only_mainnet_to_chain_id;
         let cost_track = LimitedCostTracker::new_max_limit(&mut database, epoch, use_mainnet)
             .expect("FAIL: problem instantiating cost tracking");
@@ -333,7 +336,7 @@ impl<'a, 'hooks> OwnedEnvironment<'a, 'hooks> {
         chain_id: u32,
         database: ClarityDatabase<'a>,
         epoch_id: StacksEpochId,
-    ) -> OwnedEnvironment<'a, 'a> {
+    ) -> OwnedEnvironment<'a, 'hooks> {
         OwnedEnvironment {
             context: GlobalContext::new(
                 mainnet,
@@ -352,7 +355,7 @@ impl<'a, 'hooks> OwnedEnvironment<'a, 'hooks> {
         database: ClarityDatabase<'a>,
         cost_tracker: LimitedCostTracker,
         epoch_id: StacksEpochId,
-    ) -> OwnedEnvironment<'a, 'a> {
+    ) -> OwnedEnvironment<'a, 'hooks> {
         OwnedEnvironment {
             context: GlobalContext::new(mainnet, chain_id, database, cost_tracker, epoch_id),
             call_stack: CallStack::new(),
@@ -361,12 +364,7 @@ impl<'a, 'hooks> OwnedEnvironment<'a, 'hooks> {
 
     /// Registers an evaluation hook for this environment.
     pub fn add_eval_hook(&mut self, hook: &'hooks mut dyn EvalHook) {
-        if let Some(mut hooks) = self.context.eval_hooks.take() {
-            hooks.push(hook);
-            self.context.eval_hooks = Some(hooks);
-        } else {
-            self.context.eval_hooks = Some(vec![hook]);
-        }
+        self.context.eval_hooks.get_or_insert_default().push(hook);
     }
 
     pub fn set_execution_resource_limiter(&mut self, resource_limiter: ResourceLimiter) {
@@ -374,12 +372,14 @@ impl<'a, 'hooks> OwnedEnvironment<'a, 'hooks> {
             .set_execution_resource_limiter(resource_limiter);
     }
 
-    pub fn get_exec_environment<'b>(
-        &'b mut self,
+    /// The invocation borrows only `context`, so a callable resolved through it outlives
+    /// the execution state.
+    pub fn get_exec_environment<'c>(
+        &mut self,
         sender: Option<PrincipalData>,
         sponsor: Option<PrincipalData>,
-        context: &'b ContractContext,
-    ) -> (ExecutionState<'b, 'a, 'hooks>, InvocationContext<'b>) {
+        context: &'c ContractContext,
+    ) -> (ExecutionState<'_, 'a, 'hooks>, InvocationContext<'c>) {
         (
             ExecutionState {
                 global_context: &mut self.context,
@@ -863,12 +863,12 @@ impl<'a, 'b, 'hooks> ExecutionState<'a, 'b, 'hooks> {
             let callee_view = invoke_ctx.with_contract_context(&contract);
             let call = CallTraceFrame::when(self.has_eval_hooks(), || CallHook::UserDefined {
                 contract_identifier: &callee_view.contract_context.contract_identifier,
-                function: &func,
+                function: func,
             });
             call.begin(self, &callee_view, CallArguments::Values(&args));
             call.did_evaluate_arguments(self, &callee_view, &args);
 
-            let res = self.execute_function_as_transaction(invoke_ctx, &func, &args, options);
+            let res = self.execute_function_as_transaction(invoke_ctx, func, &args, options);
 
             call.finish(self, &callee_view, &res);
             self.call_stack.remove(&func_identifier, true)?;
@@ -1715,27 +1715,31 @@ impl ContractContext {
         self.variables.get(name)
     }
 
-    pub fn lookup_function(&self, name: &str) -> Option<DefinedFunction> {
-        self.functions.get(name).cloned()
+    pub fn lookup_function(&self, name: &str) -> Option<&DefinedFunction> {
+        self.functions.get(name)
     }
 
     pub fn lookup_trait_definition(
         &self,
         name: &str,
-    ) -> Option<BTreeMap<ClarityName, FunctionSignature>> {
-        self.defined_traits.get(name).cloned()
+    ) -> Option<&BTreeMap<ClarityName, FunctionSignature>> {
+        self.defined_traits.get(name)
     }
 
     pub fn is_explicitly_implementing_trait(&self, trait_identifier: &TraitIdentifier) -> bool {
         self.implemented_traits.contains(trait_identifier)
     }
 
-    pub fn is_name_used(&self, name: &str) -> bool {
-        is_reserved(name, self.get_clarity_version())
-            || self.variables.contains_key(name)
+    /// Whether the contract itself defines `name`, ignoring reserved natives.
+    pub fn is_name_defined_by_contract(&self, name: &str) -> bool {
+        self.variables.contains_key(name)
             || self.functions.contains_key(name)
             || self.persisted_names.contains(name)
             || self.defined_traits.contains_key(name)
+    }
+
+    pub fn is_name_used(&self, name: &str) -> bool {
+        is_reserved(name, self.get_clarity_version()) || self.is_name_defined_by_contract(name)
     }
 
     pub fn get_clarity_version(&self) -> &ClarityVersion {
@@ -1763,7 +1767,7 @@ impl ContractContext {
                 let owned = std::mem::replace(value, Value::none());
                 let (sanitized, _) =
                     Value::sanitize_value(epoch, &TypeSignature::type_of(&owned)?, owned)
-                        .ok_or_else(|| RuntimeCheckErrorKind::CouldNotDetermineType)?;
+                        .ok_or(RuntimeCheckErrorKind::CouldNotDetermineType)?;
                 *value = sanitized;
             }
         }

@@ -19,7 +19,7 @@ use stacks_common::types::net::PeerHost;
 
 use crate::net::http::{
     parse_json, Error, HttpRequest, HttpRequestContents, HttpRequestPreamble, HttpResponse,
-    HttpResponseContents, HttpResponsePayload, HttpResponsePreamble, HttpServerError,
+    HttpResponseContents, HttpResponsePayload, HttpResponsePreamble,
 };
 use crate::net::httpcore::{RPCRequestHandler, StacksHttpRequest, StacksHttpResponse};
 use crate::net::{Error as NetError, StacksNodeState};
@@ -84,15 +84,6 @@ impl HttpRequest for RPCGetHealthRequestHandler {
     }
 }
 
-fn create_error_response(
-    preamble: &HttpRequestPreamble,
-    error_message: &str,
-) -> Result<(HttpResponsePreamble, HttpResponseContents), NetError> {
-    StacksHttpResponse::new_error(preamble, &HttpServerError::new(error_message.to_string()))
-        .try_into_contents()
-        .map_err(NetError::from)
-}
-
 impl RPCRequestHandler for RPCGetHealthRequestHandler {
     /// Reset internal state
     fn restart(&mut self) {}
@@ -139,7 +130,7 @@ impl HttpResponse for RPCGetHealthRequestHandler {
         body: &[u8],
     ) -> Result<HttpResponsePayload, Error> {
         let txinfo: RPCGetHealthResponse = parse_json(preamble, body)?;
-        Ok(HttpResponsePayload::try_from_json(txinfo)?)
+        HttpResponsePayload::try_from_json(txinfo)
     }
 }
 

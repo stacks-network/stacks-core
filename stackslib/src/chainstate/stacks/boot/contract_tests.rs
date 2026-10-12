@@ -545,9 +545,7 @@ impl HeadersDB for TestSimHeadersDB {
         if *id_bhh == *FIRST_INDEX_BLOCK_HASH {
             Some(FIRST_STACKS_BLOCK_HASH)
         } else {
-            if self.get_burn_block_height_for_block(id_bhh).is_none() {
-                return None;
-            }
+            self.get_burn_block_height_for_block(id_bhh)?;
             Some(BlockHeaderHash(id_bhh.0))
         }
     }
@@ -1060,7 +1058,7 @@ fn pox_2_lock_extend_units() {
         // check that entries exist for each cycle stacked
         for cycle in 0..20 {
             eprintln!("Cycle number = {}", cycle);
-            let empty_set = cycle < 1 || cycle >= 13;
+            let empty_set = !(1..13).contains(&cycle);
             let expected = if empty_set {
                 "(u0 u0)"
             } else {
@@ -1624,7 +1622,7 @@ fn pox_2_delegate_extend_units() {
         // for all other cycles, reward set should be empty
         for cycle in 0..20 {
             eprintln!("Cycle number = {}, MIN_THRESHOLD  = {}", cycle, MIN_THRESHOLD.deref());
-            let empty_set = cycle < 1 || cycle >= 12;
+            let empty_set = !(1..12).contains(&cycle);
             let expected = if empty_set {
                 "(u0 u0)".into()
             } else {
@@ -1782,7 +1780,7 @@ fn test_deploy_smart_contract(
             &ResourceBudget::unlimited(),
         )?;
         tx.save_analysis(contract_id, &analysis)?;
-        return Ok(());
+        Ok(())
     })
 }
 

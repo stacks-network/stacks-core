@@ -169,15 +169,22 @@ pub struct BlockValidateOk {
     pub cost: ExecutionCost,
     pub size: u64,
     pub validation_time_ms: u64,
-    /// Deprecated: transaction replay was removed, so this is always `None`.
+    /// Deprecated. Always `None`. It will be removed in a future release.
     ///
-    /// Retained because `BlockValidateOk` has no `#[serde(default)]`: a signer running an
-    /// older binary treats these as required fields and would fail to deserialize the whole
-    /// response without them. Remove only in a release that need not interoperate with
-    /// pre-removal signers.
+    /// Existed to support the signer's tx-replay feature, which has been removed. The key is
+    /// still emitted because a signer built before that removal declares these fields without
+    /// `#[serde(default)]`, which makes them *required*: omitting them would make such a signer
+    /// fail to deserialize the whole block-proposal validation response, and so silently stop
+    /// acting on validation results.
+    ///
+    /// The `#[serde(default)]` below is what lets these fields be deleted outright in a later
+    /// release: it makes signers from this release onward tolerate the keys' absence. Do not
+    /// remove it before the fields themselves go.
+    #[serde(default)]
     pub replay_tx_hash: Option<u64>,
-    /// Deprecated: transaction replay was removed, so this is always `false`.
+    /// Deprecated. Always `false`. It will be removed in a future release.
     /// See `replay_tx_hash` above.
+    #[serde(default)]
     pub replay_tx_exhausted: bool,
 }
 
@@ -288,7 +295,7 @@ pub fn is_event_pox_addr_valid(is_mainnet: bool, event: &StacksTransactionEvent)
         // only care about (okay ...) results
         return true;
     };
-    let Some(outer_tuple_data) = match_tuple(&pox_event_tuple) else {
+    let Some(outer_tuple_data) = match_tuple(pox_event_tuple) else {
         // should be unreachable
         return true;
     };
@@ -296,7 +303,7 @@ pub fn is_event_pox_addr_valid(is_mainnet: bool, event: &StacksTransactionEvent)
         // should be unreachable
         return true;
     };
-    let Some(data_tuple_data) = match_tuple(&data_tuple) else {
+    let Some(data_tuple_data) = match_tuple(data_tuple) else {
         // should be unreachable
         return true;
     };
@@ -591,8 +598,7 @@ impl NakamotoBlockProposal {
         };
 
         // Static validation checks
-        NakamotoChainState::validate_normal_nakamoto_block_burnchain(
-            chainstate.nakamoto_blocks_db(),
+        NakamotoChainState::validate_nakamoto_block_burnchain(
             &db_handle,
             expected_burn_opt,
             &self.block,
@@ -667,7 +673,7 @@ impl NakamotoBlockProposal {
                 TransactionPayload::TenureChange(tc) => Some(MinerTenureInfoCause::from(tc)),
                 _ => None,
             })
-            .unwrap_or_else(|| MinerTenureInfoCause::NoTenureChange);
+            .unwrap_or(MinerTenureInfoCause::NoTenureChange);
 
         let mut builder = NakamotoBlockBuilder::new(
             &parent_stacks_header,
@@ -679,7 +685,7 @@ impl NakamotoBlockProposal {
             None,
             None,
             Some(self.block.header.timestamp),
-            u64::from(DEFAULT_MAX_TENURE_BYTES),
+            DEFAULT_MAX_TENURE_BYTES,
         )?;
 
         let mut miner_tenure_info =
@@ -699,14 +705,14 @@ impl NakamotoBlockProposal {
         } else {
             None
         };
-        let resource_budgets = TransactionResourceBudgets::new()
+        let resource_budgets = TransactionResourceBudgets::unlimited()
             .with_analysis_budget(
-                ResourceBudget::new()
+                ResourceBudget::unlimited()
                     .with_max_duration(Some(per_tx_max_analysis_time))
                     .with_max_memory_use(max_tx_mem_bytes_opt),
             )
             .with_execution_budget(
-                ResourceBudget::new()
+                ResourceBudget::unlimited()
                     .with_max_duration(Some(per_tx_max_execution_time))
                     .with_max_memory_use(max_tx_mem_bytes_opt),
             );
@@ -929,21 +935,9 @@ impl HttpRequest for RPCBlockProposalRequestHandler {
             }
         };
 
-        if block_proposal.block.is_shadow_block() {
-            return Err(Error::DecodeError(
-                "Shadow blocks cannot be submitted for validation".to_string(),
-            ));
-        }
-
         self.block_proposal = Some(block_proposal);
         Ok(HttpRequestContents::new().query_string(query))
     }
-}
-
-struct ProposalThreadInfo {
-    sortdb: SortitionDB,
-    chainstate: StacksChainState,
-    receiver: Box<dyn ProposalCallbackReceiver>,
 }
 
 impl RPCRequestHandler for RPCBlockProposalRequestHandler {
@@ -977,7 +971,9 @@ impl RPCRequestHandler for RPCBlockProposalRequestHandler {
             if network.is_proposal_thread_running() {
                 return Err((
                     TOO_MANY_REQUESTS_STATUS,
-                    NetError::SendError("Proposal currently being evaluated".into()),
+                    Box::new(NetError::SendError(
+                        "Proposal currently being evaluated".into(),
+                    )),
                 ));
             }
 
@@ -990,21 +986,27 @@ impl RPCRequestHandler for RPCBlockProposalRequestHandler {
             {
                 return Err((
                     422,
-                    NetError::SendError("Block proposal is too old to process.".into()),
+                    Box::new(NetError::SendError(
+                        "Block proposal is too old to process.".into(),
+                    )),
                 ));
             }
 
-            let (chainstate, _) = chainstate.reopen().map_err(|e| (400, NetError::from(e)))?;
-            let sortdb = sortdb.reopen().map_err(|e| (400, NetError::from(e)))?;
+            let (chainstate, _) = chainstate
+                .reopen()
+                .map_err(|e| (400, Box::new(NetError::from(e))))?;
+            let sortdb = sortdb
+                .reopen()
+                .map_err(|e| (400, Box::new(NetError::from(e))))?;
             let receiver = rpc_args
                 .event_observer
                 .and_then(|observer| observer.get_proposal_callback_receiver())
                 .ok_or_else(|| {
                     (
                         400,
-                        NetError::SendError(
+                        Box::new(NetError::SendError(
                             "No `observer` registered for receiving proposal callbacks".into(),
-                        ),
+                        )),
                     )
                 })?;
             let thread_info = block_proposal
@@ -1017,9 +1019,9 @@ impl RPCRequestHandler for RPCBlockProposalRequestHandler {
                 .map_err(|_e| {
                     (
                         TOO_MANY_REQUESTS_STATUS,
-                        NetError::SendError(
+                        Box::new(NetError::SendError(
                             "IO error while spawning proposal callback thread".into(),
-                        ),
+                        )),
                     )
                 })?;
             network.set_proposal_thread(thread_info);

@@ -141,7 +141,6 @@ impl NakamotoTenureDownloaderSet {
                 *downloader_slot = Some(downloader);
             } else {
                 error!("TenureDownloader had a mistaken peer pointer while setting the downloader");
-                return;
             }
         } else {
             self.downloaders.push(Some(downloader));
@@ -272,7 +271,7 @@ impl NakamotoTenureDownloaderSet {
             self.peers.insert(naddr, i);
             return true;
         }
-        return false;
+        false
     }
 
     /// Deschedule peers that are bound to downloader slots that are either vacant or correspond to
@@ -316,22 +315,6 @@ impl NakamotoTenureDownloaderSet {
                 *downloader_opt = None;
             }
         }
-    }
-
-    /// Find the downloaders that have obtained their tenure-start blocks, and extract them.  These
-    /// will be fed into other downloaders which are blocked on needing their tenure-end blocks.
-    pub(crate) fn find_new_tenure_start_blocks(&self) -> HashMap<StacksBlockId, NakamotoBlock> {
-        let mut ret = HashMap::new();
-        for downloader_opt in self.downloaders.iter() {
-            let Some(downloader) = downloader_opt else {
-                continue;
-            };
-            let Some(block) = downloader.tenure_start_block.as_ref() else {
-                continue;
-            };
-            ret.insert(block.block_id(), block.clone());
-        }
-        ret
     }
 
     /// Does there exist a downloader (possibly unscheduled) for the given tenure?
@@ -494,9 +477,7 @@ impl NakamotoTenureDownloaderSet {
 
             let tenure_download = NakamotoTenureDownloader::new(
                 ch.clone(),
-                tenure_info.start_block_snapshot_consensus_hash.clone(),
                 tenure_info.start_block_id.clone(),
-                tenure_info.end_block_snapshot_consensus_hash.clone(),
                 tenure_info.end_block_id.clone(),
                 naddr.clone(),
                 start_reward_set.clone(),

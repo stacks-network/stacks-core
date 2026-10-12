@@ -326,11 +326,17 @@ pub fn special_restrict_assets(
 
     let starting_memory = exec_state.global_context.cost_track.get_memory();
     let mut memory_use: u64 = 0;
+    let checks_with_all = exec_state
+        .epoch()
+        .checks_with_all_assets_in_restrict_assets();
 
     finally_drop_memory!( exec_state, memory_use; {
         let mut allowances = Vec::with_capacity(allowance_len);
         for allowance in allowance_list {
             let allowance = eval_allowance(allowance, exec_state, invoke_ctx, context)?;
+            if checks_with_all && matches!(allowance, Allowance::All) {
+                return Err(RuntimeCheckErrorKind::WithAllAllowanceNotAllowed.into());
+            }
             let allowance_memory = u64::try_from(allowance.size_in_bytes()?)
                 .map_err(|_| VmInternalError::Expect("Allowance size too large".into()))?;
 
@@ -400,7 +406,7 @@ fn evaluate_body_with_allowance_check(
         })();
 
     // A block-rejecting error raised inside the body must abort the transaction.
-    if matches!(&eval_result, Err(err) if err.rejectable()) {
+    if matches!(&eval_result, Err(err) if err.rejectable_in_epoch(epoch)) {
         exec_state.global_context.roll_back()?;
         return Err(eval_result.unwrap_err());
     }
@@ -744,13 +750,11 @@ mod test {
             CHAIN_ID_TESTNET,
             marf.as_clarity_db(),
             LimitedCostTracker::new_free(),
-            StacksEpochId::latest(),
+            epoch,
         );
 
-        let contract_context = ContractContext::new(
-            QualifiedContractIdentifier::transient(),
-            ClarityVersion::Clarity3,
-        );
+        let contract_context =
+            ContractContext::new(QualifiedContractIdentifier::transient(), version);
 
         let context = LocalContext::new();
         let mut call_stack = CallStack::new();

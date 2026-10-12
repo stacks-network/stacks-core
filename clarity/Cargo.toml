@@ -57,6 +57,14 @@ harness = false
 name = "variadic_concat"
 harness = false
 
+[[bench]]
+name = "function_lookup"
+harness = false
+
+[[bench]]
+name = "trait_lookup"
+harness = false
+
 [target.'cfg(not(target_family = "wasm"))'.dependencies]
 serde_stacker = "0.1"
 

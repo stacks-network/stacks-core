@@ -202,7 +202,10 @@ define_versioned_named_enum_with_max!(NativeFunctions(ClarityVersion) {
 /// Returns a callable for the given native function if it exists in the provided
 ///   ClarityVersion
 ///
-pub fn lookup_reserved_functions(name: &str, version: &ClarityVersion) -> Option<CallableType> {
+pub fn lookup_reserved_functions(
+    name: &str,
+    version: &ClarityVersion,
+) -> Option<CallableType<'static>> {
     use crate::vm::callables::BuiltinKind::{Native, Native205, Special};
     use crate::vm::functions::NativeFunctions::*;
     if let Some(native_function) = NativeFunctions::lookup_by_name_at_version(name, version) {
@@ -368,7 +371,7 @@ pub fn lookup_reserved_functions(name: &str, version: &ClarityVersion) -> Option
             TupleGet => Special("special_get-tuple", &tuples::tuple_get),
             TupleMerge => Native205(
                 "native_merge-tuple",
-                NativeHandle::MoreArgEnv(&tuples::tuple_merge),
+                NativeHandle::DoubleArg(&tuples::tuple_merge),
                 ClarityCostFunction::TupleMerge,
                 &cost_input_sized_vararg,
             ),

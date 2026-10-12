@@ -573,7 +573,11 @@ pub fn handle_contract_call(
     // `tx-sender`, i.e. `sender_opt`), so that transaction-level `Pox`
     // post-conditions and `with-pox` allowances can constrain them. Recorded
     // whether or not the call succeeded, so an allowance can gate even a failed
-    // attempt.
+    // attempt. This runs after the callee's frame has been committed or rolled
+    // back, so the record lands in the caller's frame; if an intermediate
+    // public function propagates the error, the record is rolled back with it.
+    // A successful call's state change is always in that same frame, so a
+    // position can never change without the record surviving.
     if matches!(
         function_name,
         "unstake" | "unstake-sbtc" | "update-bond-registration" | "announce-l1-early-exit"

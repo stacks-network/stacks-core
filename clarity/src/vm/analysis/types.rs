@@ -30,11 +30,6 @@ use crate::vm::types::FunctionType;
 use crate::vm::types::signatures::FunctionSignature;
 use crate::vm::{ClarityVersion, SymbolicExpression};
 
-const DESERIALIZE_FAIL_MESSAGE: &str =
-    "PANIC: Failed to deserialize bad database data in contract analysis.";
-const SERIALIZE_FAIL_MESSAGE: &str =
-    "PANIC: Failed to deserialize bad database data in contract analysis.";
-
 pub trait AnalysisPass {
     fn run_pass(
         epoch: &StacksEpochId,
@@ -244,7 +239,7 @@ impl ContractAnalysis {
             ) {
                 (Some(FunctionType::Fixed(func)), None)
                 | (None, Some(FunctionType::Fixed(func))) => {
-                    let args_sig = func.args.iter().map(|a| a.signature.clone()).collect();
+                    let args_sig = func.args.iter().map(|a| &a.signature);
                     if !expected_sig.check_args_trait_compliance(epoch, args_sig)? {
                         return Err(StaticCheckErrorKind::BadTraitImplementation(
                             trait_name,

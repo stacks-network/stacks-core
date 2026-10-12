@@ -13,33 +13,21 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-//! Regression tests for delayed and reordered burn-block events.
-//!
-//! These tests cover the relationship between the incoming event, the node's
-//! canonical tip, and the signer's prior view. Confirmed-stale events must be
-//! ignored without losing state, failed classifications must remain retryable,
-//! and competing views must still reach fork handling. Shorter node tips retain
-//! the pre-existing behavior pending a broader reconciliation policy.
+//! Regression coverage for queued burn-block events after live initialization.
 
 use std::collections::HashMap;
-use std::io::{Read, Write};
+use std::io::{BufRead, BufReader, ErrorKind, Write};
 use std::net::TcpListener;
-use std::ops::RangeInclusive;
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
-use std::time::{Duration, SystemTime};
+use std::thread;
+use std::time::{Duration, Instant, SystemTime};
 
 use blockstack_lib::chainstate::nakamoto::NakamotoBlockHeader;
 use blockstack_lib::chainstate::stacks::db::StacksBlockHeaderTypes;
 use blockstack_lib::net::api::get_tenure_tip_meta::BlockHeaderWithMetadata;
 use blockstack_lib::net::api::getsortition::SortitionInfo;
-use clarity::types::chainstate::{
-    BurnchainHeaderHash, ConsensusHash, SortitionId, StacksBlockId, TrieHash,
-};
-use clarity::util::hash::{Hash160, Sha512Trunc256Sum};
-use clarity::util::secp256k1::MessageSignature;
+use clarity::types::chainstate::{BurnchainHeaderHash, ConsensusHash, SortitionId};
+use clarity::util::hash::Hash160;
 use libsigner::v0::signer_state::{GlobalStateEvaluator, MinerState, SignerStateMachine};
-use stacks_common::bitvec::BitVec;
 
 use super::test_proposal_eval_config;
 use crate::chainstate::{ProposalEvalConfig, SignerChainstateError};
@@ -49,545 +37,307 @@ use crate::client::tests::{
 use crate::client::StacksClient;
 use crate::signerdb::tests::tmp_db_path;
 use crate::signerdb::SignerDb;
-use crate::v0::signer_state::{LocalStateMachine, NewBurnBlock, StateMachineUpdate};
+use crate::v0::signer_state::{
+    LocalStateMachine, NewBurnBlock, PendingRetryBackoff, StateMachineUpdate,
+};
 
-fn test_ch(i: u8) -> ConsensusHash {
-    ConsensusHash([i; 20])
-}
-
-fn test_bhh(i: u8) -> BurnchainHeaderHash {
-    BurnchainHeaderHash([i; 32])
-}
-
-/// Insert a linked chain of canonical burn blocks at the given heights, where
-/// block `i` has consensus hash `[i; 20]`, burn hash `[i; 32]`, and parent
-/// burn hash `[i - 1; 32]`.
-fn insert_canonical_burn_blocks(db: &mut SignerDb, heights: RangeInclusive<u8>) {
-    for i in heights {
-        db.insert_burn_block(
-            &test_bhh(i),
-            &test_ch(i),
-            i.into(),
-            &SystemTime::now(),
-            &test_bhh(i - 1),
-        )
-        .unwrap();
-    }
-}
-
-/// A signer state machine whose burn view is the canonical block at `height`.
-fn signer_state_at(height: u8) -> SignerStateMachine {
-    SignerStateMachine {
-        burn_block: test_ch(height),
-        burn_block_height: height.into(),
-        current_miner: MinerState::NoValidMiner,
-        active_signer_protocol_version: 0,
-    }
-}
-
-/// A burn-block event for the canonical block at `height`.
-fn canonical_event_at(height: u8) -> NewBurnBlock {
+/// Build an event with an independently chosen height and branch identifier.
+fn event(height: u64, id: u8) -> NewBurnBlock {
     NewBurnBlock {
-        burn_block_height: height.into(),
-        consensus_hash: test_ch(height),
+        burn_block_height: height,
+        consensus_hash: ConsensusHash([id; 20]),
     }
 }
 
-/// A winning sortition for the canonical burn block at `height`.
-fn sortition_info_at(height: u8, miner_pkh: Hash160) -> SortitionInfo {
-    SortitionInfo {
-        burn_block_hash: test_bhh(height),
-        burn_block_height: height.into(),
-        burn_header_timestamp: height.into(),
-        sortition_id: SortitionId([height; 32]),
-        parent_sortition_id: SortitionId([height - 1; 32]),
-        consensus_hash: test_ch(height),
+/// Build the parent-tenure header served by a node on the given branch.
+fn parent_header(id: u8) -> NakamotoBlockHeader {
+    NakamotoBlockHeader {
+        chain_length: 1,
+        consensus_hash: ConsensusHash([id - 1; 20]),
+        ..NakamotoBlockHeader::empty()
+    }
+}
+
+/// The full initialized state expected from the canned node responses.
+fn node_state(height: u64, id: u8) -> LocalStateMachine {
+    let header = parent_header(id);
+    LocalStateMachine::Initialized(SignerStateMachine {
+        burn_block: ConsensusHash([id; 20]),
+        burn_block_height: height,
+        current_miner: MinerState::ActiveMiner {
+            current_miner_pkh: Hash160([0xab; 20]),
+            tenure_id: ConsensusHash([id; 20]),
+            parent_tenure_id: header.consensus_hash.clone(),
+            parent_tenure_last_block: header.block_id(),
+            parent_tenure_last_block_height: header.chain_length,
+        },
+        active_signer_protocol_version: 0,
+    })
+}
+
+/// Script the peer-info, sortition, and parent-tenure RPCs for one arrival.
+fn node_responses(height: u64, id: u8) -> Vec<(String, String)> {
+    let sortition = |height, id| SortitionInfo {
+        burn_block_hash: BurnchainHeaderHash([id; 32]),
+        burn_block_height: height,
+        burn_header_timestamp: height,
+        sortition_id: SortitionId([id; 32]),
+        parent_sortition_id: SortitionId([id - 1; 32]),
+        consensus_hash: ConsensusHash([id; 20]),
         was_sortition: true,
-        miner_pk_hash160: Some(miner_pkh),
-        last_sortition_ch: Some(test_ch(height - 1)),
+        miner_pk_hash160: Some(Hash160([0xab; 20])),
+        last_sortition_ch: Some(ConsensusHash([id - 1; 20])),
         committed_block_hash: None,
         vrf_seed: None,
-        stacks_parent_ch: Some(test_ch(height - 1)),
-    }
+        stacks_parent_ch: Some(ConsensusHash([id - 1; 20])),
+    };
+    let sortitions = [sortition(height, id), sortition(height - 1, id - 1)];
+    let header = parent_header(id);
+    vec![
+        (
+            "/v2/info".into(),
+            build_get_peer_info_response(Some(height), Some(ConsensusHash([id; 20]))).0,
+        ),
+        (
+            "/v3/sortitions/latest_and_last".into(),
+            format!(
+                "HTTP/1.1 200 OK\n\n{}",
+                serde_json::to_string(&sortitions).unwrap()
+            ),
+        ),
+        (
+            format!("/v3/tenures/tip_metadata/{}", header.consensus_hash),
+            build_get_tenure_tip_response(&BlockHeaderWithMetadata {
+                burn_view: Some(header.consensus_hash.clone()),
+                anchored_header: StacksBlockHeaderTypes::Nakamoto(header),
+            }),
+        ),
+    ]
 }
 
-fn http_ok_json<T: serde::Serialize>(value: &T) -> String {
-    format!(
-        "HTTP/1.1 200 OK\n\n{}",
-        serde_json::to_string(value).unwrap()
-    )
-}
-
-/// Serve canned HTTP responses by request-path prefix until stopped. Routes
-/// are matched in order (put more specific prefixes first). Duplicate prefixes
-/// are consumed in order, with the final response reused; an unmatched request
-/// panics.
-fn spawn_node_responder(
-    server: TcpListener,
-    routes: Vec<(&'static str, String)>,
-) -> (Arc<AtomicBool>, std::thread::JoinHandle<()>) {
-    let stop = Arc::new(AtomicBool::new(false));
-    let handle = std::thread::spawn({
-        let stop = stop.clone();
-        move || {
-            let mut routes = routes;
-            server.set_nonblocking(true).unwrap();
-            while !stop.load(Ordering::SeqCst) {
-                let mut stream = match server.accept() {
-                    Ok((stream, ..)) => stream,
-                    Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
-                        std::thread::sleep(Duration::from_millis(10));
-                        continue;
-                    }
-                    Err(e) => panic!("Unexpected network error in mock server: {e:?}"),
-                };
-                stream.set_nonblocking(false).unwrap();
-                let mut request_bytes = [0u8; 2048];
-                let n = stream.read(&mut request_bytes).unwrap();
-                let request = String::from_utf8_lossy(&request_bytes[..n]);
-                let route_index = routes
-                    .iter()
-                    .position(|(prefix, _)| request.starts_with(prefix))
-                    .unwrap_or_else(|| {
-                        panic!(
-                            "Unexpected request to mock server: {}",
-                            request.lines().next().unwrap_or("")
-                        )
-                    });
-                let route_prefix = routes[route_index].0;
-                let has_later_response = routes[route_index + 1..]
-                    .iter()
-                    .any(|(prefix, _)| *prefix == route_prefix);
-                let response = if has_later_response {
-                    routes.remove(route_index).1
-                } else {
-                    routes[route_index].1.clone()
-                };
-                stream.write_all(response.as_bytes()).unwrap();
+/// Serve a finite RPC script, checking paths and bounding waits for missing requests.
+fn serve_responses(server: TcpListener, responses: Vec<(String, String)>) {
+    server.set_nonblocking(true).unwrap();
+    for (path, response) in responses {
+        let deadline = Instant::now() + Duration::from_secs(10);
+        let mut stream = loop {
+            match server.accept() {
+                Ok((stream, _)) => break stream,
+                Err(error) if error.kind() == ErrorKind::WouldBlock => {
+                    assert!(Instant::now() < deadline, "Missing request for {path}");
+                    thread::sleep(Duration::from_millis(1));
+                }
+                Err(error) => panic!("Mock node accept failed: {error}"),
+            }
+        };
+        stream.set_nonblocking(false).unwrap();
+        stream
+            .set_read_timeout(Some(Duration::from_secs(10)))
+            .unwrap();
+        stream
+            .set_write_timeout(Some(Duration::from_secs(10)))
+            .unwrap();
+        let mut reader = BufReader::new(&mut stream);
+        let mut request = String::new();
+        reader.read_line(&mut request).unwrap();
+        loop {
+            let mut header = String::new();
+            assert_ne!(
+                reader.read_line(&mut header).unwrap(),
+                0,
+                "Incomplete request"
+            );
+            if header == "\r\n" || header == "\n" {
+                break;
             }
         }
-    });
-    (stop, handle)
-}
-
-fn peer_info_route(burn_height: u8, consensus_hash: ConsensusHash) -> (&'static str, String) {
-    (
-        "GET /v2/info",
-        build_get_peer_info_response(Some(burn_height.into()), Some(consensus_hash)).0,
-    )
-}
-
-/// Route answering the canonicity query for the burn block at `height`,
-/// reporting `consensus_hash` as canonical at that height.
-fn burn_height_route(height: u8, consensus_hash: ConsensusHash) -> (&'static str, String) {
-    let mut sortition = sortition_info_at(height, Hash160([0xab; 20]));
-    sortition.consensus_hash = consensus_hash;
-    (
-        "GET /v3/sortitions/burn_height",
-        http_ok_json(&vec![sortition]),
-    )
-}
-
-/// Route simulating a transient failure of the burn-height canonicity query.
-fn burn_height_failure_route() -> (&'static str, String) {
-    (
-        "GET /v3/sortitions/burn_height",
-        "HTTP/1.1 500 Internal Server Error\n\n".to_string(),
-    )
-}
-
-/// Route serving a tenure-tip query with a Nakamoto header anchored at
-/// `consensus_hash`.
-fn tenure_tip_route(consensus_hash: ConsensusHash) -> (&'static str, String) {
-    let tenure_tip = BlockHeaderWithMetadata {
-        anchored_header: StacksBlockHeaderTypes::Nakamoto(NakamotoBlockHeader {
-            version: 1,
-            chain_length: 1,
-            burn_spent: 0,
-            consensus_hash: consensus_hash.clone(),
-            parent_block_id: StacksBlockId([0x77; 32]),
-            tx_merkle_root: Sha512Trunc256Sum([0u8; 32]),
-            state_index_root: TrieHash([0u8; 32]),
-            timestamp: 0,
-            miner_signature: MessageSignature([0u8; 65]),
-            signer_signature: vec![],
-            pox_treatment: BitVec::ones(1).unwrap(),
-            problematic_txs: vec![],
-        }),
-        burn_view: Some(consensus_hash),
-    };
-    (
-        "GET /v3/tenures/tip",
-        build_get_tenure_tip_response(&tenure_tip),
-    )
-}
-
-struct BurnBlockArrivalOutcome {
-    result: Result<(), SignerChainstateError>,
-    state: LocalStateMachine,
-}
-
-/// Mutable state shared across each step of a burn-block arrival scenario.
-struct BurnBlockArrivalDriver {
-    /// Signer database populated for the scenario.
-    db: SignerDb,
-    /// Client connected to the path-routed mock node.
-    client: StacksClient,
-    /// Proposal evaluation settings used by state transitions.
-    proposal_config: ProposalEvalConfig,
-    /// Global signer-state evaluator used by state transitions.
-    eval: GlobalStateEvaluator,
-    /// Local state machine driven by the scenario.
-    state: LocalStateMachine,
-}
-
-impl BurnBlockArrivalDriver {
-    /// Build a driver whose prior burn view is height 110.
-    fn new(client: StacksClient, db_heights: RangeInclusive<u8>) -> Self {
-        let mut db = SignerDb::new(tmp_db_path()).expect("Failed to create signer db");
-        insert_canonical_burn_blocks(&mut db, db_heights);
-        let proposal_config = test_proposal_eval_config();
-        let mut address_weights = HashMap::new();
-        address_weights.insert(client.get_signer_address().clone(), 10_u32);
-        let eval = GlobalStateEvaluator::new(HashMap::new(), address_weights);
-
-        Self {
-            db,
-            client,
-            proposal_config,
-            eval,
-            state: LocalStateMachine::Initialized(signer_state_at(110)),
-        }
+        stream.write_all(response.as_bytes()).unwrap();
+        assert_eq!(request.trim_end(), format!("GET {path} HTTP/1.1"));
     }
+}
 
-    /// Process an incoming burn-block event.
+/// Local signer state shared by successive arrivals in a scenario.
+struct BurnBlockDriver {
+    /// Database containing only burn blocks whose events have drained.
+    db: SignerDb,
+    /// Client connected to the scripted node.
+    client: StacksClient,
+    /// Settings used to evaluate the node's sortitions.
+    config: ProposalEvalConfig,
+    /// Signer weights used by the state machine.
+    eval: GlobalStateEvaluator,
+    /// State retained between arrivals and retries.
+    state: LocalStateMachine,
+}
+
+impl BurnBlockDriver {
+    /// Process an event through the production arrival path.
     fn process(&mut self, event: NewBurnBlock) -> Result<(), SignerChainstateError> {
         self.state.bitcoin_block_arrival(
             &mut self.db,
             &self.client,
-            &self.proposal_config,
+            &self.config,
             Some(event),
             &self.eval,
             0,
         )
     }
 
-    /// Retry the burn-block event currently parked in `Pending`.
-    fn retry_pending(&mut self) -> Result<(), SignerChainstateError> {
-        self.state.handle_pending_update(
-            &mut self.db,
-            &self.client,
-            &self.proposal_config,
-            &self.eval,
-            0,
-        )
-    }
-
-    /// Convert the final driver state and result into test assertions' shared shape.
-    fn into_outcome(self, result: Result<(), SignerChainstateError>) -> BurnBlockArrivalOutcome {
-        BurnBlockArrivalOutcome {
-            result,
-            state: self.state,
-        }
-    }
-}
-
-/// Run a multi-step burn-block scenario against a path-routed mock node.
-fn drive_burn_block_scenario(
-    db_heights: RangeInclusive<u8>,
-    routes: Vec<(&'static str, String)>,
-    scenario: impl FnOnce(&mut BurnBlockArrivalDriver) -> Result<(), SignerChainstateError>,
-) -> BurnBlockArrivalOutcome {
-    let MockServerClient { server, client, .. } = MockServerClient::new();
-    let mut driver = BurnBlockArrivalDriver::new(client, db_heights);
-    let (stop, responder) = spawn_node_responder(server, routes);
-    let result = scenario(&mut driver);
-    stop.store(true, Ordering::SeqCst);
-    responder.join().unwrap();
-    driver.into_outcome(result)
-}
-
-/// Drive `bitcoin_block_arrival` for the canonical event at `event_height`
-/// against a prior state machine at height 110, with the mock node serving
-/// `routes`.
-fn drive_burn_block_arrival(
-    db_heights: RangeInclusive<u8>,
-    event_height: u8,
-    routes: Vec<(&'static str, String)>,
-) -> BurnBlockArrivalOutcome {
-    drive_burn_block_scenario(db_heights, routes, |driver| {
-        driver.process(canonical_event_at(event_height))
-    })
-}
-
-/// Assert the outcome retained the initialized view at height 110.
-#[track_caller]
-fn assert_live_view_retained(outcome: &BurnBlockArrivalOutcome) {
-    match &outcome.state {
-        LocalStateMachine::Initialized(machine) => {
-            assert_eq!(
-                machine.burn_block_height, 110,
-                "State machine moved backward off the live burn view"
-            );
-            assert_eq!(
-                machine.burn_block,
-                test_ch(110),
-                "State machine moved off the live burn block"
-            );
-        }
-        other => panic!(
-            "Stale queued burn-block event left the state machine as {other:?} instead of Initialized"
-        ),
-    }
-}
-
-/// Assert that an unclassified event is parked with the prior live view.
-#[track_caller]
-fn assert_event_pending(driver: &BurnBlockArrivalDriver, expected_event: &NewBurnBlock) {
-    match &driver.state {
-        LocalStateMachine::Pending { update, prior } => {
-            assert_eq!(
-                update,
-                &StateMachineUpdate::BurnBlock(expected_event.clone()),
-                "Pending state did not retain the unclassified event"
-            );
-            assert_eq!(
-                prior,
-                &signer_state_at(110),
-                "Pending state did not retain the prior live view"
-            );
-        }
-        other => panic!("Unclassified burn-block event left the state machine as {other:?}"),
-    }
-}
-
-/// Assert that a competing view was adopted with its active miner.
-#[track_caller]
-fn assert_successful_fork_update(outcome: &BurnBlockArrivalOutcome, expected_tip: &NewBurnBlock) {
-    assert!(
-        outcome.result.is_ok(),
-        "Fork handling failed: {:?}",
-        outcome.result.as_ref().err()
-    );
-    let LocalStateMachine::Initialized(machine) = &outcome.state else {
-        panic!(
-            "Successful fork handling left the state machine as {:?}",
-            outcome.state
+    /// Assert that a failed event retains the complete prior state for retry.
+    #[track_caller]
+    fn assert_pending(&self, event: &NewBurnBlock, prior: &LocalStateMachine) {
+        let LocalStateMachine::Initialized(prior) = prior else {
+            panic!("Expected an initialized prior state");
+        };
+        assert_eq!(
+            self.state,
+            LocalStateMachine::Pending {
+                update: StateMachineUpdate::BurnBlock(event.clone()),
+                prior: prior.clone(),
+            }
         );
+    }
+
+    /// Retry a parked arrival through the production retry path.
+    fn retry(&mut self) {
+        self.state
+            .handle_pending_update(
+                &mut self.db,
+                &self.client,
+                &self.config,
+                &self.eval,
+                0,
+                &mut PendingRetryBackoff::default(),
+            )
+            .unwrap();
+    }
+}
+
+/// Initialize from the live node at height 110, then drain the scenario's events.
+fn run_scenario(responses: Vec<(String, String)>, scenario: impl FnOnce(&mut BurnBlockDriver)) {
+    let MockServerClient { server, client, .. } = MockServerClient::new();
+    let mut db = SignerDb::new(tmp_db_path()).unwrap();
+    // Startup has only drained events through 105; the live tip has no signerdb row.
+    for height in 100..=105_u8 {
+        db.insert_burn_block(
+            &BurnchainHeaderHash([height; 32]),
+            &ConsensusHash([height; 20]),
+            u64::from(height),
+            &SystemTime::now(),
+            &BurnchainHeaderHash([height - 1; 32]),
+        )
+        .unwrap();
+    }
+    let mut config = test_proposal_eval_config();
+    config.block_proposal_timeout = Duration::from_secs(600);
+    let weights = HashMap::from([(client.get_signer_address().clone(), 10)]);
+    let eval = GlobalStateEvaluator::new(HashMap::new(), weights);
+    thread::scope(|scope| {
+        let script = node_responses(110, 110)
+            .into_iter()
+            .chain(responses)
+            .collect();
+        let server = scope.spawn(move || serve_responses(server, script));
+        let state = LocalStateMachine::new(&mut db, &client, &config, &eval, 0);
+        assert_eq!(state, node_state(110, 110));
+        scenario(&mut BurnBlockDriver {
+            db,
+            client,
+            config,
+            eval,
+            state,
+        });
+        server.join().unwrap();
+    });
+}
+
+/// Reordered, duplicate, and orphaned old events must reconcile to the live node tip.
+#[test]
+fn delayed_events_after_initialization_follow_live_node_tip() {
+    let cases = [
+        (event(105, 105), 110, 110),
+        (event(103, 103), 111, 111),
+        (event(105, 105), 111, 111),
+        (event(105, 0xee), 111, 111),
+    ];
+    let responses = cases
+        .iter()
+        .flat_map(|(_, height, id)| node_responses(*height, *id))
+        .collect();
+    run_scenario(responses, |driver| {
+        for (event, height, id) in cases {
+            driver.process(event).unwrap();
+            assert_eq!(driver.state, node_state(height, id));
+        }
+    });
+}
+
+/// Delayed events must also permit the live node's competing or shorter view to be adopted.
+#[test]
+fn delayed_events_reconcile_to_reorged_node_tip() {
+    for height in [110, 105] {
+        run_scenario(node_responses(height, 0xfe), |driver| {
+            driver.process(event(104, 104)).unwrap_or_else(|error| {
+                panic!("Reconciliation to node height {height} failed: {error}")
+            });
+            assert_eq!(driver.state, node_state(height, 0xfe));
+        });
+    }
+}
+
+/// An event on a competing branch at the prior height must still update the view.
+#[test]
+fn same_height_fork_event_updates_live_view() {
+    run_scenario(node_responses(110, 0xfe), |driver| {
+        driver.process(event(110, 0xfe)).unwrap();
+        assert_eq!(driver.state, node_state(110, 0xfe));
+    });
+}
+
+/// Failures at each RPC preserve the active miner; retries use the latest node view.
+#[test]
+fn delayed_event_rpc_failures_retry_against_live_node_tip() {
+    for failure in 0..3 {
+        for (height, id) in [(111, 111), (110, 0xfe)] {
+            let mut responses = node_responses(110, 110);
+            responses.truncate(failure + 1);
+            responses[failure].1 = "HTTP/1.1 500 Internal Server Error\n\n".into();
+            responses.extend(node_responses(height, id));
+            run_scenario(responses, |driver| {
+                let prior = driver.state.clone();
+                let delayed = event(105, 105);
+                assert!(
+                    driver.process(delayed.clone()).is_err(),
+                    "RPC {failure} must fail"
+                );
+                driver.assert_pending(&delayed, &prior);
+                driver.retry();
+                assert_eq!(driver.state, node_state(height, id));
+            });
+        }
+    }
+}
+
+/// A new arrival supersedes a failed delayed event, including when it also needs a retry.
+#[test]
+fn newer_event_supersedes_failed_delayed_event() {
+    let failure = || {
+        (
+            "/v2/info".into(),
+            "HTTP/1.1 500 Internal Server Error\n\n".into(),
+        )
     };
-    assert_eq!(machine.burn_block_height, expected_tip.burn_block_height);
-    assert_eq!(machine.burn_block, expected_tip.consensus_hash);
-    let MinerState::ActiveMiner { tenure_id, .. } = &machine.current_miner else {
-        panic!("Competing view did not select an active miner");
-    };
-    assert_eq!(tenure_id, &expected_tip.consensus_hash);
-}
-
-/// A competing branch at the prior tip's height must update the local view.
-/// Ignoring all events at or below the prior height would break this boundary.
-#[test]
-fn conflicting_burn_block_at_same_height_is_a_bitcoin_fork() {
-    let fork_event = NewBurnBlock {
-        burn_block_height: 110,
-        consensus_hash: ConsensusHash([0xfe; 20]),
-    };
-    let mut cur_sortition = sortition_info_at(110, Hash160([0xab; 20]));
-    cur_sortition.consensus_hash = fork_event.consensus_hash.clone();
-    let last_sortition = sortition_info_at(109, Hash160([0xab; 20]));
-    let outcome = drive_burn_block_scenario(
-        100..=110,
-        vec![
-            peer_info_route(110, fork_event.consensus_hash.clone()),
-            (
-                "GET /v3/sortitions/latest_and_last",
-                http_ok_json(&vec![cur_sortition, last_sortition]),
-            ),
-            tenure_tip_route(test_ch(109)),
-        ],
-        |driver| driver.process(fork_event.clone()),
-    );
-    assert_successful_fork_update(&outcome, &fork_event);
-}
-
-/// Cold-start ordering: the state machine was initialized from the node's
-/// live view at height 110 (whose burn block never arrived as an event, so it
-/// has no signerdb row), then a queued canonical event at height 105 drains.
-/// The node confirms the current view is still canonical, so the stale event
-/// must be ignored and the state machine left intact.
-#[test]
-fn stale_burn_block_event_after_live_initialization_keeps_state_machine_initialized() {
-    let outcome = drive_burn_block_arrival(
-        100..=105,
-        105,
-        vec![
-            peer_info_route(110, test_ch(110)),
-            burn_height_route(110, test_ch(110)),
-        ],
-    );
-    assert!(
-        outcome.result.is_ok(),
-        "Draining a stale queued burn-block event errored: {:?}",
-        outcome.result.err()
-    );
-    assert_live_view_retained(&outcome);
-}
-
-/// Same as above, but the node tip advanced past the initialized view while
-/// the queue drained. The prior view is still canonical (an ancestor of the
-/// new tip), so the stale event must still be ignored; the newer tip's own
-/// event is further back in the queue.
-#[test]
-fn stale_burn_block_event_with_advanced_node_tip_is_ignored() {
-    let outcome = drive_burn_block_arrival(
-        100..=105,
-        105,
-        vec![
-            peer_info_route(111, test_ch(111)),
-            burn_height_route(110, test_ch(110)),
-        ],
-    );
-    assert!(
-        outcome.result.is_ok(),
-        "Draining a stale queued burn-block event errored: {:?}",
-        outcome.result.err()
-    );
-    assert_live_view_retained(&outcome);
-}
-
-/// A failed canonicity query parks the event with the prior view. Once the
-/// node confirms that view is canonical, the retry discards the stale event
-/// and returns to `Initialized`.
-#[test]
-fn canonicity_check_failure_retries_canonical_event() {
-    let stale_event = canonical_event_at(105);
-    let outcome = drive_burn_block_scenario(
-        100..=105,
-        vec![
-            peer_info_route(110, test_ch(110)),
-            burn_height_failure_route(),
-            peer_info_route(110, test_ch(110)),
-            burn_height_route(110, test_ch(110)),
-        ],
-        |driver| {
-            assert!(
-                driver.process(stale_event.clone()).is_err(),
-                "Expected the initial canonicity query to fail"
-            );
-            assert_event_pending(driver, &stale_event);
-            driver.retry_pending()
-        },
-    );
-    assert!(
-        outcome.result.is_ok(),
-        "Retrying the canonical event failed: {:?}",
-        outcome.result.err()
-    );
-    assert_live_view_retained(&outcome);
-}
-
-/// If the retry instead shows that the prior view was orphaned, the parked
-/// event must continue into fork handling.
-#[test]
-fn canonicity_check_failure_retries_non_canonical_event() {
-    // The node reorged: its canonical chain at height 110 is now a competing
-    // branch, orphaning the prior view.
-    let fork_ch = ConsensusHash([0xfe; 20]);
-    // The node's post-reorg sortition view: the fork branch won at 110.
-    let mut cur_sortition = sortition_info_at(110, Hash160([0xab; 20]));
-    cur_sortition.consensus_hash = fork_ch.clone();
-    let last_sortition = sortition_info_at(109, Hash160([0xab; 20]));
-    let stale_event = canonical_event_at(105);
-    let outcome = drive_burn_block_scenario(
-        100..=110,
-        vec![
-            peer_info_route(110, fork_ch.clone()),
-            burn_height_failure_route(),
-            peer_info_route(110, fork_ch.clone()),
-            burn_height_route(110, fork_ch.clone()),
-            (
-                "GET /v3/sortitions/latest_and_last",
-                http_ok_json(&vec![cur_sortition, last_sortition]),
-            ),
-            tenure_tip_route(test_ch(109)),
-        ],
-        |driver| {
-            assert!(
-                driver.process(stale_event.clone()).is_err(),
-                "Expected the initial canonicity query to fail"
-            );
-            assert_event_pending(driver, &stale_event);
-            driver.retry_pending()
-        },
-    );
-
-    assert_successful_fork_update(
-        &outcome,
-        &NewBurnBlock {
-            burn_block_height: 110,
-            consensus_hash: fork_ch,
-        },
-    );
-}
-
-/// A newer event supersedes a parked lower-height event. Once the incoming
-/// event reaches the prior view's height, it enters normal fork handling
-/// without depending on the failed lower-height canonicity query.
-#[test]
-fn newer_event_supersedes_failed_canonicity_check() {
-    let fork_ch = ConsensusHash([0xfe; 20]);
-    let fork_event = NewBurnBlock {
-        burn_block_height: 110,
-        consensus_hash: fork_ch.clone(),
-    };
-    let mut cur_sortition = sortition_info_at(110, Hash160([0xab; 20]));
-    cur_sortition.consensus_hash = fork_ch.clone();
-    let last_sortition = sortition_info_at(109, Hash160([0xab; 20]));
-    let stale_event = canonical_event_at(105);
-    let outcome = drive_burn_block_scenario(
-        100..=110,
-        vec![
-            peer_info_route(110, fork_ch.clone()),
-            burn_height_failure_route(),
-            peer_info_route(110, fork_ch),
-            (
-                "GET /v3/sortitions/latest_and_last",
-                http_ok_json(&vec![cur_sortition, last_sortition]),
-            ),
-            tenure_tip_route(test_ch(109)),
-        ],
-        |driver| {
-            assert!(
-                driver.process(stale_event.clone()).is_err(),
-                "Expected the initial canonicity query to fail"
-            );
-            assert_event_pending(driver, &stale_event);
-            driver.process(fork_event.clone())
-        },
-    );
-
-    assert_successful_fork_update(&outcome, &fork_event);
-}
-
-/// When the node's live tip is below the prior state-machine height, the
-/// prior-height canonicity query cannot provide a verdict: the queried height
-/// is outside the node's current canonical fork. Preserve the pre-existing
-/// fork path until the broader shorter-tip reconciliation policy is defined.
-#[test]
-fn shorter_node_tip_bypasses_canonicity_guard_and_triggers_fork_handling() {
-    let cur_sortition = sortition_info_at(105, Hash160([0xab; 20]));
-    let last_sortition = sortition_info_at(104, Hash160([0xab; 20]));
-    let outcome = drive_burn_block_arrival(
-        100..=110,
-        105,
-        vec![
-            peer_info_route(105, test_ch(105)),
-            (
-                "GET /v3/sortitions/latest_and_last",
-                http_ok_json(&vec![cur_sortition, last_sortition]),
-            ),
-            tenure_tip_route(test_ch(104)),
-        ],
-    );
-
-    assert_successful_fork_update(&outcome, &canonical_event_at(105));
+    let mut responses = vec![failure(), failure()];
+    responses.extend(node_responses(111, 111));
+    run_scenario(responses, |driver| {
+        let prior = driver.state.clone();
+        let delayed = event(105, 105);
+        assert!(driver.process(delayed.clone()).is_err());
+        driver.assert_pending(&delayed, &prior);
+        let newer = event(111, 111);
+        assert!(driver.process(newer.clone()).is_err());
+        driver.assert_pending(&newer, &prior);
+        driver.retry();
+        assert_eq!(driver.state, node_state(111, 111));
+    });
 }

@@ -18,13 +18,13 @@ use std::path::Path;
 
 use rusqlite::types::Value;
 use rusqlite::{Connection, OpenFlags};
+use stacks_marf::Error;
 
 use super::common::{
-    classify_hint, clone_schemas_from_source, copied_rows, with_offline_write_session,
+    classify_hint, clone_schemas_from_source, copied_rows, marf_err, with_offline_write_session,
     DbSnapshotSpec, TableCopySpec, TableCopySpecs,
 };
 use crate::burnchains::bitcoin::spv::num_complete_chain_work_intervals;
-use crate::chainstate::stacks::index::Error;
 use crate::util_lib::db::{sqlite_open, u64_to_sql};
 
 /// The SPV headers snapshot's `?N` binds, both derived from `burn_height`.
@@ -60,10 +60,13 @@ impl DbSnapshotSpec for SpvDbSnapshotSpec {
 
     fn bind_params(&self, bind: SpvBind) -> Result<Vec<Value>, Error> {
         match bind {
-            SpvBind::BurnHeight => Ok(vec![Value::Integer(u64_to_sql(self.burn_height)?)]),
-            SpvBind::CompleteChainWorkIntervals => Ok(vec![Value::Integer(u64_to_sql(
-                num_complete_chain_work_intervals(self.burn_height),
-            )?)]),
+            SpvBind::BurnHeight => Ok(vec![Value::Integer(
+                u64_to_sql(self.burn_height).map_err(marf_err)?,
+            )]),
+            SpvBind::CompleteChainWorkIntervals => Ok(vec![Value::Integer(
+                u64_to_sql(num_complete_chain_work_intervals(self.burn_height))
+                    .map_err(marf_err)?,
+            )]),
         }
     }
 }

@@ -379,7 +379,7 @@ pub fn special_append(
             let next_entry_type =
                 TypeSignature::least_supertype(exec_state.epoch(), &entry_type, &element_type)?;
             let (element, _) = Value::sanitize_value(exec_state.epoch(), &next_entry_type, element)
-                .ok_or_else(|| RuntimeCheckErrorKind::ListTypesMustMatch)?;
+                .ok_or(RuntimeCheckErrorKind::ListTypesMustMatch)?;
 
             let next_type_signature = ListTypeData::new_list(next_entry_type, size + 1)?;
             data.push(element);

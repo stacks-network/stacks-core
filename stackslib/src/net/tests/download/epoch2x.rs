@@ -29,6 +29,7 @@ use crate::chainstate::stacks::db::blocks::MINIMUM_TX_FEE_RATE_PER_BYTE;
 use crate::chainstate::stacks::miner::*;
 use crate::chainstate::stacks::tests::*;
 use crate::chainstate::stacks::*;
+use crate::net::download::epoch2x::BlockAvailability;
 use crate::net::download::BlockDownloader;
 use crate::net::test::*;
 use crate::net::*;
@@ -40,7 +41,7 @@ fn get_peer_availability(
     peer: &mut TestPeer,
     start_height: u64,
     end_height: u64,
-) -> Vec<(ConsensusHash, Option<BlockHeaderHash>, Vec<NeighborKey>)> {
+) -> Vec<BlockAvailability> {
     let inv_state = peer.network.inv_state.take().unwrap();
     let availability = peer
         .with_network_state(
@@ -150,7 +151,7 @@ fn test_get_block_availability() {
                     );
 
                     let mut all_availability = true;
-                    for (_, _, neighbors) in peer_1_availability.iter() {
+                    for BlockAvailability { neighbors, .. } in peer_1_availability.iter() {
                         if neighbors.len() != 1 {
                             // not done yet
                             count = 0;
@@ -202,7 +203,11 @@ fn test_get_block_availability() {
 
         for (
             (sn_consensus_hash, stacks_block, microblocks),
-            (consensus_hash, stacks_block_hash_opt, neighbors),
+            BlockAvailability {
+                consensus_hash,
+                block_hash: stacks_block_hash_opt,
+                neighbors,
+            },
         ) in block_data.iter().zip(availability.iter())
         {
             assert_eq!(*consensus_hash, *sn_consensus_hash);
@@ -412,11 +417,11 @@ where
         if !done {
             done = !peers_behind_burnchain;
 
-            for i in 0..num_peers {
-                for b in 0..num_blocks {
-                    if !peer_invs[i].has_ith_block(
+            for (i, peer_inv) in peer_invs[..num_peers].iter().enumerate() {
+                for (b, block) in block_data[..num_blocks].iter().enumerate() {
+                    if !peer_inv.has_ith_block(
                         ((b as u64) + first_stacks_block_height - first_sortition_height) as u16,
-                    ) && block_data[b].1.is_some()
+                    ) && block.1.is_some()
                     {
                         test_debug!(
                             "Peer {} is missing block {} at sortition height {} (between {} and {})",
@@ -430,10 +435,10 @@ where
                         done = false;
                     }
                 }
-                for b in 1..(num_blocks - 1) {
-                    if !peer_invs[i].has_ith_microblock_stream(
+                for (b, block) in block_data[..num_blocks - 1].iter().enumerate().skip(1) {
+                    if !peer_inv.has_ith_microblock_stream(
                         ((b as u64) + first_stacks_block_height - first_sortition_height) as u16,
-                    ) && block_data[b].2.is_some()
+                    ) && block.2.is_some()
                     {
                         test_debug!(
                             "Peer {} is missing microblock stream {} (between {} and {})",
@@ -482,7 +487,11 @@ where
 
         for (
             (sn_consensus_hash, stacks_block_opt, microblocks_opt),
-            (consensus_hash, stacks_block_hash_opt, neighbors),
+            BlockAvailability {
+                consensus_hash,
+                block_hash: stacks_block_hash_opt,
+                neighbors,
+            },
         ) in block_data.iter().zip(availability.iter())
         {
             assert_eq!(*consensus_hash, *sn_consensus_hash);
@@ -883,7 +892,6 @@ pub fn test_get_blocks_and_microblocks_5_peers_star() {
 
                 for p in peer_configs.iter_mut() {
                     p.connection_opts.disable_block_advertisement = true;
-                    p.connection_opts.max_clients_per_host = 30;
                 }
 
                 let peer_0 = peer_configs[0].to_neighbor();
@@ -955,7 +963,6 @@ pub fn test_get_blocks_and_microblocks_5_peers_line() {
 
                 for p in peer_configs.iter_mut() {
                     p.connection_opts.disable_block_advertisement = true;
-                    p.connection_opts.max_clients_per_host = 30;
                 }
 
                 for i in 0..peer_configs.len() {
@@ -1036,7 +1043,6 @@ pub fn test_get_blocks_and_microblocks_overwhelmed_connections() {
 
                     // severely restrict the number of allowed
                     // connections in each peer
-                    peer_configs[i].connection_opts.max_clients_per_host = 1;
                     peer_configs[i].connection_opts.num_clients = 1;
                     peer_configs[i].connection_opts.idle_timeout = 1;
                     peer_configs[i].connection_opts.max_http_clients = 1;

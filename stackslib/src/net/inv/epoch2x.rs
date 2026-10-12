@@ -368,24 +368,6 @@ impl PeerBlocksInv {
         new_mblocks != 0
     }
 
-    /// Clear a block bit
-    #[cfg_attr(test, mutants::skip)]
-    pub fn clear_block_bit(&mut self, block_height: u64) {
-        self.merge_blocks_inv(block_height, 1, vec![0x01], vec![0x00], true);
-    }
-
-    /// Clear a microblock bit
-    pub fn clear_microblock_bit(&mut self, microblock_height: u64) {
-        self.merge_blocks_inv(microblock_height, 1, vec![0x00], vec![0x01], true);
-    }
-
-    /// Set a confirmed anchor block detection.
-    /// Return whether or not the bit was flipped to 1
-    pub fn set_pox_bit(&mut self, burnchain: &Burnchain, reward_cycle: u64) -> bool {
-        let bits_set = self.merge_pox_inv(burnchain, reward_cycle, 1, vec![0x01], true);
-        bits_set.unwrap_or(0) != 0
-    }
-
     /// Count up the number of blocks represented
     pub fn num_blocks(&self) -> u64 {
         let mut total = 0;
@@ -402,17 +384,6 @@ impl PeerBlocksInv {
         let mut total = 0;
         for i in 0..self.num_sortitions {
             if self.has_ith_microblock_stream(i + self.first_block_height) {
-                total += 1;
-            }
-        }
-        total
-    }
-
-    /// Count up the number of anchor blocks represented
-    pub fn num_pox_anchor_blocks(&self) -> u64 {
-        let mut total = 0;
-        for i in 0..self.num_reward_cycles {
-            if self.has_ith_anchor_block(i) {
                 total += 1;
             }
         }
@@ -454,11 +425,6 @@ impl PeerBlocksInv {
     /// What's the block height represented here?
     pub fn get_block_height(&self) -> u64 {
         self.first_block_height + self.num_sortitions
-    }
-
-    /// What's the number of PoX reward cycles we know about?
-    pub fn get_pox_height(&self) -> u64 {
-        self.num_reward_cycles
     }
 }
 
@@ -720,7 +686,7 @@ impl NeighborBlockStats {
             }
             bit += 1;
         }
-        return bit;
+        bit
     }
 
     /// Determine whether or not a received PoxInv is more certain as the local PoX
@@ -744,7 +710,7 @@ impl NeighborBlockStats {
             }
             bit += 1;
         }
-        return bit;
+        bit
     }
 
     /// Try to finish getting all PoxInvData requests.
@@ -1061,32 +1027,6 @@ impl InvState {
         }
     }
 
-    /// How many sortitions do we know about from this neighbor?
-    /// Ignores broken or diverged peers.
-    pub fn get_inv_sortitions(&self, nk: &NeighborKey) -> u64 {
-        if self.get_peer_status(nk) != NodeStatus::Online {
-            return 0;
-        }
-
-        match self.block_stats.get(nk) {
-            Some(stats) => stats.inv.num_sortitions,
-            _ => 0,
-        }
-    }
-
-    /// How many blocks do we know about from this neighbor?
-    /// Ignores broken or diverged peers
-    pub fn get_inv_num_blocks(&self, nk: &NeighborKey) -> u64 {
-        if self.get_peer_status(nk) != NodeStatus::Online {
-            return 0;
-        }
-
-        match self.block_stats.get(nk) {
-            Some(stats) => stats.inv.num_blocks(),
-            _ => 0,
-        }
-    }
-
     /// Cull broken peers and purge their stats
     pub fn cull_bad_peers(&mut self) -> HashSet<NeighborKey> {
         let mut bad_peers = HashSet::new();
@@ -1122,17 +1062,6 @@ impl InvState {
         list
     }
 
-    /// Get the list of diverged peers
-    pub fn get_diverged_peers(&self) -> Vec<NeighborKey> {
-        let mut list = vec![];
-        for (nk, stats) in self.block_stats.iter() {
-            if stats.status == NodeStatus::Diverged {
-                list.push(nk.clone());
-            }
-        }
-        list
-    }
-
     /// Get the list of dead
     pub fn get_dead_peers(&self) -> Vec<NeighborKey> {
         let mut list = vec![];
@@ -1144,20 +1073,8 @@ impl InvState {
         list
     }
 
-    pub fn get_stats(&self, nk: &NeighborKey) -> Option<&NeighborBlockStats> {
-        self.block_stats.get(nk)
-    }
-
     pub fn get_stats_mut(&mut self, nk: &NeighborKey) -> Option<&mut NeighborBlockStats> {
         self.block_stats.get_mut(nk)
-    }
-
-    #[cfg(test)]
-    pub fn add_peer(&mut self, nk: NeighborKey, is_bootstrap_peer: bool) {
-        self.block_stats.insert(
-            nk.clone(),
-            NeighborBlockStats::new(nk, self.first_block_height, is_bootstrap_peer),
-        );
     }
 
     pub fn del_peer(&mut self, nk: &NeighborKey) {
@@ -1280,6 +1197,74 @@ impl InvState {
         }
     }
 
+    /// Invalidate all block inventories at and after a given reward cycle
+    pub fn invalidate_block_inventories(&mut self, burnchain: &Burnchain, reward_cycle: u64) {
+        for (nk, stats) in self.block_stats.iter_mut() {
+            debug!("Truncate PoX inventory for {:?} to {}", nk, reward_cycle);
+            let pox_dropped = stats.inv.truncate_pox_inventory(burnchain, reward_cycle);
+            let blocks_dropped = stats
+                .inv
+                .truncate_block_inventories(burnchain, reward_cycle);
+
+            if pox_dropped > 0 || blocks_dropped > 0 {
+                // re-start synchronization at this height
+                stats.reset_pox_scan(reward_cycle);
+            }
+        }
+    }
+}
+
+/// Test-only helpers for [`InvState`].
+#[cfg(test)]
+impl InvState {
+    /// How many sortitions do we know about from this neighbor?
+    /// Ignores broken or diverged peers.
+    pub fn get_inv_sortitions(&self, nk: &NeighborKey) -> u64 {
+        if self.get_peer_status(nk) != NodeStatus::Online {
+            return 0;
+        }
+
+        match self.block_stats.get(nk) {
+            Some(stats) => stats.inv.num_sortitions,
+            _ => 0,
+        }
+    }
+
+    /// How many blocks do we know about from this neighbor?
+    /// Ignores broken or diverged peers
+    pub fn get_inv_num_blocks(&self, nk: &NeighborKey) -> u64 {
+        if self.get_peer_status(nk) != NodeStatus::Online {
+            return 0;
+        }
+
+        match self.block_stats.get(nk) {
+            Some(stats) => stats.inv.num_blocks(),
+            _ => 0,
+        }
+    }
+
+    /// Get the list of diverged peers
+    pub fn get_diverged_peers(&self) -> Vec<NeighborKey> {
+        let mut list = vec![];
+        for (nk, stats) in self.block_stats.iter() {
+            if stats.status == NodeStatus::Diverged {
+                list.push(nk.clone());
+            }
+        }
+        list
+    }
+
+    pub fn get_stats(&self, nk: &NeighborKey) -> Option<&NeighborBlockStats> {
+        self.block_stats.get(nk)
+    }
+
+    pub fn add_peer(&mut self, nk: NeighborKey, is_bootstrap_peer: bool) {
+        self.block_stats.insert(
+            nk.clone(),
+            NeighborBlockStats::new(nk, self.first_block_height, is_bootstrap_peer),
+        );
+    }
+
     pub fn set_block_available(
         &mut self,
         burnchain: &Burnchain,
@@ -1298,22 +1283,6 @@ impl InvState {
         consensus_hash: &ConsensusHash,
     ) -> Result<Option<u64>, net_error> {
         self.set_data_available(burnchain, neighbor_key, sortdb, consensus_hash, true)
-    }
-
-    /// Invalidate all block inventories at and after a given reward cycle
-    pub fn invalidate_block_inventories(&mut self, burnchain: &Burnchain, reward_cycle: u64) {
-        for (nk, stats) in self.block_stats.iter_mut() {
-            debug!("Truncate PoX inventory for {:?} to {}", nk, reward_cycle);
-            let pox_dropped = stats.inv.truncate_pox_inventory(burnchain, reward_cycle);
-            let blocks_dropped = stats
-                .inv
-                .truncate_block_inventories(burnchain, reward_cycle);
-
-            if pox_dropped > 0 || blocks_dropped > 0 {
-                // re-start synchronization at this height
-                stats.reset_pox_scan(reward_cycle);
-            }
-        }
     }
 }
 
@@ -1672,37 +1641,6 @@ impl PeerNetwork {
             consensus_hash: ancestor_sn.consensus_hash,
             num_blocks: num_blocks as u16,
         }))
-    }
-
-    /// Is a peer worth talking to?
-    fn is_peer_target(&self, nk: &NeighborKey) -> bool {
-        // don't talk to inbound peers; only outbound (and only ones we have the key for)
-        // (we make this check each time we begin a round of requests, since the set of
-        // available peers can change during this time).
-        match self.events.get(nk) {
-            Some(event_id) => match self.peers.get(event_id) {
-                Some(convo) => {
-                    if !convo.is_outbound() {
-                        debug!("{:?}: skip {:?}: not outbound", &self.local_peer, convo);
-                        return false;
-                    }
-                    if !convo.is_authenticated() {
-                        debug!(
-                            "{:?}: skip {:?}: not authenticated",
-                            &self.local_peer, convo
-                        );
-                        return false;
-                    }
-                    return true;
-                }
-                None => {
-                    return false;
-                }
-            },
-            None => {
-                return false;
-            }
-        }
     }
 
     /// Make a possible GetPoxInv request for this neighbor.
@@ -2357,9 +2295,7 @@ impl PeerNetwork {
 
                 // find peer with lowest block_reward_cycle
                 let lowest_block_reward_cycle = inv_state
-                    .block_stats
-                    .iter()
-                    .map(|(_nk, stats)| stats.block_reward_cycle)
+                    .block_stats.values().map(|stats| stats.block_reward_cycle)
                     .fold(local_rc, |min_block_reward_cycle, rc| cmp::min(rc, min_block_reward_cycle));
 
                 // hint to downloader as to where to begin scanning next time
@@ -2609,12 +2545,10 @@ impl PeerNetwork {
                 })?;
 
         match blocks_inv {
-            StacksMessageType::BlocksInv(blocks_inv) => {
-                return Ok(blocks_inv);
-            }
+            StacksMessageType::BlocksInv(blocks_inv) => Ok(blocks_inv),
             _ => {
                 debug!("Failed to produce blocks inventory; got {:?}", &blocks_inv);
-                return Err(net_error::NotFoundError);
+                Err(net_error::NotFoundError)
             }
         }
     }
