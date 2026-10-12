@@ -95,7 +95,7 @@ jobs:
             
             # Add bypass message to summary
             echo "### 🟢 Pipeline Proceeding" >> $GITHUB_STEP_SUMMARY
-            echo "Triggered by \`${{ github.event_name }}\`. The CI pipeline always runs for non-CRON events." >> $GITHUB_STEP_SUMMARY
+            echo "Triggered by \`${{ github.event_name }}\`. The CI pipeline will run." >> $GITHUB_STEP_SUMMARY
             exit 0
           fi
 
