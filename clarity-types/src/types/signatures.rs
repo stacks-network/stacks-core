@@ -1401,12 +1401,12 @@ impl TypeSignature {
 /// These implement the size calculations in TypeSignatures.
 ///
 /// Constructors compute the size through the associated `compute_inner_size` functions, which
-/// do not need a constructed value. Those are failable: a failure means the type signature
+/// do not need a constructed value. Those are fallible: a failure means the type signature
 /// would represent a _too large_ value, and the constructor fails instead of building it.
 ///
 /// Because a constructed tuple or list therefore always has a valid size, it is cached at
 /// construction and [`TupleTypeSignature::size`] / [`ListTypeData::size`] return it
-/// infallibly. [`TypeSignature::size`] stays failable: the wrapper variants it composes
+/// infallibly. [`TypeSignature::size`] stays fallible: the wrapper variants it composes
 /// (`Optional`, `Response`) can still overflow when summed.
 impl TypeSignature {
     pub fn depth(&self) -> u8 {
