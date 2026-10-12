@@ -71,7 +71,7 @@ jobs:
     if: needs.check-ci.outputs.enabled == 'true'
     runs-on: ubuntu-latest
     outputs:
-      proceed: ${{ steps.check.outputs.proceed }}
+      proceed: ${{ steps.check-last-commit-hash.outputs.proceed }}
     steps:
       # Attempt to fetch the last cached hash.
       # Caches are immutable and cannot be overwritten, so we need a new key per entry.
