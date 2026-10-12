@@ -14,6 +14,8 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use std::time::Instant;
+
 use clar2wasm::compile_contract;
 use clarity::vm::analysis::types::ContractAnalysis;
 use clarity::vm::clarity::TransactionConnection;
@@ -25,7 +27,6 @@ pub use clarity::vm::clarity::{
 use clarity::vm::contexts::{AssetMap, ExecutionState, InvocationContext};
 use clarity::vm::costs::cost_functions::ClarityCostFunction;
 use clarity::vm::costs::{runtime_cost, CostTracker, ExecutionCost};
-use clarity::vm::diagnostic::DiagnosableError;
 use clarity::vm::errors::{VmExecutionError, WasmError};
 use clarity::vm::representations::ClarityName;
 use clarity::vm::resource_limiter::ResourceBudget;
@@ -1254,12 +1255,21 @@ impl StacksChainState {
                 let sponsor = tx.sponsor_address().map(|a| a.to_account_principal());
 
                 debug!("Compiling the contract to wasm binary");
-                let mut module = compile_contract(contract_analysis.clone()).map_err(|e| {
-                    Error::ClarityError(ClarityError::Wasm(WasmError::WasmGeneratorError(
-                        e.message().to_string(),
-                    )))
-                })?;
+                let compile_start = Instant::now();
+                let mut module = clarity_tx
+                    .with_analysis_db_readonly(|analysis_db| {
+                        compile_contract(contract_analysis.clone(), &contract_ast, analysis_db)
+                    })
+                    .map_err(|e| {
+                        Error::ClarityError(ClarityError::Wasm(WasmError::WasmGeneratorError(
+                            e.message(),
+                        )))
+                    })?;
                 contract_ast.wasm_module = Some(module.emit_wasm());
+                let compile_elapsed = compile_start.elapsed();
+                // `\x1b[2K` clears any progress line before printing the timing
+                print!("\r\x1b[2K");
+                println!("Contract {contract_id}: compiled to Wasm in {compile_elapsed:.2?}");
 
                 // execution -- if this fails due to a runtime error, then the transaction is still
                 // accepted, but the contract does not materialize (but the sender is out their fee).

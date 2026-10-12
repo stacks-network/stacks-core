@@ -20,6 +20,8 @@ use clarity::vm::database::sqlite::{
     sqlite_get_contract_hash, sqlite_get_metadata, sqlite_get_metadata_manual,
     sqlite_insert_metadata,
 };
+#[cfg(feature = "clarity-wasm")]
+use clarity::vm::database::WasmCompiler;
 use clarity::vm::database::{ClarityBackingStore, SpecialCaseHandler, SqliteConnection};
 use clarity::vm::errors::{RuntimeError, VmExecutionError, VmInternalError};
 use clarity::vm::types::QualifiedContractIdentifier;
@@ -35,6 +37,8 @@ use crate::clarity_vm::clarity::{
 };
 use crate::clarity_vm::database::marf::ReadOnlyMarfStore;
 use crate::clarity_vm::special::handle_contract_call_special_cases;
+#[cfg(feature = "clarity-wasm")]
+use crate::clarity_vm::wasm_compiler::compile_deployed_contract;
 use crate::core::{FIRST_BURNCHAIN_CONSENSUS_HASH, FIRST_STACKS_BLOCK_HASH};
 
 /// Ephemeral MARF store.
@@ -417,6 +421,13 @@ impl ClarityBackingStore for EphemeralMarfStore<'_> {
     /// Get the special-case contract-call handlers (e.g. for PoX and .costs-voting)
     fn get_cc_special_cases_handler(&self) -> Option<SpecialCaseHandler> {
         Some(&handle_contract_call_special_cases)
+    }
+
+    /// Compile contracts which were deployed without a Wasm module, so that they can still be
+    /// executed by the Wasm runtime
+    #[cfg(feature = "clarity-wasm")]
+    fn get_wasm_compiler(&self) -> Option<WasmCompiler> {
+        Some(&compile_deployed_contract)
     }
 
     /// Load a value associated with the give key from the MARF and its side-store.

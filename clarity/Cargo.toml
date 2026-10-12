@@ -36,7 +36,7 @@ rand = { workspace = true }
 rand_chacha = { workspace = true }
 serde_stacker = { version = "0.1", optional = true }
 regex = "1.9.3"
-wasmtime = { version = "49.0.0", optional = true }
+wasmi = { version = "2.0.0", features = ["simd"], optional = true }
 hashbrown = { workspace = true }
 getrandom = { version = "0.2", features = ["js"], optional = true }
 
@@ -84,7 +84,7 @@ wasm-web = ["stacks_common/wasm-web", "clarity-types/wasm-web"]
 
 # clarity-wasm
 default = ["rusqlite", "clarity-wasm", "serde_stacker", "vrf"]
-clarity-wasm = ["wasmtime", "clarity-types/clarity-wasm"]
+clarity-wasm = ["wasmi", "clarity-types/clarity-wasm"]
 vrf = ["stacks_common/vrf"]
 wasm = ["stacks_common/wasm", "developer-mode", "getrandom"]
 

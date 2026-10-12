@@ -22,6 +22,8 @@ pub use self::clarity_db::{
     STORE_CONTRACT_SRC_INTERFACE, StoreType,
 };
 pub use self::clarity_store::{ClarityBackingStore, SpecialCaseHandler};
+#[cfg(feature = "clarity-wasm")]
+pub use self::clarity_store::{WasmCompilation, WasmCompiler};
 pub use self::key_value_wrapper::{RollbackWrapper, RollbackWrapperPersistedLog};
 #[cfg(feature = "rusqlite")]
 pub use self::sqlite::{DATA_TABLE_NAME, METADATA_TABLE_NAME, MetadataRow, SqliteConnection};

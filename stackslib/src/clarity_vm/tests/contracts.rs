@@ -343,7 +343,11 @@ fn publish_wasm_contract(
         let (mut ast, analysis) = tx
             .analyze_smart_contract(contract_id, version, contract, &ResourceBudget::unlimited())
             .unwrap();
-        let mut module = clar2wasm::compile_contract(analysis.clone()).unwrap();
+        let mut module = tx
+            .with_analysis_db_readonly(|analysis_db| {
+                clar2wasm::compile_contract(analysis.clone(), &ast, analysis_db)
+            })
+            .unwrap();
         ast.wasm_module = Some(module.emit_wasm());
         tx.initialize_smart_contract(
             contract_id,
@@ -2232,7 +2236,11 @@ fn test_wasm_contract_call_preserves_contract_caller() {
                 let (mut ast, analysis) = clarity_db
                     .analyze_smart_contract(id, clarity_version, src, &ResourceBudget::unlimited())
                     .unwrap();
-                let mut module = compile_contract(analysis.clone()).unwrap();
+                let mut module = clarity_db
+                    .with_analysis_db_readonly(|analysis_db| {
+                        compile_contract(analysis.clone(), &ast, analysis_db)
+                    })
+                    .unwrap();
                 ast.wasm_module = Some(module.emit_wasm());
                 clarity_db
                     .initialize_smart_contract(
