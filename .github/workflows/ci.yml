@@ -94,7 +94,7 @@ jobs:
             # Add bypass message to summary
             echo "## CRON Commit Hash Check" >> $GITHUB_STEP_SUMMARY
             echo "### 🚀 Pipeline Proceeding" >> $GITHUB_STEP_SUMMARY
-            echo "Triggered by \`${{ github.event_name }}\`. Cache comparison is bypassed for non-scheduled runs." >> $GITHUB_STEP_SUMMARY
+            echo "Triggered by \`${{ github.event_name }}\`. Commit hash check is bypassed for non-scheduled runs." >> $GITHUB_STEP_SUMMARY
             exit 0
           fi
 
@@ -123,7 +123,7 @@ jobs:
             
             # Add Skipped message to summary
             echo "### 🛑 Pipeline Skipped" >> $GITHUB_STEP_SUMMARY
-            echo "No new commits were found on the default branch since the last scheduled execution." >> $GITHUB_STEP_SUMMARY
+            echo "No new commits were found on the `main` branch since the last scheduled execution." >> $GITHUB_STEP_SUMMARY
           else
             echo "New commits detected. Proceeding."
             echo "proceed=true" >> $GITHUB_OUTPUT
@@ -131,7 +131,7 @@ jobs:
             
             # Add Proceeding message to summary
             echo "### 🟢 Pipeline Proceeding" >> $GITHUB_STEP_SUMMARY
-            echo "New commits detected. The CI pipeline will run." >> $GITHUB_STEP_SUMMARY
+            echo "New commits detected, the CI pipeline will run." >> $GITHUB_STEP_SUMMARY
           fi
 
       # Only save the new cache if it's a schedule and we detected a new hash
