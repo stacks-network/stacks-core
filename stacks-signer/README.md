@@ -102,7 +102,7 @@ at full speed, then rebuilds the file in place with only its live data.
 - `--temp-dir`: Where to build the temporary copy of the live data while compacting, e.g. on
   another disk. By default it is kept in memory when the live data is small enough.
 - `--no-vacuum`: Prune only, without compacting.
-- `--batch-size`: Blocks removed per transaction (default 1000).
+- `--batch-size`: Blocks removed per transaction, at least 1 (default 1000).
 - `--dry-run`: Report the database's size and where pruning would start, and change nothing.
 
 Notes:
