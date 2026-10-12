@@ -686,6 +686,11 @@ impl TypeSignature {
     /// Canonicalize a type.
     /// This method will convert types from previous epochs with the appropriate
     /// types for the specified epoch.
+    ///
+    /// Canonicalization is assumed to be size-preserving: [`Self::canonicalize_v2_1`] carries the
+    /// cached size of lists and tuples over instead of recomputing it. If a new conversion changes
+    /// a type's size, that assumption breaks and the sizes must be recomputed there instead; the
+    /// `debug_assert`s in [`Self::canonicalize_v2_1`] catch violations in tests.
     pub fn canonicalize(&self, epoch: &StacksEpochId) -> TypeSignature {
         // Epoch-2.2 had a regression in canonicalization, so it must be preserved here.
         if *epoch < StacksEpochId::Epoch21 || *epoch == StacksEpochId::Epoch22 {
@@ -698,10 +703,16 @@ impl TypeSignature {
     pub fn canonicalize_v2_1(&self) -> TypeSignature {
         match self {
             SequenceType(SequenceSubtype::ListType(list_type)) => {
+                let entry_type = list_type.entry_type.canonicalize_v2_1();
                 // Canonicalization is size-preserving, so the cached size carries over unchanged.
+                debug_assert_eq!(
+                    ListTypeData::compute_inner_size(&entry_type, list_type.max_len),
+                    Ok(Some(list_type.size)),
+                    "canonicalization changed the list size"
+                );
                 SequenceType(SequenceSubtype::ListType(ListTypeData {
                     max_len: list_type.max_len,
-                    entry_type: Box::new(list_type.entry_type.canonicalize_v2_1()),
+                    entry_type: Box::new(entry_type),
                     size: list_type.size,
                 }))
             }
@@ -716,6 +727,11 @@ impl TypeSignature {
                     canonicalized_fields.insert(field_name.clone(), field_type.canonicalize_v2_1());
                 }
                 // Canonicalization is size-preserving, so the cached size carries over.
+                debug_assert_eq!(
+                    TupleTypeSignature::compute_inner_size(&canonicalized_fields),
+                    Ok(Some(tuple_sig.size)),
+                    "canonicalization changed the tuple size"
+                );
                 TypeSignature::from(TupleTypeSignature {
                     type_map: Arc::new(canonicalized_fields),
                     size: tuple_sig.size,

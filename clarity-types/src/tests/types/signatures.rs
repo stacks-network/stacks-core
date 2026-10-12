@@ -1630,6 +1630,48 @@ fn test_list_type_data_reduce_max_len_ignores_growth() {
     assert_eq!(before, list.size());
 }
 
+/// `canonicalize_v2_1` carries the cached size of lists and tuples over instead of recomputing
+/// it, which is only sound while canonicalization is size-preserving. Canonicalizing a container
+/// must therefore yield exactly the type a constructor would build from the canonical leaves.
+#[test]
+fn test_canonicalize_v2_1_preserves_cached_size() {
+    fn containers(leaf: TypeSignature) -> Vec<TypeSignature> {
+        let list = TypeSignature::list_of(leaf.clone(), 3).unwrap();
+        let tuple = TypeSignature::from(
+            TupleTypeSignature::try_from(vec![
+                (ClarityName::from_literal("a"), leaf),
+                (ClarityName::from_literal("b"), TypeSignature::IntType),
+            ])
+            .unwrap(),
+        );
+        let list_of_tuple = TypeSignature::list_of(tuple.clone(), 2).unwrap();
+        let tuple_of_list = TypeSignature::from(
+            TupleTypeSignature::try_from(vec![(
+                ClarityName::from_literal("l"),
+                TypeSignature::new_option(list.clone()).unwrap(),
+            )])
+            .unwrap(),
+        );
+        vec![list, tuple, list_of_tuple, tuple_of_list]
+    }
+
+    let legacy = containers(TypeSignature::TraitReferenceType(trait_id(
+        "contract-a",
+        "trait-a",
+    )));
+    let canonical = containers(TypeSignature::CallableType(callable_trait_subtype(
+        "contract-a",
+        "trait-a",
+    )));
+
+    for (legacy, expected) in legacy.iter().zip(canonical) {
+        let canonicalized = legacy.canonicalize_v2_1();
+        assert_eq!(expected, canonicalized);
+        assert_eq!(expected.size().unwrap(), canonicalized.size().unwrap());
+        assert_eq!(legacy.size().unwrap(), canonicalized.size().unwrap());
+    }
+}
+
 /// A valid merge (non-overflowing) updates fields and cached size.
 #[test]
 fn test_tuple_type_signature_shallow_merge_updates_cached_size() {
