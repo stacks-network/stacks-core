@@ -9340,7 +9340,7 @@ fn test_vtxindex_zero_two_miners() {
     info!("------------------------- Test Setup -------------------------");
     let num_signers = 5;
 
-    let block_proposal_timeout = Duration::from_secs(10);
+    let block_proposal_timeout = Duration::from_secs(30);
     let tenure_extend_wait_timeout = block_proposal_timeout;
 
     let mut miners = MultipleMinerTest::new_with_config_modifications(
@@ -9406,6 +9406,9 @@ fn test_vtxindex_zero_two_miners() {
     // Disable fault injection now that the bad commit is mined
     std::env::remove_var("FAULT_INJECTION_BLOCK_COMMIT_VTXINDEX_SENTINEL");
     std::env::remove_var("FAULT_INJECTION_BLOCK_COMMIT_PARENT_SENTINEL");
+
+    // Fail fast if miner 1 stole the sortition via a premature tenure extension
+    verify_sortition_winner(&sortdb, &_mining_pkh_2);
 
     info!("------------------------- Verify signers reject miner 2's proposals -------------------------");
     // Wait for signers to reject miner 2's block with InvalidParentBlock
