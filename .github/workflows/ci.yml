@@ -94,7 +94,7 @@ jobs:
             echo "proceed=true" >> $GITHUB_OUTPUT
             
             # Add bypass message to summary
-            echo "### 🟢 Pipeline Proceeding" >> $GITHUB_STEP_SUMMARY
+            echo "### ✅ Pipeline Proceeding" >> $GITHUB_STEP_SUMMARY
             echo "Triggered by \`${{ github.event_name }}\`. The CI pipeline will run." >> $GITHUB_STEP_SUMMARY
             exit 0
           fi
@@ -130,7 +130,7 @@ jobs:
             echo "$CURRENT_HASH" > last_cron_commit.txt
             
             # Add Proceeding message to summary
-            echo "### 🟢 Pipeline Proceeding" >> $GITHUB_STEP_SUMMARY
+            echo "### ✅ Pipeline Proceeding" >> $GITHUB_STEP_SUMMARY
             echo "New commits detected on the `main` branch since the last scheduled execution. The CI pipeline will run." >> $GITHUB_STEP_SUMMARY
           fi
 
