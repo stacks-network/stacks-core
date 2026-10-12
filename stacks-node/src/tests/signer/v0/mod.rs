@@ -9403,10 +9403,6 @@ fn test_vtxindex_zero_two_miners() {
         .mine_bitcoin_blocks_and_confirm(&sortdb, 1, 60)
         .expect("Failed to mine bitcoin block");
 
-    // Disable fault injection now that the bad commit is mined
-    std::env::remove_var("FAULT_INJECTION_BLOCK_COMMIT_VTXINDEX_SENTINEL");
-    std::env::remove_var("FAULT_INJECTION_BLOCK_COMMIT_PARENT_SENTINEL");
-
     // Fail fast if miner 1 stole the sortition via a premature tenure extension
     verify_sortition_winner(&sortdb, &_mining_pkh_2);
 
@@ -9428,6 +9424,10 @@ fn test_vtxindex_zero_two_miners() {
         Ok(false)
     })
     .expect("Expected miner 2's block to be rejected with InvalidParentBlock");
+
+    // Disable fault injection now that the bad commit is mined and rejected
+    std::env::remove_var("FAULT_INJECTION_BLOCK_COMMIT_VTXINDEX_SENTINEL");
+    std::env::remove_var("FAULT_INJECTION_BLOCK_COMMIT_PARENT_SENTINEL");
 
     info!("------------------------- Verify miner 1 extends its tenure -------------------------");
     // After the block_proposal_timeout expires, signers will accept a tenure extend
