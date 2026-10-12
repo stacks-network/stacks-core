@@ -54,9 +54,10 @@ pub fn compile_deployed_contract(
 
     let mut module = compiled.module;
     let module = module.emit_wasm();
-    info!("JIT-compiled deployed contract to Wasm";
-          "contract" => %contract_identifier,
-          "compile_ms" => start.elapsed().as_secs_f64() * 1000.0);
+    let elapsed = start.elapsed();
+    // `\x1b[2K` clears any progress line before printing the timing
+    print!("\r\x1b[2K");
+    println!("Contract {contract_identifier}: JIT-compiled to Wasm in {elapsed:.2?}");
     Ok(WasmCompilation {
         module,
         analysis: compiled.contract_analysis,

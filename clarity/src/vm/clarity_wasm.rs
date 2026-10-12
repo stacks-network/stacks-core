@@ -628,10 +628,7 @@ fn function_return_type(
     }
 }
 
-/// Call a function in the contract, using the Wasm module which was compiled when the contract
-/// was deployed.
-#[allow(clippy::too_many_arguments)]
-/// Compile `wasm_module` into a wasmi [`Module`], logging how long it took.
+/// Compile `wasm_module` into a wasmi [`Module`], printing how long it took.
 fn load_module(
     engine: &Engine,
     contract_id: &QualifiedContractIdentifier,
@@ -640,12 +637,19 @@ fn load_module(
     let start = Instant::now();
     let module = Module::new(engine, wasm_module)
         .map_err(|e| VmExecutionError::Wasm(WasmError::UnableToLoadModule(e)));
-    info!("Loaded Wasm module";
-          "contract" => %contract_id,
-          "size_bytes" => wasm_module.len(),
-          "load_ms" => start.elapsed().as_secs_f64() * 1000.0);
+    let elapsed = start.elapsed();
+    // `\x1b[2K` clears any progress line before printing the timing
+    print!("\r\x1b[2K");
+    println!(
+        "Contract {contract_id}: loaded Wasm module ({} bytes) in {elapsed:.2?}",
+        wasm_module.len()
+    );
     module
 }
+
+/// Call a function in the contract, using the Wasm module which was compiled when the contract
+/// was deployed.
+#[allow(clippy::too_many_arguments)]
 
 pub fn call_function<'a>(
     function_name: &str,

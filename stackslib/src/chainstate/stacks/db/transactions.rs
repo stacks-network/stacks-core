@@ -1266,9 +1266,10 @@ impl StacksChainState {
                         )))
                     })?;
                 contract_ast.wasm_module = Some(module.emit_wasm());
-                info!("Compiled deployed contract to Wasm";
-                      "contract" => %contract_id,
-                      "compile_ms" => compile_start.elapsed().as_secs_f64() * 1000.0);
+                let compile_elapsed = compile_start.elapsed();
+                // `\x1b[2K` clears any progress line before printing the timing
+                print!("\r\x1b[2K");
+                println!("Contract {contract_id}: compiled to Wasm in {compile_elapsed:.2?}");
 
                 // execution -- if this fails due to a runtime error, then the transaction is still
                 // accepted, but the contract does not materialize (but the sender is out their fee).
