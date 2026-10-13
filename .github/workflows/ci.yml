@@ -109,8 +109,8 @@ jobs:
           fi
 
           LAST_HASH=""
-          if [ -f last_cron_commit.txt ]; then
-            LAST_HASH=$(cat last_cron_commit.txt)
+          if [ -f last_cron_commit_hash.txt ]; then
+            LAST_HASH=$(cat last_cron_commit_hash.txt)
           fi
           CURRENT_HASH="${{ github.sha }}"
 
@@ -132,7 +132,7 @@ jobs:
             
             # Add Skipped message to summary
             echo "### 🛑 Pipeline Skipped" >> $GITHUB_STEP_SUMMARY
-            echo "No new commits were found on the `main` branch since the last scheduled execution. The CI pipeline will not run." >> $GITHUB_STEP_SUMMARY
+            echo "No new commits were found on the \`main\` branch since the last scheduled execution. The CI pipeline will not run." >> $GITHUB_STEP_SUMMARY
           else
             echo "New commits detected. Proceeding."
             echo "proceed=true" >> $GITHUB_OUTPUT
@@ -140,7 +140,7 @@ jobs:
             
             # Add Proceeding message to summary
             echo "### ✅ Pipeline Proceeding" >> $GITHUB_STEP_SUMMARY
-            echo "New commits detected on the `main` branch since the last scheduled execution. The CI pipeline will run." >> $GITHUB_STEP_SUMMARY
+            echo "New commits detected on the \`main\` branch since the last scheduled execution. The CI pipeline will run." >> $GITHUB_STEP_SUMMARY
           fi
 
       # Only save the new cache if it's a schedule and we detected a new hash
