@@ -19,7 +19,7 @@ use std::collections::HashMap;
 use std::io::{BufRead, BufReader, ErrorKind, Write};
 use std::net::TcpListener;
 use std::thread;
-use std::time::{Duration, Instant, SystemTime};
+use std::time::{Duration, Instant};
 
 use blockstack_lib::chainstate::nakamoto::NakamotoBlockHeader;
 use blockstack_lib::chainstate::stacks::db::StacksBlockHeaderTypes;
@@ -158,7 +158,7 @@ fn serve_responses(server: TcpListener, responses: Vec<(String, String)>) {
 
 /// Local signer state shared by successive arrivals in a scenario.
 struct BurnBlockDriver {
-    /// Database containing only burn blocks whose events have drained.
+    /// Signer database used by the scenario's state transitions.
     db: SignerDb,
     /// Client connected to the scripted node.
     client: StacksClient,
@@ -217,19 +217,7 @@ impl BurnBlockDriver {
 fn run_scenario(responses: Vec<(String, String)>, scenario: impl FnOnce(&mut BurnBlockDriver)) {
     let MockServerClient { server, client, .. } = MockServerClient::new();
     let mut db = SignerDb::new(tmp_db_path()).unwrap();
-    // Startup has only drained events through 105; the live tip has no signerdb row.
-    for height in 100..=105_u8 {
-        db.insert_burn_block(
-            &BurnchainHeaderHash([height; 32]),
-            &ConsensusHash([height; 20]),
-            u64::from(height),
-            &SystemTime::now(),
-            &BurnchainHeaderHash([height - 1; 32]),
-        )
-        .unwrap();
-    }
-    let mut config = test_proposal_eval_config();
-    config.block_proposal_timeout = Duration::from_secs(600);
+    let config = test_proposal_eval_config();
     let weights = HashMap::from([(client.get_signer_address().clone(), 10)]);
     let eval = GlobalStateEvaluator::new(HashMap::new(), weights);
     thread::scope(|scope| {
