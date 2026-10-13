@@ -1,0 +1,1 @@
+Fixed a miner stall where a different proposal of the miner's own tenure-start block reached consensus while the miner was waiting on its replacement. The miner now detects the accepted sibling, adopts it, and continues its tenure on top of it instead of re-sending the replacement until the next Bitcoin block.

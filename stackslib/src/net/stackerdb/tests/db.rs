@@ -30,8 +30,8 @@ use crate::net::{Error as net_error, StackerDBChunkData};
 
 fn setup_test_path(path: &str) {
     let dirname = Path::new(path).parent().unwrap().to_str().unwrap();
-    if fs::metadata(&dirname).is_err() {
-        fs::create_dir_all(&dirname).unwrap();
+    if fs::metadata(dirname).is_err() {
+        fs::create_dir_all(dirname).unwrap();
     }
     if fs::metadata(path).is_ok() {
         fs::remove_file(path).unwrap();

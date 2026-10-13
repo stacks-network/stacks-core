@@ -437,6 +437,10 @@ In both cases, the value itself is a tuple containing three fields: a `version` 
 a `hash-bytes` value as a `(buff 20)`, and a `name` value as an `(optional (string-ascii 40))`.  The `name`
 field will only be `(some ..)` if the principal is a contract principal.
 
+Starting in Stacks 4.1, if the contract name is longer than 40 characters, this function
+aborts the transaction with a runtime error. Such principals can only have been created
+before Stacks 4.1.
+
 Note: This function is only available starting with Stacks 2.1.",
     example: r#"
 (principal-destruct? 'STB44HYPYAT2BB2QE513NSP81HTMYWBJP02HPGK6) ;; Returns (ok (tuple (hash-bytes 0x164247d6f2b425ac5771423ae6c80c754f7172b0) (name none) (version 0x1a)))
@@ -1386,7 +1390,10 @@ associated with the expressions' paired key name.
 There is a shorthand using curly brackets of the form {key0: expr0, key1: expr, ...}",
     example: "(tuple (name \"blockstack\") (id 1337)) ;; using tuple
     {name: \"blockstack\", id: 1337} ;; using curly brackets",
-    notices: &[],
+    notices: &[DocNotice {
+        level: "info",
+        body: "As of Epoch 4.1, tuples that must share one type, such as the two branches of `if`, the arguments of `is-eq` or the elements of a `list`, must have the same fields. Earlier epochs could drop fields that only one of the tuples had.",
+    }],
 };
 
 const TUPLE_GET_API: SpecialAPI = SpecialAPI {
@@ -2806,6 +2813,9 @@ buffer into a Clarity value, using the SIP-005 serialization of the
 Clarity value. The type that `from-consensus-buff?` tries to deserialize
 into is provided by the first parameter to the function. If it fails
 to deserialize the type, the method returns `none`.
+
+Starting in Stacks 4.1, a buffer containing a contract principal whose name is
+longer than 40 characters fails to deserialize, and the method returns `none`.
 ",
     example: r#"
 (from-consensus-buff? int 0x0000000000000000000000000000000001) ;; Returns (some 1)

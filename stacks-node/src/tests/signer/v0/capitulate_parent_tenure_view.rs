@@ -414,7 +414,9 @@ fn deadlock_50_50_split_capitulates_to_node_tip() {
     )
     .expect("Approving signers did not pre-commit to block N+1");
 
-    info!("------------------------- Inject Pre-Commits from Rejecting Signers -------------------------");
+    info!(
+        "------------------------- Inject Pre-Commits from Rejecting Signers -------------------------"
+    );
     // Broadcast pre-commits on behalf of the rejecting signers, as faulty signers that
     // pre-commit and then refuse to sign would. This pushes the approving signers over the
     // pre-commit threshold, so they put real signatures over block N+1. The block still never
@@ -552,7 +554,9 @@ fn deadlock_50_50_split_capitulates_to_node_tip() {
     })
     .expect("Originally approving signers did not update state machine to capitulated parent tenure last block N");
 
-    info!("------------------------- Waiting for block N+1' approval from capitulated signers -------------------------");
+    info!(
+        "------------------------- Waiting for block N+1' approval from capitulated signers -------------------------"
+    );
     TEST_REJECT_ALL_BLOCK_PROPOSAL.set(Vec::new());
     TEST_SIGNERS_IGNORE_BLOCK_RESPONSES.set(vec![]);
     let block_n_1_prime =

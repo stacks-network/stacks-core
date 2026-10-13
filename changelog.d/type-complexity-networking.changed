@@ -1,0 +1,1 @@
+Replace complex networking results with documented named types for HTTP stream reads, downloads, mempool responses, and relayed blocks without changing wire formats or RPC payloads.

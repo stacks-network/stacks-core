@@ -1,0 +1,1 @@
+Removed `MARF::get_by_hash`, which was identical to `MARF::get_by_path`; callers now use `get_by_path`.

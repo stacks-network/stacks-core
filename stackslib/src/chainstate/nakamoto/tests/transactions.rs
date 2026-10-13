@@ -31,7 +31,7 @@ fn make_test_peer_for_epoch<'a>(
     ];
 
     let (peer, _) =
-        make_nakamoto_peers_from_invs_ext(function_name!(), &observer, bitvecs, |boot_plan| {
+        make_nakamoto_peers_from_invs_ext(function_name!(), observer, bitvecs, |boot_plan| {
             boot_plan.with_epoch(epoch).with_pox_constants(10, 3)
         });
 

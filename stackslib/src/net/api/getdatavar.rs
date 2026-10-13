@@ -128,7 +128,7 @@ impl RPCRequestHandler for RPCGetDataVarRequestHandler {
         let tip = match node.load_stacks_chain_tip(&preamble, &contents) {
             Ok(tip) => tip,
             Err(error_resp) => {
-                return error_resp.try_into_contents().map_err(NetError::from);
+                return error_resp.try_into_contents();
             }
         };
 
@@ -173,16 +173,14 @@ impl RPCRequestHandler for RPCGetDataVarRequestHandler {
                     &preamble,
                     &HttpNotFound::new("Data var not found".to_string()),
                 )
-                .try_into_contents()
-                .map_err(NetError::from);
+                .try_into_contents();
             }
             Ok(None) | Err(_) => {
                 return StacksHttpResponse::new_error(
                     &preamble,
                     &HttpNotFound::new("Chain tip not found".to_string()),
                 )
-                .try_into_contents()
-                .map_err(NetError::from);
+                .try_into_contents();
             }
         };
 
@@ -200,7 +198,7 @@ impl HttpResponse for RPCGetDataVarRequestHandler {
         body: &[u8],
     ) -> Result<HttpResponsePayload, Error> {
         let datavar: DataVarResponse = parse_json(preamble, body)?;
-        Ok(HttpResponsePayload::try_from_json(datavar)?)
+        HttpResponsePayload::try_from_json(datavar)
     }
 }
 

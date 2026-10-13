@@ -1,0 +1,1 @@
+`burnchain.mode = "helium"` is now rejected at startup, and the `stacks-node helium` subcommand and `stacks-inspect --network-config helium` option are removed. Run a private regtest network with `stacks-node start --config` and `mode = "nakamoto-neon"` instead; the node no longer mines its own Bitcoin blocks, so mine them with bitcoind (e.g. `generatetoaddress`).
