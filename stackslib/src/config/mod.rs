@@ -4307,7 +4307,10 @@ impl NodeConfigFile {
                 .marf_compress
                 .unwrap_or(default_node_config.marf_compress),
             sqlite_vfs: match self.sqlite_vfs {
-                Some(vfs) => vfs.parse().map_err(|e| format!("node.sqlite_vfs: {e}"))?,
+                Some(vfs) => vfs
+                    .parse::<SqliteVfs>()
+                    .and_then(SqliteVfs::ensure_supported)
+                    .map_err(|e| format!("node.sqlite_vfs: {e}"))?,
                 None => default_node_config.sqlite_vfs,
             },
             pox_sync_sample_secs: self
@@ -5912,6 +5915,25 @@ mod tests {
                     "#,
             );
             assert_eq!(config.node.sqlite_vfs, SqliteVfs::UnixExcl, "unix-excl");
+        }
+
+        #[cfg(not(unix))]
+        {
+            let err = Config::from_config_file(
+                ConfigFile::from_str(
+                    r#"
+                    [node]
+                    sqlite_vfs = "unix-excl"
+                    "#,
+                )
+                .unwrap(),
+                false,
+            )
+            .unwrap_err();
+            assert_eq!(
+                err, "node.sqlite_vfs: SQLite VFS 'unix-excl' is only available on unix platforms",
+                "unix-excl rejected off unix"
+            );
         }
 
         let err = Config::from_config_file(

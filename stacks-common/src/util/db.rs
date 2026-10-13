@@ -79,6 +79,16 @@ impl SqliteVfs {
     fn requires_writable_handles(self) -> bool {
         matches!(self, Self::UnixExcl)
     }
+
+    /// Check that SQLite provides this VFS on the platform the node was built for.
+    pub fn ensure_supported(self) -> Result<Self, String> {
+        match self {
+            Self::UnixExcl if !cfg!(unix) => Err(format!(
+                "SQLite VFS '{self}' is only available on unix platforms"
+            )),
+            _ => Ok(self),
+        }
+    }
 }
 
 impl fmt::Display for SqliteVfs {
@@ -97,10 +107,7 @@ impl FromStr for SqliteVfs {
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
             Self::DEFAULT_NAME => Ok(Self::Default),
-            Self::UNIX_EXCL_NAME if cfg!(unix) => Ok(Self::UnixExcl),
-            Self::UNIX_EXCL_NAME => Err(format!(
-                "SQLite VFS '{s}' is only available on unix platforms"
-            )),
+            Self::UNIX_EXCL_NAME => Ok(Self::UnixExcl),
             _ => Err(format!(
                 "unknown SQLite VFS '{s}' (expected '{}' or '{}')",
                 Self::DEFAULT_NAME,
@@ -110,9 +117,39 @@ impl FromStr for SqliteVfs {
     }
 }
 
+/// A VFS choice that can be made once and is never changed afterwards.
+struct SqliteVfsSelection(OnceLock<SqliteVfs>);
+
+impl SqliteVfsSelection {
+    const fn new() -> Self {
+        Self(OnceLock::new())
+    }
+
+    /// Make the choice, or confirm it if `vfs` is already the choice. Returns the VFS already
+    /// chosen if it differs.
+    fn select(&self, vfs: SqliteVfs) -> Result<(), SqliteVfs> {
+        let active = *self.0.get_or_init(|| vfs);
+        if active == vfs {
+            Ok(())
+        } else {
+            Err(active)
+        }
+    }
+
+    /// The VFS chosen, or the default while no choice has been made. Does not make a choice.
+    fn current(&self) -> SqliteVfs {
+        self.0.get().copied().unwrap_or_default()
+    }
+
+    /// The VFS chosen, making the default the choice if none has been made yet.
+    fn fix(&self) -> SqliteVfs {
+        *self.0.get_or_init(SqliteVfs::default)
+    }
+}
+
 /// Process-wide VFS used by [`sqlite_open`]. Fixed by [`set_sqlite_vfs`], or by the first
 /// [`sqlite_open`] call, whichever happens first.
-static SQLITE_VFS: OnceLock<SqliteVfs> = OnceLock::new();
+static SQLITE_VFS: SqliteVfsSelection = SqliteVfsSelection::new();
 
 /// Select the VFS used by every [`sqlite_open`] call in this process.
 ///
@@ -120,17 +157,13 @@ static SQLITE_VFS: OnceLock<SqliteVfs> = OnceLock::new();
 /// first database open, so this must run before any database is opened. Setting the value that
 /// is already in effect succeeds; setting a different one returns the VFS already in effect.
 pub fn set_sqlite_vfs(vfs: SqliteVfs) -> Result<(), SqliteVfs> {
-    let active = *SQLITE_VFS.get_or_init(|| vfs);
-    if active == vfs {
-        Ok(())
-    } else {
-        Err(active)
-    }
+    SQLITE_VFS.select(vfs)
 }
 
-/// The VFS used by [`sqlite_open`] in this process.
+/// The VFS that [`sqlite_open`] uses in this process: the one selected, or the default while
+/// none has been selected. Reading it does not fix the choice.
 pub fn sqlite_vfs() -> SqliteVfs {
-    *SQLITE_VFS.get_or_init(SqliteVfs::default)
+    SQLITE_VFS.current()
 }
 
 /// Keep track of DB locks, for deadlock debugging
@@ -285,7 +318,7 @@ pub fn sqlite_open<P: AsRef<Path>>(
     flags: OpenFlags,
     foreign_keys: bool,
 ) -> Result<Connection, SqliteError> {
-    sqlite_open_with_vfs(path, flags, foreign_keys, sqlite_vfs())
+    sqlite_open_with_vfs(path, flags, foreign_keys, SQLITE_VFS.fix())
 }
 
 fn sqlite_open_with_vfs<P: AsRef<Path>>(
@@ -400,10 +433,7 @@ mod tests {
     #[test]
     fn sqlite_vfs_parses_config_values() {
         assert_eq!("default".parse::<SqliteVfs>(), Ok(SqliteVfs::Default));
-        #[cfg(unix)]
         assert_eq!("unix-excl".parse::<SqliteVfs>(), Ok(SqliteVfs::UnixExcl));
-        #[cfg(not(unix))]
-        assert!("unix-excl".parse::<SqliteVfs>().is_err());
         for invalid in ["", "unix", "Default", "unix_excl", "win32"] {
             let err = invalid.parse::<SqliteVfs>().unwrap_err();
             assert!(err.contains("unknown SQLite VFS"), "{invalid:?}: {err}");
@@ -416,11 +446,54 @@ mod tests {
             SqliteVfs::Default.to_string().parse::<SqliteVfs>(),
             Ok(SqliteVfs::Default)
         );
-        #[cfg(unix)]
         assert_eq!(
             SqliteVfs::UnixExcl.to_string().parse::<SqliteVfs>(),
             Ok(SqliteVfs::UnixExcl)
         );
+    }
+
+    #[test]
+    fn sqlite_vfs_platform_support() {
+        assert_eq!(
+            SqliteVfs::Default.ensure_supported(),
+            Ok(SqliteVfs::Default)
+        );
+        #[cfg(unix)]
+        assert_eq!(
+            SqliteVfs::UnixExcl.ensure_supported(),
+            Ok(SqliteVfs::UnixExcl)
+        );
+        #[cfg(not(unix))]
+        assert_eq!(
+            SqliteVfs::UnixExcl.ensure_supported(),
+            Err("SQLite VFS 'unix-excl' is only available on unix platforms".to_string())
+        );
+    }
+
+    #[test]
+    fn reading_vfs_selection_does_not_fix_it() {
+        let selection = SqliteVfsSelection::new();
+        assert_eq!(selection.current(), SqliteVfs::Default);
+        assert_eq!(selection.select(SqliteVfs::UnixExcl), Ok(()));
+        assert_eq!(selection.current(), SqliteVfs::UnixExcl);
+        assert_eq!(selection.fix(), SqliteVfs::UnixExcl);
+        assert_eq!(selection.select(SqliteVfs::UnixExcl), Ok(()));
+        assert_eq!(
+            selection.select(SqliteVfs::Default),
+            Err(SqliteVfs::UnixExcl)
+        );
+        assert_eq!(selection.current(), SqliteVfs::UnixExcl);
+    }
+
+    #[test]
+    fn opening_fixes_default_vfs_selection() {
+        let selection = SqliteVfsSelection::new();
+        assert_eq!(selection.fix(), SqliteVfs::Default);
+        assert_eq!(
+            selection.select(SqliteVfs::UnixExcl),
+            Err(SqliteVfs::Default)
+        );
+        assert_eq!(selection.current(), SqliteVfs::Default);
     }
 
     #[test]
