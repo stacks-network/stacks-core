@@ -1,1 +1,0 @@
-Clarity execution no longer copies function bodies on every call, or trait definitions when dynamic dispatch checks a target that lacks `impl-trait`; execution behavior and costs are unchanged.
