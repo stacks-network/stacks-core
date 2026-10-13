@@ -14,6 +14,13 @@ inputs:
   test-names:
     description: "Comma-separated list of literal test names to run (Required if not partitioning)"
     required: false
+  binary-id:
+    description: |
+      Nextest binary ID that contains every test in `test-names` (e.g.
+      `stacks-node::bin/stacks-node`). When set, nextest skips listing every
+      other binary in the archive. Optional; only used with `test-names`.
+    required: false
+    default: ""
   partition:
     description: "Partition to run (e.g., 1)"
     required: false
@@ -161,12 +168,21 @@ runs:
         # Determine run mode arguments
         if [ -n "${{ inputs.partition }}" ]; then
           PROFILE="${{ inputs.nextest-profile || 'ci-parallel' }}"
-          MODE_ARGS="--partition count:${{ inputs.partition }}/${{ inputs.total-partitions }}"
+          MODE_ARGS=(--partition "count:${{ inputs.partition }}/${{ inputs.total-partitions }}")
         else
           PROFILE="${{ inputs.nextest-profile || 'ci-sequential' }}"
           FILTERSET=$(echo "${{ inputs.test-names }}" | sed -E 's/[[:space:]]*,[[:space:]]*/)|test(=/g')
+          FILTERSET="test(=${FILTERSET})"
+          # Restrict to one binary when known. Nextest evaluates binary-level
+          # predicates before listing, so the other binaries in the archive are
+          # never run with `--list`. Listing them all occasionally hangs
+          # (observed with the clarity unit test binary), stalling the job
+          # until the step timeout.
+          if [ -n "${{ inputs.binary-id }}" ]; then
+            FILTERSET="binary_id(=${{ inputs.binary-id }}) & (${FILTERSET})"
+          fi
           # Keep the --run-ignored all flag specific to sequential mode
-          MODE_ARGS="--run-ignored all -E test(=${FILTERSET})"
+          MODE_ARGS=(--run-ignored all -E "$FILTERSET")
         fi
 
         # Execute tests (with or without coverage)
@@ -179,13 +195,13 @@ runs:
             --config-file ./.github/nextest/ci-nextest.toml \
             --profile "$PROFILE" \
             --archive-file ${{ inputs.archive-file }} \
-            $MODE_ARGS
+            "${MODE_ARGS[@]}"
         else
           cargo nextest run \
             --config-file ./.github/nextest/ci-nextest.toml \
             --profile "$PROFILE" \
             --archive-file ${{ inputs.archive-file }} \
-            $MODE_ARGS
+            "${MODE_ARGS[@]}"
         fi
 
     # Rename the JUnit report away from the fixed path set in the nextest

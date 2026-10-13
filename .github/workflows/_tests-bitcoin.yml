@@ -119,6 +119,7 @@ jobs:
           btc-version: ${{ inputs.btc-version }}
           btc-version-sha: ${{ inputs.btc-version-sha }}
           test-names: ${{ matrix.batch.csv }}
+          binary-id: stacks-node::bin/stacks-node
           archive-file: ${{ inputs.archive-file }}
           codecov-test-name: isolated-test-${{ matrix.batch.index }}
           nextest-profile: ${{ inputs.nextest-profile }}
@@ -149,6 +150,7 @@ jobs:
           btc-version: ${{ inputs.btc-version }}
           btc-version-sha: ${{ inputs.btc-version-sha }}
           test-names: ${{ matrix.batch.csv }}
+          binary-id: stacks-node::bin/stacks-node
           archive-file: ${{ inputs.archive-file }}
           codecov-test-name: isolated-test-${{ matrix.batch.index }}
           nextest-profile: ${{ inputs.nextest-profile }}
@@ -179,6 +181,7 @@ jobs:
           btc-version: ${{ inputs.btc-version }}
           btc-version-sha: ${{ inputs.btc-version-sha }}
           test-names: ${{ matrix.batch.csv }}
+          binary-id: stacks-node::bin/stacks-node
           archive-file: ${{ inputs.archive-file }}
           codecov-test-name: isolated-test-${{ matrix.batch.index }}
           nextest-profile: ${{ inputs.nextest-profile }}
@@ -209,6 +212,7 @@ jobs:
           btc-version: ${{ inputs.btc-version }}
           btc-version-sha: ${{ inputs.btc-version-sha }}
           test-names: ${{ matrix.batch.csv }}
+          binary-id: stacks-node::bin/stacks-node
           archive-file: ${{ inputs.archive-file }}
           codecov-test-name: isolated-test-${{ matrix.batch.index }}
           nextest-profile: ${{ inputs.nextest-profile }}
