@@ -136,7 +136,7 @@ jobs:
           else
             echo "New commits detected. Proceeding."
             echo "proceed=true" >> $GITHUB_OUTPUT
-            echo "$CURRENT_HASH" > last_cron_commit.txt
+            echo "$CURRENT_HASH" > last_cron_commit_hash.txt
             
             # Add Proceeding message to summary
             echo "### ✅ Pipeline Proceeding" >> $GITHUB_STEP_SUMMARY
