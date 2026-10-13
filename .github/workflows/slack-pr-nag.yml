@@ -57,8 +57,7 @@ jobs:
               "federico-stacks":   { "name": "Federico",  "slack": "U08ASJ1LKEV", "triage": true  },
               "francesco-stacks":  { "name": "Francesco", "slack": "U07MCETKTKN", "triage": true  },
               "hstove-stacks":     { "name": "Hank",      "slack": "U068W8VBSQM", "triage": true  },
-              "rob-stacks":        { "name": "Roberto",   "slack": "U07UNFAS4BD", "triage": true  },
-              "simone-stacks":     { "name": "Simone",    "slack": "U09NA1TP8PK", "triage": false }
+              "rob-stacks":        { "name": "Roberto",   "slack": "U07UNFAS4BD", "triage": true  }
             }
           # ------------------------------
           

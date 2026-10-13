@@ -107,11 +107,21 @@ pub fn execute_with_epoch(
     snippet: &str,
     epoch: StacksEpochId,
 ) -> Result<Option<Value>, ClarityEvalError> {
+    execute_with_version_and_epoch(snippet, ClarityVersion::latest(), epoch)
+}
+
+/// Execute a Clarity code snippet with the given Clarity version and epoch in a
+/// fresh global context, setting up initial balances.
+pub fn execute_with_version_and_epoch(
+    snippet: &str,
+    version: ClarityVersion,
+    epoch: StacksEpochId,
+) -> Result<Option<Value>, ClarityEvalError> {
     let sender = StandardPrincipalData::transient();
     let sender_for_init = sender.clone();
     execute_with_parameters_and_call_in_global_context(
         snippet,
-        ClarityVersion::latest(),
+        version,
         epoch,
         false,
         sender,

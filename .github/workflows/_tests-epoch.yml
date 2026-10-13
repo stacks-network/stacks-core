@@ -5,6 +5,14 @@ name: "Tests: Epoch"
 on:
   workflow_call:
     inputs:
+      btc-version:
+        description: "The bitcoin binary version to use for tests"
+        required: true
+        type: string
+      btc-version-sha:
+        description: "The SHA256 of the bitcoin binary to verify before executing tests"
+        required: true
+        type: string
       archive-file:
         description: "The test archive file"
         required: true
@@ -79,6 +87,8 @@ jobs:
         timeout-minutes: ${{ fromJSON(env.TEST_TIMEOUT) }}
         uses: ./.github/actions/run-tests
         with:
+          btc-version: ${{ inputs.btc-version }}
+          btc-version-sha: ${{ inputs.btc-version-sha }}
           test-names: ${{ matrix.test-name }}
           archive-file: ${{ inputs.archive-file }}
           codecov-test-name: ${{ matrix.test-name }}

@@ -871,6 +871,7 @@ pub struct BurnchainStateTransition {
 /// -- the new burn distribution
 /// -- the sequence of valid blockstack operations that went into it
 /// -- the set of previously-accepted leader VRF keys consumed
+#[cfg(test)]
 #[derive(Debug, Clone)]
 pub struct BurnchainStateTransitionOps {
     pub accepted_ops: Vec<BlockstackOperationType>,

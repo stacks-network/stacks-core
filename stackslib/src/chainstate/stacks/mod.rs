@@ -26,6 +26,7 @@ use clarity::vm::representations::ContractName;
 use clarity::vm::types::{
     PrincipalData, QualifiedContractIdentifier, StandardPrincipalData, Value,
 };
+#[cfg(test)]
 use clarity::vm::ClarityVersion;
 use rusqlite::Error as RusqliteError;
 use serde::{Deserialize, Serialize};
@@ -437,16 +438,17 @@ impl Error {
 }
 
 pub use stacks_codec::transaction::{
-    AssetInfo, AssetInfoID, AuthError, CoinbasePayload, FungibleConditionCode, MultisigHashMode,
-    MultisigSpendingCondition, NonfungibleConditionCode, OrderIndependentMultisigHashMode,
-    OrderIndependentMultisigSpendingCondition, PostConditionPrincipal, PostConditionPrincipalID,
-    PoxConditionCode, SinglesigHashMode, SinglesigSpendingCondition, StacksMicroblockHeader,
-    StacksTransaction, TenureChangeCause, TenureChangeError, TenureChangePayload,
-    TokenTransferMemo, TransactionAnchorMode, TransactionAuth, TransactionAuthField,
-    TransactionAuthFieldID, TransactionAuthFlags, TransactionAuthVerificationMode,
-    TransactionContractCall, TransactionPayload, TransactionPayloadID, TransactionPostCondition,
-    TransactionPostConditionMode, TransactionPublicKeyEncoding, TransactionSmartContract,
-    TransactionSpendingCondition, TransactionVersion,
+    AssetInfo, AssetInfoID, AuthError, CoinbasePayload, FungibleConditionCode,
+    MicroblockSignerMatch, MultisigHashMode, MultisigSpendingCondition, NonfungibleConditionCode,
+    OrderIndependentMultisigHashMode, OrderIndependentMultisigSpendingCondition,
+    PostConditionPrincipal, PostConditionPrincipalID, PoxConditionCode, SinglesigHashMode,
+    SinglesigSpendingCondition, StacksMicroblockHeader, StacksTransaction, TenureChangeCause,
+    TenureChangeError, TenureChangePayload, TokenTransferMemo, TransactionAnchorMode,
+    TransactionAuth, TransactionAuthField, TransactionAuthFieldID, TransactionAuthFlags,
+    TransactionAuthVerificationMode, TransactionContractCall, TransactionPayload,
+    TransactionPayloadID, TransactionPostCondition, TransactionPostConditionMode,
+    TransactionPublicKeyEncoding, TransactionSmartContract, TransactionSpendingCondition,
+    TransactionVersion,
 };
 
 #[derive(Debug, Clone, PartialEq)]

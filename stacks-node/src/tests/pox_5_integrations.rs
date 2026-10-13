@@ -40,7 +40,6 @@ use stacks_common::types::chainstate::{StacksAddress, StacksPublicKey};
 use stacks_common::util::secp256k1::{Secp256k1PrivateKey, Secp256k1PublicKey};
 
 use crate::burnchains::bitcoin::core_controller::BitcoinCoreController;
-use crate::burnchains::BurnchainController;
 use crate::neon::Counters;
 use crate::operations::BurnchainOpSigner;
 use crate::run_loop::boot_nakamoto;

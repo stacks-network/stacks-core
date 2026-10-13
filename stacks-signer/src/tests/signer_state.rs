@@ -13,6 +13,8 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime};
 use std::{fs, thread};
 
@@ -38,9 +40,10 @@ use prometheus::gather;
 use stacks_common::bitvec::BitVec;
 use stacks_common::function_name;
 
-use crate::chainstate::{ProposalEvalConfig, SortitionData};
+use crate::chainstate::{ProposalEvalConfig, SignerChainstateError, SortitionData};
 use crate::client::tests::{
-    build_get_peer_info_response, build_get_tenure_tip_response, MockServerClient,
+    build_get_peer_info_response, build_get_tenure_tip_response, mock_server_from_config,
+    write_response, MockServerClient,
 };
 use crate::client::StacksClient;
 use crate::config::GlobalConfig;
@@ -1448,6 +1451,156 @@ fn check_miner_inactivity_timeout() {
     h.join().unwrap();
 }
 
+/// Two blocking-minority views of the same tenure that disagree only on the parent tenure's
+/// last block must be ranked deterministically: the view with the more recent parent-tenure
+/// knowledge wins every time. Before the fix the tie was left to HashSet iteration order, so
+/// a signer could capitulate to the stale view, be corrected by its node on the next check,
+/// and capitulate again, broadcasting a state update on every flip.
+#[test]
+fn capitulate_miner_view_tie_break_is_deterministic() {
+    let MockServerClient { server, client, .. } = MockServerClient::new();
+
+    let mut address_weights = HashMap::new();
+    let local_address = client.get_signer_address().clone();
+    address_weights.insert(local_address.clone(), 10);
+    for _ in 1..10 {
+        let stacks_address = StacksAddress::p2pkh(false, &StacksPublicKey::new());
+        address_weights.insert(stacks_address, 10);
+    }
+
+    let burn_block = ConsensusHash([0x55; 20]);
+    let burn_block_height = 100;
+    let tenure_id = ConsensusHash([0x01; 20]);
+    let parent_tenure_id = ConsensusHash([0x22; 20]);
+    let stale_parent_height = 35;
+    let fresh_parent_height = 36;
+
+    let make_view = |parent_last_block: StacksBlockId, parent_height: u64| {
+        StateMachineUpdateMinerState::ActiveMiner {
+            current_miner_pkh: Hash160([0xab; 20]),
+            tenure_id: tenure_id.clone(),
+            parent_tenure_id: parent_tenure_id.clone(),
+            parent_tenure_last_block: parent_last_block,
+            parent_tenure_last_block_height: parent_height,
+        }
+    };
+    let make_update = |view: &StateMachineUpdateMinerState| {
+        StateMachineUpdateMessage::new(
+            0,
+            0,
+            StateMachineUpdateContent::V0 {
+                burn_block: burn_block.clone(),
+                burn_block_height,
+                current_miner: view.clone(),
+            },
+        )
+        .unwrap()
+    };
+    let stale_view = make_view(StacksBlockId([0x35; 32]), stale_parent_height);
+    let fresh_view = make_view(StacksBlockId([0x36; 32]), fresh_parent_height);
+    let stale_update = make_update(&stale_view);
+    let fresh_update = make_update(&fresh_view);
+
+    // 40% of the weight on each view (both past the >30% blocking minority, neither at 70%),
+    // the local signer among the fresh ones, and the remaining 20% seeing no valid miner.
+    let mut address_updates = HashMap::new();
+    let others: Vec<_> = address_weights
+        .keys()
+        .filter(|a| **a != local_address)
+        .cloned()
+        .collect();
+    address_updates.insert(local_address.clone(), fresh_update.clone());
+    for (i, address) in others.into_iter().enumerate() {
+        let update = match i {
+            0..=3 => stale_update.clone(),
+            4..=6 => fresh_update.clone(),
+            _ => StateMachineUpdateMessage::new(
+                0,
+                0,
+                StateMachineUpdateContent::V0 {
+                    burn_block: burn_block.clone(),
+                    burn_block_height,
+                    current_miner: StateMachineUpdateMinerState::NoValidMiner,
+                },
+            )
+            .unwrap(),
+        };
+        address_updates.insert(address, update);
+    }
+    let mut global_eval = GlobalStateEvaluator::new(address_updates, address_weights);
+
+    // The tenure is known and has a globally accepted block, so both views qualify.
+    let mut db = SignerDb::new(tmp_db_path()).expect("Failed to create signer db");
+    db.insert_burn_block(
+        &BurnchainHeaderHash([0u8; 32]),
+        &tenure_id,
+        burn_block_height,
+        &SystemTime::now(),
+        &BurnchainHeaderHash([1u8; 32]),
+    )
+    .unwrap();
+    let (mut block_info, _) = create_block_override(|b| {
+        b.block.header.consensus_hash = tenure_id.clone();
+        b.block.header.chain_length = fresh_parent_height + 1;
+        b.burn_height = burn_block_height;
+    });
+    block_info.mark_globally_accepted().unwrap();
+    db.insert_block(&block_info).unwrap();
+
+    // The node already knows the fresh parent block, so neither view is "ahead" of us.
+    let anchored_header = StacksBlockHeaderTypes::Nakamoto(NakamotoBlockHeader {
+        version: 1,
+        chain_length: fresh_parent_height,
+        burn_spent: 0,
+        consensus_hash: parent_tenure_id.clone(),
+        parent_block_id: StacksBlockId([0x35; 32]),
+        tx_merkle_root: Sha512Trunc256Sum([0u8; 32]),
+        state_index_root: TrieHash([0u8; 32]),
+        timestamp: 0,
+        miner_signature: MessageSignature([0u8; 65]),
+        signer_signature: vec![],
+        pox_treatment: BitVec::ones(1).unwrap(),
+        problematic_txs: vec![],
+    });
+    let tenure_tip = build_get_tenure_tip_response(&BlockHeaderWithMetadata {
+        anchored_header,
+        burn_view: Some(parent_tenure_id.clone()),
+    });
+    let exit = Arc::new(AtomicBool::new(false));
+    let exit_clone = exit.clone();
+    let server_thread = std::thread::spawn(move || {
+        crate::client::tests::write_response_nonblockinig(
+            &server,
+            tenure_tip.as_bytes(),
+            exit_clone,
+        );
+    });
+
+    let mut local_state_machine = LocalStateMachine::Initialized(SignerStateMachine {
+        burn_block: burn_block.clone(),
+        burn_block_height,
+        current_miner: fresh_view.clone().into(),
+        active_signer_protocol_version: 0,
+    });
+    for attempt in 0..25 {
+        let chosen = local_state_machine
+            .capitulate_miner_view(
+                &client,
+                &mut global_eval,
+                &mut db,
+                &fresh_update,
+                Duration::from_secs(u64::MAX),
+            )
+            .expect("both views are blocking minorities of a tenure with an accepted block");
+        assert_eq!(
+            chosen, fresh_view,
+            "attempt {attempt}: the view with the newer parent-tenure block must always win"
+        );
+    }
+    exit.store(true, Ordering::SeqCst);
+    server_thread.join().unwrap();
+}
+
 /// A transient node error while reacting to a burn block must not strand the local state
 /// machine as `Uninitialized`: nothing re-runs `bitcoin_block_arrival` for an uninitialized
 /// machine until the *next* burn block event, so the signer would drop out of the global
@@ -1716,4 +1869,184 @@ fn handle_pending_update_skips_retry_during_backoff() {
         .unwrap();
     assert_eq!(local_state_machine, pending);
     assert!(!backoff.is_ready(Instant::now()));
+}
+
+/// When the machine is already `Pending` on a burn block, a burn block event at a lower
+/// height (i.e., a Bitcoin reorg to a shorter tip) must not replace the pending block: the
+/// signer keeps waiting for the node to reach the pending height, treating the node as behind
+/// in the meantime. This is transient, since the node only reports the lower tip while the
+/// reorg is still being discovered. Once a block at (or above) the pending height arrives,
+/// even on the new fork, the machine initializes from it.
+#[test]
+fn pending_burn_block_not_replaced_by_lower_event() {
+    let mut signer_db = SignerDb::new(tmp_db_path()).unwrap();
+    let proposal_config = ProposalEvalConfig {
+        first_proposal_burn_block_timing: Duration::from_secs(30),
+        block_proposal_timeout: Duration::from_secs(5),
+        tenure_last_block_proposal_timeout: Duration::from_secs(30),
+        tenure_idle_timeout: Duration::from_secs(300),
+        tenure_idle_timeout_buffer: Duration::from_secs(2),
+        reorg_attempts_activity_timeout: Duration::from_secs(3),
+        proposal_wait_for_parent_time: Duration::from_secs(0),
+        read_count_idle_timeout: Duration::from_secs(12000),
+    };
+    // Protocol version 0 validates tenures without consulting the global state.
+    let eval = GlobalStateEvaluator::new(HashMap::new(), HashMap::new());
+    let miner_pkh = Hash160([0xaa; 20]);
+
+    // An earlier arrival of block 7A failed with a node error and was parked.
+    let pending_7a = NewBurnBlock {
+        burn_block_height: 7,
+        consensus_hash: ConsensusHash([0xa7; 20]),
+    };
+    // Bitcoin then reorgs to a lower tip, 6B, which the node reports.
+    let event_6b = NewBurnBlock {
+        burn_block_height: 6,
+        consensus_hash: ConsensusHash([0xb6; 20]),
+    };
+    // Finally, the new fork grows to 7B.
+    let event_7b = NewBurnBlock {
+        burn_block_height: 7,
+        consensus_hash: ConsensusHash([0xb7; 20]),
+    };
+    let expected_pending = LocalStateMachine::Pending {
+        update: StateMachineUpdate::BurnBlock(pending_7a),
+        prior: SignerStateMachine {
+            burn_block: ConsensusHash([0; 20]),
+            burn_block_height: 5,
+            current_miner: MinerState::NoValidMiner,
+            active_signer_protocol_version: 0,
+        },
+    };
+    let mut local_state_machine = expected_pending.clone();
+    let (peer_info_6b, _) = build_get_peer_info_response(
+        Some(event_6b.burn_block_height),
+        Some(event_6b.consensus_hash.clone()),
+    );
+
+    // 1. The lower 6B event arrives. The pending 7A is kept, and since the node is only at
+    //    height 6, the arrival reports the node as behind and stays parked on 7A. Only the
+    //    peer-info response is served: had 6B replaced 7A, the node check would pass and the
+    //    arrival would go on to fetch sortitions, which would fail and park 6B instead.
+    let MockServerClient { server, client, .. } = MockServerClient::new();
+    let response = peer_info_6b.clone();
+    let h = std::thread::spawn(move || write_response(server, response.as_bytes()));
+    let result = local_state_machine.bitcoin_block_arrival(
+        &mut signer_db,
+        &client,
+        &proposal_config,
+        Some(event_6b.clone()),
+        &eval,
+        0,
+    );
+    h.join().unwrap();
+    assert_eq!(local_state_machine, expected_pending);
+    assert!(
+        matches!(result, Err(SignerChainstateError::NodeBehindBurnBlock(_))),
+        "unexpected result: {result:?}"
+    );
+
+    // 2. The pending retry still targets 7A, so the node keeps being reported as behind.
+    //    Being behind is not a node error, so the retry does not back off.
+    let MockServerClient { server, client, .. } = MockServerClient::new();
+    let h = std::thread::spawn(move || write_response(server, peer_info_6b.as_bytes()));
+    let mut backoff = PendingRetryBackoff::default();
+    let result = local_state_machine.handle_pending_update(
+        &mut signer_db,
+        &client,
+        &proposal_config,
+        &eval,
+        0,
+        &mut backoff,
+    );
+    h.join().unwrap();
+    assert_eq!(local_state_machine, expected_pending);
+    assert!(
+        matches!(result, Err(SignerChainstateError::NodeBehindBurnBlock(_))),
+        "unexpected result: {result:?}"
+    );
+    assert!(backoff.is_ready(Instant::now()));
+
+    // 3. The 7B event reaches the pending height, so it replaces 7A and the machine
+    //    initializes on the new fork. 7B builds directly off 6B, so validating it needs no
+    //    fork-info round trip.
+    let genesis_block = NakamotoBlockHeader::genesis();
+    let cur = SortitionInfo {
+        burn_block_hash: BurnchainHeaderHash([0xb7; 32]),
+        burn_block_height: event_7b.burn_block_height,
+        burn_header_timestamp: 2,
+        sortition_id: SortitionId([0xb7; 32]),
+        parent_sortition_id: SortitionId([0xb6; 32]),
+        consensus_hash: event_7b.consensus_hash.clone(),
+        was_sortition: true,
+        miner_pk_hash160: Some(miner_pkh.clone()),
+        last_sortition_ch: Some(event_6b.consensus_hash.clone()),
+        committed_block_hash: None,
+        vrf_seed: None,
+        stacks_parent_ch: Some(event_6b.consensus_hash.clone()),
+    };
+    let last = SortitionInfo {
+        burn_block_hash: BurnchainHeaderHash([0xb6; 32]),
+        burn_block_height: event_6b.burn_block_height,
+        burn_header_timestamp: 1,
+        sortition_id: SortitionId([0xb6; 32]),
+        parent_sortition_id: SortitionId([0u8; 32]),
+        consensus_hash: event_6b.consensus_hash.clone(),
+        was_sortition: true,
+        miner_pk_hash160: Some(miner_pkh.clone()),
+        last_sortition_ch: Some(ConsensusHash([0; 20])),
+        committed_block_hash: None,
+        vrf_seed: None,
+        stacks_parent_ch: Some(genesis_block.consensus_hash.clone()),
+    };
+    let (peer_info_7b, _) = build_get_peer_info_response(
+        Some(event_7b.burn_block_height),
+        Some(event_7b.consensus_hash.clone()),
+    );
+    let sortitions_ok = format!(
+        "HTTP/1.1 200 OK\n\n{}",
+        serde_json::to_string(&vec![cur, last]).unwrap()
+    );
+    let tenure_tip_ok = build_get_tenure_tip_response(&BlockHeaderWithMetadata {
+        burn_view: Some(genesis_block.consensus_hash.clone()),
+        anchored_header: StacksBlockHeaderTypes::Nakamoto(genesis_block.clone()),
+    });
+    let expected_initialized = LocalStateMachine::Initialized(SignerStateMachine {
+        burn_block: event_7b.consensus_hash.clone(),
+        burn_block_height: event_7b.burn_block_height,
+        current_miner: MinerState::ActiveMiner {
+            current_miner_pkh: miner_pkh,
+            tenure_id: event_7b.consensus_hash.clone(),
+            parent_tenure_id: event_6b.consensus_hash.clone(),
+            parent_tenure_last_block: StacksBlockId::new(
+                &event_6b.consensus_hash,
+                &genesis_block.block_hash(),
+            ),
+            parent_tenure_last_block_height: 0,
+        },
+        active_signer_protocol_version: 0,
+    });
+
+    let MockServerClient {
+        server,
+        client,
+        config,
+    } = MockServerClient::new();
+    let h = std::thread::spawn(move || {
+        write_response(server, peer_info_7b.as_bytes());
+        write_response(mock_server_from_config(&config), sortitions_ok.as_bytes());
+        write_response(mock_server_from_config(&config), tenure_tip_ok.as_bytes());
+    });
+    local_state_machine
+        .bitcoin_block_arrival(
+            &mut signer_db,
+            &client,
+            &proposal_config,
+            Some(event_7b),
+            &eval,
+            0,
+        )
+        .unwrap();
+    h.join().unwrap();
+    assert_eq!(local_state_machine, expected_initialized);
 }

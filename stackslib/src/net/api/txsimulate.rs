@@ -189,14 +189,14 @@ impl RPCTransactionSimulateRequestHandler {
         } else {
             None
         };
-        let resource_budgets = TransactionResourceBudgets::new()
+        let resource_budgets = TransactionResourceBudgets::unlimited()
             .with_execution_budget(
-                ResourceBudget::new()
+                ResourceBudget::unlimited()
                     .with_max_duration(Some(max_tx_execution_time))
                     .with_max_memory_use(max_tx_mem_bytes_opt),
             )
             .with_analysis_budget(
-                ResourceBudget::new()
+                ResourceBudget::unlimited()
                     .with_max_duration(Some(max_tx_analysis_time))
                     .with_max_memory_use(max_tx_mem_bytes_opt),
             );

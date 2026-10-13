@@ -56,12 +56,6 @@ pub struct PeerThread {
     /// Buffered network result relayer command.
     /// P2P network results are consolidated into a single directive.
     results_with_data: Option<RelayerDirective>,
-    /// total number of p2p state-machine passes so far. Used to signal when to download the next
-    /// reward cycle of blocks
-    num_p2p_state_machine_passes: u64,
-    /// total number of inventory state-machine passes so far. Used to signal when to download the
-    /// next reward cycle of blocks.
-    num_inv_sync_passes: u64,
     /// total number of download state-machine passes so far. Used to signal when to download the
     /// next reward cycle of blocks.
     num_download_passes: u64,
@@ -202,8 +196,6 @@ impl PeerThread {
             chainstate,
             mempool,
             results_with_data: None,
-            num_p2p_state_machine_passes: 0,
-            num_inv_sync_passes: 0,
             num_download_passes: 0,
             last_burn_block_height: 0,
         }
@@ -295,18 +287,6 @@ impl PeerThread {
         };
         match p2p_res {
             Ok(network_result) => {
-                if self.num_p2p_state_machine_passes < network_result.num_state_machine_passes {
-                    // p2p state-machine did a full pass. Notify anyone listening.
-                    self.globals.sync_comms.notify_p2p_state_pass();
-                    self.num_p2p_state_machine_passes = network_result.num_state_machine_passes;
-                }
-
-                if self.num_inv_sync_passes < network_result.num_inv_sync_passes {
-                    // inv-sync state-machine did a full pass. Notify anyone listening.
-                    self.globals.sync_comms.notify_inv_sync_pass();
-                    self.num_inv_sync_passes = network_result.num_inv_sync_passes;
-                }
-
                 if self.num_download_passes < network_result.num_download_passes {
                     // download state-machine did a full pass.  Notify anyone listening.
                     self.globals.sync_comms.notify_download_pass();

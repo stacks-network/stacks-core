@@ -633,6 +633,8 @@ pub enum RuntimeCheckErrorKind {
     UndefinedFunction(String),
     /// `at-block` is not available in this epoch.
     AtBlockUnavailable,
+    /// `with-all-assets-unsafe` is not allowed in `restrict-assets?`.
+    WithAllAllowanceNotAllowed,
 
     // Argument counts
     /// Incorrect number of arguments provided to a function.

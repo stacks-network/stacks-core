@@ -1,0 +1,1 @@
+Removed `mocknet` network mode. This used a simulated in-process burnchain incompatible with Epoch 3 (Nakamoto). Use [Clarinet](https://github.com/hirosystems/clarinet) or a private testnet (`nakamoto-neon` mode) for local development.

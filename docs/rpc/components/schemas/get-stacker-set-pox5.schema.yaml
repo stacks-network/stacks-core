@@ -1,0 +1,57 @@
+type: object
+description: |
+  PoX-5 reward set (`reward_set_version` 1). PoX-5 pays the cycle's rewards to
+  a single sBTC address, so there is no per-stacker `rewarded_addresses` list.
+required:
+  - reward_set_version
+  - sbtc_address
+  - signers
+  - pox_ustx_threshold
+properties:
+  reward_set_version:
+    type: integer
+    enum: [1]
+    description: Reward set format version. `1` for PoX-5 cycles.
+  sbtc_address:
+    type: object
+    description: |
+      PoX address that receives the cycle's rewards. Serialized like the entries
+      of `rewarded_addresses` in PoX-4 reward sets; on mainnet this is an
+      `Addr32` taproot address.
+    properties:
+      Addr32:
+        type: array
+        description: |
+          32-byte witness address representation, a tuple of
+          [mainnet flag, address type, 32-byte hash as a byte array].
+        items:
+          oneOf:
+            - type: boolean
+              description: Whether the address is a mainnet address
+            - type: string
+              description: Address type ("P2WSH" or "P2TR")
+            - type: array
+              description: 32-byte hash as a byte array
+              items:
+                type: integer
+    additionalProperties: true
+  signers:
+    type: array
+    description: Signer set for the reward cycle.
+    items:
+      type: object
+      properties:
+        signing_key:
+          type: string
+          description: Hex-encoded compressed Secp256k1 public key (33 bytes)
+        weight:
+          type: integer
+          description: Signer voting weight (number of slots)
+        stacked_amt:
+          type: integer
+          format: int64
+          description: Amount stacked by signer (in microSTX)
+  pox_ustx_threshold:
+    type: integer
+    format: int64
+    description: Minimum STX amount required to qualify for stacking

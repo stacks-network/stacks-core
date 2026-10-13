@@ -20,6 +20,7 @@ use rusqlite::types::Value;
 use rusqlite::{Connection, OpenFlags};
 use stacks_common::types::chainstate::BurnchainHeaderHash;
 use stacks_common::types::sqlite::NO_PARAMS;
+use stacks_marf::Error;
 
 use super::common::{
     classify_hint, clone_schemas_from_source, copied_rows, with_offline_write_session,
@@ -27,7 +28,6 @@ use super::common::{
 };
 use super::sortition::SortitionSnapshotExt;
 use crate::chainstate::burn::db::sortdb::SortitionDB;
-use crate::chainstate::stacks::index::Error;
 use crate::util_lib::db::{sqlite_open, Error as DBError};
 
 /// Snapshot-only reads over a burnchain DB connection.

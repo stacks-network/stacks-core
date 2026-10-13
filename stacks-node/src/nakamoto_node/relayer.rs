@@ -64,7 +64,6 @@ use super::miner::MinerReason;
 use super::{
     Config, Error as NakamotoNodeError, EventDispatcher, Keychain, BLOCK_PROCESSOR_STACK_SIZE,
 };
-use crate::burnchains::BurnchainController;
 use crate::nakamoto_node::miner::{BlockMinerThread, MinerDirective};
 use crate::neon_node::{
     fault_injection_skip_mining, open_chainstate_with_faults, LeaderKeyRegistrationState,
@@ -2386,8 +2385,6 @@ impl RelayerThread {
                 false
             };
 
-        self.globals
-            .set_last_miner_spend_amount(burnchain_config.burn_fee_cap);
         self.globals
             .set_last_burnchain_config(burnchain_config.clone());
 

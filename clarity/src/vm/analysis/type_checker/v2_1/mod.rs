@@ -25,6 +25,9 @@ use self::contexts::ContractContext;
 pub use self::natives::{SimpleNativeFunction, TypedNativeFunction};
 use super::ContractAnalysis;
 use super::contexts::{TypeMap, TypingContext};
+use crate::vm::analysis::errors::{
+    CommonCheckErrorKind, get_arguments_at_least, get_arguments_exact,
+};
 pub use crate::vm::analysis::errors::{
     StaticCheckError, StaticCheckErrorKind, SyntaxBindingErrorType, check_argument_count,
     check_arguments_at_least, check_arguments_at_most,
@@ -1624,6 +1627,19 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
         }
     }
 
+    /// Returns the first `N` arguments of a fixed-arity native. Before Epoch 4.1,
+    /// some of them accepted and ignored extra arguments.
+    fn get_fixed_arguments<'e, const N: usize>(
+        &self,
+        args: &'e [SymbolicExpression],
+    ) -> Result<&'e [SymbolicExpression; N], CommonCheckErrorKind> {
+        if self.epoch.checks_exact_argument_count() {
+            get_arguments_exact(args)
+        } else {
+            get_arguments_at_least(args).map(|(fixed, _)| fixed)
+        }
+    }
+
     fn type_check_function_application(
         &mut self,
         expression: &[SymbolicExpression],
@@ -1647,6 +1663,12 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
                     function_name.to_string(),
                 )),
             }?;
+
+            // Before Epoch 4.1, extra arguments are evaluated at runtime but never
+            // type-checked.
+            if self.epoch.checks_exact_argument_count() {
+                check_argument_count(function.args.len(), args)?;
+            }
 
             for (expected_type, found_type) in function.args.iter().map(|x| &x.signature).zip(args)
             {

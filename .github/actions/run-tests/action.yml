@@ -6,9 +6,11 @@ description: |
 
 inputs:
   btc-version:
-    description: "Bitcoin version"
-    required: false
-    default: "25.0"
+    description: "Bitcoin binary version"
+    required: true
+  btc-version-sha:
+    description: "The SHA256 of the bitcoin binary to verify before executing tests"
+    required: true
   test-names:
     description: "Comma-separated list of literal test names to run (Required if not partitioning)"
     required: false
@@ -54,6 +56,7 @@ runs:
         ref: ${{ github.event.pull_request.head.sha || github.ref }}
 
     # Setup rust toolchain with llvm-tools-preview
+    # Installs cargo nextest
     - name: Setup Rust Toolchain
       uses: ./.github/actions/setup-rust-toolchain
       with:
@@ -65,18 +68,7 @@ runs:
       with:
         action: restore
         btc-version: ${{ inputs.btc-version }}
-
-    # Symlink bitoind to $PATH
-    - name: Link Bitcoin Binary
-      shell: bash
-      run: |
-        sudo ln -s ~/bitcoin/bin/bitcoind /bin/
-
-    # Increase open file descriptors limit
-    - name: Increase Open File Descriptors
-      shell: bash
-      run: |
-        sudo prlimit --nofile=4096:4096
+        btc-version-sha: ${{ inputs.btc-version-sha }}
 
     # Restore Nextest archive artifact
     - name: Restore Nextest Archive Artifact
@@ -152,50 +144,32 @@ runs:
         SANITIZED_FILE_NAME=$(echo "${{ inputs.codecov-test-name }}" | sed 's/[\\/:\*\?"<>|]/_/g')
         echo "file-name=$SANITIZED_FILE_NAME" >> $GITHUB_OUTPUT
 
-
-    # Mode 1: Run specific test names sequentially (If partition is NOT specified)
-    - name: Run Tests Sequentially
-      if: inputs.partition == '' && inputs.total-partitions == ''
+    # Run tests (either sequentially if partition is not specified, or in parallel when partition is specified)
+    - name: Run Tests
       shell: bash
       run: |
-        # Convert CSV string to Nextest exact-match Filterset format
-        # e.g., "a, b" becomes "test(=a)|test(=b)"
-        FILTERSET=$(echo "${{ inputs.test-names }}" | sed -E 's/[[:space:]]*,[[:space:]]*/)|test(=/g')
-        FILTERSET="test(=${FILTERSET})"
+        # Export bitcoind to the CURRENT step's path so cargo can see it right now
+        export PATH="$HOME/bitcoin/bin:$PATH"
 
-        # Profile override, defaulting to the profile this mode has always used
-        PROFILE="${{ inputs.nextest-profile }}"
-        PROFILE="${PROFILE:-ci-sequential}"
+        # Adjust file descriptor limit
+        ulimit -n 4096
+        
+        # Back test working dirs (bitcoind datadir + chainstate) with RAM disk
+        # Keep the size below the RAM allocated to the runner: https://docs.github.com/en/actions/reference/runners/github-hosted-runners
+        sudo mount -t tmpfs -o size=2G,mode=1777 tmpfs /tmp
 
-        if [ "${{ inputs.upload-code-coverage }}" = "true" ]; then
-          cargo llvm-cov nextest \
-            --lcov \
-            --skip-functions \
-            --ignore-filename-regex='[/\\]test[/\\]|[/\\](test\.rs|[0-9a-zA-Z_-]+[_-]test\.rs)$' \
-            --output-path lcov_${{ steps.generate-sanitized-file-name.outputs.file-name }}.info \
-            --config-file ./.github/nextest/ci-nextest.toml \
-            --profile "$PROFILE" \
-            --run-ignored all \
-            --archive-file ${{ inputs.archive-file }} \
-            -E "$FILTERSET"
+        # Determine run mode arguments
+        if [ -n "${{ inputs.partition }}" ]; then
+          PROFILE="${{ inputs.nextest-profile || 'ci-parallel' }}"
+          MODE_ARGS="--partition count:${{ inputs.partition }}/${{ inputs.total-partitions }}"
         else
-          cargo nextest run \
-            --config-file ./.github/nextest/ci-nextest.toml \
-            --profile "$PROFILE" \
-            --run-ignored all \
-            --archive-file ${{ inputs.archive-file }} \
-            -E "$FILTERSET"
+          PROFILE="${{ inputs.nextest-profile || 'ci-sequential' }}"
+          FILTERSET=$(echo "${{ inputs.test-names }}" | sed -E 's/[[:space:]]*,[[:space:]]*/)|test(=/g')
+          # Keep the --run-ignored all flag specific to sequential mode
+          MODE_ARGS="--run-ignored all -E test(=${FILTERSET})"
         fi
 
-    # Mode 2: Run Partitioned Tests (If partition IS specified)
-    - name: Run Partitioned Tests
-      if: inputs.partition != '' && inputs.total-partitions != ''
-      shell: bash
-      run: |
-        # Profile override, defaulting to the profile this mode has always used
-        PROFILE="${{ inputs.nextest-profile }}"
-        PROFILE="${PROFILE:-ci-parallel}"
-
+        # Execute tests (with or without coverage)
         if [ "${{ inputs.upload-code-coverage }}" = "true" ]; then
           cargo llvm-cov nextest \
             --lcov \
@@ -204,14 +178,14 @@ runs:
             --output-path lcov_${{ steps.generate-sanitized-file-name.outputs.file-name }}.info \
             --config-file ./.github/nextest/ci-nextest.toml \
             --profile "$PROFILE" \
-            --partition count:${{ inputs.partition }}/${{ inputs.total-partitions }} \
-            --archive-file ${{ inputs.archive-file }}
+            --archive-file ${{ inputs.archive-file }} \
+            $MODE_ARGS
         else
           cargo nextest run \
             --config-file ./.github/nextest/ci-nextest.toml \
             --profile "$PROFILE" \
-            --partition count:${{ inputs.partition }}/${{ inputs.total-partitions }} \
-            --archive-file ${{ inputs.archive-file }}
+            --archive-file ${{ inputs.archive-file }} \
+            $MODE_ARGS
         fi
 
     # Rename the JUnit report away from the fixed path set in the nextest

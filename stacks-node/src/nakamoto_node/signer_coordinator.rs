@@ -15,7 +15,7 @@
 
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::ops::Bound::Included;
-use std::sync::atomic::AtomicBool;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
@@ -26,16 +26,15 @@ use libsigner::{BlockProposal, BlockProposalData, SignerSession, StackerDBSessio
 use stacks::burnchains::Burnchain;
 use stacks::chainstate::burn::db::sortdb::SortitionDB;
 use stacks::chainstate::burn::{BlockSnapshot, ConsensusHash};
-use stacks::chainstate::nakamoto::{NakamotoBlock, NakamotoChainState};
+use stacks::chainstate::nakamoto::{NakamotoBlock, NakamotoBlockHeader, NakamotoChainState};
 use stacks::chainstate::stacks::boot::{RewardSet, MINERS_NAME};
 use stacks::chainstate::stacks::db::{StacksBlockHeaderTypes, StacksChainState};
 use stacks::chainstate::stacks::Error as ChainstateError;
 use stacks::codec::StacksMessageCodec;
 use stacks::libstackerdb::StackerDBChunkData;
 use stacks::net::stackerdb::StackerDBs;
-use stacks::types::chainstate::{StacksBlockId, StacksPrivateKey, StacksPublicKey};
+use stacks::types::chainstate::{StacksPrivateKey, StacksPublicKey};
 use stacks::types::MinerDiagnosticData;
-use stacks::util::hash::Sha512Trunc256Sum;
 use stacks::util::secp256k1::MessageSignature;
 use stacks::util_lib::boot::boot_code_id;
 
@@ -66,6 +65,9 @@ pub struct SignerCoordinator {
     stackerdb_comms: StackerDBListenerComms,
     /// Keep running flag for the signer DB listener thread
     keep_running: Arc<AtomicBool>,
+    /// The miner thread's abort flag, set by the relayer to stop the miner thread. While waiting
+    /// for signatures, the coordinator gives up as soon as it is set.
+    miner_abort_flag: Arc<AtomicBool>,
     /// Handle for the signer DB listener thread
     listener_thread: Option<JoinHandle<()>>,
     /// The current tip when this miner thread was started.
@@ -76,6 +78,9 @@ pub struct SignerCoordinator {
     burn_tip_at_start: ConsensusHash,
     /// The timeout configuration based on the percentage of rejections
     block_rejection_timeout_steps: BTreeMap<u32, Duration>,
+    /// Rejection timeout to apply while any signer has rejected the block
+    /// for a transient reason
+    transient_rejection_retry_timeout: Duration,
 }
 
 /// Helper function to build block_rejection_timeout_steps BTreeMap from config.
@@ -106,12 +111,53 @@ fn build_block_rejection_timeout_steps(
     block_rejection_timeout_steps
 }
 
+/// Select the timeout to apply while waiting for signer responses, given the
+/// total rejection weight received so far and the portion of it that is
+/// transient (see [`libsigner::v0::messages::RejectReason::is_transient`]).
+///
+/// Returns the matching step (the rejection weight key) and its timeout. While
+/// any transient rejections are outstanding, the timeout is
+/// `transient_retry_timeout` regardless of the step: those signers re-evaluate
+/// the block once it is proposed again, so a longer step only delays the block,
+/// while a shorter one (e.g. 0) re-sends before they have caught up and only
+/// collects the same rejections again.
+fn select_rejection_timeout(
+    block_rejection_timeout_steps: &BTreeMap<u32, Duration>,
+    total_weight_rejected: u32,
+    total_weight_rejected_transient: u32,
+    transient_retry_timeout: Duration,
+) -> Option<(u32, Duration)> {
+    let (step, timeout) = block_rejection_timeout_steps
+        .range((Included(0), Included(total_weight_rejected)))
+        .last()?;
+    if total_weight_rejected_transient > 0 {
+        Some((*step, transient_retry_timeout))
+    } else {
+        Some((*step, *timeout))
+    }
+}
+
+/// Should a block whose rejections exceed the `blocking_minority` be re-sent
+/// rather than abandoned? It should if the rejections that are not transient
+/// (see [`libsigner::v0::messages::RejectReason::is_transient`]) do not exceed
+/// the `blocking_minority` on their own: the transient rejecters re-evaluate the
+/// block when it is proposed again, and may then accept it.
+fn should_resend_on_transient_rejection(
+    total_weight_rejected: u32,
+    total_weight_rejected_transient: u32,
+    blocking_minority: u32,
+) -> bool {
+    let substantive = total_weight_rejected.saturating_sub(total_weight_rejected_transient);
+    substantive <= blocking_minority
+}
+
 impl SignerCoordinator {
     /// Create a new `SignerCoordinator` instance.
     /// This will spawn a new thread to listen for messages from the signer DB.
     pub fn new(
         stackerdb_channel: Arc<Mutex<StackerDBChannel>>,
         node_keep_running: Arc<AtomicBool>,
+        miner_abort_flag: Arc<AtomicBool>,
         reward_set: &RewardSet,
         initial_chunks_loader: InitialChunksLoader,
         election_block: &BlockSnapshot,
@@ -160,9 +206,11 @@ impl SignerCoordinator {
             weight_threshold: listener.weight_threshold,
             stackerdb_comms: listener.get_comms(),
             keep_running,
+            miner_abort_flag,
             listener_thread: None,
             burn_tip_at_start: burn_tip_at_start.clone(),
             block_rejection_timeout_steps,
+            transient_rejection_retry_timeout: config.miner.transient_rejection_retry_timeout,
         };
 
         // Spawn the signer DB listener thread
@@ -338,15 +386,7 @@ impl SignerCoordinator {
                 }
             }
 
-            let res = self.get_block_status(
-                &block.header.signer_signature_hash(),
-                &block.block_id(),
-                &block.header.consensus_hash,
-                &block.header.parent_block_id,
-                chain_state,
-                sortdb,
-                counters,
-            );
+            let res = self.get_block_status(&block.header, chain_state, sortdb, counters);
 
             match res {
                 Err(NakamotoNodeError::SignatureTimeout) => {
@@ -365,18 +405,19 @@ impl SignerCoordinator {
     /// there. If a new burnchain tip is detected, we will return an error.
     fn get_block_status(
         &self,
-        block_signer_sighash: &Sha512Trunc256Sum,
-        block_id: &StacksBlockId,
-        block_consensus_hash: &ConsensusHash,
-        parent_block_id: &StacksBlockId,
+        block_header: &NakamotoBlockHeader,
         chain_state: &mut StacksChainState,
         sortdb: &SortitionDB,
         counters: &Counters,
     ) -> Result<Vec<MessageSignature>, NakamotoNodeError> {
+        let block_signer_sighash = &block_header.signer_signature_hash();
+        let block_id = &block_header.block_id();
+        let parent_block_id = &block_header.parent_block_id;
+        let block_consensus_hash = &block_header.consensus_hash;
         // the amount of current rejections (used to eventually modify the timeout)
         let mut rejections: u32 = 0;
         // default timeout (the 0 entry must be always present)
-        let mut rejections_timeout = self
+        let mut rejections_timeout = *self
             .block_rejection_timeout_steps
             .get(&rejections)
             .ok_or_else(|| {
@@ -392,6 +433,12 @@ impl SignerCoordinator {
         // this is used to track the start of the waiting cycle
         let rejections_timer = Instant::now();
         loop {
+            if self.miner_abort_flag.load(Ordering::SeqCst) {
+                info!("SignCoordinator: Exiting due to miner abort";
+                    "signer_signature_hash" => %block_signer_sighash,
+                );
+                return Err(ChainstateError::MinerAborted.into());
+            }
             // At every iteration wait for the block_status.
             // Exit when the amount of confirmations/rejections reaches the threshold (or until timeout)
             // Based on the amount of rejections, eventually modify the timeout.
@@ -400,7 +447,7 @@ impl SignerCoordinator {
                 EVENT_RECEIVER_POLL,
                 |status| {
                     // rejections-based timeout expired?
-                    if rejections_timer.elapsed() > *rejections_timeout {
+                    if rejections_timer.elapsed() > rejections_timeout {
                         return false;
                     }
                     // number of rejections changed?
@@ -442,7 +489,7 @@ impl SignerCoordinator {
                         return Err(NakamotoNodeError::BurnchainTipChanged);
                     }
 
-                    if rejections_timer.elapsed() > *rejections_timeout {
+                    if rejections_timer.elapsed() > rejections_timeout {
                         warn!("Timed out while waiting for responses from signers, resending proposal";
                             "elapsed" => rejections_timer.elapsed().as_secs(),
                             "rejections_timeout" => rejections_timeout.as_secs(),
@@ -488,7 +535,7 @@ impl SignerCoordinator {
                     // tenure (e.g. from the miner thread this one replaced) is signed and
                     // pushed by the signers while we wait on ours. Without this check the
                     // miner keeps re-proposing a block the signers will never sign.
-                    if block_consensus_hash != &parent_tenure_header.consensus_hash {
+                    if &parent_tenure_header.consensus_hash != block_consensus_hash {
                         if let Some(highest_in_own_tenure) =
                             NakamotoChainState::find_highest_known_block_header_in_tenure(
                                 chain_state,
@@ -496,17 +543,21 @@ impl SignerCoordinator {
                                 block_consensus_hash,
                             )?
                         {
-                            // If it is our own block, the staging DB lookup above returns
-                            // its signatures on the next pass; only a different block means
-                            // the proposal is dead.
-                            if &highest_in_own_tenure.index_block_hash() != block_id {
-                                info!("SignCoordinator: Exiting due to a new block in the proposal's own tenure";
-                                      "tenure_id" => %block_consensus_hash,
-                                      "new_block_hash" => %highest_in_own_tenure.anchored_header.block_hash(),
-                                      "new_block_height" => %highest_in_own_tenure.anchored_header.height(),
-                                );
-                                return Err(NakamotoNodeError::StacksTipChanged);
+                            if &highest_in_own_tenure.index_block_hash() == block_id {
+                                let StacksBlockHeaderTypes::Nakamoto(stored_block) =
+                                    highest_in_own_tenure.anchored_header
+                                else {
+                                    error!("Nakamoto miner produced a non-nakamoto block");
+                                    return Err(NakamotoNodeError::UnexpectedChainState);
+                                };
+                                return Ok(stored_block.signer_signature);
                             }
+                            info!("SignCoordinator: Exiting due to a different block in the proposed block's tenure";
+                                  "new_block_hash" => %highest_in_own_tenure.anchored_header.block_hash(),
+                                  "new_block_height" => %highest_in_own_tenure.anchored_header.height(),
+                                  "consensus_hash" => %block_consensus_hash,
+                            );
+                            return Err(NakamotoNodeError::StacksTipChanged);
                         }
                     }
 
@@ -516,18 +567,21 @@ impl SignerCoordinator {
 
             if rejections != block_status.total_weight_rejected {
                 rejections = block_status.total_weight_rejected;
-                let (rejections_step, new_rejections_timeout) = self
-                    .block_rejection_timeout_steps
-                    .range((Included(0), Included(rejections)))
-                    .last()
-                    .ok_or_else(|| {
-                        NakamotoNodeError::SigningCoordinatorFailure(
-                            "Invalid rejection timeout step function definition".into(),
-                        )
-                    })?;
+                let (rejections_step, new_rejections_timeout) = select_rejection_timeout(
+                    &self.block_rejection_timeout_steps,
+                    rejections,
+                    block_status.total_weight_rejected_transient,
+                    self.transient_rejection_retry_timeout,
+                )
+                .ok_or_else(|| {
+                    NakamotoNodeError::SigningCoordinatorFailure(
+                        "Invalid rejection timeout step function definition".into(),
+                    )
+                })?;
                 rejections_timeout = new_rejections_timeout;
                 info!("Number of received rejections updated, resetting timeout";
                                     "rejections" => rejections,
+                                    "transient_rejections" => block_status.total_weight_rejected_transient,
                                     "rejections_timeout" => rejections_timeout.as_secs(),
                                     "rejections_step" => rejections_step,
                                     "rejections_threshold" => self.total_weight.saturating_sub(self.weight_threshold));
@@ -536,11 +590,31 @@ impl SignerCoordinator {
                 counters.set_miner_current_rejections(rejections);
             }
 
-            if block_status
+            let blocking_minority = self.total_weight.saturating_sub(self.weight_threshold);
+            let rejected = block_status
                 .total_weight_rejected
                 .saturating_add(self.weight_threshold)
-                > self.total_weight
-            {
+                > self.total_weight;
+            let resend_after_rejection = rejected
+                && should_resend_on_transient_rejection(
+                    block_status.total_weight_rejected,
+                    block_status.total_weight_rejected_transient,
+                    blocking_minority,
+                );
+            if resend_after_rejection {
+                // Keep waiting rather than abandon the block: once the
+                // rejections timeout (the transient retry timeout) expires, the
+                // same proposal is re-sent and re-evaluated by the signers.
+                info!("Block rejected only on transient grounds, re-sending the same proposal after the retry timeout";
+                    "signer_signature_hash" => %block_signer_sighash,
+                    "total_weight_rejected" => block_status.total_weight_rejected,
+                    "transient_weight_rejected" => block_status.total_weight_rejected_transient,
+                    "blocking_minority" => blocking_minority,
+                    "rejections_timeout" => rejections_timeout.as_secs(),
+                );
+            }
+
+            if rejected && !resend_after_rejection {
                 info!(
                     "{}/{} signer weight votes to reject block",
                     block_status.total_weight_rejected, self.total_weight;
@@ -549,7 +623,6 @@ impl SignerCoordinator {
                 counters.bump_naka_rejected_blocks();
 
                 // Only act on failed txids that a blocking minority (>30% weight) agrees on
-                let blocking_minority = self.total_weight.saturating_sub(self.weight_threshold);
                 let mut temporarily_excluded_txids = HashSet::new();
                 let mut permanently_excluded_txids = HashSet::new();
                 for (txid, info) in &block_status.failed_txids {
@@ -573,7 +646,7 @@ impl SignerCoordinator {
                     "signer_signature_hash" => %block_signer_sighash,
                 );
                 return Ok(block_status.gathered_signatures.values().cloned().collect());
-            } else if rejections_timer.elapsed() > *rejections_timeout {
+            } else if rejections_timer.elapsed() > rejections_timeout {
                 warn!("Timed out while waiting for responses from signers";
                     "elapsed" => rejections_timer.elapsed().as_secs(),
                     "rejections_timeout" => rejections_timeout.as_secs(),
@@ -641,7 +714,10 @@ mod tests {
     use std::collections::HashMap;
     use std::time::Duration;
 
-    use super::build_block_rejection_timeout_steps;
+    use super::{
+        build_block_rejection_timeout_steps, select_rejection_timeout,
+        should_resend_on_transient_rejection,
+    };
 
     #[test]
     fn timeout_steps_keep_longest_on_collisions() {
@@ -671,5 +747,94 @@ mod tests {
         assert_eq!(built.get(&10), Some(&Duration::from_secs(90)));
         assert_eq!(built.get(&20), Some(&Duration::from_secs(45)));
         assert_eq!(built.get(&30), Some(&Duration::from_secs(0)));
+    }
+
+    fn default_steps(total_weight: u32) -> std::collections::BTreeMap<u32, Duration> {
+        let mut steps = HashMap::new();
+        steps.insert(0, Duration::from_secs(180));
+        steps.insert(10, Duration::from_secs(90));
+        steps.insert(20, Duration::from_secs(45));
+        steps.insert(30, Duration::from_secs(0));
+        build_block_rejection_timeout_steps(total_weight, &steps)
+    }
+
+    #[test]
+    fn rejection_timeout_follows_steps_without_transient_rejections() {
+        let steps = default_steps(100);
+        let retry = Duration::from_secs(5);
+
+        assert_eq!(
+            select_rejection_timeout(&steps, 0, 0, retry),
+            Some((0, Duration::from_secs(180)))
+        );
+        assert_eq!(
+            select_rejection_timeout(&steps, 15, 0, retry),
+            Some((10, Duration::from_secs(90)))
+        );
+        assert_eq!(
+            select_rejection_timeout(&steps, 25, 0, retry),
+            Some((20, Duration::from_secs(45)))
+        );
+    }
+
+    #[test]
+    fn rejection_timeout_set_by_transient_rejections() {
+        let steps = default_steps(100);
+        let retry = Duration::from_secs(5);
+
+        // All rejections are transient
+        assert_eq!(
+            select_rejection_timeout(&steps, 15, 15, retry),
+            Some((10, retry))
+        );
+        // Mixed rejections: any transient weight selects the retry timeout
+        assert_eq!(
+            select_rejection_timeout(&steps, 25, 5, retry),
+            Some((20, retry))
+        );
+        // A shorter step timeout is lengthened, so the miner does not re-send
+        // before the transient rejecters have had time to catch up
+        assert_eq!(
+            select_rejection_timeout(&steps, 30, 10, retry),
+            Some((30, retry))
+        );
+        assert_eq!(
+            select_rejection_timeout(&steps, 35, 10, retry),
+            Some((30, retry))
+        );
+        // Without transient rejections, the step applies
+        assert_eq!(
+            select_rejection_timeout(&steps, 35, 0, retry),
+            Some((30, Duration::from_secs(0)))
+        );
+    }
+
+    #[test]
+    fn resend_only_when_substantive_rejections_within_blocking_minority() {
+        let blocking_minority = 30;
+        // All rejections are transient
+        assert!(should_resend_on_transient_rejection(
+            35,
+            35,
+            blocking_minority
+        ));
+        // Substantive rejections alone do not exceed the blocking minority
+        assert!(should_resend_on_transient_rejection(
+            50,
+            20,
+            blocking_minority
+        ));
+        // Substantive rejections alone exceed the blocking minority
+        assert!(!should_resend_on_transient_rejection(
+            50,
+            19,
+            blocking_minority
+        ));
+        // No transient rejections
+        assert!(!should_resend_on_transient_rejection(
+            35,
+            0,
+            blocking_minority
+        ));
     }
 }
