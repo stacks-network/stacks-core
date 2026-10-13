@@ -2632,3 +2632,233 @@ mod reward_cycle_retirement {
         );
     }
 }
+
+/// A block proposal that arrives while the global signer state has not formed yet (the seconds
+/// after every burn block, while the signer set's state updates converge) must be held back and
+/// judged once the state forms, not rejected with `NoSignerConsensus`.
+#[cfg(test)]
+mod global_state_deferral {
+    use std::collections::HashMap;
+    use std::sync::mpsc;
+    use std::thread;
+    use std::time::{Duration, SystemTime};
+
+    use clarity::types::chainstate::{ConsensusHash, StacksAddress, StacksBlockId};
+    use libsigner::v0::messages::{
+        RejectReason, SignerMessage, StateMachineUpdate, StateMachineUpdateContent,
+        StateMachineUpdateMinerState,
+    };
+    use libsigner::v0::signer_state::{GlobalStateEvaluator, MinerState, SignerStateMachine};
+    use libsigner::{BlockProposal, BlockProposalData, SignerEvent};
+    use stacks_common::types::chainstate::{StacksPrivateKey, StacksPublicKey};
+    use stacks_common::util::get_epoch_time_secs;
+
+    use super::async_sibling_validation::{tenure_start, MockNode};
+    use super::BlockMessageRecorder;
+    use crate::v0::signer_state::LocalStateMachine;
+    use crate::Signer as SignerTrait;
+
+    const PROTOCOL_VERSION: u64 = 2;
+
+    fn local_view(burn_block: &ConsensusHash) -> SignerStateMachine {
+        SignerStateMachine {
+            burn_block: burn_block.clone(),
+            burn_block_height: 1,
+            current_miner: MinerState::NoValidMiner,
+            active_signer_protocol_version: PROTOCOL_VERSION,
+        }
+    }
+
+    fn peer_update(burn_block: &ConsensusHash) -> StateMachineUpdate {
+        let content = StateMachineUpdateContent::new(
+            PROTOCOL_VERSION,
+            StateMachineUpdateMinerState::NoValidMiner,
+            &local_view(burn_block),
+        )
+        .unwrap();
+        StateMachineUpdate::new(PROTOCOL_VERSION, PROTOCOL_VERSION, content).unwrap()
+    }
+
+    /// A signer holding 40 % of the weight that has moved on to `burn_block`, next to a peer
+    /// with the other 60 % whose last update is still for the previous burn block: the set
+    /// agrees on the protocol version, but neither view reaches the 70% a global state needs,
+    /// exactly the situation in the seconds after a burn block.
+    fn node_without_global_state(burn_block: &ConsensusHash) -> (MockNode, StacksPrivateKey) {
+        let mut node = MockNode::new(vec![], Duration::from_secs(100_000));
+        node.signer.local_state_machine = LocalStateMachine::Initialized(local_view(burn_block));
+        let peer_key = StacksPrivateKey::from_seed(&[7, 7]);
+        let peer_addr = StacksAddress::p2pkh(false, &StacksPublicKey::from_private(&peer_key));
+        node.signer.signer_addresses.push(peer_addr.clone());
+        let weights: HashMap<_, _> = [
+            (node.signer.stacks_address.clone(), 40),
+            (peer_addr.clone(), 60),
+        ]
+        .into_iter()
+        .collect();
+        node.signer.signer_weights = weights.clone();
+        let previous_burn_block = ConsensusHash([0; 20]);
+        assert_ne!(&previous_burn_block, burn_block);
+        let stale_updates = [(peer_addr, peer_update(&previous_burn_block))]
+            .into_iter()
+            .collect();
+        node.signer.global_state_evaluator = GlobalStateEvaluator::new(stale_updates, weights);
+        (node, peer_key)
+    }
+
+    fn proposal(burn_block: &ConsensusHash) -> BlockProposal {
+        let block = tenure_start(
+            &StacksPrivateKey::from_seed(&[0, 1]),
+            burn_block,
+            &ConsensusHash([0; 20]),
+            &StacksBlockId([9; 32]),
+            10,
+            get_epoch_time_secs(),
+        );
+        BlockProposal {
+            block,
+            burn_height: 1,
+            reward_cycle: 1,
+            block_proposal_data: BlockProposalData::empty(),
+        }
+    }
+
+    fn proposal_event(proposal: &BlockProposal) -> SignerEvent<SignerMessage> {
+        SignerEvent::MinerMessages(vec![SignerMessage::BlockProposal(proposal.clone())])
+    }
+
+    /// The peer's state update, agreeing with the local view, which completes the global state.
+    fn peer_update_event(
+        peer_key: &StacksPrivateKey,
+        burn_block: &ConsensusHash,
+    ) -> SignerEvent<SignerMessage> {
+        let update = peer_update(burn_block);
+        SignerEvent::SignerMessages {
+            // Odd, so that a reward-cycle-1 signer treats the message as its own set's.
+            signer_set: 1,
+            messages: vec![(
+                1,
+                StacksPublicKey::from_private(peer_key),
+                SignerMessage::StateMachineUpdate(update),
+            )],
+            received_time: SystemTime::now(),
+        }
+    }
+
+    fn responses(node: &MockNode) -> usize {
+        node.signer
+            .test_block_messages
+            .as_ref()
+            .unwrap()
+            .response_count
+    }
+
+    fn reject_reason(recorder: &BlockMessageRecorder) -> Option<RejectReason> {
+        recorder
+            .first_response
+            .as_ref()
+            .and_then(|response| response.as_block_rejection())
+            .map(|rejection| rejection.response_data.reject_reason.clone())
+    }
+
+    #[test]
+    fn proposal_waits_for_the_global_state_and_is_judged_once_it_forms() {
+        let burn_block = ConsensusHash([1; 20]);
+        let (mut node, peer_key) = node_without_global_state(&burn_block);
+        let proposal = proposal(&burn_block);
+        let hash = proposal.block.header.signer_signature_hash();
+        node.signer.test_block_messages = Some(BlockMessageRecorder::new(hash.clone()));
+        let (result_tx, _result_rx) = mpsc::channel();
+        let mut sortition = None;
+
+        node.signer.process_event(
+            &node.client,
+            &mut sortition,
+            Some(&proposal_event(&proposal)),
+            &result_tx,
+            1,
+            Some(1),
+        );
+        assert_eq!(
+            node.signer.deferred_proposals.len(),
+            1,
+            "held back, not judged"
+        );
+        assert_eq!(
+            responses(&node),
+            0,
+            "no rejection for a state that is still forming"
+        );
+        assert!(
+            node.signer.signer_db.block_lookup(&hash).unwrap().is_none(),
+            "nothing stored while waiting"
+        );
+
+        // A pass with nothing new keeps waiting, and a re-send of the same proposal is not
+        // queued twice.
+        node.signer
+            .process_event(&node.client, &mut sortition, None, &result_tx, 1, Some(1));
+        node.signer.process_event(
+            &node.client,
+            &mut sortition,
+            Some(&proposal_event(&proposal)),
+            &result_tx,
+            1,
+            Some(1),
+        );
+        assert_eq!(node.signer.deferred_proposals.len(), 1);
+        assert_eq!(responses(&node), 0);
+
+        // The peer's update completes the global state: the proposal is judged in that pass.
+        node.signer.process_event(
+            &node.client,
+            &mut sortition,
+            Some(&peer_update_event(&peer_key, &burn_block)),
+            &result_tx,
+            1,
+            Some(1),
+        );
+        assert!(node.signer.deferred_proposals.is_empty());
+        let recorder = node.signer.test_block_messages.take().unwrap();
+        node.shutdown();
+        assert_eq!(recorder.response_count, 1, "judged exactly once");
+        // Judged against the formed state (whose miner view is `NoValidMiner`), not for its
+        // absence.
+        assert_eq!(reject_reason(&recorder), Some(RejectReason::InvalidMiner));
+    }
+
+    #[test]
+    fn proposal_is_judged_regardless_once_the_wait_expires() {
+        let burn_block = ConsensusHash([1; 20]);
+        let (mut node, _peer_key) = node_without_global_state(&burn_block);
+        node.signer.global_state_defer_timeout = Duration::from_millis(200);
+        let proposal = proposal(&burn_block);
+        let hash = proposal.block.header.signer_signature_hash();
+        node.signer.test_block_messages = Some(BlockMessageRecorder::new(hash));
+        let (result_tx, _result_rx) = mpsc::channel();
+        let mut sortition = None;
+
+        node.signer.process_event(
+            &node.client,
+            &mut sortition,
+            Some(&proposal_event(&proposal)),
+            &result_tx,
+            1,
+            Some(1),
+        );
+        assert_eq!(node.signer.deferred_proposals.len(), 1);
+        assert_eq!(responses(&node), 0);
+
+        // The state never forms; once the wait is over the usual verdict applies.
+        thread::sleep(Duration::from_millis(250));
+        node.signer
+            .process_event(&node.client, &mut sortition, None, &result_tx, 1, Some(1));
+        assert!(node.signer.deferred_proposals.is_empty());
+        let recorder = node.signer.test_block_messages.take().unwrap();
+        node.shutdown();
+        assert_eq!(recorder.response_count, 1);
+        assert_eq!(
+            reject_reason(&recorder),
+            Some(RejectReason::NoSignerConsensus)
+        );
+    }
+}
