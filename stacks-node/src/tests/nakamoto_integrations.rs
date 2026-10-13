@@ -2679,12 +2679,26 @@ fn mine_multiple_per_tenure_integration() {
 /// It starts in Epoch 2.0, mines with `neon_node` to Epoch 3.0, and then switches
 ///  to Nakamoto operation (activating pox-4 by submitting a stack-stx tx). The BootLoop
 ///  struct handles the epoch-2/3 tear-down and spin-up.
-/// The tenures mined after 3.0 starts cover the prepare phase for the reward
-///  cycle beginning at burn height 240 and the boundary itself.
-/// This test makes five assertions:
-///  * 12 tenures are mined after 3.0 starts
-///  * Each tenure has 4 blocks (the coinbase block and 3 interim blocks)
-///  * Both miners won at least one tenure
+/// Mining runs in two phases.
+///
+/// Phase 1 lets both miners commit freely, so every burn block holds two
+///  competing commits and the loser of each sortition has to abandon its
+///  tenure and follow the winner. These tenures cover the prepare phase for
+///  the reward cycle beginning at burn height 240 and the boundary itself.
+///  Who wins each sortition is not determined here, so the test asserts only
+///  that both miners' commits reach the burnchain and that they contend.
+///
+/// Phase 2 pauses both miners' commits and lets exactly one of them through
+///  per burn block, which fixes the sortition winner. That is what lets the
+///  test assert that each miner won a tenure without depending on sortition
+///  randomness, and it forces a tenure handoff in both directions.
+///
+/// This test makes six assertions:
+///  * 10 tenures of 4 blocks (a coinbase block and 3 interim blocks) are mined
+///    while both miners contend
+///  * Both miners' block-commits reach the burnchain, and at least one burn
+///    block holds a commit from each
+///  * 4 further tenures go to the miner this test selects, alternating
 ///  * Both nodes see the same chainstate at the end of the test
 ///  * Both nodes have the same `PeerNetwork::highest_stacks_height_of_neighbors`
 fn multiple_miners() {
@@ -2703,8 +2717,11 @@ fn multiple_miners() {
     let sender_sk = Secp256k1PrivateKey::random();
     let sender_signer_sk = Secp256k1PrivateKey::random();
     let sender_signer_addr = tests::to_addr(&sender_signer_sk);
-    let tenure_count = 12;
+    // Tenures mined with both miners committing freely.
+    let contention_tenures = 10;
     let inter_blocks_per_tenure = 3;
+    // Tenures mined afterwards with a sortition winner chosen by this test.
+    let alternating_tenures = 4;
     // setup sender + recipient for some test stx transfers
     // these are necessary for the interim blocks to get mined at all
     let sender_addr = tests::to_addr(&sender_sk);
@@ -2712,7 +2729,7 @@ fn multiple_miners() {
     let send_fee = 180;
     naka_conf.add_initial_balance(
         PrincipalData::from(sender_addr.clone()).to_string(),
-        (send_amt + send_fee) * tenure_count * inter_blocks_per_tenure,
+        (send_amt + send_fee) * contention_tenures * inter_blocks_per_tenure,
     );
     naka_conf.add_initial_balance(
         PrincipalData::from(sender_signer_addr.clone()).to_string(),
@@ -2740,6 +2757,17 @@ fn multiple_miners() {
 
     let node_1_sk = Secp256k1PrivateKey::from_seed(&naka_conf.node.local_peer_seed);
     let node_1_pk = StacksPublicKey::from_private(&node_1_sk);
+
+    // `BlockSnapshot::miner_pk_hash` identifies the winner of a sortition, so
+    // these are how the test names which miner it expected to win.
+    let mining_pkh_1 = Hash160::from_node_public_key(&StacksPublicKey::from_private(
+        &naka_conf.miner.mining_key.clone().unwrap(),
+    ));
+    let mining_pkh_2 = Hash160::from_node_public_key(&StacksPublicKey::from_private(
+        &conf_node_2.miner.mining_key.clone().unwrap(),
+    ));
+    debug!("The mining key for miner 1 is {mining_pkh_1}");
+    debug!("The mining key for miner 2 is {mining_pkh_2}");
 
     conf_node_2.node.working_dir = format!("{}-1", conf_node_2.node.working_dir);
 
@@ -2848,8 +2876,13 @@ fn multiple_miners() {
     // Wait one block to confirm the VRF register, wait until a block commit is submitted
     wait_for_first_naka_block_commit(60, &commits_submitted);
 
-    // Mine `tenure_count` nakamoto tenures
-    for tenure_ix in 0..tenure_count {
+    info!("------------------------- Phase 1: both miners contend -------------------------");
+
+    let burn_height_before_contention = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn())
+        .unwrap()
+        .block_height;
+
+    for tenure_ix in 0..contention_tenures {
         info!("Mining tenure {tenure_ix}");
         let commits_before = commits_submitted.load(Ordering::SeqCst);
         next_block_and_process_new_stacks_block(&btc_regtest_controller, 60, &coord_channel)
@@ -2899,7 +2932,140 @@ fn multiple_miners() {
         .unwrap();
     }
 
-    // load the chain tip, and assert that it is a nakamoto block and at least 30 blocks have advanced in epoch 3
+    let phase_1_tip = NakamotoChainState::get_canonical_block_header(chainstate.db(), &sortdb)
+        .unwrap()
+        .unwrap();
+    assert!(phase_1_tip.anchored_header.as_stacks_nakamoto().is_some());
+    assert_eq!(
+        phase_1_tip.stacks_block_height,
+        block_height_pre_3_0 + ((inter_blocks_per_tenure + 1) * contention_tenures),
+        "Should have mined (1 + interim_blocks_per_tenure) * contention_tenures nakamoto blocks"
+    );
+
+    // Walk the sortitions this phase produced and look at who committed in
+    // each one. Both miners commit on every burn block, so this says nothing
+    // about who won -- it says that both miners' commits reached the burnchain
+    // and were recorded as block-commits, which the submission counters alone
+    // do not show, and that the two of them really did contend.
+    let mut senders_seen = HashSet::new();
+    let mut contended_burn_blocks = 0;
+    let mut surveyed_burn_blocks = 0;
+    let mut snapshot = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn()).unwrap();
+    while snapshot.block_height > burn_height_before_contention {
+        let commits =
+            SortitionDB::get_block_commits_by_block(sortdb.conn(), &snapshot.sortition_id).unwrap();
+        let senders: HashSet<_> = commits
+            .iter()
+            .map(|commit| commit.apparent_sender.0.clone())
+            .collect();
+        info!(
+            "Block-commits in burn block";
+            "burn_height" => snapshot.block_height,
+            "commits" => commits.len(),
+            "distinct_senders" => senders.len(),
+            "sortition" => snapshot.sortition,
+        );
+        if senders.len() > 1 {
+            contended_burn_blocks += 1;
+        }
+        senders_seen.extend(senders);
+        surveyed_burn_blocks += 1;
+        snapshot = SortitionDB::get_block_snapshot(sortdb.conn(), &snapshot.parent_sortition_id)
+            .unwrap()
+            .expect("Missing parent sortition");
+    }
+
+    assert_eq!(
+        surveyed_burn_blocks, contention_tenures,
+        "Phase 1 should have produced one burn block per tenure"
+    );
+    assert_eq!(
+        senders_seen.len(),
+        2,
+        "Both miners' block-commits should have reached the burnchain, saw {senders_seen:?}"
+    );
+    assert!(
+        contended_burn_blocks > 0,
+        "At least one burn block should hold a block-commit from each miner"
+    );
+
+    info!("------------------------- Phase 2: alternating tenures -------------------------");
+
+    // Pause both miners. Whatever either has already broadcast is spent by the
+    // next bitcoin block, and after that neither commits unless this test lets
+    // it through, which is what makes each sortition below deterministic. That
+    // first bitcoin block may or may not have a sortition depending on what was
+    // in flight, so wait on the burn height rather than on a stacks block.
+    rl1_counters.skip_commit_op.set(true);
+    rl2_counters.skip_commit_op.set(true);
+    let burn_height_before_drain = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn())
+        .unwrap()
+        .block_height;
+    next_block_and(&btc_regtest_controller, 60, || {
+        Ok(SortitionDB::get_canonical_burn_chain_tip(sortdb.conn())
+            .unwrap()
+            .block_height
+            > burn_height_before_drain)
+    })
+    .expect("Timed out spending the block-commits that were already in flight");
+
+    for alternating_ix in 0..alternating_tenures {
+        let (winner_counters, winner_pkh, winner_name) = if alternating_ix % 2 == 0 {
+            (&rl1_counters, &mining_pkh_1, "Miner 1")
+        } else {
+            (&rl2_counters, &mining_pkh_2, "Miner 2")
+        };
+        info!("Alternating tenure {alternating_ix}: {winner_name} should win the sortition");
+
+        // Let only the intended winner put a commit in for the next bitcoin
+        // block, then pause it again so that nothing else is in flight. The
+        // wait on the stacks tip also keeps this miner from committing before
+        // it has caught up to the other miner's last tenure.
+        let info_before = get_chain_info(&naka_conf);
+        winner_counters.skip_commit_op.set(false);
+        wait_for(60, || {
+            Ok(winner_counters.naka_submitted_commit_last_burn_height.get()
+                >= info_before.burn_block_height
+                && winner_counters.naka_submitted_commit_last_stacks_tip.get()
+                    >= info_before.stacks_tip_height)
+        })
+        .unwrap_or_else(|e| panic!("Timed out waiting for {winner_name} to commit: {e}"));
+        winner_counters.skip_commit_op.set(true);
+
+        next_block_and_process_new_stacks_block(&btc_regtest_controller, 60, &coord_channel)
+            .unwrap();
+
+        let tip_sn = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn()).unwrap();
+        assert!(
+            tip_sn.sortition,
+            "Burn block {} should have had a sortition",
+            tip_sn.block_height
+        );
+        assert_eq!(
+            tip_sn.miner_pk_hash,
+            Some(winner_pkh.clone()),
+            "{winner_name} should have won the sortition at burn height {}",
+            tip_sn.block_height
+        );
+    }
+
+    // Both miners stay paused: the checks below are about the two nodes
+    // agreeing on the chain they already built, and no further sortition
+    // should move it underneath them.
+    //
+    // Phase 2's last tenure only waited on node 1's coordinator, so give node
+    // 2 a chance to reach the same tip before comparing the two views.
+    wait_for(60, || {
+        let (Ok(info_1), Ok(info_2)) = (
+            get_chain_info_result(&naka_conf),
+            get_chain_info_result(&conf_node_2),
+        ) else {
+            return Ok(false);
+        };
+        Ok(info_1.stacks_tip_height == info_2.stacks_tip_height)
+    })
+    .expect("Timed out waiting for both nodes to agree on the chain tip");
+
     let tip = NakamotoChainState::get_canonical_block_header(chainstate.db(), &sortdb)
         .unwrap()
         .unwrap();
@@ -2928,17 +3094,15 @@ fn multiple_miners() {
     .unwrap();
 
     assert!(tip.anchored_header.as_stacks_nakamoto().is_some());
-    assert_eq!(
-        tip.stacks_block_height,
-        block_height_pre_3_0 + ((inter_blocks_per_tenure + 1) * tenure_count),
-        "Should have mined (1 + interim_blocks_per_tenure) * tenure_count nakamoto blocks"
+    // Each alternating tenure adds at least its tenure-change block. The exact
+    // count is pinned at the end of phase 1; phase 2 is pinned by which miner
+    // won each sortition rather than by a height.
+    assert!(
+        tip.stacks_block_height >= phase_1_tip.stacks_block_height + alternating_tenures,
+        "Expected at least {} blocks, got {}",
+        phase_1_tip.stacks_block_height + alternating_tenures,
+        tip.stacks_block_height
     );
-
-    let miner_1_tenures = rl1_counters.naka_mined_tenures.get();
-    let miner_2_tenures = rl2_counters.naka_mined_tenures.get();
-    info!("Tenures mined per miner"; "miner_1" => miner_1_tenures, "miner_2" => miner_2_tenures);
-    assert!(miner_1_tenures > 0, "Miner 1 did not mine any tenure");
-    assert!(miner_2_tenures > 0, "Miner 2 did not mine any tenure");
 
     check_nakamoto_empty_block_heuristics(naka_conf.is_mainnet());
 
