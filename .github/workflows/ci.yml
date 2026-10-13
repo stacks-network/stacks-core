@@ -47,6 +47,8 @@ concurrency:
 env:
   # The name of the test archive file that is generated
   TEST_ARCHIVE_FILE: "./test_archive.tar.zst"
+  # The name of the CRON commit hash file stored to and retrieved from cache
+  CRON_COMMIT_HASH_FILE: "last_cron_commit_hash.txt"
   # Whether or not to create the slow and failed tests summary
   CREATE_SLOW_FAILED_TESTS_SUMMARY: ${{ (vars.ENABLE_CI_WORKFLOWS == 'true' || github.repository == 'stacks-network/stacks-core') && github.event_name != 'merge_group' }}
   # Whether or not to create the code coverage report. We create the code coverage report daily on a CRON schedule, rather than on each PR or merge
@@ -89,7 +91,7 @@ jobs:
         if: github.event_name == 'schedule'
         uses: ./.github/wrappers/cache/restore
         with:
-          path: last_cron_commit_hash.txt
+          path: ${{ env.CRON_COMMIT_HASH_FILE }}
           key: cron-commit-hash-main-${{ github.sha }}
           restore-keys: cron-commit-hash-main-
 
@@ -109,8 +111,8 @@ jobs:
           fi
 
           LAST_HASH=""
-          if [ -f last_cron_commit_hash.txt ]; then
-            LAST_HASH=$(cat last_cron_commit_hash.txt)
+          if [ -f "$CRON_COMMIT_HASH_FILE" ]; then
+            LAST_HASH=$(cat "$CRON_COMMIT_HASH_FILE")
           fi
           CURRENT_HASH="${{ github.sha }}"
 
@@ -136,7 +138,7 @@ jobs:
           else
             echo "New commits detected. Proceeding."
             echo "proceed=true" >> $GITHUB_OUTPUT
-            echo "$CURRENT_HASH" > last_cron_commit_hash.txt
+            echo "$CURRENT_HASH" > "$CRON_COMMIT_HASH_FILE"
             
             # Add Proceeding message to summary
             echo "### ✅ Pipeline Proceeding" >> $GITHUB_STEP_SUMMARY
@@ -148,7 +150,7 @@ jobs:
         if: github.event_name == 'schedule' && steps.check-last-commit-hash.outputs.proceed == 'true'
         uses: ./.github/wrappers/cache/save
         with:
-          path: last_cron_commit_hash.txt
+          path: ${{ env.CRON_COMMIT_HASH_FILE }}
           key: cron-commit-hash-main-${{ github.sha }}
 
   ############################################################################
