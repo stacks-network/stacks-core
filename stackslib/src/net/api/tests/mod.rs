@@ -25,6 +25,8 @@ use clarity::vm::types::serialization::TypePrefix;
 use clarity::vm::types::{QualifiedContractIdentifier, StacksAddressExtensions};
 use clarity::vm::ContractName;
 use libstackerdb::SlotMetadata;
+#[cfg(feature = "monitoring_prom")]
+use prometheus::gather;
 use stacks_common::address::{AddressHashMode, C32_ADDRESS_VERSION_TESTNET_SINGLESIG};
 use stacks_common::codec::StacksMessageCodec;
 use stacks_common::types::chainstate::{
@@ -112,6 +114,22 @@ mod postmicroblock;
 mod poststackerdbchunk;
 mod posttransaction;
 mod txsimulate;
+
+/// Read an exported served counter, treating an unregistered counter as zero.
+#[cfg(feature = "monitoring_prom")]
+fn served_count(name: &str) -> f64 {
+    gather()
+        .into_iter()
+        .find(|family| family.get_name() == name)
+        .map(|family| family.get_metric()[0].get_counter().get_value())
+        .unwrap_or(0.0)
+}
+
+/// Return zero when Prometheus counters are disabled.
+#[cfg(not(feature = "monitoring_prom"))]
+fn served_count(_name: &str) -> f64 {
+    0.0
+}
 
 /// Contract identifier of `TEST_CONTRACT`, deployed as `hello-world` by `TestRPC::setup`.
 static TEST_CONTRACT_ID: LazyLock<QualifiedContractIdentifier> = LazyLock::new(|| {
@@ -1105,6 +1123,31 @@ impl<'a> TestRPC<'a> {
 
     pub fn run(self, requests: Vec<StacksHttpRequest>) -> Vec<StacksHttpResponse> {
         self.run_with_observer(requests, None, |_, _| true)
+    }
+
+    /// Check that the served counter increases by the number of successful responses.
+    pub fn run_checking_served_counter(
+        self,
+        requests: Vec<StacksHttpRequest>,
+        counter_name: &str,
+    ) -> Vec<StacksHttpResponse> {
+        let before = served_count(counter_name);
+        let responses = self.run(requests);
+        let successes = responses
+            .iter()
+            .filter(|response| response.preamble().is_success())
+            .count();
+        let expected = if cfg!(feature = "monitoring_prom") {
+            successes as f64
+        } else {
+            0.0
+        };
+        assert_eq!(
+            served_count(counter_name) - before,
+            expected,
+            "{counter_name}"
+        );
+        responses
     }
 
     /// Convenience wrapper around [`Self::run`] for the single-request case: send one

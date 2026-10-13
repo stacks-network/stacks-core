@@ -158,7 +158,8 @@ fn test_try_make_response() {
         StacksHttpRequest::new_getmicroblocks_indexed(addr.into(), StacksBlockId([0x11; 32]));
     requests.push(request);
 
-    let mut responses = rpc_test.run(requests);
+    let mut responses =
+        rpc_test.run_checking_served_counter(requests, "stacks_node_stx_micro_blocks_served_total");
 
     // got the microblock stream
     let response = responses.remove(0);

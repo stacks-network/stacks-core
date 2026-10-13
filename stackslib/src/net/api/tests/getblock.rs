@@ -81,7 +81,8 @@ fn test_try_make_response() {
     let request = StacksHttpRequest::new_getblock(addr.into(), StacksBlockId([0x11; 32]));
     requests.push(request);
 
-    let mut responses = rpc_test.run(requests);
+    let mut responses =
+        rpc_test.run_checking_served_counter(requests, "stacks_node_stx_blocks_served_total");
 
     // got the block
     let response = responses.remove(0);
