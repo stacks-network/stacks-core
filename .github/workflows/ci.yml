@@ -73,6 +73,15 @@ jobs:
     outputs:
       proceed: ${{ steps.check-last-commit-hash.outputs.proceed }}
     steps:
+      # Checkout the code
+      #   - only .github is required for this job
+      - name: Checkout the latest code
+        uses: $/.github/wrappers/checkout
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.ref }}
+          sparse-checkout: |
+            .github
+            
       # Attempt to fetch the last cached hash.
       # Caches are immutable and cannot be overwritten, so we need a new key per entry.
       # We use restore-keys to fall back to the most recent cache available for cron commits.
