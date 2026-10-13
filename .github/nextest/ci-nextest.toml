@@ -10,7 +10,9 @@ slow-timeout = { period = "5m", terminate-after = 4, on-timeout = "fail" }
 
 # When to display standard output and standard error for failing tests
 # Options: "immediate", "immediate-final", "final", "never"
-failure-output = "final"
+# "immediate" also prints the output of each failed attempt that a later retry
+# recovers from; "final" only prints tests that still fail after all retries.
+failure-output = "immediate"
 # When to display standard output and standard error for passing tests
 # Options: "immediate", "immediate-final", "final", "never"
 success-output = "never"
