@@ -85,7 +85,7 @@ jobs:
       # Attempt to fetch the last cached hash.
       # Caches are immutable and cannot be overwritten, so we need a new key per entry.
       # We use restore-keys to fall back to the most recent cache available for cron commits.
-      - name: Restore last commit hash cache
+      - name: Restore last commit hash from cache
         if: github.event_name == 'schedule'
         uses: ./.github/wrappers/cache/restore
         with:
@@ -144,7 +144,7 @@ jobs:
           fi
 
       # Only save the new cache if it's a schedule and we detected a new hash
-      - name: Save new commit hash
+      - name: Save new commit hash to cache
         if: github.event_name == 'schedule' && steps.check-last-commit-hash.outputs.proceed == 'true'
         uses: ./.github/wrappers/cache/save
         with:
