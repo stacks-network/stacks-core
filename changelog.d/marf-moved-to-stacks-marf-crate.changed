@@ -1,1 +1,0 @@
-The MARF now lives in the `stacks-marf` crate. `stackslib::chainstate::stacks::index` is re-exported from it, so existing import paths keep working.

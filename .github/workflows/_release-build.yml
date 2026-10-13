@@ -55,7 +55,7 @@ jobs:
           - x86-64
           - arm64
         os:
-          - ubuntu-latest
+          - ubuntu-latest-m # larger runner; standard ubuntu-latest can run out of resources during release builds
           - macos-latest-large
         # Only run for macos-arm64 and windows-x64 if this run from stacks-network
         is_fork:
@@ -69,7 +69,7 @@ jobs:
             os: macos-latest-large
           # excludes macos on ubuntu
           - arch: macos
-            os: ubuntu-latest
+            os: ubuntu-latest-m
           # excludes windows on macos
           - arch: windows
             os: macos-latest-large
