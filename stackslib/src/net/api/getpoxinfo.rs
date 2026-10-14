@@ -641,7 +641,7 @@ impl RPCRequestHandler for RPCPoxInfoRequestHandler {
         let tip = match node.load_stacks_chain_tip(&preamble, &contents) {
             Ok(tip) => tip,
             Err(error_resp) => {
-                return error_resp.try_into_contents().map_err(NetError::from);
+                return error_resp.try_into_contents();
             }
         };
 
@@ -663,16 +663,14 @@ impl RPCRequestHandler for RPCPoxInfoRequestHandler {
                     &preamble,
                     &HttpNotFound::new("No such chain tip".into()),
                 )
-                .try_into_contents()
-                .map_err(NetError::from);
+                .try_into_contents();
             }
             Err(e) => {
                 return StacksHttpResponse::new_error(
                     &preamble,
                     &HttpServerError::new(format!("Failed to load PoX info: {:?}", &e)),
                 )
-                .try_into_contents()
-                .map_err(NetError::from);
+                .try_into_contents();
             }
         };
 
@@ -689,7 +687,7 @@ impl HttpResponse for RPCPoxInfoRequestHandler {
         body: &[u8],
     ) -> Result<HttpResponsePayload, Error> {
         let pox_info: RPCPoxInfoData = parse_json(preamble, body)?;
-        Ok(HttpResponsePayload::try_from_json(pox_info)?)
+        HttpResponsePayload::try_from_json(pox_info)
     }
 }
 

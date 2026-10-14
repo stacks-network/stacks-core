@@ -18,8 +18,8 @@ use std::time::Instant;
 use percent_encoding::{utf8_percent_encode, AsciiSet, CONTROLS};
 use rusqlite::types::Value;
 use rusqlite::{params, params_from_iter, Connection, OptionalExtension};
+use stacks_marf::Error;
 
-use crate::chainstate::stacks::index::Error;
 use crate::util_lib::db::Error as db_error;
 
 /// Map a `util_lib::db` error onto the MARF error type this module reports.

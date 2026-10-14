@@ -14,18 +14,20 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use std::collections::HashMap;
 /// This test module is concerned with verifying that the miner can build block histories out of
 /// blocks and microblocks in which either the Stacks or burnchain histories fork (or both), and
 /// that the Stacks chain state can still process all blocks and microblocks on each fork correctly
 /// (even if they arrive out-of-order).  This module differs from the `block_construction` module in that this
 /// module focuses on building and testing chain histories; unlike `block_construction`, this module does not
 /// test anything about block construction from mempool state.
-use std::collections::HashMap;
+use std::slice;
 
 use rand::seq::SliceRandom;
 use rand::thread_rng;
 use stacks_common::types::chainstate::SortitionId;
 
+use crate::chainstate::stacks::db::blocks::StagingBlockOutcome;
 use crate::chainstate::stacks::tests::*;
 use crate::chainstate::stacks::C32_ADDRESS_VERSION_TESTNET_SINGLESIG;
 
@@ -173,7 +175,10 @@ where
         if expect_success {
             // processed _this_ block
             assert_eq!(tip_info_list.len(), 1);
-            let (chain_tip_opt, poison_opt) = tip_info_list[0].clone();
+            let StagingBlockOutcome {
+                receipt: chain_tip_opt,
+                poison_payload: poison_opt,
+            } = tip_info_list[0].clone();
 
             assert!(chain_tip_opt.is_some());
             assert!(poison_opt.is_none());
@@ -359,7 +364,10 @@ where
 
         // processed _this_ block
         assert_eq!(tip_info_list.len(), 1);
-        let (chain_tip_opt, poison_opt) = tip_info_list[0].clone();
+        let StagingBlockOutcome {
+            receipt: chain_tip_opt,
+            poison_payload: poison_opt,
+        } = tip_info_list[0].clone();
 
         assert!(chain_tip_opt.is_some());
         assert!(poison_opt.is_none());
@@ -565,7 +573,10 @@ where
 
         // processed exactly one block, but got back two tip-infos
         assert_eq!(tip_info_list.len(), 1);
-        let (chain_tip_opt, poison_opt) = tip_info_list[0].clone();
+        let StagingBlockOutcome {
+            receipt: chain_tip_opt,
+            poison_payload: poison_opt,
+        } = tip_info_list[0].clone();
 
         assert!(chain_tip_opt.is_some());
         assert!(poison_opt.is_none());
@@ -901,7 +912,10 @@ where
 
         // processed _one_ block
         assert_eq!(tip_info_list.len(), 1);
-        let (chain_tip_opt, poison_opt) = tip_info_list[0].clone();
+        let StagingBlockOutcome {
+            receipt: chain_tip_opt,
+            poison_payload: poison_opt,
+        } = tip_info_list[0].clone();
 
         assert!(chain_tip_opt.is_some());
         assert!(poison_opt.is_none());
@@ -960,8 +974,8 @@ where
 
     let snapshot_at_fork = {
         let ic = burn_node.sortdb.index_conn();
-        let tip = fork.get_tip(&ic);
-        tip
+
+        fork.get_tip(&ic)
     };
 
     assert_eq!(snapshot_at_fork.num_sortitions, fork_height as u64);
@@ -1169,7 +1183,10 @@ where
 
         // processed exactly one block, but got back two tip-infos
         assert_eq!(tip_info_list.len(), 1);
-        let (chain_tip_opt, poison_opt) = tip_info_list[0].clone();
+        let StagingBlockOutcome {
+            receipt: chain_tip_opt,
+            poison_payload: poison_opt,
+        } = tip_info_list[0].clone();
 
         assert!(chain_tip_opt.is_some());
         assert!(poison_opt.is_none());
@@ -1496,7 +1513,10 @@ where
 
         // processed _one_ block
         assert_eq!(tip_info_list.len(), 1);
-        let (chain_tip_opt, poison_opt) = tip_info_list[0].clone();
+        let StagingBlockOutcome {
+            receipt: chain_tip_opt,
+            poison_payload: poison_opt,
+        } = tip_info_list[0].clone();
 
         assert!(chain_tip_opt.is_some());
         assert!(poison_opt.is_none());
@@ -1746,14 +1766,22 @@ where
         // processed all stacks blocks -- one on each burn chain fork
         assert_eq!(tip_info_list.len(), 2);
 
-        for (ref chain_tip_opt, ref poison_opt) in tip_info_list.iter() {
+        for StagingBlockOutcome {
+            receipt: chain_tip_opt,
+            poison_payload: poison_opt,
+        } in tip_info_list.iter()
+        {
             assert!(chain_tip_opt.is_some());
             assert!(poison_opt.is_none());
         }
 
         // fork 1?
         let mut found_fork_1 = false;
-        for (ref chain_tip_opt, ref poison_opt) in tip_info_list.iter() {
+        for StagingBlockOutcome {
+            receipt: chain_tip_opt,
+            poison_payload: poison_opt,
+        } in tip_info_list.iter()
+        {
             let chain_tip = chain_tip_opt.clone().unwrap().header;
             if chain_tip.consensus_hash == fork_snapshot_1.consensus_hash {
                 found_fork_1 = true;
@@ -1774,7 +1802,11 @@ where
         assert!(found_fork_1);
 
         let mut found_fork_2 = false;
-        for (ref chain_tip_opt, ref poison_opt) in tip_info_list.iter() {
+        for StagingBlockOutcome {
+            receipt: chain_tip_opt,
+            poison_payload: poison_opt,
+        } in tip_info_list.iter()
+        {
             let chain_tip = chain_tip_opt.clone().unwrap().header;
             if chain_tip.consensus_hash == fork_snapshot_2.consensus_hash {
                 found_fork_2 = true;
@@ -2051,7 +2083,10 @@ where
 
         // processed _one_ block
         assert_eq!(tip_info_list.len(), 1);
-        let (chain_tip_opt, poison_opt) = tip_info_list[0].clone();
+        let StagingBlockOutcome {
+            receipt: chain_tip_opt,
+            poison_payload: poison_opt,
+        } = tip_info_list[0].clone();
 
         assert!(chain_tip_opt.is_some());
         assert!(poison_opt.is_none());
@@ -2301,14 +2336,22 @@ where
         // processed all stacks blocks -- one on each burn chain fork
         assert_eq!(tip_info_list.len(), 2);
 
-        for (ref chain_tip_opt, ref poison_opt) in tip_info_list.iter() {
+        for StagingBlockOutcome {
+            receipt: chain_tip_opt,
+            poison_payload: poison_opt,
+        } in tip_info_list.iter()
+        {
             assert!(chain_tip_opt.is_some());
             assert!(poison_opt.is_none());
         }
 
         // fork 1?
         let mut found_fork_1 = false;
-        for (ref chain_tip_opt, ref poison_opt) in tip_info_list.iter() {
+        for StagingBlockOutcome {
+            receipt: chain_tip_opt,
+            poison_payload: poison_opt,
+        } in tip_info_list.iter()
+        {
             let chain_tip = chain_tip_opt.clone().unwrap().header;
             if chain_tip.consensus_hash == fork_snapshot_1.consensus_hash {
                 found_fork_1 = true;
@@ -2329,7 +2372,11 @@ where
         assert!(found_fork_1);
 
         let mut found_fork_2 = false;
-        for (ref chain_tip_opt, ref poison_opt) in tip_info_list.iter() {
+        for StagingBlockOutcome {
+            receipt: chain_tip_opt,
+            poison_payload: poison_opt,
+        } in tip_info_list.iter()
+        {
             let chain_tip = chain_tip_opt.clone().unwrap().header;
             if chain_tip.consensus_hash == fork_snapshot_2.consensus_hash {
                 found_fork_2 = true;
@@ -2616,7 +2663,7 @@ fn miner_trace_replay_randomized(miner_trace: &mut TestMinerTrace) {
                                     &mut miner_trace.burn_node,
                                     &fork_snapshot,
                                     &stacks_block,
-                                    &[mblock.clone()],
+                                    slice::from_ref(mblock),
                                     &block_commit_op,
                                 );
 

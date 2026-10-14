@@ -33,16 +33,14 @@ pub mod monitoring;
 
 pub mod burnchains;
 pub mod event_dispatcher;
-pub mod genesis_data;
+pub mod genesis;
 pub mod globals;
 pub mod keychain;
 pub mod nakamoto_node;
 pub mod neon_node;
-pub mod node;
 pub mod operations;
 pub mod run_loop;
 pub mod syncctl;
-pub mod tenure;
 
 use std::collections::HashMap;
 use std::{env, panic, process};
@@ -60,14 +58,10 @@ use stacks_common::alloc_tracker::{tracking_allocator_installed, TrackingAllocat
 #[cfg(not(any(target_os = "macos", target_os = "windows", target_arch = "arm")))]
 use tikv_jemallocator::Jemalloc;
 
-pub use self::burnchains::{
-    BitcoinRegtestController, BurnchainController, BurnchainTip, MocknetController,
-};
+pub use self::burnchains::BitcoinRegtestController;
 pub use self::event_dispatcher::EventDispatcher;
 pub use self::keychain::Keychain;
-pub use self::node::{ChainTip, Node};
-pub use self::run_loop::{helium, neon};
-pub use self::tenure::Tenure;
+pub use self::run_loop::neon;
 use crate::neon_node::{BlockMinerThread, TipCandidate};
 use crate::run_loop::boot_nakamoto;
 
@@ -81,16 +75,28 @@ static GLOBAL: TrackingAllocator<std::alloc::System> = TrackingAllocator {
     inner: std::alloc::System,
 };
 
-/// Implmentation of `pick_best_tip` CLI option
-fn cli_pick_best_tip(config_path: &str, at_stacks_height: Option<u64>) -> TipCandidate {
+/// Load and validate the config at `config_path`, exiting on any error.
+fn load_config_or_exit(config_path: &str) -> Config {
     info!("Loading config at path {config_path}");
-    let config = match ConfigFile::from_path(config_path) {
-        Ok(config_file) => Config::from_config_file(config_file, true).unwrap(),
+    let config_file = match ConfigFile::from_path(config_path) {
+        Ok(config_file) => config_file,
         Err(e) => {
             warn!("Invalid config file: {e}");
             process::exit(1);
         }
     };
+    match Config::from_config_file(config_file, true) {
+        Ok(config) => config,
+        Err(e) => {
+            warn!("Invalid config: {e}");
+            process::exit(1);
+        }
+    }
+}
+
+/// Implmentation of `pick_best_tip` CLI option
+fn cli_pick_best_tip(config_path: &str, at_stacks_height: Option<u64>) -> TipCandidate {
+    let config = load_config_or_exit(config_path);
     let burn_db_path = config.get_burn_db_file_path();
     let stacks_chainstate_path = config.get_chainstate_path_str();
     let burnchain = config.get_burnchain();
@@ -129,14 +135,7 @@ fn cli_get_miner_spend(
     mine_start: Option<u64>,
     at_burnchain_height: Option<u64>,
 ) -> u64 {
-    info!("Loading config at path {config_path}");
-    let config = match ConfigFile::from_path(config_path) {
-        Ok(config_file) => Config::from_config_file(config_file, true).unwrap(),
-        Err(e) => {
-            warn!("Invalid config file: {e}");
-            process::exit(1);
-        }
-    };
+    let config = load_config_or_exit(config_path);
     let keychain = Keychain::default(config.node.seed.clone());
     let burn_db_path = config.get_burn_db_file_path();
     let stacks_chainstate_path = config.get_chainstate_path_str();
@@ -337,14 +336,6 @@ fn main() {
     }
 
     let config_file = match subcommand.as_str() {
-        "mocknet" => {
-            args.finish();
-            ConfigFile::mocknet()
-        }
-        "helium" => {
-            args.finish();
-            ConfigFile::helium()
-        }
         "testnet" => {
             args.finish();
             ConfigFile::xenon()
@@ -398,11 +389,7 @@ fn main() {
             let seed = {
                 let config_path: Option<String> = args.opt_value_from_str("--config").unwrap();
                 if let Some(config_path) = config_path {
-                    let conf = Config::from_config_file(
-                        ConfigFile::from_path(&config_path).unwrap(),
-                        true,
-                    )
-                    .unwrap();
+                    let conf = load_config_or_exit(&config_path);
                     args.finish();
                     conf.node.seed
                 } else {
@@ -445,9 +432,14 @@ fn main() {
             println!("Will spend {spend_amount}");
             process::exit(0);
         }
-        _ => {
+        "" | "help" => {
             print_help();
             return;
+        }
+        other => {
+            eprintln!("Unknown subcommand: {other}");
+            print_help();
+            process::exit(1);
         }
     };
 
@@ -465,28 +457,11 @@ fn main() {
 
     send_pending_event_payloads(&conf);
 
-    let num_round: u64 = 0; // Infinite number of rounds
-
-    if conf.burnchain.mode == "helium" || conf.burnchain.mode == "mocknet" {
-        let mut run_loop = helium::RunLoop::new(conf);
-        if let Err(e) = run_loop.start(num_round) {
-            warn!("Helium runloop exited: {e}");
-        }
-    } else if conf.burnchain.mode == "neon"
-        || conf.burnchain.mode == "nakamoto-neon"
-        || conf.burnchain.mode == "xenon"
-        || conf.burnchain.mode == "signet"
-        || conf.burnchain.mode == "krypton"
-        || conf.burnchain.mode == "mainnet"
-    {
-        if conf.memory_limit_configured() && !tracking_allocator_installed() {
-            panic!("Tracking allocator must be installed to set a memory limit");
-        }
-        let mut run_loop = boot_nakamoto::BootRunLoop::new(conf).unwrap();
-        run_loop.start(None, 0);
-    } else {
-        println!("Burnchain mode '{}' not supported", conf.burnchain.mode);
+    if conf.memory_limit_configured() && !tracking_allocator_installed() {
+        panic!("Tracking allocator must be installed to set a memory limit");
     }
+    let mut run_loop = boot_nakamoto::BootRunLoop::new(conf).unwrap();
+    run_loop.start(None, 0);
 }
 
 fn version() -> String {
@@ -507,17 +482,6 @@ stacks-node <SUBCOMMAND>
 SUBCOMMANDS:
 
 mainnet\t\tStart a node that will join and stream blocks from the public mainnet.
-
-mocknet\t\tStart a node based on a fast local setup emulating a burnchain. Ideal for smart contract development.
-
-helium\t\tStart a node based on a local setup relying on a local instance of bitcoind.
-\t\tThe following bitcoin.conf is expected:
-\t\t  chain=regtest
-\t\t  disablewallet=0
-\t\t  txindex=1
-\t\t  server=1
-\t\t  rpcuser=helium
-\t\t  rpcpassword=helium
 
 testnet\t\tStart a node that will join and stream blocks from the public testnet, relying on Bitcoin Testnet.
 

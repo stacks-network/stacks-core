@@ -72,6 +72,7 @@ use crate::chainstate::nakamoto::{
     MaturedMinerPaymentSchedules, MaturedMinerRewards, NakamotoBlock, NakamotoBlockHeader,
     NakamotoChainState, StacksDBIndexed,
 };
+use crate::chainstate::stacks::db::accounts::MaturedMinerPayouts;
 use crate::chainstate::stacks::db::{
     ChainstateTx, ClarityTx, MinerPaymentSchedule, MinerPaymentTxFees, StacksChainState,
     StacksDBTx, StacksHeaderInfo,
@@ -313,7 +314,8 @@ impl NakamotoChainState {
         // N.B. a `MinerPaymentSchedule` that pays to a contract can never be created before 2.1,
         // per the above check (and moreover, a Stacks block with a pay-to-alt-recipient coinbase would
         // not become valid until after 2.1 activates).
-        let miner_reward = MinerPaymentSchedule {
+
+        MinerPaymentSchedule {
             address: miner_addr,
             recipient,
             block_hash: block_hash.clone(),
@@ -327,9 +329,7 @@ impl NakamotoChainState {
             miner: true,
             stacks_block_height: block_height,
             vtxindex: 0,
-        };
-
-        miner_reward
+        }
     }
 
     /// Get scheduled miner rewards that have matured when this tenure starts.
@@ -395,7 +395,12 @@ impl NakamotoChainState {
             matured_miner_schedule.latest_miners,
             matured_miner_schedule.parent_miner,
         ) {
-            Ok(Some((recipient, _user_burns, parent, reward_info))) => Some(MaturedMinerRewards {
+            Ok(Some(MaturedMinerPayouts {
+                miner: recipient,
+                parent,
+                info: reward_info,
+                ..
+            })) => Some(MaturedMinerRewards {
                 recipient,
                 parent_reward: parent,
                 reward_info,
@@ -467,7 +472,7 @@ impl NakamotoChainState {
     ) -> Result<(), ChainstateError> {
         tx.execute(
             "DELETE FROM nakamoto_tenure_events WHERE tenure_id_consensus_hash = ?1",
-            &[ch],
+            [ch],
         )?;
         Ok(())
     }
@@ -492,7 +497,7 @@ impl NakamotoChainState {
     ) -> Result<u32, ChainstateError> {
         // at least one block in this tenure
         let sql = "SELECT height_in_tenure FROM nakamoto_block_headers WHERE index_block_hash = ?1";
-        let count = match query_int(chainstate_conn, sql, &[block_id]) {
+        let count = match query_int(chainstate_conn, sql, [block_id]) {
             Ok(count_i64) => {
                 let count: u32 = count_i64
                     .try_into()
@@ -865,7 +870,7 @@ impl NakamotoChainState {
             return Ok(coinbase_height);
         }
         Self::insert_nakamoto_tenure(headers_tx, &block.header, coinbase_height, tenure_payload)?;
-        return Ok(coinbase_height);
+        Ok(coinbase_height)
     }
 
     /// Check that this block is in the same tenure as its parent, and that this tenure is the

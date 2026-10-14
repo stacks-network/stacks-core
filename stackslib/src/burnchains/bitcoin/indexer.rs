@@ -115,8 +115,6 @@ pub struct BitcoinIndexerConfig {
     pub peer_port: u16,
     /// Port number of the Bitcoin RPC interface
     pub rpc_port: u16,
-    /// Whether to use SSL for the RPC interface
-    pub rpc_ssl: bool,
     /// Username for the RPC interface
     pub username: Option<String>,
     /// Password for the RPC interface
@@ -162,7 +160,6 @@ impl BitcoinIndexerConfig {
             peer_host: "bitcoin.blockstack.com".to_string(),
             peer_port: 8333,
             rpc_port: 8332,
-            rpc_ssl: false,
             username: Some("blockstack".to_string()),
             password: Some("blockstacksystem".to_string()),
             timeout: 300,
@@ -180,7 +177,6 @@ impl BitcoinIndexerConfig {
             peer_host: "127.0.0.1".to_string(),
             peer_port: 18444,
             rpc_port: 18443,
-            rpc_ssl: false,
             username: Some("blockstack".to_string()),
             password: Some("blockstacksystem".to_string()),
             timeout: 300,
@@ -216,7 +212,6 @@ impl BitcoinIndexerConfig {
             peer_host: "127.0.0.1".to_string(),
             peer_port: 18444,
             rpc_port: 18443,
-            rpc_ssl: false,
             username: Some("blockstack".to_string()),
             password: Some("blockstacksystem".to_string()),
             timeout: 300,
@@ -309,10 +304,7 @@ impl BitcoinIndexer {
     pub fn dup(&self) -> BitcoinIndexer {
         BitcoinIndexer {
             config: self.config.clone(),
-            runtime: BitcoinIndexerRuntime::new(
-                self.runtime.network_id,
-                self.config.timeout.into(),
-            ),
+            runtime: BitcoinIndexerRuntime::new(self.runtime.network_id, self.config.timeout),
             should_keep_running: self.should_keep_running.clone(),
         }
     }
@@ -556,7 +548,7 @@ impl BitcoinIndexer {
         remove_old: bool,
     ) -> Result<SpvClient, btc_error> {
         if remove_old && PathBuf::from(&reorg_headers_path).exists() {
-            fs::remove_file(&reorg_headers_path).map_err(|e| {
+            fs::remove_file(reorg_headers_path).map_err(|e| {
                 error!("Failed to remove {}", reorg_headers_path);
                 btc_error::Io(e)
             })?;
@@ -973,7 +965,7 @@ impl BitcoinIndexer {
             highest_header_height, highest_header.block_header.header.time
         );
         self.drop_headers(highest_header_height.saturating_sub(1))?;
-        return Err(burnchain_error::TrySyncAgain);
+        Err(burnchain_error::TrySyncAgain)
     }
 }
 
@@ -1647,7 +1639,6 @@ mod test {
             peer_host: host,
             peer_port: port,
             rpc_port: port + 1, // ignored
-            rpc_ssl: false,
             username: Some("blockstack".to_string()),
             password: Some("blockstacksystem".to_string()),
             timeout: 300,

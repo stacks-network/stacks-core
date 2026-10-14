@@ -717,7 +717,7 @@ mod test {
             let (client_sx, client_rx) = sync_channel(1);
             let client = thread::spawn(move || {
                 let mut sock = TcpStream::connect(
-                    &format!("127.0.0.1:{}", peer_http)
+                    format!("127.0.0.1:{}", peer_http)
                         .parse::<SocketAddr>()
                         .unwrap(),
                 )
@@ -791,8 +791,7 @@ mod test {
                 .unwrap();
                 request.preamble_mut().keep_alive = false;
 
-                let request_bytes = request.try_serialize().unwrap();
-                request_bytes
+                request.try_serialize().unwrap()
             },
             |client_id, http_response_bytes_res| {
                 // should be a PeerInfo
@@ -824,8 +823,7 @@ mod test {
                 .unwrap();
                 request.preamble_mut().keep_alive = false;
 
-                let request_bytes = request.try_serialize().unwrap();
-                request_bytes
+                request.try_serialize().unwrap()
             },
             |client_id, http_response_bytes_res| {
                 // should be a PeerInfo
@@ -873,8 +871,7 @@ mod test {
                 .unwrap();
                 request.preamble_mut().keep_alive = false;
 
-                let request_bytes = request.try_serialize().unwrap();
-                request_bytes
+                request.try_serialize().unwrap()
             },
             |client_id, http_response_bytes_res| {
                 // should be a Block
@@ -941,8 +938,7 @@ mod test {
                 .unwrap();
                 request.preamble_mut().keep_alive = false;
 
-                let request_bytes = request.try_serialize().unwrap();
-                request_bytes
+                request.try_serialize().unwrap()
             },
             |client_id, http_response_bytes_res| {
                 // should be a Block
@@ -1001,8 +997,7 @@ mod test {
                 .unwrap();
                 request.preamble_mut().keep_alive = false;
 
-                let request_bytes = request.try_serialize().unwrap();
-                request_bytes
+                request.try_serialize().unwrap()
             },
             |client_id, http_response_bytes_res| {
                 match http_response_bytes_res {
@@ -1056,8 +1051,7 @@ mod test {
                 .unwrap();
                 request.preamble_mut().keep_alive = false;
 
-                let request_bytes = request.try_serialize().unwrap();
-                request_bytes
+                request.try_serialize().unwrap()
             },
             |client_id, http_response_bytes_res| {
                 match http_response_bytes_res {
@@ -1127,8 +1121,7 @@ mod test {
                 .unwrap();
                 request.preamble_mut().keep_alive = false;
 
-                let request_bytes = request.try_serialize().unwrap();
-                request_bytes
+                request.try_serialize().unwrap()
             },
             |client_id, http_response_bytes_res| {
                 match http_response_bytes_res {
@@ -1228,8 +1221,7 @@ mod test {
                 .unwrap();
                 request.preamble_mut().keep_alive = false;
 
-                let request_bytes = request.try_serialize().unwrap();
-                request_bytes
+                request.try_serialize().unwrap()
             },
             |client_id, res| true,
         );
@@ -1281,8 +1273,7 @@ mod test {
                 .unwrap();
                 request.preamble_mut().keep_alive = false;
 
-                let request_bytes = request.try_serialize().unwrap();
-                request_bytes
+                request.try_serialize().unwrap()
             },
             |client_id, http_response_bytes_res| true,
         );

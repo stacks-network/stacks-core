@@ -130,7 +130,7 @@ impl HttpResponse for RPCGetHealthRequestHandler {
         body: &[u8],
     ) -> Result<HttpResponsePayload, Error> {
         let txinfo: RPCGetHealthResponse = parse_json(preamble, body)?;
-        Ok(HttpResponsePayload::try_from_json(txinfo)?)
+        HttpResponsePayload::try_from_json(txinfo)
     }
 }
 

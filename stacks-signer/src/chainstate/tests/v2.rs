@@ -247,24 +247,20 @@ fn check_proposal_accepts_high_s_miner_sign() {
     );
 }
 
-fn reorg_timing_testing(
+/// Set up a sortition (`cur_sortition`) that reorgs the prior
+/// sortition's tenure, whose first block we approved
+/// `sortition_timing_secs` before `cur_sortition`'s burn block
+/// arrived.
+///
+/// Returns the signer DB, `cur_sortition`, the approved block of the
+/// reorged tenure, and the fork info the node reports for the reorg.
+fn setup_reorg_of_prior_sortition(
     test_name: &str,
-    first_proposal_burn_block_timing_secs: u64,
     sortition_timing_secs: u64,
-) -> (Result<bool, SignerChainstateError>, bool) {
-    let (
-        _stacks_client,
-        mut signer_db,
-        block_sk,
-        mut block,
-        mut cur_sortition,
-        last_sortition,
-        mut sortitions_view,
-    ) = setup_test_environment(test_name);
-    sortitions_view.config.first_proposal_burn_block_timing =
-        Duration::from_secs(first_proposal_burn_block_timing_secs);
+) -> (SignerDb, SortitionState, BlockInfo, Vec<TenureForkingInfo>) {
+    let (_stacks_client, mut signer_db, block_sk, _block, mut cur_sortition, last_sortition, _) =
+        setup_test_environment(test_name);
     cur_sortition.data.parent_tenure_id = last_sortition.data.parent_tenure_id.clone();
-    block.header.consensus_hash = cur_sortition.data.consensus_hash.clone();
     let block_pk = StacksPublicKey::from_private(&block_sk);
     cur_sortition.data.miner_pkh = Hash160::from_node_public_key(&block_pk);
     cur_sortition.data.miner_pubkey = Some(block_pk);
@@ -307,8 +303,7 @@ fn reorg_timing_testing(
         )
         .unwrap();
 
-    let reorged_tenure = last_sortition.data.consensus_hash.clone();
-    let expected_result = vec![
+    let forking_info = vec![
         TenureForkingInfo {
             burn_block_hash: last_sortition.data.burn_block_hash,
             burn_block_height: 2,
@@ -330,12 +325,50 @@ fn reorg_timing_testing(
             nakamoto_blocks: None,
         },
     ];
+    (signer_db, cur_sortition, block_info_1, forking_info)
+}
+
+/// Record a second, globally accepted block in the tenure of `first_block`, and mark
+/// `first_block` globally accepted too, so the tenure has two globally accepted blocks.
+fn add_second_globally_accepted_block(signer_db: &mut SignerDb, first_block: &BlockInfo) {
+    let mut first_block = first_block.clone();
+    first_block.mark_globally_accepted().unwrap();
+    signer_db.insert_block(&first_block).unwrap();
+
+    let mut second_block = first_block.clone();
+    second_block.block.header.chain_length += 1;
+    second_block.block.header.parent_block_id = first_block.block.block_id();
+    signer_db.insert_block(&second_block).unwrap();
+    assert_eq!(
+        signer_db
+            .get_globally_accepted_block_count_in_tenure(&first_block.block.header.consensus_hash)
+            .unwrap(),
+        2
+    );
+}
+
+/// Answer one fork-info request from the node mock with `forking_info`
+fn respond_with_forking_info(server: &std::net::TcpListener, forking_info: &[TenureForkingInfo]) {
+    crate::client::tests::write_response(
+        server.try_clone().unwrap(),
+        format!("HTTP/1.1 200 Ok\n\n{}", serde_json::json!(forking_info)).as_bytes(),
+    );
+}
+
+fn reorg_timing_testing(
+    test_name: &str,
+    first_proposal_burn_block_timing_secs: u64,
+    sortition_timing_secs: u64,
+) -> (Result<bool, SignerChainstateError>, bool) {
+    let (mut signer_db, cur_sortition, block_info_1, forking_info) =
+        setup_reorg_of_prior_sortition(test_name, sortition_timing_secs);
+    let reorged_tenure = block_info_1.block.header.consensus_hash.clone();
     let MockServerClient { server, client, .. } = MockServerClient::new();
     let h = std::thread::spawn(move || {
         let result = cur_sortition.data.check_parent_tenure_choice(
             &mut signer_db,
             &client,
-            &sortitions_view.config.first_proposal_burn_block_timing,
+            &Duration::from_secs(first_proposal_burn_block_timing_secs),
         );
         // Report whether the reorg of the prior sortition was recorded as sanctioned, so the
         // caller can check that our own signature over its block stops blocking a replacement.
@@ -343,10 +376,7 @@ fn reorg_timing_testing(
         (result, superseded)
     });
 
-    crate::client::tests::write_response(
-        server,
-        format!("HTTP/1.1 200 Ok\n\n{}", serde_json::json!(expected_result)).as_bytes(),
-    );
+    respond_with_forking_info(&server, &forking_info);
     let (result, superseded) = h.join().unwrap();
     info!("Result: {result:?}, superseded: {superseded}");
     (result, superseded)
@@ -442,6 +472,73 @@ fn refused_reorg_supersedes_nothing() {
     assert!(
         !superseded,
         "a refused reorg must supersede nothing, even the tenures in it that individually qualified"
+    );
+}
+
+#[test]
+fn permitted_reorg_survives_recheck() {
+    // The mainnet stall at Bitcoin heights 968312-968315: we permit a reorg of a tenure that
+    // has one globally accepted block. A second block of that tenure, signed before the reorg
+    // was permitted, then lands. When the next sortition's winner is invalid, we fall back to
+    // the reorging tenure and check its parent choice again. That re-check must not count
+    // the late block and revoke the reorg we already permitted.
+    let (mut signer_db, cur_sortition, block_info_1, forking_info) =
+        setup_reorg_of_prior_sortition(function_name!(), 29);
+    let MockServerClient { server, client, .. } = MockServerClient::new();
+    let h = std::thread::spawn(move || {
+        let timing = Duration::from_secs(30);
+        let first_check = cur_sortition
+            .data
+            .check_parent_tenure_choice(&mut signer_db, &client, &timing)
+            .unwrap();
+        add_second_globally_accepted_block(&mut signer_db, &block_info_1);
+        let recheck = cur_sortition
+            .data
+            .check_parent_tenure_choice(&mut signer_db, &client, &timing)
+            .unwrap();
+        (first_check, recheck)
+    });
+    respond_with_forking_info(&server, &forking_info);
+    respond_with_forking_info(&server, &forking_info);
+    let (first_check, recheck) = h.join().unwrap();
+    assert!(
+        first_check,
+        "The reorg should be permitted: the reorged tenure's only block was poorly timed"
+    );
+    assert!(
+        recheck,
+        "A reorg we already permitted for this sortition must stay permitted"
+    );
+}
+
+#[test]
+fn reorg_permitted_for_other_sortition_is_rechecked() {
+    // Only a permit granted to *this* sortition is final for it. A tenure that another
+    // sortition was permitted to reorg is still judged by the rules, so its two globally
+    // accepted blocks refuse this reorg.
+    let (mut signer_db, cur_sortition, block_info_1, forking_info) =
+        setup_reorg_of_prior_sortition(function_name!(), 29);
+    let reorged_tenure = block_info_1.block.header.consensus_hash.clone();
+    signer_db
+        .mark_tenure_superseded(
+            &reorged_tenure,
+            2,
+            &ConsensusHash([0x42; 20]),
+            &BurnchainHeaderHash([0x42; 32]),
+        )
+        .unwrap();
+    add_second_globally_accepted_block(&mut signer_db, &block_info_1);
+    let MockServerClient { server, client, .. } = MockServerClient::new();
+    let h = std::thread::spawn(move || {
+        cur_sortition
+            .data
+            .check_parent_tenure_choice(&mut signer_db, &client, &Duration::from_secs(30))
+            .unwrap()
+    });
+    respond_with_forking_info(&server, &forking_info);
+    assert!(
+        !h.join().unwrap(),
+        "A permit granted to another sortition must not exempt this reorg from the rules"
     );
 }
 
