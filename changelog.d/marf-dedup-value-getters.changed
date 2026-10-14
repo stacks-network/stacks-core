@@ -1,1 +1,0 @@
-The MARF's `get_by_path`, `get_by_hash` and `get_by_key` now share a single implementation instead of repeating the same lookup three times. No behaviour change.

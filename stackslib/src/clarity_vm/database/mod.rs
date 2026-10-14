@@ -20,6 +20,8 @@ use stacks_common::types::chainstate::{
 };
 use stacks_common::types::Address;
 use stacks_common::util::vrf::VRFProof;
+use stacks_marf::marf::{MarfConnection, MARF};
+use stacks_marf::ClarityMarfTrieId;
 
 use crate::chainstate::burn::db::sortdb::{
     get_ancestor_sort_id, SortitionDB, SortitionHandle, SortitionHandleConn, SortitionHandleTx,
@@ -28,8 +30,6 @@ use crate::chainstate::nakamoto::{keys as nakamoto_keys, StacksDBIndexed};
 use crate::chainstate::stacks::boot::PoxStartCycleInfo;
 use crate::chainstate::stacks::db::accounts::MinerReward;
 use crate::chainstate::stacks::db::{ChainstateTx, StacksChainState, StacksDBConn, StacksDBTx};
-use crate::chainstate::stacks::index::marf::{MarfConnection, MARF};
-use crate::chainstate::stacks::index::ClarityMarfTrieId;
 use crate::chainstate::stacks::Error as ChainstateError;
 use crate::clarity_vm::special::handle_contract_call_special_cases;
 use crate::core::{StacksEpoch, StacksEpochId};

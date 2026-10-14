@@ -1,1 +1,0 @@
-From Epoch 4.1, contract analysis rejects calls with the wrong number of arguments to user-defined functions and to `map-set`, `map-insert`, `map-delete`, `var-set` and `get-block-info?`.
