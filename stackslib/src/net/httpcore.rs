@@ -1169,15 +1169,15 @@ impl StacksHttp {
 
     /// Find all allowed HTTP methods for a given path.
     /// Returns a list of HTTP verbs that are allowed for handlers whose path regex matches.
-    fn find_allowed_methods(&self, request_path: &str) -> Vec<String> {
+    fn find_allowed_methods(&self, request_path: &str) -> Vec<&'static str> {
         let mut allowed_methods = Vec::new();
         for route in self.routes.iter() {
             // Check if either the strict or permissive regex matches
             if (route.path_regex.is_match(request_path)
                 || route.permissive_regex.is_match(request_path))
-                && !allowed_methods.iter().any(|verb| verb == route.verb)
+                && !allowed_methods.contains(&route.verb)
             {
-                allowed_methods.push(route.verb.to_string());
+                allowed_methods.push(route.verb);
             }
         }
         allowed_methods
@@ -1376,7 +1376,9 @@ impl StacksHttp {
             let allowed_methods = self.find_allowed_methods(&decoded_path);
             if !allowed_methods.is_empty() {
                 // Path exists but method is not allowed (405)
-                let error = HttpMethodNotAllowed::with_allowed_methods(allowed_methods);
+                let error = HttpMethodNotAllowed::with_allowed_methods(
+                    allowed_methods.into_iter().map(String::from).collect(),
+                );
                 let allowed_str = error.get_allowed_methods().join(", ");
                 return StacksHttpResponse::new_error_with_headers(
                     &request.preamble,
