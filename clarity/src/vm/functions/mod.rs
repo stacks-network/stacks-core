@@ -813,8 +813,17 @@ fn special_let(
 
     finally_drop_memory!( exec_state, memory_use; {
         handle_binding_list::<_, VmExecutionError>(bindings, SyntaxBindingErrorType::Let, |binding_name, var_sexp| {
-            if is_reserved(binding_name, invoke_ctx.contract_context.get_clarity_version()) ||
-                invoke_ctx.contract_context.lookup_function(binding_name).is_some() ||
+
+            // TODO: Once we've reached Epoch 4.1, this conditional can possibly be removed.
+            // See doc comment of [`StacksEpochId::fully_prevents_let_binding_name_duplication_at_runtime`].
+            let name_conflicts_with_global = if exec_state.epoch().fully_prevents_let_binding_name_duplication_at_runtime() {
+                invoke_ctx.contract_context.is_name_used(binding_name)
+            } else {
+                is_reserved(binding_name, invoke_ctx.contract_context.get_clarity_version()) ||
+                invoke_ctx.contract_context.lookup_function(binding_name).is_some()
+            };
+
+            if name_conflicts_with_global ||
                 inner_context.lookup_variable(binding_name).is_some() {
                     return Err(RuntimeCheckErrorKind::NameAlreadyUsed(binding_name.clone().into()).into())
                 }
