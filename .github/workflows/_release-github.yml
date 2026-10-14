@@ -9,11 +9,15 @@ on:
         description: "Release Tag (shared by the node and signer)"
         required: true
         type: string
+    # These live in the "release" environment, not at the repo level, so they are
+    # not visible to the caller. The job that uses them declares
+    # `environment: release` and reads them directly. Marking them `required`
+    # makes GitHub reject the call before any job runs.
     secrets:
       RELEASE_APP_ID:
-        required: true
+        required: false
       RELEASE_APP_PRIVATE_KEY:
-        required: true
+        required: false
 
 # Set default permissions
 permissions:

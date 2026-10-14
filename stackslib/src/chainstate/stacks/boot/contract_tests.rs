@@ -545,9 +545,7 @@ impl HeadersDB for TestSimHeadersDB {
         if *id_bhh == *FIRST_INDEX_BLOCK_HASH {
             Some(FIRST_STACKS_BLOCK_HASH)
         } else {
-            if self.get_burn_block_height_for_block(id_bhh).is_none() {
-                return None;
-            }
+            self.get_burn_block_height_for_block(id_bhh)?;
             Some(BlockHeaderHash(id_bhh.0))
         }
     }
@@ -1782,7 +1780,7 @@ fn test_deploy_smart_contract(
             &ResourceBudget::unlimited(),
         )?;
         tx.save_analysis(contract_id, &analysis)?;
-        return Ok(());
+        Ok(())
     })
 }
 

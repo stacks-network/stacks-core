@@ -173,7 +173,7 @@ impl RPCRequestHandler for RPCGetStackerDBChunkRequestHandler {
         let chunk_resp = match chunk_resp {
             Ok(chunk) => chunk,
             Err(response) => {
-                return response.try_into_contents().map_err(NetError::from);
+                return response.try_into_contents();
             }
         };
 

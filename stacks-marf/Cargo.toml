@@ -16,6 +16,10 @@ serde_derive = { workspace = true }
 slog = { workspace = true }
 stacks-common = { path = "../stacks-common", default-features = false, features = ["rusqlite"] }
 
+# `prefetch_file_range` in `file.rs` calls `posix_fadvise` on Linux.
+[target.'cfg(unix)'.dependencies]
+nix = "0.23"
+
 [target.'cfg(all(any(target_arch = "x86_64", target_arch = "x86", target_arch = "aarch64"), not(any(target_os="windows"))))'.dependencies]
 sha2 = { version = "0.10", features = ["asm"] }
 
@@ -33,3 +37,5 @@ tempfile = "3"
 default = []
 # Expose the MARF's test-only helpers to other crates' test suites.
 testing = ["stacks-common/testing"]
+# Log the duration of every SQLite statement.
+profile-sqlite = ["stacks-common/profile-sqlite"]

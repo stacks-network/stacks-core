@@ -30,6 +30,7 @@ use crate::chainstate::nakamoto::{
 };
 use crate::chainstate::stacks::address::StacksAddressExtensions;
 use crate::chainstate::stacks::db::blocks::{DummyEventDispatcher, MAX_RECEIPT_SIZES};
+use crate::chainstate::stacks::db::transactions::TransactionProcessor;
 use crate::chainstate::stacks::db::{
     ChainstateTx, ClarityTx, StacksBlockHeaderTypes, StacksChainState, StacksHeaderInfo,
 };
@@ -135,10 +136,7 @@ impl From<TenureChangeCause> for MinerTenureInfoCause {
 impl MinerTenureInfoCause {
     /// Is this the start of a new tenure?
     pub fn is_new_tenure(&self) -> bool {
-        match self {
-            MinerTenureInfoCause::BlockFound => true,
-            _ => false,
-        }
+        matches!(self, MinerTenureInfoCause::BlockFound)
     }
 
     /// Is this a tenure extension of any kind?
@@ -230,7 +228,7 @@ impl NakamotoBlockBuilder {
             header: NakamotoBlockHeader::genesis(),
             soft_limit: None,
             contract_limit_percentage: None,
-            max_tenure_bytes: u64::from(DEFAULT_MAX_TENURE_BYTES),
+            max_tenure_bytes: DEFAULT_MAX_TENURE_BYTES,
         }
     }
 
@@ -792,13 +790,19 @@ impl BlockBuilder for NakamotoBlockBuilder {
         resource_budgets: &TransactionResourceBudgets,
         total_receipts_size: &mut u64,
     ) -> TransactionResult {
-        if self.bytes_so_far + tx_len >= u64::from(MAX_EPOCH_SIZE) {
+        let block_size = self.bytes_so_far + tx_len;
+        let exceeds_size_limit = if clarity_tx.get_epoch().fixes_block_size_off_by_one() {
+            block_size > u64::from(MAX_EPOCH_SIZE)
+        } else {
+            block_size >= u64::from(MAX_EPOCH_SIZE)
+        };
+        if exceeds_size_limit {
             debug!("Transaction {} would be too big to include", tx.txid());
             return TransactionResult::skipped_due_to_error(tx, Error::TxWouldNotFitError);
         }
 
         if let Some(parent_header) = &self.parent_header {
-            let mut total_tenure_size = self.bytes_so_far + tx_len;
+            let mut total_tenure_size = block_size;
 
             // if we are in the same tenure of the parent, accumulate the parent total_tenure_size
             // note that total_tenure_size is reset whenever a new tenure extend happens
@@ -850,12 +854,13 @@ impl BlockBuilder for NakamotoBlockBuilder {
             }
 
             let cost_before = clarity_tx.cost_so_far();
-            let (_fee, receipt) = match StacksChainState::process_transaction_with_check(
-                clarity_tx,
-                tx,
-                quiet,
-                resource_budgets,
-                |receipt| {
+
+            let tx_processor = TransactionProcessor::from(tx)
+                .for_execution()
+                .using_clarity_tx(clarity_tx)
+                .with_resource_policy(*resource_budgets)
+                .quiet(quiet)
+                .with_check(|receipt| {
                     if !receipt.post_condition_aborted {
                         let all_events_valid = receipt.events.iter().all(|event| {
                             crate::net::api::postblock_proposal::is_event_pox_addr_valid(
@@ -879,8 +884,9 @@ impl BlockBuilder for NakamotoBlockBuilder {
                         *total_receipts_size = next_size;
                         Ok(())
                     }
-                },
-            ) {
+                });
+
+            let (_fee, receipt) = match tx_processor.process() {
                 Ok(x) => x,
                 Err(e) => {
                     return parse_process_transaction_error(

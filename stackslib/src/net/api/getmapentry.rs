@@ -152,7 +152,7 @@ impl RPCRequestHandler for RPCGetMapEntryRequestHandler {
         let tip = match node.load_stacks_chain_tip(&preamble, &contents) {
             Ok(tip) => tip,
             Err(error_resp) => {
-                return error_resp.try_into_contents().map_err(NetError::from);
+                return error_resp.try_into_contents();
             }
         };
         let with_proof = contents.get_with_proof();
@@ -206,8 +206,7 @@ impl RPCRequestHandler for RPCGetMapEntryRequestHandler {
                     &preamble,
                     &HttpNotFound::new("Chain tip not found".to_string()),
                 )
-                .try_into_contents()
-                .map_err(NetError::from);
+                .try_into_contents();
             }
         };
 
@@ -225,7 +224,7 @@ impl HttpResponse for RPCGetMapEntryRequestHandler {
         body: &[u8],
     ) -> Result<HttpResponsePayload, Error> {
         let map_entry: MapEntryResponse = parse_json(preamble, body)?;
-        Ok(HttpResponsePayload::try_from_json(map_entry)?)
+        HttpResponsePayload::try_from_json(map_entry)
     }
 }
 

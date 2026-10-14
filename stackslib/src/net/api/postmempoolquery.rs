@@ -58,11 +58,9 @@ impl RPCMempoolQueryRequestHandler {
                         return Some(page_id);
                     }
                 }
-                return None;
+                None
             }
-            None => {
-                return None;
-            }
+            None => None,
         }
     }
 }
@@ -187,7 +185,7 @@ impl HttpChunkGenerator for StacksMemPoolStream {
             self.num_bytes = self
                 .num_bytes
                 .saturating_add(u64::try_from(chunk.len()).unwrap());
-            return Ok(chunk);
+            Ok(chunk)
         } else if let Some(next_txid) = next_last_randomized_txid_opt {
             // no more txs to send
             test_debug!(
@@ -200,7 +198,7 @@ impl HttpChunkGenerator for StacksMemPoolStream {
             let chunk = next_txid.serialize_to_vec();
             self.finished = true;
             self.corked = true;
-            return Ok(chunk);
+            Ok(chunk)
         } else {
             test_debug!(
                 "No more txs to send after {:?}; corking stream",
@@ -210,7 +208,7 @@ impl HttpChunkGenerator for StacksMemPoolStream {
             // no more transactions, and none after this
             self.finished = true;
             self.corked = true;
-            return Ok(vec![]);
+            Ok(vec![])
         }
     }
 }
@@ -298,7 +296,7 @@ impl RPCRequestHandler for RPCMempoolQueryRequestHandler {
         let stream = match stream_res {
             Ok(stream) => stream,
             Err(response) => {
-                return response.try_into_contents().map_err(NetError::from);
+                return response.try_into_contents();
             }
         };
 

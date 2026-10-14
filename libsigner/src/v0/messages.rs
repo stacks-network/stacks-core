@@ -1154,6 +1154,47 @@ pub enum RejectReason {
     Unknown(u8),
 }
 
+impl RejectReason {
+    /// Is this rejection transient, i.e. caused by the signer's view lagging
+    /// behind the network (e.g. it has not yet processed a new burn block, or
+    /// received a parent block or its peers' state updates)?
+    ///
+    /// Such rejections usually resolve within seconds, and signers re-evaluate
+    /// the block when it is proposed again, so a miner should re-propose it
+    /// promptly rather than wait for the full rejection timeout.
+    pub fn is_transient(&self) -> bool {
+        match self {
+            RejectReason::ValidationFailed(ValidateRejectCode::UnknownParent)
+            | RejectReason::ValidationFailed(ValidateRejectCode::NotFoundError)
+            | RejectReason::NoSortitionView
+            | RejectReason::ConnectivityIssues(_)
+            | RejectReason::ConsensusHashMismatch { .. }
+            | RejectReason::NoSignerConsensus => true,
+            RejectReason::ValidationFailed(_)
+            | RejectReason::RejectedInPriorRound
+            | RejectReason::SortitionViewMismatch
+            | RejectReason::TestingDirective
+            | RejectReason::ReorgNotAllowed
+            | RejectReason::InvalidBitvec
+            | RejectReason::PubkeyHashMismatch
+            | RejectReason::InvalidMiner
+            | RejectReason::NotLatestSortitionWinner
+            | RejectReason::InvalidParentBlock
+            | RejectReason::DuplicateBlockFound
+            // Resolves only once enough time has passed, not within seconds
+            | RejectReason::InvalidTenureExtend
+            | RejectReason::IrrecoverablePubkeyHash
+            | RejectReason::ProblematicTransactions
+            | RejectReason::ProposalTooOld
+            // Resolves only if a burnchain reorg orphans the later-cycle sortition
+            | RejectReason::RewardCycleRetired
+            | RejectReason::NotRejected
+            // A reason from a newer signer; its nature cannot be known
+            | RejectReason::Unknown(_) => false,
+        }
+    }
+}
+
 /// Enum representing the reject details type prefix
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Ord, PartialOrd, Hash, Serialize, Deserialize)]
 #[repr(u8)]
@@ -2154,6 +2195,35 @@ mod test {
             SIGNER_SLOTS_PER_USER as usize >= slot_identifiers_len,
             "stacks_common::SIGNER_SLOTS_PER_USER ({SIGNER_SLOTS_PER_USER}) must be >= slot identifiers ({slot_identifiers_len})"
         );
+    }
+
+    #[test]
+    fn transient_reject_reasons() {
+        let transient = [
+            RejectReason::ValidationFailed(ValidateRejectCode::UnknownParent),
+            RejectReason::ValidationFailed(ValidateRejectCode::NotFoundError),
+            RejectReason::NoSortitionView,
+            RejectReason::ConnectivityIssues("test".into()),
+            RejectReason::ConsensusHashMismatch {
+                expected: ConsensusHash([0x01; 20]),
+                actual: ConsensusHash([0x02; 20]),
+            },
+            RejectReason::NoSignerConsensus,
+        ];
+        let not_transient = [
+            RejectReason::ValidationFailed(ValidateRejectCode::InvalidBlock),
+            RejectReason::TestingDirective,
+            RejectReason::InvalidTenureExtend,
+            RejectReason::RewardCycleRetired,
+            RejectReason::NotRejected,
+            RejectReason::Unknown(0xff),
+        ];
+        for reason in &transient {
+            assert!(reason.is_transient(), "{reason:?}");
+        }
+        for reason in &not_transient {
+            assert!(!reason.is_transient(), "{reason:?}");
+        }
     }
 
     #[test]
