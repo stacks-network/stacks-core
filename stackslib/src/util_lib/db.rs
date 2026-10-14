@@ -34,9 +34,8 @@ pub use stacks_common::util::db::{
 };
 use stacks_common::util::hash::to_hex;
 use stacks_common::util::secp256k1::{Secp256k1PrivateKey, Secp256k1PublicKey};
-
-use crate::chainstate::stacks::index::marf::{MarfConnection, MarfTransaction, MARF};
-use crate::chainstate::stacks::index::{Error as MARFError, MARFValue, MarfTrieId};
+use stacks_marf::marf::{MarfConnection, MarfTransaction, MARF};
+use stacks_marf::{Error as MARFError, MARFValue, MarfTrieId};
 
 pub type DBConn = rusqlite::Connection;
 pub type DBTx<'a> = rusqlite::Transaction<'a>;

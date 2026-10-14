@@ -46,6 +46,8 @@ use stacks_common::types::Address;
 use stacks_common::util::get_epoch_time_ms;
 use stacks_common::util::hash::hex_bytes;
 use stacks_common::util::secp256k1::{Secp256k1PrivateKey, Secp256k1PublicKey};
+use stacks_marf::marf::MARFOpenOpts;
+use stacks_marf::storage::TrieHashCalculationMode;
 
 use crate::burnchains::bitcoin::{signet, BitcoinNetworkType};
 use crate::burnchains::{Burnchain, MagicBytes, BLOCKSTACK_MAGIC_MAINNET};
@@ -54,8 +56,6 @@ use crate::chainstate::nakamoto::signer_set::{
     set_pox_5_sbtc_registry_contract, NakamotoSigners,
 };
 use crate::chainstate::stacks::boot::MINERS_NAME;
-use crate::chainstate::stacks::index::marf::MARFOpenOpts;
-use crate::chainstate::stacks::index::storage::TrieHashCalculationMode;
 use crate::chainstate::stacks::miner::{BlockBuilderSettings, MinerStatus};
 use crate::chainstate::stacks::MAX_BLOCK_LEN;
 use crate::config::chain_data::MinerStats;

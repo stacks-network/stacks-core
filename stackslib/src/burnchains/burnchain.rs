@@ -31,6 +31,7 @@ use stacks_common::types::chainstate::BurnchainHeaderHash;
 use stacks_common::util::hash::to_hex;
 use stacks_common::util::vrf::VRFPublicKey;
 use stacks_common::util::{get_epoch_time_ms, sleep_ms};
+use stacks_marf::marf::MARFOpenOpts;
 
 use super::EpochList;
 use crate::burnchains::bitcoin::BitcoinTxOutput;
@@ -53,7 +54,6 @@ use crate::chainstate::burn::operations::{
 use crate::chainstate::burn::{BlockSnapshot, Opcodes};
 use crate::chainstate::coordinator::comm::CoordinatorChannels;
 use crate::chainstate::stacks::address::PoxAddress;
-use crate::chainstate::stacks::index::marf::MARFOpenOpts;
 #[cfg(any(test, feature = "testing"))]
 use crate::chainstate::stacks::StacksPublicKey;
 use crate::core::{StacksEpochId, NETWORK_ID_MAINNET, PEER_VERSION_MAINNET, PEER_VERSION_TESTNET};
