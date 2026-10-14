@@ -20,7 +20,7 @@ use crate::vm::analysis::type_checker::v2_05::{
     StaticCheckError, StaticCheckErrorKind, TypeChecker, TypingContext, check_arguments_at_least,
 };
 use crate::vm::costs::cost_functions::ClarityCostFunction;
-use crate::vm::costs::{analysis_typecheck_cost, runtime_cost};
+use crate::vm::costs::{analysis_typecheck_cost_v2_05, runtime_cost};
 use crate::vm::representations::SymbolicExpression;
 use crate::vm::types::TypeSignature;
 
@@ -52,7 +52,7 @@ pub fn check_special_fetch_entry(
         &mut checker.cost_track,
         value_type.type_size()?,
     )?;
-    analysis_typecheck_cost(&mut checker.cost_track, expected_key_type, &key_type)?;
+    analysis_typecheck_cost_v2_05(&mut checker.cost_track, expected_key_type, &key_type)?;
 
     let option_type = TypeSignature::new_option(value_type.clone())?;
 
@@ -89,7 +89,7 @@ pub fn check_special_delete_entry(
         &mut checker.cost_track,
         expected_key_type.type_size()?,
     )?;
-    analysis_typecheck_cost(&mut checker.cost_track, expected_key_type, &key_type)?;
+    analysis_typecheck_cost_v2_05(&mut checker.cost_track, expected_key_type, &key_type)?;
 
     if !expected_key_type.admits_type(&StacksEpochId::Epoch2_05, &key_type)? {
         Err(StaticCheckError::new(StaticCheckErrorKind::TypeError(
@@ -131,8 +131,8 @@ fn check_set_or_insert_entry(
         value_type.type_size()?,
     )?;
 
-    analysis_typecheck_cost(&mut checker.cost_track, expected_key_type, &key_type)?;
-    analysis_typecheck_cost(&mut checker.cost_track, expected_value_type, &value_type)?;
+    analysis_typecheck_cost_v2_05(&mut checker.cost_track, expected_key_type, &key_type)?;
+    analysis_typecheck_cost_v2_05(&mut checker.cost_track, expected_value_type, &value_type)?;
 
     if !expected_key_type.admits_type(&StacksEpochId::Epoch2_05, &key_type)? {
         Err(StaticCheckError::new(StaticCheckErrorKind::TypeError(

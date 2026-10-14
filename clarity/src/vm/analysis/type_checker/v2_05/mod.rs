@@ -35,7 +35,7 @@ pub use crate::vm::analysis::errors::{
 use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::costs::{
     CostErrors, CostOverflowingMath, CostTracker, ExecutionCost, LimitedCostTracker,
-    analysis_typecheck_cost, runtime_cost,
+    analysis_typecheck_cost_v2_05, runtime_cost,
 };
 use crate::vm::functions::NativeFunctions;
 use crate::vm::functions::define::DefineFunctionsParsed;
@@ -136,7 +136,7 @@ impl FunctionType {
             FunctionType::Variadic(expected_type, return_type) => {
                 check_arguments_at_least(1, args)?;
                 for found_type in args.iter() {
-                    analysis_typecheck_cost(accounting, expected_type, found_type)?;
+                    analysis_typecheck_cost_v2_05(accounting, expected_type, found_type)?;
                     if !expected_type.admits_type(&StacksEpochId::Epoch2_05, found_type)? {
                         return Err(StaticCheckErrorKind::TypeError(
                             Box::new(expected_type.clone()),
@@ -154,7 +154,7 @@ impl FunctionType {
                 check_argument_count(arg_types.len(), args)?;
                 for (expected_type, found_type) in arg_types.iter().map(|x| &x.signature).zip(args)
                 {
-                    analysis_typecheck_cost(accounting, expected_type, found_type)?;
+                    analysis_typecheck_cost_v2_05(accounting, expected_type, found_type)?;
                     if !expected_type.admits_type(&StacksEpochId::Epoch2_05, found_type)? {
                         return Err(StaticCheckErrorKind::TypeError(
                             Box::new(expected_type.clone()),
@@ -169,7 +169,7 @@ impl FunctionType {
                 check_argument_count(1, args)?;
                 let found_type = &args[0];
                 for expected_type in arg_types.iter() {
-                    analysis_typecheck_cost(accounting, expected_type, found_type)?;
+                    analysis_typecheck_cost_v2_05(accounting, expected_type, found_type)?;
                     if expected_type.admits_type(&StacksEpochId::Epoch2_05, found_type)? {
                         return Ok(return_type.clone());
                     }
@@ -195,7 +195,7 @@ impl FunctionType {
                             1,
                             args.len(),
                         ))?;
-                analysis_typecheck_cost(accounting, &TypeSignature::IntType, first)?;
+                analysis_typecheck_cost_v2_05(accounting, &TypeSignature::IntType, first)?;
                 let return_type = match first {
                     TypeSignature::IntType => Ok(TypeSignature::IntType),
                     TypeSignature::UIntType => Ok(TypeSignature::UIntType),
@@ -205,7 +205,7 @@ impl FunctionType {
                     )),
                 }?;
                 for found_type in rest.iter() {
-                    analysis_typecheck_cost(accounting, &TypeSignature::IntType, found_type)?;
+                    analysis_typecheck_cost_v2_05(accounting, &TypeSignature::IntType, found_type)?;
                     if found_type != &return_type {
                         return Err(StaticCheckErrorKind::TypeError(
                             Box::new(return_type),
@@ -219,8 +219,8 @@ impl FunctionType {
             FunctionType::ArithmeticComparison => {
                 check_argument_count(2, args)?;
                 let (first, second) = (&args[0], &args[1]);
-                analysis_typecheck_cost(accounting, &TypeSignature::IntType, first)?;
-                analysis_typecheck_cost(accounting, &TypeSignature::IntType, second)?;
+                analysis_typecheck_cost_v2_05(accounting, &TypeSignature::IntType, first)?;
+                analysis_typecheck_cost_v2_05(accounting, &TypeSignature::IntType, second)?;
 
                 if first != &TypeSignature::IntType && first != &TypeSignature::UIntType {
                     return Err(StaticCheckErrorKind::UnionTypeError(
@@ -314,7 +314,7 @@ fn trait_type_size(
 ) -> Result<u64, StaticCheckError> {
     let mut total_size = 0;
     for value in trait_sig.values() {
-        total_size = total_size.cost_overflow_add(value.total_type_size()?)?;
+        total_size = total_size.cost_overflow_add(value.total_type_size_v2_05()?)?;
     }
     Ok(total_size)
 }
@@ -432,8 +432,7 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
 
         runtime_cost(ClarityCostFunction::AnalysisStorage, self, size)?;
 
-        let mut local_context =
-            TypingContext::new(StacksEpochId::Epoch2_05, ClarityVersion::Clarity1);
+        let mut local_context = TypingContext::new(ClarityVersion::Clarity1);
 
         for exp in contract_analysis.expressions.iter() {
             let mut result_res = self.try_type_check_define(exp, &mut local_context);
@@ -496,7 +495,7 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
         }
 
         let actual_type = self.type_check(expr, context)?;
-        analysis_typecheck_cost(self, expected_type, &actual_type)?;
+        analysis_typecheck_cost_v2_05(self, expected_type, &actual_type)?;
 
         if !expected_type.admits_type(&StacksEpochId::Epoch2_05, &actual_type)? {
             let mut err: StaticCheckError = StaticCheckErrorKind::TypeError(
@@ -569,7 +568,7 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
         context: &TypingContext,
     ) -> Result<TypeSignature, StaticCheckError> {
         let typed_args = self.type_check_all(args, context)?;
-        func_type.check_args(self, &typed_args, context.epoch, context.clarity_version)
+        func_type.check_args_2_05(self, &typed_args)
     }
 
     fn get_function_type(&self, function_name: &str) -> Option<FunctionType> {
@@ -890,7 +889,7 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
                     runtime_cost(
                         ClarityCostFunction::AnalysisBindName,
                         self,
-                        f_type.total_type_size()?,
+                        f_type.total_type_size_v2_05()?,
                     )?;
                     self.contract_context
                         .add_private_function_type(f_name, FunctionType::Fixed(f_type))?;
@@ -901,7 +900,7 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
                     runtime_cost(
                         ClarityCostFunction::AnalysisBindName,
                         self,
-                        f_type.total_type_size()?,
+                        f_type.total_type_size_v2_05()?,
                     )?;
 
                     if f_type.returns.is_response_type() {
@@ -921,7 +920,7 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
                     runtime_cost(
                         ClarityCostFunction::AnalysisBindName,
                         self,
-                        f_type.total_type_size()?,
+                        f_type.total_type_size_v2_05()?,
                     )?;
                     self.contract_context
                         .add_read_only_function_type(f_name, FunctionType::Fixed(f_type))?;

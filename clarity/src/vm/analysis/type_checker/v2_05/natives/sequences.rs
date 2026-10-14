@@ -23,7 +23,7 @@ use crate::vm::analysis::type_checker::v2_05::{
     check_arguments_at_least,
 };
 use crate::vm::costs::cost_functions::ClarityCostFunction;
-use crate::vm::costs::{analysis_typecheck_cost, runtime_cost};
+use crate::vm::costs::{analysis_typecheck_cost_v2_05, runtime_cost};
 use crate::vm::functions::NativeFunctions;
 use crate::vm::representations::{SymbolicExpression, SymbolicExpressionType};
 use crate::vm::types::SequenceSubtype::*;
@@ -108,8 +108,7 @@ pub fn check_special_map(
         func_args.push(entry_type);
     }
 
-    let mapped_type =
-        function_type.check_args(checker, &func_args, context.epoch, context.clarity_version)?;
+    let mapped_type = function_type.check_args_2_05(checker, &func_args)?;
     TypeSignature::list_of(mapped_type, min_args)
         .map_err(|_| StaticCheckErrorKind::ConstructedListTooLarge.into())
 }
@@ -139,12 +138,7 @@ pub fn check_special_filter(
             ))),
         }?;
 
-        let filter_type = function_type.check_args(
-            checker,
-            &[input_type],
-            context.epoch,
-            context.clarity_version,
-        )?;
+        let filter_type = function_type.check_args_2_05(checker, &[input_type])?;
 
         if TypeSignature::BoolType != filter_type {
             return Err(StaticCheckErrorKind::TypeError(
@@ -189,20 +183,11 @@ pub fn check_special_fold(
     //           B = list items type
 
     // f must accept the initial value and the list items type
-    let return_type = function_type.check_args(
-        checker,
-        &[input_type.clone(), initial_value_type],
-        context.epoch,
-        context.clarity_version,
-    )?;
+    let return_type =
+        function_type.check_args_2_05(checker, &[input_type.clone(), initial_value_type])?;
 
     // f must _also_ accepts its own return type!
-    let return_type = function_type.check_args(
-        checker,
-        &[input_type, return_type],
-        context.epoch,
-        context.clarity_version,
-    )?;
+    let return_type = function_type.check_args_2_05(checker, &[input_type, return_type])?;
 
     Ok(return_type)
 }
@@ -219,7 +204,7 @@ pub fn check_special_concat(
 
     runtime_cost(ClarityCostFunction::AnalysisIterableFunc, checker, 0)?;
 
-    analysis_typecheck_cost(checker, &lhs_type, &rhs_type)?;
+    analysis_typecheck_cost_v2_05(checker, &lhs_type, &rhs_type)?;
 
     let res = match (&lhs_type, &rhs_type) {
         (TypeSignature::SequenceType(lhs_seq), TypeSignature::SequenceType(rhs_seq)) => {
@@ -287,7 +272,7 @@ pub fn check_special_append(
             let rhs_type = checker.type_check(&args[1], context)?;
             let (lhs_entry_type, lhs_max_len) = lhs_list.destruct();
 
-            analysis_typecheck_cost(checker, &lhs_entry_type, &rhs_type)?;
+            analysis_typecheck_cost_v2_05(checker, &lhs_entry_type, &rhs_type)?;
 
             let list_entry_type = TypeSignature::least_supertype(
                 &StacksEpochId::Epoch2_05,

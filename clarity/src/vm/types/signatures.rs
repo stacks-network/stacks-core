@@ -507,12 +507,12 @@ impl TypeSignatureExt for TypeSignature {
 impl FixedFunction {
     /// [`Self::charged_total_type_size`] with legacy type sizes, for the
     /// 2.05 type checker.
-    pub fn total_type_size(&self) -> Result<u64, StaticCheckErrorKind> {
+    pub fn total_type_size_v2_05(&self) -> Result<u64, StaticCheckErrorKind> {
         self.charged_total_type_size(&StacksEpochId::Epoch2_05)
     }
 
-    /// [`Self::total_type_size`] to charge for in `epoch`; see
-    /// [`TypeSignature::charged_type_size`].
+    /// Type size of the return and argument types to charge for in `epoch`;
+    /// see [`TypeSignature::charged_type_size`].
     pub fn charged_total_type_size(
         &self,
         epoch: &StacksEpochId,
@@ -529,12 +529,12 @@ impl FixedFunction {
 impl FunctionSignature {
     /// [`Self::charged_total_type_size`] with legacy type sizes, for the
     /// 2.05 type checker.
-    pub fn total_type_size(&self) -> Result<u64, StaticCheckErrorKind> {
+    pub fn total_type_size_v2_05(&self) -> Result<u64, StaticCheckErrorKind> {
         self.charged_total_type_size(&StacksEpochId::Epoch2_05)
     }
 
-    /// [`Self::total_type_size`] to charge for in `epoch`; see
-    /// [`TypeSignature::charged_type_size`].
+    /// Type size of the return and argument types to charge for in `epoch`;
+    /// see [`TypeSignature::charged_type_size`].
     pub fn charged_total_type_size(
         &self,
         epoch: &StacksEpochId,

@@ -1328,7 +1328,7 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
 
         runtime_cost(ClarityCostFunction::AnalysisStorage, self, size)?;
 
-        let mut local_context = TypingContext::new(StacksEpochId::Epoch21, self.clarity_version);
+        let mut local_context = TypingContext::new(self.clarity_version);
 
         for exp in contract_analysis.expressions.iter() {
             let mut result_res = self.try_type_check_define(exp, &mut local_context);
@@ -1492,7 +1492,7 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
             return Err(static_check_error);
         }
         // otherwise, just invoke the normal checking routine
-        func_type.check_args(self, &accumulated_types, self.epoch, clarity_version)
+        func_type.check_args_2_1(self, self.epoch, &accumulated_types, clarity_version)
     }
 
     fn get_function_type(&self, function_name: &str) -> Option<FunctionType> {

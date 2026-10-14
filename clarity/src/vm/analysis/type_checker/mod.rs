@@ -23,25 +23,10 @@ use stacks_common::types::StacksEpochId;
 use super::AnalysisDatabase;
 use super::errors::StaticCheckError;
 pub use super::types::{AnalysisPass, ContractAnalysis};
-use crate::vm::costs::CostTracker;
 use crate::vm::types::{FunctionType, TypeSignature};
 use crate::vm::{ClarityVersion, Value};
 
 impl FunctionType {
-    pub fn check_args<T: CostTracker>(
-        &self,
-        accounting: &mut T,
-        args: &[TypeSignature],
-        epoch: StacksEpochId,
-        clarity_version: ClarityVersion,
-    ) -> Result<TypeSignature, StaticCheckError> {
-        if epoch >= StacksEpochId::Epoch21 {
-            self.check_args_2_1(accounting, epoch, args, clarity_version)
-        } else {
-            self.check_args_2_05(accounting, args)
-        }
-    }
-
     pub fn check_args_by_allowing_trait_cast(
         &self,
         db: &mut AnalysisDatabase,

@@ -115,7 +115,7 @@ pub fn analysis_typecheck_cost_for_epoch<T: CostTracker>(
 
 /// [`analysis_typecheck_cost_for_epoch`] with legacy type sizes, for the 2.05
 /// type checker.
-pub fn analysis_typecheck_cost<T: CostTracker>(
+pub fn analysis_typecheck_cost_v2_05<T: CostTracker>(
     track: &mut T,
     t1: &TypeSignature,
     t2: &TypeSignature,

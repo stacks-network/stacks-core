@@ -16,8 +16,6 @@
 
 use std::collections::{HashMap, HashSet};
 
-use stacks_common::types::StacksEpochId;
-
 use crate::vm::analysis::errors::{StaticCheckError, StaticCheckErrorKind};
 use crate::vm::types::signatures::CallableSubtype;
 use crate::vm::types::{TraitIdentifier, TypeSignature};
@@ -42,7 +40,6 @@ enum TypeMapDataType {
 }
 
 pub struct TypingContext<'a> {
-    pub epoch: StacksEpochId,
     pub clarity_version: ClarityVersion,
     pub variable_types: HashMap<ClarityName, TypeSignature>,
     pub traits_references: HashMap<ClarityName, TraitIdentifier>,
@@ -96,9 +93,8 @@ impl TypeMap {
 }
 
 impl TypingContext<'_> {
-    pub fn new(epoch: StacksEpochId, clarity_version: ClarityVersion) -> TypingContext<'static> {
+    pub fn new(clarity_version: ClarityVersion) -> TypingContext<'static> {
         TypingContext {
-            epoch,
             clarity_version,
             variable_types: HashMap::new(),
             traits_references: HashMap::new(),
@@ -114,7 +110,6 @@ impl TypingContext<'_> {
             ))
         } else {
             Ok(TypingContext {
-                epoch: self.epoch,
                 clarity_version: self.clarity_version,
                 variable_types: HashMap::new(),
                 traits_references: HashMap::new(),

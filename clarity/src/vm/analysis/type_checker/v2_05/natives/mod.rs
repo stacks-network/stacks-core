@@ -19,7 +19,7 @@ use stacks_common::types::StacksEpochId;
 use super::{TypeChecker, TypingContext, check_argument_count, check_arguments_at_least, no_type};
 use crate::vm::analysis::errors::{StaticCheckError, StaticCheckErrorKind, SyntaxBindingErrorType};
 use crate::vm::costs::cost_functions::ClarityCostFunction;
-use crate::vm::costs::{analysis_typecheck_cost, runtime_cost};
+use crate::vm::costs::{analysis_typecheck_cost_v2_05, runtime_cost};
 use crate::vm::diagnostic::DiagnosableError;
 use crate::vm::functions::{NativeFunctions, handle_binding_list};
 use crate::vm::types::{
@@ -313,7 +313,7 @@ fn check_special_set_var(
         &mut checker.cost_track,
         expected_value_type.type_size()?,
     )?;
-    analysis_typecheck_cost(&mut checker.cost_track, &value_type, expected_value_type)?;
+    analysis_typecheck_cost_v2_05(&mut checker.cost_track, &value_type, expected_value_type)?;
 
     if !expected_value_type.admits_type(&StacksEpochId::Epoch2_05, &value_type)? {
         Err(StaticCheckError::new(StaticCheckErrorKind::TypeError(
@@ -336,7 +336,7 @@ fn check_special_equals(
 
     let mut arg_type = arg_types[0].clone();
     for x_type in arg_types.into_iter() {
-        analysis_typecheck_cost(checker, &x_type, &arg_type)?;
+        analysis_typecheck_cost_v2_05(checker, &x_type, &arg_type)?;
         arg_type = TypeSignature::least_supertype(&StacksEpochId::Epoch2_05, &x_type, &arg_type)
             .map_err(|_| StaticCheckErrorKind::TypeError(Box::new(x_type), Box::new(arg_type)))?;
     }
@@ -358,7 +358,7 @@ fn check_special_if(
     let expr1 = &arg_types[0];
     let expr2 = &arg_types[1];
 
-    analysis_typecheck_cost(checker, expr1, expr2)?;
+    analysis_typecheck_cost_v2_05(checker, expr1, expr2)?;
 
     TypeSignature::least_supertype(&StacksEpochId::Epoch2_05, expr1, expr2).map_err(|_| {
         StaticCheckErrorKind::IfArmsMustMatch(Box::new(expr1.clone()), Box::new(expr2.clone()))
@@ -413,7 +413,7 @@ fn check_contract_call(
             runtime_cost(
                 ClarityCostFunction::AnalysisGetFunctionEntry,
                 checker,
-                func_signature.total_type_size()?,
+                func_signature.total_type_size_v2_05()?,
             )?;
 
             func_signature
@@ -446,7 +446,7 @@ fn check_contract_call(
             runtime_cost(
                 ClarityCostFunction::AnalysisLookupFunctionTypes,
                 &mut checker.cost_track,
-                func_signature.total_type_size()?,
+                func_signature.total_type_size_v2_05()?,
             )?;
 
             func_signature.clone()

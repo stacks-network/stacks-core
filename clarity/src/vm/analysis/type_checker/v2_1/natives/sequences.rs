@@ -159,10 +159,10 @@ pub fn check_special_map(
         return Err(static_check_error);
     }
 
-    let mapped_type = function_type.check_args(
+    let mapped_type = function_type.check_args_2_1(
         checker,
-        &accumulated_types,
         checker.epoch,
+        &accumulated_types,
         context.clarity_version,
     )?;
     TypeSignature::list_of(mapped_type, min_args)
@@ -194,10 +194,10 @@ pub fn check_special_filter(
             ))),
         }?;
 
-        let filter_type = function_type.check_args(
+        let filter_type = function_type.check_args_2_1(
             checker,
-            &[input_type],
             checker.epoch,
+            &[input_type],
             context.clarity_version,
         )?;
 
@@ -241,18 +241,18 @@ pub fn check_special_fold(
 
     // f must accept the initial value and the list items type
     let initial_args = [input_type.clone(), initial_value_type];
-    let return_type = function_type.check_args(
+    let return_type = function_type.check_args_2_1(
         checker,
-        &initial_args,
         checker.epoch,
+        &initial_args,
         context.clarity_version,
     )?;
 
     // f must _also_ accepts its own return type!
-    let return_type = function_type.check_args(
+    let return_type = function_type.check_args_2_1(
         checker,
-        &[input_type, return_type],
         checker.epoch,
+        &[input_type, return_type],
         context.clarity_version,
     )?;
 

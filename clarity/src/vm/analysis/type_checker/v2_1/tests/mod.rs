@@ -4889,10 +4889,9 @@ fn test_principal_list_analysis_cost(
 }
 
 /// `map`, `filter` and `fold` check list entries against the function's
-/// parameters with the checker's epoch: `TypingContext.epoch` is pinned to
-/// Epoch 2.1 and would charge legacy sizes. Each `body` matches its `twin`
-/// except for those checks, which see a `<trait-a>` entry `trait_checks`
-/// times.
+/// parameters with the checker's epoch, so a trait entry counts its
+/// identifier from 4.1. Each `body` matches its `twin` except for those
+/// checks, which see a `<trait-a>` entry `trait_checks` times.
 #[rstest]
 #[case::map("(map f ts)", "(begin ts (list true true))", 1)]
 #[case::filter("(filter f ts)", "(begin true ts)", 1)]
