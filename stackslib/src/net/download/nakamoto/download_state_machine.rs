@@ -122,6 +122,12 @@ impl NakamotoDownloadStateMachine {
         }
     }
 
+    /// Forget which confirmed tenures have been downloaded, so that any not yet processed are
+    /// downloaded again. Returns how many entries were cleared.
+    pub fn clear_completed_tenures(&mut self) -> usize {
+        self.tenure_downloads.clear_completed_tenures()
+    }
+
     /// Return the reward cycle which could be confirmed by a nakamoto block commit
     ///  in burn block height `burn_height`.
     ///

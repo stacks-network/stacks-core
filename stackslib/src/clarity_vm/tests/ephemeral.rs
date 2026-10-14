@@ -26,15 +26,15 @@ use stacks_common::types::chainstate::{
     StacksAddress, StacksBlockId, StacksPrivateKey, StacksPublicKey,
 };
 use stacks_common::types::Address;
+use stacks_marf::marf::MARFOpenOpts;
+use stacks_marf::storage::TrieHashCalculationMode;
+use stacks_marf::ClarityMarfTrieId;
 
 use crate::chainstate::burn::db::sortdb::{SortitionDB, SortitionHandleConn};
 use crate::chainstate::nakamoto::miner::{MinerTenureInfoCause, NakamotoBlockBuilder};
 use crate::chainstate::nakamoto::tests::node::TestStacker;
 use crate::chainstate::nakamoto::{NakamotoBlock, NakamotoChainState};
 use crate::chainstate::stacks::db::StacksChainState;
-use crate::chainstate::stacks::index::marf::MARFOpenOpts;
-use crate::chainstate::stacks::index::storage::TrieHashCalculationMode;
-use crate::chainstate::stacks::index::ClarityMarfTrieId;
 use crate::chainstate::stacks::miner::{
     BlockBuilder, BlockLimitFunction, TransactionResourceBudgets, TransactionResult,
 };

@@ -96,6 +96,14 @@ impl NakamotoTenureDownloaderSet {
         }
     }
 
+    /// Forget which tenures have been downloaded, so that any not yet processed are downloaded
+    /// again. Returns how many entries were cleared.
+    pub fn clear_completed_tenures(&mut self) -> usize {
+        let forgotten = self.completed_tenures.len();
+        self.completed_tenures.clear();
+        forgotten
+    }
+
     /// Mark a tenure as having failed to download.
     /// Implemented statically to appease the borrow checker.
     fn mark_failure(attempt_failed_tenures: &mut HashMap<ConsensusHash, u64>, ch: &ConsensusHash) {

@@ -14,6 +14,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use std::assert_matches;
 use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
 
@@ -1863,32 +1864,33 @@ fn test_marf_read_only() {
     // functions that require a transaction _cannot_ be called on a readonly marf, because
     //   both the storage function for initiating a tx _and_ sqlite will have errored before
     //   you could call the function.
+    // `MarfTransaction` has no `Debug`, so `assert_matches!` can't be used here.
     assert!(matches!(ro_marf.begin_tx(), Err(Error::ReadOnlyError)));
-    assert!(matches!(
+    assert_matches!(
         ro_marf.insert("foo", value.clone()),
         Err(Error::ReadOnlyError)
-    ));
-    assert!(matches!(
+    );
+    assert_matches!(
         ro_marf.insert_raw(triepath, leaf),
         Err(Error::ReadOnlyError)
-    ));
-    assert!(matches!(
+    );
+    assert_matches!(
         ro_marf.insert_batch(&["foo".to_string()], vec![value.clone()]),
         Err(Error::ReadOnlyError)
-    ));
-    assert!(matches!(ro_marf.commit(), Err(Error::ReadOnlyError)));
-    assert!(matches!(
+    );
+    assert_matches!(ro_marf.commit(), Err(Error::ReadOnlyError));
+    assert_matches!(
         ro_marf.commit_mined(&BlockHeaderHash([0x22; 32])),
         Err(Error::ReadOnlyError)
-    ));
-    assert!(matches!(
+    );
+    assert_matches!(
         ro_marf.commit_to(&BlockHeaderHash([0x33; 32])),
         Err(Error::ReadOnlyError)
-    ));
-    assert!(matches!(
+    );
+    assert_matches!(
         ro_marf.begin(&BlockHeaderHash([0x22; 32]), &BlockHeaderHash([0x33; 32])),
         Err(Error::ReadOnlyError)
-    ));
+    );
 }
 
 #[test]
@@ -1949,7 +1951,7 @@ fn test_marf_begin_from_sentinel_twice() {
         &triepath_1,
     )
     .unwrap_err();
-    assert!(matches!(read_value_1, Error::NotFoundError));
+    assert_matches!(read_value_1, Error::NotFoundError);
 }
 
 #[test]
@@ -2024,7 +2026,7 @@ fn test_marf_unconfirmed() {
         &triepath_2,
     )
     .unwrap_err();
-    assert!(matches!(e, Error::NotFoundError));
+    assert_matches!(e, Error::NotFoundError);
 
     marf.begin_unconfirmed(&block_header).unwrap();
     marf.drop_unconfirmed();
@@ -2036,7 +2038,7 @@ fn test_marf_unconfirmed() {
         &triepath_1,
     )
     .unwrap_err();
-    assert!(matches!(e, Error::NotFoundError), "whoops: {e:?}");
+    assert_matches!(e, Error::NotFoundError, "whoops: {e:?}");
 
     // value 2 is dropped
     let e = MARF::get_path(
@@ -2045,7 +2047,7 @@ fn test_marf_unconfirmed() {
         &triepath_2,
     )
     .unwrap_err();
-    assert!(matches!(e, Error::NotFoundError));
+    assert_matches!(e, Error::NotFoundError);
 }
 
 #[test]

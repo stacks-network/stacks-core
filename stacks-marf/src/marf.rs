@@ -171,7 +171,7 @@ pub trait MarfConnection<T: MarfTrieId> {
 
     /// Resolve a TrieHash from the MARF to a MARFValue with respect to the given block height.
     fn get_from_hash(&mut self, block_hash: &T, th: &TrieHash) -> Result<Option<MARFValue>, Error> {
-        self.with_conn(|c| MARF::get_by_hash(c, block_hash, th))
+        self.with_conn(|c| MARF::get_by_path(c, block_hash, th))
     }
 
     fn get_with_proof(
@@ -1232,8 +1232,7 @@ impl<T: MarfTrieId> MARF<T> {
     /// Load up a MARF value by TrieHash path, given a handle to the storage connection and a tip
     /// to work off of.
     ///
-    /// The shared implementation behind [`Self::get_by_hash`] and [`Self::get_by_key`]; the trie
-    /// is addressed by path in every case, those two only differ in how the path is obtained.
+    /// [`Self::get_by_key`] is the same lookup, hashing the key into a path first.
     pub fn get_by_path(
         storage: &mut TrieStorageConnection<T>,
         block_hash: &T,
@@ -1265,16 +1264,6 @@ impl<T: MarfTrieId> MARF<T> {
         key: &str,
     ) -> Result<Option<MARFValue>, Error> {
         MARF::get_by_path(storage, block_hash, &TrieHash::from_key(key))
-    }
-
-    /// Load up a MARF value by TrieHash, given a handle to the storage connection and a tip to
-    /// work off of.
-    pub fn get_by_hash(
-        storage: &mut TrieStorageConnection<T>,
-        block_hash: &T,
-        path: &TrieHash,
-    ) -> Result<Option<MARFValue>, Error> {
-        MARF::get_by_path(storage, block_hash, path)
     }
 
     /// Read `OWN_BLOCK_HEIGHT_KEY` for the block the caller is standing on.

@@ -25,8 +25,8 @@ use clarity::vm::version::ClarityVersion;
 use clarity::vm::{ContractContext, ContractName};
 use stacks_common::types::chainstate::{BlockHeaderHash, StacksBlockId};
 use stacks_common::types::StacksEpochId;
+use stacks_marf::ClarityMarfTrieId;
 
-use crate::chainstate::stacks::index::ClarityMarfTrieId;
 use crate::clarity_vm::clarity::{ClarityMarfStore, ClarityMarfStoreTransaction};
 use crate::clarity_vm::database::marf::MarfedKV;
 
