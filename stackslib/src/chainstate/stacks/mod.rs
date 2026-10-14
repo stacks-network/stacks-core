@@ -45,12 +45,12 @@ use stacks_common::types::chainstate::{
 use stacks_common::util::hash::{Hash160, Sha512Trunc256Sum};
 use stacks_common::util::secp256k1::MessageSignature;
 use stacks_common::util::vrf::VRFProof;
+use stacks_marf::Error as marf_error;
 
 use crate::burnchains::Txid;
 use crate::chainstate::burn::ConsensusHash;
 use crate::chainstate::stacks::db::accounts::MaturedMinerPayouts;
 use crate::chainstate::stacks::db::StacksHeaderInfo;
-use crate::chainstate::stacks::index::Error as marf_error;
 use crate::clarity_vm::clarity::ClarityError;
 use crate::net::Error as net_error;
 use crate::util_lib::db::Error as db_error;
@@ -62,10 +62,6 @@ pub mod block;
 pub mod boot;
 pub mod db;
 pub mod events;
-/// The MARF now lives in the `stacks-marf` crate. Re-exported under its historical
-/// path so that existing `crate::chainstate::stacks::index::...` call sites keep
-/// resolving; they move to `stacks_marf::...` in follow-up patches.
-pub use stacks_marf as index;
 pub mod miner;
 pub mod sbtc;
 pub mod transaction;
