@@ -341,7 +341,7 @@ impl BitcoinBlockParser {
             }
         }
 
-        return true;
+        true
     }
 
     /// Parse a transaction's inputs into burnchain tx inputs.

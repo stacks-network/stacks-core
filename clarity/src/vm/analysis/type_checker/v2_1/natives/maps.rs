@@ -17,7 +17,7 @@
 use stacks_common::types::StacksEpochId;
 
 use crate::vm::analysis::type_checker::v2_1::{
-    StaticCheckError, StaticCheckErrorKind, TypeChecker, TypingContext, check_arguments_at_least,
+    StaticCheckError, StaticCheckErrorKind, TypeChecker, TypingContext,
 };
 use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::costs::{analysis_typecheck_cost, runtime_cost};
@@ -29,13 +29,13 @@ pub fn check_special_fetch_entry(
     args: &[SymbolicExpression],
     context: &TypingContext,
 ) -> Result<TypeSignature, StaticCheckError> {
-    check_arguments_at_least(2, args)?;
+    let [map_name, key] = checker.get_fixed_arguments(args)?;
 
-    let map_name = args[0]
+    let map_name = map_name
         .match_atom()
         .ok_or(StaticCheckErrorKind::BadMapName)?;
 
-    let key_type = checker.type_check(&args[1], context)?;
+    let key_type = checker.type_check(key, context)?;
 
     let (expected_key_type, value_type) = checker
         .contract_context
@@ -71,13 +71,13 @@ pub fn check_special_delete_entry(
     args: &[SymbolicExpression],
     context: &TypingContext,
 ) -> Result<TypeSignature, StaticCheckError> {
-    check_arguments_at_least(2, args)?;
+    let [map_name, key] = checker.get_fixed_arguments(args)?;
 
-    let map_name = args[0]
+    let map_name = map_name
         .match_atom()
         .ok_or(StaticCheckErrorKind::BadMapName)?;
 
-    let key_type = checker.type_check(&args[1], context)?;
+    let key_type = checker.type_check(key, context)?;
 
     let (expected_key_type, _) = checker
         .contract_context
@@ -106,14 +106,14 @@ fn check_set_or_insert_entry(
     args: &[SymbolicExpression],
     context: &TypingContext,
 ) -> Result<TypeSignature, StaticCheckError> {
-    check_arguments_at_least(3, args)?;
+    let [map_name, key, value] = checker.get_fixed_arguments(args)?;
 
-    let map_name = args[0]
+    let map_name = map_name
         .match_atom()
         .ok_or(StaticCheckErrorKind::BadMapName)?;
 
-    let key_type = checker.type_check(&args[1], context)?;
-    let value_type = checker.type_check(&args[2], context)?;
+    let key_type = checker.type_check(key, context)?;
+    let value_type = checker.type_check(value, context)?;
 
     let (expected_key_type, expected_value_type) = checker
         .contract_context

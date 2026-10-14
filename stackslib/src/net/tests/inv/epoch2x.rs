@@ -794,10 +794,10 @@ fn test_sync_inv_make_inv_messages() {
             let height = network.burnchain.reward_cycle_to_block_height(1);
             let sn = {
                 let ic = sortdb.index_conn();
-                let sn = SortitionDB::get_ancestor_snapshot(&ic, height, &tip.sortition_id)
+
+                SortitionDB::get_ancestor_snapshot(&ic, height, &tip.sortition_id)
                     .unwrap()
-                    .unwrap();
-                sn
+                    .unwrap()
             };
             let getpoxinv = GetPoxInv {
                 consensus_hash: sn.consensus_hash,
@@ -834,10 +834,10 @@ fn test_sync_inv_make_inv_messages() {
             let height = network.burnchain.reward_cycle_to_block_height(1);
             let sn = {
                 let ic = sortdb.index_conn();
-                let sn = SortitionDB::get_ancestor_snapshot(&ic, height, &tip.sortition_id)
+
+                SortitionDB::get_ancestor_snapshot(&ic, height, &tip.sortition_id)
                     .unwrap()
-                    .unwrap();
-                sn
+                    .unwrap()
             };
             let getpoxinv = GetPoxInv {
                 consensus_hash: sn.consensus_hash,
@@ -908,10 +908,10 @@ fn test_sync_inv_make_inv_messages() {
             );
             let sn = {
                 let ic = sortdb.index_conn();
-                let sn = SortitionDB::get_ancestor_snapshot(&ic, height, &tip.sortition_id)
+
+                SortitionDB::get_ancestor_snapshot(&ic, height, &tip.sortition_id)
                     .unwrap()
-                    .unwrap();
-                sn
+                    .unwrap()
             };
             let getblocksinv = GetBlocksInv {
                 consensus_hash: sn.consensus_hash,
@@ -959,10 +959,10 @@ fn test_sync_inv_make_inv_messages() {
             test_debug!("Ask for inv at height {height}");
             let sn = {
                 let ic = sortdb.index_conn();
-                let sn = SortitionDB::get_ancestor_snapshot(&ic, height, &tip.sortition_id)
+
+                SortitionDB::get_ancestor_snapshot(&ic, height, &tip.sortition_id)
                     .unwrap()
-                    .unwrap();
-                sn
+                    .unwrap()
             };
             let getblocksinv = GetBlocksInv {
                 consensus_hash: sn.consensus_hash,
@@ -1011,10 +1011,10 @@ fn test_sync_inv_make_inv_messages() {
             test_debug!("Ask for inv at height {height}");
             let sn = {
                 let ic = sortdb.index_conn();
-                let sn = SortitionDB::get_ancestor_snapshot(&ic, height, &tip.sortition_id)
+
+                SortitionDB::get_ancestor_snapshot(&ic, height, &tip.sortition_id)
                     .unwrap()
-                    .unwrap();
-                sn
+                    .unwrap()
             };
             let getblocksinv = GetBlocksInv {
                 consensus_hash: sn.consensus_hash,
@@ -1061,10 +1061,10 @@ fn test_sync_inv_make_inv_messages() {
             ) + 1;
             let sn = {
                 let ic = sortdb.index_conn();
-                let sn = SortitionDB::get_ancestor_snapshot(&ic, height, &tip.sortition_id)
+
+                SortitionDB::get_ancestor_snapshot(&ic, height, &tip.sortition_id)
                     .unwrap()
-                    .unwrap();
-                sn
+                    .unwrap()
             };
             let getblocksinv = GetBlocksInv {
                 consensus_hash: sn.consensus_hash,

@@ -120,7 +120,7 @@ impl RPCRequestHandler for RPCGetAttachmentRequestHandler {
         let attachment = match attachment_res {
             Ok(attachment) => attachment,
             Err(response) => {
-                return response.try_into_contents().map_err(NetError::from);
+                return response.try_into_contents();
             }
         };
 
@@ -138,7 +138,7 @@ impl HttpResponse for RPCGetAttachmentRequestHandler {
         body: &[u8],
     ) -> Result<HttpResponsePayload, Error> {
         let pages: GetAttachmentResponse = parse_json(preamble, body)?;
-        Ok(HttpResponsePayload::try_from_json(pages)?)
+        HttpResponsePayload::try_from_json(pages)
     }
 }
 

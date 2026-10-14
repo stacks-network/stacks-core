@@ -239,7 +239,7 @@ impl ContractAnalysis {
             ) {
                 (Some(FunctionType::Fixed(func)), None)
                 | (None, Some(FunctionType::Fixed(func))) => {
-                    let args_sig = func.args.iter().map(|a| a.signature.clone()).collect();
+                    let args_sig = func.args.iter().map(|a| &a.signature);
                     if !expected_sig.check_args_trait_compliance(epoch, args_sig)? {
                         return Err(StaticCheckErrorKind::BadTraitImplementation(
                             trait_name,

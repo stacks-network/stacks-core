@@ -96,7 +96,7 @@ impl RPCRequestHandler for RPCNakamotoTenureTipRequestHandler {
             node.with_node_state(|_network, sortdb, chainstate, _mempool, _rpc_args| {
                 let header_info =
                     match NakamotoChainState::find_highest_known_block_header_in_tenure(
-                        &chainstate,
+                        chainstate,
                         sortdb,
                         &consensus_hash,
                     ) {
@@ -127,7 +127,7 @@ impl RPCRequestHandler for RPCNakamotoTenureTipRequestHandler {
         let tenure_tip = match tenure_tip_resp {
             Ok(tenure_tip) => tenure_tip,
             Err(response) => {
-                return response.try_into_contents().map_err(NetError::from);
+                return response.try_into_contents();
             }
         };
 
@@ -145,7 +145,7 @@ impl HttpResponse for RPCNakamotoTenureTipRequestHandler {
         body: &[u8],
     ) -> Result<HttpResponsePayload, Error> {
         let tenure_tip: StacksBlockHeaderTypes = parse_json(preamble, body)?;
-        Ok(HttpResponsePayload::try_from_json(tenure_tip)?)
+        HttpResponsePayload::try_from_json(tenure_tip)
     }
 }
 

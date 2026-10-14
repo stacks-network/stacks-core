@@ -141,7 +141,8 @@ came from, and the opposite-parity set's traffic is never processed.
 Every proposal tracked in the signer DB carries a `BlockState`. **`PreCommitted`
 carries no signature**: it means "validated, willing to sign if the pre-commit
 threshold is met." The first signature appears at `mark_locally_accepted`.
-Global states are terminal against each other.
+`GloballyAccepted` is terminal. `GloballyRejected` blocks every move except the
+node's override to `GloballyAccepted`.
 
 ```mermaid
 stateDiagram-v2
@@ -156,13 +157,25 @@ stateDiagram-v2
     LocallyAccepted --> LocallyRejected : re-evaluated
     LocallyAccepted --> GloballyAccepted : mark_globally_accepted
     LocallyRejected --> GloballyRejected : mark_globally_rejected
+    GloballyRejected --> GloballyAccepted : mark_globally_accepted (node overrides)
     GloballyAccepted --> [*]
     GloballyRejected --> [*]
 ```
 
 Canonical paths shown; the exact rule in `BlockInfo::check_state` is: either
 local state is reachable from anything not yet global, `PreCommitted` only from
-`Unprocessed`, and each global state is unreachable from the other.
+`Unprocessed`, `GloballyRejected` from anything but `GloballyAccepted`, and
+`GloballyAccepted` from any state.
+
+The asymmetry follows the evidence behind each mark. `GloballyRejected` is
+inferred from peers' rejection messages, and those can be reconsidered: a block
+can cross the rejection threshold and still go on to collect 70% of signatures
+and be adopted by the chain. `GloballyAccepted` is only ever marked on evidence
+from the node that the block is part of the chain (a `NewBlock` event, section 1,
+or the node reporting it as a tenure tip, section 7), so it overrides whatever
+the signer messages suggested. Leaving such a block in `GloballyRejected` would
+hide it from everything that counts globally accepted blocks, such as the tenure
+extend timing and the parent-tenure view.
 
 Timestamps: `approved_time` is stamped at pre-commit _or_ at our own local
 acceptance (first wins), `signed_self` only when we sign, `signed_group` when the
@@ -411,7 +424,7 @@ or by a tenure it builds on, and `check_parent_tenure_choice` records neither,
 so the `DuplicateBlockFound` gap that branch backstops stays covered.
 
 This is the only path that mints a signature: a re-proposal (section 3) either
-recreates an acceptance we already gave or comes back here. A row in a terminal
+recreates an acceptance we already gave or comes back here. A row in a global
 state can still be signed here, e.g. `GloballyRejected` on peers' rejections and
 then cleared on re-proposal: `mark_locally_accepted` records `signed_self` even
 though the state move fails, which is why the conflict queries key on the
@@ -461,7 +474,9 @@ _locally_ accepted with the group timestamp; global acceptance waits for the nod
 to adopt it. Marking the miner invalid on `ReorgNotAllowed` rejections is
 skipped once the active protocol version uses global signer state. Global
 rejection changes only the state: `valid` and `reject_reason` keep this signer's
-own verdict (section 3).
+own verdict (section 3). A globally rejected block can still be adopted by the
+chain, since rejections can be reconsidered after the threshold is crossed; if
+it is, the `NewBlock` event moves it to `GloballyAccepted`.
 
 > Anchors: `handle_block_response`, `handle_block_signature`,
 > `store_and_process_block_signature`, `broadcast_signed_block`,
@@ -488,7 +503,9 @@ would overwrite that row.
 flowchart TB
     IN["check_block_against_signer_db_state<br/>(validate-ok and signing paths)"] --> RET{"sortition in a later<br/>reward cycle?<br/>is_reward_cycle_retired"}
     RET -- yes --> RCR["fails the check<br/>RewardCycleRetired"]:::bad
-    RET -- no --> TC{"tenure-change block?"}
+    RET -- no --> FROZEN{"block's tenure superseded by<br/>the ACTIVE miner's tenure?<br/>check_block_not_in_superseded_tenure"}
+    FROZEN -- yes --> FRZ["fails the check<br/>(ConsensusHashMismatch)"]:::bad
+    FROZEN -- no --> TC{"tenure-change block?"}
     TC -- yes --> PARENT["check_tenure_change_confirms_parent =<br/>check_latest_block_in_tenure(PARENT tenure, SelfAsTip::Counts)"]
     TC -- no --> SAME["check_latest_block_in_tenure(OWN tenure,<br/>SelfAsTip::Ignored)"]
     PARENT --> CLB
@@ -515,12 +532,23 @@ again here rather than trusted from proposal time.
 
 A failed check becomes a different rejection depending on who asked.
 `check_block_against_signer_db_state` returns `RewardCycleRetired` for the gate,
-`SortitionViewMismatch` for a chainstate mismatch, or `ConnectivityIssues` when
+`ConsensusHashMismatch` for a frozen tenure, `SortitionViewMismatch` for a
+chainstate mismatch, or `ConnectivityIssues` when
 the lookup itself errored rather than answering; the v2 `check_proposal` path
 returns `InvalidParentBlock`.
 
+After the retirement gate, the check freezes a tenure we permitted the active
+miner's tenure to reorg
+(section 8). A block of that tenure can still reach validate-ok or the pre-commit
+threshold after the permit, if it was in flight when the permitting burn block
+arrived; signing it would grow the reorged tenure past the one globally accepted
+block the reorg rules allowed. It is refused with `ConsensusHashMismatch` (what a
+fresh proposal from that tenure would get), which is reconsidered on re-proposal:
+the freeze lasts only while the permitting tenure is the active one, so if the
+signers fall back to the reorged tenure its blocks become signable again.
+
 The check also writes: a node tenure tip that the signer DB holds but not yet as
-`GloballyAccepted` is marked so where the transition is allowed, and its
+`GloballyAccepted` is marked so (overriding a `GloballyRejected` state), and its
 `signed_group` is filled if empty, which pins the tenure for the state machine
 (section 8).
 
@@ -610,6 +638,17 @@ serves the reorged tenure as fully live until the replacement lands. The permit
 is scoped to the branch that replacement starts: the record names the permitting
 tenure, and only a block in it or in a tenure built on top of it is excused
 (section 5, `reorg_permit_stands`).
+The record also makes the decision final for the permitting sortition:
+`check_parent_tenure_choice` skips a tenure already superseded by the sortition
+it is checking. That sortition is checked again whenever the signers fall back
+to it (the next winner is invalid or timed out), and by then a reorged tenure
+may have gained globally accepted blocks -- one signed before the reorg was
+permitted can land after it -- which would otherwise revoke the permit and leave
+no valid miner.
+While the permitting tenure is the active miner's, the reorged tenure is also
+frozen: the signer refuses to sign any more of its blocks (section 7,
+`check_block_not_in_superseded_tenure`), so the count the permit was granted on
+cannot grow by our own hand.
 What _is_ still derived from the node is the permit's own validity: the record
 also carries the permitting tenure's sortition, and it only excludes conflicts
 while that sortition remains canonical, so a burnchain fork that orphans the

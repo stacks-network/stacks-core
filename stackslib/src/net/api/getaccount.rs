@@ -120,7 +120,7 @@ impl RPCRequestHandler for RPCGetAccountRequestHandler {
         let tip = match node.load_stacks_chain_tip(&preamble, &contents) {
             Ok(tip) => tip,
             Err(error_resp) => {
-                return error_resp.try_into_contents().map_err(NetError::from);
+                return error_resp.try_into_contents();
             }
         };
         let account = self
@@ -217,8 +217,7 @@ impl RPCRequestHandler for RPCGetAccountRequestHandler {
                 &preamble,
                 &HttpNotFound::new(format!("Chain tip '{}' not found", &tip)),
             )
-            .try_into_contents()
-            .map_err(NetError::from);
+            .try_into_contents();
         };
 
         let preamble = HttpResponsePreamble::ok_json(&preamble);
@@ -235,7 +234,7 @@ impl HttpResponse for RPCGetAccountRequestHandler {
         body: &[u8],
     ) -> Result<HttpResponsePayload, Error> {
         let account: AccountEntryResponse = parse_json(preamble, body)?;
-        Ok(HttpResponsePayload::try_from_json(account)?)
+        HttpResponsePayload::try_from_json(account)
     }
 }
 

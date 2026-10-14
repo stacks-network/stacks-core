@@ -1,0 +1,47 @@
+name: Target Bitcoin Version
+description: 'Returns the canonical target version and SHA of the Bitcoin binary for testing.'
+
+inputs:
+  btc-version:
+    description: 'The version of the bitcoin binary to use for tests'
+    required: false
+    default: '31.1'
+  btc-version-sha:
+    description: 'The SHA of the binary to verify before executing the tests. Find these in the official SHA256SUMS file for each release. Example: https://bitcoincore.org/bin/bitcoin-core-31.1/SHA256SUMS'
+    required: false
+    default: 'b80d9c3e04da78fb6f0569685673418cf686fadba9042d926d13fb87ff503f9e'
+
+outputs:
+  version:
+    description: 'The resolved Bitcoin version'
+    value: ${{ steps.resolve.outputs.version }}
+  sha:
+    description: 'The resolved Bitcoin SHA'
+    value: ${{ steps.resolve.outputs.sha }}
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Resolve and Verify Versions
+      id: resolve
+      shell: bash
+      run: |
+        # Read the inputs passed by the caller
+        VERSION="${{ inputs.btc-version }}"
+        SHA="${{ inputs.btc-version-sha }}"
+
+        # If the inputs are blank (e.g., passed from an automated push event), enforce the defaults
+        if [ -z "$VERSION" ]; then
+          VERSION="31.1"
+        fi
+        
+        if [ -z "$SHA" ]; then
+          SHA="b80d9c3e04da78fb6f0569685673418cf686fadba9042d926d13fb87ff503f9e"
+        fi
+
+        # Output the resolved variables to the composite action's outputs
+        echo "version=$VERSION" >> $GITHUB_OUTPUT
+        echo "sha=$SHA" >> $GITHUB_OUTPUT
+        
+        # Verify in the logs
+        echo "Configured to use Bitcoin v$VERSION with SHA $SHA"

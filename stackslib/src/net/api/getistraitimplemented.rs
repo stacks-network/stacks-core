@@ -134,7 +134,7 @@ impl RPCRequestHandler for RPCGetIsTraitImplementedRequestHandler {
         let tip = match node.load_stacks_chain_tip(&preamble, &contents) {
             Ok(tip) => tip,
             Err(error_resp) => {
-                return error_resp.try_into_contents().map_err(NetError::from);
+                return error_resp.try_into_contents();
             }
         };
         let trait_id =
@@ -185,16 +185,14 @@ impl RPCRequestHandler for RPCGetIsTraitImplementedRequestHandler {
                         "No contract analysis found or trait definition not found".to_string(),
                     ),
                 )
-                .try_into_contents()
-                .map_err(NetError::from);
+                .try_into_contents();
             }
             Ok(None) | Err(_) => {
                 return StacksHttpResponse::new_error(
                     &preamble,
                     &HttpNotFound::new("Chain tip not found".to_string()),
                 )
-                .try_into_contents()
-                .map_err(NetError::from);
+                .try_into_contents();
             }
         };
 
@@ -212,7 +210,7 @@ impl HttpResponse for RPCGetIsTraitImplementedRequestHandler {
         body: &[u8],
     ) -> Result<HttpResponsePayload, Error> {
         let is_implemented: GetIsTraitImplementedResponse = parse_json(preamble, body)?;
-        Ok(HttpResponsePayload::try_from_json(is_implemented)?)
+        HttpResponsePayload::try_from_json(is_implemented)
     }
 }
 

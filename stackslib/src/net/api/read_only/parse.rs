@@ -117,7 +117,7 @@ impl ParseLimiter {
     /// Starts measuring now; a `limit_bytes` of `0` disables all checks.
     fn new(limit_bytes: u64) -> Self {
         Self {
-            limiter: ResourceBudget::new()
+            limiter: ResourceBudget::unlimited()
                 .with_max_memory_use((limit_bytes > 0).then_some(limit_bytes))
                 .start_tracking(),
         }

@@ -39,7 +39,7 @@ node_host = "127.0.0.1:20443"
 endpoint = "0.0.0.0:30000"
 
 # REQUIRED: Network selection.
-# Valid values: "mainnet", "testnet", "mocknet"
+# Valid values: "mainnet", "testnet", "signet"
 network = "mainnet"
 
 # REQUIRED: Authorization password for the node's block proposal endpoint.
@@ -211,6 +211,15 @@ db_path = "/var/lib/stacks-signer/signerdb.sqlite"
 #
 # Default: false
 # dry_run = false
+
+# Prune the signer database online. Every 10 seconds, a small batch of
+# records older than the last 100 burn blocks of tenures is removed, so
+# the database no longer grows without bound. Freed space is reused but
+# not returned to the OS: an existing large file keeps its size until it
+# is compacted offline.
+#
+# Default: true
+# db_pruning = true
 
 # HTTP timeout for StackerDB read/write operations.
 # Default: 10

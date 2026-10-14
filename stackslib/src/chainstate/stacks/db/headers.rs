@@ -188,7 +188,7 @@ impl StacksChainState {
         block: &StacksBlockId,
     ) -> Result<Option<ExecutionCost>, Error> {
         let qry = "SELECT cost FROM block_headers WHERE index_block_hash = ?";
-        conn.query_row(qry, &[block], |row| row.get(0))
+        conn.query_row(qry, [block], |row| row.get(0))
             .optional()
             .map_err(|e| Error::from(db_error::from(e)))
     }
@@ -229,7 +229,7 @@ impl StacksChainState {
         index_block_hash: &StacksBlockId,
     ) -> Result<Option<StacksHeaderInfo>, Error> {
         let sql = "SELECT * FROM block_headers WHERE index_block_hash = ?1";
-        query_row_panic(conn, sql, &[&index_block_hash], || {
+        query_row_panic(conn, sql, [&index_block_hash], || {
             "FATAL: multiple rows for the same block hash".to_string()
         })
         .map_err(Error::DBError)
@@ -244,7 +244,7 @@ impl StacksChainState {
         consensus_hash: &ConsensusHash,
     ) -> Result<Option<StacksHeaderInfo>, Error> {
         let sql = "SELECT * FROM block_headers WHERE consensus_hash = ?1";
-        query_row_panic(conn, sql, &[&consensus_hash], || {
+        query_row_panic(conn, sql, [&consensus_hash], || {
             "FATAL: multiple rows for the same consensus hash".to_string()
         })
         .map_err(Error::DBError)
@@ -262,7 +262,7 @@ impl StacksChainState {
             WHERE burn_header_hash = ?1
             ORDER BY block_height DESC
         ";
-        let out = query_rows(conn, sql, &[&burnchain_header_hash])?;
+        let out = query_rows(conn, sql, [&burnchain_header_hash])?;
         if !out.is_empty() {
             return Ok(out);
         }
@@ -281,7 +281,7 @@ impl StacksChainState {
             WHERE burn_header_height = ?1
             ORDER BY block_height DESC
         ";
-        let out = query_rows(conn, sql, &[&burn_header_height])?;
+        let out = query_rows(conn, sql, [&burn_header_height])?;
         if !out.is_empty() {
             return Ok(out);
         }

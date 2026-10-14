@@ -36,21 +36,19 @@ use stacks_common::util::hash::Hash160;
 use stacks_common::util::{get_epoch_time_secs, sleep_ms};
 use stx_genesis::GenesisData;
 
+use crate::genesis::{
+    get_account_balances, get_account_lockups, get_names, get_namespaces,
+    use_test_genesis_chainstate,
+};
 use crate::globals::Globals as GenericGlobals;
 use crate::monitoring::{start_serving_monitoring_metrics, MonitoringError};
 use crate::nakamoto_node::{self, StacksNode, BLOCK_PROCESSOR_STACK_SIZE, RELAYER_MAX_BUFFER};
 use crate::neon_node::LeaderKeyRegistrationState;
-use crate::node::{
-    get_account_balances, get_account_lockups, get_names, get_namespaces,
-    use_test_genesis_chainstate,
-};
 use crate::run_loop::boot_nakamoto::Neon2NakaData;
 use crate::run_loop::neon;
 use crate::run_loop::neon::Counters;
 use crate::syncctl::{PoxSyncWatchdog, PoxSyncWatchdogComms};
-use crate::{
-    run_loop, BitcoinRegtestController, BurnchainController, Config, EventDispatcher, Keychain,
-};
+use crate::{run_loop, BitcoinRegtestController, Config, EventDispatcher, Keychain};
 
 pub const STDERR: i32 = 2;
 pub type Globals = GenericGlobals<nakamoto_node::relayer::RelayerDirective>;
@@ -265,7 +263,7 @@ impl RunLoop {
         )
         .unwrap();
         run_loop::announce_boot_receipts(
-            &mut self.event_dispatcher,
+            &self.event_dispatcher,
             &chain_state_db,
             &burnchain_config.pox_constants,
             &receipts,
@@ -484,7 +482,6 @@ impl RunLoop {
             burnchain
                 .wait_for_sortitions(globals.coord().clone(), sn.block_height + 1)
                 .expect("Unable to get burnchain tip")
-                .block_snapshot
         } else {
             sn
         };
@@ -562,7 +559,7 @@ impl RunLoop {
 
             // calculate burnchain sync percentage
             let percent: f64 = if remote_chain_height > 0 {
-                burnchain_tip.block_snapshot.block_height as f64 / remote_chain_height as f64
+                burnchain_tip.block_height as f64 / remote_chain_height as f64
             } else {
                 0.0
             };
@@ -578,7 +575,7 @@ impl RunLoop {
                     .block_height_to_reward_cycle(target_burnchain_block_height)
                     .expect("FATAL: target burnchain block height does not have a reward cycle");
                 "total_burn_sync_percent" => %percent,
-                "local_burn_height" => burnchain_tip.block_snapshot.block_height,
+                "local_burn_height" => burnchain_tip.block_height,
                 "remote_tip_height" => remote_chain_height
             );
 
@@ -594,7 +591,7 @@ impl RunLoop {
                 poll_deadline = get_epoch_time_secs() + self.config().burnchain.poll_time_secs;
 
                 let (next_burnchain_tip, tip_burnchain_height) =
-                    match burnchain.sync(Some(target_burnchain_block_height)) {
+                    match burnchain.sync(target_burnchain_block_height) {
                         Ok(x) => x,
                         Err(e) => {
                             warn!("Runloop: Burnchain controller stopped: {e}");
@@ -606,8 +603,8 @@ impl RunLoop {
                 burnchain_tip = next_burnchain_tip;
                 burnchain_height = tip_burnchain_height;
 
-                let sortition_tip = &burnchain_tip.block_snapshot.sortition_id;
-                let next_sortition_height = burnchain_tip.block_snapshot.block_height;
+                let sortition_tip = &burnchain_tip.sortition_id;
+                let next_sortition_height = burnchain_tip.block_height;
 
                 if next_sortition_height != last_tenure_sortition_height {
                     info!(

@@ -47,7 +47,6 @@ use std::time::Duration;
 
 use clarity::vm::types::QualifiedContractIdentifier;
 use clarity::vm::ContractName;
-use pinny::tag;
 use stacks::chainstate::burn::distribution::LATEST_BURN_DISTRIBUTION;
 use stacks::chainstate::stacks::events::BurnBlockEvent;
 use stacks::core::{StacksEpochId, STACKS_EPOCH_MAX};
@@ -80,7 +79,6 @@ fn post_boundary_burn_blocks(epoch_40_start: u64) -> Vec<BurnBlockEvent> {
 /// must contain both miners' chains with their configured fees as the
 /// effective burn, and every burn block (with commits) must contain both
 /// miners' commits with the fee sum invariant intact.
-#[tag(slow, bitcoind)]
 #[test]
 #[ignore]
 fn epoch_4_0_burn_distribution_chains_across_boundary() {

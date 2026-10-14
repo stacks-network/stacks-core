@@ -158,15 +158,14 @@ impl RPCRequestHandler for RPCHeadersRequestHandler {
                     MAX_HEADERS
                 )),
             )
-            .try_into_contents()
-            .map_err(NetError::from);
+            .try_into_contents();
         }
 
         // find requested chain tip
         let tip = match node.load_stacks_chain_tip(&preamble, &contents) {
             Ok(tip) => tip,
             Err(error_resp) => {
-                return error_resp.try_into_contents().map_err(NetError::from);
+                return error_resp.try_into_contents();
             }
         };
 
@@ -184,15 +183,13 @@ impl RPCRequestHandler for RPCHeadersRequestHandler {
                     &HttpNotFound::new(format!("No such block {:?}\n", &tip)),
                 )
                 .try_into_contents()
-                .map_err(NetError::from)
             }
             Err(e) => {
                 // nope -- error trying to check
                 let msg = format!("Failed to load block header: {:?}\n", &e);
                 warn!("{}", &msg);
                 return StacksHttpResponse::new_error(&preamble, &HttpServerError::new(msg))
-                    .try_into_contents()
-                    .map_err(NetError::from);
+                    .try_into_contents();
             }
         };
 
@@ -220,7 +217,7 @@ impl HttpResponse for RPCHeadersRequestHandler {
         body: &[u8],
     ) -> Result<HttpResponsePayload, Error> {
         let headers: Vec<ExtendedStacksHeader> = parse_json(preamble, body)?;
-        Ok(HttpResponsePayload::try_from_json(headers)?)
+        HttpResponsePayload::try_from_json(headers)
     }
 }
 
@@ -298,7 +295,7 @@ impl HttpChunkGenerator for StacksHeaderStream {
 
         test_debug!("Header stream terminated");
         // end of stream and corked. we're done!
-        return Ok(vec![]);
+        Ok(vec![])
     }
 }
 

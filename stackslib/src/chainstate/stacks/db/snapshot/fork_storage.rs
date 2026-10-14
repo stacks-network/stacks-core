@@ -24,11 +24,11 @@ use std::collections::HashSet;
 use std::time::Instant;
 
 use rusqlite::{params, Connection};
+use stacks_marf::marf::{MARFOpenOpts, MarfConnection, MARF};
+use stacks_marf::storage::{TrieFileStorage, TrieHashCalculationMode};
+use stacks_marf::{trie_sql, Error, MARFValue, MarfTrieId};
 
 use super::common::clone_schemas_from_source;
-use crate::chainstate::stacks::index::marf::{MARFOpenOpts, MarfConnection, MARF};
-use crate::chainstate::stacks::index::storage::{TrieFileStorage, TrieHashCalculationMode};
-use crate::chainstate::stacks::index::{trie_sql, Error, MARFValue, MarfTrieId};
 
 /// Collect the `MARFValue` of every leaf in the squashed trie.
 ///

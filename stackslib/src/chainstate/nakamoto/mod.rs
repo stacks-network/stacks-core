@@ -55,9 +55,10 @@ use super::stacks::boot::{
     RewardSet, RewardSetData, BOOT_TEST_POX_4_AGG_KEY_CONTRACT, BOOT_TEST_POX_4_AGG_KEY_FNAME,
 };
 use super::stacks::db::accounts::MinerReward;
+use super::stacks::db::transactions::TxToProcess;
 use super::stacks::db::{
     ChainstateTx, ClarityTx, MinerPaymentSchedule, MinerRewardInfo, StacksBlockHeaderTypes,
-    StacksEpochReceipt, StacksHeaderInfo,
+    StacksEpochReceipt, StacksHeaderInfo, StacksOnBurnchainOperations,
 };
 use super::stacks::events::StacksTransactionReceipt;
 use super::stacks::{
@@ -650,9 +651,9 @@ pub struct SetupBlockResult<'a, 'b> {
 /// is known-problematic and that its payload must not be executed during replay.
 ///
 /// When a marker is present, replay still performs the static precheck, debits
-/// the fee, and bumps the origin (and sponsor) nonces — but skips
-/// `process_transaction_payload`. The `category` byte is opaque to consensus
-/// and conveys the reason the miner/signers flagged the transaction.
+/// the fee, and bumps the origin (and sponsor) nonces — but skips payload
+/// processing. The `category` byte is opaque to consensus and conveys the
+/// reason the miner/signers flagged the transaction.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ProblematicTxMarker {
     /// Index into `NakamotoBlock::txs` of the problematic transaction.
@@ -679,69 +680,6 @@ impl StacksMessageCodec for ProblematicTxMarker {
 /// Maximum number of `ProblematicTxMarker`s permitted in a single Nakamoto
 /// block header. This bounds the header serialization.
 pub const MAX_PROBLEMATIC_TX_MARKERS: usize = (MAX_BLOCK_LEN / MIN_TRANSACTION_LEN) as usize;
-
-/// A transaction paired with its problematic marker.
-///
-/// Block replay consumes a list of these rather than a bare
-/// `&[StacksTransaction]` plus a separate `problematic_txs` marker list. Fusing
-/// the two up front (see [`NakamotoBlock::txs`]) means the replay
-/// loop cannot execute a problematic transaction by forgetting to cross-
-/// reference the markers: the disposition travels with the transaction.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum TxToProcess<'a> {
-    /// Execute the transaction's payload normally.
-    Execute(&'a StacksTransaction),
-    /// Skip executing the transaction's payload because it was marked
-    /// problematic; the fee is still charged and nonces still bumped. Carries
-    /// the `category` byte from the marker.
-    Skip {
-        tx: &'a StacksTransaction,
-        category: u8,
-    },
-}
-
-impl<'a> TxToProcess<'a> {
-    /// Wrap a plain transaction list as all-to-execute, for blocks that carry
-    /// no problematic markers (every pre-Nakamoto block, and any Nakamoto block
-    /// with an empty marker list).
-    pub fn all_execute(txs: &'a [StacksTransaction]) -> impl Iterator<Item = TxToProcess<'a>> + 'a {
-        txs.iter().map(TxToProcess::Execute)
-    }
-
-    /// Get the transaction ID of this transaction, regardless of whether it's
-    /// marked problematic or not.
-    pub fn txid(&self) -> Txid {
-        match self {
-            TxToProcess::Execute(tx) | TxToProcess::Skip { tx, .. } => tx.txid(),
-        }
-    }
-
-    /// Get the raw transaction, regardless of whether it's marked problematic
-    /// and should not be executed.
-    pub fn payload(&self) -> &'a TransactionPayload {
-        match self {
-            TxToProcess::Execute(tx) | TxToProcess::Skip { tx, .. } => &tx.payload,
-        }
-    }
-
-    /// Is this transaction marked problematic?
-    pub fn is_problematic(&self) -> bool {
-        matches!(self, TxToProcess::Skip { .. })
-    }
-
-    /// Extract the underlying transaction, **deliberately ignoring** its
-    /// problematic state (whether it should be executed or skipped as
-    /// problematic).
-    ///
-    /// This is the one escape hatch out of [`TxToProcess`]. Call it only when
-    /// the raw transaction is genuinely all that is needed, never on the
-    /// replay execution path, where the problematic state must be honored.
-    pub fn tx_ignoring_problematic_state(&self) -> &'a StacksTransaction {
-        match self {
-            TxToProcess::Execute(tx) | TxToProcess::Skip { tx, .. } => tx,
-        }
-    }
-}
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct NakamotoBlockHeader {
@@ -1176,7 +1114,7 @@ impl NakamotoBlockHeader {
             )));
         }
 
-        return Ok(total_weight_signed);
+        Ok(total_weight_signed)
     }
 
     /// Compute the threshold for the minimum number of signers (by weight) required
@@ -1699,7 +1637,7 @@ impl NakamotoBlock {
                 "stacks_block_hash" => %self.header.block_hash(),
                 "stacks_block_id" => %self.header.block_id()
             );
-            return ChainstateError::InvalidStacksBlock("Unrecoverable miner public key".into());
+            ChainstateError::InvalidStacksBlock("Unrecoverable miner public key".into())
         })?;
 
         let recovered_miner_hash160 = Hash160::from_node_public_key(&recovered_miner_pubk);
@@ -2877,7 +2815,7 @@ impl NakamotoChainState {
     ) -> Result<Option<ExecutionCost>, ChainstateError> {
         let qry = "SELECT total_tenure_cost FROM nakamoto_block_headers WHERE index_block_hash = ?";
         chainstate_conn
-            .query_row(qry, &[block], |row| row.get(0))
+            .query_row(qry, [block], |row| row.get(0))
             .optional()
             .map_err(ChainstateError::from)
     }
@@ -2889,7 +2827,7 @@ impl NakamotoChainState {
     ) -> Result<Option<ExecutionCost>, ChainstateError> {
         let qry = "SELECT total_tenure_cost FROM nakamoto_block_headers WHERE index_block_hash = ?";
         chainstate_conn
-            .query_row(qry, &[block], |row| row.get(0))
+            .query_row(qry, [block], |row| row.get(0))
             .optional()
             .map_err(ChainstateError::from)
     }
@@ -2902,7 +2840,7 @@ impl NakamotoChainState {
     ) -> Result<Option<u128>, ChainstateError> {
         let qry = "SELECT tenure_tx_fees FROM nakamoto_block_headers WHERE index_block_hash = ?";
         let tx_fees_str: Option<String> = chainstate_conn
-            .query_row(qry, &[block], |row| row.get(0))
+            .query_row(qry, [block], |row| row.get(0))
             .optional()?;
         tx_fees_str
             .map(|x| x.parse())
@@ -2954,12 +2892,8 @@ impl NakamotoChainState {
         index_block_hash: &StacksBlockId,
     ) -> Result<Option<StacksBlockId>, ChainstateError> {
         let sql = "SELECT parent_block_id FROM nakamoto_block_headers WHERE index_block_hash = ?1";
-        let mut result = query_row_columns(
-            chainstate_conn,
-            sql,
-            &[&index_block_hash],
-            "parent_block_id",
-        )?;
+        let mut result =
+            query_row_columns(chainstate_conn, sql, [&index_block_hash], "parent_block_id")?;
         if result.len() > 1 {
             // even though `(consensus_hash,block_hash)` is the primary key, these are hashed to
             // produce `index_block_hash`.  So, `index_block_hash` is also unique w.h.p.
@@ -2974,7 +2908,7 @@ impl NakamotoChainState {
         index_block_hash: &StacksBlockId,
     ) -> Result<Option<StacksHeaderInfo>, ChainstateError> {
         let sql = "SELECT * FROM nakamoto_block_headers WHERE index_block_hash = ?1";
-        let result = query_row_panic(chainstate_conn, sql, &[&index_block_hash], || {
+        let result = query_row_panic(chainstate_conn, sql, [&index_block_hash], || {
             "FATAL: multiple rows for the same block hash".to_string()
         })?;
         Ok(result)
@@ -2986,7 +2920,7 @@ impl NakamotoChainState {
         index_block_hash: &StacksBlockId,
     ) -> Result<Option<ConsensusHash>, ChainstateError> {
         let sql = "SELECT consensus_hash FROM nakamoto_block_headers WHERE index_block_hash = ?1";
-        let result = query_row_panic(chainstate_conn, sql, &[&index_block_hash], || {
+        let result = query_row_panic(chainstate_conn, sql, [&index_block_hash], || {
             "FATAL: multiple rows for the same block hash".to_string()
         })?;
         Ok(result)
@@ -2999,7 +2933,7 @@ impl NakamotoChainState {
     ) -> Result<Option<u64>, ChainstateError> {
         let sql =
             "SELECT total_tenure_size FROM nakamoto_block_headers WHERE index_block_hash = ?1";
-        let result = query_row_panic(chainstate_conn, sql, &[&index_block_hash], || {
+        let result = query_row_panic(chainstate_conn, sql, [&index_block_hash], || {
             "FATAL: multiple rows for the same block hash".to_string()
         })?;
         Ok(result)
@@ -3011,7 +2945,7 @@ impl NakamotoChainState {
         index_block_hash: &StacksBlockId,
     ) -> Result<Option<StacksHeaderInfo>, ChainstateError> {
         let sql = "SELECT * FROM block_headers WHERE index_block_hash = ?1";
-        let result = query_row_panic(chainstate_conn, sql, &[&index_block_hash], || {
+        let result = query_row_panic(chainstate_conn, sql, [&index_block_hash], || {
             "FATAL: multiple rows for the same block hash".to_string()
         })?;
 
@@ -3039,7 +2973,7 @@ impl NakamotoChainState {
     ) -> Result<bool, ChainstateError> {
         let sql = "SELECT 1 FROM nakamoto_block_headers WHERE index_block_hash = ?1";
         let result: Option<i64> =
-            query_row_panic(chainstate_conn, sql, &[&index_block_hash], || {
+            query_row_panic(chainstate_conn, sql, [&index_block_hash], || {
                 "FATAL: multiple rows for the same block hash".to_string()
             })?;
         if result.is_some() {
@@ -3053,7 +2987,7 @@ impl NakamotoChainState {
         // check epoch 2
         let sql = "SELECT 1 FROM block_headers WHERE index_block_hash = ?1";
         let result: Option<i64> =
-            query_row_panic(chainstate_conn, sql, &[&index_block_hash], || {
+            query_row_panic(chainstate_conn, sql, [&index_block_hash], || {
                 "FATAL: multiple rows for the same block hash".to_string()
             })?;
 
@@ -3067,7 +3001,7 @@ impl NakamotoChainState {
     ) -> Result<bool, ChainstateError> {
         let sql = "SELECT 1 FROM block_headers WHERE index_block_hash = ?1";
         let result: Option<i64> =
-            query_row_panic(chainstate_conn, sql, &[&index_block_hash], || {
+            query_row_panic(chainstate_conn, sql, [&index_block_hash], || {
                 "FATAL: multiple rows for the same block hash".to_string()
             })?;
 
@@ -3463,10 +3397,10 @@ impl NakamotoChainState {
             false,
         )? {
             // was processed, but the staging DB has not yet been updated.
-            return Ok(Some((true, false)));
+            Ok(Some((true, false)))
         } else {
             // not processed yet, so return whatever was in the staging DB
-            return Ok(Some((processed, orphaned)));
+            Ok(Some((processed, orphaned)))
         }
     }
 
@@ -3527,7 +3461,7 @@ impl NakamotoChainState {
         let epoch_2_qry = "SELECT block_height FROM block_headers WHERE index_block_hash = ?1";
         let opt_height: Option<i64> = chainstate_conn
             .sqlite()
-            .query_row(epoch_2_qry, &[block], |row| row.get(0))
+            .query_row(epoch_2_qry, [block], |row| row.get(0))
             .optional()?;
         opt_height
             .map(u64::try_from)
@@ -3842,7 +3776,7 @@ impl NakamotoChainState {
             // if we are here (no new tenure or tenure_extend) we need to accumulate the parent total tenure size
             if let Some(current_total_tenure_size) =
                 NakamotoChainState::get_block_header_nakamoto_total_tenure_size(
-                    &headers_tx,
+                    headers_tx,
                     &new_tip.parent_block_id,
                 )?
             {
@@ -4008,7 +3942,7 @@ impl NakamotoChainState {
     ) -> Result<Option<RewardSet>, ChainstateError> {
         let sql = "SELECT reward_set FROM nakamoto_reward_sets WHERE index_block_hash = ?";
         chainstate_db
-            .query_row(sql, &[block_id], |row| {
+            .query_row(sql, [block_id], |row| {
                 let reward_set: String = row.get(0)?;
                 let reward_set = RewardSet::metadata_deserialize(&reward_set)
                     .map_err(|s| FromSqlError::Other(s.into()))?;
@@ -4110,7 +4044,7 @@ impl NakamotoChainState {
                 conn.sqlite(),
                 &tenure_start_block_id,
             )?;
-            ret.extend(txids.into_iter());
+            ret.extend(txids);
 
             let Some(parent_tenure_id) = conn.get_parent_tenure_consensus_hash(&tip, &cursor)?
             else {
@@ -4130,21 +4064,13 @@ impl NakamotoChainState {
         sortdb_conn: &Connection,
         burn_tip: &BurnchainHeaderHash,
         burn_tip_height: u64,
-    ) -> Result<
-        (
-            Vec<StackStxOp>,
-            Vec<TransferStxOp>,
-            Vec<DelegateStxOp>,
-            Vec<VoteForAggregateKeyOp>,
-        ),
-        ChainstateError,
-    > {
+    ) -> Result<StacksOnBurnchainOperations, ChainstateError> {
         let cur_epoch = SortitionDB::get_stacks_epoch(sortdb_conn, burn_tip_height)?
             .expect("FATAL: no epoch defined for current burnchain tip height");
 
         // only consider transactions in Stacks 3.0
         if cur_epoch.epoch_id < StacksEpochId::Epoch30 {
-            return Ok((vec![], vec![], vec![], vec![]));
+            return Ok(StacksOnBurnchainOperations::default());
         }
 
         let epoch_start_height = cur_epoch.start_height;
@@ -4222,12 +4148,12 @@ impl NakamotoChainState {
                 }
             }
         }
-        Ok((
-            all_stacking_burn_ops,
-            all_transfer_burn_ops,
-            all_delegate_burn_ops,
-            all_vote_for_aggregate_key_ops,
-        ))
+        Ok(StacksOnBurnchainOperations {
+            stack: all_stacking_burn_ops,
+            transfer: all_transfer_burn_ops,
+            delegate: all_delegate_burn_ops,
+            vote_for_aggregate_key: all_vote_for_aggregate_key_ops,
+        })
     }
 
     /// Begin block-processing for a normal block and return all of the pre-processed state within a
@@ -4363,11 +4289,11 @@ impl NakamotoChainState {
             && parent_chain_tip.is_nakamoto_block()
             && !block.is_first_mined()
         {
-            let parent_block_id = StacksBlockId::new(&parent_consensus_hash, &parent_header_hash);
+            let parent_block_id = StacksBlockId::new(parent_consensus_hash, parent_header_hash);
             let parent_tenure_start_header = Self::get_nakamoto_tenure_start_block_header(
                 chainstate_tx.as_tx(),
                 &parent_block_id,
-                &parent_consensus_hash,
+                parent_consensus_hash,
             )?
             .ok_or_else(|| {
                 warn!("Invalid Nakamoto block: no start-tenure block for parent";
@@ -4474,19 +4400,23 @@ impl NakamotoChainState {
             None
         };
 
-        let (stacking_burn_ops, transfer_burn_ops, delegate_burn_ops, vote_for_agg_key_ops) =
-            if tenure_cause.is_new_tenure() {
-                NakamotoChainState::get_stacks_on_burnchain_operations(
-                    chainstate_tx.as_tx(),
-                    parent_consensus_hash,
-                    parent_header_hash,
-                    sortition_dbconn.sqlite_conn(),
-                    burn_header_hash,
-                    burn_header_height.into(),
-                )?
-            } else {
-                (vec![], vec![], vec![], vec![])
-            };
+        let StacksOnBurnchainOperations {
+            stack: stacking_burn_ops,
+            transfer: transfer_burn_ops,
+            delegate: delegate_burn_ops,
+            vote_for_aggregate_key: vote_for_agg_key_ops,
+        } = if tenure_cause.is_new_tenure() {
+            NakamotoChainState::get_stacks_on_burnchain_operations(
+                chainstate_tx.as_tx(),
+                parent_consensus_hash,
+                parent_header_hash,
+                sortition_dbconn.sqlite_conn(),
+                burn_header_hash,
+                burn_header_height.into(),
+            )?
+        } else {
+            StacksOnBurnchainOperations::default()
+        };
 
         // Nakamoto must load block cost from parent if this block isn't a tenure change.
         // If this is a tenure-extend, then the execution cost is reset.
@@ -4547,8 +4477,8 @@ impl NakamotoChainState {
                 chainstate_tx,
                 clarity_instance,
                 sortition_dbconn.as_burn_state_db(),
-                &parent_consensus_hash,
-                &parent_header_hash,
+                parent_consensus_hash,
+                parent_header_hash,
                 &MINER_BLOCK_CONSENSUS_HASH,
                 &MINER_BLOCK_HEADER_HASH,
             )
@@ -4557,8 +4487,8 @@ impl NakamotoChainState {
                 chainstate_tx,
                 clarity_instance,
                 sortition_dbconn.as_burn_state_db(),
-                &parent_consensus_hash,
-                &parent_header_hash,
+                parent_consensus_hash,
+                parent_header_hash,
                 &MINER_BLOCK_CONSENSUS_HASH,
                 &MINER_BLOCK_HEADER_HASH,
             )
@@ -4692,7 +4622,7 @@ impl NakamotoChainState {
                 &mut clarity_tx,
                 first_block_height,
                 pox_constants,
-                burn_header_height.into(),
+                burn_header_height,
                 coinbase_height,
             )?;
             tx_receipts.extend(StacksChainState::process_vote_for_aggregate_key_ops(
@@ -4916,7 +4846,7 @@ impl NakamotoChainState {
             coinbase_height,
         };
 
-        return Ok((epoch_receipt, clarity_commit, None, phantom_lockup_events));
+        Ok((epoch_receipt, clarity_commit, None, phantom_lockup_events))
     }
 
     /// Append a Nakamoto Stacks block to the Stacks chain state.

@@ -1,0 +1,1 @@
+Fixed a node syncing from genesis stalling at the Epoch 3.0 handoff: blocks downloaded just before the switch were dropped, and the Nakamoto tenures among them were never fetched again.

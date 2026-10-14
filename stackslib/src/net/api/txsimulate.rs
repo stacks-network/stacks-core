@@ -189,14 +189,14 @@ impl RPCTransactionSimulateRequestHandler {
         } else {
             None
         };
-        let resource_budgets = TransactionResourceBudgets::new()
+        let resource_budgets = TransactionResourceBudgets::unlimited()
             .with_execution_budget(
-                ResourceBudget::new()
+                ResourceBudget::unlimited()
                     .with_max_duration(Some(max_tx_execution_time))
                     .with_max_memory_use(max_tx_mem_bytes_opt),
             )
             .with_analysis_budget(
-                ResourceBudget::new()
+                ResourceBudget::unlimited()
                     .with_max_duration(Some(max_tx_analysis_time))
                     .with_max_memory_use(max_tx_mem_bytes_opt),
             );
@@ -404,7 +404,7 @@ impl RPCRequestHandler for RPCTransactionSimulateRequestHandler {
         let tip_block_id = match node.load_stacks_chain_tip(&preamble, &contents) {
             Ok(tip) => tip,
             Err(error_resp) => {
-                return error_resp.try_into_contents().map_err(NetError::from);
+                return error_resp.try_into_contents();
             }
         };
 
@@ -442,7 +442,6 @@ impl RPCRequestHandler for RPCTransactionSimulateRequestHandler {
                     &HttpNotFound::new("No such chain tip\n".into()),
                 )
                 .try_into_contents()
-                .map_err(NetError::from)
             }
             Err(TxSimulateError::InvalidTransaction(reason)) => {
                 return StacksHttpResponse::new_error(
@@ -450,7 +449,6 @@ impl RPCRequestHandler for RPCTransactionSimulateRequestHandler {
                     &HttpBadRequest::new(format!("Failed to simulate transaction: {reason}\n")),
                 )
                 .try_into_contents()
-                .map_err(NetError::from)
             }
             // the caller picked a tip that exists but cannot be extended (e.g.
             // an epoch-2.x block); that's a client error, not a node fault
@@ -460,15 +458,13 @@ impl RPCRequestHandler for RPCTransactionSimulateRequestHandler {
                     &HttpBadRequest::new(format!("Cannot simulate at this chain tip: {reason}\n")),
                 )
                 .try_into_contents()
-                .map_err(NetError::from)
             }
             Err(TxSimulateError::Chain(e)) => {
                 // nope -- error trying to simulate
                 let msg = format!("Failed to simulate transaction: {e:?}\n");
                 warn!("{}", &msg);
                 return StacksHttpResponse::new_error(&preamble, &HttpServerError::new(msg))
-                    .try_into_contents()
-                    .map_err(NetError::from);
+                    .try_into_contents();
             }
         };
 
@@ -512,7 +508,7 @@ impl HttpResponse for RPCTransactionSimulateRequestHandler {
         body: &[u8],
     ) -> Result<HttpResponsePayload, Error> {
         let simulated_tx: RPCSimulatedTransaction = parse_json(preamble, body)?;
-        Ok(HttpResponsePayload::try_from_json(simulated_tx)?)
+        HttpResponsePayload::try_from_json(simulated_tx)
     }
 }
 

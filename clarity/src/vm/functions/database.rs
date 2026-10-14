@@ -160,9 +160,7 @@ pub fn special_contract_call(
                     if contract_to_check.is_explicitly_implementing_trait(&trait_identifier) {
                         (contract_identifier.clone(), None)
                     } else {
-                        let trait_name = trait_identifier.name.to_string();
-
-                        // Retrieve, from the trait definition, the expected method signature
+                        // Load the contract that defines the trait.
                         let contract_defining_trait = exec_state
                             .global_context
                             .database
@@ -176,10 +174,12 @@ pub fn special_contract_call(
                         // Retrieve the function that will be invoked
                         let function_to_check = contract_to_check
                             .lookup_function(function_name)
-                            .ok_or(RuntimeCheckErrorKind::BadTraitImplementation(
-                                trait_name.clone(),
-                                function_name.to_string(),
-                            ))?;
+                            .ok_or_else(|| {
+                                RuntimeCheckErrorKind::BadTraitImplementation(
+                                    trait_identifier.name.to_string(),
+                                    function_name.to_string(),
+                                )
+                            })?;
 
                         // Check read/write compatibility
                         if exec_state.global_context.is_read_only() {
@@ -198,24 +198,13 @@ pub fn special_contract_call(
                             .into());
                         }
 
-                        // If this check succeeds, the subsequent trait reference and method checks cannot fail
-                        function_to_check.check_trait_expectations(
+                        let expected_sig = function_to_check.check_trait_expectations(
                             exec_state.epoch(),
                             &contract_defining_trait,
                             &trait_identifier,
                         )?;
-
-                        // Retrieve the expected method signature
-                        let constraining_trait = contract_defining_trait
-                            .lookup_trait_definition(&trait_name)
-                            .ok_or(RuntimeCheckErrorKind::Unreachable(bounded_format!(
-                                "Trait reference unknown: {trait_name}"
-                            )))?;
-                        let expected_sig = constraining_trait.get(function_name).ok_or(
-                            RuntimeCheckErrorKind::Unreachable(bounded_format!(
-                                "Trait method unknown: {trait_name}.{function_name}"
-                            )),
-                        )?;
+                        // Own the return type so the trait-defining contract is released here
+                        // instead of staying loaded through the nested call.
                         (
                             contract_identifier.clone(),
                             Some(expected_sig.returns.clone()),

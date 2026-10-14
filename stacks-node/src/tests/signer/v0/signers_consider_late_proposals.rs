@@ -199,7 +199,10 @@ fn signers_reprocess_late_block_proposals_signatures() {
     TEST_SIGNERS_IGNORE_PRE_COMMITS.set(non_ignoring_signers.clone());
     TEST_SIGNERS_IGNORE_BLOCK_RESPONSES.set(non_ignoring_signers.clone());
     TEST_SKIP_BLOCK_BROADCAST.set(false);
-    assert!(signer_test.get_peer_info().stacks_tip_height < expected_height, "Node should not have advanced to expected height yet since the block should not have been accepted yet");
+    assert!(
+        signer_test.get_peer_info().stacks_tip_height < expected_height,
+        "Node should not have advanced to expected height yet since the block should not have been accepted yet"
+    );
 
     info!("------------------------- Resend the same block proposal -------------------------");
     signer_test.send_block_proposal(block_proposal, Duration::from_secs(20));

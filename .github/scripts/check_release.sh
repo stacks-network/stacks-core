@@ -74,15 +74,15 @@ else
     exit 0
 fi
 
-## ── Validate versions.toml ──────────────────────────────────────────────────
-if [[ ! -f "${versions_file}" ]]; then
-    error "$(hl "${versions_file}") not found"
-    write_summary "### Release Detection Summary\n* **Release Detected:** \`false\`\n* **Reason:** Config file \`${versions_file}\` was not found."
+## ── Validate Cargo.toml ─────────────────────────────────────────────────────
+if ! command -v yq >/dev/null 2>&1; then
+    error "$(hl "yq") is required to read $(hl "${manifest_file}") but was not found"
     exit 1
 fi
 
 if [[ ! -f "${manifest_file}" ]]; then
     error "$(hl "${manifest_file}") not found"
+    write_summary "### Release Detection Summary\n* **Release Detected:** \`false\`\n* **Reason:** Manifest file \`${manifest_file}\` was not found."
     exit 1
 fi
 
@@ -90,14 +90,14 @@ fi
 version=$(yq -r '.workspace.package.version // ""' "${manifest_file}")
 
 if [[ -z "${version}" ]]; then
-    error "$(hl "${version_key}") not found in $(hl "${versions_file}")"
-    write_summary "### Release Detection Summary\n* **Release Detected:** \`false\`\n* **Reason:** Version key \`${version_key}\` not found in \`${versions_file}\`."
+    error "$(hl "workspace.package.version") not found in $(hl "${manifest_file}")"
+    write_summary "### Release Detection Summary\n* **Release Detected:** \`false\`\n* **Reason:** \`workspace.package.version\` not found in \`${manifest_file}\`."
     exit 1
 fi
 
 if [[ "${version}" != "${tag}" ]]; then
-    error "version in $(hl "${versions_file}") ($(hl "${version}")) does not match branch tag ($(hl "${tag}"))"
-    write_summary "### Release Detection Summary\n* **Release Detected:** \`false\`\n* **Reason:** Version in \`${versions_file}\` (\`${version}\`) does not match branch tag (\`${tag}\`)."
+    error "version in $(hl "${manifest_file}") ($(hl "${version}")) does not match branch tag ($(hl "${tag}"))"
+    write_summary "### Release Detection Summary\n* **Release Detected:** \`false\`\n* **Reason:** Version in \`${manifest_file}\` (\`${version}\`) does not match branch tag (\`${tag}\`)."
     exit 1
 fi
 
@@ -115,4 +115,4 @@ else
     info "is_release=${is_release}"
 fi
 
-write_summary "## Release Detection Summary\n* **Release Detected:** \`true\`\n* **Tag:** \`${tag}\`\n* **Reason:** Branch \`${BRANCH}\` matches release pattern and verified against \`${versions_file}\`."
+write_summary "## Release Detection Summary\n* **Release Detected:** \`true\`\n* **Tag:** \`${tag}\`\n* **Reason:** Branch \`${BRANCH}\` matches release pattern and verified against \`${manifest_file}\`."

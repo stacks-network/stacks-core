@@ -29,7 +29,7 @@ use crate::net::ProtocolFamily;
 #[test]
 fn test_try_parse_request() {
     let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 33333);
-    let mut http = StacksHttp::new(addr.clone(), &ConnectionOptions::default());
+    let mut http = StacksHttp::new(addr, &ConnectionOptions::default());
 
     let request =
         StacksHttpRequest::new_get_tenure_blocks_by_height(addr.into(), 0x7ffffffffffffffe);
@@ -75,7 +75,7 @@ fn test_try_make_response() {
 
     // query existing, non-empty Nakamoto tenure
     let request = StacksHttpRequest::new_get_tenure_blocks_by_height(
-        addr.clone().into(),
+        addr.into(),
         u64::from(burn_header_height),
     );
     requests.push(request);
@@ -97,14 +97,14 @@ fn test_try_make_response() {
 
     // query existing, non-empty Epoch2 tenure
     let request = StacksHttpRequest::new_get_tenure_blocks_by_height(
-        addr.clone().into(),
+        addr.into(),
         u64::from(genesis_burn_header_height),
     );
     requests.push(request);
 
     // query non-existant tenure
     let request =
-        StacksHttpRequest::new_get_tenure_blocks_by_height(addr.clone().into(), 0x7ffffffffffffffe);
+        StacksHttpRequest::new_get_tenure_blocks_by_height(addr.into(), 0x7ffffffffffffffe);
     requests.push(request);
 
     // query tenure with empty sortitions in between
@@ -114,10 +114,8 @@ fn test_try_make_response() {
         !consensus_hashes_between.is_empty(),
         "Test requires at least one empty sortition between tenures"
     );
-    let request = StacksHttpRequest::new_get_tenure_blocks_by_height(
-        addr.clone().into(),
-        second.block_height,
-    );
+    let request =
+        StacksHttpRequest::new_get_tenure_blocks_by_height(addr.into(), second.block_height);
     requests.push(request);
 
     // Query an empty tenure directly

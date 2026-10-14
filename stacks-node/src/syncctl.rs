@@ -18,17 +18,13 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
 
 use stacks::burnchains::{Burnchain, Error as burnchain_error};
+use stacks::chainstate::burn::BlockSnapshot;
 use stacks_common::util::{get_epoch_time_secs, sleep_ms};
 
-use crate::burnchains::BurnchainTip;
 use crate::Config;
 
 #[derive(Clone)]
 pub struct PoxSyncWatchdogComms {
-    /// how many passes in the p2p state machine have taken place since startup?
-    p2p_state_passes: Arc<AtomicU64>,
-    /// how many times have we done an inv sync?
-    inv_sync_passes: Arc<AtomicU64>,
     /// how many times have we done a download pass?
     download_passes: Arc<AtomicU64>,
     /// What's our last IBD status?
@@ -40,20 +36,10 @@ pub struct PoxSyncWatchdogComms {
 impl PoxSyncWatchdogComms {
     pub fn new(should_keep_running: Arc<AtomicBool>) -> PoxSyncWatchdogComms {
         PoxSyncWatchdogComms {
-            p2p_state_passes: Arc::new(AtomicU64::new(0)),
-            inv_sync_passes: Arc::new(AtomicU64::new(0)),
             download_passes: Arc::new(AtomicU64::new(0)),
             last_ibd: Arc::new(AtomicBool::new(true)),
             should_keep_running,
         }
-    }
-
-    pub fn get_p2p_state_passes(&self) -> u64 {
-        self.p2p_state_passes.load(Ordering::SeqCst)
-    }
-
-    pub fn get_inv_sync_passes(&self) -> u64 {
-        self.inv_sync_passes.load(Ordering::SeqCst)
     }
 
     pub fn get_download_passes(&self) -> u64 {
@@ -77,14 +63,6 @@ impl PoxSyncWatchdogComms {
 
     pub fn should_keep_running(&self) -> bool {
         self.should_keep_running.load(Ordering::SeqCst)
-    }
-
-    pub fn notify_p2p_state_pass(&mut self) {
-        self.p2p_state_passes.fetch_add(1, Ordering::SeqCst);
-    }
-
-    pub fn notify_inv_sync_pass(&mut self) {
-        self.inv_sync_passes.fetch_add(1, Ordering::SeqCst);
     }
 
     pub fn notify_download_pass(&mut self) {
@@ -124,10 +102,6 @@ impl PoxSyncWatchdog {
         })
     }
 
-    pub fn make_comms_handle(&self) -> PoxSyncWatchdogComms {
-        self.relayer_comms.clone()
-    }
-
     /// Are we in the initial burnchain block download? i.e. is the burn tip snapshot far enough away
     /// from the burnchain height that we should be eagerly downloading snapshots?
     fn infer_initial_burnchain_block_download(
@@ -158,20 +132,20 @@ impl PoxSyncWatchdog {
     pub fn pox_sync_wait(
         &mut self,
         burnchain: &Burnchain,
-        burnchain_tip: &BurnchainTip, // this is the highest burnchain snapshot we've sync'ed to
-        burnchain_height: u64,        // this is the absolute burnchain block height
+        burnchain_tip: &BlockSnapshot, // this is the highest burnchain snapshot we've sync'ed to
+        burnchain_height: u64,         // this is the absolute burnchain block height
     ) -> Result<(bool, u64), burnchain_error> {
         let burnchain_rc = burnchain
             .block_height_to_reward_cycle(burnchain_height)
             .expect("FATAL: burnchain height is before system start");
 
         let sortition_rc = burnchain
-            .block_height_to_reward_cycle(burnchain_tip.block_snapshot.block_height)
+            .block_height_to_reward_cycle(burnchain_tip.block_height)
             .expect("FATAL: sortition height is before system start");
 
         let ibbd = PoxSyncWatchdog::infer_initial_burnchain_block_download(
             burnchain,
-            burnchain_tip.block_snapshot.block_height,
+            burnchain_tip.block_height,
             burnchain_height,
         );
 
@@ -180,10 +154,7 @@ impl PoxSyncWatchdog {
                 .reward_cycle_to_block_height(sortition_rc + 1)
                 .min(burnchain_height)
         } else {
-            burnchain_tip
-                .block_snapshot
-                .block_height
-                .max(burnchain_height)
+            burnchain_tip.block_height.max(burnchain_height)
         };
 
         self.relayer_comms.set_ibd(ibbd);

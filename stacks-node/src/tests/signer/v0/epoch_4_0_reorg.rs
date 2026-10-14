@@ -27,7 +27,6 @@ use std::time::Duration;
 
 use clarity::vm::types::QualifiedContractIdentifier;
 use clarity::vm::ContractName;
-use pinny::tag;
 use stacks::chainstate::stacks::boot::POX_5_NAME;
 use stacks::core::StacksEpochId;
 use stacks::types::chainstate::{StacksAddress, StacksPrivateKey};
@@ -64,7 +63,6 @@ use crate::Keychain;
 /// back below the boundary: pox-5 is absent and the miner nonce is rewound.
 /// Once mining resumes, the node re-runs the transition: pox-5 is redeployed
 /// with identical burnchain parameters and signed tenures continue.
-#[tag(slow, bitcoind)]
 #[test]
 #[ignore]
 fn bitcoin_reorg_of_epoch_4_0_activation_block() {

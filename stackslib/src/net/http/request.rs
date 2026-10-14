@@ -177,25 +177,17 @@ impl HttpRequestPreamble {
             return false;
         }
         self.headers.remove(&key);
-        return true;
+        true
     }
 
     /// Get an owned copy of a header if it exists
     pub fn get_header(&self, key: String) -> Option<String> {
         let hdr = key.to_lowercase();
         match hdr.as_str() {
-            "host" => {
-                return Some(format!("{}", &self.host));
-            }
-            "content-type" => {
-                return self.content_type.as_ref().map(HttpContentType::to_string);
-            }
-            "content-length" => {
-                return self.content_length.as_ref().map(u32::to_string);
-            }
-            _ => {
-                return self.headers.get(&hdr).cloned();
-            }
+            "host" => Some(format!("{}", &self.host)),
+            "content-type" => self.content_type.as_ref().map(HttpContentType::to_string),
+            "content-length" => self.content_length.as_ref().map(u32::to_string),
+            _ => self.headers.get(&hdr).cloned(),
         }
     }
 
@@ -312,9 +304,9 @@ impl StacksMessageCodec for HttpRequestPreamble {
         })? {
             httparse::Status::Partial => {
                 // partial
-                return Err(CodecError::UnderflowError(
+                Err(CodecError::UnderflowError(
                     "Not enough bytes to form a HTTP request preamble".to_string(),
-                ));
+                ))
             }
             httparse::Status::Complete(_) => {
                 // consumed all headers.  body_offset points to the start of the request body
@@ -379,10 +371,7 @@ impl StacksMessageCodec for HttpRequestPreamble {
                     }
 
                     if key == "host" {
-                        peerhost = match value.parse::<PeerHost>() {
-                            Ok(ph) => Some(ph),
-                            Err(_) => None,
-                        };
+                        peerhost = value.parse::<PeerHost>().ok();
                         seen_headers.insert(key);
                     } else if key == "content-type" {
                         // parse
@@ -391,10 +380,7 @@ impl StacksMessageCodec for HttpRequestPreamble {
                         seen_headers.insert(key);
                     } else if key == "content-length" {
                         // parse
-                        content_length = match value.parse::<u32>() {
-                            Ok(len) => Some(len),
-                            Err(_) => None,
-                        };
+                        content_length = value.parse::<u32>().ok();
                         seen_headers.insert(key);
                     } else if key == "connection" {
                         // parse

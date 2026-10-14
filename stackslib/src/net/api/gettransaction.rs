@@ -101,8 +101,7 @@ impl RPCRequestHandler for RPCGetTransactionRequestHandler {
                 &preamble,
                 &HttpNotImplemented::new("Transaction indexing is not enabled".into()),
             )
-            .try_into_contents()
-            .map_err(NetError::from);
+            .try_into_contents();
         }
 
         let txid = self
@@ -113,7 +112,7 @@ impl RPCRequestHandler for RPCGetTransactionRequestHandler {
         let tip = match node.load_stacks_chain_tip(&preamble, &contents) {
             Ok(tip) => tip,
             Err(error_resp) => {
-                return error_resp.try_into_contents().map_err(NetError::from);
+                return error_resp.try_into_contents();
             }
         };
 
@@ -128,8 +127,7 @@ impl RPCRequestHandler for RPCGetTransactionRequestHandler {
                     let msg = format!("Failed to load transaction: {e:?}\n");
                     warn!("{msg}");
                     return StacksHttpResponse::new_error(&preamble, &HttpServerError::new(msg))
-                        .try_into_contents()
-                        .map_err(NetError::from);
+                        .try_into_contents();
                 }
             };
 
@@ -151,16 +149,15 @@ impl RPCRequestHandler for RPCGetTransactionRequestHandler {
                         block_height,
                         is_canonical,
                     })?;
-                    return Ok((preamble, body));
+                    Ok((preamble, body))
                 }
                 None => {
                     // txid not found
-                    return StacksHttpResponse::new_error(
+                    StacksHttpResponse::new_error(
                         &preamble,
                         &HttpNotFound::new(format!("No such transaction {txid:?}\n")),
                     )
                     .try_into_contents()
-                    .map_err(NetError::from);
                 }
             }
         })
@@ -175,7 +172,7 @@ impl HttpResponse for RPCGetTransactionRequestHandler {
         body: &[u8],
     ) -> Result<HttpResponsePayload, Error> {
         let txinfo: TransactionResponse = parse_json(preamble, body)?;
-        Ok(HttpResponsePayload::try_from_json(txinfo)?)
+        HttpResponsePayload::try_from_json(txinfo)
     }
 }
 

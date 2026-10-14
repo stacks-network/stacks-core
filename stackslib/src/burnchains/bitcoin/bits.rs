@@ -336,7 +336,7 @@ impl BitcoinTxInputStructured {
 
                 BitcoinTxInputStructured::from_bitcoin_witness_pubkey_vecs(
                     1,
-                    &witness.get(1..)?,
+                    witness.get(1..)?,
                     input_txid,
                 )
             }
@@ -545,13 +545,13 @@ impl BitcoinTxOutput {
             BitcoinAddress::from_bytes_legacy(
                 network_id,
                 LegacyBitcoinAddressType::PublicKeyHash,
-                &script_bytes.get(3..23)?,
+                script_bytes.get(3..23)?,
             )
         } else if script_pubkey.is_p2sh() {
             BitcoinAddress::from_bytes_legacy(
                 network_id,
                 LegacyBitcoinAddressType::ScriptHash,
-                &script_bytes.get(2..22)?,
+                script_bytes.get(2..22)?,
             )
         } else {
             Err(btc_error::InvalidByteSequence)

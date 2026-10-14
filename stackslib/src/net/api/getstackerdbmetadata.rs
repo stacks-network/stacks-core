@@ -114,7 +114,7 @@ impl RPCRequestHandler for RPCGetStackerDBMetadataRequestHandler {
         let metadata_resp = match metadata_resp {
             Ok(metadata) => metadata,
             Err(response) => {
-                return response.try_into_contents().map_err(NetError::from);
+                return response.try_into_contents();
             }
         };
 
@@ -134,7 +134,7 @@ impl HttpResponse for RPCGetStackerDBMetadataRequestHandler {
         body: &[u8],
     ) -> Result<HttpResponsePayload, Error> {
         let metadata: Vec<SlotMetadata> = parse_json(preamble, body)?;
-        Ok(HttpResponsePayload::try_from_json(metadata)?)
+        HttpResponsePayload::try_from_json(metadata)
     }
 }
 

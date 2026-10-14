@@ -740,11 +740,11 @@ impl<Z: SpawnedSignerTrait> SignerTest<Z> {
         send_amt: u64,
     ) -> Result<(String, u64), String> {
         let http_origin = self.running_nodes.rpc_origin();
-        let sender_addr = to_addr(&sender_sk);
+        let sender_addr = to_addr(sender_sk);
         let sender_nonce = get_account(&http_origin, &sender_addr).nonce;
         let recipient = PrincipalData::from(StacksAddress::burn_address(false));
         let transfer_tx = make_stacks_transfer_serialized(
-            &sender_sk,
+            sender_sk,
             sender_nonce,
             send_fee,
             self.running_nodes.conf.burnchain.chain_id,
@@ -763,11 +763,11 @@ impl<Z: SpawnedSignerTrait> SignerTest<Z> {
         contract_name: &str,
     ) -> Result<(String, u64), String> {
         let http_origin = self.running_nodes.rpc_origin();
-        let sender_addr = to_addr(&sender_sk);
+        let sender_addr = to_addr(sender_sk);
         let sender_nonce = get_account(&http_origin, &sender_addr).nonce;
 
         let contract_tx = make_contract_publish(
-            &sender_sk,
+            sender_sk,
             sender_nonce,
             tx_fee,
             self.running_nodes.conf.burnchain.chain_id,
@@ -792,10 +792,10 @@ impl<Z: SpawnedSignerTrait> SignerTest<Z> {
         contract_args: &[Value],
     ) -> Result<(String, u64), String> {
         let http_origin = self.running_nodes.rpc_origin();
-        let sender_addr = to_addr(&sender_sk);
+        let sender_addr = to_addr(sender_sk);
         let sender_nonce = get_account(&http_origin, &sender_addr).nonce;
         let contract_call_tx = make_contract_call(
-            &sender_sk,
+            sender_sk,
             sender_nonce,
             tx_fee,
             self.running_nodes.conf.burnchain.chain_id,
@@ -837,7 +837,7 @@ impl<Z: SpawnedSignerTrait> SignerTest<Z> {
             "burn-height-local",
         )?;
 
-        self.wait_for_nonce_increase(&to_addr(&sender_sk), sender_nonce)?;
+        self.wait_for_nonce_increase(&to_addr(sender_sk), sender_nonce)?;
         Ok(txid)
     }
 
@@ -850,7 +850,7 @@ impl<Z: SpawnedSignerTrait> SignerTest<Z> {
         let (txid, sender_nonce) =
             self.submit_contract_call(sender_sk, 1000, "burn-height-local", "run-update", &[])?;
 
-        self.wait_for_nonce_increase(&to_addr(&sender_sk), sender_nonce)?;
+        self.wait_for_nonce_increase(&to_addr(sender_sk), sender_nonce)?;
         Ok(txid)
     }
 
@@ -938,7 +938,7 @@ impl<Z: SpawnedSignerTrait> SignerTest<Z> {
 
         let sortition_latest = get_sortition_info_ch(
             &self.running_nodes.conf,
-            &non_sortition_latest.last_sortition_ch.as_ref().unwrap(),
+            non_sortition_latest.last_sortition_ch.as_ref().unwrap(),
         );
         let sortition_prior = get_sortition_info_ch(
             &self.running_nodes.conf,
@@ -1007,7 +1007,7 @@ impl<Z: SpawnedSignerTrait> SignerTest<Z> {
             .map(|pk| {
                 self.signer_stacks_private_keys
                     .iter()
-                    .position(|sk| &StacksPublicKey::from_private(&sk) == pk)
+                    .position(|sk| &StacksPublicKey::from_private(sk) == pk)
                     .unwrap()
             })
             .collect();
@@ -1016,7 +1016,7 @@ impl<Z: SpawnedSignerTrait> SignerTest<Z> {
             .map(|pk| {
                 self.signer_stacks_private_keys
                     .iter()
-                    .position(|sk| &StacksPublicKey::from_private(&sk) == pk)
+                    .position(|sk| &StacksPublicKey::from_private(sk) == pk)
                     .unwrap()
             })
             .collect();
@@ -1825,7 +1825,7 @@ fn setup_stx_btc_node<G: FnMut(&mut NeonConfig)>(
         .expect("Failed starting bitcoind");
 
     info!("Make new BitcoinRegtestController");
-    let mut btc_regtest_controller = BitcoinRegtestController::new(naka_conf.clone(), None);
+    let btc_regtest_controller = BitcoinRegtestController::new(naka_conf.clone(), None);
 
     let epoch_2_5_start = naka_conf
         .burnchain
@@ -1859,15 +1859,15 @@ fn setup_stx_btc_node<G: FnMut(&mut NeonConfig)>(
     if !snapshot_exists {
         // First block wakes up the run loop.
         info!("Mine first block...");
-        next_block_and_wait(&mut btc_regtest_controller, &counters.blocks_processed);
+        next_block_and_wait(&btc_regtest_controller, &counters.blocks_processed);
 
         // Second block will hold our VRF registration.
         info!("Mine second block...");
-        next_block_and_wait(&mut btc_regtest_controller, &counters.blocks_processed);
+        next_block_and_wait(&btc_regtest_controller, &counters.blocks_processed);
 
         // Third block will be the first mined Stacks block.
         info!("Mine third block...");
-        next_block_and_wait(&mut btc_regtest_controller, &counters.blocks_processed);
+        next_block_and_wait(&btc_regtest_controller, &counters.blocks_processed);
     }
 
     RunningNodes {

@@ -34,6 +34,7 @@ slog = { version = "2.5.2", features = [ "max_level_trace" ] }
 chrono = { version = "0.4.19", optional = true }
 clarity = { path = "../clarity" }
 stacks-common = { path = "../stacks-common" }
+stacks-marf = { path = "../stacks-marf" }
 stacks-codec = { path = "../stacks-codec" }
 stacks-transactions = { path = "../crates/stacks-transactions" }
 pox-locking = { path = "../pox-locking" }
@@ -65,6 +66,7 @@ stdext = "0.3.1"
 stx-genesis = { path = "../stx-genesis"}
 clarity = { features = ["default", "testing"], path = "../clarity" }
 stacks-common = { features = ["default", "testing"], path = "../stacks-common" }
+stacks-marf = { features = ["testing"], path = "../stacks-marf" }
 stacks-codec = { features = ["default", "testing"], path = "../stacks-codec" }
 rstest = "0.17.0"
 rstest_reuse = "0.5.0"
@@ -79,12 +81,12 @@ insta = { version = "1.37.0", features = ["ron"] }
 
 [features]
 default = []
-profile-sqlite = ["stacks-common/profile-sqlite"]
+profile-sqlite = ["stacks-common/profile-sqlite", "stacks-marf/profile-sqlite"]
 disable-costs = []
 developer-mode = ["clarity/developer-mode"]
 monitoring_prom = ["prometheus"]
 slog_json = ["stacks-common/slog_json", "clarity/slog_json", "pox-locking/slog_json"]
-testing = ["chrono", "stacks-common/testing", "clarity/testing"]
+testing = ["chrono", "stacks-common/testing", "stacks-marf/testing", "clarity/testing"]
 profiler = ["perf-event2"]
 
 [target.'cfg(all(target_os = "linux", target_arch = "x86_64"))'.dependencies]

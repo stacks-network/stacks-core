@@ -118,7 +118,7 @@ impl RPCRequestHandler for RPCGetContractSrcRequestHandler {
         let tip = match node.load_stacks_chain_tip(&preamble, &contents) {
             Ok(tip) => tip,
             Err(error_resp) => {
-                return error_resp.try_into_contents().map_err(NetError::from);
+                return error_resp.try_into_contents();
             }
         };
         let with_proof = contents.get_with_proof();
@@ -162,16 +162,14 @@ impl RPCRequestHandler for RPCGetContractSrcRequestHandler {
                     &preamble,
                     &HttpNotFound::new("No contract source data found".to_string()),
                 )
-                .try_into_contents()
-                .map_err(NetError::from);
+                .try_into_contents();
             }
             Ok(None) | Err(_) => {
                 return StacksHttpResponse::new_error(
                     &preamble,
                     &HttpNotFound::new("Chain tip not found".to_string()),
                 )
-                .try_into_contents()
-                .map_err(NetError::from);
+                .try_into_contents();
             }
         };
 
@@ -189,7 +187,7 @@ impl HttpResponse for RPCGetContractSrcRequestHandler {
         body: &[u8],
     ) -> Result<HttpResponsePayload, Error> {
         let contract_src: ContractSrcResponse = parse_json(preamble, body)?;
-        Ok(HttpResponsePayload::try_from_json(contract_src)?)
+        HttpResponsePayload::try_from_json(contract_src)
     }
 }
 

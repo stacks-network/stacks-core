@@ -1,39 +1,236 @@
 {
     "summary": "PoX information response",
     "value": {
-        "contract_id": "SP000000000000000000002Q6VF78.pox",
-        "current_epoch": "Epoch30",
-        "pox_activation_threshold_ustx": 52329761604388,
+        "contract_id": "SP000000000000000000002Q6VF78.pox-5",
+        "pox_activation_threshold_ustx": 93581153329244,
         "first_burnchain_block_height": 666050,
-        "current_burnchain_block_height": 812345,
+        "current_burnchain_block_height": 969845,
         "prepare_phase_block_length": 100,
         "reward_phase_block_length": 2000,
         "reward_slots": 4000,
-        "rejection_fraction": 25,
-        "total_liquid_supply_ustx": 1046595232087772,
+        "rejection_fraction": null,
+        "total_liquid_supply_ustx": 1871623066584899,
         "current_cycle": {
-            "id": 2,
-            "min_threshold_ustx": 70000000000,
-            "stacked_ustx": 202157971547640,
+            "id": 144,
+            "min_threshold_ustx": 50000000000,
+            "stacked_ustx": 448329575893867,
             "is_pox_active": true
         },
         "next_cycle": {
-            "id": 3,
-            "min_threshold_ustx": 70000000000,
-            "min_increment_ustx": 52329761604,
-            "stacked_ustx": 162057034977640,
-            "prepare_phase_start_block_height": 672250,
-            "blocks_until_prepare_phase": 407,
-            "reward_phase_start_block_height": 672350,
-            "blocks_until_reward_phase": 507,
-            "ustx_until_pox_rejection": 261648808021925
+            "id": 145,
+            "min_threshold_ustx": 50000000000,
+            "min_increment_ustx": 50000000000,
+            "stacked_ustx": 433669547352463,
+            "prepare_phase_start_block_height": 970450,
+            "blocks_until_prepare_phase": 605,
+            "reward_phase_start_block_height": 970550,
+            "blocks_until_reward_phase": 705,
+            "ustx_until_pox_rejection": null
         },
-        "min_amount_ustx": 70000000000,
+        "epochs": [
+            {
+                "epoch_id": "Epoch10",
+                "start_height": 0,
+                "end_height": 666050,
+                "block_limit": {
+                    "write_length": 0,
+                    "write_count": 0,
+                    "read_length": 0,
+                    "read_count": 0,
+                    "runtime": 0
+                },
+                "network_epoch": 0
+            },
+            {
+                "epoch_id": "Epoch20",
+                "start_height": 666050,
+                "end_height": 713000,
+                "block_limit": {
+                    "write_length": 15000000,
+                    "write_count": 7750,
+                    "read_length": 100000000,
+                    "read_count": 7750,
+                    "runtime": 5000000000
+                },
+                "network_epoch": 0
+            },
+            {
+                "epoch_id": "Epoch2_05",
+                "start_height": 713000,
+                "end_height": 781551,
+                "block_limit": {
+                    "write_length": 15000000,
+                    "write_count": 15000,
+                    "read_length": 100000000,
+                    "read_count": 15000,
+                    "runtime": 5000000000
+                },
+                "network_epoch": 5
+            },
+            {
+                "epoch_id": "Epoch21",
+                "start_height": 781551,
+                "end_height": 787651,
+                "block_limit": {
+                    "write_length": 15000000,
+                    "write_count": 15000,
+                    "read_length": 100000000,
+                    "read_count": 15000,
+                    "runtime": 5000000000
+                },
+                "network_epoch": 6
+            },
+            {
+                "epoch_id": "Epoch22",
+                "start_height": 787651,
+                "end_height": 788240,
+                "block_limit": {
+                    "write_length": 15000000,
+                    "write_count": 15000,
+                    "read_length": 100000000,
+                    "read_count": 15000,
+                    "runtime": 5000000000
+                },
+                "network_epoch": 7
+            },
+            {
+                "epoch_id": "Epoch23",
+                "start_height": 788240,
+                "end_height": 791551,
+                "block_limit": {
+                    "write_length": 15000000,
+                    "write_count": 15000,
+                    "read_length": 100000000,
+                    "read_count": 15000,
+                    "runtime": 5000000000
+                },
+                "network_epoch": 8
+            },
+            {
+                "epoch_id": "Epoch24",
+                "start_height": 791551,
+                "end_height": 840360,
+                "block_limit": {
+                    "write_length": 15000000,
+                    "write_count": 15000,
+                    "read_length": 100000000,
+                    "read_count": 15000,
+                    "runtime": 5000000000
+                },
+                "network_epoch": 9
+            },
+            {
+                "epoch_id": "Epoch25",
+                "start_height": 840360,
+                "end_height": 867867,
+                "block_limit": {
+                    "write_length": 15000000,
+                    "write_count": 15000,
+                    "read_length": 100000000,
+                    "read_count": 15000,
+                    "runtime": 5000000000
+                },
+                "network_epoch": 10
+            },
+            {
+                "epoch_id": "Epoch30",
+                "start_height": 867867,
+                "end_height": 875000,
+                "block_limit": {
+                    "write_length": 15000000,
+                    "write_count": 15000,
+                    "read_length": 100000000,
+                    "read_count": 15000,
+                    "runtime": 5000000000
+                },
+                "network_epoch": 11
+            },
+            {
+                "epoch_id": "Epoch31",
+                "start_height": 875000,
+                "end_height": 907740,
+                "block_limit": {
+                    "write_length": 15000000,
+                    "write_count": 15000,
+                    "read_length": 100000000,
+                    "read_count": 15000,
+                    "runtime": 5000000000
+                },
+                "network_epoch": 12
+            },
+            {
+                "epoch_id": "Epoch32",
+                "start_height": 907740,
+                "end_height": 923222,
+                "block_limit": {
+                    "write_length": 15000000,
+                    "write_count": 15000,
+                    "read_length": 100000000,
+                    "read_count": 15000,
+                    "runtime": 5000000000
+                },
+                "network_epoch": 13
+            },
+            {
+                "epoch_id": "Epoch33",
+                "start_height": 923222,
+                "end_height": 943333,
+                "block_limit": {
+                    "write_length": 15000000,
+                    "write_count": 15000,
+                    "read_length": 100000000,
+                    "read_count": 15000,
+                    "runtime": 5000000000
+                },
+                "network_epoch": 14
+            },
+            {
+                "epoch_id": "Epoch34",
+                "start_height": 943333,
+                "end_height": 960230,
+                "block_limit": {
+                    "write_length": 15000000,
+                    "write_count": 15000,
+                    "read_length": 100000000,
+                    "read_count": 15000,
+                    "runtime": 5000000000
+                },
+                "network_epoch": 15
+            },
+            {
+                "epoch_id": "Epoch40",
+                "start_height": 960230,
+                "end_height": 9223372036854775807,
+                "block_limit": {
+                    "write_length": 15000000,
+                    "write_count": 15000,
+                    "read_length": 200000000,
+                    "read_count": 30000,
+                    "runtime": 5000000000
+                },
+                "network_epoch": 16
+            },
+            {
+                "epoch_id": "Epoch41",
+                "start_height": 9223372036854775807,
+                "end_height": 9223372036854775807,
+                "block_limit": {
+                    "write_length": 15000000,
+                    "write_count": 15000,
+                    "read_length": 200000000,
+                    "read_count": 30000,
+                    "runtime": 5000000000
+                },
+                "network_epoch": 17
+            }
+        ],
+        "current_epoch": "Epoch40",
+        "min_amount_ustx": 50000000000,
         "prepare_cycle_length": 100,
-        "reward_cycle_id": 2,
+        "reward_cycle_id": 144,
         "reward_cycle_length": 2100,
-        "rejection_votes_left_required": 261648808021925,
-        "next_reward_cycle_in": 507,
+        "rejection_votes_left_required": null,
+        "next_reward_cycle_in": 705,
         "contract_versions": [
             {
                 "contract_id": "SP000000000000000000002Q6VF78.pox",
@@ -42,36 +239,23 @@
             },
             {
                 "contract_id": "SP000000000000000000002Q6VF78.pox-2",
-                "activation_burnchain_block_height": 712345,
-                "first_reward_cycle_id": 123
-            }
-        ],
-        "epochs": [
-            {
-                "epoch_id": "Epoch0",
-                "start_height": 0,
-                "end_height": 200000,
-                "block_limit": {
-                    "read_count": 15000,
-                    "read_length": 100000000,
-                    "write_count": 15000,
-                    "write_length": 15000000,
-                    "runtime": 5000000000
-                },
-                "network_epoch": 0
+                "activation_burnchain_block_height": 781552,
+                "first_reward_cycle_id": 56
             },
             {
-                "epoch_id": "Epoch1",
-                "start_height": 200000,
-                "end_height": 300000,
-                "block_limit": {
-                    "read_count": 15000,
-                    "read_length": 100000000,
-                    "write_count": 15000,
-                    "write_length": 15000000,
-                    "runtime": 5000000000
-                },
-                "network_epoch": 1
+                "contract_id": "SP000000000000000000002Q6VF78.pox-3",
+                "activation_burnchain_block_height": 791551,
+                "first_reward_cycle_id": 60
+            },
+            {
+                "contract_id": "SP000000000000000000002Q6VF78.pox-4",
+                "activation_burnchain_block_height": 840361,
+                "first_reward_cycle_id": 84
+            },
+            {
+                "contract_id": "SP000000000000000000002Q6VF78.pox-5",
+                "activation_burnchain_block_height": 960230,
+                "first_reward_cycle_id": 141
             }
         ],
         "pox_5_sbtc_contract": "SM3VDXK3WZZSA84XXFKAFAF15NNZX32CTSG82JFQ4.sbtc-token",

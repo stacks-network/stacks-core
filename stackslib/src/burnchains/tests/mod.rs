@@ -245,10 +245,8 @@ impl TestMiner {
     }
 
     pub fn origin_address(&self) -> Option<StacksAddress> {
-        match self.as_transaction_auth() {
-            Some(auth) => Some(auth.origin().address_testnet()),
-            None => None,
-        }
+        self.as_transaction_auth()
+            .map(|auth| auth.origin().address_testnet())
     }
 
     pub fn get_nonce(&self) -> u64 {
@@ -449,7 +447,8 @@ impl TestBurnchainBlock {
                     self.block_height,
                     &parent
                 );
-                let txop = LeaderBlockCommitOp::new(
+
+                LeaderBlockCommitOp::new(
                     block_hash,
                     self.block_height,
                     &new_seed,
@@ -460,8 +459,7 @@ impl TestBurnchainBlock {
                     burn_fee,
                     &input,
                     &apparent_sender,
-                );
-                txop
+                )
             }
             None => {
                 // initial

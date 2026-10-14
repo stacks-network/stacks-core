@@ -19,6 +19,7 @@ use rusqlite::types::Value;
 use rusqlite::{params, Connection, OpenFlags, OptionalExtension};
 use stacks_common::types::chainstate::{BurnchainHeaderHash, SortitionId};
 use stacks_common::types::sqlite::NO_PARAMS;
+use stacks_marf::{trie_sql, Error, MARFValue};
 
 use super::common::{
     classify_hint, clone_schemas_from_source, copied_rows, marf_err, with_offline_write_session,
@@ -26,7 +27,6 @@ use super::common::{
 };
 use super::fork_storage::{collect_canonical_leaf_hashes, copy_canonical_fork_storage};
 use crate::chainstate::burn::db::sortdb::SortitionTipCopyBoundary;
-use crate::chainstate::stacks::index::{trie_sql, Error, MARFValue};
 use crate::util_lib::db::{sqlite_open, u64_to_sql, Error as db_error};
 
 /// Snapshot-only reads over a sortition DB connection.

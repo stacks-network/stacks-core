@@ -49,6 +49,9 @@ use crate::core::{BOOT_BLOCK_HASH, STACKS_EPOCH_3_0_MARKER};
 use crate::net::relay::{BlockAcceptResponse, Relayer};
 use crate::net::test::{TestPeer, *};
 
+/// A mined test block, its byte size and execution cost, and its malleablized variants.
+pub type MinedTenureBlock = (NakamotoBlock, u64, ExecutionCost, Vec<NakamotoBlock>);
+
 #[derive(Debug, Clone)]
 pub struct TestStacker {
     /// Key used to send stacking transactions
@@ -224,8 +227,8 @@ impl TestMiner {
 
         let mut tx_signer = StacksTransactionSigner::new(&tx_coinbase);
         self.sign_as_origin(&mut tx_signer);
-        let tx_coinbase_signed = tx_signer.get_tx().unwrap();
-        tx_coinbase_signed
+
+        tx_signer.get_tx().unwrap()
     }
 
     pub fn make_nakamoto_tenure_change(
@@ -251,8 +254,8 @@ impl TestMiner {
 
         let mut tx_signer = StacksTransactionSigner::new(&tx_tenure_change);
         self.sign_as_origin(&mut tx_signer);
-        let tx_tenure_change_signed = tx_signer.get_tx().unwrap();
-        tx_tenure_change_signed
+
+        tx_signer.get_tx().unwrap()
     }
 
     pub fn sign_nakamoto_block(&self, block: &mut NakamotoBlock) {
@@ -318,10 +321,9 @@ impl TestStacksNode {
         &self,
         last_tenure_id: &StacksBlockId,
     ) -> Option<Vec<NakamotoBlock>> {
-        match self.nakamoto_commit_ops.get(last_tenure_id) {
-            None => None,
-            Some(idx) => Some(self.nakamoto_blocks[*idx].clone()),
-        }
+        self.nakamoto_commit_ops
+            .get(last_tenure_id)
+            .map(|idx| self.nakamoto_blocks[*idx].clone())
     }
 
     /// Begin the next nakamoto tenure by triggering a tenure-change.
@@ -480,15 +482,14 @@ impl TestStacksNode {
             // building off an existing stacks block
             let parent_stacks_block_snapshot = {
                 let ic = sortdb.index_conn();
-                let parent_stacks_block_snapshot =
-                    SortitionDB::get_block_snapshot_for_winning_stacks_block(
-                        &ic,
-                        &burn_block.parent_snapshot.sortition_id,
-                        &parent_stacks_block.block_hash(),
-                    )
-                    .unwrap()
-                    .unwrap();
-                parent_stacks_block_snapshot
+
+                SortitionDB::get_block_snapshot_for_winning_stacks_block(
+                    &ic,
+                    &burn_block.parent_snapshot.sortition_id,
+                    &parent_stacks_block.block_hash(),
+                )
+                .unwrap()
+                .unwrap()
             };
 
             let parent_chain_tip = StacksChainState::get_anchored_block_header_info(
@@ -628,7 +629,7 @@ impl TestStacksNode {
         malleablize: bool,
         mined_canonical: bool,
         timestamp: Option<u64>,
-    ) -> Result<Vec<(NakamotoBlock, u64, ExecutionCost, Vec<NakamotoBlock>)>, ChainstateError>
+    ) -> Result<Vec<MinedTenureBlock>, ChainstateError>
     where
         S: FnMut(&mut NakamotoBlockBuilder),
         F: FnMut(
@@ -730,7 +731,7 @@ impl TestStacksNode {
                     None,
                     None,
                     None,
-                    u64::from(DEFAULT_MAX_TENURE_BYTES),
+                    DEFAULT_MAX_TENURE_BYTES,
                 )?
             } else {
                 assert!(
@@ -1081,7 +1082,7 @@ impl TestStacksNode {
         let res = stacks_node
             .chainstate
             .process_next_staging_block(&mut sort_tx, coord.dispatcher)
-            .map(|(epoch_receipt, _)| epoch_receipt)?;
+            .map(|outcome| outcome.receipt)?;
         sort_tx.commit()?;
         if let Some(block_receipt) = res.as_ref() {
             let in_sortition_set = coord

@@ -295,7 +295,7 @@ pub fn is_event_pox_addr_valid(is_mainnet: bool, event: &StacksTransactionEvent)
         // only care about (okay ...) results
         return true;
     };
-    let Some(outer_tuple_data) = match_tuple(&pox_event_tuple) else {
+    let Some(outer_tuple_data) = match_tuple(pox_event_tuple) else {
         // should be unreachable
         return true;
     };
@@ -303,7 +303,7 @@ pub fn is_event_pox_addr_valid(is_mainnet: bool, event: &StacksTransactionEvent)
         // should be unreachable
         return true;
     };
-    let Some(data_tuple_data) = match_tuple(&data_tuple) else {
+    let Some(data_tuple_data) = match_tuple(data_tuple) else {
         // should be unreachable
         return true;
     };
@@ -685,7 +685,7 @@ impl NakamotoBlockProposal {
             None,
             None,
             Some(self.block.header.timestamp),
-            u64::from(DEFAULT_MAX_TENURE_BYTES),
+            DEFAULT_MAX_TENURE_BYTES,
         )?;
 
         let mut miner_tenure_info =
@@ -705,14 +705,14 @@ impl NakamotoBlockProposal {
         } else {
             None
         };
-        let resource_budgets = TransactionResourceBudgets::new()
+        let resource_budgets = TransactionResourceBudgets::unlimited()
             .with_analysis_budget(
-                ResourceBudget::new()
+                ResourceBudget::unlimited()
                     .with_max_duration(Some(per_tx_max_analysis_time))
                     .with_max_memory_use(max_tx_mem_bytes_opt),
             )
             .with_execution_budget(
-                ResourceBudget::new()
+                ResourceBudget::unlimited()
                     .with_max_duration(Some(per_tx_max_execution_time))
                     .with_max_memory_use(max_tx_mem_bytes_opt),
             );

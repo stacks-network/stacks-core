@@ -40,7 +40,9 @@ pub use self::signatures::{
     TupleTypeSignature, TypeSignature,
 };
 use crate::errors::ClarityTypeError;
-use crate::representations::{ClarityName, ContractName, SymbolicExpression};
+use crate::representations::{
+    CONTRACT_MAX_NAME_LENGTH, ClarityName, ContractName, SymbolicExpression,
+};
 
 /// Maximum size in bytes allowed for types.
 pub const MAX_VALUE_SIZE: u32 = 1024 * 1024; // 1MB
@@ -60,6 +62,29 @@ pub const MAX_TO_ASCII_BUFFER_LEN: u32 = (MAX_TO_ASCII_RESULT_LEN - 2) / 2;
 pub const MAX_TYPE_DEPTH: u8 = 32;
 /// this is the charged size for wrapped values, i.e., response or optionals
 pub const WRAPPER_VALUE_SIZE: u32 = 1;
+/// Size of an Int or UInt value (i128 = 16 bytes)
+pub const INT_SIZE: u32 = std::mem::size_of::<i128>() as u32;
+/// Size of a Bool value
+pub const BOOL_SIZE: u32 = 1;
+/// Size charged for a `NoType` value.
+pub const NO_TYPE_SIZE: u32 = 1;
+/// Pessimistic upper-bound size of a principal value.
+///
+/// 20 bytes (Hash160) + 128 bytes ([`MAX_STRING_LEN`](crate::representations::MAX_STRING_LEN)).
+///
+/// Note: contract names are actually limited to 40 bytes
+/// ([`CONTRACT_MAX_NAME_LENGTH`](crate::representations::CONTRACT_MAX_NAME_LENGTH)),
+/// but this constant conservatively uses the general `ClarityName` max of 128.
+/// Changing this would be consensus-breaking.
+pub const PRINCIPAL_SIZE: u32 = 148;
+/// Pessimistic upper-bound size of a trait reference.
+///
+/// [`PRINCIPAL_SIZE`] + 128 bytes for the trait name.
+pub const TRAIT_SIZE: u32 = PRINCIPAL_SIZE + 128;
+/// Length prefix size for sequences (buffer, string)
+pub const SEQUENCE_LENGTH_PREFIX: u32 = 4;
+/// Size of a single UTF8 character (4 bytes)
+pub const UTF8_CHAR_SIZE: u32 = 4;
 /// Maximum byte length for Value string representations in error messages.
 /// Deliberately smaller than `MAX_ERROR_MESSAGE_LEN` so a rendered value
 /// cannot eat the whole message budget.
@@ -667,21 +692,39 @@ impl SequenceData {
         epoch: &StacksEpochId,
         other_seq: SequenceData,
     ) -> Result<(), ClarityTypeError> {
+        // From Epoch 4.1, check buffer and string results against
+        // `MAX_VALUE_SIZE`. Lists already check this in `ListData::append`.
+        let check_len = epoch.checks_concat_result_size();
         match (self, other_seq) {
             (SequenceData::List(inner_data), SequenceData::List(other_inner_data)) => {
                 inner_data.append(epoch, other_inner_data)?;
             }
             (SequenceData::Buffer(inner_data), SequenceData::Buffer(ref mut other_inner_data)) => {
+                if check_len {
+                    BufferLength::try_from(inner_data.data.len() + other_inner_data.data.len())?;
+                }
                 inner_data.append(other_inner_data);
             }
             (
                 SequenceData::String(CharType::ASCII(inner_data)),
                 SequenceData::String(CharType::ASCII(ref mut other_inner_data)),
-            ) => inner_data.append(other_inner_data),
+            ) => {
+                if check_len {
+                    BufferLength::try_from(inner_data.data.len() + other_inner_data.data.len())?;
+                }
+                inner_data.append(other_inner_data);
+            }
             (
                 SequenceData::String(CharType::UTF8(inner_data)),
                 SequenceData::String(CharType::UTF8(ref mut other_inner_data)),
-            ) => inner_data.append(other_inner_data),
+            ) => {
+                if check_len {
+                    StringUTF8Length::try_from(
+                        inner_data.data.len() + other_inner_data.data.len(),
+                    )?;
+                }
+                inner_data.append(other_inner_data);
+            }
             (seq, other_seq) => {
                 return Err(ClarityTypeError::TypeMismatch(
                     Box::new(seq.type_signature()?),
@@ -913,7 +956,7 @@ impl SequencedValue<Vec<u8>> for UTF8Data {
     fn type_signature(&self) -> std::result::Result<TypeSignature, ClarityTypeError> {
         let str_len = StringUTF8Length::try_from(self.data.len()).map_err(|_| {
             ClarityTypeError::InvariantViolation(
-                "ERROR: Too large of a buffer successfully constructed.".into(),
+                "ERROR: too large of a buffer successfully constructed.".into(),
             )
         })?;
         Ok(TypeSignature::SequenceType(SequenceSubtype::StringType(
@@ -1048,6 +1091,57 @@ impl Value {
 
     pub fn depth(&self) -> Result<u8, ClarityTypeError> {
         Ok(TypeSignature::type_of(self)?.depth())
+    }
+
+    /// Whether this value contains a contract principal whose name is longer than
+    /// [`CONTRACT_MAX_NAME_LENGTH`] (see [`PrincipalData::has_overlong_contract_name`]).
+    ///
+    /// Returns [`ClarityTypeError::TypeSignatureTooDeep`] if the value is nested
+    /// deeper than [`MAX_TYPE_DEPTH`].
+    pub fn contains_overlong_contract_name(&self) -> Result<bool, ClarityTypeError> {
+        self.contains_overlong_contract_name_at_depth(1)
+    }
+
+    fn contains_overlong_contract_name_at_depth(
+        &self,
+        depth: u8,
+    ) -> Result<bool, ClarityTypeError> {
+        if depth > MAX_TYPE_DEPTH {
+            return Err(ClarityTypeError::TypeSignatureTooDeep);
+        }
+        let child_depth = depth + 1;
+        match self {
+            Value::Principal(principal) => Ok(principal.has_overlong_contract_name()),
+            Value::CallableContract(CallableData {
+                contract_identifier,
+                ..
+            }) => Ok(usize::from(contract_identifier.name.len()) > CONTRACT_MAX_NAME_LENGTH),
+            Value::Optional(OptionalData { data: Some(inner) })
+            | Value::Response(ResponseData { data: inner, .. }) => {
+                inner.contains_overlong_contract_name_at_depth(child_depth)
+            }
+            Value::Tuple(tuple) => {
+                for value in tuple.data_map.values() {
+                    if value.contains_overlong_contract_name_at_depth(child_depth)? {
+                        return Ok(true);
+                    }
+                }
+                Ok(false)
+            }
+            Value::Sequence(SequenceData::List(list)) => {
+                for value in &list.data {
+                    if value.contains_overlong_contract_name_at_depth(child_depth)? {
+                        return Ok(true);
+                    }
+                }
+                Ok(false)
+            }
+            Value::Int(_)
+            | Value::UInt(_)
+            | Value::Bool(_)
+            | Value::Optional(OptionalData { data: None })
+            | Value::Sequence(_) => Ok(false),
+        }
     }
 
     pub fn list_with_type(
@@ -1562,6 +1656,13 @@ impl From<&StacksPrivateKey> for Value {
 }
 
 impl PrincipalData {
+    /// Whether this is a contract principal whose name is longer than
+    /// [`CONTRACT_MAX_NAME_LENGTH`]. Such names are legal inside values before
+    /// Epoch 4.1 (see [`StacksEpochId::enforces_contract_name_length_limit`]).
+    pub fn has_overlong_contract_name(&self) -> bool {
+        matches!(self, PrincipalData::Contract(id) if usize::from(id.name.len()) > CONTRACT_MAX_NAME_LENGTH)
+    }
+
     pub fn version(&self) -> u8 {
         match self {
             PrincipalData::Standard(p) => p.version(),
@@ -1865,14 +1966,8 @@ impl TupleData {
         mut base: TupleData,
         updates: TupleData,
     ) -> Result<TupleData, ClarityTypeError> {
-        let TupleData {
-            data_map,
-            mut type_signature,
-        } = updates;
-        for (name, value) in data_map.into_iter() {
-            base.data_map.insert(name, value);
-        }
-        base.type_signature.shallow_merge(&mut type_signature)?;
+        base.data_map.extend(updates.data_map);
+        base.type_signature = base.type_signature.shallow_merge(updates.type_signature)?;
         Ok(base)
     }
 }

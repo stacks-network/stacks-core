@@ -1,1 +1,0 @@
-Signers now honor a superseded-tenure reorg permit only for blocks on the branch the permit was granted to: the permitting tenure, or a tenure built directly on it.

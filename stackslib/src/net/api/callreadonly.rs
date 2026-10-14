@@ -98,7 +98,7 @@ impl RPCCallReadOnlyRequestHandler {
     /// Starts tracking at call time: build it before any execution-side
     /// allocation, e.g. converting the arguments.
     pub fn execution_resource_limiter(&self) -> ResourceLimiter {
-        ResourceBudget::new()
+        ResourceBudget::unlimited()
             .with_max_duration(Some(self.read_only_max_execution_time))
             .with_max_memory_use(remaining_execution_mem_budget(
                 self.read_only_call_max_mem_bytes,
@@ -185,7 +185,7 @@ impl RPCRequestHandler for RPCCallReadOnlyRequestHandler {
         let tip = match node.load_stacks_chain_tip(&preamble, &contents) {
             Ok(tip) => tip,
             Err(error_resp) => {
-                return error_resp.try_into_contents().map_err(NetError::from);
+                return error_resp.try_into_contents();
             }
         };
 
@@ -299,7 +299,6 @@ impl RPCRequestHandler for RPCCallReadOnlyRequestHandler {
                         &HttpBadRequest::new("Execution budget exceeded".to_string()),
                     )
                     .try_into_contents()
-                    .map_err(NetError::from)
                 }
                 _ => CallReadOnlyResponse {
                     okay: false,
@@ -312,8 +311,7 @@ impl RPCRequestHandler for RPCCallReadOnlyRequestHandler {
                     &preamble,
                     &HttpNotFound::new("Chain tip not found".to_string()),
                 )
-                .try_into_contents()
-                .map_err(NetError::from);
+                .try_into_contents();
             }
         };
 
@@ -331,7 +329,7 @@ impl HttpResponse for RPCCallReadOnlyRequestHandler {
         body: &[u8],
     ) -> Result<HttpResponsePayload, Error> {
         let map_entry: CallReadOnlyResponse = parse_json(preamble, body)?;
-        Ok(HttpResponsePayload::try_from_json(map_entry)?)
+        HttpResponsePayload::try_from_json(map_entry)
     }
 }
 

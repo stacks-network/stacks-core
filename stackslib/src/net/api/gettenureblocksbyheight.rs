@@ -147,7 +147,7 @@ impl HttpResponse for RPCNakamotoTenureBlocksByHeightRequestHandler {
         body: &[u8],
     ) -> Result<HttpResponsePayload, Error> {
         let tenure: RPCTenure = parse_json(preamble, body)?;
-        Ok(HttpResponsePayload::try_from_json(tenure)?)
+        HttpResponsePayload::try_from_json(tenure)
     }
 }
 

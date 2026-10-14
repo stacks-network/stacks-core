@@ -18,6 +18,7 @@
 use std::collections::HashSet;
 
 use rusqlite::{params, Connection};
+use stacks_marf::{Error, MARFValue};
 use tempfile::tempdir;
 
 use super::super::index::{
@@ -29,7 +30,6 @@ use super::{
     FIXTURE_LEAF,
 };
 use crate::chainstate::stacks::db::CHAINSTATE_VERSION;
-use crate::chainstate::stacks::index::{Error, MARFValue};
 
 /// Insert a payment row at the given height.
 fn insert_payment(conn: &Connection, height: u32, suffix: &str) {

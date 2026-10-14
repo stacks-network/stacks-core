@@ -326,11 +326,17 @@ pub fn special_restrict_assets(
 
     let starting_memory = exec_state.global_context.cost_track.get_memory();
     let mut memory_use: u64 = 0;
+    let checks_with_all = exec_state
+        .epoch()
+        .checks_with_all_assets_in_restrict_assets();
 
     finally_drop_memory!( exec_state, memory_use; {
         let mut allowances = Vec::with_capacity(allowance_len);
         for allowance in allowance_list {
             let allowance = eval_allowance(allowance, exec_state, invoke_ctx, context)?;
+            if checks_with_all && matches!(allowance, Allowance::All) {
+                return Err(RuntimeCheckErrorKind::WithAllAllowanceNotAllowed.into());
+            }
             let allowance_memory = u64::try_from(allowance.size_in_bytes()?)
                 .map_err(|_| VmInternalError::Expect("Allowance size too large".into()))?;
 

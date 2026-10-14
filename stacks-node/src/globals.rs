@@ -2,6 +2,7 @@ use std::collections::{BTreeMap, HashMap};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::SyncSender;
 use std::sync::{Arc, Mutex};
+use std::time::Instant;
 
 use stacks::burnchains::Txid;
 use stacks::chainstate::burn::operations::LeaderKeyRegisterOp;
@@ -31,8 +32,6 @@ pub enum RelayerDirective {
     ProcessTenure(ConsensusHash, BurnchainHeaderHash, BlockHeaderHash),
     /// Try to mine a block
     RunTenure(RegisteredKey, BlockSnapshot, u128), // (vrf key, chain tip, time of issuance in ms)
-    /// A nakamoto tenure's first block has been processed.
-    NakamotoTenureStartProcessed(ConsensusHash, BlockHeaderHash),
     /// Try to register a VRF public key
     RegisterKey(BlockSnapshot),
     /// Stop the relayer thread
@@ -65,8 +64,6 @@ pub struct Globals<T> {
     last_miner_config: Arc<Mutex<Option<MinerConfig>>>,
     /// Last burnchain config
     last_burnchain_config: Arc<Mutex<Option<BurnchainConfig>>>,
-    /// Last miner spend amount
-    last_miner_spend_amount: Arc<Mutex<Option<u64>>>,
     /// burnchain height at which we start mining
     start_mining_height: Arc<Mutex<u64>>,
     /// estimated winning probability at given bitcoin block heights
@@ -77,6 +74,13 @@ pub struct Globals<T> {
     /// Initiative flag.
     /// Raised when the main loop should wake up and do something.
     initiative: Arc<Mutex<Option<String>>>,
+    /// Tenure ID of the last tenure-start (`BlockFound`) block this miner proposed to
+    /// the signers, and the time at which it was proposed. The relayer uses it to tell
+    /// whether a tenure-start proposal is still in flight when an empty sortition
+    /// arrives. The timestamp bounds how long the relayer will wait on it: this record
+    /// is never cleared, so without it a proposal that silently died would suppress the
+    /// relayer's late `BlockFound` forever.
+    last_proposed_tenure_start: Arc<Mutex<Option<(ConsensusHash, Instant)>>>,
 }
 
 // Need to manually implement Clone, because [derive(Clone)] requires
@@ -96,11 +100,11 @@ impl<T> Clone for Globals<T> {
             leader_key_registration_state: self.leader_key_registration_state.clone(),
             last_miner_config: self.last_miner_config.clone(),
             last_burnchain_config: self.last_burnchain_config.clone(),
-            last_miner_spend_amount: self.last_miner_spend_amount.clone(),
             start_mining_height: self.start_mining_height.clone(),
             estimated_winning_probs: self.estimated_winning_probs.clone(),
             previous_best_tips: self.previous_best_tips.clone(),
             initiative: self.initiative.clone(),
+            last_proposed_tenure_start: self.last_proposed_tenure_start.clone(),
         }
     }
 }
@@ -129,11 +133,11 @@ impl<T> Globals<T> {
             leader_key_registration_state: Arc::new(Mutex::new(leader_key_registration_state)),
             last_miner_config: Arc::new(Mutex::new(None)),
             last_burnchain_config: Arc::new(Mutex::new(None)),
-            last_miner_spend_amount: Arc::new(Mutex::new(None)),
             start_mining_height: Arc::new(Mutex::new(start_mining_height)),
             estimated_winning_probs: Arc::new(Mutex::new(HashMap::new())),
             previous_best_tips: Arc::new(Mutex::new(BTreeMap::new())),
             initiative: Arc::new(Mutex::new(None)),
+            last_proposed_tenure_start: Arc::new(Mutex::new(None)),
         }
     }
 
@@ -161,6 +165,27 @@ impl<T> Globals<T> {
             panic!();
         });
         last_sortition.replace(block_snapshot);
+    }
+
+    /// Get the tenure ID of the last tenure-start block this node proposed to the
+    /// signers, along with the time at which it was proposed
+    pub fn get_last_proposed_tenure_start(&self) -> Option<(ConsensusHash, Instant)> {
+        self.last_proposed_tenure_start
+            .lock()
+            .unwrap_or_else(|_| {
+                error!("Last proposed tenure start mutex poisoned!");
+                panic!();
+            })
+            .clone()
+    }
+
+    /// Record that this node just proposed a tenure-start block for the tenure `tenure_id`
+    pub fn set_last_proposed_tenure_start(&self, tenure_id: ConsensusHash) {
+        let mut last_proposed = self.last_proposed_tenure_start.lock().unwrap_or_else(|_| {
+            error!("Last proposed tenure start mutex poisoned!");
+            panic!();
+        });
+        last_proposed.replace((tenure_id, Instant::now()));
     }
 
     /// Get the status of the miner (blocked or ready)
@@ -376,28 +401,6 @@ impl<T> Globals<T> {
             Ok(ref mut last_burnchain_config) => **last_burnchain_config = Some(burnchain_config),
             Err(_e) => {
                 error!("FATAL; failed to lock last burnchain config");
-                panic!();
-            }
-        }
-    }
-
-    /// Get the last miner spend amount
-    pub fn get_last_miner_spend_amount(&self) -> Option<u64> {
-        match self.last_miner_spend_amount.lock() {
-            Ok(last_miner_spend_amount) => *last_miner_spend_amount,
-            Err(_e) => {
-                error!("FATAL; failed to lock last miner spend amount");
-                panic!();
-            }
-        }
-    }
-
-    /// Set the last miner spend amount
-    pub fn set_last_miner_spend_amount(&self, spend_amount: u64) {
-        match self.last_miner_spend_amount.lock() {
-            Ok(ref mut last_miner_spend_amount) => **last_miner_spend_amount = Some(spend_amount),
-            Err(_e) => {
-                error!("FATAL; failed to lock last miner spend amount");
                 panic!();
             }
         }
