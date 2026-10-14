@@ -101,7 +101,9 @@ struct RPCRoute {
 pub struct RPCRouteTable {
     /// Routes in match order: the first matching route wins
     routes: Arc<[RPCRoute]>,
-    /// Unused handler for each entry in `routes`, at the same index
+    /// One handler for each entry in `routes`, at the same index.
+    /// These handlers are never used; they only serve as templates
+    /// from which `StacksHttp` clones its own copies on construction.
     handlers: Vec<Box<dyn RPCRequestHandler>>,
 }
 
