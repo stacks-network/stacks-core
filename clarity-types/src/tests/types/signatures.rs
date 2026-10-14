@@ -625,7 +625,7 @@ fn tuple_type(fields: Vec<(&str, TypeSignature)>) -> TypeSignature {
     149 + 1 + 1,
     148 + 1
 )]
-fn test_callable_type_size_for_epoch(
+fn test_callable_type_charged_size(
     #[case] ty: TypeSignature,
     #[case] legacy_type_size: u32,
     #[case] legacy_size: u32,
@@ -636,14 +636,14 @@ fn test_callable_type_size_for_epoch(
     assert_eq!(ty.type_size().unwrap(), legacy_type_size);
     assert_eq!(ty.size().unwrap(), legacy_size);
     assert_eq!(
-        ty.type_size_for_epoch(&legacy_epoch).unwrap(),
+        ty.charged_type_size(&legacy_epoch).unwrap(),
         legacy_type_size
     );
-    assert_eq!(ty.size_for_epoch(&legacy_epoch).unwrap(), legacy_size);
+    assert_eq!(ty.charged_size(&legacy_epoch).unwrap(), legacy_size);
 
     let epoch = StacksEpochId::Epoch41;
-    assert_eq!(ty.type_size_for_epoch(&epoch).unwrap(), type_size);
-    assert_eq!(ty.size_for_epoch(&epoch).unwrap(), size);
+    assert_eq!(ty.charged_type_size(&epoch).unwrap(), type_size);
+    assert_eq!(ty.charged_size(&epoch).unwrap(), size);
 }
 
 /// Types without callable parts are sized the same in every epoch.
@@ -681,10 +681,10 @@ fn test_callable_type_size_for_epoch(
 fn test_non_callable_type_size_unchanged_in_epoch_41(#[case] ty: TypeSignature) {
     let epoch = StacksEpochId::Epoch41;
     assert_eq!(
-        ty.type_size_for_epoch(&epoch).unwrap(),
+        ty.charged_type_size(&epoch).unwrap(),
         ty.type_size().unwrap()
     );
-    assert_eq!(ty.size_for_epoch(&epoch).unwrap(), ty.size().unwrap());
+    assert_eq!(ty.charged_size(&epoch).unwrap(), ty.size().unwrap());
 }
 
 #[rstest]

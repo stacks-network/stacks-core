@@ -24,7 +24,9 @@ use stacks_common::types::chainstate::StacksBlockId;
 use crate::vm::callables::DefineType;
 use crate::vm::contexts::{ExecutionState, InvocationContext};
 use crate::vm::costs::cost_functions::ClarityCostFunction;
-use crate::vm::costs::{CostTracker, MemoryConsumer, constants as cost_constants, runtime_cost};
+use crate::vm::costs::{
+    CostOverflowingMath, CostTracker, MemoryConsumer, constants as cost_constants, runtime_cost,
+};
 use crate::vm::errors::{
     RuntimeCheckErrorKind, RuntimeError, VmExecutionError, VmInternalError, check_argument_count,
     check_arguments_at_least,
@@ -275,13 +277,13 @@ pub fn special_fetch_variable_v200(
             "No such data variable: {var_name}"
         )))?;
 
+    let epoch = *exec_state.epoch();
     runtime_cost(
         ClarityCostFunction::FetchVar,
         exec_state,
-        data_types.value_type.size()?,
+        data_types.value_type.charged_size(&epoch)?,
     )?;
 
-    let epoch = *exec_state.epoch();
     exec_state
         .global_context
         .database
@@ -320,7 +322,7 @@ pub fn special_fetch_variable_v205(
 
     let result_size = match &result {
         Ok(data) => data.serialized_byte_len,
-        Err(_e) => data_types.value_type.size()?.into(),
+        Err(_e) => data_types.value_type.charged_size(&epoch)?.into(),
     };
 
     runtime_cost(ClarityCostFunction::FetchVar, exec_state, result_size)?;
@@ -358,16 +360,16 @@ pub fn special_set_variable_v200(
             "No such data variable: {var_name}"
         )))?;
 
+    let epoch = *exec_state.epoch();
     runtime_cost(
         ClarityCostFunction::SetVar,
         exec_state,
-        data_types.value_type.size()?,
+        data_types.value_type.charged_size(&epoch)?,
     )?;
 
-    exec_state.add_memory(value.as_ref().get_memory_use(exec_state.epoch())?)?;
+    exec_state.add_memory(value.as_ref().get_memory_use(&epoch)?)?;
 
     let value = value.clone_with_cost(exec_state)?;
-    let epoch = *exec_state.epoch();
     exec_state
         .global_context
         .database
@@ -416,7 +418,7 @@ pub fn special_set_variable_v205(
 
     let result_size = match &result {
         Ok(data) => data.serialized_byte_len,
-        Err(_e) => data_types.value_type.size()?.into(),
+        Err(_e) => data_types.value_type.charged_size(&epoch)?.into(),
     };
 
     runtime_cost(ClarityCostFunction::SetVar, exec_state, result_size)?;
@@ -450,13 +452,14 @@ pub fn special_fetch_entry_v200(
             "No such map: {map_name}"
         )))?;
 
+    let epoch = *exec_state.epoch();
     runtime_cost(
         ClarityCostFunction::FetchEntry,
         exec_state,
-        data_types.value_type.size()? + data_types.key_type.size()?,
+        u64::from(data_types.value_type.charged_size(&epoch)?)
+            .cost_overflow_add(u64::from(data_types.key_type.charged_size(&epoch)?))?,
     )?;
 
-    let epoch = *exec_state.epoch();
     exec_state.global_context.database.fetch_entry(
         contract,
         map_name,
@@ -503,7 +506,8 @@ pub fn special_fetch_entry_v205(
 
     let result_size = match &result {
         Ok(data) => data.serialized_byte_len,
-        Err(_e) => (data_types.value_type.size()? + data_types.key_type.size()?).into(),
+        Err(_e) => u64::from(data_types.value_type.charged_size(&epoch)?)
+            .cost_overflow_add(u64::from(data_types.key_type.charged_size(&epoch)?))?,
     };
 
     runtime_cost(ClarityCostFunction::FetchEntry, exec_state, result_size)?;
@@ -582,18 +586,19 @@ pub fn special_set_entry_v200(
             "No such map: {map_name}"
         )))?;
 
+    let epoch = *exec_state.epoch();
     runtime_cost(
         ClarityCostFunction::SetEntry,
         exec_state,
-        data_types.value_type.size()? + data_types.key_type.size()?,
+        u64::from(data_types.value_type.charged_size(&epoch)?)
+            .cost_overflow_add(u64::from(data_types.key_type.charged_size(&epoch)?))?,
     )?;
 
-    exec_state.add_memory(key.as_ref().get_memory_use(exec_state.epoch())?)?;
-    exec_state.add_memory(value.as_ref().get_memory_use(exec_state.epoch())?)?;
+    exec_state.add_memory(key.as_ref().get_memory_use(&epoch)?)?;
+    exec_state.add_memory(value.as_ref().get_memory_use(&epoch)?)?;
 
     let key = key.clone_with_cost(exec_state)?;
     let value = value.clone_with_cost(exec_state)?;
-    let epoch = *exec_state.epoch();
     exec_state
         .global_context
         .database
@@ -645,7 +650,8 @@ pub fn special_set_entry_v205(
 
     let result_size = match &result {
         Ok(data) => data.serialized_byte_len,
-        Err(_e) => (data_types.value_type.size()? + data_types.key_type.size()?).into(),
+        Err(_e) => u64::from(data_types.value_type.charged_size(&epoch)?)
+            .cost_overflow_add(u64::from(data_types.key_type.charged_size(&epoch)?))?,
     };
 
     runtime_cost(ClarityCostFunction::SetEntry, exec_state, result_size)?;
@@ -687,16 +693,16 @@ pub fn special_insert_entry_v200(
             "No such map: {map_name}"
         )))?;
 
+    let epoch = *exec_state.epoch();
     runtime_cost(
         ClarityCostFunction::SetEntry,
         exec_state,
-        data_types.value_type.size()? + data_types.key_type.size()?,
+        u64::from(data_types.value_type.charged_size(&epoch)?)
+            .cost_overflow_add(u64::from(data_types.key_type.charged_size(&epoch)?))?,
     )?;
 
-    exec_state.add_memory(key.as_ref().get_memory_use(exec_state.epoch())?)?;
-    exec_state.add_memory(value.as_ref().get_memory_use(exec_state.epoch())?)?;
-
-    let epoch = *exec_state.epoch();
+    exec_state.add_memory(key.as_ref().get_memory_use(&epoch)?)?;
+    exec_state.add_memory(value.as_ref().get_memory_use(&epoch)?)?;
 
     let key = key.clone_with_cost(exec_state)?;
     let value = value.clone_with_cost(exec_state)?;
@@ -751,7 +757,8 @@ pub fn special_insert_entry_v205(
 
     let result_size = match &result {
         Ok(data) => data.serialized_byte_len,
-        Err(_e) => (data_types.value_type.size()? + data_types.key_type.size()?).into(),
+        Err(_e) => u64::from(data_types.value_type.charged_size(&epoch)?)
+            .cost_overflow_add(u64::from(data_types.key_type.charged_size(&epoch)?))?,
     };
 
     runtime_cost(ClarityCostFunction::SetEntry, exec_state, result_size)?;
@@ -791,15 +798,15 @@ pub fn special_delete_entry_v200(
             "No such map: {map_name}"
         )))?;
 
+    let epoch = *exec_state.epoch();
     runtime_cost(
         ClarityCostFunction::SetEntry,
         exec_state,
-        data_types.key_type.size()?,
+        data_types.key_type.charged_size(&epoch)?,
     )?;
 
-    exec_state.add_memory(key.as_ref().get_memory_use(exec_state.epoch())?)?;
+    exec_state.add_memory(key.as_ref().get_memory_use(&epoch)?)?;
 
-    let epoch = *exec_state.epoch();
     exec_state
         .global_context
         .database
@@ -850,7 +857,7 @@ pub fn special_delete_entry_v205(
 
     let result_size = match &result {
         Ok(data) => data.serialized_byte_len,
-        Err(_e) => data_types.key_type.size()?.into(),
+        Err(_e) => data_types.key_type.charged_size(&epoch)?.into(),
     };
 
     runtime_cost(ClarityCostFunction::SetEntry, exec_state, result_size)?;

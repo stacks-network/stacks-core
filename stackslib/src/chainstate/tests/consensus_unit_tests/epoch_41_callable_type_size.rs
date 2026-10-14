@@ -21,7 +21,8 @@ use clarity::vm::{ClarityVersion, Value};
 use rstest::rstest;
 
 use crate::chainstate::tests::consensus::{
-    contract_call_consensus_unit_test, setup_contract_principal, SetupContract,
+    contract_call_consensus_unit_test, contract_deploy_consensus_unit_test,
+    setup_contract_principal, SetupContract,
 };
 
 const BOTH_SIDES: &[StacksEpochId] = &[StacksEpochId::Epoch40, StacksEpochId::Epoch41];
@@ -138,6 +139,54 @@ fn test_epoch41_stored_trait_values_charged_more(
 ) {
     let (trait_40, trait_41) = stored_call_runtimes(trait_function, trait_args, &expected);
     let (uint_40, uint_41) = stored_call_runtimes(uint_function, uint_args, &expected);
+    let extra_40 = i128::from(trait_40) - i128::from(uint_40);
+    let extra_41 = i128::from(trait_41) - i128::from(uint_41);
+    assert!(extra_41 > extra_40, "{extra_41} should exceed {extra_40}");
+}
+
+/// A contract with trait-typed arguments, or its `uint` twin.
+fn typed_arguments_contract(arg_type: &str) -> String {
+    format!(
+        "(define-trait trait-a ((f () (response bool uint))))
+         (define-private (id (t {arg_type})) t)
+         (define-private (pair (t {arg_type}))
+           (let ((ts (list t t)))
+             (len ts)))"
+    )
+}
+
+/// Runtime cost of deploying `contract_code` at 4.0 and at 4.1.
+fn deploy_runtimes(contract_code: &str) -> (u64, u64) {
+    let report = contract_deploy_consensus_unit_test!(
+        contract_name: "typed-arguments",
+        contract_code: contract_code,
+        deploy_epochs: BOTH_SIDES,
+        clarity_versions: VERSIONS,
+    );
+    assert!(report.all_blocks_accepted());
+    let deploys = report.contract_deploys();
+    // One deploy per epoch: 4.0 takes Clarity 2, and 4.1 only Clarity 7.
+    assert_eq!(deploys.len(), 2);
+    let runtime_at = |epoch: StacksEpochId| {
+        let deploy = deploys
+            .iter()
+            .find(|deploy| *deploy.block_epoch() == epoch)
+            .expect("deploy at epoch");
+        assert!(deploy.executed(), "{deploy:?}");
+        deploy.cost().runtime
+    };
+    (
+        runtime_at(StacksEpochId::Epoch40),
+        runtime_at(StacksEpochId::Epoch41),
+    )
+}
+
+/// Deploying a contract with trait-typed arguments costs more to analyze from
+/// 4.1, compared with its `uint` twin.
+#[test]
+fn test_epoch41_trait_arguments_analysis_charged_more() {
+    let (trait_40, trait_41) = deploy_runtimes(&typed_arguments_contract("<trait-a>"));
+    let (uint_40, uint_41) = deploy_runtimes(&typed_arguments_contract("uint"));
     let extra_40 = i128::from(trait_40) - i128::from(uint_40);
     let extra_41 = i128::from(trait_41) - i128::from(uint_41);
     assert!(extra_41 > extra_40, "{extra_41} should exceed {extra_40}");

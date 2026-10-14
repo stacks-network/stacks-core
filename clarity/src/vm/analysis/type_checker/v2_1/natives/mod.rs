@@ -78,7 +78,7 @@ fn check_special_list_cons(
         // don't use map here, since type_check has side-effects.
         let checked = checker.type_check(arg, context)?;
         let cost = checked
-            .type_size_for_epoch(&checker.epoch)
+            .charged_type_size(&checker.epoch)
             .map_err(StaticCheckErrorKind::from)
             .and_then(|ty_size| {
                 checker
@@ -261,7 +261,7 @@ pub fn check_special_tuple_cons(
                 runtime_cost(
                     ClarityCostFunction::AnalysisTupleItemsCheck,
                     checker,
-                    var_type.type_size_for_epoch(&checker.epoch)?,
+                    var_type.charged_type_size(&checker.epoch)?,
                 )?;
                 if type_size < MAX_VALUE_SIZE {
                     type_size = type_size
@@ -321,11 +321,11 @@ fn check_special_let(
             runtime_cost(
                 ClarityCostFunction::AnalysisBindName,
                 checker,
-                typed_result.type_size_for_epoch(&checker.epoch)?,
+                typed_result.charged_type_size(&checker.epoch)?,
             )?;
             if checker.epoch.analysis_memory() {
                 let memory_use = u64::from(var_name.len())
-                    .checked_add(u64::from(typed_result.type_size_for_epoch(&checker.epoch)?))
+                    .checked_add(u64::from(typed_result.charged_type_size(&checker.epoch)?))
                     .ok_or_else(|| CostErrors::CostOverflow)?;
                 added_memory = added_memory
                     .checked_add(memory_use)
@@ -365,7 +365,7 @@ fn check_special_fetch_var(
     runtime_cost(
         ClarityCostFunction::AnalysisTypeLookup,
         &mut checker.cost_track,
-        value_type.type_size_for_epoch(&checker.epoch)?,
+        value_type.charged_type_size(&checker.epoch)?,
     )?;
 
     Ok(value_type.clone())
@@ -394,7 +394,7 @@ fn check_special_set_var(
     runtime_cost(
         ClarityCostFunction::AnalysisTypeLookup,
         &mut checker.cost_track,
-        expected_value_type.type_size_for_epoch(&checker.epoch)?,
+        expected_value_type.charged_type_size(&checker.epoch)?,
     )?;
     analysis_typecheck_cost_for_epoch(
         &mut checker.cost_track,
@@ -525,7 +525,7 @@ fn check_contract_call(
             runtime_cost(
                 ClarityCostFunction::AnalysisGetFunctionEntry,
                 checker,
-                func_signature.total_type_size_for_epoch(&checker.epoch)?,
+                func_signature.charged_total_type_size(&checker.epoch)?,
             )?;
 
             func_signature
@@ -558,7 +558,7 @@ fn check_contract_call(
                 runtime_cost(
                     ClarityCostFunction::AnalysisLookupFunctionTypes,
                     &mut checker.cost_track,
-                    func_signature.total_type_size_for_epoch(&checker.epoch)?,
+                    func_signature.charged_total_type_size(&checker.epoch)?,
                 )?;
 
                 func_signature.clone()
@@ -601,7 +601,7 @@ fn check_contract_call(
                         runtime_cost(
                             ClarityCostFunction::AnalysisGetFunctionEntry,
                             checker,
-                            func_signature.total_type_size_for_epoch(&checker.epoch)?,
+                            func_signature.charged_total_type_size(&checker.epoch)?,
                         )?;
 
                         func_signature
@@ -640,7 +640,7 @@ fn check_contract_call(
                         runtime_cost(
                             ClarityCostFunction::AnalysisLookupFunctionTypes,
                             &mut checker.cost_track,
-                            func_signature.total_type_size_for_epoch(&checker.epoch)?,
+                            func_signature.charged_total_type_size(&checker.epoch)?,
                         )?;
 
                         func_signature.clone()

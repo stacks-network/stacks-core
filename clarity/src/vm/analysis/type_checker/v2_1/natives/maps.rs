@@ -45,12 +45,12 @@ pub fn check_special_fetch_entry(
     runtime_cost(
         ClarityCostFunction::AnalysisTypeLookup,
         &mut checker.cost_track,
-        expected_key_type.type_size_for_epoch(&checker.epoch)?,
+        expected_key_type.charged_type_size(&checker.epoch)?,
     )?;
     runtime_cost(
         ClarityCostFunction::AnalysisTypeLookup,
         &mut checker.cost_track,
-        value_type.type_size_for_epoch(&checker.epoch)?,
+        value_type.charged_type_size(&checker.epoch)?,
     )?;
     analysis_typecheck_cost_for_epoch(
         &mut checker.cost_track,
@@ -92,7 +92,7 @@ pub fn check_special_delete_entry(
     runtime_cost(
         ClarityCostFunction::AnalysisTypeLookup,
         &mut checker.cost_track,
-        expected_key_type.type_size_for_epoch(&checker.epoch)?,
+        expected_key_type.charged_type_size(&checker.epoch)?,
     )?;
     analysis_typecheck_cost_for_epoch(
         &mut checker.cost_track,
@@ -133,12 +133,12 @@ fn check_set_or_insert_entry(
     runtime_cost(
         ClarityCostFunction::AnalysisTypeLookup,
         &mut checker.cost_track,
-        expected_key_type.type_size_for_epoch(&checker.epoch)?,
+        expected_key_type.charged_type_size(&checker.epoch)?,
     )?;
     runtime_cost(
         ClarityCostFunction::AnalysisTypeLookup,
         &mut checker.cost_track,
-        value_type.type_size_for_epoch(&checker.epoch)?,
+        value_type.charged_type_size(&checker.epoch)?,
     )?;
 
     analysis_typecheck_cost_for_epoch(

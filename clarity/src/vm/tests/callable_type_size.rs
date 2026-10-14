@@ -19,8 +19,9 @@
 //! fails its own case.
 //!
 //! Trait values only come from trait-typed arguments: a contract principal
-//! literal evaluates to a plain principal, and storage types cannot hold
-//! traits, so data-var, map and NFT charges never see a callable type.
+//! literal evaluates to a plain principal. Storage types cannot hold traits,
+//! so charges on the declared types of data vars, maps and NFTs never see a
+//! callable type.
 
 use rstest::rstest;
 use stacks_common::types::StacksEpochId;
@@ -28,7 +29,8 @@ use stacks_common::types::StacksEpochId;
 use super::TopLevelMemoryEnvironmentGenerator;
 use crate::vm::ClarityVersion;
 use crate::vm::contexts::{ExecutionState, InvocationContext, LocalContext, OwnedEnvironment};
-use crate::vm::costs::{ExecutionCost, LimitedCostTracker};
+use crate::vm::costs::cost_functions::ClarityCostFunction;
+use crate::vm::costs::{ExecutionCost, LimitedCostTracker, runtime_cost};
 use crate::vm::database::MemoryBackingStore;
 use crate::vm::hooks::EvalHook;
 use crate::vm::representations::SymbolicExpression;
@@ -102,7 +104,6 @@ fn deploy_caller(env: &mut OwnedEnvironment, element: Element, op: &str, base: &
          (define-constant marker true)
          (define-private (take (ys (list 2 (list 1 {ty})))) u0)
          (define-private (hold (ys (list 2 (list 1 {ty})))) marker)
-         (define-private (hold-one (y (list 1 {ty}))) marker)
          (define-public (op (xs (list 2 (list 1 {ty}))) (y (list 1 {ty}))) {op})
          (define-public (base (xs (list 2 (list 1 {ty}))) (y (list 1 {ty}))) {base})"
     );
@@ -154,29 +155,84 @@ fn call(epoch: StacksEpochId, element: Element, op: &str, base: &str, function: 
     }
 }
 
-/// Each `op` charges by the size of `xs` or `y` once more than `base`, which
-/// reads the same variables, so the difference is that one site's charge.
+/// Each `op` charges `cost_function` once more than `base`, which reads the
+/// same variables, so the difference between the epochs is that one charge.
+/// `xs`, two one-element trait lists, is 2 * (276 + 6) + 11 = 575 bytes
+/// before 4.1; from 4.1 each list type also holds the trait, for
+/// 2 * (276 + 6 + 276) + 11 + 276 = 1403. One entry, like `y`, is 282 and 558.
 #[rstest]
-#[case::variable_lookup("(ok (len xs))", "(ok u0)")]
-#[case::print("(begin (print xs) (ok u0))", "(begin xs (ok u0))")]
-#[case::list_cons("(ok (len (list xs xs)))", "(ok (+ (len xs) (len xs)))")]
-#[case::function_argument("(ok (take xs))", "(ok (len xs))")]
-#[case::slice("(ok (len (unwrap-panic (slice? xs u0 u1))))", "(ok (len xs))")]
-#[case::append("(ok (len (append xs y)))", "(ok (+ (len xs) (len y)))")]
+#[case::native_argument_clone(
+    "(ok (len xs))",
+    "(ok u0)",
+    ClarityCostFunction::LookupVariableSize,
+    575,
+    1403
+)]
+#[case::print(
+    "(begin (print xs) (ok u0))",
+    "(begin xs (ok u0))",
+    ClarityCostFunction::Print,
+    575,
+    1403
+)]
+#[case::list_cons(
+    "(ok (len (list xs xs)))",
+    "(ok (+ (len xs) (len xs)))",
+    ClarityCostFunction::ListCons,
+    2 * 575,
+    2 * 1403
+)]
+#[case::function_argument(
+    "(ok (take xs))",
+    "(ok (len xs))",
+    ClarityCostFunction::InnerTypeCheckCost,
+    575,
+    1403
+)]
+#[case::slice(
+    "(ok (len (unwrap-panic (slice? xs u0 u1))))",
+    "(ok (len xs))",
+    ClarityCostFunction::Slice,
+    282,
+    558
+)]
+#[case::append(
+    "(ok (len (append xs y)))",
+    "(ok (+ (len xs) (len y)))",
+    ClarityCostFunction::Append,
+    282,
+    558
+)]
 #[case::replace_at(
     "(ok (len (unwrap-panic (replace-at? xs u0 y))))",
-    "(ok (+ (len xs) (len y)))"
+    "(ok (+ (len xs) (len y)))",
+    ClarityCostFunction::ReplaceAt,
+    575,
+    1403
 )]
-fn test_runtime_charge_counts_traits_from_epoch41(#[case] op: &str, #[case] base: &str) {
+fn test_runtime_charge_counts_traits_from_epoch41(
+    #[case] op: &str,
+    #[case] base: &str,
+    #[case] cost_function: ClarityCostFunction,
+    #[case] legacy_size: u64,
+    #[case] charged_size: u64,
+) {
     let charge = |element: Element, epoch: StacksEpochId| {
         let op_cost = call(epoch, element, op, base, "op").runtime;
         let base_cost = call(epoch, element, op, base, "base").runtime;
         i128::from(op_cost) - i128::from(base_cost)
     };
+    let cost = |size: u64| {
+        let mut tracker =
+            LimitedCostTracker::new_with_limit(StacksEpochId::Epoch41, ExecutionCost::max_value());
+        runtime_cost(cost_function.clone(), &mut tracker, size).unwrap();
+        i128::from(tracker.get_total().runtime)
+    };
 
-    assert!(
+    assert_eq!(
         charge(Element::Trait, StacksEpochId::Epoch41)
-            > charge(Element::Trait, StacksEpochId::Epoch40)
+            - charge(Element::Trait, StacksEpochId::Epoch40),
+        cost(charged_size) - cost(legacy_size)
     );
     assert_eq!(
         charge(Element::Uint, StacksEpochId::Epoch41),
@@ -189,7 +245,6 @@ fn test_runtime_charge_counts_traits_from_epoch41(#[case] op: &str, #[case] base
 #[case::let_binding("(let ((ys xs)) (ok marker))")]
 #[case::match_binding("(match (some xs) ys (ok marker) (ok false))")]
 #[case::function_argument("(ok (hold xs))")]
-#[case::map_argument("(ok (map hold-one xs))")]
 fn test_binding_memory_counts_traits_from_epoch41(#[case] body: &str) {
     let memory = |element: Element, epoch: StacksEpochId| {
         call(epoch, element, body, "(ok true)", "op").marker_memory

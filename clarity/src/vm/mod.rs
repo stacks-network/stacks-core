@@ -110,7 +110,7 @@ impl<'a> ValueRef<'a> {
     ) -> Result<Value, VmExecutionError> {
         match self {
             ValueRef::Borrowed(r) => {
-                let size = r.size_for_epoch(exec_state.epoch())?;
+                let size = r.charged_size(exec_state.epoch())?;
                 runtime_cost(ClarityCostFunction::LookupVariableSize, exec_state, size)?;
                 Ok(r.clone())
             }
@@ -687,13 +687,14 @@ pub fn eval_all(
                     contract_context.functions.insert(name, value);
                 },
                 DefineResult::PersistedVariable(name, value_type, value) => {
-                    runtime_cost(ClarityCostFunction::CreateVar, global_context, value_type.size()?)?;
+                    let value_size = value_type.charged_size(&global_context.epoch_id)?;
+                    runtime_cost(ClarityCostFunction::CreateVar, global_context, value_size)?;
                     contract_context.persisted_names.insert(name.clone());
 
-                    global_context.add_memory(value_type.type_size()
+                    global_context.add_memory(value_type.charged_type_size(&global_context.epoch_id)
                                               .map_err(|_| VmInternalError::Expect("Type size should be realizable".into()))?.into())?;
 
-                    global_context.add_memory(value.size_for_epoch(&global_context.epoch_id)?.into())?;
+                    global_context.add_memory(value.charged_size(&global_context.epoch_id)?.into())?;
 
                     let data_type = global_context.database.create_variable(&contract_context.contract_identifier, &name, value_type)?;
                     global_context.database.set_variable(&contract_context.contract_identifier, &name, value, &data_type, &global_context.epoch_id)?;
@@ -701,14 +702,15 @@ pub fn eval_all(
                     contract_context.meta_data_var.insert(name, data_type);
                 },
                 DefineResult::Map(name, key_type, value_type) => {
+                    let epoch = global_context.epoch_id;
                     runtime_cost(ClarityCostFunction::CreateMap, global_context,
-                                  u64::from(key_type.size()?).cost_overflow_add(
-                                      u64::from(value_type.size()?))?)?;
+                                  u64::from(key_type.charged_size(&epoch)?).cost_overflow_add(
+                                      u64::from(value_type.charged_size(&epoch)?))?)?;
                     contract_context.persisted_names.insert(name.clone());
 
-                    global_context.add_memory(key_type.type_size()
+                    global_context.add_memory(key_type.charged_type_size(&epoch)
                                               .map_err(|_| VmInternalError::Expect("Type size should be realizable".into()))?.into())?;
-                    global_context.add_memory(value_type.type_size()
+                    global_context.add_memory(value_type.charged_type_size(&epoch)
                                               .map_err(|_| VmInternalError::Expect("Type size should be realizable".into()))?.into())?;
 
                     let data_type = global_context.database.create_map(&contract_context.contract_identifier, &name, key_type, value_type)?;
@@ -719,7 +721,7 @@ pub fn eval_all(
                     runtime_cost(ClarityCostFunction::CreateFt, global_context, 0)?;
                     contract_context.persisted_names.insert(name.clone());
 
-                    global_context.add_memory(TypeSignature::UIntType.type_size()
+                    global_context.add_memory(TypeSignature::UIntType.charged_type_size(&global_context.epoch_id)
                                               .map_err(|_| VmInternalError::Expect("Type size should be realizable".into()))?.into())?;
 
                     let data_type = global_context.database.create_fungible_token(&contract_context.contract_identifier, &name, &total_supply)?;
@@ -727,10 +729,11 @@ pub fn eval_all(
                     contract_context.meta_ft.insert(name, data_type);
                 },
                 DefineResult::NonFungibleAsset(name, asset_type) => {
-                    runtime_cost(ClarityCostFunction::CreateNft, global_context, asset_type.size()?)?;
+                    let asset_size = asset_type.charged_size(&global_context.epoch_id)?;
+                    runtime_cost(ClarityCostFunction::CreateNft, global_context, asset_size)?;
                     contract_context.persisted_names.insert(name.clone());
 
-                    global_context.add_memory(asset_type.type_size()
+                    global_context.add_memory(asset_type.charged_type_size(&global_context.epoch_id)
                                               .map_err(|_| VmInternalError::Expect("Type size should be realizable".into()))?.into())?;
 
                     let data_type = global_context.database.create_non_fungible_token(&contract_context.contract_identifier, &name, &asset_type)?;

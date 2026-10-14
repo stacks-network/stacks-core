@@ -285,8 +285,8 @@ pub fn check_special_concat(
 
     // The first two args follow the exact ordering of the original 2-arg
     // implementation: type-check both, then charge `AnalysisIterableFunc`,
-    // then the type-check cost. This keeps cost-charging byte-identical
-    // for Clarity 1-5 contracts.
+    // then `analysis_typecheck_cost_for_epoch`. This keeps cost-charging
+    // byte-identical for Clarity 1-5 contracts.
     let lhs_type = checker.type_check(&args[0], context)?;
     let rhs_type = checker.type_check(&args[1], context)?;
 
@@ -296,14 +296,11 @@ pub fn check_special_concat(
     let mut acc_type = combine_concat_types(&checker.epoch, &lhs_type, &rhs_type)?;
 
     // Any additional args (Clarity 6+ only — the arity check above rejects
-    // them otherwise) are folded into the accumulator. We charge the
-    // type-check cost per pair to cover the `least_supertype` work that
-    // `combine_concat_types` performs on each fold step. The charge is on the
-    // type size, which measures element-type complexity (K) and is independent
-    // of the accumulator's `max_len`, so the total is K * N. From Epoch 4.1 a
-    // union of callables counts every member, so concatenating lists of
-    // distinct contract principals grows K with each arg, as does the union
-    // `least_supertype` merges.
+    // them otherwise) are folded into the accumulator. We charge
+    // `analysis_typecheck_cost_for_epoch` per pair to cover the
+    // `least_supertype` work that `combine_concat_types` performs on each fold
+    // step. The charge depends on the element types, not on the
+    // accumulator's `max_len`.
     for arg in &args[2..] {
         let rhs_type = checker.type_check(arg, context)?;
         analysis_typecheck_cost_for_epoch(checker, checker.epoch, &acc_type, &rhs_type)?;
@@ -423,7 +420,7 @@ pub fn check_special_as_max_len(
     runtime_cost(
         ClarityCostFunction::AnalysisTypeAnnotate,
         checker,
-        TypeSignature::UIntType.type_size_for_epoch(&checker.epoch)?,
+        TypeSignature::UIntType.charged_type_size(&checker.epoch)?,
     )?;
     checker
         .type_map

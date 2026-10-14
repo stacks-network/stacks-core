@@ -295,12 +295,12 @@ fn eval_with_new_binding(
     runtime_cost(
         ClarityCostFunction::AnalysisBindName,
         checker,
-        bind_type.type_size_for_epoch(&checker.epoch)?,
+        bind_type.charged_type_size(&checker.epoch)?,
     )?;
     let mut memory_use = 0;
     if checker.epoch.analysis_memory() {
         memory_use = u64::from(bind_name.len())
-            .checked_add(u64::from(bind_type.type_size_for_epoch(&checker.epoch)?))
+            .checked_add(u64::from(bind_type.charged_type_size(&checker.epoch)?))
             .ok_or_else(|| CostErrors::CostOverflow)?;
         checker.add_memory(memory_use)?;
     }

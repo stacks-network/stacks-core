@@ -1194,7 +1194,7 @@ fn trait_type_size(
 ) -> Result<u64, StaticCheckError> {
     let mut total_size = 0;
     for value in trait_sig.values() {
-        total_size = total_size.cost_overflow_add(value.total_type_size_for_epoch(epoch)?)?;
+        total_size = total_size.cost_overflow_add(value.charged_total_type_size(epoch)?)?;
     }
     Ok(total_size)
 }
@@ -1280,7 +1280,7 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
         runtime_cost(
             ClarityCostFunction::AnalysisTypeCheck,
             self,
-            return_type.type_size_for_epoch(&self.epoch)?,
+            return_type.charged_type_size(&self.epoch)?,
         )?;
 
         match self.function_return_tracker {
@@ -1544,7 +1544,7 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
 
             if self.epoch.analysis_memory() {
                 let added_memory = u64::from(arg_name.len())
-                    .checked_add(arg_type.type_size_for_epoch(&self.epoch)?.into())
+                    .checked_add(arg_type.charged_type_size(&self.epoch)?.into())
                     .ok_or_else(|| CostErrors::CostOverflow)?;
                 self.add_memory(added_memory)?;
                 tracked_mem = tracked_mem
@@ -1838,7 +1838,7 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
         runtime_cost(
             ClarityCostFunction::AnalysisTypeAnnotate,
             self,
-            expr_type.type_size_for_epoch(&self.epoch)?,
+            expr_type.charged_type_size(&self.epoch)?,
         )?;
         self.type_map.set_type(expr, expr_type.clone())?;
         Ok(expr_type)
@@ -1862,7 +1862,7 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
         runtime_cost(
             ClarityCostFunction::AnalysisTypeAnnotate,
             self,
-            expr_type.type_size_for_epoch(&self.epoch)?,
+            expr_type.charged_type_size(&self.epoch)?,
         )?;
         self.type_map.set_type(expr, expr_type.clone())?;
         Ok(expr_type)
@@ -1959,11 +1959,11 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
                     runtime_cost(
                         ClarityCostFunction::AnalysisBindName,
                         self,
-                        v_type.type_size_for_epoch(&self.epoch)?,
+                        v_type.charged_type_size(&self.epoch)?,
                     )?;
                     if self.epoch.analysis_memory() {
                         self.add_memory(v_name.len().into())?;
-                        self.add_memory(v_type.type_size_for_epoch(&self.epoch)?.into())?;
+                        self.add_memory(v_type.charged_type_size(&self.epoch)?.into())?;
                     }
                     self.contract_context.add_variable_type(v_name, v_type)?;
                 }
@@ -1974,11 +1974,11 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
                     runtime_cost(
                         ClarityCostFunction::AnalysisBindName,
                         self,
-                        f_type.total_type_size_for_epoch(&self.epoch)?,
+                        f_type.charged_total_type_size(&self.epoch)?,
                     )?;
                     if self.epoch.analysis_memory() {
                         self.add_memory(f_name.len().into())?;
-                        self.add_memory(f_type.total_type_size_for_epoch(&self.epoch)?)?;
+                        self.add_memory(f_type.charged_total_type_size(&self.epoch)?)?;
                     }
                     self.contract_context
                         .add_private_function_type(f_name, FunctionType::Fixed(f_type))?;
@@ -1989,11 +1989,11 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
                     runtime_cost(
                         ClarityCostFunction::AnalysisBindName,
                         self,
-                        f_type.total_type_size_for_epoch(&self.epoch)?,
+                        f_type.charged_total_type_size(&self.epoch)?,
                     )?;
                     if self.epoch.analysis_memory() {
                         self.add_memory(f_name.len().into())?;
-                        self.add_memory(f_type.total_type_size_for_epoch(&self.epoch)?)?;
+                        self.add_memory(f_type.charged_total_type_size(&self.epoch)?)?;
                     }
                     if f_type.returns.is_response_type() {
                         self.contract_context
@@ -2012,11 +2012,11 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
                     runtime_cost(
                         ClarityCostFunction::AnalysisBindName,
                         self,
-                        f_type.total_type_size_for_epoch(&self.epoch)?,
+                        f_type.charged_total_type_size(&self.epoch)?,
                     )?;
                     if self.epoch.analysis_memory() {
                         self.add_memory(f_name.len().into())?;
-                        self.add_memory(f_type.total_type_size_for_epoch(&self.epoch)?)?;
+                        self.add_memory(f_type.charged_total_type_size(&self.epoch)?)?;
                     }
                     self.contract_context
                         .add_read_only_function_type(f_name, FunctionType::Fixed(f_type))?;
@@ -2028,15 +2028,13 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
                 } => {
                     let (f_name, map_type) =
                         self.type_check_define_map(name, key_type, value_type)?;
-                    let total_type_size = u64::from(map_type.0.type_size_for_epoch(&self.epoch)?)
-                        .cost_overflow_add(u64::from(
-                        map_type.1.type_size_for_epoch(&self.epoch)?,
-                    ))?;
+                    let total_type_size = u64::from(map_type.0.charged_type_size(&self.epoch)?)
+                        .cost_overflow_add(u64::from(map_type.1.charged_type_size(&self.epoch)?))?;
                     runtime_cost(ClarityCostFunction::AnalysisBindName, self, total_type_size)?;
                     if self.epoch.analysis_memory() {
                         self.add_memory(f_name.len().into())?;
-                        self.add_memory(map_type.0.type_size_for_epoch(&self.epoch)?.into())?;
-                        self.add_memory(map_type.1.type_size_for_epoch(&self.epoch)?.into())?;
+                        self.add_memory(map_type.0.charged_type_size(&self.epoch)?.into())?;
+                        self.add_memory(map_type.1.charged_type_size(&self.epoch)?.into())?;
                     }
                     self.contract_context.add_map_type(f_name, map_type)?;
                 }
@@ -2050,11 +2048,11 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
                     runtime_cost(
                         ClarityCostFunction::AnalysisBindName,
                         self,
-                        v_type.type_size_for_epoch(&self.epoch)?,
+                        v_type.charged_type_size(&self.epoch)?,
                     )?;
                     if self.epoch.analysis_memory() {
                         self.add_memory(v_name.len().into())?;
-                        self.add_memory(v_type.type_size_for_epoch(&self.epoch)?.into())?;
+                        self.add_memory(v_type.charged_type_size(&self.epoch)?.into())?;
                     }
                     self.contract_context
                         .add_persisted_variable_type(v_name, v_type)?;
@@ -2064,13 +2062,13 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
                     runtime_cost(
                         ClarityCostFunction::AnalysisBindName,
                         self,
-                        TypeSignature::UIntType.type_size_for_epoch(&self.epoch)?,
+                        TypeSignature::UIntType.charged_type_size(&self.epoch)?,
                     )?;
                     if self.epoch.analysis_memory() {
                         self.add_memory(token_name.len().into())?;
                         self.add_memory(
                             TypeSignature::UIntType
-                                .type_size_for_epoch(&self.epoch)?
+                                .charged_type_size(&self.epoch)?
                                 .into(),
                         )?;
                     }
@@ -2081,13 +2079,13 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
                     runtime_cost(
                         ClarityCostFunction::AnalysisBindName,
                         self,
-                        TypeSignature::UIntType.type_size_for_epoch(&self.epoch)?,
+                        TypeSignature::UIntType.charged_type_size(&self.epoch)?,
                     )?;
                     if self.epoch.analysis_memory() {
                         self.add_memory(token_name.len().into())?;
                         self.add_memory(
                             TypeSignature::UIntType
-                                .type_size_for_epoch(&self.epoch)?
+                                .charged_type_size(&self.epoch)?
                                 .into(),
                         )?;
                     }
@@ -2099,11 +2097,11 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
                     runtime_cost(
                         ClarityCostFunction::AnalysisBindName,
                         self,
-                        token_type.type_size_for_epoch(&self.epoch)?,
+                        token_type.charged_type_size(&self.epoch)?,
                     )?;
                     if self.epoch.analysis_memory() {
                         self.add_memory(token_name.len().into())?;
-                        self.add_memory(token_type.type_size_for_epoch(&self.epoch)?.into())?;
+                        self.add_memory(token_type.charged_type_size(&self.epoch)?.into())?;
                     }
                     self.contract_context.add_nft(token_name, token_type)?;
                 }

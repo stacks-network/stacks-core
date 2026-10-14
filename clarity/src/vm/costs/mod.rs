@@ -35,7 +35,7 @@ pub use crate::vm::costs::errors::CostErrors;
 pub use crate::vm::costs::execution_cost::{CostOverflowingMath, ExecutionCost};
 use crate::vm::database::ClarityDatabase;
 use crate::vm::database::clarity_store::NullBackingStore;
-use crate::vm::errors::VmExecutionError;
+use crate::vm::errors::{ClarityTypeError, VmExecutionError};
 use crate::vm::types::Value::UInt;
 use crate::vm::types::{PrincipalData, QualifiedContractIdentifier, TypeSignature};
 use crate::vm::{CallStack, LocalContext, SymbolicExpression, Value};
@@ -91,10 +91,10 @@ pub fn compute_typecheck_cost<T: CostTracker>(
     t2: &TypeSignature,
 ) -> Result<ExecutionCost, CostErrors> {
     let t1_size = t1
-        .type_size_for_epoch(&epoch)
+        .charged_type_size(&epoch)
         .map_err(|_| CostErrors::CostOverflow)?;
     let t2_size = t2
-        .type_size_for_epoch(&epoch)
+        .charged_type_size(&epoch)
         .map_err(|_| CostErrors::CostOverflow)?;
     track.compute_cost(
         ClarityCostFunction::AnalysisTypeCheck,
@@ -129,10 +129,13 @@ pub trait MemoryConsumer {
 
 impl MemoryConsumer for Value {
     fn get_memory_use(&self, epoch: &StacksEpochId) -> Result<u64, CostErrors> {
-        Ok(self
-            .size_for_epoch(epoch)
-            .map_err(|_| CostErrors::InterpreterFailure)?
-            .into())
+        let size = self.charged_size(epoch).map_err(|e| match e {
+            // From Epoch 4.1 a charged size can overflow; fail it like any
+            // other charge overflow.
+            ClarityTypeError::ValueTooLarge => CostErrors::CostOverflow,
+            _ => CostErrors::InterpreterFailure,
+        })?;
+        Ok(size.into())
     }
 }
 
@@ -812,8 +815,9 @@ fn int_log2(input: u64) -> Option<u64> {
 
 #[cfg(test)]
 mod unit_tests {
-    use clarity_types::types::{CallableData, TraitIdentifier};
+    use clarity_types::types::{CallableData, TraitIdentifier, TupleData};
     use pinny::tag;
+    use proptest::collection::vec;
     use proptest::prelude::*;
     use rstest::rstest;
 
@@ -822,15 +826,36 @@ mod unit_tests {
     use crate::vm::tests::proptest_utils::clarity_values;
     use crate::vm::types::{QualifiedContractIdentifier, TypeSignature};
 
+    /// [`clarity_values`], plus the tuples and lists of tuples it does not
+    /// generate.
+    fn values_with_tuples() -> BoxedStrategy<Value> {
+        let tuples = vec(clarity_values(), 1..4)
+            .prop_filter_map("tuple construction failed", |fields| {
+                let fields = fields
+                    .into_iter()
+                    .enumerate()
+                    .map(|(i, value)| (ClarityName::try_from(format!("f{i}")).unwrap(), value))
+                    .collect();
+                TupleData::from_data(fields).ok().map(Value::from)
+            })
+            .boxed();
+        let tuple_lists = tuples
+            .clone()
+            .prop_filter_map("list construction failed", |tuple| {
+                Value::list_from(vec![tuple.clone(), tuple]).ok()
+            });
+        prop_oneof![clarity_values(), tuples, tuple_lists].boxed()
+    }
+
     proptest! {
         /// Values without callable types are charged the same from Epoch 4.1.
         #[tag(t_prop)]
         #[test]
-        fn prop_non_callable_charges_unchanged_in_epoch41(value in clarity_values()) {
+        fn prop_non_callable_charges_unchanged_in_epoch41(value in values_with_tuples()) {
             let epoch = StacksEpochId::Epoch41;
             let ty = TypeSignature::type_of(&value).unwrap();
-            prop_assert_eq!(ty.type_size_for_epoch(&epoch).unwrap(), ty.type_size().unwrap());
-            prop_assert_eq!(ty.size_for_epoch(&epoch).unwrap(), ty.size().unwrap());
+            prop_assert_eq!(ty.charged_type_size(&epoch).unwrap(), ty.type_size().unwrap());
+            prop_assert_eq!(ty.charged_size(&epoch).unwrap(), ty.size().unwrap());
             prop_assert_eq!(
                 value.get_memory_use(&epoch).unwrap(),
                 u64::from(value.size().unwrap())

@@ -44,8 +44,8 @@ use crate::vm::types::signatures::{
     CallableSubtype, FunctionSignature, ListTypeData, StringUTF8Length,
 };
 use crate::vm::types::{
-    BufferLength, FixedFunction, FunctionType, MAX_VALUE_SIZE, QualifiedContractIdentifier,
-    TraitIdentifier, TypeSignature, TypeSignatureExt as _,
+    BufferLength, FixedFunction, FunctionArg, FunctionType, MAX_VALUE_SIZE,
+    QualifiedContractIdentifier, TraitIdentifier, TypeSignature, TypeSignatureExt as _,
 };
 use crate::vm::{ClarityName, ClarityVersion, execute_v2};
 
@@ -4888,36 +4888,116 @@ fn test_principal_list_analysis_cost(
     );
 }
 
-/// Trait arguments, `let`, `match` and `map` over trait values cost more to
-/// analyze from Epoch 4.1, compared with a `uint` twin of the same contract.
-#[test]
-fn test_trait_value_analysis_cost_from_epoch41() {
-    let contract = |arg_type: &str| {
+/// `map`, `filter` and `fold` check list entries against the function's
+/// parameters with the checker's epoch: `TypingContext.epoch` is pinned to
+/// Epoch 2.1 and would charge legacy sizes. Each `body` matches its `twin`
+/// except for those checks, which see a `<trait-a>` entry `trait_checks`
+/// times.
+#[rstest]
+#[case::map("(map f ts)", "(begin ts (list true true))", 1)]
+#[case::filter("(filter f ts)", "(begin true ts)", 1)]
+#[case::fold("(begin us (fold h ts true))", "(begin ts (fold h-uint us true))", 2)]
+fn test_sequence_functions_check_entries_for_epoch(
+    #[case] body: &str,
+    #[case] twin: &str,
+    #[case] trait_checks: i128,
+) {
+    let contract = |body: &str| {
         format!(
             "(define-trait trait-a ((f () (response bool uint))))
-             (define-private (id (t {arg_type})) t)
-             (define-private (uses (t {arg_type}))
-               (let ((ts (list t t)))
-                 (match (some ts) found (len (map id found)) u0)))"
+             (define-private (f (t <trait-a>)) true)
+             (define-private (h (t <trait-a>) (acc bool)) acc)
+             (define-private (h-uint (u uint) (acc bool)) acc)
+             (define-private (g (ts (list 2 <trait-a>)) (us (list 2 uint))) {body})"
         )
     };
     let extra_cost = |epoch: StacksEpochId| {
         let cost =
-            |arg_type| analysis_cost_at(&contract(arg_type), epoch, ClarityVersion::Clarity2);
-        i128::from(cost("<trait-a>").runtime) - i128::from(cost("uint").runtime)
+            |body| analysis_cost_at(&contract(body), epoch, ClarityVersion::Clarity2).runtime;
+        i128::from(cost(body)) - i128::from(cost(twin))
+    };
+    let type_check = |size: u64| {
+        let mut tracker =
+            LimitedCostTracker::new_with_limit(StacksEpochId::Epoch41, ExecutionCost::max_value());
+        runtime_cost(ClarityCostFunction::AnalysisTypeCheck, &mut tracker, size).unwrap();
+        i128::from(tracker.get_total().runtime)
     };
 
-    assert!(extra_cost(StacksEpochId::Epoch41) > extra_cost(StacksEpochId::Epoch40));
+    // A `<trait-a>` entry is sized 1 before 4.1, plus its trait from 4.1.
+    assert_eq!(
+        extra_cost(StacksEpochId::Epoch41) - extra_cost(StacksEpochId::Epoch40),
+        trait_checks * (type_check(1 + 276) - type_check(1))
+    );
 }
 
-/// The 2.05 type checker and its cost contract are frozen, so this contract's
-/// analysis cost never changes.
+/// The 2.05 type checker and its costs are frozen, so this contract keeps the
+/// analysis cost it has on `main`.
 #[test]
 fn test_epoch2_05_checker_keeps_legacy_type_sizes() {
     let contract = "(define-trait trait-a ((f (uint) (response bool bool))))
                     (define-private (pick (t <trait-a>)) t)";
     let cost = analysis_cost_at(contract, StacksEpochId::Epoch2_05, ClarityVersion::Clarity1);
     assert_eq!(cost.runtime, 530);
+}
+
+/// Checking an argument against a trait parameter charges the trait's type
+/// size, which counts its identifier from Epoch 4.1, whether or not the
+/// argument is admitted.
+#[rstest]
+#[case::admitted_before_epoch41(StacksEpochId::Epoch40, true, 1)]
+#[case::admitted_from_epoch41(StacksEpochId::Epoch41, true, 1 + 276)]
+#[case::rejected_before_epoch41(StacksEpochId::Epoch40, false, 1)]
+#[case::rejected_from_epoch41(StacksEpochId::Epoch41, false, 1 + 276)]
+fn test_trait_argument_type_check_cost(
+    #[case] epoch: StacksEpochId,
+    #[case] admitted: bool,
+    #[case] type_size: u64,
+) {
+    let trait_type = TypeSignature::CallableType(CallableSubtype::Trait(TraitIdentifier {
+        name: ClarityName::from_literal("trait-a"),
+        contract_identifier: QualifiedContractIdentifier::transient(),
+    }));
+    let function = FunctionType::Fixed(FixedFunction {
+        args: vec![FunctionArg {
+            signature: trait_type.clone(),
+            name: ClarityName::from_literal("t"),
+        }],
+        returns: BoolType,
+    });
+    let found = if admitted {
+        trait_type.clone()
+    } else {
+        UIntType
+    };
+
+    let mut tracker = LimitedCostTracker::new_with_limit(epoch, ExecutionCost::max_value());
+    let result = function.check_args_2_1(&mut tracker, epoch, &[found], ClarityVersion::Clarity2);
+    match result {
+        Ok(returns) => {
+            assert!(admitted);
+            assert_eq!(returns, BoolType);
+        }
+        Err(e) => {
+            assert!(!admitted);
+            assert!(
+                matches!(
+                    &*e.err,
+                    StaticCheckErrorKind::TypeError(expected, found)
+                        if **expected == trait_type && **found == UIntType
+                ),
+                "{e:?}"
+            );
+        }
+    }
+
+    let mut expected = LimitedCostTracker::new_with_limit(epoch, ExecutionCost::max_value());
+    runtime_cost(
+        ClarityCostFunction::AnalysisTypeCheck,
+        &mut expected,
+        type_size,
+    )
+    .unwrap();
+    assert_eq!(tracker.get_total(), expected.get_total());
 }
 
 /// Argument errors retain any computed cost, while arity-only checks omit costs.

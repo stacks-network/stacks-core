@@ -657,7 +657,7 @@ fn special_print(
     })?;
     let input = eval(arg, exec_state, invoke_ctx, context)?;
 
-    let input_size = input.as_ref().size_for_epoch(exec_state.epoch())?;
+    let input_size = input.as_ref().charged_size(exec_state.epoch())?;
     runtime_cost(ClarityCostFunction::Print, exec_state, input_size)?;
 
     if cfg!(feature = "developer-mode") {
