@@ -5,6 +5,7 @@ edition = "2024"
 
 [dependencies]
 stackslib = { package = "stackslib", path = "../../stackslib", default-features = false }
+stacks-marf = { path = "../../stacks-marf" }
 stacks-common = { path = "../../stacks-common" }
 clap = { version = "4.5.44", features = ["derive"] }
 rusqlite = { workspace = true }
