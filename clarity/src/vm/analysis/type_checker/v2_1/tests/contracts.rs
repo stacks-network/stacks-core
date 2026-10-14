@@ -574,7 +574,6 @@ fn test_contract_call_with_constant_variants_type_check(
 ) {
     let run_case = |contract_name: &str, contract_source: &str| -> Result<(), StaticCheckError> {
         let contract_a_id = QualifiedContractIdentifier::local("contract-a").unwrap();
-        let contract_b_id = QualifiedContractIdentifier::local("contract-b").unwrap();
         let contract_id = QualifiedContractIdentifier::local(contract_name).unwrap();
 
         let mut contract_a = parse(
@@ -1213,8 +1212,8 @@ fn test_trait_with_compatible_trait_arg() {
     (define-trait trait-b (
         (echo (<trait-2>) (response uint uint))
     ))
-    (define-public (wrapped-echo (contract <trait-a>))
-        (internal-echo contract))
+    (define-public (wrapped-echo (contract <trait-a>) (callee <trait-2>))
+        (internal-echo contract callee))
     (define-public (internal-echo (contract <trait-b>) (callee <trait-2>))
         (contract-call? contract echo callee))";
 
@@ -1251,8 +1250,8 @@ fn test_trait_with_bad_trait_arg() {
     (define-trait trait-b (
         (echo (<trait-2>) (response uint uint))
     ))
-    (define-public (wrapped-echo (contract <trait-a>))
-        (internal-echo contract))
+    (define-public (wrapped-echo (contract <trait-a>) (callee <trait-2>))
+        (internal-echo contract callee))
     (define-public (internal-echo (contract <trait-b>) (callee <trait-2>))
         (contract-call? contract echo callee))";
 
@@ -3253,8 +3252,8 @@ fn clarity_trait_experiments_mixed_list_to_traits_list(
 
 #[apply(test_clarity_versions)]
 fn clarity_trait_experiments_double_trait_method1_v1(
-    #[case] version: ClarityVersion,
-    #[case] epoch: StacksEpochId,
+    #[case] _version: ClarityVersion,
+    #[case] _epoch: StacksEpochId,
 ) {
     let mut marf = MemoryBackingStore::new();
     let mut db = marf.as_analysis_db();
@@ -3288,8 +3287,8 @@ fn clarity_trait_experiments_double_trait_method1_v1(
 
 #[apply(test_clarity_versions)]
 fn clarity_trait_experiments_double_trait_method2_v1(
-    #[case] version: ClarityVersion,
-    #[case] epoch: StacksEpochId,
+    #[case] _version: ClarityVersion,
+    #[case] _epoch: StacksEpochId,
 ) {
     let mut marf = MemoryBackingStore::new();
     let mut db = marf.as_analysis_db();
@@ -3324,8 +3323,8 @@ fn clarity_trait_experiments_double_trait_method2_v1(
 
 #[apply(test_clarity_versions)]
 fn clarity_trait_experiments_double_trait_method1_v1_v2(
-    #[case] version: ClarityVersion,
-    #[case] epoch: StacksEpochId,
+    #[case] _version: ClarityVersion,
+    #[case] _epoch: StacksEpochId,
 ) {
     let mut marf = MemoryBackingStore::new();
     let mut db = marf.as_analysis_db();
@@ -3359,8 +3358,8 @@ fn clarity_trait_experiments_double_trait_method1_v1_v2(
 
 #[apply(test_clarity_versions)]
 fn clarity_trait_experiments_double_trait_method2_v1_v2(
-    #[case] version: ClarityVersion,
-    #[case] epoch: StacksEpochId,
+    #[case] _version: ClarityVersion,
+    #[case] _epoch: StacksEpochId,
 ) {
     let mut marf = MemoryBackingStore::new();
     let mut db = marf.as_analysis_db();

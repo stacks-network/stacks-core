@@ -43,7 +43,7 @@ use clarity::types::chainstate::{
 use clarity::types::PrivateKey;
 use clarity::util::hash::Sha256Sum;
 use clarity::util::secp256k1::MessageSignature;
-use clarity::vm::types::{QualifiedContractIdentifier, TupleData};
+use clarity::vm::types::{BoundedErrorString, QualifiedContractIdentifier, TupleData};
 use clarity::vm::{ClarityName, Value};
 use serde::{Deserialize, Serialize};
 use stacks_common::codec::{
@@ -1052,6 +1052,7 @@ impl From<&RejectReason> for RejectReasonPrefix {
             RejectReason::ConsensusHashMismatch { .. } => RejectReasonPrefix::ConsensusHashMismatch,
             RejectReason::ProblematicTransactions => RejectReasonPrefix::ProblematicTransactions,
             RejectReason::ProposalTooOld => RejectReasonPrefix::ProposalTooOld,
+            RejectReason::RewardCycleRetired => RejectReasonPrefix::RewardCycleRetired,
             RejectReason::Unknown(_) => RejectReasonPrefix::Unknown,
             RejectReason::NotRejected => RejectReasonPrefix::NotRejected,
         }
@@ -1066,7 +1067,7 @@ pub enum RejectCode {
     /// No Sortition View to verify against
     NoSortitionView,
     /// The block was rejected due to connectivity issues with the signer
-    ConnectivityIssues(String),
+    ConnectivityIssues(BoundedErrorString),
     /// The block was rejected in a prior round
     RejectedInPriorRound,
     /// The block was rejected due to a mismatch with expected sortition view
@@ -1100,7 +1101,7 @@ pub enum RejectReason {
     /// No Sortition View to verify against
     NoSortitionView,
     /// The block was rejected due to connectivity issues with the signer
-    ConnectivityIssues(String),
+    ConnectivityIssues(BoundedErrorString),
     /// The block was rejected in a prior round
     RejectedInPriorRound,
     /// The block was rejected due to a mismatch with expected sortition view
@@ -1143,10 +1144,55 @@ pub enum RejectReason {
     /// The block proposal's header timestamp is older than the signer's
     /// configured `block_proposal_max_age_secs`
     ProposalTooOld,
+    /// A sortition has occurred in a reward cycle later than this signer
+    /// set's, so this set is no longer responsible for the proposed
+    /// tenure and will not sign for it
+    RewardCycleRetired,
     /// The block was approved, no rejection details needed
     NotRejected,
     /// Handle unknown codes gracefully
     Unknown(u8),
+}
+
+impl RejectReason {
+    /// Is this rejection transient, i.e. caused by the signer's view lagging
+    /// behind the network (e.g. it has not yet processed a new burn block, or
+    /// received a parent block or its peers' state updates)?
+    ///
+    /// Such rejections usually resolve within seconds, and signers re-evaluate
+    /// the block when it is proposed again, so a miner should re-propose it
+    /// promptly rather than wait for the full rejection timeout.
+    pub fn is_transient(&self) -> bool {
+        match self {
+            RejectReason::ValidationFailed(ValidateRejectCode::UnknownParent)
+            | RejectReason::ValidationFailed(ValidateRejectCode::NotFoundError)
+            | RejectReason::NoSortitionView
+            | RejectReason::ConnectivityIssues(_)
+            | RejectReason::ConsensusHashMismatch { .. }
+            | RejectReason::NoSignerConsensus => true,
+            RejectReason::ValidationFailed(_)
+            | RejectReason::RejectedInPriorRound
+            | RejectReason::SortitionViewMismatch
+            | RejectReason::TestingDirective
+            | RejectReason::ReorgNotAllowed
+            | RejectReason::InvalidBitvec
+            | RejectReason::PubkeyHashMismatch
+            | RejectReason::InvalidMiner
+            | RejectReason::NotLatestSortitionWinner
+            | RejectReason::InvalidParentBlock
+            | RejectReason::DuplicateBlockFound
+            // Resolves only once enough time has passed, not within seconds
+            | RejectReason::InvalidTenureExtend
+            | RejectReason::IrrecoverablePubkeyHash
+            | RejectReason::ProblematicTransactions
+            | RejectReason::ProposalTooOld
+            // Resolves only if a burnchain reorg orphans the later-cycle sortition
+            | RejectReason::RewardCycleRetired
+            | RejectReason::NotRejected
+            // A reason from a newer signer; its nature cannot be known
+            | RejectReason::Unknown(_) => false,
+        }
+    }
 }
 
 /// Enum representing the reject details type prefix
@@ -1196,6 +1242,9 @@ pub enum RejectReasonPrefix {
     /// The block proposal's header timestamp is older than the signer's
     /// configured `block_proposal_max_age_secs`
     ProposalTooOld = 18,
+    /// A sortition has occurred in a reward cycle later than this signer
+    /// set's, so this set is no longer responsible for the proposed tenure
+    RewardCycleRetired = 19,
     /// Unknown reject code, for forward compatibility
     Unknown = 254,
     /// The block was approved, no rejection details needed
@@ -1225,6 +1274,7 @@ impl RejectReasonPrefix {
             Self::ConsensusHashMismatch => 16,
             Self::ProblematicTransactions => 17,
             Self::ProposalTooOld => 18,
+            Self::RewardCycleRetired => 19,
             Self::Unknown => 254,
             Self::NotRejected => 255,
         }
@@ -1253,6 +1303,7 @@ impl From<u8> for RejectReasonPrefix {
             16 => Self::ConsensusHashMismatch,
             17 => Self::ProblematicTransactions,
             18 => Self::ProposalTooOld,
+            19 => Self::RewardCycleRetired,
             255 => Self::NotRejected,
             // For forward compatibility, all other values are unknown
             _ => Self::Unknown,
@@ -1693,7 +1744,7 @@ impl BlockAccepted {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct BlockRejection {
     /// The reason for the rejection
-    pub reason: String,
+    pub reason: BoundedErrorString,
     /// The reason code for the rejection
     pub reason_code: RejectCode,
     /// The signer signature hash of the block that was rejected
@@ -1724,7 +1775,7 @@ impl BlockRejection {
             CHAIN_ID_TESTNET
         };
         let mut rejection = Self {
-            reason: reject_reason.to_string(),
+            reason: BoundedErrorString::from_display(&reject_reason),
             reason_code: (&reject_reason).into(),
             signer_signature_hash,
             signature: MessageSignature::empty(),
@@ -1833,6 +1884,7 @@ impl StacksMessageCodec for BlockRejection {
         let reason = String::from_utf8(reason_bytes).map_err(|e| {
             CodecError::DeserializeError(format!("Failed to decode reason string: {:?}", e))
         })?;
+        let reason = BoundedErrorString::from_display(&reason);
         let reason_code = read_next::<RejectCode, _>(fd)?;
         let signer_signature_hash = read_next::<Sha512Trunc256Sum, _>(fd)?;
         let chain_id = read_next::<u32, _>(fd)?;
@@ -1881,7 +1933,7 @@ impl StacksMessageCodec for RejectCode {
                 })?,
             ),
             RejectCodeTypePrefix::ConnectivityIssues => {
-                RejectCode::ConnectivityIssues("unspecified".to_string())
+                RejectCode::ConnectivityIssues("unspecified".into())
             }
             RejectCodeTypePrefix::RejectedInPriorRound => RejectCode::RejectedInPriorRound,
             RejectCodeTypePrefix::NoSortitionView => RejectCode::NoSortitionView,
@@ -1919,6 +1971,7 @@ impl StacksMessageCodec for RejectReason {
             | RejectReason::NoSignerConsensus
             | RejectReason::ProblematicTransactions
             | RejectReason::ProposalTooOld
+            | RejectReason::RewardCycleRetired
             | RejectReason::Unknown(_)
             | RejectReason::NotRejected => {
                 // No additional data to serialize / deserialize
@@ -1942,7 +1995,7 @@ impl StacksMessageCodec for RejectReason {
                 })?,
             ),
             RejectReasonPrefix::ConnectivityIssues => {
-                RejectReason::ConnectivityIssues("unspecified".to_string())
+                RejectReason::ConnectivityIssues("unspecified".into())
             }
             RejectReasonPrefix::RejectedInPriorRound => RejectReason::RejectedInPriorRound,
             RejectReasonPrefix::NoSortitionView => RejectReason::NoSortitionView,
@@ -1965,6 +2018,7 @@ impl StacksMessageCodec for RejectReason {
             }
             RejectReasonPrefix::ProblematicTransactions => RejectReason::ProblematicTransactions,
             RejectReasonPrefix::ProposalTooOld => RejectReason::ProposalTooOld,
+            RejectReasonPrefix::RewardCycleRetired => RejectReason::RewardCycleRetired,
             RejectReasonPrefix::Unknown => RejectReason::Unknown(type_prefix_byte),
             RejectReasonPrefix::NotRejected => RejectReason::NotRejected,
         };
@@ -2077,6 +2131,12 @@ impl std::fmt::Display for RejectReason {
                     "The block proposal's header timestamp is older than the maximum proposal age."
                 )
             }
+            RejectReason::RewardCycleRetired => {
+                write!(
+                    f,
+                    "A sortition has occurred in a later reward cycle; this signer set no longer signs for the proposed tenure."
+                )
+            }
             RejectReason::NoSignerConsensus => {
                 write!(f, "No signer consensus reached.")
             }
@@ -2138,6 +2198,35 @@ mod test {
     }
 
     #[test]
+    fn transient_reject_reasons() {
+        let transient = [
+            RejectReason::ValidationFailed(ValidateRejectCode::UnknownParent),
+            RejectReason::ValidationFailed(ValidateRejectCode::NotFoundError),
+            RejectReason::NoSortitionView,
+            RejectReason::ConnectivityIssues("test".into()),
+            RejectReason::ConsensusHashMismatch {
+                expected: ConsensusHash([0x01; 20]),
+                actual: ConsensusHash([0x02; 20]),
+            },
+            RejectReason::NoSignerConsensus,
+        ];
+        let not_transient = [
+            RejectReason::ValidationFailed(ValidateRejectCode::InvalidBlock),
+            RejectReason::TestingDirective,
+            RejectReason::InvalidTenureExtend,
+            RejectReason::RewardCycleRetired,
+            RejectReason::NotRejected,
+            RejectReason::Unknown(0xff),
+        ];
+        for reason in &transient {
+            assert!(reason.is_transient(), "{reason:?}");
+        }
+        for reason in &not_transient {
+            assert!(!reason.is_transient(), "{reason:?}");
+        }
+    }
+
+    #[test]
     fn serde_reject_code() {
         let code = RejectCode::ValidationFailed(ValidateRejectCode::InvalidBlock);
         let serialized_code = code.serialize_to_vec();
@@ -2145,7 +2234,7 @@ mod test {
             .expect("Failed to deserialize RejectCode");
         assert_eq!(code, deserialized_code);
 
-        let code = RejectCode::ConnectivityIssues("unspecified".to_string());
+        let code = RejectCode::ConnectivityIssues("unspecified".into());
         let serialized_code = code.serialize_to_vec();
         let deserialized_code = read_next::<RejectCode, _>(&mut &serialized_code[..])
             .expect("Failed to deserialize RejectCode");
@@ -2169,7 +2258,7 @@ mod test {
 
         let rejection = BlockRejection::new(
             Sha512Trunc256Sum([1u8; 32]),
-            RejectReason::ConnectivityIssues("unspecified".to_string()),
+            RejectReason::ConnectivityIssues("unspecified".into()),
             &StacksPrivateKey::random(),
             thread_rng().gen_bool(0.5),
             thread_rng().next_u64(),
@@ -2384,7 +2473,7 @@ mod test {
             block_rejected,
             SignerMessage::BlockResponse(BlockResponse::Rejected(BlockRejection {
                 reason_code: RejectCode::ValidationFailed(ValidateRejectCode::NoSuchTenure),
-                reason: "Block is not a tenure-start block, and has an unrecognized tenure consensus hash".to_string(),
+                reason: "Block is not a tenure-start block, and has an unrecognized tenure consensus hash".into(),
                 signer_signature_hash: Sha512Trunc256Sum::from_hex("91f95f84b7045f7dce7757052caa986ef042cb58f7df5031a3b5b5d0e3dda63e").unwrap(),
                 chain_id: CHAIN_ID_TESTNET,
                 signature: MessageSignature::from_hex("006fb349212e1a1af1a3c712878d5159b5ec14636adb6f70be00a6da4ad4f88a9934d8a9abb229620dd8e0f225d63401e36c64817fb29e6c05591dcbe95c512df3").unwrap(),
@@ -2422,7 +2511,7 @@ mod test {
             block_rejected,
             SignerMessage::BlockResponse(BlockResponse::Rejected(BlockRejection {
                 reason_code: RejectCode::ValidationFailed(ValidateRejectCode::NoSuchTenure),
-                reason: "Block is not a tenure-start block, and has an unrecognized tenure consensus hash".to_string(),
+                reason: "Block is not a tenure-start block, and has an unrecognized tenure consensus hash".into(),
                 signer_signature_hash: Sha512Trunc256Sum::from_hex("91f95f84b7045f7dce7757052caa986ef042cb58f7df5031a3b5b5d0e3dda63e").unwrap(),
                 chain_id: CHAIN_ID_TESTNET,
                 signature: MessageSignature::from_hex("006fb349212e1a1af1a3c712878d5159b5ec14636adb6f70be00a6da4ad4f88a9934d8a9abb229620dd8e0f225d63401e36c64817fb29e6c05591dcbe95c512df3").unwrap(),
@@ -2523,6 +2612,36 @@ mod test {
             fd.write_all(&inner_bytes).map_err(CodecError::WriteError)?;
             Ok(())
         }
+    }
+
+    #[test]
+    fn reward_cycle_retired_round_trips() {
+        // Pin the wire code: it is part of the protocol as soon as a signer sends one.
+        assert_eq!(
+            RejectReasonPrefix::from(&RejectReason::RewardCycleRetired).to_u8(),
+            19
+        );
+
+        let mut bytes = vec![];
+        RejectReason::RewardCycleRetired
+            .consensus_serialize(&mut bytes)
+            .unwrap();
+        assert_eq!(bytes, vec![19], "the reason carries no additional data");
+        assert_eq!(
+            read_next::<RejectReason, _>(&mut bytes.as_slice()).unwrap(),
+            RejectReason::RewardCycleRetired
+        );
+
+        // A peer that predates the variant reads the byte through this arm rather than
+        // failing to parse the rejection, which is what makes adding one safe.
+        assert_eq!(
+            RejectReasonPrefix::from(19u8),
+            RejectReasonPrefix::RewardCycleRetired
+        );
+        assert_eq!(
+            read_next::<RejectReason, _>(&mut [20u8].as_slice()).unwrap(),
+            RejectReason::Unknown(20)
+        );
     }
 
     #[test]
@@ -2956,7 +3075,7 @@ mod test {
             (
                 SignerMessage::BlockResponse(BlockResponse::Rejected(BlockRejection {
                     reason_code: RejectCode::ValidationFailed(ValidateRejectCode::NoSuchTenure),
-                    reason: "Block is not a tenure-start block, and has an unrecognized tenure consensus hash".to_string(),
+                    reason: "Block is not a tenure-start block, and has an unrecognized tenure consensus hash".into(),
                     signer_signature_hash: Sha512Trunc256Sum::from_hex("91f95f84b7045f7dce7757052caa986ef042cb58f7df5031a3b5b5d0e3dda63e").unwrap(),
                     chain_id: CHAIN_ID_TESTNET,
                     signature: MessageSignature::from_hex("006fb349212e1a1af1a3c712878d5159b5ec14636adb6f70be00a6da4ad4f88a9934d8a9abb229620dd8e0f225d63401e36c64817fb29e6c05591dcbe95c512df3").unwrap(),

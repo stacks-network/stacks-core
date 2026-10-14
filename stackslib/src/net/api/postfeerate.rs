@@ -75,7 +75,7 @@ pub struct RPCFeeEstimateResponse {
     pub cost_scalar_change_by_byte: f64,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Default)]
 pub struct RPCPostFeeRateRequestHandler {
     pub estimated_len: Option<u64>,
     pub transaction_payload: Option<TransactionPayload>,
@@ -249,7 +249,7 @@ impl RPCRequestHandler for RPCPostFeeRateRequestHandler {
         let data_resp = match data_resp {
             Ok(data) => data,
             Err(response) => {
-                return response.try_into_contents().map_err(NetError::from);
+                return response.try_into_contents();
             }
         };
 
@@ -267,7 +267,7 @@ impl HttpResponse for RPCPostFeeRateRequestHandler {
         body: &[u8],
     ) -> Result<HttpResponsePayload, Error> {
         let fee: RPCFeeEstimateResponse = parse_json(preamble, body)?;
-        Ok(HttpResponsePayload::try_from_json(fee)?)
+        HttpResponsePayload::try_from_json(fee)
     }
 }
 

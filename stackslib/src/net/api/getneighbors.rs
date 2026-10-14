@@ -29,7 +29,7 @@ use crate::net::httpcore::{RPCRequestHandler, StacksHttpRequest, StacksHttpRespo
 use crate::net::p2p::PeerNetwork;
 use crate::net::{Error as NetError, NeighborKey, StacksNodeState, MAX_NEIGHBORS_DATA_LEN};
 
-#[derive(Clone)]
+#[derive(Clone, Default)]
 pub struct RPCNeighborsRequestHandler {}
 impl RPCNeighborsRequestHandler {
     pub fn new() -> Self {
@@ -272,7 +272,7 @@ impl HttpResponse for RPCNeighborsRequestHandler {
         body: &[u8],
     ) -> Result<HttpResponsePayload, Error> {
         let neighbor_info: RPCNeighborsInfo = parse_json(preamble, body)?;
-        Ok(HttpResponsePayload::try_from_json(neighbor_info)?)
+        HttpResponsePayload::try_from_json(neighbor_info)
     }
 }
 

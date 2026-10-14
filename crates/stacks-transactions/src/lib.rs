@@ -35,19 +35,26 @@
 
 use std::collections::{HashMap, HashSet};
 
-use clarity_types::Value;
 use clarity_types::effects::{AssetMap, AssetMapEntry};
 use clarity_types::types::serialization::SerializationError;
 use clarity_types::types::{
-    AssetIdentifier, PrincipalData, QualifiedContractIdentifier, StandardPrincipalData,
+    AssetIdentifier, BoundedErrorString, PrincipalData, QualifiedContractIdentifier,
+    StandardPrincipalData,
 };
+use clarity_types::{ClarityVersion, Value};
 use stacks_codec::transaction::{
-    NonfungibleConditionCode, TransactionPostCondition, TransactionPostConditionMode,
+    NonfungibleConditionCode, TransactionPayload, TransactionPostCondition,
+    TransactionPostConditionMode,
 };
+use stacks_common::bounded_format;
 use stacks_common::types::StacksEpochId;
 
 #[cfg(test)]
+mod contract_name_tests;
+#[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod version_tests;
 
 /// This is a safe-to-hash Clarity value
 #[derive(PartialEq, Eq)]
@@ -136,13 +143,161 @@ pub fn check_post_conditions_supported_in_epoch(
     Ok(())
 }
 
+/// Why a versioned smart-contract deploy is not valid in a given epoch. Typed
+/// rather than a formatted message so callers keep their own error channel.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum UnsupportedVersionedDeploy {
+    /// From Epoch 4.1 deploys may not pin a version: new contracts always use
+    /// the epoch default.
+    NotAccepted {
+        requested: ClarityVersion,
+        epoch_default: ClarityVersion,
+    },
+    /// The pinned version is newer than the epoch supports.
+    VersionTooNew {
+        requested: ClarityVersion,
+        epoch_id: StacksEpochId,
+        max: ClarityVersion,
+    },
+}
+
+impl std::fmt::Display for UnsupportedVersionedDeploy {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::NotAccepted {
+                requested,
+                epoch_default,
+            } => write!(
+                f,
+                "pins {requested}, but versioned smart-contract deploys are not accepted since Stacks 4.1; an unversioned deploy gets {epoch_default}"
+            ),
+            Self::VersionTooNew {
+                requested,
+                epoch_id,
+                max,
+            } => write!(
+                f,
+                "asks for {requested}, but current epoch {epoch_id} only supports up to {max}"
+            ),
+        }
+    }
+}
+
+impl std::error::Error for UnsupportedVersionedDeploy {}
+
+/// Reject a smart-contract deploy that pins `clarity_version` when `epoch_id`
+/// no longer accepts versioned deploys (from Epoch 4.1) or does not know that
+/// version yet. Unversioned deploys get the epoch default Clarity version.
+/// Versioned deploys before Epoch 2.1 are rejected by static block validation,
+/// not here.
+pub fn check_versioned_deploy_supported_in_epoch(
+    clarity_version: ClarityVersion,
+    epoch_id: StacksEpochId,
+) -> Result<(), UnsupportedVersionedDeploy> {
+    let epoch_default = ClarityVersion::default_for_epoch(epoch_id);
+    if epoch_id.rejects_versioned_smart_contracts() {
+        return Err(UnsupportedVersionedDeploy::NotAccepted {
+            requested: clarity_version,
+            epoch_default,
+        });
+    }
+    if clarity_version > epoch_default {
+        return Err(UnsupportedVersionedDeploy::VersionTooNew {
+            requested: clarity_version,
+            epoch_id,
+            max: epoch_default,
+        });
+    }
+    Ok(())
+}
+
+/// Which transaction field carries a contract principal whose name is longer
+/// than 40 bytes, which is not valid from Epoch 4.1. Typed rather than a
+/// formatted message so callers keep their own error channel.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum OverlongContractName {
+    TokenTransferRecipient,
+    ContractCallArgument,
+    CoinbaseRecipient,
+    NonfungiblePostCondition,
+}
+
+impl std::fmt::Display for OverlongContractName {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let field = match self {
+            Self::TokenTransferRecipient => "Token transfer recipient",
+            Self::ContractCallArgument => "Contract call argument",
+            Self::CoinbaseRecipient => "Coinbase recipient",
+            Self::NonfungiblePostCondition => "NFT post-condition asset value",
+        };
+        write!(
+            f,
+            "{field} contains a contract name longer than 40 bytes, which is not supported since Stacks 4.1"
+        )
+    }
+}
+
+impl std::error::Error for OverlongContractName {}
+
+/// Reject a transaction that introduces a contract principal whose name is
+/// longer than 40 bytes when `epoch_id` enforces the contract-name length limit
+/// (from Epoch 4.1).
+///
+/// The transaction codec decodes principals inside Clarity values, token-transfer
+/// recipients, and coinbase recipients with the legacy 128-byte name limit, so
+/// the epoch rule is applied here rather than in the codec. Contract names that
+/// the codec reads as a bare `ContractName` (call targets, deploys, post-condition
+/// principals and asset identifiers) are already limited to 40 bytes.
+pub fn check_contract_names_supported_in_epoch(
+    payload: &TransactionPayload,
+    post_conditions: &[TransactionPostCondition],
+    epoch_id: StacksEpochId,
+) -> Result<(), OverlongContractName> {
+    if !epoch_id.enforces_contract_name_length_limit() {
+        return Ok(());
+    }
+
+    // The codec caps decoded values at `MAX_TYPE_DEPTH`, so a too-deep error is
+    // not expected here; reject rather than accept a value we could not check.
+    let has_overlong = |value: &Value| value.contains_overlong_contract_name().unwrap_or(true);
+
+    match payload {
+        TransactionPayload::TokenTransfer(recipient, ..)
+            if recipient.has_overlong_contract_name() =>
+        {
+            return Err(OverlongContractName::TokenTransferRecipient);
+        }
+        TransactionPayload::ContractCall(call) if call.function_args.iter().any(has_overlong) => {
+            return Err(OverlongContractName::ContractCallArgument);
+        }
+        TransactionPayload::Coinbase(_, Some(recipient), _)
+            if recipient.has_overlong_contract_name() =>
+        {
+            return Err(OverlongContractName::CoinbaseRecipient);
+        }
+        _ => {}
+    }
+
+    if post_conditions.iter().any(|pc| {
+        matches!(
+            pc,
+            TransactionPostCondition::Nonfungible(_, _, value, _)
+                if has_overlong(value)
+        )
+    }) {
+        return Err(OverlongContractName::NonfungiblePostCondition);
+    }
+
+    Ok(())
+}
+
 /// Apply a post-conditions check.
 /// Return `Ok(None)` if the check passes.
 /// Return `Ok(Some(reason))` if the check fails.
 /// Return `Err` if a non-fungible asset value cannot be serialized, which is
 /// required in order to hash it for comparison.
 ///
-/// TODO: return a typed reason rather than a `String`. It becomes
+/// TODO: return a typed reason rather than a formatted message. It becomes
 /// `StacksTransactionReceipt::vm_error`, which reaches the `new_block` event
 /// payload and the `/v3/blocks/{replay,simulate}` RPC, so changing it is an
 /// observable API change.
@@ -152,7 +307,7 @@ pub fn check_transaction_postconditions(
     origin_principal: &PrincipalData,
     asset_map: &AssetMap,
     epoch_id: StacksEpochId,
-) -> Result<Option<String>, SerializationError> {
+) -> Result<Option<BoundedErrorString>, SerializationError> {
     let mut checked_fungible_assets: HashMap<PrincipalData, HashSet<AssetIdentifier>> =
         HashMap::new();
     let mut checked_nonfungible_assets: HashMap<
@@ -187,7 +342,7 @@ pub fn check_transaction_postconditions(
                     .expect("FATAL: sent waaaaay too much STX");
 
                 if !condition_code.check(u128::from(*amount_sent_condition), amount_sent) {
-                    let reason = format!(
+                    let reason = bounded_format!(
                         "Post-condition check failure on STX owned by {account_principal}: {amount_sent_condition:?} {condition_code:?} {amount_sent}",
                     );
                     return Ok(Some(reason));
@@ -231,7 +386,7 @@ pub fn check_transaction_postconditions(
                     .get_fungible_tokens(&account_principal, &asset_id)
                     .unwrap_or(0);
                 if !condition_code.check(u128::from(*amount_sent_condition), amount_sent) {
-                    let reason = format!(
+                    let reason = bounded_format!(
                         "Post-condition check failure on fungible asset {asset_id} owned by {account_principal}: {amount_sent_condition} {condition_code:?} {amount_sent}"
                     );
                     return Ok(Some(reason));
@@ -266,8 +421,10 @@ pub fn check_transaction_postconditions(
                     .get_nonfungible_tokens(&account_principal, &asset_id)
                     .unwrap_or(&empty_assets);
                 if !condition_code.check(asset_value, assets_sent) {
-                    let reason = format!(
-                        "Post-condition check failure on non-fungible asset {asset_id} owned by {account_principal}: {asset_value:?} {condition_code:?} {assets_sent:?}"
+                    let reason = bounded_format!(
+                        "Post-condition check failure on non-fungible asset {asset_id} owned by {account_principal}: {} {condition_code:?} (sent {} value(s))",
+                        asset_value.to_error_string(),
+                        assets_sent.len(),
                     );
                     return Ok(Some(reason));
                 }
@@ -300,7 +457,7 @@ pub fn check_transaction_postconditions(
                 let amount_staked = asset_map.get_stacking(&account_principal).unwrap_or(0);
 
                 if !condition_code.check(u128::from(*amount_staked_condition), amount_staked) {
-                    let reason = format!(
+                    let reason = bounded_format!(
                         "Post-condition check failure on STX staked by {account_principal}: {amount_staked_condition:?} {condition_code:?} {amount_staked}",
                     );
                     return Ok(Some(reason));
@@ -314,7 +471,7 @@ pub fn check_transaction_postconditions(
                 let performed = asset_map.did_pox_action(&account_principal);
 
                 if !condition_code.check(performed) {
-                    let reason = format!(
+                    let reason = bounded_format!(
                         "Post-condition check failure on PoX action by {account_principal}: {condition_code:?} performed={performed}",
                     );
                     return Ok(Some(reason));
@@ -343,22 +500,23 @@ pub fn check_transaction_postconditions(
                             // each value must be covered
                             for v in values {
                                 if !nfts.contains(&v.clone().try_into()?) {
-                                    let reason = format!(
-                                        "Post-condition check failure: Non-fungible asset {asset_identifier} value {v:?} was moved by {principal} but not checked"
+                                    let reason = bounded_format!(
+                                        "Post-condition check failure: Non-fungible asset {asset_identifier} value {} was moved by {principal} but not checked",
+                                        v.to_error_string(),
                                     );
                                     return Ok(Some(reason));
                                 }
                             }
                         } else {
                             // no values covered
-                            let reason = format!(
+                            let reason = bounded_format!(
                                 "Post-condition check failure: Non-fungible asset {asset_identifier} was moved by {principal} but not checked"
                             );
                             return Ok(Some(reason));
                         }
                     } else {
                         // no NFT for this principal
-                        let reason = format!(
+                        let reason = bounded_format!(
                             "Post-condition check failure: No checks for non-fungible asset {asset_identifier} moved by {principal}"
                         );
                         return Ok(Some(reason));
@@ -368,13 +526,13 @@ pub fn check_transaction_postconditions(
                     // This is STX or a fungible token
                     if let Some(checked_ft_asset_ids) = checked_fungible_assets.get(&principal) {
                         if !checked_ft_asset_ids.contains(&asset_identifier) {
-                            let reason = format!(
+                            let reason = bounded_format!(
                                 "Post-condition check failure: Fungible asset {asset_identifier} was moved by {principal} but not checked"
                             );
                             return Ok(Some(reason));
                         }
                     } else {
-                        let reason = format!(
+                        let reason = bounded_format!(
                             "Post-condition check failure: Fungible asset {asset_identifier} was moved by {principal} but not checked"
                         );
                         return Ok(Some(reason));
@@ -399,7 +557,7 @@ pub fn check_transaction_postconditions(
                 continue;
             }
             if !checked_staking.contains(principal) {
-                let reason = format!(
+                let reason = bounded_format!(
                     "Post-condition check failure: {amount_staked} STX was staked by {principal} but not checked"
                 );
                 return Ok(Some(reason));
@@ -411,7 +569,7 @@ pub fn check_transaction_postconditions(
                 continue;
             }
             if !checked_pox.contains(principal) {
-                let reason = format!(
+                let reason = bounded_format!(
                     "Post-condition check failure: {principal} performed a PoX action but it was not checked"
                 );
                 return Ok(Some(reason));

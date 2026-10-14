@@ -30,8 +30,8 @@ use std::path::Path;
 
 use serde::{Deserialize, Serialize};
 use stacks_common::types::chainstate::{SortitionId, StacksBlockId};
-use stackslib::chainstate::stacks::index::marf::{MARF, MARFOpenOpts, MarfConnection};
-use stackslib::chainstate::stacks::index::{MarfTrieId, trie_sql};
+use stacks_marf::marf::{MARF, MARFOpenOpts, MarfConnection};
+use stacks_marf::{MarfTrieId, trie_sql};
 use stackslib::util_lib::db::sqlite_open;
 
 use crate::checksums::{compute_aggregate_checksum, compute_checksums};
@@ -251,7 +251,6 @@ fn assert_squash_tip<T: MarfTrieId + std::fmt::Display>(label: &str, actual: &T,
 /// and sortition tips equal the resolved anchor tips (`expected_stacks_tip`,
 /// `expected_sortition_tip`). Returns `(clarity, index, sortition)`. Exits on any
 /// mismatch.
-#[allow(clippy::type_complexity)]
 fn read_all_marf_metadata(
     inputs: &ManifestInputs,
 ) -> (

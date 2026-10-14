@@ -1,0 +1,56 @@
+# Bitcoin signet miner template. Supply your Stacks network's launch parameters,
+# bootstrap peers, and signer set; this file alone does not launch a network.
+# See docs/bitcoin-signet.md, especially for launches on an existing Bitcoin signet.
+
+[node]
+# Use a new working directory for a different deployment or signet challenge.
+working_dir = "/tmp/stacks-signet-miner"
+rpc_bind = "127.0.0.1:20443"
+p2p_bind = "127.0.0.1:20444"
+prometheus_bind = "127.0.0.1:9153"
+miner = true
+mine_microblocks = false
+stacker = false
+# Required: your own persistent 32-byte hex seed. Back it up before funding.
+seed = "<YOUR_SEED>"
+# bootstrap_node = "<PEER_PUBLIC_KEY>@<HOST>:20444"
+# Before Epoch 4.0, set your deployment's agreed PoX-5 contracts:
+# pox_5_sbtc_contract = "<DEPLOYER>.sbtc-token"
+# pox_5_sbtc_registry_contract = "<DEPLOYER>.sbtc-registry"
+
+[burnchain]
+mode = "signet"
+# All nodes, signers, and clients must agree; the default is 0x80000001.
+# chain_id = 0x80000100
+# magic_bytes = "S2"
+peer_host = "127.0.0.1"
+peer_port = 38333
+rpc_port = 38332
+username = "stacks-signet"
+password = "replace-with-a-local-password"
+# Omit for public signet. Custom signet must match Core's signetchallenge:
+# signet_challenge = "51"
+# Precreate this watch-only descriptor wallet, import the miner's addresses,
+# and fund them with signet BTC. Stacks loads the existing wallet when needed.
+# Optional: set wallet=stacks-signet-miner in bitcoin.conf to load it at Core startup.
+wallet_name = "stacks-signet-miner"
+# Example commitment budget (sats) and transaction fee rate (sats/vB).
+# Adjust to your funding and Core's fee policy; PoX outputs must clear dust limits.
+burn_fee_cap = 20000
+satoshis_per_byte = 2
+
+[miner]
+segwit = true
+# The mining key defaults to node.seed. If overriding, fund both mining keys.
+# mining_key = "<HEX_PRIVATE_KEY>"
+# Persist the registered VRF key across restarts within this deployment.
+activated_vrf_key_path = "/tmp/stacks-signet-miner/activated-vrf-key.json"
+
+[connection_options]
+# Must match the connected signer's auth_password.
+auth_token = "replace-with-a-local-signer-token"
+
+# Match your signer's listening endpoint. This does not register or stake signers.
+[[events_observer]]
+endpoint = "127.0.0.1:30000"
+events_keys = ["stackerdb", "block_proposal", "burn_blocks"]

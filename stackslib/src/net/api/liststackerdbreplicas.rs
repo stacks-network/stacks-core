@@ -32,7 +32,7 @@ use crate::net::{Error as NetError, NeighborAddress, StacksNodeState};
 /// Largest number of replicas returned
 pub const MAX_LIST_REPLICAS: usize = 64;
 
-#[derive(Clone)]
+#[derive(Clone, Default)]
 pub struct RPCListStackerDBReplicasRequestHandler {
     pub contract_identifier: Option<QualifiedContractIdentifier>,
 }
@@ -140,7 +140,7 @@ impl RPCRequestHandler for RPCListStackerDBReplicasRequestHandler {
                 })
                 .collect::<Vec<_>>(),
             Err(response) => {
-                return response.try_into_contents().map_err(NetError::from);
+                return response.try_into_contents();
             }
         };
 
@@ -169,7 +169,7 @@ impl HttpResponse for RPCListStackerDBReplicasRequestHandler {
         body: &[u8],
     ) -> Result<HttpResponsePayload, Error> {
         let metadata: Vec<NeighborAddress> = parse_json(preamble, body)?;
-        Ok(HttpResponsePayload::try_from_json(metadata)?)
+        HttpResponsePayload::try_from_json(metadata)
     }
 }
 

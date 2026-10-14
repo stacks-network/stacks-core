@@ -26,6 +26,7 @@ use clarity::vm::representations::ContractName;
 use clarity::vm::types::{
     PrincipalData, QualifiedContractIdentifier, StandardPrincipalData, Value,
 };
+#[cfg(test)]
 use clarity::vm::ClarityVersion;
 use rusqlite::Error as RusqliteError;
 use serde::{Deserialize, Serialize};
@@ -47,8 +48,8 @@ use stacks_common::util::vrf::VRFProof;
 
 use crate::burnchains::Txid;
 use crate::chainstate::burn::ConsensusHash;
-use crate::chainstate::stacks::db::accounts::MinerReward;
-use crate::chainstate::stacks::db::{MinerRewardInfo, StacksHeaderInfo};
+use crate::chainstate::stacks::db::accounts::MaturedMinerPayouts;
+use crate::chainstate::stacks::db::StacksHeaderInfo;
 use crate::chainstate::stacks::index::Error as marf_error;
 use crate::clarity_vm::clarity::ClarityError;
 use crate::net::Error as net_error;
@@ -61,7 +62,10 @@ pub mod block;
 pub mod boot;
 pub mod db;
 pub mod events;
-pub mod index;
+/// The MARF now lives in the `stacks-marf` crate. Re-exported under its historical
+/// path so that existing `crate::chainstate::stacks::index::...` call sites keep
+/// resolving; they move to `stacks_marf::...` in follow-up patches.
+pub use stacks_marf as index;
 pub mod miner;
 pub mod sbtc;
 pub mod transaction;
@@ -79,6 +83,17 @@ pub const STACKS_BLOCK_VERSION: u8 = 7;
 pub const STACKS_BLOCK_VERSION_AST_PRECHECK_SIZE: u8 = 1;
 
 pub use stacks_codec::transaction::{MAX_BLOCK_LEN, MAX_TRANSACTION_LEN};
+
+/// Cost measurements captured when transaction execution exceeds its budget.
+#[derive(Debug)]
+pub struct CostOverflowContext {
+    /// Cost consumed before executing the transaction.
+    pub before: ExecutionCost,
+    /// Cost consumed after executing the transaction.
+    pub after: ExecutionCost,
+    /// Maximum cost permitted for the block.
+    pub budget: ExecutionCost,
+}
 
 #[derive(Debug)]
 pub enum Error {
@@ -105,7 +120,7 @@ pub enum Error {
     NoTransactionsToMine,
     MicroblockStreamTooLongError,
     IncompatibleSpendingConditionError,
-    CostOverflowError(ExecutionCost, ExecutionCost, ExecutionCost),
+    CostOverflowError(Box<CostOverflowContext>),
     /// Errors that occur during clarity contract processing and execution
     ClarityError(ClarityError),
     DBError(db_error),
@@ -194,12 +209,12 @@ impl fmt::Display for Error {
             Error::IncompatibleSpendingConditionError => {
                 write!(f, "Spending condition is incompatible with this operation")
             }
-            Error::CostOverflowError(ref c1, ref c2, ref c3) => write!(
+            Error::CostOverflowError(ref context) => write!(
                 f,
                 "{}",
                 &format!(
                     "Cost overflow: before={:?}, after={:?}, budget={:?}",
-                    c1, c2, c3
+                    context.before, context.after, context.budget
                 )
             ),
             Error::ClarityError(ref e) => fmt::Display::fmt(e, f),
@@ -403,28 +418,37 @@ impl Error {
     ) -> Error {
         match err {
             CostErrors::CostBalanceExceeded(used, budget) => {
-                Error::CostOverflowError(cost_before, used, budget)
+                Error::CostOverflowError(Box::new(CostOverflowContext {
+                    before: cost_before,
+                    after: used,
+                    budget,
+                }))
             }
             _ => {
                 let cur_cost = context.cost_track.get_total();
                 let budget = context.cost_track.get_limit();
-                Error::CostOverflowError(cost_before, cur_cost, budget)
+                Error::CostOverflowError(Box::new(CostOverflowContext {
+                    before: cost_before,
+                    after: cur_cost,
+                    budget,
+                }))
             }
         }
     }
 }
 
 pub use stacks_codec::transaction::{
-    AssetInfo, AssetInfoID, AuthError, CoinbasePayload, FungibleConditionCode, MultisigHashMode,
-    MultisigSpendingCondition, NonfungibleConditionCode, OrderIndependentMultisigHashMode,
-    OrderIndependentMultisigSpendingCondition, PostConditionPrincipal, PostConditionPrincipalID,
-    PoxConditionCode, SinglesigHashMode, SinglesigSpendingCondition, StacksMicroblockHeader,
-    StacksTransaction, TenureChangeCause, TenureChangeError, TenureChangePayload,
-    TokenTransferMemo, TransactionAnchorMode, TransactionAuth, TransactionAuthField,
-    TransactionAuthFieldID, TransactionAuthFlags, TransactionAuthVerificationMode,
-    TransactionContractCall, TransactionPayload, TransactionPayloadID, TransactionPostCondition,
-    TransactionPostConditionMode, TransactionPublicKeyEncoding, TransactionSmartContract,
-    TransactionSpendingCondition, TransactionVersion,
+    AssetInfo, AssetInfoID, AuthError, CoinbasePayload, FungibleConditionCode,
+    MicroblockSignerMatch, MultisigHashMode, MultisigSpendingCondition, NonfungibleConditionCode,
+    OrderIndependentMultisigHashMode, OrderIndependentMultisigSpendingCondition,
+    PostConditionPrincipal, PostConditionPrincipalID, PoxConditionCode, SinglesigHashMode,
+    SinglesigSpendingCondition, StacksMicroblockHeader, StacksTransaction, TenureChangeCause,
+    TenureChangeError, TenureChangePayload, TokenTransferMemo, TransactionAnchorMode,
+    TransactionAuth, TransactionAuthField, TransactionAuthFieldID, TransactionAuthFlags,
+    TransactionAuthVerificationMode, TransactionContractCall, TransactionPayload,
+    TransactionPayloadID, TransactionPostCondition, TransactionPostConditionMode,
+    TransactionPublicKeyEncoding, TransactionSmartContract, TransactionSpendingCondition,
+    TransactionVersion,
 };
 
 #[derive(Debug, Clone, PartialEq)]
@@ -484,7 +508,7 @@ pub struct StacksBlockBuilder {
     bytes_so_far: u64,
     prev_microblock_header: StacksMicroblockHeader,
     miner_privkey: StacksPrivateKey,
-    miner_payouts: Option<(MinerReward, Vec<MinerReward>, MinerReward, MinerRewardInfo)>,
+    miner_payouts: Option<MaturedMinerPayouts>,
     parent_consensus_hash: ConsensusHash,
     parent_header_hash: BlockHeaderHash,
     parent_microblock_hash: Option<BlockHeaderHash>,
@@ -892,15 +916,15 @@ pub mod test {
                 for tx_payload in tx_payloads.iter() {
                     match tx_payload {
                         // poison microblock and coinbase must be on-chain
-                        TransactionPayload::Coinbase(..) => {
-                            if *anchor_mode != TransactionAnchorMode::OnChainOnly {
-                                continue;
-                            }
+                        TransactionPayload::Coinbase(..)
+                            if *anchor_mode != TransactionAnchorMode::OnChainOnly =>
+                        {
+                            continue;
                         }
-                        TransactionPayload::PoisonMicroblock(_, _) => {
-                            if *anchor_mode != TransactionAnchorMode::OnChainOnly {
-                                continue;
-                            }
+                        TransactionPayload::PoisonMicroblock(_, _)
+                            if *anchor_mode != TransactionAnchorMode::OnChainOnly =>
+                        {
+                            continue;
                         }
                         _ => {}
                     }

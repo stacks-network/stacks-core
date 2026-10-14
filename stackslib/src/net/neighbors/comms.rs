@@ -201,7 +201,7 @@ pub trait NeighborComms {
                     &nk,
                     event_id
                 );
-                return Ok(None);
+                Ok(None)
             }
             Err(net_error::AlreadyConnected(_event_id, alt_nk)) => {
                 test_debug!(
@@ -212,7 +212,7 @@ pub trait NeighborComms {
                     &alt_nk
                 );
                 self.remove_connecting(network, &alt_nk);
-                return self.neighbor_handshake(network, &alt_nk).map(Some);
+                self.neighbor_handshake(network, &alt_nk).map(Some)
             }
             Err(e) => {
                 info!(
@@ -221,7 +221,7 @@ pub trait NeighborComms {
                     &nk,
                     &e
                 );
-                return Err(e);
+                Err(e)
             }
         }
     }
@@ -275,9 +275,9 @@ pub trait NeighborComms {
                     "AlreadyConnected error on event {} has no conversation",
                     event_id
                 );
-                return Err(net_error::PeerNotConnected(format!(
+                Err(net_error::PeerNotConnected(format!(
                     "Already connected to {nk} as {handshake_nk} on event {event_id}",
-                )));
+                )))
             }
             Err(e) => {
                 test_debug!(
@@ -286,7 +286,7 @@ pub trait NeighborComms {
                     &nk,
                     &e
                 );
-                return Err(e);
+                Err(e)
             }
         }
     }
@@ -361,12 +361,10 @@ pub trait NeighborComms {
         }
 
         match req.try_send_recv() {
-            Ok(message) => {
-                return Ok(message);
-            }
+            Ok(message) => Ok(message),
             Err(Ok(same_req)) => {
                 // try again
-                return Err(Ok(same_req));
+                Err(Ok(same_req))
             }
             Err(Err(e)) => {
                 // disconnected
@@ -375,7 +373,7 @@ pub trait NeighborComms {
                     network.get_local_peer(),
                     &e
                 );
-                return Err(Err(e));
+                Err(Err(e))
             }
         }
     }
@@ -446,6 +444,7 @@ pub trait NeighborComms {
 
 /// Transport-level API for peer network state machines.
 /// Prod implementation of NeighborComms.
+#[derive(Default)]
 pub struct PeerNetworkComms {
     /// Set of PeerNetwork event IDs that this walk is tracking (so they won't get pruned)
     events: HashSet<usize>,
@@ -591,8 +590,7 @@ impl NeighborComms for PeerNetworkComms {
     }
 
     fn clear_pinned_connections(&mut self) -> HashSet<usize> {
-        let events = mem::replace(&mut self.events, HashSet::new());
-        events
+        mem::take(&mut self.events)
     }
 
     fn is_pinned(&self, event_id: usize) -> bool {
@@ -650,11 +648,11 @@ impl NeighborComms for PeerNetworkComms {
     }
 
     fn take_dead_neighbors(&mut self) -> HashSet<DropNeighbor> {
-        mem::replace(&mut self.dead_connections, HashSet::new())
+        mem::take(&mut self.dead_connections)
     }
 
     fn take_broken_neighbors(&mut self) -> HashSet<DropNeighbor> {
-        mem::replace(&mut self.broken_connections, HashSet::new())
+        mem::take(&mut self.broken_connections)
     }
 }
 
@@ -687,7 +685,7 @@ impl ToNeighborKey for NeighborAddress {
 
 /// This struct represents a batch of in-flight requests to a set of peers, identified by a
 /// neighbor key (or something that converts to it)
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct NeighborCommsRequest {
     state: HashMap<NeighborAddress, ReplyHandleP2P>,
 }

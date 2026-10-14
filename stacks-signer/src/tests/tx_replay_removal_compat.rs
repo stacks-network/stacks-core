@@ -22,9 +22,12 @@ use blockstack_lib::chainstate::stacks::{
     StacksTransaction, TokenTransferMemo, TransactionAnchorMode, TransactionAuth,
     TransactionPayload, TransactionPostConditionMode, TransactionVersion,
 };
+use blockstack_lib::net::api::get_tenures_fork_info::TenureForkingInfo;
 use blockstack_lib::net::api::postblock_proposal::{BlockValidateOk, ValidateRejectCode};
 use clarity::codec::StacksMessageCodec;
-use clarity::types::chainstate::{StacksAddress, StacksPrivateKey};
+use clarity::types::chainstate::{
+    BurnchainHeaderHash, ConsensusHash, SortitionId, StacksAddress, StacksPrivateKey,
+};
 use clarity::vm::types::PrincipalData;
 use libsigner::v0::messages::StateMachineUpdate;
 use serde_json::json;
@@ -162,13 +165,19 @@ fn state_machine_update_v2_with_populated_replay_set_still_decodes() {
 
 /// Tripwire 3 — `/v3/block_proposal` responses still carry the replay fields.
 ///
-/// `BlockValidateOk` is a plain `Deserialize` with no `#[serde(default)]`, so
-/// `replay_tx_exhausted` is **required**. Dropping it from a newer node would make an older
-/// signer fail to parse validation responses entirely — silently, since serde's tolerance
-/// for *unknown* fields does not extend to *missing* ones.
+/// The fields are no longer populated (always `null` / `false`), but the **keys must still be
+/// emitted**. A signer released before that change declares them without `#[serde(default)]`,
+/// which makes them *required*: serde's tolerance for *unknown* fields does not extend to
+/// *missing* ones, so omitting them makes such a signer fail to parse validation responses
+/// entirely — and silently, since nothing else in the signer notices.
 ///
-/// The two assertions are a matched pair: the positive case would fail loudly if the JSON
-/// fixture below drifted, so the negative case cannot pass for the wrong reason.
+/// The emission assertion is deliberately on the *serialized JSON*, not on the Rust type: what
+/// old signers depend on is the keys being on the wire, and that is what must survive the
+/// fields' eventual deletion being staged over two releases.
+///
+/// The third assertion pins the other half of that staging: `#[serde(default)]` on the fields
+/// today is what lets a later release drop them without breaking signers built from *this*
+/// one.
 #[test]
 fn block_validate_ok_response_still_carries_replay_fields() {
     let cost = json!({
@@ -185,20 +194,36 @@ fn block_validate_ok_response_still_carries_replay_fields() {
         "replay_tx_hash": null,
         "replay_tx_exhausted": false,
     });
-    serde_json::from_value::<BlockValidateOk>(with_replay_fields)
+    let parsed = serde_json::from_value::<BlockValidateOk>(with_replay_fields)
         .expect("a response carrying the replay fields must deserialize");
 
+    // Re-serialize rather than building the struct literal, so this names no field that the
+    // deleting release removes and stays meaningful until that release rewrites it wholesale.
+    let value = serde_json::to_value(&parsed).expect("BlockValidateOk must serialize");
+    assert_eq!(
+        value.get("replay_tx_hash"),
+        Some(&serde_json::Value::Null),
+        "the key must still be emitted (as null); dropping it makes every pre-removal signer          fail to parse block-proposal validation responses"
+    );
+    assert_eq!(
+        value.get("replay_tx_exhausted"),
+        Some(&serde_json::Value::Bool(false)),
+        "the key must still be emitted (as false); it is the required field that breaks          pre-removal signers if omitted"
+    );
+
+    // A response omitting both keys must deserialize thanks to `#[serde(default)]`, so they can
+    // be dropped in a later release without breaking signers built from this one.
     let without_replay_fields = json!({
         "signer_signature_hash": hash,
         "cost": cost,
         "size": 100,
         "validation_time_ms": 10,
     });
-    assert!(
-        serde_json::from_value::<BlockValidateOk>(without_replay_fields).is_err(),
-        "replay_tx_exhausted is a required field; a node that stops emitting it \
-         breaks block-proposal validation for every signer running an older binary"
+    let parsed = serde_json::from_value::<BlockValidateOk>(without_replay_fields).expect(
+        "a response omitting the replay fields must deserialize, so they can be dropped later",
     );
+    assert!(parsed.replay_tx_hash.is_none());
+    assert!(!parsed.replay_tx_exhausted);
 }
 
 /// Tripwire 4 — reject code 7 stays reserved.
@@ -214,4 +239,52 @@ fn validate_reject_code_seven_stays_reserved() {
         Some(ValidateRejectCode::InvalidTransactionReplay),
         "code 7 must remain decodable and must never be reassigned"
     );
+}
+
+/// Tripwire 5 — `/v3/tenures/fork_info` responses still carry a `nakamoto_blocks` key.
+///
+/// The field is no longer populated (always `null`), but the **key must still be emitted**. A
+/// signer released before that change declares it as `#[serde(with = ...)]` with no
+/// `#[serde(default)]`, which makes it *required*: serde's `Option`-defaults-to-`None` shortcut
+/// does not apply once `deserialize_with` is set. Omitting the key makes such a signer fail to
+/// parse the entire fork-info response.
+///
+/// The assertion is deliberately on the *serialized JSON*, not on the Rust type: what old signers
+/// depend on is the key being on the wire, and that is what must survive the field's eventual
+/// deletion being staged over two releases.
+#[test]
+fn tenure_forking_info_still_emits_nakamoto_blocks_key() {
+    let info = TenureForkingInfo {
+        burn_block_hash: BurnchainHeaderHash([0x11; 32]),
+        burn_block_height: 100,
+        sortition_id: SortitionId([0x22; 32]),
+        parent_sortition_id: SortitionId([0x33; 32]),
+        consensus_hash: ConsensusHash([0x44; 20]),
+        was_sortition: true,
+        first_block_mined: None,
+        nakamoto_blocks: None,
+    };
+
+    let value = serde_json::to_value(&info).expect("TenureForkingInfo must serialize");
+    assert_eq!(
+        value.get("nakamoto_blocks"),
+        Some(&serde_json::Value::Null),
+        "the key must still be emitted (as null); dropping it makes every pre-removal signer \
+         reject block proposals on the reorg-validation path"
+    );
+
+    // From json with omitted `nakamoto_blocks` field should deserialize properly thanks to `#[serde(default)]`
+    let without_key = json!({
+        "burn_block_hash": format!("0x{}", "11".repeat(32)),
+        "burn_block_height": 100,
+        "sortition_id": format!("0x{}", "22".repeat(32)),
+        "parent_sortition_id": format!("0x{}", "33".repeat(32)),
+        "consensus_hash": format!("0x{}", "44".repeat(20)),
+        "was_sortition": true,
+        "first_block_mined": null,
+    });
+    let parsed = serde_json::from_value::<TenureForkingInfo>(without_key).expect(
+        "a response omitting nakamoto_blocks must deserialize, so the field can be dropped later",
+    );
+    assert!(parsed.nakamoto_blocks.is_none());
 }

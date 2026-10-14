@@ -14,6 +14,7 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use std::collections::HashMap;
+use std::slice;
 use std::sync::{LazyLock, RwLock};
 
 use clarity::vm::events::StacksTransactionEvent;
@@ -273,7 +274,7 @@ impl RawRewardSetEntry {
                 ChainstateError::Expects(
                     "'total-ustx' in return value from (pox-4.get-reward-set-pox-address) is not a u128".into(),
                 )
-            })?.try_into().map_err(|_| ChainstateError::Expects("'total-ustx' value out of range for u64".into()))?;
+            })?;
 
         let stacker = tuple_data
             .remove("stacker")
@@ -400,7 +401,7 @@ impl<'a, 'b, 'c> StakeEntryIteratorPox5<'a, 'b, 'c> {
             .eval_method_read_only(
                 &self.pox_contract,
                 "get-signer-info",
-                &[lookup_signer.clone()],
+                slice::from_ref(&lookup_signer),
             )
             .map_err(|e| PoxEntryParsingError::Skip(e.to_string()))?
             .expect_optional()
@@ -484,7 +485,7 @@ impl NakamotoSigners {
             .eval_method_read_only(
                 &pox_contract,
                 "get-signer-set-first-item-for-cycle",
-                &[reward_cycle_clar.clone()],
+                slice::from_ref(&reward_cycle_clar),
             )?
             .expect_optional()
             .map_err(|_| {
@@ -568,7 +569,7 @@ impl NakamotoSigners {
     fn update_signers(
         clarity: &mut ClarityTransactionConnection,
         reward_cycle: u64,
-        signers: &Vec<NakamotoSignerEntry>,
+        signers: &[NakamotoSignerEntry],
         signers_contract: &QualifiedContractIdentifier,
         has_participation: bool,
         coinbase_height: u64,
@@ -770,7 +771,7 @@ impl NakamotoSigners {
             reward_cycle,
             &signer_set,
             signers_contract,
-            signer_set.len() > 0,
+            !signer_set.is_empty(),
             coinbase_height,
             is_mainnet,
         )?;

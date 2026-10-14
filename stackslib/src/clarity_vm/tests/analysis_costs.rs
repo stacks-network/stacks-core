@@ -26,8 +26,8 @@ use clarity::vm::{execute as vm_execute, ClarityVersion, ContractName};
 use rstest::rstest;
 use stacks_common::types::chainstate::StacksBlockId;
 use stacks_common::types::StacksEpochId;
+use stacks_marf::ClarityMarfTrieId;
 
-use crate::chainstate::stacks::index::ClarityMarfTrieId;
 use crate::clarity_vm::clarity::{ClarityConnection, ClarityInstance};
 use crate::clarity_vm::database::marf::MarfedKV;
 use crate::clarity_vm::tests::costs::get_simple_test;
@@ -253,7 +253,7 @@ fn epoch_21_test_all(use_mainnet: bool, version: ClarityVersion) {
     let baseline = test_tracked_costs("1", StacksEpochId::Epoch21, version, 0, &mut instance);
 
     for (ix, f) in NativeFunctions::ALL.iter().enumerate() {
-        if version < f.get_min_version() || f.get_max_version().map_or(false, |max| version > max) {
+        if version < f.get_min_version() || f.get_max_version().is_some_and(|max| version > max) {
             continue;
         }
 
@@ -344,7 +344,7 @@ fn undefined_top_variable_error(#[case] use_mainnet: bool, #[case] epoch: Stacks
             let analysis_result = conn.analyze_smart_contract(
                 &self_contract_id,
                 ClarityVersion::Clarity1,
-                &contract_self,
+                contract_self,
                 &ResourceBudget::unlimited(),
             );
             let Err(ClarityError::StaticCheck(static_check_error)) = analysis_result else {

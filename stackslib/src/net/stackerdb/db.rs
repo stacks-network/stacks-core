@@ -152,7 +152,7 @@ fn inner_get_stackerdb_id(
 ) -> Result<i64, net_error> {
     let sql = "SELECT rowid FROM databases WHERE smart_contract_id = ?1";
     let args = params![smart_contract.to_string()];
-    Ok(query_row(conn, sql, args)?.ok_or(net_error::NoSuchStackerDB(smart_contract.clone()))?)
+    query_row(conn, sql, args)?.ok_or(net_error::NoSuchStackerDB(smart_contract.clone()))
 }
 
 /// Load up chunk metadata from the database, keyed by the chunk's database's smart contract and
@@ -191,19 +191,6 @@ impl StackerDBTx<'_> {
 
     pub fn conn(&self) -> &DBConn {
         &self.sql_tx
-    }
-
-    /// Delete a stacker DB table and its contents.
-    /// Idempotent.
-    pub fn delete_stackerdb(
-        &self,
-        smart_contract_id: &QualifiedContractIdentifier,
-    ) -> Result<(), net_error> {
-        let qry = "DELETE FROM databases WHERE smart_contract_id = ?1";
-        let args = params![smart_contract_id.to_string()];
-        let mut stmt = self.sql_tx.prepare(qry)?;
-        stmt.execute(args)?;
-        Ok(())
     }
 
     /// List all stacker DB smart contracts we have available
@@ -268,21 +255,6 @@ impl StackerDBTx<'_> {
             }
         }
 
-        Ok(())
-    }
-
-    /// Clear a database's slots and its data.
-    /// Idempotent.
-    /// Fails if the DB doesn't exist
-    pub fn clear_stackerdb_slots(
-        &self,
-        smart_contract: &QualifiedContractIdentifier,
-    ) -> Result<(), net_error> {
-        let stackerdb_id = self.get_stackerdb_id(smart_contract)?;
-        let qry = "DELETE FROM chunks WHERE stackerdb_id = ?1";
-        let args = params![stackerdb_id];
-        let mut stmt = self.sql_tx.prepare(qry)?;
-        stmt.execute(args)?;
         Ok(())
     }
 
@@ -438,6 +410,38 @@ impl StackerDBTx<'_> {
     }
 }
 
+/// Test-only helpers for [`StackerDBTx`].
+#[cfg(test)]
+impl StackerDBTx<'_> {
+    /// Delete a stacker DB table and its contents.
+    /// Idempotent.
+    pub fn delete_stackerdb(
+        &self,
+        smart_contract_id: &QualifiedContractIdentifier,
+    ) -> Result<(), net_error> {
+        let qry = "DELETE FROM databases WHERE smart_contract_id = ?1";
+        let args = params![smart_contract_id.to_string()];
+        let mut stmt = self.sql_tx.prepare(qry)?;
+        stmt.execute(args)?;
+        Ok(())
+    }
+
+    /// Clear a database's slots and its data.
+    /// Idempotent.
+    /// Fails if the DB doesn't exist
+    pub fn clear_stackerdb_slots(
+        &self,
+        smart_contract: &QualifiedContractIdentifier,
+    ) -> Result<(), net_error> {
+        let stackerdb_id = self.get_stackerdb_id(smart_contract)?;
+        let qry = "DELETE FROM chunks WHERE stackerdb_id = ?1";
+        let args = params![stackerdb_id];
+        let mut stmt = self.sql_tx.prepare(qry)?;
+        stmt.execute(args)?;
+        Ok(())
+    }
+}
+
 impl StackerDBs {
     /// Instantiate the DB
     fn instantiate(path: &str, readwrite: bool) -> Result<StackerDBs, net_error> {
@@ -457,7 +461,7 @@ impl StackerDBs {
                 let pparent_path = ppath
                     .parent()
                     .unwrap_or_else(|| panic!("BUG: no parent of '{}'", path));
-                fs::create_dir_all(&pparent_path).map_err(db_error::IOError)?;
+                fs::create_dir_all(pparent_path).map_err(db_error::IOError)?;
 
                 OpenFlags::SQLITE_OPEN_READ_WRITE | OpenFlags::SQLITE_OPEN_CREATE
             } else if readwrite {

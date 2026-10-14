@@ -26,6 +26,7 @@ use stacks_common::types::chainstate::{
 };
 use stacks_common::util::hash::{Hash160, MerkleTree, Sha512Trunc256Sum};
 use stacks_common::util::secp256k1::{MessageSignature, Secp256k1PrivateKey, Secp256k1PublicKey};
+use stacks_marf::Error;
 use tempfile::tempdir;
 
 use super::super::blocks::{
@@ -39,7 +40,6 @@ use super::{
 };
 use crate::chainstate::nakamoto::staging_blocks::NAKAMOTO_STAGING_DB_SCHEMA_LATEST;
 use crate::chainstate::stacks::db::StacksChainState;
-use crate::chainstate::stacks::index::Error;
 use crate::chainstate::stacks::{
     StacksMicroblock, StacksMicroblockHeader, StacksTransaction, TokenTransferMemo,
     TransactionAuth, TransactionPayload, TransactionSpendingCondition, TransactionVersion,
@@ -750,7 +750,7 @@ fn test_nakamoto_copy() {
         "parent_2",
         101,
         &ibhs[1],
-        "Shadow",
+        "Uploaded",
         b"block_data_2",
     );
     // Non-canonical block (not in the squashed index headers).
@@ -809,7 +809,7 @@ fn test_nakamoto_copy() {
             |row| row.get(0),
         )
         .unwrap();
-    assert_eq!(method, "Shadow", "obtain_method must be preserved");
+    assert_eq!(method, "Uploaded", "obtain_method must be preserved");
 
     // Verify db_version matches source.
     let dst_ver: i64 = dst_conn

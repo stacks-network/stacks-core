@@ -1,0 +1,50 @@
+name: "Restore Cache"
+description: "Wraps actions/cache/restore with standardized defaults"
+
+inputs:
+  path:
+    description: 'A list of files, directories, and wildcard patterns to restore'
+    required: true
+  key:
+    description: 'An explicit key for restoring the cache'
+    required: true
+  restore-keys:
+    description: 'An ordered multiline string listing the prefix-matched keys, that are used for restoring stale cache if no cache hit occurred for key. Note `cache-hit` returns false in this case.'
+    required: false
+  enableCrossOsArchive:
+    description: 'An optional boolean when enabled, allows windows runners to restore caches that were saved on other platforms'
+    default: 'false'
+    required: false
+  fail-on-cache-miss:
+    description: 'Fail the workflow if cache entry is not found'
+    default: 'false'
+    required: false
+  lookup-only:
+    description: 'Check if a cache entry exists for the given input(s) (key, restore-keys) without downloading the cache'
+    default: 'false'
+    required: false
+
+outputs:
+  cache-hit:
+    description: 'A boolean value to indicate an exact match was found for the primary key'
+    value: ${{ steps.cache-restore.outputs.cache-hit }}
+  cache-primary-key:
+    description: 'A resolved cache key for which cache match was attempted'
+    value: ${{ steps.cache-restore.outputs.cache-primary-key }}
+  cache-matched-key:
+    description: 'Key of the cache that was restored, it could either be the primary key on cache-hit or a partial/complete match of one of the restore keys'
+    value: ${{ steps.cache-restore.outputs.cache-matched-key }}
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Cache Restore
+      id: cache-restore
+      uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: ${{ inputs.path }}
+        key: ${{ inputs.key }}
+        restore-keys: ${{ inputs.restore-keys }}
+        enableCrossOsArchive: ${{ inputs.enableCrossOsArchive }}
+        fail-on-cache-miss: ${{ inputs.fail-on-cache-miss }}
+        lookup-only: ${{ inputs.lookup-only }}

@@ -54,21 +54,12 @@ p2p_bind = "0.0.0.0:20444"
 # For mainnet, the node will use built-in seed nodes if omitted.
 # bootstrap_node = "02e...@seed.mainnet.hiro.so:20444"
 
-# Human-readable node name (used in logging).
-# Default: "helium-node"
-# name = "my-stacks-miner"
-
 # Disable microblocks (not used in Nakamoto / Epoch 3.0+).
 mine_microblocks = false
 
 # Enable transaction indexing for API queries.
 # Default: false
 # txindex = true
-
-# Chain liveness watchdog poll interval.
-# Default: 300
-# Units: seconds
-# chain_liveness_poll_time_secs = 300
 
 
 # ============================================================
@@ -94,10 +85,6 @@ peer_host = "127.0.0.1"
 # REQUIRED: Bitcoin RPC credentials.
 username = "<BITCOIN_RPC_USERNAME>"
 password = "<BITCOIN_RPC_PASSWORD>"
-
-# Use SSL for Bitcoin RPC connection.
-# Default: false
-# rpc_ssl = false
 
 # Maximum amount (in sats) of "burn commitment" to broadcast for
 # the next block's leader election.
@@ -143,11 +130,6 @@ max_rbf = 150
 # needed. Also set `wallet=<name>` in bitcoin.conf so it is loaded again after a
 # bitcoind restart.
 wallet_name = "<YOUR_BITCOIN_WALLET_NAME>"
-
-# Wait time before attempting to build a block after a burnchain event.
-# Default: 5_000
-# Units: milliseconds
-# commit_anchor_block_within = 5000
 
 
 # ============================================================

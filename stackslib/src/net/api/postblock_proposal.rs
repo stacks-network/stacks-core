@@ -26,6 +26,7 @@ use clarity::vm::types::{ResponseData, TupleData};
 use clarity::vm::Value;
 use regex::{Captures, Regex};
 use serde::Deserialize;
+use stacks_common::bounded_format;
 use stacks_common::codec::{Error as CodecError, StacksMessageCodec, MAX_PAYLOAD_LEN};
 use stacks_common::consts::CHAIN_ID_MAINNET;
 use stacks_common::types::chainstate::{ConsensusHash, StacksBlockId};
@@ -41,6 +42,7 @@ use crate::chainstate::nakamoto::{NakamotoBlock, NakamotoChainState};
 use crate::chainstate::stacks::address::PoxAddress;
 use crate::chainstate::stacks::boot::PoxVersions;
 use crate::chainstate::stacks::db::{StacksBlockHeaderTypes, StacksChainState};
+use crate::chainstate::stacks::events::BoundedErrorString;
 use crate::chainstate::stacks::miner::{
     BlockBuilder, BlockLimitFunction, TransactionResourceBudgets, TransactionResult,
 };
@@ -114,7 +116,7 @@ fn hex_deser_block<'de, D: serde::Deserializer<'de>>(d: D) -> Result<NakamotoBlo
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct BlockValidateReject {
     pub signer_signature_hash: Sha512Trunc256Sum,
-    pub reason: String,
+    pub reason: BoundedErrorString,
     pub reason_code: ValidateRejectCode,
     /// The txid of the transaction that caused the block to be rejected, if any
     #[serde(default)]
@@ -123,7 +125,7 @@ pub struct BlockValidateReject {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct BlockValidateRejectReason {
-    pub reason: String,
+    pub reason: BoundedErrorString,
     pub reason_code: ValidateRejectCode,
     /// The txid of the transaction that caused the block to be rejected, if any
     pub failed_txid: Option<Txid>,
@@ -152,7 +154,7 @@ where
             _ => ValidateRejectCode::ChainstateError,
         };
         Self {
-            reason: format!("Chainstate Error: {ce}"),
+            reason: bounded_format!("Chainstate Error: {ce}"),
             reason_code,
             failed_txid: None,
         }
@@ -167,15 +169,22 @@ pub struct BlockValidateOk {
     pub cost: ExecutionCost,
     pub size: u64,
     pub validation_time_ms: u64,
-    /// Deprecated: transaction replay was removed, so this is always `None`.
+    /// Deprecated. Always `None`. It will be removed in a future release.
     ///
-    /// Retained because `BlockValidateOk` has no `#[serde(default)]`: a signer running an
-    /// older binary treats these as required fields and would fail to deserialize the whole
-    /// response without them. Remove only in a release that need not interoperate with
-    /// pre-removal signers.
+    /// Existed to support the signer's tx-replay feature, which has been removed. The key is
+    /// still emitted because a signer built before that removal declares these fields without
+    /// `#[serde(default)]`, which makes them *required*: omitting them would make such a signer
+    /// fail to deserialize the whole block-proposal validation response, and so silently stop
+    /// acting on validation results.
+    ///
+    /// The `#[serde(default)]` below is what lets these fields be deleted outright in a later
+    /// release: it makes signers from this release onward tolerate the keys' absence. Do not
+    /// remove it before the fields themselves go.
+    #[serde(default)]
     pub replay_tx_hash: Option<u64>,
-    /// Deprecated: transaction replay was removed, so this is always `false`.
+    /// Deprecated. Always `false`. It will be removed in a future release.
     /// See `replay_tx_hash` above.
+    #[serde(default)]
     pub replay_tx_exhausted: bool,
 }
 
@@ -286,7 +295,7 @@ pub fn is_event_pox_addr_valid(is_mainnet: bool, event: &StacksTransactionEvent)
         // only care about (okay ...) results
         return true;
     };
-    let Some(outer_tuple_data) = match_tuple(&pox_event_tuple) else {
+    let Some(outer_tuple_data) = match_tuple(pox_event_tuple) else {
         // should be unreachable
         return true;
     };
@@ -294,7 +303,7 @@ pub fn is_event_pox_addr_valid(is_mainnet: bool, event: &StacksTransactionEvent)
         // should be unreachable
         return true;
     };
-    let Some(data_tuple_data) = match_tuple(&data_tuple) else {
+    let Some(data_tuple_data) = match_tuple(data_tuple) else {
         // should be unreachable
         return true;
     };
@@ -368,7 +377,7 @@ impl NakamotoBlockProposal {
         )
         .map_err(|e| BlockValidateRejectReason {
             reason_code: ValidateRejectCode::ChainstateError,
-            reason: format!("Failed to query highest block in tenure ID: {:?}", &e),
+            reason: bounded_format!("Failed to query highest block in tenure ID: {e:?}"),
             failed_txid: None,
         })?
         else {
@@ -387,7 +396,7 @@ impl NakamotoBlockProposal {
             NakamotoChainState::get_block_header(chainstate.db(), parent_block_id).map_err(
                 |e| BlockValidateRejectReason {
                     reason_code: ValidateRejectCode::ChainstateError,
-                    reason: format!("Failed to query block header by block ID: {:?}", &e),
+                    reason: bounded_format!("Failed to query block header by block ID: {e:?}"),
                     failed_txid: None,
                 },
             )?
@@ -556,7 +565,7 @@ impl NakamotoBlockProposal {
             SortitionDB::get_block_snapshot_consensus(sortdb.conn(), &burn_view_consensus_hash)?
                 .ok_or_else(|| BlockValidateRejectReason {
                     reason_code: ValidateRejectCode::NoSuchTenure,
-                    reason: "Failed to find sortition for block tenure".to_string(),
+                    reason: "Failed to find sortition for block tenure".into(),
                     failed_txid: None,
                 })?;
 
@@ -589,8 +598,7 @@ impl NakamotoBlockProposal {
         };
 
         // Static validation checks
-        NakamotoChainState::validate_normal_nakamoto_block_burnchain(
-            chainstate.nakamoto_blocks_db(),
+        NakamotoChainState::validate_nakamoto_block_burnchain(
             &db_handle,
             expected_burn_opt,
             &self.block,
@@ -665,7 +673,7 @@ impl NakamotoBlockProposal {
                 TransactionPayload::TenureChange(tc) => Some(MinerTenureInfoCause::from(tc)),
                 _ => None,
             })
-            .unwrap_or_else(|| MinerTenureInfoCause::NoTenureChange);
+            .unwrap_or(MinerTenureInfoCause::NoTenureChange);
 
         let mut builder = NakamotoBlockBuilder::new(
             &parent_stacks_header,
@@ -677,7 +685,7 @@ impl NakamotoBlockProposal {
             None,
             None,
             Some(self.block.header.timestamp),
-            u64::from(DEFAULT_MAX_TENURE_BYTES),
+            DEFAULT_MAX_TENURE_BYTES,
         )?;
 
         let mut miner_tenure_info =
@@ -697,14 +705,14 @@ impl NakamotoBlockProposal {
         } else {
             None
         };
-        let resource_budgets = TransactionResourceBudgets::new()
+        let resource_budgets = TransactionResourceBudgets::unlimited()
             .with_analysis_budget(
-                ResourceBudget::new()
+                ResourceBudget::unlimited()
                     .with_max_duration(Some(per_tx_max_analysis_time))
                     .with_max_memory_use(max_tx_mem_bytes_opt),
             )
             .with_execution_budget(
-                ResourceBudget::new()
+                ResourceBudget::unlimited()
                     .with_max_duration(Some(per_tx_max_execution_time))
                     .with_max_memory_use(max_tx_mem_bytes_opt),
             );
@@ -721,7 +729,9 @@ impl NakamotoBlockProposal {
                     "next_tx_index" => i,
                 );
                 return Err(BlockValidateRejectReason {
-                    reason: format!("Block validation timed out before tx {i} could be processed"),
+                    reason: bounded_format!(
+                        "Block validation timed out before tx {i} could be processed"
+                    ),
                     reason_code: ValidateRejectCode::InvalidBlock,
                     failed_txid: None,
                 });
@@ -747,7 +757,7 @@ impl NakamotoBlockProposal {
                         .all(|event| is_event_pox_addr_valid(mainnet, event));
                     if !all_events_valid {
                         Some((
-                            format!("Problematic tx {i}: contains invalid pox address"),
+                            bounded_format!("Problematic tx {i}: contains invalid pox address"),
                             ValidateRejectCode::ProblematicTransaction,
                         ))
                     } else {
@@ -755,15 +765,15 @@ impl NakamotoBlockProposal {
                     }
                 }
                 TransactionResult::Skipped(s) => Some((
-                    format!("tx {i} skipped: {}", s.error),
+                    bounded_format!("tx {i} skipped: {}", s.error),
                     ValidateRejectCode::BadTransaction,
                 )),
                 TransactionResult::ProcessingError(e) => Some((
-                    format!("Error processing tx {i}: {}", e.error),
+                    bounded_format!("Error processing tx {i}: {}", e.error),
                     ValidateRejectCode::BadTransaction,
                 )),
                 TransactionResult::Problematic(p) => Some((
-                    format!("Problematic tx {i}: {}", p.error),
+                    bounded_format!("Problematic tx {i}: {}", p.error),
                     ValidateRejectCode::ProblematicTransaction,
                 )),
             };
@@ -925,21 +935,9 @@ impl HttpRequest for RPCBlockProposalRequestHandler {
             }
         };
 
-        if block_proposal.block.is_shadow_block() {
-            return Err(Error::DecodeError(
-                "Shadow blocks cannot be submitted for validation".to_string(),
-            ));
-        }
-
         self.block_proposal = Some(block_proposal);
         Ok(HttpRequestContents::new().query_string(query))
     }
-}
-
-struct ProposalThreadInfo {
-    sortdb: SortitionDB,
-    chainstate: StacksChainState,
-    receiver: Box<dyn ProposalCallbackReceiver>,
 }
 
 impl RPCRequestHandler for RPCBlockProposalRequestHandler {
@@ -973,7 +971,9 @@ impl RPCRequestHandler for RPCBlockProposalRequestHandler {
             if network.is_proposal_thread_running() {
                 return Err((
                     TOO_MANY_REQUESTS_STATUS,
-                    NetError::SendError("Proposal currently being evaluated".into()),
+                    Box::new(NetError::SendError(
+                        "Proposal currently being evaluated".into(),
+                    )),
                 ));
             }
 
@@ -986,21 +986,27 @@ impl RPCRequestHandler for RPCBlockProposalRequestHandler {
             {
                 return Err((
                     422,
-                    NetError::SendError("Block proposal is too old to process.".into()),
+                    Box::new(NetError::SendError(
+                        "Block proposal is too old to process.".into(),
+                    )),
                 ));
             }
 
-            let (chainstate, _) = chainstate.reopen().map_err(|e| (400, NetError::from(e)))?;
-            let sortdb = sortdb.reopen().map_err(|e| (400, NetError::from(e)))?;
+            let (chainstate, _) = chainstate
+                .reopen()
+                .map_err(|e| (400, Box::new(NetError::from(e))))?;
+            let sortdb = sortdb
+                .reopen()
+                .map_err(|e| (400, Box::new(NetError::from(e))))?;
             let receiver = rpc_args
                 .event_observer
                 .and_then(|observer| observer.get_proposal_callback_receiver())
                 .ok_or_else(|| {
                     (
                         400,
-                        NetError::SendError(
+                        Box::new(NetError::SendError(
                             "No `observer` registered for receiving proposal callbacks".into(),
-                        ),
+                        )),
                     )
                 })?;
             let thread_info = block_proposal
@@ -1013,9 +1019,9 @@ impl RPCRequestHandler for RPCBlockProposalRequestHandler {
                 .map_err(|_e| {
                     (
                         TOO_MANY_REQUESTS_STATUS,
-                        NetError::SendError(
+                        Box::new(NetError::SendError(
                             "IO error while spawning proposal callback thread".into(),
-                        ),
+                        )),
                     )
                 })?;
             network.set_proposal_thread(thread_info);

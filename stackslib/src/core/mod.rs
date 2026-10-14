@@ -52,12 +52,12 @@ pub const SYSTEM_FORK_SET_VERSION: [u8; 4] = [23u8, 0u8, 0u8, 0u8];
 
 // chain id
 pub use stacks_common::consts::{
-    CHAIN_ID_MAINNET, CHAIN_ID_TESTNET, MINING_COMMITMENT_WINDOW, NETWORK_ID_MAINNET,
-    NETWORK_ID_TESTNET, PEER_NETWORK_EPOCH, PEER_VERSION_EPOCH_1_0, PEER_VERSION_EPOCH_2_0,
-    PEER_VERSION_EPOCH_2_05, PEER_VERSION_EPOCH_2_1, PEER_VERSION_EPOCH_2_2,
-    PEER_VERSION_EPOCH_2_3, PEER_VERSION_EPOCH_2_4, PEER_VERSION_EPOCH_2_5, PEER_VERSION_EPOCH_3_0,
-    PEER_VERSION_EPOCH_3_1, PEER_VERSION_EPOCH_3_2, PEER_VERSION_EPOCH_3_3, PEER_VERSION_EPOCH_3_4,
-    PEER_VERSION_EPOCH_4_0, PEER_VERSION_EPOCH_4_1, PEER_VERSION_MAINNET,
+    CHAIN_ID_MAINNET, CHAIN_ID_SIGNET, CHAIN_ID_TESTNET, MINING_COMMITMENT_WINDOW,
+    NETWORK_ID_MAINNET, NETWORK_ID_TESTNET, PEER_NETWORK_EPOCH, PEER_VERSION_EPOCH_1_0,
+    PEER_VERSION_EPOCH_2_0, PEER_VERSION_EPOCH_2_05, PEER_VERSION_EPOCH_2_1,
+    PEER_VERSION_EPOCH_2_2, PEER_VERSION_EPOCH_2_3, PEER_VERSION_EPOCH_2_4, PEER_VERSION_EPOCH_2_5,
+    PEER_VERSION_EPOCH_3_0, PEER_VERSION_EPOCH_3_1, PEER_VERSION_EPOCH_3_2, PEER_VERSION_EPOCH_3_3,
+    PEER_VERSION_EPOCH_3_4, PEER_VERSION_EPOCH_4_0, PEER_VERSION_EPOCH_4_1, PEER_VERSION_MAINNET,
     PEER_VERSION_MAINNET_MAJOR, PEER_VERSION_TESTNET, PEER_VERSION_TESTNET_MAJOR, STACKS_EPOCH_MAX,
 };
 
@@ -266,13 +266,13 @@ pub const BLOCK_LIMIT_MAINNET_40: ExecutionCost = ExecutionCost {
     runtime: 5_000_000_000,
 };
 
-// Block limit for the testnet in Stacks 2.0.
-pub const HELIUM_BLOCK_LIMIT_20: ExecutionCost = ExecutionCost {
+// Block limit for regtest epochs 2.0 through 2.4; the default signet schedule reuses it.
+pub const BLOCK_LIMIT_REGTEST_20: ExecutionCost = ExecutionCost {
     write_length: 150_000_000,
     write_count: 50_000,
     read_length: 1_000_000_000,
     read_count: 50_000,
-    // allow much more runtime in helium blocks than mainnet
+    // allow much more runtime in regtest blocks than mainnet
     runtime: 100_000_000_000,
 };
 
@@ -523,42 +523,42 @@ lazy_static! {
             epoch_id: StacksEpochId::Epoch20,
             start_height: 0,
             end_height: 1000,
-            block_limit: HELIUM_BLOCK_LIMIT_20,
+            block_limit: BLOCK_LIMIT_REGTEST_20,
             network_epoch: PEER_VERSION_EPOCH_2_0
         },
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch2_05,
             start_height: 1000,
             end_height: 2000,
-            block_limit: HELIUM_BLOCK_LIMIT_20,
+            block_limit: BLOCK_LIMIT_REGTEST_20,
             network_epoch: PEER_VERSION_EPOCH_2_05
         },
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch21,
             start_height: 2000,
             end_height: 3000,
-            block_limit: HELIUM_BLOCK_LIMIT_20,
+            block_limit: BLOCK_LIMIT_REGTEST_20,
             network_epoch: PEER_VERSION_EPOCH_2_1
         },
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch22,
             start_height: 3000,
             end_height: 4000,
-            block_limit: HELIUM_BLOCK_LIMIT_20,
+            block_limit: BLOCK_LIMIT_REGTEST_20,
             network_epoch: PEER_VERSION_EPOCH_2_2
         },
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch23,
             start_height: 4000,
             end_height: 5000,
-            block_limit: HELIUM_BLOCK_LIMIT_20,
+            block_limit: BLOCK_LIMIT_REGTEST_20,
             network_epoch: PEER_VERSION_EPOCH_2_3
         },
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch24,
             start_height: 5000,
             end_height: 6000,
-            block_limit: HELIUM_BLOCK_LIMIT_20,
+            block_limit: BLOCK_LIMIT_REGTEST_20,
             network_epoch: PEER_VERSION_EPOCH_2_4
         },
         StacksEpoch {
@@ -1010,7 +1010,7 @@ fn test_release_epoch_matches_versions_and_peer_epoch() {
     assert_eq!(
         release_epoch_from_version,
         StacksEpochId::RELEASE_LATEST_EPOCH,
-        "versions.toml stacks_node_version major.minor must match RELEASE_LATEST_EPOCH"
+        "Cargo.toml workspace.package.version major.minor must match RELEASE_LATEST_EPOCH"
     );
     assert_eq!(
         u32::from(StacksEpochId::network_epoch(

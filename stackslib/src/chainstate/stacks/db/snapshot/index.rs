@@ -19,14 +19,14 @@ use std::time::Instant;
 use rusqlite::types::Value;
 use rusqlite::{params, Connection, OpenFlags, OptionalExtension};
 use stacks_common::types::chainstate::StacksBlockId;
+use stacks_marf::{trie_sql, Error, MARFValue};
 
 use super::common::{
-    classify_hint, clone_schemas_from_source, copied_rows, with_offline_write_session,
+    classify_hint, clone_schemas_from_source, copied_rows, marf_err, with_offline_write_session,
     DbSnapshotSpec, TableCopySpec, TableCopySpecs, MARF_INFRA_TABLES,
 };
 use super::fork_storage::{collect_canonical_leaf_hashes, copy_canonical_fork_storage};
 use crate::burnchains::PoxConstants;
-use crate::chainstate::stacks::index::{trie_sql, Error, MARFValue};
 use crate::util_lib::db::{sqlite_open, u64_to_sql};
 
 /// The index snapshot's `?N` bind: the `signer_stats` reward-cycle bound.
@@ -65,9 +65,9 @@ impl DbSnapshotSpec for IndexDbSnapshotSpec {
 
     fn bind_params(&self, bind: IndexBind) -> Result<Vec<Value>, Error> {
         match bind {
-            IndexBind::MaxRewardCycle => {
-                Ok(vec![Value::Integer(u64_to_sql(self.max_reward_cycle)?)])
-            }
+            IndexBind::MaxRewardCycle => Ok(vec![Value::Integer(
+                u64_to_sql(self.max_reward_cycle).map_err(marf_err)?,
+            )]),
         }
     }
 }

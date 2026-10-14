@@ -407,9 +407,6 @@ A test should be marked `#[ignore]` if:
 
   | Tag             | Description                                  |
   |-----------------|----------------------------------------------|
-  | `slow`          | tests running over a minute                  |
-  | `bitcoind`      | tests requiring bitcoin daemon               |
-  | `flaky`         | tests that exhibit flaky behavior            |
   | `t_prop`        | tests related to property testing            |
   | `ci_skip`       | tests to be excluded from automatic CI run   |
 

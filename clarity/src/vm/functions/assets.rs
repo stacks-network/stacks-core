@@ -14,6 +14,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use stacks_common::bounded_format;
 use stacks_common::types::StacksEpochId;
 
 use crate::vm::contexts::{ExecutionState, InvocationContext};
@@ -192,7 +193,7 @@ pub fn special_stx_transfer(
     ) {
         stx_transfer_consolidated(exec_state, invoke_ctx, from, to, *amount, memo)
     } else {
-        Err(RuntimeCheckErrorKind::Unreachable("Bad transfer STX args".to_string()).into())
+        Err(RuntimeCheckErrorKind::Unreachable("Bad transfer STX args".into()).into())
     }
 }
 
@@ -223,7 +224,7 @@ pub fn special_stx_transfer_memo(
     ) {
         stx_transfer_consolidated(exec_state, invoke_ctx, from, to, *amount, memo)
     } else {
-        Err(RuntimeCheckErrorKind::Unreachable("Bad transfer STX args".to_string()).into())
+        Err(RuntimeCheckErrorKind::Unreachable("Bad transfer STX args".into()).into())
     }
 }
 
@@ -338,7 +339,7 @@ pub fn special_stx_burn(
 
         Ok(Value::okay_true())
     } else {
-        Err(RuntimeCheckErrorKind::Unreachable("Bad transfer STX args".to_string()).into())
+        Err(RuntimeCheckErrorKind::Unreachable("Bad transfer STX args".into()).into())
     }
 }
 
@@ -354,9 +355,7 @@ pub fn special_mint_token(
 
     let token_name = args[0]
         .match_atom()
-        .ok_or(RuntimeCheckErrorKind::Unreachable(
-            "Bad token name".to_string(),
-        ))?;
+        .ok_or(RuntimeCheckErrorKind::Unreachable("Bad token name".into()))?;
 
     let amount = eval(&args[1], exec_state, invoke_ctx, context)?;
     let to = eval(&args[2], exec_state, invoke_ctx, context)?;
@@ -367,7 +366,7 @@ pub fn special_mint_token(
         }
 
         let ft_info = invoke_ctx.contract_context.meta_ft.get(token_name).ok_or(
-            RuntimeCheckErrorKind::Unreachable(format!("No such FT: {token_name}")),
+            RuntimeCheckErrorKind::Unreachable(bounded_format!("No such FT: {token_name}")),
         )?;
 
         exec_state
@@ -409,7 +408,7 @@ pub fn special_mint_token(
 
         Ok(Value::okay_true())
     } else {
-        Err(RuntimeCheckErrorKind::Unreachable("Bad mint FT args".to_string()).into())
+        Err(RuntimeCheckErrorKind::Unreachable("Bad mint FT args".into()).into())
     }
 }
 
@@ -423,15 +422,13 @@ pub fn special_mint_asset_v200(
 
     let asset_name = args[0]
         .match_atom()
-        .ok_or(RuntimeCheckErrorKind::Unreachable(
-            "Bad token name".to_string(),
-        ))?;
+        .ok_or(RuntimeCheckErrorKind::Unreachable("Bad token name".into()))?;
 
     let asset = eval(&args[1], exec_state, invoke_ctx, context)?;
     let to = eval(&args[2], exec_state, invoke_ctx, context)?;
 
     let nft_metadata = invoke_ctx.contract_context.meta_nft.get(asset_name).ok_or(
-        RuntimeCheckErrorKind::Unreachable(format!("No such NFT: {asset_name}")),
+        RuntimeCheckErrorKind::Unreachable(bounded_format!("No such NFT: {asset_name}")),
     )?;
     let expected_asset_type = &nft_metadata.key_type;
 
@@ -503,15 +500,13 @@ pub fn special_mint_asset_v205(
 
     let asset_name = args[0]
         .match_atom()
-        .ok_or(RuntimeCheckErrorKind::Unreachable(
-            "Bad token name".to_string(),
-        ))?;
+        .ok_or(RuntimeCheckErrorKind::Unreachable("Bad token name".into()))?;
 
     let asset = eval(&args[1], exec_state, invoke_ctx, context)?;
     let to = eval(&args[2], exec_state, invoke_ctx, context)?;
 
     let nft_metadata = invoke_ctx.contract_context.meta_nft.get(asset_name).ok_or(
-        RuntimeCheckErrorKind::Unreachable(format!("No such NFT: {asset_name}")),
+        RuntimeCheckErrorKind::Unreachable(bounded_format!("No such NFT: {asset_name}")),
     )?;
     let expected_asset_type = &nft_metadata.key_type;
 
@@ -581,16 +576,14 @@ pub fn special_transfer_asset_v200(
 
     let asset_name = args[0]
         .match_atom()
-        .ok_or(RuntimeCheckErrorKind::Unreachable(
-            "Bad token name".to_string(),
-        ))?;
+        .ok_or(RuntimeCheckErrorKind::Unreachable("Bad token name".into()))?;
 
     let asset = eval(&args[1], exec_state, invoke_ctx, context)?;
     let from = eval(&args[2], exec_state, invoke_ctx, context)?;
     let to = eval(&args[3], exec_state, invoke_ctx, context)?;
 
     let nft_metadata = invoke_ctx.contract_context.meta_nft.get(asset_name).ok_or(
-        RuntimeCheckErrorKind::Unreachable(format!("No such NFT: {asset_name}")),
+        RuntimeCheckErrorKind::Unreachable(bounded_format!("No such NFT: {asset_name}")),
     )?;
     let expected_asset_type = &nft_metadata.key_type;
 
@@ -666,7 +659,7 @@ pub fn special_transfer_asset_v200(
 
         Ok(Value::okay_true())
     } else {
-        Err(RuntimeCheckErrorKind::Unreachable("Bad transfer NFT args".to_string()).into())
+        Err(RuntimeCheckErrorKind::Unreachable("Bad transfer NFT args".into()).into())
     }
 }
 
@@ -682,16 +675,14 @@ pub fn special_transfer_asset_v205(
 
     let asset_name = args[0]
         .match_atom()
-        .ok_or(RuntimeCheckErrorKind::Unreachable(
-            "Bad token name".to_string(),
-        ))?;
+        .ok_or(RuntimeCheckErrorKind::Unreachable("Bad token name".into()))?;
 
     let asset = eval(&args[1], exec_state, invoke_ctx, context)?;
     let from = eval(&args[2], exec_state, invoke_ctx, context)?;
     let to = eval(&args[3], exec_state, invoke_ctx, context)?;
 
     let nft_metadata = invoke_ctx.contract_context.meta_nft.get(asset_name).ok_or(
-        RuntimeCheckErrorKind::Unreachable(format!("No such NFT: {asset_name}")),
+        RuntimeCheckErrorKind::Unreachable(bounded_format!("No such NFT: {asset_name}")),
     )?;
     let expected_asset_type = &nft_metadata.key_type;
 
@@ -767,7 +758,7 @@ pub fn special_transfer_asset_v205(
 
         Ok(Value::okay_true())
     } else {
-        Err(RuntimeCheckErrorKind::Unreachable("Bad transfer NFT args".to_string()).into())
+        Err(RuntimeCheckErrorKind::Unreachable("Bad transfer NFT args".into()).into())
     }
 }
 
@@ -783,9 +774,7 @@ pub fn special_transfer_token(
 
     let token_name = args[0]
         .match_atom()
-        .ok_or(RuntimeCheckErrorKind::Unreachable(
-            "Bad token name".to_string(),
-        ))?;
+        .ok_or(RuntimeCheckErrorKind::Unreachable("Bad token name".into()))?;
 
     let amount = eval(&args[1], exec_state, invoke_ctx, context)?;
     let from = eval(&args[2], exec_state, invoke_ctx, context)?;
@@ -803,7 +792,7 @@ pub fn special_transfer_token(
         }
 
         let ft_info = invoke_ctx.contract_context.meta_ft.get(token_name).ok_or(
-            RuntimeCheckErrorKind::Unreachable(format!("No such FT: {token_name}")),
+            RuntimeCheckErrorKind::Unreachable(bounded_format!("No such FT: {token_name}")),
         )?;
 
         let from_bal = exec_state.global_context.database.get_ft_balance(
@@ -870,7 +859,7 @@ pub fn special_transfer_token(
 
         Ok(Value::okay_true())
     } else {
-        Err(RuntimeCheckErrorKind::Unreachable("Bad transfer FT args".to_string()).into())
+        Err(RuntimeCheckErrorKind::Unreachable("Bad transfer FT args".into()).into())
     }
 }
 
@@ -886,15 +875,13 @@ pub fn special_get_balance(
 
     let token_name = args[0]
         .match_atom()
-        .ok_or(RuntimeCheckErrorKind::Unreachable(
-            "Bad token name".to_string(),
-        ))?;
+        .ok_or(RuntimeCheckErrorKind::Unreachable("Bad token name".into()))?;
 
     let owner = eval(&args[1], exec_state, invoke_ctx, context)?;
 
     if let Value::Principal(principal) = owner.as_ref() {
         let ft_info = invoke_ctx.contract_context.meta_ft.get(token_name).ok_or(
-            RuntimeCheckErrorKind::Unreachable(format!("No such FT: {token_name}")),
+            RuntimeCheckErrorKind::Unreachable(bounded_format!("No such FT: {token_name}")),
         )?;
 
         let balance = exec_state.global_context.database.get_ft_balance(
@@ -923,14 +910,12 @@ pub fn special_get_owner_v200(
 
     let asset_name = args[0]
         .match_atom()
-        .ok_or(RuntimeCheckErrorKind::Unreachable(
-            "Bad token name".to_string(),
-        ))?;
+        .ok_or(RuntimeCheckErrorKind::Unreachable("Bad token name".into()))?;
 
     let asset = eval(&args[1], exec_state, invoke_ctx, context)?;
 
     let nft_metadata = invoke_ctx.contract_context.meta_nft.get(asset_name).ok_or(
-        RuntimeCheckErrorKind::Unreachable(format!("No such NFT: {asset_name}")),
+        RuntimeCheckErrorKind::Unreachable(bounded_format!("No such NFT: {asset_name}")),
     )?;
     let expected_asset_type = &nft_metadata.key_type;
 
@@ -974,14 +959,12 @@ pub fn special_get_owner_v205(
 
     let asset_name = args[0]
         .match_atom()
-        .ok_or(RuntimeCheckErrorKind::Unreachable(
-            "Bad token name".to_string(),
-        ))?;
+        .ok_or(RuntimeCheckErrorKind::Unreachable("Bad token name".into()))?;
 
     let asset = eval(&args[1], exec_state, invoke_ctx, context)?;
 
     let nft_metadata = invoke_ctx.contract_context.meta_nft.get(asset_name).ok_or(
-        RuntimeCheckErrorKind::Unreachable(format!("No such NFT: {asset_name}")),
+        RuntimeCheckErrorKind::Unreachable(bounded_format!("No such NFT: {asset_name}")),
     )?;
     let expected_asset_type = &nft_metadata.key_type;
 
@@ -1025,9 +1008,7 @@ pub fn special_get_token_supply(
 
     let token_name = args[0]
         .match_atom()
-        .ok_or(RuntimeCheckErrorKind::Unreachable(
-            "Bad token name".to_string(),
-        ))?;
+        .ok_or(RuntimeCheckErrorKind::Unreachable("Bad token name".into()))?;
 
     let supply = exec_state
         .global_context
@@ -1048,9 +1029,7 @@ pub fn special_burn_token(
 
     let token_name = args[0]
         .match_atom()
-        .ok_or(RuntimeCheckErrorKind::Unreachable(
-            "Bad token name".to_string(),
-        ))?;
+        .ok_or(RuntimeCheckErrorKind::Unreachable("Bad token name".into()))?;
 
     let amount = eval(&args[1], exec_state, invoke_ctx, context)?;
     let from = eval(&args[2], exec_state, invoke_ctx, context)?;
@@ -1107,7 +1086,7 @@ pub fn special_burn_token(
 
         Ok(Value::okay_true())
     } else {
-        Err(RuntimeCheckErrorKind::Unreachable("Bad burn FT args".to_string()).into())
+        Err(RuntimeCheckErrorKind::Unreachable("Bad burn FT args".into()).into())
     }
 }
 
@@ -1123,15 +1102,13 @@ pub fn special_burn_asset_v200(
 
     let asset_name = args[0]
         .match_atom()
-        .ok_or(RuntimeCheckErrorKind::Unreachable(
-            "Bad token name".to_string(),
-        ))?;
+        .ok_or(RuntimeCheckErrorKind::Unreachable("Bad token name".into()))?;
 
     let asset = eval(&args[1], exec_state, invoke_ctx, context)?;
     let sender = eval(&args[2], exec_state, invoke_ctx, context)?;
 
     let nft_metadata = invoke_ctx.contract_context.meta_nft.get(asset_name).ok_or(
-        RuntimeCheckErrorKind::Unreachable(format!("No such NFT: {asset_name}")),
+        RuntimeCheckErrorKind::Unreachable(bounded_format!("No such NFT: {asset_name}")),
     )?;
     let expected_asset_type = &nft_metadata.key_type;
 
@@ -1217,15 +1194,13 @@ pub fn special_burn_asset_v205(
 
     let asset_name = args[0]
         .match_atom()
-        .ok_or(RuntimeCheckErrorKind::Unreachable(
-            "Bad token name".to_string(),
-        ))?;
+        .ok_or(RuntimeCheckErrorKind::Unreachable("Bad token name".into()))?;
 
     let asset = eval(&args[1], exec_state, invoke_ctx, context)?;
     let sender = eval(&args[2], exec_state, invoke_ctx, context)?;
 
     let nft_metadata = invoke_ctx.contract_context.meta_nft.get(asset_name).ok_or(
-        RuntimeCheckErrorKind::Unreachable(format!("No such NFT: {asset_name}")),
+        RuntimeCheckErrorKind::Unreachable(bounded_format!("No such NFT: {asset_name}")),
     )?;
     let expected_asset_type = &nft_metadata.key_type;
 

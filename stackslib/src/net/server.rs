@@ -717,7 +717,7 @@ mod test {
             let (client_sx, client_rx) = sync_channel(1);
             let client = thread::spawn(move || {
                 let mut sock = TcpStream::connect(
-                    &format!("127.0.0.1:{}", peer_http)
+                    format!("127.0.0.1:{}", peer_http)
                         .parse::<SocketAddr>()
                         .unwrap(),
                 )
@@ -791,8 +791,7 @@ mod test {
                 .unwrap();
                 request.preamble_mut().keep_alive = false;
 
-                let request_bytes = request.try_serialize().unwrap();
-                request_bytes
+                request.try_serialize().unwrap()
             },
             |client_id, http_response_bytes_res| {
                 // should be a PeerInfo
@@ -824,8 +823,7 @@ mod test {
                 .unwrap();
                 request.preamble_mut().keep_alive = false;
 
-                let request_bytes = request.try_serialize().unwrap();
-                request_bytes
+                request.try_serialize().unwrap()
             },
             |client_id, http_response_bytes_res| {
                 // should be a PeerInfo
@@ -873,8 +871,7 @@ mod test {
                 .unwrap();
                 request.preamble_mut().keep_alive = false;
 
-                let request_bytes = request.try_serialize().unwrap();
-                request_bytes
+                request.try_serialize().unwrap()
             },
             |client_id, http_response_bytes_res| {
                 // should be a Block
@@ -941,8 +938,7 @@ mod test {
                 .unwrap();
                 request.preamble_mut().keep_alive = false;
 
-                let request_bytes = request.try_serialize().unwrap();
-                request_bytes
+                request.try_serialize().unwrap()
             },
             |client_id, http_response_bytes_res| {
                 // should be a Block
@@ -975,9 +971,11 @@ mod test {
     #[test]
     #[ignore]
     fn test_http_too_many_clients() {
-        let mut conn_opts = ConnectionOptions::default();
-        conn_opts.num_clients = 1;
-        conn_opts.max_http_clients = 1;
+        let conn_opts = ConnectionOptions {
+            num_clients: 1,
+            max_http_clients: 1,
+            ..Default::default()
+        };
 
         let have_success = RefCell::new(false);
         let have_error = RefCell::new(false);
@@ -999,8 +997,7 @@ mod test {
                 .unwrap();
                 request.preamble_mut().keep_alive = false;
 
-                let request_bytes = request.try_serialize().unwrap();
-                request_bytes
+                request.try_serialize().unwrap()
             },
             |client_id, http_response_bytes_res| {
                 match http_response_bytes_res {
@@ -1031,8 +1028,11 @@ mod test {
     #[test]
     #[ignore]
     fn test_http_slow_client() {
-        let mut conn_opts = ConnectionOptions::default();
-        conn_opts.timeout = 3; // kill a connection after 3 seconds of idling
+        let conn_opts = ConnectionOptions {
+            // kill a connection after 3 seconds of idling
+            timeout: 3,
+            ..Default::default()
+        };
 
         test_http_server(
             function_name!(),
@@ -1051,8 +1051,7 @@ mod test {
                 .unwrap();
                 request.preamble_mut().keep_alive = false;
 
-                let request_bytes = request.try_serialize().unwrap();
-                request_bytes
+                request.try_serialize().unwrap()
             },
             |client_id, http_response_bytes_res| {
                 match http_response_bytes_res {
@@ -1122,8 +1121,7 @@ mod test {
                 .unwrap();
                 request.preamble_mut().keep_alive = false;
 
-                let request_bytes = request.try_serialize().unwrap();
-                request_bytes
+                request.try_serialize().unwrap()
             },
             |client_id, http_response_bytes_res| {
                 match http_response_bytes_res {
@@ -1193,9 +1191,11 @@ mod test {
 
     #[test]
     fn test_http_no_connecting_event_id_leak() {
-        let mut conn_opts = ConnectionOptions::default();
-        conn_opts.timeout = 10;
-        conn_opts.connect_timeout = 10;
+        let conn_opts = ConnectionOptions {
+            timeout: 10,
+            connect_timeout: 10,
+            ..Default::default()
+        };
 
         let num_events = test_http_server(
             function_name!(),
@@ -1221,8 +1221,7 @@ mod test {
                 .unwrap();
                 request.preamble_mut().keep_alive = false;
 
-                let request_bytes = request.try_serialize().unwrap();
-                request_bytes
+                request.try_serialize().unwrap()
             },
             |client_id, res| true,
         );
@@ -1274,8 +1273,7 @@ mod test {
                 .unwrap();
                 request.preamble_mut().keep_alive = false;
 
-                let request_bytes = request.try_serialize().unwrap();
-                request_bytes
+                request.try_serialize().unwrap()
             },
             |client_id, http_response_bytes_res| true,
         );

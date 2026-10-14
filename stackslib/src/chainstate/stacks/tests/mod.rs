@@ -98,6 +98,7 @@ pub fn copy_dir(src_dir: &str, dest_dir: &str) -> Result<(), io::Error> {
 }
 
 // one point per round
+#[derive(Default)]
 pub struct TestMinerTracePoint {
     pub fork_snapshots: HashMap<usize, BlockSnapshot>, // map miner ID to snapshot
     pub stacks_blocks: HashMap<usize, StacksBlock>,    // map miner ID to stacks block
@@ -330,8 +331,8 @@ impl TestStacksNode {
             panic!("Tried to fork an unforkable chainstate instance");
         }
 
-        if fs::metadata(&chainstate_path(new_test_name)).is_ok() {
-            fs::remove_dir_all(&chainstate_path(new_test_name)).unwrap();
+        if fs::metadata(chainstate_path(new_test_name)).is_ok() {
+            fs::remove_dir_all(chainstate_path(new_test_name)).unwrap();
         }
 
         copy_dir(
@@ -487,7 +488,7 @@ impl TestStacksNode {
                 }
             }
         }
-        return None;
+        None
     }
 
     pub fn get_microblock_stream(
@@ -495,17 +496,15 @@ impl TestStacksNode {
         miner: &TestMiner,
         block_hash: &BlockHeaderHash,
     ) -> Option<Vec<StacksMicroblock>> {
-        match self.commit_ops.get(block_hash) {
-            None => None,
-            Some(idx) => Some(self.microblocks[*idx].clone()),
-        }
+        self.commit_ops
+            .get(block_hash)
+            .map(|idx| self.microblocks[*idx].clone())
     }
 
     pub fn get_anchored_block(&self, block_hash: &BlockHeaderHash) -> Option<StacksBlock> {
-        match self.commit_ops.get(block_hash) {
-            None => None,
-            Some(idx) => Some(self.anchored_blocks[*idx].clone()),
-        }
+        self.commit_ops
+            .get(block_hash)
+            .map(|idx| self.anchored_blocks[*idx].clone())
     }
 
     pub fn get_last_winning_snapshot(
@@ -927,13 +926,13 @@ pub fn check_mining_reward(
             miner.id,
             miner.origin_address().unwrap().to_string()
         );
-        return total == 0;
+        total == 0
     } else {
         if amount != total {
             test_debug!("Amount {amount} != {total}");
             return false;
         }
-        return true;
+        true
     }
 }
 
@@ -1003,8 +1002,8 @@ pub fn make_coinbase_with_nonce(
 
     let mut tx_signer = StacksTransactionSigner::new(&tx_coinbase);
     miner.sign_as_origin(&mut tx_signer);
-    let tx_coinbase_signed = tx_signer.get_tx().unwrap();
-    tx_coinbase_signed
+
+    tx_signer.get_tx().unwrap()
 }
 
 pub fn make_smart_contract(
@@ -1066,9 +1065,8 @@ pub fn make_smart_contract_with_version(
 
     let mut tx_signer = StacksTransactionSigner::new(&tx_contract);
     miner.sign_as_origin(&mut tx_signer);
-    let tx_contract_signed = tx_signer.get_tx().unwrap();
 
-    tx_contract_signed
+    tx_signer.get_tx().unwrap()
 }
 
 /// paired with make_smart_contract
@@ -1104,8 +1102,8 @@ pub fn make_contract_call(
 
     let mut tx_signer = StacksTransactionSigner::new(&tx_contract_call);
     miner.sign_as_origin(&mut tx_signer);
-    let tx_contract_call_signed = tx_signer.get_tx().unwrap();
-    tx_contract_call_signed
+
+    tx_signer.get_tx().unwrap()
 }
 
 /// make a token transfer
@@ -1132,8 +1130,8 @@ pub fn make_token_transfer(
 
     let mut tx_signer = StacksTransactionSigner::new(&tx_stx_transfer);
     miner.sign_as_origin(&mut tx_signer);
-    let tx_stx_transfer_signed = tx_signer.get_tx().unwrap();
-    tx_stx_transfer_signed
+
+    tx_signer.get_tx().unwrap()
 }
 
 // TODO: merge with vm/tests/integrations.rs.
@@ -1199,12 +1197,12 @@ pub fn sign_tx_order_independent_p2sh(
 
     let mut tx_signer = StacksTransactionSigner::new(&unsigned_tx);
 
-    for signer in 0..num_sigs {
-        tx_signer.sign_origin(&privks[signer]).unwrap();
+    for privk in &privks[..num_sigs] {
+        tx_signer.sign_origin(privk).unwrap();
     }
 
-    for signer in num_sigs..pubks.len() {
-        tx_signer.append_origin(&pubks[signer]).unwrap();
+    for pubk in pubks.iter().skip(num_sigs) {
+        tx_signer.append_origin(pubk).unwrap();
     }
 
     tx_signer.get_tx().unwrap()
@@ -1237,12 +1235,12 @@ pub fn sign_tx_order_independent_p2wsh(
 
     let mut tx_signer = StacksTransactionSigner::new(&unsigned_tx);
 
-    for signer in 0..num_sigs {
-        tx_signer.sign_origin(&privks[signer]).unwrap();
+    for privk in &privks[..num_sigs] {
+        tx_signer.sign_origin(privk).unwrap();
     }
 
-    for signer in num_sigs..pubks.len() {
-        tx_signer.append_origin(&pubks[signer]).unwrap();
+    for pubk in pubks.iter().skip(num_sigs) {
+        tx_signer.append_origin(pubk).unwrap();
     }
 
     tx_signer.get_tx().unwrap()
@@ -1302,8 +1300,8 @@ pub fn make_user_contract_call(
 
     let mut tx_signer = StacksTransactionSigner::new(&tx_contract_call);
     tx_signer.sign_origin(sender).unwrap();
-    let tx_contract_call_signed = tx_signer.get_tx().unwrap();
-    tx_contract_call_signed
+
+    tx_signer.get_tx().unwrap()
 }
 
 pub fn make_user_stacks_transfer(
@@ -1411,7 +1409,7 @@ pub fn instantiate_and_exec(
     chain_id: u32,
     test_name: &str,
     balances: Vec<(StacksAddress, u64)>,
-    post_flight_callback: Option<Box<dyn FnOnce(&mut ClarityTx)>>,
+    post_flight_callback: Option<PostFlightCallback>,
 ) -> StacksChainState {
     let path = chainstate_path(test_name);
     if fs::metadata(&path).is_ok() {

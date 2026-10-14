@@ -1,1 +1,0 @@
-Removed the special-casing of transactions with high-S signatures from mempool admittance and block validation. Now that we've transitioned into Epoch 4.0, those signatures are forbidden by consensus and no longer need to be special-cased.

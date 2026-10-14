@@ -86,8 +86,7 @@ fn test_mempool_sync_2_peers() {
     let mut old_txs = HashMap::new();
     let mut peer_1_mempool = peer_1.mempool.take().unwrap();
     let mut mempool_tx = peer_1_mempool.tx_begin().unwrap();
-    for i in 0..num_txs {
-        let pk = &pks[i];
+    for (i, pk) in pks[..num_txs].iter().enumerate() {
         let mut tx = StacksTransaction {
             version: TransactionVersion::Testnet,
             chain_id: 0x80000000,
@@ -167,8 +166,7 @@ fn test_mempool_sync_2_peers() {
     let mut txs = HashMap::new();
     let mut peer_1_mempool = peer_1.mempool.take().unwrap();
     let mut mempool_tx = peer_1_mempool.tx_begin().unwrap();
-    for i in 0..num_txs {
-        let pk = &pks[i];
+    for (i, pk) in pks[..num_txs].iter().enumerate() {
         let mut tx = StacksTransaction {
             version: TransactionVersion::Testnet,
             chain_id: 0x80000000,
@@ -353,8 +351,7 @@ fn test_mempool_sync_2_peers_paginated() {
     let mut txs = HashMap::new();
     let mut peer_1_mempool = peer_1.mempool.take().unwrap();
     let mut mempool_tx = peer_1_mempool.tx_begin().unwrap();
-    for i in 0..num_txs {
-        let pk = &pks[i];
+    for (i, pk) in pks[..num_txs].iter().enumerate() {
         let mut tx = StacksTransaction {
             version: TransactionVersion::Testnet,
             chain_id: 0x80000000,
@@ -545,8 +542,7 @@ fn test_mempool_sync_2_peers_blacklisted() {
     let mut peer_1_mempool = peer_1.mempool.take().unwrap();
     let mut mempool_tx = peer_1_mempool.tx_begin().unwrap();
     let mut peer_2_blacklist = vec![];
-    for i in 0..num_txs {
-        let pk = &pks[i];
+    for (i, pk) in pks[..num_txs].iter().enumerate() {
         let mut tx = StacksTransaction {
             version: TransactionVersion::Testnet,
             chain_id: 0x80000000,
@@ -754,9 +750,7 @@ fn test_mempool_sync_2_peers_problematic() {
     // fill peer 1 with lots of transactions
     let mut peer_1_mempool = peer_1.mempool.take().unwrap();
     let mut mempool_tx = peer_1_mempool.tx_begin().unwrap();
-    for i in 0..num_txs {
-        let pk = &pks[i];
-
+    for (i, pk) in pks[..num_txs].iter().enumerate() {
         let exceeds_repeat_factor =
             StackDepthLimits::for_epoch(StacksEpochId::Epoch34).max_nesting_depth();
         let tx_exceeds_body_start = "{ a : ".repeat(exceeds_repeat_factor as usize);
@@ -1155,8 +1149,7 @@ fn test_mempool_sync_2_peers_nakamoto_paginated() {
     let mut txs = HashMap::new();
     let mut peer_1_mempool = peer_1.mempool.take().unwrap();
     let mut mempool_tx = peer_1_mempool.tx_begin().unwrap();
-    for i in 0..num_txs {
-        let pk = &pks[i];
+    for (i, pk) in pks[..num_txs].iter().enumerate() {
         let mut tx = StacksTransaction {
             version: TransactionVersion::Testnet,
             chain_id: 0x80000000,

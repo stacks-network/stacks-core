@@ -24,6 +24,7 @@ use stacks_common::deps_common::bitcoin::network::serialize::deserialize;
 use stacks_common::types::chainstate::StacksAddress;
 use stacks_common::types::sqlite::NO_PARAMS;
 use stacks_common::util::hash::*;
+use stacks_marf::ClarityMarfTrieId;
 
 use super::*;
 use crate::burnchains::bitcoin::address::*;
@@ -35,7 +36,6 @@ use crate::chainstate::burn::operations::leader_block_commit::BURN_BLOCK_MINED_A
 use crate::chainstate::burn::*;
 use crate::chainstate::coordinator::tests::next_txid;
 use crate::chainstate::stacks::address::{PoxAddress, StacksAddressExtensions};
-use crate::chainstate::stacks::index::ClarityMarfTrieId;
 use crate::chainstate::stacks::*;
 use crate::core::{StacksEpochId, BITCOIN_REGTEST_FIRST_BLOCK_HASH};
 use crate::util_lib::db::Error as DBError;
@@ -644,7 +644,7 @@ fn test_get_commit_at() {
         burnchain_db
             .store_new_burnchain_block_ops_unchecked(
                 block_header,
-                &vec![BlockstackOperationType::LeaderBlockCommit(cmt.clone())],
+                &[BlockstackOperationType::LeaderBlockCommit(cmt.clone())],
             )
             .unwrap();
 
@@ -685,7 +685,7 @@ fn test_get_commit_at() {
     burnchain_db
         .store_new_burnchain_block_ops_unchecked(
             &fork_block_header,
-            &vec![BlockstackOperationType::LeaderBlockCommit(fork_cmt.clone())],
+            &[BlockstackOperationType::LeaderBlockCommit(fork_cmt.clone())],
         )
         .unwrap();
 
@@ -750,7 +750,7 @@ fn test_get_set_check_anchor_block() {
         burnchain_db
             .store_new_burnchain_block_ops_unchecked(
                 block_header,
-                &vec![BlockstackOperationType::LeaderBlockCommit(cmt.clone())],
+                &[BlockstackOperationType::LeaderBlockCommit(cmt.clone())],
             )
             .unwrap();
 
@@ -852,8 +852,8 @@ fn test_classify_delegate_stx() {
     // Set up the data field for the delegate stx transactions
     let mut data = vec![1; 80];
     // Make it so that reward_addr_index = Some(1)
-    for i in 17..20 {
-        data[i] = 0;
+    for byte in data[..20].iter_mut().skip(17) {
+        *byte = 0;
     }
 
     // this one will not have a corresponding pre_stx tx.

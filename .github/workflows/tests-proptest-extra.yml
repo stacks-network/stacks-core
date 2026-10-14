@@ -30,6 +30,14 @@ on:
     types: [submitted, dismissed]
   workflow_dispatch:
     inputs:
+      btc-version:
+        description: 'The version of the bitcoin binary to use for tests'
+        required: false
+        type: string
+      btc-version-sha:
+        description: 'The SHA of the binary to verify before executing the tests. Find these in the official SHA256SUMS file for each release. Example: https://bitcoincore.org/bin/bitcoin-core-31.1/SHA256SUMS'
+        required: false
+        type: string
       base_ref:
         description: "BASE branch to diff against (default: main)"
         required: true
@@ -58,29 +66,12 @@ env:
   # Number of generated cases to run per selected proptest.
   PROPTEST_CASES: 2500
   TEST_ARCHIVE_FILE: "./test_archive.tar.zst"
-  BTC_VERSION: "25.0"
 
 jobs:
-  check-ci-enabled:
+  # Check if CI is enabled
+  check-ci:
     name: "Check: CI Enabled"
-    runs-on: ubuntu-latest
-    outputs:
-      enabled: ${{ steps.check.outputs.enabled }}
-    steps:
-      - id: check
-        run: |
-          echo "=== CI Enablement Check ==="
-          echo "ENABLE_CI_WORKFLOWS: '${{ vars.ENABLE_CI_WORKFLOWS }}'"
-          echo "github.repository:   '${{ github.repository }}'"
-          echo "github.event_name:   '${{ github.event_name }}'"
-    
-          if [[ "${{ vars.ENABLE_CI_WORKFLOWS }}" == "true" || "${{ github.repository }}" == "stacks-network/stacks-core" || "${{ github.event_name }}" == "workflow_dispatch" ]]; then
-            echo "Result: CI is ENABLED"
-            echo "enabled=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "Result: CI is DISABLED"
-            echo "enabled=false" >> "$GITHUB_OUTPUT"
-          fi
+    uses: ./.github/workflows/__check-ci.yml
 
   # Gate 1: on manual dispatch, always proceed.
   # On pull_request_review, proceed only when the triggering review is an
@@ -89,9 +80,9 @@ jobs:
   check-approvals:
     name: "Check: Approval Count"
     needs:
-      - check-ci-enabled
+      - check-ci
     # Only run this if a PR review is approved targeting the main branch
-    if: needs.check-ci-enabled.outputs.enabled == 'true' && github.event.review.state == 'approved' && github.event.pull_request.base.ref == 'main'
+    if: needs.check-ci.outputs.enabled == 'true' && github.event.review.state == 'approved' && github.event.pull_request.base.ref == 'main'
     runs-on: ubuntu-latest
     outputs:
       ready: ${{ steps.count.outputs.ready }}
@@ -152,7 +143,6 @@ jobs:
   check-changes:
     name: "Detect: New Proptest Tests"
     needs:
-      - check-ci-enabled
       - check-approvals
     if: needs.check-approvals.outputs.ready == 'true'
     runs-on: ubuntu-latest
@@ -161,7 +151,7 @@ jobs:
     steps:
       # Checkout the code
       - name: Checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: $/.github/wrappers/checkout
         with:
           ref: ${{ github.event.pull_request.head.sha || github.ref }}
           fetch-depth: 0
@@ -207,9 +197,27 @@ jobs:
       - check-changes
     runs-on: ubuntu-latest
     outputs:
+      btc-version: ${{ steps.btc-version.outputs.version }}
+      btc-version-sha: ${{ steps.btc-version.outputs.sha }}
       test-archive-file: ${{ steps.set-env.outputs.test_archive_file }}
-      btc-version: ${{ steps.set-env.outputs.btc_version }}
     steps:
+      # Checkout the code
+      #   - only .github is required for this job
+      - name: Checkout the latest code
+        uses: $/.github/wrappers/checkout
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.ref }}
+          sparse-checkout: |
+            .github
+
+      # Resolve target bitcoin version
+      - name: Resolve Target Bitcoin Version
+        id: btc-version
+        uses: ./.github/actions/bitcoin-version
+        with:
+          btc-version: ${{ inputs.btc-version }}
+          btc-version-sha: ${{ inputs.btc-version-sha }}
+          
       - name: Export Env Variables
         id: set-env
         run: |
@@ -217,7 +225,6 @@ jobs:
           FILE="${{ env.TEST_ARCHIVE_FILE }}"
   
           echo "test_archive_file=${FILE/#\~/$HOME}" >> $GITHUB_OUTPUT
-          echo "btc_version=${{ env.BTC_VERSION }}" >> $GITHUB_OUTPUT
 
   ############################################################################
   ### Check Reusable Test Caches
@@ -235,6 +242,9 @@ jobs:
       needs.check-approvals.outputs.ready == 'true' &&
       needs.check-changes.outputs.found == 'true'
     uses: ./.github/workflows/_check-test-caches.yml
+    with:
+      btc-version: ${{ needs.setup-env.outputs.btc-version }}
+      btc-version-sha: ${{ needs.setup-env.outputs.btc-version-sha }}
 
   proptests-run:
     # NOTE: This job name is used as a required Status Check in branch
@@ -261,7 +271,7 @@ jobs:
       # Checkout the code
       - name: Checkout the latest code
         id: git_checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: $/.github/wrappers/checkout
         with:
           ref: ${{ github.event.pull_request.head.sha || github.ref }}
      
@@ -284,6 +294,7 @@ jobs:
         with:
           action: restore
           btc-version: ${{ needs.setup-env.outputs.btc-version }}
+          btc-version-sha: ${{ needs.setup-env.outputs.btc-version-sha }}
      
       # Symlink bitoind to $PATH
       - name: Link Bitcoin Binary
@@ -462,7 +473,7 @@ jobs:
         if: failure() && steps.run-tests.outcome == 'failure'
         env:
           ARTIFACT_NAME: proptest-extra-pr-${{ github.event.pull_request.number || inputs.pr_number }}
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: ./.github/wrappers/upload-artifact
         with:
           name: ${{ env.ARTIFACT_NAME }}
           path: "**/proptest-regressions/"

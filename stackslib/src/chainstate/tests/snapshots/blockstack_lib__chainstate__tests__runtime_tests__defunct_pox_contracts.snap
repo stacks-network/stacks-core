@@ -8,7 +8,7 @@ expression: results
     evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
-        tx: "ContractCall(address: ST000000000000000000002AMW42H, contract_name: pox, function_name: stack-stx, function_args: [[UInt(1000000000000000000), Tuple(TupleData { type_signature: TupleTypeSignature { \"hashbytes\": (buff 20), \"version\": (buff 1),}, data_map: {ClarityName(\"hashbytes\"): Sequence(Buffer(f942874ce525e87f21bbe8c121b12fac831d02f4)), ClarityName(\"version\"): Sequence(Buffer(00))} }), UInt(48), UInt(1)]])",
+        tx: "ContractCall(address: ST000000000000000000002AMW42H, contract_name: pox, function_name: stack-stx, function_args: [[UInt(1000000000000000000), Tuple((tuple (hashbytes 0xf942874ce525e87f21bbe8c121b12fac831d02f4) (version 0x00))), UInt(48), UInt(1)]])",
         vm_error: "Some(DefunctPoxContract) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
@@ -38,7 +38,7 @@ expression: results
     evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
-        tx: "ContractCall(address: ST000000000000000000002AMW42H, contract_name: pox-2, function_name: stack-stx, function_args: [[UInt(1000000000000000000), Tuple(TupleData { type_signature: TupleTypeSignature { \"hashbytes\": (buff 20), \"version\": (buff 1),}, data_map: {ClarityName(\"hashbytes\"): Sequence(Buffer(f942874ce525e87f21bbe8c121b12fac831d02f4)), ClarityName(\"version\"): Sequence(Buffer(00))} }), UInt(48), UInt(1)]])",
+        tx: "ContractCall(address: ST000000000000000000002AMW42H, contract_name: pox-2, function_name: stack-stx, function_args: [[UInt(1000000000000000000), Tuple((tuple (hashbytes 0xf942874ce525e87f21bbe8c121b12fac831d02f4) (version 0x00))), UInt(48), UInt(1)]])",
         vm_error: "Some(DefunctPoxContract) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
@@ -68,7 +68,7 @@ expression: results
     evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
-        tx: "ContractCall(address: ST000000000000000000002AMW42H, contract_name: pox-3, function_name: stack-stx, function_args: [[UInt(1000000000000000000), Tuple(TupleData { type_signature: TupleTypeSignature { \"hashbytes\": (buff 20), \"version\": (buff 1),}, data_map: {ClarityName(\"hashbytes\"): Sequence(Buffer(f942874ce525e87f21bbe8c121b12fac831d02f4)), ClarityName(\"version\"): Sequence(Buffer(00))} }), UInt(48), UInt(1)]])",
+        tx: "ContractCall(address: ST000000000000000000002AMW42H, contract_name: pox-3, function_name: stack-stx, function_args: [[UInt(1000000000000000000), Tuple((tuple (hashbytes 0xf942874ce525e87f21bbe8c121b12fac831d02f4) (version 0x00))), UInt(48), UInt(1)]])",
         vm_error: "Some(DefunctPoxContract) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
@@ -98,7 +98,7 @@ expression: results
     evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
-        tx: "ContractCall(address: ST000000000000000000002AMW42H, contract_name: pox-4, function_name: stack-stx, function_args: [[UInt(1000000000000000000), Tuple(TupleData { type_signature: TupleTypeSignature { \"hashbytes\": (buff 20), \"version\": (buff 1),}, data_map: {ClarityName(\"hashbytes\"): Sequence(Buffer(f942874ce525e87f21bbe8c121b12fac831d02f4)), ClarityName(\"version\"): Sequence(Buffer(00))} }), UInt(48), UInt(1), Optional(OptionalData { data: Some(Sequence(Buffer(0c275bdb023a1f8de3d1c99e821268f36e16cbf82d8747f19abee8bd454459ca34aca028eff0ad9ddb6b742ef5b065f2db0b40d93f63b82cde2024cb00ac67cb01))) }), Sequence(Buffer(02b37b7f1553fa17fe0ad71c57538f4a93bfada632947c04e1ca6fcdad65e8106d)), UInt(340282366920938463463374607431768211455), UInt(1)]])",
+        tx: "ContractCall(address: ST000000000000000000002AMW42H, contract_name: pox-4, function_name: stack-stx, function_args: [[UInt(1000000000000000000), Tuple((tuple (hashbytes 0xf942874ce525e87f21bbe8c121b12fac831d02f4) (version 0x00))), UInt(48), UInt(1), Optional(OptionalData { data: Some(Sequence(Buffer(0c275bdb023a1f8de3d1c99e821268f36e16cbf82d8747f19abee8bd454459ca34aca028eff0ad9ddb6b742ef5b065f2db0b40d93f63b82cde2024cb00ac67cb01))) }), Sequence(Buffer(02b37b7f1553fa17fe0ad71c57538f4a93bfada632947c04e1ca6fcdad65e8106d)), UInt(340282366920938463463374607431768211455), UInt(1)]])",
         vm_error: "Some(DefunctPoxContract) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,

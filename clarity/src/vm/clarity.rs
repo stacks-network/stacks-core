@@ -14,6 +14,8 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 use std::fmt;
 
+use clarity_types::types::BoundedErrorString;
+use stacks_common::bounded_format;
 use stacks_common::types::StacksEpochId;
 
 use crate::vm::analysis::{
@@ -37,10 +39,10 @@ use crate::vm::{ClarityVersion, ContractContext, SymbolicExpression, Value, anal
 pub enum ClarityError {
     /// Error during static type-checking or semantic analysis.
     /// The `StaticCheckError` wraps the specific type-checking error, including diagnostic details.
-    StaticCheck(StaticCheckError),
+    StaticCheck(Box<StaticCheckError>),
     /// Error during lexical or syntactic parsing.
     /// The `ParseError` wraps the specific parsing error, such as invalid syntax or tokens.
-    Parse(ParseError),
+    Parse(Box<ParseError>),
     /// Error during runtime evaluation in the virtual machine.
     /// The `VmExecutionError` wraps the specific error, such as runtime errors or dynamic type-checking errors.
     Interpreter(VmExecutionError),
@@ -60,7 +62,7 @@ pub enum ClarityError {
         /// The events from the transaction processing
         tx_events: Vec<StacksTransactionEvent>,
         /// A human-readable explanation for aborting the transaction
-        reason: String,
+        reason: BoundedErrorString,
     },
     /// Transaction exceeded the maximum execution time or heap usage allowed.
     ExecutionResourceBudgetExceeded(String),
@@ -129,7 +131,7 @@ pub enum IncludedRuntimeTxError {
         /// Events emitted while processing the transaction.
         tx_events: Vec<StacksTransactionEvent>,
         /// A human-readable explanation for aborting the transaction.
-        reason: String,
+        reason: BoundedErrorString,
     },
     /// A non-rejectable runtime analysis error in Epoch 2.1 or later.
     #[non_exhaustive]
@@ -189,7 +191,8 @@ pub fn handle_clarity_runtime_error(
             }
         }
         ClarityError::Interpreter(VmExecutionError::RuntimeCheck(runtime_check_err)) => {
-            if runtime_check_err.rejectable() || epoch_id < StacksEpochId::Epoch21 {
+            if runtime_check_err.rejectable_in_epoch(epoch_id) || epoch_id < StacksEpochId::Epoch21
+            {
                 return ClarityRuntimeTxError::Rejected(RejectedRuntimeTxError::Clarity {
                     error: ClarityError::Interpreter(VmExecutionError::RuntimeCheck(
                         runtime_check_err,
@@ -303,7 +306,7 @@ impl From<StaticCheckError> for ClarityError {
             StaticCheckErrorKind::AnalysisResourceBudgetExceeded(s) => {
                 ClarityError::AnalysisResourceBudgetExceeded(s)
             }
-            _ => ClarityError::StaticCheck(e),
+            _ => ClarityError::StaticCheck(e.into()),
         }
     }
 }
@@ -366,7 +369,7 @@ impl From<ParseError> for ClarityError {
             ParseErrorKind::MemoryBalanceExceeded(_a, _b) => {
                 ClarityError::CostError(ExecutionCost::max_value(), ExecutionCost::max_value())
             }
-            _ => ClarityError::Parse(e),
+            _ => ClarityError::Parse(e.into()),
         }
     }
 }
@@ -426,6 +429,88 @@ pub trait ClarityConnection {
     }
 }
 
+/// Network and epoch settings for a Clarity transaction frame.
+#[derive(Debug, Clone, Copy)]
+pub struct TransactionConfig {
+    /// Whether execution uses mainnet rules.
+    pub mainnet: bool,
+    /// Chain identifier exposed to Clarity contracts.
+    pub chain_id: u32,
+    /// Epoch whose execution rules apply.
+    pub epoch: StacksEpochId,
+}
+
+/// Execution output, asset changes, events, and an optional callback abort reason.
+pub type TransactionOutput<R> = (
+    R,
+    AssetMap,
+    Vec<StacksTransactionEvent>,
+    Option<BoundedErrorString>,
+);
+
+/// Execute a nested Clarity transaction and let a callback decide whether its
+/// database changes should be committed.
+///
+/// Successful execution commits unless `abort_callback` returns a reason; errors and
+/// callback aborts roll back. The returned cost tracker retains its memory usage for the
+/// surrounding transaction to reset. Register evaluation hooks inside `to_do` before
+/// execution; hooks must not run on consensus paths.
+///
+/// Hook outcomes describe execution, not transaction commitment: hooks are notified of a
+/// successful execution before `abort_callback` runs, so a `Success` outcome does not mean
+/// the changes were committed.
+pub fn execute_with_abort_callback<'db, 'hooks, F, A, R, E>(
+    mut db: ClarityDatabase<'db>,
+    cost_tracker: LimitedCostTracker,
+    config: TransactionConfig,
+    to_do: F,
+    abort_callback: A,
+) -> (
+    ClarityDatabase<'db>,
+    LimitedCostTracker,
+    Result<TransactionOutput<R>, E>,
+)
+where
+    A: FnOnce(&AssetMap, &mut ClarityDatabase) -> Option<BoundedErrorString>,
+    F: FnOnce(
+        &mut OwnedEnvironment<'_, 'hooks>,
+    ) -> Result<(R, AssetMap, Vec<StacksTransactionEvent>), E>,
+    E: From<VmExecutionError>,
+{
+    db.begin();
+    let mut vm_env = OwnedEnvironment::new_cost_limited(
+        config.mainnet,
+        config.chain_id,
+        db,
+        cost_tracker,
+        config.epoch,
+    );
+
+    let execution_result = to_do(&mut vm_env);
+    let (mut db, cost_tracker) = vm_env
+        .destruct()
+        .expect("Failed to recover database reference after executing transaction");
+
+    let result = match execution_result {
+        Ok((value, asset_map, events)) => {
+            let abort_reason = abort_callback(&asset_map, &mut db);
+            let db_result = match &abort_reason {
+                Some(_) => db.roll_back(),
+                None => db.commit(),
+            };
+            db_result
+                .map(|()| (value, asset_map, events, abort_reason))
+                .map_err(Into::into)
+        }
+        Err(error) => match db.roll_back() {
+            Ok(()) => Err(error),
+            Err(db_error) => Err(db_error.into()),
+        },
+    };
+
+    (db, cost_tracker, result)
+}
+
 pub trait TransactionConnection: ClarityConnection {
     /// Do something with this connection's Clarity environment that can be aborted
     /// with `abort_call_back`.
@@ -443,9 +528,9 @@ pub trait TransactionConnection: ClarityConnection {
         &'hooks mut self,
         to_do: F,
         abort_call_back: A,
-    ) -> Result<(R, AssetMap, Vec<StacksTransactionEvent>, Option<String>), E>
+    ) -> Result<TransactionOutput<R>, E>
     where
-        A: FnOnce(&AssetMap, &mut ClarityDatabase) -> Option<String>,
+        A: FnOnce(&AssetMap, &mut ClarityDatabase) -> Option<BoundedErrorString>,
         F: FnOnce(
             &mut OwnedEnvironment<'_, 'hooks>,
         ) -> Result<(R, AssetMap, Vec<StacksTransactionEvent>), E>,
@@ -534,15 +619,15 @@ pub trait TransactionConnection: ClarityConnection {
             let result = db.insert_contract(identifier, contract_analysis);
             match result {
                 Ok(_) => {
-                    let result = db
-                        .commit()
-                        .map_err(|e| StaticCheckErrorKind::Unreachable(format!("{e:?}")).into());
+                    let result = db.commit().map_err(|e| {
+                        StaticCheckErrorKind::Unreachable(bounded_format!("{e:?}")).into()
+                    });
                     (cost_tracker, result)
                 }
                 Err(e) => {
-                    let result = db
-                        .roll_back()
-                        .map_err(|e| StaticCheckErrorKind::Unreachable(format!("{e:?}")).into());
+                    let result = db.roll_back().map_err(|e| {
+                        StaticCheckErrorKind::Unreachable(bounded_format!("{e:?}")).into()
+                    });
                     if result.is_err() {
                         (cost_tracker, result)
                     } else {
@@ -590,7 +675,7 @@ pub trait TransactionConnection: ClarityConnection {
         resource_budget: &ResourceBudget,
     ) -> Result<(Value, AssetMap, Vec<StacksTransactionEvent>), ClarityError>
     where
-        F: FnOnce(&AssetMap, &mut ClarityDatabase) -> Option<String>,
+        F: FnOnce(&AssetMap, &mut ClarityDatabase) -> Option<BoundedErrorString>,
     {
         let expr_args: Vec<_> = args
             .iter()
@@ -645,7 +730,7 @@ pub trait TransactionConnection: ClarityConnection {
         execution_resource_budget: &ResourceBudget,
     ) -> Result<(AssetMap, Vec<StacksTransactionEvent>), ClarityError>
     where
-        F: FnOnce(&AssetMap, &mut ClarityDatabase) -> Option<String>,
+        F: FnOnce(&AssetMap, &mut ClarityDatabase) -> Option<BoundedErrorString>,
     {
         let (_, assets_modified, tx_events, reason) = self.with_abort_callback(
             |vm_env| {
@@ -680,12 +765,178 @@ pub trait TransactionConnection: ClarityConnection {
 
 #[cfg(test)]
 mod unit_tests {
+    use std::assert_matches;
+
     use super::*;
     use crate::vm::analysis::errors::StaticCheckErrorKind;
     use crate::vm::ast::errors::ParseErrorKind;
+    use crate::vm::costs::CostTracker;
+    use crate::vm::database::MemoryBackingStore;
     use crate::vm::errors::{EarlyReturnError, RuntimeError};
     use crate::vm::events::{STXBurnEventData, STXEventType};
+    use crate::vm::hooks::ExecutionOutcome;
+    use crate::vm::hooks::testing::{ExecutionLifecycleEvent, ExecutionLifecycleHook};
     use crate::vm::types::StandardPrincipalData;
+
+    #[test]
+    fn shared_transaction_frame_commits_and_runs_hooks() {
+        let mut store = MemoryBackingStore::new();
+        let db = store.as_clarity_db();
+        let mut hook = ExecutionLifecycleHook::default();
+
+        let (mut db, cost_tracker, result) = execute_with_abort_callback(
+            db,
+            LimitedCostTracker::new_with_limit(StacksEpochId::Epoch33, ExecutionCost::max_value()),
+            TransactionConfig {
+                mainnet: false,
+                chain_id: stacks_common::consts::CHAIN_ID_TESTNET,
+                epoch: StacksEpochId::Epoch33,
+            },
+            |vm_env| {
+                vm_env.add_eval_hook(&mut hook);
+                vm_env.execute_in_env(
+                    PrincipalData::Standard(StandardPrincipalData::transient()),
+                    None,
+                    None,
+                    |exec_state, _| {
+                        // The surrounding transaction owns resetting this memory charge.
+                        exec_state
+                            .global_context
+                            .cost_track
+                            .add_memory(123)
+                            .unwrap();
+                        exec_state
+                            .global_context
+                            .database
+                            .put_data("shared-frame", &1_u64)?;
+                        Ok::<_, VmExecutionError>(())
+                    },
+                )
+            },
+            |_, _| None,
+        );
+
+        let (_, _, _, abort_reason) = result.unwrap();
+        assert!(abort_reason.is_none());
+        assert_eq!(cost_tracker.get_memory(), 123);
+        db.begin();
+        assert_eq!(db.get_data::<u64>("shared-frame").unwrap(), Some(1));
+        db.roll_back().unwrap();
+        assert_eq!(
+            hook.events,
+            vec![
+                ExecutionLifecycleEvent::Begin,
+                ExecutionLifecycleEvent::Finish(ExecutionOutcome::Success),
+            ]
+        );
+    }
+
+    #[test]
+    fn shared_transaction_frame_rolls_back_callback_abort() {
+        let mut store = MemoryBackingStore::new();
+        let db = store.as_clarity_db();
+        let mut hook = ExecutionLifecycleHook::default();
+
+        let (mut db, _, result) = execute_with_abort_callback(
+            db,
+            LimitedCostTracker::new_free(),
+            TransactionConfig {
+                mainnet: false,
+                chain_id: stacks_common::consts::CHAIN_ID_TESTNET,
+                epoch: StacksEpochId::Epoch33,
+            },
+            |vm_env| {
+                vm_env.add_eval_hook(&mut hook);
+                // Also write outside execute_in_env's frame to verify the helper's rollback.
+                vm_env.context.database.put_data("outer-frame", &2_u64)?;
+                vm_env.execute_in_env(
+                    PrincipalData::Standard(StandardPrincipalData::transient()),
+                    None,
+                    None,
+                    |exec_state, _| {
+                        exec_state
+                            .global_context
+                            .database
+                            .put_data("shared-frame", &1_u64)?;
+                        Ok::<_, VmExecutionError>(())
+                    },
+                )
+            },
+            |_, _| Some("abort".into()),
+        );
+
+        let (_, _, _, abort_reason) = result.unwrap();
+        assert_eq!(abort_reason, Some("abort".into()));
+        // Execution succeeds before the abort callback rolls back the transaction frame.
+        assert_eq!(
+            hook.events,
+            vec![
+                ExecutionLifecycleEvent::Begin,
+                ExecutionLifecycleEvent::Finish(ExecutionOutcome::Success),
+            ]
+        );
+        db.begin();
+        assert_eq!(db.get_data::<u64>("shared-frame").unwrap(), None);
+        assert_eq!(db.get_data::<u64>("outer-frame").unwrap(), None);
+        db.roll_back().unwrap();
+    }
+
+    #[test]
+    fn shared_transaction_frame_rolls_back_execution_error() {
+        let mut store = MemoryBackingStore::new();
+        let db = store.as_clarity_db();
+        let mut hook = ExecutionLifecycleHook::default();
+
+        let (mut db, _, result) = execute_with_abort_callback(
+            db,
+            LimitedCostTracker::new_free(),
+            TransactionConfig {
+                mainnet: false,
+                chain_id: stacks_common::consts::CHAIN_ID_TESTNET,
+                epoch: StacksEpochId::Epoch33,
+            },
+            |vm_env| {
+                vm_env.add_eval_hook(&mut hook);
+                // Also write outside execute_in_env's frame to verify the helper's rollback.
+                vm_env.context.database.put_data("outer-frame", &2_u64)?;
+                vm_env.execute_in_env(
+                    PrincipalData::Standard(StandardPrincipalData::transient()),
+                    None,
+                    None,
+                    |exec_state, _| {
+                        exec_state
+                            .global_context
+                            .database
+                            .put_data("shared-frame", &1_u64)?;
+                        Err::<(), _>(VmExecutionError::Runtime(
+                            RuntimeError::ArithmeticOverflow,
+                            None,
+                        ))
+                    },
+                )
+            },
+            |_, _| None,
+        );
+
+        assert!(matches!(
+            result,
+            Err(VmExecutionError::Runtime(
+                RuntimeError::ArithmeticOverflow,
+                None
+            ))
+        ));
+        assert_eq!(
+            hook.events,
+            vec![
+                ExecutionLifecycleEvent::Begin,
+                ExecutionLifecycleEvent::Finish(ExecutionOutcome::Failure),
+            ]
+        );
+        db.begin();
+        assert_eq!(db.get_data::<u64>("shared-frame").unwrap(), None);
+        assert_eq!(db.get_data::<u64>("outer-frame").unwrap(), None);
+        db.roll_back().unwrap();
+    }
 
     #[test]
     fn runtime_error_disposition_is_authoritative() {
@@ -726,11 +977,11 @@ mod unit_tests {
                 ..
             }) => {
                 assert_eq!(err_type, "short return/panic");
-                assert!(matches!(
+                assert_matches!(
                     error,
                     VmExecutionError::EarlyReturn(EarlyReturnError::UnwrapFailed(value))
                         if *value == Value::Int(42)
-                ));
+                );
             }
             _ => panic!("early returns must be included as acceptable runtime errors"),
         }
@@ -794,9 +1045,9 @@ mod unit_tests {
         );
     }
 
-    /// Runtime-check errors are classified by `rejectable() || epoch_id < Epoch21`. The test
-    /// above pins the epoch half; this pins the `rejectable()` half. Every epoch used here is
-    /// >= 2.1, so the epoch half is false and only `rejectable()` can reject.
+    /// Runtime-check errors are classified by `rejectable_in_epoch(epoch) || epoch_id < Epoch21`.
+    /// The test above pins the epoch half; this pins the rejectable half. Every epoch used here
+    /// is >= 2.1, so the epoch half is false and only `rejectable_in_epoch` can reject.
     #[test]
     fn rejectable_runtime_checks_are_rejected_in_every_epoch() {
         for epoch in [
@@ -813,7 +1064,10 @@ mod unit_tests {
 
             for kind in rejectable {
                 // Pin the premise: if a kind stops being rejectable, fail here rather than below.
-                assert!(kind.rejectable(), "{kind:?} is expected to be rejectable");
+                assert!(
+                    kind.rejectable_in_epoch(epoch),
+                    "{kind:?} is expected to be rejectable"
+                );
 
                 let label = format!("{kind:?}");
                 let error = ClarityError::Interpreter(VmExecutionError::RuntimeCheck(kind));
@@ -822,6 +1076,33 @@ mod unit_tests {
                     "{label} must never be included in a block, even in {epoch}"
                 );
             }
+        }
+    }
+
+    /// `SequenceElementArityMismatch` is the one epoch-dependent runtime check:
+    /// rejectable before 4.1, but includable after.
+    #[test]
+    fn sequence_element_arity_mismatch_becomes_includable_at_epoch_41() {
+        for epoch in StacksEpochId::ALL {
+            let kind = RuntimeCheckErrorKind::SequenceElementArityMismatch {
+                expected: 1,
+                found: 0,
+            };
+            let expect_rejectable = *epoch < StacksEpochId::Epoch41;
+            assert_eq!(
+                kind.rejectable_in_epoch(*epoch),
+                expect_rejectable,
+                "wrong rejectability in {epoch}"
+            );
+
+            // Pre-2.1 epochs reject every runtime-check error, so inclusion still
+            // begins exactly at 4.1.
+            let error = ClarityError::Interpreter(VmExecutionError::RuntimeCheck(kind));
+            assert_eq!(
+                handle_clarity_runtime_error(error, *epoch).is_included_in_block(),
+                !expect_rejectable,
+                "wrong disposition in {epoch}"
+            );
         }
     }
 
@@ -859,15 +1140,15 @@ mod unit_tests {
         // Rejectable in every epoch.
         assert!(
             !handle_clarity_analysis_error(
-                ClarityError::Parse(ParseError::new(ParseErrorKind::InterpreterFailure)),
+                ClarityError::Parse(Box::new(ParseErrorKind::InterpreterFailure.into())),
                 epoch
             )
             .is_included_in_block()
         );
         assert!(
             !handle_clarity_analysis_error(
-                ClarityError::StaticCheck(StaticCheckError::new(
-                    StaticCheckErrorKind::TraitReferenceChainTooDeep
+                ClarityError::StaticCheck(Box::new(
+                    StaticCheckErrorKind::TraitReferenceChainTooDeep.into()
                 )),
                 epoch
             )
@@ -881,8 +1162,8 @@ mod unit_tests {
 
         assert!(
             handle_clarity_analysis_error(
-                ClarityError::StaticCheck(StaticCheckError::new(
-                    StaticCheckErrorKind::UnknownFunction("no-such-fn".into())
+                ClarityError::StaticCheck(Box::new(
+                    StaticCheckErrorKind::UnknownFunction("no-such-fn".into()).into(),
                 )),
                 epoch
             )
@@ -893,17 +1174,17 @@ mod unit_tests {
     #[test]
     fn analysis_failure_includes_ordinary_parse_errors() {
         let epoch = StacksEpochId::latest();
-        let parse_error = ParseError::new(ParseErrorKind::SeparatorExpected("token".into()));
+        let parse_error: ParseError = ParseErrorKind::SeparatorExpected("token".into()).into();
         assert!(!parse_error.rejectable_in_epoch(epoch));
 
-        match handle_clarity_analysis_error(ClarityError::Parse(parse_error), epoch) {
+        match handle_clarity_analysis_error(ClarityError::Parse(parse_error.into()), epoch) {
             ClarityAnalysisTxError::Included {
                 error: ClarityError::Parse(error),
                 ..
-            } => assert!(matches!(
+            } => assert_matches!(
                 *error.err,
                 ParseErrorKind::SeparatorExpected(ref token) if token == "token"
-            )),
+            ),
             _ => panic!("ordinary parse errors must produce included analysis failures"),
         }
     }
@@ -911,11 +1192,8 @@ mod unit_tests {
     /// `SupertypeTooLarge` stops being rejectable at 3.4.
     #[test]
     fn analysis_failure_rejectability_can_change_with_epoch() {
-        let err = || {
-            ClarityError::StaticCheck(StaticCheckError::new(
-                StaticCheckErrorKind::SupertypeTooLarge,
-            ))
-        };
+        let err =
+            || ClarityError::StaticCheck(Box::new(StaticCheckErrorKind::SupertypeTooLarge.into()));
 
         assert!(
             !handle_clarity_analysis_error(err(), StacksEpochId::Epoch33).is_included_in_block()

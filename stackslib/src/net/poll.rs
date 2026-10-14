@@ -20,14 +20,13 @@ use std::net::{Shutdown, SocketAddr};
 use std::time::Duration;
 use std::{io, time};
 
-use mio::{self, net as mio_net, PollOpt, Ready, Token};
+use mio::{self, net as mio_net, PollOpt, Ready};
 use rand::{self, RngCore};
 use stacks_common::util::sleep_ms;
 
 use crate::net::Error as net_error;
 
-const SERVER: Token = mio::Token(0);
-
+#[derive(Default)]
 pub struct NetworkPollState {
     pub new: HashMap<usize, mio_net::TcpStream>,
     pub ready: Vec<usize>,
@@ -45,7 +44,6 @@ impl NetworkPollState {
 // state for a single network server
 #[derive(Debug)]
 pub struct NetworkServerState {
-    addr: SocketAddr,
     server_socket: mio_net::TcpListener,
     server_event: mio::Token,
 }
@@ -81,6 +79,7 @@ impl NetworkState {
     }
 
     #[cfg_attr(test, mutants::skip)]
+    #[cfg(test)]
     pub fn num_events(&self) -> usize {
         self.event_map.len()
     }
@@ -147,7 +146,6 @@ impl NetworkState {
         })?;
 
         let network_server = NetworkServerState {
-            addr: local_addr,
             server_socket: server,
             server_event: mio::Token(next_server_event),
         };

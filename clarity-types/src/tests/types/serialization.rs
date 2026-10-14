@@ -21,8 +21,9 @@ use stacks_common::util::hash::hex_bytes;
 use crate::errors::ClarityTypeError;
 use crate::types::serialization::SerializationError;
 use crate::types::{
-    ASCIIData, CharType, MAX_VALUE_SIZE, PrincipalData, QualifiedContractIdentifier, SequenceData,
-    StandardPrincipalData, TupleData, TupleTypeSignature, TypeSignature, Value,
+    ASCIIData, CharType, MAX_TYPE_DEPTH, MAX_VALUE_SIZE, OptionalData, PrincipalData,
+    QualifiedContractIdentifier, SequenceData, StandardPrincipalData, TupleData,
+    TupleTypeSignature, TypeSignature, Value,
 };
 use crate::{ClarityName, ContractName};
 
@@ -727,4 +728,104 @@ fn test_tuple_truncated_at_next_key_errors() {
         }
         Err(other) => panic!("expected IOError(UnexpectedEof), got {other:?}"),
     }
+}
+
+/// A contract principal whose name is `name_len` bytes long.
+fn contract_principal_with_name_len(name_len: usize) -> Value {
+    Value::Principal(PrincipalData::Contract(QualifiedContractIdentifier::new(
+        StandardPrincipalData::transient(),
+        ContractName::try_from("a".repeat(name_len)).unwrap(),
+    )))
+}
+
+/// `from-consensus-buff?` decodes through `try_deserialize_bytes_exact_at_epoch`,
+/// which enforces the 40-byte contract-name limit from Epoch 4.1.
+#[rstest]
+#[case::max_len_legacy(40, StacksEpochId::Epoch40, true)]
+#[case::max_len_strict(40, StacksEpochId::Epoch41, true)]
+#[case::overlong_legacy(41, StacksEpochId::Epoch40, true)]
+#[case::overlong_strict(41, StacksEpochId::Epoch41, false)]
+#[case::max_string_len_legacy(128, StacksEpochId::Epoch40, true)]
+#[case::max_string_len_strict(128, StacksEpochId::Epoch41, false)]
+fn test_exact_at_epoch_contract_name_limit(
+    #[case] name_len: usize,
+    #[case] epoch: StacksEpochId,
+    #[case] accepted: bool,
+) {
+    // Nest the principal so the check is exercised below the top level.
+    let value = Value::some(contract_principal_with_name_len(name_len)).unwrap();
+    let bytes = value.serialize_to_vec().unwrap();
+    let expected_type = TypeSignature::type_of(&value).unwrap();
+
+    let result = Value::try_deserialize_bytes_exact_at_epoch(&bytes, &expected_type, &epoch);
+    if accepted {
+        assert_eq!(value, result.unwrap());
+    } else {
+        assert_eq!(
+            SerializationError::DeserializationFailure("Contract name too long".into()),
+            result.unwrap_err()
+        );
+    }
+}
+
+/// Chainstate reads go through `try_deserialize_bytes_at_epoch`, which must keep
+/// accepting long names stored before Epoch 4.1.
+#[test]
+fn test_at_epoch_reads_accept_legacy_contract_names() {
+    let value = contract_principal_with_name_len(128);
+    let bytes = value.serialize_to_vec().unwrap();
+    let decoded = Value::try_deserialize_bytes_at_epoch(
+        &bytes,
+        &TypeSignature::PrincipalType,
+        &StacksEpochId::Epoch41,
+    )
+    .unwrap();
+    assert_eq!(value, decoded);
+}
+
+#[rstest]
+#[case::standard(
+    Value::Principal(PrincipalData::Standard(StandardPrincipalData::transient())),
+    false
+)]
+#[case::max_len(contract_principal_with_name_len(40), false)]
+#[case::overlong(contract_principal_with_name_len(41), true)]
+#[case::in_list(
+    Value::cons_list_unsanitized(vec![
+        contract_principal_with_name_len(40),
+        contract_principal_with_name_len(41),
+    ]).unwrap(),
+    true
+)]
+#[case::in_tuple(
+    Value::from(TupleData::from_data(vec![(
+        ClarityName::from_literal("p"),
+        Value::okay(contract_principal_with_name_len(41)).unwrap(),
+    )]).unwrap()),
+    true
+)]
+#[case::string(Value::string_ascii_from_bytes("a".repeat(41).into_bytes()).unwrap(), false)]
+fn test_contains_overlong_contract_name(#[case] value: Value, #[case] expected: bool) {
+    assert_eq!(expected, value.contains_overlong_contract_name().unwrap());
+}
+
+#[test]
+fn test_contains_overlong_contract_name_depth_bound() {
+    // Build past MAX_TYPE_DEPTH directly, bypassing the constructors' depth checks.
+    let mut value = contract_principal_with_name_len(40);
+    for _ in 0..MAX_TYPE_DEPTH {
+        value = Value::Optional(OptionalData {
+            data: Some(Box::new(value)),
+        });
+    }
+    assert_eq!(
+        ClarityTypeError::TypeSignatureTooDeep,
+        value.contains_overlong_contract_name().unwrap_err()
+    );
+
+    // Exactly MAX_TYPE_DEPTH is allowed.
+    let Value::Optional(OptionalData { data: Some(inner) }) = value else {
+        unreachable!()
+    };
+    assert!(!inner.contains_overlong_contract_name().unwrap());
 }

@@ -25,7 +25,9 @@ use self::contexts::ContractContext;
 pub use self::natives::{SimpleNativeFunction, TypedNativeFunction};
 use super::ContractAnalysis;
 use super::contexts::{TypeMap, TypingContext};
-use crate::vm::ClarityVersion;
+use crate::vm::analysis::errors::{
+    CommonCheckErrorKind, get_arguments_at_least, get_arguments_exact,
+};
 pub use crate::vm::analysis::errors::{
     StaticCheckError, StaticCheckErrorKind, SyntaxBindingErrorType, check_argument_count,
     check_arguments_at_least, check_arguments_at_most,
@@ -54,6 +56,7 @@ use crate::vm::types::{
     TypeSignatureExt as _, Value, parse_name_type_pairs,
 };
 use crate::vm::variables::NativeVariables;
+use crate::vm::{ClarityVersion, is_reserved};
 
 #[cfg(test)]
 pub mod tests;
@@ -118,15 +121,6 @@ impl CostTracker for TypeChecker<'_, '_> {
     fn reset_memory(&mut self) {
         self.cost_track.reset_memory()
     }
-    fn short_circuit_contract_call(
-        &mut self,
-        contract: &QualifiedContractIdentifier,
-        function: &ClarityName,
-        input: &[u64],
-    ) -> std::result::Result<bool, CostErrors> {
-        self.cost_track
-            .short_circuit_contract_call(contract, function, input)
-    }
 }
 
 impl TypeChecker<'_, '_> {
@@ -177,37 +171,50 @@ pub fn compute_typecheck_cost<T: CostTracker>(
     )
 }
 
+/// Cost computation and type-check result for one function argument.
+pub struct ArgumentCheckOutcome {
+    /// Deferred cost result, retained even when argument checking fails.
+    pub cost: Option<Result<ExecutionCost, CostErrors>>,
+    /// Updated accumulated type, no update, or the argument's type error.
+    pub result: Result<Option<TypeSignature>, StaticCheckError>,
+}
+
 impl FunctionType {
-    #[allow(clippy::type_complexity)]
+    /// Checks one argument while preserving cost and type errors independently.
     pub fn check_args_visitor_2_1<T: CostTracker>(
         &self,
         accounting: &mut T,
         arg_type: &TypeSignature,
         arg_index: usize,
         accumulated_type: Option<&TypeSignature>,
-    ) -> (
-        Option<Result<ExecutionCost, CostErrors>>,
-        Result<Option<TypeSignature>, StaticCheckError>,
-    ) {
+    ) -> ArgumentCheckOutcome {
         match self {
             // variadic stops checking cost at the first error...
             FunctionType::Variadic(expected_type, _) => {
                 let cost = Some(compute_typecheck_cost(accounting, expected_type, arg_type));
                 let admitted = match expected_type.admits_type(&StacksEpochId::Epoch21, arg_type) {
                     Ok(admitted) => admitted,
-                    Err(e) => return (cost, Err(StaticCheckError::from(e))),
+                    Err(e) => {
+                        return ArgumentCheckOutcome {
+                            cost,
+                            result: Err(StaticCheckError::from(e)),
+                        };
+                    }
                 };
                 if !admitted {
-                    return (
+                    return ArgumentCheckOutcome {
                         cost,
-                        Err(StaticCheckErrorKind::TypeError(
+                        result: Err(StaticCheckErrorKind::TypeError(
                             Box::new(expected_type.clone()),
                             Box::new(arg_type.clone()),
                         )
                         .into()),
-                    );
+                    };
                 }
-                (cost, Ok(None))
+                ArgumentCheckOutcome {
+                    cost,
+                    result: Ok(None),
+                }
             }
             FunctionType::ArithmeticVariadic => {
                 let cost = Some(compute_typecheck_cost(
@@ -225,7 +232,10 @@ impl FunctionType {
                         )
                         .into()),
                     };
-                    (cost, return_type)
+                    ArgumentCheckOutcome {
+                        cost,
+                        result: return_type,
+                    }
                 } else {
                     let return_type = accumulated_type
                         .ok_or_else(|| StaticCheckErrorKind::Unreachable("Failed to set accumulated type for arg indices >= 1 in variadic arithmetic".into()).into());
@@ -240,7 +250,10 @@ impl FunctionType {
                             Ok(None)
                         }
                     });
-                    (cost, check_result)
+                    ArgumentCheckOutcome {
+                        cost,
+                        result: check_result,
+                    }
                 }
             }
             // For the fixed function types, the visitor will just
@@ -252,16 +265,19 @@ impl FunctionType {
             }) => {
                 if arg_index >= arg_types.len() {
                     // note: argument count will be wrong?
-                    return (
-                        None,
-                        Err(StaticCheckErrorKind::IncorrectArgumentCount(
+                    return ArgumentCheckOutcome {
+                        cost: None,
+                        result: Err(StaticCheckErrorKind::IncorrectArgumentCount(
                             arg_types.len(),
                             arg_index,
                         )
                         .into()),
-                    );
+                    };
                 }
-                (None, Ok(None))
+                ArgumentCheckOutcome {
+                    cost: None,
+                    result: Ok(None),
+                }
             }
             // For the following function types, the visitor will just
             //  tell the processor that any results greater than len 1 or 2
@@ -269,23 +285,33 @@ impl FunctionType {
             //  further checking anyways
             FunctionType::ArithmeticUnary | FunctionType::UnionArgs(..) => {
                 if arg_index >= 1 {
-                    return (
-                        None,
-                        Err(StaticCheckErrorKind::IncorrectArgumentCount(1, arg_index).into()),
-                    );
+                    return ArgumentCheckOutcome {
+                        cost: None,
+                        result: Err(
+                            StaticCheckErrorKind::IncorrectArgumentCount(1, arg_index).into()
+                        ),
+                    };
                 }
-                (None, Ok(None))
+                ArgumentCheckOutcome {
+                    cost: None,
+                    result: Ok(None),
+                }
             }
             FunctionType::ArithmeticBinary
             | FunctionType::ArithmeticComparison
             | FunctionType::Binary(..) => {
                 if arg_index >= 2 {
-                    return (
-                        None,
-                        Err(StaticCheckErrorKind::IncorrectArgumentCount(2, arg_index).into()),
-                    );
+                    return ArgumentCheckOutcome {
+                        cost: None,
+                        result: Err(
+                            StaticCheckErrorKind::IncorrectArgumentCount(2, arg_index).into()
+                        ),
+                    };
                 }
-                (None, Ok(None))
+                ArgumentCheckOutcome {
+                    cost: None,
+                    result: Ok(None),
+                }
             }
         }
     }
@@ -1228,8 +1254,8 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
         match self.function_return_tracker {
             Some(ref mut tracker) => {
                 let new_type = match tracker.take() {
-                    Some(expected_type) => TypeSignature::least_supertype(
-                        &StacksEpochId::Epoch21,
+                    Some(expected_type) => TypeSignature::least_supertype_for_analysis(
+                        &self.epoch,
                         &expected_type,
                         &return_type,
                     )
@@ -1393,7 +1419,10 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
         for (arg_ix, arg_expr) in args.iter().enumerate() {
             let arg_type = self.type_check(arg_expr, context)?;
             if check_result.is_ok() {
-                let (costs, result) = func_type.check_args_visitor_2_1(
+                let ArgumentCheckOutcome {
+                    cost: costs,
+                    result,
+                } = func_type.check_args_visitor_2_1(
                     self,
                     &arg_type,
                     arg_ix,
@@ -1524,8 +1553,8 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
                     if let Some(Some(ref expected)) = self.function_return_tracker {
                         // check if the computed return type matches the return type
                         //   of any early exits from the call graph (e.g., (expects ...) calls)
-                        TypeSignature::least_supertype(
-                            &StacksEpochId::Epoch21,
+                        TypeSignature::least_supertype_for_analysis(
+                            &self.epoch,
                             expected,
                             &return_type,
                         )
@@ -1598,6 +1627,19 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
         }
     }
 
+    /// Returns the first `N` arguments of a fixed-arity native. Before Epoch 4.1,
+    /// some of them accepted and ignored extra arguments.
+    fn get_fixed_arguments<'e, const N: usize>(
+        &self,
+        args: &'e [SymbolicExpression],
+    ) -> Result<&'e [SymbolicExpression; N], CommonCheckErrorKind> {
+        if self.epoch.checks_exact_argument_count() {
+            get_arguments_exact(args)
+        } else {
+            get_arguments_at_least(args).map(|(fixed, _)| fixed)
+        }
+    }
+
     fn type_check_function_application(
         &mut self,
         expression: &[SymbolicExpression],
@@ -1621,6 +1663,12 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
                     function_name.to_string(),
                 )),
             }?;
+
+            // Before Epoch 4.1, extra arguments are evaluated at runtime but never
+            // type-checked.
+            if self.epoch.checks_exact_argument_count() {
+                check_argument_count(function.args.len(), args)?;
+            }
 
             for (expected_type, found_type) in function.args.iter().map(|x| &x.signature).zip(args)
             {
@@ -1856,6 +1904,16 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
             self.epoch,
             self.clarity_version,
         )?;
+
+        // Only a trait from a version where the name was still free unlocks it
+        // (see `is_shadowable_reserved`), so new traits must not declare one.
+        if self.epoch.allows_shadowable_reserved_names()
+            && let Some(method_name) = trait_signature
+                .keys()
+                .find(|name| is_reserved(name, &self.clarity_version))
+        {
+            return Err(StaticCheckErrorKind::NameAlreadyUsed(method_name.to_string()).into());
+        }
 
         Ok((trait_name.clone(), trait_signature))
     }

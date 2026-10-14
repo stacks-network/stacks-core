@@ -30,7 +30,7 @@ use crate::net::{
 use crate::util_lib::db::DBConn;
 
 /// Capture replacement state
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, Default, PartialEq)]
 pub struct NeighborReplacements {
     /// neighbors to be replaced
     replacements: HashMap<NeighborAddress, Neighbor>,
@@ -49,10 +49,6 @@ impl NeighborReplacements {
     pub fn add_neighbor(&mut self, naddr: NeighborAddress, neighbor: Neighbor, slot: u32) {
         self.replacements.insert(naddr.clone(), neighbor);
         self.replaced_neighbors.insert(naddr, slot);
-    }
-
-    pub fn get_slot(&self, naddr: &NeighborAddress) -> Option<u32> {
-        self.replaced_neighbors.get(naddr).copied()
     }
 
     pub fn get_neighbor(&self, naddr: &NeighborAddress) -> Option<&Neighbor> {
@@ -259,7 +255,7 @@ pub trait NeighborWalkDB {
             return Err(net_error::NoSuchNeighbor);
         }
 
-        next_neighbors.sort_by(|n1, n2| n1.last_contact_time.cmp(&n2.last_contact_time));
+        next_neighbors.sort_by_key(|n1| n1.last_contact_time);
         let median_neighbor_idx = next_neighbors.len() / 2;
         let random_neighbor_idx = if median_neighbor_idx > 0 {
             thread_rng().gen::<usize>() % median_neighbor_idx
@@ -274,6 +270,7 @@ pub trait NeighborWalkDB {
 }
 
 /// Production database I/O implementation that uses PeerDB
+#[derive(Default)]
 pub struct PeerDBNeighborWalk {}
 
 /// Database I/O helpers for the NeighborWalkDB implementation

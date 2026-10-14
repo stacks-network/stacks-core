@@ -122,6 +122,12 @@ impl NakamotoDownloadStateMachine {
         }
     }
 
+    /// Forget which confirmed tenures have been downloaded, so that any not yet processed are
+    /// downloaded again. Returns how many entries were cleared.
+    pub fn clear_completed_tenures(&mut self) -> usize {
+        self.tenure_downloads.clear_completed_tenures()
+    }
+
     /// Return the reward cycle which could be confirmed by a nakamoto block commit
     ///  in burn block height `burn_height`.
     ///
@@ -561,14 +567,14 @@ impl NakamotoDownloadStateMachine {
     pub(crate) fn find_available_tenures<'a>(
         reward_cycle: u64,
         wanted_tenures: &[WantedTenure],
-        mut inventory_iter: impl Iterator<Item = (&'a NeighborAddress, &'a NakamotoTenureInv)>,
+        inventory_iter: impl Iterator<Item = (&'a NeighborAddress, &'a NakamotoTenureInv)>,
     ) -> HashMap<ConsensusHash, Vec<NeighborAddress>> {
         let mut available: HashMap<ConsensusHash, Vec<NeighborAddress>> = HashMap::new();
         for wt in wanted_tenures.iter() {
             available.insert(wt.tenure_id_consensus_hash.clone(), vec![]);
         }
 
-        while let Some((naddr, inv)) = inventory_iter.next() {
+        for (naddr, inv) in inventory_iter {
             let Some(rc_inv) = inv.tenures_inv.get(&reward_cycle) else {
                 // this peer has no inventory data for this reward cycle
                 debug!(
@@ -618,10 +624,10 @@ impl NakamotoDownloadStateMachine {
         next_wanted_tenures: Option<&[WantedTenure]>,
         pox_constants: &PoxConstants,
         first_burn_height: u64,
-        mut inventory_iter: impl Iterator<Item = (&'a NeighborAddress, &'a NakamotoTenureInv)>,
+        inventory_iter: impl Iterator<Item = (&'a NeighborAddress, &'a NakamotoTenureInv)>,
     ) -> HashMap<NeighborAddress, AvailableTenures> {
         let mut tenure_block_ids = HashMap::new();
-        while let Some((naddr, tenure_inv)) = inventory_iter.next() {
+        for (naddr, tenure_inv) in inventory_iter {
             let Some(peer_tenure_block_ids) = TenureStartEnd::from_inventory(
                 rc,
                 wanted_tenures,
@@ -684,7 +690,7 @@ impl NakamotoDownloadStateMachine {
         }
 
         // order by fewest neighbors first
-        schedule.sort_by(|a, b| a.0.cmp(&b.0));
+        schedule.sort_by_key(|a| a.0);
         schedule.into_iter().map(|(_count, ch)| ch).collect()
     }
 
@@ -926,7 +932,7 @@ impl NakamotoDownloadStateMachine {
     /// additionally ensure that there are no in-flight confirmed tenure downloads.
     ///
     /// This method is static to facilitate testing.
-    pub(crate) fn need_unconfirmed_tenures<'a>(
+    pub(crate) fn need_unconfirmed_tenures(
         burnchain_height: u64,
         sort_tip: &BlockSnapshot,
         wanted_tenures: &[WantedTenure],
@@ -1272,7 +1278,7 @@ impl NakamotoDownloadStateMachine {
                 .can_make_highest_complete_tenure_downloader(sortdb)
                 .unwrap_or(false)
             {
-                if let Some(highest_complete_tenure_downloader) = downloader
+                if let Ok(highest_complete_tenure_downloader) = downloader
                     .make_highest_complete_tenure_downloader()
                     .inspect_err(|e| {
                         warn!(
@@ -1280,7 +1286,6 @@ impl NakamotoDownloadStateMachine {
                             &downloader.unconfirmed_tenure_id()
                         )
                     })
-                    .ok()
                 {
                     // don't start this unless the downloader is actually done (this should always be
                     // the case, but don't tempt fate with an assert!)
@@ -1333,11 +1338,9 @@ impl NakamotoDownloadStateMachine {
         self.update_tenure_downloaders(max_count, &network.current_reward_sets, &network.epochs);
 
         // run all downloaders
-        let new_blocks = self
-            .tenure_downloads
-            .run(network, &mut self.neighbor_rpc, chainstate);
 
-        new_blocks
+        self.tenure_downloads
+            .run(network, &mut self.neighbor_rpc, chainstate)
     }
 
     /// Run and process all unconfirmed tenure downloads, and highest complete tenure downloads.
@@ -1414,16 +1417,14 @@ impl NakamotoDownloadStateMachine {
             }
         }
 
-        let tenure_blocks = coalesced_blocks
+        coalesced_blocks
             .into_iter()
             .map(|(consensus_hash, block_map)| {
                 let mut block_list: Vec<_> = block_map.into_values().collect();
                 block_list.sort_unstable_by_key(|blk| blk.header.chain_length);
                 (consensus_hash, block_list)
             })
-            .collect();
-
-        tenure_blocks
+            .collect()
     }
 
     /// Top-level download state machine execution.
@@ -1509,7 +1510,7 @@ impl NakamotoDownloadStateMachine {
                     self.state = NakamotoDownloadState::Unconfirmed;
                 }
 
-                return new_blocks;
+                new_blocks
             }
             NakamotoDownloadState::Unconfirmed => {
                 let highest_processed_block_id = StacksBlockId::new(
@@ -1562,7 +1563,7 @@ impl NakamotoDownloadStateMachine {
                     }
                 }
 
-                return new_blocks;
+                new_blocks
             }
         }
     }

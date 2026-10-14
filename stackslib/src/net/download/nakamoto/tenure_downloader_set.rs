@@ -66,6 +66,7 @@ pub const PEER_DEPRIORITIZATION_TIME_SECS: u64 = 60;
 /// can make progress even if there is only one available peer (in which case, that peer will get
 /// scheduled across multiple machines to drive their progress in the right sequence such that
 /// tenures will be incrementally fetched and yielded by the p2p state machine to the relayer).
+#[derive(Default)]
 pub struct NakamotoTenureDownloaderSet {
     /// A list of instantiated downloaders that are in progress
     pub(crate) downloaders: Vec<Option<NakamotoTenureDownloader>>,
@@ -93,6 +94,14 @@ impl NakamotoTenureDownloaderSet {
             attempt_failed_tenures: HashMap::new(),
             deprioritized_peers: HashMap::new(),
         }
+    }
+
+    /// Forget which tenures have been downloaded, so that any not yet processed are downloaded
+    /// again. Returns how many entries were cleared.
+    pub fn clear_completed_tenures(&mut self) -> usize {
+        let forgotten = self.completed_tenures.len();
+        self.completed_tenures.clear();
+        forgotten
     }
 
     /// Mark a tenure as having failed to download.
@@ -140,7 +149,6 @@ impl NakamotoTenureDownloaderSet {
                 *downloader_slot = Some(downloader);
             } else {
                 error!("TenureDownloader had a mistaken peer pointer while setting the downloader");
-                return;
             }
         } else {
             self.downloaders.push(Some(downloader));
@@ -271,7 +279,7 @@ impl NakamotoTenureDownloaderSet {
             self.peers.insert(naddr, i);
             return true;
         }
-        return false;
+        false
     }
 
     /// Deschedule peers that are bound to downloader slots that are either vacant or correspond to
@@ -315,22 +323,6 @@ impl NakamotoTenureDownloaderSet {
                 *downloader_opt = None;
             }
         }
-    }
-
-    /// Find the downloaders that have obtained their tenure-start blocks, and extract them.  These
-    /// will be fed into other downloaders which are blocked on needing their tenure-end blocks.
-    pub(crate) fn find_new_tenure_start_blocks(&self) -> HashMap<StacksBlockId, NakamotoBlock> {
-        let mut ret = HashMap::new();
-        for downloader_opt in self.downloaders.iter() {
-            let Some(downloader) = downloader_opt else {
-                continue;
-            };
-            let Some(block) = downloader.tenure_start_block.as_ref() else {
-                continue;
-            };
-            ret.insert(block.block_id(), block.clone());
-        }
-        ret
     }
 
     /// Does there exist a downloader (possibly unscheduled) for the given tenure?
@@ -493,9 +485,7 @@ impl NakamotoTenureDownloaderSet {
 
             let tenure_download = NakamotoTenureDownloader::new(
                 ch.clone(),
-                tenure_info.start_block_snapshot_consensus_hash.clone(),
                 tenure_info.start_block_id.clone(),
-                tenure_info.end_block_snapshot_consensus_hash.clone(),
                 tenure_info.end_block_id.clone(),
                 naddr.clone(),
                 start_reward_set.clone(),

@@ -45,8 +45,8 @@ use crate::vm::representations::SymbolicExpressionType::{
 use crate::vm::representations::{ClarityName, SymbolicExpression, depth_traverse};
 use crate::vm::types::signatures::{FunctionSignature, TypeSignatureExt as _};
 use crate::vm::types::{
-    FixedFunction, FunctionArg, FunctionType, PrincipalData, QualifiedContractIdentifier,
-    TypeSignature, Value, parse_name_type_pairs,
+    FixedFunction, FunctionArg, FunctionType, PrincipalData, TypeSignature, Value,
+    parse_name_type_pairs,
 };
 use crate::vm::variables::NativeVariables;
 
@@ -97,15 +97,6 @@ impl CostTracker for TypeChecker<'_, '_> {
     }
     fn reset_memory(&mut self) {
         self.cost_track.reset_memory()
-    }
-    fn short_circuit_contract_call(
-        &mut self,
-        contract: &QualifiedContractIdentifier,
-        function: &ClarityName,
-        input: &[u64],
-    ) -> std::result::Result<bool, CostErrors> {
-        self.cost_track
-            .short_circuit_contract_call(contract, function, input)
     }
 }
 

@@ -1,10 +1,11 @@
 [package]
 name = "stacks-inspect"
-version = "0.1.0"
+version.workspace = true
 edition = "2024"
 
 [dependencies]
 stackslib = { package = "stackslib", path = "../../stackslib", default-features = false }
+stacks-marf = { path = "../../stacks-marf" }
 clarity = { path = "../../clarity", default-features = false }
 clarity-cli = { path = "../clarity-cli", default-features = false }
 libstackerdb = { path = "../../libstackerdb", default-features = false }
