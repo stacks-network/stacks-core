@@ -100,7 +100,7 @@ fn test_migrate_tables_readonly_fails_when_outdated() {
     // Don't migrate - schema is at version 1.
     // A read-only open should fail because the schema is outdated.
     let err = trie_sql::ensure_no_migration_necessary::<BlockHeaderHash>(&mut db).unwrap_err();
-    assert_matches!(&err, crate::Error::CorruptionError(msg) if msg.contains("not compatible with read-only"), "instead got: {err}");
+    assert_matches!(&err, crate::Error::CorruptionError(msg) if msg.contains("not compatible with read-only"));
 }
 
 #[test]
@@ -202,7 +202,7 @@ fn test_bulk_read_block_entries_rejects_negative_external_offset() {
     .unwrap();
 
     let err = trie_sql::bulk_read_block_entries::<BlockHeaderHash>(&db).unwrap_err();
-    assert_matches!(err, crate::Error::OverflowError, "instead got: {err:?}");
+    assert_matches!(err, crate::Error::OverflowError);
 }
 
 #[test]
@@ -214,7 +214,7 @@ fn test_update_squash_root_node_hash_requires_existing_row() {
     let err = trie_sql::update_squash_root_node_hash(&db, &hash).unwrap_err();
     assert_matches!(err,
             crate::Error::CorruptionError(ref msg)
-                if msg.contains("no marf_squash_info row exists"), "instead got: {err:?}");
+                if msg.contains("no marf_squash_info row exists"));
 }
 
 #[test]

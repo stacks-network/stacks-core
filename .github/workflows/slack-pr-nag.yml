@@ -134,7 +134,7 @@ jobs:
               let unresolvedComments = [];
               let allReviewersSuperset = [];
               const reviewerStateMap = {}; // Maps lowercased login -> state string
-              let approvedCount = 0;
+              let reviewsSatisfied = false;
               let mergeableState = 'UNKNOWN';
               let mergeStateStatus = 'UNKNOWN';
 
@@ -145,6 +145,7 @@ jobs:
                       pullRequest(number: $number) {
                         mergeable
                         mergeStateStatus
+                        reviewDecision
                         reviewThreads(first: 50) {
                           nodes {
                             isResolved
@@ -181,6 +182,8 @@ jobs:
                 const prNode = gqlResponse.repository?.pullRequest;
                 mergeableState = prNode?.mergeable || 'UNKNOWN';
                 mergeStateStatus = prNode?.mergeStateStatus || 'UNKNOWN';
+                // Use GitHub's branch review requirements rather than a fixed approval count.
+                reviewsSatisfied = prNode?.reviewDecision === 'APPROVED';
 
                 // Process unresolved comments
                 const threads = prNode?.reviewThreads?.nodes || [];
@@ -200,9 +203,6 @@ jobs:
                   if (node.author?.login) {
                     const login = node.author.login.toLowerCase();
                     reviewerStateMap[login] = node.state; // e.g., 'APPROVED', 'CHANGES_REQUESTED', 'COMMENTED'
-                    if (node.state === 'APPROVED') {
-                      approvedCount++;
-                    }
                   }
                 });
 
@@ -238,7 +238,7 @@ jobs:
               pr.merge_conflict_present = mergeableState === 'CONFLICTING';
               pr.out_of_date_with_base = mergeStateStatus === 'BEHIND';
 
-              return { pr, unresolvedComments, approvedCount, allReviewersSuperset };
+              return { pr, unresolvedComments, reviewsSatisfied, allReviewersSuperset };
             }));
 
             // 4. Action Extraction Engine (Group by User)
@@ -313,7 +313,7 @@ jobs:
                 // If the PR is NOT blocked by the author, check PR management tasks
                 // These belong to the PR manager (the author for internal, or the assignee for external)
                 for (const ownerLogin of owners) {
-                  if (item.approvedCount >= 2) {
+                  if (item.reviewsSatisfied) {
                     addAction(ownerLogin, `✅ Ready for merge: ${link}`, pr.number);
                   } else if (item.allReviewersSuperset.length === 0) {
                     addAction(ownerLogin, `👥 Needs reviewers assigned: ${link}`, pr.number);
@@ -323,8 +323,8 @@ jobs:
                 }
               }
 
-              // Reviewer actions
-              if (!pr.merge_conflict_present) {
+              // Pending requests need no reminder once the PR's review requirements are satisfied.
+              if (!item.reviewsSatisfied && !pr.merge_conflict_present) {
                 pr.requested_reviewers.forEach(r => {
                   // Skip if they already approved OR if they are an external user
                   if (r.state === 'APPROVED' || !allowedUsers.has(r.login.toLowerCase())) return;
