@@ -2070,7 +2070,8 @@ fn restarting_miner() {
     let coord_channel = run_loop.coordinator_channels();
 
     let mut run_loop_2 = boot_nakamoto::BootRunLoop::new(naka_conf.clone()).unwrap();
-    let _run_loop_2_stopper = run_loop.get_termination_switch();
+    let run_loop_2_stopper = run_loop_2.get_termination_switch();
+    let coord_channel_2 = run_loop_2.coordinator_channels();
     let Counters {
         blocks_processed: blocks_processed_2,
         ..
@@ -2143,7 +2144,7 @@ fn restarting_miner() {
 
     // start it back up
 
-    let _run_loop_thread = thread::spawn(move || run_loop_2.start(None, 0));
+    let run_loop_2_thread = thread::spawn(move || run_loop_2.start(None, 0));
     wait_for_runloop(&blocks_processed_2);
 
     info!(" ================= RESTARTED THE MINER =================");
@@ -2226,6 +2227,14 @@ fn restarting_miner() {
     check_nakamoto_empty_block_heuristics(naka_conf.is_mainnet());
 
     assert!(tip.stacks_block_height >= block_height_pre_3_0 + 4);
+
+    coord_channel_2
+        .lock()
+        .expect("Mutex poisoned")
+        .stop_chains_coordinator();
+    run_loop_2_stopper.store(false, Ordering::SeqCst);
+
+    run_loop_2_thread.join().unwrap();
 }
 
 #[test]
@@ -2670,9 +2679,26 @@ fn mine_multiple_per_tenure_integration() {
 /// It starts in Epoch 2.0, mines with `neon_node` to Epoch 3.0, and then switches
 ///  to Nakamoto operation (activating pox-4 by submitting a stack-stx tx). The BootLoop
 ///  struct handles the epoch-2/3 tear-down and spin-up.
-/// This test makes four assertions:
-///  * 15 tenures are mined after 3.0 starts
-///  * Each tenure has 6 blocks (the coinbase block and 5 interim blocks)
+/// Mining runs in two phases.
+///
+/// Phase 1 lets both miners commit freely, so every burn block holds two
+///  competing commits and the loser of each sortition has to abandon its
+///  tenure and follow the winner. These tenures cover the prepare phase for
+///  the reward cycle beginning at burn height 240 and the boundary itself.
+///  Who wins each sortition is not determined here, so the test asserts only
+///  that both miners' commits reach the burnchain and that they contend.
+///
+/// Phase 2 pauses both miners' commits and lets exactly one of them through
+///  per burn block, which fixes the sortition winner. That is what lets the
+///  test assert that each miner won a tenure without depending on sortition
+///  randomness, and it forces a tenure handoff in both directions.
+///
+/// This test makes six assertions:
+///  * 10 tenures of 4 blocks (a coinbase block and 3 interim blocks) are mined
+///    while both miners contend
+///  * Both miners' block-commits reach the burnchain, and at least one burn
+///    block holds a commit from each
+///  * 4 further tenures go to the miner this test selects, alternating
 ///  * Both nodes see the same chainstate at the end of the test
 ///  * Both nodes have the same `PeerNetwork::highest_stacks_height_of_neighbors`
 fn multiple_miners() {
@@ -2691,8 +2717,11 @@ fn multiple_miners() {
     let sender_sk = Secp256k1PrivateKey::random();
     let sender_signer_sk = Secp256k1PrivateKey::random();
     let sender_signer_addr = tests::to_addr(&sender_signer_sk);
-    let tenure_count = 15;
-    let inter_blocks_per_tenure = 6;
+    // Tenures mined with both miners committing freely.
+    let contention_tenures = 10;
+    let inter_blocks_per_tenure = 3;
+    // Tenures mined afterwards with a sortition winner chosen by this test.
+    let alternating_tenures = 4;
     // setup sender + recipient for some test stx transfers
     // these are necessary for the interim blocks to get mined at all
     let sender_addr = tests::to_addr(&sender_sk);
@@ -2700,7 +2729,7 @@ fn multiple_miners() {
     let send_fee = 180;
     naka_conf.add_initial_balance(
         PrincipalData::from(sender_addr.clone()).to_string(),
-        (send_amt + send_fee) * tenure_count * inter_blocks_per_tenure,
+        (send_amt + send_fee) * contention_tenures * inter_blocks_per_tenure,
     );
     naka_conf.add_initial_balance(
         PrincipalData::from(sender_signer_addr.clone()).to_string(),
@@ -2728,6 +2757,17 @@ fn multiple_miners() {
 
     let node_1_sk = Secp256k1PrivateKey::from_seed(&naka_conf.node.local_peer_seed);
     let node_1_pk = StacksPublicKey::from_private(&node_1_sk);
+
+    // `BlockSnapshot::miner_pk_hash` identifies the winner of a sortition, so
+    // these are how the test names which miner it expected to win.
+    let mining_pkh_1 = Hash160::from_node_public_key(&StacksPublicKey::from_private(
+        &naka_conf.miner.mining_key.clone().unwrap(),
+    ));
+    let mining_pkh_2 = Hash160::from_node_public_key(&StacksPublicKey::from_private(
+        &conf_node_2.miner.mining_key.clone().unwrap(),
+    ));
+    debug!("The mining key for miner 1 is {mining_pkh_1}");
+    debug!("The mining key for miner 2 is {mining_pkh_2}");
 
     conf_node_2.node.working_dir = format!("{}-1", conf_node_2.node.working_dir);
 
@@ -2776,7 +2816,7 @@ fn multiple_miners() {
         ..
     } = run_loop.counters();
 
-    let run_loop_2_stopper = run_loop.get_termination_switch();
+    let run_loop_2_stopper = run_loop_2.get_termination_switch();
 
     let rl1_counters = run_loop.counters();
     let rl2_counters = run_loop_2.counters();
@@ -2784,7 +2824,7 @@ fn multiple_miners() {
     let coord_channel = run_loop.coordinator_channels();
     let coord_channel_2 = run_loop_2.coordinator_channels();
 
-    let _run_loop_2_thread = thread::Builder::new()
+    let run_loop_2_thread = thread::Builder::new()
         .name("run_loop_2".into())
         .spawn(move || run_loop_2.start(None, 0))
         .unwrap();
@@ -2836,8 +2876,13 @@ fn multiple_miners() {
     // Wait one block to confirm the VRF register, wait until a block commit is submitted
     wait_for_first_naka_block_commit(60, &commits_submitted);
 
-    // Mine `tenure_count` nakamoto tenures
-    for tenure_ix in 0..tenure_count {
+    info!("------------------------- Phase 1: both miners contend -------------------------");
+
+    let burn_height_before_contention = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn())
+        .unwrap()
+        .block_height;
+
+    for tenure_ix in 0..contention_tenures {
         info!("Mining tenure {tenure_ix}");
         let commits_before = commits_submitted.load(Ordering::SeqCst);
         next_block_and_process_new_stacks_block(&btc_regtest_controller, 60, &coord_channel)
@@ -2887,7 +2932,140 @@ fn multiple_miners() {
         .unwrap();
     }
 
-    // load the chain tip, and assert that it is a nakamoto block and at least 30 blocks have advanced in epoch 3
+    let phase_1_tip = NakamotoChainState::get_canonical_block_header(chainstate.db(), &sortdb)
+        .unwrap()
+        .unwrap();
+    assert!(phase_1_tip.anchored_header.as_stacks_nakamoto().is_some());
+    assert_eq!(
+        phase_1_tip.stacks_block_height,
+        block_height_pre_3_0 + ((inter_blocks_per_tenure + 1) * contention_tenures),
+        "Should have mined (1 + interim_blocks_per_tenure) * contention_tenures nakamoto blocks"
+    );
+
+    // Walk the sortitions this phase produced and look at who committed in
+    // each one. Both miners commit on every burn block, so this says nothing
+    // about who won -- it says that both miners' commits reached the burnchain
+    // and were recorded as block-commits, which the submission counters alone
+    // do not show, and that the two of them really did contend.
+    let mut senders_seen = HashSet::new();
+    let mut contended_burn_blocks = 0;
+    let mut surveyed_burn_blocks = 0;
+    let mut snapshot = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn()).unwrap();
+    while snapshot.block_height > burn_height_before_contention {
+        let commits =
+            SortitionDB::get_block_commits_by_block(sortdb.conn(), &snapshot.sortition_id).unwrap();
+        let senders: HashSet<_> = commits
+            .iter()
+            .map(|commit| commit.apparent_sender.0.clone())
+            .collect();
+        info!(
+            "Block-commits in burn block";
+            "burn_height" => snapshot.block_height,
+            "commits" => commits.len(),
+            "distinct_senders" => senders.len(),
+            "sortition" => snapshot.sortition,
+        );
+        if senders.len() > 1 {
+            contended_burn_blocks += 1;
+        }
+        senders_seen.extend(senders);
+        surveyed_burn_blocks += 1;
+        snapshot = SortitionDB::get_block_snapshot(sortdb.conn(), &snapshot.parent_sortition_id)
+            .unwrap()
+            .expect("Missing parent sortition");
+    }
+
+    assert_eq!(
+        surveyed_burn_blocks, contention_tenures,
+        "Phase 1 should have produced one burn block per tenure"
+    );
+    assert_eq!(
+        senders_seen.len(),
+        2,
+        "Both miners' block-commits should have reached the burnchain, saw {senders_seen:?}"
+    );
+    assert!(
+        contended_burn_blocks > 0,
+        "At least one burn block should hold a block-commit from each miner"
+    );
+
+    info!("------------------------- Phase 2: alternating tenures -------------------------");
+
+    // Pause both miners. Whatever either has already broadcast is spent by the
+    // next bitcoin block, and after that neither commits unless this test lets
+    // it through, which is what makes each sortition below deterministic. That
+    // first bitcoin block may or may not have a sortition depending on what was
+    // in flight, so wait on the burn height rather than on a stacks block.
+    rl1_counters.skip_commit_op.set(true);
+    rl2_counters.skip_commit_op.set(true);
+    let burn_height_before_drain = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn())
+        .unwrap()
+        .block_height;
+    next_block_and(&btc_regtest_controller, 60, || {
+        Ok(SortitionDB::get_canonical_burn_chain_tip(sortdb.conn())
+            .unwrap()
+            .block_height
+            > burn_height_before_drain)
+    })
+    .expect("Timed out spending the block-commits that were already in flight");
+
+    for alternating_ix in 0..alternating_tenures {
+        let (winner_counters, winner_pkh, winner_name) = if alternating_ix % 2 == 0 {
+            (&rl1_counters, &mining_pkh_1, "Miner 1")
+        } else {
+            (&rl2_counters, &mining_pkh_2, "Miner 2")
+        };
+        info!("Alternating tenure {alternating_ix}: {winner_name} should win the sortition");
+
+        // Let only the intended winner put a commit in for the next bitcoin
+        // block, then pause it again so that nothing else is in flight. The
+        // wait on the stacks tip also keeps this miner from committing before
+        // it has caught up to the other miner's last tenure.
+        let info_before = get_chain_info(&naka_conf);
+        winner_counters.skip_commit_op.set(false);
+        wait_for(60, || {
+            Ok(winner_counters.naka_submitted_commit_last_burn_height.get()
+                >= info_before.burn_block_height
+                && winner_counters.naka_submitted_commit_last_stacks_tip.get()
+                    >= info_before.stacks_tip_height)
+        })
+        .unwrap_or_else(|e| panic!("Timed out waiting for {winner_name} to commit: {e}"));
+        winner_counters.skip_commit_op.set(true);
+
+        next_block_and_process_new_stacks_block(&btc_regtest_controller, 60, &coord_channel)
+            .unwrap();
+
+        let tip_sn = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn()).unwrap();
+        assert!(
+            tip_sn.sortition,
+            "Burn block {} should have had a sortition",
+            tip_sn.block_height
+        );
+        assert_eq!(
+            tip_sn.miner_pk_hash,
+            Some(winner_pkh.clone()),
+            "{winner_name} should have won the sortition at burn height {}",
+            tip_sn.block_height
+        );
+    }
+
+    // Both miners stay paused: the checks below are about the two nodes
+    // agreeing on the chain they already built, and no further sortition
+    // should move it underneath them.
+    //
+    // Phase 2's last tenure only waited on node 1's coordinator, so give node
+    // 2 a chance to reach the same tip before comparing the two views.
+    wait_for(60, || {
+        let (Ok(info_1), Ok(info_2)) = (
+            get_chain_info_result(&naka_conf),
+            get_chain_info_result(&conf_node_2),
+        ) else {
+            return Ok(false);
+        };
+        Ok(info_1.stacks_tip_height == info_2.stacks_tip_height)
+    })
+    .expect("Timed out waiting for both nodes to agree on the chain tip");
+
     let tip = NakamotoChainState::get_canonical_block_header(chainstate.db(), &sortdb)
         .unwrap()
         .unwrap();
@@ -2916,10 +3094,14 @@ fn multiple_miners() {
     .unwrap();
 
     assert!(tip.anchored_header.as_stacks_nakamoto().is_some());
-    assert_eq!(
-        tip.stacks_block_height,
-        block_height_pre_3_0 + ((inter_blocks_per_tenure + 1) * tenure_count),
-        "Should have mined (1 + interim_blocks_per_tenure) * tenure_count nakamoto blocks"
+    // Each alternating tenure adds at least its tenure-change block. The exact
+    // count is pinned at the end of phase 1; phase 2 is pinned by which miner
+    // won each sortition rather than by a height.
+    assert!(
+        tip.stacks_block_height >= phase_1_tip.stacks_block_height + alternating_tenures,
+        "Expected at least {} blocks, got {}",
+        phase_1_tip.stacks_block_height + alternating_tenures,
+        tip.stacks_block_height
     );
 
     check_nakamoto_empty_block_heuristics(naka_conf.is_mainnet());
@@ -2936,6 +3118,7 @@ fn multiple_miners() {
     run_loop_2_stopper.store(false, Ordering::SeqCst);
 
     run_loop_thread.join().unwrap();
+    run_loop_2_thread.join().unwrap();
 }
 
 #[test]
@@ -3999,22 +4182,26 @@ fn vote_for_aggregate_key_burn_op() {
     run_loop_thread.join().unwrap();
 }
 
-/// This test boots a follower node using the block downloader
-#[test]
-#[ignore]
-fn follower_bootup_simple() {
+/// Boot a miner, boot a follower against it with the block downloader, and
+/// check that the follower tracks the miner's tip across `tenure_count`
+/// tenures of `inter_blocks_per_tenure` interim blocks each.
+///
+/// When `chain_id` is `Some`, both nodes run with that burnchain chain id and
+/// the test also asserts that both of them report it.
+fn follower_bootup(chain_id: Option<u32>, tenure_count: u64, inter_blocks_per_tenure: u64) {
     if env::var("BITCOIND_TEST") != Ok("1".into()) {
         return;
     }
 
     let (mut naka_conf, _miner_account) = naka_neon_integration_conf(None);
+    if let Some(chain_id) = chain_id {
+        naka_conf.burnchain.chain_id = chain_id;
+    }
     let http_origin = format!("http://{}", &naka_conf.node.rpc_bind);
     let sender_sk = Secp256k1PrivateKey::random();
     let sender_signer_sk = Secp256k1PrivateKey::random();
     let sender_signer_addr = tests::to_addr(&sender_signer_sk);
     let mut signers = TestSigners::new(vec![sender_signer_sk.clone()]);
-    let tenure_count = 5;
-    let inter_blocks_per_tenure = 9;
     // setup sender + recipient for some test stx transfers
     // these are necessary for the interim blocks to get mined at all
     let sender_addr = tests::to_addr(&sender_sk);
@@ -4103,7 +4290,9 @@ fn follower_bootup_simple() {
     follower_conf.node.p2p_bind = format!("{localhost}:{p2p_port}");
     follower_conf.node.data_url = format!("http://{localhost}:{rpc_port}");
     follower_conf.node.p2p_address = format!("{localhost}:{p2p_port}");
-    follower_conf.node.pox_sync_sample_secs = 30;
+    // Download eagerly: a non-zero sample time throttles every burnchain
+    // sync pass and limits the follower to one reward cycle at a time.
+    follower_conf.node.pox_sync_sample_secs = 0;
 
     let node_info = get_chain_info(&naka_conf);
     follower_conf.node.add_bootstrap_node(
@@ -4186,33 +4375,31 @@ fn follower_bootup_simple() {
             debug!("follower_bootup: Miner account: {account:?}");
             debug!("follower_bootup: Miner sent {}: {tx:?}", &tx.txid());
 
-            let now = get_epoch_time_secs();
-            while get_epoch_time_secs() < now + 10 {
+            // Wait for the miner to mine the interim block, with the
+            // follower at least caught up to the miner's burnchain view.
+            let prev_tip = last_tip.clone();
+            wait_for(60, || {
                 let Ok(info) = get_chain_info_result(&naka_conf) else {
                     debug!("follower_bootup: Could not get miner chain info");
-                    thread::sleep(Duration::from_millis(100));
-                    continue;
+                    return Ok(false);
                 };
 
                 let Ok(follower_info) = get_chain_info_result(&follower_conf) else {
                     debug!("follower_bootup: Could not get follower chain info");
-                    thread::sleep(Duration::from_millis(100));
-                    continue;
+                    return Ok(false);
                 };
 
                 if follower_info.burn_block_height < info.burn_block_height {
                     debug!("follower_bootup: Follower is behind miner's burnchain view");
-                    thread::sleep(Duration::from_millis(100));
-                    continue;
+                    return Ok(false);
                 }
 
-                if info.stacks_tip == last_tip {
+                if info.stacks_tip == prev_tip {
                     debug!(
                         "follower_bootup: Miner stacks tip hasn't changed ({})",
                         &info.stacks_tip
                     );
-                    thread::sleep(Duration::from_millis(100));
-                    continue;
+                    return Ok(false);
                 }
 
                 let blocks_processed = coord_channel
@@ -4220,42 +4407,15 @@ fn follower_bootup_simple() {
                     .expect("Mutex poisoned")
                     .get_stacks_blocks_processed();
 
-                if blocks_processed > blocks_processed_before {
-                    break;
-                }
-
-                debug!("follower_bootup: No blocks processed yet");
-                thread::sleep(Duration::from_millis(100));
-            }
-
-            // compare chain tips
-            loop {
-                let Ok(info) = get_chain_info_result(&naka_conf) else {
-                    debug!("follower_bootup: failed to load tip info");
-                    thread::sleep(Duration::from_millis(100));
-                    continue;
-                };
-
-                let Ok(follower_info) = get_chain_info_result(&follower_conf) else {
-                    debug!("follower_bootup: Could not get follower chain info");
-                    thread::sleep(Duration::from_millis(100));
-                    continue;
-                };
-                if info.stacks_tip == follower_info.stacks_tip {
-                    debug!(
-                        "follower_bootup: Follower has advanced to miner's tip {}",
-                        &info.stacks_tip
-                    );
-                } else {
-                    debug!(
-                        "follower_bootup: Follower has NOT advanced to miner's tip: {} != {}",
-                        &info.stacks_tip, follower_info.stacks_tip
-                    );
+                if blocks_processed <= blocks_processed_before {
+                    debug!("follower_bootup: No blocks processed yet");
+                    return Ok(false);
                 }
 
                 last_tip = info.stacks_tip;
-                break;
-            }
+                Ok(true)
+            })
+            .expect("Timed out waiting for the miner to mine an interim block");
         }
 
         debug!("follower_bootup: Wait for next block-commit");
@@ -4287,19 +4447,26 @@ fn follower_bootup_simple() {
     );
 
     // wait for follower to reach the chain tip
-    loop {
-        sleep_ms(1000);
-        let follower_node_info = get_chain_info(&follower_conf);
+    wait_for(120, || {
+        let Ok(follower_node_info) = get_chain_info_result(&follower_conf) else {
+            debug!("follower_bootup: Could not get follower chain info");
+            return Ok(false);
+        };
 
         info!(
             "Follower tip is now {}/{}",
             &follower_node_info.stacks_tip_consensus_hash, &follower_node_info.stacks_tip
         );
-        if follower_node_info.stacks_tip_consensus_hash == tip.consensus_hash
-            && follower_node_info.stacks_tip == tip.anchored_header.block_hash()
-        {
-            break;
-        }
+        Ok(
+            follower_node_info.stacks_tip_consensus_hash == tip.consensus_hash
+                && follower_node_info.stacks_tip == tip.anchored_header.block_hash(),
+        )
+    })
+    .expect("Timed out waiting for the follower to reach the miner's chain tip");
+
+    if let Some(chain_id) = chain_id {
+        assert_eq!(get_chain_info(&naka_conf).network_id, chain_id);
+        assert_eq!(get_chain_info(&follower_conf).network_id, chain_id);
     }
 
     coord_channel
@@ -4316,6 +4483,23 @@ fn follower_bootup_simple() {
 
     run_loop_thread.join().unwrap();
     follower_thread.join().unwrap();
+}
+
+/// This test boots a follower node using the block downloader
+#[test]
+#[ignore]
+fn follower_bootup_simple() {
+    follower_bootup(None, 5, 9);
+}
+
+/// Boot up a node and a follower with a non-default chain id
+#[test]
+#[ignore]
+fn follower_bootup_custom_chain_id() {
+    // `follower_bootup_simple` covers the sync path itself. This only has to
+    // show that a non-default chain id reaches both nodes, so it mines the
+    // smallest run that still boots a follower and hands it some blocks.
+    follower_bootup(Some(0x87654321), 2, 3);
 }
 
 /// This test boots a follower node using the block downloader, but the follower will be multiple
@@ -4529,333 +4713,6 @@ fn follower_bootup_across_multiple_cycles() {
         )
     })
     .unwrap();
-
-    coord_channel
-        .lock()
-        .expect("Mutex poisoned")
-        .stop_chains_coordinator();
-    run_loop_stopper.store(false, Ordering::SeqCst);
-
-    follower_coord_channel
-        .lock()
-        .expect("Mutex poisoned")
-        .stop_chains_coordinator();
-    follower_run_loop_stopper.store(false, Ordering::SeqCst);
-
-    run_loop_thread.join().unwrap();
-    follower_thread.join().unwrap();
-}
-
-/// Boot up a node and a follower with a non-default chain id
-#[test]
-#[ignore]
-fn follower_bootup_custom_chain_id() {
-    if env::var("BITCOIND_TEST") != Ok("1".into()) {
-        return;
-    }
-
-    let (mut naka_conf, _miner_account) = naka_neon_integration_conf(None);
-    naka_conf.burnchain.chain_id = 0x87654321;
-    let http_origin = format!("http://{}", &naka_conf.node.rpc_bind);
-    let sender_sk = Secp256k1PrivateKey::random();
-    let sender_signer_sk = Secp256k1PrivateKey::random();
-    let sender_signer_addr = tests::to_addr(&sender_signer_sk);
-    let mut signers = TestSigners::new(vec![sender_signer_sk.clone()]);
-    let tenure_count = 5;
-    let inter_blocks_per_tenure = 9;
-    // setup sender + recipient for some test stx transfers
-    // these are necessary for the interim blocks to get mined at all
-    let sender_addr = tests::to_addr(&sender_sk);
-    let send_amt = 100;
-    let send_fee = 180;
-    naka_conf.add_initial_balance(
-        PrincipalData::from(sender_addr.clone()).to_string(),
-        (send_amt + send_fee) * tenure_count * inter_blocks_per_tenure,
-    );
-    naka_conf.add_initial_balance(
-        PrincipalData::from(sender_signer_addr.clone()).to_string(),
-        100000,
-    );
-    let recipient = PrincipalData::from(StacksAddress::burn_address(false));
-    let stacker_sk = setup_stacker(&mut naka_conf);
-
-    test_observer::spawn();
-    test_observer::register_any(&mut naka_conf);
-
-    let mut btcd_controller = BitcoinCoreController::from_stx_config(&naka_conf);
-    btcd_controller
-        .start_bitcoind()
-        .expect("Failed starting bitcoind");
-    let mut btc_regtest_controller = BitcoinRegtestController::new(naka_conf.clone(), None);
-    btc_regtest_controller.bootstrap_chain(201);
-
-    let mut run_loop = boot_nakamoto::BootRunLoop::new(naka_conf.clone()).unwrap();
-    let run_loop_stopper = run_loop.get_termination_switch();
-    let Counters {
-        blocks_processed,
-        naka_submitted_commits: commits_submitted,
-        ..
-    } = run_loop.counters();
-    let counters = run_loop.counters();
-    let coord_channel = run_loop.coordinator_channels();
-
-    let run_loop_thread = thread::Builder::new()
-        .name("run_loop".into())
-        .spawn(move || run_loop.start(None, 0))
-        .unwrap();
-    wait_for_runloop(&blocks_processed);
-    boot_to_epoch_3(
-        &naka_conf,
-        &blocks_processed,
-        slice::from_ref(&stacker_sk),
-        &[sender_signer_sk],
-        &mut Some(&mut signers),
-        &mut btc_regtest_controller,
-    );
-
-    info!("Bootstrapped to Epoch-3.0 boundary, starting nakamoto miner");
-
-    let burnchain = naka_conf.get_burnchain();
-    let sortdb = burnchain.open_sortition_db(true).unwrap();
-    let (chainstate, _) = StacksChainState::open(
-        naka_conf.is_mainnet(),
-        naka_conf.burnchain.chain_id,
-        &naka_conf.get_chainstate_path_str(),
-        None,
-    )
-    .unwrap();
-
-    let block_height_pre_3_0 =
-        NakamotoChainState::get_canonical_block_header(chainstate.db(), &sortdb)
-            .unwrap()
-            .unwrap()
-            .stacks_block_height;
-
-    info!("Nakamoto miner started...");
-    blind_signer(&naka_conf, &signers, &counters);
-
-    wait_for_first_naka_block_commit(60, &commits_submitted);
-
-    let mut follower_conf = naka_conf.clone();
-    follower_conf.node.miner = false;
-    follower_conf.events_observers.clear();
-    follower_conf.node.working_dir = format!("{}-follower", &naka_conf.node.working_dir);
-    follower_conf.node.seed = vec![0x01; 32];
-    follower_conf.node.local_peer_seed = vec![0x02; 32];
-
-    let rpc_port = gen_random_port();
-    let p2p_port = gen_random_port();
-
-    let localhost = "127.0.0.1";
-    follower_conf.node.rpc_bind = format!("{localhost}:{rpc_port}");
-    follower_conf.node.p2p_bind = format!("{localhost}:{p2p_port}");
-    follower_conf.node.data_url = format!("http://{localhost}:{rpc_port}");
-    follower_conf.node.p2p_address = format!("{localhost}:{p2p_port}");
-    follower_conf.node.pox_sync_sample_secs = 30;
-
-    let node_info = get_chain_info(&naka_conf);
-    follower_conf.node.add_bootstrap_node(
-        &format!(
-            "{}@{}",
-            &node_info.node_public_key.unwrap(),
-            naka_conf.node.p2p_bind
-        ),
-        naka_conf.burnchain.chain_id,
-        PEER_VERSION_TESTNET,
-    );
-
-    let mut follower_run_loop = boot_nakamoto::BootRunLoop::new(follower_conf.clone()).unwrap();
-    let follower_run_loop_stopper = follower_run_loop.get_termination_switch();
-    let follower_coord_channel = follower_run_loop.coordinator_channels();
-
-    debug!(
-        "Booting follower-thread ({},{})",
-        &follower_conf.node.p2p_bind, &follower_conf.node.rpc_bind
-    );
-    debug!(
-        "Booting follower-thread: neighbors = {:?}",
-        &follower_conf.node.bootstrap_node
-    );
-
-    // spawn a follower thread
-    let follower_thread = thread::Builder::new()
-        .name("follower-thread".into())
-        .spawn(move || follower_run_loop.start(None, 0))
-        .unwrap();
-
-    debug!("Booted follower-thread");
-
-    // Mine `tenure_count` nakamoto tenures
-    for tenure_ix in 0..tenure_count {
-        debug!("follower_bootup: Miner runs tenure {tenure_ix}");
-        let commits_before = commits_submitted.load(Ordering::SeqCst);
-        next_block_and_process_new_stacks_block(&btc_regtest_controller, 60, &coord_channel)
-            .unwrap();
-
-        let mut last_tip = BlockHeaderHash([0x00; 32]);
-        let mut last_nonce = None;
-
-        debug!("follower_bootup: Miner mines interum blocks for tenure {tenure_ix}");
-
-        // mine the interim blocks
-        for _ in 0..inter_blocks_per_tenure {
-            let blocks_processed_before = coord_channel
-                .lock()
-                .expect("Mutex poisoned")
-                .get_stacks_blocks_processed();
-
-            let account = loop {
-                // submit a tx so that the miner will mine an extra block
-                let Ok(account) = get_account_result(&http_origin, &sender_addr) else {
-                    debug!("follower_bootup: Failed to load miner account");
-                    thread::sleep(Duration::from_millis(100));
-                    continue;
-                };
-                break account;
-            };
-
-            let sender_nonce = account
-                .nonce
-                .max(last_nonce.as_ref().map(|ln| *ln + 1).unwrap_or(0));
-            let transfer_tx = make_stacks_transfer_serialized(
-                &sender_sk,
-                sender_nonce,
-                send_fee,
-                naka_conf.burnchain.chain_id,
-                &recipient,
-                send_amt,
-            );
-            submit_tx(&http_origin, &transfer_tx);
-
-            last_nonce = Some(sender_nonce);
-
-            let tx = StacksTransaction::consensus_deserialize(&mut &transfer_tx[..]).unwrap();
-
-            debug!("follower_bootup: Miner account: {account:?}");
-            debug!("follower_bootup: Miner sent {}: {tx:?}", &tx.txid());
-
-            let now = get_epoch_time_secs();
-            while get_epoch_time_secs() < now + 10 {
-                let Ok(info) = get_chain_info_result(&naka_conf) else {
-                    debug!("follower_bootup: Could not get miner chain info");
-                    thread::sleep(Duration::from_millis(100));
-                    continue;
-                };
-
-                let Ok(follower_info) = get_chain_info_result(&follower_conf) else {
-                    debug!("follower_bootup: Could not get follower chain info");
-                    thread::sleep(Duration::from_millis(100));
-                    continue;
-                };
-
-                if follower_info.burn_block_height < info.burn_block_height {
-                    debug!("follower_bootup: Follower is behind miner's burnchain view");
-                    thread::sleep(Duration::from_millis(100));
-                    continue;
-                }
-
-                if info.stacks_tip == last_tip {
-                    debug!(
-                        "follower_bootup: Miner stacks tip hasn't changed ({})",
-                        &info.stacks_tip
-                    );
-                    thread::sleep(Duration::from_millis(100));
-                    continue;
-                }
-
-                let blocks_processed = coord_channel
-                    .lock()
-                    .expect("Mutex poisoned")
-                    .get_stacks_blocks_processed();
-
-                if blocks_processed > blocks_processed_before {
-                    break;
-                }
-
-                debug!("follower_bootup: No blocks processed yet");
-                thread::sleep(Duration::from_millis(100));
-            }
-
-            // compare chain tips
-            loop {
-                let Ok(info) = get_chain_info_result(&naka_conf) else {
-                    debug!("follower_bootup: failed to load tip info");
-                    thread::sleep(Duration::from_millis(100));
-                    continue;
-                };
-
-                let Ok(follower_info) = get_chain_info_result(&follower_conf) else {
-                    debug!("follower_bootup: Could not get follower chain info");
-                    thread::sleep(Duration::from_millis(100));
-                    continue;
-                };
-                if info.stacks_tip == follower_info.stacks_tip {
-                    debug!(
-                        "follower_bootup: Follower has advanced to miner's tip {}",
-                        &info.stacks_tip
-                    );
-                } else {
-                    debug!(
-                        "follower_bootup: Follower has NOT advanced to miner's tip: {} != {}",
-                        &info.stacks_tip, follower_info.stacks_tip
-                    );
-                }
-
-                last_tip = info.stacks_tip;
-                break;
-            }
-        }
-
-        debug!("follower_bootup: Wait for next block-commit");
-        let start_time = Instant::now();
-        while commits_submitted.load(Ordering::SeqCst) <= commits_before {
-            if start_time.elapsed() >= Duration::from_secs(20) {
-                panic!("Timed out waiting for block-commit");
-            }
-            thread::sleep(Duration::from_millis(100));
-        }
-        debug!("follower_bootup: Block commit submitted");
-    }
-
-    // load the chain tip, and assert that it is a nakamoto block and at least 30 blocks have advanced in epoch 3
-    let tip = NakamotoChainState::get_canonical_block_header(chainstate.db(), &sortdb)
-        .unwrap()
-        .unwrap();
-    info!(
-        "Latest tip";
-        "height" => tip.stacks_block_height,
-        "is_nakamoto" => tip.anchored_header.as_stacks_nakamoto().is_some(),
-    );
-
-    assert!(tip.anchored_header.as_stacks_nakamoto().is_some());
-    assert_eq!(
-        tip.stacks_block_height,
-        block_height_pre_3_0 + ((inter_blocks_per_tenure + 1) * tenure_count),
-        "Should have mined (1 + interim_blocks_per_tenure) * tenure_count nakamoto blocks"
-    );
-
-    // wait for follower to reach the chain tip
-    loop {
-        sleep_ms(1000);
-        let follower_node_info = get_chain_info(&follower_conf);
-
-        info!(
-            "Follower tip is now {}/{}",
-            &follower_node_info.stacks_tip_consensus_hash, &follower_node_info.stacks_tip
-        );
-        if follower_node_info.stacks_tip_consensus_hash == tip.consensus_hash
-            && follower_node_info.stacks_tip == tip.anchored_header.block_hash()
-        {
-            break;
-        }
-    }
-
-    // Verify both nodes have the correct chain id
-    let miner_info = get_chain_info(&naka_conf);
-    assert_eq!(miner_info.network_id, 0x87654321);
-
-    let follower_info = get_chain_info(&follower_conf);
-    assert_eq!(follower_info.network_id, 0x87654321);
 
     coord_channel
         .lock()
@@ -11458,7 +11315,9 @@ fn test_tenure_extend_from_flashblocks() {
     follower_conf.node.p2p_bind = format!("{localhost}:{p2p_port}");
     follower_conf.node.data_url = format!("http://{localhost}:{rpc_port}");
     follower_conf.node.p2p_address = format!("{localhost}:{p2p_port}");
-    follower_conf.node.pox_sync_sample_secs = 30;
+    // Download eagerly: a non-zero sample time throttles every burnchain
+    // sync pass and limits the follower to one reward cycle at a time.
+    follower_conf.node.pox_sync_sample_secs = 0;
 
     let node_info = get_chain_info(&naka_conf);
     follower_conf.node.add_bootstrap_node(
@@ -13434,14 +13293,14 @@ fn test_sip_031_last_phase() {
     }
 
     let (mut naka_conf, _miner_account) = naka_neon_integration_conf(None);
-    naka_conf.node.pox_sync_sample_secs = 180;
     naka_conf.burnchain.max_rbf = 10_000_000;
 
     let sender_sk = Secp256k1PrivateKey::random();
     let sender_signer_sk = Secp256k1PrivateKey::random();
     let sender_signer_addr = tests::to_addr(&sender_signer_sk);
     let mut signers = TestSigners::new(vec![sender_signer_sk.clone()]);
-    // let's assume funds for 200 tenures
+    // a generous upper bound on the transfers this test sends: it submits one
+    // per stacks block, and mines far fewer blocks than this
     let tenure_count = 200;
     let inter_blocks_per_tenure = 9;
     // setup sender + recipient for some test stx transfers
@@ -13462,22 +13321,26 @@ fn test_sip_031_last_phase() {
     let epoch32_start_height =
         naka_conf.burnchain.epochs.clone().unwrap()[StacksEpochId::Epoch32].start_height;
 
+    // Three burn blocks per interval. `get_sip_031_emission_at_height` is a
+    // descending first-match lookup, so the spacing only decides how many
+    // tenures the test has to mine to walk the whole schedule -- it does not
+    // change what is being tested.
     set_test_sip_031_emission_schedule(Some(vec![
         SIP031EmissionInterval {
             amount: 0,
-            start_height: epoch32_start_height + 40,
+            start_height: epoch32_start_height + 12,
         },
         SIP031EmissionInterval {
             amount: 300_000,
-            start_height: epoch32_start_height + 30,
+            start_height: epoch32_start_height + 9,
         },
         SIP031EmissionInterval {
             amount: 200_000,
-            start_height: epoch32_start_height + 20,
+            start_height: epoch32_start_height + 6,
         },
         SIP031EmissionInterval {
             amount: 100_000,
-            start_height: epoch32_start_height + 10,
+            start_height: epoch32_start_height + 3,
         },
     ]));
 
@@ -13602,9 +13465,11 @@ fn test_sip_031_last_phase() {
     let http_origin = format!("http://{}", &naka_conf.node.rpc_bind);
 
     let mut sender_nonce = 0;
-    // 50 more tenures (each one with 3 stacks blocks)
+    // 14 more tenures (each one with 3 stacks blocks). That walks every
+    // interval of the emission schedule set above, including the trailing
+    // zero-emission one.
     let principal = PrincipalData::from(sender_signer_addr);
-    for _ in 0..50 {
+    for _ in 0..14 {
         let commits_before = commits_submitted.load(Ordering::SeqCst);
         next_block_and_process_new_stacks_blocks(
             &btc_regtest_controller,
@@ -13680,8 +13545,8 @@ fn test_sip_031_last_phase() {
         }
     }
 
-    // (100_000 + 200_000 + 300_000) * 10
-    assert_eq!(total_minted_and_transferred, 6_000_000);
+    // (100_000 + 200_000 + 300_000) * 3
+    assert_eq!(total_minted_and_transferred, 1_800_000);
 
     let latest_stacks_block_id = StacksBlockId::from_hex(
         &test_observer::get_blocks()

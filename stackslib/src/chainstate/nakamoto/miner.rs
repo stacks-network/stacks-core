@@ -790,13 +790,19 @@ impl BlockBuilder for NakamotoBlockBuilder {
         resource_budgets: &TransactionResourceBudgets,
         total_receipts_size: &mut u64,
     ) -> TransactionResult {
-        if self.bytes_so_far + tx_len >= u64::from(MAX_EPOCH_SIZE) {
+        let block_size = self.bytes_so_far + tx_len;
+        let exceeds_size_limit = if clarity_tx.get_epoch().fixes_block_size_off_by_one() {
+            block_size > u64::from(MAX_EPOCH_SIZE)
+        } else {
+            block_size >= u64::from(MAX_EPOCH_SIZE)
+        };
+        if exceeds_size_limit {
             debug!("Transaction {} would be too big to include", tx.txid());
             return TransactionResult::skipped_due_to_error(tx, Error::TxWouldNotFitError);
         }
 
         if let Some(parent_header) = &self.parent_header {
-            let mut total_tenure_size = self.bytes_so_far + tx_len;
+            let mut total_tenure_size = block_size;
 
             // if we are in the same tenure of the parent, accumulate the parent total_tenure_size
             // note that total_tenure_size is reset whenever a new tenure extend happens

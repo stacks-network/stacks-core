@@ -2274,13 +2274,13 @@ fn test_squash_extend_many_keys_patch_backptr_regression() {
 
     // Collect archival values at b3 for later comparison.
     let archival_val_0 = src
-        .with_conn(|c| MARF::get_by_hash(c, &b3, &make_path(0)))
+        .with_conn(|c| MARF::get_by_path(c, &b3, &make_path(0)))
         .unwrap();
     let archival_val_1 = src
-        .with_conn(|c| MARF::get_by_hash(c, &b3, &make_path(1)))
+        .with_conn(|c| MARF::get_by_path(c, &b3, &make_path(1)))
         .unwrap();
     let archival_val_63 = src
-        .with_conn(|c| MARF::get_by_hash(c, &b3, &make_path(num_keys - 1)))
+        .with_conn(|c| MARF::get_by_path(c, &b3, &make_path(num_keys - 1)))
         .unwrap();
     drop(src);
 
@@ -2343,13 +2343,13 @@ fn test_squash_extend_many_keys_patch_backptr_regression() {
 
     // --- Verify data matches archival MARF ---
     let squashed_val_0 = squashed
-        .with_conn(|c| MARF::get_by_hash(c, &b3, &make_path(0)))
+        .with_conn(|c| MARF::get_by_path(c, &b3, &make_path(0)))
         .unwrap();
     let squashed_val_1 = squashed
-        .with_conn(|c| MARF::get_by_hash(c, &b3, &make_path(1)))
+        .with_conn(|c| MARF::get_by_path(c, &b3, &make_path(1)))
         .unwrap();
     let squashed_val_63 = squashed
-        .with_conn(|c| MARF::get_by_hash(c, &b3, &make_path(num_keys - 1)))
+        .with_conn(|c| MARF::get_by_path(c, &b3, &make_path(num_keys - 1)))
         .unwrap();
 
     assert_eq!(archival_val_0, squashed_val_0, "modified key mismatch");
@@ -2361,7 +2361,7 @@ fn test_squash_extend_many_keys_patch_backptr_regression() {
 
     // Pre-squash data still readable through the squash tip.
     let val_at_b2 = squashed
-        .with_conn(|c| MARF::get_by_hash(c, &b2, &make_path(1)))
+        .with_conn(|c| MARF::get_by_path(c, &b2, &make_path(1)))
         .unwrap();
     assert!(val_at_b2.is_some(), "data at b2 should still be readable");
 }
