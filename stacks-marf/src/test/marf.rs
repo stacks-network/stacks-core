@@ -1864,8 +1864,7 @@ fn test_marf_read_only() {
     // functions that require a transaction _cannot_ be called on a readonly marf, because
     //   both the storage function for initiating a tx _and_ sqlite will have errored before
     //   you could call the function.
-    // `MarfTransaction` has no `Debug`, so `assert_matches!` can't be used here.
-    assert!(matches!(ro_marf.begin_tx(), Err(Error::ReadOnlyError)));
+    assert_matches!(ro_marf.begin_tx().err(), Some(Error::ReadOnlyError));
     assert_matches!(
         ro_marf.insert("foo", value.clone()),
         Err(Error::ReadOnlyError)
@@ -2038,7 +2037,7 @@ fn test_marf_unconfirmed() {
         &triepath_1,
     )
     .unwrap_err();
-    assert_matches!(e, Error::NotFoundError, "whoops: {e:?}");
+    assert_matches!(e, Error::NotFoundError);
 
     // value 2 is dropped
     let e = MARF::get_path(
