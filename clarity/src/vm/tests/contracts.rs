@@ -1614,6 +1614,57 @@ fn test_contract_call_with_constant(
     }
 }
 
+#[apply(test_clarity_versions)]
+fn test_runtime_name_resolution_order(
+    version: ClarityVersion,
+    epoch: StacksEpochId,
+    mut env_factory: MemoryEnvironmentGenerator,
+) {
+    let mut owned_env = env_factory.get_env(epoch);
+
+    let contract = "
+        (define-constant duplicate 42)
+        (define-public (some-function)
+            (let ((duplicate 7)) (ok duplicate))
+        )
+        ";
+
+    let principal = execute("'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR");
+    let placeholder_context =
+        ContractContext::new(QualifiedContractIdentifier::transient(), version);
+
+    {
+        let (mut exec_env, invoke_ctx) =
+            owned_env.get_exec_environment(None, None, &placeholder_context);
+        exec_env
+            .initialize_contract(
+                &invoke_ctx,
+                QualifiedContractIdentifier::local("contract").unwrap(),
+                contract,
+            )
+            .unwrap();
+    }
+
+    let (mut exec_env, invoke_ctx) = owned_env.get_exec_environment(
+        Some(principal.clone().expect_principal().unwrap()),
+        None,
+        &placeholder_context,
+    );
+    let call_result = exec_env.execute_contract(
+        &invoke_ctx,
+        &QualifiedContractIdentifier::local("contract").unwrap(),
+        "some-function",
+        &[],
+        false,
+    );
+
+    if epoch.clarity_runtime_checks_global_constants_before_local_vars() {
+        assert_eq!(call_result.unwrap(), Value::okay(Value::Int(42)).unwrap());
+    } else {
+        assert_eq!(call_result.unwrap(), Value::okay(Value::Int(7)).unwrap());
+    }
+}
+
 /// Calling from a deploying contract into a contract via define-constant
 ///  should not be allowed in any epochs
 #[apply(test_clarity_versions)]
