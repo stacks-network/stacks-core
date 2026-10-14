@@ -29,7 +29,7 @@ use crate::vm::tests::{test_clarity_versions, test_epochs};
 use crate::vm::{
     ContractContext,
     database::MemoryBackingStore,
-    errors::{RuntimeCheckErrorKind, VmExecutionError},
+    errors::{ClarityEvalError, RuntimeCheckErrorKind, VmExecutionError},
     tests::{env_factory, execute, symbols_from_values},
     types::{PrincipalData, QualifiedContractIdentifier, Value},
     version::ClarityVersion,
@@ -2330,6 +2330,57 @@ fn test_pass_principal_literal_to_trait(
                 )
                 .unwrap(),
             Value::okay(Value::UInt(1)).unwrap()
+        );
+    }
+}
+
+/// From Epoch 4.1, a contract can dispatch through its own trait at the top
+/// level while it deploys.
+#[apply(test_epochs)]
+fn test_trait_use_at_top_level_same_contract(
+    epoch: StacksEpochId,
+    mut env_factory: MemoryEnvironmentGenerator,
+) {
+    let mut owned_env = env_factory.get_env(epoch);
+    let contract_foo = "(define-public (foo) (ok true))";
+    let contract_bar = "(define-trait trait-1 (
+            (foo () (response bool uint))))
+        (define-private (bar (f <trait-1>))
+            (unwrap-panic (contract-call? f foo)))
+        (bar .c-foo)";
+
+    let placeholder_context = ContractContext::new(
+        QualifiedContractIdentifier::transient(),
+        ClarityVersion::default_for_epoch(epoch),
+    );
+    let (mut exec_state, invoke_ctx) =
+        owned_env.get_exec_environment(None, None, &placeholder_context);
+    exec_state
+        .initialize_contract(
+            &invoke_ctx,
+            QualifiedContractIdentifier::local("c-foo").unwrap(),
+            contract_foo,
+        )
+        .unwrap();
+
+    let result = exec_state.initialize_contract(
+        &invoke_ctx,
+        QualifiedContractIdentifier::local("c-bar").unwrap(),
+        contract_bar,
+    );
+
+    if epoch.supports_local_trait_lookup() {
+        result.unwrap();
+    } else {
+        let err = result.unwrap_err();
+        assert!(
+            matches!(
+                err,
+                ClarityEvalError::Vm(VmExecutionError::RuntimeCheck(
+                    RuntimeCheckErrorKind::NoSuchContract(_)
+                ))
+            ),
+            "{err:?}"
         );
     }
 }
