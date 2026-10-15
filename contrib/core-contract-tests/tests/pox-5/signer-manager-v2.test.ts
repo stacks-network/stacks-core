@@ -289,7 +289,9 @@ test('a rejected withdrawal can be taken as sBTC by clearing the config', () => 
   txOk(signerManagerV2.claimStakerRewards(alice, 1n, null), bob);
   txOk(sbtcWithdrawal.rejectWithdrawalRequest(1n, 0n), SBTC_SIGNER);
 
-  txOk(signerManagerV2.reclaimFailedWithdrawal(1n), bob);
+  expect(txOk(signerManagerV2.reclaimFailedWithdrawal(1n), bob).value).toBe(
+    true,
+  );
   expect(rov(signerManagerV2.getPendingPayout(alice))).toBe(total);
   expect(rov(signerManagerV2.getWithdrawalLiability())).toBe(0n);
 
@@ -318,7 +320,9 @@ test('an accepted withdrawal is settled and its fee dust swept', () => {
   expect(txErr(signerManagerV2.reclaimFailedWithdrawal(1n), bob).value).toBe(
     signerManagerV2Errors.ERR_WITHDRAWAL_NOT_REJECTED,
   );
-  txOk(signerManagerV2.settleAcceptedWithdrawal(1n), bob);
+  expect(txOk(signerManagerV2.settleAcceptedWithdrawal(1n), bob).value).toBe(
+    true,
+  );
   expect(rov(signerManagerV2.getWithdrawalLiability())).toBe(0n);
   expect(txOk(signerManagerV2.sweepFeeRefunds(deployer), deployer).value).toBe(
     dust,

@@ -387,7 +387,7 @@
             amount-sats: refund,
         })
         (credit-pending staker refund)
-        (ok refund)
+        (ok true)
     )
 )
 

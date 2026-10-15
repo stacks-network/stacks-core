@@ -11293,10 +11293,10 @@ export const contracts = {
         name: 'reclaim-failed-withdrawal',
         access: 'public',
         args: [{ name: 'request-id', type: 'uint128' }],
-        outputs: { type: { response: { ok: 'uint128', error: 'uint128' } } },
+        outputs: { type: { response: { ok: 'bool', error: 'uint128' } } },
       } as TypedAbiFunction<
         [requestId: TypedAbiArg<number | bigint, 'requestId'>],
-        Response<bigint, bigint>
+        Response<boolean, bigint>
       >,
       registerSelf: {
         name: 'register-self',
