@@ -27,6 +27,8 @@ use stacks_common::types::chainstate::{
 };
 use stacks_common::util::get_epoch_time_secs;
 use stacks_common::util::serde_serializers::prefix_hex;
+use stacks_marf::marf::MARFOpenOpts;
+use stacks_marf::Error as IndexError;
 
 pub use self::comm::CoordinatorCommunication;
 use super::stacks::boot::{RewardSet, RewardSetData};
@@ -54,8 +56,6 @@ use crate::chainstate::stacks::db::{
 use crate::chainstate::stacks::events::{
     StacksBlockEventData, StacksTransactionEvent, StacksTransactionReceipt, TransactionOrigin,
 };
-use crate::chainstate::stacks::index::marf::MARFOpenOpts;
-use crate::chainstate::stacks::index::Error as IndexError;
 use crate::chainstate::stacks::miner::{signal_mining_blocked, signal_mining_ready, MinerStatus};
 use crate::chainstate::stacks::{Error as ChainstateError, StacksBlockHeader, TransactionPayload};
 use crate::core::{StacksEpoch, StacksEpochId};
