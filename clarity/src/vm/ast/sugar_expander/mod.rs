@@ -91,20 +91,20 @@ impl SugarExpander {
                     let len = pre_exprs.len();
                     let expression =
                         self.transform_iter(pre_exprs.into_iter(), len, contract_ast)?;
-                    let mut pairs = expression
-                        .chunks(2)
-                        .map(|pair| pair.to_vec())
-                        .map(SymbolicExpression::list)
-                        .collect::<Vec<_>>();
-                    pairs.insert(
-                        0,
-                        SymbolicExpression::atom(
-                            "tuple"
-                                .to_string()
-                                .try_into()
-                                .map_err(|_| ParseErrorKind::InterpreterFailure)?,
-                        ),
-                    );
+                    let mut pairs = Vec::with_capacity(expression.len().div_ceil(2) + 1);
+                    pairs.push(SymbolicExpression::atom(
+                        "tuple"
+                            .to_string()
+                            .try_into()
+                            .map_err(|_| ParseErrorKind::InterpreterFailure)?,
+                    ));
+                    let mut children = expression.into_iter();
+                    while let Some(key) = children.next() {
+                        pairs.push(SymbolicExpression::list(match children.next() {
+                            Some(value) => vec![key, value],
+                            None => vec![key],
+                        }));
+                    }
                     SymbolicExpression::list(pairs)
                 }
                 PreSymbolicExpressionType::SugaredContractIdentifier(contract_name) => {
