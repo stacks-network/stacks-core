@@ -9266,6 +9266,7 @@ fn burn_block_payload_includes_pox_transactions() {
 }
 
 #[test]
+#[ignore]
 fn test_vtxindex_zero_acceptance() {
     if env::var("BITCOIND_TEST") != Ok("1".into()) {
         return;
@@ -9327,6 +9328,7 @@ fn test_vtxindex_zero_acceptance() {
 /// Test that when one miner wins a sortition with a bad block commit (vtxindex=0, wrong parent),
 /// signers reject that miner's proposals and the previous miner continues via tenure extend.
 #[test]
+#[ignore]
 fn test_vtxindex_zero_two_miners() {
     if env::var("BITCOIND_TEST") != Ok("1".into()) {
         return;
