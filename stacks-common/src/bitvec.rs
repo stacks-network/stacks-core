@@ -260,33 +260,94 @@ mod test {
 
     use super::BitVec;
     use crate::codec::StacksMessageCodec;
+    use crate::util::hash::{bytes_to_hex, hex_bytes};
 
-    fn check_set_get(mut input: BitVec<{ u16::MAX }>) {
+    /// Longest vector for which `check_set_get` flips every index.
+    const EXHAUSTIVE_SET_GET_LIMIT: u16 = 256;
+
+    /// The indices worth flipping in a vector too long to flip exhaustively.
+    ///
+    /// `set` and `get` branch only on `i / 8` (which byte) and `i % 8` (which
+    /// bit), so the first and last bit of a few chosen bytes reaches the same
+    /// cases an exhaustive pass would. Take the first two bytes, the two
+    /// around the midpoint and the last two, so that byte-to-byte transitions
+    /// are covered at both ends of the u16 index arithmetic, plus the first
+    /// and last valid index themselves (the last index is not the last bit of
+    /// the last byte unless `len` is a multiple of 8).
+    fn boundary_indices(len: u16) -> Vec<u16> {
+        assert!(len > 0, "BitVec cannot be empty");
+        let last_byte = (len - 1) / 8;
+        let mid_byte = last_byte / 2;
+        let mut indices = vec![0, len - 1];
+        for byte in [
+            0,
+            1,
+            mid_byte,
+            mid_byte + 1,
+            last_byte.saturating_sub(1),
+            last_byte,
+        ] {
+            indices.push(byte * 8);
+            indices.push(byte * 8 + 7);
+        }
+        indices.retain(|i| *i < len);
+        indices.sort_unstable();
+        indices.dedup();
+        indices
+    }
+
+    /// Set each index in `indices` to false and then to true, checking every
+    /// time that the write landed on that index and left every other index of
+    /// the vector untouched, and that restoring it returns the original value.
+    fn check_set_get_at(mut input: BitVec<{ u16::MAX }>, indices: &[u16]) {
         let original_input = input.clone();
-        for i in 0..input.len() {
+        for &i in indices {
             let original_value = input.get(i).unwrap();
-            input.set(i, false).unwrap();
-            assert_eq!(input.len(), original_input.len());
-            for j in 0..input.len() {
-                if j == i {
-                    continue;
+            for value in [false, true] {
+                input.set(i, value).unwrap();
+                assert_eq!(input.len(), original_input.len());
+                for j in 0..input.len() {
+                    if j == i {
+                        continue;
+                    }
+                    assert_eq!(
+                        original_input.get(j),
+                        input.get(j),
+                        "set({i}, {value}) changed index {j}"
+                    );
                 }
-                assert_eq!(original_input.get(j), input.get(j));
+                assert_eq!(input.get(i), Some(value));
             }
-            assert_eq!(input.get(i), Some(false));
-            input.set(i, true).unwrap();
-            for j in 0..input.len() {
-                if j == i {
-                    continue;
-                }
-                assert_eq!(original_input.get(j), input.get(j));
-            }
-            assert_eq!(input.get(i), Some(true));
             input.set(i, original_value).unwrap();
             assert_eq!(input.get(i), Some(original_value));
         }
         assert_eq!(input, original_input);
-        assert!(input.set(input.len(), false).is_err());
+        // Indices from `len` up to the end of the final byte are out of range
+        // even though their byte exists, so they are the ones a missing bounds
+        // check would answer instead of rejecting.
+        for offset in 0..=8 {
+            let past_end = input.len().saturating_add(offset);
+            assert!(
+                input.set(past_end, false).is_err(),
+                "set({past_end}) should be out of range for len {}",
+                input.len()
+            );
+            assert_eq!(
+                input.get(past_end),
+                None,
+                "get({past_end}) should be out of range for len {}",
+                input.len()
+            );
+        }
+    }
+
+    fn check_set_get(input: BitVec<{ u16::MAX }>) {
+        let indices: Vec<u16> = if input.len() <= EXHAUSTIVE_SET_GET_LIMIT {
+            (0..input.len()).collect()
+        } else {
+            boundary_indices(input.len())
+        };
+        check_set_get_at(input, &indices);
     }
 
     fn check_iter(input: &BitVec<{ u16::MAX }>) {
@@ -354,6 +415,15 @@ mod test {
     }
 
     #[test]
+    fn try_from_rejects_empty() {
+        let empty: &[bool] = &[];
+        assert!(
+            BitVec::<10>::try_from(empty).is_err(),
+            "A BitVec must have a positive length"
+        );
+    }
+
+    #[test]
     fn binary_str_serialization() {
         let mut bitvec_zero_10 = BitVec::<10>::zeros(10).unwrap();
         bitvec_zero_10.set(0, true).unwrap();
@@ -398,10 +468,13 @@ mod test {
             inputs.push(single_set_vec);
             inputs.push(single_unset_vec);
         }
-        let large_set_vec = vec![false; u16::MAX.into()];
-        let large_unset_vec = vec![true; u16::MAX.into()];
-        inputs.push(large_set_vec);
-        inputs.push(large_unset_vec);
+        // The largest vectors. `u16::MAX` leaves a partial final byte
+        // (65535 % 8 == 7) and `u16::MAX - 7` fills its final byte exactly, so
+        // both `data_len` roundings are covered at the top of the range.
+        for len in [u16::MAX, u16::MAX - 7] {
+            inputs.push(vec![false; usize::from(len)]);
+            inputs.push(vec![true; usize::from(len)]);
+        }
 
         for i in 1..128 {
             let mut bool_vec = vec![false; i];
@@ -411,9 +484,66 @@ mod test {
             inputs.push(bool_vec);
         }
 
+        // Patterns whose bytes differ from one another. Every input above is
+        // byte-uniform -- all zeros, all ones, or the repeating 0b01010101
+        // that the alternating vectors produce -- and a byte-uniform vector
+        // cannot catch an accessor or an iterator that reads the wrong byte.
+        for len in [17usize, 24, 25, 64, 127, 1000, usize::from(u16::MAX)] {
+            // byte k holds the value k, so no two neighbouring bytes are alike
+            inputs.push((0..len).map(|i| (i / 8) & (1 << (i % 8)) != 0).collect());
+            // a period that does not divide the byte width
+            inputs.push((0..len).map(|i| i % 3 == 0).collect());
+        }
+
         for i in inputs.into_iter() {
             check_ok_vector(i.as_slice());
         }
+    }
+
+    /// A `BitVec` travels in consensus data, so its byte layout is fixed:
+    /// `len` as a big-endian u16, then `data` as a u32-prefixed byte array
+    /// whose length comes from `data_len`. A round-trip test cannot see a
+    /// change here, because serialization and deserialization would move
+    /// together, so pin the bytes.
+    #[test]
+    fn fixed_serialization_vectors() {
+        let mut bitvec = BitVec::<10>::zeros(10).unwrap();
+        bitvec.set(0, true).unwrap();
+        bitvec.set(3, true).unwrap();
+        bitvec.set(5, true).unwrap();
+        assert_eq!(bitvec.binary_str(), "1001010000");
+        // len 10, 2 data bytes, 0b00101001 and an empty tail byte
+        assert_eq!(
+            bytes_to_hex(bitvec.serialize_to_vec().as_slice()),
+            "000a000000022900"
+        );
+
+        // a length that is an exact multiple of 8 uses one byte fewer
+        assert_eq!(
+            bytes_to_hex(BitVec::<16>::ones(8).unwrap().serialize_to_vec().as_slice()),
+            "000800000001ff"
+        );
+        assert_eq!(
+            bytes_to_hex(BitVec::<16>::ones(9).unwrap().serialize_to_vec().as_slice()),
+            "000900000002ff01"
+        );
+    }
+
+    /// Deserialization reads untrusted bytes, so it has to reject the lengths
+    /// it would never itself produce.
+    #[test]
+    fn deserialize_rejects_malformed() {
+        // a BitVec is never empty
+        let empty = hex_bytes("000000000000").unwrap();
+        assert!(BitVec::<10>::consensus_deserialize(&mut empty.as_slice()).is_err());
+
+        // len 3 exceeds a MAX_SIZE of 2
+        let too_long = hex_bytes("000300000001ff").unwrap();
+        assert!(BitVec::<2>::consensus_deserialize(&mut too_long.as_slice()).is_err());
+
+        // len 9 needs two data bytes, only one is present
+        let truncated = hex_bytes("000900000001ff").unwrap();
+        assert!(BitVec::<16>::consensus_deserialize(&mut truncated.as_slice()).is_err());
     }
 
     #[test]

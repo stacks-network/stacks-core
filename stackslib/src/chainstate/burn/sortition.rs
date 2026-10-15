@@ -19,6 +19,7 @@ use stacks_common::types::chainstate::{
     BlockHeaderHash, PoxId, SortitionId, StacksBlockId, TrieHash, VRFSeed,
 };
 use stacks_common::util::uint::{BitArray, Uint256};
+use stacks_marf::ClarityMarfTrieId;
 
 use crate::burnchains::{
     Burnchain, BurnchainBlockHeader, BurnchainSigner, BurnchainStateTransition, Txid,
@@ -32,7 +33,6 @@ use crate::chainstate::burn::{
     SortitionHash,
 };
 use crate::chainstate::stacks::db::StacksChainState;
-use crate::chainstate::stacks::index::ClarityMarfTrieId;
 use crate::core::*;
 use crate::util_lib::db::Error as db_error;
 
@@ -848,7 +848,8 @@ mod test {
             let pox_id = PoxId::stubbed();
             let sort_id = SortitionId::stubbed(&empty_block_header.block_hash);
             let mut ic = SortitionHandleTx::begin(&mut db, &sort_id).unwrap();
-            let sn = test_make_snapshot(
+
+            test_make_snapshot(
                 &mut ic,
                 &burnchain,
                 &sort_id,
@@ -857,8 +858,7 @@ mod test {
                 &empty_block_header,
                 &BurnchainStateTransition::noop(),
             )
-            .unwrap();
-            sn
+            .unwrap()
         };
 
         assert!(!snapshot_no_transactions.sortition);
@@ -902,7 +902,8 @@ mod test {
             let sort_id = SortitionId::stubbed(&empty_block_header.block_hash);
             let pox_id = PoxId::stubbed();
             let mut ic = SortitionHandleTx::begin(&mut db, &sort_id).unwrap();
-            let sn = test_make_snapshot(
+
+            test_make_snapshot(
                 &mut ic,
                 &burnchain,
                 &sort_id,
@@ -915,8 +916,7 @@ mod test {
                     ..BurnchainStateTransition::noop()
                 },
             )
-            .unwrap();
-            sn
+            .unwrap()
         };
 
         assert!(!snapshot_no_burns.sortition);

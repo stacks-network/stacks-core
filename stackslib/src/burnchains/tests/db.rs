@@ -24,6 +24,7 @@ use stacks_common::deps_common::bitcoin::network::serialize::deserialize;
 use stacks_common::types::chainstate::StacksAddress;
 use stacks_common::types::sqlite::NO_PARAMS;
 use stacks_common::util::hash::*;
+use stacks_marf::ClarityMarfTrieId;
 
 use super::*;
 use crate::burnchains::bitcoin::address::*;
@@ -35,7 +36,6 @@ use crate::chainstate::burn::operations::leader_block_commit::BURN_BLOCK_MINED_A
 use crate::chainstate::burn::*;
 use crate::chainstate::coordinator::tests::next_txid;
 use crate::chainstate::stacks::address::{PoxAddress, StacksAddressExtensions};
-use crate::chainstate::stacks::index::ClarityMarfTrieId;
 use crate::chainstate::stacks::*;
 use crate::core::{StacksEpochId, BITCOIN_REGTEST_FIRST_BLOCK_HASH};
 use crate::util_lib::db::Error as DBError;

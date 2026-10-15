@@ -192,30 +192,55 @@ fn lookup_variable<'a>(
         exec_state,
         context.depth(),
     )?;
-    if let Some(value) = context.lookup_variable(name) {
-        let value = ValueRef::Borrowed(value);
-        if exec_state.epoch().uses_pre_sanitized_variables() {
-            // If the epoch supports value refs, we can return a borrowed reference to the variable without cloning.
-            return Ok(value);
-        } else {
-            // Epochs that don't support borrowed refs must clone and pay the cost every time.
-            return Ok(ValueRef::Owned(value.clone_with_cost(exec_state)?));
+    let lookup_from_local_variable =
+        |exec_state: &mut ExecutionState| -> Result<_, VmExecutionError> {
+            if let Some(value) = context.lookup_variable(name) {
+                let value = ValueRef::Borrowed(value);
+                if exec_state.epoch().uses_pre_sanitized_variables() {
+                    // If the epoch supports value refs, we can return a borrowed reference to the variable without cloning.
+                    return Ok(Some(value));
+                } else {
+                    // Epochs that don't support borrowed refs must clone and pay the cost every time.
+                    return Ok(Some(ValueRef::Owned(value.clone_with_cost(exec_state)?)));
+                }
+            }
+            Ok(None)
+        };
+    let lookup_from_constant = |exec_state: &mut ExecutionState| -> Result<_, VmExecutionError> {
+        if let Some(value) = invoke_ctx.contract_context.lookup_variable(name) {
+            let value = ValueRef::Borrowed(value);
+            if exec_state.epoch().uses_pre_sanitized_variables() {
+                // Variables were sanitized at load time by canonicalize_types.
+                // Borrow directly.
+                return Ok(Some(value));
+            }
+            // Variables were not sanitized at load time, so we need to sanitize them
+            // now before returning and pay for the clone.
+            let value = value.clone_with_cost(exec_state)?;
+            let (value, _) =
+                Value::sanitize_value(exec_state.epoch(), &TypeSignature::type_of(&value)?, value)
+                    .ok_or(RuntimeCheckErrorKind::CouldNotDetermineType)?;
+            return Ok(Some(ValueRef::Owned(value)));
         }
-    }
-    if let Some(value) = invoke_ctx.contract_context.lookup_variable(name) {
-        let value = ValueRef::Borrowed(value);
-        if exec_state.epoch().uses_pre_sanitized_variables() {
-            // Variables were sanitized at load time by canonicalize_types.
-            // Borrow directly.
-            return Ok(value);
+        Ok(None)
+    };
+    // TODO: Once we've reached Epoch 4.1, this conditional can probably be removed.
+    // See doc comment of [`StacksEpochId::clarity_runtime_checks_global_constants_before_local_vars`].
+    if exec_state
+        .epoch()
+        .clarity_runtime_checks_global_constants_before_local_vars()
+    {
+        if let Some(v) = lookup_from_constant(exec_state)? {
+            return Ok(v);
+        } else if let Some(v) = lookup_from_local_variable(exec_state)? {
+            return Ok(v);
         }
-        // Variables were not sanitized at load time, so we need to sanitize them
-        // now before returning and pay for the clone.
-        let value = value.clone_with_cost(exec_state)?;
-        let (value, _) =
-            Value::sanitize_value(exec_state.epoch(), &TypeSignature::type_of(&value)?, value)
-                .ok_or(RuntimeCheckErrorKind::CouldNotDetermineType)?;
-        return Ok(ValueRef::Owned(value));
+    } else {
+        if let Some(v) = lookup_from_local_variable(exec_state)? {
+            return Ok(v);
+        } else if let Some(v) = lookup_from_constant(exec_state)? {
+            return Ok(v);
+        }
     }
     if let Some(callable_data) = context.lookup_callable_contract(name) {
         let value = if invoke_ctx.contract_context.get_clarity_version() < &ClarityVersion::Clarity2
@@ -229,11 +254,14 @@ fn lookup_variable<'a>(
     Err(RuntimeCheckErrorKind::Unreachable(bounded_format!("Undefined variable: {name}")).into())
 }
 
-pub fn lookup_function(
+/// Resolves `name` to a builtin, or to a user function borrowed from the contract context.
+/// Charges the `LookupFunction` cost, unlike `ContractContext::lookup_function`, and fails
+/// with `UndefinedFunction` when neither matches.
+pub fn lookup_function<'a>(
     name: &str,
     exec_state: &mut ExecutionState,
-    invoke_ctx: &InvocationContext,
-) -> Result<CallableType, VmExecutionError> {
+    invoke_ctx: &InvocationContext<'a>,
+) -> Result<CallableType<'a>, VmExecutionError> {
     runtime_cost(ClarityCostFunction::LookupFunction, exec_state, 0)?;
 
     if let Some(result) = functions::lookup_reserved_functions(
@@ -245,7 +273,7 @@ pub fn lookup_function(
         let user_function = invoke_ctx
             .contract_context
             .lookup_function(name)
-            .ok_or(RuntimeCheckErrorKind::UndefinedFunction(name.to_string()))?;
+            .ok_or_else(|| RuntimeCheckErrorKind::UndefinedFunction(name.to_string()))?;
         Ok(CallableType::UserFunction(user_function))
     }
 }
@@ -262,7 +290,7 @@ fn add_stack_trace(result: &mut Result<Value, VmExecutionError>, exec_state: &mu
 /// [`apply_evaluated`], returning the function's identifier and whether recursion is tracked.
 #[inline]
 fn check_call_preconditions(
-    function: &CallableType,
+    function: &CallableType<'_>,
     exec_state: &ExecutionState,
 ) -> Result<(FunctionIdentifier, bool), VmExecutionError> {
     // Aaron: in non-debug executions, we shouldn't track a full call-stack.
@@ -285,7 +313,7 @@ fn check_call_preconditions(
 /// `used_memory` is the total already charged via [`ExecutionState::add_memory`] for the
 /// argument values; it is released before returning.
 fn dispatch_args(
-    function: &CallableType,
+    function: &CallableType<'_>,
     identifier: FunctionIdentifier,
     track_recursion: bool,
     args: Vec<Value>,
@@ -354,7 +382,7 @@ fn dispatch_args(
 ///
 /// Enforces recursion detection and max stack-depth limits before dispatch.
 pub fn apply(
-    function: &CallableType,
+    function: &CallableType<'_>,
     args: &[SymbolicExpression],
     exec_state: &mut ExecutionState,
     invoke_ctx: &InvocationContext,
@@ -460,7 +488,7 @@ pub fn apply(
 /// `SymbolicExpression::atom_value` so the special function can evaluate them normally
 /// with `eval`.
 pub fn apply_evaluated(
-    function: &CallableType,
+    function: &CallableType<'_>,
     args: Vec<Value>,
     exec_state: &mut ExecutionState,
     invoke_ctx: &InvocationContext,
@@ -900,7 +928,7 @@ pub fn execute_with_limited_execution_time(
         false,
         clarity_types::types::StandardPrincipalData::transient(),
         |g| {
-            let budget = ResourceBudget::new().with_max_duration(Some(max_execution_time));
+            let budget = ResourceBudget::unlimited().with_max_duration(Some(max_execution_time));
             g.set_execution_resource_limiter(budget.start_tracking());
             Ok(())
         },

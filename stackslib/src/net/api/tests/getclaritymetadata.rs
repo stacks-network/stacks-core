@@ -21,7 +21,7 @@ use clarity::vm::database::{ClaritySerializable, DataMapMetadata, DataVariableMe
 use clarity::vm::types::TypeSignature;
 use stacks_common::types::chainstate::StacksAddress;
 
-use super::{test_rpc, TEST_CONTRACT_ID};
+use super::{test_rpc, TEST_CONTRACT, TEST_CONTRACT_ID};
 use crate::net::api::*;
 use crate::net::connection::ConnectionOptions;
 use crate::net::http::Error as HttpError;
@@ -290,10 +290,10 @@ fn test_try_make_response() {
     let (preamble, body) = response.destruct();
     assert_eq!(preamble.status_code, 400);
 
-    // contract size metadata
+    // contract size metadata: the length of the published source
     let response = responses.remove(0);
     let resp = response.decode_clarity_metadata_response().unwrap();
-    assert_eq!(resp.data, "1432");
+    assert_eq!(resp.data, TEST_CONTRACT.len().to_string());
 
     // data map metadata
     let response = responses.remove(0);
@@ -336,7 +336,7 @@ fn test_try_make_response() {
     // contract size metadata
     let response = responses.remove(0);
     let resp = response.decode_clarity_metadata_response().unwrap();
-    assert_eq!(resp.data, "1432");
+    assert_eq!(resp.data, TEST_CONTRACT.len().to_string());
 
     // unknwnon data var
     let response = responses.remove(0);

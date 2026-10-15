@@ -1,1 +1,0 @@
-Removed the unused `disable_block_push` and `disable_microblock_push` p2p fault-injection options.

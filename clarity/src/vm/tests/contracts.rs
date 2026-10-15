@@ -1614,6 +1614,57 @@ fn test_contract_call_with_constant(
     }
 }
 
+#[apply(test_clarity_versions)]
+fn test_runtime_name_resolution_order(
+    version: ClarityVersion,
+    epoch: StacksEpochId,
+    mut env_factory: MemoryEnvironmentGenerator,
+) {
+    let mut owned_env = env_factory.get_env(epoch);
+
+    let contract = "
+        (define-constant duplicate 42)
+        (define-public (some-function)
+            (let ((duplicate 7)) (ok duplicate))
+        )
+        ";
+
+    let principal = execute("'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR");
+    let placeholder_context =
+        ContractContext::new(QualifiedContractIdentifier::transient(), version);
+
+    {
+        let (mut exec_env, invoke_ctx) =
+            owned_env.get_exec_environment(None, None, &placeholder_context);
+        exec_env
+            .initialize_contract(
+                &invoke_ctx,
+                QualifiedContractIdentifier::local("contract").unwrap(),
+                contract,
+            )
+            .unwrap();
+    }
+
+    let (mut exec_env, invoke_ctx) = owned_env.get_exec_environment(
+        Some(principal.clone().expect_principal().unwrap()),
+        None,
+        &placeholder_context,
+    );
+    let call_result = exec_env.execute_contract(
+        &invoke_ctx,
+        &QualifiedContractIdentifier::local("contract").unwrap(),
+        "some-function",
+        &[],
+        false,
+    );
+
+    if epoch.clarity_runtime_checks_global_constants_before_local_vars() {
+        assert_eq!(call_result.unwrap(), Value::okay(Value::Int(42)).unwrap());
+    } else {
+        assert_eq!(call_result.unwrap(), Value::okay(Value::Int(7)).unwrap());
+    }
+}
+
 /// Calling from a deploying contract into a contract via define-constant
 ///  should not be allowed in any epochs
 #[apply(test_clarity_versions)]
@@ -2467,4 +2518,88 @@ fn epoch41_cross_contract_call_resolves_shadowed_function() {
             .unwrap(),
         Value::okay(Value::Int(9)).unwrap()
     );
+}
+
+/// Runtime `is-eq` and list construction keep the un-gated least supertype
+/// after 4.1: contracts deployed before the transition return the same values,
+/// errors, events and state effects.
+#[rstest]
+#[case::equals("(is-eq hidden {a: u1})", "false")]
+#[case::mixed_list("(list {a: u1} hidden)", "(list {a: u1} {a: u1})")]
+#[case::identical_list("(list hidden hidden)", "(list {a: u1, b: true} {a: u1, b: true})")]
+#[case::append("(append (list {a: u1}) hidden)", "(list {a: u1} {a: u1})")]
+#[case::concat("(concat (list {a: u1}) (list hidden))", "(list {a: u1} {a: u1})")]
+#[case::map("(map map-item (list u0 u1))", "(list {a: u1} {a: u1})")]
+fn test_legacy_tuple_supertype_execution_after_epoch41(
+    #[case] expression: &str,
+    #[case] expected: &str,
+) {
+    use crate::vm::analysis::mem_type_check;
+    use crate::vm::database::MemoryBackingStore;
+    use crate::vm::execute_with_parameters;
+
+    let source = format!(
+        "(define-data-var counter uint u0)
+         (define-private (map-item (x uint))
+           (if (is-eq x u0) {{a: u1}} {{a: u1, b: true}}))
+         (define-public (probe)
+           (let ((hidden (if false
+                            (begin (var-set counter (+ (var-get counter) u1)) {{a: u1}})
+                            {{a: u1, b: true}})))
+             (ok (print {expression}))))
+         (define-public (bad-equality)
+           (let ((hidden (if false {{a: u1}} {{a: u1, b: true}})))
+             (begin (var-set counter u1) (ok (is-eq {{a: u1}} hidden)))))
+         (define-read-only (count) (ok (var-get counter)))"
+    );
+    let version = ClarityVersion::Clarity2;
+    mem_type_check(&source, version, StacksEpochId::Epoch40).unwrap();
+    let id = QualifiedContractIdentifier::local("legacy-tuples").unwrap();
+    let mut store = MemoryBackingStore::new();
+    OwnedEnvironment::new_free(
+        false,
+        0x80000000,
+        store.as_clarity_db(),
+        StacksEpochId::Epoch40,
+    )
+    .initialize_versioned_contract(id.clone(), version, &source, None)
+    .unwrap();
+    let expected = execute_with_parameters(expected, version, StacksEpochId::Epoch40, false)
+        .unwrap()
+        .unwrap();
+    let mut previous = None;
+    for epoch in [StacksEpochId::Epoch40, StacksEpochId::Epoch41] {
+        let mut env = OwnedEnvironment::new_free(false, 0x80000000, store.as_clarity_db(), epoch);
+        let (result, _, events) = env
+            .execute_transaction(id.issuer.clone().into(), None, id.clone(), "probe", &[])
+            .unwrap();
+        assert_eq!(result, Value::okay(expected.clone()).unwrap());
+        assert_eq!(events.len(), 1);
+        let error = env
+            .execute_transaction(
+                id.issuer.clone().into(),
+                None,
+                id.clone(),
+                "bad-equality",
+                &[],
+            )
+            .unwrap_err();
+        assert!(
+            matches!(
+                error,
+                VmExecutionError::RuntimeCheck(RuntimeCheckErrorKind::TypeError(..))
+            ),
+            "{error:?}"
+        );
+        let (counter, _, _) = env
+            .execute_transaction(id.issuer.clone().into(), None, id.clone(), "count", &[])
+            .unwrap();
+        // The unselected branch never ran, and the failing call's write rolled back.
+        assert_eq!(counter, Value::okay(Value::UInt(0)).unwrap());
+        let observed = (result, events, error, counter);
+        if let Some(previous) = previous.as_ref() {
+            assert_eq!(previous, &observed);
+        }
+        previous = Some(observed);
+    }
 }

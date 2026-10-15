@@ -226,10 +226,10 @@ mod tests {
     use clarity::types::chainstate::StacksBlockId;
     use clarity::types::Address;
     use clarity::vm::tests::{TEST_BURN_STATE_DB, TEST_HEADER_DB};
+    use stacks_marf::ClarityMarfTrieId;
 
     use super::*;
     use crate::chainstate::stacks::db::testing::{chainstate_path, TestChainstateBuilder};
-    use crate::chainstate::stacks::index::ClarityMarfTrieId;
     use crate::clarity_vm::clarity::ClarityInstance;
     use crate::clarity_vm::database::marf::MarfedKV;
     use crate::core::MemPoolDB;
@@ -285,8 +285,8 @@ mod tests {
         let mut mempool = MemPoolDB::open_test(false, CHAIN_ID_TESTNET, &chainstate_path).unwrap();
         let conn = &mut mempool.db;
         let addr = StacksAddress::from_string("ST2JHG361ZXG51QTKY2NQCVBPPRRE2KZB1HR05NNC").unwrap();
-        db_set_nonce(&conn, &addr, 123).unwrap();
-        assert_eq!(db_get_nonce(&conn, &addr).unwrap().unwrap(), 123);
+        db_set_nonce(conn, &addr, 123).unwrap();
+        assert_eq!(db_get_nonce(conn, &addr).unwrap().unwrap(), 123);
     }
 
     #[test]
@@ -313,7 +313,7 @@ mod tests {
         cache.set(addr3.clone(), 3, conn);
 
         // Verify addr1 was written to DB during eviction
-        assert_eq!(db_get_nonce(&conn, &addr1).unwrap().unwrap(), 1);
+        assert_eq!(db_get_nonce(conn, &addr1).unwrap().unwrap(), 1);
     }
 
     #[test]
@@ -337,8 +337,8 @@ mod tests {
         cache.flush(conn);
 
         // Verify both entries were written to DB
-        assert_eq!(db_get_nonce(&conn, &addr1).unwrap().unwrap(), 5);
-        assert_eq!(db_get_nonce(&conn, &addr2).unwrap().unwrap(), 10);
+        assert_eq!(db_get_nonce(conn, &addr1).unwrap().unwrap(), 5);
+        assert_eq!(db_get_nonce(conn, &addr2).unwrap().unwrap(), 10);
     }
 
     #[test]
@@ -351,11 +351,11 @@ mod tests {
         let addr = StacksAddress::from_string("ST2JHG361ZXG51QTKY2NQCVBPPRRE2KZB1HR05NNC").unwrap();
 
         // Set initial nonce
-        db_set_nonce(&conn, &addr, 1).unwrap();
-        assert_eq!(db_get_nonce(&conn, &addr).unwrap().unwrap(), 1);
+        db_set_nonce(conn, &addr, 1).unwrap();
+        assert_eq!(db_get_nonce(conn, &addr).unwrap().unwrap(), 1);
 
         // Overwrite with new nonce
-        db_set_nonce(&conn, &addr, 2).unwrap();
-        assert_eq!(db_get_nonce(&conn, &addr).unwrap().unwrap(), 2);
+        db_set_nonce(conn, &addr, 2).unwrap();
+        assert_eq!(db_get_nonce(conn, &addr).unwrap().unwrap(), 2);
     }
 }

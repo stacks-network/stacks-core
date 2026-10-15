@@ -14,13 +14,13 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::cmp;
 use std::collections::HashSet;
 #[cfg(any(test, feature = "testing"))]
 use std::sync::LazyLock;
 use std::sync::{Arc, Mutex};
 use std::thread::ThreadId;
 use std::time::Instant;
+use std::{cmp, slice};
 
 use clarity::vm::database::BurnStateDB;
 use clarity::vm::resource_limiter::ResourceBudget;
@@ -39,10 +39,11 @@ use crate::burnchains::{Burnchain, Txid};
 use crate::chainstate::burn::db::sortdb::{SortitionDB, SortitionHandleConn};
 use crate::chainstate::burn::*;
 use crate::chainstate::stacks::address::StacksAddressExtensions;
+use crate::chainstate::stacks::db::accounts::MaturedMinerPayouts;
 use crate::chainstate::stacks::db::blocks::SetupBlockResult;
 use crate::chainstate::stacks::db::transactions::{
     finalize_failed_transaction, handle_clarity_runtime_error, ClarityRuntimeTxError,
-    RejectedRuntimeTxError,
+    RejectedRuntimeTxError, TransactionProcessor,
 };
 use crate::chainstate::stacks::db::unconfirmed::UnconfirmedState;
 use crate::chainstate::stacks::db::{ChainstateTx, ClarityTx, StacksChainState};
@@ -140,7 +141,7 @@ impl MinerStatus {
     }
 
     pub fn get_spend_amount(&self) -> u64 {
-        return self.spend_amount;
+        self.spend_amount
     }
 
     pub fn set_spend_amount(&mut self, amt: u64) {
@@ -230,7 +231,7 @@ impl BlockBuilderSettings {
             confirm_microblocks: true,
             max_execution_time: None,
             max_analysis_time: None,
-            max_tenure_bytes: u64::from(DEFAULT_MAX_TENURE_BYTES),
+            max_tenure_bytes: DEFAULT_MAX_TENURE_BYTES,
             temporarily_excluded_txids: HashSet::new(),
             max_assembly_mem_bytes: 0,
         }
@@ -246,7 +247,7 @@ impl BlockBuilderSettings {
             confirm_microblocks: true,
             max_execution_time: None,
             max_analysis_time: None,
-            max_tenure_bytes: u64::from(DEFAULT_MAX_TENURE_BYTES),
+            max_tenure_bytes: DEFAULT_MAX_TENURE_BYTES,
             temporarily_excluded_txids: HashSet::new(),
             max_assembly_mem_bytes: 0,
         }
@@ -710,6 +711,7 @@ impl TransactionResult {
 /// This is a defense-in-depth measure -- if these budgets are exceeded, that
 /// probably means there's an underlying bug in the VM or analysis engine that
 /// should be fixed.
+#[derive(Debug, Clone, Copy)]
 pub struct TransactionResourceBudgets {
     /// The budget that applies during clarity evalution, used both during
     /// contract deploy and contract call transactions.
@@ -721,15 +723,12 @@ pub struct TransactionResourceBudgets {
 }
 
 impl TransactionResourceBudgets {
-    pub fn new() -> Self {
+    /// Creates resource budgets with no configured limits.
+    pub fn unlimited() -> Self {
         Self {
             execution_budget: ResourceBudget::unlimited(),
             analysis_budget: ResourceBudget::unlimited(),
         }
-    }
-
-    pub fn unlimited() -> Self {
-        Self::new()
     }
 
     pub fn from_settings(settings: &BlockBuilderSettings) -> Self {
@@ -740,10 +739,10 @@ impl TransactionResourceBudgets {
         };
 
         Self {
-            execution_budget: ResourceBudget::new()
+            execution_budget: ResourceBudget::unlimited()
                 .with_max_duration(settings.max_execution_time)
                 .with_max_memory_use(memory_limit),
-            analysis_budget: ResourceBudget::new()
+            analysis_budget: ResourceBudget::unlimited()
                 .with_max_duration(settings.max_analysis_time)
                 .with_max_memory_use(memory_limit),
         }
@@ -1029,7 +1028,7 @@ impl<'a> StacksMicroblockBuilder<'a> {
     /// Returns Ok(TransactionResult::Problematic) if the transaction should be dropped from the mempool.
     /// Returns Err(e) if an error occurs during the function.
     ///
-    /// This calls `StacksChainState::process_transaction` and also checks certain pre-conditions
+    /// This configures a `TransactionProcessor` and also checks certain pre-conditions
     /// and handles errors.
     ///
     /// # Pre-Checks
@@ -1111,7 +1110,13 @@ impl<'a> StacksMicroblockBuilder<'a> {
 
         let quiet = !cfg!(test);
         let cost_before = clarity_tx.cost_so_far();
-        match StacksChainState::process_transaction(clarity_tx, &tx, quiet, None) {
+        match TransactionProcessor::from(&tx)
+            .for_execution()
+            .using_clarity_tx(clarity_tx)
+            .with_unlimited_resource_policy()
+            .quiet(quiet)
+            .process()
+        {
             Ok((_fee, receipt)) => TransactionResult::success(&tx, receipt),
             Err(e) => finalize_failed_transaction(clarity_tx, &tx, &cost_before, e),
         }
@@ -1446,12 +1451,7 @@ impl<'a> StacksMicroblockBuilder<'a> {
             }
         }
 
-        return self.make_next_microblock(
-            txs_included,
-            miner_key,
-            tx_events,
-            Some(event_dispatcher),
-        );
+        self.make_next_microblock(txs_included, miner_key, tx_events, Some(event_dispatcher))
     }
 
     pub fn get_bytes_so_far(&self) -> u64 {
@@ -1633,7 +1633,7 @@ impl StacksBlockBuilder {
         }
 
         self.header.microblock_pubkey_hash = pubkh;
-        return true;
+        true
     }
 
     /// Set the block miner's private key
@@ -1672,7 +1672,13 @@ impl StacksBlockBuilder {
         let quiet = !cfg!(test);
         if !self.anchored_done {
             // save
-            match StacksChainState::process_transaction(clarity_tx, tx, quiet, None) {
+            match TransactionProcessor::from(tx)
+                .for_execution()
+                .using_clarity_tx(clarity_tx)
+                .with_unlimited_resource_policy()
+                .quiet(quiet)
+                .process()
+            {
                 Ok((fee, receipt)) => {
                     self.total_anchored_fees += fee;
                 }
@@ -1683,7 +1689,13 @@ impl StacksBlockBuilder {
 
             self.txs.push(tx.clone());
         } else {
-            match StacksChainState::process_transaction(clarity_tx, tx, quiet, None) {
+            match TransactionProcessor::from(tx)
+                .for_execution()
+                .using_clarity_tx(clarity_tx)
+                .with_unlimited_resource_policy()
+                .quiet(quiet)
+                .process()
+            {
                 Ok((fee, receipt)) => {
                     self.total_streamed_fees += fee;
                 }
@@ -1850,14 +1862,16 @@ impl StacksBlockBuilder {
                 &self.parent_consensus_hash,
                 &self.parent_header_hash,
             );
-            let (parent_microblocks, _) =
-                StacksChainState::load_descendant_staging_microblock_stream_with_poison(
+            let parent_microblocks =
+                match StacksChainState::load_descendant_staging_microblock_stream_with_poison(
                     chainstate.db(),
                     &parent_index_hash,
                     0,
                     u16::MAX,
-                )?
-                .unwrap_or_default();
+                )? {
+                    Some(stream) => stream.microblocks,
+                    None => vec![],
+                };
 
             debug!(
                 "Loaded {} microblocks made by {}/{}",
@@ -1891,8 +1905,12 @@ impl StacksBlockBuilder {
                                     self.header.parent_block)
         );
 
-        if let Some((ref _miner_payout, ref _user_payouts, ref _parent_reward, ref _reward_info)) =
-            self.miner_payouts
+        if let Some(MaturedMinerPayouts {
+            miner: ref _miner_payout,
+            users: ref _user_payouts,
+            parent: ref _parent_reward,
+            ..
+        }) = self.miner_payouts
         {
             test_debug!(
                 "Miner payout to process: {_miner_payout:?}; user payouts: {_user_payouts:?}; parent payout: {_parent_reward:?}"
@@ -2358,7 +2376,7 @@ impl StacksBlockBuilder {
             &mut builder,
             mempool,
             parent_stacks_header.stacks_block_height,
-            &[coinbase_tx.clone()],
+            slice::from_ref(coinbase_tx),
             settings,
             event_observer,
         ) {
@@ -2497,13 +2515,18 @@ impl BlockBuilder for StacksBlockBuilder {
                 return TransactionResult::problematic(tx, Error::NetError(e));
             }
             let cost_before = clarity_tx.cost_so_far();
-            let (fee, receipt) =
-                match StacksChainState::process_transaction(clarity_tx, tx, quiet, None) {
-                    Ok((fee, receipt)) => (fee, receipt),
-                    Err(e) => {
-                        return finalize_failed_transaction(clarity_tx, tx, &cost_before, e);
-                    }
-                };
+            let (fee, receipt) = match TransactionProcessor::from(tx)
+                .for_execution()
+                .using_clarity_tx(clarity_tx)
+                .with_unlimited_resource_policy()
+                .quiet(quiet)
+                .process()
+            {
+                Ok((fee, receipt)) => (fee, receipt),
+                Err(e) => {
+                    return finalize_failed_transaction(clarity_tx, tx, &cost_before, e);
+                }
+            };
             info!("Include tx";
                   "tx" => %tx.txid(),
                   "payload" => tx.payload.name(),
@@ -2541,13 +2564,18 @@ impl BlockBuilder for StacksBlockBuilder {
                 return TransactionResult::problematic(tx, Error::NetError(e));
             }
             let cost_before = clarity_tx.cost_so_far();
-            let (fee, receipt) =
-                match StacksChainState::process_transaction(clarity_tx, tx, quiet, None) {
-                    Ok((fee, receipt)) => (fee, receipt),
-                    Err(e) => {
-                        return finalize_failed_transaction(clarity_tx, tx, &cost_before, e);
-                    }
-                };
+            let (fee, receipt) = match TransactionProcessor::from(tx)
+                .for_execution()
+                .using_clarity_tx(clarity_tx)
+                .with_unlimited_resource_policy()
+                .quiet(quiet)
+                .process()
+            {
+                Ok((fee, receipt)) => (fee, receipt),
+                Err(e) => {
+                    return finalize_failed_transaction(clarity_tx, tx, &cost_before, e);
+                }
+            };
             debug!(
                 "Include tx {} ({}) in microblock",
                 tx.txid(),

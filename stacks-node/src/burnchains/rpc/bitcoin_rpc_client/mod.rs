@@ -240,7 +240,7 @@ fn convert_btc_string_to_sat(amount: &str) -> Result<u64, String> {
                     Ok(sat_amount)
                 }
                 (lhs, rhs) => {
-                    return Err(format!("Cannot convert BTC '{amount}' to sat integer: {lhs:?} - fractional: {rhs:?}"));
+                    Err(format!("Cannot convert BTC '{amount}' to sat integer: {lhs:?} - fractional: {rhs:?}"))
                 }
             }
         },
