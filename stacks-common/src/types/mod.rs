@@ -958,6 +958,21 @@ impl StacksEpochId {
         self >= &StacksEpochId::Epoch41
     }
 
+    /// The type checker prevents name conflicts between globals and locals. Function
+    /// application and let binding also raise runtime errors when creating duplicate
+    /// names (although in the case of let bindings, that check is currently incomplete).
+    ///
+    /// This epoch gate here is only for the case where both of those checks failed and,
+    /// for some reason, we do have two conflicting names. In that case, the global should
+    /// win when looking up that name.
+    ///
+    /// Once Epoch 4.1 is reached, we should run a block replay with this function returning
+    /// a constant `true`. Chances are that this was never triggered; in that case, we
+    /// can remove this check and keep the fixed behavior.
+    pub fn clarity_runtime_checks_global_constants_before_local_vars(&self) -> bool {
+        self >= &StacksEpochId::Epoch41
+    }
+
     /// Return the network epoch associated with the StacksEpochId
     pub fn network_epoch(epoch: StacksEpochId) -> u8 {
         match epoch {
