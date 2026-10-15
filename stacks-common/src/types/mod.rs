@@ -888,11 +888,10 @@ impl StacksEpochId {
         self >= &StacksEpochId::Epoch41
     }
 
-    /// Whether cost and memory charges, in analysis and at runtime, count the
-    /// contract and trait identifiers that callable types hold. Size limits
-    /// keep the old sizes.
+    /// Whether sizes count the contract and trait identifiers that callable
+    /// types hold. On in every epoch, for block replay.
     pub fn charges_callable_type_size(&self) -> bool {
-        self >= &StacksEpochId::Epoch41
+        true
     }
 
     pub fn supports_call_with_constant(&self) -> bool {

@@ -1522,8 +1522,8 @@ impl TypeSignature {
         }
     }
 
-    /// Value size for size limits and the 2.05 type checker. Cost and memory
-    /// charges use [`Self::charged_size`], which differs only from Epoch 4.1.
+    /// Value size, counting the contract and trait identifiers that callable
+    /// types hold. Size limits and charges both use it, in every epoch.
     pub fn size(&self) -> Result<u32, ClarityTypeError> {
         self.inner_size().ok_or_else(|| {
             ClarityTypeError::InvariantViolation(
@@ -1564,14 +1564,22 @@ impl TypeSignature {
                 let s_size = s.inner_size()?;
                 cmp::max(t_size, s_size).checked_add(WRAPPER_VALUE_SIZE)
             }
-            CallableType(CallableSubtype::Principal(_)) | ListUnionType(_) => Some(PRINCIPAL_SIZE),
-            CallableType(CallableSubtype::Trait(_)) | TraitReferenceType(_) => Some(TRAIT_SIZE),
+            CallableType(subtype) => Some(subtype.identifier_size()),
+            TraitReferenceType(_) => Some(TRAIT_SIZE),
+            // A list entry of this type is one of the members.
+            ListUnionType(subtypes) => Some(
+                subtypes
+                    .iter()
+                    .map(CallableSubtype::identifier_size)
+                    .max()
+                    .unwrap_or(PRINCIPAL_SIZE),
+            ),
         }
     }
 
-    /// Type-signature size for size limits and the 2.05 type checker. Cost and
-    /// memory charges use [`Self::charged_type_size`], which differs only
-    /// from Epoch 4.1.
+    /// Type-signature size, counting the contract and trait identifiers that
+    /// callable types hold. Size limits and charges both use it, in every
+    /// epoch.
     pub fn type_size(&self) -> Result<u32, ClarityTypeError> {
         self.inner_type_size()
             .ok_or(ClarityTypeError::ValueTooLarge)
@@ -1603,39 +1611,20 @@ impl TypeSignature {
                     .checked_add(TYPE_DISCRIMINANT_SIZE)
             }
             CallableType(_) | TraitReferenceType(_) | ListUnionType(_) => {
-                Some(TYPE_DISCRIMINANT_SIZE)
+                TYPE_DISCRIMINANT_SIZE.checked_add(self.identifier_size()?)
             }
         }
     }
 
-    /// Type-signature size to charge for in `epoch`. From Epoch 4.1 it adds
-    /// the identifiers callable types hold, which [`Self::type_size`] leaves
-    /// out. Overflow fails with `ValueTooLarge`, as in [`Self::type_size`].
-    pub fn charged_type_size(&self, epoch: &StacksEpochId) -> Result<u32, ClarityTypeError> {
-        if epoch.charges_callable_type_size() {
-            self.inner_charged_type_size()
-                .ok_or(ClarityTypeError::ValueTooLarge)
-        } else {
-            self.type_size()
-        }
+    /// [`Self::type_size`], in every epoch.
+    pub fn charged_type_size(&self, _epoch: &StacksEpochId) -> Result<u32, ClarityTypeError> {
+        self.type_size()
     }
 
-    /// Value size to charge for in `epoch`. From Epoch 4.1, list and tuple
-    /// types are sized by [`Self::charged_type_size`], and a value of a
-    /// union type by its largest member. Overflow fails with `ValueTooLarge`,
-    /// as in [`Self::charged_type_size`].
-    pub fn charged_size(&self, epoch: &StacksEpochId) -> Result<u32, ClarityTypeError> {
-        if epoch.charges_callable_type_size() {
-            self.inner_charged_size()
-                .ok_or(ClarityTypeError::ValueTooLarge)
-        } else {
-            self.size()
-        }
-    }
-
-    /// [`Self::inner_type_size`], plus [`Self::identifier_size`].
-    fn inner_charged_type_size(&self) -> Option<u32> {
-        self.inner_type_size()?.checked_add(self.identifier_size()?)
+    /// [`Self::size`], in every epoch. Overflow fails with `ValueTooLarge`,
+    /// as in [`Self::type_size`].
+    pub fn charged_size(&self, _epoch: &StacksEpochId) -> Result<u32, ClarityTypeError> {
+        self.inner_size().ok_or(ClarityTypeError::ValueTooLarge)
     }
 
     /// Bytes of the contract and trait identifiers that callable types in this
@@ -1660,50 +1649,6 @@ impl TypeSignature {
             ListUnionType(subtypes) => subtypes.iter().try_fold(0u32, |total, subtype| {
                 total.checked_add(subtype.identifier_size())
             }),
-        }
-    }
-
-    /// [`Self::inner_size`], with list and tuple types sized by
-    /// [`Self::inner_charged_type_size`], a union by its largest member, and no
-    /// `MAX_VALUE_SIZE` cap.
-    fn inner_charged_size(&self) -> Option<u32> {
-        // Types without callables are charged their legacy size, which lists
-        // and tuples cache.
-        if self.identifier_size()? == 0 {
-            return self.inner_size();
-        }
-        match self {
-            TupleType(tuple_sig) => {
-                let mut total = u32::try_from(tuple_sig.type_map.len())
-                    .ok()?
-                    .checked_mul(2)?
-                    .checked_add(self.inner_charged_type_size()?)?;
-                for (name, type_signature) in tuple_sig.type_map.iter() {
-                    total = total
-                        .checked_add(type_signature.inner_charged_size()?)?
-                        .checked_add(name.len() as u32)?;
-                }
-                Some(total)
-            }
-            SequenceType(SequenceSubtype::ListType(list_type)) => list_type
-                .entry_type
-                .inner_charged_size()?
-                .checked_mul(list_type.max_len)?
-                .checked_add(self.inner_charged_type_size()?),
-            OptionalType(t) => t.inner_charged_size()?.checked_add(WRAPPER_VALUE_SIZE),
-            ResponseType(v) => cmp::max(v.0.inner_charged_size()?, v.1.inner_charged_size()?)
-                .checked_add(WRAPPER_VALUE_SIZE),
-            CallableType(subtype) => Some(subtype.identifier_size()),
-            TraitReferenceType(_) => Some(TRAIT_SIZE),
-            // A list entry of this type is one of the members.
-            ListUnionType(subtypes) => subtypes.iter().map(CallableSubtype::identifier_size).max(),
-            NoType
-            | IntType
-            | UIntType
-            | BoolType
-            | PrincipalType
-            | SequenceType(SequenceSubtype::BufferType(_))
-            | SequenceType(SequenceSubtype::StringType(_)) => self.inner_size(),
         }
     }
 
