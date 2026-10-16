@@ -1,4 +1,9 @@
-import { CoreNodeEventType, cvToValue, projectFactory } from '@clarigen/core';
+import {
+  CoreNodeEventType,
+  cvToValue,
+  err,
+  projectFactory,
+} from '@clarigen/core';
 import { filterEvents, rov, txErr, txOk } from '@clarigen/test';
 import { hex } from '@scure/base';
 import { beforeEach, expect, test } from 'vitest';
@@ -6,6 +11,7 @@ import { accounts, project } from '../clarigen-types';
 import { mineUntil, stxToUStx } from '../test-helpers';
 import {
   BASIS_POINTS,
+  deployTestSigner,
   HALF_CYCLE_LENGTH,
   initPox5,
   type PayoutConfig,
@@ -17,6 +23,7 @@ import {
   signerManagerV2Errors,
   sbtc,
   sbtcBalance,
+  sbtcTransfer,
 } from './pox-5-helpers';
 
 const contracts = projectFactory(project, 'simnet');
@@ -26,6 +33,8 @@ const sbtcWithdrawal = contracts.sbtcWithdrawal;
 // `current-signer-principal`, which defaults to the sBTC deployer.
 const SBTC_SIGNER = 'SM3VDXK3WZZSA84XXFKAFAF15NNZX32CTSG82JFQ4';
 const DUST_LIMIT = 546n;
+const BOND_INDEX = 0n;
+const BOND_SATS = 480000n;
 
 const deployer = accounts.deployer.address;
 const alice = accounts.wallet_1.address;
@@ -44,6 +53,37 @@ function stake(staker: string, config: PayoutConfig | null = null) {
       amountUstx: stxToUStx(50_000),
       numCycles: 3n,
       startBurnHt: simnet.burnBlockHeight,
+      signerCalldata: config && payoutConfigCalldata(config),
+    }),
+    staker,
+  );
+}
+
+function setupBond(stakers: string[]) {
+  txOk(
+    pox5.setupBond({
+      bondIndex: BOND_INDEX,
+      targetRate: 1500n,
+      stxValueRatio: 10n,
+      minUstxRatio: 100n,
+      earlyUnlockBytes: new Uint8Array(),
+      allowlist: stakers.map((staker) => ({ maxSats: BOND_SATS, staker })),
+    }),
+    deployer,
+  );
+}
+
+function registerForBond(
+  staker: string,
+  signerManager: string,
+  config: PayoutConfig | null = null,
+) {
+  txOk(
+    pox5.registerForBond({
+      bondIndex: BOND_INDEX,
+      signerManager,
+      amountUstx: stxToUStx(50_000),
+      btcLockup: err(BOND_SATS),
       signerCalldata: config && payoutConfigCalldata(config),
     }),
     staker,
@@ -149,6 +189,64 @@ test('settling before the signer pulls the cycle has nothing to claim', () => {
   expect(
     txErr(signerManagerV2.settleStakerRewards(alice, 1n, null), bob).value,
   ).toBe(signerManagerV2Errors.ERR_NO_CLAIMABLE_REWARDS);
+});
+
+test('bond rewards are reserved under the bond index and paid net of fees', () => {
+  setupBond([alice]);
+  registerForBond(alice, signerManagerV2.identifier);
+  txOk(signerManagerV2.updateFees(500n), deployer);
+  sbtcTransfer(1200n, deployer, pox5.identifier);
+  mineUntil(rov(pox5.rewardCycleToBurnHeight(1n)) + HALF_CYCLE_LENGTH);
+  txOk(pox5.calculateRewards([BOND_INDEX]), deployer);
+
+  const { bondRewards } = txOk(
+    signerManagerV2.claimRewards([BOND_INDEX], 1n),
+    deployer,
+  ).value;
+  const gross = bondRewards[0].earned;
+  const fee = (gross * 500n) / BASIS_POINTS;
+  expect(gross).toBeGreaterThan(0n);
+  expect(
+    rov(signerManagerV2.getUnclaimedStakerRewardsForCycle(1n, BOND_INDEX)),
+  ).toBe(gross);
+  expect(rov(signerManagerV2.getFeeBipsForCycle(1n))).toBe(500n);
+  expectSolvent();
+
+  const before = sbtcBalance(alice);
+  expect(
+    txOk(signerManagerV2.claimStakerRewards(alice, 1n, BOND_INDEX), bob).value,
+  ).toEqual({ earned: gross - fee, withdrawalRequest: null });
+  expect(sbtcBalance(alice)).toBe(before + gross - fee);
+  expect(rov(signerManagerV2.getEarnedFees())).toBe(fee);
+  expect(
+    rov(signerManagerV2.getUnclaimedStakerRewardsForCycle(1n, BOND_INDEX)),
+  ).toBe(0n);
+  expect(
+    txErr(signerManagerV2.settleStakerRewards(alice, 1n, BOND_INDEX), bob)
+      .value,
+  ).toBe(signerManagerV2Errors.ERR_NO_CLAIMABLE_REWARDS);
+  expectSolvent();
+});
+
+test('bond registration and bond updates store payout-config calldata', () => {
+  const otherSigner = deployTestSigner('bond-update-v2-signer').identifier;
+  const aliceConfig = randomPayoutConfig({ maxFee: 100n, minClaim: 0n });
+  const bobConfig = { l1Withdrawal: null, sbtcRecipient: charlie };
+  setupBond([alice, bob]);
+
+  registerForBond(alice, signerManagerV2.identifier, aliceConfig);
+  expect(rov(signerManagerV2.getPayoutConfig(alice))).toEqual(aliceConfig);
+
+  registerForBond(bob, otherSigner);
+  txOk(
+    pox5.updateBondRegistration({
+      signerManager: signerManagerV2.identifier,
+      oldSignerManager: otherSigner,
+      signerCalldata: payoutConfigCalldata(bobConfig),
+    }),
+    bob,
+  );
+  expect(rov(signerManagerV2.getPayoutConfig(bob))).toEqual(bobConfig);
 });
 
 test('payout pays sBTC to the staker, or to their sbtc-recipient', () => {
