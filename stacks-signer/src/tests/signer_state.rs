@@ -13,10 +13,10 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 use std::collections::HashMap;
-use std::fs;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime};
+use std::{fs, thread};
 
 use blockstack_lib::chainstate::nakamoto::NakamotoBlockHeader;
 use blockstack_lib::chainstate::stacks::db::StacksBlockHeaderTypes;
@@ -35,6 +35,8 @@ use libsigner::v0::messages::{
     StateMachineUpdateMinerState,
 };
 use libsigner::v0::signer_state::{GlobalStateEvaluator, MinerState, SignerStateMachine};
+#[cfg(feature = "monitoring_prom")]
+use prometheus::gather;
 use stacks_common::bitvec::BitVec;
 use stacks_common::function_name;
 
@@ -45,11 +47,170 @@ use crate::client::tests::{
 };
 use crate::client::StacksClient;
 use crate::config::GlobalConfig;
+use crate::monitoring::SignerAgreementStateConflict;
 use crate::signerdb::tests::{create_block_override, tmp_db_path};
 use crate::signerdb::SignerDb;
 use crate::v0::signer_state::{
     LocalStateMachine, NewBurnBlock, PendingRetryBackoff, StateMachineUpdate,
 };
+
+/// Read a conflict label from the exported metrics, treating an unregistered label as zero.
+#[cfg(feature = "monitoring_prom")]
+fn signer_conflict_count(conflict: SignerAgreementStateConflict) -> f64 {
+    let conflict = conflict.get_name();
+    gather()
+        .into_iter()
+        .find(|family| family.get_name() == "stacks_signer_agreement_state_conflicts")
+        .and_then(|family| {
+            family
+                .get_metric()
+                .iter()
+                .find(|metric| {
+                    metric.get_label().iter().any(|label| {
+                        label.get_name() == "conflict" && label.get_value() == conflict
+                    })
+                })
+                .map(|metric| metric.get_counter().get_value())
+        })
+        .unwrap_or(0.0)
+}
+
+/// Return zero when Prometheus counters are disabled.
+#[cfg(not(feature = "monitoring_prom"))]
+fn signer_conflict_count(_conflict: SignerAgreementStateConflict) -> f64 {
+    0.0
+}
+
+/// Verify delayed parent-tenure views count once and conflict labels remain independent.
+#[test]
+fn check_capitulate_stacks_block_delay() {
+    let MockServerClient { server, client, .. } = MockServerClient::new();
+    let addresses = [
+        client.get_signer_address().clone(),
+        StacksAddress::p2pkh(false, &StacksPublicKey::new()),
+        StacksAddress::p2pkh(false, &StacksPublicKey::new()),
+        StacksAddress::p2pkh(false, &StacksPublicKey::new()),
+    ];
+    let address_weights: HashMap<_, _> = addresses
+        .iter()
+        .cloned()
+        .map(|address| (address, 10))
+        .collect();
+    let burn_block = ConsensusHash([0x55; 20]);
+    let burn_block_height = 100;
+    let parent_tenure_id = ConsensusHash([0x22; 20]);
+    let tenure_ids = [ConsensusHash([0xaa; 20]), ConsensusHash([0xbb; 20])];
+    let mut db = SignerDb::new(tmp_db_path()).unwrap();
+
+    // Each miner has a blocking minority and a globally accepted block.
+    for (index, tenure_id) in tenure_ids.iter().enumerate() {
+        let height = burn_block_height - 1 + index as u64;
+        db.insert_burn_block(
+            &BurnchainHeaderHash([index as u8; 32]),
+            tenure_id,
+            height,
+            &SystemTime::now(),
+            &BurnchainHeaderHash([0xff; 32]),
+        )
+        .unwrap();
+        let (mut block_info, _) = create_block_override(|block| {
+            block.block.header.consensus_hash = tenure_id.clone();
+            block.block.header.chain_length = 50;
+            block.burn_height = height;
+        });
+        block_info.mark_globally_accepted().unwrap();
+        db.insert_block(&block_info).unwrap();
+    }
+
+    for (case, node_height, parent_heights, expected_miner, delay_delta, miner_delta) in [
+        ("both delayed", 10, [11, 11], None, 1.0, 1.0),
+        ("equal height", 11, [11, 11], Some(1), 0.0, 0.0),
+        ("higher height", 12, [11, 11], Some(1), 0.0, 0.0),
+        ("eligible alternative", 10, [10, 11], Some(0), 1.0, 0.0),
+    ] {
+        let miners = [0, 1].map(|index| StateMachineUpdateMinerState::ActiveMiner {
+            current_miner_pkh: Hash160([index as u8; 20]),
+            tenure_id: tenure_ids[index].clone(),
+            parent_tenure_id: parent_tenure_id.clone(),
+            parent_tenure_last_block: StacksBlockId([index as u8; 32]),
+            parent_tenure_last_block_height: parent_heights[index],
+        });
+        let updates = miners.clone().map(|current_miner| {
+            StateMachineUpdateMessage::new(
+                0,
+                0,
+                StateMachineUpdateContent::V0 {
+                    burn_block: burn_block.clone(),
+                    burn_block_height,
+                    current_miner,
+                },
+            )
+            .unwrap()
+        });
+        let address_updates = addresses
+            .iter()
+            .enumerate()
+            .map(|(index, address)| (address.clone(), updates[index / 2].clone()))
+            .collect();
+        let mut eval = GlobalStateEvaluator::new(address_updates, address_weights.clone());
+        let mut local_state_machine = LocalStateMachine::Initialized(SignerStateMachine {
+            burn_block: burn_block.clone(),
+            burn_block_height,
+            current_miner: miners[0].clone().into(),
+            active_signer_protocol_version: 0,
+        });
+        let response = build_get_tenure_tip_response(&BlockHeaderWithMetadata {
+            anchored_header: StacksBlockHeaderTypes::Nakamoto(NakamotoBlockHeader {
+                chain_length: node_height,
+                consensus_hash: parent_tenure_id.clone(),
+                ..NakamotoBlockHeader::empty()
+            }),
+            burn_view: Some(parent_tenure_id.clone()),
+        });
+        let conflicts_before = (
+            signer_conflict_count(SignerAgreementStateConflict::StacksBlockDelay),
+            signer_conflict_count(SignerAgreementStateConflict::MinerView),
+        );
+
+        let result = thread::scope(|scope| {
+            let evaluation = scope.spawn(|| {
+                local_state_machine.capitulate_miner_view(
+                    &client,
+                    &mut eval,
+                    &mut db,
+                    &updates[0],
+                    Duration::from_secs(10),
+                )
+            });
+            for _ in 0..2 {
+                crate::client::tests::write_response(
+                    server.try_clone().unwrap(),
+                    response.as_bytes(),
+                );
+            }
+            evaluation.join().unwrap()
+        });
+
+        assert_eq!(
+            result,
+            expected_miner.map(|index| miners[index].clone()),
+            "{case}"
+        );
+        if cfg!(feature = "monitoring_prom") {
+            assert_eq!(
+                signer_conflict_count(SignerAgreementStateConflict::StacksBlockDelay)
+                    - conflicts_before.0,
+                delay_delta,
+                "{case}: stacks_block_delay"
+            );
+            assert_eq!(
+                signer_conflict_count(SignerAgreementStateConflict::MinerView) - conflicts_before.1,
+                miner_delta,
+                "{case}: miner_view"
+            );
+        }
+    }
+}
 
 #[test]
 fn check_capitulate_miner_view() {

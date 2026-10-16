@@ -132,7 +132,8 @@ fn test_try_make_response() {
     );
     requests.push(request);
 
-    let mut responses = rpc_test.run(requests);
+    let mut responses =
+        rpc_test.run_checking_served_counter(requests, "stacks_node_stx_blocks_served_total");
 
     // got the block
     let response = responses.remove(0);

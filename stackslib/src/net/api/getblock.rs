@@ -24,6 +24,7 @@ use stacks_common::types::net::PeerHost;
 
 use crate::chainstate::stacks::db::StacksChainState;
 use crate::chainstate::stacks::{Error as ChainError, StacksBlock};
+use crate::monitoring;
 use crate::net::http::{
     parse_bytes, Error, HttpChunkGenerator, HttpContentType, HttpNotFound, HttpRequest,
     HttpRequestContents, HttpRequestPreamble, HttpResponse, HttpResponseContents,
@@ -157,6 +158,8 @@ impl RPCRequestHandler for RPCBlocksRequestHandler {
                     .try_into_contents();
             }
         };
+
+        monitoring::increment_stx_blocks_served_counter();
 
         let resp_preamble = HttpResponsePreamble::from_http_request_preamble(
             &preamble,
