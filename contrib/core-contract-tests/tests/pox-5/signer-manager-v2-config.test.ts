@@ -64,11 +64,20 @@ test('malformed calldata and pox-addrs are rejected', () => {
   expect(txErr(stake(new Uint8Array([1, 2, 3])), alice).value).toBe(
     signerManagerV2Errors.ERR_INVALID_CALLDATA,
   );
-  // Version 0x06 is above the highest sBTC address version.
   const config = randomPayoutConfig({ maxFee: 100n, minClaim: 0n });
   expect(
     rovOk(signerManagerV2.checkPoxAddr(config.l1Withdrawal!.poxAddr)),
   ).toBe(true);
+  // P2TR (0x06) is valid with 32-byte hashbytes.
+  expect(
+    rovOk(
+      signerManagerV2.checkPoxAddr({
+        version: new Uint8Array([0x06]),
+        hashbytes: new Uint8Array(32),
+      }),
+    ),
+  ).toBe(true);
+  // Versions above 0x04 require 32-byte hashbytes, so a 20-byte hash fails.
   config.l1Withdrawal!.poxAddr.version = new Uint8Array([0x06]);
   expect(
     rovErr(signerManagerV2.checkPoxAddr(config.l1Withdrawal!.poxAddr)),
