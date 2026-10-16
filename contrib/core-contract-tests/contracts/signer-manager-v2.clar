@@ -547,6 +547,11 @@
     (let ((fees (var-get earned-fees)))
         (try! (authorize-admin))
         (asserts! (<= amount fees) ERR_INSUFFICIENT_FEES)
+        (print {
+            topic: "withdraw-fees",
+            amount-sats: amount,
+            recipient: recipient,
+        })
         (var-set earned-fees (- fees amount))
         (try! (as-contract?
             ((with-ft 'SM3VDXK3WZZSA84XXFKAFAF15NNZX32CTSG82JFQ4.sbtc-token

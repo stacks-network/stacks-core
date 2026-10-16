@@ -1,5 +1,5 @@
-import { projectFactory } from '@clarigen/core';
-import { rov, txErr, txOk } from '@clarigen/test';
+import { CoreNodeEventType, cvToValue, projectFactory } from '@clarigen/core';
+import { filterEvents, rov, txErr, txOk } from '@clarigen/test';
 import { hex } from '@scure/base';
 import { beforeEach, expect, test } from 'vitest';
 import { accounts, project } from '../clarigen-types';
@@ -344,8 +344,14 @@ test('admins withdraw fees, bounded by what has been charged', () => {
     txErr(signerManagerV2.withdrawFees(fee + 1n, bob), deployer).value,
   ).toBe(signerManagerV2Errors.ERR_INSUFFICIENT_FEES);
   const before = sbtcBalance(bob);
-  txOk(signerManagerV2.withdrawFees(fee, bob), deployer);
+  const { events } = txOk(signerManagerV2.withdrawFees(fee, bob), deployer);
   expect(sbtcBalance(bob)).toBe(before + fee);
+  const [print] = filterEvents(events, CoreNodeEventType.ContractEvent);
+  expect(cvToValue(print.data.value)).toEqual({
+    topic: 'withdraw-fees',
+    amountSats: fee,
+    recipient: bob,
+  });
   expect(rov(signerManagerV2.getEarnedFees())).toBe(0n);
   // The staker's net is still fully covered.
   expect(sbtcBalance(signerManagerV2.identifier)).toBe(gross - fee);
