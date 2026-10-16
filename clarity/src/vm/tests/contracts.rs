@@ -1614,8 +1614,16 @@ fn test_contract_call_with_constant(
     }
 }
 
+/// This tests the defense-in-depth measure where the runtime returns an error when
+/// trying to create a let binding with a name that already exists as a global. This
+/// shouldn't usually happen because the type checker prevents it; this is merely
+/// an additional check.
+///
+/// Before Epoch 4.1, this check was incomplete; this tests asserts that the legacy
+/// behavior is preserved. If proven unnecessary post Epoch 4.1 (assuming the
+/// problematic case never occured), this test can be removed.
 #[apply(test_clarity_versions)]
-fn test_runtime_name_resolution_order(
+fn test_let_binding_name_duplication_runtime_error(
     version: ClarityVersion,
     epoch: StacksEpochId,
     mut env_factory: MemoryEnvironmentGenerator,
@@ -1658,8 +1666,13 @@ fn test_runtime_name_resolution_order(
         false,
     );
 
-    if epoch.clarity_runtime_checks_global_constants_before_local_vars() {
-        assert_eq!(call_result.unwrap(), Value::okay(Value::Int(42)).unwrap());
+    if epoch.fully_prevents_let_binding_name_duplication_at_runtime() {
+        assert_eq!(
+            call_result.unwrap_err(),
+            VmExecutionError::RuntimeCheck(RuntimeCheckErrorKind::NameAlreadyUsed(
+                "duplicate".into()
+            ))
+        );
     } else {
         assert_eq!(call_result.unwrap(), Value::okay(Value::Int(7)).unwrap());
     }

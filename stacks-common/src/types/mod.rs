@@ -973,6 +973,18 @@ impl StacksEpochId {
         self >= &StacksEpochId::Epoch41
     }
 
+    /// Before Epoch 4.1, the runtime check that prevents let bindings with names that
+    /// duplicate existing global definitions was incomplete: It only looked at global
+    /// function names.
+    ///
+    /// This runtime check is a secondary check, because the type checker should already
+    /// prevent such duplication. Therefore it's likely that this problem case never
+    /// occured. Once Epoch 4.1 has started, we should run a block replay where this
+    /// function is a constant `true`, and if successful, remove the conditional behavior.
+    pub fn fully_prevents_let_binding_name_duplication_at_runtime(&self) -> bool {
+        self >= &StacksEpochId::Epoch41
+    }
+
     /// Return the network epoch associated with the StacksEpochId
     pub fn network_epoch(epoch: StacksEpochId) -> u8 {
         match epoch {
