@@ -347,6 +347,17 @@ pub enum CallableSubtype {
     Trait(TraitIdentifier),
 }
 
+impl CallableSubtype {
+    /// Size of the contract or trait identifier a callable value of this type
+    /// holds.
+    const fn identifier_size(&self) -> u32 {
+        match self {
+            CallableSubtype::Principal(_) => PRINCIPAL_SIZE,
+            CallableSubtype::Trait(_) => TRAIT_SIZE,
+        }
+    }
+}
+
 use self::TypeSignature::{
     BoolType, CallableType, IntType, ListUnionType, NoType, OptionalType, PrincipalType,
     ResponseType, SequenceType, TraitReferenceType, TupleType, UIntType,
@@ -1511,6 +1522,8 @@ impl TypeSignature {
         }
     }
 
+    /// Value size, counting the contract and trait identifiers that callable
+    /// types hold. Size limits and charges both use it, in every epoch.
     pub fn size(&self) -> Result<u32, ClarityTypeError> {
         self.inner_size().ok_or_else(|| {
             ClarityTypeError::InvariantViolation(
@@ -1551,11 +1564,22 @@ impl TypeSignature {
                 let s_size = s.inner_size()?;
                 cmp::max(t_size, s_size).checked_add(WRAPPER_VALUE_SIZE)
             }
-            CallableType(CallableSubtype::Principal(_)) | ListUnionType(_) => Some(PRINCIPAL_SIZE),
-            CallableType(CallableSubtype::Trait(_)) | TraitReferenceType(_) => Some(TRAIT_SIZE),
+            CallableType(subtype) => Some(subtype.identifier_size()),
+            TraitReferenceType(_) => Some(TRAIT_SIZE),
+            // A list entry of this type is one of the members.
+            ListUnionType(subtypes) => Some(
+                subtypes
+                    .iter()
+                    .map(CallableSubtype::identifier_size)
+                    .max()
+                    .unwrap_or(PRINCIPAL_SIZE),
+            ),
         }
     }
 
+    /// Type-signature size, counting the contract and trait identifiers that
+    /// callable types hold. Size limits and charges both use it, in every
+    /// epoch.
     pub fn type_size(&self) -> Result<u32, ClarityTypeError> {
         self.inner_type_size()
             .ok_or(ClarityTypeError::ValueTooLarge)
@@ -1587,8 +1611,44 @@ impl TypeSignature {
                     .checked_add(TYPE_DISCRIMINANT_SIZE)
             }
             CallableType(_) | TraitReferenceType(_) | ListUnionType(_) => {
-                Some(TYPE_DISCRIMINANT_SIZE)
+                TYPE_DISCRIMINANT_SIZE.checked_add(self.identifier_size()?)
             }
+        }
+    }
+
+    /// [`Self::type_size`], in every epoch.
+    pub fn charged_type_size(&self, _epoch: &StacksEpochId) -> Result<u32, ClarityTypeError> {
+        self.type_size()
+    }
+
+    /// [`Self::size`], in every epoch. Overflow fails with `ValueTooLarge`,
+    /// as in [`Self::type_size`].
+    pub fn charged_size(&self, _epoch: &StacksEpochId) -> Result<u32, ClarityTypeError> {
+        self.inner_size().ok_or(ClarityTypeError::ValueTooLarge)
+    }
+
+    /// Bytes of the contract and trait identifiers that callable types in this
+    /// signature hold.
+    fn identifier_size(&self) -> Option<u32> {
+        match self {
+            NoType | IntType | UIntType | BoolType | PrincipalType => Some(0),
+            SequenceType(SequenceSubtype::BufferType(_))
+            | SequenceType(SequenceSubtype::StringType(_)) => Some(0),
+            TupleType(tuple_sig) => tuple_sig
+                .type_map
+                .values()
+                .try_fold(0u32, |total, t| total.checked_add(t.identifier_size()?)),
+            SequenceType(SequenceSubtype::ListType(list_type)) => {
+                list_type.entry_type.identifier_size()
+            }
+            OptionalType(t) => t.identifier_size(),
+            ResponseType(v) => v.0.identifier_size()?.checked_add(v.1.identifier_size()?),
+            CallableType(subtype) => Some(subtype.identifier_size()),
+            TraitReferenceType(_) => Some(TRAIT_SIZE),
+            // The signature holds every member.
+            ListUnionType(subtypes) => subtypes.iter().try_fold(0u32, |total, subtype| {
+                total.checked_add(subtype.identifier_size())
+            }),
         }
     }
 

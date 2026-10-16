@@ -888,6 +888,12 @@ impl StacksEpochId {
         self >= &StacksEpochId::Epoch41
     }
 
+    /// Whether sizes count the contract and trait identifiers that callable
+    /// types hold. On in every epoch, for block replay.
+    pub fn charges_callable_type_size(&self) -> bool {
+        true
+    }
+
     pub fn supports_call_with_constant(&self) -> bool {
         self >= &StacksEpochId::Epoch34
     }
