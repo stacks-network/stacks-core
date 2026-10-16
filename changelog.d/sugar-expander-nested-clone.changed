@@ -1,1 +1,1 @@
-The Clarity sugar expander no longer deep-clones each nested list and tuple once per enclosing level, making the pass linear rather than quadratic in nesting depth (about 7x faster on pox-4). The expanded AST is unchanged.
+The Clarity sugar expander and definition sorter no longer deep-clone nested expressions once per enclosing list or tuple, so both passes are linear rather than quadratic in nesting depth (the sugar expander pass is about 7x faster on pox-4). The expanded AST is unchanged.
