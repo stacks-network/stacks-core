@@ -622,4 +622,8 @@ impl RollbackWrapper<'_> {
             self.metadata_lookup_map.contains_key(&metadata_key)
         })
     }
+
+    pub fn has_pending_data(&self, key: &str) -> bool {
+        self.query_pending_data && self.lookup_map.get(key).and_then(|x| x.last()).is_some()
+    }
 }
