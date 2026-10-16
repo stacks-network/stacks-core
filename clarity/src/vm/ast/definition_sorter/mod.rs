@@ -67,7 +67,7 @@ impl DefinitionSorter {
         accounting: &mut T,
         version: ClarityVersion,
     ) -> ParseResult<()> {
-        let exprs = contract_ast.pre_expressions[..].to_vec();
+        let exprs = &contract_ast.pre_expressions;
         for (expr_index, expr) in exprs.iter().enumerate() {
             self.graph.add_node(expr_index);
 
