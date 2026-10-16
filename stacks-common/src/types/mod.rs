@@ -888,6 +888,12 @@ impl StacksEpochId {
         self >= &StacksEpochId::Epoch41
     }
 
+    /// Whether a trait-based `contract-call?` reads a trait defined by the calling
+    /// contract from its own context, so the call works while that contract deploys.
+    pub fn supports_local_trait_lookup(&self) -> bool {
+        self >= &StacksEpochId::Epoch41
+    }
+
     pub fn supports_call_with_constant(&self) -> bool {
         self >= &StacksEpochId::Epoch34
     }
