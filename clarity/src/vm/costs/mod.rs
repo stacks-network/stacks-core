@@ -35,7 +35,7 @@ pub use crate::vm::costs::errors::CostErrors;
 pub use crate::vm::costs::execution_cost::{CostOverflowingMath, ExecutionCost};
 use crate::vm::database::ClarityDatabase;
 use crate::vm::database::clarity_store::NullBackingStore;
-use crate::vm::errors::VmExecutionError;
+use crate::vm::errors::{ClarityTypeError, VmExecutionError};
 use crate::vm::types::Value::UInt;
 use crate::vm::types::{PrincipalData, QualifiedContractIdentifier, TypeSignature};
 use crate::vm::{CallStack, LocalContext, SymbolicExpression, Value};
@@ -83,30 +83,59 @@ macro_rules! finally_drop_memory {
     }};
 }
 
-pub fn analysis_typecheck_cost<T: CostTracker>(
+/// Cost of checking `t1` against `t2`, with types sized for `epoch`.
+pub fn compute_typecheck_cost<T: CostTracker>(
+    track: &mut T,
+    epoch: StacksEpochId,
+    t1: &TypeSignature,
+    t2: &TypeSignature,
+) -> Result<ExecutionCost, CostErrors> {
+    let t1_size = t1
+        .charged_type_size(&epoch)
+        .map_err(|_| CostErrors::CostOverflow)?;
+    let t2_size = t2
+        .charged_type_size(&epoch)
+        .map_err(|_| CostErrors::CostOverflow)?;
+    track.compute_cost(
+        ClarityCostFunction::AnalysisTypeCheck,
+        &[cmp::max(t1_size, t2_size).into()],
+    )
+}
+
+/// Charges for checking `t1` against `t2`, with types sized for `epoch`.
+pub fn analysis_typecheck_cost_for_epoch<T: CostTracker>(
+    track: &mut T,
+    epoch: StacksEpochId,
+    t1: &TypeSignature,
+    t2: &TypeSignature,
+) -> Result<(), CostErrors> {
+    let cost = compute_typecheck_cost(track, epoch, t1, t2)?;
+    track.add_cost(cost)
+}
+
+/// [`analysis_typecheck_cost_for_epoch`] with legacy type sizes, for the 2.05
+/// type checker.
+pub fn analysis_typecheck_cost_v2_05<T: CostTracker>(
     track: &mut T,
     t1: &TypeSignature,
     t2: &TypeSignature,
 ) -> Result<(), CostErrors> {
-    let t1_size = t1.type_size().map_err(|_| CostErrors::CostOverflow)?;
-    let t2_size = t2.type_size().map_err(|_| CostErrors::CostOverflow)?;
-    let cost = track.compute_cost(
-        ClarityCostFunction::AnalysisTypeCheck,
-        &[cmp::max(t1_size, t2_size) as u64],
-    )?;
-    track.add_cost(cost)
+    analysis_typecheck_cost_for_epoch(track, StacksEpochId::Epoch2_05, t1, t2)
 }
 
 pub trait MemoryConsumer {
-    fn get_memory_use(&self) -> Result<u64, CostErrors>;
+    fn get_memory_use(&self, epoch: &StacksEpochId) -> Result<u64, CostErrors>;
 }
 
 impl MemoryConsumer for Value {
-    fn get_memory_use(&self) -> Result<u64, CostErrors> {
-        Ok(self
-            .size()
-            .map_err(|_| CostErrors::InterpreterFailure)?
-            .into())
+    fn get_memory_use(&self, epoch: &StacksEpochId) -> Result<u64, CostErrors> {
+        let size = self.charged_size(epoch).map_err(|e| match e {
+            // From Epoch 4.1 a charged size can overflow; fail it like any
+            // other charge overflow.
+            ClarityTypeError::ValueTooLarge => CostErrors::CostOverflow,
+            _ => CostErrors::InterpreterFailure,
+        })?;
+        Ok(size.into())
     }
 }
 
@@ -786,7 +815,81 @@ fn int_log2(input: u64) -> Option<u64> {
 
 #[cfg(test)]
 mod unit_tests {
+    use clarity_types::types::{CallableData, TraitIdentifier, TupleData};
+    use pinny::tag;
+    use proptest::collection::vec;
+    use proptest::prelude::*;
+    use rstest::rstest;
+
     use super::*;
+    use crate::vm::ClarityName;
+    use crate::vm::tests::proptest_utils::clarity_values;
+    use crate::vm::types::{QualifiedContractIdentifier, TypeSignature};
+
+    /// [`clarity_values`], plus the tuples and lists of tuples it does not
+    /// generate.
+    fn values_with_tuples() -> BoxedStrategy<Value> {
+        let tuples = vec(clarity_values(), 1..4)
+            .prop_filter_map("tuple construction failed", |fields| {
+                let fields = fields
+                    .into_iter()
+                    .enumerate()
+                    .map(|(i, value)| (ClarityName::try_from(format!("f{i}")).unwrap(), value))
+                    .collect();
+                TupleData::from_data(fields).ok().map(Value::from)
+            })
+            .boxed();
+        let tuple_lists = tuples
+            .clone()
+            .prop_filter_map("list construction failed", |tuple| {
+                Value::list_from(vec![tuple.clone(), tuple]).ok()
+            });
+        prop_oneof![clarity_values(), tuples, tuple_lists].boxed()
+    }
+
+    proptest! {
+        /// Values without callable types are charged the same from Epoch 4.1.
+        #[tag(t_prop)]
+        #[test]
+        fn prop_non_callable_charges_unchanged_in_epoch41(value in values_with_tuples()) {
+            let epoch = StacksEpochId::Epoch41;
+            let ty = TypeSignature::type_of(&value).unwrap();
+            prop_assert_eq!(ty.charged_type_size(&epoch).unwrap(), ty.type_size().unwrap());
+            prop_assert_eq!(ty.charged_size(&epoch).unwrap(), ty.size().unwrap());
+            prop_assert_eq!(
+                value.get_memory_use(&epoch).unwrap(),
+                u64::from(value.size().unwrap())
+            );
+        }
+    }
+
+    fn trait_id(name: &'static str) -> TraitIdentifier {
+        TraitIdentifier {
+            name: ClarityName::from_literal(name),
+            contract_identifier: QualifiedContractIdentifier::transient(),
+        }
+    }
+
+    /// A list of two values of one trait.
+    fn trait_list() -> Value {
+        let trait_ref = Value::CallableContract(CallableData {
+            contract_identifier: QualifiedContractIdentifier::local("impl").unwrap(),
+            trait_identifier: Some(Box::new(trait_id("trait-a"))),
+        });
+        Value::cons_list(vec![trait_ref.clone(), trait_ref], &StacksEpochId::Epoch41).unwrap()
+    }
+
+    /// From Epoch 4.1, a list's memory use counts the traits its type holds.
+    #[rstest]
+    #[case::trait_list_before_epoch41(trait_list(), StacksEpochId::Epoch40, 2 * 276 + 1 + 5)]
+    #[case::trait_list_from_epoch41(trait_list(), StacksEpochId::Epoch41, 2 * 276 + 1 + 276 + 5)]
+    fn test_memory_use_counts_callable_types_from_epoch41(
+        #[case] value: Value,
+        #[case] epoch: StacksEpochId,
+        #[case] expected: u64,
+    ) {
+        assert_eq!(value.get_memory_use(&epoch).unwrap(), expected);
+    }
 
     #[test]
     fn test_simple_overflows() {

@@ -23,7 +23,7 @@ use crate::vm::analysis::type_checker::v2_05::{
     check_arguments_at_least, no_type,
 };
 use crate::vm::costs::cost_functions::ClarityCostFunction;
-use crate::vm::costs::{analysis_typecheck_cost, runtime_cost};
+use crate::vm::costs::{analysis_typecheck_cost_v2_05, runtime_cost};
 use crate::vm::representations::SymbolicExpression;
 
 pub fn check_special_okay(
@@ -114,7 +114,7 @@ pub fn check_special_default_to(
     let default = checker.type_check(&args[0], context)?;
     let input = checker.type_check(&args[1], context)?;
 
-    analysis_typecheck_cost(checker, &default, &input)?;
+    analysis_typecheck_cost_v2_05(checker, &default, &input)?;
 
     if let TypeSignature::OptionalType(input_type) = input {
         let contained_type = *input_type;
@@ -337,7 +337,7 @@ fn check_special_match_opt(
         eval_with_new_binding(some_branch, bind_name, option_type, checker, context)?;
     let none_branch_type = checker.type_check(none_branch, context)?;
 
-    analysis_typecheck_cost(checker, &some_branch_type, &none_branch_type)?;
+    analysis_typecheck_cost_v2_05(checker, &some_branch_type, &none_branch_type)?;
 
     TypeSignature::least_supertype(
         &StacksEpochId::Epoch2_05,
@@ -394,7 +394,7 @@ fn check_special_match_resp(
     let err_branch_type =
         eval_with_new_binding(err_branch, err_bind_name, err_type, checker, context)?;
 
-    analysis_typecheck_cost(checker, &ok_branch_type, &err_branch_type)?;
+    analysis_typecheck_cost_v2_05(checker, &ok_branch_type, &err_branch_type)?;
 
     TypeSignature::least_supertype(&StacksEpochId::Epoch2_05, &ok_branch_type, &err_branch_type)
         .map_err(|_| {
