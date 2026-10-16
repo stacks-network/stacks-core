@@ -88,6 +88,21 @@ test('malformed calldata and pox-addrs are rejected', () => {
   expect(rov(signerManagerV2.getPayoutConfig(alice))).toBeNull();
 });
 
+test('configs with both l1-withdrawal and sbtc-recipient are rejected', () => {
+  const config = {
+    ...randomPayoutConfig({ maxFee: 100n, minClaim: 0n }),
+    sbtcRecipient: bob,
+  };
+  expect(txErr(stake(payoutConfigCalldata(config)), alice).value).toBe(
+    signerManagerV2Errors.ERR_INVALID_PAYOUT_CONFIG,
+  );
+  txOk(stake(), alice);
+  expect(txErr(signerManagerV2.setPayoutConfig(config), alice).value).toBe(
+    signerManagerV2Errors.ERR_INVALID_PAYOUT_CONFIG,
+  );
+  expect(rov(signerManagerV2.getPayoutConfig(alice))).toBeNull();
+});
+
 test('validate-stake! errors when not called by the pox-5 contract', () => {
   const config = randomPayoutConfig({ maxFee: 100n, minClaim: 0n });
   expect(

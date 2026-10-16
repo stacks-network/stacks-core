@@ -12069,6 +12069,16 @@ export const contracts = {
         },
         access: 'constant',
       } as TypedAbiVariable<Response<null, bigint>>,
+      ERR_INVALID_PAYOUT_CONFIG: {
+        name: 'ERR_INVALID_PAYOUT_CONFIG',
+        type: {
+          response: {
+            ok: 'none',
+            error: 'uint128',
+          },
+        },
+        access: 'constant',
+      } as TypedAbiVariable<Response<null, bigint>>,
       ERR_INVALID_POX_ADDR: {
         name: 'ERR_INVALID_POX_ADDR',
         type: {
@@ -12265,6 +12275,10 @@ export const contracts = {
       ERR_INVALID_FEES_BIPS: {
         isOk: false,
         value: 1_005n,
+      },
+      ERR_INVALID_PAYOUT_CONFIG: {
+        isOk: false,
+        value: 1_019n,
       },
       ERR_INVALID_POX_ADDR: {
         isOk: false,

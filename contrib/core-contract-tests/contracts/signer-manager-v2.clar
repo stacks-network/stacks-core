@@ -54,6 +54,8 @@
 (define-constant ERR_MAX_FEES_INCREASE (err u1017))
 ;; Removing this admin would leave the contract with no admins.
 (define-constant ERR_LAST_ADMIN (err u1018))
+;; A payout config set both `l1-withdrawal` and `sbtc-recipient`.
+(define-constant ERR_INVALID_PAYOUT_CONFIG (err u1019))
 
 (define-constant DUST_LIMIT u546)
 
@@ -829,7 +831,10 @@
     sbtc-recipient: (optional principal),
 }))
     (match (get l1-withdrawal config)
-        l1 (check-pox-addr (get pox-addr l1))
+        l1 (begin
+            (asserts! (is-none (get sbtc-recipient config)) ERR_INVALID_PAYOUT_CONFIG)
+            (check-pox-addr (get pox-addr l1))
+        )
         (ok true)
     )
 )
