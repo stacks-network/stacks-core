@@ -14,6 +14,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 use std::io::{self, Read};
+use std::num::NonZeroU64;
 use std::path::PathBuf;
 
 use blockstack_lib::chainstate::stacks::address::PoxAddress;
@@ -37,6 +38,8 @@ use stacks_common::address::{
 };
 use stacks_common::define_u8_enum;
 use stacks_common::types::chainstate::StacksPrivateKey;
+
+use crate::signerdb_offline::DEFAULT_BATCH_SIZE;
 
 extern crate alloc;
 
@@ -72,6 +75,8 @@ pub enum Command {
     VerifyVote(VerifyVoteArgs),
     /// Verify signer signatures by checking stackerdb slots contain the correct data
     MonitorSigners(MonitorSignersArgs),
+    /// Prune the signer database and compact its file. Run it with the signer stopped.
+    PruneDb(PruneDbArgs),
 }
 
 /// Basic arguments for all cyrptographic and stacker-db functionality
@@ -257,6 +262,35 @@ pub struct MonitorSignersArgs {
     /// The HTTP timeout (in seconds) for read/write operations with StackerDB.
     #[arg(long, short, default_value = "60")]
     pub stackerdb_timeout_secs: u64,
+}
+
+#[derive(Parser, Debug, Clone)]
+/// Arguments for the PruneDb command.
+///
+/// Removes everything the running signer would prune, at full speed, then rebuilds the database
+/// file in place so the freed space goes back to the OS. The signer must be stopped: the command
+/// refuses to run while another process has the database open.
+pub struct PruneDbArgs {
+    /// Signer config file; the database is its `db_path`
+    #[arg(long, short, value_name = "FILE", required_unless_present = "db_path")]
+    pub config: Option<PathBuf>,
+    /// The signer database, instead of the config's `db_path`. To keep the original untouched,
+    /// run the command on a copy.
+    #[arg(long, value_name = "FILE")]
+    pub db_path: Option<PathBuf>,
+    /// Where to build the temporary copy of the live data while compacting, e.g. on another disk.
+    /// By default it is kept in memory when the live data is small enough.
+    #[arg(long, value_name = "DIR", conflicts_with = "no_vacuum")]
+    pub temp_dir: Option<PathBuf>,
+    /// Prune only, without compacting: the freed space stays in the file and is reused
+    #[arg(long)]
+    pub no_vacuum: bool,
+    /// Blocks removed per transaction (at least 1)
+    #[arg(long, value_name = "N", default_value_t = DEFAULT_BATCH_SIZE)]
+    pub batch_size: NonZeroU64,
+    /// Report the database's size and where pruning would start, and change nothing
+    #[arg(long)]
+    pub dry_run: bool,
 }
 
 #[derive(Parser, Debug, Clone, PartialEq)]
@@ -504,5 +538,52 @@ mod tests {
             }
             _ => panic!("Invalid parsed address"),
         }
+    }
+
+    #[test]
+    fn test_prune_db_args() {
+        let parse = |args: &[&str]| {
+            Cli::try_parse_from([&["stacks-signer", "prune-db"], args].concat()).map(
+                |cli| match cli.command {
+                    Command::PruneDb(args) => args,
+                    _ => panic!("not prune-db"),
+                },
+            )
+        };
+
+        let args = parse(&["--config", "signer.toml"]).unwrap();
+        assert_eq!(args.config, Some(PathBuf::from("signer.toml")));
+        assert_eq!(args.db_path, None);
+        assert_eq!(args.batch_size, DEFAULT_BATCH_SIZE);
+        assert!(!args.no_vacuum && !args.dry_run && args.temp_dir.is_none());
+
+        let args = parse(&[
+            "--db-path",
+            "signerdb.sqlite",
+            "--temp-dir",
+            "/mnt/other",
+            "--batch-size",
+            "500",
+            "--dry-run",
+        ])
+        .unwrap();
+        assert_eq!(args.db_path, Some(PathBuf::from("signerdb.sqlite")));
+        assert_eq!(args.temp_dir, Some(PathBuf::from("/mnt/other")));
+        assert_eq!(args.batch_size.get(), 500);
+        assert!(args.dry_run);
+
+        // One of --config and --db-path is required
+        parse(&[]).unwrap_err();
+        // A temporary directory is only for compacting
+        parse(&[
+            "--config",
+            "signer.toml",
+            "--no-vacuum",
+            "--temp-dir",
+            "/tmp",
+        ])
+        .unwrap_err();
+        // A batch removes at least one block
+        parse(&["--config", "signer.toml", "--batch-size", "0"]).unwrap_err();
     }
 }
