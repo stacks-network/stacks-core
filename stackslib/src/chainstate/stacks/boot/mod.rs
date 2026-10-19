@@ -30,7 +30,6 @@ use clarity::vm::representations::ContractName;
 use clarity::vm::types::{
     PrincipalData, QualifiedContractIdentifier, StandardPrincipalData, TupleData, Value,
 };
-use clarity::vm::SymbolicExpression;
 use lazy_static::lazy_static;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use stacks_common::codec::StacksMessageCodec;
@@ -845,12 +844,10 @@ impl StacksChainState {
                                     invoke_ctx,
                                     &pox_contract,
                                     "handle-unlock",
-                                    &[
-                                        SymbolicExpression::atom_value(principal.clone().into()),
-                                        SymbolicExpression::atom_value(Value::UInt(*amount_locked)),
-                                        SymbolicExpression::atom_value(Value::UInt(
-                                            cycle_number.into(),
-                                        )),
+                                    vec![
+                                        principal.clone().into(),
+                                        Value::UInt(*amount_locked),
+                                        Value::UInt(cycle_number.into()),
                                     ],
                                     false,
                                 )
@@ -960,7 +957,7 @@ impl StacksChainState {
                                     invoke_ctx,
                                     &contract_identifier,
                                     function,
-                                    &[SymbolicExpression::atom_value(Value::UInt(reward_cycle))],
+                                    vec![Value::UInt(reward_cycle)],
                                     true,
                                 )
                                 .map_err(ClarityEvalError::from)

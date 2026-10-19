@@ -82,9 +82,7 @@ pub fn special_contract_call(
     let mut rest_args = Vec::with_capacity(rest_args_len);
     for arg in rest_args_slice.iter() {
         let evaluated_arg = eval(arg, exec_state, invoke_ctx, context)?;
-        rest_args.push(SymbolicExpression::atom_value(
-            evaluated_arg.clone_with_cost(exec_state)?,
-        ));
+        rest_args.push(evaluated_arg.clone_with_cost(exec_state)?);
     }
 
     let (contract_identifier, type_returns_constraint) = match &args[0].expr {
@@ -228,7 +226,7 @@ pub fn special_contract_call(
         &nested_ctx,
         &contract_identifier,
         function_name,
-        &rest_args,
+        rest_args,
         false,
     )?;
 

@@ -22,7 +22,7 @@ use super::ClarityVersion;
 pub use super::test_util::*;
 use crate::vm::contexts::OwnedEnvironment;
 pub use crate::vm::database::BurnStateDB;
-use crate::vm::database::MemoryBackingStore;
+use crate::vm::database::{ClarityDatabase, MemoryBackingStore};
 
 #[cfg(test)]
 mod assets;
@@ -56,6 +56,8 @@ mod representations;
 mod sequences;
 #[cfg(test)]
 mod simple_apply_eval;
+#[cfg(test)]
+mod special_case_handler;
 #[cfg(test)]
 mod traits;
 #[cfg(test)]
@@ -299,22 +301,29 @@ impl MemoryEnvironmentGenerator {
 pub struct TopLevelMemoryEnvironmentGenerator(MemoryBackingStore);
 impl TopLevelMemoryEnvironmentGenerator {
     pub fn get_env(&mut self, epoch: StacksEpochId) -> OwnedEnvironment<'_, '_> {
-        let mut db = self.0.as_clarity_db();
-        db.begin();
-        db.set_clarity_epoch_version(epoch).unwrap();
-        db.commit().unwrap();
-        if epoch.clarity_uses_tip_burn_block() {
-            db.begin();
-            db.set_tenure_height(1).unwrap();
-            db.commit().unwrap();
-        }
-        if epoch.uses_marfed_block_time() {
-            db.begin();
-            db.setup_block_metadata(Some(1)).unwrap();
-            db.commit().unwrap();
-        }
-        OwnedEnvironment::new(db, epoch)
+        top_level_env(self.0.as_clarity_db(), epoch)
     }
+}
+
+/// Sets `db` up for `epoch` and wraps it in an environment that runs whole transactions.
+pub fn top_level_env(
+    mut db: ClarityDatabase<'_>,
+    epoch: StacksEpochId,
+) -> OwnedEnvironment<'_, '_> {
+    db.begin();
+    db.set_clarity_epoch_version(epoch).unwrap();
+    db.commit().unwrap();
+    if epoch.clarity_uses_tip_burn_block() {
+        db.begin();
+        db.set_tenure_height(1).unwrap();
+        db.commit().unwrap();
+    }
+    if epoch.uses_marfed_block_time() {
+        db.begin();
+        db.setup_block_metadata(Some(1)).unwrap();
+        db.commit().unwrap();
+    }
+    OwnedEnvironment::new(db, epoch)
 }
 
 /// Determine whether or not to use the testnet or mainnet chain ID, given whether or not the

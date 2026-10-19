@@ -32,7 +32,7 @@ use clarity::vm::events::*;
 use clarity::vm::representations::ContractName;
 use clarity::vm::resource_limiter::ResourceBudget;
 use clarity::vm::types::TupleData;
-use clarity::vm::{SymbolicExpression, Value};
+use clarity::vm::Value;
 use rusqlite::{params, Connection, OptionalExtension, Row};
 use serde::de::Error as de_Error;
 use serde::Deserialize;
@@ -2134,10 +2134,7 @@ impl StacksChainState {
             burn_dbconn,
         )?;
 
-        let args: Vec<_> = args
-            .iter()
-            .map(|x| SymbolicExpression::atom_value(x.clone()))
-            .collect();
+        let args = args.to_vec();
 
         let result = conn.with_readonly_clarity_env(
             self.mainnet,
@@ -2148,7 +2145,7 @@ impl StacksChainState {
             |exec_state, invoke_ctx| {
                 exec_state
                     .execute_contract(
-                        invoke_ctx, contract, function, &args,
+                        invoke_ctx, contract, function, args,
                         // read-only is set to `false` so that non-read-only functions
                         //  can be executed. any transformation is rolled back.
                         false,

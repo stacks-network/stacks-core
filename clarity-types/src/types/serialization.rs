@@ -1448,12 +1448,12 @@ impl Value {
                 };
                 (sanitized_resp.ok()?, did_sanitize_child)
             }
+            // `sanitize_value_or_return` checks the values this arm handles without calling
+            // this function. If one of them gets its own arm here, remove it from the list there.
             value => {
-                if expected.admits(epoch, &value).ok()? {
-                    return Some((value, false));
-                } else {
-                    return None;
-                }
+                return Self::sanitize_leaf_value(epoch, expected, value)
+                    .ok()
+                    .map(|value| (value, false));
             }
         };
 
@@ -1461,6 +1461,49 @@ impl Value {
             Some((output, did_sanitize))
         } else {
             None
+        }
+    }
+
+    /// Sanitizes a value that has no inner values: it is returned unchanged if
+    /// `expected` admits it, and handed back as the error otherwise.
+    fn sanitize_leaf_value(
+        epoch: &StacksEpochId,
+        expected: &TypeSignature,
+        value: Value,
+    ) -> Result<Value, Value> {
+        match expected.admits(epoch, &value) {
+            Ok(true) => Ok(value),
+            _ => Err(value),
+        }
+    }
+
+    /// Like [`Self::sanitize_value`], but hands `value` back on failure so the caller
+    /// can still report it. Values without inner values are checked in place and moved;
+    /// anything else is sanitized from a copy, because a failure part way through would
+    /// leave it partly consumed.
+    pub fn sanitize_value_or_return(
+        epoch: &StacksEpochId,
+        expected: &TypeSignature,
+        value: Value,
+    ) -> Result<Value, Value> {
+        // `sanitize_leaf_value` has no epoch check of its own.
+        if !epoch.value_sanitizing() {
+            return Ok(value);
+        }
+        match value {
+            // The values `sanitize_value` handles in its catch-all arm.
+            Value::Int(_)
+            | Value::UInt(_)
+            | Value::Bool(_)
+            | Value::Principal(_)
+            | Value::CallableContract(_)
+            | Value::Sequence(SequenceData::Buffer(_) | SequenceData::String(_)) => {
+                Self::sanitize_leaf_value(epoch, expected, value)
+            }
+            value => match Self::sanitize_value(epoch, expected, value.clone()) {
+                Some((sanitized, _)) => Ok(sanitized),
+                None => Err(value),
+            },
         }
     }
 }

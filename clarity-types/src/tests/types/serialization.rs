@@ -21,7 +21,7 @@ use stacks_common::util::hash::hex_bytes;
 use crate::errors::ClarityTypeError;
 use crate::types::serialization::SerializationError;
 use crate::types::{
-    ASCIIData, CharType, MAX_TYPE_DEPTH, MAX_VALUE_SIZE, OptionalData, PrincipalData,
+    ASCIIData, CharType, ListTypeData, MAX_TYPE_DEPTH, MAX_VALUE_SIZE, OptionalData, PrincipalData,
     QualifiedContractIdentifier, SequenceData, StandardPrincipalData, TupleData,
     TupleTypeSignature, TypeSignature, Value,
 };
@@ -828,4 +828,61 @@ fn test_contains_overlong_contract_name_depth_bound() {
         unreachable!()
     };
     assert!(!inner.contains_overlong_contract_name().unwrap());
+}
+
+fn zero_buff(len: usize) -> Value {
+    Value::buff_from(vec![0; len]).unwrap()
+}
+
+fn uint_tuple(fields: &[&str]) -> Value {
+    let fields = fields
+        .iter()
+        .map(|name| {
+            (
+                ClarityName::try_from(name.to_string()).unwrap(),
+                Value::UInt(1),
+            )
+        })
+        .collect();
+    Value::Tuple(TupleData::from_data(fields).unwrap())
+}
+
+fn type_of(value: &Value) -> TypeSignature {
+    TypeSignature::type_of(value).unwrap()
+}
+
+/// A `(list 10 uint)` holding one item: its `type_signature` is wider than its contents.
+fn wide_uint_list() -> Value {
+    Value::list_with_type(
+        &StacksEpochId::Epoch41,
+        vec![Value::UInt(1)],
+        ListTypeData::new_list(TypeSignature::UIntType, 10).unwrap(),
+    )
+    .unwrap()
+}
+
+/// `sanitize_value_or_return` gives the same result as `sanitize_value`, and hands the
+/// original value back when sanitization fails.
+#[rstest]
+#[case::buffer_admitted(zero_buff(3), type_of(&zero_buff(4)), StacksEpochId::Epoch24)]
+#[case::buffer_too_long(zero_buff(3), type_of(&zero_buff(2)), StacksEpochId::Epoch24)]
+#[case::list_wide_type_signature(wide_uint_list(), type_of(&wide_uint_list()), StacksEpochId::Epoch24)]
+#[case::tuple_extra_field(uint_tuple(&["a", "b"]), type_of(&uint_tuple(&["a"])), StacksEpochId::Epoch24)]
+#[case::tuple_missing_field(uint_tuple(&["a"]), type_of(&uint_tuple(&["a", "b"])), StacksEpochId::Epoch24)]
+#[case::not_sanitized_before_2_4(Value::UInt(1), TypeSignature::IntType, StacksEpochId::Epoch23)]
+fn test_sanitize_value_or_return_matches_sanitize_value(
+    #[case] value: Value,
+    #[case] expected: TypeSignature,
+    #[case] epoch: StacksEpochId,
+) {
+    let sanitized = Value::sanitize_value(&epoch, &expected, value.clone())
+        .map(|(sanitized, _)| sanitized)
+        .ok_or(value.clone());
+    let result = Value::sanitize_value_or_return(&epoch, &expected, value);
+    assert_eq!(result, sanitized);
+    // `Value` equality ignores the `type_signature` of lists and tuples, which feeds costs.
+    let type_signature = |result: &Result<Value, Value>| match result {
+        Ok(value) | Err(value) => type_of(value),
+    };
+    assert_eq!(type_signature(&result), type_signature(&sanitized));
 }
