@@ -14,9 +14,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use clarity::vm::analysis::contract_interface_builder::{
-    build_contract_interface, ContractInterface,
-};
+use clarity::vm::analysis::contract_interface_builder::ContractInterface;
 use clarity::vm::costs::ExecutionCost;
 use clarity::vm::types::Value;
 use serde_json::json;
@@ -312,10 +310,7 @@ pub fn make_new_block_txs_payload(
         raw_result: receipt.result.clone(),
         raw_tx,
         contract_interface: if include_contract_interface {
-            receipt.contract_analysis.as_ref().map(|analysis| {
-                build_contract_interface(analysis)
-                    .expect("FATAL: failed to serialize contract publish receipt")
-            })
+            receipt.contract_interface.clone()
         } else {
             None
         },

@@ -17,6 +17,7 @@
 #[cfg(test)]
 use std::time::Duration;
 
+use clarity::vm::analysis::contract_interface_builder::ContractInterface;
 use clarity::vm::analysis::types::ContractAnalysis;
 // Re-exported to keep the old import paths working.
 pub use clarity::vm::clarity::{
@@ -48,6 +49,16 @@ pub mod processing;
 pub use self::processing::{TransactionProcessor, TxToProcess};
 
 impl StacksTransactionReceipt {
+    /// Omit interface-conversion failures without changing transaction acceptance.
+    fn interface_from_analysis(analysis: ContractAnalysis) -> Option<ContractInterface> {
+        let contract_identifier = analysis.contract_identifier.clone();
+        ContractInterface::try_from(analysis)
+            .inspect_err(|error| {
+                warn!("Could not build receipt contract interface"; "contract" => %contract_identifier, "error" => %error);
+            })
+            .ok()
+    }
+
     pub fn from_stx_transfer(
         tx: StacksTransaction,
         events: Vec<StacksTransactionEvent>,
@@ -59,7 +70,7 @@ impl StacksTransactionReceipt {
             result,
             stx_burned: 0,
             post_condition_aborted: false,
-            contract_analysis: None,
+            contract_interface: None,
             transaction: tx.into(),
             execution_cost: cost,
             microblock_header: None,
@@ -83,7 +94,7 @@ impl StacksTransactionReceipt {
             events,
             result,
             stx_burned: burned,
-            contract_analysis: None,
+            contract_interface: None,
             execution_cost: cost,
             microblock_header: None,
             tx_index: 0,
@@ -106,7 +117,7 @@ impl StacksTransactionReceipt {
             events,
             result,
             stx_burned: burned,
-            contract_analysis: None,
+            contract_interface: None,
             execution_cost: cost,
             microblock_header: None,
             tx_index: 0,
@@ -128,7 +139,7 @@ impl StacksTransactionReceipt {
             post_condition_aborted: false,
             result: Value::okay_true(),
             stx_burned: burned,
-            contract_analysis: Some(analysis),
+            contract_interface: Self::interface_from_analysis(analysis),
             execution_cost: cost,
             microblock_header: None,
             tx_index: 0,
@@ -151,7 +162,7 @@ impl StacksTransactionReceipt {
             post_condition_aborted: true,
             result: Value::okay_true(),
             stx_burned: burned,
-            contract_analysis: Some(analysis),
+            contract_interface: Self::interface_from_analysis(analysis),
             execution_cost: cost,
             microblock_header: None,
             tx_index: 0,
@@ -167,7 +178,7 @@ impl StacksTransactionReceipt {
             post_condition_aborted: false,
             result: Value::okay_true(),
             stx_burned: 0,
-            contract_analysis: None,
+            contract_interface: None,
             execution_cost: ExecutionCost::ZERO,
             microblock_header: None,
             tx_index: 0,
@@ -214,7 +225,7 @@ impl StacksTransactionReceipt {
             post_condition_aborted: false,
             result: Value::err_none(),
             stx_burned: 0,
-            contract_analysis: None,
+            contract_interface: None,
             execution_cost: analysis_cost,
             microblock_header: None,
             tx_index: 0,
@@ -234,7 +245,7 @@ impl StacksTransactionReceipt {
             post_condition_aborted: false,
             result,
             stx_burned: 0,
-            contract_analysis: None,
+            contract_interface: None,
             execution_cost: cost,
             microblock_header: None,
             tx_index: 0,
@@ -255,7 +266,7 @@ impl StacksTransactionReceipt {
             result: Value::err_none(),
             events: vec![],
             stx_burned: 0,
-            contract_analysis: Some(contract_analysis),
+            contract_interface: Self::interface_from_analysis(contract_analysis),
             execution_cost: cost,
             microblock_header: None,
             tx_index: 0,
@@ -275,7 +286,7 @@ impl StacksTransactionReceipt {
             result: Value::err_none(),
             events: vec![],
             stx_burned: 0,
-            contract_analysis: None,
+            contract_interface: None,
             execution_cost: cost,
             microblock_header: None,
             tx_index: 0,
@@ -291,7 +302,7 @@ impl StacksTransactionReceipt {
             post_condition_aborted: false,
             result: Value::okay_true(),
             stx_burned: 0,
-            contract_analysis: None,
+            contract_interface: None,
             execution_cost: ExecutionCost::ZERO,
             microblock_header: None,
             tx_index: 0,
@@ -316,7 +327,7 @@ impl StacksTransactionReceipt {
             post_condition_aborted: false,
             result: Value::err_none(),
             stx_burned: 0,
-            contract_analysis: None,
+            contract_interface: None,
             execution_cost: ExecutionCost::ZERO,
             microblock_header: None,
             tx_index: 0,

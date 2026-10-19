@@ -20,6 +20,7 @@ use std::thread;
 use std::time::{Instant, SystemTime};
 
 use clarity::boot_util::boot_code_id;
+use clarity::vm::analysis::contract_interface_builder::build_contract_interface;
 use clarity::vm::costs::ExecutionCost;
 use clarity::vm::events::SmartContractEventData;
 use clarity::vm::types::StacksAddressExtensions;
@@ -56,6 +57,7 @@ use tiny_http::{Method, Response, Server, StatusCode};
 use crate::event_dispatcher::payloads::*;
 use crate::event_dispatcher::*;
 
+/// Post-condition rollback suppresses transaction events in the delivered block payload.
 #[test]
 fn test_post_condition_aborted_transaction_does_not_emit_events() {
     // Create a transaction receipt with post_condition_aborted = true and a dummy event
@@ -104,7 +106,7 @@ fn test_post_condition_aborted_transaction_does_not_emit_events() {
         post_condition_aborted: true,
         result: Value::okay_true(),
         stx_burned: 0,
-        contract_analysis: None,
+        contract_interface: None,
         execution_cost: ExecutionCost::ZERO,
         microblock_header: None,
         tx_index: 0,
@@ -963,7 +965,7 @@ fn make_new_block_txs_payload_vm_error() {
         events: vec![],
         post_condition_aborted: true,
         result: Value::okay_true(),
-        contract_analysis: None,
+        contract_interface: None,
         execution_cost: ExecutionCost {
             write_length: 0,
             write_count: 0,
@@ -1019,7 +1021,7 @@ fn make_new_block_txs_payload_contract_interface_toggle() {
         events: vec![],
         post_condition_aborted: false,
         result: Value::okay_true(),
-        contract_analysis: Some(analysis),
+        contract_interface: Some(build_contract_interface(&analysis).unwrap()),
         execution_cost: ExecutionCost::ZERO,
         microblock_header: None,
         vm_error: None,
@@ -1028,7 +1030,7 @@ fn make_new_block_txs_payload_contract_interface_toggle() {
         tx_index: 0,
     };
 
-    // Enabled: the ABI is present because the receipt has a contract analysis.
+    // Enabled: the ABI is present because the receipt carries a contract interface.
     let included = make_new_block_txs_payload(&receipt, 0, true);
     assert!(included.contract_interface.is_some());
 
@@ -1099,7 +1101,7 @@ fn new_block_event_omits_contract_interface_only_for_opted_out_observer() {
         events: vec![],
         post_condition_aborted: false,
         result: Value::okay_true(),
-        contract_analysis: Some(analysis),
+        contract_interface: Some(build_contract_interface(&analysis).unwrap()),
         execution_cost: ExecutionCost::ZERO,
         microblock_header: None,
         vm_error: None,
@@ -1180,6 +1182,7 @@ fn make_tenure_change_tx(payload: TenureChangePayload) -> StacksTransaction {
     }
 }
 
+/// Transaction event JSON preserves the existing wire fields for burnchain-origin receipts.
 #[test]
 fn backwards_compatibility_transaction_event_payload() {
     let tx = make_tenure_change_tx(make_tenure_change_payload());
@@ -1200,7 +1203,7 @@ fn backwards_compatibility_transaction_event_payload() {
         post_condition_aborted: false,
         result: Value::okay_true(),
         stx_burned: 100,
-        contract_analysis: None,
+        contract_interface: None,
         execution_cost: ExecutionCost {
             write_length: 1,
             write_count: 2,

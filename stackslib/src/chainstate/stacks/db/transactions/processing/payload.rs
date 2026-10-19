@@ -443,7 +443,10 @@ pub fn process(
                                 post_condition_aborted: false,
                                 result: Value::err_none(),
                                 stx_burned: 0,
-                                contract_analysis: Some(contract_analysis),
+                                contract_interface:
+                                    StacksTransactionReceipt::interface_from_analysis(
+                                        contract_analysis,
+                                    ),
                                 execution_cost: total_cost,
                                 microblock_header: None,
                                 tx_index: 0,
