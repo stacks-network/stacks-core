@@ -1,0 +1,1 @@
+The core MARF types (`MARF`, `MARFOpenOpts`, `MarfConnection`, `MarfTransaction`) are now re-exported from the root of the `stacks-marf` crate, so they can be imported as `stacks_marf::MARF`. The existing `stacks_marf::marf::` paths keep working.
