@@ -6,6 +6,7 @@ import {
 } from '@clarigen/core';
 import { filterEvents, rov, txErr, txOk } from '@clarigen/test';
 import { hex } from '@scure/base';
+import { Cl } from '@stacks/transactions';
 import { beforeEach, expect, test } from 'vitest';
 import { accounts, project } from '../clarigen-types';
 import { mineUntil, stxToUStx } from '../test-helpers';
@@ -290,6 +291,27 @@ test('third parties must clear min-claim on L1 payouts, the staker need not', ()
     amount: total,
     withdrawalRequest: 1n,
   });
+});
+
+test('a contract forwarding the staker cannot bypass min-claim', () => {
+  stake(alice, randomPayoutConfig({ maxFee: 100n, minClaim: 5000n }));
+  const total = claimCycle(1n, 2000n);
+  txOk(signerManagerV2.settleStakerRewards(alice, 1n, null), bob);
+  simnet.deployContract(
+    'payout-forwarder',
+    `(define-public (forward (staker principal))
+  (contract-call? '${signerManagerV2.identifier} payout staker))`,
+    { clarityVersion: 4 },
+    deployer,
+  );
+  const { result } = simnet.callPublicFn(
+    `${deployer}.payout-forwarder`,
+    'forward',
+    [Cl.principal(alice)],
+    alice,
+  );
+  expect(result).toBeErr(Cl.uint(signerManagerV2Errors.ERR_BELOW_MIN_CLAIM));
+  expect(rov(signerManagerV2.getPendingPayout(alice))).toBe(total);
 });
 
 test('claim-staker-rewards with an L1 config initiates a withdrawal', () => {

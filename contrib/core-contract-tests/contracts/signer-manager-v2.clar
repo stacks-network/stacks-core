@@ -737,7 +737,7 @@
     )
     (let ((max-fee (get max-fee l1)))
         (asserts! (> amount (+ max-fee DUST_LIMIT)) ERR_BELOW_DUST_LIMIT)
-        (asserts! (or (is-eq tx-sender staker) (>= amount (get min-claim l1)))
+        (asserts! (or (is-eq contract-caller staker) (>= amount (get min-claim l1)))
             ERR_BELOW_MIN_CLAIM
         )
         (let ((request-id (try! (as-contract?
