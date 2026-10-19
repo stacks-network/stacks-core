@@ -515,3 +515,59 @@ test('the max fee caps the fee rate and can only be lowered', () => {
   txOk(signerManagerV2.setMaxFees(400n), deployer);
   expect(rov(signerManagerV2.getMaxFeesBips())).toBe(400n);
 });
+
+// `claim-rewards` rounds down at each pull, but `get-earned-staker-rewards`
+// rounds down one time for the full cycle. After the last pull, the staker's
+// share can be more than the reserve by some sats.
+//
+// 50,001 STX makes the rounding visible. Each distribution gives 1700 sats to
+// stakers, and 1700 / 50,001 STX is not exact, so each pull is 1699.99... sats
+// and rounds down to 1699. Two pulls reserve 3398, but the full-cycle share is
+// 3399.99... and rounds down to 3399. With 50,000 STX the division is exact
+// and both sides are 3400.
+test('staker settlement survives rounding across multiple manager pulls', () => {
+  txOk(
+    pox5.stake({
+      signerManager: signerManagerV2.identifier,
+      amountUstx: stxToUStx(50_001),
+      numCycles: 3n,
+      startBurnHt: simnet.burnBlockHeight,
+      signerCalldata: null,
+    }),
+    alice,
+  );
+
+  const pulls: bigint[] = [];
+  for (const height of [
+    rov(pox5.rewardCycleToBurnHeight(1n)) + HALF_CYCLE_LENGTH,
+    rov(pox5.rewardCycleToBurnHeight(2n)),
+  ]) {
+    sbtcTransfer(2000n, deployer, pox5.identifier);
+    mineUntil(height);
+    txOk(pox5.calculateRewards([]), deployer);
+    const { stxRewards } = txOk(
+      signerManagerV2.claimRewards([], 1n),
+      deployer,
+    ).value;
+    pulls.push(stxRewards.earned);
+  }
+
+  const reserve = rov(
+    signerManagerV2.getUnclaimedStakerRewardsForCycle(1n, null),
+  );
+  const owed = rov(
+    signerManagerV2.getEarnedStakerRewards(alice, 1n, null),
+  ).earned;
+  expect(pulls).toEqual([1699n, 1699n]);
+  expect(reserve).toBe(3398n);
+  expect(owed).toBe(3399n);
+
+  expect(
+    txOk(signerManagerV2.settleStakerRewards(alice, 1n, null), bob).value,
+  ).toEqual({ gross: 3398n, fee: 0n });
+  expect(rov(signerManagerV2.getPendingPayout(alice))).toBe(3398n);
+  expect(rov(signerManagerV2.getUnclaimedStakerRewardsForCycle(1n, null))).toBe(
+    0n,
+  );
+  expectSolvent();
+});

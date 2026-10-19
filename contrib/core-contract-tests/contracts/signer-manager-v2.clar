@@ -239,22 +239,38 @@
                 ))
             ))
             (reserve (get-unclaimed-staker-rewards-for-cycle reward-cycle bond-index))
-            (fee (/ (* gross (get-fee-bips-for-cycle reward-cycle)) MAX_BIPS))
+            ;; `claim-rewards` rounds down at each pull, but `get-earned-staker-rewards`
+            ;; rounds down one time for the full cycle. After the last pull, `gross` can be
+            ;; more than the reserve by some sats. Pay the reserve in this case.
+            (amount (if (<= gross reserve) gross reserve))
+            (fee (/ (* amount (get-fee-bips-for-cycle reward-cycle)) MAX_BIPS))
         )
         (asserts! (> gross u0) ERR_NO_CLAIMABLE_REWARDS)
-        (asserts! (>= reserve gross) ERR_NO_CLAIMABLE_REWARDS)
-        (map-set unclaimed-staker-rewards-for-cycle key (- reserve gross))
-        (var-set unclaimed-staker-rewards (- (var-get unclaimed-staker-rewards) gross))
+        (asserts!
+            (or
+                (<= gross reserve)
+                (and
+                    (> reserve u0)
+                    (is-eq u0
+                        (contract-call? 'ST000000000000000000002AMW42H.pox-5
+                            get-earned current-contract reward-cycle bond-index
+                        ))
+                )
+            )
+            ERR_NO_CLAIMABLE_REWARDS
+        )
+        (map-set unclaimed-staker-rewards-for-cycle key (- reserve amount))
+        (var-set unclaimed-staker-rewards (- (var-get unclaimed-staker-rewards) amount))
         (var-set earned-fees (+ (var-get earned-fees) fee))
-        (credit-pending staker (- gross fee))
+        (credit-pending staker (- amount fee))
         (print {
             topic: "settle-staker-rewards",
             staker: staker,
             reward-cycle: reward-cycle,
             bond-index: bond-index,
-            amount-sats: gross,
+            amount-sats: amount,
         })
-        (ok { gross: gross, fee: fee })
+        (ok { gross: amount, fee: fee })
     )
 )
 
