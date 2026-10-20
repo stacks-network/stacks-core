@@ -894,6 +894,11 @@ impl StacksEpochId {
     pub fn charges_callable_type_size(&self) -> bool {
         self >= &StacksEpochId::Epoch41
     }
+    /// Whether a trait-based `contract-call?` reads a trait defined by the calling
+    /// contract from its own context, so the call works while that contract deploys.
+    pub fn supports_local_trait_lookup(&self) -> bool {
+        self >= &StacksEpochId::Epoch41
+    }
 
     pub fn supports_call_with_constant(&self) -> bool {
         self >= &StacksEpochId::Epoch34
@@ -962,6 +967,21 @@ impl StacksEpochId {
     /// because the change is consensus-breaking (even for non-broken contracts, because
     /// it can change cost), we have to preserve the legacy behavior.
     pub fn checks_dependency_of_contract_call_target(&self) -> bool {
+        self >= &StacksEpochId::Epoch41
+    }
+
+    /// The type checker prevents name conflicts between globals and locals. Function
+    /// application and let binding also raise runtime errors when creating duplicate
+    /// names (although in the case of let bindings, that check is currently incomplete).
+    ///
+    /// This epoch gate here is only for the case where both of those checks failed and,
+    /// for some reason, we do have two conflicting names. In that case, the global should
+    /// win when looking up that name.
+    ///
+    /// Once Epoch 4.1 is reached, we should run a block replay with this function returning
+    /// a constant `true`. Chances are that this was never triggered; in that case, we
+    /// can remove this check and keep the fixed behavior.
+    pub fn clarity_runtime_checks_global_constants_before_local_vars(&self) -> bool {
         self >= &StacksEpochId::Epoch41
     }
 

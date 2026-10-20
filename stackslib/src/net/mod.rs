@@ -34,6 +34,7 @@ use stacks_common::types::StacksPublicKeyBuffer;
 use stacks_common::util::get_epoch_time_secs;
 use stacks_common::util::hash::{Hash160, Sha256Sum};
 use stacks_common::util::secp256k1::{MessageSignature, Secp256k1PublicKey};
+use stacks_marf::Error as marf_error;
 use url;
 
 use self::dns::*;
@@ -43,7 +44,6 @@ use crate::chainstate::burn::ConsensusHash;
 use crate::chainstate::coordinator::comm::CoordinatorChannels;
 use crate::chainstate::nakamoto::{NakamotoBlock, NakamotoChainState};
 use crate::chainstate::stacks::db::StacksChainState;
-use crate::chainstate::stacks::index::Error as marf_error;
 use crate::chainstate::stacks::{
     Error as chainstate_error, Error as chain_error, StacksBlock, StacksMicroblock,
     StacksPublicKey, StacksTransaction,

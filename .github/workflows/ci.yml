@@ -47,6 +47,8 @@ concurrency:
 env:
   # The name of the test archive file that is generated
   TEST_ARCHIVE_FILE: "./test_archive.tar.zst"
+  # The name of the CRON commit hash file stored to and retrieved from cache
+  CRON_COMMIT_HASH_FILE: "last_cron_commit_hash.txt"
   # Whether or not to create the slow and failed tests summary
   CREATE_SLOW_FAILED_TESTS_SUMMARY: ${{ (vars.ENABLE_CI_WORKFLOWS == 'true' || github.repository == 'stacks-network/stacks-core') && github.event_name != 'merge_group' }}
   # Whether or not to create the code coverage report. We create the code coverage report daily on a CRON schedule, rather than on each PR or merge
@@ -59,6 +61,99 @@ jobs:
     uses: ./.github/workflows/__check-ci.yml
 
   ############################################################################
+  ### Check Commit Hash (Scheduled Run / CRON Only)
+  ###
+  ### Skips the rest of the CI pipeline if the CRON schedule runs on the same
+  ### commit hash as the last scheduled run. We use the CRON run to report 
+  ### code coverage, and on the same commit we'll have the same coverage.
+  ############################################################################
+  check-cron-commit-hash:
+    name: "Check: Commit Hash (CRON Only)"
+    needs: check-ci
+    if: needs.check-ci.outputs.enabled == 'true'
+    runs-on: ubuntu-latest
+    outputs:
+      proceed: ${{ steps.check-last-commit-hash.outputs.proceed }}
+    steps:
+      # Checkout the code
+      #   - only .github is required for this job
+      - name: Checkout the latest code
+        uses: $/.github/wrappers/checkout
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.ref }}
+          sparse-checkout: |
+            .github
+            
+      # Attempt to fetch the last cached hash.
+      # Caches are immutable and cannot be overwritten, so we need a new key per entry.
+      # We use restore-keys to fall back to the most recent cache available for cron commits.
+      - name: Restore last commit hash from cache
+        if: github.event_name == 'schedule'
+        uses: ./.github/wrappers/cache/restore
+        with:
+          path: ${{ env.CRON_COMMIT_HASH_FILE }}
+          key: cron-commit-hash-main-${{ github.sha }}
+          restore-keys: cron-commit-hash-main-
+
+      - name: Check last commit hash
+        id: check-last-commit-hash
+        run: |
+          echo "## CRON Commit Hash Check" >> $GITHUB_STEP_SUMMARY
+          
+          # Always proceed for non-scheduled events
+          if [ "${{ github.event_name }}" != "schedule" ]; then
+            echo "proceed=true" >> $GITHUB_OUTPUT
+            
+            # Add bypass message to summary
+            echo "### ✅ Pipeline Proceeding" >> $GITHUB_STEP_SUMMARY
+            echo "Triggered by \`${{ github.event_name }}\`. The CI pipeline will run." >> $GITHUB_STEP_SUMMARY
+            exit 0
+          fi
+
+          LAST_HASH=""
+          if [ -f "$CRON_COMMIT_HASH_FILE" ]; then
+            LAST_HASH=$(cat "$CRON_COMMIT_HASH_FILE")
+          fi
+          CURRENT_HASH="${{ github.sha }}"
+
+          # Prepare the base summary table
+          echo "| Metric | SHA |" >> $GITHUB_STEP_SUMMARY
+          echo "|--------|-----|" >> $GITHUB_STEP_SUMMARY
+          
+          if [ -z "$LAST_HASH" ]; then
+             echo "| **Last Run** | *(No cache found)* |" >> $GITHUB_STEP_SUMMARY
+          else
+             echo "| **Last Run** | \`$LAST_HASH\` |" >> $GITHUB_STEP_SUMMARY
+          fi
+          echo "| **Current** | \`$CURRENT_HASH\` |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY # Blank line for spacing
+
+          if [ "$LAST_HASH" == "$CURRENT_HASH" ]; then
+            echo "No new commits since last scheduled run. Skipping."
+            echo "proceed=false" >> $GITHUB_OUTPUT
+            
+            # Add Skipped message to summary
+            echo "### 🛑 Pipeline Skipped" >> $GITHUB_STEP_SUMMARY
+            echo "No new commits were found on the \`main\` branch since the last scheduled execution. The CI pipeline will not run." >> $GITHUB_STEP_SUMMARY
+          else
+            echo "New commits detected. Proceeding."
+            echo "proceed=true" >> $GITHUB_OUTPUT
+            echo "$CURRENT_HASH" > "$CRON_COMMIT_HASH_FILE"
+            
+            # Add Proceeding message to summary
+            echo "### ✅ Pipeline Proceeding" >> $GITHUB_STEP_SUMMARY
+            echo "New commits detected on the \`main\` branch since the last scheduled execution. The CI pipeline will run." >> $GITHUB_STEP_SUMMARY
+          fi
+
+      # Only save the new cache if it's a schedule and we detected a new hash
+      - name: Save new commit hash to cache
+        if: github.event_name == 'schedule' && steps.check-last-commit-hash.outputs.proceed == 'true'
+        uses: ./.github/wrappers/cache/save
+        with:
+          path: ${{ env.CRON_COMMIT_HASH_FILE }}
+          key: cron-commit-hash-main-${{ github.sha }}
+
+  ############################################################################
   ### Global Variables Setup
   ###
   ### Bridges global env variables to the jobs context so they are safely
@@ -69,7 +164,8 @@ jobs:
     name: "Setup: Global Variables"
     needs:
       - check-ci
-    if: needs.check-ci.outputs.enabled == 'true'
+      - check-cron-commit-hash
+    if: needs.check-ci.outputs.enabled == 'true' && needs.check-cron-commit-hash.outputs.proceed == 'true'
     runs-on: &shared_config ubuntu-latest
     outputs:
       btc-version: ${{ steps.btc-version.outputs.version }}

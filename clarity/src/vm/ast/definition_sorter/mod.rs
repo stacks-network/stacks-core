@@ -67,7 +67,7 @@ impl DefinitionSorter {
         accounting: &mut T,
         version: ClarityVersion,
     ) -> ParseResult<()> {
-        let exprs = contract_ast.pre_expressions[..].to_vec();
+        let exprs = &contract_ast.pre_expressions;
         for (expr_index, expr) in exprs.iter().enumerate() {
             self.graph.add_node(expr_index);
 
@@ -371,12 +371,7 @@ impl DefinitionSorter {
         tle_index: usize,
         version: ClarityVersion,
     ) -> ParseResult<()> {
-        let pairs = pairs
-            .chunks(2)
-            .map(|pair| pair.to_vec().into_boxed_slice())
-            .collect::<Vec<_>>();
-
-        for pair in pairs.iter() {
+        for pair in pairs.chunks(2) {
             self.probe_for_dependencies_in_key_value_pair(pair, tle_index, version)?;
         }
         Ok(())
