@@ -34,6 +34,7 @@ use stacks_common::types::StacksPublicKeyBuffer;
 use stacks_common::util::get_epoch_time_secs;
 use stacks_common::util::hash::{Hash160, Sha256Sum};
 use stacks_common::util::secp256k1::{MessageSignature, Secp256k1PublicKey};
+use stacks_marf::Error as marf_error;
 use url;
 
 use self::dns::*;
@@ -43,7 +44,6 @@ use crate::chainstate::burn::ConsensusHash;
 use crate::chainstate::coordinator::comm::CoordinatorChannels;
 use crate::chainstate::nakamoto::{NakamotoBlock, NakamotoChainState};
 use crate::chainstate::stacks::db::StacksChainState;
-use crate::chainstate::stacks::index::Error as marf_error;
 use crate::chainstate::stacks::{
     Error as chainstate_error, Error as chain_error, StacksBlock, StacksMicroblock,
     StacksPublicKey, StacksTransaction,
@@ -2208,15 +2208,6 @@ impl NetworkResult {
             || !self.pushed_stackerdb_chunks.is_empty()
     }
 
-    pub fn transactions(&self) -> Vec<StacksTransaction> {
-        self.pushed_transactions
-            .values()
-            .flat_map(|pushed_txs| pushed_txs.iter().map(|(_, tx)| tx.clone()))
-            .chain(self.uploaded_transactions.iter().cloned())
-            .chain(self.synced_transactions.iter().cloned())
-            .collect()
-    }
-
     pub fn has_data_to_store(&self) -> bool {
         self.has_blocks()
             || self.has_microblocks()
@@ -3365,6 +3356,16 @@ pub mod test {
             dns_client: Option<&mut DNSClient>,
         ) -> Result<(NetworkResult, ProcessedNetReceipts), net_error> {
             let net_result = self.step_with_ibd_and_dns(ibd, dns_client)?;
+            let receipts = self.relay_network_result(net_result.clone(), ibd)?;
+            Ok((net_result, receipts))
+        }
+
+        /// Store and process the data in `net_result`, as the node's relayer would.
+        pub fn relay_network_result(
+            &mut self,
+            mut net_result: NetworkResult,
+            ibd: bool,
+        ) -> Result<ProcessedNetReceipts, net_error> {
             let mut sortdb = self.chain.sortdb.take().unwrap();
             let mut stacks_node = self.chain.stacks_node.take().unwrap();
             let mut mempool = self.mempool.take().unwrap();
@@ -3372,7 +3373,7 @@ pub mod test {
 
             let receipts_res = self.relayer.process_network_result(
                 self.network.get_local_peer(),
-                &mut net_result.clone(),
+                &mut net_result,
                 &self.network.burnchain,
                 &mut sortdb,
                 &mut stacks_node.chainstate,
@@ -3391,7 +3392,7 @@ pub mod test {
             self.chain.coord.handle_new_stacks_block().unwrap();
             self.chain.coord.handle_new_nakamoto_stacks_block().unwrap();
 
-            receipts_res.map(|receipts| (net_result, receipts))
+            receipts_res
         }
 
         pub fn step_dns(&mut self, dns_client: &mut DNSClient) -> Result<NetworkResult, net_error> {

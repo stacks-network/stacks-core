@@ -70,6 +70,7 @@ use stacks_common::util::hash::{Hash160, hex_bytes, to_hex};
 use stacks_common::util::retry::LogReader;
 use stacks_common::util::secp256k1::{Secp256k1PrivateKey, Secp256k1PublicKey};
 use stacks_common::util::vrf::VRFProof;
+use stacks_marf::marf::{MARF, MARFOpenOpts, MarfConnection};
 use stackslib::burnchains::bitcoin::{BitcoinNetworkType, spv};
 use stackslib::burnchains::db::BurnchainDB;
 use stackslib::burnchains::{Address, Burnchain, PoxConstants};
@@ -84,7 +85,6 @@ use stackslib::chainstate::stacks::StacksBlockHeader;
 use stackslib::chainstate::stacks::db::{
     StacksAccount, StacksBlockHeaderTypes, StacksChainState, StacksHeaderInfo,
 };
-use stackslib::chainstate::stacks::index::marf::{MARF, MARFOpenOpts, MarfConnection};
 use stackslib::clarity::vm::ClarityVersion;
 use stackslib::clarity::vm::costs::ExecutionCost;
 use stackslib::clarity::vm::types::StacksAddressExtensions;
@@ -347,7 +347,6 @@ fn build_common_opts(cli: &Cli) -> CommonOpts {
     // Handle --network-config option
     if let Some(ref network) = cli.network_config {
         let config_file = match network.to_lowercase().as_str() {
-            "helium" => ConfigFile::helium(),
             "mainnet" => ConfigFile::mainnet(),
             "xenon" => ConfigFile::xenon(),
             other => {

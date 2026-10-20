@@ -30,10 +30,15 @@ use stacks_common::types::sqlite::NO_PARAMS;
 use stacks_common::types::StacksPublicKeyBuffer;
 use stacks_common::util::hash::{hex_bytes, to_hex, Sha512Trunc256Sum};
 use stacks_common::util::vrf::*;
+use stacks_marf::file::TrieFile;
+use stacks_marf::marf::{test_override_marf_compression, MARFOpenOpts, MarfConnection, MARF};
+use stacks_marf::ClarityMarfTrieId;
 
+#[cfg(test)]
+use crate::burnchains::BurnchainStateTransitionOps;
 use crate::burnchains::{
-    Burnchain, BurnchainBlockHeader, BurnchainStateTransition, BurnchainStateTransitionOps,
-    BurnchainView, Error as BurnchainError, PoxConstants, Txid,
+    Burnchain, BurnchainBlockHeader, BurnchainStateTransition, BurnchainView,
+    Error as BurnchainError, PoxConstants, Txid,
 };
 use crate::chainstate::burn::operations::leader_block_commit::{
     MissedBlockCommit, RewardSetInfo, RewardSetInfoV0, RewardSetInfoWaterfall, OUTPUTS_PER_COMMIT,
@@ -52,11 +57,6 @@ use crate::chainstate::nakamoto::NakamotoChainState;
 use crate::chainstate::stacks::address::PoxAddress;
 use crate::chainstate::stacks::boot::{PoxStartCycleInfo, RewardSet};
 use crate::chainstate::stacks::db::{StacksBlockHeaderTypes, StacksChainState};
-use crate::chainstate::stacks::index::file::TrieFile;
-use crate::chainstate::stacks::index::marf::{
-    test_override_marf_compression, MARFOpenOpts, MarfConnection, MARF,
-};
-use crate::chainstate::stacks::index::ClarityMarfTrieId;
 use crate::chainstate::ChainstateDB;
 use crate::core::{EpochList, StacksEpoch, StacksEpochExtension, StacksEpochId};
 use crate::net::neighbors::MAX_NEIGHBOR_BLOCK_DELAY;
@@ -4218,6 +4218,7 @@ impl SortitionDB {
         handle.get_pox_id().map_err(BurnchainError::from)
     }
 
+    #[cfg(test)]
     pub fn get_sortition_result(
         &self,
         id: &SortitionId,

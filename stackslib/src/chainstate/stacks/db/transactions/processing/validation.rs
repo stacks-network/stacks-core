@@ -100,5 +100,18 @@ pub fn precheck_transaction(
             })?;
     }
 
+    // Same rule as static block validation, so a block that would fail
+    // there is never mined or staged.
+    stacks_transactions::check_contract_names_supported_in_epoch(
+        &tx.payload,
+        &tx.post_conditions,
+        epoch_id,
+    )
+    .map_err(|reason| {
+        let msg = format!("Invalid transaction {}: {reason}", tx.txid());
+        info!("{msg}");
+        Error::InvalidStacksTransaction(msg, false)
+    })?;
+
     Ok(())
 }

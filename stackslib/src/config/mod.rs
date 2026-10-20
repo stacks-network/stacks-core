@@ -35,6 +35,7 @@ use std::time::Duration;
 use std::{cmp, fs, thread};
 
 use clarity::vm::costs::ExecutionCost;
+use clarity::vm::representations::CONTRACT_MAX_NAME_LENGTH;
 use clarity::vm::types::{AssetIdentifier, PrincipalData, QualifiedContractIdentifier};
 use rand::RngCore;
 use serde::Deserialize;
@@ -42,9 +43,12 @@ use stacks_common::consts::SIGNER_SLOTS_PER_USER;
 use stacks_common::types::chainstate::StacksAddress;
 use stacks_common::types::net::PeerAddress;
 use stacks_common::types::Address;
+use stacks_common::util::db::SqliteVfs;
 use stacks_common::util::get_epoch_time_ms;
 use stacks_common::util::hash::hex_bytes;
 use stacks_common::util::secp256k1::{Secp256k1PrivateKey, Secp256k1PublicKey};
+use stacks_marf::marf::MARFOpenOpts;
+use stacks_marf::storage::TrieHashCalculationMode;
 
 use crate::burnchains::bitcoin::{signet, BitcoinNetworkType};
 use crate::burnchains::{Burnchain, MagicBytes, BLOCKSTACK_MAGIC_MAINNET};
@@ -53,8 +57,6 @@ use crate::chainstate::nakamoto::signer_set::{
     set_pox_5_sbtc_registry_contract, NakamotoSigners,
 };
 use crate::chainstate::stacks::boot::MINERS_NAME;
-use crate::chainstate::stacks::index::marf::MARFOpenOpts;
-use crate::chainstate::stacks::index::storage::TrieHashCalculationMode;
 use crate::chainstate::stacks::miner::{BlockBuilderSettings, MinerStatus};
 use crate::chainstate::stacks::MAX_BLOCK_LEN;
 use crate::config::chain_data::MinerStats;
@@ -163,6 +165,9 @@ const DEFAULT_MAX_EXECUTION_TIME_SECS: u64 = 30;
 const DEFAULT_MAX_ANALYSIS_TIME_SECS: u64 = 30;
 /// Default number of seconds that a miner should wait before timing out an HTTP request to StackerDB.
 const DEFAULT_STACKERDB_TIMEOUT_SECS: u64 = 10;
+/// Default number of milliseconds that a miner should wait before re-proposing a
+/// block that some signers rejected for a transient reason.
+const DEFAULT_TRANSIENT_REJECTION_RETRY_MS: u64 = 5_000;
 /// Default maximum size for a tenure (note: the counter is reset on tenure extend).
 pub const DEFAULT_MAX_TENURE_BYTES: u64 = 10 * 1024 * 1024; // 10 MB
 /// Default maximum memory allocation during miner block assembly
@@ -173,7 +178,7 @@ pub const DEFAULT_PROPOSAL_MEMORY_BYTES: u64 = 3 * 1024 * 1024 * 1024; // 3 GB
 /// Default maximum heap allocation for a single read-only RPC call before it is aborted.
 pub const DEFAULT_READ_ONLY_CALL_MAX_MEM_BYTES: u64 = 1024 * 1024 * 1024; // 1 GB
 
-static HELIUM_DEFAULT_CONNECTION_OPTIONS: LazyLock<ConnectionOptions> =
+static DEFAULT_CONNECTION_OPTIONS: LazyLock<ConnectionOptions> =
     LazyLock::new(|| ConnectionOptions {
         inbox_maxlen: 100,
         outbox_maxlen: 100,
@@ -338,42 +343,6 @@ impl ConfigFile {
             burnchain: Some(burnchain),
             node: Some(node),
             ustx_balance: None,
-            ..ConfigFile::default()
-        }
-    }
-
-    pub fn helium() -> ConfigFile {
-        // ## Settings for local testnet, relying on a local bitcoind server
-        // ## running with the following bitcoin.conf:
-        // ##
-        // ##    chain=regtest
-        // ##    disablewallet=0
-        // ##    txindex=1
-        // ##    server=1
-        // ##    rpcuser=helium
-        // ##    rpcpassword=helium
-        // ##
-        let burnchain = BurnchainConfigFile {
-            mode: Some("helium".to_string()),
-            commit_anchor_block_within: Some(10_000),
-            rpc_port: Some(18443),
-            peer_port: Some(18444),
-            peer_host: Some("0.0.0.0".to_string()),
-            username: Some("helium".to_string()),
-            password: Some("helium".to_string()),
-            local_mining_public_key: Some("04ee0b1602eb18fef7986887a7e8769a30c9df981d33c8380d255edef003abdcd243a0eb74afdf6740e6c423e62aec631519a24cf5b1d62bf8a3e06ddc695dcb77".to_string()),
-            ..BurnchainConfigFile::default()
-        };
-
-        let node = NodeConfigFile {
-            miner: Some(false),
-            stacker: Some(false),
-            ..NodeConfigFile::default()
-        };
-
-        ConfigFile {
-            burnchain: Some(burnchain),
-            node: Some(node),
             ..ConfigFile::default()
         }
     }
@@ -890,10 +859,6 @@ impl Config {
             .unwrap_or_default()
             .into_config_default(default_burnchain_config)?;
 
-        if burnchain.mode == "helium" && burnchain.local_mining_public_key.is_none() {
-            return Err("Config is missing the setting `burnchain.local_mining_public_key` (mandatory for helium)".into());
-        }
-
         let is_mainnet = burnchain.mode == "mainnet";
 
         // Parse the node config
@@ -1039,7 +1004,7 @@ impl Config {
 
         let connection_options = match config_file.connection_options {
             Some(opts) => opts.into_config(is_mainnet)?,
-            None => HELIUM_DEFAULT_CONNECTION_OPTIONS.clone(),
+            None => DEFAULT_CONNECTION_OPTIONS.clone(),
         };
 
         let estimation = match config_file.fee_estimation {
@@ -1171,14 +1136,6 @@ impl Config {
         self.initial_balances.push(new_balance);
     }
 
-    pub fn get_initial_liquid_ustx(&self) -> u128 {
-        let mut total = 0;
-        for ib in self.initial_balances.iter() {
-            total += ib.amount as u128
-        }
-        total
-    }
-
     pub fn is_mainnet(&self) -> bool {
         matches!(self.burnchain.mode.as_str(), "mainnet")
     }
@@ -1193,10 +1150,6 @@ impl Config {
         set_pox_5_bond_admin(self.node.pox_5_bond_admin.clone());
         set_pox_5_pause_admin(self.node.pox_5_pause_admin.clone());
         set_log_stackerdb_chunk_sources(self.node.log_stackerdb_chunk_sources);
-    }
-
-    pub fn is_node_event_driven(&self) -> bool {
-        !self.events_observers.is_empty()
     }
 
     pub fn make_nakamoto_block_builder_settings(
@@ -1309,7 +1262,7 @@ impl std::default::Default for Config {
         let node = NodeConfig::default();
         let burnchain = BurnchainConfig::default();
 
-        let connection_options = HELIUM_DEFAULT_CONNECTION_OPTIONS.clone();
+        let connection_options = DEFAULT_CONNECTION_OPTIONS.clone();
         let estimation = FeeEstimationConfig::default();
         let mainnet = burnchain.mode == "mainnet";
 
@@ -1328,11 +1281,9 @@ impl std::default::Default for Config {
 }
 
 /// Burnchain modes accepted in the config file; `get_bitcoin_network()` panics
-/// on any mode outside this list. stacks-node's `main.rs` runs every mode except
-/// helium on the Nakamoto boot run loop.
+/// on any mode outside this list. stacks-node's `main.rs` runs every mode on the
+/// Nakamoto boot run loop.
 const SUPPORTED_MODES: &[&str] = &[
-    // Deprecated: to be removed with the helium run loop (see #7325).
-    "helium",
     "neon",
     "krypton",
     "xenon",
@@ -1357,7 +1308,6 @@ pub struct BurnchainConfig {
     /// - `"mainnet"`: mainnet
     /// - `"xenon"`: testnet
     /// - `"signet"`: public or custom Bitcoin signet through a trusted Bitcoin Core peer
-    /// - `"helium"`: regtest
     /// - `"neon"`: regtest
     /// - `"krypton"`: regtest
     /// - `"nakamoto-neon"`: regtest
@@ -1385,16 +1335,6 @@ pub struct BurnchainConfig {
     /// @notes:
     ///   - **Warning:** Do not modify this unless you really know what you're doing.
     pub peer_version: u32,
-    /// Specifies a mandatory wait period (in milliseconds) after receiving a burnchain tip
-    /// before the node attempts to build the anchored block for the new tenure.
-    /// This duration effectively schedules the start of the block-building process
-    /// relative to the tip's arrival time.
-    /// ---
-    /// @default: `5_000`
-    /// @units: milliseconds
-    /// @notes:
-    ///   - This is intended strictly for testing purposes.
-    pub commit_anchor_block_within: u64,
     /// The maximum amount (in sats) of "burn commitment" to broadcast for the next
     /// block's leader election. Acts as a safety cap to limit the maximum amount
     /// spent on mining. It serves as both the target fee and a fallback if dynamic
@@ -1479,16 +1419,11 @@ pub struct BurnchainConfig {
     /// Bitcoin regtest node. Provided as a hex string representing an uncompressed
     /// public key.
     ///
-    /// It is primarily used in modes that rely on a controlled Bitcoin regtest
-    /// backend (e.g., "helium", "neon") where the Stacks node itself
-    /// needs to instruct the Bitcoin node to generate blocks.
-    ///
-    /// The key is used to derive the Bitcoin address that receives the coinbase
-    /// rewards when generating blocks on the regtest network.
+    /// Only test helpers read it, to have the regtest Bitcoin node generate blocks
+    /// that pay their coinbase to this key's address.
     /// ---
     /// @default: `None`
     /// @notes:
-    ///   - Mandatory if [`BurnchainConfig::mode`] is "helium".
     ///   - This is intended strictly for testing purposes.
     pub local_mining_public_key: Option<String>,
     /// Optional bitcoin block height at which the Stacks node process should
@@ -1732,7 +1667,6 @@ impl BurnchainConfig {
             chain_id: CHAIN_ID_TESTNET,
             peer_version: PEER_VERSION_TESTNET,
             burn_fee_cap: 20000,
-            commit_anchor_block_within: 5000,
             peer_host: "0.0.0.0".to_string(),
             peer_port: 8333,
             rpc_port: 8332,
@@ -1770,7 +1704,7 @@ impl BurnchainConfig {
             "mainnet" => ("mainnet".to_string(), BitcoinNetworkType::Mainnet),
             "xenon" => ("testnet".to_string(), BitcoinNetworkType::Testnet),
             "signet" => ("signet".to_string(), BitcoinNetworkType::Signet),
-            "helium" | "neon" | "krypton" | "nakamoto-neon" => {
+            "neon" | "krypton" | "nakamoto-neon" => {
                 ("regtest".to_string(), BitcoinNetworkType::Regtest)
             }
             other => panic!("Invalid stacks-node mode: {other}"),
@@ -1811,7 +1745,6 @@ pub struct BurnchainConfigFile {
     pub mode: Option<String>,
     pub chain_id: Option<u32>,
     pub burn_fee_cap: Option<u64>,
-    pub commit_anchor_block_within: Option<u64>,
     pub peer_host: Option<String>,
     pub peer_port: Option<u16>,
     pub rpc_port: Option<u16>,
@@ -1932,9 +1865,6 @@ impl BurnchainConfigFile {
             burn_fee_cap: self
                 .burn_fee_cap
                 .unwrap_or(default_burnchain_config.burn_fee_cap),
-            commit_anchor_block_within: self
-                .commit_anchor_block_within
-                .unwrap_or(default_burnchain_config.commit_anchor_block_within),
             peer_host: match self.peer_host.as_ref() {
                 Some(peer_host) => {
                     format!("{}:1", &peer_host)
@@ -2059,11 +1989,6 @@ impl BurnchainConfigFile {
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct NodeConfig {
-    /// Human-readable name for the node. Primarily used for identification in testing
-    /// environments (e.g., deriving log file names, temporary directory names).
-    /// ---
-    /// @default: `"helium-node"`
-    pub name: String,
     /// The node's Bitcoin wallet private key, provided as a hex string in the config file.
     /// Used to initialize the node's keychain for signing operations.
     /// If [`MinerConfig::mining_key`] is not set, this seed may also be used for
@@ -2175,11 +2100,6 @@ pub struct NodeConfig {
     ///   - Only applies when [`NodeConfig::mine_microblocks`] is true and before Epoch 2.5.
     /// @units: milliseconds
     pub microblock_frequency: u64,
-    /// The maximum number of microblocks allowed per Stacks block.
-    /// ---
-    /// @default: `65535` (u16::MAX)
-    /// @deprecated: This setting is ignored in Epoch 2.5+.
-    pub max_microblocks: u64,
     /// Cooldown period after a microblock is produced, in milliseconds.
     /// ---
     /// @default: `30_000` (30 seconds)
@@ -2234,6 +2154,28 @@ pub struct NodeConfig {
     ///   - Compression affects only the on-disk MARF representation; in-memory behavior
     ///     remains unchanged.
     pub marf_compress: bool,
+    /// SQLite VFS (OS interface layer) used to open every node database.
+    ///
+    /// Possible values:
+    /// - `"default"`: SQLite's platform default. Databases can be opened by several
+    ///   processes at once, and every WAL-mode transaction takes and releases file
+    ///   locks on the database and its `-shm` file.
+    /// - `"unix-excl"`: each database is locked exclusively by the node process for as
+    ///   long as it is open, and the WAL index lives in memory instead of a `-shm`
+    ///   file. Removes the per-transaction lock calls, which are expensive on network
+    ///   and clustered filesystems where each lock is a round trip to the storage.
+    /// ---
+    /// @default: `"default"`
+    /// @notes:
+    ///   - With `"unix-excl"`, no other process can open the node's databases while
+    ///     the node runs; offline tools such as `stacks-inspect` must run with the
+    ///     node stopped.
+    ///   - `"unix-excl"` is only available on unix platforms.
+    ///   - Does not change the on-disk format. Switching between values takes effect
+    ///     on restart and needs no migration.
+    /// @toml_example: |
+    ///   sqlite_vfs = "unix-excl"
+    pub sqlite_vfs: SqliteVfs,
     /// Sampling interval in seconds for the PoX synchronization watchdog thread
     /// (pre-Nakamoto). Determines how often the watchdog checked PoX state
     /// consistency in the Neon run loop.
@@ -2267,13 +2209,6 @@ pub struct NodeConfig {
     ///   - This parameter cannot be set via the configuration file; it must be modified
     ///     programmatically.
     pub fault_injection_hide_blocks: bool,
-    /// The polling interval, in seconds, for the background thread that monitors
-    /// chain liveness. This thread periodically wakes up the main coordinator to
-    /// check for chain progress or other conditions requiring action.
-    /// ---
-    /// @default: `300` (5 minutes)
-    /// @units: seconds
-    pub chain_liveness_poll_time_secs: u64,
     /// By default, HTTP requests to event observers block the operation of the node
     /// until a successful response is received from the observer. This creates a
     /// predictable order of operations, but it also means that an event observer that
@@ -2583,9 +2518,7 @@ impl Default for NodeConfig {
         let mut seed = [0u8; 32];
         rng.fill_bytes(&mut seed);
 
-        let name = "helium-node";
         NodeConfig {
-            name: name.to_string(),
             seed: seed.to_vec(),
             working_dir: format!("/tmp/{testnet_id}"),
             rpc_bind: format!("0.0.0.0:{rpc_port}"),
@@ -2601,18 +2534,17 @@ impl Default for NodeConfig {
             mock_mining_output_dir: None,
             mine_microblocks: true,
             microblock_frequency: 30_000,
-            max_microblocks: u16::MAX as u64,
             wait_time_for_microblocks: 30_000,
             wait_time_for_blocks: 30_000,
             next_initiative_delay: 10_000,
             prometheus_bind: None,
             marf_defer_hashing: true,
             marf_compress: true,
+            sqlite_vfs: SqliteVfs::default(),
             pox_sync_sample_secs: 30,
             use_test_genesis_chainstate: None,
             fault_injection_block_push_fail_probability: None,
             fault_injection_hide_blocks: false,
-            chain_liveness_poll_time_secs: 300,
             event_dispatcher_blocking: true,
             event_dispatcher_queue_size: 1000,
             stacker_dbs: vec![],
@@ -3273,6 +3205,29 @@ pub struct MinerConfig {
     ///   "20" = 45
     ///   "30" = 0
     pub block_rejection_timeout_steps: HashMap<u32, Duration>,
+    /// Maximum duration to wait before re-proposing a block that some signers
+    /// rejected for a transient reason.
+    ///
+    /// Transient rejections are caused by a signer's view lagging behind the
+    /// network, and typically occur right after a new burn block: the signer has
+    /// not yet processed the burn block, received the parent block, or received
+    /// enough state machine updates from its peers to reach consensus on the
+    /// signer state. These usually resolve within seconds, and signers
+    /// re-evaluate the block when it is proposed again. While any such rejection
+    /// is outstanding, the miner re-proposes the block after this duration
+    /// instead of the timeout selected from
+    /// [`MinerConfig::block_rejection_timeout_steps`]. This applies even if the
+    /// rejections exceed the blocking minority (30% of the signing weight), as
+    /// long as they would not without the transient rejections: the miner
+    /// re-proposes the same block rather than abandoning it.
+    /// ---
+    /// @default: [`DEFAULT_TRANSIENT_REJECTION_RETRY_MS`]
+    /// @units: milliseconds
+    /// @notes:
+    ///   - Transient rejection reasons are `NoSignerConsensus`,
+    ///     `ConsensusHashMismatch`, `NoSortitionView`, `ConnectivityIssues`, and
+    ///     validation failures with `UnknownParent` or `NotFoundError`.
+    pub transient_rejection_retry_timeout: Duration,
     /// Defines the maximum execution time (in seconds) allowed for a single contract call
     /// transaction during mining.
     ///
@@ -3378,6 +3333,9 @@ impl Default for MinerConfig {
                 rejections_timeouts_default_map.insert(30, Duration::from_secs(0));
                 rejections_timeouts_default_map
             },
+            transient_rejection_retry_timeout: Duration::from_millis(
+                DEFAULT_TRANSIENT_REJECTION_RETRY_MS,
+            ),
             max_execution_time_secs: DEFAULT_MAX_EXECUTION_TIME_SECS,
             max_analysis_time_secs: DEFAULT_MAX_ANALYSIS_TIME_SECS,
             stackerdb_timeout: Duration::from_secs(DEFAULT_STACKERDB_TIMEOUT_SECS),
@@ -3940,9 +3898,7 @@ impl ConnectionOptionsFile {
                     .map_err(|e| format!("Invalid connection_option.public_ip_address: {e}"))
             })
             .transpose()?;
-        let mut read_only_call_limit = HELIUM_DEFAULT_CONNECTION_OPTIONS
-            .read_only_call_limit
-            .clone();
+        let mut read_only_call_limit = DEFAULT_CONNECTION_OPTIONS.read_only_call_limit.clone();
         if let Some(x) = self.read_only_call_limit_write_length {
             read_only_call_limit.write_length = x;
         }
@@ -3963,71 +3919,71 @@ impl ConnectionOptionsFile {
             read_only_call_limit,
             inbox_maxlen: self
                 .inbox_maxlen
-                .unwrap_or_else(|| HELIUM_DEFAULT_CONNECTION_OPTIONS.inbox_maxlen),
+                .unwrap_or_else(|| DEFAULT_CONNECTION_OPTIONS.inbox_maxlen),
             outbox_maxlen: self
                 .outbox_maxlen
-                .unwrap_or_else(|| HELIUM_DEFAULT_CONNECTION_OPTIONS.outbox_maxlen),
+                .unwrap_or_else(|| DEFAULT_CONNECTION_OPTIONS.outbox_maxlen),
             timeout: self
                 .timeout
-                .unwrap_or_else(|| HELIUM_DEFAULT_CONNECTION_OPTIONS.timeout),
+                .unwrap_or_else(|| DEFAULT_CONNECTION_OPTIONS.timeout),
             idle_timeout: self
                 .idle_timeout
-                .unwrap_or_else(|| HELIUM_DEFAULT_CONNECTION_OPTIONS.idle_timeout),
+                .unwrap_or_else(|| DEFAULT_CONNECTION_OPTIONS.idle_timeout),
             heartbeat: self
                 .heartbeat
-                .unwrap_or_else(|| HELIUM_DEFAULT_CONNECTION_OPTIONS.heartbeat),
+                .unwrap_or_else(|| DEFAULT_CONNECTION_OPTIONS.heartbeat),
             private_key_lifetime: self
                 .private_key_lifetime
-                .unwrap_or_else(|| HELIUM_DEFAULT_CONNECTION_OPTIONS.private_key_lifetime),
+                .unwrap_or_else(|| DEFAULT_CONNECTION_OPTIONS.private_key_lifetime),
             num_neighbors: self
                 .num_neighbors
-                .unwrap_or_else(|| HELIUM_DEFAULT_CONNECTION_OPTIONS.num_neighbors),
+                .unwrap_or_else(|| DEFAULT_CONNECTION_OPTIONS.num_neighbors),
             num_clients: self
                 .num_clients
-                .unwrap_or_else(|| HELIUM_DEFAULT_CONNECTION_OPTIONS.num_clients),
+                .unwrap_or_else(|| DEFAULT_CONNECTION_OPTIONS.num_clients),
             soft_num_neighbors: self
                 .soft_num_neighbors
-                .unwrap_or_else(|| HELIUM_DEFAULT_CONNECTION_OPTIONS.soft_num_neighbors),
+                .unwrap_or_else(|| DEFAULT_CONNECTION_OPTIONS.soft_num_neighbors),
             soft_num_clients: self
                 .soft_num_clients
-                .unwrap_or_else(|| HELIUM_DEFAULT_CONNECTION_OPTIONS.soft_num_clients),
+                .unwrap_or_else(|| DEFAULT_CONNECTION_OPTIONS.soft_num_clients),
             soft_max_neighbors_per_org: self
                 .soft_max_neighbors_per_org
-                .unwrap_or_else(|| HELIUM_DEFAULT_CONNECTION_OPTIONS.soft_max_neighbors_per_org),
+                .unwrap_or_else(|| DEFAULT_CONNECTION_OPTIONS.soft_max_neighbors_per_org),
             soft_max_clients_per_host: self
                 .soft_max_clients_per_host
-                .unwrap_or_else(|| HELIUM_DEFAULT_CONNECTION_OPTIONS.soft_max_clients_per_host),
+                .unwrap_or_else(|| DEFAULT_CONNECTION_OPTIONS.soft_max_clients_per_host),
             walk_interval: self
                 .walk_interval
-                .unwrap_or_else(|| HELIUM_DEFAULT_CONNECTION_OPTIONS.walk_interval),
+                .unwrap_or_else(|| DEFAULT_CONNECTION_OPTIONS.walk_interval),
             walk_seed_probability: self
                 .walk_seed_probability
-                .unwrap_or_else(|| HELIUM_DEFAULT_CONNECTION_OPTIONS.walk_seed_probability),
+                .unwrap_or_else(|| DEFAULT_CONNECTION_OPTIONS.walk_seed_probability),
             log_neighbors_freq: self
                 .log_neighbors_freq
-                .unwrap_or_else(|| HELIUM_DEFAULT_CONNECTION_OPTIONS.log_neighbors_freq),
+                .unwrap_or_else(|| DEFAULT_CONNECTION_OPTIONS.log_neighbors_freq),
             dns_timeout: self
                 .dns_timeout
                 .map(|dns_timeout| dns_timeout as u128)
-                .unwrap_or_else(|| HELIUM_DEFAULT_CONNECTION_OPTIONS.dns_timeout),
+                .unwrap_or_else(|| DEFAULT_CONNECTION_OPTIONS.dns_timeout),
             max_inflight_blocks: self
                 .max_inflight_blocks
-                .unwrap_or_else(|| HELIUM_DEFAULT_CONNECTION_OPTIONS.max_inflight_blocks),
+                .unwrap_or_else(|| DEFAULT_CONNECTION_OPTIONS.max_inflight_blocks),
             max_inflight_attachments: self
                 .max_inflight_attachments
-                .unwrap_or_else(|| HELIUM_DEFAULT_CONNECTION_OPTIONS.max_inflight_attachments),
+                .unwrap_or_else(|| DEFAULT_CONNECTION_OPTIONS.max_inflight_attachments),
             maximum_call_argument_size: self
                 .maximum_call_argument_size
-                .unwrap_or_else(|| HELIUM_DEFAULT_CONNECTION_OPTIONS.maximum_call_argument_size),
+                .unwrap_or_else(|| DEFAULT_CONNECTION_OPTIONS.maximum_call_argument_size),
             download_interval: self
                 .download_interval
-                .unwrap_or_else(|| HELIUM_DEFAULT_CONNECTION_OPTIONS.download_interval),
+                .unwrap_or_else(|| DEFAULT_CONNECTION_OPTIONS.download_interval),
             inv_sync_interval: self
                 .inv_sync_interval
-                .unwrap_or_else(|| HELIUM_DEFAULT_CONNECTION_OPTIONS.inv_sync_interval),
+                .unwrap_or_else(|| DEFAULT_CONNECTION_OPTIONS.inv_sync_interval),
             inv_reward_cycles: self.inv_reward_cycles.unwrap_or_else(|| {
                 if is_mainnet {
-                    HELIUM_DEFAULT_CONNECTION_OPTIONS.inv_reward_cycles
+                    DEFAULT_CONNECTION_OPTIONS.inv_reward_cycles
                 } else {
                     // testnet reward cycles are a bit smaller (and blocks can go by
                     // faster), so make our inventory
@@ -4042,7 +3998,7 @@ impl ConnectionOptionsFile {
             force_disconnect_interval: self.force_disconnect_interval,
             max_http_clients: self
                 .max_http_clients
-                .unwrap_or_else(|| HELIUM_DEFAULT_CONNECTION_OPTIONS.max_http_clients),
+                .unwrap_or_else(|| DEFAULT_CONNECTION_OPTIONS.max_http_clients),
             connect_timeout: self.connect_timeout.unwrap_or(10),
             handshake_timeout: self.handshake_timeout.unwrap_or(default.handshake_timeout),
             max_sockets: self.max_sockets.unwrap_or(800) as usize,
@@ -4104,7 +4060,6 @@ impl ConnectionOptionsFile {
 #[derive(Clone, Deserialize, Default, Debug)]
 #[serde(deny_unknown_fields)]
 pub struct NodeConfigFile {
-    pub name: Option<String>,
     pub seed: Option<String>,
     pub deny_nodes: Option<String>,
     pub working_dir: Option<String>,
@@ -4120,7 +4075,6 @@ pub struct NodeConfigFile {
     pub mock_mining_output_dir: Option<String>,
     pub mine_microblocks: Option<bool>,
     pub microblock_frequency: Option<u64>,
-    pub max_microblocks: Option<u64>,
     pub wait_time_for_microblocks: Option<u64>,
     pub wait_time_for_blocks: Option<u64>,
     pub next_initiative_delay: Option<u64>,
@@ -4129,11 +4083,9 @@ pub struct NodeConfigFile {
     pub marf_cache_strategy: Option<String>,
     pub marf_defer_hashing: Option<bool>,
     pub marf_compress: Option<bool>,
+    pub sqlite_vfs: Option<String>,
     pub pox_sync_sample_secs: Option<u64>,
     pub use_test_genesis_chainstate: Option<bool>,
-    /// At most, how often should the chain-liveness thread
-    ///  wake up the chains-coordinator. Defaults to 300s (5 min).
-    pub chain_liveness_poll_time_secs: Option<u64>,
     pub event_dispatcher_blocking: Option<bool>,
     /// Only relevant if `event_dispatcher_blocking` is false
     pub event_dispatcher_queue_size: Option<usize>,
@@ -4174,7 +4126,6 @@ impl NodeConfigFile {
         let miner = self.miner.unwrap_or(default_node_config.miner);
         let stacker = self.stacker.unwrap_or(default_node_config.stacker);
         let node_config = NodeConfig {
-            name: self.name.unwrap_or(default_node_config.name),
             seed: match self.seed {
                 Some(seed) => hex_bytes(&seed)
                     .map_err(|_e| "node.seed should be a hex encoded string".to_string())?,
@@ -4213,9 +4164,6 @@ impl NodeConfigFile {
             microblock_frequency: self
                 .microblock_frequency
                 .unwrap_or(default_node_config.microblock_frequency),
-            max_microblocks: self
-                .max_microblocks
-                .unwrap_or(default_node_config.max_microblocks),
             wait_time_for_microblocks: self
                 .wait_time_for_microblocks
                 .unwrap_or(default_node_config.wait_time_for_microblocks),
@@ -4232,6 +4180,13 @@ impl NodeConfigFile {
             marf_compress: self
                 .marf_compress
                 .unwrap_or(default_node_config.marf_compress),
+            sqlite_vfs: match self.sqlite_vfs {
+                Some(vfs) => vfs
+                    .parse::<SqliteVfs>()
+                    .and_then(SqliteVfs::ensure_supported)
+                    .map_err(|e| format!("node.sqlite_vfs: {e}"))?,
+                None => default_node_config.sqlite_vfs,
+            },
             pox_sync_sample_secs: self
                 .pox_sync_sample_secs
                 .unwrap_or(default_node_config.pox_sync_sample_secs),
@@ -4239,9 +4194,6 @@ impl NodeConfigFile {
             // chainstate fault_injection activation for hide_blocks.
             // you can't set this in the config file.
             fault_injection_hide_blocks: false,
-            chain_liveness_poll_time_secs: self
-                .chain_liveness_poll_time_secs
-                .unwrap_or(default_node_config.chain_liveness_poll_time_secs),
             event_dispatcher_blocking: self
                 .event_dispatcher_blocking
                 .unwrap_or(default_node_config.event_dispatcher_blocking),
@@ -4438,6 +4390,7 @@ pub struct MinerConfigFile {
     pub tenure_timeout_secs: Option<u64>,
     pub tenure_extend_cost_threshold: Option<u64>,
     pub block_rejection_timeout_steps: Option<HashMap<String, u64>>,
+    pub transient_rejection_retry_timeout_ms: Option<u64>,
     pub max_execution_time_secs: Option<u64>,
     pub max_analysis_time_secs: Option<u64>,
     pub stackerdb_timeout_secs: Option<u64>,
@@ -4518,11 +4471,19 @@ impl MinerConfigFile {
             block_reward_recipient: self
                 .block_reward_recipient
                 .map(|c| {
-                    PrincipalData::parse(&c).map_err(|e| {
+                    let principal = PrincipalData::parse(&c).map_err(|e| {
                         format!(
                             "miner.block_reward_recipient is not a valid principal identifier: {e}"
                         )
-                    })
+                    })?;
+                    // No contract with such a name can be deployed, and from
+                    // Epoch 4.1 a coinbase paying one fails block validation.
+                    if principal.has_overlong_contract_name() {
+                        return Err(format!(
+                            "miner.block_reward_recipient has a contract name longer than {CONTRACT_MAX_NAME_LENGTH} bytes"
+                        ));
+                    }
+                    Ok(principal)
                 })
                 .transpose()?,
             segwit: self.segwit.unwrap_or(miner_default_config.segwit),
@@ -4633,6 +4594,10 @@ impl MinerConfigFile {
                     miner_default_config.block_rejection_timeout_steps
                 }
             },
+            transient_rejection_retry_timeout: self
+                .transient_rejection_retry_timeout_ms
+                .map(Duration::from_millis)
+                .unwrap_or(miner_default_config.transient_rejection_retry_timeout),
 
             max_execution_time_secs: self
                 .max_execution_time_secs
@@ -5271,6 +5236,33 @@ mod tests {
         assert!(!disables_contract_interface("localhost:30001"));
     }
 
+    #[rstest]
+    #[case::max_len(40, true)]
+    #[case::overlong(41, false)]
+    fn test_block_reward_recipient_contract_name_length(
+        #[case] name_len: usize,
+        #[case] accepted: bool,
+    ) {
+        let config = format!(
+            r#"
+            [burnchain]
+            mode = "krypton"
+            [miner]
+            block_reward_recipient = "ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM.{}"
+            "#,
+            "a".repeat(name_len)
+        );
+        let result = Config::from_config_file(ConfigFile::from_str(&config).unwrap(), false);
+        if accepted {
+            result.unwrap();
+        } else {
+            assert_eq!(
+                "miner.block_reward_recipient has a contract name longer than 40 bytes",
+                result.unwrap_err()
+            );
+        }
+    }
+
     #[test]
     fn test_wallet_name_is_required_for_real_miners() {
         for wallet_setting in ["", "wallet_name = \"   \""] {
@@ -5533,7 +5525,7 @@ mod tests {
             let err = ConfigFile::from_str(
                 r#"
             [node]
-            name = "test"
+            working_dir = "test"
             unknown_field = "test"
             "#,
             )
@@ -5876,6 +5868,84 @@ mod tests {
     }
 
     #[test]
+    fn test_load_node_sqlite_vfs_config() {
+        let config = utils::config_from_valid_string(
+            r#"
+                [burnchain]
+                mode = "krypton"
+                [node]
+                "#,
+        );
+        assert_eq!(config.node.sqlite_vfs, SqliteVfs::Default, "default VFS");
+
+        let config = utils::config_from_valid_string(
+            r#"
+                [burnchain]
+                mode = "krypton"
+                [node]
+                sqlite_vfs = "default"
+                "#,
+        );
+        assert_eq!(
+            config.node.sqlite_vfs,
+            SqliteVfs::Default,
+            "explicit default"
+        );
+
+        #[cfg(unix)]
+        {
+            let config = utils::config_from_valid_string(
+                r#"
+                    [burnchain]
+                    mode = "krypton"
+                    [node]
+                    sqlite_vfs = "unix-excl"
+                    "#,
+            );
+            assert_eq!(config.node.sqlite_vfs, SqliteVfs::UnixExcl, "unix-excl");
+        }
+
+        #[cfg(not(unix))]
+        {
+            let err = Config::from_config_file(
+                ConfigFile::from_str(
+                    r#"
+                    [burnchain]
+                    mode = "krypton"
+                    [node]
+                    sqlite_vfs = "unix-excl"
+                    "#,
+                )
+                .unwrap(),
+                false,
+            )
+            .unwrap_err();
+            assert_eq!(
+                err, "node.sqlite_vfs: SQLite VFS 'unix-excl' is only available on unix platforms",
+                "unix-excl rejected off unix"
+            );
+        }
+
+        let err = Config::from_config_file(
+            ConfigFile::from_str(
+                r#"
+                [burnchain]
+                mode = "krypton"
+                [node]
+                sqlite_vfs = "unix-shared"
+                "#,
+            )
+            .unwrap(),
+            false,
+        )
+        .unwrap_err();
+        assert!(
+            err.starts_with("node.sqlite_vfs: unknown SQLite VFS 'unix-shared'"),
+            "unexpected error: {err}"
+        );
+    }
+
+    #[test]
     fn test_burnchain_mode_required() {
         // No `[burnchain]` section at all is rejected.
         let err = Config::from_config_file(
@@ -5929,7 +5999,7 @@ mod tests {
     /// `get_bitcoin_network()` or exiting at startup.
     #[test]
     fn test_burnchain_mode_unsupported() {
-        for mode in ["mocknet", "argon"] {
+        for mode in ["mocknet", "argon", "helium"] {
             let err = Config::from_config_file(
                 ConfigFile::from_str(&format!("[burnchain]\nmode = \"{mode}\"")).unwrap(),
                 false,

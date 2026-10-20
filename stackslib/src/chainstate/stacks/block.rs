@@ -574,6 +574,14 @@ impl StacksBlock {
             error!("{reason}"; "txid" => %tx.txid(), "epoch_id" => %epoch_id);
             return false;
         }
+        if let Err(reason) = stacks_transactions::check_contract_names_supported_in_epoch(
+            &tx.payload,
+            &tx.post_conditions,
+            epoch_id,
+        ) {
+            error!("{reason}"; "txid" => %tx.txid(), "epoch_id" => %epoch_id);
+            return false;
+        }
         if let TransactionPayload::Coinbase(_, ref recipient_opt, ref proof_opt) = &tx.payload {
             if proof_opt.is_some() && epoch_id < StacksEpochId::Epoch30 {
                 // not supported

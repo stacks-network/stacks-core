@@ -2386,8 +2386,6 @@ impl RelayerThread {
             };
 
         self.globals
-            .set_last_miner_spend_amount(burnchain_config.burn_fee_cap);
-        self.globals
             .set_last_burnchain_config(burnchain_config.clone());
 
         set_mining_spend_amount(

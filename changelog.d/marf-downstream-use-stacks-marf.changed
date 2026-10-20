@@ -1,0 +1,1 @@
+`stacks-node`, `clarity-cli`, `stacks-inspect` and `marf-squash` now depend on `stacks-marf` directly instead of reaching the MARF through `stackslib`'s re-export, and `stacks-node`'s `testing` feature enables `stacks-marf/testing` explicitly. No behaviour change.

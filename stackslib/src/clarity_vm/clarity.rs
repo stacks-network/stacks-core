@@ -36,6 +36,7 @@ use clarity::vm::types::{BoundedErrorString, PrincipalData, QualifiedContractIde
 use clarity::vm::{ClarityVersion, ContractName};
 use stacks_common::consts::SIGNER_SLOTS_PER_USER;
 use stacks_common::types::chainstate::{StacksBlockId, TrieHash};
+use stacks_marf::marf::MARF;
 
 use crate::burnchains::PoxConstants;
 use crate::chainstate::nakamoto::signer_set::NakamotoSigners;
@@ -51,7 +52,6 @@ use crate::chainstate::stacks::boot::{
 use crate::chainstate::stacks::db::transactions::{self, TransactionProcessor};
 use crate::chainstate::stacks::db::{StacksAccount, StacksChainState};
 use crate::chainstate::stacks::events::{StacksTransactionEvent, StacksTransactionReceipt};
-use crate::chainstate::stacks::index::marf::MARF;
 use crate::chainstate::stacks::{
     Error as ChainstateError, StacksMicroblockHeader, StacksTransaction, TransactionPayload,
     TransactionSmartContract, TransactionVersion,
@@ -2563,10 +2563,10 @@ mod tests {
     use stacks_common::consts::CHAIN_ID_TESTNET;
     use stacks_common::types::chainstate::ConsensusHash;
     use stacks_common::types::sqlite::NO_PARAMS;
+    use stacks_marf::marf::{MARFOpenOpts, MarfConnection as _};
+    use stacks_marf::ClarityMarfTrieId;
 
     use super::*;
-    use crate::chainstate::stacks::index::marf::{MARFOpenOpts, MarfConnection as _};
-    use crate::chainstate::stacks::index::ClarityMarfTrieId;
     use crate::clarity_vm::database::marf::MarfedKV;
     use crate::core::PEER_VERSION_EPOCH_2_0;
 

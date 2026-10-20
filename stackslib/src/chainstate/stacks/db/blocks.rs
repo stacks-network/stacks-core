@@ -44,6 +44,7 @@ use stacks_common::util::{get_epoch_time_ms, get_epoch_time_secs};
 
 use crate::chainstate::burn::db::sortdb::*;
 use crate::chainstate::burn::operations::*;
+#[cfg(test)]
 use crate::chainstate::burn::BlockSnapshot;
 use crate::chainstate::coordinator::BlockEventDispatcher;
 use crate::chainstate::nakamoto::signer_set::{NakamotoSigners, SignerCalculation};
@@ -1460,29 +1461,6 @@ impl StacksChainState {
         self.db()
             .query_row(sql, [stacks_block], |row| row.get(0))
             .map_err(|e| Error::from(db_error::from(e)))
-    }
-
-    /// only used in integration tests with stacks-node
-    pub fn get_parent_consensus_hash(
-        sort_ic: &SortitionDBConn,
-        parent_block_hash: &BlockHeaderHash,
-        my_consensus_hash: &ConsensusHash,
-    ) -> Result<Option<ConsensusHash>, Error> {
-        let sort_handle = SortitionHandleConn::open_reader_consensus(sort_ic, my_consensus_hash)?;
-
-        // find all blocks that we have that could be this block's parent
-        let sql = "SELECT * FROM snapshots WHERE winning_stacks_block_hash = ?1";
-        let possible_parent_snapshots =
-            query_rows::<BlockSnapshot, _>(&sort_handle, sql, &[parent_block_hash])?;
-        for possible_parent in possible_parent_snapshots.into_iter() {
-            let burn_ancestor =
-                sort_handle.get_block_snapshot(&possible_parent.burn_header_hash)?;
-            if let Some(_ancestor) = burn_ancestor {
-                // found!
-                return Ok(Some(possible_parent.consensus_hash));
-            }
-        }
-        Ok(None)
     }
 
     /// Get an anchored block's parent block header.

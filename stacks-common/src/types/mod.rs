@@ -554,6 +554,24 @@ impl StacksEpochId {
         self >= &StacksEpochId::Epoch41
     }
 
+    /// Whether contract names longer than 40 bytes (`CONTRACT_MAX_NAME_LENGTH`) are
+    /// rejected wherever a new Clarity value can enter the VM.
+    ///
+    /// Before this epoch, contract principals *inside Clarity values* could carry
+    /// names up to 128 bytes (`MAX_STRING_LEN`), even though deployed contracts are
+    /// limited to 40. From Epoch 4.1, `from-consensus-buff?` and transaction
+    /// arguments reject such names, and `principal-destruct?` rejects them.
+    /// Values already stored in chainstate remain readable.
+    pub fn enforces_contract_name_length_limit(&self) -> bool {
+        self >= &StacksEpochId::Epoch41
+    }
+
+    /// Whether `concat` fails the transaction with `ValueTooLarge` when it would
+    /// build a buffer or string larger than `MAX_VALUE_SIZE`.
+    pub fn checks_concat_result_size(&self) -> bool {
+        self >= &StacksEpochId::Epoch41
+    }
+
     pub fn supports_specific_budget_extends(&self) -> bool {
         self >= &StacksEpochId::Epoch33
     }
@@ -864,6 +882,18 @@ impl StacksEpochId {
         self >= &StacksEpochId::Epoch41
     }
 
+    /// Whether `restrict-assets?` fails at runtime on `with-all-assets-unsafe`,
+    /// which analysis already rejects.
+    pub fn checks_with_all_assets_in_restrict_assets(&self) -> bool {
+        self >= &StacksEpochId::Epoch41
+    }
+
+    /// Whether a trait-based `contract-call?` reads a trait defined by the calling
+    /// contract from its own context, so the call works while that contract deploys.
+    pub fn supports_local_trait_lookup(&self) -> bool {
+        self >= &StacksEpochId::Epoch41
+    }
+
     pub fn supports_call_with_constant(&self) -> bool {
         self >= &StacksEpochId::Epoch34
     }
@@ -896,6 +926,12 @@ impl StacksEpochId {
         self >= &StacksEpochId::Epoch40
     }
 
+    /// Whether a Nakamoto block may contain exactly `MAX_EPOCH_SIZE` bytes of
+    /// transactions. Earlier epochs reject proposals that reach this limit.
+    pub fn fixes_block_size_off_by_one(&self) -> bool {
+        self >= &StacksEpochId::Epoch41
+    }
+
     /// Whether trait-compliance type-checking surfaces cost-tracking errors
     /// (e.g. `CostBalanceExceeded` / `CostOverflow`) as their real error instead
     /// of masking them as `IncompatibleTrait`.
@@ -925,6 +961,21 @@ impl StacksEpochId {
     /// because the change is consensus-breaking (even for non-broken contracts, because
     /// it can change cost), we have to preserve the legacy behavior.
     pub fn checks_dependency_of_contract_call_target(&self) -> bool {
+        self >= &StacksEpochId::Epoch41
+    }
+
+    /// The type checker prevents name conflicts between globals and locals. Function
+    /// application and let binding also raise runtime errors when creating duplicate
+    /// names (although in the case of let bindings, that check is currently incomplete).
+    ///
+    /// This epoch gate here is only for the case where both of those checks failed and,
+    /// for some reason, we do have two conflicting names. In that case, the global should
+    /// win when looking up that name.
+    ///
+    /// Once Epoch 4.1 is reached, we should run a block replay with this function returning
+    /// a constant `true`. Chances are that this was never triggered; in that case, we
+    /// can remove this check and keep the fixed behavior.
+    pub fn clarity_runtime_checks_global_constants_before_local_vars(&self) -> bool {
         self >= &StacksEpochId::Epoch41
     }
 

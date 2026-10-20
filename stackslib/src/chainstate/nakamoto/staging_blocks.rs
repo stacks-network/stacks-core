@@ -23,10 +23,10 @@ use rusqlite::{params, Connection, OpenFlags, OptionalExtension};
 use stacks_common::types::chainstate::{BlockHeaderHash, ConsensusHash, StacksBlockId};
 use stacks_common::types::sqlite::NO_PARAMS;
 use stacks_common::util::get_epoch_time_secs;
+use stacks_marf::marf::MarfConnection;
 
 use crate::chainstate::nakamoto::{NakamotoBlock, NakamotoChainState};
 use crate::chainstate::stacks::db::StacksChainState;
-use crate::chainstate::stacks::index::marf::MarfConnection;
 use crate::chainstate::stacks::Error as ChainstateError;
 use crate::stacks_common::codec::StacksMessageCodec;
 use crate::util_lib::db::{

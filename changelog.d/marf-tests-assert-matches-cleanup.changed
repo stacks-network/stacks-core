@@ -1,0 +1,1 @@
+The last `assert!(matches!(..))` in the MARF's tests now uses `assert_matches!`, and redundant custom failure messages were dropped since `assert_matches!` already prints the value. Test-only change.

@@ -135,6 +135,9 @@ fn variant_coverage_report(variant: RuntimeCheckErrorKind) {
         ]),
         UndefinedFunction(_) => Tested(vec![runtime_check_error_kind_undefined_function_ccall]),
         AtBlockUnavailable => Tested(vec![runtime_check_error_kind_at_block_unavailable_ccall]),
+        WithAllAllowanceNotAllowed => Tested(vec![
+            runtime_check_error_kind_with_all_allowance_not_allowed_ccall,
+        ]),
         IncorrectArgumentCount(_, _) => Tested(vec![
             runtime_check_error_kind_incorrect_argument_count_ccall,
         ]),
@@ -998,6 +1001,31 @@ fn runtime_check_error_kind_at_block_unavailable_ccall() {
         function_args: &[],
         deploy_epochs: &[StacksEpochId::Epoch33],
         call_epochs: &[StacksEpochId::Epoch34],
+    );
+}
+
+/// RuntimeCheckErrorKind: [`RuntimeCheckErrorKind::WithAllAllowanceNotAllowed`]
+/// Caused by: `with-all-assets-unsafe` inside `restrict-assets?`, in a contract
+///     deployed before epoch 4.1.
+/// Outcome: block accepted. From epoch 4.1 the call fails on this error.
+#[test]
+fn runtime_check_error_kind_with_all_allowance_not_allowed_ccall() {
+    contract_call_consensus_snap_test!(
+        contract_name: "check-error-kind",
+        contract_code: "(define-private (ignore) true)
+            (define-public (trigger-error)
+              (begin
+                (ignore (restrict-assets? tx-sender ((with-all-assets-unsafe)) true))
+                (ok true)))",
+        function_name: "trigger-error",
+        function_args: &[],
+        deploy_epochs: EPOCHS_TO_TEST,
+        call_epochs: &[
+            StacksEpochId::Epoch34,
+            StacksEpochId::Epoch40,
+            StacksEpochId::Epoch41,
+        ],
+        clarity_versions: ClarityVersion::since(ClarityVersion::Clarity4),
     );
 }
 

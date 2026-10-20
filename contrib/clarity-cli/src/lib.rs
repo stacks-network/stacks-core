@@ -48,6 +48,7 @@ use stacks_common::types::chainstate::{
 };
 use stacks_common::types::sqlite::NO_PARAMS;
 use stacks_common::util::hash::{Hash160, Sha512Trunc256Sum, bytes_to_hex};
+use stacks_marf::ClarityMarfTrieId;
 use stackslib::burnchains::{PoxConstants, Txid};
 use stackslib::chainstate::stacks::boot::{
     BOOT_CODE_BNS, BOOT_CODE_COST_VOTING_MAINNET, BOOT_CODE_COST_VOTING_TESTNET, BOOT_CODE_COSTS,
@@ -55,11 +56,10 @@ use stackslib::chainstate::stacks::boot::{
     BOOT_CODE_GENESIS, BOOT_CODE_LOCKUP, BOOT_CODE_POX_MAINNET, BOOT_CODE_POX_TESTNET,
     POX_2_MAINNET_CODE, POX_2_TESTNET_CODE,
 };
-use stackslib::chainstate::stacks::index::ClarityMarfTrieId;
 use stackslib::clarity_vm::clarity::{ClarityMarfStore, ClarityMarfStoreTransaction};
 use stackslib::clarity_vm::database::MemoryBackingStore;
 use stackslib::clarity_vm::database::marf::{MarfedKV, PersistentWritableMarfStore};
-use stackslib::core::{BLOCK_LIMIT_MAINNET_205, HELIUM_BLOCK_LIMIT_20, StacksEpochId};
+use stackslib::core::{BLOCK_LIMIT_MAINNET_205, BLOCK_LIMIT_REGTEST_20, StacksEpochId};
 use stackslib::util_lib::boot::{boot_code_addr, boot_code_id};
 use stackslib::util_lib::db::{FromColumn, sqlite_open};
 
@@ -285,7 +285,7 @@ fn run_analysis<C: ClarityStorage>(
         if mainnet {
             BLOCK_LIMIT_MAINNET_205
         } else {
-            HELIUM_BLOCK_LIMIT_20
+            BLOCK_LIMIT_REGTEST_20
         },
         &mut marf_kv.get_clarity_db(header_db, &NULL_BURN_STATE_DB),
         epoch,
@@ -468,7 +468,7 @@ where
         if mainnet {
             BLOCK_LIMIT_MAINNET_205
         } else {
-            HELIUM_BLOCK_LIMIT_20
+            BLOCK_LIMIT_REGTEST_20
         },
         &mut db,
         epoch,

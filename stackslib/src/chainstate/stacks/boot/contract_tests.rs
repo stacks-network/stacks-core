@@ -31,13 +31,13 @@ use stacks_common::types::chainstate::{
     BlockHeaderHash, BurnchainHeaderHash, SortitionId, StacksAddress, StacksBlockId, VRFSeed,
 };
 use stacks_common::util::hash::to_hex;
+use stacks_marf::ClarityMarfTrieId;
 
 use super::SIGNERS_MAX_LIST_SIZE;
 use crate::burnchains::PoxConstants;
 use crate::chainstate::burn::ConsensusHash;
 use crate::chainstate::stacks::address::PoxAddress;
 use crate::chainstate::stacks::boot::{BOOT_CODE_POX_TESTNET, POX_2_TESTNET_CODE};
-use crate::chainstate::stacks::index::ClarityMarfTrieId;
 use crate::chainstate::stacks::{C32_ADDRESS_VERSION_TESTNET_SINGLESIG, *};
 use crate::clarity_vm::clarity::{
     ClarityBlockConnection, ClarityError, ClarityMarfStore, ClarityMarfStoreTransaction,

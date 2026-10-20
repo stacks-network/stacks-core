@@ -5,6 +5,134 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to the versioning scheme outlined in the [README.md](README.md).
 
+## [4.0.5]
+
+### ⚠️ Breaking Changes
+
+* `burnchain.mode = "helium"` is now rejected at startup, and the `stacks-node helium` subcommand and `stacks-inspect --network-config helium` option are removed. Run a private regtest network with `stacks-node start --config` and `mode = "nakamoto-neon"` instead; the node no longer mines its own Bitcoin blocks, so mine them with bitcoind (e.g. `generatetoaddress`).
+* Removed the `burnchain.commit_anchor_block_within`, `node.name`, `node.max_microblocks` and `node.chain_liveness_poll_time_secs` configuration options, which the node no longer reads (`commit_anchor_block_within` was only used by the removed helium run loop). Nodes whose config file still sets any of them will fail to start with an `unknown field` error; delete those lines before upgrading.
+* `burnchain.mode` is now required in the node config file (it previously defaulted to `mocknet`), and the `mocknet` and `argon` modes are rejected at startup. Set `[burnchain] mode` explicitly, e.g. `nakamoto-neon` for a private regtest network.
+* The signer no longer accepts `network = "mocknet"`; use `network = "testnet"`, which has the same chain ID and address version.
+* Removed the deprecated `[connection_options]` config keys `max_neighbors_per_host`, `max_clients_per_host`, `soft_max_neighbors_per_host` and `full_inv_sync_interval`, which had no effect on node behavior. A node whose config file still sets any of them will fail to start; delete these keys from the config file before upgrading.
+* Removed the `burnchain.rpc_ssl` configuration option, which had no effects. Nodes whose config file still sets `rpc_ssl` will fail to start with an `unknown field "rpc_ssl"` error; delete the `rpc_ssl` line from the `[burnchain]` section before upgrading.
+
+### Added
+
+* Stacks signers will now allow a cross-cycle extend if the next cycle does not yet have a successful sortition. That is, if the next cycle only has empty sortitions (i.e., no miner elected yet), the prior cycle's miner will be allowed to extend. As soon as a miner is selected in the next cycle, the next cycle takes over.
+* Signers now prune their database in small batches every 10 seconds, keeping at least the last `MAX_FORK_DEPTH` (100) burn blocks of tenures plus the tip's tenure, so `signerdb.sqlite` no longer grows without bound. An existing database is drained over the following days and stops growing, but its file keeps its size until it is compacted offline.
+* Signers database pruning is on by default and can be disabled with `db_pruning = false` in the signer config.
+
+### Changed
+
+* From Epoch 4.1, contract analysis rejects mixing tuples with different fields where one type is inferred (`if`, `match`, `default-to`, `is-eq`, `fold`, `concat`, `append`, list construction, function returns). Contracts deployed earlier execute unchanged, and calls into them can still return values wider than their declared types.
+* Clarity execution no longer copies function bodies on every call, or trait definitions when dynamic dispatch checks a target that lacks `impl-trait`; execution behavior and costs are unchanged.
+* Starting in Epoch 4.1, a block-commit whose parent is `(height > 0, vtxindex 0)` is only accepted if that parent block-commit exists, and is no longer assumed to descend from the PoX anchor block. Epochs 3.0 through 4.0 keep accepting such commits without a parent (the former shadow-block rule) so that sortition history replays unchanged; building off of genesis (`(0, 0)`) is unaffected.
+* Beginning in Epoch 4.1, contract principals inside Clarity values are limited to 40-byte names, matching deployed contracts (previously up to 128 bytes). `from-consensus-buff?` returns `none` for a longer name; a transaction whose contract-call arguments, token-transfer recipient, coinbase recipient, or NFT post-condition value carries one is invalid; and `principal-destruct?` aborts with a runtime error for one. Long-name values already in chainstate remain readable.
+* Beginning in Epoch 4.1, `concat` fails its transaction with a `ValueTooLarge` runtime error when it would build a buffer or string larger than `MAX_VALUE_SIZE`.
+* From Epoch 4.1, contract analysis rejects calls with the wrong number of arguments to user-defined functions and to `map-set`, `map-insert`, `map-delete`, `var-set` and `get-block-info?`.
+* From Epoch 4.1, contract analysis types a `fold` result to admit its initial value, which an empty sequence returns unchanged, instead of the callback's return type alone. Contracts deployed earlier execute unchanged.
+* `clarity_vm` now imports the MARF from `stacks_marf` directly instead of through the `stackslib::chainstate::stacks::index` re-export. No behaviour change.
+* The MARF's `get_by_path`, `get_by_hash` and `get_by_key` now share a single implementation instead of repeating the same lookup three times. No behaviour change.
+* The MARF no longer depends on `stackslib::util_lib::db`, removing the dependency cycle between the two in preparation for moving the MARF into its own crate. No behaviour change.
+* The chainstate headers MARF is now held in a `MarfHeadersDB` newtype that carries the `HeadersDB` implementation, so it stays legal once the MARF moves to its own crate. No behaviour change.
+* Removed `MARF::get_by_hash`, which was identical to `MARF::get_by_path`; callers now use `get_by_path`.
+* The MARF now lives in the `stacks-marf` crate. `stackslib::chainstate::stacks::index` is re-exported from it, so existing import paths keep working.
+* The MARF's test-only helpers are now available behind a `testing` feature, and its modules import `stacks_common` directly instead of through `stackslib`'s re-exports, in preparation for moving the MARF into its own crate. No behaviour change.
+* The chainstate snapshot module now imports the MARF from `stacks_marf` directly instead of through the `stackslib::chainstate::stacks::index` re-export. No behaviour change.
+* The MARF's tests now use `assert_matches!` instead of `assert!(matches!(..))`, which reports the actual value on failure. Test-only change.
+* Moves SQLite plumbing that knows nothing about the MARF, and isn't specific to stackslib, down into stacks-common where both crates can reach it.
+* Restricted test-only net/p2p helper functions to test builds.
+* Clarified the `with-pox` allowance and `Pox` post-condition documentation.
+* Added a runtime guard against `restrict-assets?` running its body with a `with-all-assets-unsafe` allowance. Starting in epoch 4.1, `restrict-assets?` fails with an includable error before running its body.
+* Updated RPC OpenAPI descriptions, schemas and examples for Epoch 4.0 and PoX-5, including a separate `/v3/stacker_set` schema and example for PoX-5 reward sets.
+* Replace complex chainstate results and callbacks with documented named types and aliases, updating node and inspection-tool callers without changing consensus rules or database schemas.
+* Replace complex networking results with documented named types for HTTP stream reads, downloads, mempool responses, and relayed blocks without changing wire formats or RPC payloads.
+* Removed the `fixes_tuple_merge_size_check` epoch gate: an oversized tuple `merge` (combined size above `MAX_VALUE_SIZE`) is now rejected with `ValueTooLarge` at the merge site in every epoch, by `TupleTypeSignature::shallow_merge`.
+
+### Fixed
+
+* Removed redundant borrows, clones, conversions, temporary bindings, and control flow reported by Clippy.
+* Fixed the deterministic WebAssembly CI check to compile for `wasm32-unknown-unknown`, and resolved the unused import and argument warnings it surfaced.
+* From Epoch 4.1, calls to Clarity 2+ functions no longer fail with ValueTooLarge when a list argument, such as a filter result, carries a larger bound than its length. Affected calls in previously deployed contracts can now succeed.
+* Fixed a miner stall which occurs when an empty sortition arrives after the miner had proposed its tenure-start (`BlockFound`) block but before the signers had signed it. Previously a miner issued a second, "late" `BlockFound` for the same sortition, which signers interpreted as a sibling block and the signers would never sign. The relayer now waits a short, bounded time for an in-flight tenure-start proposal to land before re-issuing a `BlockFound`, and a late `BlockFound` thread exits once its tenure has started so that the tenure can be extended.
+* Fixed the miner's signer coordinator ignoring the miner's abort flag while waiting for signatures on a block proposal, which could keep a miner thread alive after the relayer tried to stop it ([#7703](https://github.com/stacks-network/stacks-core/issues/7703)).
+* Fixed a miner stall where a different proposal of the miner's own tenure-start block reached consensus while the miner was waiting on its replacement. The miner now detects the accepted sibling, adopts it, and continues its tenure on top of it instead of re-sending the replacement until the next Bitcoin block.
+* The signer's capitulation check now ranks equally-weighted candidate miner views deterministically (newest parent-tenure knowledge first) instead of by hash-set iteration order, so signers could flip between views while the split lasts.
+* Signers no longer sign a block in a tenure after permitting the active miner's tenure to reorg it. Previously a block that was still being validated or pre-committed when the reorging tenure's burn block arrived could be signed afterwards, leaving the reorged tenure with more globally accepted blocks than the reorg rules allow.
+* Signers now always allow the transition of a block to `GloballyAccepted`, since this comes from the node and should override any other state which is just based on signer messages.
+* Fixed a chain stall where signers, after rejecting an invalid sortition winner, fell back to the prior tenure but re-judged the already-permitted reorg. The reorg'ed tenure was judged against blocks which landed later, and the signers concluded with no valid miner.
+* The signer's local state machine no longer stays `Uninitialized` until the next burn block when a transient stacks-node error interrupts its burn-block arrival processing or its startup initialization; the arrival is parked as pending and retried, with exponential backoff (up to 16 seconds) while the node keeps erroring.
+* Miners now re-propose a block after `miner.transient_rejection_retry_timeout_ms` (default 5 seconds) when some signers rejected it for a transient reason (`NoSignerConsensus`, `ConsensusHashMismatch`, `NoSortitionView`, `ConnectivityIssues`, or an `UnknownParent`/`NotFoundError` validation failure), instead of waiting for the full rejection-based timeout (e.g. 90 seconds). Such a block is also re-proposed, rather than abandoned, when its rejections only exceed the blocking minority because of transient rejections. This removes a long stall at the start of a tenure when a few signers are slow to converge after a new burn block.
+
+### Removed
+
+* Removed the `helium` network mode and its legacy Stacks 2.x run loop, which was incompatible with Epoch 3 (Nakamoto). Use [Clarinet](https://github.com/hirosystems/clarinet) or a private testnet (`nakamoto-neon` mode) for local development.
+* Removed `mocknet` network mode. This used a simulated in-process burnchain incompatible with Epoch 3 (Nakamoto). Use [Clarinet](https://github.com/hirosystems/clarinet) or a private testnet (`nakamoto-neon` mode) for local development.
+* Removed dead net/p2p helper functions.
+* Removed the unused `disable_block_push` and `disable_microblock_push` p2p fault-injection options.
+* Removed the never-used shadow block mechanism (`chainstate::nakamoto::shadow` and the `stacks-inspect` shadow commands). The block-commit rule that accepts a missing vtxindex-0 parent in Nakamoto epochs is kept, since sortition history depends on it.
+* Block headers with the former shadow-block high bit (0x80) set are now rejected instead of having the bit masked off. This is stricter than SIP-044's `version & 0x7f` wording but changes nothing in practice: such blocks were never accepted from the network.
+
+## [4.0.4]
+
+### ⚠️ Breaking Changes
+
+* Removed `reset_replay_set_after_fork_blocks` and `validate_with_replay_tx` config from signer toml.
+* removed `replay_transactions` config from miner toml.
+* From Epoch 4.1, versioned smart-contract deploys (the `VersionedSmartContract` payload, which pins a Clarity version) are rejected as statically invalid: deploy new contracts with the unversioned `SmartContract` payload, which uses the epoch's default Clarity version (Clarity 7 in Epoch 4.1).
+
+### Added
+
+* Added public and custom Bitcoin signet support with chain ID `0x80000001` and signer `network = "signet"`. Each deployment requires its own working directory. See [Bitcoin signet](docs/bitcoin-signet.md).
+* Add a self-contained Docker source build with node and signer image targets, the repository toolchain, cargo-chef dependency caching, and selectable release profiles.
+* Adds a new Clarity version, Clarity 7, which is the default Clarity version from Epoch 4.1, along with related boilerplate code.
+* From Epoch 4.1: a public or read-only function may take a reserved name to implement a method of an `impl-trait`'d trait whose Clarity version still had the name free, keeping legacy traits (e.g. `slice?`, `stacks-block-height`) implementable. Inside the contract the native keeps its meaning; the implementation is reached through `contract-call?` and trait dispatch, and a keyword-named one can also be applied directly. A function under a reserved name that matches no such method fails with `NameAlreadyUsed`.
+* From Epoch 4.1: `define-trait` rejects method names that are currently reserved; only traits from a Clarity version where the name was still free can make it implementable.
+* Added the apparent sender to each PoX transaction in the `/new_burn_block` event payload.
+* Added a stacks-marf crate
+
+### Changed
+
+* Bumped Rust to 1.98.0
+* Shrank a number of root error types through `Box`ing of large variants to satisfy the `clippy::result_large_err` lint, which may be API-breaking for some downstream library consumers.
+* Accept slices and borrowed paths in Rust helper APIs and use standard conversion and formatting traits.
+* Error messages (receipt `vm_error`, block-proposal and signer rejection reasons, read-only call `cause`, Clarity diagnostics, related logs) are now clamped to 4096 bytes at construction, bounding the size of receipts, event payloads, and logs.
+* Tuple and list values embedded in those messages now render their contents in Clarity syntax, e.g. `Tuple((tuple (a u1)))` instead of `Tuple(TupleData { type_signature: ..., data_map: {...} })`; the type signature is no longer included.
+* Cargo, Nix, and the release tooling now use `workspace.package.version` in `Cargo.toml` as the single node and signer release version.
+* Removed `versions.toml`; external tooling should read the workspace package version from `Cargo.toml`, and the `stacks-node`, `stacks-signer`, and `stacks-inspect` Cargo package versions, including `stacks-signer -V`, now report the release version instead of placeholder values.
+* Remove the unused reader type parameter from `ChainsCoordinator` and the indexer argument from `ChainsCoordinator::run`, and update downstream callers' type annotations and calls.
+* Remove broad dead-code and test-only unused-code allowances, obsolete helpers, unused imports, and unused state from Clarity, restrict internal fixtures to test builds while retaining downstream test utilities, and strengthen principal, trait, parser, and contract-initialization test coverage.
+* Moved Clarity transaction framing into the `clarity` crate for reuse by external consumers with evaluation hooks.
+* Drop tx-replay behavior from signer logic.
+* Drop tx-replay behaviour from node/miner
+* `/v3/tenures/fork_info` no longer returns the Nakamoto blocks of each tenure: `nakamoto_blocks` is now always `null`. The field is deprecated and will be removed in a future release.
+* Remove obsolete private HTTP request decoding and signal-handler code from libsigner, including its direct libc dependency, broad dead-code allowances, and redundant crate imports, while preserving block-event deserialization validation.
+* The chainstate snapshot module now converts `util_lib::db` errors into MARF errors explicitly rather than through a `From` impl, in preparation for moving the MARF into its own crate. No behaviour change.
+* Remove the crate-wide dead-code allowance and unused Windows signal alias from stacks-common, retain C32 decoding coverage through a test-only helper, and expand named-enum macro tests to cover variant and name enumeration.
+* Remove unused stackslib chainstate and core helpers and test fixtures, clean up unused imports across stackslib, scope test-only helpers to tests, and restore the PoX sunset regression test.
+* Remove unused internal networking and mempool code and obsolete test helpers from stackslib.
+* Replace complex Clarity callback signatures with documented aliases and return argument-check costs and results through the named ArgumentCheckOutcome type.
+
+### Fixed
+
+* Fixed long delay between shutdown signal (Ctrl-C or SIGTERM) and actual stop while the node was working on catching up to chain tip.
+* `clarity-cli` and `stacks-inspect` now print an error and exit with status 1 when a file they were asked to read is missing or unreadable, instead of panicking with a backtrace. This covers `stacks-inspect` commands such as `decode-block` and `post-stackerdb`, which share the same read helpers.
+* Fixed `replace-at?` with a zero-length buffer or string element making the transaction rejectable. Starting in epoch 4.1, a statically empty element is rejected at type-check time and a runtime-empty element fails with an includable error.
+* Signers now honor a superseded-tenure reorg permit only for blocks on the branch the permit was granted to: the permitting tenure, or a tenure built directly on it.
+* Fixed signers signing re-proposed blocks from cached validation without pre-commit and conflict checks. Post-validation checks now exclude the block itself from the local signed-tip comparison and preserve rejection reasons so transient failures can be retried.
+* Apply the pox-5 overrides from the config in stacks-inspect, ensuring that block replay has the correct settings and can properly match the node's behavior in epoch 4.0+.
+* Fixed Wasm signature recovery to decode `MessageSignature` in VRS order, restoring transaction, public-key, and microblock-signature verification.
+* Fixed `Secp256k1PublicKey::verify()` on Wasm rejecting every valid signature for an uncompressed public key.
+* Fixed `secp256k1_verify()` on Wasm accepting high-S signatures, which made Clarity's `secp256k1-verify` return `true` in simnet for signatures that are rejected on chain.
+* Fixed Wasm low-S validation rejecting `s == (n - 1) / 2`, the largest canonical low-S value, which the native backend accepts.
+* Fixed Wasm signing producing high-S signatures at the low-S boundary, preserving the recovery ID when normalizing signatures.
+* Fixed Wasm public-key verification to return `Ok(false)` for a key mismatch before rejecting high-S signatures, matching the native backend.
+* Signers now roll the reported tenure extend timestamp forward to `now + idle_timeout` when accepting a tenure extend block. Previously the rollover only fired on tenure start blocks, so accept responses for extend blocks carried an already-past timestamp and miners proposed the next extend early, which signers rejected with `InvalidTenureExtend` before accepting the retry.
+
+### Removed
+
+* Removed the deprecated `.cost-voting` execution machinery following its Epoch 4.0 disablement by SIP-044.
+
 ## [4.0.3]
 
 ### Added

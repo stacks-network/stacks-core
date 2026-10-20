@@ -26,8 +26,8 @@ use clarity::vm::{execute as vm_execute, ClarityVersion, ContractName};
 use rstest::rstest;
 use stacks_common::types::chainstate::StacksBlockId;
 use stacks_common::types::StacksEpochId;
+use stacks_marf::ClarityMarfTrieId;
 
-use crate::chainstate::stacks::index::ClarityMarfTrieId;
 use crate::clarity_vm::clarity::{ClarityConnection, ClarityInstance};
 use crate::clarity_vm::database::marf::MarfedKV;
 use crate::clarity_vm::tests::costs::get_simple_test;
