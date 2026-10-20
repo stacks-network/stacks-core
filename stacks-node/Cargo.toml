@@ -68,6 +68,8 @@ slog_json = ["stacks/slog_json", "stacks-common/slog_json", "clarity/slog_json"]
 prod-genesis-chainstate = []
 default = []
 testing = ["stacks-common/testing", "stacks/testing", "clarity/testing"]
+# Runtime benchmark controls (e.g. `/bench` RPCs)
+bench-hooks = ["stacks/bench-hooks"]
 build-signer-v3-3-0-0-5-0 = ["signer_v3_3_0_0_5_0", "libsigner_v3_3_0_0_5", "stacks_v3_3_0_0_5", "stacks_common_v3_3_0_0_5"]
 
 [package.metadata.pinny]

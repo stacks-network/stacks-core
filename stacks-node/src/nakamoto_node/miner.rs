@@ -547,6 +547,29 @@ impl BlockMinerThread {
     #[cfg(not(test))]
     fn fault_injection_miner_stall() {}
 
+    /// Hold the miner while mining is paused through `POST /bench/v1/miner`.
+    /// Returns early if the miner is aborted (e.g. a new burn block) or the node shuts down, so
+    /// the caller's abort check still applies.
+    #[cfg(feature = "bench-hooks")]
+    fn bench_hooks_miner_stall(&self) {
+        use stacks::bench_hooks::miner::is_mining_paused;
+
+        if !is_mining_paused() {
+            return;
+        }
+        warn!("Miner: mining paused by bench hooks");
+        while is_mining_paused() && !self.is_aborted() && self.globals.keep_running() {
+            thread::sleep(Duration::from_millis(20));
+        }
+        warn!("Miner: no longer paused by bench hooks";
+            "aborted" => self.is_aborted(),
+            "still_paused" => is_mining_paused(),
+        );
+    }
+
+    #[cfg(not(feature = "bench-hooks"))]
+    fn bench_hooks_miner_stall(&self) {}
+
     pub fn run_miner(
         mut self,
         prior_miner: Option<MinerStopHandle>,
@@ -663,6 +686,7 @@ impl BlockMinerThread {
         reward_set: &RewardSet,
     ) -> Result<(), NakamotoNodeError> {
         Self::fault_injection_miner_stall();
+        self.bench_hooks_miner_stall();
         // Check the abort flag first: every retryable error path loops back
         // through this function, so this check guarantees that a retry loop
         // can always be stopped by the relayer, even if the failing step
