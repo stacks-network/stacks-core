@@ -11055,7 +11055,7 @@ export const contracts = {
             name: 'l1',
             type: {
               tuple: [
-                { name: 'max-fee', type: 'uint128' },
+                { name: 'l1-fee', type: 'uint128' },
                 { name: 'min-claim', type: 'uint128' },
                 {
                   name: 'pox-addr',
@@ -11077,7 +11077,7 @@ export const contracts = {
           amount: TypedAbiArg<number | bigint, 'amount'>,
           l1: TypedAbiArg<
             {
-              maxFee: number | bigint;
+              l1Fee: number | bigint;
               minClaim: number | bigint;
               poxAddr: {
                 hashbytes: Uint8Array;
@@ -11395,7 +11395,7 @@ export const contracts = {
             type: {
               optional: {
                 tuple: [
-                  { name: 'max-fee', type: 'uint128' },
+                  { name: 'l1-fee', type: 'uint128' },
                   { name: 'min-claim', type: 'uint128' },
                   {
                     name: 'pox-addr',
@@ -11417,7 +11417,7 @@ export const contracts = {
         [
           l1Withdrawal: TypedAbiArg<
             {
-              maxFee: number | bigint;
+              l1Fee: number | bigint;
               minClaim: number | bigint;
               poxAddr: {
                 hashbytes: Uint8Array;
@@ -11586,7 +11586,7 @@ export const contracts = {
                   type: {
                     optional: {
                       tuple: [
-                        { name: 'max-fee', type: 'uint128' },
+                        { name: 'l1-fee', type: 'uint128' },
                         { name: 'min-claim', type: 'uint128' },
                         {
                           name: 'pox-addr',
@@ -11618,7 +11618,7 @@ export const contracts = {
           config: TypedAbiArg<
             {
               l1Withdrawal: {
-                maxFee: number | bigint;
+                l1Fee: number | bigint;
                 minClaim: number | bigint;
                 poxAddr: {
                   hashbytes: Uint8Array;
@@ -11726,7 +11726,7 @@ export const contracts = {
                   type: {
                     optional: {
                       tuple: [
-                        { name: 'max-fee', type: 'uint128' },
+                        { name: 'l1-fee', type: 'uint128' },
                         { name: 'min-claim', type: 'uint128' },
                         {
                           name: 'pox-addr',
@@ -11756,7 +11756,7 @@ export const contracts = {
         [staker: TypedAbiArg<string, 'staker'>],
         {
           l1Withdrawal: {
-            maxFee: bigint;
+            l1Fee: bigint;
             minClaim: bigint;
             poxAddr: {
               hashbytes: Uint8Array;
@@ -11859,7 +11859,7 @@ export const contracts = {
                     type: {
                       optional: {
                         tuple: [
-                          { name: 'max-fee', type: 'uint128' },
+                          { name: 'l1-fee', type: 'uint128' },
                           { name: 'min-claim', type: 'uint128' },
                           {
                             name: 'pox-addr',
@@ -11892,7 +11892,7 @@ export const contracts = {
         Response<
           {
             l1Withdrawal: {
-              maxFee: bigint;
+              l1Fee: bigint;
               minClaim: bigint;
               poxAddr: {
                 hashbytes: Uint8Array;
@@ -11931,7 +11931,7 @@ export const contracts = {
               type: {
                 optional: {
                   tuple: [
-                    { name: 'max-fee', type: 'uint128' },
+                    { name: 'l1-fee', type: 'uint128' },
                     { name: 'min-claim', type: 'uint128' },
                     {
                       name: 'pox-addr',
@@ -11956,7 +11956,7 @@ export const contracts = {
         string,
         {
           l1Withdrawal: {
-            maxFee: bigint;
+            l1Fee: bigint;
             minClaim: bigint;
             poxAddr: {
               hashbytes: Uint8Array;

@@ -639,7 +639,7 @@ export function makePoxAddrCalldata(
 export type PayoutConfig = {
   l1Withdrawal: {
     poxAddr: { version: Uint8Array; hashbytes: Uint8Array };
-    maxFee: bigint;
+    l1Fee: bigint;
     minClaim: bigint;
   } | null;
   sbtcRecipient: string | null;
@@ -647,14 +647,14 @@ export type PayoutConfig = {
 
 /** A payout config withdrawing to a random L1 address. */
 export function randomPayoutConfig({
-  maxFee,
+  l1Fee,
   minClaim,
 }: {
-  maxFee: bigint;
+  l1Fee: bigint;
   minClaim: bigint;
 }): PayoutConfig {
   return {
-    l1Withdrawal: { poxAddr: randomPoxAddress(), maxFee, minClaim },
+    l1Withdrawal: { poxAddr: randomPoxAddress(), l1Fee, minClaim },
     sbtcRecipient: null,
   };
 }
@@ -672,7 +672,7 @@ export function payoutConfigCalldata(config: PayoutConfig) {
                   version: Cl.buffer(l1.poxAddr.version),
                   hashbytes: Cl.buffer(l1.poxAddr.hashbytes),
                 }),
-                'max-fee': Cl.uint(l1.maxFee),
+                'l1-fee': Cl.uint(l1.l1Fee),
                 'min-claim': Cl.uint(l1.minClaim),
               }),
             )

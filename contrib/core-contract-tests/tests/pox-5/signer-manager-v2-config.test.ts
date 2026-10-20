@@ -37,13 +37,13 @@ test('v2 is registered directly with pox-5', () => {
 });
 
 test('staking with payout-config calldata stores the config', () => {
-  const config = randomPayoutConfig({ maxFee: 100n, minClaim: 5000n });
+  const config = randomPayoutConfig({ l1Fee: 100n, minClaim: 5000n });
   txOk(stake(payoutConfigCalldata(config)), alice);
   expect(rov(signerManagerV2.getPayoutConfig(alice))).toEqual(config);
 });
 
 test('staking without calldata clears an existing config', () => {
-  const config = randomPayoutConfig({ maxFee: 100n, minClaim: 0n });
+  const config = randomPayoutConfig({ l1Fee: 100n, minClaim: 0n });
   txOk(stake(payoutConfigCalldata(config)), alice);
   txOk(
     pox5.stakeUpdate({
@@ -64,7 +64,7 @@ test('malformed calldata and pox-addrs are rejected', () => {
   expect(txErr(stake(new Uint8Array([1, 2, 3])), alice).value).toBe(
     signerManagerV2Errors.ERR_INVALID_CALLDATA,
   );
-  const config = randomPayoutConfig({ maxFee: 100n, minClaim: 0n });
+  const config = randomPayoutConfig({ l1Fee: 100n, minClaim: 0n });
   expect(
     rovOk(signerManagerV2.checkPoxAddr(config.l1Withdrawal!.poxAddr)),
   ).toBe(true);
@@ -99,7 +99,7 @@ test('malformed calldata and pox-addrs are rejected', () => {
 
 test('configs with both l1-withdrawal and sbtc-recipient are rejected', () => {
   const config = {
-    ...randomPayoutConfig({ maxFee: 100n, minClaim: 0n }),
+    ...randomPayoutConfig({ l1Fee: 100n, minClaim: 0n }),
     sbtcRecipient: bob,
   };
   expect(txErr(stake(payoutConfigCalldata(config)), alice).value).toBe(
@@ -113,7 +113,7 @@ test('configs with both l1-withdrawal and sbtc-recipient are rejected', () => {
 });
 
 test('validate-stake! errors when not called by the pox-5 contract', () => {
-  const config = randomPayoutConfig({ maxFee: 100n, minClaim: 0n });
+  const config = randomPayoutConfig({ l1Fee: 100n, minClaim: 0n });
   expect(
     txErr(
       signerManagerV2.validateStake_x({
@@ -135,7 +135,7 @@ test('stakers set and clear their payout config directly', () => {
   txOk(stake(), alice);
   const l1Withdrawal = {
     poxAddr: randomPoxAddress(),
-    maxFee: 200n,
+    l1Fee: 200n,
     minClaim: 1000n,
   };
   txOk(

@@ -87,6 +87,9 @@
     uint
 )
 ;; A staker's payout destination, including the floor for third-party L1 claims.
+;; `l1-fee` is passed to sBTC as the withdrawal's `max-fee`. The staker always
+;; pays the full amount: any unused portion is refunded to this contract as
+;; dust (see `sweep-fee-refunds`), not to the staker.
 (define-map payout-configs
     principal
     {
@@ -95,7 +98,7 @@
                 version: (buff 1),
                 hashbytes: (buff 32),
             },
-            max-fee: uint,
+            l1-fee: uint,
             min-claim: uint,
         }),
         sbtc-recipient: (optional principal),
@@ -334,7 +337,7 @@
 (define-public (set-payout-config
         (l1-withdrawal (optional {
             pox-addr: { version: (buff 1), hashbytes: (buff 32) },
-            max-fee: uint,
+            l1-fee: uint,
             min-claim: uint,
         }))
         (sbtc-recipient (optional principal))
@@ -737,7 +740,7 @@
     )
 )
 
-;; Request an L1 withdrawal of `amount - max-fee` to the staker's address.
+;; Request an L1 withdrawal of `amount - l1-fee` to the staker's address.
 ;; Record the request under this contract so it can settle the result.
 (define-private (initiate-withdrawal
         (staker principal)
@@ -747,12 +750,12 @@
                 version: (buff 1),
                 hashbytes: (buff 32),
             },
-            max-fee: uint,
+            l1-fee: uint,
             min-claim: uint,
         })
     )
-    (let ((max-fee (get max-fee l1)))
-        (asserts! (> amount (+ max-fee DUST_LIMIT)) ERR_BELOW_DUST_LIMIT)
+    (let ((l1-fee (get l1-fee l1)))
+        (asserts! (> amount (+ l1-fee DUST_LIMIT)) ERR_BELOW_DUST_LIMIT)
         (asserts! (or (is-eq contract-caller staker) (>= amount (get min-claim l1)))
             ERR_BELOW_MIN_CLAIM
         )
@@ -762,8 +765,8 @@
                 ))
                 (try! (contract-call?
                     'SM3VDXK3WZZSA84XXFKAFAF15NNZX32CTSG82JFQ4.sbtc-withdrawal
-                    initiate-withdrawal-request (- amount max-fee)
-                    (get pox-addr l1) max-fee
+                    initiate-withdrawal-request (- amount l1-fee)
+                    (get pox-addr l1) l1-fee
                 ))
             ))))
             (map-set withdrawal-requests request-id staker)
@@ -822,7 +825,7 @@
                     version: (buff 1),
                     hashbytes: (buff 32),
                 },
-                max-fee: uint,
+                l1-fee: uint,
                 min-claim: uint,
             }),
             sbtc-recipient: (optional principal),
@@ -841,7 +844,7 @@
             version: (buff 1),
             hashbytes: (buff 32),
         },
-        max-fee: uint,
+        l1-fee: uint,
         min-claim: uint,
     }),
     sbtc-recipient: (optional principal),

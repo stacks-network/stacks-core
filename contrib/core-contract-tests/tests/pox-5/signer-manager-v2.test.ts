@@ -231,7 +231,7 @@ test('bond rewards are reserved under the bond index and paid net of fees', () =
 
 test('bond registration and bond updates store payout-config calldata', () => {
   const otherSigner = deployTestSigner('bond-update-v2-signer').identifier;
-  const aliceConfig = randomPayoutConfig({ maxFee: 100n, minClaim: 0n });
+  const aliceConfig = randomPayoutConfig({ l1Fee: 100n, minClaim: 0n });
   const bobConfig = { l1Withdrawal: null, sbtcRecipient: charlie };
   setupBond([alice, bob]);
 
@@ -279,7 +279,7 @@ test('payout with nothing pending fails', () => {
 });
 
 test('third parties must clear min-claim on L1 payouts, the staker need not', () => {
-  stake(alice, randomPayoutConfig({ maxFee: 100n, minClaim: 5000n }));
+  stake(alice, randomPayoutConfig({ l1Fee: 100n, minClaim: 5000n }));
   const total = claimCycle(1n, 2000n);
   txOk(signerManagerV2.settleStakerRewards(alice, 1n, null), bob);
   expect(total).toBeLessThan(5000n);
@@ -294,7 +294,7 @@ test('third parties must clear min-claim on L1 payouts, the staker need not', ()
 });
 
 test('a contract forwarding the staker cannot bypass min-claim', () => {
-  stake(alice, randomPayoutConfig({ maxFee: 100n, minClaim: 5000n }));
+  stake(alice, randomPayoutConfig({ l1Fee: 100n, minClaim: 5000n }));
   const total = claimCycle(1n, 2000n);
   txOk(signerManagerV2.settleStakerRewards(alice, 1n, null), bob);
   simnet.deployContract(
@@ -315,7 +315,7 @@ test('a contract forwarding the staker cannot bypass min-claim', () => {
 });
 
 test('claim-staker-rewards with an L1 config initiates a withdrawal', () => {
-  const config = randomPayoutConfig({ maxFee: 100n, minClaim: 0n });
+  const config = randomPayoutConfig({ l1Fee: 100n, minClaim: 0n });
   stake(alice, config);
   const total = claimCycle(1n, 2000n);
 
@@ -337,8 +337,8 @@ test('claim-staker-rewards with an L1 config initiates a withdrawal', () => {
   expectSolvent();
 });
 
-test('L1 payouts below max-fee plus dust are rejected up front', () => {
-  stake(alice, randomPayoutConfig({ maxFee: 100n, minClaim: 0n }));
+test('L1 payouts below l1-fee plus dust are rejected up front', () => {
+  stake(alice, randomPayoutConfig({ l1Fee: 100n, minClaim: 0n }));
   // 700 * 85% = 595 <= 100 + 546.
   const total = claimCycle(1n, 700n);
   expect(total).toBeLessThanOrEqual(100n + DUST_LIMIT);
@@ -351,7 +351,7 @@ test('L1 payouts below max-fee plus dust are rejected up front', () => {
 });
 
 test('sub-dust cycles accumulate in pending until one payout clears', () => {
-  stake(alice, randomPayoutConfig({ maxFee: 100n, minClaim: 0n }));
+  stake(alice, randomPayoutConfig({ l1Fee: 100n, minClaim: 0n }));
   const first = claimCycle(1n, 700n);
   txOk(signerManagerV2.settleStakerRewards(alice, 1n, null), alice);
   const second = claimCycle(2n, 700n);
@@ -362,7 +362,7 @@ test('sub-dust cycles accumulate in pending until one payout clears', () => {
 });
 
 test('a rejected withdrawal is credited back and retried in one call', () => {
-  stake(alice, randomPayoutConfig({ maxFee: 100n, minClaim: 0n }));
+  stake(alice, randomPayoutConfig({ l1Fee: 100n, minClaim: 0n }));
   const total = claimCycle(1n, 2000n);
   txOk(signerManagerV2.claimStakerRewards(alice, 1n, null), bob);
 
@@ -379,7 +379,7 @@ test('a rejected withdrawal is credited back and retried in one call', () => {
       l1Withdrawal: {
         poxAddr: rov(signerManagerV2.getPayoutConfig(alice))!.l1Withdrawal!
           .poxAddr,
-        maxFee: 300n,
+        l1Fee: 300n,
         minClaim: 0n,
       },
       sbtcRecipient: null,
@@ -404,7 +404,7 @@ test('a rejected withdrawal is credited back and retried in one call', () => {
 });
 
 test('a rejected withdrawal can be taken as sBTC by clearing the config', () => {
-  stake(alice, randomPayoutConfig({ maxFee: 100n, minClaim: 0n }));
+  stake(alice, randomPayoutConfig({ l1Fee: 100n, minClaim: 0n }));
   const total = claimCycle(1n, 2000n);
   txOk(signerManagerV2.claimStakerRewards(alice, 1n, null), bob);
   txOk(sbtcWithdrawal.rejectWithdrawalRequest(1n, 0n), SBTC_SIGNER);
@@ -426,7 +426,7 @@ test('a rejected withdrawal can be taken as sBTC by clearing the config', () => 
 });
 
 test('an accepted withdrawal is settled and its fee dust swept', () => {
-  stake(alice, randomPayoutConfig({ maxFee: 100n, minClaim: 0n }));
+  stake(alice, randomPayoutConfig({ l1Fee: 100n, minClaim: 0n }));
   claimCycle(1n, 2000n);
   txOk(signerManagerV2.claimStakerRewards(alice, 1n, null), bob);
   acceptWithdrawal(1n, 30n);
