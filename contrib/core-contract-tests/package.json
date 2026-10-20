@@ -4,7 +4,6 @@
   "description": "Run unit tests on this project.",
   "private": true,
   "type": "module",
-  "packageManager": "npm@>=11.7 <12",
   "devEngines": {
     "packageManager": {
       "name": "npm",
