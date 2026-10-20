@@ -9,6 +9,8 @@
 ;; has not had their rewards crystallized in some amount of time, then a new fee
 ;; rate is set, the next time `claim-rewards` is called will have fees taken
 ;; from rewards _even before_ the fee was set. The rate is then fixed for that cycle.
+;; Admins can set a `max-fee-bips` which determines the maximum fee that can be
+;; set for earned rewards, and this value can only ever be lowered.
 
 (impl-trait 'ST000000000000000000002AMW42H.pox-5.signer-manager-trait)
 (use-trait signer-manager-trait 'ST000000000000000000002AMW42H.pox-5.signer-manager-trait)
@@ -130,17 +132,26 @@
 ;; admin can never sweep staker rewards.
 (define-data-var unclaimed-staker-rewards uint u0)
 
-(define-map pending-payouts principal uint)
+(define-map pending-payouts
+    principal
+    uint
+)
 (define-data-var total-pending uint u0)
 
 ;; Rewards are reserved per cycle and bond index until stakers settle them.
 (define-map unclaimed-staker-rewards-for-cycle
-    { reward-cycle: uint, bond-index: (optional uint) }
+    {
+        reward-cycle: uint,
+        bond-index: (optional uint),
+    }
     uint
 )
 
 (define-data-var use-allowlist bool false)
-(define-map allowlist principal bool)
+(define-map allowlist
+    principal
+    bool
+)
 (define-data-var token-uri (optional (string-utf8 256)) none)
 
 ;; Callback function from a `stake` transaction.
@@ -214,10 +225,7 @@
                 get-earned-staker-rewards current-contract reward-cycle
                 bond-index staker
             ))
-            (fees (/
-                (* earned-before-fees
-                    (get-fee-bips-for-cycle reward-cycle)
-                )
+            (fees (/ (* earned-before-fees (get-fee-bips-for-cycle reward-cycle))
                 MAX_BIPS
             ))
         )
@@ -235,17 +243,24 @@
         (bond-index (optional uint))
     )
     (let (
-            (key { reward-cycle: reward-cycle, bond-index: bond-index })
+            (key {
+                reward-cycle: reward-cycle,
+                bond-index: bond-index,
+            })
             (gross (get earned
                 (unwrap-panic (contract-call? 'ST000000000000000000002AMW42H.pox-5
-                    claim-staker-rewards-for-signer staker reward-cycle bond-index
+                    claim-staker-rewards-for-signer staker reward-cycle
+                    bond-index
                 ))
             ))
             (reserve (get-unclaimed-staker-rewards-for-cycle reward-cycle bond-index))
             ;; `claim-rewards` rounds down at each pull, but `get-earned-staker-rewards`
             ;; rounds down one time for the full cycle. After the last pull, `gross` can be
             ;; more than the reserve by some sats. Pay the reserve in this case.
-            (amount (if (<= gross reserve) gross reserve))
+            (amount (if (<= gross reserve)
+                gross
+                reserve
+            ))
             (fee (/ (* amount (get-fee-bips-for-cycle reward-cycle)) MAX_BIPS))
         )
         (asserts! (> gross u0) ERR_NO_CLAIMABLE_REWARDS)
@@ -256,14 +271,17 @@
                     (> reserve u0)
                     (is-eq u0
                         (contract-call? 'ST000000000000000000002AMW42H.pox-5
-                            get-earned current-contract reward-cycle bond-index
+                            get-earned current-contract reward-cycle
+                            bond-index
                         ))
                 )
             )
             ERR_NO_CLAIMABLE_REWARDS
         )
         (map-set unclaimed-staker-rewards-for-cycle key (- reserve amount))
-        (var-set unclaimed-staker-rewards (- (var-get unclaimed-staker-rewards) amount))
+        (var-set unclaimed-staker-rewards
+            (- (var-get unclaimed-staker-rewards) amount)
+        )
         (var-set earned-fees (+ (var-get earned-fees) fee))
         (credit-pending staker (- amount fee))
         (print {
@@ -273,7 +291,10 @@
             bond-index: bond-index,
             amount-sats: amount,
         })
-        (ok { gross: amount, fee: fee })
+        (ok {
+            gross: amount,
+            fee: fee,
+        })
     )
 )
 
@@ -281,7 +302,10 @@
 (define-public (payout (staker principal))
     (let (
             (amount (get-pending-payout staker))
-            (config (default-to { l1-withdrawal: none, sbtc-recipient: none }
+            (config (default-to {
+                l1-withdrawal: none,
+                sbtc-recipient: none,
+            }
                 (map-get? payout-configs staker)
             ))
         )
@@ -301,7 +325,10 @@
                 amount-sats: amount,
                 withdrawal-request: withdrawal-request,
             })
-            (ok { amount: amount, withdrawal-request: withdrawal-request })
+            (ok {
+                amount: amount,
+                withdrawal-request: withdrawal-request,
+            })
         )
     )
 )
@@ -336,7 +363,10 @@
 ;; Only the staker may choose their payout destination.
 (define-public (set-payout-config
         (l1-withdrawal (optional {
-            pox-addr: { version: (buff 1), hashbytes: (buff 32) },
+            pox-addr: {
+                version: (buff 1),
+                hashbytes: (buff 32),
+            },
             l1-fee: uint,
             min-claim: uint,
         }))
@@ -349,7 +379,11 @@
                 sbtc-recipient: sbtc-recipient,
             }))
             (try! (check-payout-config config))
-            (print { topic: "set-payout-config", staker: tx-sender, config: config })
+            (print {
+                topic: "set-payout-config",
+                staker: tx-sender,
+                config: config,
+            })
             (ok (map-set payout-configs tx-sender config))
         )
     )
@@ -358,7 +392,10 @@
 (define-public (clear-payout-config)
     (begin
         (try! (authorize-staker))
-        (print { topic: "clear-payout-config", staker: tx-sender })
+        (print {
+            topic: "clear-payout-config",
+            staker: tx-sender,
+        })
         (ok (map-delete payout-configs tx-sender))
     )
 )
@@ -484,7 +521,14 @@
             (count (var-get admin-count))
         )
         (try! (authorize-admin))
-        (asserts! (or enabled (not was-enabled) (> count u1)) ERR_LAST_ADMIN)
+        (asserts!
+            (or
+                enabled
+                (not was-enabled)
+                (> count u1)
+            )
+            ERR_LAST_ADMIN
+        )
         (print {
             topic: "update-admin",
             admin: admin,
@@ -539,15 +583,25 @@
 (define-public (set-use-allowlist (enabled bool))
     (begin
         (try! (authorize-admin))
-        (print { topic: "set-use-allowlist", enabled: enabled })
+        (print {
+            topic: "set-use-allowlist",
+            enabled: enabled,
+        })
         (ok (var-set use-allowlist enabled))
     )
 )
 
-(define-public (set-allowlisted (staker principal) (allowed bool))
+(define-public (set-allowlisted
+        (staker principal)
+        (allowed bool)
+    )
     (begin
         (try! (authorize-admin))
-        (print { topic: "set-allowlisted", staker: staker, allowed: allowed })
+        (print {
+            topic: "set-allowlisted",
+            staker: staker,
+            allowed: allowed,
+        })
         (ok (map-set allowlist staker allowed))
     )
 )
@@ -555,7 +609,10 @@
 (define-public (set-token-uri (uri (optional (string-utf8 256))))
     (begin
         (try! (authorize-admin))
-        (print { topic: "set-token-uri", uri: uri })
+        (print {
+            topic: "set-token-uri",
+            uri: uri,
+        })
         (ok (var-set token-uri uri))
     )
 )
@@ -695,9 +752,12 @@
             bond-index: bond-index,
         }))
         (map-set unclaimed-staker-rewards-for-cycle key
-            (+ (default-to u0 (map-get? unclaimed-staker-rewards-for-cycle key)) amount)
+            (+ (default-to u0 (map-get? unclaimed-staker-rewards-for-cycle key))
+                amount
+            ))
+        (var-set unclaimed-staker-rewards
+            (+ (var-get unclaimed-staker-rewards) amount)
         )
-        (var-set unclaimed-staker-rewards (+ (var-get unclaimed-staker-rewards) amount))
     )
 )
 
@@ -756,7 +816,8 @@
     )
     (let ((l1-fee (get l1-fee l1)))
         (asserts! (> amount (+ l1-fee DUST_LIMIT)) ERR_BELOW_DUST_LIMIT)
-        (asserts! (or (is-eq contract-caller staker) (>= amount (get min-claim l1)))
+        (asserts!
+            (or (is-eq contract-caller staker) (>= amount (get min-claim l1)))
             ERR_BELOW_MIN_CLAIM
         )
         (let ((request-id (try! (as-contract?
@@ -851,7 +912,9 @@
 }))
     (match (get l1-withdrawal config)
         l1 (begin
-            (asserts! (is-none (get sbtc-recipient config)) ERR_INVALID_PAYOUT_CONFIG)
+            (asserts! (is-none (get sbtc-recipient config))
+                ERR_INVALID_PAYOUT_CONFIG
+            )
             (check-pox-addr (get pox-addr l1))
         )
         (ok true)
@@ -891,11 +954,10 @@
 )
 
 (define-read-only (get-reserved-balance)
-    (+ (var-get earned-fees) (var-get unclaimed-staker-rewards) (var-get total-pending)
-        (var-get withdrawal-liability)
+    (+ (var-get earned-fees) (var-get unclaimed-staker-rewards)
+        (var-get total-pending) (var-get withdrawal-liability)
     )
 )
-
 
 (define-read-only (check-pox-addr (pox-addr {
     version: (buff 1),
