@@ -853,8 +853,9 @@
     )
 )
 
+;; Before `claim-rewards` snapshots a cycle, report the current rate.
 (define-read-only (get-fee-bips-for-cycle (reward-cycle uint))
-    (default-to u0 (map-get? fee-bips-for-cycle reward-cycle))
+    (default-to (var-get fees-bips) (map-get? fee-bips-for-cycle reward-cycle))
 )
 
 (define-read-only (get-max-fees-bips)

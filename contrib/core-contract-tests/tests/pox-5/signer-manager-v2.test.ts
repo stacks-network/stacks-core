@@ -145,7 +145,11 @@ function expectSolvent() {
 test('claim-rewards reserves the cycle and snapshots the fee', () => {
   stake(alice);
   txOk(signerManagerV2.updateFees(500n), deployer);
+  // Unsnapshotted cycles report the current rate.
+  expect(rov(signerManagerV2.getFeeBipsForCycle(1n))).toBe(500n);
   const total = claimCycle(1n, 2000n);
+  txOk(signerManagerV2.updateFees(100n), deployer);
+  expect(rov(signerManagerV2.getFeeBipsForCycle(2n))).toBe(100n);
   expect(sbtcBalance(signerManagerV2.identifier)).toBe(total);
   expect(rov(signerManagerV2.getUnclaimedStakerRewardsForCycle(1n, null))).toBe(
     total,
