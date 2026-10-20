@@ -248,7 +248,7 @@
                 bond-index: bond-index,
             })
             (gross (get earned
-                (unwrap-panic (contract-call? 'ST000000000000000000002AMW42H.pox-5
+                (try! (contract-call? 'ST000000000000000000002AMW42H.pox-5
                     claim-staker-rewards-for-signer staker reward-cycle
                     bond-index
                 ))
