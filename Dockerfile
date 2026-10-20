@@ -1,6 +1,7 @@
 FROM rust:bookworm AS build
 
 ARG STACKS_NODE_VERSION="No Version Info"
+ARG CUSTOM_VERSION_STRING
 ARG GIT_BRANCH='No Branch Info'
 ARG GIT_COMMIT='No Commit Info'
 

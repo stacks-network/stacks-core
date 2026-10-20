@@ -1,0 +1,1 @@
+Adds a new build-time ENV argument, `CUSTOM_VERSION_STRING`. This allows for adding custom build information, which is excluded from the standard version string.
