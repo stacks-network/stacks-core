@@ -17,6 +17,7 @@
 use std::collections::HashMap;
 use std::io::{Read, Write};
 
+use clarity::vm::contexts::TRANSIENT_CONTRACT_NAME;
 use stacks_common::codec::{
     read_next, read_next_at_most, write_next, Error as codec_error, StacksMessageCodec,
     MAX_MESSAGE_LEN,
@@ -561,6 +562,8 @@ impl StacksBlock {
         true
     }
 
+    // FIXME: There's too much duplication between this and
+    // [`validation::precheck_transaction`].
     /// Verify that one transaction is supported in the given epoch, as indicated by `epoch_id`
     pub fn validate_transaction_static_epoch(
         tx: &StacksTransaction,
@@ -621,6 +624,13 @@ impl StacksBlock {
         if !tx.auth.is_supported_in_epoch(epoch_id) {
             error!("Authentication mode not supported in Epoch {epoch_id}");
             return false;
+        }
+        if let TransactionPayload::SmartContract(contract, _) = &tx.payload {
+            if epoch_id.rejects_transient_contracts() && *contract.name == *TRANSIENT_CONTRACT_NAME
+            {
+                error!("Transient contract not supported in Epoch {epoch_id}"; "txid" => %tx.txid());
+                return false;
+            }
         }
         true
     }

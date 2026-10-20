@@ -15,6 +15,8 @@
 
 //! Static validation performed before transaction execution.
 
+use clarity::vm::contexts::TRANSIENT_CONTRACT_NAME;
+
 use crate::chainstate::stacks::db::DBConfig;
 use crate::chainstate::stacks::{
     Error, StacksTransaction, TransactionAuthVerificationMode, TransactionPayload,
@@ -22,6 +24,8 @@ use crate::chainstate::stacks::{
 };
 use crate::core::StacksEpochId;
 
+// FIXME: There's too much duplication between this and
+// [`StacksBlock::validate_transaction_static_epoch`].
 /// Pre-check a transaction -- make sure it's well-formed.
 pub fn precheck_transaction(
     config: &DBConfig,
@@ -113,5 +117,17 @@ pub fn precheck_transaction(
         Error::InvalidStacksTransaction(msg, false)
     })?;
 
+    if let TransactionPayload::SmartContract(contract, _) = &tx.payload {
+        if epoch_id.rejects_transient_contracts() && *contract.name == *TRANSIENT_CONTRACT_NAME {
+            let msg = format!(
+                "Invalid transaction {}: Transient contract not supported in Epoch {epoch_id}",
+                tx.txid()
+            );
+            info!("{msg}");
+
+            error!("Transient contract not supported in Epoch {epoch_id}"; "txid" => %tx.txid());
+            return Err(Error::InvalidStacksTransaction(msg, false));
+        }
+    }
     Ok(())
 }
