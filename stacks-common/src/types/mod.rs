@@ -894,6 +894,7 @@ impl StacksEpochId {
     pub fn charges_callable_type_size(&self) -> bool {
         self >= &StacksEpochId::Epoch41
     }
+
     /// Whether a trait-based `contract-call?` reads a trait defined by the calling
     /// contract from its own context, so the call works while that contract deploys.
     pub fn supports_local_trait_lookup(&self) -> bool {
