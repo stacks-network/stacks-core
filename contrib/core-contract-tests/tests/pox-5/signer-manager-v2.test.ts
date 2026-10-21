@@ -454,6 +454,37 @@ test('an accepted withdrawal is settled and its fee dust swept', () => {
   expect(sbtcBalance(signerManagerV2.identifier)).toBe(0n);
 });
 
+test('sweeping takes only accepted dust while a rejected withdrawal is unreclaimed', () => {
+  stake(alice, randomPayoutConfig({ l1Fee: 100n, minClaim: 0n }));
+  stake(bob, randomPayoutConfig({ l1Fee: 100n, minClaim: 0n }));
+  claimCycle(1n, 4000n);
+  txOk(signerManagerV2.claimStakerRewards(alice, 1n, null), charlie);
+  const { earned: bobEarned } = txOk(
+    signerManagerV2.claimStakerRewards(bob, 1n, null),
+    charlie,
+  ).value;
+
+  acceptWithdrawal(1n, 30n);
+  txOk(sbtcWithdrawal.rejectWithdrawalRequest(2n, 0n), SBTC_SIGNER);
+  txOk(signerManagerV2.settleAcceptedWithdrawal(1n), charlie);
+  const dust = 100n - 30n;
+
+  expect(txOk(signerManagerV2.sweepFeeRefunds(deployer), deployer).value).toBe(
+    dust,
+  );
+  expect(rov(signerManagerV2.getWithdrawalLiability())).toBe(bobEarned);
+  expect(sbtcBalance(signerManagerV2.identifier)).toBe(bobEarned);
+
+  expect(txOk(signerManagerV2.reclaimFailedWithdrawal(2n), charlie).value).toBe(
+    true,
+  );
+  expect(rov(signerManagerV2.getPendingPayout(bob))).toBe(bobEarned);
+  expect(txErr(signerManagerV2.sweepFeeRefunds(deployer), deployer).value).toBe(
+    signerManagerV2Errors.ERR_NO_REFUNDS,
+  );
+  expectSolvent();
+});
+
 test('admins withdraw fees, bounded by what has been charged', () => {
   stake(alice);
   txOk(signerManagerV2.updateFees(1000n), deployer);
