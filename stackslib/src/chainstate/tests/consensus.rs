@@ -674,9 +674,9 @@ impl ConsensusChain<'_> {
         )
     }
 
-    fn current_epoch(&mut self) -> StacksEpochId {
+    fn current_epoch(&self) -> StacksEpochId {
         let burn_block_height = self.test_chainstate.get_burn_block_height();
-        SortitionDB::get_stacks_epoch(self.test_chainstate.sortdb().conn(), burn_block_height)
+        SortitionDB::get_stacks_epoch(self.test_chainstate.sortdb_ref().conn(), burn_block_height)
             .unwrap()
             .unwrap()
             .epoch_id
