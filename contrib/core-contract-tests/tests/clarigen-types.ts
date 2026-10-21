@@ -11682,6 +11682,7 @@ export const contracts = {
         outputs: {
           type: {
             tuple: [
+              { name: 'amount', type: 'uint128' },
               { name: 'earned', type: 'uint128' },
               { name: 'fees', type: 'uint128' },
             ],
@@ -11694,6 +11695,7 @@ export const contracts = {
           bondIndex: TypedAbiArg<number | bigint | null, 'bondIndex'>,
         ],
         {
+          amount: bigint;
           earned: bigint;
           fees: bigint;
         }

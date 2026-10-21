@@ -211,26 +211,35 @@
 
 ;;; Staker rewards
 
-;; Get the total amount of rewards earned since the last
-;; rewards snapshot for this staker. Returns a tuple of `{ earned, fees }`.
-;; The total portion of rewards the staker has accounted for
-;; is `earned + fees`.
+;; Get the rewards this staker would be credited by `settle-staker-rewards`,
+;; from what `claim-rewards` has pulled for the cycle so far. Returns a tuple of
+;; `{ amount, earned, fees }`, where `amount = earned + fees` is the gross
+;; amount settled.
+;;
+;; `claim-rewards` rounds down at each pull, but pox-5's
+;; `get-earned-staker-rewards` rounds down one time for the full cycle. After
+;; the last pull, the staker's share can be more than the reserve by some sats.
+;; Pay the reserve in this case.
 (define-read-only (get-earned-staker-rewards
         (staker principal)
         (reward-cycle uint)
         (bond-index (optional uint))
     )
     (let (
-            (earned-before-fees (contract-call? 'ST000000000000000000002AMW42H.pox-5
+            (gross (contract-call? 'ST000000000000000000002AMW42H.pox-5
                 get-earned-staker-rewards current-contract reward-cycle
                 bond-index staker
             ))
-            (fees (/ (* earned-before-fees (get-fee-bips-for-cycle reward-cycle))
-                MAX_BIPS
+            (reserve (get-unclaimed-staker-rewards-for-cycle reward-cycle bond-index))
+            (amount (if (<= gross reserve)
+                gross
+                reserve
             ))
+            (fees (/ (* amount (get-fee-bips-for-cycle reward-cycle)) MAX_BIPS))
         )
         {
-            earned: (- earned-before-fees fees),
+            amount: amount,
+            earned: (- amount fees),
             fees: fees,
         }
     )
@@ -247,6 +256,8 @@
                 reward-cycle: reward-cycle,
                 bond-index: bond-index,
             })
+            ;; Read before `claim-staker-rewards-for-signer` zeroes the staker's share.
+            (owed (get-earned-staker-rewards staker reward-cycle bond-index))
             (gross (get earned
                 (try! (contract-call? 'ST000000000000000000002AMW42H.pox-5
                     claim-staker-rewards-for-signer staker reward-cycle
@@ -254,14 +265,8 @@
                 ))
             ))
             (reserve (get-unclaimed-staker-rewards-for-cycle reward-cycle bond-index))
-            ;; `claim-rewards` rounds down at each pull, but `get-earned-staker-rewards`
-            ;; rounds down one time for the full cycle. After the last pull, `gross` can be
-            ;; more than the reserve by some sats. Pay the reserve in this case.
-            (amount (if (<= gross reserve)
-                gross
-                reserve
-            ))
-            (fee (/ (* amount (get-fee-bips-for-cycle reward-cycle)) MAX_BIPS))
+            (amount (get amount owed))
+            (fee (get fees owed))
         )
         (asserts! (> gross u0) ERR_NO_CLAIMABLE_REWARDS)
         (asserts!

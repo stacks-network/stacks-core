@@ -551,9 +551,9 @@ test('the max fee caps the fee rate and can only be lowered', () => {
   expect(rov(signerManagerV2.getMaxFeesBips())).toBe(400n);
 });
 
-// `claim-rewards` rounds down at each pull, but `get-earned-staker-rewards`
-// rounds down one time for the full cycle. After the last pull, the staker's
-// share can be more than the reserve by some sats.
+// `claim-rewards` rounds down at each pull, but pox-5's
+// `get-earned-staker-rewards` rounds down one time for the full cycle. After
+// the last pull, the staker's share can be more than the reserve by some sats.
 //
 // 50,001 STX makes the rounding visible. Each distribution gives 1700 sats to
 // stakers, and 1700 / 50,001 STX is not exact, so each pull is 1699.99... sats
@@ -572,6 +572,8 @@ test('staker settlement survives rounding across multiple manager pulls', () => 
     alice,
   );
 
+  const owed = () =>
+    rov(signerManagerV2.getEarnedStakerRewards(alice, 1n, null));
   const pulls: bigint[] = [];
   for (const height of [
     rov(pox5.rewardCycleToBurnHeight(1n)) + HALF_CYCLE_LENGTH,
@@ -590,12 +592,15 @@ test('staker settlement survives rounding across multiple manager pulls', () => 
   const reserve = rov(
     signerManagerV2.getUnclaimedStakerRewardsForCycle(1n, null),
   );
-  const owed = rov(
-    signerManagerV2.getEarnedStakerRewards(alice, 1n, null),
-  ).earned;
   expect(pulls).toEqual([1699n, 1699n]);
   expect(reserve).toBe(3398n);
-  expect(owed).toBe(3399n);
+  expect(
+    rov(
+      pox5.getEarnedStakerRewards(signerManagerV2.identifier, 1n, null, alice),
+    ),
+  ).toBe(3399n);
+  // The read-only matches settlement, not pox-5's uncapped share.
+  expect(owed()).toEqual({ amount: 3398n, earned: 3398n, fees: 0n });
 
   expect(
     txOk(signerManagerV2.settleStakerRewards(alice, 1n, null), bob).value,
