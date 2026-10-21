@@ -934,6 +934,8 @@
     (default-to false (map-get? allowlist staker))
 )
 
+;; Fetch SIP-016 metadata regarding this signer manager
+;; for display in wallets and other apps
 (define-read-only (get-token-uri)
     (ok (var-get token-uri))
 )
