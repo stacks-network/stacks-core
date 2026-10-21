@@ -27,7 +27,6 @@ use clarity::vm::costs::{ExecutionCost, LimitedCostTracker};
 use clarity::vm::database::{
     BurnStateDB, ClarityDatabase, HeadersDB, STXBalance, NULL_BURN_STATE_DB,
 };
-use clarity::vm::errors::ClarityEvalError;
 use clarity::vm::events::*;
 use clarity::vm::representations::ContractName;
 use clarity::vm::resource_limiter::ResourceBudget;
@@ -2114,47 +2113,6 @@ impl StacksChainState {
             contract,
             code,
         )
-    }
-
-    /// Execute a public function in `contract` from a read-only DB context
-    ///  Any mutations that occur will be rolled-back before returning, regardless of
-    ///  an okay or error result.
-    pub fn eval_fn_read_only(
-        &mut self,
-        burn_dbconn: &dyn BurnStateDB,
-        parent_id_bhh: &StacksBlockId,
-        contract: &QualifiedContractIdentifier,
-        function: &str,
-        args: &[Value],
-    ) -> Result<Value, ClarityError> {
-        let headers_db = HeadersDBConn(StacksDBConn::new(&self.state_index, ()));
-        let mut conn = self.clarity_state.read_only_connection_checked(
-            parent_id_bhh,
-            &headers_db,
-            burn_dbconn,
-        )?;
-
-        let args = args.to_vec();
-
-        let result = conn.with_readonly_clarity_env(
-            self.mainnet,
-            self.chain_id,
-            contract.clone().into(),
-            None,
-            LimitedCostTracker::Free,
-            |exec_state, invoke_ctx| {
-                exec_state
-                    .execute_contract(
-                        invoke_ctx, contract, function, args,
-                        // read-only is set to `false` so that non-read-only functions
-                        //  can be executed. any transformation is rolled back.
-                        false,
-                    )
-                    .map_err(ClarityEvalError::from)
-            },
-        )?;
-
-        Ok(result)
     }
 
     pub fn db(&self) -> &DBConn {
