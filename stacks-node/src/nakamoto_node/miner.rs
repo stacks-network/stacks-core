@@ -547,24 +547,14 @@ impl BlockMinerThread {
     #[cfg(not(test))]
     fn fault_injection_miner_stall() {}
 
-    /// Hold the miner while mining is paused through `POST /bench/v1/miner`.
-    /// Returns early if the miner is aborted (e.g. a new burn block) or the node shuts down, so
-    /// the caller's abort check still applies.
+    /// Hold the miner while mining is paused through `POST /bench/v1/miner`; while held, the
+    /// endpoint reports mining as `paused`. Returns early if the miner is aborted (e.g. a new
+    /// burn block) or the node shuts down, so the caller's abort check still applies.
     #[cfg(feature = "bench-hooks")]
     fn bench_hooks_miner_stall(&self) {
-        use stacks::bench_hooks::miner::is_mining_paused;
-
-        if !is_mining_paused() {
-            return;
-        }
-        warn!("Miner: mining paused by bench hooks");
-        while is_mining_paused() && !self.is_aborted() && self.globals.keep_running() {
-            thread::sleep(Duration::from_millis(20));
-        }
-        warn!("Miner: no longer paused by bench hooks";
-            "aborted" => self.is_aborted(),
-            "still_paused" => is_mining_paused(),
-        );
+        stacks::bench_hooks::miner::hold_while_paused(Duration::from_millis(20), || {
+            self.is_aborted() || !self.globals.keep_running()
+        });
     }
 
     #[cfg(not(feature = "bench-hooks"))]

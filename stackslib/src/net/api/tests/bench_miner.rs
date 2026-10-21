@@ -17,6 +17,7 @@ use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 
 use super::test_rpc;
 use crate::bench_hooks::miner::MinerBenchCommand;
+use crate::bench_hooks::RunState;
 use crate::net::api::bench::miner::{
     RPCBenchMinerCommandRequestHandler, RPCBenchMinerStatusRequestHandler,
 };
@@ -105,14 +106,19 @@ fn test_try_make_response() {
         panic!("expected 4 responses, got {}", statuses.len());
     };
 
-    assert!(!initial.mining.paused);
+    assert_eq!(initial.mining.state, RunState::Running);
     assert_eq!(initial.mining.since, None);
 
-    assert!(paused.mining.paused);
-    let since = paused.mining.since.expect("paused state has a start time");
+    // requested, not in effect: no miner thread runs here to reach the pause checkpoint
+    assert_eq!(paused.mining.state, RunState::Pausing);
+    let since = paused
+        .mining
+        .since
+        .expect("a requested pause has a start time");
 
+    assert_eq!(paused_again.mining.state, RunState::Pausing);
     assert_eq!(paused_again.mining.since, Some(since));
 
-    assert!(!resumed.mining.paused);
+    assert_eq!(resumed.mining.state, RunState::Running);
     assert_eq!(resumed.mining.since, None);
 }
