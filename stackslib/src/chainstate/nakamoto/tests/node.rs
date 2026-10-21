@@ -263,6 +263,16 @@ impl TestMiner {
     }
 }
 
+/// What [`TestStacksNode::make_nakamoto_block_from_txs`] does with a problematic
+/// transaction.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum ProblematicTx {
+    /// Fail the whole block.
+    Abort,
+    /// Leave the transaction out, like other failing ones.
+    Drop,
+}
+
 impl TestStacksNode {
     pub fn add_nakamoto_tenure_commit(
         sortdb: &SortitionDB,
@@ -766,7 +776,7 @@ impl TestStacksNode {
                 &sortdb.index_handle_at_tip(),
                 txs,
                 &mut miner_setup,
-                false,
+                ProblematicTx::Abort,
             )?;
             let try_to_process = after_block(&mut nakamoto_block);
             miner.sign_nakamoto_block(&mut nakamoto_block);
@@ -909,8 +919,8 @@ impl TestStacksNode {
             .collect())
     }
 
-    /// Build a Nakamoto block from `txs`. A problematic transaction aborts the block,
-    /// unless `drop_problematic` is set, which drops it like other failing ones.
+    /// Build a Nakamoto block from `txs`. `problematic` says whether a problematic
+    /// transaction aborts the block or is dropped like other failing ones.
     ///
     /// `miner_setup` runs after tenure information and reward-set-dependent header defaults
     /// (including `pox_treatment`) are initialized, but before tenure execution begins. It can
@@ -922,7 +932,7 @@ impl TestStacksNode {
         burn_dbconn: &SortitionHandleConn,
         txs: Vec<StacksTransaction>,
         mut miner_setup: S,
-        drop_problematic: bool,
+        problematic: ProblematicTx,
     ) -> Result<(NakamotoBlock, u64, ExecutionCost, RewardSet), ChainstateError>
     where
         S: FnMut(&mut NakamotoBlockBuilder),
@@ -993,7 +1003,7 @@ impl TestStacksNode {
                             continue;
                         }
                         ChainstateError::ProblematicTransaction(txid) => {
-                            if drop_problematic {
+                            if problematic == ProblematicTx::Drop {
                                 continue;
                             }
                             test_debug!("Encountered problematic transaction. Aborting");
@@ -1008,7 +1018,7 @@ impl TestStacksNode {
                 TransactionResult::Problematic(TransactionProblematic { tx, .. }) => {
                     // drop from the mempool
                     debug!("Encountered problematic transaction {}", &tx.txid());
-                    if drop_problematic {
+                    if problematic == ProblematicTx::Drop {
                         continue;
                     }
                     return Err(ChainstateError::ProblematicTransaction(tx.txid()));

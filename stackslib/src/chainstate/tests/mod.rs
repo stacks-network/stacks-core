@@ -72,7 +72,7 @@ use crate::chainstate::nakamoto::signer_set::{
     set_pox_5_sbtc_contract, set_pox_5_sbtc_registry_contract,
 };
 use crate::chainstate::nakamoto::tests::get_account;
-use crate::chainstate::nakamoto::tests::node::{get_nakamoto_parent, TestStacker};
+use crate::chainstate::nakamoto::tests::node::{get_nakamoto_parent, ProblematicTx, TestStacker};
 use crate::chainstate::nakamoto::{NakamotoBlock, NakamotoBlockHeader, NakamotoChainState};
 use crate::chainstate::stacks::address::PoxAddress;
 use crate::chainstate::stacks::boot::test::{key_to_stacks_addr, make_pox_4_lockup_chain_id};
@@ -817,7 +817,7 @@ impl<'a> TestChainstate<'a> {
             &sortdb.index_handle_at_tip(),
             tenure_txs.iter().chain(transactions).cloned().collect(),
             |_| {},
-            true,
+            ProblematicTx::Drop,
         )
         .unwrap();
         assert!(
