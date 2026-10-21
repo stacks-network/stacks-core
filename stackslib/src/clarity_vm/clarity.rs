@@ -1344,7 +1344,7 @@ impl<'a, 'b> ClarityBlockConnection<'a, 'b> {
                         None,
                         &pox_2_contract_id,
                         "set-burnchain-parameters",
-                        &params,
+                        params,
                         |_, _| None,
                         &ResourceBudget::unlimited(),
                     )
@@ -1576,7 +1576,7 @@ impl<'a, 'b> ClarityBlockConnection<'a, 'b> {
                         None,
                         &pox_3_contract_id,
                         "set-burnchain-parameters",
-                        &params,
+                        params,
                         |_, _| None,
                         &ResourceBudget::unlimited(),
                     )
@@ -1692,7 +1692,7 @@ impl<'a, 'b> ClarityBlockConnection<'a, 'b> {
                         None,
                         &pox_4_contract_id,
                         "set-burnchain-parameters",
-                        &params,
+                        params,
                         |_, _| None,
                         &ResourceBudget::unlimited(),
                     )
@@ -2156,7 +2156,7 @@ impl<'a, 'b> ClarityBlockConnection<'a, 'b> {
                         None,
                         &pox_5_contract_id,
                         "set-burnchain-parameters",
-                        &params,
+                        params,
                         |_, _| None,
                         &ResourceBudget::unlimited(),
                     )
@@ -2900,7 +2900,7 @@ mod tests {
                     None,
                     &contract_identifier,
                     "foo",
-                    &[Value::Int(1)],
+                    vec![Value::Int(1)],
                     |_, _| None,
                     &ResourceBudget::unlimited()
                 ))
@@ -3187,7 +3187,7 @@ mod tests {
                     None,
                     &contract_identifier,
                     "get-bar",
-                    &[],
+                    vec![],
                     |_, _| None,
                     &ResourceBudget::unlimited()
                 ))
@@ -3202,7 +3202,7 @@ mod tests {
                     None,
                     &contract_identifier,
                     "set-bar",
-                    &[Value::Int(1), Value::Int(1)],
+                    vec![Value::Int(1), Value::Int(1)],
                     |_, _| None,
                     &ResourceBudget::unlimited()
                 ))
@@ -3218,7 +3218,7 @@ mod tests {
                         None,
                         &contract_identifier,
                         "set-bar",
-                        &[Value::Int(10), Value::Int(1)],
+                        vec![Value::Int(10), Value::Int(1)],
                         |_, _| Some("testing rollback".into()),
                         &ResourceBudget::unlimited(),
                     )
@@ -3239,7 +3239,7 @@ mod tests {
                     None,
                     &contract_identifier,
                     "get-bar",
-                    &[],
+                    vec![],
                     |_, _| None,
                     &ResourceBudget::unlimited()
                 ))
@@ -3255,7 +3255,7 @@ mod tests {
                     None,
                     &contract_identifier,
                     "set-bar",
-                    &[Value::Int(10), Value::Int(0)],
+                    vec![Value::Int(10), Value::Int(0)],
                     |_, _| Some("testing rollback".into()),
                     &ResourceBudget::unlimited()
                 ))
@@ -3270,7 +3270,7 @@ mod tests {
                     None,
                     &contract_identifier,
                     "get-bar",
-                    &[],
+                    vec![],
                     |_, _| None,
                     &ResourceBudget::unlimited()
                 ))
@@ -3569,7 +3569,7 @@ mod tests {
                     None,
                     &contract_identifier,
                     "do-expand",
-                    &[],
+                    vec![],
                     |_, _| None,
                     &ResourceBudget::unlimited()
                 ))
@@ -3656,7 +3656,7 @@ mod tests {
                 None,
                 &contract_identifier,
                 "noop",
-                &[],
+                vec![],
                 |_, _| None,
                 &ResourceBudget::unlimited(),
             )
@@ -3671,7 +3671,7 @@ mod tests {
                 None,
                 &contract_identifier,
                 "noop",
-                &[],
+                vec![],
                 |_, _| None,
                 &ResourceBudget::unlimited(),
             )
@@ -3702,7 +3702,7 @@ mod tests {
                 None,
                 &contract_identifier,
                 "noop",
-                &[],
+                vec![],
                 |_, _| None,
                 &ResourceBudget::unlimited(),
             )

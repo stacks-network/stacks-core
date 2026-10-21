@@ -1151,7 +1151,7 @@ fn pox_2_delegate_extend_units() {
                 None,
                 POX_2_CONTRACT_TESTNET.deref(),
                 "set-burnchain-parameters",
-                &[
+                vec![
                     Value::UInt(0),
                     Value::UInt(30),
                     Value::UInt(150),

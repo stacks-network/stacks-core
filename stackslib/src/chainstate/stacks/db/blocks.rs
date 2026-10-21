@@ -4100,7 +4100,7 @@ impl StacksChainState {
                     None,
                     &boot_code_id(active_pox_contract, mainnet),
                     "stack-stx",
-                    &args,
+                    args,
                     |_, _| None,
                     &ResourceBudget::unlimited(),
                 )
@@ -4306,7 +4306,7 @@ impl StacksChainState {
                     None,
                     &boot_code_id(active_pox_contract, mainnet),
                     "delegate-stx",
-                    &[
+                    vec![
                         Value::UInt(*delegated_ustx),
                         Value::Principal(delegate_to.clone().into()),
                         until_burn_height_val,
@@ -4414,7 +4414,7 @@ impl StacksChainState {
                     None,
                     &boot_code_id(SIGNERS_VOTING_NAME, mainnet),
                     "vote-for-aggregate-public-key",
-                    &[
+                    vec![
                         Value::UInt((*signer_index).into()),
                         Value::buff_from(aggregate_key.as_bytes().to_vec()).unwrap(),
                         Value::UInt((*round).into()),

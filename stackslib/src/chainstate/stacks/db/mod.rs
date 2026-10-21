@@ -1768,7 +1768,7 @@ impl StacksChainState {
                 None,
                 &contract,
                 "set-burnchain-parameters",
-                &params,
+                params,
                 |_, _| None,
                 &ResourceBudget::unlimited(),
             )

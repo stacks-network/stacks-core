@@ -265,7 +265,7 @@ fn test_simple_token_system(#[case] version: ClarityVersion, #[case] epoch: Stac
                     None,
                     &contract_identifier,
                     "token-transfer",
-                    &[p1.clone().into(), Value::UInt(210)],
+                    vec![p1.clone().into(), Value::UInt(210)],
                     |_, _| None,
                     &ResourceBudget::unlimited()
                 ))
@@ -279,7 +279,7 @@ fn test_simple_token_system(#[case] version: ClarityVersion, #[case] epoch: Stac
                     None,
                     &contract_identifier,
                     "token-transfer",
-                    &[p2.clone().into(), Value::UInt(9000)],
+                    vec![p2.clone().into(), Value::UInt(9000)],
                     |_, _| None,
                     &ResourceBudget::unlimited()
                 ))
@@ -294,7 +294,7 @@ fn test_simple_token_system(#[case] version: ClarityVersion, #[case] epoch: Stac
                     None,
                     &contract_identifier,
                     "token-transfer",
-                    &[p2.clone().into(), Value::UInt(1001)],
+                    vec![p2.clone().into(), Value::UInt(1001)],
                     |_, _| None,
                     &ResourceBudget::unlimited()
                 ))
@@ -304,7 +304,7 @@ fn test_simple_token_system(#[case] version: ClarityVersion, #[case] epoch: Stac
         assert!(is_committed(
             & // send to self!
             block.as_transaction(|tx| tx.run_contract_call(&p1, None, &contract_identifier, "token-transfer",
-                                    &[p1.clone().into(), Value::UInt(1000)], |_, _| None, &ResourceBudget::unlimited())).unwrap().0
+                                    vec![p1.clone().into(), Value::UInt(1000)], |_, _| None, &ResourceBudget::unlimited())).unwrap().0
         ));
 
         assert_eq!(
@@ -333,7 +333,7 @@ fn test_simple_token_system(#[case] version: ClarityVersion, #[case] epoch: Stac
                     None,
                     &contract_identifier,
                     "faucet",
-                    &[],
+                    vec![],
                     |_, _| None,
                     &ResourceBudget::unlimited()
                 ))
@@ -348,7 +348,7 @@ fn test_simple_token_system(#[case] version: ClarityVersion, #[case] epoch: Stac
                     None,
                     &contract_identifier,
                     "faucet",
-                    &[],
+                    vec![],
                     |_, _| None,
                     &ResourceBudget::unlimited()
                 ))
@@ -363,7 +363,7 @@ fn test_simple_token_system(#[case] version: ClarityVersion, #[case] epoch: Stac
                     None,
                     &contract_identifier,
                     "faucet",
-                    &[],
+                    vec![],
                     |_, _| None,
                     &ResourceBudget::unlimited()
                 ))
@@ -388,7 +388,7 @@ fn test_simple_token_system(#[case] version: ClarityVersion, #[case] epoch: Stac
                     None,
                     &contract_identifier,
                     "mint-after",
-                    &[Value::UInt(25)],
+                    vec![Value::UInt(25)],
                     |_, _| None,
                     &ResourceBudget::unlimited()
                 ))
@@ -426,7 +426,7 @@ fn test_simple_token_system(#[case] version: ClarityVersion, #[case] epoch: Stac
                     None,
                     &contract_identifier,
                     "mint-after",
-                    &[Value::UInt(25)],
+                    vec![Value::UInt(25)],
                     |_, _| None,
                     &ResourceBudget::unlimited()
                 ))
@@ -441,7 +441,7 @@ fn test_simple_token_system(#[case] version: ClarityVersion, #[case] epoch: Stac
                     None,
                     &contract_identifier,
                     "faucet",
-                    &[],
+                    vec![],
                     |_, _| None,
                     &ResourceBudget::unlimited()
                 ))
@@ -465,7 +465,7 @@ fn test_simple_token_system(#[case] version: ClarityVersion, #[case] epoch: Stac
                     None,
                     &contract_identifier,
                     "my-get-token-balance",
-                    &[p1.clone().into()],
+                    vec![p1.clone().into()],
                     |_, _| None,
                     &ResourceBudget::unlimited()
                 ))

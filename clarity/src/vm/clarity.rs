@@ -670,15 +670,13 @@ pub trait TransactionConnection: ClarityConnection {
         sponsor: Option<&PrincipalData>,
         contract: &QualifiedContractIdentifier,
         public_function: &str,
-        args: &[Value],
+        args: Vec<Value>,
         abort_call_back: F,
         resource_budget: &ResourceBudget,
     ) -> Result<(Value, AssetMap, Vec<StacksTransactionEvent>), ClarityError>
     where
         F: FnOnce(&AssetMap, &mut ClarityDatabase) -> Option<BoundedErrorString>,
     {
-        let args = args.to_vec();
-
         self.with_abort_callback(
             |vm_env| {
                 vm_env

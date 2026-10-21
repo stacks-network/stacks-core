@@ -107,7 +107,7 @@ pub fn process(
                 sponsor.as_ref(),
                 &contract_id,
                 &contract_call.function_name,
-                &contract_call.function_args,
+                contract_call.function_args.clone(),
                 |asset_map, _| {
                     post_conditions::check(
                         &tx.post_conditions,

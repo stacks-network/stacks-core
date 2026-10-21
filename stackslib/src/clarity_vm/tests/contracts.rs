@@ -442,7 +442,7 @@ fn trait_invocation_cross_epoch() {
                     None,
                     &invoke_contract_id,
                     "invocation-1",
-                    &[],
+                    vec![],
                     |_, _| None,
                     &ResourceBudget::unlimited(),
                 )
@@ -461,7 +461,7 @@ fn trait_invocation_cross_epoch() {
                     None,
                     &invoke_contract_id,
                     "invocation-1",
-                    &[],
+                    vec![],
                     |_, _| None,
                     &ResourceBudget::unlimited()
                 )
@@ -485,7 +485,7 @@ fn trait_invocation_cross_epoch() {
                     None,
                     &invoke_contract_id,
                     "invocation-2",
-                    &[Value::Principal(impl_contract_id.clone().into())],
+                    vec![Value::Principal(impl_contract_id.clone().into())],
                     |_, _| None,
                     &ResourceBudget::unlimited()
                 )
@@ -510,7 +510,7 @@ fn trait_invocation_cross_epoch() {
                     None,
                     &invoke_contract_id,
                     "invocation-1",
-                    &[],
+                    vec![],
                     |_, _| None,
                     &ResourceBudget::unlimited(),
                 )
@@ -528,7 +528,7 @@ fn trait_invocation_cross_epoch() {
                     None,
                     &invoke_contract_id,
                     "invocation-2",
-                    &[Value::Principal(impl_contract_id.clone().into())],
+                    vec![Value::Principal(impl_contract_id.clone().into())],
                     |_, _| None,
                     &ResourceBudget::unlimited(),
                 )
@@ -790,7 +790,7 @@ fn trait_with_trait_invocation_cross_epoch() {
                     None,
                     &use_compute_20_id,
                     "do-it-static",
-                    &[],
+                    vec![],
                     |_, _| None,
                     &ResourceBudget::unlimited(),
                 )
@@ -807,7 +807,7 @@ fn trait_with_trait_invocation_cross_epoch() {
                     None,
                     &use_compute_20_id,
                     "do-it-dyn",
-                    &[
+                    vec![
                         Value::Principal(impl_compute_id.clone().into()),
                         Value::Principal(impl_math_id.clone().into()),
                         Value::UInt(1),
@@ -829,7 +829,7 @@ fn trait_with_trait_invocation_cross_epoch() {
                     None,
                     &use_compute_21_c1_id,
                     "do-it-static",
-                    &[],
+                    vec![],
                     |_, _| None,
                     &ResourceBudget::unlimited(),
                 )
@@ -846,7 +846,7 @@ fn trait_with_trait_invocation_cross_epoch() {
                     None,
                     &use_compute_21_c1_id,
                     "do-it-dyn",
-                    &[
+                    vec![
                         Value::Principal(impl_compute_id.clone().into()),
                         Value::Principal(impl_math_id.clone().into()),
                         Value::UInt(1),
@@ -868,7 +868,7 @@ fn trait_with_trait_invocation_cross_epoch() {
                     None,
                     &use_compute_21_c2_id,
                     "do-it-static",
-                    &[],
+                    vec![],
                     |_, _| None,
                     &ResourceBudget::unlimited(),
                 )
@@ -885,7 +885,7 @@ fn trait_with_trait_invocation_cross_epoch() {
                     None,
                     &use_compute_21_c2_id,
                     "do-it-dyn",
-                    &[
+                    vec![
                         Value::Principal(impl_compute_id.into()),
                         Value::Principal(impl_math_id.into()),
                         Value::UInt(1),
@@ -1490,7 +1490,7 @@ fn test_block_heights_across_versions_traits_3_from_2() {
                 None,
                 &contract_id_e2c1,
                 "get-it",
-                &[Value::Principal(contract_id_e3c3.clone().into())],
+                vec![Value::Principal(contract_id_e3c3.clone().into())],
                 |_, _| None,
                 &ResourceBudget::unlimited(),
             )
@@ -1503,7 +1503,7 @@ fn test_block_heights_across_versions_traits_3_from_2() {
                 None,
                 &contract_id_e2c2,
                 "get-it",
-                &[Value::Principal(contract_id_e3c3.clone().into())],
+                vec![Value::Principal(contract_id_e3c3.clone().into())],
                 |_, _| None,
                 &ResourceBudget::unlimited(),
             )
@@ -1638,7 +1638,7 @@ fn test_block_heights_across_versions_traits_2_from_3() {
                 None,
                 &contract_id_e3c3,
                 "get-it",
-                &[Value::Principal(contract_id_e2c1.clone().into())],
+                vec![Value::Principal(contract_id_e2c1.clone().into())],
                 |_, _| None,
                 &ResourceBudget::unlimited(),
             )
@@ -1651,7 +1651,7 @@ fn test_block_heights_across_versions_traits_2_from_3() {
                 None,
                 &contract_id_e3c3,
                 "get-it",
-                &[Value::Principal(contract_id_e2c2.clone().into())],
+                vec![Value::Principal(contract_id_e2c2.clone().into())],
                 |_, _| None,
                 &ResourceBudget::unlimited(),
             )
