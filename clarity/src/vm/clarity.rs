@@ -22,8 +22,8 @@ use crate::vm::analysis::{
     AnalysisDatabase, ContractAnalysis, RuntimeCheckErrorKind, StaticCheckError,
     StaticCheckErrorKind,
 };
-use crate::vm::ast::errors::{ParseError, ParseErrorKind};
 use crate::vm::ast::ContractAST;
+use crate::vm::ast::errors::{ParseError, ParseErrorKind};
 use crate::vm::contexts::{AssetMap, ExecutionState, InvocationContext, OwnedEnvironment};
 use crate::vm::costs::{ExecutionCost, LimitedCostTracker};
 use crate::vm::database::ClarityDatabase;
@@ -31,7 +31,7 @@ use crate::vm::errors::{ClarityEvalError, VmExecutionError};
 use crate::vm::events::StacksTransactionEvent;
 use crate::vm::resource_limiter::ResourceBudget;
 use crate::vm::types::{BuffData, PrincipalData, QualifiedContractIdentifier};
-use crate::vm::{analysis, ast, ClarityVersion, ContractContext, Value};
+use crate::vm::{ClarityVersion, ContractContext, Value, analysis, ast};
 
 /// Top-level error type for Clarity contract processing, encompassing errors from parsing,
 /// type-checking, runtime evaluation, and transaction execution.
@@ -769,8 +769,8 @@ mod unit_tests {
     use crate::vm::database::MemoryBackingStore;
     use crate::vm::errors::{EarlyReturnError, RuntimeError};
     use crate::vm::events::{STXBurnEventData, STXEventType};
-    use crate::vm::hooks::testing::{ExecutionLifecycleEvent, ExecutionLifecycleHook};
     use crate::vm::hooks::ExecutionOutcome;
+    use crate::vm::hooks::testing::{ExecutionLifecycleEvent, ExecutionLifecycleHook};
     use crate::vm::types::StandardPrincipalData;
 
     #[test]
@@ -1028,12 +1028,16 @@ mod unit_tests {
             ))
         };
 
-        assert!(!handle_clarity_runtime_error(err(), StacksEpochId::Epoch20).is_included_in_block());
+        assert!(
+            !handle_clarity_runtime_error(err(), StacksEpochId::Epoch20).is_included_in_block()
+        );
         assert!(
             !handle_clarity_runtime_error(err(), StacksEpochId::Epoch2_05).is_included_in_block()
         );
         assert!(handle_clarity_runtime_error(err(), StacksEpochId::Epoch21).is_included_in_block());
-        assert!(handle_clarity_runtime_error(err(), StacksEpochId::latest()).is_included_in_block());
+        assert!(
+            handle_clarity_runtime_error(err(), StacksEpochId::latest()).is_included_in_block()
+        );
     }
 
     /// Runtime-check errors are classified by `rejectable_in_epoch(epoch) || epoch_id < Epoch21`.
@@ -1101,21 +1105,27 @@ mod unit_tests {
     fn analysis_failure_excludes_resource_exhaustion() {
         let epoch = StacksEpochId::latest();
 
-        assert!(!handle_clarity_analysis_error(
-            ClarityError::CostError(ExecutionCost::ZERO, ExecutionCost::max_value()),
-            epoch
-        )
-        .is_included_in_block());
-        assert!(!handle_clarity_analysis_error(
-            ClarityError::AnalysisResourceBudgetExceeded("too slow".into()),
-            epoch
-        )
-        .is_included_in_block());
-        assert!(!handle_clarity_analysis_error(
-            ClarityError::BadTransaction("not an analysis error".into()),
-            epoch
-        )
-        .is_included_in_block());
+        assert!(
+            !handle_clarity_analysis_error(
+                ClarityError::CostError(ExecutionCost::ZERO, ExecutionCost::max_value()),
+                epoch
+            )
+            .is_included_in_block()
+        );
+        assert!(
+            !handle_clarity_analysis_error(
+                ClarityError::AnalysisResourceBudgetExceeded("too slow".into()),
+                epoch
+            )
+            .is_included_in_block()
+        );
+        assert!(
+            !handle_clarity_analysis_error(
+                ClarityError::BadTransaction("not an analysis error".into()),
+                epoch
+            )
+            .is_included_in_block()
+        );
     }
 
     #[test]
@@ -1123,31 +1133,37 @@ mod unit_tests {
         let epoch = StacksEpochId::latest();
 
         // Rejectable in every epoch.
-        assert!(!handle_clarity_analysis_error(
-            ClarityError::Parse(Box::new(ParseErrorKind::InterpreterFailure.into())),
-            epoch
-        )
-        .is_included_in_block());
-        assert!(!handle_clarity_analysis_error(
-            ClarityError::StaticCheck(Box::new(
-                StaticCheckErrorKind::TraitReferenceChainTooDeep.into()
-            )),
-            epoch
-        )
-        .is_included_in_block());
+        assert!(
+            !handle_clarity_analysis_error(
+                ClarityError::Parse(Box::new(ParseErrorKind::InterpreterFailure.into())),
+                epoch
+            )
+            .is_included_in_block()
+        );
+        assert!(
+            !handle_clarity_analysis_error(
+                ClarityError::StaticCheck(Box::new(
+                    StaticCheckErrorKind::TraitReferenceChainTooDeep.into()
+                )),
+                epoch
+            )
+            .is_included_in_block()
+        );
     }
 
     #[test]
     fn analysis_failure_includes_ordinary_type_errors() {
         let epoch = StacksEpochId::latest();
 
-        assert!(handle_clarity_analysis_error(
-            ClarityError::StaticCheck(Box::new(
-                StaticCheckErrorKind::UnknownFunction("no-such-fn".into()).into(),
-            )),
-            epoch
-        )
-        .is_included_in_block());
+        assert!(
+            handle_clarity_analysis_error(
+                ClarityError::StaticCheck(Box::new(
+                    StaticCheckErrorKind::UnknownFunction("no-such-fn".into()).into(),
+                )),
+                epoch
+            )
+            .is_included_in_block()
+        );
     }
 
     #[test]
@@ -1177,6 +1193,8 @@ mod unit_tests {
         assert!(
             !handle_clarity_analysis_error(err(), StacksEpochId::Epoch33).is_included_in_block()
         );
-        assert!(handle_clarity_analysis_error(err(), StacksEpochId::Epoch34).is_included_in_block());
+        assert!(
+            handle_clarity_analysis_error(err(), StacksEpochId::Epoch34).is_included_in_block()
+        );
     }
 }
