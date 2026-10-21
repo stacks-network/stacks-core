@@ -30,7 +30,6 @@ use clarity::vm::database::{
 use clarity::vm::errors::VmExecutionError;
 use clarity::vm::events::{STXEventType, STXMintEventData};
 use clarity::vm::hooks::EvalHook;
-use clarity::vm::representations::SymbolicExpression;
 use clarity::vm::resource_limiter::ResourceBudget;
 use clarity::vm::types::{BoundedErrorString, PrincipalData, QualifiedContractIdentifier, Value};
 use clarity::vm::{ClarityVersion, ContractName};
@@ -2501,7 +2500,7 @@ impl ClarityTransactionConnection<'_, '_> {
         &mut self,
         contract: &QualifiedContractIdentifier,
         method: &str,
-        args: &[SymbolicExpression],
+        args: Vec<Value>,
     ) -> Result<Value, ClarityError> {
         let (result, _, _, _) = self.with_abort_callback(
             |vm_env| {

@@ -592,7 +592,7 @@ fn inner_test_simple_naming_system(owned_env: &mut OwnedEnvironment, version: Cl
                     &invoke_ctx,
                     &QualifiedContractIdentifier::local("names").unwrap(),
                     "preorder",
-                    &symbols_from_values(vec![name_hash_expensive_0.clone(), Value::UInt(1000)]),
+                    vec![name_hash_expensive_0.clone(), Value::UInt(1000)],
                     false
                 )
                 .unwrap(),
@@ -612,7 +612,7 @@ fn inner_test_simple_naming_system(owned_env: &mut OwnedEnvironment, version: Cl
                     &invoke_ctx,
                     &QualifiedContractIdentifier::local("names").unwrap(),
                     "preorder",
-                    &symbols_from_values(vec![name_hash_expensive_0.clone(), Value::UInt(1000)]),
+                    vec![name_hash_expensive_0.clone(), Value::UInt(1000)],
                     false
                 )
                 .unwrap()
@@ -623,7 +623,7 @@ fn inner_test_simple_naming_system(owned_env: &mut OwnedEnvironment, version: Cl
                     &invoke_ctx,
                     &QualifiedContractIdentifier::local("names").unwrap(),
                     "preorder",
-                    &symbols_from_values(vec![name_hash_expensive_0, Value::UInt(1000)]),
+                    vec![name_hash_expensive_0, Value::UInt(1000)],
                     false
                 )
                 .unwrap(),
@@ -644,7 +644,7 @@ fn inner_test_simple_naming_system(owned_env: &mut OwnedEnvironment, version: Cl
                     &invoke_ctx,
                     &QualifiedContractIdentifier::local("names").unwrap(),
                     "register",
-                    &symbols_from_values(vec![p2.clone(), Value::Int(1), Value::Int(0)]),
+                    vec![p2.clone(), Value::Int(1), Value::Int(0)],
                     false
                 )
                 .unwrap(),
@@ -665,7 +665,7 @@ fn inner_test_simple_naming_system(owned_env: &mut OwnedEnvironment, version: Cl
                     &invoke_ctx,
                     &QualifiedContractIdentifier::local("names").unwrap(),
                     "register",
-                    &symbols_from_values(vec![p2.clone(), Value::Int(1), Value::Int(0)]),
+                    vec![p2.clone(), Value::Int(1), Value::Int(0)],
                     false
                 )
                 .unwrap()
@@ -685,7 +685,7 @@ fn inner_test_simple_naming_system(owned_env: &mut OwnedEnvironment, version: Cl
                     &invoke_ctx,
                     &QualifiedContractIdentifier::local("names").unwrap(),
                     "preorder",
-                    &symbols_from_values(vec![name_hash_expensive_1, Value::UInt(100)]),
+                    vec![name_hash_expensive_1, Value::UInt(100)],
                     false
                 )
                 .unwrap()
@@ -696,7 +696,7 @@ fn inner_test_simple_naming_system(owned_env: &mut OwnedEnvironment, version: Cl
                     &invoke_ctx,
                     &QualifiedContractIdentifier::local("names").unwrap(),
                     "register",
-                    &symbols_from_values(vec![p2.clone(), Value::Int(2), Value::Int(0)]),
+                    vec![p2.clone(), Value::Int(2), Value::Int(0)],
                     false
                 )
                 .unwrap(),
@@ -710,7 +710,7 @@ fn inner_test_simple_naming_system(owned_env: &mut OwnedEnvironment, version: Cl
                     &invoke_ctx,
                     &QualifiedContractIdentifier::local("names").unwrap(),
                     "preorder",
-                    &symbols_from_values(vec![name_hash_cheap_0, Value::UInt(100)]),
+                    vec![name_hash_cheap_0, Value::UInt(100)],
                     false
                 )
                 .unwrap()
@@ -721,7 +721,7 @@ fn inner_test_simple_naming_system(owned_env: &mut OwnedEnvironment, version: Cl
                     &invoke_ctx,
                     &QualifiedContractIdentifier::local("names").unwrap(),
                     "register",
-                    &symbols_from_values(vec![p2.clone(), Value::Int(100001), Value::Int(0)]),
+                    vec![p2.clone(), Value::Int(100001), Value::Int(0)],
                     false
                 )
                 .unwrap()
@@ -734,7 +734,7 @@ fn inner_test_simple_naming_system(owned_env: &mut OwnedEnvironment, version: Cl
                     &invoke_ctx,
                     &QualifiedContractIdentifier::local("names").unwrap(),
                     "register",
-                    &symbols_from_values(vec![p2, Value::Int(100001), Value::Int(0)]),
+                    vec![p2, Value::Int(100001), Value::Int(0)],
                     false
                 )
                 .unwrap(),
