@@ -1508,9 +1508,12 @@ impl ClarityDatabase<'_> {
             })?)
     }
 
+    /// The matured reward of the block at `block_height`, or `None` if it has not matured yet.
+    /// `epoch_id` is the epoch the calling transaction is evaluated in.
     pub fn get_block_reward(
         &mut self,
         block_height: u32,
+        epoch_id: StacksEpochId,
     ) -> Result<Option<u128>, VmExecutionError> {
         if block_height == 0 {
             return Ok(None);
@@ -1518,23 +1521,93 @@ impl ClarityDatabase<'_> {
 
         let cur_height: u64 = self.get_current_block_height().into();
 
-        // reward for the *child* of this block must have matured, since that determines the
-        // streamed tx fee reward portion
+        // In epoch 2.x, the block at height `block_height + MINER_REWARD_MATURITY + 1` writes
+        // this block's reward, so it is visible from the block after that one.
         if ((block_height + 1) as u64) + MINER_REWARD_MATURITY >= cur_height {
             return Ok(None);
         }
 
         let id_bhh = self.get_index_block_header_hash(block_height)?;
         let query_tip = self.eval_tip_block_id()?;
-        let epoch = self.get_stacks_epoch_for_block(&id_bhh)?;
+        let block_epoch = self.get_stacks_epoch_for_block(&id_bhh)?;
+        if epoch_id.checks_block_reward_is_written()
+            && !self.is_block_reward_written_at_eval_tip(block_height, &block_epoch, &query_tip)?
+        {
+            return Ok(None);
+        }
+
         let reward: u128 = self
             .headers_db
-            .get_tokens_earned_for_block(&id_bhh, &query_tip, &epoch)
+            .get_tokens_earned_for_block(&id_bhh, &query_tip, &block_epoch)
             .ok_or_else(|| {
                 VmInternalError::Expect("FATAL: matured block has no recorded reward".into())
             })?;
 
         Ok(Some(reward))
+    }
+
+    /// Whether the eval tip's fork has written the reward of the block at `block_height`.
+    ///
+    /// Nakamoto writes a tenure's reward when the tenure `MINER_REWARD_MATURITY` coinbase
+    /// heights later starts, after that tenure-start block's transactions run. So the reward is
+    /// visible once the eval tip is in that later tenure.
+    fn is_block_reward_written_at_eval_tip(
+        &mut self,
+        block_height: u32,
+        block_epoch: &StacksEpochId,
+        eval_tip: &StacksBlockId,
+    ) -> Result<bool, VmExecutionError> {
+        // Only an epoch 2.x block can be the skipped one.
+        if !block_epoch.uses_nakamoto_blocks() && self.is_epoch_2_reward_skipped(block_height)? {
+            return Ok(false);
+        }
+
+        let current_tenure = self.get_tenure_height()?;
+        // At a tenure-start block the eval tip is still in the previous tenure. Read-only
+        // calls treat their tip as this block, so at a tenure-start tip they see its reward
+        // as unwritten.
+        let eval_tip_tenure = if self
+            .headers_db
+            .get_stacks_height_for_tenure_height(eval_tip, current_tenure)
+            .is_some()
+        {
+            current_tenure
+        } else {
+            current_tenure.saturating_sub(1)
+        };
+        let Some(first_unwritten_tenure) = eval_tip_tenure
+            .checked_sub(MINER_REWARD_MATURITY as u32)
+            .map(|tenure| tenure + 1)
+        else {
+            return Ok(false);
+        };
+        let first_unwritten_height = self
+            .get_block_height_for_tenure_height(first_unwritten_tenure)?
+            .ok_or_else(|| {
+                VmInternalError::Expect("FATAL: no tenure-start block for a past tenure".into())
+            })?;
+        Ok(block_height < first_unwritten_height)
+    }
+
+    /// Whether the block at `block_height` is the one epoch 2.x block whose reward is never
+    /// written. The last epoch 2.x block writes the reward of the block
+    /// `MINER_REWARD_MATURITY + 1` below it, but the first Nakamoto tenure writes the reward of
+    /// the block `MINER_REWARD_MATURITY` below itself, which skips the block in between.
+    fn is_epoch_2_reward_skipped(&mut self, block_height: u32) -> Result<bool, VmExecutionError> {
+        // Both heights are below the current height, per the check in `get_block_reward`.
+        // Check the later one first: for most epoch 2.x blocks it is also epoch 2.x.
+        let last_epoch_2_height = block_height + MINER_REWARD_MATURITY as u32;
+        let first_nakamoto_id = self.get_index_block_header_hash(last_epoch_2_height + 1)?;
+        if !self
+            .get_stacks_epoch_for_block(&first_nakamoto_id)?
+            .uses_nakamoto_blocks()
+        {
+            return Ok(false);
+        }
+        let last_epoch_2_id = self.get_index_block_header_hash(last_epoch_2_height)?;
+        Ok(!self
+            .get_stacks_epoch_for_block(&last_epoch_2_id)?
+            .uses_nakamoto_blocks())
     }
 
     pub fn get_stx_btc_ops_processed(&mut self) -> Result<u64, VmExecutionError> {

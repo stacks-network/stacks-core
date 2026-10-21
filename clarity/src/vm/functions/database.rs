@@ -1028,10 +1028,11 @@ pub fn special_get_block_info(
         }
         BlockInfoProperty::BlockReward => {
             // this is already an optional
+            let epoch_id = *exec_state.epoch();
             let block_reward_opt = exec_state
                 .global_context
                 .database
-                .get_block_reward(height_value)?;
+                .get_block_reward(height_value, epoch_id)?;
             return Ok(match block_reward_opt {
                 Some(x) => Value::some(Value::UInt(x))?,
                 None => Value::none(),
@@ -1352,10 +1353,11 @@ pub fn special_get_tenure_info(
         }
         TenureInfoProperty::BlockReward => {
             // this is already an optional
+            let epoch_id = *exec_state.epoch();
             let block_reward_opt = exec_state
                 .global_context
                 .database
-                .get_block_reward(height_value)?;
+                .get_block_reward(height_value, epoch_id)?;
             return Ok(match block_reward_opt {
                 Some(x) => Value::some(Value::UInt(x))?,
                 None => Value::none(),
