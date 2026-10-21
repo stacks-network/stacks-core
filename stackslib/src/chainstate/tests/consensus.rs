@@ -699,16 +699,16 @@ impl ConsensusChain<'_> {
         code: &str,
     ) -> ClarityValue {
         let tip = self.tip().index_block_hash();
-        let test_chainstate = &mut self.test_chainstate;
-        let sortdb = test_chainstate.sortdb.take().unwrap();
-        let value = test_chainstate.chainstate().eval_read_only(
-            &sortdb.index_handle_at_tip(),
-            &tip,
-            contract,
-            code,
-        );
-        test_chainstate.sortdb = Some(sortdb);
-        value.unwrap()
+        let sortdb = self.test_chainstate.sortdb.as_ref().unwrap();
+        let chainstate = &mut self
+            .test_chainstate
+            .stacks_node
+            .as_mut()
+            .unwrap()
+            .chainstate;
+        chainstate
+            .eval_read_only(&sortdb.index_handle_at_tip(), &tip, contract, code)
+            .unwrap()
     }
 
     /// Appends a single block to the chain as a Pre-Nakamoto block and returns the result.
