@@ -110,6 +110,15 @@ pub fn has_contract_call_special_cases(contract: &QualifiedContractIdentifier) -
     contract.is_boot() && PoxVersions::lookup_by_name(contract.name.as_str()).is_some()
 }
 
+/// Whether [`handle_contract_call_special_cases`] can act on a call into `contract`.
+/// The node skips the handler for any other contract, so a new branch there must be
+/// covered here too.
+pub fn has_contract_call_special_cases(contract: &QualifiedContractIdentifier) -> bool {
+    contract.is_boot()
+        && [POX_1_NAME, POX_2_NAME, POX_3_NAME, POX_4_NAME, POX_5_NAME]
+            .contains(&contract.name.as_str())
+}
+
 /// Handle special cases of contract-calls -- namely, those into PoX that should lock up STX
 pub fn handle_contract_call_special_cases(
     global_context: &mut GlobalContext,
