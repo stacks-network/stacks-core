@@ -18,8 +18,8 @@ use std::path::PathBuf;
 use std::process;
 
 use clap::{Parser, Subcommand};
+use clarity::vm::ClarityVersion;
 use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier};
-use clarity::vm::{ClarityVersion, SymbolicExpression};
 use clarity_cli::{
     DEFAULT_CLI_EPOCH, execute_check, execute_eval, execute_eval_at_block,
     execute_eval_at_chaintip, execute_eval_raw, execute_execute, execute_generate_address,
@@ -598,11 +598,10 @@ fn main() {
                         vm_execute_in_epoch(argument, clarity_ver, epoch_id),
                         &format!("Error parsing argument '{argument}'"),
                     );
-                    let argument_value = friendly_expect_opt(
+                    friendly_expect_opt(
                         argument_parsed,
                         &format!("Failed to parse a value from the argument '{argument}'"),
-                    );
-                    SymbolicExpression::atom_value(argument_value)
+                    )
                 })
                 .collect();
 
@@ -613,7 +612,7 @@ fn main() {
                 &cid,
                 function_name,
                 sender_principal,
-                &arguments,
+                arguments,
                 *costs,
                 *assets,
                 epoch_id,

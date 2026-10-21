@@ -47,7 +47,7 @@ fn eval_hook_captures_top_level_execution_lifecycle() {
 
     let sender = contract_id.issuer.clone().into();
     let (value, _, _) = env
-        .execute_transaction(sender, None, contract_id.clone(), "entry", &[])
+        .execute_transaction(sender, None, contract_id.clone(), "entry", vec![])
         .unwrap();
 
     assert_eq!(value, Value::okay(Value::UInt(1)).unwrap());
@@ -79,7 +79,7 @@ fn eval_hook_captures_failed_top_level_execution_lifecycle() {
     env.add_eval_hook(&mut hook);
 
     let sender = contract_id.issuer.clone().into();
-    env.execute_transaction(sender, None, contract_id.clone(), "entry", &[])
+    env.execute_transaction(sender, None, contract_id.clone(), "entry", vec![])
         .unwrap_err();
 
     assert_eq!(
@@ -119,16 +119,16 @@ fn eval_hook_balances_nested_call_stack_after_deep_failure() {
     env.add_eval_hook(&mut hook);
 
     let sender = contract_id.issuer.clone().into();
-    let failing_args = vec![SymbolicExpression::atom_value(Value::UInt(0))];
-    env.execute_transaction(sender, None, contract_id.clone(), "entry", &failing_args)
+    let failing_args = vec![Value::UInt(0)];
+    env.execute_transaction(sender, None, contract_id.clone(), "entry", failing_args)
         .unwrap_err();
 
     // Reuse the same environment and hook after the deep failure. Any leaked call frame would
     // either make this execution start with stale state or corrupt its LIFO pairing.
     let sender = contract_id.issuer.clone().into();
-    let successful_args = vec![SymbolicExpression::atom_value(Value::UInt(1))];
+    let successful_args = vec![Value::UInt(1)];
     let (value, _, _) = env
-        .execute_transaction(sender, None, contract_id, "entry", &successful_args)
+        .execute_transaction(sender, None, contract_id, "entry", successful_args)
         .unwrap();
 
     assert_eq!(value, Value::okay(Value::UInt(3)).unwrap());
@@ -226,9 +226,9 @@ fn eval_hook_captures_effective_call_arguments() {
     env.add_eval_hook(&mut hook);
 
     let sender = contract_id.issuer.clone().into();
-    let args = vec![SymbolicExpression::atom_value(Value::UInt(0))];
+    let args = vec![Value::UInt(0)];
     let (value, _, _) = env
-        .execute_transaction(sender, None, contract_id, "entry", &args)
+        .execute_transaction(sender, None, contract_id, "entry", args)
         .unwrap();
 
     print_trace(&hook.events);
@@ -292,7 +292,7 @@ fn eval_hook_captures_lazy_special_form_call_tree() {
 
     let sender = contract_id.issuer.clone().into();
     let (value, _, _) = env
-        .execute_transaction(sender, None, contract_id, "entry", &[])
+        .execute_transaction(sender, None, contract_id, "entry", vec![])
         .unwrap();
 
     print_trace(&hook.events);
@@ -326,7 +326,7 @@ fn eval_hook_captures_fold_with_user_step_function() {
 
     let sender = contract_id.issuer.clone().into();
     let (value, _, _) = env
-        .execute_transaction(sender, None, contract_id, "entry", &[])
+        .execute_transaction(sender, None, contract_id, "entry", vec![])
         .unwrap();
 
     print_trace(&hook.events);
@@ -428,10 +428,10 @@ fn eval_hook_captures_trait_dispatched_contract_call_arguments() {
 
     let mut hook = TraceHook::default();
     env.add_eval_hook(&mut hook);
-    let args = vec![SymbolicExpression::atom_value(Value::UInt(7))];
+    let args = vec![Value::UInt(7)];
     let sender = caller_contract_id.issuer.clone().into();
     let (value, _, _) = env
-        .execute_transaction(sender, None, caller_contract_id, "entry", &args)
+        .execute_transaction(sender, None, caller_contract_id, "entry", args)
         .unwrap();
     drop(env);
 
@@ -552,22 +552,22 @@ fn eval_hook_balances_trait_dispatched_contract_call_after_failure() {
     env.add_eval_hook(&mut hook);
 
     let sender = caller_contract_id.issuer.clone().into();
-    let failing_args = vec![SymbolicExpression::atom_value(Value::UInt(0))];
+    let failing_args = vec![Value::UInt(0)];
     env.execute_transaction(
         sender,
         None,
         caller_contract_id.clone(),
         "entry",
-        &failing_args,
+        failing_args,
     )
     .unwrap_err();
 
     // Retry the same trait-dispatched contract call with a valid divisor. This ensures
     // that crossing the failed callee's transaction boundary left no stale hook frames.
     let sender = caller_contract_id.issuer.clone().into();
-    let successful_args = vec![SymbolicExpression::atom_value(Value::UInt(1))];
+    let successful_args = vec![Value::UInt(1)];
     let (value, _, _) = env
-        .execute_transaction(sender, None, caller_contract_id, "entry", &successful_args)
+        .execute_transaction(sender, None, caller_contract_id, "entry", successful_args)
         .unwrap();
 
     assert_eq!(value, Value::okay(Value::UInt(12)).unwrap());
@@ -697,10 +697,10 @@ fn eval_hook_captures_nested_contract_calls_folding_over_contract_calls() {
     let mut hook = TraceHook::default();
     env.add_eval_hook(&mut hook);
 
-    let args = vec![SymbolicExpression::atom_value(Value::UInt(2))];
+    let args = vec![Value::UInt(2)];
     let sender = top_id.issuer.clone().into();
     let (value, _, _) = env
-        .execute_transaction(sender, None, top_id, "entry", &args)
+        .execute_transaction(sender, None, top_id, "entry", args)
         .unwrap();
 
     print_trace(&hook.events);
@@ -804,9 +804,9 @@ fn call_trace_hook_resolves_state_reads_and_captures_cost() {
     let mut hook = CallTraceHook::new();
     env.add_eval_hook(&mut hook);
 
-    let args = vec![SymbolicExpression::atom_value(Value::UInt(1000))];
+    let args = vec![Value::UInt(1000)];
     let sender = contract_id.issuer.clone().into();
-    env.execute_transaction(sender, None, contract_id, "run", &args)
+    env.execute_transaction(sender, None, contract_id, "run", args)
         .unwrap();
 
     let roots = hook.calls();

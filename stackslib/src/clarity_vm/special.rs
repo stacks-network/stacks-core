@@ -15,6 +15,7 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use clarity::vm::contexts::GlobalContext;
+use clarity::vm::database::SpecialCaseHandler;
 use clarity::vm::errors::VmExecutionError;
 use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier, Value};
 
@@ -37,4 +38,44 @@ pub fn handle_contract_call_special_cases(
         args,
         result,
     )
+}
+
+/// The contract-call special-case handler for calls into `contract`, if it can act on
+/// them. Other calls get `None`, so the VM does not keep a copy of their arguments.
+pub fn special_cases_handler_for(
+    contract: &QualifiedContractIdentifier,
+) -> Option<SpecialCaseHandler> {
+    if pox_locking::has_contract_call_special_cases(contract) {
+        Some(&handle_contract_call_special_cases)
+    } else {
+        None
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use clarity::boot_util::boot_code_id;
+    use clarity::vm::types::QualifiedContractIdentifier;
+    use pox_locking::{POX_1_NAME, POX_2_NAME, POX_3_NAME, POX_4_NAME, POX_5_NAME};
+    use rstest::rstest;
+
+    use super::special_cases_handler_for;
+    use crate::chainstate::stacks::boot::SIGNERS_NAME;
+
+    /// Every PoX contract the handler acts on gets it, on both networks.
+    #[rstest]
+    fn test_pox_contracts_get_the_handler(
+        #[values(POX_1_NAME, POX_2_NAME, POX_3_NAME, POX_4_NAME, POX_5_NAME)] name: &str,
+        #[values(true, false)] mainnet: bool,
+    ) {
+        assert!(special_cases_handler_for(&boot_code_id(name, mainnet)).is_some());
+    }
+
+    /// Contracts the handler ignores do not get it.
+    #[rstest]
+    #[case::boot_contract_other_than_pox(boot_code_id(SIGNERS_NAME, false))]
+    #[case::user_contract_named_like_pox(QualifiedContractIdentifier::local(POX_4_NAME).unwrap())]
+    fn test_other_contracts_do_not_get_the_handler(#[case] contract: QualifiedContractIdentifier) {
+        assert!(special_cases_handler_for(&contract).is_none());
+    }
 }
