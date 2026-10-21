@@ -446,6 +446,7 @@ pub fn process(
                                 contract_interface:
                                     StacksTransactionReceipt::interface_from_analysis(
                                         contract_analysis,
+                                        tx,
                                     ),
                                 execution_cost: total_cost,
                                 microblock_header: None,

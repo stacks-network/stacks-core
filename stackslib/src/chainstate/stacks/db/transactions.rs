@@ -49,14 +49,20 @@ pub mod processing;
 pub use self::processing::{TransactionProcessor, TxToProcess};
 
 impl StacksTransactionReceipt {
-    /// Omit interface-conversion failures without changing transaction acceptance.
-    fn interface_from_analysis(analysis: ContractAnalysis) -> Option<ContractInterface> {
-        let contract_identifier = analysis.contract_identifier.clone();
-        ContractInterface::try_from(analysis)
-            .inspect_err(|error| {
-                warn!("Could not build receipt contract interface"; "contract" => %contract_identifier, "error" => %error);
-            })
-            .ok()
+    /// Report interface-conversion invariant failures without changing transaction acceptance.
+    fn interface_from_analysis(
+        analysis: ContractAnalysis,
+        tx: &StacksTransaction,
+    ) -> Option<ContractInterface> {
+        match ContractInterface::try_from(analysis) {
+            Ok(interface) => Some(interface),
+            Err(error) => {
+                // The interface builder currently returns only Unreachable errors, which the shared
+                // reporter logs and counts.
+                log_unreachable_error(&ClarityError::StaticCheck(Box::new(error)), &tx.txid());
+                None
+            }
+        }
     }
 
     pub fn from_stx_transfer(
@@ -133,13 +139,14 @@ impl StacksTransactionReceipt {
         analysis: ContractAnalysis,
         cost: ExecutionCost,
     ) -> StacksTransactionReceipt {
+        let contract_interface = Self::interface_from_analysis(analysis, &tx);
         StacksTransactionReceipt {
             transaction: tx.into(),
             events,
             post_condition_aborted: false,
             result: Value::okay_true(),
             stx_burned: burned,
-            contract_interface: Self::interface_from_analysis(analysis),
+            contract_interface,
             execution_cost: cost,
             microblock_header: None,
             tx_index: 0,
@@ -156,13 +163,14 @@ impl StacksTransactionReceipt {
         cost: ExecutionCost,
         reason: BoundedErrorString,
     ) -> StacksTransactionReceipt {
+        let contract_interface = Self::interface_from_analysis(analysis, &tx);
         StacksTransactionReceipt {
             transaction: tx.into(),
             events,
             post_condition_aborted: true,
             result: Value::okay_true(),
             stx_burned: burned,
-            contract_interface: Self::interface_from_analysis(analysis),
+            contract_interface,
             execution_cost: cost,
             microblock_header: None,
             tx_index: 0,
@@ -260,13 +268,14 @@ impl StacksTransactionReceipt {
         contract_analysis: ContractAnalysis,
         error: RuntimeCheckErrorKind,
     ) -> StacksTransactionReceipt {
+        let contract_interface = Self::interface_from_analysis(contract_analysis, &tx);
         StacksTransactionReceipt {
             transaction: tx.into(),
             post_condition_aborted: false,
             result: Value::err_none(),
             events: vec![],
             stx_burned: 0,
-            contract_interface: Self::interface_from_analysis(contract_analysis),
+            contract_interface,
             execution_cost: cost,
             microblock_header: None,
             tx_index: 0,
@@ -490,11 +499,12 @@ pub mod test {
     use std::slice;
 
     use clarity::util::secp256k1::Secp256k1PrivateKey;
+    use clarity::vm::analysis;
     use clarity::vm::hooks::trace::CallTraceHook;
     use clarity::vm::representations::{ClarityName, ContractName};
     use clarity::vm::test_util::{UnitTestBurnStateDB, TEST_BURN_STATE_DB};
     use clarity::vm::tests::TEST_HEADER_DB;
-    use clarity::vm::types::{ResponseData, StandardPrincipalData};
+    use clarity::vm::types::{FunctionType, ResponseData, StandardPrincipalData};
     use rand::Rng;
     use rstest::rstest;
     use stacks_common::types::chainstate::SortitionId;
@@ -503,6 +513,38 @@ pub mod test {
     use super::*;
     use crate::chainstate::stacks::db::testing::*;
     use crate::chainstate::stacks::{Error, *};
+
+    /// An ABI-builder invariant failure omits the interface without failing the receipt.
+    #[test]
+    fn receipt_interface_failure_preserves_success() {
+        let source = "(define-read-only (get-value) u1)";
+        let (_, mut analysis) =
+            analysis::mem_type_check(source, ClarityVersion::Clarity1, StacksEpochId::Epoch21)
+                .unwrap();
+        // Force the uncached builder down its unreachable non-fixed-signature path.
+        analysis.contract_interface = None;
+        analysis.public_function_types.insert(
+            "invalid".try_into().unwrap(),
+            FunctionType::ArithmeticVariadic,
+        );
+        let tx = StacksTransaction::new(
+            TransactionVersion::Testnet,
+            TransactionAuth::from_p2pkh(&Secp256k1PrivateKey::from_seed(b"receipt-interface"))
+                .unwrap(),
+            TransactionPayload::new_smart_contract("interface-test", source, None).unwrap(),
+        );
+        let receipt = StacksTransactionReceipt::from_smart_contract(
+            tx,
+            vec![],
+            0,
+            analysis,
+            ExecutionCost::ZERO,
+        );
+        assert!(receipt.contract_interface.is_none());
+        assert_eq!(receipt.result, Value::okay_true());
+        assert!(!receipt.post_condition_aborted);
+        assert!(receipt.vm_error.is_none());
+    }
 
     /// Exercises the complete processor lifecycle in legacy transaction tests.
     fn process_transaction_for_test(
