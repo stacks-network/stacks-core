@@ -666,9 +666,9 @@ pub trait TransactionConnection: ClarityConnection {
     #[allow(clippy::too_many_arguments)]
     fn run_contract_call<F>(
         &mut self,
-        sender: &PrincipalData,
-        sponsor: Option<&PrincipalData>,
-        contract: &QualifiedContractIdentifier,
+        sender: PrincipalData,
+        sponsor: Option<PrincipalData>,
+        contract: QualifiedContractIdentifier,
         public_function: &str,
         args: Vec<Value>,
         abort_call_back: F,
@@ -683,13 +683,7 @@ pub trait TransactionConnection: ClarityConnection {
                     .context
                     .set_execution_resource_limiter(resource_budget.start_tracking());
                 vm_env
-                    .execute_transaction(
-                        sender.clone(),
-                        sponsor.cloned(),
-                        contract.clone(),
-                        public_function,
-                        args,
-                    )
+                    .execute_transaction(sender, sponsor, contract, public_function, args)
                     .map_err(ClarityError::from)
             },
             abort_call_back,

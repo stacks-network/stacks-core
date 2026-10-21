@@ -261,9 +261,9 @@ fn test_simple_token_system(#[case] version: ClarityVersion, #[case] epoch: Stac
         assert!(!is_committed(
             &block
                 .as_transaction(|tx| tx.run_contract_call(
-                    &p2,
+                    p2.clone(),
                     None,
-                    &contract_identifier,
+                    contract_identifier.clone(),
                     "token-transfer",
                     vec![p1.clone().into(), Value::UInt(210)],
                     |_, _| None,
@@ -275,9 +275,9 @@ fn test_simple_token_system(#[case] version: ClarityVersion, #[case] epoch: Stac
         assert!(is_committed(
             &block
                 .as_transaction(|tx| tx.run_contract_call(
-                    &p1,
+                    p1.clone(),
                     None,
-                    &contract_identifier,
+                    contract_identifier.clone(),
                     "token-transfer",
                     vec![p2.clone().into(), Value::UInt(9000)],
                     |_, _| None,
@@ -290,9 +290,9 @@ fn test_simple_token_system(#[case] version: ClarityVersion, #[case] epoch: Stac
         assert!(!is_committed(
             &block
                 .as_transaction(|tx| tx.run_contract_call(
-                    &p1,
+                    p1.clone(),
                     None,
-                    &contract_identifier,
+                    contract_identifier.clone(),
                     "token-transfer",
                     vec![p2.clone().into(), Value::UInt(1001)],
                     |_, _| None,
@@ -303,7 +303,7 @@ fn test_simple_token_system(#[case] version: ClarityVersion, #[case] epoch: Stac
         ));
         assert!(is_committed(
             & // send to self!
-            block.as_transaction(|tx| tx.run_contract_call(&p1, None, &contract_identifier, "token-transfer",
+            block.as_transaction(|tx| tx.run_contract_call(p1.clone(), None, contract_identifier.clone(), "token-transfer",
                                     vec![p1.clone().into(), Value::UInt(1000)], |_, _| None, &ResourceBudget::unlimited())).unwrap().0
         ));
 
@@ -329,9 +329,9 @@ fn test_simple_token_system(#[case] version: ClarityVersion, #[case] epoch: Stac
         assert!(is_committed(
             &block
                 .as_transaction(|tx| tx.run_contract_call(
-                    &p1,
+                    p1.clone(),
                     None,
-                    &contract_identifier,
+                    contract_identifier.clone(),
                     "faucet",
                     vec![],
                     |_, _| None,
@@ -344,9 +344,9 @@ fn test_simple_token_system(#[case] version: ClarityVersion, #[case] epoch: Stac
         assert!(is_committed(
             &block
                 .as_transaction(|tx| tx.run_contract_call(
-                    &p1,
+                    p1.clone(),
                     None,
-                    &contract_identifier,
+                    contract_identifier.clone(),
                     "faucet",
                     vec![],
                     |_, _| None,
@@ -359,9 +359,9 @@ fn test_simple_token_system(#[case] version: ClarityVersion, #[case] epoch: Stac
         assert!(is_committed(
             &block
                 .as_transaction(|tx| tx.run_contract_call(
-                    &p1,
+                    p1.clone(),
                     None,
-                    &contract_identifier,
+                    contract_identifier.clone(),
                     "faucet",
                     vec![],
                     |_, _| None,
@@ -384,9 +384,9 @@ fn test_simple_token_system(#[case] version: ClarityVersion, #[case] epoch: Stac
         assert!(!is_committed(
             &block
                 .as_transaction(|tx| tx.run_contract_call(
-                    &p1,
+                    p1.clone(),
                     None,
-                    &contract_identifier,
+                    contract_identifier.clone(),
                     "mint-after",
                     vec![Value::UInt(25)],
                     |_, _| None,
@@ -422,9 +422,9 @@ fn test_simple_token_system(#[case] version: ClarityVersion, #[case] epoch: Stac
         assert!(is_committed(
             &block
                 .as_transaction(|tx| tx.run_contract_call(
-                    &p1,
+                    p1.clone(),
                     None,
-                    &contract_identifier,
+                    contract_identifier.clone(),
                     "mint-after",
                     vec![Value::UInt(25)],
                     |_, _| None,
@@ -437,9 +437,9 @@ fn test_simple_token_system(#[case] version: ClarityVersion, #[case] epoch: Stac
         assert!(!is_committed(
             &block
                 .as_transaction(|tx| tx.run_contract_call(
-                    &p1,
+                    p1.clone(),
                     None,
-                    &contract_identifier,
+                    contract_identifier.clone(),
                     "faucet",
                     vec![],
                     |_, _| None,
@@ -461,9 +461,9 @@ fn test_simple_token_system(#[case] version: ClarityVersion, #[case] epoch: Stac
         assert_eq!(
             block
                 .as_transaction(|tx| tx.run_contract_call(
-                    &p1,
+                    p1.clone(),
                     None,
-                    &contract_identifier,
+                    contract_identifier,
                     "my-get-token-balance",
                     vec![p1.clone().into()],
                     |_, _| None,

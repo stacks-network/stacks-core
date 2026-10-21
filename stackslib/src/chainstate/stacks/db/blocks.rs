@@ -4096,9 +4096,9 @@ impl StacksChainState {
             }
             let result = clarity_tx.connection().as_transaction(|tx| {
                 tx.run_contract_call(
-                    &sender.clone().into(),
+                    sender.clone().into(),
                     None,
-                    &boot_code_id(active_pox_contract, mainnet),
+                    boot_code_id(active_pox_contract, mainnet),
                     "stack-stx",
                     args,
                     |_, _| None,
@@ -4302,9 +4302,9 @@ impl StacksChainState {
             };
             let result = clarity_tx.connection().as_transaction(|tx| {
                 tx.run_contract_call(
-                    &sender.clone().into(),
+                    sender.clone().into(),
                     None,
-                    &boot_code_id(active_pox_contract, mainnet),
+                    boot_code_id(active_pox_contract, mainnet),
                     "delegate-stx",
                     vec![
                         Value::UInt(*delegated_ustx),
@@ -4410,9 +4410,9 @@ impl StacksChainState {
             );
             let result = clarity_tx.connection().as_transaction(|tx| {
                 tx.run_contract_call(
-                    &sender.clone().into(),
+                    sender.clone().into(),
                     None,
-                    &boot_code_id(SIGNERS_VOTING_NAME, mainnet),
+                    boot_code_id(SIGNERS_VOTING_NAME, mainnet),
                     "vote-for-aggregate-public-key",
                     vec![
                         Value::UInt((*signer_index).into()),

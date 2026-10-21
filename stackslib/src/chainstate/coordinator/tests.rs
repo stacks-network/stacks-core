@@ -351,9 +351,9 @@ pub fn setup_states_with_epochs(
 
             clarity_tx.connection().as_transaction(|conn| {
                 conn.run_contract_call(
-                    &sender,
+                    sender,
                     None,
-                    &contract,
+                    contract,
                     "set-burnchain-parameters",
                     vec![
                         Value::UInt(burnchain.first_block_height as u128),
