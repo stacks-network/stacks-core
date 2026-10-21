@@ -10,7 +10,7 @@ WORKDIR /src
 COPY . .
 RUN mkdir /out
 RUN rustup toolchain install stable
-RUN cargo build --features ${CARGO_FEATURES} --release
+RUN cargo build --features "${CARGO_FEATURES}" --release
 RUN cp -R target/release/. /out
 
 FROM debian:bookworm-slim
