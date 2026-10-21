@@ -14,12 +14,11 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use std::collections::HashMap;
-use std::slice;
 use std::sync::{LazyLock, RwLock};
 
 use clarity::vm::events::StacksTransactionEvent;
 use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier, TupleData};
-use clarity::vm::{ClarityName, SymbolicExpression, Value};
+use clarity::vm::{ClarityName, Value};
 use stacks_common::types::chainstate::{StacksAddress, StacksBlockId};
 use stacks_common::types::StacksEpochId;
 use stacks_common::util::hash::{to_hex, Hash160};
@@ -348,7 +347,7 @@ pub struct StakeEntryIteratorPox5<'a, 'b, 'c> {
     current_signer: Option<PrincipalData>,
     pox_contract: QualifiedContractIdentifier,
     clarity: &'a mut ClarityTransactionConnection<'b, 'c>,
-    reward_cycle_clar: SymbolicExpression,
+    reward_cycle_clar: Value,
 }
 
 #[derive(Debug)]
@@ -366,7 +365,7 @@ impl<'a, 'b, 'c> StakeEntryIteratorPox5<'a, 'b, 'c> {
             return Ok(None);
         };
 
-        let lookup_signer = SymbolicExpression::atom_value(Value::Principal(cur_signer.clone()));
+        let lookup_signer = Value::Principal(cur_signer.clone());
 
         // Advance the linked list before any per-entry lookups: a malformed
         // entry skips this iteration but must not stall the iterator.
@@ -375,7 +374,7 @@ impl<'a, 'b, 'c> StakeEntryIteratorPox5<'a, 'b, 'c> {
             .eval_method_read_only(
                 &self.pox_contract,
                 "get-signer-set-next-item-for-cycle",
-                &[lookup_signer.clone(), self.reward_cycle_clar.clone()],
+                vec![lookup_signer.clone(), self.reward_cycle_clar.clone()],
             )
             .map_err(|e| PoxEntryParsingError::Abort(e.to_string()))?
             .expect_optional()
@@ -401,7 +400,7 @@ impl<'a, 'b, 'c> StakeEntryIteratorPox5<'a, 'b, 'c> {
             .eval_method_read_only(
                 &self.pox_contract,
                 "get-signer-info",
-                slice::from_ref(&lookup_signer),
+                vec![lookup_signer.clone()],
             )
             .map_err(|e| PoxEntryParsingError::Skip(e.to_string()))?
             .expect_optional()
@@ -429,7 +428,7 @@ impl<'a, 'b, 'c> StakeEntryIteratorPox5<'a, 'b, 'c> {
             .eval_method_read_only(
                 &self.pox_contract,
                 "get-amount-delegated-for-signer",
-                &[lookup_signer.clone(), self.reward_cycle_clar.clone()],
+                vec![lookup_signer, self.reward_cycle_clar.clone()],
             )
             .map_err(|e| PoxEntryParsingError::Skip(e.to_string()))?
             .expect_u128()
@@ -480,12 +479,12 @@ impl NakamotoSigners {
         }
 
         let pox_contract = boot_code_id(pox_contract, is_mainnet);
-        let reward_cycle_clar = SymbolicExpression::atom_value(Value::UInt(reward_cycle.into()));
+        let reward_cycle_clar = Value::UInt(reward_cycle.into());
         let current_signer = clarity
             .eval_method_read_only(
                 &pox_contract,
                 "get-signer-set-first-item-for-cycle",
-                slice::from_ref(&reward_cycle_clar),
+                vec![reward_cycle_clar.clone()],
             )?
             .expect_optional()
             .map_err(|_| {
@@ -529,9 +528,7 @@ impl NakamotoSigners {
             .eval_method_read_only(
                 pox_contract,
                 "get-reward-set-size",
-                &[SymbolicExpression::atom_value(Value::UInt(
-                    reward_cycle.into(),
-                ))],
+                vec![Value::UInt(reward_cycle.into())],
             )?
             .expect_u128()
             .map_err(|_| {
@@ -544,9 +541,9 @@ impl NakamotoSigners {
                 .eval_method_read_only(
                     pox_contract,
                     "get-reward-set-pox-address",
-                    &[
-                        SymbolicExpression::atom_value(Value::UInt(reward_cycle.into())),
-                        SymbolicExpression::atom_value(Value::UInt(index)),
+                    vec![
+                        Value::UInt(reward_cycle.into()),
+                        Value::UInt(index),
                     ],
                 )?
                 .expect_optional().map_err(|_| {
@@ -636,27 +633,21 @@ impl NakamotoSigners {
             )));
         }
 
-        let set_stackerdb_args = [
-            SymbolicExpression::atom_value(Value::cons_list_unsanitized(stackerdb_list).map_err(
-                |e| {
-                    ChainstateError::Expects(format!(
-                        "Failed to create cons list for stackerdb arg: {e}"
-                    ))
-                },
-            )?),
-            SymbolicExpression::atom_value(Value::UInt(reward_cycle.into())),
-            SymbolicExpression::atom_value(Value::UInt(coinbase_height.into())),
+        let set_stackerdb_args = vec![
+            Value::cons_list_unsanitized(stackerdb_list).map_err(|e| {
+                ChainstateError::Expects(format!(
+                    "Failed to create cons list for stackerdb arg: {e}"
+                ))
+            })?,
+            Value::UInt(reward_cycle.into()),
+            Value::UInt(coinbase_height.into()),
         ];
 
-        let set_signers_args = [
-            SymbolicExpression::atom_value(Value::UInt(reward_cycle.into())),
-            SymbolicExpression::atom_value(Value::cons_list_unsanitized(signers_list).map_err(
-                |e| {
-                    ChainstateError::Expects(format!(
-                        "Failed to create cons list for signers arg: {e}"
-                    ))
-                },
-            )?),
+        let set_signers_args = vec![
+            Value::UInt(reward_cycle.into()),
+            Value::cons_list_unsanitized(signers_list).map_err(|e| {
+                ChainstateError::Expects(format!("Failed to create cons list for signers arg: {e}"))
+            })?,
         ];
 
         let (value, _, events, _) = clarity.with_abort_callback(
@@ -666,14 +657,14 @@ impl NakamotoSigners {
                         invoke_ctx,
                         signers_contract,
                         "stackerdb-set-signer-slots",
-                        &set_stackerdb_args,
+                        set_stackerdb_args,
                         false,
                     )?;
                     exec_state.execute_contract_allow_private(
                         invoke_ctx,
                         signers_contract,
                         "set-signers",
-                        &set_signers_args,
+                        set_signers_args,
                         false,
                     )
                 })
@@ -782,7 +773,7 @@ impl NakamotoSigners {
             .eval_method_read_only(
                 &sbtc_registry_contract_id,
                 "get-current-aggregate-pubkey",
-                &[],
+                vec![],
             )?
             .expect_buff(33)
             .map_err(|_| {

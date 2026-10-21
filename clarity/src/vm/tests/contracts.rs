@@ -31,7 +31,7 @@ use crate::vm::{
     errors::{ClarityEvalError, RuntimeCheckErrorKind, RuntimeError, VmExecutionError},
     tests::{
         MemoryEnvironmentGenerator, TopLevelMemoryEnvironmentGenerator, env_factory, execute,
-        is_committed, is_err_code_i128 as is_err_code, symbols_from_values, tl_env_factory,
+        is_committed, is_err_code_i128 as is_err_code, tl_env_factory,
     },
     types::{OptionalData, ResponseData, TypeSignature},
     {ClarityVersion, ContractContext, execute as vm_execute, max_call_stack_depth_for_epoch},
@@ -223,7 +223,7 @@ fn test_contract_caller(epoch: StacksEpochId, mut env_factory: MemoryEnvironment
                     &invoke_ctx,
                     &QualifiedContractIdentifier::local("contract-a").unwrap(),
                     "get-caller",
-                    &[],
+                    vec![],
                     false
                 )
                 .unwrap(),
@@ -235,7 +235,7 @@ fn test_contract_caller(epoch: StacksEpochId, mut env_factory: MemoryEnvironment
                     &invoke_ctx,
                     &QualifiedContractIdentifier::local("contract-b").unwrap(),
                     "as-contract-get-caller",
-                    &[],
+                    vec![],
                     false
                 )
                 .unwrap(),
@@ -247,7 +247,7 @@ fn test_contract_caller(epoch: StacksEpochId, mut env_factory: MemoryEnvironment
                     &invoke_ctx,
                     &QualifiedContractIdentifier::local("contract-b").unwrap(),
                     "cc-get-caller",
-                    &[],
+                    vec![],
                     false
                 )
                 .unwrap(),
@@ -259,7 +259,7 @@ fn test_contract_caller(epoch: StacksEpochId, mut env_factory: MemoryEnvironment
                     &invoke_ctx,
                     &QualifiedContractIdentifier::local("contract-b").unwrap(),
                     "as-contract-cc-get-caller",
-                    &[],
+                    vec![],
                     false
                 )
                 .unwrap(),
@@ -283,7 +283,7 @@ fn tx_sponsor_contract_asserts(
                 invoke_ctx,
                 &QualifiedContractIdentifier::local("contract-a").unwrap(),
                 "get-sponsor",
-                &[],
+                vec![],
                 false
             )
             .unwrap(),
@@ -295,7 +295,7 @@ fn tx_sponsor_contract_asserts(
                 invoke_ctx,
                 &QualifiedContractIdentifier::local("contract-b").unwrap(),
                 "as-contract-get-sponsor",
-                &[],
+                vec![],
                 false
             )
             .unwrap(),
@@ -307,7 +307,7 @@ fn tx_sponsor_contract_asserts(
                 invoke_ctx,
                 &QualifiedContractIdentifier::local("contract-b").unwrap(),
                 "cc-get-sponsor",
-                &[],
+                vec![],
                 false
             )
             .unwrap(),
@@ -319,7 +319,7 @@ fn tx_sponsor_contract_asserts(
                 invoke_ctx,
                 &QualifiedContractIdentifier::local("contract-b").unwrap(),
                 "as-contract-cc-get-sponsor",
-                &[],
+                vec![],
                 false
             )
             .unwrap(),
@@ -451,7 +451,7 @@ fn test_fully_qualified_contract_call(
                     &invoke_ctx,
                     &QualifiedContractIdentifier::local("contract-a").unwrap(),
                     "get-caller",
-                    &[],
+                    vec![],
                     false
                 )
                 .unwrap(),
@@ -463,7 +463,7 @@ fn test_fully_qualified_contract_call(
                     &invoke_ctx,
                     &QualifiedContractIdentifier::local("contract-b").unwrap(),
                     "as-contract-get-caller",
-                    &[],
+                    vec![],
                     false
                 )
                 .unwrap(),
@@ -475,7 +475,7 @@ fn test_fully_qualified_contract_call(
                     &invoke_ctx,
                     &QualifiedContractIdentifier::local("contract-b").unwrap(),
                     "cc-get-caller",
-                    &[],
+                    vec![],
                     false
                 )
                 .unwrap(),
@@ -487,7 +487,7 @@ fn test_fully_qualified_contract_call(
                     &invoke_ctx,
                     &QualifiedContractIdentifier::local("contract-b").unwrap(),
                     "as-contract-cc-get-caller",
-                    &[],
+                    vec![],
                     false
                 )
                 .unwrap(),
@@ -595,7 +595,7 @@ fn test_simple_naming_system(epoch: StacksEpochId, mut env_factory: MemoryEnviro
                     &invoke_ctx,
                     &QualifiedContractIdentifier::local("names").unwrap(),
                     "preorder",
-                    &symbols_from_values(vec![name_hash_expensive_0.clone(), Value::UInt(1000)]),
+                    vec![name_hash_expensive_0.clone(), Value::UInt(1000)],
                     false
                 )
                 .unwrap(),
@@ -615,7 +615,7 @@ fn test_simple_naming_system(epoch: StacksEpochId, mut env_factory: MemoryEnviro
                     &invoke_ctx,
                     &QualifiedContractIdentifier::local("names").unwrap(),
                     "preorder",
-                    &symbols_from_values(vec![name_hash_expensive_0.clone(), Value::UInt(1000)]),
+                    vec![name_hash_expensive_0.clone(), Value::UInt(1000)],
                     false
                 )
                 .unwrap()
@@ -626,7 +626,7 @@ fn test_simple_naming_system(epoch: StacksEpochId, mut env_factory: MemoryEnviro
                     &invoke_ctx,
                     &QualifiedContractIdentifier::local("names").unwrap(),
                     "preorder",
-                    &symbols_from_values(vec![name_hash_expensive_0, Value::UInt(1000)]),
+                    vec![name_hash_expensive_0, Value::UInt(1000)],
                     false
                 )
                 .unwrap(),
@@ -647,7 +647,7 @@ fn test_simple_naming_system(epoch: StacksEpochId, mut env_factory: MemoryEnviro
                     &invoke_ctx,
                     &QualifiedContractIdentifier::local("names").unwrap(),
                     "register",
-                    &symbols_from_values(vec![p2.clone(), Value::Int(1), Value::Int(0)]),
+                    vec![p2.clone(), Value::Int(1), Value::Int(0)],
                     false
                 )
                 .unwrap(),
@@ -668,7 +668,7 @@ fn test_simple_naming_system(epoch: StacksEpochId, mut env_factory: MemoryEnviro
                     &invoke_ctx,
                     &QualifiedContractIdentifier::local("names").unwrap(),
                     "register",
-                    &symbols_from_values(vec![p2.clone(), Value::Int(1), Value::Int(0)]),
+                    vec![p2.clone(), Value::Int(1), Value::Int(0)],
                     false
                 )
                 .unwrap()
@@ -688,7 +688,7 @@ fn test_simple_naming_system(epoch: StacksEpochId, mut env_factory: MemoryEnviro
                     &invoke_ctx,
                     &QualifiedContractIdentifier::local("names").unwrap(),
                     "preorder",
-                    &symbols_from_values(vec![name_hash_expensive_1, Value::UInt(100)]),
+                    vec![name_hash_expensive_1, Value::UInt(100)],
                     false
                 )
                 .unwrap()
@@ -699,7 +699,7 @@ fn test_simple_naming_system(epoch: StacksEpochId, mut env_factory: MemoryEnviro
                     &invoke_ctx,
                     &QualifiedContractIdentifier::local("names").unwrap(),
                     "register",
-                    &symbols_from_values(vec![p2.clone(), Value::Int(2), Value::Int(0)]),
+                    vec![p2.clone(), Value::Int(2), Value::Int(0)],
                     false
                 )
                 .unwrap(),
@@ -713,7 +713,7 @@ fn test_simple_naming_system(epoch: StacksEpochId, mut env_factory: MemoryEnviro
                     &invoke_ctx,
                     &QualifiedContractIdentifier::local("names").unwrap(),
                     "preorder",
-                    &symbols_from_values(vec![name_hash_cheap_0, Value::UInt(100)]),
+                    vec![name_hash_cheap_0, Value::UInt(100)],
                     false
                 )
                 .unwrap()
@@ -724,7 +724,7 @@ fn test_simple_naming_system(epoch: StacksEpochId, mut env_factory: MemoryEnviro
                     &invoke_ctx,
                     &QualifiedContractIdentifier::local("names").unwrap(),
                     "register",
-                    &symbols_from_values(vec![p2.clone(), Value::Int(100001), Value::Int(0)]),
+                    vec![p2.clone(), Value::Int(100001), Value::Int(0)],
                     false
                 )
                 .unwrap()
@@ -737,7 +737,7 @@ fn test_simple_naming_system(epoch: StacksEpochId, mut env_factory: MemoryEnviro
                     &invoke_ctx,
                     &QualifiedContractIdentifier::local("names").unwrap(),
                     "register",
-                    &symbols_from_values(vec![p2, Value::Int(100001), Value::Int(0)]),
+                    vec![p2, Value::Int(100001), Value::Int(0)],
                     false
                 )
                 .unwrap(),
@@ -776,7 +776,7 @@ fn test_simple_contract_call(epoch: StacksEpochId, mut env_factory: MemoryEnviro
         .initialize_contract(&invoke_ctx, contract_identifier, contract_2)
         .unwrap();
 
-    let args = symbols_from_values(vec![]);
+    let args: Vec<Value> = vec![];
 
     let expected = [
         Value::Int(5),
@@ -792,7 +792,7 @@ fn test_simple_contract_call(epoch: StacksEpochId, mut env_factory: MemoryEnviro
                 &invoke_ctx,
                 &QualifiedContractIdentifier::local("proxy-compute").unwrap(),
                 "proxy-compute",
-                &args,
+                args.clone(),
                 false,
             )
             .unwrap();
@@ -873,7 +873,7 @@ fn test_aborts(epoch: StacksEpochId, mut env_factory: MemoryEnvironmentGenerator
                 &invoke_ctx,
                 &QualifiedContractIdentifier::local("contract-1").unwrap(),
                 "modify-data",
-                &symbols_from_values(vec![Value::Int(10), Value::Int(10)]),
+                vec![Value::Int(10), Value::Int(10)],
                 false
             )
             .unwrap(),
@@ -889,7 +889,7 @@ fn test_aborts(epoch: StacksEpochId, mut env_factory: MemoryEnvironmentGenerator
                 &invoke_ctx,
                 &QualifiedContractIdentifier::local("contract-1").unwrap(),
                 "modify-data",
-                &symbols_from_values(vec![Value::Int(20), Value::Int(10)]),
+                vec![Value::Int(20), Value::Int(10)],
                 false
             )
             .unwrap(),
@@ -927,7 +927,7 @@ fn test_aborts(epoch: StacksEpochId, mut env_factory: MemoryEnvironmentGenerator
                 &invoke_ctx,
                 &QualifiedContractIdentifier::local("contract-2").unwrap(),
                 "fail-in-other",
-                &symbols_from_values(vec![]),
+                vec![],
                 false
             )
             .unwrap(),
@@ -943,7 +943,7 @@ fn test_aborts(epoch: StacksEpochId, mut env_factory: MemoryEnvironmentGenerator
                 &invoke_ctx,
                 &QualifiedContractIdentifier::local("contract-2").unwrap(),
                 "fail-in-self",
-                &symbols_from_values(vec![]),
+                vec![],
                 false
             )
             .unwrap(),
@@ -995,17 +995,17 @@ fn test_factorial_contract(epoch: StacksEpochId, mut env_factory: MemoryEnvironm
 
     let tx_name = "compute";
     let arguments_to_test = [
-        symbols_from_values(vec![Value::Int(1337)]),
-        symbols_from_values(vec![Value::Int(1337)]),
-        symbols_from_values(vec![Value::Int(1337)]),
-        symbols_from_values(vec![Value::Int(1337)]),
-        symbols_from_values(vec![Value::Int(1337)]),
-        symbols_from_values(vec![Value::Int(8008)]),
-        symbols_from_values(vec![Value::Int(8008)]),
-        symbols_from_values(vec![Value::Int(8008)]),
-        symbols_from_values(vec![Value::Int(8008)]),
-        symbols_from_values(vec![Value::Int(8008)]),
-        symbols_from_values(vec![Value::Int(8008)]),
+        vec![Value::Int(1337)],
+        vec![Value::Int(1337)],
+        vec![Value::Int(1337)],
+        vec![Value::Int(1337)],
+        vec![Value::Int(1337)],
+        vec![Value::Int(8008)],
+        vec![Value::Int(8008)],
+        vec![Value::Int(8008)],
+        vec![Value::Int(8008)],
+        vec![Value::Int(8008)],
+        vec![Value::Int(8008)],
     ];
 
     let expected = vec![
@@ -1030,7 +1030,7 @@ fn test_factorial_contract(epoch: StacksEpochId, mut env_factory: MemoryEnvironm
                 &invoke_ctx,
                 &QualifiedContractIdentifier::local("factorial").unwrap(),
                 tx_name,
-                arguments,
+                arguments.clone(),
                 false,
             )
             .unwrap();
@@ -1055,7 +1055,7 @@ fn test_factorial_contract(epoch: StacksEpochId, mut env_factory: MemoryEnvironm
             &invoke_ctx,
             &QualifiedContractIdentifier::local("factorial").unwrap(),
             "init-factorial",
-            &symbols_from_values(vec![Value::Int(9000), Value::Int(15)]),
+            vec![Value::Int(9000), Value::Int(15)],
             false,
         )
         .unwrap_err();
@@ -1069,7 +1069,7 @@ fn test_factorial_contract(epoch: StacksEpochId, mut env_factory: MemoryEnvironm
             &invoke_ctx,
             &QualifiedContractIdentifier::local("factorial").unwrap(),
             "compute",
-            &symbols_from_values(vec![Value::Bool(true)]),
+            vec![Value::Bool(true)],
             false,
         )
         .unwrap_err();
@@ -1343,9 +1343,9 @@ fn test_contract_hash_success(
             &invoke_ctx,
             &test_contract,
             "get-hash",
-            &symbols_from_values(vec![Value::Principal(PrincipalData::Contract(
+            vec![Value::Principal(PrincipalData::Contract(
                 other_contract.clone(),
-            ))]),
+            ))],
             true,
         )
         .unwrap();
@@ -1399,9 +1399,9 @@ fn test_contract_hash_nonexistent_contract(
             &invoke_ctx,
             &test_contract,
             "get-hash",
-            &symbols_from_values(vec![Value::Principal(PrincipalData::Contract(
+            vec![Value::Principal(PrincipalData::Contract(
                 non_existent_contract.clone(),
-            ))]),
+            ))],
             true,
         )
         .unwrap();
@@ -1449,9 +1449,9 @@ fn test_contract_hash_standard_principal(
             &invoke_ctx,
             &test_contract,
             "get-hash",
-            &symbols_from_values(vec![Value::Principal(PrincipalData::Standard(
+            vec![Value::Principal(PrincipalData::Standard(
                 StandardPrincipalData::transient(),
-            ))]),
+            ))],
             true,
         )
         .unwrap();
@@ -1487,7 +1487,7 @@ fn test_contract_hash_type_check(
 
     // Attempt to execute the contract, expecting a type-check error
     let err = exec_state
-        .execute_contract(&invoke_ctx, &test_contract, "get-hash", &[], true)
+        .execute_contract(&invoke_ctx, &test_contract, "get-hash", vec![], true)
         .unwrap_err();
     assert_eq!(
         err,
@@ -1538,9 +1538,9 @@ fn test_contract_hash_pre_clarity4(
             &invoke_ctx,
             &test_contract,
             "get-hash",
-            &symbols_from_values(vec![Value::Principal(PrincipalData::Contract(
+            vec![Value::Principal(PrincipalData::Contract(
                 other_contract.clone(),
-            ))]),
+            ))],
             true,
         )
         .unwrap_err();
@@ -1600,7 +1600,7 @@ fn test_contract_call_with_constant(
         &invoke_ctx,
         &QualifiedContractIdentifier::local("contract-b").unwrap(),
         "call-foo",
-        &[],
+        vec![],
         false,
     );
 
@@ -1654,7 +1654,7 @@ fn test_runtime_name_resolution_order(
         &invoke_ctx,
         &QualifiedContractIdentifier::local("contract").unwrap(),
         "some-function",
-        &[],
+        vec![],
         false,
     );
 
@@ -1819,7 +1819,7 @@ fn test_constant_to_trait(
         &invoke_ctx,
         &QualifiedContractIdentifier::local("contract-b").unwrap(),
         "call-foo",
-        &[],
+        vec![],
         false,
     );
 
@@ -1903,7 +1903,7 @@ fn test_constant_contract_principal_in_principal_functions(
     // is-standard returns false because the local test principal uses a
     // non-standard version byte (0x01).
     let result = exec_env
-        .execute_contract(&invoke_ctx, &contract_b_id, "check-standard", &[], false)
+        .execute_contract(&invoke_ctx, &contract_b_id, "check-standard", vec![], false)
         .unwrap();
     assert_eq!(result, Value::Bool(false));
 
@@ -1911,7 +1911,7 @@ fn test_constant_contract_principal_in_principal_functions(
     // a recognized network version. The tuple still contains the decomposed
     // principal fields.
     let result = exec_env
-        .execute_contract(&invoke_ctx, &contract_b_id, "check-destruct", &[], false)
+        .execute_contract(&invoke_ctx, &contract_b_id, "check-destruct", vec![], false)
         .unwrap();
     assert_eq!(
         result,
@@ -1923,7 +1923,7 @@ fn test_constant_contract_principal_in_principal_functions(
     // to-ascii? returns (ok <string>) with the full principal representation.
     if has_to_ascii {
         let result = exec_env
-            .execute_contract(&invoke_ctx, &contract_b_id, "check-to-ascii", &[], false)
+            .execute_contract(&invoke_ctx, &contract_b_id, "check-to-ascii", vec![], false)
             .unwrap();
         assert_eq!(
             result,
@@ -1997,7 +1997,8 @@ fn test_constant_contract_principal_dual_use(
     let contract_b_id = QualifiedContractIdentifier::local("contract-b").unwrap();
 
     // contract-call? via constant requires epoch + version support
-    let call_result = exec_env.execute_contract(&invoke_ctx, &contract_b_id, "call-it", &[], false);
+    let call_result =
+        exec_env.execute_contract(&invoke_ctx, &contract_b_id, "call-it", vec![], false);
     if epoch.supports_call_with_constant() && version.supports_callables() {
         assert_eq!(call_result.unwrap(), Value::okay_true());
     } else {
@@ -2010,14 +2011,14 @@ fn test_constant_contract_principal_dual_use(
     // stx-get-balance and is-standard work in all epochs because the
     // constant is always `Value::Principal`.
     let result = exec_env
-        .execute_contract(&invoke_ctx, &contract_b_id, "get-bal", &[], false)
+        .execute_contract(&invoke_ctx, &contract_b_id, "get-bal", vec![], false)
         .unwrap();
     assert_eq!(result, Value::UInt(0));
 
     // is-standard returns false because the local test principal uses a
     // non-standard version byte (0x01).
     let result = exec_env
-        .execute_contract(&invoke_ctx, &contract_b_id, "check-standard", &[], false)
+        .execute_contract(&invoke_ctx, &contract_b_id, "check-standard", vec![], false)
         .unwrap();
     assert_eq!(result, Value::Bool(false));
 }
@@ -2178,7 +2179,7 @@ fn epoch41_external_call_reaches_shadowed_function_and_native_is_kept() {
                 &invoke_ctx,
                 &contract_id,
                 "slice?",
-                &symbols_from_values(vec![Value::Int(4), Value::Int(5)]),
+                vec![Value::Int(4), Value::Int(5)],
                 false
             )
             .unwrap(),
@@ -2222,7 +2223,7 @@ fn epoch41_read_only_implementation_of_legacy_trait_method() {
                 &invoke_ctx,
                 &contract_id,
                 "slice?",
-                &symbols_from_values(vec![Value::Int(4), Value::Int(5)]),
+                vec![Value::Int(4), Value::Int(5)],
                 false
             )
             .unwrap(),
@@ -2261,7 +2262,7 @@ fn clarity6_at_epoch41_implements_legacy_trait_method() {
                 &invoke_ctx,
                 &contract_id,
                 "slice?",
-                &symbols_from_values(vec![Value::Int(4), Value::Int(5)]),
+                vec![Value::Int(4), Value::Int(5)],
                 false
             )
             .unwrap(),
@@ -2311,7 +2312,13 @@ fn epoch41_keyword_name_implementation_splits_by_position() {
     // Literal-name lookup from outside.
     assert_eq!(
         exec_state
-            .execute_contract(&invoke_ctx, &contract_id, "stacks-block-height", &[], false)
+            .execute_contract(
+                &invoke_ctx,
+                &contract_id,
+                "stacks-block-height",
+                vec![],
+                false
+            )
             .unwrap(),
         Value::okay(Value::UInt(12345)).unwrap()
     );
@@ -2474,7 +2481,7 @@ fn epoch41_implements_legacy_trait_with_reserved_method_name() {
                 &invoke_ctx,
                 &legacy_id,
                 "call-slice",
-                &symbols_from_values(vec![Value::from(PrincipalData::Contract(impl_id))]),
+                vec![Value::from(PrincipalData::Contract(impl_id))],
                 false
             )
             .unwrap(),
@@ -2514,7 +2521,7 @@ fn epoch41_cross_contract_call_resolves_shadowed_function() {
         owned_env.get_exec_environment(None, None, &placeholder_context);
     assert_eq!(
         exec_state
-            .execute_contract(&invoke_ctx, &id_b, "call-a", &[], false)
+            .execute_contract(&invoke_ctx, &id_b, "call-a", vec![], false)
             .unwrap(),
         Value::okay(Value::Int(9)).unwrap()
     );
@@ -2571,7 +2578,7 @@ fn test_legacy_tuple_supertype_execution_after_epoch41(
     for epoch in [StacksEpochId::Epoch40, StacksEpochId::Epoch41] {
         let mut env = OwnedEnvironment::new_free(false, 0x80000000, store.as_clarity_db(), epoch);
         let (result, _, events) = env
-            .execute_transaction(id.issuer.clone().into(), None, id.clone(), "probe", &[])
+            .execute_transaction(id.issuer.clone().into(), None, id.clone(), "probe", vec![])
             .unwrap();
         assert_eq!(result, Value::okay(expected.clone()).unwrap());
         assert_eq!(events.len(), 1);
@@ -2581,7 +2588,7 @@ fn test_legacy_tuple_supertype_execution_after_epoch41(
                 None,
                 id.clone(),
                 "bad-equality",
-                &[],
+                vec![],
             )
             .unwrap_err();
         assert!(
@@ -2592,7 +2599,7 @@ fn test_legacy_tuple_supertype_execution_after_epoch41(
             "{error:?}"
         );
         let (counter, _, _) = env
-            .execute_transaction(id.issuer.clone().into(), None, id.clone(), "count", &[])
+            .execute_transaction(id.issuer.clone().into(), None, id.clone(), "count", vec![])
             .unwrap();
         // The unselected branch never ran, and the failing call's write rolled back.
         assert_eq!(counter, Value::okay(Value::UInt(0)).unwrap());
