@@ -21,7 +21,7 @@ mod runtime_analysis_tests;
 mod runtime_tests;
 mod static_analysis_tests;
 
-use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::fs;
 
 use clarity::boot_util::boot_code_addr;
@@ -744,11 +744,8 @@ impl<'a> TestChainstate<'a> {
         transactions: &[StacksTransaction],
     ) -> TestNakamotoBlockOutcome {
         let (tenure_change, coinbase) = self.begin_block_found_tenure();
-        let (nakamoto_block, reward_set) = self.construct_nakamoto_tenure_start_block_with_txs(
-            tenure_change,
-            coinbase,
-            transactions,
-        );
+        let (nakamoto_block, reward_set, dropped) = self
+            .construct_nakamoto_tenure_start_block_with_txs(tenure_change, coinbase, transactions);
         let mut sortdb = self.sortdb.take().unwrap();
         let mut stacks_node = self.stacks_node.take().unwrap();
 
@@ -760,6 +757,14 @@ impl<'a> TestChainstate<'a> {
             &reward_set,
         )
         .map(|receipt| receipt.expect("Tenure-start Nakamoto block produced no execution receipt"));
+        // A block fails on its state root only after all its transactions passed. So if the
+        // miner dropped some, it did by mining policy, not consensus: the result would mislead.
+        if let Err(ChainstateError::InvalidStacksBlock(msg)) = &execution {
+            assert!(
+                dropped.is_empty() || !msg.contains("state root mismatch"),
+                "The miner dropped {dropped:?}, which consensus accepts: {msg}"
+            );
+        }
         if execution.is_ok() {
             stacks_node.add_nakamoto_tenure_blocks(vec![nakamoto_block.clone()]);
         } else {
@@ -780,13 +785,13 @@ impl<'a> TestChainstate<'a> {
     /// Mine the block with the miner to derive its header, then put back any
     /// transaction the miner dropped, so a failing one fails the block when it is
     /// processed. Like the pre-Nakamoto consensus-test blocks, this keeps the miner's
-    /// state root.
+    /// state root. Also returns the dropped transactions.
     fn construct_nakamoto_tenure_start_block_with_txs(
         &mut self,
         tenure_change: StacksTransaction,
         coinbase: StacksTransaction,
         transactions: &[StacksTransaction],
-    ) -> (NakamotoBlock, RewardSet) {
+    ) -> (NakamotoBlock, RewardSet, Vec<Txid>) {
         let sortdb = self.sortdb.as_ref().unwrap();
         let chainstate = &self.stacks_node.as_ref().unwrap().chainstate;
         let payload = tenure_change.try_as_tenure_change().unwrap();
@@ -825,6 +830,13 @@ impl<'a> TestChainstate<'a> {
             "Failed to mine the tenure change or coinbase"
         );
 
+        let mined: HashSet<_> = block.txs.iter().map(|tx| tx.txid()).collect();
+        let dropped = transactions
+            .iter()
+            .map(|tx| tx.txid())
+            .filter(|txid| !mined.contains(txid))
+            .collect();
+
         block.txs = tenure_txs
             .into_iter()
             .chain(transactions.iter().cloned())
@@ -833,7 +845,7 @@ impl<'a> TestChainstate<'a> {
         self.miner.sign_nakamoto_block(&mut block);
         let signers = self.config.test_signers.clone().unwrap_or_default();
         signers.sign_block_with_reward_set(&mut block, &reward_set);
-        (block, reward_set)
+        (block, reward_set, dropped)
     }
 
     fn construct_nakamoto_block_with_txs(
