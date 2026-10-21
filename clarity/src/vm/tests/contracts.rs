@@ -1614,14 +1614,15 @@ fn test_contract_call_with_constant(
     }
 }
 
-/// This tests the defense-in-depth measure where the runtime returns an error when
-/// trying to create a let binding with a name that already exists as a global. This
-/// shouldn't usually happen because the type checker prevents it; this is merely
-/// an additional check.
+/// This tests the runtime check that raises an error when trying to create a let
+/// binding with a name that already exists as a global.
 ///
-/// Before Epoch 4.1, this check was incomplete; this tests asserts that the legacy
-/// behavior is preserved. If proven unnecessary post Epoch 4.1 (assuming the
-/// problematic case never occured), this test can be removed.
+/// Before Clarity 7, this check was incomplete; this tests asserts that the legacy
+/// behavior is preserved.
+///
+/// It also asserts that for earlier versions, where this is not an error, it depends
+/// on the epoch whether the global or the local version is returned. Before Epoch 4.1,
+/// the local variable version would be returned; from 4.1 on, the global always wins.
 #[apply(test_clarity_versions)]
 fn test_let_binding_name_duplication_runtime_error(
     version: ClarityVersion,
@@ -1666,13 +1667,15 @@ fn test_let_binding_name_duplication_runtime_error(
         false,
     );
 
-    if epoch.fully_prevents_let_binding_name_duplication_at_runtime() {
+    if version.fully_prevents_let_binding_name_duplication_at_runtime() {
         assert_eq!(
             call_result.unwrap_err(),
             VmExecutionError::RuntimeCheck(RuntimeCheckErrorKind::NameAlreadyUsed(
                 "duplicate".into()
             ))
         );
+    } else if epoch.clarity_runtime_checks_global_constants_before_local_vars() {
+        assert_eq!(call_result.unwrap(), Value::okay(Value::Int(42)).unwrap());
     } else {
         assert_eq!(call_result.unwrap(), Value::okay(Value::Int(7)).unwrap());
     }
