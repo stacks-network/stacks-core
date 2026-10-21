@@ -1450,7 +1450,12 @@ impl Value {
             }
             // `sanitize_value_or_return` checks the values this arm handles without calling
             // this function. If one of them gets its own arm here, remove it from the list there.
-            value => {
+            Value::Int(_)
+            | Value::UInt(_)
+            | Value::Bool(_)
+            | Value::Principal(_)
+            | Value::CallableContract(_)
+            | Value::Sequence(SequenceData::Buffer(_) | SequenceData::String(_)) => {
                 return Self::sanitize_leaf_value(epoch, expected, value)
                     .ok()
                     .map(|value| (value, false));
@@ -1491,7 +1496,7 @@ impl Value {
             return Ok(value);
         }
         match value {
-            // The values `sanitize_value` handles in its catch-all arm.
+            // The values `sanitize_value` checks with `sanitize_leaf_value`.
             Value::Int(_)
             | Value::UInt(_)
             | Value::Bool(_)
