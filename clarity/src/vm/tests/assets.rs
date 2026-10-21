@@ -23,7 +23,6 @@ use stacks_common::types::StacksEpochId;
 use crate::vm::contexts::{AssetMap, OwnedEnvironment};
 use crate::vm::errors::VmExecutionError;
 use crate::vm::events::StacksTransactionEvent;
-use crate::vm::representations::SymbolicExpression;
 use crate::vm::tests::{test_clarity_versions, test_epochs};
 use crate::vm::types::{PrincipalData, QualifiedContractIdentifier, Value};
 #[cfg(test)]
@@ -33,7 +32,7 @@ use crate::vm::{
     errors::{ClarityEvalError, RuntimeCheckErrorKind, RuntimeError},
     tests::{
         TopLevelMemoryEnvironmentGenerator, execute, is_committed, is_err_code,
-        symbols_from_values, tl_env_factory as env_factory,
+        tl_env_factory as env_factory,
     },
     types::AssetIdentifier,
     version::ClarityVersion,
@@ -139,7 +138,7 @@ fn execute_transaction(
     issuer: PrincipalData,
     contract_identifier: &QualifiedContractIdentifier,
     tx: &str,
-    args: &[SymbolicExpression],
+    args: Vec<Value>,
 ) -> Result<(Value, AssetMap, Vec<StacksTransactionEvent>), VmExecutionError> {
     env.execute_transaction(issuer, None, contract_identifier.clone(), tx, args)
 }
@@ -209,7 +208,7 @@ fn test_native_stx_ops(epoch: StacksEpochId, mut env_factory: TopLevelMemoryEnvi
         p1_principal.clone(),
         &token_contract_id,
         "xfer-stx",
-        &symbols_from_values(vec![Value::UInt(0), p1.clone(), p2.clone()]),
+        vec![Value::UInt(0), p1.clone(), p2.clone()],
     )
     .unwrap();
 
@@ -221,7 +220,7 @@ fn test_native_stx_ops(epoch: StacksEpochId, mut env_factory: TopLevelMemoryEnvi
         p1_principal.clone(),
         &token_contract_id,
         "burn-stx",
-        &symbols_from_values(vec![Value::UInt(0), p1.clone()]),
+        vec![Value::UInt(0), p1.clone()],
     )
     .unwrap();
 
@@ -235,7 +234,7 @@ fn test_native_stx_ops(epoch: StacksEpochId, mut env_factory: TopLevelMemoryEnvi
         p2_principal.clone(),
         &token_contract_id,
         "xfer-stx",
-        &symbols_from_values(vec![Value::UInt(50), p2.clone(), p2.clone()]),
+        vec![Value::UInt(50), p2.clone(), p2.clone()],
     )
     .unwrap();
 
@@ -249,7 +248,7 @@ fn test_native_stx_ops(epoch: StacksEpochId, mut env_factory: TopLevelMemoryEnvi
         p2_principal.clone(),
         &token_contract_id,
         "xfer-stx",
-        &symbols_from_values(vec![Value::UInt(50), p1.clone(), p2.clone()]),
+        vec![Value::UInt(50), p1.clone(), p2.clone()],
     )
     .unwrap();
 
@@ -261,7 +260,7 @@ fn test_native_stx_ops(epoch: StacksEpochId, mut env_factory: TopLevelMemoryEnvi
         p2_principal.clone(),
         &token_contract_id,
         "burn-stx",
-        &symbols_from_values(vec![Value::UInt(50), p1.clone()]),
+        vec![Value::UInt(50), p1.clone()],
     )
     .unwrap();
 
@@ -275,7 +274,7 @@ fn test_native_stx_ops(epoch: StacksEpochId, mut env_factory: TopLevelMemoryEnvi
         p2_principal.clone(),
         &token_contract_id,
         "xfer-stx",
-        &symbols_from_values(vec![Value::UInt(1001), p2.clone(), p3.clone()]),
+        vec![Value::UInt(1001), p2.clone(), p3.clone()],
     )
     .unwrap();
 
@@ -287,7 +286,7 @@ fn test_native_stx_ops(epoch: StacksEpochId, mut env_factory: TopLevelMemoryEnvi
         p2_principal.clone(),
         &token_contract_id,
         "burn-stx",
-        &symbols_from_values(vec![Value::UInt(1001), p2.clone()]),
+        vec![Value::UInt(1001), p2.clone()],
     )
     .unwrap();
 
@@ -303,7 +302,7 @@ fn test_native_stx_ops(epoch: StacksEpochId, mut env_factory: TopLevelMemoryEnvi
     //         p2.clone(),
     //         &token_contract_id,
     //         "xfer-stx",
-    //         &symbols_from_values(vec![Value::UInt(2), p2.clone(), p1.clone()])
+    //         vec![Value::UInt(2), p2.clone(), p1.clone()]
     //     )
     //     .unwrap_err(),
     //     RuntimeError::ArithmeticOverflow.into()
@@ -316,7 +315,7 @@ fn test_native_stx_ops(epoch: StacksEpochId, mut env_factory: TopLevelMemoryEnvi
         p2_principal.clone(),
         &token_contract_id,
         "balance-stx",
-        &symbols_from_values(vec![p2.clone()]),
+        vec![p2.clone()],
     )
     .unwrap();
 
@@ -334,7 +333,7 @@ fn test_native_stx_ops(epoch: StacksEpochId, mut env_factory: TopLevelMemoryEnvi
         p2_principal.clone(),
         &token_contract_id,
         "balance-stx",
-        &symbols_from_values(vec![nonexistent_principal]),
+        vec![nonexistent_principal],
     )
     .unwrap();
 
@@ -347,7 +346,7 @@ fn test_native_stx_ops(epoch: StacksEpochId, mut env_factory: TopLevelMemoryEnvi
         p2_principal.clone(),
         &token_contract_id,
         "burn-stx",
-        &symbols_from_values(vec![Value::UInt(10), p2.clone()]),
+        vec![Value::UInt(10), p2.clone()],
     )
     .unwrap();
 
@@ -363,7 +362,7 @@ fn test_native_stx_ops(epoch: StacksEpochId, mut env_factory: TopLevelMemoryEnvi
         p2_principal.clone(),
         &token_contract_id,
         "xfer-stx",
-        &symbols_from_values(vec![Value::UInt(500), p2.clone(), p3.clone()]),
+        vec![Value::UInt(500), p2.clone(), p3.clone()],
     )
     .unwrap();
 
@@ -379,7 +378,7 @@ fn test_native_stx_ops(epoch: StacksEpochId, mut env_factory: TopLevelMemoryEnvi
         p3_principal.clone(),
         &token_contract_id,
         "xfer-stx",
-        &symbols_from_values(vec![Value::UInt(1), p3.clone(), p1]),
+        vec![Value::UInt(1), p3.clone(), p1],
     )
     .unwrap();
 
@@ -397,7 +396,7 @@ fn test_native_stx_ops(epoch: StacksEpochId, mut env_factory: TopLevelMemoryEnvi
         p2_principal.clone(),
         &token_contract_id,
         "to-contract",
-        &symbols_from_values(vec![Value::UInt(10), p2]),
+        vec![Value::UInt(10), p2],
     )
     .unwrap();
 
@@ -421,7 +420,7 @@ fn test_native_stx_ops(epoch: StacksEpochId, mut env_factory: TopLevelMemoryEnvi
         p2_principal.clone(),
         &token_contract_id,
         "balance-stx",
-        &symbols_from_values(vec![contract_principal]),
+        vec![contract_principal],
     )
     .unwrap();
 
@@ -434,7 +433,7 @@ fn test_native_stx_ops(epoch: StacksEpochId, mut env_factory: TopLevelMemoryEnvi
         p3_principal.clone(),
         &token_contract_id,
         "from-contract",
-        &symbols_from_values(vec![Value::UInt(10), p3]),
+        vec![Value::UInt(10), p3],
     )
     .unwrap();
 
@@ -461,7 +460,7 @@ fn test_native_stx_ops(epoch: StacksEpochId, mut env_factory: TopLevelMemoryEnvi
         p2_principal.clone(),
         &second_contract_id,
         "send-to-other",
-        &symbols_from_values(vec![Value::UInt(500)]),
+        vec![Value::UInt(500)],
     )
     .unwrap();
 
@@ -482,7 +481,7 @@ fn test_native_stx_ops(epoch: StacksEpochId, mut env_factory: TopLevelMemoryEnvi
         p3_principal,
         &token_contract_id,
         "from-contract",
-        &symbols_from_values(vec![Value::UInt(100), second_contract_id.clone().into()]),
+        vec![Value::UInt(100), second_contract_id.clone().into()],
     )
     .unwrap();
 
@@ -501,7 +500,7 @@ fn test_native_stx_ops(epoch: StacksEpochId, mut env_factory: TopLevelMemoryEnvi
         p2_principal.clone(),
         &second_contract_id,
         "send-to-other",
-        &symbols_from_values(vec![Value::UInt(100)]),
+        vec![Value::UInt(100)],
     )
     .unwrap();
 
@@ -562,7 +561,7 @@ fn test_simple_token_system(
         p2_principal.clone(),
         &token_contract_id,
         "my-token-transfer",
-        &symbols_from_values(vec![p1.clone(), Value::UInt(210)]),
+        vec![p1.clone(), Value::UInt(210)],
     )
     .unwrap();
     assert!(!is_committed(&result));
@@ -574,7 +573,7 @@ fn test_simple_token_system(
         p1_principal.clone(),
         &token_contract_id,
         "my-token-transfer",
-        &symbols_from_values(vec![p2.clone(), Value::UInt(9000)]),
+        vec![p2.clone(), Value::UInt(9000)],
     )
     .unwrap();
     assert!(is_committed(&result));
@@ -590,7 +589,7 @@ fn test_simple_token_system(
         p1_principal.clone(),
         &token_contract_id,
         "my-token-transfer",
-        &symbols_from_values(vec![p2.clone(), Value::UInt(1001)]),
+        vec![p2.clone(), Value::UInt(1001)],
     )
     .unwrap();
 
@@ -602,7 +601,7 @@ fn test_simple_token_system(
         p1_principal.clone(),
         &token_contract_id,
         "my-token-transfer",
-        &symbols_from_values(vec![p1.clone(), Value::UInt(1000)]),
+        vec![p1.clone(), Value::UInt(1000)],
     )
     .unwrap();
 
@@ -614,7 +613,7 @@ fn test_simple_token_system(
         p1_principal.clone(),
         &token_contract_id,
         "my-token-transfer",
-        &symbols_from_values(vec![p1.clone(), Value::Int(-1)]),
+        vec![p1.clone(), Value::Int(-1)],
     )
     .unwrap_err();
 
@@ -628,7 +627,7 @@ fn test_simple_token_system(
         p1_principal.clone(),
         &token_contract_id,
         "my-ft-get-balance",
-        &symbols_from_values(vec![p1.clone()]),
+        vec![p1.clone()],
     )
     .unwrap();
 
@@ -640,7 +639,7 @@ fn test_simple_token_system(
         p1_principal.clone(),
         &token_contract_id,
         "my-ft-get-balance",
-        &symbols_from_values(vec![p2.clone()]),
+        vec![p2.clone()],
     )
     .unwrap();
 
@@ -652,7 +651,7 @@ fn test_simple_token_system(
         p1_principal.clone(),
         &token_contract_id,
         "faucet",
-        &[],
+        vec![],
     )
     .unwrap();
 
@@ -669,7 +668,7 @@ fn test_simple_token_system(
         p1_principal.clone(),
         &token_contract_id,
         "faucet",
-        &[],
+        vec![],
     )
     .unwrap();
 
@@ -685,7 +684,7 @@ fn test_simple_token_system(
         p1_principal.clone(),
         &token_contract_id,
         "faucet",
-        &[],
+        vec![],
     )
     .unwrap();
 
@@ -701,7 +700,7 @@ fn test_simple_token_system(
         p1_principal.clone(),
         &token_contract_id,
         "my-ft-get-balance",
-        &symbols_from_values(vec![p1]),
+        vec![p1],
     )
     .unwrap();
 
@@ -713,7 +712,7 @@ fn test_simple_token_system(
         p1_principal.clone(),
         &token_contract_id,
         "get-total-supply",
-        &symbols_from_values(vec![]),
+        vec![],
     )
     .unwrap();
     assert_eq!(result, Value::UInt(10204));
@@ -724,7 +723,7 @@ fn test_simple_token_system(
         p2_principal.clone(),
         &token_contract_id,
         "burn",
-        &symbols_from_values(vec![Value::UInt(100), p2.clone()]),
+        vec![Value::UInt(100), p2.clone()],
     )
     .unwrap();
 
@@ -741,7 +740,7 @@ fn test_simple_token_system(
         p1_principal.clone(),
         &token_contract_id,
         "my-ft-get-balance",
-        &symbols_from_values(vec![p2.clone()]),
+        vec![p2.clone()],
     )
     .unwrap();
 
@@ -753,7 +752,7 @@ fn test_simple_token_system(
         p1_principal.clone(),
         &token_contract_id,
         "get-total-supply",
-        &symbols_from_values(vec![]),
+        vec![],
     )
     .unwrap();
     assert_eq!(result, Value::UInt(10104));
@@ -764,7 +763,7 @@ fn test_simple_token_system(
         p2_principal.clone(),
         &token_contract_id,
         "burn",
-        &symbols_from_values(vec![Value::UInt(9101), p2.clone()]),
+        vec![Value::UInt(9101), p2.clone()],
     )
     .unwrap();
 
@@ -777,7 +776,7 @@ fn test_simple_token_system(
         p2_principal.clone(),
         &token_contract_id,
         "burn",
-        &symbols_from_values(vec![Value::UInt(0), p2.clone()]),
+        vec![Value::UInt(0), p2.clone()],
     )
     .unwrap();
 
@@ -791,7 +790,7 @@ fn test_simple_token_system(
         p1_principal.clone(),
         &token_contract_id,
         "burn",
-        &symbols_from_values(vec![Value::UInt(1), p2]),
+        vec![Value::UInt(1), p2],
     )
     .unwrap();
 
@@ -807,7 +806,7 @@ fn test_simple_token_system(
         p1_principal,
         &token_contract_id,
         "mint-after",
-        &symbols_from_values(vec![Value::UInt(25)]),
+        vec![Value::UInt(25)],
     )
     .unwrap();
 
@@ -877,7 +876,7 @@ fn test_total_supply(epoch: StacksEpochId, mut env_factory: TopLevelMemoryEnviro
         p1_principal.clone(),
         &token_contract_id,
         "gated-faucet",
-        &symbols_from_values(vec![Value::Bool(true)]),
+        vec![Value::Bool(true)],
     )
     .unwrap();
     assert!(is_committed(&result));
@@ -887,7 +886,7 @@ fn test_total_supply(epoch: StacksEpochId, mut env_factory: TopLevelMemoryEnviro
         p1_principal.clone(),
         &token_contract_id,
         "gated-faucet",
-        &symbols_from_values(vec![Value::Bool(false)]),
+        vec![Value::Bool(false)],
     )
     .unwrap();
     assert!(!is_committed(&result));
@@ -897,7 +896,7 @@ fn test_total_supply(epoch: StacksEpochId, mut env_factory: TopLevelMemoryEnviro
         p1_principal.clone(),
         &token_contract_id,
         "gated-faucet",
-        &symbols_from_values(vec![Value::Bool(true)]),
+        vec![Value::Bool(true)],
     )
     .unwrap();
     assert!(is_committed(&result));
@@ -907,7 +906,7 @@ fn test_total_supply(epoch: StacksEpochId, mut env_factory: TopLevelMemoryEnviro
         p1_principal,
         &token_contract_id,
         "gated-faucet",
-        &symbols_from_values(vec![Value::Bool(false)]),
+        vec![Value::Bool(false)],
     )
     .unwrap_err();
     println!("{err}");
@@ -1029,7 +1028,7 @@ fn test_simple_naming_system(
         p2_principal.clone(),
         &names_contract_id,
         "preorder",
-        &symbols_from_values(vec![name_hash_expensive_0.clone(), Value::UInt(1000)]),
+        vec![name_hash_expensive_0.clone(), Value::UInt(1000)],
     )
     .unwrap();
 
@@ -1040,7 +1039,7 @@ fn test_simple_naming_system(
         p1_principal.clone(),
         &names_contract_id,
         "preorder",
-        &symbols_from_values(vec![name_hash_expensive_0.clone(), Value::UInt(1000)]),
+        vec![name_hash_expensive_0.clone(), Value::UInt(1000)],
     )
     .unwrap();
 
@@ -1051,7 +1050,7 @@ fn test_simple_naming_system(
         p1_principal.clone(),
         &names_contract_id,
         "preorder",
-        &symbols_from_values(vec![name_hash_expensive_0, Value::UInt(1000)]),
+        vec![name_hash_expensive_0, Value::UInt(1000)],
     )
     .unwrap();
 
@@ -1064,7 +1063,7 @@ fn test_simple_naming_system(
         p2_principal.clone(),
         &names_contract_id,
         "register",
-        &symbols_from_values(vec![p2.clone(), Value::Int(1), Value::Int(0)]),
+        vec![p2.clone(), Value::Int(1), Value::Int(0)],
     )
     .unwrap();
 
@@ -1077,7 +1076,7 @@ fn test_simple_naming_system(
         p1_principal.clone(),
         &names_contract_id,
         "register",
-        &symbols_from_values(vec![p2.clone(), Value::Int(1), Value::Int(0)]),
+        vec![p2.clone(), Value::Int(1), Value::Int(0)],
     )
     .unwrap();
 
@@ -1105,7 +1104,7 @@ fn test_simple_naming_system(
         p1_principal.clone(),
         &names_contract_id,
         "try-bad-transfers",
-        &[],
+        vec![],
     )
     .unwrap();
     assert!(is_err_code(&result, 0));
@@ -1116,7 +1115,7 @@ fn test_simple_naming_system(
         p1_principal.clone(),
         &names_contract_id,
         "try-bad-transfers-but-ok",
-        &[],
+        vec![],
     )
     .unwrap();
 
@@ -1135,7 +1134,7 @@ fn test_simple_naming_system(
         p1_principal.clone(),
         &names_contract_id,
         "force-mint",
-        &symbols_from_values(vec![Value::Int(1)]),
+        vec![Value::Int(1)],
     )
     .unwrap();
 
@@ -1147,7 +1146,7 @@ fn test_simple_naming_system(
         p1_principal.clone(),
         &names_contract_id,
         "force-mint",
-        &symbols_from_values(vec![Value::Int(5)]),
+        vec![Value::Int(5)],
     )
     .unwrap();
 
@@ -1161,7 +1160,7 @@ fn test_simple_naming_system(
         p1_principal.clone(),
         &names_contract_id,
         "transfer",
-        &symbols_from_values(vec![Value::Int(7), p2.clone()]),
+        vec![Value::Int(7), p2.clone()],
     )
     .unwrap();
 
@@ -1173,7 +1172,7 @@ fn test_simple_naming_system(
         p1_principal.clone(),
         &names_contract_id,
         "transfer",
-        &symbols_from_values(vec![Value::Int(1), p2.clone()]),
+        vec![Value::Int(1), p2.clone()],
     )
     .unwrap();
 
@@ -1185,7 +1184,7 @@ fn test_simple_naming_system(
         p2_principal.clone(),
         &names_contract_id,
         "transfer",
-        &symbols_from_values(vec![Value::Int(1), p2.clone()]),
+        vec![Value::Int(1), p2.clone()],
     )
     .unwrap();
 
@@ -1197,7 +1196,7 @@ fn test_simple_naming_system(
         p1_principal.clone(),
         &names_contract_id,
         "transfer",
-        &symbols_from_values(vec![Value::Int(5), p2.clone()]),
+        vec![Value::Int(5), p2.clone()],
     )
     .unwrap();
 
@@ -1220,7 +1219,7 @@ fn test_simple_naming_system(
         p2_principal.clone(),
         &names_contract_id,
         "preorder",
-        &symbols_from_values(vec![name_hash_expensive_1, Value::UInt(100)]),
+        vec![name_hash_expensive_1, Value::UInt(100)],
     )
     .unwrap();
 
@@ -1231,7 +1230,7 @@ fn test_simple_naming_system(
         p2_principal.clone(),
         &names_contract_id,
         "register",
-        &symbols_from_values(vec![p2.clone(), Value::Int(2), Value::Int(0)]),
+        vec![p2.clone(), Value::Int(2), Value::Int(0)],
     )
     .unwrap();
 
@@ -1244,7 +1243,7 @@ fn test_simple_naming_system(
         p2_principal.clone(),
         &names_contract_id,
         "preorder",
-        &symbols_from_values(vec![name_hash_cheap_0, Value::UInt(100)]),
+        vec![name_hash_cheap_0, Value::UInt(100)],
     )
     .unwrap();
 
@@ -1255,7 +1254,7 @@ fn test_simple_naming_system(
         p2_principal.clone(),
         &names_contract_id,
         "register",
-        &symbols_from_values(vec![p2.clone(), Value::Int(100001), Value::Int(0)]),
+        vec![p2.clone(), Value::Int(100001), Value::Int(0)],
     )
     .unwrap();
 
@@ -1266,7 +1265,7 @@ fn test_simple_naming_system(
         p2_principal.clone(),
         &names_contract_id,
         "register",
-        &symbols_from_values(vec![p2.clone(), Value::Int(100001), Value::Int(0)]),
+        vec![p2.clone(), Value::Int(100001), Value::Int(0)],
     )
     .unwrap();
 
@@ -1279,7 +1278,7 @@ fn test_simple_naming_system(
         p1_principal.clone(),
         &names_contract_id,
         "force-burn",
-        &symbols_from_values(vec![Value::Int(5), p1.clone()]),
+        vec![Value::Int(5), p1.clone()],
     )
     .unwrap();
 
@@ -1292,7 +1291,7 @@ fn test_simple_naming_system(
         p1_principal.clone(),
         &names_contract_id,
         "force-mint",
-        &symbols_from_values(vec![Value::Int(8)]),
+        vec![Value::Int(8)],
     )
     .unwrap();
 
@@ -1305,7 +1304,7 @@ fn test_simple_naming_system(
         p2_principal.clone(),
         &names_contract_id,
         "force-burn",
-        &symbols_from_values(vec![Value::Int(8), p1.clone()]),
+        vec![Value::Int(8), p1.clone()],
     )
     .unwrap();
 
@@ -1323,7 +1322,7 @@ fn test_simple_naming_system(
         p2_principal.clone(),
         &names_contract_id,
         "force-burn",
-        &symbols_from_values(vec![Value::Int(5), p2.clone()]),
+        vec![Value::Int(5), p2.clone()],
     )
     .unwrap();
 
@@ -1341,7 +1340,7 @@ fn test_simple_naming_system(
         p2_principal,
         &names_contract_id,
         "force-burn",
-        &symbols_from_values(vec![Value::Int(5), p2]),
+        vec![Value::Int(5), p2],
     )
     .unwrap();
     assert!(!is_committed(&result));
@@ -1353,7 +1352,7 @@ fn test_simple_naming_system(
         p1_principal,
         &names_contract_id,
         "force-mint",
-        &symbols_from_values(vec![Value::Int(5)]),
+        vec![Value::Int(5)],
     )
     .unwrap();
 
@@ -1434,7 +1433,7 @@ fn test_constant_contract_principal_in_stx_ops() {
         p1_principal.clone(),
         &test_id,
         "get-bal",
-        &[],
+        vec![],
     )
     .unwrap();
     assert_eq!(result, Value::UInt(0));
@@ -1445,7 +1444,7 @@ fn test_constant_contract_principal_in_stx_ops() {
         p1_principal.clone(),
         &test_id,
         "get-acct",
-        &[],
+        vec![],
     )
     .unwrap();
     // stx-account returns a tuple; just verify it succeeds
@@ -1460,7 +1459,7 @@ fn test_constant_contract_principal_in_stx_ops() {
         p1_principal.clone(),
         &test_id,
         "do-transfer",
-        &symbols_from_values(vec![Value::UInt(100)]),
+        vec![Value::UInt(100)],
     )
     .unwrap();
     assert!(is_committed(&result));
@@ -1471,7 +1470,7 @@ fn test_constant_contract_principal_in_stx_ops() {
         p1_principal.clone(),
         &test_id,
         "do-transfer2",
-        &symbols_from_values(vec![Value::UInt(100)]),
+        vec![Value::UInt(100)],
     )
     .unwrap();
     // This should fail, but only because a send from sender != tx-sender fails
@@ -1484,7 +1483,7 @@ fn test_constant_contract_principal_in_stx_ops() {
         p1_principal.clone(),
         &test_id,
         "do-transfer-memo",
-        &symbols_from_values(vec![Value::UInt(100)]),
+        vec![Value::UInt(100)],
     )
     .unwrap();
     assert!(is_committed(&result));
@@ -1498,7 +1497,7 @@ fn test_constant_contract_principal_in_stx_ops() {
         p1_principal,
         &test_id,
         "do-burn",
-        &symbols_from_values(vec![Value::UInt(100)]),
+        vec![Value::UInt(100)],
     )
     .unwrap();
     assert!(is_err_code(&result, 4));
@@ -1559,7 +1558,7 @@ fn test_constant_contract_principal_in_ft_ops() {
         p1_principal.clone(),
         &test_id,
         "do-mint",
-        &symbols_from_values(vec![Value::UInt(500)]),
+        vec![Value::UInt(500)],
     )
     .unwrap();
     assert!(is_committed(&result));
@@ -1570,7 +1569,7 @@ fn test_constant_contract_principal_in_ft_ops() {
         p1_principal.clone(),
         &test_id,
         "get-bal",
-        &[],
+        vec![],
     )
     .unwrap();
     assert_eq!(result, Value::UInt(500));
@@ -1581,7 +1580,7 @@ fn test_constant_contract_principal_in_ft_ops() {
         p1_principal.clone(),
         &test_id,
         "do-transfer",
-        &symbols_from_values(vec![Value::UInt(100), p1.clone()]),
+        vec![Value::UInt(100), p1.clone()],
     )
     .unwrap();
     assert!(is_committed(&result));
@@ -1592,7 +1591,7 @@ fn test_constant_contract_principal_in_ft_ops() {
         p1_principal,
         &test_id,
         "do-burn",
-        &symbols_from_values(vec![Value::UInt(50)]),
+        vec![Value::UInt(50)],
     )
     .unwrap();
     assert!(is_committed(&result));
@@ -1654,7 +1653,7 @@ fn test_constant_contract_principal_in_nft_principal_args() {
         p1_principal.clone(),
         &test_id,
         "do-mint",
-        &symbols_from_values(vec![Value::UInt(1)]),
+        vec![Value::UInt(1)],
     )
     .unwrap();
     assert!(is_committed(&result));
@@ -1665,7 +1664,7 @@ fn test_constant_contract_principal_in_nft_principal_args() {
         p1_principal.clone(),
         &test_id,
         "do-transfer",
-        &symbols_from_values(vec![Value::UInt(1), p1]),
+        vec![Value::UInt(1), p1],
     )
     .unwrap();
     assert!(is_committed(&result));
@@ -1676,7 +1675,7 @@ fn test_constant_contract_principal_in_nft_principal_args() {
         p1_principal.clone(),
         &test_id,
         "do-mint",
-        &symbols_from_values(vec![Value::UInt(2)]),
+        vec![Value::UInt(2)],
     )
     .unwrap();
     assert!(is_committed(&result));
@@ -1687,7 +1686,7 @@ fn test_constant_contract_principal_in_nft_principal_args() {
         p1_principal,
         &test_id,
         "do-burn",
-        &symbols_from_values(vec![Value::UInt(2)]),
+        vec![Value::UInt(2)],
     )
     .unwrap();
     assert!(is_committed(&result));
@@ -1755,7 +1754,8 @@ fn test_constant_contract_principal_in_compound_values() {
 
     for func in &["via-optional", "via-response", "via-tuple", "via-list"] {
         let (result, _, _) =
-            execute_transaction(&mut owned_env, p1_principal.clone(), &test_id, func, &[]).unwrap();
+            execute_transaction(&mut owned_env, p1_principal.clone(), &test_id, func, vec![])
+                .unwrap();
         assert_eq!(result, Value::UInt(0), "{func} failed");
     }
 }
@@ -1818,7 +1818,7 @@ fn test_nft_with_constant_contract_principal_as_token_id() {
         p1_principal.clone(),
         &nft_contract_id,
         "mint",
-        &[],
+        vec![],
     )
     .unwrap();
     assert!(is_committed(&result));
@@ -1830,7 +1830,7 @@ fn test_nft_with_constant_contract_principal_as_token_id() {
         p1_principal.clone(),
         &nft_contract_id,
         "xfer",
-        &symbols_from_values(vec![p2]),
+        vec![p2],
     )
     .unwrap();
     assert!(is_committed(&result));
@@ -1934,7 +1934,7 @@ fn test_constant_contract_principal_is_eq() {
         p1_principal.clone(),
         &test_id,
         "check-eq",
-        &symbols_from_values(vec![helper_principal]),
+        vec![helper_principal],
     )
     .unwrap();
 
@@ -1945,7 +1945,7 @@ fn test_constant_contract_principal_is_eq() {
         p1_principal,
         &test_id,
         "check-eq-literal",
-        &[],
+        vec![],
     )
     .unwrap();
 
@@ -2014,7 +2014,7 @@ fn test_constant_contract_principal_index_of_and_list_ops() {
         p1_principal.clone(),
         &test_id,
         "index-of-callable-in-principal-list",
-        &[],
+        vec![],
     )
     .unwrap();
     assert_eq!(result, Value::some(Value::UInt(0)).unwrap());
@@ -2025,13 +2025,13 @@ fn test_constant_contract_principal_index_of_and_list_ops() {
         p1_principal.clone(),
         &test_id,
         "index-of-principal-in-callable-list",
-        &[],
+        vec![],
     )
     .unwrap();
     assert_eq!(result, Value::some(Value::UInt(0)).unwrap());
 
     // Lists containing constant/literal principal values should be equal
     let (result, _, _) =
-        execute_transaction(&mut owned_env, p1_principal, &test_id, "list-eq", &[]).unwrap();
+        execute_transaction(&mut owned_env, p1_principal, &test_id, "list-eq", vec![]).unwrap();
     assert_eq!(result, Value::Bool(true));
 }

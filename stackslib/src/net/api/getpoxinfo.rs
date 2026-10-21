@@ -231,7 +231,7 @@ impl RPCPoxInfoData {
                                     invoke_ctx,
                                     &contract_identifier,
                                     function,
-                                    &[],
+                                    vec![],
                                     true,
                                 )
                                 .map_err(ClarityEvalError::from)

@@ -17,7 +17,6 @@
 use clarity::vm::clarity::ClarityConnection;
 use clarity::vm::costs::LimitedCostTracker;
 use clarity::vm::errors::ClarityEvalError;
-use clarity::vm::tests::symbols_from_values;
 use clarity::vm::types::{PrincipalData, StacksAddressExtensions, TupleData};
 use clarity::vm::{ClarityName, ContractName, Value};
 use stacks_common::consts::SIGNER_SLOTS_PER_USER;
@@ -447,7 +446,7 @@ pub fn readonly_call_with_sortdb(
                                     invoke_ctx,
                                     &boot_code_id(&boot_contract, false),
                                     &function_name,
-                                    &symbols_from_values(args),
+                                    args,
                                     true,
                                 )
                                 .map_err(ClarityEvalError::from)
