@@ -652,6 +652,9 @@ pub struct PeerNetwork {
     /// tenure inventories
     pub nakamoto_inv_generator: InvGenerator,
 
+    /// Epoch 2.x cache of chainstate data, for the purposes of generating block inventories
+    pub blocks_inv_cache: BlocksInvCache,
+
     /// Thread handle for the async block proposal endpoint.
     block_proposal_thread: Option<JoinHandle<()>>,
 
@@ -812,6 +815,7 @@ impl PeerNetwork {
             fault_last_disconnect: 0,
 
             nakamoto_inv_generator: InvGenerator::new(),
+            blocks_inv_cache: BlocksInvCache::default(),
 
             block_proposal_thread: None,
 

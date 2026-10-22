@@ -1134,6 +1134,138 @@ fn test_sync_inv_make_inv_messages() {
     };
 }
 
+/// `GetBlocksInv` replies are loaded from the chainstate while the Stacks tip is an epoch 2.x
+/// block, and served from `BlocksInvCache` once the Stacks tip is a Nakamoto block.
+#[test]
+fn test_sync_inv_make_blocks_inv_cached() {
+    let peer_1_config = TestPeerConfig::new(function_name!(), 0, 0);
+    let reward_cycle_length = peer_1_config
+        .chain_config
+        .burnchain
+        .pox_constants
+        .reward_cycle_length;
+    let num_blocks = reward_cycle_length * 2;
+
+    let mut peer_1 = TestPeer::new(peer_1_config);
+
+    let first_stacks_block_height = {
+        let sn = SortitionDB::get_canonical_burn_chain_tip(peer_1.sortdb_ref().conn()).unwrap();
+        sn.block_height
+    };
+
+    for _ in 0..num_blocks {
+        let (burn_ops, stacks_block, microblocks) = peer_1.make_default_tenure();
+
+        peer_1.next_burnchain_block(burn_ops.clone());
+        peer_1.process_stacks_epoch_at_tip(&stacks_block, &microblocks);
+    }
+
+    let tip = SortitionDB::get_canonical_burn_chain_tip(peer_1.sortdb_ref().conn()).unwrap();
+
+    peer_1
+        .with_network_state(|sortdb, chainstate, network, _relayer, _mempool| {
+            network.refresh_local_peer().unwrap();
+            network
+                .refresh_burnchain_view(sortdb, chainstate, false)
+                .unwrap();
+            network.refresh_sortition_view(sortdb).unwrap();
+            Ok(())
+        })
+        .unwrap();
+
+    let reward_cycle = peer_1
+        .network
+        .burnchain
+        .block_height_to_reward_cycle(first_stacks_block_height)
+        .unwrap();
+    let make_request = |peer: &mut TestPeer, num_blocks: u16| {
+        peer.with_network_state(|sortdb, _chainstate, network, _relayer, _mempool| {
+            let height = network.burnchain.reward_cycle_to_block_height(reward_cycle);
+            let sn =
+                SortitionDB::get_ancestor_snapshot(&sortdb.index_conn(), height, &tip.sortition_id)
+                    .unwrap()
+                    .unwrap();
+            Ok(GetBlocksInv {
+                consensus_hash: sn.consensus_hash,
+                num_blocks,
+            })
+        })
+        .unwrap()
+    };
+    let get_blocks_inv = |peer: &mut TestPeer, num_blocks: u16, is_nakamoto: bool| {
+        let request = make_request(peer, num_blocks);
+        peer.with_network_state(|sortdb, chainstate, network, _relayer, _mempool| {
+            network.stacks_tip.is_nakamoto = is_nakamoto;
+            let reply =
+                ConversationP2P::make_getblocksinv_response(network, sortdb, chainstate, &request)?;
+            let StacksMessageType::BlocksInv(blocks_inv) = reply else {
+                panic!("Did not get BlocksInv, but got {reply:?}");
+            };
+            Ok((blocks_inv, network.blocks_inv_cache.is_cached(reward_cycle)))
+        })
+        .unwrap()
+    };
+    let orphan_all_blocks = |peer: &mut TestPeer| {
+        peer.with_network_state(|_sortdb, chainstate, _network, _relayer, _mempool| {
+            chainstate
+                .db()
+                .execute(
+                    "UPDATE staging_blocks SET orphaned = 1",
+                    rusqlite::params![],
+                )
+                .unwrap();
+            Ok(())
+        })
+        .unwrap();
+    };
+
+    let full_cycle = reward_cycle_length as u16;
+    let expected = BlocksInvData {
+        bitlen: full_cycle,
+        block_bitvec: vec![0x1f],
+        microblocks_bitvec: vec![0x1e],
+    };
+
+    // epoch 2.x tip: nothing is cached
+    let (blocks_inv, cached) = get_blocks_inv(&mut peer_1, full_cycle, false);
+    assert_eq!(blocks_inv, expected);
+    assert!(!cached);
+
+    // Nakamoto tip: the reward cycle gets cached
+    let (blocks_inv, cached) = get_blocks_inv(&mut peer_1, full_cycle, true);
+    assert_eq!(blocks_inv, expected);
+    assert!(cached);
+
+    // later chainstate changes are not visible while the reward cycle is cached, and partial
+    // requests are answered from the same cache entry
+    orphan_all_blocks(&mut peer_1);
+    let (blocks_inv, cached) = get_blocks_inv(&mut peer_1, full_cycle, true);
+    assert_eq!(blocks_inv, expected);
+    assert!(cached);
+
+    let (blocks_inv, _) = get_blocks_inv(&mut peer_1, 3, true);
+    assert_eq!(
+        blocks_inv,
+        BlocksInvData {
+            bitlen: 3,
+            block_bitvec: vec![0x07],
+            microblocks_bitvec: vec![0x06],
+        }
+    );
+
+    // back on an epoch 2.x tip: the cache is cleared and the chainstate is read again
+    let (blocks_inv, cached) = get_blocks_inv(&mut peer_1, full_cycle, false);
+    assert_eq!(
+        blocks_inv,
+        BlocksInvData {
+            bitlen: full_cycle,
+            block_bitvec: vec![0x00],
+            microblocks_bitvec: vec![0x00],
+        }
+    );
+    assert!(!cached);
+}
+
 #[test]
 fn test_sync_inv_diagnose_nack() {
     let peer_config = TestPeerConfig::new(function_name!(), 0, 0);

@@ -1622,13 +1622,13 @@ impl ConversationP2P {
             .get_burnchain()
             .block_height_to_reward_cycle(base_snapshot.block_height)
             .expect("FATAL: no reward cycle for a valid BlockSnapshot");
-        let blocks_inv_data = chainstate
-            .get_blocks_inventory_for_reward_cycle(
-                network.get_burnchain(),
-                reward_cycle,
-                &block_hashes,
-            )
-            .map_err(net_error::from)?;
+        let blocks_inv_data = network.blocks_inv_cache.make_blocks_inventory(
+            chainstate,
+            &network.burnchain,
+            reward_cycle,
+            &block_hashes,
+            network.stacks_tip.is_nakamoto,
+        )?;
 
         if cfg!(test) {
             // make *sure* the behavior stays the same in epoch 2
