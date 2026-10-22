@@ -45,8 +45,10 @@ pub const INV_REWARD_CYCLES: u64 = 2;
 /// Cache of the chainstate data needed to answer `GetBlocksInv` requests.
 ///
 /// Epoch 2.x staging blocks stop being processed or orphaned once the node's Stacks tip is a
-/// Nakamoto block, so from then on each reward cycle's accepted blocks never change and only
-/// need to be loaded once.  Until then, every request is answered from the chainstate.
+/// Nakamoto block and the first Nakamoto reward cycle has ended (see
+/// `PeerNetwork::epoch2_chainstate_is_final()`), so from then on each reward cycle's accepted
+/// blocks never change and only need to be loaded once.  Until then, every request is answered
+/// from the chainstate.
 #[derive(Debug, Default)]
 pub struct BlocksInvCache {
     /// Map reward cycle to the output of

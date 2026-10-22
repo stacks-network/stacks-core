@@ -1627,7 +1627,7 @@ impl ConversationP2P {
             &network.burnchain,
             reward_cycle,
             &block_hashes,
-            network.stacks_tip.is_nakamoto,
+            network.epoch2_chainstate_is_final(),
         )?;
 
         if cfg!(test) {
