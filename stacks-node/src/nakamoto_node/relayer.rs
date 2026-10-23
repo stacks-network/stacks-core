@@ -1949,10 +1949,24 @@ impl RelayerThread {
                "highest tenure changed?" => %highest_tenure_changed);
 
         // If the miner spend or config has changed, we want to RBF with new config values.
-        let (burnchain_config_changed, _) = self.check_burnchain_config_changed();
+        let previous_burnchain_config = self.globals.get_last_burnchain_config();
+        let (burnchain_config_changed, current_burnchain_config) =
+            self.check_burnchain_config_changed();
         let miner_config_changed = self.check_miner_config_changed();
+        // Opt-in fee writes must not turn the new-burn-view wait into an early
+        // fresh commit against the old tenure. The eventual normal directive
+        // reads the newest fee. Same-view pending raises remain immediate.
+        let defer_fee_change = burnchain_changed
+            && previous_burnchain_config.as_ref().is_some_and(|old| {
+                Self::only_targeted_fee_fields_changed(old, &current_burnchain_config)
+            });
 
-        if burnchain_config_changed || miner_config_changed {
+        if (burnchain_config_changed && !defer_fee_change)
+            || miner_config_changed
+            || self
+                .bitcoin_controller
+                .pending_commit_needs_retry(burnchain_changed)
+        {
             info!("Miner spend or config changed; issuing block commit with new values";
                 "miner_spend_changed" => %burnchain_config_changed,
                 "miner_config_changed" => %miner_config_changed,
@@ -2396,6 +2410,22 @@ impl RelayerThread {
         (burnchain_config_changed, burnchain_config)
     }
 
+    /// A pure comparison: bid and every non-fee option retain existing timing.
+    fn only_targeted_fee_fields_changed(old: &BurnchainConfig, new: &BurnchainConfig) -> bool {
+        if old.block_commit_replacement_fee_max_sats.is_none()
+            && new.block_commit_replacement_fee_max_sats.is_none()
+        {
+            return false;
+        }
+        let mut expected = old.clone();
+        expected.satoshis_per_byte = new.satoshis_per_byte;
+        expected.rbf_fee_increment = new.rbf_fee_increment;
+        expected.max_rbf = new.max_rbf;
+        expected.block_commit_fee_rate_sat_per_kvb = new.block_commit_fee_rate_sat_per_kvb;
+        expected.block_commit_replacement_fee_max_sats = new.block_commit_replacement_fee_max_sats;
+        &expected == new
+    }
+
     pub fn check_miner_config_changed(&self) -> bool {
         let miner_config = self.config.get_miner_config();
         let last_miner_config_opt = self.globals.get_last_miner_config();
@@ -2430,6 +2460,28 @@ pub mod test {
     use crate::nakamoto_node::save_activated_vrf_key;
     use crate::run_loop::RegisteredKey;
     use crate::Keychain;
+
+    #[test]
+    fn targeted_fee_changes_do_not_short_circuit_new_tenure_wait() {
+        let mut old = stacks::config::BurnchainConfig::default();
+        old.block_commit_replacement_fee_max_sats = Some(10_000);
+        let mut new = old.clone();
+        new.block_commit_fee_rate_sat_per_kvb = Some(1300);
+        assert!(RelayerThread::only_targeted_fee_fields_changed(&old, &new));
+        new.satoshis_per_byte = old.satoshis_per_byte + 1;
+        assert!(RelayerThread::only_targeted_fee_fields_changed(&old, &new));
+        new.burn_fee_cap = old.burn_fee_cap + 1;
+        assert!(!RelayerThread::only_targeted_fee_fields_changed(&old, &new));
+        new = old.clone();
+        new.block_commit_replacement_fee_max_sats = None;
+        assert!(RelayerThread::only_targeted_fee_fields_changed(&old, &new));
+        old.block_commit_replacement_fee_max_sats = None;
+        new.satoshis_per_byte = old.satoshis_per_byte + 1;
+        assert!(
+            !RelayerThread::only_targeted_fee_fields_changed(&old, &new),
+            "legacy timing must remain unchanged without opt-in"
+        );
+    }
 
     #[test]
     fn load_nonexistent_vrf_key() {

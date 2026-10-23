@@ -18,6 +18,7 @@ use std::cmp;
 use std::collections::HashSet;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::time::{Duration, Instant};
 
 use stacks::burnchains::bitcoin::address::{
     BitcoinAddress, LegacyBitcoinAddress, LegacyBitcoinAddressType, SegwitBitcoinAddress,
@@ -69,6 +70,9 @@ use stacks_common::util::sleep_ms;
 use super::super::operations::BurnchainOpSigner;
 use super::super::Config;
 use super::Error as BurnchainControllerError;
+use crate::burnchains::replacement_pricing::{
+    self, bitcoin_amount, Conflict, PricingError, ReplacementPolicy,
+};
 use crate::burnchains::rpc::bitcoin_rpc_client::{
     BitcoinRpcClient, BitcoinRpcClientError, BitcoinRpcClientResult, ImportDescriptorsRequest,
     Timestamp,
@@ -80,6 +84,10 @@ use crate::burnchains::rpc::rpc_transport::RpcError;
 ///  the cache is force-reset.
 const UTXO_CACHE_STALENESS_LIMIT: u64 = 6;
 const DUST_UTXO_LIMIT: u64 = 5500;
+/// Minimum delay between retries of a pending block commit (managed fees only).
+const BLOCK_COMMIT_RETRY_INTERVAL: Duration = Duration::from_secs(15);
+/// Largest mempool descendant set of a pending commit that a replacement will evict.
+const MAX_CONFLICT_DESCENDANTS: u64 = 100;
 
 /// Hash-attempt allowance per requested block for custom-signet development/test mining.
 ///
@@ -116,7 +124,43 @@ pub struct OngoingBlockCommit {
     pub payload: LeaderBlockCommitOp,
     utxos: UTXOSet,
     fees: LeaderBlockCommitFees,
+    /// Actual input value minus every signed output, including change. This
+    /// includes replacement surcharges, but excludes the PoX/sunset spend.
+    miner_fee: u64,
+    /// Last signed attempt, retained even after acknowledgement for exact fee/size bounds.
+    signed_tx: Transaction,
     txids: Vec<Txid>,
+    broadcast: CommitBroadcast,
+    /// Earliest time a pending commit may be retried (managed fees only).
+    retry_after: Instant,
+}
+
+/// What Bitcoin has told us about the last signed attempt.
+#[derive(Clone, Debug)]
+enum CommitBroadcast {
+    /// Not yet acknowledged. A transport error does not establish that Bitcoin
+    /// rejected the transaction, so these exact bytes are resent.
+    Unacknowledged(Transaction),
+    Acknowledged,
+    /// Some attempt in the chain has confirmed; no further fee raises.
+    Confirmed,
+}
+
+impl OngoingBlockCommit {
+    /// Whether the signed attempt pays less than the current target for its own
+    /// size. Always `false` unless block commit fees are managed.
+    fn needs_fee_raise(&self, settings: &BurnchainConfig) -> bool {
+        if !settings.block_commit_fee_management_enabled() {
+            return false;
+        }
+        if let Some(rate) = settings.block_commit_fee_rate_sat_per_kvb {
+            return BitcoinRegtestController::commit_vsize(&self.signed_tx, &self.utxos)
+                .and_then(|size| replacement_pricing::rate_fee(rate, size))
+                .is_ok_and(|target| self.miner_fee < target);
+        }
+        u128::from(self.miner_fee)
+            < u128::from(settings.satoshis_per_byte) * u128::from(self.fees.min_tx_size())
+    }
 }
 
 #[derive(Clone)]
@@ -199,7 +243,16 @@ impl LeaderBlockCommitFees {
         let mut fees = LeaderBlockCommitFees::estimated_fees_from_payload(payload, config);
         fees.spent_in_attempts = cmp::max(1, self.spent_in_attempts);
         fees.final_size = self.final_size;
-        fees.fee_rate = self.fee_rate + get_rbf_fee_increment(config);
+        let settings = config.get_burnchain_config();
+        fees.fee_rate = if settings.block_commit_fee_management_enabled() {
+            // Never price a replacement below the current target.
+            cmp::max(
+                self.fee_rate.saturating_add(settings.rbf_fee_increment),
+                settings.satoshis_per_byte,
+            )
+        } else {
+            self.fee_rate + settings.rbf_fee_increment
+        };
         fees.is_rbf_enabled = true;
         fees
     }
@@ -959,6 +1012,8 @@ impl BitcoinRegtestController {
         previous_txids: &[Txid],
         burnchain_block_height: u64,
     ) -> Result<Transaction, BurnchainControllerError> {
+        let settings = self.config.get_burnchain_config();
+        let managed = settings.block_commit_fee_management_enabled();
         let public_key = signer.get_public_key();
         let (mut tx, mut utxos) = self.prepare_tx(
             epoch_id,
@@ -995,23 +1050,61 @@ impl BitcoinRegtestController {
                 .push(commit_to.to_bitcoin_tx_out(estimated_fees.amount_per_output()));
         }
 
-        let fee_rate = estimated_fees.fee_rate;
-        self.finalize_tx(
-            epoch_id,
-            &mut tx,
-            estimated_fees.total_spent_in_outputs(),
-            estimated_fees.spent_in_attempts,
-            estimated_fees.min_tx_size(),
-            fee_rate,
-            &mut utxos,
-            signer,
-            true, // block commit op requires change output to exist
-        );
+        let mut fee_rate = estimated_fees.fee_rate;
+        let targeted = managed
+            && (estimated_fees.is_rbf_enabled
+                || settings.block_commit_fee_rate_sat_per_kvb.is_some());
+        let complete = if targeted {
+            fee_rate = self.finalize_targeted_replacement(
+                epoch_id,
+                &mut tx,
+                &mut utxos,
+                signer,
+                &estimated_fees,
+            )?;
+            estimated_fees.fee_rate = fee_rate;
+            true
+        } else {
+            self.finalize_tx(
+                epoch_id,
+                &mut tx,
+                estimated_fees.total_spent_in_outputs(),
+                estimated_fees.spent_in_attempts,
+                estimated_fees.min_tx_size(),
+                fee_rate,
+                &mut utxos,
+                signer,
+                true, // block commit op requires change output to exist
+            )
+        };
+        if managed && !complete {
+            // Do not replace the tracked commit with an unsigned or underfunded
+            // candidate. A fee-only replacement cannot add wallet inputs.
+            return Err(BurnchainControllerError::NoUTXOs);
+        }
         debug!("Transaction relying on UTXOs: {utxos:?}");
 
         let serialized_tx = serialize(&tx).expect("BUG: failed to serialize to a vec");
         let tx_size = serialized_tx.len() as u64;
-        estimated_fees.register_replacement(tx_size);
+        if targeted {
+            estimated_fees.final_size = tx_size;
+            estimated_fees.spent_in_attempts = 0;
+        } else {
+            estimated_fees.register_replacement(tx_size);
+        }
+
+        // Derive the actual fee from the signed spend, not the fee rate ladder:
+        // register_replacement advances that ladder for the next attempt.
+        let inputs: u128 = utxos.utxos.iter().map(|u| u128::from(u.amount)).sum();
+        let outputs: u128 = tx.output.iter().map(|o| u128::from(o.value)).sum();
+        let miner_fee = match inputs
+            .checked_sub(outputs)
+            .and_then(|fee| u64::try_from(fee).ok())
+        {
+            Some(fee) => fee,
+            None if !managed => 0,
+            None => return Err(BurnchainControllerError::BurnchainError),
+        };
 
         let txid = Txid::from_bitcoin_tx_hash(&tx.txid());
         let mut txids = previous_txids.to_vec();
@@ -1020,16 +1113,29 @@ impl BitcoinRegtestController {
             payload,
             utxos,
             fees: estimated_fees,
+            miner_fee,
+            signed_tx: tx.clone(),
             txids,
+            broadcast: CommitBroadcast::Unacknowledged(tx.clone()),
+            retry_after: Instant::now() + BLOCK_COMMIT_RETRY_INTERVAL,
         };
 
-        info!(
-            "Miner node: submitting leader_block_commit (txid: {}, rbf: {}, total spent: {}, size: {}, fee_rate: {fee_rate})",
-            txid.to_hex(),
-            ongoing_block_commit.fees.is_rbf_enabled,
-            ongoing_block_commit.fees.total_spent(),
-            ongoing_block_commit.fees.final_size
-        );
+        if targeted {
+            info!("Target-aware leader_block_commit submitted";
+                "txid" => txid.to_hex(), "miner_fee_sats" => miner_fee,
+                "output_spend_sats" => ongoing_block_commit.fees.total_spent_in_outputs(),
+                "target_level" => fee_rate, "serialized_size" => tx_size,
+                "rbf" => ongoing_block_commit.fees.is_rbf_enabled,
+                "target_sat_per_kvb" => settings.block_commit_fee_rate_sat_per_kvb);
+        } else {
+            info!(
+                "Miner node: submitting leader_block_commit (txid: {}, rbf: {}, total spent: {}, size: {}, fee_rate: {fee_rate})",
+                txid.to_hex(),
+                ongoing_block_commit.fees.is_rbf_enabled,
+                ongoing_block_commit.fees.total_spent(),
+                ongoing_block_commit.fees.final_size
+            );
+        }
 
         self.ongoing_block_commit = Some(ongoing_block_commit);
 
@@ -1052,63 +1158,35 @@ impl BitcoinRegtestController {
             return res;
         }
 
+        if self
+            .config
+            .get_burnchain_config()
+            .block_commit_fee_management_enabled()
+        {
+            return self.build_managed_block_commit_tx(epoch_id, payload, signer);
+        }
+
         let ongoing_op = self.ongoing_block_commit.take().unwrap();
 
-        let _ = self.sortdb_mut();
-        let burnchain_db = self.burnchain_db.as_ref().expect("BurnchainDB not opened");
-
-        for txid in ongoing_op.txids.iter() {
-            // check if ongoing_op is in the burnchain_db *or* has been confirmed via the bitcoin RPC
-            let mined_op = burnchain_db.find_burnchain_op(&self.indexer, txid);
-            let ongoing_tx_confirmed = mined_op.is_some() || self.is_transaction_confirmed(txid);
-
-            test_debug!("Ongoing Tx confirmed: {ongoing_tx_confirmed} - TXID: {txid}");
-            if ongoing_tx_confirmed {
-                if ongoing_op.payload == payload {
-                    info!("Abort attempt to re-submit confirmed LeaderBlockCommit");
-                    self.ongoing_block_commit = Some(ongoing_op);
-                    return Err(BurnchainControllerError::IdenticalOperation);
-                }
-
-                debug!("Was able to retrieve confirmation of ongoing burnchain TXID - {txid}");
-                let res = self.send_block_commit_operation(
-                    epoch_id,
-                    payload,
-                    signer,
-                    None,
-                    None,
-                    None,
-                    &[],
-                );
-                return res;
-            } else {
-                debug!("Was unable to retrieve ongoing TXID - {txid}");
-            };
+        if self.is_ongoing_commit_confirmed(&ongoing_op) {
+            if ongoing_op.payload == payload {
+                info!("Abort attempt to re-submit confirmed LeaderBlockCommit");
+                self.ongoing_block_commit = Some(ongoing_op);
+                return Err(BurnchainControllerError::IdenticalOperation);
+            }
+            return self.send_block_commit_operation(
+                epoch_id,
+                payload,
+                signer,
+                None,
+                None,
+                None,
+                &[],
+            );
         }
 
         // Did a re-org occur since we fetched our UTXOs, or are the UTXOs so stale that they should be abandoned?
-        let mut traversal_depth = 0;
-        let mut burn_chain_tip = burnchain_db
-            .get_canonical_chain_tip()
-            .map_err(|_| BurnchainControllerError::BurnchainError)?;
-        let mut found_last_mined_at = false;
-        while traversal_depth < UTXO_CACHE_STALENESS_LIMIT {
-            if burn_chain_tip.block_hash == ongoing_op.utxos.bhh {
-                found_last_mined_at = true;
-                break;
-            }
-
-            let parent = BurnchainDB::get_burnchain_block(
-                burnchain_db.conn(),
-                &burn_chain_tip.parent_block_hash,
-            )
-            .map_err(|_| BurnchainControllerError::BurnchainError)?;
-
-            burn_chain_tip = parent.header;
-            traversal_depth += 1;
-        }
-
-        if !found_last_mined_at {
+        if !self.is_utxo_cache_current(&ongoing_op.utxos.bhh)? {
             info!(
                 "Possible presence of fork or stale UTXO cache, invalidating cached set of UTXOs.";
                 "cached_burn_block_hash" => %ongoing_op.utxos.bhh,
@@ -1161,6 +1239,145 @@ impl BitcoinRegtestController {
         }
 
         res
+    }
+
+    /// Managed-fee counterpart of the replacement path in
+    /// [`Self::build_leader_block_commit_tx`]. Differences from stock:
+    /// - the tracked commit (and its inputs) is kept on every early error,
+    /// - an unchanged payload is resent as the same bytes if unacknowledged, or
+    ///   replaced with the same inputs if its fee is below the current target,
+    /// - replacements are capped by the absolute fee limit, not `max_rbf`.
+    fn build_managed_block_commit_tx(
+        &mut self,
+        epoch_id: StacksEpochId,
+        payload: LeaderBlockCommitOp,
+        signer: &mut BurnchainOpSigner,
+    ) -> Result<Transaction, BurnchainControllerError> {
+        let mut ongoing_op = self.ongoing_block_commit.clone().unwrap();
+        ongoing_op.retry_after = Instant::now() + BLOCK_COMMIT_RETRY_INTERVAL;
+        self.ongoing_block_commit = Some(ongoing_op.clone());
+        let identical_payload = payload == ongoing_op.payload;
+
+        if self.is_ongoing_commit_confirmed(&ongoing_op) {
+            if identical_payload {
+                info!("Abort attempt to re-submit confirmed LeaderBlockCommit");
+                ongoing_op.broadcast = CommitBroadcast::Confirmed;
+                self.ongoing_block_commit = Some(ongoing_op);
+                return Err(BurnchainControllerError::IdenticalOperation);
+            }
+            return self.send_block_commit_operation(
+                epoch_id,
+                payload,
+                signer,
+                None,
+                None,
+                None,
+                &[],
+            );
+        }
+
+        if identical_payload && !ongoing_op.needs_fee_raise(&self.config.get_burnchain_config()) {
+            if let CommitBroadcast::Unacknowledged(tx) = &ongoing_op.broadcast {
+                return Ok(tx.clone());
+            }
+            debug!("Pending block commit already pays the target fee";
+                "miner_fee_sats" => ongoing_op.miner_fee);
+            return Err(BurnchainControllerError::IdenticalOperation);
+        }
+
+        if !self.is_utxo_cache_current(&ongoing_op.utxos.bhh)? {
+            if identical_payload {
+                // A fee-only replacement must not fall back to fresh wallet inputs.
+                return Err(BurnchainControllerError::BurnchainError);
+            }
+            info!(
+                "Possible presence of fork or stale UTXO cache, invalidating cached set of UTXOs.";
+                "cached_burn_block_hash" => %ongoing_op.utxos.bhh,
+            );
+            return self.send_block_commit_operation(
+                epoch_id,
+                payload,
+                signer,
+                None,
+                None,
+                None,
+                &[],
+            );
+        }
+
+        // Retargets and fee-only raises both reuse this attempt's exact inputs.
+        info!(
+            "Attempt to replace by fee an outdated leader block commit";
+            "ongoing_txids" => ?ongoing_op.txids,
+            "fee_only" => identical_payload
+        );
+        let res = self.send_block_commit_operation(
+            epoch_id,
+            payload,
+            signer,
+            Some(ongoing_op.utxos.clone()),
+            None,
+            Some(ongoing_op.fees.clone()),
+            &ongoing_op.txids,
+        );
+        if res.is_err() {
+            self.ongoing_block_commit = Some(ongoing_op);
+        }
+        res
+    }
+
+    /// Whether any attempt in the ongoing commit's chain has been confirmed,
+    /// per the burnchain DB or the bitcoin RPC.
+    fn is_ongoing_commit_confirmed(&mut self, ongoing_op: &OngoingBlockCommit) -> bool {
+        let _ = self.sortdb_mut();
+        let burnchain_db = self.burnchain_db.as_ref().expect("BurnchainDB not opened");
+        ongoing_op.txids.iter().any(|txid| {
+            let mined_op = burnchain_db.find_burnchain_op(&self.indexer, txid);
+            let ongoing_tx_confirmed = mined_op.is_some() || self.is_transaction_confirmed(txid);
+            test_debug!("Ongoing Tx confirmed: {ongoing_tx_confirmed} - TXID: {txid}");
+            ongoing_tx_confirmed
+        })
+    }
+
+    /// Whether `utxos_bhh` is within [`UTXO_CACHE_STALENESS_LIMIT`] blocks of
+    /// the canonical burnchain tip.
+    fn is_utxo_cache_current(
+        &self,
+        utxos_bhh: &BurnchainHeaderHash,
+    ) -> Result<bool, BurnchainControllerError> {
+        let burnchain_db = self.burnchain_db.as_ref().expect("BurnchainDB not opened");
+        let mut burn_chain_tip = burnchain_db
+            .get_canonical_chain_tip()
+            .map_err(|_| BurnchainControllerError::BurnchainError)?;
+        for _ in 0..UTXO_CACHE_STALENESS_LIMIT {
+            if &burn_chain_tip.block_hash == utxos_bhh {
+                return Ok(true);
+            }
+            burn_chain_tip = BurnchainDB::get_burnchain_block(
+                burnchain_db.conn(),
+                &burn_chain_tip.parent_block_hash,
+            )
+            .map_err(|_| BurnchainControllerError::BurnchainError)?
+            .header;
+        }
+        Ok(false)
+    }
+
+    /// Whether the relayer should retry the pending block commit without a new
+    /// burn view: it is unacknowledged or pays less than the current target.
+    /// Always `false` unless block commit fees are managed.
+    pub(crate) fn pending_commit_needs_retry(&self, burnchain_changed: bool) -> bool {
+        let settings = self.config.get_burnchain_config();
+        !burnchain_changed
+            && settings.block_commit_fee_management_enabled()
+            && self.ongoing_block_commit.as_ref().is_some_and(|op| {
+                Instant::now() >= op.retry_after
+                    && match op.broadcast {
+                        CommitBroadcast::Unacknowledged(_) => true,
+                        CommitBroadcast::Acknowledged => op.needs_fee_raise(&settings),
+                        CommitBroadcast::Confirmed => false,
+                    }
+            })
     }
 
     pub(crate) fn get_miner_address(
@@ -1248,7 +1465,7 @@ impl BitcoinRegtestController {
         utxos_set: &mut UTXOSet,
         signer: &mut BurnchainOpSigner,
         force_change_output: bool,
-    ) {
+    ) -> bool {
         // spend UTXOs in order by confirmations.  Spend the least-confirmed UTXO first, and in the
         // event of a tie, spend the smallest-value UTXO first.
         utxos_set.utxos.sort_by(|u1, u2| {
@@ -1272,14 +1489,17 @@ impl BitcoinRegtestController {
             };
             let mut tx_cloned = tx.clone();
             let mut utxos_cloned = utxos_set.clone();
-            self.serialize_tx(
+            if !self.serialize_tx(
                 epoch_id,
                 &mut tx_cloned,
                 spent_in_outputs + min_tx_size * fee_rate + estimated_rbf,
                 &mut utxos_cloned,
                 signer,
                 force_change_output,
-            );
+            ) {
+                signer.dispose();
+                return false;
+            }
             let serialized_tx = serialize(&tx_cloned).expect("BUG: failed to serialize to a vec");
             cmp::max(min_tx_size, serialized_tx.len() as u64)
         };
@@ -1289,7 +1509,7 @@ impl BitcoinRegtestController {
         } else {
             spent_in_rbf + tx_size // we're spending 1 sat / byte in RBF
         };
-        self.serialize_tx(
+        let complete = self.serialize_tx(
             epoch_id,
             tx,
             spent_in_outputs + tx_size * fee_rate + rbf_fee,
@@ -1298,6 +1518,340 @@ impl BitcoinRegtestController {
             force_change_output,
         );
         signer.dispose();
+        complete
+    }
+
+    /// Policy size for the standard input/output scripts this builder can produce.
+    /// Unsupported scripts are not guessed; Bitcoin remains the admission authority.
+    fn commit_vsize(tx: &Transaction, utxos: &UTXOSet) -> Result<u64, PricingError> {
+        let mut sigops = 0_u64;
+        for utxo in &utxos.utxos {
+            if utxo.script_pub_key.is_v0_p2wpkh() {
+                sigops += 1;
+            } else if utxo.script_pub_key.is_p2pkh() {
+                sigops += 4;
+            } else {
+                return Err(PricingError::InvalidEvidence);
+            }
+        }
+        for output in &tx.output {
+            let script = &output.script_pubkey;
+            if script.is_p2pkh() {
+                sigops += 4;
+            } else if !(script.is_p2sh()
+                || script.is_v0_p2wpkh()
+                || script.is_v0_p2wsh()
+                || script.is_op_return()
+                || (script.len() == 34 && script.as_bytes()[..2] == [0x51, 0x20]))
+            {
+                return Err(PricingError::InvalidEvidence);
+            }
+        }
+        Ok(tx.get_weight().max(sigops * 20).div_ceil(4))
+    }
+
+    /// Observe one mutually conflicting chain, including a possible ambiguous send.
+    /// Descendant fees are aggregate modified fees from Bitcoin, never summed attempts.
+    fn replacement_policy(
+        &self,
+        op: &OngoingBlockCommit,
+    ) -> Result<ReplacementPolicy, PricingError> {
+        let rpc = self
+            .rpc_client
+            .as_ref()
+            .ok_or(PricingError::InvalidEvidence)?;
+        let info = rpc
+            .get_mempool_info()
+            .map_err(|_| PricingError::RpcUnavailable)?;
+        if info["loaded"].as_bool() != Some(true) {
+            return Err(PricingError::MempoolLoading);
+        }
+        let mut policy = ReplacementPolicy {
+            minimum_sat_per_kvb: bitcoin_amount(&info["mempoolminfee"])?
+                .max(bitcoin_amount(&info["minrelaytxfee"])?),
+            incremental_sat_per_kvb: bitcoin_amount(&info["incrementalrelayfee"])?,
+            evicted_fee: op.miner_fee,
+            conflicts: vec![Conflict {
+                modified_fee: op.miner_fee,
+                vsize: Self::commit_vsize(&op.signed_tx, &op.utxos)?,
+            }],
+        };
+        // At most one known attempt with these exact inputs can be in the mempool.
+        // Three bounded RPCs total, independent of the length of the attempt chain.
+        let input = op
+            .signed_tx
+            .input
+            .first()
+            .ok_or(PricingError::InvalidEvidence)?;
+        let parent = Txid::from_bitcoin_tx_hash(&input.previous_output.txid);
+        if let Some(txid) = rpc
+            .get_tx_spending_prevout(&parent, input.previous_output.vout)
+            .map_err(|_| PricingError::InvalidEvidence)?
+        {
+            if !op.txids.contains(&txid) {
+                return Err(PricingError::InvalidEvidence);
+            }
+            // Disappearing between reads is a race, not a usable empty observation.
+            let entry = rpc
+                .get_mempool_entry(&txid)
+                .map_err(|_| PricingError::InvalidEvidence)?
+                .ok_or(PricingError::InvalidEvidence)?;
+            let base = bitcoin_amount(&entry["fees"]["base"])?;
+            let modified = bitcoin_amount(&entry["fees"]["modified"])?;
+            let descendants = bitcoin_amount(&entry["fees"]["descendant"])?;
+            let count = entry["descendantcount"]
+                .as_u64()
+                .ok_or(PricingError::InvalidEvidence)?;
+            // Do not transfer an old txid's prioritisation delta to our new txid.
+            if base != modified
+                || descendants < modified
+                || !(1..=MAX_CONFLICT_DESCENDANTS).contains(&count)
+            {
+                return Err(PricingError::InvalidEvidence);
+            }
+            policy.evicted_fee = policy.evicted_fee.max(descendants);
+            policy.conflicts.push(Conflict {
+                modified_fee: modified,
+                vsize: entry["vsize"]
+                    .as_u64()
+                    .ok_or(PricingError::InvalidEvidence)?,
+            });
+        }
+        Ok(policy)
+    }
+
+    /// Conservative serialized and policy-size bounds without signing.
+    fn pricing_bounds(
+        &self,
+        epoch: StacksEpochId,
+        tx: &Transaction,
+        utxos: &UTXOSet,
+        public_key: &Secp256k1PublicKey,
+    ) -> Result<(u64, u64), PricingError> {
+        let mut upper = tx.clone();
+        let mut key = public_key.clone();
+        if self.config.miner.segwit && epoch >= StacksEpochId::Epoch21 {
+            key.set_compressed(true);
+            upper.output.push(SegwitBitcoinAddress::to_p2wpkh_tx_out(
+                &Hash160::from_data(&key.to_bytes()).0,
+                DUST_UTXO_LIMIT,
+            ));
+        } else {
+            upper.output.push(LegacyBitcoinAddress::to_p2pkh_tx_out(
+                &Hash160::from_data(&key.to_bytes()),
+                DUST_UTXO_LIMIT,
+            ));
+        }
+        for utxo in &utxos.utxos {
+            let witness = utxo.script_pub_key.is_v0_p2wpkh();
+            upper.input.push(TxIn {
+                previous_output: OutPoint {
+                    txid: utxo.txid.clone(),
+                    vout: utxo.vout,
+                },
+                sequence: 0xFFFFFFFD,
+                script_sig: if witness {
+                    Script::new()
+                } else {
+                    Builder::new()
+                        .push_slice(&[0; 73])
+                        .push_slice(&[0; 65])
+                        .into_script()
+                },
+                witness: if witness {
+                    vec![vec![0; 73], vec![0; 33]]
+                } else {
+                    vec![]
+                },
+            });
+        }
+        let vsize = Self::commit_vsize(&upper, utxos)?;
+        let serialized_bound = serialize(&upper)
+            .map_err(|_| PricingError::InvalidEvidence)?
+            .len() as u64;
+        Ok((vsize, serialized_bound))
+    }
+
+    /// One calculator for fee-only raises and payload retargets. Sign once against
+    /// an upper size bound, consume exactly the owned inputs, then verify the bound.
+    fn finalize_targeted_replacement(
+        &mut self,
+        epoch: StacksEpochId,
+        tx: &mut Transaction,
+        utxos: &mut UTXOSet,
+        signer: &mut BurnchainOpSigner,
+        fees: &LeaderBlockCommitFees,
+    ) -> Result<u64, BurnchainControllerError> {
+        let result = (|| -> Result<u64, PricingError> {
+            let settings = self.config.get_burnchain_config();
+            let limit = settings
+                .block_commit_replacement_fee_max_sats
+                .ok_or(PricingError::InvalidEvidence)?;
+            let op = if fees.is_rbf_enabled {
+                Some(
+                    self.ongoing_block_commit
+                        .as_ref()
+                        .ok_or(PricingError::InvalidEvidence)?
+                        .clone(),
+                )
+            } else {
+                None
+            };
+            if utxos.utxos.is_empty() || op.as_ref().is_some_and(|p| utxos.utxos != p.utxos.utxos) {
+                return Err(PricingError::InvalidEvidence);
+            }
+            let policy = op
+                .as_ref()
+                .map(|p| self.replacement_policy(p))
+                .transpose()?;
+            let precise_rate = if op.is_none() {
+                let configured = settings
+                    .block_commit_fee_rate_sat_per_kvb
+                    .filter(|rate| *rate > 0)
+                    .ok_or(PricingError::InvalidEvidence)?;
+                let observation = self
+                    .rpc_client
+                    .as_ref()
+                    .ok_or(PricingError::RpcUnavailable)
+                    .and_then(|rpc| {
+                        rpc.get_mempool_info()
+                            .map_err(|_| PricingError::RpcUnavailable)
+                    });
+                let (rate, failure) = replacement_pricing::fresh_rate(
+                    configured,
+                    observation
+                        .as_ref()
+                        .map_err(|_| PricingError::RpcUnavailable),
+                );
+                if let Some(error) = failure {
+                    let kind = match error {
+                        PricingError::RpcUnavailable => "rpc-unavailable",
+                        PricingError::MempoolLoading => "mempool-loading",
+                        _ => "invalid-evidence",
+                    };
+                    warn!("Fresh block commit policy unavailable; using configured rate";
+                        "failure_kind" => kind, "target_sat_per_kvb" => configured,
+                        "fallback_sat_per_kvb" => rate, "absolute_limit_sats" => limit);
+                }
+                Some(rate)
+            } else {
+                settings.block_commit_fee_rate_sat_per_kvb
+            };
+            if op.is_none() {
+                // Match finalize_tx's fresh-coin preference: least-confirmed first,
+                // then smallest value (likely the commit-chain change). Bitcoin's
+                // listunspent order is not a coin-selection policy. Never reorder
+                // replacements: their inputs belong to the existing attempt.
+                utxos
+                    .utxos
+                    .sort_by_key(|coin| (coin.confirmations, coin.amount));
+                // Select only the prefix needed for the precise fee and mandatory change.
+                let pool = std::mem::take(&mut utxos.utxos);
+                let outputs = tx
+                    .output
+                    .iter()
+                    .try_fold(0_u64, |n, o| n.checked_add(o.value))
+                    .ok_or(PricingError::Overflow)?;
+                let rate = precise_rate.ok_or(PricingError::InvalidEvidence)?;
+                let mut available = 0_u64;
+                for coin in pool {
+                    available = available
+                        .checked_add(coin.amount)
+                        .ok_or(PricingError::Overflow)?;
+                    utxos.utxos.push(coin);
+                    let (size, _) =
+                        self.pricing_bounds(epoch, tx, utxos, &signer.get_public_key())?;
+                    let needed = outputs
+                        .checked_add(replacement_pricing::rate_fee(rate, size)?)
+                        .and_then(|n| n.checked_add(DUST_UTXO_LIMIT))
+                        .ok_or(PricingError::Overflow)?;
+                    if available >= needed {
+                        break;
+                    }
+                }
+            }
+            let (vsize, serialized_bound) =
+                self.pricing_bounds(epoch, tx, utxos, &signer.get_public_key())?;
+            let target = if let Some(rate) = precise_rate {
+                if rate == 0 {
+                    return Err(PricingError::InvalidEvidence);
+                }
+                replacement_pricing::rate_fee(rate, vsize)?
+            } else {
+                settings
+                    .satoshis_per_byte
+                    .checked_mul(fees.min_tx_size().max(serialized_bound))
+                    .ok_or(PricingError::Overflow)?
+            };
+            let fee = if let Some(policy) = policy {
+                policy.fee(target, vsize, limit)?
+            } else if target <= limit {
+                target
+            } else {
+                return Err(PricingError::Limit {
+                    required: target,
+                    limit,
+                });
+            };
+            let outputs = tx
+                .output
+                .iter()
+                .try_fold(0_u64, |sum, o| sum.checked_add(o.value))
+                .ok_or(PricingError::Overflow)?;
+            let cost = outputs.checked_add(fee).ok_or(PricingError::Overflow)?;
+            let available = utxos
+                .utxos
+                .iter()
+                .try_fold(0_u64, |sum, u| sum.checked_add(u.amount))
+                .ok_or(PricingError::Overflow)?;
+            if cost
+                .checked_add(DUST_UTXO_LIMIT)
+                .ok_or(PricingError::Overflow)?
+                > available
+            {
+                return Err(PricingError::InvalidEvidence);
+            }
+            let before = tx.output.clone();
+            if !self.serialize_tx_with_inputs(epoch, tx, cost, utxos, signer, true, true) {
+                return Err(PricingError::InvalidEvidence);
+            }
+            let actual_vsize = Self::commit_vsize(tx, utxos)?;
+            if actual_vsize > vsize
+                || tx.output[..before.len()] != before
+                || op.as_ref().is_some_and(|p| {
+                    tx.input.iter().map(|i| &i.previous_output).ne(p
+                        .signed_tx
+                        .input
+                        .iter()
+                        .map(|i| &i.previous_output))
+                })
+            {
+                return Err(PricingError::InvalidEvidence);
+            }
+            info!("Target-aware block commit pricing";
+                "market_fee_sats" => target, "miner_fee_sats" => fee,
+                "vsize_bound" => vsize, "vsize" => actual_vsize,
+                "absolute_limit_sats" => limit, "replacement" => fees.is_rbf_enabled,
+                "target_sat_per_kvb" => settings.block_commit_fee_rate_sat_per_kvb);
+            Ok(settings.satoshis_per_byte)
+        })();
+        signer.dispose();
+        result.map_err(|error| {
+            let (kind, required, limit) = match &error {
+                PricingError::Limit { required, limit } => ("absolute-cap", *required, *limit),
+                PricingError::RpcUnavailable => ("rpc-unavailable", 0, 0),
+                PricingError::MempoolLoading => ("mempool-loading", 0, 0),
+                _ => ("invalid-evidence", 0, 0),
+            };
+            error!("Unable to price block commit replacement; retaining owned attempt";
+                   "replacement" => fees.is_rbf_enabled,
+                   "failure_kind" => kind, "required_fee_sats" => required,
+                   "absolute_limit_sats" => limit, "reason" => %error);
+            match error {
+                PricingError::Limit { .. } => BurnchainControllerError::MaxFeeRateExceeded,
+                _ => BurnchainControllerError::BurnchainError,
+            }
+        })
     }
 
     /// Sign and serialize a tx, consuming the UTXOs in utxo_set and spending total_to_spend
@@ -1312,6 +1866,29 @@ impl BitcoinRegtestController {
         utxos_set: &mut UTXOSet,
         signer: &mut BurnchainOpSigner,
         force_change_output: bool,
+    ) -> bool {
+        self.serialize_tx_with_inputs(
+            epoch_id,
+            tx,
+            tx_cost,
+            utxos_set,
+            signer,
+            force_change_output,
+            false,
+        )
+    }
+
+    /// Replacement mode consumes every previously selected input, even after a bid cut.
+    #[allow(clippy::too_many_arguments)]
+    fn serialize_tx_with_inputs(
+        &mut self,
+        epoch_id: StacksEpochId,
+        tx: &mut Transaction,
+        tx_cost: u64,
+        utxos_set: &mut UTXOSet,
+        signer: &mut BurnchainOpSigner,
+        force_change_output: bool,
+        all_inputs: bool,
     ) -> bool {
         let mut public_key = signer.get_public_key();
 
@@ -1329,7 +1906,7 @@ impl BitcoinRegtestController {
             total_consumed += utxo.amount;
             utxos_set.utxos.push(utxo);
 
-            if total_consumed >= total_target {
+            if !all_inputs && total_consumed >= total_target {
                 break;
             }
         }
@@ -1433,6 +2010,13 @@ impl BitcoinRegtestController {
     /// # Returns
     /// On success, returns the [`Txid`] of the broadcasted transaction.
     pub fn send_transaction(&self, tx: &Transaction) -> Result<Txid, BurnchainControllerError> {
+        self.broadcast_transaction(tx)
+            .map_err(|e| BurnchainControllerError::TransactionSubmissionFailed(format!("{e:?}")))
+    }
+
+    /// Preserve the typed RPC result so commit recovery can distinguish a
+    /// definitive validation rejection from an ambiguous transport failure.
+    fn broadcast_transaction(&self, tx: &Transaction) -> BitcoinRpcClientResult<Txid> {
         debug!(
             "Sending raw transaction: {}",
             serialize_hex(tx).unwrap_or("SERIALIZATION FAILED".to_string())
@@ -1446,9 +2030,8 @@ impl BitcoinRegtestController {
                 debug!("Transaction {txid} sent successfully");
                 txid
             })
-            .map_err(|e| {
+            .inspect_err(|e| {
                 error!("Bitcoin RPC error: transaction submission failed - {e:?}");
-                BurnchainControllerError::TransactionSubmissionFailed(format!("{e:?}"))
             })
     }
 
@@ -1791,7 +2374,8 @@ impl BitcoinRegtestController {
     /// Build and send a burnchain operation transaction.
     /// Returns the [`Txid`] on success, [`BurnchainControllerError`] otherwise.
     /// On [`BitcoinRegtestController::send_transaction`] failure for block commits,
-    /// clears `ongoing_block_commit` so the commit can be resubmitted.
+    /// clears `ongoing_block_commit` so the commit can be resubmitted, unless
+    /// block commit fees are managed (see [`Self::handle_managed_commit_failure`]).
     pub fn submit_operation(
         &mut self,
         epoch_id: StacksEpochId,
@@ -1799,12 +2383,80 @@ impl BitcoinRegtestController {
         op_signer: &mut BurnchainOpSigner,
     ) -> Result<Txid, BurnchainControllerError> {
         let is_block_commit = matches!(operation, BlockstackOperationType::LeaderBlockCommit(_));
+        let previous = self.ongoing_block_commit.clone();
         let transaction = self.make_operation_tx(epoch_id, operation, op_signer)?;
-        self.send_transaction(&transaction).inspect_err(|_| {
-            if is_block_commit {
+        let result = self.broadcast_transaction(&transaction);
+        if !is_block_commit {
+            return result.map_err(|e| {
+                BurnchainControllerError::TransactionSubmissionFailed(format!("{e:?}"))
+            });
+        }
+        let error = match result {
+            Ok(txid) => {
+                if let Some(op) = self.ongoing_block_commit.as_mut() {
+                    op.broadcast = CommitBroadcast::Acknowledged;
+                }
+                return Ok(txid);
+            }
+            Err(error) => error,
+        };
+        if self
+            .config
+            .get_burnchain_config()
+            .block_commit_fee_management_enabled()
+        {
+            let txid = Txid::from_bitcoin_tx_hash(&transaction.txid());
+            if self.handle_managed_commit_failure(&txid, &error, previous) {
+                return Ok(txid);
+            }
+        } else {
+            self.ongoing_block_commit = None;
+        }
+        Err(BurnchainControllerError::TransactionSubmissionFailed(
+            format!("{error:?}"),
+        ))
+    }
+
+    /// Update the tracked block commit after a failed broadcast, based on what
+    /// Bitcoin said. Returns `true` if the transaction turned out to be confirmed.
+    /// - `-27` (already in chain), independently confirmed: success.
+    /// - `-25` (missing inputs): the tracked inputs are gone, so forget the
+    ///   commit and let the next attempt use fresh coins.
+    /// - `-22`/`-26` (rejected): restore the previous attempt, if any.
+    /// - Anything else is ambiguous: keep the signed bytes to resend.
+    fn handle_managed_commit_failure(
+        &mut self,
+        txid: &Txid,
+        error: &BitcoinRpcClientError,
+        previous: Option<OngoingBlockCommit>,
+    ) -> bool {
+        let BitcoinRpcClientError::Rpc(RpcError::Service(error)) = error else {
+            return false;
+        };
+        match error.code() {
+            -27 if self.is_transaction_confirmed(txid) => {
+                if let Some(op) = self.ongoing_block_commit.as_mut() {
+                    op.broadcast = CommitBroadcast::Confirmed;
+                }
+                return true;
+            }
+            -25 => {
+                warn!("Bitcoin rejected block commit for missing inputs; dropping tracked inputs";
+                    "txid" => %txid);
                 self.ongoing_block_commit = None;
             }
-        })
+            -22 | -26 => {
+                warn!("Bitcoin rejected block commit";
+                    "txid" => %txid, "rpc_code" => error.code(),
+                    "restoring_previous_attempt" => previous.is_some());
+                self.ongoing_block_commit = previous.map(|mut prior| {
+                    prior.retry_after = Instant::now() + BLOCK_COMMIT_RETRY_INTERVAL;
+                    prior
+                });
+            }
+            _ => {}
+        }
+        false
     }
 }
 
@@ -2541,6 +3193,8 @@ mod tests {
     };
     use crate::Keychain;
 
+    mod pending_fees;
+
     mod utils {
         use std::net::TcpListener;
 
@@ -2989,6 +3643,149 @@ mod tests {
         debug!("send_block_commit_operation:\n{block_commit:#?}");
         assert_eq!(block_commit.output[3].value, 323507);
         assert_eq!(serialize_hex(&block_commit).unwrap(), "0100000002eeda098987728e4a2e21b34b74000dcb0bd0e4d20e55735492ec3cba3afbead3030000006a4730440220558286e20e10ce31537f0625dae5cc62fac7961b9d2cf272c990de96323d7e2502202255adbea3d2e0509b80c5d8a3a4fe6397a87bcf18da1852740d5267d89a0cb20121035379aa40c02890d253cfa577964116eb5295570ae9f7287cbae5f2585f5b2c7cfdffffff243b0b329a5889ab8801b315eea19810848d4c2133e0245671cc984a2d2f1301000000006a47304402206d9f8de107f9e1eb15aafac66c2bb34331a7523260b30e18779257e367048d34022013c7dabb32a5c281aa00d405e2ccbd00f34f03a65b2336553a4acd6c52c251ef0121035379aa40c02890d253cfa577964116eb5295570ae9f7287cbae5f2585f5b2c7cfdffffff040000000000000000536a4c5054335be88c3d30cb59a142f83de3b27f897a43bbb0f13316911bb98a3229973dae32afd5b9f21bc1f40f24e2c101ecd13c55b8619e5e03dad81de2c62a1cc1d8c1b375000008a300010000059800015a10270000000000001976a914000000000000000000000000000000000000000088ac10270000000000001976a914000000000000000000000000000000000000000088acb3ef0400000000001976a9141dc27eba0247f8cc9575e7d45e50a0bc7e72427d88ac00000000");
+    }
+
+    fn dummy_ongoing_commit(config: &Config, miner_fee: u64) -> OngoingBlockCommit {
+        let payload = utils::create_templated_commit_op();
+        let fees = LeaderBlockCommitFees::estimated_fees_from_payload(&payload, config);
+        OngoingBlockCommit {
+            payload,
+            fees,
+            miner_fee,
+            signed_tx: Transaction {
+                version: 1,
+                lock_time: 0,
+                input: vec![],
+                output: vec![],
+            },
+            utxos: UTXOSet {
+                bhh: BurnchainHeaderHash([0; 32]),
+                utxos: vec![],
+            },
+            txids: vec![],
+            broadcast: CommitBroadcast::Acknowledged,
+            retry_after: Instant::now() - Duration::from_secs(1),
+        }
+    }
+
+    #[test]
+    fn test_replacement_fee_rate_floor_requires_managed_fees() {
+        let mut config = utils::create_miner_config();
+        config.burnchain.satoshis_per_byte = 1;
+        config.burnchain.rbf_fee_increment = 0;
+        let op = utils::create_templated_commit_op();
+        let initial = LeaderBlockCommitFees::estimated_fees_from_payload(&op, &config);
+        config.burnchain.satoshis_per_byte = 5;
+        assert_eq!(
+            initial.fees_from_previous_tx(&op, &config).fee_rate,
+            1,
+            "unmanaged replacements keep the stock fee rate ladder"
+        );
+
+        config.burnchain.block_commit_replacement_fee_max_sats = Some(10_000);
+        let raised = initial.fees_from_previous_tx(&op, &config);
+        assert_eq!(raised.fee_rate, 5);
+        assert_eq!(raised.sortition_fee, initial.sortition_fee);
+        assert_eq!(raised.sunset_fee, initial.sunset_fee);
+        config.burnchain.satoshis_per_byte = 1;
+        let lowered = raised.fees_from_previous_tx(&op, &config);
+        assert_eq!(lowered.fee_rate, 5);
+        config.burnchain.rbf_fee_increment = 1;
+        assert_eq!(lowered.fees_from_previous_tx(&op, &config).fee_rate, 6);
+    }
+
+    #[test]
+    fn test_pending_commit_retry_is_bounded_and_requires_managed_fees() {
+        let mut config = utils::create_miner_config();
+        config.burnchain.satoshis_per_byte = 1;
+        config.burnchain.rbf_fee_increment = 0;
+        let ongoing = dummy_ongoing_commit(&config, 380);
+        let mut controller = BitcoinRegtestController::new_ongoing_dummy(config, Some(ongoing));
+        controller.config.burnchain.satoshis_per_byte = 5;
+        assert!(
+            !controller.pending_commit_needs_retry(false),
+            "unmanaged fees never retry a pending commit"
+        );
+
+        controller
+            .config
+            .burnchain
+            .block_commit_replacement_fee_max_sats = Some(10_000);
+        assert!(controller.pending_commit_needs_retry(false));
+        assert!(
+            !controller.pending_commit_needs_retry(true),
+            "a new burn tip must not bypass the relayer delay"
+        );
+        let op = controller.ongoing_block_commit.as_mut().unwrap();
+        op.miner_fee = 5 * 380;
+        assert!(
+            !controller.pending_commit_needs_retry(false),
+            "a commit paying the target needs no retry"
+        );
+        let op = controller.ongoing_block_commit.as_mut().unwrap();
+        op.miner_fee -= 1;
+        assert!(controller.pending_commit_needs_retry(false));
+        let op = controller.ongoing_block_commit.as_mut().unwrap();
+        op.retry_after = Instant::now() + BLOCK_COMMIT_RETRY_INTERVAL;
+        assert!(!controller.pending_commit_needs_retry(false));
+        let op = controller.ongoing_block_commit.as_mut().unwrap();
+        op.retry_after = Instant::now() - Duration::from_secs(1);
+        op.broadcast = CommitBroadcast::Confirmed;
+        assert!(!controller.pending_commit_needs_retry(false));
+
+        controller.config.burnchain.satoshis_per_byte = 1;
+        let op = controller.ongoing_block_commit.as_mut().unwrap();
+        op.broadcast = CommitBroadcast::Unacknowledged(op.signed_tx.clone());
+        assert!(controller.pending_commit_needs_retry(false));
+        assert!(
+            !controller.pending_commit_needs_retry(true),
+            "lost acknowledgement must also respect a new burn view"
+        );
+    }
+
+    #[test]
+    fn test_pending_actual_fee_target_boundaries() {
+        let mut config = utils::create_miner_config();
+        config.burnchain.satoshis_per_byte = 2;
+        config.burnchain.block_commit_tx_estimated_size = 370;
+        let mut op = dummy_ongoing_commit(&config, 1109);
+        config.burnchain.satoshis_per_byte = 3;
+        assert!(
+            !op.needs_fee_raise(&config.burnchain),
+            "unmanaged fees never raise a pending commit"
+        );
+
+        config.burnchain.block_commit_replacement_fee_max_sats = Some(10_000);
+        op.miner_fee = 1111;
+        assert!(!op.needs_fee_raise(&config.burnchain));
+        op.miner_fee = 1110;
+        assert!(
+            !op.needs_fee_raise(&config.burnchain),
+            "equality is sufficient"
+        );
+        op.miner_fee = 1109;
+        assert!(
+            op.needs_fee_raise(&config.burnchain),
+            "one sat below target needs a raise"
+        );
+        // Larger/multi-input commits use their own size. Do not count PoX spend
+        // as miner fees.
+        op.fees.final_size = 600;
+        op.miner_fee = 1111;
+        assert!(op.needs_fee_raise(&config.burnchain));
+        op.miner_fee = 1800;
+        assert!(!op.needs_fee_raise(&config.burnchain));
+        assert_eq!(
+            op.fees.fee_rate, 2,
+            "do not advance the RBF ladder on a skip"
+        );
+        config.burnchain.satoshis_per_byte = u64::MAX;
+        op.fees.final_size = u64::MAX;
+        op.miner_fee = u64::MAX;
+        assert!(
+            op.needs_fee_raise(&config.burnchain),
+            "target multiplication cannot overflow"
+        );
     }
 
     #[test]
@@ -3846,6 +4643,74 @@ mod tests {
 
         #[test]
         #[ignore]
+        fn test_build_leader_block_commit_tx_managed_resends_unacknowledged_bytes() {
+            if env::var("BITCOIND_TEST") != Ok("1".into()) {
+                return;
+            }
+
+            let keychain = utils::create_keychain();
+            let miner_pubkey = keychain.get_pub_key();
+            let mut op_signer = keychain.generate_op_signer();
+
+            let mut config = utils::create_miner_config();
+            config.burnchain.local_mining_public_key = Some(miner_pubkey.to_hex());
+            config.burnchain.pox_reward_length = Some(11);
+            config.burnchain.rbf_fee_increment = 0;
+            config.burnchain.block_commit_replacement_fee_max_sats = Some(10_000);
+
+            let mut btcd_controller = BitcoinCoreController::from_stx_config(&config);
+            btcd_controller
+                .start_bitcoind()
+                .expect("bitcoind should be started!");
+
+            let mut btc_controller = BitcoinRegtestController::new(config, None);
+            btc_controller
+                .connect_dbs()
+                .expect("Dbs initialization required!");
+            btc_controller.bootstrap_chain(101); // now, one utxo exists
+
+            let commit_op = utils::create_templated_commit_op();
+
+            let first_tx = btc_controller
+                .build_leader_block_commit_tx(
+                    StacksEpochId::Epoch31,
+                    commit_op.clone(),
+                    &mut op_signer,
+                )
+                .expect("At first, building leader block commit should work");
+
+            // A build is not a broadcast acknowledgement: resend the same bytes,
+            // without another fee increment or another wallet input.
+            let resubmit = btc_controller
+                .build_leader_block_commit_tx(
+                    StacksEpochId::Epoch31,
+                    commit_op.clone(),
+                    &mut op_signer,
+                )
+                .expect("An unacknowledged commit should be resent");
+            assert_eq!(
+                serialize_hex(&first_tx).unwrap(),
+                serialize_hex(&resubmit).unwrap()
+            );
+
+            btc_controller
+                .ongoing_block_commit
+                .as_mut()
+                .unwrap()
+                .broadcast = CommitBroadcast::Acknowledged;
+            let resubmit = btc_controller.build_leader_block_commit_tx(
+                StacksEpochId::Epoch31,
+                commit_op,
+                &mut op_signer,
+            );
+            assert_eq!(
+                BurnchainControllerError::IdenticalOperation,
+                resubmit.unwrap_err()
+            );
+        }
+
+        #[test]
+        #[ignore]
         fn test_build_leader_block_commit_tx_fails_resub_same_commit_op_while_prev_is_confirmed() {
             if env::var("BITCOIND_TEST") != Ok("1".into()) {
                 return;
@@ -4254,6 +5119,82 @@ mod tests {
             assert!(
                 btc_controller.get_ongoing_commit().is_none(),
                 "ongoing_block_commit should be cleared after send failure"
+            );
+        }
+
+        #[test]
+        #[ignore]
+        fn test_submit_operation_block_commit_managed_drops_missing_inputs() {
+            if env::var("BITCOIND_TEST") != Ok("1".into()) {
+                return;
+            }
+
+            let keychain = utils::create_keychain();
+            let miner_pubkey = keychain.get_pub_key();
+            let mut op_signer = keychain.generate_op_signer();
+
+            let mut config = utils::create_miner_config();
+            config.burnchain.local_mining_public_key = Some(miner_pubkey.to_hex());
+            config.burnchain.pox_reward_length = Some(11);
+            config.burnchain.satoshis_per_byte = 1;
+            config.burnchain.rbf_fee_increment = 0;
+            config.burnchain.block_commit_replacement_fee_max_sats = Some(10_000);
+
+            let mut btcd_controller = BitcoinCoreController::from_stx_config(&config);
+            btcd_controller
+                .start_bitcoind()
+                .expect("bitcoind should be started!");
+
+            let mut btc_controller = BitcoinRegtestController::new(config.clone(), None);
+            btc_controller
+                .connect_dbs()
+                .expect("Dbs initialization required!");
+            btc_controller.bootstrap_chain(101);
+
+            let mut commit_op = utils::create_templated_commit_op();
+            commit_op.sunset_burn = 5_500;
+            commit_op.burn_fee = 110_000;
+
+            btc_controller
+                .submit_operation(
+                    StacksEpochId::Epoch31,
+                    BlockstackOperationType::LeaderBlockCommit(commit_op.clone()),
+                    &mut op_signer,
+                )
+                .expect("First submit should succeed");
+
+            // Point the tracked inputs at non-existent outpoints, so the
+            // replacement is rejected by bitcoind for missing inputs (-25).
+            let mut ongoing = btc_controller.get_ongoing_commit().unwrap();
+            for utxo in ongoing.utxos.utxos.iter_mut() {
+                utxo.txid = Sha256dHash::default();
+            }
+            for input in ongoing.signed_tx.input.iter_mut() {
+                input.previous_output.txid = Sha256dHash::default();
+            }
+            btc_controller.set_ongoing_commit(Some(ongoing));
+
+            let mut op_signer = keychain.generate_op_signer();
+            commit_op.burn_fee += 10;
+            let err = btc_controller
+                .submit_operation(
+                    StacksEpochId::Epoch31,
+                    BlockstackOperationType::LeaderBlockCommit(commit_op),
+                    &mut op_signer,
+                )
+                .unwrap_err();
+
+            assert!(
+                matches!(
+                    err,
+                    BurnchainControllerError::TransactionSubmissionFailed(_)
+                ),
+                "Error should be TransactionSubmissionFailed, but was {err}"
+            );
+            // The tracked inputs are gone, so the next attempt must use fresh coins.
+            assert!(
+                btc_controller.get_ongoing_commit().is_none(),
+                "ongoing_block_commit should be cleared after a missing-inputs rejection"
             );
         }
     }
