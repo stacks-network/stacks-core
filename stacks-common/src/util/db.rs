@@ -17,7 +17,7 @@
 use std::backtrace::Backtrace;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
-use std::sync::{LazyLock, Mutex, OnceLock};
+use std::sync::{LazyLock, Mutex, OnceLock, PoisonError};
 use std::time::Instant;
 use std::{fmt, thread};
 
@@ -42,6 +42,10 @@ pub const SQLITE_MARF_PAGE_SIZE: i64 = 32768;
 /// working set is ~120 distinct statements (the sortition MARF);
 /// rusqlite's default of 16 would LRU-thrash.
 pub const SQLITE_STATEMENT_CACHE_CAPACITY: usize = 200;
+
+/// Serializes the calls to [`sql_vacuum_with_temp`], which change SQLite's process-wide temporary
+/// directory
+static TEMP_STORE_DIRECTORY_LOCK: Mutex<()> = Mutex::new(());
 
 /// The SQLite VFS (OS interface layer) used to open on-disk databases.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -469,7 +473,17 @@ pub enum VacuumTemp {
 /// The connection's `temp_store` and SQLite's process-wide temporary directory are set only for
 /// the `VACUUM`, and put back however it ends. Changing `temp_store` drops the connection's
 /// temporary tables, indices and views, so if it was not `FILE` before, those are gone.
+///
+/// Calls in the same process run one at a time, so that each one puts back the directory that
+/// was really in place before it. Other connections of the process that do not go through this
+/// function may still put their own temporary files in a [`VacuumTemp::Dir`] while a `VACUUM`
+/// runs: prefer calling it when nothing else in the process uses SQLite, e.g. at startup.
 pub fn sql_vacuum_with_temp(conn: &Connection, temp: &VacuumTemp) -> Result<(), SqliteError> {
+    // Held for the whole sequence, for both variants: `SystemDefault` relies on the directory
+    // being SQLite's default, which another call may have changed
+    let _lock = TEMP_STORE_DIRECTORY_LOCK
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner);
     let dir = match temp {
         VacuumTemp::Dir(dir) => Some(
             dir.to_str()
@@ -854,12 +868,12 @@ mod tests {
             .expect("temp_store")
     }
 
-    /// Held by the tests that `VACUUM` with a temporary directory: the setting is process-wide
-    /// (see [`sql_vacuum_with_temp`]), and tests run in parallel threads of one process
+    /// Held by the tests that check SQLite's process-wide temporary directory between calls to
+    /// [`sql_vacuum_with_temp`], or set it themselves: the function's own lock only covers each
+    /// call, and tests run in parallel threads of one process
     fn lock_temp_store_directory() -> std::sync::MutexGuard<'static, ()> {
         static LOCK: Mutex<()> = Mutex::new(());
-        LOCK.lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
+        LOCK.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
     #[test]
@@ -1009,6 +1023,40 @@ mod tests {
                 assert_eq!(temp_store(&conn), value, "{temp:?} {setting}");
             }
         }
+    }
+
+    #[test]
+    fn concurrent_vacuums_put_the_default_temp_dir_back() {
+        let _lock = lock_temp_store_directory();
+        let dirs = [
+            TestDir::new("vacuum-concurrent-a"),
+            TestDir::new("vacuum-concurrent-b"),
+        ];
+        // Each thread shrinks its own database into its own directory, several times, so that
+        // unserialized calls would interleave and put back each other's directory
+        let threads: Vec<_> = dirs
+            .iter()
+            .map(|dir| {
+                let dir = dir.0.clone();
+                thread::spawn(move || {
+                    for round in 0..5 {
+                        let db_path = dir.join(format!("bloated-{round}.sqlite"));
+                        create_bloated_db(&db_path, 100, 10);
+                        let conn = sqlite_open_exclusive(&db_path).expect("open exclusive");
+                        sql_vacuum_with_temp(&conn, &VacuumTemp::Dir(dir.clone())).expect("vacuum");
+                        sql_checkpoint_truncate(&conn).expect("checkpoint");
+                        assert_eq!(sql_space_usage(&conn).expect("space").freelist_count, 0);
+                        assert_eq!(row_count(&conn), 10);
+                    }
+                })
+            })
+            .collect();
+        for t in threads {
+            t.join().expect("thread");
+        }
+
+        let conn = Connection::open_in_memory().expect("open");
+        assert_eq!(temp_store_directory(&conn), None);
     }
 
     #[test]
