@@ -214,12 +214,14 @@ impl DefinedFunction {
             self.arguments.len(),
         )?;
 
-        if exec_state.epoch().uses_arg_size_for_cost() {
+        let epoch = *exec_state.epoch();
+        if epoch.uses_arg_size_for_cost() {
             for arg in args.iter() {
+                let arg_size = arg.charged_size(&epoch)?;
                 runtime_cost(
                     ClarityCostFunction::InnerTypeCheckCost,
                     exec_state,
-                    arg.size()?,
+                    arg_size,
                 )?;
             }
         } else {
@@ -227,7 +229,7 @@ impl DefinedFunction {
                 runtime_cost(
                     ClarityCostFunction::InnerTypeCheckCost,
                     exec_state,
-                    arg_type.size()?,
+                    arg_type.charged_size(&epoch)?,
                 )?;
             }
         }

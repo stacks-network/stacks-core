@@ -19,13 +19,16 @@ use stacks_common::types::StacksEpochId;
 
 use super::{
     TypeChecker, TypingContext, check_argument_count, check_arguments_at_least,
-    check_arguments_at_most, compute_typecheck_cost, no_type,
+    check_arguments_at_most, no_type,
 };
 use crate::vm::analysis::errors::{
     StaticCheckError, StaticCheckErrorKind, SyntaxBindingErrorType, get_arguments_exact,
 };
 use crate::vm::costs::cost_functions::ClarityCostFunction;
-use crate::vm::costs::{CostErrors, CostTracker, analysis_typecheck_cost, runtime_cost};
+use crate::vm::costs::{
+    CostErrors, CostTracker, analysis_typecheck_cost_for_epoch, compute_typecheck_cost,
+    runtime_cost,
+};
 use crate::vm::diagnostic::DiagnosableError;
 use crate::vm::functions::bitcoin::VERIFY_MERKLE_PROOF_MAX_DEPTH;
 use crate::vm::functions::{NativeFunctions, handle_binding_list};
@@ -75,7 +78,7 @@ fn check_special_list_cons(
         // don't use map here, since type_check has side-effects.
         let checked = checker.type_check(arg, context)?;
         let cost = checked
-            .type_size()
+            .charged_type_size(&checker.epoch)
             .map_err(StaticCheckErrorKind::from)
             .and_then(|ty_size| {
                 checker
@@ -258,7 +261,7 @@ pub fn check_special_tuple_cons(
                 runtime_cost(
                     ClarityCostFunction::AnalysisTupleItemsCheck,
                     checker,
-                    var_type.type_size()?,
+                    var_type.charged_type_size(&checker.epoch)?,
                 )?;
                 if type_size < MAX_VALUE_SIZE {
                     type_size = type_size
@@ -318,11 +321,11 @@ fn check_special_let(
             runtime_cost(
                 ClarityCostFunction::AnalysisBindName,
                 checker,
-                typed_result.type_size()?,
+                typed_result.charged_type_size(&checker.epoch)?,
             )?;
             if checker.epoch.analysis_memory() {
                 let memory_use = u64::from(var_name.len())
-                    .checked_add(u64::from(typed_result.type_size()?))
+                    .checked_add(u64::from(typed_result.charged_type_size(&checker.epoch)?))
                     .ok_or_else(|| CostErrors::CostOverflow)?;
                 added_memory = added_memory
                     .checked_add(memory_use)
@@ -362,7 +365,7 @@ fn check_special_fetch_var(
     runtime_cost(
         ClarityCostFunction::AnalysisTypeLookup,
         &mut checker.cost_track,
-        value_type.type_size()?,
+        value_type.charged_type_size(&checker.epoch)?,
     )?;
 
     Ok(value_type.clone())
@@ -391,9 +394,14 @@ fn check_special_set_var(
     runtime_cost(
         ClarityCostFunction::AnalysisTypeLookup,
         &mut checker.cost_track,
-        expected_value_type.type_size()?,
+        expected_value_type.charged_type_size(&checker.epoch)?,
     )?;
-    analysis_typecheck_cost(&mut checker.cost_track, &value_type, expected_value_type)?;
+    analysis_typecheck_cost_for_epoch(
+        &mut checker.cost_track,
+        checker.epoch,
+        &value_type,
+        expected_value_type,
+    )?;
 
     if !expected_value_type.admits_type(&StacksEpochId::Epoch21, &value_type)? {
         Err(StaticCheckError::new(StaticCheckErrorKind::TypeError(
@@ -421,7 +429,7 @@ fn check_special_equals(
             arg_type = Some(Ok(x_type.clone()));
         }
         if let Some(Ok(cur_type)) = arg_type {
-            let cost = compute_typecheck_cost(checker, &x_type, &cur_type);
+            let cost = compute_typecheck_cost(checker, checker.epoch, &x_type, &cur_type);
             costs.push(cost);
             arg_type = Some(
                 TypeSignature::least_supertype_for_analysis(&checker.epoch, &x_type, &cur_type)
@@ -460,7 +468,7 @@ fn check_special_if(
     let expr1 = &arg_types[0];
     let expr2 = &arg_types[1];
 
-    analysis_typecheck_cost(checker, expr1, expr2)?;
+    analysis_typecheck_cost_for_epoch(checker, checker.epoch, expr1, expr2)?;
 
     TypeSignature::least_supertype_for_analysis(&checker.epoch, expr1, expr2)
         .and_then(|t| t.concretize())
@@ -517,7 +525,7 @@ fn check_contract_call(
             runtime_cost(
                 ClarityCostFunction::AnalysisGetFunctionEntry,
                 checker,
-                func_signature.total_type_size()?,
+                func_signature.charged_total_type_size(&checker.epoch)?,
             )?;
 
             func_signature
@@ -550,7 +558,7 @@ fn check_contract_call(
                 runtime_cost(
                     ClarityCostFunction::AnalysisLookupFunctionTypes,
                     &mut checker.cost_track,
-                    func_signature.total_type_size()?,
+                    func_signature.charged_total_type_size(&checker.epoch)?,
                 )?;
 
                 func_signature.clone()
@@ -593,7 +601,7 @@ fn check_contract_call(
                         runtime_cost(
                             ClarityCostFunction::AnalysisGetFunctionEntry,
                             checker,
-                            func_signature.total_type_size()?,
+                            func_signature.charged_total_type_size(&checker.epoch)?,
                         )?;
 
                         func_signature
@@ -632,7 +640,7 @@ fn check_contract_call(
                         runtime_cost(
                             ClarityCostFunction::AnalysisLookupFunctionTypes,
                             &mut checker.cost_track,
-                            func_signature.total_type_size()?,
+                            func_signature.charged_total_type_size(&checker.epoch)?,
                         )?;
 
                         func_signature.clone()
@@ -970,7 +978,6 @@ impl TypedNativeFunction {
                 function_type,
                 args,
                 context,
-                context.epoch,
                 context.clarity_version,
             ),
         }
