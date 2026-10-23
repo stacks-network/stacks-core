@@ -31,7 +31,7 @@ use crate::vm::errors::{ClarityEvalError, VmExecutionError};
 use crate::vm::events::StacksTransactionEvent;
 use crate::vm::resource_limiter::ResourceBudget;
 use crate::vm::types::{BuffData, PrincipalData, QualifiedContractIdentifier};
-use crate::vm::{ClarityVersion, ContractContext, SymbolicExpression, Value, analysis, ast};
+use crate::vm::{ClarityVersion, ContractContext, Value, analysis, ast};
 
 /// Top-level error type for Clarity contract processing, encompassing errors from parsing,
 /// type-checking, runtime evaluation, and transaction execution.
@@ -666,35 +666,24 @@ pub trait TransactionConnection: ClarityConnection {
     #[allow(clippy::too_many_arguments)]
     fn run_contract_call<F>(
         &mut self,
-        sender: &PrincipalData,
-        sponsor: Option<&PrincipalData>,
-        contract: &QualifiedContractIdentifier,
+        sender: PrincipalData,
+        sponsor: Option<PrincipalData>,
+        contract: QualifiedContractIdentifier,
         public_function: &str,
-        args: &[Value],
+        args: Vec<Value>,
         abort_call_back: F,
         resource_budget: &ResourceBudget,
     ) -> Result<(Value, AssetMap, Vec<StacksTransactionEvent>), ClarityError>
     where
         F: FnOnce(&AssetMap, &mut ClarityDatabase) -> Option<BoundedErrorString>,
     {
-        let expr_args: Vec<_> = args
-            .iter()
-            .map(|x| SymbolicExpression::atom_value(x.clone()))
-            .collect();
-
         self.with_abort_callback(
             |vm_env| {
                 vm_env
                     .context
                     .set_execution_resource_limiter(resource_budget.start_tracking());
                 vm_env
-                    .execute_transaction(
-                        sender.clone(),
-                        sponsor.cloned(),
-                        contract.clone(),
-                        public_function,
-                        &expr_args,
-                    )
+                    .execute_transaction(sender, sponsor, contract, public_function, args)
                     .map_err(ClarityError::from)
             },
             abort_call_back,

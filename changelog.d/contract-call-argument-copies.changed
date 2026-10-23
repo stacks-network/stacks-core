@@ -1,0 +1,2 @@
+Calling a user-defined function, whether directly, through `contract-call?` or from a transaction, copies its arguments less often and holds fewer copies of them while the call runs.
+`ClarityBackingStore::get_cc_special_cases_handler` now takes the called contract, and the node only supplies the contract-call special-case handler for calls into PoX contracts.

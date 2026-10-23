@@ -199,9 +199,12 @@ impl DefinedFunction {
         &self.arg_types
     }
 
+    /// Binds `args` to this function's parameters and evaluates its body. Takes `args`
+    /// by value so an argument that needs no cast moves into the body's context instead
+    /// of being copied.
     pub fn execute_apply(
         &self,
-        args: &[Value],
+        args: Vec<Value>,
         exec_state: &mut ExecutionState,
         invoke_ctx: &InvocationContext,
     ) -> Result<Value, VmExecutionError> {
@@ -239,19 +242,11 @@ impl DefinedFunction {
             ))?
         }
 
-        let arg_iterator: Vec<_> = self
-            .arguments
-            .iter()
-            .zip(self.arg_types.iter())
-            .zip(args.iter())
-            .collect();
-
-        for arg in arg_iterator.into_iter() {
-            let ((name, type_sig), value) = arg;
-
+        for ((name, type_sig), value) in self.arguments.iter().zip(self.arg_types.iter()).zip(args)
+        {
             // Clarity 1 behavior
             if *invoke_ctx.contract_context.get_clarity_version() < ClarityVersion::Clarity2 {
-                match (type_sig, value) {
+                match (type_sig, &value) {
                     // Epoch < 2.1 uses TraitReferenceType
                     (
                         TypeSignature::TraitReferenceType(trait_identifier),
@@ -303,18 +298,14 @@ impl DefinedFunction {
                         );
                     }
                     _ => {
-                        if !type_sig.admits(exec_state.epoch(), value)? {
+                        if !type_sig.admits(exec_state.epoch(), &value)? {
                             return Err(RuntimeCheckErrorKind::TypeValueError(
                                 Box::new(type_sig.clone()),
                                 value.to_error_string(),
                             )
                             .into());
                         }
-                        if context
-                            .variables
-                            .insert(name.clone(), value.clone())
-                            .is_some()
-                        {
+                        if context.variables.insert(name.clone(), value).is_some() {
                             return Err(
                                 RuntimeCheckErrorKind::NameAlreadyUsed(name.to_string()).into()
                             );
@@ -328,17 +319,25 @@ impl DefinedFunction {
                 // e.g. `(some .foo)` to `(optional <trait>`)
                 // and traits can be implicitly cast to sub-traits
                 // e.g. `<foo-and-bar>` to `<foo>`
-                let cast_value = clarity2_implicit_cast(exec_state.epoch(), type_sig, value)?;
-                let cast_value = if exec_state.epoch().sanitize_in_function_invocation() {
-                    Value::sanitize_value(exec_state.epoch(), type_sig, cast_value)
-                        .ok_or(RuntimeCheckErrorKind::TypeValueError(
-                            Box::new(type_sig.clone()),
-                            value.to_error_string(),
-                        ))?
-                        .0
-                } else {
-                    cast_value
-                };
+                let sanitize = exec_state.epoch().sanitize_in_function_invocation();
+                let cast_value =
+                    match implicit_cast_if_needed(exec_state.epoch(), type_sig, &value)? {
+                        // The cast built a new value; `value` is kept only for the error message.
+                        Some(cast_value) if sanitize => {
+                            Value::sanitize_value(exec_state.epoch(), type_sig, cast_value)
+                                .ok_or_else(|| {
+                                    RuntimeCheckErrorKind::TypeValueError(
+                                        Box::new(type_sig.clone()),
+                                        value.to_error_string(),
+                                    )
+                                })?
+                                .0
+                        }
+                        Some(cast_value) => cast_value,
+                        // No cast applies, so `value` itself is bound.
+                        None if sanitize => sanitize_argument(exec_state.epoch(), type_sig, value)?,
+                        None => value,
+                    };
 
                 match (&type_sig, &cast_value) {
                     (
@@ -427,7 +426,7 @@ impl DefinedFunction {
     /// visibility.
     pub fn apply(
         &self,
-        args: &[Value],
+        args: Vec<Value>,
         exec_state: &mut ExecutionState,
         invoke_ctx: &InvocationContext,
     ) -> Result<Value, VmExecutionError> {
@@ -497,14 +496,40 @@ impl CallableType<'_> {
     }
 }
 
-/// Cast principals and traits recursively. Legality is checked by analysis;
-/// recursion depth is capped by earlier checks on the types/values.
+/// Sanitizes `value` for a parameter of type `expected`. On failure, the
+/// `TypeValueError` shows `value` as it was passed in.
+pub fn sanitize_argument(
+    epoch: &StacksEpochId,
+    expected: &TypeSignature,
+    value: Value,
+) -> Result<Value, VmExecutionError> {
+    Value::sanitize_value_or_return(epoch, expected, value).map_err(|value| {
+        RuntimeCheckErrorKind::TypeValueError(Box::new(expected.clone()), value.to_error_string())
+            .into()
+    })
+}
+
+/// [`implicit_cast_if_needed`], but copies `value` when no cast applies.
 fn clarity2_implicit_cast(
     epoch: &StacksEpochId,
     type_sig: &TypeSignature,
     value: &Value,
 ) -> Result<Value, VmExecutionError> {
-    Ok(match (type_sig, value) {
+    Ok(implicit_cast_if_needed(epoch, type_sig, value)?.unwrap_or_else(|| value.clone()))
+}
+
+/// Cast principals and traits recursively. Legality is checked by analysis;
+/// recursion depth is capped by earlier checks on the types/values.
+///
+/// Returns `None` when no cast applies, so the caller can use `value` itself. Lists,
+/// tuples, `some` values and responses are always rebuilt, even with no principal
+/// inside, and the rebuilt lists and tuples take the parameter's `type_signature`.
+fn implicit_cast_if_needed(
+    epoch: &StacksEpochId,
+    type_sig: &TypeSignature,
+    value: &Value,
+) -> Result<Option<Value>, VmExecutionError> {
+    Ok(Some(match (type_sig, value) {
         (
             TypeSignature::OptionalType(inner_type),
             Value::Optional(OptionalData {
@@ -608,8 +633,8 @@ fn clarity2_implicit_cast(
             contract_identifier: contract_identifier.clone(),
             trait_identifier: Some(Box::new(trait_identifier.clone())),
         }),
-        _ => value.clone(),
-    })
+        _ => return Ok(None),
+    }))
 }
 
 #[cfg(test)]

@@ -39,7 +39,7 @@ use libsigner::v0::messages::{
     RejectReason, RejectReasonPrefix, SignerMessage, StateMachineUpdate,
 };
 use libsigner::v0::signer_state::{GlobalStateEvaluator, MinerState};
-use libsigner::{BlockProposal, SignerEvent, SignerSession};
+use libsigner::{BlockProposal, RPCError, SignerEvent, SignerSession};
 use stacks_common::types::chainstate::{StacksAddress, StacksPublicKey};
 use stacks_common::util::get_epoch_time_secs;
 use stacks_common::util::secp256k1::MessageSignature;
@@ -159,6 +159,10 @@ pub struct Signer {
     /// pass. Starts equal to our own cycle, which is the state in which a signer has
     /// clearly not been superseded.
     current_reward_cycle: u64,
+    /// Whether, as of the last pass, the burnchain tip's reward cycle (`current_reward_cycle`)
+    /// had reached our own (`reward_cycle`). Used to reload the signer set's state machine
+    /// updates on the pass in which it does (see `process_event`).
+    reward_cycle_reached: bool,
     /// The signer supported protocol version. used only in testing
     #[cfg(any(test, feature = "testing"))]
     pub supported_signer_protocol_version: u64,
@@ -227,6 +231,54 @@ impl<const N: usize> RecentlyProcessedBlocks<N> {
     }
 }
 
+/// Read the latest state machine update each signer in the set has written to StackerDB and
+/// store it in `signer_db`, returning the updates read.
+///
+/// An update is recorded as received now. That may be later than it would have arrived as an
+/// event, never earlier, so it can only delay a timeout measured from it.
+///
+/// `signer_addresses` is in signer id order, and a signer's id is also its StackerDB slot (see
+/// `SignerEntries::parse`).
+fn load_state_machine_updates(
+    stackerdb: &mut StackerDB<MessageSlotID>,
+    signer_db: &mut SignerDb,
+    signer_addresses: &[StacksAddress],
+    reward_cycle: u64,
+) -> Result<Vec<(StacksAddress, StateMachineUpdate)>, RPCError> {
+    let session = stackerdb
+        .get_session_mut(&MessageSlotID::StateMachineUpdate)
+        .expect("Invalid stackerdb session");
+    let signer_slot_ids: Vec<u32> = (0..signer_addresses.len())
+        .map(|slot_id| u32::try_from(slot_id).expect("FATAL: signer count exceeds u32::MAX"))
+        .collect();
+    let chunks = session.get_latest_chunks(&signer_slot_ids)?;
+    let mut updates = Vec::new();
+    for (chunk_opt, signer_addr) in chunks.into_iter().zip(signer_addresses.iter()) {
+        let Some(chunk) = chunk_opt else {
+            continue;
+        };
+
+        let Ok(SignerMessage::StateMachineUpdate(update)) =
+            read_next::<SignerMessage, _>(&mut &chunk[..])
+        else {
+            continue;
+        };
+
+        // This might update the received time/cause a discrepency between when we receive it at our event queue, but it
+        // allows signers to potentially evaluate blocks immediately regardless of its nodes event queue state
+        if let Err(e) = signer_db.insert_state_machine_update(
+            reward_cycle,
+            signer_addr,
+            &update,
+            &SystemTime::now(),
+        ) {
+            warn!("Error submitting state machine update to signer DB: {e}");
+        };
+        updates.push((signer_addr.clone(), update));
+    }
+    Ok(updates)
+}
+
 impl SignerTrait<SignerMessage> for Signer {
     /// Create a new signer from the given configuration
     fn new(stacks_client: &StacksClient, signer_config: SignerConfig) -> Self {
@@ -247,49 +299,13 @@ impl SignerTrait<SignerMessage> for Signer {
             &StacksPublicKey::from_private(&signer_config.stacks_private_key),
         );
 
-        let session = stackerdb
-            .get_session_mut(&MessageSlotID::StateMachineUpdate)
-            .expect("Invalid stackerdb session");
-        let signer_slot_ids: Vec<_> = signer_config
-            .signer_entries
-            .signer_id_to_addr
-            .keys()
-            .copied()
-            .collect();
-        for (chunk_opt, slot_id) in session
-            .get_latest_chunks(&signer_slot_ids)
-            .inspect_err(|e| {
-                warn!("Error retrieving state machine updates from stacker DB: {e}");
-            })
-            .unwrap_or_default()
-            .into_iter()
-            .zip(signer_slot_ids.iter())
-        {
-            let Some(chunk) = chunk_opt else {
-                continue;
-            };
-
-            let Ok(SignerMessage::StateMachineUpdate(update)) =
-                read_next::<SignerMessage, _>(&mut &chunk[..])
-            else {
-                continue;
-            };
-
-            let Some(signer_addr) = signer_config.signer_entries.signer_id_to_addr.get(slot_id)
-            else {
-                continue;
-            };
-
-            // This might update the received time/cause a discrepency between when we receive it at our event queue, but it
-            // allows signers to potentially evaluate blocks immediately regardless of its nodes event queue state on startup
-            if let Err(e) = signer_db.insert_state_machine_update(
-                signer_config.reward_cycle,
-                signer_addr,
-                &update,
-                &SystemTime::now(),
-            ) {
-                warn!("Error submitting state machine update to signer DB: {e}");
-            };
+        if let Err(e) = load_state_machine_updates(
+            &mut stackerdb,
+            &mut signer_db,
+            &signer_config.signer_entries.signer_addresses,
+            signer_config.reward_cycle,
+        ) {
+            warn!("Error retrieving state machine updates from stacker DB: {e}");
         }
 
         let updates = signer_db
@@ -339,6 +355,7 @@ impl SignerTrait<SignerMessage> for Signer {
             last_capitulate_miner_view: SystemTime::now(),
             latest_sortition_reward_cycle: None,
             current_reward_cycle: signer_config.reward_cycle,
+            reward_cycle_reached: false,
             #[cfg(any(test, feature = "testing"))]
             supported_signer_protocol_version: signer_config.supported_signer_protocol_version,
             #[cfg(test)]
@@ -367,6 +384,11 @@ impl SignerTrait<SignerMessage> for Signer {
         // last confirmed value would hide exactly the staleness we need to react to.
         self.latest_sortition_reward_cycle = latest_sortition_reward_cycle;
         self.current_reward_cycle = current_reward_cycle;
+        let reward_cycle_reached = self.reward_cycle <= current_reward_cycle;
+        if reward_cycle_reached && !self.reward_cycle_reached {
+            self.reload_state_machine_updates_at_cycle_start();
+        }
+        self.reward_cycle_reached = reward_cycle_reached;
         self.check_submitted_block_proposal();
         self.check_pending_block_validations(stacks_client);
         self.process_deferred_proposals(stacks_client, sortition_state);
@@ -1156,6 +1178,40 @@ impl Signer {
             }
             Err(e) => {
                 warn!("{self}: Failed to send block pre-commit to stacker-db: {e:?}",);
+            }
+        }
+    }
+
+    /// Reload the signer set's state machine updates from StackerDB on the pass in which our
+    /// reward cycle starts.
+    ///
+    /// Until it starts, `process_event` drops every signer message, state machine updates
+    /// included. A peer whose node processes the cycle's first burn block before ours sends its
+    /// update in that window, and does not send it again until its view changes. Without this
+    /// reload we would lack that update until the next burn block, and with enough of them
+    /// missing, reject every proposal in between with `NoSignerConsensus`.
+    ///
+    /// Runs each time the cycle starts, so again if a burnchain reorg takes the tip back into
+    /// the previous cycle and forward again. If StackerDB cannot be read, the signer carries on
+    /// as before and recovers on the next burn block, when its peers send new updates.
+    fn reload_state_machine_updates_at_cycle_start(&mut self) {
+        match load_state_machine_updates(
+            &mut self.stackerdb,
+            &mut self.signer_db,
+            &self.signer_addresses,
+            self.reward_cycle,
+        ) {
+            Ok(updates) => {
+                info!(
+                    "{self}: Reward cycle started, reloaded the signer set's state machine updates";
+                    "updates" => updates.len(),
+                );
+                for (address, update) in updates {
+                    self.global_state_evaluator.insert_update(address, update);
+                }
+            }
+            Err(e) => {
+                warn!("{self}: Failed to reload state machine updates for the start of the reward cycle: {e}");
             }
         }
     }

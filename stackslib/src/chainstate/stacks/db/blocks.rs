@@ -4096,11 +4096,11 @@ impl StacksChainState {
             }
             let result = clarity_tx.connection().as_transaction(|tx| {
                 tx.run_contract_call(
-                    &sender.clone().into(),
+                    sender.clone().into(),
                     None,
-                    &boot_code_id(active_pox_contract, mainnet),
+                    boot_code_id(active_pox_contract, mainnet),
                     "stack-stx",
-                    &args,
+                    args,
                     |_, _| None,
                     &ResourceBudget::unlimited(),
                 )
@@ -4136,7 +4136,7 @@ impl StacksChainState {
                             result: value,
                             post_condition_aborted: false,
                             stx_burned: 0,
-                            contract_analysis: None,
+                            contract_interface: None,
                             execution_cost,
                             microblock_header: None,
                             tx_index: 0,
@@ -4233,7 +4233,7 @@ impl StacksChainState {
                                     result: value,
                                     post_condition_aborted: false,
                                     stx_burned: 0,
-                                    contract_analysis: None,
+                                    contract_interface: None,
                                     execution_cost: ExecutionCost::ZERO,
                                     microblock_header: None,
                                     tx_index: 0,
@@ -4302,11 +4302,11 @@ impl StacksChainState {
             };
             let result = clarity_tx.connection().as_transaction(|tx| {
                 tx.run_contract_call(
-                    &sender.clone().into(),
+                    sender.clone().into(),
                     None,
-                    &boot_code_id(active_pox_contract, mainnet),
+                    boot_code_id(active_pox_contract, mainnet),
                     "delegate-stx",
-                    &[
+                    vec![
                         Value::UInt(*delegated_ustx),
                         Value::Principal(delegate_to.clone().into()),
                         until_burn_height_val,
@@ -4351,7 +4351,7 @@ impl StacksChainState {
                             result: value,
                             post_condition_aborted: false,
                             stx_burned: 0,
-                            contract_analysis: None,
+                            contract_interface: None,
                             execution_cost,
                             microblock_header: None,
                             tx_index: 0,
@@ -4410,11 +4410,11 @@ impl StacksChainState {
             );
             let result = clarity_tx.connection().as_transaction(|tx| {
                 tx.run_contract_call(
-                    &sender.clone().into(),
+                    sender.clone().into(),
                     None,
-                    &boot_code_id(SIGNERS_VOTING_NAME, mainnet),
+                    boot_code_id(SIGNERS_VOTING_NAME, mainnet),
                     "vote-for-aggregate-public-key",
-                    &[
+                    vec![
                         Value::UInt((*signer_index).into()),
                         Value::buff_from(aggregate_key.as_bytes().to_vec()).unwrap(),
                         Value::UInt((*round).into()),
@@ -4461,7 +4461,7 @@ impl StacksChainState {
                             result: value,
                             post_condition_aborted: false,
                             stx_burned: 0,
-                            contract_analysis: None,
+                            contract_interface: None,
                             execution_cost,
                             microblock_header: None,
                             tx_index: 0,

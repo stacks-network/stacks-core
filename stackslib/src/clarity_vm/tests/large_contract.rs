@@ -261,11 +261,11 @@ fn test_simple_token_system(#[case] version: ClarityVersion, #[case] epoch: Stac
         assert!(!is_committed(
             &block
                 .as_transaction(|tx| tx.run_contract_call(
-                    &p2,
+                    p2.clone(),
                     None,
-                    &contract_identifier,
+                    contract_identifier.clone(),
                     "token-transfer",
-                    &[p1.clone().into(), Value::UInt(210)],
+                    vec![p1.clone().into(), Value::UInt(210)],
                     |_, _| None,
                     &ResourceBudget::unlimited()
                 ))
@@ -275,11 +275,11 @@ fn test_simple_token_system(#[case] version: ClarityVersion, #[case] epoch: Stac
         assert!(is_committed(
             &block
                 .as_transaction(|tx| tx.run_contract_call(
-                    &p1,
+                    p1.clone(),
                     None,
-                    &contract_identifier,
+                    contract_identifier.clone(),
                     "token-transfer",
-                    &[p2.clone().into(), Value::UInt(9000)],
+                    vec![p2.clone().into(), Value::UInt(9000)],
                     |_, _| None,
                     &ResourceBudget::unlimited()
                 ))
@@ -290,11 +290,11 @@ fn test_simple_token_system(#[case] version: ClarityVersion, #[case] epoch: Stac
         assert!(!is_committed(
             &block
                 .as_transaction(|tx| tx.run_contract_call(
-                    &p1,
+                    p1.clone(),
                     None,
-                    &contract_identifier,
+                    contract_identifier.clone(),
                     "token-transfer",
-                    &[p2.clone().into(), Value::UInt(1001)],
+                    vec![p2.clone().into(), Value::UInt(1001)],
                     |_, _| None,
                     &ResourceBudget::unlimited()
                 ))
@@ -303,8 +303,8 @@ fn test_simple_token_system(#[case] version: ClarityVersion, #[case] epoch: Stac
         ));
         assert!(is_committed(
             & // send to self!
-            block.as_transaction(|tx| tx.run_contract_call(&p1, None, &contract_identifier, "token-transfer",
-                                    &[p1.clone().into(), Value::UInt(1000)], |_, _| None, &ResourceBudget::unlimited())).unwrap().0
+            block.as_transaction(|tx| tx.run_contract_call(p1.clone(), None, contract_identifier.clone(), "token-transfer",
+                                    vec![p1.clone().into(), Value::UInt(1000)], |_, _| None, &ResourceBudget::unlimited())).unwrap().0
         ));
 
         assert_eq!(
@@ -329,11 +329,11 @@ fn test_simple_token_system(#[case] version: ClarityVersion, #[case] epoch: Stac
         assert!(is_committed(
             &block
                 .as_transaction(|tx| tx.run_contract_call(
-                    &p1,
+                    p1.clone(),
                     None,
-                    &contract_identifier,
+                    contract_identifier.clone(),
                     "faucet",
-                    &[],
+                    vec![],
                     |_, _| None,
                     &ResourceBudget::unlimited()
                 ))
@@ -344,11 +344,11 @@ fn test_simple_token_system(#[case] version: ClarityVersion, #[case] epoch: Stac
         assert!(is_committed(
             &block
                 .as_transaction(|tx| tx.run_contract_call(
-                    &p1,
+                    p1.clone(),
                     None,
-                    &contract_identifier,
+                    contract_identifier.clone(),
                     "faucet",
-                    &[],
+                    vec![],
                     |_, _| None,
                     &ResourceBudget::unlimited()
                 ))
@@ -359,11 +359,11 @@ fn test_simple_token_system(#[case] version: ClarityVersion, #[case] epoch: Stac
         assert!(is_committed(
             &block
                 .as_transaction(|tx| tx.run_contract_call(
-                    &p1,
+                    p1.clone(),
                     None,
-                    &contract_identifier,
+                    contract_identifier.clone(),
                     "faucet",
-                    &[],
+                    vec![],
                     |_, _| None,
                     &ResourceBudget::unlimited()
                 ))
@@ -384,11 +384,11 @@ fn test_simple_token_system(#[case] version: ClarityVersion, #[case] epoch: Stac
         assert!(!is_committed(
             &block
                 .as_transaction(|tx| tx.run_contract_call(
-                    &p1,
+                    p1.clone(),
                     None,
-                    &contract_identifier,
+                    contract_identifier.clone(),
                     "mint-after",
-                    &[Value::UInt(25)],
+                    vec![Value::UInt(25)],
                     |_, _| None,
                     &ResourceBudget::unlimited()
                 ))
@@ -422,11 +422,11 @@ fn test_simple_token_system(#[case] version: ClarityVersion, #[case] epoch: Stac
         assert!(is_committed(
             &block
                 .as_transaction(|tx| tx.run_contract_call(
-                    &p1,
+                    p1.clone(),
                     None,
-                    &contract_identifier,
+                    contract_identifier.clone(),
                     "mint-after",
-                    &[Value::UInt(25)],
+                    vec![Value::UInt(25)],
                     |_, _| None,
                     &ResourceBudget::unlimited()
                 ))
@@ -437,11 +437,11 @@ fn test_simple_token_system(#[case] version: ClarityVersion, #[case] epoch: Stac
         assert!(!is_committed(
             &block
                 .as_transaction(|tx| tx.run_contract_call(
-                    &p1,
+                    p1.clone(),
                     None,
-                    &contract_identifier,
+                    contract_identifier.clone(),
                     "faucet",
-                    &[],
+                    vec![],
                     |_, _| None,
                     &ResourceBudget::unlimited()
                 ))
@@ -461,11 +461,11 @@ fn test_simple_token_system(#[case] version: ClarityVersion, #[case] epoch: Stac
         assert_eq!(
             block
                 .as_transaction(|tx| tx.run_contract_call(
-                    &p1,
+                    p1.clone(),
                     None,
-                    &contract_identifier,
+                    contract_identifier,
                     "my-get-token-balance",
-                    &[p1.clone().into()],
+                    vec![p1.clone().into()],
                     |_, _| None,
                     &ResourceBudget::unlimited()
                 ))
@@ -592,7 +592,7 @@ fn inner_test_simple_naming_system(owned_env: &mut OwnedEnvironment, version: Cl
                     &invoke_ctx,
                     &QualifiedContractIdentifier::local("names").unwrap(),
                     "preorder",
-                    &symbols_from_values(vec![name_hash_expensive_0.clone(), Value::UInt(1000)]),
+                    vec![name_hash_expensive_0.clone(), Value::UInt(1000)],
                     false
                 )
                 .unwrap(),
@@ -612,7 +612,7 @@ fn inner_test_simple_naming_system(owned_env: &mut OwnedEnvironment, version: Cl
                     &invoke_ctx,
                     &QualifiedContractIdentifier::local("names").unwrap(),
                     "preorder",
-                    &symbols_from_values(vec![name_hash_expensive_0.clone(), Value::UInt(1000)]),
+                    vec![name_hash_expensive_0.clone(), Value::UInt(1000)],
                     false
                 )
                 .unwrap()
@@ -623,7 +623,7 @@ fn inner_test_simple_naming_system(owned_env: &mut OwnedEnvironment, version: Cl
                     &invoke_ctx,
                     &QualifiedContractIdentifier::local("names").unwrap(),
                     "preorder",
-                    &symbols_from_values(vec![name_hash_expensive_0, Value::UInt(1000)]),
+                    vec![name_hash_expensive_0, Value::UInt(1000)],
                     false
                 )
                 .unwrap(),
@@ -644,7 +644,7 @@ fn inner_test_simple_naming_system(owned_env: &mut OwnedEnvironment, version: Cl
                     &invoke_ctx,
                     &QualifiedContractIdentifier::local("names").unwrap(),
                     "register",
-                    &symbols_from_values(vec![p2.clone(), Value::Int(1), Value::Int(0)]),
+                    vec![p2.clone(), Value::Int(1), Value::Int(0)],
                     false
                 )
                 .unwrap(),
@@ -665,7 +665,7 @@ fn inner_test_simple_naming_system(owned_env: &mut OwnedEnvironment, version: Cl
                     &invoke_ctx,
                     &QualifiedContractIdentifier::local("names").unwrap(),
                     "register",
-                    &symbols_from_values(vec![p2.clone(), Value::Int(1), Value::Int(0)]),
+                    vec![p2.clone(), Value::Int(1), Value::Int(0)],
                     false
                 )
                 .unwrap()
@@ -685,7 +685,7 @@ fn inner_test_simple_naming_system(owned_env: &mut OwnedEnvironment, version: Cl
                     &invoke_ctx,
                     &QualifiedContractIdentifier::local("names").unwrap(),
                     "preorder",
-                    &symbols_from_values(vec![name_hash_expensive_1, Value::UInt(100)]),
+                    vec![name_hash_expensive_1, Value::UInt(100)],
                     false
                 )
                 .unwrap()
@@ -696,7 +696,7 @@ fn inner_test_simple_naming_system(owned_env: &mut OwnedEnvironment, version: Cl
                     &invoke_ctx,
                     &QualifiedContractIdentifier::local("names").unwrap(),
                     "register",
-                    &symbols_from_values(vec![p2.clone(), Value::Int(2), Value::Int(0)]),
+                    vec![p2.clone(), Value::Int(2), Value::Int(0)],
                     false
                 )
                 .unwrap(),
@@ -710,7 +710,7 @@ fn inner_test_simple_naming_system(owned_env: &mut OwnedEnvironment, version: Cl
                     &invoke_ctx,
                     &QualifiedContractIdentifier::local("names").unwrap(),
                     "preorder",
-                    &symbols_from_values(vec![name_hash_cheap_0, Value::UInt(100)]),
+                    vec![name_hash_cheap_0, Value::UInt(100)],
                     false
                 )
                 .unwrap()
@@ -721,7 +721,7 @@ fn inner_test_simple_naming_system(owned_env: &mut OwnedEnvironment, version: Cl
                     &invoke_ctx,
                     &QualifiedContractIdentifier::local("names").unwrap(),
                     "register",
-                    &symbols_from_values(vec![p2.clone(), Value::Int(100001), Value::Int(0)]),
+                    vec![p2.clone(), Value::Int(100001), Value::Int(0)],
                     false
                 )
                 .unwrap()
@@ -734,7 +734,7 @@ fn inner_test_simple_naming_system(owned_env: &mut OwnedEnvironment, version: Cl
                     &invoke_ctx,
                     &QualifiedContractIdentifier::local("names").unwrap(),
                     "register",
-                    &symbols_from_values(vec![p2, Value::Int(100001), Value::Int(0)]),
+                    vec![p2, Value::Int(100001), Value::Int(0)],
                     false
                 )
                 .unwrap(),
