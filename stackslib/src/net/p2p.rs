@@ -666,10 +666,11 @@ pub struct PeerNetwork {
     pub blocks_inv_cache: BlocksInvCache,
 
     /// Event IDs of p2p conversations with work left over from the last network pass: their
-    /// inbox still had messages after `max_inbound_messages_per_pass`, their socket was left
-    /// unread because of such a backlog, or the pass ran out of `max_inbound_processing_ms`
-    /// before reaching them.  Their sockets are edge-triggered, so they won't be reported as
-    /// ready again until more data arrives; they are processed first in the next pass instead.
+    /// inbox still had messages after `max_inbound_messages_per_pass` or
+    /// `max_inbound_processing_ms`, their socket was left unread because of such a backlog, or
+    /// the pass ran out of `max_inbound_processing_ms` before reaching them.  Their sockets are
+    /// edge-triggered, so they won't be reported as ready again until more data arrives; they are
+    /// processed first in the next pass instead.
     pending_inbound_convos: Vec<usize>,
 
     /// Thread handle for the async block proposal endpoint.
@@ -2398,15 +2399,15 @@ impl PeerNetwork {
     ) -> Result<ConvoPassResult, net_error> {
         self.with_p2p_convo(event_id, |network, convo, client_sock| {
             // get incoming bytes and update the state of this conversation.
-            // If `max_inbound_messages_per_pass` left messages queued from the last pass, don't
-            // read more until they're handled: reading into a non-empty inbox could overflow it
-            // (which kills the conversation).  The unread bytes stay in the socket buffer, which
-            // is what pushes back on the remote peer.  The caller keeps this conversation in
-            // `pending_inbound_convos` so the socket is read again once the backlog is drained.
+            // If `max_inbound_messages_per_pass` or `max_inbound_processing_ms` left messages
+            // queued from the last pass, don't read more until they're handled: reading into a
+            // non-empty inbox could overflow it (which kills the conversation).  The unread bytes
+            // stay in the socket buffer, which is what pushes back on the remote peer.  The
+            // caller keeps this conversation in `pending_inbound_convos` so the socket is read
+            // again once the backlog is drained.
             let mut convo_dead = false;
             let inbox_backlog = convo.connection.inbox_len();
-            let deferred_recv = inbox_backlog > 0
-                && network.connection_opts.max_inbound_messages_per_pass > 0;
+            let deferred_recv = inbox_backlog > 0;
             if deferred_recv {
                 debug!(
                     "{:?}: {} messages still queued on event {}; not reading from socket {:?} this pass",

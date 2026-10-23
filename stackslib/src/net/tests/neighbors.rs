@@ -1756,11 +1756,23 @@ fn test_step_max_inbound_messages_per_pass() {
 /// the burst is read and handled.
 #[test]
 fn test_step_inbound_backlog_backpressure() {
-    with_timeout(600, || {
-        let mut peer_1_config = TestPeerConfig::new(function_name!(), 0, 0);
+    run_inbound_backlog_backpressure(function_name!(), false);
+}
+
+/// Like `test_step_inbound_backlog_backpressure`, but the per-pass message cap is disabled once
+/// the backlog exists (as if `max_inbound_processing_ms` had left it queued): the neighbor's
+/// socket must still not be read until the backlog drains.
+#[test]
+fn test_step_inbound_backlog_backpressure_without_message_cap() {
+    run_inbound_backlog_backpressure(function_name!(), true);
+}
+
+fn run_inbound_backlog_backpressure(test_name: &'static str, disable_cap_after_backlog: bool) {
+    with_timeout(600, move || {
+        let mut peer_1_config = TestPeerConfig::new(test_name, 0, 0);
         peer_1_config.connection_opts.max_inbound_messages_per_pass = 1;
         peer_1_config.connection_opts.inbox_maxlen = 8;
-        let peer_2_config = TestPeerConfig::new(function_name!(), 0, 0);
+        let peer_2_config = TestPeerConfig::new(test_name, 0, 0);
 
         let mut peer_1 = TestPeer::new(peer_1_config);
         let mut peer_2 = TestPeer::new(peer_2_config);
@@ -1823,6 +1835,17 @@ fn test_step_inbound_backlog_backpressure() {
             backlog >= 3,
             "peer 1 never built up a backlog from the burst"
         );
+
+        if disable_cap_after_backlog {
+            peer_1.network.connection_opts.max_inbound_messages_per_pass = 0;
+            peer_1
+                .network
+                .get_neighbor_convo_mut(&nk_2)
+                .unwrap()
+                .connection
+                .options
+                .max_inbound_messages_per_pass = 0;
+        }
 
         // second burst while the backlog is still queued: backlog + burst exceeds inbox_maxlen,
         // so reading it into the inbox right away would overflow it and drop peer 2.
