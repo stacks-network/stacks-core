@@ -29,8 +29,8 @@ use crate::vm::tests::{test_clarity_versions, test_epochs};
 use crate::vm::{
     ContractContext,
     database::MemoryBackingStore,
-    errors::{RuntimeCheckErrorKind, VmExecutionError},
-    tests::{env_factory, execute, symbols_from_values},
+    errors::{ClarityEvalError, RuntimeCheckErrorKind, VmExecutionError},
+    tests::{env_factory, execute},
     types::{PrincipalData, QualifiedContractIdentifier, Value},
     version::ClarityVersion,
 };
@@ -86,7 +86,7 @@ fn test_dynamic_dispatch_by_defining_trait(
                     &invoke_ctx,
                     &QualifiedContractIdentifier::local("dispatching-contract").unwrap(),
                     "wrapped-get-1",
-                    &symbols_from_values(vec![target_contract]),
+                    vec![target_contract],
                     false
                 )
                 .unwrap(),
@@ -149,7 +149,7 @@ fn test_dynamic_dispatch_pass_trait_nested_in_let(
                     &invoke_ctx,
                     &QualifiedContractIdentifier::local("dispatching-contract").unwrap(),
                     "wrapped-get-1",
-                    &symbols_from_values(vec![target_contract]),
+                    vec![target_contract],
                     false
                 )
                 .unwrap(),
@@ -211,7 +211,7 @@ fn test_dynamic_dispatch_pass_trait(
                     &invoke_ctx,
                     &QualifiedContractIdentifier::local("dispatching-contract").unwrap(),
                     "wrapped-get-1",
-                    &symbols_from_values(vec![target_contract]),
+                    vec![target_contract],
                     false
                 )
                 .unwrap(),
@@ -271,7 +271,7 @@ fn test_dynamic_dispatch_intra_contract_call(
                 &invoke_ctx,
                 &QualifiedContractIdentifier::local("dispatching-contract").unwrap(),
                 "wrapped-get-1",
-                &symbols_from_values(vec![target_contract]),
+                vec![target_contract],
                 false,
             )
             .unwrap_err();
@@ -342,7 +342,7 @@ fn test_dynamic_dispatch_by_implementing_imported_trait(
                     &invoke_ctx,
                     &QualifiedContractIdentifier::local("dispatching-contract").unwrap(),
                     "wrapped-get-1",
-                    &symbols_from_values(vec![target_contract]),
+                    vec![target_contract],
                     false
                 )
                 .unwrap(),
@@ -413,7 +413,7 @@ fn test_dynamic_dispatch_by_implementing_imported_trait_mul_funcs(
                     &invoke_ctx,
                     &QualifiedContractIdentifier::local("dispatching-contract").unwrap(),
                     "wrapped-get-1",
-                    &symbols_from_values(vec![target_contract]),
+                    vec![target_contract],
                     false
                 )
                 .unwrap(),
@@ -481,7 +481,7 @@ fn test_dynamic_dispatch_by_importing_trait(
                     &invoke_ctx,
                     &QualifiedContractIdentifier::local("dispatching-contract").unwrap(),
                     "wrapped-get-1",
-                    &symbols_from_values(vec![target_contract]),
+                    vec![target_contract],
                     false
                 )
                 .unwrap(),
@@ -573,7 +573,7 @@ fn test_dynamic_dispatch_including_nested_trait(
                     &invoke_ctx,
                     &QualifiedContractIdentifier::local("dispatching-contract").unwrap(),
                     "wrapped-get-1",
-                    &symbols_from_values(vec![target_contract, target_nested_contract]),
+                    vec![target_contract, target_nested_contract],
                     false
                 )
                 .unwrap(),
@@ -632,7 +632,7 @@ fn test_dynamic_dispatch_mismatched_args(
                 &invoke_ctx,
                 &QualifiedContractIdentifier::local("dispatching-contract").unwrap(),
                 "wrapped-get-1",
-                &symbols_from_values(vec![target_contract]),
+                vec![target_contract],
                 false,
             )
             .unwrap_err();
@@ -694,7 +694,7 @@ fn test_dynamic_dispatch_mismatched_returned(
                 &invoke_ctx,
                 &QualifiedContractIdentifier::local("dispatching-contract").unwrap(),
                 "wrapped-get-1",
-                &symbols_from_values(vec![target_contract]),
+                vec![target_contract],
                 false,
             )
             .unwrap_err();
@@ -757,7 +757,7 @@ fn test_reentrant_dynamic_dispatch(
                 &invoke_ctx,
                 &QualifiedContractIdentifier::local("dispatching-contract").unwrap(),
                 "wrapped-get-1",
-                &symbols_from_values(vec![target_contract]),
+                vec![target_contract],
                 false,
             )
             .unwrap_err();
@@ -818,7 +818,7 @@ fn test_readwrite_dynamic_dispatch(
                 &invoke_ctx,
                 &QualifiedContractIdentifier::local("dispatching-contract").unwrap(),
                 "wrapped-get-1",
-                &symbols_from_values(vec![target_contract]),
+                vec![target_contract],
                 false,
             )
             .unwrap_err();
@@ -882,7 +882,7 @@ fn test_readwrite_violation_dynamic_dispatch(
                 &invoke_ctx,
                 &QualifiedContractIdentifier::local("dispatching-contract").unwrap(),
                 "wrapped-get-1",
-                &symbols_from_values(vec![target_contract]),
+                vec![target_contract],
                 false,
             )
             .unwrap_err();
@@ -964,7 +964,7 @@ fn test_bad_call_with_trait(
                     &invoke_ctx,
                     &QualifiedContractIdentifier::local("call").unwrap(),
                     "foo-bar",
-                    &symbols_from_values(vec![]),
+                    vec![],
                     false
                 )
                 .unwrap(),
@@ -1039,7 +1039,7 @@ fn test_good_call_with_trait(
                     &invoke_ctx,
                     &QualifiedContractIdentifier::local("call").unwrap(),
                     "foo-bar",
-                    &symbols_from_values(vec![]),
+                    vec![],
                     false
                 )
                 .unwrap(),
@@ -1119,7 +1119,7 @@ fn test_good_call_2_with_trait(
                     &invoke_ctx,
                     &QualifiedContractIdentifier::local("call").unwrap(),
                     "foo-bar",
-                    &symbols_from_values(vec![target_contract]),
+                    vec![target_contract],
                     false
                 )
                 .unwrap(),
@@ -1189,7 +1189,7 @@ fn test_dynamic_dispatch_pass_literal_principal_as_trait_in_user_defined_functio
                     &invoke_ctx,
                     &QualifiedContractIdentifier::local("dispatching-contract").unwrap(),
                     "wrapped-get-1",
-                    &symbols_from_values(vec![target_contract]),
+                    vec![target_contract],
                     false
                 )
                 .unwrap(),
@@ -1260,7 +1260,7 @@ fn test_contract_of_value(
                     &invoke_ctx,
                     &QualifiedContractIdentifier::local("dispatch").unwrap(),
                     "wrapped-get-1",
-                    &symbols_from_values(vec![target_contract]),
+                    vec![target_contract],
                     false
                 )
                 .unwrap(),
@@ -1333,7 +1333,7 @@ fn test_contract_of_no_impl(
                     &invoke_ctx,
                     &QualifiedContractIdentifier::local("dispatch").unwrap(),
                     "wrapped-get-1",
-                    &symbols_from_values(vec![target_contract]),
+                    vec![target_contract],
                     false
                 )
                 .unwrap(),
@@ -1395,7 +1395,7 @@ fn test_return_trait_with_contract_of_wrapped_in_begin(
                     &invoke_ctx,
                     &QualifiedContractIdentifier::local("dispatching-contract").unwrap(),
                     "wrapped-get-1",
-                    &symbols_from_values(vec![target_contract.clone()]),
+                    vec![target_contract.clone()],
                     false
                 )
                 .unwrap(),
@@ -1457,7 +1457,7 @@ fn test_return_trait_with_contract_of_wrapped_in_let(
                     &invoke_ctx,
                     &QualifiedContractIdentifier::local("dispatching-contract").unwrap(),
                     "wrapped-get-1",
-                    &symbols_from_values(vec![target_contract.clone()]),
+                    vec![target_contract.clone()],
                     false
                 )
                 .unwrap(),
@@ -1517,7 +1517,7 @@ fn test_return_trait_with_contract_of(
                     &invoke_ctx,
                     &QualifiedContractIdentifier::local("dispatching-contract").unwrap(),
                     "wrapped-get-1",
-                    &symbols_from_values(vec![target_contract.clone()]),
+                    vec![target_contract.clone()],
                     false
                 )
                 .unwrap(),
@@ -1587,7 +1587,7 @@ fn test_pass_trait_to_subtrait(epoch: StacksEpochId, mut env_factory: MemoryEnvi
                     &invoke_ctx,
                     &QualifiedContractIdentifier::local("dispatching-contract").unwrap(),
                     "wrapped-get-1",
-                    &symbols_from_values(vec![target_contract]),
+                    vec![target_contract],
                     false
                 )
                 .unwrap(),
@@ -1655,7 +1655,7 @@ fn test_embedded_trait(epoch: StacksEpochId, mut env_factory: MemoryEnvironmentG
                     &invoke_ctx,
                     &QualifiedContractIdentifier::local("dispatching-contract").unwrap(),
                     "may-echo",
-                    &symbols_from_values(vec![opt_target]),
+                    vec![opt_target],
                     false
                 )
                 .unwrap(),
@@ -1732,7 +1732,7 @@ fn test_pass_embedded_trait_to_subtrait_optional(
                     &invoke_ctx,
                     &QualifiedContractIdentifier::local("dispatching-contract").unwrap(),
                     "wrapped-opt-get-1",
-                    &symbols_from_values(vec![target_contract]),
+                    vec![target_contract],
                     false
                 )
                 .unwrap(),
@@ -1809,7 +1809,7 @@ fn test_pass_embedded_trait_to_subtrait_ok(
                     &invoke_ctx,
                     &QualifiedContractIdentifier::local("dispatching-contract").unwrap(),
                     "wrapped-ok-get-1",
-                    &symbols_from_values(vec![target_contract]),
+                    vec![target_contract],
                     false
                 )
                 .unwrap(),
@@ -1886,7 +1886,7 @@ fn test_pass_embedded_trait_to_subtrait_err(
                     &invoke_ctx,
                     &QualifiedContractIdentifier::local("dispatching-contract").unwrap(),
                     "wrapped-err-get-1",
-                    &symbols_from_values(vec![target_contract]),
+                    vec![target_contract],
                     false
                 )
                 .unwrap(),
@@ -1963,7 +1963,7 @@ fn test_pass_embedded_trait_to_subtrait_list(
                     &invoke_ctx,
                     &QualifiedContractIdentifier::local("dispatching-contract").unwrap(),
                     "wrapped-list-get-1",
-                    &symbols_from_values(vec![target_contract]),
+                    vec![target_contract],
                     false
                 )
                 .unwrap(),
@@ -2043,7 +2043,7 @@ fn test_pass_embedded_trait_to_subtrait_list_option(
                     &invoke_ctx,
                     &QualifiedContractIdentifier::local("dispatching-contract").unwrap(),
                     "wrapped-list-get-1",
-                    &symbols_from_values(vec![target_contract]),
+                    vec![target_contract],
                     false
                 )
                 .unwrap(),
@@ -2123,7 +2123,7 @@ fn test_pass_embedded_trait_to_subtrait_option_list(
                     &invoke_ctx,
                     &QualifiedContractIdentifier::local("dispatching-contract").unwrap(),
                     "wrapped-list-get-1",
-                    &symbols_from_values(vec![target_contract]),
+                    vec![target_contract],
                     false
                 )
                 .unwrap(),
@@ -2189,7 +2189,7 @@ fn test_let_trait(epoch: StacksEpochId, mut env_factory: MemoryEnvironmentGenera
                     &invoke_ctx,
                     &QualifiedContractIdentifier::local("dispatching-contract").unwrap(),
                     "let-echo",
-                    &symbols_from_values(vec![target_contract]),
+                    vec![target_contract],
                     false
                 )
                 .unwrap(),
@@ -2259,7 +2259,7 @@ fn test_let3_trait(epoch: StacksEpochId, mut env_factory: MemoryEnvironmentGener
                     &invoke_ctx,
                     &QualifiedContractIdentifier::local("dispatching-contract").unwrap(),
                     "let-echo",
-                    &symbols_from_values(vec![target_contract]),
+                    vec![target_contract],
                     false
                 )
                 .unwrap(),
@@ -2325,11 +2325,62 @@ fn test_pass_principal_literal_to_trait(
                     &invoke_ctx,
                     &QualifiedContractIdentifier::local("dispatching-contract").unwrap(),
                     "wrapped-get-1",
-                    &symbols_from_values(vec![target_contract]),
+                    vec![target_contract],
                     false
                 )
                 .unwrap(),
             Value::okay(Value::UInt(1)).unwrap()
+        );
+    }
+}
+
+/// From Epoch 4.1, a contract can dispatch through its own trait at the top
+/// level while it deploys.
+#[apply(test_epochs)]
+fn test_trait_use_at_top_level_same_contract(
+    epoch: StacksEpochId,
+    mut env_factory: MemoryEnvironmentGenerator,
+) {
+    let mut owned_env = env_factory.get_env(epoch);
+    let contract_foo = "(define-public (foo) (ok true))";
+    let contract_bar = "(define-trait trait-1 (
+            (foo () (response bool uint))))
+        (define-private (bar (f <trait-1>))
+            (unwrap-panic (contract-call? f foo)))
+        (bar .c-foo)";
+
+    let placeholder_context = ContractContext::new(
+        QualifiedContractIdentifier::transient(),
+        ClarityVersion::default_for_epoch(epoch),
+    );
+    let (mut exec_state, invoke_ctx) =
+        owned_env.get_exec_environment(None, None, &placeholder_context);
+    exec_state
+        .initialize_contract(
+            &invoke_ctx,
+            QualifiedContractIdentifier::local("c-foo").unwrap(),
+            contract_foo,
+        )
+        .unwrap();
+
+    let result = exec_state.initialize_contract(
+        &invoke_ctx,
+        QualifiedContractIdentifier::local("c-bar").unwrap(),
+        contract_bar,
+    );
+
+    if epoch.supports_local_trait_lookup() {
+        result.unwrap();
+    } else {
+        let err = result.unwrap_err();
+        assert!(
+            matches!(
+                err,
+                ClarityEvalError::Vm(VmExecutionError::RuntimeCheck(
+                    RuntimeCheckErrorKind::NoSuchContract(_)
+                ))
+            ),
+            "{err:?}"
         );
     }
 }
@@ -2372,7 +2423,7 @@ fn deploy_and_dispatch(
         &invoke_ctx,
         &QualifiedContractIdentifier::local(dispatcher).unwrap(),
         "dispatch",
-        &symbols_from_values(vec![impl_val]),
+        vec![impl_val],
         false,
     )
 }

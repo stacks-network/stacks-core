@@ -22,6 +22,7 @@ mod epoch_41_exact_argument_count;
 mod epoch_41_fold_initial_value;
 mod epoch_41_force_latest;
 mod epoch_41_implicit_cast;
+mod epoch_41_local_trait_lookup;
 mod epoch_41_reserved_names;
 mod epoch_41_restrict_assets;
 mod epoch_41_tuple_supertype;

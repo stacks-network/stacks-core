@@ -148,7 +148,7 @@ The section below has example json encodings for each of the burnchain operation
   "parent_microblock_sequence": 0,
   "transactions": [
     {
-      "contract_abi": null,
+      "contract_interface": null,
       "burnchain_op": null,
       "raw_result": "0x03",
       "raw_tx": "0x808000000004008bc5147525b8f477f0bc4522a88c8339b2494db50000000000000002000000000000000001015814daf929d8700af344987681f44e913890a12e38550abe8e40f149ef5269f40f4008083a0f2e0ddf65dcd05ecfc151c7ff8a5308ad04c77c0e87b5aeadad31010200000000040000000000000000000000000000000000000000000000000000000000000000",
@@ -160,7 +160,7 @@ The section below has example json encodings for each of the burnchain operation
       "microblock_parent_hash": "None"
     },
     {
-      "contract_abi": null,
+      "contract_interface": null,
       "burnchain_op": null,
       "raw_result": "0x03",
       "raw_tx": "0x80800000000400f942874ce525e87f21bbe8c121b12fac831d02f4000000000000000000000000000003e800006ae29867aec4b0e4f776bebdcea7f6d9a24eeff370c8c739defadfcbb52659b30736ad4af021e8fb741520a6c65da419fdec01989fdf0032fc1838f427a9a36102010000000000051ac2d519faccba2e435f3272ff042b89435fd160ff00000000000003e800000000000000000000000000000000000000000000000000000000000000000000",
@@ -192,7 +192,7 @@ The section below has example json encodings for each of the burnchain operation
           "vtxindex": 10
         }
       },
-      "contract_abi": null,
+      "contract_interface": null,
       "execution_cost": {
         "read_count": 0,
         "read_length": 0,
@@ -443,7 +443,7 @@ Delivers data for one or more microblocks, either self-emitted or received from 
   ],
   "transactions": [
     {
-      "contract_abi": null,
+      "contract_interface": null,
       "burnchain_op": null,
       "raw_result": "0x03",
       "raw_tx": "0x808000000004008bc5147525b8f477f0bc4522a88c8339b2494db50000000000000002000000000000000001015814daf929d8700af344987681f44e913890a12e38550abe8e40f149ef5269f40f4008083a0f2e0ddf65dcd05ecfc151c7ff8a5308ad04c77c0e87b5aeadad31010200000000040000000000000000000000000000000000000000000000000000000000000000",
@@ -455,7 +455,7 @@ Delivers data for one or more microblocks, either self-emitted or received from 
       "microblock_parent_hash": "0x4893ab44636023efa08374033428e44eca490582bd39a6e61f3b6cf749b474bd"
     },
     {
-      "contract_abi": null,
+      "contract_interface": null,
       "burnchain_op": null,
       "raw_result": "0x03",
       "raw_tx": "0x80800000000400f942874ce525e87f21bbe8c121b12fac831d02f4000000000000000000000000000003e800006ae29867aec4b0e4f776bebdcea7f6d9a24eeff370c8c739defadfcbb52659b30736ad4af021e8fb741520a6c65da419fdec01989fdf0032fc1838f427a9a36102010000000000051ac2d519faccba2e435f3272ff042b89435fd160ff00000000000003e800000000000000000000000000000000000000000000000000000000000000000000",

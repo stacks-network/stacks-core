@@ -1015,6 +1015,7 @@ name = "pox-locking"
 version = "2.4.0"
 dependencies = [
  "clarity",
+ "serde",
  "slog",
  "stacks-common",
 ]

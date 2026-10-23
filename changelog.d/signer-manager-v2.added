@@ -1,0 +1,1 @@
+Add a single-contract `signer-manager-v2.clar` reference with accumulated staker payouts, rejected withdrawal retry, per-cycle reward reserves, payout configuration, allowlisting, and signer metadata. The original `signer-manager.clar` remains available.

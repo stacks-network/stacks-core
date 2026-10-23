@@ -31,7 +31,7 @@ use crate::vm::errors::{ClarityEvalError, VmExecutionError};
 use crate::vm::events::StacksTransactionEvent;
 use crate::vm::resource_limiter::ResourceBudget;
 use crate::vm::types::{BuffData, PrincipalData, QualifiedContractIdentifier};
-use crate::vm::{ClarityVersion, ContractContext, SymbolicExpression, Value, analysis, ast};
+use crate::vm::{ClarityVersion, ContractContext, Value, analysis, ast};
 
 /// Top-level error type for Clarity contract processing, encompassing errors from parsing,
 /// type-checking, runtime evaluation, and transaction execution.
@@ -677,10 +677,7 @@ pub trait TransactionConnection: ClarityConnection {
     where
         F: FnOnce(&AssetMap, &mut ClarityDatabase) -> Option<BoundedErrorString>,
     {
-        let expr_args: Vec<_> = args
-            .iter()
-            .map(|x| SymbolicExpression::atom_value(x.clone()))
-            .collect();
+        let args = args.to_vec();
 
         self.with_abort_callback(
             |vm_env| {
@@ -693,7 +690,7 @@ pub trait TransactionConnection: ClarityConnection {
                         sponsor.cloned(),
                         contract.clone(),
                         public_function,
-                        &expr_args,
+                        args,
                     )
                     .map_err(ClarityError::from)
             },

@@ -27,7 +27,6 @@ use stacks_common::util::hash::Sha512Trunc256Sum;
 
 use crate::vm::costs::ExecutionCost;
 use crate::vm::database::{BurnStateDB, HeadersDB};
-use crate::vm::representations::SymbolicExpression;
 use crate::vm::types::{TupleData, Value};
 use crate::vm::{StacksEpoch, execute as vm_execute, execute_on_network as vm_execute_on_network};
 
@@ -60,12 +59,6 @@ pub fn execute(s: &str) -> Value {
 
 pub fn execute_on_network(s: &str, use_mainnet: bool) -> Value {
     vm_execute_on_network(s, use_mainnet).unwrap().unwrap()
-}
-
-pub fn symbols_from_values(vec: Vec<Value>) -> Vec<SymbolicExpression> {
-    vec.into_iter()
-        .map(SymbolicExpression::atom_value)
-        .collect()
 }
 
 pub fn is_committed(v: &Value) -> bool {

@@ -82,9 +82,7 @@ pub fn special_contract_call(
     let mut rest_args = Vec::with_capacity(rest_args_len);
     for arg in rest_args_slice.iter() {
         let evaluated_arg = eval(arg, exec_state, invoke_ctx, context)?;
-        rest_args.push(SymbolicExpression::atom_value(
-            evaluated_arg.clone_with_cost(exec_state)?,
-        ));
+        rest_args.push(evaluated_arg.clone_with_cost(exec_state)?);
     }
 
     let (contract_identifier, type_returns_constraint) = match &args[0].expr {
@@ -160,16 +158,28 @@ pub fn special_contract_call(
                     if contract_to_check.is_explicitly_implementing_trait(&trait_identifier) {
                         (contract_identifier.clone(), None)
                     } else {
-                        // Load the contract that defines the trait.
-                        let contract_defining_trait = exec_state
-                            .global_context
-                            .database
-                            .get_contract(&trait_identifier.contract_identifier)
-                            .map_err(|_e| {
-                                RuntimeCheckErrorKind::NoSuchContract(
-                                    trait_identifier.contract_identifier.to_string(),
-                                )
-                            })?;
+                        // Load the contract that defines the trait. From Epoch 4.1, a trait
+                        // defined by the calling contract is read from its own context, which
+                        // is not yet stored while that contract deploys.
+                        let loaded_contract;
+                        let contract_defining_trait =
+                            if exec_state.epoch().supports_local_trait_lookup()
+                                && trait_identifier.contract_identifier
+                                    == invoke_ctx.contract_context.contract_identifier
+                            {
+                                invoke_ctx.contract_context
+                            } else {
+                                loaded_contract = exec_state
+                                    .global_context
+                                    .database
+                                    .get_contract(&trait_identifier.contract_identifier)
+                                    .map_err(|_e| {
+                                        RuntimeCheckErrorKind::NoSuchContract(
+                                            trait_identifier.contract_identifier.to_string(),
+                                        )
+                                    })?;
+                                &*loaded_contract
+                            };
 
                         // Retrieve the function that will be invoked
                         let function_to_check = contract_to_check
@@ -200,7 +210,7 @@ pub fn special_contract_call(
 
                         let expected_sig = function_to_check.check_trait_expectations(
                             exec_state.epoch(),
-                            &contract_defining_trait,
+                            contract_defining_trait,
                             &trait_identifier,
                         )?;
                         // Own the return type so the trait-defining contract is released here
@@ -228,7 +238,7 @@ pub fn special_contract_call(
         &nested_ctx,
         &contract_identifier,
         function_name,
-        &rest_args,
+        rest_args,
         false,
     )?;
 
