@@ -343,14 +343,20 @@ impl TrieFile {
         Ok(())
     }
 
-    /// Vacuum the database, and set up and tear down the necessary environment variables to
-    /// use same parent directory for scratch space.
+    /// Vacuum the database, pointing SQLite's scratch space at the database's own parent
+    /// directory for the duration.
+    ///
+    /// VACUUM needs temporary space roughly the size of the database, and the default temp
+    /// directory may be on a smaller filesystem. SQLite consults `SQLITE_TMPDIR` before
+    /// `TMPDIR`, so setting `SQLITE_TMPDIR` alone is sufficient. `TMPDIR` is deliberately left
+    /// alone: it is process-wide state read by everything that creates temporary files (Rust's
+    /// `env::temp_dir()`, `tempfile`, ...), and redirecting it into the database's directory
+    /// leaks other threads' temporary files there.
     ///
     /// Infallible -- any vacuum errors are masked.
     fn post_migrate_vacuum(db: &Connection, db_path: &str) {
         // set SQLITE_TMPDIR if it isn't set already
         let mut set_sqlite_tmpdir = false;
-        let mut old_tmpdir_opt = None;
         if let Some(parent_path) = Path::new(db_path).parent() {
             if env::var("SQLITE_TMPDIR").is_err() {
                 debug!(
@@ -360,10 +366,6 @@ impl TrieFile {
                 env::set_var("SQLITE_TMPDIR", parent_path);
                 set_sqlite_tmpdir = true;
             }
-
-            // also set TMPDIR
-            old_tmpdir_opt = env::var("TMPDIR").ok();
-            env::set_var("TMPDIR", parent_path);
         }
 
         // don't materialize the error; just warn
@@ -375,13 +377,6 @@ impl TrieFile {
         if set_sqlite_tmpdir {
             debug!("Unset SQLITE_TMPDIR");
             env::remove_var("SQLITE_TMPDIR");
-        }
-        if let Some(old_tmpdir) = old_tmpdir_opt {
-            debug!("Restore TMPDIR to '{}'", &old_tmpdir);
-            env::set_var("TMPDIR", old_tmpdir);
-        } else {
-            debug!("Unset TMPDIR");
-            env::remove_var("TMPDIR");
         }
     }
 
