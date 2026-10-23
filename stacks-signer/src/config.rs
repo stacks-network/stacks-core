@@ -43,6 +43,7 @@ const DEFAULT_FIRST_PROPOSAL_BURN_BLOCK_TIMING_SECS: u64 = 60;
 const DEFAULT_TENURE_LAST_BLOCK_PROPOSAL_TIMEOUT_SECS: u64 = 30;
 const DEFAULT_DRY_RUN: bool = false;
 const DEFAULT_DB_PRUNING: bool = true;
+const DEFAULT_DB_SHRINK: bool = true;
 /// Default number of idle seconds before the signer will accept a
 ///  tenure extend from the miner
 const TENURE_IDLE_TIMEOUT_SECS: u64 = 30;
@@ -226,6 +227,8 @@ pub struct GlobalConfig {
     pub db_path: PathBuf,
     /// Whether the signer db is pruned online
     pub db_pruning: bool,
+    /// Whether the signer db file is shrunk at startup, when enough of it is free space
+    pub db_shrink: bool,
     /// Metrics endpoint
     pub metrics_endpoint: Option<SocketAddr>,
     /// How much time between the first block proposal in a tenure and the next bitcoin block
@@ -329,9 +332,22 @@ struct RawConfigFile {
     /// ---
     /// @default: `true`
     /// @notes:
-    ///   - Freed space is reused but not returned to the OS: an existing large database file
-    ///     keeps its size until it is compacted offline.
+    ///   - Freed space is reused but not returned to the OS: the database file keeps its size
+    ///     until it is shrunk at startup (see `db_shrink`).
     pub db_pruning: Option<bool>,
+    /// Shrink the signer database file when the signer starts, if enough of it is free space
+    /// (e.g. space freed by pruning): the file is rebuilt with only its live data, and the space
+    /// goes back to the OS. Otherwise the file is left as it is.
+    /// ---
+    /// @default: `true`
+    /// @notes:
+    ///   - Only runs at startup, before the signer opens the database, and only when at least
+    ///     256 MiB of the file is free and its live data is at most 1 GiB.
+    ///   - Needs about twice the size of the live data in free disk space next to the database
+    ///     (a temporary copy and a WAL), for a few seconds. If it fails, e.g. for lack of space,
+    ///     the database is unchanged and the signer starts as usual.
+    ///   - Independent of `db_pruning`: it reclaims free space whatever freed it.
+    pub db_shrink: Option<bool>,
     /// Optional Prometheus metrics endpoint.
     /// ---
     /// @default: `None` (disabled)
@@ -521,6 +537,7 @@ impl TryFrom<RawConfigFile> for GlobalConfig {
         );
         let db_path = raw_data.db_path.into();
         let db_pruning = raw_data.db_pruning.unwrap_or(DEFAULT_DB_PRUNING);
+        let db_shrink = raw_data.db_shrink.unwrap_or(DEFAULT_DB_SHRINK);
 
         let metrics_endpoint = match raw_data.metrics_endpoint {
             Some(endpoint) => Some(
@@ -615,6 +632,7 @@ impl TryFrom<RawConfigFile> for GlobalConfig {
             auth_password: raw_data.auth_password,
             db_path,
             db_pruning,
+            db_shrink,
             metrics_endpoint,
             first_proposal_burn_block_timing,
             block_proposal_timeout,
@@ -673,6 +691,7 @@ Network: {network}
 Chain ID: 0x{chain_id}
 Database path: {db_path}
 DB pruning: {db_pruning}
+DB shrink: {db_shrink}
 Metrics endpoint: {metrics_endpoint}
 Dry run: {dry_run}
 "#,
@@ -685,6 +704,7 @@ Dry run: {dry_run}
             network = self.network,
             db_path = self.db_path.to_str().unwrap_or_default(),
             db_pruning = self.db_pruning,
+            db_shrink = self.db_shrink,
             metrics_endpoint = metrics_endpoint,
             dry_run = self.dry_run,
         )
@@ -877,6 +897,7 @@ Network: testnet
 Chain ID: 0x80000000
 Database path: :memory:
 DB pruning: true
+DB shrink: true
 Metrics endpoint: 0.0.0.0:9090
 Dry run: false
 "#;
@@ -890,6 +911,7 @@ Network: testnet
 Chain ID: 0x80000000
 Database path: :memory:
 DB pruning: true
+DB shrink: true
 Metrics endpoint: 0.0.0.0:9090
 Dry run: false
 "#;
@@ -1035,5 +1057,35 @@ capitulate_miner_view_timeout_secs = 1000
         let config =
             GlobalConfig::load_from_str(&format!("{config_toml}\ndb_pruning = false\n")).unwrap();
         assert!(!config.db_pruning);
+    }
+
+    #[test]
+    fn test_db_shrink_defaults_to_enabled_and_can_be_disabled() {
+        let pk = StacksPrivateKey::from_hex(
+            "eb05c83546fdd2c79f10f5ad5434a90dd28f7e3acb7c092157aa1bc3656b012c01",
+        )
+        .unwrap();
+        let config_toml = build_signer_config_tomls(
+            &[pk],
+            "localhost",
+            None,
+            &Network::Testnet,
+            "melon",
+            rand::random(),
+            3000,
+            Some(4000),
+            None,
+        )
+        .remove(0);
+
+        // Default to `true` when the field is missing
+        let config = GlobalConfig::load_from_str(&config_toml).unwrap();
+        assert!(config.db_shrink);
+
+        // Use the configured value when the field is present, independently of `db_pruning`
+        let config =
+            GlobalConfig::load_from_str(&format!("{config_toml}\ndb_shrink = false\n")).unwrap();
+        assert!(!config.db_shrink);
+        assert!(config.db_pruning);
     }
 }

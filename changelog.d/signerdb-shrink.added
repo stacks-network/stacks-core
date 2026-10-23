@@ -1,0 +1,1 @@
+The signer now shrinks its database file at startup when at least 256 MiB of it is free space (e.g. after pruning) and its live data is at most 1 GiB, so the space goes back to the OS. Set `db_shrink = false` in the signer config to disable it.
