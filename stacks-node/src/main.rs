@@ -476,6 +476,7 @@ fn main() {
         panic!("Tracking allocator must be installed to set a memory limit");
     }
     let mut run_loop = boot_nakamoto::BootRunLoop::new(conf).unwrap();
+    monitoring::start_build_info_logging(version());
     run_loop.start(None, 0);
 }
 

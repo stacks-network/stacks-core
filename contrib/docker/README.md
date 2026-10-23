@@ -26,6 +26,9 @@ Arguments to the wrapper apply to both images:
 ./contrib/docker/build.sh --platform linux/amd64
 ```
 
+Pass `--build-arg CUSTOM_VERSION_STRING=my-custom-build` to embed a custom version
+in both binaries' build metadata logs. This also works with direct Docker builds.
+
 Supported platforms are `linux/amd64` and `linux/arm64`; the default is the builder's
 platform. Foreign-platform builds require emulation or a matching native builder.
 Both use Rust's default CPU baseline for their target.

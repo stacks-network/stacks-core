@@ -1,0 +1,1 @@
+Adds a new monitoring log helper that emits the running node and signer's version and build metadata every minute.

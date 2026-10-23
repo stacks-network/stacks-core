@@ -15,6 +15,7 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use stacks_common::define_named_enum;
+pub use stacks_common::monitoring::start_build_info_logging;
 
 #[cfg(feature = "monitoring_prom")]
 mod prometheus;
