@@ -2908,6 +2908,7 @@ impl ConversationP2P {
     /// Carry on a conversation with the remote peer.
     /// Called from the p2p network thread, so no need for a network handle.
     /// Attempts to fulfill requests in other threads as a result of processing a message.
+    /// Handles at most `max_inbound_messages_per_pass` inbox messages; the rest stay queued.
     /// Returns the list of unfulfilled Stacks messages we received -- messages not destined for
     /// any other thread in this program (i.e. "unsolicited messages").
     pub fn chat(
@@ -2921,8 +2922,23 @@ impl ConversationP2P {
         let num_inbound = self.connection.inbox_len();
         debug!("{:?}: {} messages pending", &self, num_inbound);
 
+        // don't let one peer monopolize the p2p thread -- leave the rest of its messages queued
+        // for the next pass
+        let max_inbound = self.connection.options.max_inbound_messages_per_pass;
+        let num_to_handle = if max_inbound > 0 {
+            cmp::min(num_inbound, max_inbound)
+        } else {
+            num_inbound
+        };
+        if num_to_handle < num_inbound {
+            debug!(
+                "{:?}: handle {} of {} pending messages this pass",
+                &self, num_to_handle, num_inbound
+            );
+        }
+
         let mut unsolicited = vec![];
-        for _ in 0..num_inbound {
+        for _ in 0..num_to_handle {
             let update_stats; // whether or not this message can count towards this peer's liveness stats
             let mut msg = match self.connection.next_inbox_message() {
                 None => {
@@ -4786,6 +4802,155 @@ mod test {
             assert_eq!(data.nonce, ping_data_1.nonce);
         } else {
             panic!("Unexpected payload message type");
+        }
+    }
+
+    #[test]
+    fn convo_max_inbound_messages_per_pass() {
+        let conn_opts = ConnectionOptions::default();
+        let conn_opts_2 = ConnectionOptions {
+            max_inbound_messages_per_pass: 2,
+            ..ConnectionOptions::default()
+        };
+        let socketaddr_1 = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 8080);
+        let socketaddr_2 = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(1, 2, 3, 4)), 8081);
+
+        let mut chain_view = BurnchainView {
+            burn_block_height: 12348,
+            burn_block_hash: BurnchainHeaderHash([0x11; 32]),
+            burn_stable_block_height: 12341,
+            burn_stable_block_hash: BurnchainHeaderHash([0x22; 32]),
+            last_burn_block_hashes: HashMap::new(),
+            rc_consensus_hash: ConsensusHash([0x33; 20]),
+        };
+        chain_view.make_test_data();
+
+        let test_name_1 = "convo_max_inbound_messages_per_pass_1";
+        let test_name_2 = "convo_max_inbound_messages_per_pass_2";
+
+        let burnchain_1 = testing_burnchain_config(test_name_1);
+        let burnchain_2 = testing_burnchain_config(test_name_2);
+
+        let (mut peerdb_1, mut sortdb_1, _stackerdbs_1, _pox_id_1, mut chainstate_1) =
+            make_test_chain_dbs(
+                test_name_1,
+                &burnchain_1,
+                0x9abcdef0,
+                12350,
+                UrlString::from_literal("http://peer1.com"),
+                &[],
+                &[],
+                DEFAULT_SERVICES,
+            );
+        let (mut peerdb_2, mut sortdb_2, _stackerdbs_2, _pox_id_2, mut chainstate_2) =
+            make_test_chain_dbs(
+                test_name_2,
+                &burnchain_2,
+                0x9abcdef0,
+                12351,
+                UrlString::from_literal("http://peer2.com"),
+                &[],
+                &[],
+                DEFAULT_SERVICES,
+            );
+
+        let mut net_1 = db_setup(
+            test_name_1,
+            &burnchain_1,
+            0x9abcdef0,
+            &mut peerdb_1,
+            &mut sortdb_1,
+            &socketaddr_1,
+            &chain_view,
+        );
+        let mut net_2 = db_setup(
+            test_name_2,
+            &burnchain_2,
+            0x9abcdef0,
+            &mut peerdb_2,
+            &mut sortdb_2,
+            &socketaddr_2,
+            &chain_view,
+        );
+
+        let local_peer_1 = PeerDB::get_local_peer(peerdb_1.conn()).unwrap();
+
+        let mut convo_1 = ConversationP2P::new(
+            123,
+            456,
+            &burnchain_1,
+            &socketaddr_2,
+            &conn_opts,
+            true,
+            0,
+            StacksEpoch::unit_test_up_to(0, StacksEpochId::Epoch20),
+        );
+        let mut convo_2 = ConversationP2P::new(
+            123,
+            456,
+            &burnchain_2,
+            &socketaddr_1,
+            &conn_opts_2,
+            true,
+            0,
+            StacksEpoch::unit_test_up_to(0, StacksEpochId::Epoch20),
+        );
+
+        // convo_1 sends a handshake and three pings to convo_2
+        let handshake_1 = convo_1
+            .sign_message(
+                &chain_view,
+                &local_peer_1.private_key,
+                StacksMessageType::Handshake(HandshakeData::from_local_peer(&local_peer_1)),
+            )
+            .unwrap();
+        let mut rh_handshake_1 = convo_1.send_signed_request(handshake_1, 1000000).unwrap();
+
+        let mut pings = vec![];
+        let mut rh_pings = vec![];
+        for _ in 0..3 {
+            let ping_data = PingData::new();
+            let ping = convo_1
+                .sign_message(
+                    &chain_view,
+                    &local_peer_1.private_key,
+                    StacksMessageType::Ping(ping_data.clone()),
+                )
+                .unwrap();
+            rh_pings.push(convo_1.send_signed_request(ping, 1000000).unwrap());
+            pings.push(ping_data);
+        }
+
+        let mut send_handles: Vec<_> = rh_pings.iter_mut().collect();
+        send_handles.push(&mut rh_handshake_1);
+        convo_send_recv(&mut convo_1, send_handles, &mut convo_2);
+        assert_eq!(convo_2.connection.inbox_len(), 4);
+
+        // convo_2 handles two messages per pass, leaving the rest queued
+        convo_2
+            .chat(&mut net_2, &sortdb_2, &mut chainstate_2, &mut None, false)
+            .unwrap();
+        assert_eq!(convo_2.connection.inbox_len(), 2);
+
+        convo_2
+            .chat(&mut net_2, &sortdb_2, &mut chainstate_2, &mut None, false)
+            .unwrap();
+        assert_eq!(convo_2.connection.inbox_len(), 0);
+
+        // every ping was answered
+        let mut recv_handles: Vec<_> = rh_pings.iter_mut().collect();
+        recv_handles.push(&mut rh_handshake_1);
+        convo_send_recv(&mut convo_2, recv_handles, &mut convo_1);
+        convo_1
+            .chat(&mut net_1, &sortdb_1, &mut chainstate_1, &mut None, false)
+            .unwrap();
+
+        for (rh_ping, ping_data) in rh_pings.into_iter().zip(pings.iter()) {
+            let reply = rh_ping.recv(0).unwrap();
+            let StacksMessageType::Pong(data) = reply.payload else {
+                panic!("Unexpected payload message type");
+            };
+            assert_eq!(data.nonce, ping_data.nonce);
         }
     }
 

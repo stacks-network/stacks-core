@@ -401,6 +401,13 @@ pub struct ConnectionOptions {
     pub max_stackerdb_push_bandwidth: u64,
     /// maximum bytes/sec a single peer may push as Nakamoto Block messages before being NACKed
     pub max_nakamoto_block_push_bandwidth: u64,
+    /// maximum number of inbound messages to handle from a single peer in one network pass.
+    /// Messages beyond this stay queued until the next pass.  Zero means no limit.
+    pub max_inbound_messages_per_pass: usize,
+    /// maximum time (millis) to spend handling inbound messages in one network pass, before
+    /// moving on to the rest of the pass.  Conversations not handled stay queued until the next
+    /// pass.  Zero means no limit.
+    pub max_inbound_processing_ms: u64,
     pub max_sockets: usize,
     pub public_ip_address: Option<(PeerAddress, u16)>,
     pub public_ip_request_timeout: u64,
@@ -572,6 +579,8 @@ impl std::default::Default for ConnectionOptions {
             max_transaction_push_bandwidth: 0, // infinite upload bandwidth allowed
             max_stackerdb_push_bandwidth: MB!(4), // 4 MB/sec upload bandwidth allowed
             max_nakamoto_block_push_bandwidth: 0, // infinite upload bandwidth allowed
+            max_inbound_messages_per_pass: 64, // handle up to 64 messages per peer per pass
+            max_inbound_processing_ms: 500, // spend up to 500ms per pass handling inbound messages
             max_sockets: 800,            // maximum number of client sockets we'll ever register
             public_ip_address: None,     // resolve it at runtime by default
             public_ip_request_timeout: 60, // how often we can attempt to look up our public IP address
