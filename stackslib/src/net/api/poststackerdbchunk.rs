@@ -46,11 +46,11 @@ impl RPCPostStackerDBChunkRequestHandler {
 
 /// Decode the HTTP request
 impl HttpRequest for RPCPostStackerDBChunkRequestHandler {
-    fn verb(&self) -> &'static str {
+    fn verb() -> &'static str {
         "POST"
     }
 
-    fn path_regex(&self) -> Regex {
+    fn path_regex() -> Regex {
         Regex::new(&format!(
             r#"^/v2/stackerdb/(?P<address>{})/(?P<contract>{})/chunks$"#,
             *STANDARD_PRINCIPAL_REGEX_STRING, *CONTRACT_NAME_REGEX_STRING

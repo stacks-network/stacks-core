@@ -320,11 +320,11 @@ impl RPCSimulatedTransaction {
 
 /// Decode the HTTP request
 impl HttpRequest for RPCTransactionSimulateRequestHandler {
-    fn verb(&self) -> &'static str {
+    fn verb() -> &'static str {
         "POST"
     }
 
-    fn path_regex(&self) -> Regex {
+    fn path_regex() -> Regex {
         Regex::new(r#"^/v3/transactions/simulate$"#).unwrap()
     }
 

@@ -424,11 +424,11 @@ impl HttpChunkGenerator for RPCTenureStream {
 
 /// Decode the HTTP request
 impl HttpRequest for RPCNakamotoTenureBlocksRequestHandler {
-    fn verb(&self) -> &'static str {
+    fn verb() -> &'static str {
         "GET"
     }
 
-    fn path_regex(&self) -> Regex {
+    fn path_regex() -> Regex {
         Regex::new(r#"^/v3/tenures/blocks/(?P<consensus_hash>[0-9a-f]{40})$"#).unwrap()
     }
 
