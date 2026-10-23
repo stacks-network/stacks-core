@@ -894,6 +894,12 @@ impl StacksEpochId {
         self >= &StacksEpochId::Epoch41
     }
 
+    /// Whether a `block-reward` lookup returns `none` until Nakamoto has written
+    /// the reward, instead of making the block invalid.
+    pub fn checks_block_reward_is_written(&self) -> bool {
+        self >= &StacksEpochId::Epoch41
+    }
+
     pub fn supports_call_with_constant(&self) -> bool {
         self >= &StacksEpochId::Epoch34
     }

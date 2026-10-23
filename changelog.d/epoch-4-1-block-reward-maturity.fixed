@@ -1,0 +1,1 @@
+From Epoch 4.1, a `block-reward` lookup in `get-tenure-info?` or Clarity 2 `get-block-info?` returns `none` instead of making the block invalid when Nakamoto has not recorded the reward yet, including for the one epoch 2.x block the Nakamoto handoff never records.

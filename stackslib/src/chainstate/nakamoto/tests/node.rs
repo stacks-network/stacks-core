@@ -392,11 +392,23 @@ impl TestStacksNode {
             self.nakamoto_commit_ops
                 .insert(last_tenure_id.clone(), self.nakamoto_blocks.len());
         } else {
-            // this extends the last tenure
-            self.nakamoto_commit_ops
-                .insert(last_tenure_id.clone(), self.nakamoto_blocks.len() - 1);
+            self.extend_last_tenure_with_commit(last_tenure_id.clone());
         }
         block_commit_op
+    }
+
+    /// Make the block-commit naming `last_tenure_id` extend the last tenure mined, so
+    /// the next tenure builds on that one. With no Nakamoto tenure yet, it builds on
+    /// the last epoch 2.x block instead.
+    pub fn extend_last_tenure_with_commit(&mut self, last_tenure_id: StacksBlockId) {
+        match self.nakamoto_blocks.len().checked_sub(1) {
+            Some(last_tenure) => {
+                self.nakamoto_commit_ops.insert(last_tenure_id, last_tenure);
+            }
+            None => {
+                self.nakamoto_commit_ops.remove(&last_tenure_id);
+            }
+        }
     }
 
     /// Record the nakamoto blocks as a new tenure
@@ -754,6 +766,7 @@ impl TestStacksNode {
                 &sortdb.index_handle_at_tip(),
                 txs,
                 &mut miner_setup,
+                false,
             )?;
             let try_to_process = after_block(&mut nakamoto_block);
             miner.sign_nakamoto_block(&mut nakamoto_block);
@@ -896,7 +909,8 @@ impl TestStacksNode {
             .collect())
     }
 
-    /// Build a Nakamoto block from `txs`.
+    /// Build a Nakamoto block from `txs`. A problematic transaction aborts the block,
+    /// unless `drop_problematic` is set, which drops it like other failing ones.
     ///
     /// `miner_setup` runs after tenure information and reward-set-dependent header defaults
     /// (including `pox_treatment`) are initialized, but before tenure execution begins. It can
@@ -908,6 +922,7 @@ impl TestStacksNode {
         burn_dbconn: &SortitionHandleConn,
         txs: Vec<StacksTransaction>,
         mut miner_setup: S,
+        drop_problematic: bool,
     ) -> Result<(NakamotoBlock, u64, ExecutionCost, RewardSet), ChainstateError>
     where
         S: FnMut(&mut NakamotoBlockBuilder),
@@ -978,6 +993,9 @@ impl TestStacksNode {
                             continue;
                         }
                         ChainstateError::ProblematicTransaction(txid) => {
+                            if drop_problematic {
+                                continue;
+                            }
                             test_debug!("Encountered problematic transaction. Aborting");
                             return Err(ChainstateError::ProblematicTransaction(txid));
                         }
@@ -990,6 +1008,9 @@ impl TestStacksNode {
                 TransactionResult::Problematic(TransactionProblematic { tx, .. }) => {
                     // drop from the mempool
                     debug!("Encountered problematic transaction {}", &tx.txid());
+                    if drop_problematic {
+                        continue;
+                    }
                     return Err(ChainstateError::ProblematicTransaction(tx.txid()));
                 }
             }
@@ -1114,7 +1135,8 @@ impl TestStacksNode {
     }
 
     /// Insert a staging Nakamoto block as a pushed block and
-    /// then process it as the next ready block
+    /// then process it as the next ready block. The caller records it as a new
+    /// tenure or an extension, so later blocks build on it.
     /// NOTE: Will panic if called with unprocessed staging
     /// blocks already in the queue.
     pub fn process_pushed_next_ready_block<'a>(
@@ -1167,11 +1189,6 @@ impl TestStacksNode {
             coord.dispatcher,
             coord.config.txindex,
         )?;
-        if res.is_some() {
-            // If we successfully processed the block, make sure we append the block to our current tenure
-            // so subsequent blocks do not attempt to reorg it.
-            stacks_node.add_nakamoto_extended_blocks(vec![nakamoto_block]);
-        }
         Ok(res)
     }
 }

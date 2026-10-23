@@ -2044,7 +2044,9 @@ For blocks mined after epoch 3.0, all Stacks blocks in one tenure will share the
 - `vrf-seed`: This property returns a `(buff 32)` value of the VRF seed for the corresponding block.
 
 - `block-reward`: This property returns a `uint` value for the total block reward of the indicated Stacks block.  This value is only available once the reward for
-the block matures.  That is, the latest `block-reward` value available is at least 101 Stacks blocks in the past (on mainnet).  The reward includes the coinbase,
+the block matures: it is `none` while the block is less than 101 Stacks blocks in the past.  From Epoch 4.1, it is also `none` until the tenure 100 tenures
+later has started before the current block; before, such a lookup made the block invalid (both counts on mainnet).  The reward of the epoch 2.x block 100
+below the last epoch 2.x block is never recorded, so from Epoch 4.1 that block returns `none`.  The reward includes the coinbase,
 the anchored block's transaction fees, and the shares of the confirmed and produced microblock transaction fees earned by this block's miner.  Note that this value may
 be smaller than the Stacks coinbase at this height, because the miner may have been punished with a valid `PoisonMicroblock` transaction in the event that the miner
 published two or more microblock stream forks. Added in Clarity 2.
@@ -2153,7 +2155,9 @@ from the burnchain block. **Note**: this does not increase monotonically with ea
 - `vrf-seed`: This property returns a `(buff 32)` value of the VRF seed for the corresponding tenure.
 
 - `block-reward`: This property returns a `uint` value for the total block reward of the indicated tenure.  This value is only available once the reward for
-the tenure matures.  That is, the latest `block-reward` value available is at least 101 Stacks blocks in the past (on mainnet).  The reward includes the coinbase,
+the tenure matures: it is `none` while the block is less than 101 Stacks blocks in the past.  From Epoch 4.1, it is also `none` until the tenure 100 tenures
+later has started before the current block; before, such a lookup made the block invalid (both counts on mainnet).  The reward of the epoch 2.x block 100
+below the last epoch 2.x block is never recorded, so from Epoch 4.1 that block returns `none`.  The reward includes the coinbase,
 the anchored tenure's transaction fees, and the shares of the confirmed and produced microblock transaction fees earned by this block's miner.  Note that this value may
 be smaller than the Stacks coinbase at this height, because the miner may have been punished with a valid `PoisonMicroblock` transaction in the event that the miner
 published two or more microblock stream forks.
