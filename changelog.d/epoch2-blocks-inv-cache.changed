@@ -1,0 +1,1 @@
+Once a node's Stacks tip is a Nakamoto block and the first Nakamoto reward cycle has ended, it caches the epoch 2.x block inventory data it uses to answer `GetBlocksInv` requests, instead of querying the chainstate for every request.

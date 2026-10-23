@@ -15,6 +15,7 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use std::cmp;
+use std::collections::hash_map::Entry;
 use std::collections::{HashMap, HashSet};
 
 use p2p::DropSource;
@@ -40,6 +41,59 @@ pub const INV_SYNC_INTERVAL: u64 = 150;
 pub const INV_SYNC_INTERVAL: u64 = 3;
 
 pub const INV_REWARD_CYCLES: u64 = 2;
+
+/// Cache of the chainstate data needed to answer `GetBlocksInv` requests.
+///
+/// Epoch 2.x staging blocks stop being processed or orphaned once the node's Stacks tip is a
+/// Nakamoto block and the first Nakamoto reward cycle has ended (see
+/// `PeerNetwork::epoch2_chainstate_is_final()`), so from then on each reward cycle's accepted
+/// blocks never change and only need to be loaded once.  Until then, every request is answered
+/// from the chainstate.
+#[derive(Debug, Default)]
+pub struct BlocksInvCache {
+    /// Map reward cycle to the output of
+    /// `StacksChainState::get_accepted_blocks_in_reward_cycle()` for it
+    accepted_blocks: HashMap<u64, HashMap<ConsensusHash, bool>>,
+}
+
+impl BlocksInvCache {
+    /// Generate the blocks inventory for `header_hashes`, which must all be in `reward_cycle`.
+    /// If `use_cache` is false, the epoch 2.x chainstate may still change, so the cache is cleared
+    /// and the inventory is loaded from the chainstate.
+    pub fn make_blocks_inventory(
+        &mut self,
+        chainstate: &StacksChainState,
+        burnchain: &Burnchain,
+        reward_cycle: u64,
+        header_hashes: &[(ConsensusHash, Option<BlockHeaderHash>)],
+        use_cache: bool,
+    ) -> Result<BlocksInvData, net_error> {
+        if !use_cache {
+            self.accepted_blocks.clear();
+            return Ok(chainstate.get_blocks_inventory_for_reward_cycle(
+                burnchain,
+                reward_cycle,
+                header_hashes,
+            )?);
+        }
+
+        let accepted_blocks = match self.accepted_blocks.entry(reward_cycle) {
+            Entry::Occupied(entry) => entry.into_mut(),
+            Entry::Vacant(entry) => entry
+                .insert(chainstate.get_accepted_blocks_in_reward_cycle(burnchain, reward_cycle)?),
+        };
+        Ok(StacksChainState::make_blocks_inventory(
+            header_hashes,
+            accepted_blocks,
+        ))
+    }
+
+    /// Is the given reward cycle cached?
+    #[cfg(test)]
+    pub fn is_cached(&self, reward_cycle: u64) -> bool {
+        self.accepted_blocks.contains_key(&reward_cycle)
+    }
+}
 
 #[derive(Debug, PartialEq, Clone)]
 pub struct PeerBlocksInv {

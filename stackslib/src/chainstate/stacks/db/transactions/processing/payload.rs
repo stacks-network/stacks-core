@@ -103,11 +103,11 @@ pub fn process(
             let epoch_id = clarity_tx.get_epoch();
 
             let contract_call_resp = clarity_tx.run_contract_call(
-                &origin_account.principal,
-                sponsor.as_ref(),
-                &contract_id,
+                origin_account.principal.clone(),
+                sponsor,
+                contract_id.clone(),
                 &contract_call.function_name,
-                &contract_call.function_args,
+                contract_call.function_args.clone(),
                 |asset_map, _| {
                     post_conditions::check(
                         &tx.post_conditions,

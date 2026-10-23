@@ -662,6 +662,9 @@ pub struct PeerNetwork {
     /// tenure inventories
     pub nakamoto_inv_generator: InvGenerator,
 
+    /// Epoch 2.x cache of chainstate data, for the purposes of generating block inventories
+    pub blocks_inv_cache: BlocksInvCache,
+
     /// Event IDs of p2p conversations with work left over from the last network pass: their
     /// inbox still had messages after `max_inbound_messages_per_pass`, their socket was left
     /// unread because of such a backlog, or the pass ran out of `max_inbound_processing_ms`
@@ -829,6 +832,7 @@ impl PeerNetwork {
             fault_last_disconnect: 0,
 
             nakamoto_inv_generator: InvGenerator::new(),
+            blocks_inv_cache: BlocksInvCache::default(),
 
             pending_inbound_convos: vec![],
 
@@ -3975,6 +3979,33 @@ impl PeerNetwork {
     /// that the epoch 2.x state machines are still needed to download the final epoch 2.x blocks.
     pub(crate) fn need_epoch2_state_machines(&self, epoch_id: StacksEpochId) -> bool {
         !(epoch_id >= StacksEpochId::Epoch30 && self.stacks_tip.is_nakamoto)
+    }
+
+    /// Can epoch 2.x blocks still be processed or orphaned by this node?
+    /// The chains coordinator keeps running its epoch 2.x handler throughout the first Nakamoto
+    /// reward cycle, and afterwards only until the Stacks tip is a Nakamoto block.  So the epoch
+    /// 2.x chainstate is final only once the Stacks tip is a Nakamoto block AND the burnchain tip
+    /// is past the first Nakamoto reward cycle.
+    pub(crate) fn epoch2_chainstate_is_final(&self) -> bool {
+        if !self.stacks_tip.is_nakamoto {
+            return false;
+        }
+        let Some(epoch3) = self.epochs.get(StacksEpochId::Epoch30) else {
+            return false;
+        };
+        let Some(first_nakamoto_reward_cycle) = self
+            .burnchain
+            .block_height_to_reward_cycle(epoch3.start_height)
+        else {
+            return false;
+        };
+        let Some(current_reward_cycle) = self
+            .burnchain
+            .block_height_to_reward_cycle(self.burnchain_tip.block_height)
+        else {
+            return false;
+        };
+        current_reward_cycle > first_nakamoto_reward_cycle
     }
 
     /// Do the actual work in the state machine.
