@@ -2919,6 +2919,22 @@ impl ConversationP2P {
         dns_client_opt: &mut Option<&mut DNSClient>,
         ibd: bool,
     ) -> Result<Vec<StacksMessage>, net_error> {
+        self.chat_until(network, sortdb, chainstate, dns_client_opt, ibd, None)
+    }
+
+    /// Like `chat()`, but also stops handling messages once `deadline_ms` (epoch milliseconds)
+    /// has passed, so one peer's batch can't run the network pass past its
+    /// `max_inbound_processing_ms` budget.  Always handles at least one message so the
+    /// conversation makes progress.
+    pub fn chat_until(
+        &mut self,
+        network: &mut PeerNetwork,
+        sortdb: &SortitionDB,
+        chainstate: &mut StacksChainState,
+        dns_client_opt: &mut Option<&mut DNSClient>,
+        ibd: bool,
+        deadline_ms: Option<u128>,
+    ) -> Result<Vec<StacksMessage>, net_error> {
         let num_inbound = self.connection.inbox_len();
         debug!("{:?}: {} messages pending", &self, num_inbound);
 
@@ -2938,7 +2954,19 @@ impl ConversationP2P {
         }
 
         let mut unsolicited = vec![];
-        for _ in 0..num_to_handle {
+        for num_handled in 0..num_to_handle {
+            if num_handled > 0
+                && deadline_ms.is_some_and(|deadline| get_epoch_time_ms() >= deadline)
+            {
+                debug!(
+                    "{:?}: out of time after handling {} messages; leaving {} queued for the next pass",
+                    &self,
+                    num_handled,
+                    self.connection.inbox_len()
+                );
+                break;
+            }
+
             let update_stats; // whether or not this message can count towards this peer's liveness stats
             let mut msg = match self.connection.next_inbox_message() {
                 None => {
@@ -4806,7 +4834,7 @@ mod test {
     }
 
     #[test]
-    fn convo_max_inbound_messages_per_pass() {
+    fn convo_chat_inbound_limits() {
         let conn_opts = ConnectionOptions::default();
         let conn_opts_2 = ConnectionOptions {
             max_inbound_messages_per_pass: 2,
@@ -4825,8 +4853,8 @@ mod test {
         };
         chain_view.make_test_data();
 
-        let test_name_1 = "convo_max_inbound_messages_per_pass_1";
-        let test_name_2 = "convo_max_inbound_messages_per_pass_2";
+        let test_name_1 = "convo_chat_inbound_limits_1";
+        let test_name_2 = "convo_chat_inbound_limits_2";
 
         let burnchain_1 = testing_burnchain_config(test_name_1);
         let burnchain_2 = testing_burnchain_config(test_name_2);
@@ -4926,11 +4954,24 @@ mod test {
         convo_send_recv(&mut convo_1, send_handles, &mut convo_2);
         assert_eq!(convo_2.connection.inbox_len(), 4);
 
-        // convo_2 handles two messages per pass, leaving the rest queued
+        // with the pass deadline already expired, convo_2 still makes progress on one message
+        convo_2
+            .chat_until(
+                &mut net_2,
+                &sortdb_2,
+                &mut chainstate_2,
+                &mut None,
+                false,
+                Some(0),
+            )
+            .unwrap();
+        assert_eq!(convo_2.connection.inbox_len(), 3);
+
+        // otherwise it handles two messages per pass, leaving the rest queued
         convo_2
             .chat(&mut net_2, &sortdb_2, &mut chainstate_2, &mut None, false)
             .unwrap();
-        assert_eq!(convo_2.connection.inbox_len(), 2);
+        assert_eq!(convo_2.connection.inbox_len(), 1);
 
         convo_2
             .chat(&mut net_2, &sortdb_2, &mut chainstate_2, &mut None, false)

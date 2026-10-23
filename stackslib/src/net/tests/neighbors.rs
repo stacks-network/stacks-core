@@ -25,6 +25,7 @@ use crate::core::{
     EpochList, StacksEpoch, StacksEpochId, PEER_VERSION_EPOCH_2_0, PEER_VERSION_EPOCH_2_05,
     STACKS_EPOCH_MAX,
 };
+use crate::net::connection::ReplyHandleP2P;
 use crate::net::db::*;
 use crate::net::neighbors::rpc::NeighborRPC;
 use crate::net::neighbors::*;
@@ -1840,5 +1841,109 @@ fn test_step_inbound_backlog_backpressure() {
 
         // and peer 2 is still connected
         assert!(peer_1.network.get_neighbor_convo(&nk_2).is_some());
+    })
+}
+
+/// When a neighbor's socket closes, every solicited reply it already sent is still delivered to
+/// its waiting handle, even if there are more replies queued than a pass would normally handle.
+#[test]
+fn test_step_drain_inbox_on_disconnect() {
+    with_timeout(600, || {
+        let mut peer_1_config = TestPeerConfig::new(function_name!(), 0, 0);
+        peer_1_config.connection_opts.max_inbound_messages_per_pass = 1;
+        let peer_2_config = TestPeerConfig::new(function_name!(), 0, 0);
+
+        let mut peer_1 = TestPeer::new(peer_1_config);
+        let mut peer_2 = TestPeer::new(peer_2_config);
+
+        peer_1.add_neighbor(&mut peer_2.to_neighbor(), None, true);
+
+        // wait for the peers to handshake
+        while peer_1
+            .network
+            .get_neighbor_stats(&peer_2.to_neighbor().addr)
+            .is_none_or(|stats| stats.last_handshake_time == 0)
+            || peer_2.network.peers.is_empty()
+        {
+            let _ = peer_1.step();
+            let _ = peer_2.step();
+        }
+
+        let nk_2 = peer_2.to_neighbor().addr;
+        let event_id_2 = *peer_2.network.peers.keys().next().unwrap();
+        let msgs_rx_2 = peer_2
+            .network
+            .get_p2p_convo(event_id_2)
+            .unwrap()
+            .stats
+            .msgs_rx;
+
+        // peer 1 sends a batch of pings and waits on their replies
+        let num_pings = 4;
+        let mut reply_handles = vec![];
+        for _ in 0..num_pings {
+            let ping = peer_1
+                .network
+                .sign_for_neighbor(&nk_2, StacksMessageType::Ping(PingData::new()))
+                .unwrap();
+            reply_handles.push(
+                peer_1
+                    .network
+                    .send_neighbor_message(&nk_2, ping, 60)
+                    .unwrap(),
+            );
+        }
+
+        // peer 2 receives them all and replies, while peer 1 leaves the replies on its socket
+        for _ in 0..100 {
+            let _ = peer_2.step();
+            let msgs_rx = peer_2
+                .network
+                .get_p2p_convo(event_id_2)
+                .unwrap()
+                .stats
+                .msgs_rx;
+            if msgs_rx >= msgs_rx_2 + num_pings {
+                break;
+            }
+        }
+
+        // peer 2 hangs up, so peer 1 reads all the replies followed by EOF
+        drop(peer_2.network.sockets.remove(&event_id_2));
+
+        let mut pongs = 0;
+        let mut poll_replies = |peer_1: &mut TestPeer, reply_handles: &mut Vec<ReplyHandleP2P>| {
+            for mut rh in std::mem::take(reply_handles) {
+                let _ = peer_1
+                    .network
+                    .saturate_p2p_socket(rh.get_event_id(), &mut rh);
+                match rh.try_send_recv() {
+                    Ok(reply) => {
+                        assert!(matches!(reply.payload, StacksMessageType::Pong(..)));
+                        pongs += 1;
+                    }
+                    Err(Ok(rh)) => reply_handles.push(rh),
+                    Err(Err(e)) => panic!("reply handle failed: {e:?}"),
+                }
+            }
+        };
+
+        // step peer 1 until it drops peer 2; it handles one message per pass, but a closed
+        // socket's inbox is drained in full
+        for _ in 0..100 {
+            let _ = peer_1.step();
+            poll_replies(&mut peer_1, &mut reply_handles);
+            if peer_1.network.get_neighbor_convo(&nk_2).is_none() {
+                break;
+            }
+        }
+        assert!(
+            peer_1.network.get_neighbor_convo(&nk_2).is_none(),
+            "peer 1 never dropped the disconnected peer 2"
+        );
+        poll_replies(&mut peer_1, &mut reply_handles);
+
+        assert_eq!(pongs, num_pings);
+        assert!(reply_handles.is_empty());
     })
 }
