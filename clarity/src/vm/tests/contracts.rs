@@ -1636,13 +1636,19 @@ fn test_runtime_name_resolution_order(
     {
         let (mut exec_env, invoke_ctx) =
             owned_env.get_exec_environment(None, None, &placeholder_context);
-        exec_env
-            .initialize_contract(
-                &invoke_ctx,
-                QualifiedContractIdentifier::local("contract").unwrap(),
-                contract,
-            )
-            .unwrap();
+        let init_result = exec_env.initialize_contract(
+            &invoke_ctx,
+            QualifiedContractIdentifier::local("contract").unwrap(),
+            contract,
+        );
+        if version.definition_sorter_probes_binding_names() {
+            let err =
+                init_result.expect_err("shadowing should be fully prevented from Clarity 7 on");
+            assert!(err.to_string().contains("NameAlreadyUsed(\"duplicate\")"));
+            return;
+        } else {
+            init_result.expect("before Clarity 7 this should have passed analysis");
+        }
     }
 
     let (mut exec_env, invoke_ctx) = owned_env.get_exec_environment(

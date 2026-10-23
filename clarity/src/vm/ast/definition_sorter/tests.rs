@@ -14,6 +14,9 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use std::assert_matches;
+
+use itertools::Itertools;
 #[cfg(test)]
 use rstest::rstest;
 #[cfg(test)]
@@ -30,6 +33,71 @@ use crate::vm::ast::types::ContractAST;
 use crate::vm::ast::{build_ast, parser};
 use crate::vm::tests::test_clarity_versions;
 use crate::vm::types::QualifiedContractIdentifier;
+
+/// Takes a clarity contract and returns every possible ordering
+/// of the top level expressions. It simply counts parentheses,
+/// so it won't work if you have parens in comments or strings.
+/// It's just for simple test cases.
+pub fn reorderings(contract: &str) -> Vec<String> {
+    let mut top_level_expressions = Vec::new();
+    let mut open_parens: Option<u64> = None;
+    let mut current = String::new();
+    for c in contract.chars() {
+        if c == '(' {
+            open_parens = Some(open_parens.unwrap_or(0) + 1);
+        }
+        if open_parens.is_some() {
+            current.push(c);
+        }
+
+        if c == ')' {
+            let Some(open) = open_parens else {
+                panic!("unbalanced parentheses");
+            };
+            if open == 1 {
+                // closing the last one
+                top_level_expressions.push(current);
+                current = String::new();
+                open_parens = None;
+            } else {
+                assert!(open > 1);
+                open_parens = Some(open - 1);
+            }
+        }
+    }
+    assert!(open_parens.is_none(), "unbalanced parentheses");
+    top_level_expressions
+        .iter()
+        .permutations(top_level_expressions.len())
+        .map(|p| p.into_iter().join("\n"))
+        .collect()
+}
+
+/// Asserts that no matter how the top-level expressions in the given
+/// contract are ordered, the behavior is the same. If `maybe_err_substr`
+/// is Some(), then contract analysis should fail with an error whose
+/// `.to_string()` contains that substring. If `maybe_err_substr` is None,
+/// then analysis should succeed.
+///
+/// The caveats from [`reorderings`] apply.
+pub fn same_behavior_regardless_of_order(contract: &str, maybe_err_substr: Option<&str>) {
+    for reordered in reorderings(contract) {
+        let result =
+            run_analysis_helper(contract, ClarityVersion::latest(), StacksEpochId::latest())
+                .map_err(|e| e.to_string());
+
+        if let Some(expected_err) = maybe_err_substr {
+            let err = result.expect_err("expected analysis to error");
+
+            assert!(
+                err.contains(expected_err),
+                "Expected error to contain \"{expected_err}\" but got \"{err}\" when analyzing \"{reordered}\""
+            );
+        } else {
+            result.unwrap_or_else(|_| panic!("Expected analysis to succeed on \"{reordered}\""));
+        }
+    }
+}
 
 fn run_scoped_parsing_helper(
     contract: &str,
@@ -129,7 +197,7 @@ fn should_raise_dependency_cycle_case_2(
 }
 
 #[apply(test_clarity_versions)]
-fn should_not_raise_dependency_cycle_case_let(
+fn should_not_raise_dependency_cycle_case_let_before_clarity_7(
     #[case] version: ClarityVersion,
     #[case] epoch: StacksEpochId,
 ) {
@@ -138,8 +206,13 @@ fn should_not_raise_dependency_cycle_case_let(
         (define-private (bar (x int)) (let ((foo 1)) (+ 1 x)))
     "#;
 
-    run_scoped_parsing_helper(contract, version, epoch).unwrap();
-    run_analysis_helper(contract, version, epoch).unwrap();
+    let result = run_scoped_parsing_helper(contract, version, epoch);
+    if version.definition_sorter_probes_binding_names() {
+        assert_matches!(*result.unwrap_err().err, ParseErrorKind::NameAlreadyUsed(_));
+    } else {
+        result.unwrap();
+        run_analysis_helper(contract, version, epoch).unwrap();
+    }
 }
 
 #[apply(test_clarity_versions)]
@@ -328,7 +401,15 @@ fn should_not_build_cycle_within_defined_args_types(
         (define-private (function-2 (function-1 int)) (+ 1 2))
     "#;
 
-    run_scoped_parsing_helper(contract, version, epoch).unwrap();
+    let result = run_scoped_parsing_helper(contract, version, epoch);
+    if version.definition_sorter_probes_binding_names() {
+        assert!(matches!(
+            *result.unwrap_err().err,
+            ParseErrorKind::NameAlreadyUsed(_)
+        ));
+    } else {
+        result.unwrap();
+    }
 }
 
 #[apply(test_clarity_versions)]
@@ -468,4 +549,45 @@ fn epoch41_native_function_name_in_function_position_is_not_a_dependency() {
     let ast = build_ast_at(contract, ClarityVersion::Clarity7, StacksEpochId::Epoch41).unwrap();
     let names = sorted_definition_names(&ast);
     assert_eq!(names, ["use-native", "slice?"], "sorted: {names:?}");
+}
+
+#[test]
+fn test_reordering_does_not_change_result() {
+    same_behavior_regardless_of_order(
+        "(define-read-only (g (c uint)) c)
+         (define-constant c u42)",
+        Some("NameAlreadyUsed(\\\"c\\\")"),
+    );
+
+    same_behavior_regardless_of_order(
+        "(define-read-only (g) (let ((c u7)) u1))
+         (define-constant c u42)
+         (define-constant d (g))",
+        Some("NameAlreadyUsed(\\\"c\\\")"),
+    );
+
+    same_behavior_regardless_of_order(
+        "(define-read-only (a) (b))
+         (define-read-only (b) (c))
+         (define-read-only (c) (a))",
+        Some("CircularReference([\\\"a\\\", \\\"b\\\", \\\"c\\\"])"),
+    );
+
+    same_behavior_regardless_of_order(
+        "(define-trait my-trait ((some-name (uint) (response uint uint))))
+         (define-read-only (foo) (let ((some-name \"abc\")) { some-name: some-name }))
+         (define-read-only (bar (some-name int)) { some-name: some-name })
+         (define-public (dispatch (some-name <my-trait>)) (contract-call? some-name some-name u99))
+         ",
+        None,
+    );
+
+    same_behavior_regardless_of_order(
+        "(define-constant dupe u7)
+         (define-trait my-trait ((dupe (uint) (response uint uint))))
+         (define-read-only (foo) { dupe: dupe })
+         (define-public (dispatch (target <my-trait>)) (contract-call? target dupe dupe))
+         ",
+        None,
+    );
 }

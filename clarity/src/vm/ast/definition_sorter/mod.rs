@@ -41,6 +41,16 @@ pub struct DefinitionSorter {
     epoch: StacksEpochId,
 }
 
+#[derive(PartialEq)]
+enum KeyValuePairKind {
+    /// This key-value-pair is a binding (`let` or parameter in function definition),
+    /// that is, its name has to be checked for collisions.
+    Binding,
+    /// This key-value-pair is a tuple field. Its name never depends on or clashes with
+    /// other definitions.
+    Tuple,
+}
+
 impl DefinitionSorter {
     fn new(epoch: StacksEpochId) -> Self {
         Self {
@@ -262,7 +272,12 @@ impl DefinitionSorter {
                                     // Args: [((name-1 value-1) (name-2 value-2)), ...]: handle 1st arg as a tuple
                                     if function_args.len() > 1 {
                                         if let Some(bindings) = function_args[0].match_list() {
-                                            self.probe_for_dependencies_in_list_of_wrapped_key_value_pairs(bindings.iter().collect(), tle_index, version)?;
+                                            self.probe_for_dependencies_in_list_of_wrapped_key_value_pairs(
+                                                bindings.iter().collect(),
+                                                tle_index,
+                                                version,
+                                                &KeyValuePairKind::Binding
+                                            )?;
                                         }
                                         for expr in function_args[1..function_args.len()].iter() {
                                             self.probe_for_dependencies(expr, tle_index, version)?;
@@ -287,6 +302,7 @@ impl DefinitionSorter {
                                         function_args,
                                         tle_index,
                                         version,
+                                        &KeyValuePairKind::Tuple,
                                     )?;
                                     return Ok(());
                                 }
@@ -372,7 +388,12 @@ impl DefinitionSorter {
         version: ClarityVersion,
     ) -> ParseResult<()> {
         for pair in pairs.chunks(2) {
-            self.probe_for_dependencies_in_key_value_pair(pair, tle_index, version)?;
+            self.probe_for_dependencies_in_key_value_pair(
+                pair,
+                tle_index,
+                version,
+                &KeyValuePairKind::Tuple,
+            )?;
         }
         Ok(())
     }
@@ -388,10 +409,14 @@ impl DefinitionSorter {
             // 1. (define-public func_name body)
             // 2. (define-public (func_name (arg uint) ...) body)
             // The goal here is to traverse case 2, looking for trait references
+            // as well as argument names that shadow globals
             if let Some((_, pairs)) = func_sig.split_first() {
                 let pairs_vec: Vec<&PreSymbolicExpression> = pairs.iter().collect();
                 self.probe_for_dependencies_in_list_of_wrapped_key_value_pairs(
-                    pairs_vec, tle_index, version,
+                    pairs_vec,
+                    tle_index,
+                    version,
+                    &KeyValuePairKind::Binding,
                 )?;
             }
         }
@@ -403,9 +428,10 @@ impl DefinitionSorter {
         pairs: Vec<&PreSymbolicExpression>,
         tle_index: usize,
         version: ClarityVersion,
+        kind: &KeyValuePairKind,
     ) -> ParseResult<()> {
         for pair in pairs.iter() {
-            self.probe_for_dependencies_in_wrapped_key_value_pairs(pair, tle_index, version)?;
+            self.probe_for_dependencies_in_wrapped_key_value_pairs(pair, tle_index, version, kind)?;
         }
         Ok(())
     }
@@ -415,9 +441,10 @@ impl DefinitionSorter {
         expr: &PreSymbolicExpression,
         tle_index: usize,
         version: ClarityVersion,
+        kind: &KeyValuePairKind,
     ) -> ParseResult<()> {
         if let Some(pair) = expr.match_list() {
-            self.probe_for_dependencies_in_key_value_pair(pair, tle_index, version)?;
+            self.probe_for_dependencies_in_key_value_pair(pair, tle_index, version, kind)?;
         }
         Ok(())
     }
@@ -427,9 +454,54 @@ impl DefinitionSorter {
         pair: &[PreSymbolicExpression],
         tle_index: usize,
         version: ClarityVersion,
+        kind: &KeyValuePairKind,
     ) -> ParseResult<()> {
         if pair.len() == 2 {
+            if *kind == KeyValuePairKind::Binding {
+                self.check_binding_name(&pair[0], version)?;
+            }
             self.probe_for_dependencies(&pair[1], tle_index, version)?;
+        }
+        Ok(())
+    }
+
+    /// Checks if the given pre-expression, which is the first item of a
+    /// key-value-pair that creates a binding, conflicts with an existing
+    /// global definition. If so, we immediately error out with
+    /// `NameAlreadyUsed`.
+    ///
+    /// Theoretically we could just insert a dependency edge instead. The
+    /// type checker would then be guaranteed to complain, because post-sorting,
+    /// the binding comes after the defintion. This would come with two
+    /// downsides however:
+    ///
+    /// 1. All other dependency probes check values, and that assumption is
+    ///    built-in into some code here (e.g. the allows_shadowable_reserved_names
+    ///    case).
+    /// 2. Say you have a function `a`, and you have a function `b` with a
+    ///    parameter called `a`. That's not allowed, but if we didn't error from
+    ///    right here, the error message would depend on whether `a` calls
+    ///    `b` or not. If no, the error is `NameAlreadyUsed`, but if it yes,
+    ///    the error is `CircularReference`. It's nicer for this to be consistent.
+    fn check_binding_name(
+        &self,
+        name_expr: &PreSymbolicExpression,
+        version: ClarityVersion,
+    ) -> ParseResult<()> {
+        if !version.definition_sorter_probes_binding_names() {
+            return Ok(());
+        }
+        if let Some(name) = name_expr.match_atom() {
+            if self.top_level_expressions_map.contains_key(name) {
+                return Err(ParseError::new(ParseErrorKind::NameAlreadyUsed(
+                    name.to_string(),
+                )));
+            }
+        } else {
+            // If it's not an atom, it's definitely wrong. The type checker's
+            // `handle_binding_list` will catch that error; we don't do it here
+            // because we don't know the exact type of the binding. The type
+            // checker can therefore return a more specific error message.
         }
         Ok(())
     }

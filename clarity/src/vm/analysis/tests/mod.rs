@@ -614,16 +614,25 @@ fn test_order_of_readonly_check_and_type_check() {
 }
 
 /// Checks that the analysis succeeds in 4.0 but fails in 4.1 with an error that
-/// contains the given substring. Helper for [`test_definition_sorting_of_contract_call`]`.
+/// contains the given substring. Helper for [`test_definition_sorting_of_contract_call`]
+/// and [`test_definition_sorting_of_binding_names`].
 fn assert_contract_starts_failing_in_epoch_41(snippet: &str, expected_error_41: &str) {
-    let result = mem_run_analysis(snippet, ClarityVersion::latest(), StacksEpochId::Epoch40);
+    let result = mem_run_analysis(
+        snippet,
+        ClarityVersion::default_for_epoch(StacksEpochId::Epoch40),
+        StacksEpochId::Epoch40,
+    );
     assert!(
         result.is_ok(),
         "expected to pass in Epoch 4.0 but got {}; contract: {snippet}",
         result.unwrap_err()
     );
 
-    let result = mem_run_analysis(snippet, ClarityVersion::latest(), StacksEpochId::Epoch41);
+    let result = mem_run_analysis(
+        snippet,
+        ClarityVersion::default_for_epoch(StacksEpochId::Epoch41),
+        StacksEpochId::Epoch41,
+    );
     match result {
         Err(e) => assert!(
             e.to_string().contains(expected_error_41),
@@ -636,7 +645,11 @@ fn assert_contract_starts_failing_in_epoch_41(snippet: &str, expected_error_41: 
 /// Checks that the analysis fails in both 4.0 and 4.1 with an error that
 /// contains the given substring. Helper for [`test_definition_sorting_of_contract_call`]`.
 fn assert_contract_fails_even_before_epoch_41(snippet: &str, expected_error: &str) {
-    let result = mem_run_analysis(snippet, ClarityVersion::latest(), StacksEpochId::Epoch40);
+    let result = mem_run_analysis(
+        snippet,
+        ClarityVersion::default_for_epoch(StacksEpochId::Epoch40),
+        StacksEpochId::Epoch40,
+    );
     match result {
         Err(e) => assert!(
             e.to_string().contains(expected_error),
@@ -645,7 +658,11 @@ fn assert_contract_fails_even_before_epoch_41(snippet: &str, expected_error: &st
         Ok(_) => panic!("should not succeed in Epoch 4.0"),
     };
 
-    let result = mem_run_analysis(snippet, ClarityVersion::latest(), StacksEpochId::Epoch41);
+    let result = mem_run_analysis(
+        snippet,
+        ClarityVersion::default_for_epoch(StacksEpochId::Epoch41),
+        StacksEpochId::Epoch41,
+    );
     match result {
         Err(e) => assert!(
             e.to_string().contains(expected_error),
@@ -671,7 +688,7 @@ fn test_definition_sorting_of_contract_call() {
     assert_contract_starts_failing_in_epoch_41(
         "(define-trait my-trait ((trait-func () (response uint uint))))
          (define-public (stuff (stuff <my-trait>)) (contract-call? stuff trait-func))",
-        "CircularReference",
+        "NameAlreadyUsed",
     );
 
     // These contracts define a global `thing` *after* a function with a parameter
@@ -736,6 +753,22 @@ fn test_definition_sorting_of_contract_call() {
         "(define-trait my-trait ((trait-func () (response uint uint))))
          (define-private (thing) 42)
          (define-public (stuff (target <my-trait>)) (let ((thing target)) (contract-call? thing trait-func)))",
+        "NameAlreadyUsed",
+    );
+}
+
+#[test]
+/// Asserts that name shadowing is detected even if, in source order, the global
+/// comes after the local. Before the fix, this passed analysis (and, usually,
+/// failed at runtime).
+///
+/// Technically, this fix applies to Clarity 7, not Epoch 4.1, but for
+/// analysis purposes, that's equivalent.
+fn test_definition_sorting_of_binding_names() {
+    assert_contract_starts_failing_in_epoch_41(
+        "(define-read-only (g) (let ((c u7)) u1))
+         (define-constant c u42)
+         (define-constant d (g))",
         "NameAlreadyUsed",
     );
 }
