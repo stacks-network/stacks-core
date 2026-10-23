@@ -1,0 +1,1 @@
+The Clarity v2 parser now reads tokens by reference instead of copying each token every time it is peeked or consumed, making `parser::v2::parse` about 10% faster on pox-4. Parse results and diagnostics are unchanged.
