@@ -41,6 +41,10 @@ use stacks_common::deps_common::bitcoin::network::serialize::{
 
 use crate::burnchains::rpc::rpc_transport::{RpcAuth, RpcError, RpcTransport};
 
+/// Timeout for mempool reads used to price block commits. These are optional
+/// observations, so they must not stall the miner.
+const MEMPOOL_RPC_TIMEOUT: Duration = Duration::from_secs(2);
+
 #[cfg(test)]
 pub mod test_utils;
 
@@ -390,6 +394,61 @@ pub enum BitcoinRpcClientError {
 pub type BitcoinRpcClientResult<T> = Result<T, BitcoinRpcClientError>;
 
 impl BitcoinRpcClient {
+    /// Read the Bitcoin relay policy. The caller validates the fixed-point fields.
+    pub fn get_mempool_info(&self) -> BitcoinRpcClientResult<serde_json::Value> {
+        Ok(self.endpoint.with_timeout(MEMPOOL_RPC_TIMEOUT).send(
+            &self.client_id,
+            None,
+            "getmempoolinfo",
+            vec![],
+        )?)
+    }
+
+    /// Identify the local spender of one owned outpoint without scanning attempt history.
+    pub fn get_tx_spending_prevout(
+        &self,
+        txid: &Txid,
+        vout: u32,
+    ) -> BitcoinRpcClientResult<Option<Txid>> {
+        let result: serde_json::Value = self.endpoint.with_timeout(MEMPOOL_RPC_TIMEOUT).send(
+            &self.client_id,
+            None,
+            "gettxspendingprevout",
+            vec![serde_json::json!([{"txid": txid.to_hex(), "vout": vout}])],
+        )?;
+        let rows = result
+            .as_array()
+            .filter(|a| a.len() == 1)
+            .ok_or(RpcError::InvalidJsonPayload)?;
+        if rows[0]["txid"].as_str() != Some(txid.to_hex().as_str())
+            || rows[0]["vout"].as_u64() != Some(u64::from(vout))
+        {
+            return Err(RpcError::InvalidJsonPayload.into());
+        }
+        rows[0]
+            .get("spendingtxid")
+            .map(|v| serde_json::from_value::<TxidWrapperResponse>(v.clone()).map(|r| r.0))
+            .transpose()
+            .map_err(Into::into)
+    }
+
+    /// Read a tracked conflict; only Bitcoin's explicit not-in-mempool code means absent.
+    pub fn get_mempool_entry(
+        &self,
+        txid: &Txid,
+    ) -> BitcoinRpcClientResult<Option<serde_json::Value>> {
+        match self.endpoint.with_timeout(MEMPOOL_RPC_TIMEOUT).send(
+            &self.client_id,
+            None,
+            "getmempoolentry",
+            vec![txid.to_hex().into()],
+        ) {
+            Ok(value) => Ok(Some(value)),
+            Err(RpcError::Service(error)) if error.code() == -5 => Ok(None),
+            Err(error) => Err(error.into()),
+        }
+    }
+
     /// Create a [`BitcoinRpcClient`] from Stacks Configuration, mainly using [`stacks::config::BurnchainConfig`]
     ///
     /// # Notes
