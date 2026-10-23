@@ -38,7 +38,7 @@ use crate::chainstate::stacks::miner::{
     BlockBuilder, BlockBuilderSettings, BlockLimitFunction, TransactionEvent,
     TransactionResourceBudgets, TransactionResult,
 };
-use crate::chainstate::stacks::{Error, StacksBlockHeader, *};
+use crate::chainstate::stacks::{Error, *};
 use crate::clarity_vm::clarity::ClarityInstance;
 use crate::config::{DEFAULT_CONTRACT_COST_LIMIT_PERCENTAGE, DEFAULT_MAX_TENURE_BYTES};
 use crate::core::mempool::*;
@@ -537,21 +537,9 @@ impl NakamotoBlockBuilder {
         Ok(clarity_tx)
     }
 
-    /// Finish up mining an epoch's transactions.
-    /// Return the ExecutionCost consumed so far.
+    /// Finish mining an epoch's transactions and return the [`ExecutionCost`] consumed so far.
     pub fn tenure_finish(self, tx: ClarityTx) -> Result<ExecutionCost, Error> {
-        let new_consensus_hash = MINER_BLOCK_CONSENSUS_HASH.clone();
-        let new_block_hash = MINER_BLOCK_HEADER_HASH.clone();
-
-        let index_block_hash =
-            StacksBlockHeader::make_index_block_hash(&new_consensus_hash, &new_block_hash);
-
-        // write out the trie...
-        let consumed = tx.commit_mined_block(&index_block_hash)?;
-
-        test_debug!("\n\nFinished mining. Trie is in mined_blocks table.\n",);
-
-        Ok(consumed)
+        Ok(tx.finish_block_proposal()?)
     }
 
     /// Finish constructing a Nakamoto block.

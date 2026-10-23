@@ -201,8 +201,7 @@ pub trait WritableMarfStore:
 ///
 /// The Stacks node commits tries for one of three purposes:
 /// * It processed a block, and needs to persist its trie in the chainstate proper.
-/// * It mined a block, and needs to persist its trie outside of the chainstate proper. The miner
-///   may build on it later.
+/// * It constructed or validated a proposal and needs to discard its speculative trie.
 /// * It processed an unconfirmed microblock (Stacks 2.x only), and needs to persist the
 ///   unconfirmed chainstate outside of the chainstate proper so that the microblock miner can
 ///   continue to build on it and the network can service RPC requests on its state.
@@ -249,14 +248,9 @@ pub trait ClarityMarfStoreTransaction {
     /// Returns Err(..) if there was an error in trying to persist this block trie.
     fn commit_to_processed_block(self, target: &StacksBlockId) -> Result<(), VmExecutionError>;
 
-    /// Store a mined block's trie that this transaction was creating.
-    /// This function is distinct from `commit_to_processed_block()` in that the stored block will
-    /// not be added to the chainstate. However, it must be persisted so that the node can later
-    /// build on it.
-    ///
-    /// Returns Ok(()) if the block trie was successfully persisted.
-    /// Returns Err(..) if there was an error trying to persist this MARF trie.
-    fn commit_to_mined_block(self, target: &StacksBlockId) -> Result<(), VmExecutionError>;
+    /// Finish a proposal by discarding its speculative trie and metadata.
+    /// Commits side-store values without publishing accepted chainstate.
+    fn finish_block_proposal(self) -> Result<(), VmExecutionError>;
 
     /// Persist the unconfirmed state trie so that other parts of the Stacks node can read from it
     /// (such as to handle pending transactions or process RPC requests on it).
@@ -1084,19 +1078,10 @@ impl<'a, 'b> ClarityBlockConnection<'a, 'b> {
         self.cost_track.unwrap()
     }
 
-    /// Commits all changes in the current block by
-    /// (1) committing the current MARF tip to storage,
-    /// (2) committing side-storage.
-    ///    before this saves, it updates the metadata headers in
-    ///    the sidestore so that they don't get stepped on after
-    ///    a miner re-executes a constructed block.
-    pub fn commit_mined_block(
-        self,
-        bhh: &StacksBlockId,
-    ) -> Result<LimitedCostTracker, ClarityError> {
-        debug!("Commit mined Clarity datastore to {}", bhh);
-        self.datastore.commit_to_mined_block(bhh)?;
-
+    /// Complete speculative block processing by discarding its trie and metadata.
+    /// Side-store values commit, but the block does not become readable accepted chainstate.
+    pub fn finish_block_proposal(self) -> Result<LimitedCostTracker, ClarityError> {
+        self.datastore.finish_block_proposal()?;
         Ok(self.cost_track.unwrap())
     }
 
