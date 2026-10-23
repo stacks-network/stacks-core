@@ -30,6 +30,7 @@ use crate::client::{retry_with_exponential_backoff, ClientError, StacksClient};
 use crate::config::{GlobalConfig, SignerConfig, SignerConfigMode};
 use crate::signerdb::BlockInfo;
 use crate::signerdb_pruner::SignerDbPruner;
+use crate::signerdb_shrink::maybe_shrink;
 use crate::v0::signer_state::LocalStateMachine;
 #[cfg(any(test, feature = "testing"))]
 use crate::v0::tests::TEST_SKIP_SIGNER_CLEANUP;
@@ -391,6 +392,12 @@ impl<Signer: SignerTrait<T>, T: StacksMessageCodec + Clone + Send + Debug> RunLo
     /// Create a new signer runloop from the provided configuration
     pub fn new(config: GlobalConfig) -> Self {
         let stacks_client = StacksClient::from(&config);
+        // Before the pruner below opens the first connection of this process
+        if config.db_shrink {
+            maybe_shrink(&config.db_path);
+        } else {
+            info!("Signer db shrinking is disabled in the config");
+        }
         let pruner = config.db_pruning.then(|| {
             SignerDbPruner::new(&config.db_path, Instant::now())
                 .expect("Failed to connect to the signer db for pruning")
