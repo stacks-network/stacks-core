@@ -138,27 +138,15 @@ impl ClarityMarfStoreTransaction for EphemeralMarfStore<'_> {
         Ok(())
     }
 
-    /// "Commit" the ephemeral MARF as if it were to be written to the `mined_blocks` table,
-    /// and consume this instance.  This is effectively a no-op since
-    /// nothing will hit disk, and all written data will be dropped.  However, we go through the
-    /// motions just in case any errors would be reported.
-    ///
-    /// Returns Ok(()) on success
-    /// Returns Err(VmInternalError(..)) on sqlite failure
-    fn commit_to_mined_block(mut self, target: &StacksBlockId) -> Result<(), VmExecutionError> {
+    /// Finish speculative execution without saving a trie; all writes remain ephemeral.
+    fn finish_block_proposal(mut self) -> Result<(), VmExecutionError> {
         if let Some(tip) = self.ephemeral_marf.get_open_chain_tip().cloned() {
-            // rollback the side_store
-            //    the side_store shouldn't commit data for blocks that won't be
-            //    included in the processed chainstate (like a block constructed during mining)
-            //    _if_ for some reason, we do want to be able to access that mined chain state in the future,
-            //    we should probably commit the data to a different table which does not have uniqueness constraints.
             self.drop_metadata_for_trie(&tip)?;
-            let _ = self.ephemeral_marf.commit_mined(target).map_err(|e| {
-                error!("Failed to commit to mined MARF block {target}: {e:?}",);
-                VmInternalError::Expect("Failed to commit to MARF block".into())
-            })?;
         }
-        Ok(())
+
+        self.ephemeral_marf
+            .discard_trie_and_commit()
+            .map_err(|e| VmInternalError::MarfFailure(e.to_string()).into())
     }
 
     /// "Commit" unconfirmed data to the ephemeral MARF as if it were to be written to unconfiremd

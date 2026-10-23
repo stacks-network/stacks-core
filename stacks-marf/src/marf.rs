@@ -339,21 +339,21 @@ impl<'a, T: MarfTrieId> MarfTransaction<'a, T> {
         Ok(())
     }
 
-    /// Finish writing the next trie in the MARF -- this is used by miners
-    ///   to commit the mined block, but write it to the mined_block table,
-    ///   rather than out to the marf_data table (this prevents the
-    ///   miner's block from getting stepped on after the sortition).
-    pub fn commit_mined(mut self, bhh: &T) -> Result<(), Error> {
+    /// Discard the provisional trie and commit the remaining SQL changes in this transaction.
+    ///
+    /// Clears transient trie state even on lock-release failure, so the placeholder can be reused.
+    pub fn discard_trie_and_commit(mut self) -> Result<(), Error> {
         if self.storage.readonly() {
             return Err(Error::ReadOnlyError);
         }
         if self.storage.unconfirmed() {
             return Err(Error::UnconfirmedError);
         }
-        if let Some(_tip) = self.open_chain_tip.take() {
-            self.storage.flush_mined(bhh)?;
-            self.storage.commit_tx();
-        }
+
+        self.open_chain_tip.take();
+        self.storage.discard_provisional_trie()?;
+        self.storage.commit_tx();
+
         Ok(())
     }
 
@@ -638,14 +638,10 @@ impl<'a, T: MarfTrieId> MarfTransaction<'a, T> {
 
     /// Drop the current trie from the MARF. This rolls back all
     ///   changes in the block, and closes the current chain tip.
-    pub fn drop_current(mut self) {
+    pub fn drop_current(self) {
         if !self.storage.readonly() {
-            self.storage.drop_extending_trie();
             self.open_chain_tip.take();
-            self.storage
-                .open_block(&T::sentinel())
-                .expect("BUG: should never fail to open the block sentinel");
-            self.storage.rollback()
+            self.storage.rollback_trie()
         }
     }
 
@@ -1603,25 +1599,6 @@ impl<T: MarfTrieId> MARF<T> {
         if let Some(_tip) = self.open_chain_tip.take() {
             let mut tx = self.storage.transaction()?;
             tx.flush()?;
-            tx.commit_tx();
-        }
-        Ok(())
-    }
-
-    /// Finish writing the next trie in the MARF -- this is used by miners
-    ///   to commit the mined block, but write it to the mined_block table,
-    ///   rather than out to the marf_data table (this prevents the
-    ///   miner's block from getting stepped on after the sortition).
-    pub fn commit_mined(&mut self, bhh: &T) -> Result<(), Error> {
-        if self.storage.readonly() {
-            return Err(Error::ReadOnlyError);
-        }
-        if self.storage.unconfirmed() {
-            return Err(Error::UnconfirmedError);
-        }
-        if let Some(_tip) = self.open_chain_tip.take() {
-            let mut tx = self.storage.transaction()?;
-            tx.flush_mined(bhh)?;
             tx.commit_tx();
         }
         Ok(())

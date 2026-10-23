@@ -182,7 +182,6 @@ impl<T: MarfTrieId> BlockMap for TrieSqlHashMapCursor<'_, T> {
 enum FlushOptions<'a, T: MarfTrieId> {
     CurrentHeader,
     NewHeader(&'a T),
-    MinedTable(&'a T),
     UnconfirmedTable,
 }
 
@@ -190,7 +189,6 @@ impl<T: MarfTrieId> fmt::Display for FlushOptions<'_, T> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
             FlushOptions::CurrentHeader => write!(f, "self"),
-            FlushOptions::MinedTable(bhh) => write!(f, "{}.mined", bhh),
             FlushOptions::NewHeader(bhh) => write!(f, "{}", bhh),
             FlushOptions::UnconfirmedTable => write!(f, "self.unconfirmed"),
         }
@@ -2065,12 +2063,6 @@ impl<'a, T: MarfTrieId> TrieStorageTransaction<'a, T> {
                     self.data.set_block(real_bhh.clone(), Some(new_block_id));
                     new_block_id
                 }
-                FlushOptions::MinedTable(real_bhh) => {
-                    if self.unconfirmed() {
-                        return Err(Error::UnconfirmedError);
-                    }
-                    trie_sql::write_trie_blob_to_mined(&self.db, real_bhh, &buffer)?
-                }
                 FlushOptions::UnconfirmedTable => {
                     if !self.unconfirmed() {
                         return Err(Error::UnconfirmedError);
@@ -2101,24 +2093,40 @@ impl<'a, T: MarfTrieId> TrieStorageTransaction<'a, T> {
         self.inner_flush(FlushOptions::NewHeader(bhh))
     }
 
-    /// Flush uncommitted state to disk for a mined block (i.e. not part of the chainstate, and not
-    /// an ancestor of any block), and do so under a given block hash.
-    pub fn flush_mined(&mut self, bhh: &T) -> Result<(), Error> {
-        self.inner_flush(FlushOptions::MinedTable(bhh))
-    }
-
     /// Drop the uncommitted state and any associated cached state.
     pub fn drop_extending_trie(&mut self) {
-        self.clear_cached_ancestor_hashes_bytes();
-        if !self.data.readonly {
-            if let Some((ref bhh, _)) = self.data.uncommitted_writes.take() {
-                trie_sql::drop_lock(&self.db, bhh)
-                    .expect("Corruption: Failed to drop the extended trie lock");
-            }
-            self.data.uncommitted_writes = None;
-            self.data.clear_block_id();
-            self.data.trie_ancestor_hash_bytes_cache = None;
+        if let Some(bhh) = self.clear_extending_trie() {
+            trie_sql::drop_lock(&self.db, &bhh)
+                .expect("Corruption: Failed to drop the extended trie lock");
         }
+    }
+
+    /// Discard the current extension and release its lock without committing.
+    ///
+    /// Lock-release failure leaves no trie to flush; the caller must roll back the transaction.
+    pub fn discard_provisional_trie(&mut self) -> Result<(), Error> {
+        if self.data.readonly {
+            return Err(Error::ReadOnlyError);
+        }
+
+        if let Some(bhh) = self.clear_extending_trie() {
+            trie_sql::drop_lock(&self.db, &bhh)?;
+        }
+
+        Ok(())
+    }
+
+    /// Remove transient trie state without SQL, returning the discarded extension's block hash.
+    fn clear_extending_trie(&mut self) -> Option<T> {
+        self.clear_cached_ancestor_hashes_bytes();
+
+        if self.data.readonly {
+            return None;
+        }
+
+        let trie = self.data.uncommitted_writes.take();
+        self.data.clear_block_id();
+        trie.map(|(bhh, _)| bhh)
     }
 
     /// Drop the unconfirmed state and uncommitted state.
@@ -2293,6 +2301,14 @@ impl<'a, T: MarfTrieId> TrieStorageTransaction<'a, T> {
                 );
             }
         }
+    }
+
+    /// Discard transient trie state and roll back SQL changes without issuing cleanup queries.
+    /// Locks acquired in this transaction are released by rollback.
+    pub fn rollback_trie(mut self) {
+        self.clear_extending_trie();
+        self.data.set_block(T::sentinel(), None);
+        self.rollback();
     }
 
     pub fn rollback(self) {
