@@ -25,6 +25,7 @@ use crate::core::{
     EpochList, StacksEpoch, StacksEpochId, PEER_VERSION_EPOCH_2_0, PEER_VERSION_EPOCH_2_05,
     STACKS_EPOCH_MAX,
 };
+use crate::net::connection::ReplyHandleP2P;
 use crate::net::db::*;
 use crate::net::neighbors::rpc::NeighborRPC;
 use crate::net::neighbors::*;
@@ -1668,5 +1669,304 @@ fn test_issue_concurrent_requests_in_different_state_machines() {
 
         run.store(false, Ordering::SeqCst);
         t.join().unwrap();
+    })
+}
+
+/// A peer that caps how many inbound messages it handles per pass still handles a burst of
+/// messages from a neighbor on later passes, even when no more data arrives on that socket.
+#[test]
+fn test_step_max_inbound_messages_per_pass() {
+    with_timeout(600, || {
+        let mut peer_1_config = TestPeerConfig::new(function_name!(), 0, 0);
+        peer_1_config.connection_opts.max_inbound_messages_per_pass = 1;
+        let peer_2_config = TestPeerConfig::new(function_name!(), 0, 0);
+
+        let mut peer_1 = TestPeer::new(peer_1_config);
+        let mut peer_2 = TestPeer::new(peer_2_config);
+
+        peer_1.add_neighbor(&mut peer_2.to_neighbor(), None, true);
+
+        // wait for the peers to handshake
+        while peer_1
+            .network
+            .get_neighbor_stats(&peer_2.to_neighbor().addr)
+            .is_none_or(|stats| stats.last_handshake_time == 0)
+            || peer_2.network.peers.is_empty()
+        {
+            let _ = peer_1.step();
+            let _ = peer_2.step();
+        }
+
+        // peer 2 sends a burst of messages that peer 1 won't reply to (so peer 1's socket won't
+        // become ready again on its own)
+        let num_msgs = 8;
+        let event_id_2 = *peer_2.network.peers.keys().next().unwrap();
+        for _ in 0..num_msgs {
+            let pong = peer_2
+                .network
+                .sign_for_p2p(
+                    event_id_2,
+                    StacksMessageType::Pong(PongData::from_ping(&PingData::new())),
+                )
+                .unwrap();
+            let nk_1 = peer_2
+                .network
+                .get_p2p_convo(event_id_2)
+                .unwrap()
+                .to_neighbor_key();
+            peer_2.network.relay_signed_message(&nk_1, pong).unwrap();
+        }
+
+        let inbox_len = |peer: &TestPeer| {
+            peer.network
+                .get_neighbor_convo(&peer_2.to_neighbor().addr)
+                .map(|convo| convo.connection.inbox_len())
+                .unwrap_or(0)
+        };
+
+        // peer 1 receives the burst, but only handles one message per pass
+        let mut received = false;
+        for _ in 0..100 {
+            let _ = peer_1.step();
+            if inbox_len(&peer_1) > 0 {
+                received = true;
+                break;
+            }
+        }
+        assert!(received, "peer 1 never received the burst of messages");
+        assert!(peer_1.network.has_pending_inbound_work());
+
+        // peer 1 keeps handling the queued messages without peer 2 sending anything more.
+        // The burst may arrive in several reads, and the socket isn't read again until the
+        // queued messages are handled, so keep stepping while the conversation is pending.
+        for _ in 0..(4 * num_msgs) {
+            if inbox_len(&peer_1) == 0 && !peer_1.network.has_pending_inbound_work() {
+                break;
+            }
+            let _ = peer_1.step();
+        }
+        assert_eq!(inbox_len(&peer_1), 0);
+        assert!(!peer_1.network.has_pending_inbound_work());
+    })
+}
+
+/// A peer that caps how many inbound messages it handles per pass stops reading from a
+/// neighbor's socket while it still has a backlog, so a sustained burst from that neighbor
+/// can't overflow its inbox and get the neighbor dropped.  Once the backlog drains, the rest of
+/// the burst is read and handled.
+#[test]
+fn test_step_inbound_backlog_backpressure() {
+    run_inbound_backlog_backpressure(function_name!(), false);
+}
+
+/// Like `test_step_inbound_backlog_backpressure`, but the per-pass message cap is disabled once
+/// the backlog exists (as if `max_inbound_processing_ms` had left it queued): the neighbor's
+/// socket must still not be read until the backlog drains.
+#[test]
+fn test_step_inbound_backlog_backpressure_without_message_cap() {
+    run_inbound_backlog_backpressure(function_name!(), true);
+}
+
+fn run_inbound_backlog_backpressure(test_name: &'static str, disable_cap_after_backlog: bool) {
+    with_timeout(600, move || {
+        let mut peer_1_config = TestPeerConfig::new(test_name, 0, 0);
+        peer_1_config.connection_opts.max_inbound_messages_per_pass = 1;
+        peer_1_config.connection_opts.inbox_maxlen = 8;
+        let peer_2_config = TestPeerConfig::new(test_name, 0, 0);
+
+        let mut peer_1 = TestPeer::new(peer_1_config);
+        let mut peer_2 = TestPeer::new(peer_2_config);
+
+        peer_1.add_neighbor(&mut peer_2.to_neighbor(), None, true);
+
+        // wait for the peers to handshake
+        while peer_1
+            .network
+            .get_neighbor_stats(&peer_2.to_neighbor().addr)
+            .is_none_or(|stats| stats.last_handshake_time == 0)
+            || peer_2.network.peers.is_empty()
+        {
+            let _ = peer_1.step();
+            let _ = peer_2.step();
+        }
+
+        let nk_2 = peer_2.to_neighbor().addr;
+        let event_id_2 = *peer_2.network.peers.keys().next().unwrap();
+        let nk_1 = peer_2
+            .network
+            .get_p2p_convo(event_id_2)
+            .unwrap()
+            .to_neighbor_key();
+
+        // messages peer 1 won't reply to, so its socket only becomes ready when peer 2 sends
+        let send_burst = |peer_2: &mut TestPeer, num_msgs: usize| {
+            for _ in 0..num_msgs {
+                let pong = peer_2
+                    .network
+                    .sign_for_p2p(
+                        event_id_2,
+                        StacksMessageType::Pong(PongData::from_ping(&PingData::new())),
+                    )
+                    .unwrap();
+                peer_2.network.relay_signed_message(&nk_1, pong).unwrap();
+            }
+        };
+
+        let inbox_len = |peer: &TestPeer| {
+            peer.network
+                .get_neighbor_convo(&nk_2)
+                .map(|convo| convo.connection.inbox_len())
+                .unwrap_or(0)
+        };
+
+        // first burst: peer 1 reads it all, handles one message per pass, and keeps a backlog
+        let burst_len = 6;
+        send_burst(&mut peer_2, burst_len);
+
+        let mut backlog = 0;
+        for _ in 0..100 {
+            let _ = peer_1.step();
+            backlog = inbox_len(&peer_1);
+            if backlog >= 3 {
+                break;
+            }
+        }
+        assert!(
+            backlog >= 3,
+            "peer 1 never built up a backlog from the burst"
+        );
+
+        if disable_cap_after_backlog {
+            peer_1.network.connection_opts.max_inbound_messages_per_pass = 0;
+            peer_1
+                .network
+                .get_neighbor_convo_mut(&nk_2)
+                .unwrap()
+                .connection
+                .options
+                .max_inbound_messages_per_pass = 0;
+        }
+
+        // second burst while the backlog is still queued: backlog + burst exceeds inbox_maxlen,
+        // so reading it into the inbox right away would overflow it and drop peer 2.
+        assert!(backlog + burst_len > peer_1.config.connection_opts.inbox_maxlen);
+        send_burst(&mut peer_2, burst_len);
+
+        // peer 1 drains its backlog before reading more, then reads and drains the second burst
+        for _ in 0..(4 * burst_len) {
+            if inbox_len(&peer_1) == 0 && !peer_1.network.has_pending_inbound_work() {
+                break;
+            }
+            let _ = peer_1.step();
+        }
+        assert_eq!(inbox_len(&peer_1), 0);
+        assert!(!peer_1.network.has_pending_inbound_work());
+
+        // and peer 2 is still connected
+        assert!(peer_1.network.get_neighbor_convo(&nk_2).is_some());
+    })
+}
+
+/// When a neighbor's socket closes, every solicited reply it already sent is still delivered to
+/// its waiting handle, even if there are more replies queued than a pass would normally handle.
+#[test]
+fn test_step_drain_inbox_on_disconnect() {
+    with_timeout(600, || {
+        let mut peer_1_config = TestPeerConfig::new(function_name!(), 0, 0);
+        peer_1_config.connection_opts.max_inbound_messages_per_pass = 1;
+        let peer_2_config = TestPeerConfig::new(function_name!(), 0, 0);
+
+        let mut peer_1 = TestPeer::new(peer_1_config);
+        let mut peer_2 = TestPeer::new(peer_2_config);
+
+        peer_1.add_neighbor(&mut peer_2.to_neighbor(), None, true);
+
+        // wait for the peers to handshake
+        while peer_1
+            .network
+            .get_neighbor_stats(&peer_2.to_neighbor().addr)
+            .is_none_or(|stats| stats.last_handshake_time == 0)
+            || peer_2.network.peers.is_empty()
+        {
+            let _ = peer_1.step();
+            let _ = peer_2.step();
+        }
+
+        let nk_2 = peer_2.to_neighbor().addr;
+        let event_id_2 = *peer_2.network.peers.keys().next().unwrap();
+        let msgs_rx_2 = peer_2
+            .network
+            .get_p2p_convo(event_id_2)
+            .unwrap()
+            .stats
+            .msgs_rx;
+
+        // peer 1 sends a batch of pings and waits on their replies
+        let num_pings = 4;
+        let mut reply_handles = vec![];
+        for _ in 0..num_pings {
+            let ping = peer_1
+                .network
+                .sign_for_neighbor(&nk_2, StacksMessageType::Ping(PingData::new()))
+                .unwrap();
+            reply_handles.push(
+                peer_1
+                    .network
+                    .send_neighbor_message(&nk_2, ping, 60)
+                    .unwrap(),
+            );
+        }
+
+        // peer 2 receives them all and replies, while peer 1 leaves the replies on its socket
+        for _ in 0..100 {
+            let _ = peer_2.step();
+            let msgs_rx = peer_2
+                .network
+                .get_p2p_convo(event_id_2)
+                .unwrap()
+                .stats
+                .msgs_rx;
+            if msgs_rx >= msgs_rx_2 + num_pings {
+                break;
+            }
+        }
+
+        // peer 2 hangs up, so peer 1 reads all the replies followed by EOF
+        drop(peer_2.network.sockets.remove(&event_id_2));
+
+        let mut pongs = 0;
+        let mut poll_replies = |peer_1: &mut TestPeer, reply_handles: &mut Vec<ReplyHandleP2P>| {
+            for mut rh in std::mem::take(reply_handles) {
+                let _ = peer_1
+                    .network
+                    .saturate_p2p_socket(rh.get_event_id(), &mut rh);
+                match rh.try_send_recv() {
+                    Ok(reply) => {
+                        assert!(matches!(reply.payload, StacksMessageType::Pong(..)));
+                        pongs += 1;
+                    }
+                    Err(Ok(rh)) => reply_handles.push(rh),
+                    Err(Err(e)) => panic!("reply handle failed: {e:?}"),
+                }
+            }
+        };
+
+        // step peer 1 until it drops peer 2; it handles one message per pass, but a closed
+        // socket's inbox is drained in full
+        for _ in 0..100 {
+            let _ = peer_1.step();
+            poll_replies(&mut peer_1, &mut reply_handles);
+            if peer_1.network.get_neighbor_convo(&nk_2).is_none() {
+                break;
+            }
+        }
+        assert!(
+            peer_1.network.get_neighbor_convo(&nk_2).is_none(),
+            "peer 1 never dropped the disconnected peer 2"
+        );
+        poll_replies(&mut peer_1, &mut reply_handles);
+
+        assert_eq!(pongs, num_pings);
+        assert!(reply_handles.is_empty());
     })
 }

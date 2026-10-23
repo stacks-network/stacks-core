@@ -3885,6 +3885,22 @@ pub struct ConnectionOptionsFile {
     /// @default: `0` (disabled)
     /// @units: bytes/second
     pub max_nakamoto_block_push_bandwidth: Option<u64>,
+
+    /// Maximum number of inbound p2p messages handled from a single peer in one
+    /// network pass. Messages beyond this stay queued and are handled in the next
+    /// pass. Zero disables the cap.
+    /// ---
+    /// @default: `64`
+    pub max_inbound_messages_per_pass: Option<usize>,
+
+    /// Maximum time spent handling inbound p2p messages in one network pass,
+    /// before the node moves on to the rest of the pass (inventory sync, block
+    /// downloads, StackerDB sync, ...). Peers not handled in time are handled
+    /// first in the next pass. Zero disables the limit.
+    /// ---
+    /// @default: `500`
+    /// @units: milliseconds
+    pub max_inbound_processing_ms: Option<u64>,
 }
 
 impl ConnectionOptionsFile {
@@ -4052,6 +4068,12 @@ impl ConnectionOptionsFile {
             max_nakamoto_block_push_bandwidth: self
                 .max_nakamoto_block_push_bandwidth
                 .unwrap_or(default.max_nakamoto_block_push_bandwidth),
+            max_inbound_messages_per_pass: self
+                .max_inbound_messages_per_pass
+                .unwrap_or(default.max_inbound_messages_per_pass),
+            max_inbound_processing_ms: self
+                .max_inbound_processing_ms
+                .unwrap_or(default.max_inbound_processing_ms),
             ..default
         })
     }
