@@ -88,6 +88,8 @@ monitoring_prom = ["prometheus"]
 slog_json = ["stacks-common/slog_json", "clarity/slog_json", "pox-locking/slog_json"]
 testing = ["chrono", "stacks-common/testing", "stacks-marf/testing", "clarity/testing"]
 profiler = ["perf-event2"]
+# Runtime benchmark controls (e.g. `/bench` RPCs)
+bench-hooks = []
 
 [target.'cfg(all(target_os = "linux", target_arch = "x86_64"))'.dependencies]
 perf-event2 = { version = "0.7.4", optional = true }

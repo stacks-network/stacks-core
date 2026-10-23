@@ -17,6 +17,8 @@ use crate::net::http::Error;
 use crate::net::httpcore::StacksHttp;
 use crate::net::Error as NetError;
 
+#[cfg(feature = "bench-hooks")]
+pub mod bench;
 pub mod blockreplay;
 pub mod blocksimulate;
 pub mod callreadonly;
@@ -79,6 +81,15 @@ impl StacksHttp {
     /// Register all RPC methods.
     /// Put your new RPC method handlers here.
     pub fn register_rpc_methods(&mut self) {
+        #[cfg(feature = "bench-hooks")]
+        {
+            self.register_rpc_endpoint(bench::miner::RPCBenchMinerStatusRequestHandler::new(
+                self.auth_token.clone(),
+            ));
+            self.register_rpc_endpoint(bench::miner::RPCBenchMinerCommandRequestHandler::new(
+                self.auth_token.clone(),
+            ));
+        }
         self.register_rpc_endpoint(blockreplay::RPCNakamotoBlockReplayRequestHandler::new(
             self.auth_token.clone(),
         ));

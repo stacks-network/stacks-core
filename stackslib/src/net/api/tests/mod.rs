@@ -62,6 +62,8 @@ use crate::net::{
     UrlString,
 };
 
+#[cfg(feature = "bench-hooks")]
+mod bench_miner;
 mod blockreplay;
 mod blocksimulate;
 mod callreadonly;
