@@ -30,9 +30,8 @@ use crate::vm::ast::stack_depth_checker::StackDepthLimits;
 use crate::vm::diagnostic::{DiagnosableError, Diagnostic, Level};
 use crate::vm::representations::{PreSymbolicExpression, Span};
 
-pub struct Parser<'a> {
-    lexer: Lexer<'a>,
-    tokens: Vec<PlacedToken>,
+pub struct Parser<'t> {
+    tokens: &'t [PlacedToken],
     next_token: usize,
     diagnostics: Vec<PlacedError>,
     success: bool,
@@ -46,6 +45,18 @@ pub struct Parser<'a> {
 
 pub const MAX_STRING_LEN: usize = 128;
 pub const MAX_CONTRACT_NAME_LEN: usize = 40;
+
+/// Returned by `Parser::peek_next_token` once the whole token stream, including its
+/// trailing `Token::Eof`, has been consumed.
+static PAST_END_EOF: PlacedToken = PlacedToken {
+    span: Span {
+        start_line: 1,
+        start_column: 1,
+        end_line: 1,
+        end_column: 1,
+    },
+    token: Token::Eof,
+};
 
 enum OpenTupleStatus {
     /// The next thing to parse is a key
@@ -65,9 +76,9 @@ struct OpenTuple {
     /// Is the next node is expected to be a key or value? All of the preparatory work is done _before_ the parse loop tries to digest the next
     /// node (i.e., whitespace ingestion and checking for commas)
     expects: OpenTupleStatus,
-    /// This is the last peeked token before trying to parse a key or value node, used for
+    /// The span of the last peeked token before trying to parse a key or value node, used for
     ///  diagnostic reporting
-    diagnostic_token: PlacedToken,
+    diagnostic_span: Span,
 }
 
 enum ParserStackElement {
@@ -79,56 +90,75 @@ enum ParserStackElement {
     OpenTuple(OpenTuple),
 }
 
-impl<'a> Parser<'a> {
-    pub fn new(
-        input: &'a str,
-        fail_fast: bool,
-        depth_limits: StackDepthLimits,
-    ) -> Result<Self, ParseErrorKind> {
-        let lexer = match Lexer::new(input, fail_fast) {
-            Ok(lexer) => lexer,
-            Err(e) => return Err(ParseErrorKind::Lexer(e)),
+/// A token stream produced by `lex`, which always ends with `Token::Eof`. Its fields are
+/// private so that every `Parser` reads such a stream.
+pub struct LexedTokens {
+    tokens: Vec<PlacedToken>,
+    fail_fast: bool,
+}
+
+/// The output of `lex`: the token stream, together with the lexer's diagnostics and success
+/// flag.
+pub struct LexedSource {
+    pub tokens: LexedTokens,
+    pub diagnostics: Vec<PlacedError>,
+    pub success: bool,
+}
+
+/// Lexes `input` into the token stream that a `Parser` reads.
+pub fn lex(input: &str, fail_fast: bool) -> Result<LexedSource, ParseErrorKind> {
+    let mut lexer = Lexer::new(input, fail_fast).map_err(ParseErrorKind::Lexer)?;
+    let mut tokens = vec![];
+    loop {
+        let token = match lexer.read_token() {
+            Ok(token) => token,
+            Err(e) => {
+                assert!(
+                    fail_fast,
+                    "Lexer::read_token should not return an error when not in fail_fast mode"
+                );
+                return Err(ParseErrorKind::Lexer(e));
+            }
         };
-        let mut p = Self {
-            lexer,
-            tokens: vec![],
+        let is_eof = token.token == Token::Eof;
+        tokens.push(token);
+        if is_eof {
+            break;
+        }
+    }
+    let diagnostics = lexer
+        .diagnostics
+        .iter()
+        .map(|lex_error| PlacedError {
+            e: ParseErrorKind::Lexer(lex_error.e.clone()),
+            span: lex_error.span.clone(),
+        })
+        .collect();
+    Ok(LexedSource {
+        tokens: LexedTokens { tokens, fail_fast },
+        diagnostics,
+        success: lexer.success,
+    })
+}
+
+impl<'t> Parser<'t> {
+    /// Creates a parser over `tokens`, in the same `fail_fast` mode they were lexed in.
+    /// `diagnostics` and `success` carry over the lexer's results.
+    pub fn new(
+        tokens: &'t LexedTokens,
+        diagnostics: Vec<PlacedError>,
+        success: bool,
+        depth_limits: StackDepthLimits,
+    ) -> Self {
+        Self {
+            tokens: &tokens.tokens,
             next_token: 0,
-            diagnostics: vec![],
-            success: true,
-            fail_fast,
+            diagnostics,
+            success,
+            fail_fast: tokens.fail_fast,
             nesting_depth: 0,
             depth_limits,
-        };
-
-        loop {
-            let token = match p.lexer.read_token() {
-                Ok(token) => token,
-                Err(e) => {
-                    assert!(
-                        fail_fast,
-                        "Parser::read_token should not return an error when not in fail_fast mode"
-                    );
-                    p.success = false;
-                    return Err(ParseErrorKind::Lexer(e));
-                }
-            };
-            if token.token == Token::Eof {
-                p.tokens.push(token);
-                break;
-            }
-            p.tokens.push(token);
         }
-        p.diagnostics = p
-            .lexer
-            .diagnostics
-            .iter()
-            .map(|lex_error| PlacedError {
-                e: ParseErrorKind::Lexer(lex_error.e.clone()),
-                span: lex_error.span.clone(),
-            })
-            .collect();
-        p.success = p.lexer.success;
-        Ok(p)
     }
 
     fn add_diagnostic(&mut self, e: ParseErrorKind, span: Span) -> ParseResult<()> {
@@ -143,34 +173,19 @@ impl<'a> Parser<'a> {
         Ok(())
     }
 
-    fn next_token(&mut self) -> Option<PlacedToken> {
-        if self.next_token >= self.tokens.len() {
-            return None;
-        }
-        let token = self.tokens[self.next_token].clone();
+    fn next_token(&mut self) -> Option<&'t PlacedToken> {
+        let token = self.tokens.get(self.next_token)?;
         self.next_token += 1;
         Some(token)
     }
 
-    fn peek_next_token(&mut self) -> PlacedToken {
-        if self.next_token >= self.tokens.len() {
-            PlacedToken {
-                span: Span {
-                    start_line: 1,
-                    start_column: 1,
-                    end_line: 1,
-                    end_column: 1,
-                },
-                token: Token::Eof,
-            }
-        } else {
-            self.tokens[self.next_token].clone()
-        }
+    fn peek_next_token(&self) -> &'t PlacedToken {
+        self.tokens.get(self.next_token).unwrap_or(&PAST_END_EOF)
     }
 
     /// Get a reference to the last processed token. If there is no last token,
     ///  raises an UnexpectedParserFailure.
-    fn peek_last_token(&self) -> ParseResult<&PlacedToken> {
+    fn peek_last_token(&self) -> ParseResult<&'t PlacedToken> {
         if self.next_token == 0 {
             return Err(ParseError::new(ParseErrorKind::UnexpectedParserFailure));
         }
@@ -251,8 +266,8 @@ impl<'a> Parser<'a> {
                     *whitespace = self.ignore_whitespace();
                     Ok(None)
                 } else {
-                    let token = self.peek_last_token()?.clone();
-                    match token.token {
+                    let token = self.peek_last_token()?;
+                    match &token.token {
                         Token::Rparen => {
                             span.end_line = token.span.end_line;
                             span.end_column = token.span.end_column;
@@ -282,7 +297,7 @@ impl<'a> Parser<'a> {
                             // Report an error, then skip this token
                             self.add_diagnostic(
                                 ParseErrorKind::UnexpectedToken(token.token.clone()),
-                                token.span,
+                                token.span.clone(),
                             )?;
                             *whitespace = self.ignore_whitespace();
                             Ok(None)
@@ -312,12 +327,12 @@ impl<'a> Parser<'a> {
                         // mimic parse_node_or_eof() behavior
                         //  if last token was an EOF, error out the tuple
                         //  if the last token was something else, just yield back to the parse loop
-                        let last_token = self.peek_last_token()?.clone();
-                        match last_token.token {
+                        let last_token = self.peek_last_token()?;
+                        match &last_token.token {
                             Token::Eof => {
                                 self.add_diagnostic(
                                     ParseErrorKind::ExpectedClosing(Token::Rbrace),
-                                    open_tuple.diagnostic_token.span.clone(),
+                                    open_tuple.diagnostic_span.clone(),
                                 )?;
                                 self.add_diagnostic(
                                     ParseErrorKind::NoteToMatchThis(Token::Lbrace),
@@ -334,8 +349,8 @@ impl<'a> Parser<'a> {
                             _ => {
                                 // Report an error, then skip this token
                                 self.add_diagnostic(
-                                    ParseErrorKind::UnexpectedToken(last_token.token),
-                                    last_token.span,
+                                    ParseErrorKind::UnexpectedToken(last_token.token.clone()),
+                                    last_token.span.clone(),
                                 )?;
                                 return Ok(None); // Ok(None) yields to the parse loop
                             }
@@ -350,7 +365,7 @@ impl<'a> Parser<'a> {
 
                 // Look for ':'
                 let token = self.peek_next_token();
-                match token.token {
+                match &token.token {
                     Token::Colon => {
                         self.next_token();
                     }
@@ -381,7 +396,7 @@ impl<'a> Parser<'a> {
                         )?;
                     }
                 }
-                open_tuple.diagnostic_token = token;
+                open_tuple.diagnostic_span = token.span.clone();
 
                 let mut comments = self.ignore_whitespace_and_comments();
                 open_tuple.nodes.append(&mut comments);
@@ -397,36 +412,34 @@ impl<'a> Parser<'a> {
                         // mimic parse_node_or_eof() behavior
                         //  if last token was an EOF, error out the tuple
                         //  if the last token was something else, just yield back to the parse loop
-                        let last_token = self.peek_last_token()?.clone();
-                        match last_token.token {
+                        let last_token = self.peek_last_token()?;
+                        match &last_token.token {
                             Token::Eof => {
                                 // This indicates we have reached the end of the input.
                                 // Create a placeholder value so that parsing can continue,
                                 // then return.
-                                let eof_span = last_token.span;
+                                let eof_span = &last_token.span;
 
                                 self.add_diagnostic(
                                     ParseErrorKind::TupleValueExpected,
-                                    open_tuple.diagnostic_token.span.clone(),
+                                    open_tuple.diagnostic_span.clone(),
                                 )?;
                                 let mut placeholder =
                                     PreSymbolicExpression::placeholder("".to_string());
-                                placeholder.copy_span(&eof_span);
+                                placeholder.copy_span(eof_span);
                                 open_tuple.nodes.push(placeholder); // Placeholder value
                                 let out_nodes = mem::take(&mut open_tuple.nodes);
                                 let mut e = PreSymbolicExpression::tuple(out_nodes);
-                                open_tuple.span.end_line =
-                                    open_tuple.diagnostic_token.span.end_line;
-                                open_tuple.span.end_column =
-                                    open_tuple.diagnostic_token.span.end_column;
+                                open_tuple.span.end_line = open_tuple.diagnostic_span.end_line;
+                                open_tuple.span.end_column = open_tuple.diagnostic_span.end_column;
                                 e.copy_span(&open_tuple.span);
                                 return Ok(Some(e));
                             }
                             _ => {
                                 // Report an error, then skip this token
                                 self.add_diagnostic(
-                                    ParseErrorKind::UnexpectedToken(last_token.token),
-                                    last_token.span,
+                                    ParseErrorKind::UnexpectedToken(last_token.token.clone()),
+                                    last_token.span.clone(),
                                 )?;
                                 return Ok(None); // Ok(None) yields to the parse loop
                             }
@@ -440,7 +453,7 @@ impl<'a> Parser<'a> {
                 open_tuple.nodes.append(&mut comments);
 
                 let token = self.peek_next_token();
-                match token.token {
+                match &token.token {
                     Token::Comma => {
                         self.next_token();
                     }
@@ -454,7 +467,8 @@ impl<'a> Parser<'a> {
                         return Ok(Some(e));
                     }
                     Token::Eof => (),
-                    _ => self.add_diagnostic(ParseErrorKind::TupleCommaExpectedv2, token.span)?,
+                    _ => self
+                        .add_diagnostic(ParseErrorKind::TupleCommaExpectedv2, token.span.clone())?,
                 }
 
                 let mut comments = self.ignore_whitespace_and_comments();
@@ -471,7 +485,7 @@ impl<'a> Parser<'a> {
                     e.copy_span(&open_tuple.span);
                     return Ok(Some(e));
                 }
-                open_tuple.diagnostic_token = token;
+                open_tuple.diagnostic_span = token.span.clone();
 
                 let mut comments = self.ignore_whitespace_and_comments();
                 open_tuple.nodes.append(&mut comments);
@@ -484,63 +498,61 @@ impl<'a> Parser<'a> {
 
     /// Do all the preprocessing required to setup tuple parsing. If the tuple immediately
     /// closes, return the final expression here, otherwise, return OpenTuple.
-    fn open_tuple(&mut self, lbrace: PlacedToken) -> ParseResult<SetupTupleResult> {
-        let mut open_tuple = OpenTuple {
-            nodes: vec![],
-            span: lbrace.span,
-            expects: OpenTupleStatus::ParseKey,
-            diagnostic_token: self.peek_next_token(),
-        };
+    fn open_tuple(&mut self, lbrace: &PlacedToken) -> ParseResult<SetupTupleResult> {
+        let mut nodes = vec![];
+        let mut span = lbrace.span.clone();
 
         // do all the preprocessing required before the first key node
         let mut comments = self.ignore_whitespace_and_comments();
-        open_tuple.nodes.append(&mut comments);
+        nodes.append(&mut comments);
         let token = self.peek_next_token();
-        match token.token {
+        match &token.token {
             Token::Comma => {
-                self.add_diagnostic(ParseErrorKind::UnexpectedToken(token.token), token.span)?;
+                self.add_diagnostic(
+                    ParseErrorKind::UnexpectedToken(token.token.clone()),
+                    token.span.clone(),
+                )?;
                 self.next_token();
             }
             Token::Rbrace => {
-                open_tuple.span.end_line = token.span.end_line;
-                open_tuple.span.end_column = token.span.end_column;
+                span.end_line = token.span.end_line;
+                span.end_column = token.span.end_column;
                 self.next_token();
-                let out_nodes = mem::take(&mut open_tuple.nodes);
-                let mut e = PreSymbolicExpression::tuple(out_nodes);
-                e.copy_span(&open_tuple.span);
+                let mut e = PreSymbolicExpression::tuple(nodes);
+                e.copy_span(&span);
                 return Ok(SetupTupleResult::Closed(e));
             }
             _ => (),
         };
 
         let mut comments = self.ignore_whitespace_and_comments();
-        open_tuple.nodes.append(&mut comments);
+        nodes.append(&mut comments);
 
         // A comma is allowed after the last pair in the tuple -- check for this case.
         let token = self.peek_next_token();
         if token.token == Token::Rbrace {
-            open_tuple.span.end_line = token.span.end_line;
-            open_tuple.span.end_column = token.span.end_column;
+            span.end_line = token.span.end_line;
+            span.end_column = token.span.end_column;
             self.next_token();
-            let out_nodes = mem::take(&mut open_tuple.nodes);
-            let mut e = PreSymbolicExpression::tuple(out_nodes);
-            e.copy_span(&open_tuple.span);
+            let mut e = PreSymbolicExpression::tuple(nodes);
+            e.copy_span(&span);
             return Ok(SetupTupleResult::Closed(e));
         }
-        open_tuple.diagnostic_token = token;
+        let diagnostic_span = token.span.clone();
 
         let mut comments = self.ignore_whitespace_and_comments();
-        open_tuple.nodes.append(&mut comments);
+        nodes.append(&mut comments);
 
-        Ok(SetupTupleResult::OpenTuple(open_tuple))
+        Ok(SetupTupleResult::OpenTuple(OpenTuple {
+            nodes,
+            span,
+            expects: OpenTupleStatus::ParseKey,
+            diagnostic_span,
+        }))
     }
 
-    fn read_principal(
-        &mut self,
-        addr: String,
-        mut span: Span,
-    ) -> ParseResult<PreSymbolicExpression> {
-        let principal = match PrincipalData::parse_standard_principal(&addr) {
+    fn read_principal(&mut self, addr: &str, mut span: Span) -> ParseResult<PreSymbolicExpression> {
+        let principal = match PrincipalData::parse_standard_principal(addr) {
             Ok(principal) => principal,
             _ => {
                 self.add_diagnostic(ParseErrorKind::InvalidPrincipalLiteral, span.clone())?;
@@ -569,7 +581,10 @@ impl<'a> Parser<'a> {
                 }) => {
                     span.end_line = token_span.end_line;
                     span.end_column = token_span.end_column;
-                    self.add_diagnostic(ParseErrorKind::ExpectedContractIdentifier, token_span)?;
+                    self.add_diagnostic(
+                        ParseErrorKind::ExpectedContractIdentifier,
+                        token_span.clone(),
+                    )?;
                     let mut placeholder = PreSymbolicExpression::placeholder(format!(
                         "'{principal}.{}",
                         token.reproduce()
@@ -578,7 +593,10 @@ impl<'a> Parser<'a> {
                     return Ok(placeholder);
                 }
                 None => {
-                    self.add_diagnostic(ParseErrorKind::ExpectedContractIdentifier, dot.span)?;
+                    self.add_diagnostic(
+                        ParseErrorKind::ExpectedContractIdentifier,
+                        dot.span.clone(),
+                    )?;
                     let mut placeholder =
                         PreSymbolicExpression::placeholder(format!("'{principal}."));
                     placeholder.copy_span(&span);
@@ -589,7 +607,7 @@ impl<'a> Parser<'a> {
             if name.len() > MAX_CONTRACT_NAME_LEN {
                 self.add_diagnostic(
                     ParseErrorKind::ContractNameTooLong(name.clone()),
-                    contract_span,
+                    contract_span.clone(),
                 )?;
                 let mut placeholder =
                     PreSymbolicExpression::placeholder(format!("'{principal}.{name}"));
@@ -601,7 +619,7 @@ impl<'a> Parser<'a> {
                 Err(_) => {
                     self.add_diagnostic(
                         ParseErrorKind::IllegalContractName(name.clone()),
-                        contract_span,
+                        contract_span.clone(),
                     )?;
                     let mut placeholder =
                         PreSymbolicExpression::placeholder(format!("'{principal}.{name}"));
@@ -655,7 +673,10 @@ impl<'a> Parser<'a> {
                     }
                 };
                 if name.len() > MAX_STRING_LEN {
-                    self.add_diagnostic(ParseErrorKind::NameTooLong(name.clone()), trait_span)?;
+                    self.add_diagnostic(
+                        ParseErrorKind::NameTooLong(name.clone()),
+                        trait_span.clone(),
+                    )?;
                     let mut placeholder =
                         PreSymbolicExpression::placeholder(format!("'{contract_id}.{name}",));
                     placeholder.copy_span(&span);
@@ -666,7 +687,7 @@ impl<'a> Parser<'a> {
                     Err(_) => {
                         self.add_diagnostic(
                             ParseErrorKind::IllegalTraitName(name.clone()),
-                            trait_span,
+                            trait_span.clone(),
                         )?;
                         let mut placeholder =
                             PreSymbolicExpression::placeholder(format!("'{contract_id}.{name}",));
@@ -745,7 +766,7 @@ impl<'a> Parser<'a> {
             Err(_) => {
                 self.add_diagnostic(
                     ParseErrorKind::IllegalContractName(name.clone()),
-                    contract_span,
+                    contract_span.clone(),
                 )?;
                 let mut placeholder = PreSymbolicExpression::placeholder(format!(".{name}"));
                 placeholder.copy_span(&span);
@@ -794,7 +815,10 @@ impl<'a> Parser<'a> {
                 }
             };
             if name.len() > MAX_STRING_LEN {
-                self.add_diagnostic(ParseErrorKind::NameTooLong(name.clone()), trait_span)?;
+                self.add_diagnostic(
+                    ParseErrorKind::NameTooLong(name.clone()),
+                    trait_span.clone(),
+                )?;
                 let mut placeholder =
                     PreSymbolicExpression::placeholder(format!(".{contract_name}.{name}"));
                 placeholder.copy_span(&span);
@@ -805,7 +829,7 @@ impl<'a> Parser<'a> {
                 Err(_) => {
                     self.add_diagnostic(
                         ParseErrorKind::IllegalTraitName(name.clone()),
-                        trait_span,
+                        trait_span.clone(),
                     )?;
                     let mut placeholder =
                         PreSymbolicExpression::placeholder(format!(".{contract_name}.{name}"));
@@ -1022,7 +1046,7 @@ impl<'a> Parser<'a> {
                             Some(expr)
                         }
                         Token::Principal(addr) => {
-                            let expr = self.read_principal(addr.clone(), token.span.clone())?;
+                            let expr = self.read_principal(addr, token.span.clone())?;
                             Some(expr)
                         }
                         Token::Dot => {
@@ -1100,14 +1124,14 @@ impl<'a> Parser<'a> {
             match self.parse_node()? {
                 Some(node) => break Ok(Some(node)),
                 None => {
-                    let token = self.tokens[self.next_token - 1].clone();
-                    match token.token {
+                    let token = self.peek_last_token()?;
+                    match &token.token {
                         Token::Eof => break Ok(None),
                         _ => {
                             // Report an error, then skip this token
                             self.add_diagnostic(
-                                ParseErrorKind::UnexpectedToken(token.token),
-                                token.span,
+                                ParseErrorKind::UnexpectedToken(token.token.clone()),
+                                token.span.clone(),
                             )?;
                         }
                     }
@@ -1130,10 +1154,12 @@ pub fn parse(
     input: &str,
     depth_limits: StackDepthLimits,
 ) -> ParseResult<Vec<PreSymbolicExpression>> {
-    let mut parser = match Parser::new(input, true, depth_limits) {
-        Ok(parser) => parser,
-        Err(e) => return Err(ParseError::new(e)),
-    };
+    let LexedSource {
+        tokens,
+        diagnostics,
+        success,
+    } = lex(input, true).map_err(ParseError::new)?;
+    let mut parser = Parser::new(&tokens, diagnostics, success, depth_limits);
     let stmts = parser.parse()?;
     if parser.success {
         Ok(stmts)
@@ -1148,8 +1174,13 @@ pub fn parse_collect_diagnostics(
     input: &str,
     depth_limits: StackDepthLimits,
 ) -> (Vec<PreSymbolicExpression>, Vec<Diagnostic>, bool) {
-    // When not in fail_fast mode, Parser::new always returns Ok.
-    let mut parser = Parser::new(input, false, depth_limits).unwrap();
+    // When not in fail_fast mode, lex always returns Ok.
+    let LexedSource {
+        tokens,
+        diagnostics,
+        success,
+    } = lex(input, false).unwrap();
+    let mut parser = Parser::new(&tokens, diagnostics, success, depth_limits);
 
     // When not in fail_fast mode, Parser::parse always returns Ok.
     let stmts = parser.parse().unwrap();
