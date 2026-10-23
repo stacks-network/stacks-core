@@ -46,8 +46,7 @@ pub struct Parser<'t> {
 pub const MAX_STRING_LEN: usize = 128;
 pub const MAX_CONTRACT_NAME_LEN: usize = 40;
 
-/// Returned by `Parser::peek_next_token` once the whole token stream, including its
-/// trailing `Token::Eof`, has been consumed.
+/// Returned when peeking past the end of the token stream.
 static PAST_END_EOF: PlacedToken = PlacedToken {
     span: Span {
         start_line: 1,
@@ -90,22 +89,18 @@ enum ParserStackElement {
     OpenTuple(OpenTuple),
 }
 
-/// A token stream produced by `lex`, which always ends with `Token::Eof`. Its fields are
-/// private so that every `Parser` reads such a stream.
+/// Private fields: only `lex` builds one, so it always ends with `Token::Eof`.
 pub struct LexedTokens {
     tokens: Vec<PlacedToken>,
     fail_fast: bool,
 }
 
-/// The output of `lex`: the token stream, together with the lexer's diagnostics and success
-/// flag.
 pub struct LexedSource {
     pub tokens: LexedTokens,
     pub diagnostics: Vec<PlacedError>,
     pub success: bool,
 }
 
-/// Lexes `input` into the token stream that a `Parser` reads.
 pub fn lex(input: &str, fail_fast: bool) -> Result<LexedSource, ParseErrorKind> {
     let mut lexer = Lexer::new(input, fail_fast).map_err(ParseErrorKind::Lexer)?;
     let mut tokens = vec![];
@@ -142,8 +137,6 @@ pub fn lex(input: &str, fail_fast: bool) -> Result<LexedSource, ParseErrorKind> 
 }
 
 impl<'t> Parser<'t> {
-    /// Creates a parser over `tokens`, in the same `fail_fast` mode they were lexed in.
-    /// `diagnostics` and `success` carry over the lexer's results.
     pub fn new(
         tokens: &'t LexedTokens,
         diagnostics: Vec<PlacedError>,
