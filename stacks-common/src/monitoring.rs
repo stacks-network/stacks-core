@@ -15,13 +15,11 @@
 
 use std::collections::HashMap;
 
-use prometheus::{opts, register_int_gauge, IntGauge};
-
 use crate::versions::{CUSTOM_VERSION_STRING, GIT_COMMIT, STACKS_NODE_VERSION};
 
-/// Register one build-info series with value 1. Call once per process.
-pub fn register_build_info(version: String) -> IntGauge {
-    let labels = HashMap::from([
+/// Return the compile-time metadata labels for the build-info metric.
+pub fn build_info_labels(version: String) -> HashMap<String, String> {
+    HashMap::from([
         ("version".into(), version),
         (
             "stacks_node_version".into(),
@@ -34,13 +32,5 @@ pub fn register_build_info(version: String) -> IntGauge {
             "custom_version".into(),
             CUSTOM_VERSION_STRING.unwrap_or("").into(),
         ),
-    ]);
-    let metric = register_int_gauge!(opts!(
-        "stacks_build_info",
-        "Build information for the Stacks process."
-    )
-    .const_labels(labels))
-    .unwrap();
-    metric.set(1);
-    metric
+    ])
 }

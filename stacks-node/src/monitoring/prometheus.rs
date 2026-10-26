@@ -1,17 +1,29 @@
-use std::sync::LazyLock;
-
 use async_std::net::{TcpListener, TcpStream};
 use async_std::prelude::*;
 use async_std::task;
 use http_types::{Body, Response, StatusCode};
-use stacks::prometheus::{gather, Encoder, IntGauge, TextEncoder};
-use stacks_common::monitoring::register_build_info;
+use lazy_static::lazy_static;
+use stacks::prometheus::{gather, opts, register_int_gauge, Encoder, IntGauge, TextEncoder};
+use stacks_common::monitoring::build_info_labels;
 
 use super::MonitoringError;
 
-static BUILD_INFO: LazyLock<IntGauge> = LazyLock::new(|| register_build_info(crate::version()));
+lazy_static! {
+    static ref BUILD_INFO: IntGauge = register_int_gauge!(opts!(
+        "stacks_build_info",
+        "Build information for the Stacks process."
+    )
+    .const_labels(build_info_labels(crate::version())))
+    .unwrap();
+}
+
+/// Record the process build information. Repeated calls keep the same series at 1.
+fn record_build_info() {
+    BUILD_INFO.set(1);
+}
 
 pub fn start_serving_prometheus_metrics(bind_address: String) -> Result<(), MonitoringError> {
+    record_build_info();
     task::block_on(async {
         let listener = TcpListener::bind(bind_address)
             .await
@@ -52,7 +64,6 @@ pub fn start_serving_prometheus_metrics(bind_address: String) -> Result<(), Moni
 async fn accept(stream: TcpStream) -> http_types::Result<()> {
     debug!("Handle Prometheus polling ({})", stream.peer_addr()?);
     async_h1::accept(stream.clone(), |_| async {
-        LazyLock::force(&BUILD_INFO);
         let encoder = TextEncoder::new();
         let metric_families = gather();
         let mut buffer = vec![];

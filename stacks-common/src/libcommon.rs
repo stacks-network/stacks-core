@@ -38,7 +38,6 @@ pub mod deps_common {
 
 pub mod alloc_tracker;
 
-#[cfg(feature = "monitoring_prom")]
 pub mod monitoring;
 
 pub mod bitvec;

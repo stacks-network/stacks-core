@@ -64,7 +64,7 @@ stdext = "0.3.1"
 testcontainers =  { version = "0.27.0", features = ["blocking"] }
 
 [features]
-monitoring_prom = ["stacks/monitoring_prom", "stacks-common/monitoring_prom", "async-h1", "async-std", "http-types"]
+monitoring_prom = ["stacks/monitoring_prom", "async-h1", "async-std", "http-types"]
 slog_json = ["stacks/slog_json", "stacks-common/slog_json", "clarity/slog_json"]
 prod-genesis-chainstate = []
 default = []

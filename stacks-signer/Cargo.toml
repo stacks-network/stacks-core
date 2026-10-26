@@ -57,5 +57,5 @@ features = ["arbitrary_precision", "unbounded_depth"]
 
 [features]
 default = []
-monitoring_prom = ["prometheus", "tiny_http", "stacks-common/monitoring_prom"]
+monitoring_prom = ["prometheus", "tiny_http"]
 testing = ["stacks-common/testing", "stackslib/testing"]

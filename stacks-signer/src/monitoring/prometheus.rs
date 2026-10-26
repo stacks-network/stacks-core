@@ -23,12 +23,17 @@ use prometheus::{
     register_int_counter_vec, register_int_gauge, Encoder, HistogramVec, IntCounter, IntCounterVec,
     IntGauge, TextEncoder,
 };
-use stacks_common::monitoring::register_build_info;
+use stacks_common::monitoring::build_info_labels;
 
 use crate::v0::signer_state::LocalStateMachine;
 
 lazy_static! {
-    static ref BUILD_INFO: IntGauge = register_build_info(VERSION_STRING.to_string());
+    pub static ref BUILD_INFO: IntGauge = register_int_gauge!(opts!(
+        "stacks_build_info",
+        "Build information for the Stacks process."
+    )
+    .const_labels(build_info_labels(VERSION_STRING.to_string())))
+    .unwrap();
 
     pub static ref STACKS_TIP_HEIGHT_GAUGE: IntGauge = register_int_gauge!(opts!(
         "stacks_signer_stacks_node_height",
@@ -110,7 +115,6 @@ lazy_static! {
 }
 
 pub fn gather_metrics_string() -> String {
-    lazy_static::initialize(&BUILD_INFO);
     let mut buffer = Vec::new();
     let encoder = TextEncoder::new();
     let metrics_families = gather();
