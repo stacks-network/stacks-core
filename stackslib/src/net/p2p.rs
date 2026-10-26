@@ -2451,7 +2451,7 @@ impl PeerNetwork {
             } else {
                 InboundBudget::new(convo.connection.options.max_inbound_messages_per_pass, deadline)
             };
-            let unhandled = match convo.chat_within(
+            let mut unhandled = match convo.chat_within(
                 network,
                 sortdb,
                 chainstate,
@@ -2479,6 +2479,30 @@ impl PeerNetwork {
                         event_id, &client_sock, &e
                     );
                     convo_dead = true;
+
+                    // the conversation is dropped after this pass, so drain whatever the limits
+                    // left queued, as when recv() fails.  If the socket was left unread because
+                    // of a backlog, this is how we find out that the remote peer hung up.
+                    if convo.connection.inbox_len() > 0 {
+                        match convo.chat_within(
+                            network,
+                            sortdb,
+                            chainstate,
+                            dns_client_opt,
+                            ibd,
+                            InboundBudget::unbounded(),
+                        ) {
+                            Err(e) => {
+                                debug!(
+                                    "Failed to converse on event {} (socket {:?}): {:?}",
+                                    event_id, &client_sock, &e
+                                );
+                            }
+                            Ok(mut unhandled_messages) => {
+                                unhandled.append(&mut unhandled_messages)
+                            }
+                        }
+                    }
                 }
             }
             ConvoPassResult {

@@ -1871,10 +1871,22 @@ fn run_inbound_backlog_backpressure(test_name: &'static str, disable_cap_after_b
 /// its waiting handle, even if there are more replies queued than a pass would normally handle.
 #[test]
 fn test_step_drain_inbox_on_disconnect() {
-    with_timeout(600, || {
-        let mut peer_1_config = TestPeerConfig::new(function_name!(), 0, 0);
+    run_drain_inbox_on_disconnect(function_name!(), false);
+}
+
+/// Like `test_step_drain_inbox_on_disconnect`, but the neighbor hangs up while its replies are
+/// already queued in the inbox, so the socket is left unread and the hang-up is only noticed
+/// when a send to the neighbor fails.  The queued replies must still be delivered.
+#[test]
+fn test_step_drain_inbox_on_send_failure() {
+    run_drain_inbox_on_disconnect(function_name!(), true);
+}
+
+fn run_drain_inbox_on_disconnect(test_name: &'static str, hang_up_with_backlog: bool) {
+    with_timeout(600, move || {
+        let mut peer_1_config = TestPeerConfig::new(test_name, 0, 0);
         peer_1_config.connection_opts.max_inbound_messages_per_pass = 1;
-        let peer_2_config = TestPeerConfig::new(function_name!(), 0, 0);
+        let peer_2_config = TestPeerConfig::new(test_name, 0, 0);
 
         let mut peer_1 = TestPeer::new(peer_1_config);
         let mut peer_2 = TestPeer::new(peer_2_config);
@@ -1902,7 +1914,7 @@ fn test_step_drain_inbox_on_disconnect() {
             .msgs_rx;
 
         // peer 1 sends a batch of pings and waits on their replies
-        let num_pings = 4;
+        let num_pings = 8;
         let mut reply_handles = vec![];
         for _ in 0..num_pings {
             let ping = peer_1
@@ -1931,9 +1943,6 @@ fn test_step_drain_inbox_on_disconnect() {
             }
         }
 
-        // peer 2 hangs up, so peer 1 reads all the replies followed by EOF
-        drop(peer_2.network.sockets.remove(&event_id_2));
-
         let mut pongs = 0;
         let mut poll_replies = |peer_1: &mut TestPeer, reply_handles: &mut Vec<ReplyHandleP2P>| {
             for mut rh in std::mem::take(reply_handles) {
@@ -1951,9 +1960,45 @@ fn test_step_drain_inbox_on_disconnect() {
             }
         };
 
+        if hang_up_with_backlog {
+            // peer 1 reads the replies while peer 2 is still connected, handling one per pass,
+            // so the rest stay queued and its socket is left unread
+            let inbox_len = |peer: &TestPeer| {
+                peer.network
+                    .get_neighbor_convo(&nk_2)
+                    .map(|convo| convo.connection.inbox_len())
+                    .unwrap_or(0)
+            };
+            for _ in 0..100 {
+                let _ = peer_1.step();
+                poll_replies(&mut peer_1, &mut reply_handles);
+                // every reply not yet delivered is queued in the inbox
+                if inbox_len(&peer_1) >= reply_handles.len() {
+                    break;
+                }
+            }
+            assert!(
+                inbox_len(&peer_1) > 2,
+                "peer 1 never built up a backlog of replies"
+            );
+        }
+
+        // peer 2 hangs up.  Without a backlog, peer 1 reads all the replies followed by EOF.
+        // With one, peer 1 doesn't read its socket again until the backlog is handled, so keep
+        // sending to peer 2 until a send fails.
+        drop(peer_2.network.sockets.remove(&event_id_2));
+
         // step peer 1 until it drops peer 2; it handles one message per pass, but a closed
         // socket's inbox is drained in full
         for _ in 0..100 {
+            if hang_up_with_backlog {
+                if let Ok(pong) = peer_1.network.sign_for_neighbor(
+                    &nk_2,
+                    StacksMessageType::Pong(PongData::from_ping(&PingData::new())),
+                ) {
+                    let _ = peer_1.network.relay_signed_message(&nk_2, pong);
+                }
+            }
             let _ = peer_1.step();
             poll_replies(&mut peer_1, &mut reply_handles);
             if peer_1.network.get_neighbor_convo(&nk_2).is_none() {
