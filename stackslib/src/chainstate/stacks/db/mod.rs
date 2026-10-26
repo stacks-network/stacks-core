@@ -27,12 +27,11 @@ use clarity::vm::costs::{ExecutionCost, LimitedCostTracker};
 use clarity::vm::database::{
     BurnStateDB, ClarityDatabase, HeadersDB, STXBalance, NULL_BURN_STATE_DB,
 };
-use clarity::vm::errors::ClarityEvalError;
 use clarity::vm::events::*;
 use clarity::vm::representations::ContractName;
 use clarity::vm::resource_limiter::ResourceBudget;
 use clarity::vm::types::TupleData;
-use clarity::vm::{SymbolicExpression, Value};
+use clarity::vm::Value;
 use rusqlite::{params, Connection, OptionalExtension, Row};
 use serde::de::Error as de_Error;
 use serde::Deserialize;
@@ -1765,11 +1764,11 @@ impl StacksChainState {
         ];
         clarity_tx.connection().as_transaction(|conn| {
             conn.run_contract_call(
-                &sender,
+                sender,
                 None,
-                &contract,
+                contract,
                 "set-burnchain-parameters",
-                &params,
+                params,
                 |_, _| None,
                 &ResourceBudget::unlimited(),
             )
@@ -2114,50 +2113,6 @@ impl StacksChainState {
             contract,
             code,
         )
-    }
-
-    /// Execute a public function in `contract` from a read-only DB context
-    ///  Any mutations that occur will be rolled-back before returning, regardless of
-    ///  an okay or error result.
-    pub fn eval_fn_read_only(
-        &mut self,
-        burn_dbconn: &dyn BurnStateDB,
-        parent_id_bhh: &StacksBlockId,
-        contract: &QualifiedContractIdentifier,
-        function: &str,
-        args: &[Value],
-    ) -> Result<Value, ClarityError> {
-        let headers_db = HeadersDBConn(StacksDBConn::new(&self.state_index, ()));
-        let mut conn = self.clarity_state.read_only_connection_checked(
-            parent_id_bhh,
-            &headers_db,
-            burn_dbconn,
-        )?;
-
-        let args: Vec<_> = args
-            .iter()
-            .map(|x| SymbolicExpression::atom_value(x.clone()))
-            .collect();
-
-        let result = conn.with_readonly_clarity_env(
-            self.mainnet,
-            self.chain_id,
-            contract.clone().into(),
-            None,
-            LimitedCostTracker::Free,
-            |exec_state, invoke_ctx| {
-                exec_state
-                    .execute_contract(
-                        invoke_ctx, contract, function, &args,
-                        // read-only is set to `false` so that non-read-only functions
-                        //  can be executed. any transformation is rolled back.
-                        false,
-                    )
-                    .map_err(ClarityEvalError::from)
-            },
-        )?;
-
-        Ok(result)
     }
 
     pub fn db(&self) -> &DBConn {

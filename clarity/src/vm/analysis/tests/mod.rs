@@ -21,6 +21,9 @@ use std::time::Duration;
 use stacks_common::types::StacksEpochId;
 
 use crate::vm::ClarityVersion;
+use crate::vm::analysis::contract_interface_builder::{
+    ContractInterface, build_contract_interface,
+};
 use crate::vm::analysis::read_only_checker::ReadOnlyChecker;
 use crate::vm::analysis::type_checker::v2_1::TypeChecker as TypeChecker2_1;
 use crate::vm::analysis::type_checker::v2_1::tests::mem_type_check;
@@ -964,4 +967,50 @@ fn epoch41_keyword_named_function_callable_regardless_of_definition_order() {
         TypeSignature::ResponseType(_)
     ));
     assert_eq!(returns("read-keyword"), TypeSignature::UIntType);
+}
+
+/// Conversion moves the cached ABI even when its analysis could no longer rebuild it.
+#[test]
+fn test_contract_interface_try_from_moves_cached_interface() {
+    let (_, mut analysis) = mem_type_check("(define-read-only (get-value) u1)").unwrap();
+    let cached = analysis.contract_interface.as_ref().unwrap();
+    assert!(!cached.functions.is_empty());
+    let functions = cached.functions.as_ptr();
+    analysis.public_function_types.insert(
+        "invalid".try_into().unwrap(),
+        FunctionType::ArithmeticVariadic,
+    );
+    assert!(build_contract_interface(&analysis).is_err());
+
+    let interface = ContractInterface::try_from(analysis).unwrap();
+    assert_eq!(interface.functions.as_ptr(), functions);
+    assert_eq!(interface.functions.len(), 1);
+}
+
+/// Missing cached output is reconstructed with the same ABI as the analysis pipeline.
+#[test]
+fn test_contract_interface_try_from_builds_missing_interface() {
+    let (_, mut analysis) = mem_type_check(
+        "(define-data-var counter uint u0)
+         (define-read-only (get-counter) (var-get counter))",
+    )
+    .unwrap();
+    let expected = analysis.contract_interface.take().unwrap();
+
+    assert_eq!(ContractInterface::try_from(analysis).unwrap(), expected);
+}
+
+/// Malformed fallback input preserves the builder's complete error.
+#[test]
+fn test_contract_interface_try_from_propagates_builder_error() {
+    let (_, mut analysis) = mem_type_check("(define-read-only (get-value) u1)").unwrap();
+    analysis.contract_interface = None;
+    analysis.public_function_types.insert(
+        "invalid".try_into().unwrap(),
+        FunctionType::ArithmeticVariadic,
+    );
+    let expected = build_contract_interface(&analysis).unwrap_err();
+    std::assert_matches!(expected.err.as_ref(), StaticCheckErrorKind::Unreachable(_));
+
+    assert_eq!(ContractInterface::try_from(analysis), Err(expected));
 }

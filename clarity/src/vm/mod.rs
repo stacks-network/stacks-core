@@ -353,7 +353,7 @@ fn dispatch_args(
             }
 
             // User-defined functions (Clarity)
-            CallableType::UserFunction(function) => function.apply(&args, exec_state, invoke_ctx),
+            CallableType::UserFunction(function) => function.apply(args, exec_state, invoke_ctx),
 
             // Special functions evaluate their own arguments and are dispatched directly in
             // `apply`/`apply_evaluated`, so they never reach `dispatch_args`.

@@ -411,7 +411,7 @@ fn trait_invocation_cross_epoch() {
     let use_contract_id = QualifiedContractIdentifier::local("use-simple").unwrap();
     let invoke_contract_id = QualifiedContractIdentifier::local("invoke-simple").unwrap();
 
-    let sender = StacksAddress::burn_address(false).into();
+    let sender: PrincipalData = StacksAddress::burn_address(false).into();
 
     info!("Sim height = {}", sim.block_height);
     sim.execute_next_block_as_conn(|conn| {
@@ -438,11 +438,11 @@ fn trait_invocation_cross_epoch() {
         conn.as_transaction(|clarity_db| {
             clarity_db
                 .run_contract_call(
-                    &sender,
+                    sender.clone(),
                     None,
-                    &invoke_contract_id,
+                    invoke_contract_id.clone(),
                     "invocation-1",
-                    &[],
+                    vec![],
                     |_, _| None,
                     &ResourceBudget::unlimited(),
                 )
@@ -457,11 +457,11 @@ fn trait_invocation_cross_epoch() {
         conn.as_transaction(|clarity_db| {
             let error = clarity_db
                 .run_contract_call(
-                    &sender,
+                    sender.clone(),
                     None,
-                    &invoke_contract_id,
+                    invoke_contract_id.clone(),
                     "invocation-1",
-                    &[],
+                    vec![],
                     |_, _| None,
                     &ResourceBudget::unlimited()
                 )
@@ -481,11 +481,11 @@ fn trait_invocation_cross_epoch() {
         conn.as_transaction(|clarity_db| {
             let error = clarity_db
                 .run_contract_call(
-                    &sender,
+                    sender.clone(),
                     None,
-                    &invoke_contract_id,
+                    invoke_contract_id.clone(),
                     "invocation-2",
-                    &[Value::Principal(impl_contract_id.clone().into())],
+                    vec![Value::Principal(impl_contract_id.clone().into())],
                     |_, _| None,
                     &ResourceBudget::unlimited()
                 )
@@ -506,11 +506,11 @@ fn trait_invocation_cross_epoch() {
         conn.as_transaction(|clarity_db| {
             clarity_db
                 .run_contract_call(
-                    &sender,
+                    sender.clone(),
                     None,
-                    &invoke_contract_id,
+                    invoke_contract_id.clone(),
                     "invocation-1",
-                    &[],
+                    vec![],
                     |_, _| None,
                     &ResourceBudget::unlimited(),
                 )
@@ -524,11 +524,11 @@ fn trait_invocation_cross_epoch() {
         conn.as_transaction(|clarity_db| {
             clarity_db
                 .run_contract_call(
-                    &sender,
+                    sender,
                     None,
-                    &invoke_contract_id,
+                    invoke_contract_id,
                     "invocation-2",
-                    &[Value::Principal(impl_contract_id.clone().into())],
+                    vec![Value::Principal(impl_contract_id.clone().into())],
                     |_, _| None,
                     &ResourceBudget::unlimited(),
                 )
@@ -592,7 +592,7 @@ fn trait_with_trait_invocation_cross_epoch() {
     let use_compute_21_c1_id = QualifiedContractIdentifier::local("use-compute-2-1-c1").unwrap();
     let use_compute_21_c2_id = QualifiedContractIdentifier::local("use-compute-2-1-c2").unwrap();
 
-    let sender = StacksAddress::burn_address(false).into();
+    let sender: PrincipalData = StacksAddress::burn_address(false).into();
 
     sim.execute_next_block_as_conn(|conn| {
         let epoch = conn.get_epoch();
@@ -786,11 +786,11 @@ fn trait_with_trait_invocation_cross_epoch() {
         conn.as_transaction(|clarity_db| {
             clarity_db
                 .run_contract_call(
-                    &sender,
+                    sender.clone(),
                     None,
-                    &use_compute_20_id,
+                    use_compute_20_id.clone(),
                     "do-it-static",
-                    &[],
+                    vec![],
                     |_, _| None,
                     &ResourceBudget::unlimited(),
                 )
@@ -803,11 +803,11 @@ fn trait_with_trait_invocation_cross_epoch() {
         conn.as_transaction(|clarity_db| {
             clarity_db
                 .run_contract_call(
-                    &sender,
+                    sender.clone(),
                     None,
-                    &use_compute_20_id,
+                    use_compute_20_id,
                     "do-it-dyn",
-                    &[
+                    vec![
                         Value::Principal(impl_compute_id.clone().into()),
                         Value::Principal(impl_math_id.clone().into()),
                         Value::UInt(1),
@@ -825,11 +825,11 @@ fn trait_with_trait_invocation_cross_epoch() {
         conn.as_transaction(|clarity_db| {
             clarity_db
                 .run_contract_call(
-                    &sender,
+                    sender.clone(),
                     None,
-                    &use_compute_21_c1_id,
+                    use_compute_21_c1_id.clone(),
                     "do-it-static",
-                    &[],
+                    vec![],
                     |_, _| None,
                     &ResourceBudget::unlimited(),
                 )
@@ -842,11 +842,11 @@ fn trait_with_trait_invocation_cross_epoch() {
         conn.as_transaction(|clarity_db| {
             clarity_db
                 .run_contract_call(
-                    &sender,
+                    sender.clone(),
                     None,
-                    &use_compute_21_c1_id,
+                    use_compute_21_c1_id,
                     "do-it-dyn",
-                    &[
+                    vec![
                         Value::Principal(impl_compute_id.clone().into()),
                         Value::Principal(impl_math_id.clone().into()),
                         Value::UInt(1),
@@ -864,11 +864,11 @@ fn trait_with_trait_invocation_cross_epoch() {
         conn.as_transaction(|clarity_db| {
             clarity_db
                 .run_contract_call(
-                    &sender,
+                    sender.clone(),
                     None,
-                    &use_compute_21_c2_id,
+                    use_compute_21_c2_id.clone(),
                     "do-it-static",
-                    &[],
+                    vec![],
                     |_, _| None,
                     &ResourceBudget::unlimited(),
                 )
@@ -881,11 +881,11 @@ fn trait_with_trait_invocation_cross_epoch() {
         conn.as_transaction(|clarity_db| {
             clarity_db
                 .run_contract_call(
-                    &sender,
+                    sender,
                     None,
-                    &use_compute_21_c2_id,
+                    use_compute_21_c2_id,
                     "do-it-dyn",
-                    &[
+                    vec![
                         Value::Principal(impl_compute_id.into()),
                         Value::Principal(impl_math_id.into()),
                         Value::UInt(1),
@@ -1486,11 +1486,11 @@ fn test_block_heights_across_versions_traits_3_from_2() {
         let mut tx = conn.start_transaction_processing();
         let res1 = tx
             .run_contract_call(
-                &PrincipalData::parse("STNHKEPYEPJ8ET55ZZ0M5A34J0R3N5FM2CMMMAZ6").unwrap(),
+                PrincipalData::parse("STNHKEPYEPJ8ET55ZZ0M5A34J0R3N5FM2CMMMAZ6").unwrap(),
                 None,
-                &contract_id_e2c1,
+                contract_id_e2c1,
                 "get-it",
-                &[Value::Principal(contract_id_e3c3.clone().into())],
+                vec![Value::Principal(contract_id_e3c3.clone().into())],
                 |_, _| None,
                 &ResourceBudget::unlimited(),
             )
@@ -1499,11 +1499,11 @@ fn test_block_heights_across_versions_traits_3_from_2() {
 
         let res2 = tx
             .run_contract_call(
-                &PrincipalData::parse("STNHKEPYEPJ8ET55ZZ0M5A34J0R3N5FM2CMMMAZ6").unwrap(),
+                PrincipalData::parse("STNHKEPYEPJ8ET55ZZ0M5A34J0R3N5FM2CMMMAZ6").unwrap(),
                 None,
-                &contract_id_e2c2,
+                contract_id_e2c2,
                 "get-it",
-                &[Value::Principal(contract_id_e3c3.clone().into())],
+                vec![Value::Principal(contract_id_e3c3.clone().into())],
                 |_, _| None,
                 &ResourceBudget::unlimited(),
             )
@@ -1634,11 +1634,11 @@ fn test_block_heights_across_versions_traits_2_from_3() {
         let mut tx = conn.start_transaction_processing();
         let res1 = tx
             .run_contract_call(
-                &PrincipalData::parse("STNHKEPYEPJ8ET55ZZ0M5A34J0R3N5FM2CMMMAZ6").unwrap(),
+                PrincipalData::parse("STNHKEPYEPJ8ET55ZZ0M5A34J0R3N5FM2CMMMAZ6").unwrap(),
                 None,
-                &contract_id_e3c3,
+                contract_id_e3c3.clone(),
                 "get-it",
-                &[Value::Principal(contract_id_e2c1.clone().into())],
+                vec![Value::Principal(contract_id_e2c1.clone().into())],
                 |_, _| None,
                 &ResourceBudget::unlimited(),
             )
@@ -1647,11 +1647,11 @@ fn test_block_heights_across_versions_traits_2_from_3() {
 
         let res2 = tx
             .run_contract_call(
-                &PrincipalData::parse("STNHKEPYEPJ8ET55ZZ0M5A34J0R3N5FM2CMMMAZ6").unwrap(),
+                PrincipalData::parse("STNHKEPYEPJ8ET55ZZ0M5A34J0R3N5FM2CMMMAZ6").unwrap(),
                 None,
-                &contract_id_e3c3,
+                contract_id_e3c3,
                 "get-it",
-                &[Value::Principal(contract_id_e2c2.clone().into())],
+                vec![Value::Principal(contract_id_e2c2.clone().into())],
                 |_, _| None,
                 &ResourceBudget::unlimited(),
             )

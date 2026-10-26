@@ -21,7 +21,7 @@ mod runtime_analysis_tests;
 mod runtime_tests;
 mod static_analysis_tests;
 
-use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::fs;
 
 use clarity::boot_util::boot_code_addr;
@@ -67,11 +67,12 @@ use crate::chainstate::coordinator::{Error as CoordinatorError, *};
 use crate::chainstate::nakamoto::coordinator::{
     get_nakamoto_next_recipients, load_nakamoto_reward_set_for_tenure,
 };
+use crate::chainstate::nakamoto::miner::NakamotoBlockBuilder;
 use crate::chainstate::nakamoto::signer_set::{
     set_pox_5_sbtc_contract, set_pox_5_sbtc_registry_contract,
 };
 use crate::chainstate::nakamoto::tests::get_account;
-use crate::chainstate::nakamoto::tests::node::{get_nakamoto_parent, TestStacker};
+use crate::chainstate::nakamoto::tests::node::{get_nakamoto_parent, ProblematicTx, TestStacker};
 use crate::chainstate::nakamoto::{NakamotoBlock, NakamotoBlockHeader, NakamotoChainState};
 use crate::chainstate::stacks::address::PoxAddress;
 use crate::chainstate::stacks::boot::test::{key_to_stacks_addr, make_pox_4_lockup_chain_id};
@@ -82,6 +83,7 @@ use crate::chainstate::stacks::db::transactions::{TransactionProcessor, TxToProc
 use crate::chainstate::stacks::db::{StacksChainState, *};
 use crate::chainstate::stacks::tests::*;
 use crate::chainstate::stacks::{Error as ChainstateError, StacksMicroblockHeader, *};
+use crate::config::DEFAULT_MAX_TENURE_BYTES;
 use crate::core::test_util::{make_contract_call_tx, make_contract_publish_versioned};
 use crate::core::{
     EpochList, StacksEpoch, StacksEpochExtension, BLOCK_LIMIT_MAINNET_21, BOOT_BLOCK_HASH,
@@ -170,7 +172,7 @@ impl Pox5SignerGroup {
     }
 }
 
-/// Raw outcome from appending a Nakamoto extension block through the shared
+/// Raw outcome from appending a Nakamoto block through the shared
 /// test-chainstate pipeline.
 pub struct TestNakamotoBlockOutcome {
     pub block: NakamotoBlock,
@@ -718,6 +720,9 @@ impl<'a> TestChainstate<'a> {
             &reward_set,
         )
         .map(|receipt| receipt.expect("Appended Nakamoto block produced no execution receipt"));
+        if execution.is_ok() {
+            stacks_node.add_nakamoto_extended_blocks(vec![nakamoto_block.clone()]);
+        }
 
         self.sortdb = Some(sortdb);
         self.stacks_node = Some(stacks_node);
@@ -726,6 +731,121 @@ impl<'a> TestChainstate<'a> {
             block: nakamoto_block,
             execution,
         }
+    }
+
+    /// Start a new tenure with a block containing its tenure change, its coinbase and
+    /// exactly `transactions`.
+    ///
+    /// Like [`Self::append_nakamoto_block_with_txs`], this keeps invalid transactions
+    /// in the block. If the block is rejected, the next tenure builds on the last
+    /// accepted one.
+    pub fn append_nakamoto_tenure_start_block_with_txs(
+        &mut self,
+        transactions: &[StacksTransaction],
+    ) -> TestNakamotoBlockOutcome {
+        let (tenure_change, coinbase) = self.begin_block_found_tenure();
+        let (nakamoto_block, reward_set, dropped) = self
+            .construct_nakamoto_tenure_start_block_with_txs(tenure_change, coinbase, transactions);
+        let mut sortdb = self.sortdb.take().unwrap();
+        let mut stacks_node = self.stacks_node.take().unwrap();
+
+        let execution = TestStacksNode::process_pushed_next_ready_block(
+            &mut stacks_node,
+            &mut sortdb,
+            &mut self.coord,
+            nakamoto_block.clone(),
+            &reward_set,
+        )
+        .map(|receipt| receipt.expect("Tenure-start Nakamoto block produced no execution receipt"));
+        // A block fails on its state root only after all its transactions passed. So if the
+        // miner dropped some, it did by mining policy, not consensus: the result would mislead.
+        if let Err(ChainstateError::InvalidStacksBlock(msg)) = &execution {
+            assert!(
+                dropped.is_empty() || !msg.contains("state root mismatch"),
+                "The miner dropped {dropped:?}, which consensus accepts: {msg}"
+            );
+        }
+        if execution.is_ok() {
+            stacks_node.add_nakamoto_tenure_blocks(vec![nakamoto_block.clone()]);
+        } else {
+            // The block-commit names a tenure that never started.
+            let last_tenure_id = self.miner.last_block_commit().unwrap().last_tenure_id();
+            stacks_node.extend_last_tenure_with_commit(last_tenure_id);
+        }
+
+        self.sortdb = Some(sortdb);
+        self.stacks_node = Some(stacks_node);
+
+        TestNakamotoBlockOutcome {
+            block: nakamoto_block,
+            execution,
+        }
+    }
+
+    /// Mine the block with the miner to derive its header, then put back any
+    /// transaction the miner dropped, so a failing one fails the block when it is
+    /// processed. Like the pre-Nakamoto consensus-test blocks, this keeps the miner's
+    /// state root. Also returns the dropped transactions.
+    fn construct_nakamoto_tenure_start_block_with_txs(
+        &mut self,
+        tenure_change: StacksTransaction,
+        coinbase: StacksTransaction,
+        transactions: &[StacksTransaction],
+    ) -> (NakamotoBlock, RewardSet, Vec<Txid>) {
+        let sortdb = self.sortdb.as_ref().unwrap();
+        let chainstate = &self.stacks_node.as_ref().unwrap().chainstate;
+        let payload = tenure_change.try_as_tenure_change().unwrap();
+        let parent =
+            NakamotoChainState::get_block_header(chainstate.db(), &payload.previous_tenure_end)
+                .unwrap()
+                .unwrap();
+        let burn_tip = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn()).unwrap();
+        // `Some(0)` gives the block its parent's timestamp, so its MARF hash is
+        // deterministic.
+        let builder = NakamotoBlockBuilder::new(
+            &parent,
+            &payload.tenure_consensus_hash,
+            burn_tip.total_burn,
+            Some(&tenure_change),
+            Some(&coinbase),
+            1,
+            None,
+            None,
+            Some(0),
+            DEFAULT_MAX_TENURE_BYTES,
+        )
+        .unwrap();
+        let tenure_txs = [tenure_change, coinbase];
+        let (mut block, _, _, reward_set) = TestStacksNode::make_nakamoto_block_from_txs(
+            builder,
+            chainstate,
+            &sortdb.index_handle_at_tip(),
+            tenure_txs.iter().chain(transactions).cloned().collect(),
+            |_| {},
+            ProblematicTx::Drop,
+        )
+        .unwrap();
+        assert!(
+            block.txs.starts_with(&tenure_txs),
+            "Failed to mine the tenure change or coinbase"
+        );
+
+        let mined: HashSet<_> = block.txs.iter().map(|tx| tx.txid()).collect();
+        let dropped = transactions
+            .iter()
+            .map(|tx| tx.txid())
+            .filter(|txid| !mined.contains(txid))
+            .collect();
+
+        block.txs = tenure_txs
+            .into_iter()
+            .chain(transactions.iter().cloned())
+            .collect();
+        block.header.tx_merkle_root = compute_tx_merkle_root(&block.txs);
+        self.miner.sign_nakamoto_block(&mut block);
+        let signers = self.config.test_signers.clone().unwrap_or_default();
+        signers.sign_block_with_reward_set(&mut block, &reward_set);
+        (block, reward_set, dropped)
     }
 
     fn construct_nakamoto_block_with_txs(
@@ -1286,20 +1406,26 @@ impl<'a> TestChainstate<'a> {
         assert_eq!(stacks_block, stacks_tip);
     }
 
+    /// Mines a Bitcoin block whose block-commit wins a new tenure, and returns the
+    /// tenure change and coinbase for the tenure's first block.
+    fn begin_block_found_tenure(&mut self) -> (StacksTransaction, StacksTransaction) {
+        let (burn_ops, mut tenure_change, miner_key) =
+            self.begin_nakamoto_tenure(TenureChangeCause::BlockFound);
+        let (_, _, consensus_hash) = self.next_burnchain_block(burn_ops);
+        let vrf_proof = self.make_nakamoto_vrf_proof(miner_key);
+
+        tenure_change.tenure_consensus_hash = consensus_hash.clone();
+        tenure_change.burn_view_consensus_hash = consensus_hash;
+        let tenure_change_tx = self.miner.make_nakamoto_tenure_change(tenure_change);
+        let coinbase_tx = self.miner.make_nakamoto_coinbase(None, vrf_proof);
+        (tenure_change_tx, coinbase_tx)
+    }
+
     /// Mines a new bitcoin block with a new tenure block-commit, using it to mine the start of a new Stacks Nakmoto tenure,
     /// It will mine subsequently mine the coinbase and tenure change Stacks txs.
     /// NOTE: mines a total of one Bitcoin block and one Stacks block.
     pub fn mine_nakamoto_tenure(&mut self) {
-        let (burn_ops, mut tenure_change, miner_key) =
-            self.begin_nakamoto_tenure(TenureChangeCause::BlockFound);
-        let (_, header_hash, consensus_hash) = self.next_burnchain_block(burn_ops);
-        let vrf_proof = self.make_nakamoto_vrf_proof(miner_key);
-
-        tenure_change.tenure_consensus_hash = consensus_hash.clone();
-        tenure_change.burn_view_consensus_hash = consensus_hash.clone();
-        let tenure_change_tx = self.miner.make_nakamoto_tenure_change(tenure_change);
-        let coinbase_tx = self.miner.make_nakamoto_coinbase(None, vrf_proof);
-
+        let (tenure_change_tx, coinbase_tx) = self.begin_block_found_tenure();
         let blocks_and_sizes = self
             .make_nakamoto_tenure(tenure_change_tx, coinbase_tx, Some(0))
             .unwrap();

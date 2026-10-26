@@ -105,6 +105,7 @@ fn variant_coverage_report(variant: RuntimeCheckErrorKind) {
         TypeValueError(_, _) => Tested(vec![
             runtime_check_error_kind_type_value_error_cdeploy,
             runtime_check_error_kind_type_value_error_ccall,
+            runtime_check_error_kind_type_value_error_list_too_long_ccall,
         ]),
         UnionTypeValueError(_, _) => Tested(vec![
             runtime_check_error_kind_union_type_value_error_cdeploy,
@@ -648,6 +649,25 @@ fn runtime_check_error_kind_type_value_error_ccall() {
         contract_code: "(define-public (trigger-error (x uint)) (ok true))",
         function_name: "trigger-error",
         function_args: &[ClarityValue::Bool(true)],
+    );
+}
+
+/// RuntimeCheckErrorKind: [`RuntimeCheckErrorKind::TypeValueError`]
+/// Caused by: passing a list longer than the parameter allows. Unlike a wrong
+/// non-list value, the argument is rebuilt by the implicit cast before it is rejected.
+/// Outcome: block accepted.
+#[test]
+fn runtime_check_error_kind_type_value_error_list_too_long_ccall() {
+    contract_call_consensus_snap_test!(
+        contract_name: "check-error-kind",
+        contract_code: "(define-public (trigger-error (x (list 2 uint))) (ok true))",
+        function_name: "trigger-error",
+        function_args: &[ClarityValue::cons_list_unsanitized(vec![
+            ClarityValue::UInt(1),
+            ClarityValue::UInt(2),
+            ClarityValue::UInt(3),
+        ])
+        .unwrap()],
     );
 }
 

@@ -83,7 +83,10 @@ hands it the burnchain view as two values: the reward cycle of the burn chain ti
 and the reward cycle of the latest sortition (`None` while that is still
 unresolved). The signer records both before anything else in the pass, so every
 decision below sees the view for the burn block being processed — including the
-retirement gate of section 9.
+retirement gate of section 9. On the pass in which the tip first reaches this
+signer's reward cycle, it then reloads the signer set's state machine updates
+from StackerDB (`reload_state_machine_updates_at_cycle_start`), before anything
+in that pass can judge a proposal.
 
 Every pass through `process_event`, whether an event arrived or the loop just
 ticked, runs the same housekeeping before dispatch: retire a timed-out
@@ -97,7 +100,7 @@ is handled.
 ```mermaid
 flowchart LR
     EV(["event or tick"]) --> PE["process_event"]
-    PE --> HK["every pass:<br/>record current_reward_cycle +<br/>latest_sortition_reward_cycle (section 9)<br/>check_submitted_block_proposal<br/>check_pending_block_validations<br/>handle_pending_update<br/>(pending update, else check_miner_inactivity)<br/>capitulate_viewpoint (rate-limited)"]
+    PE --> HK["every pass:<br/>record current_reward_cycle +<br/>latest_sortition_reward_cycle (section 9)<br/>reload_state_machine_updates_at_cycle_start<br/>(first pass in our cycle)<br/>check_submitted_block_proposal<br/>check_pending_block_validations<br/>handle_pending_update<br/>(pending update, else check_miner_inactivity)<br/>capitulate_viewpoint (rate-limited)"]
     HK --> PAR{"event from the other<br/>signer set? (slot parity)"}
     PAR -- yes --> SKIP(["ignore event"])
     PAR -- no --> STARTED{"our reward cycle<br/>started?"}
@@ -131,7 +134,21 @@ own reward cycle has started; everything else is dropped until then. The parity
 gate is separate and unconditional: `SignerMessages` carry the signer set they
 came from, and the opposite-parity set's traffic is never processed.
 
+What is dropped includes peers' `StateMachineUpdate`s. A peer whose node reaches
+the cycle's first burn block before ours sends its update while we still drop
+it, and does not send it again until its view changes, normally at the next burn
+block. Without it we could fall short of the agreement threshold and reject
+every proposal in between with `NoSignerConsensus`. So when our cycle starts, we
+re-read the latest update in every slot of the signer set's state-update
+StackerDB from our node (`load_state_machine_updates`, the same read
+`Signer::new` does at creation). `reward_cycle_reached` remembers whether the tip
+had reached our cycle as of the last pass. It is recomputed on every pass, so the
+reload runs again if a burn chain reorg takes the tip back across the boundary
+and forward. If StackerDB cannot be read, the signer carries on without the
+reload and recovers at the next burn block, when its peers send new updates.
+
 > Anchors: `process_event`, `handle_event_match`,
+> `reload_state_machine_updates_at_cycle_start`, `load_state_machine_updates`,
 > `check_submitted_block_proposal`, `check_pending_block_validations`,
 > `handle_post_block`, `mock_sign` (signer.rs); `handle_pending_update`,
 > `check_miner_inactivity`, `capitulate_viewpoint` (signer_state.rs)
@@ -763,6 +780,12 @@ the point.**
 Retention re-configures the prior cycle's signer rather than merely declining to
 tear it down, which is what makes it survive a signer restart during the overlap,
 and a burn chain fork that orphans the sortition which retired that cycle.
+
+The next cycle's signer is created during the prepare phase
+(`refresh_signer_config` → `Signer::new`, which reads the signer set's state
+machine updates from StackerDB once). Until the tip reaches its cycle it drops
+signer messages (section 1), so it reloads those updates on its first pass
+inside its own cycle.
 
 Both halves of the boundary behavior are pinned by integration tests:
 `tenure_extend_across_reward_cycle_boundary` and

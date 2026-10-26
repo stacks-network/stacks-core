@@ -3178,6 +3178,8 @@ dependencies = [
  "mutants",
  "pinny",
  "proptest",
+ "rstest",
+ "serde",
  "slog",
  "stacks-common 4.0.5",
 ]
