@@ -6074,6 +6074,45 @@ mod tests {
         );
     }
 
+    #[test]
+    fn test_load_inbound_limit_fields_config() {
+        // check defaults for omitted fields
+        let config = utils::config_from_valid_string(
+            r#"
+            [burnchain]
+            mode = "krypton"
+            "#,
+        );
+        assert_eq!(64, config.connection_options.max_inbound_messages_per_pass);
+        assert_eq!(500, config.connection_options.max_inbound_processing_ms);
+
+        // check values for configured fields
+        let config = utils::config_from_valid_string(
+            r#"
+            [burnchain]
+            mode = "krypton"
+            [connection_options]
+            max_inbound_messages_per_pass = 10
+            max_inbound_processing_ms = 20
+            "#,
+        );
+        assert_eq!(10, config.connection_options.max_inbound_messages_per_pass);
+        assert_eq!(20, config.connection_options.max_inbound_processing_ms);
+
+        // zero disables the limits
+        let config = utils::config_from_valid_string(
+            r#"
+            [burnchain]
+            mode = "krypton"
+            [connection_options]
+            max_inbound_messages_per_pass = 0
+            max_inbound_processing_ms = 0
+            "#,
+        );
+        assert_eq!(0, config.connection_options.max_inbound_messages_per_pass);
+        assert_eq!(0, config.connection_options.max_inbound_processing_ms);
+    }
+
     /// There are three different ways to start a node with a default config:
     ///
     /// - via `stacks-node mainnet`
