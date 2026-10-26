@@ -9,12 +9,14 @@ required:
 properties:
   balance:
     type: string
+    description: Spendable balance in micro-STX, as a hex-encoded unsigned 128-bit integer (big-endian). Does not include `locked`.
   locked:
     type: string
+    description: Micro-STX locked by staking, as a hex-encoded unsigned 128-bit integer (big-endian). `0x0` once the Bitcoin chain reaches `unlock_height`.
   unlock_height:
     type: integer
     minimum: 0
-    description: Block height when locked balance unlocks (64-bit unsigned integer)
+    description: Bitcoin block height at which the locked amount becomes spendable (64-bit unsigned integer). `0` when nothing is locked.
   nonce:
     type: integer
     minimum: 0
