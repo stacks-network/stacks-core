@@ -17,6 +17,7 @@
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::io::{Read, Write};
 use std::net::SocketAddr;
+use std::num::NonZeroUsize;
 use std::time::Instant;
 use std::{cmp, mem};
 
@@ -536,6 +537,33 @@ impl Neighbor {
                 }
                 Ok(Some(peer))
             }
+        }
+    }
+}
+
+/// How much inbound work `ConversationP2P::chat_within()` may do in one network pass
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct InboundBudget {
+    /// most inbox messages to handle; `None` means no limit
+    pub max_messages: Option<NonZeroUsize>,
+    /// stop handling inbox messages once this passes; `None` means no limit
+    pub deadline: Option<Instant>,
+}
+
+impl InboundBudget {
+    /// Budget from a `max_inbound_messages_per_pass`-style cap, where zero means no limit
+    pub fn new(max_messages: usize, deadline: Option<Instant>) -> Self {
+        Self {
+            max_messages: NonZeroUsize::new(max_messages),
+            deadline,
+        }
+    }
+
+    /// No limits: handle everything in the inbox
+    pub fn unbounded() -> Self {
+        Self {
+            max_messages: None,
+            deadline: None,
         }
     }
 }
@@ -2920,32 +2948,35 @@ impl ConversationP2P {
         dns_client_opt: &mut Option<&mut DNSClient>,
         ibd: bool,
     ) -> Result<Vec<StacksMessage>, net_error> {
-        self.chat_until(network, sortdb, chainstate, dns_client_opt, ibd, None)
+        let budget =
+            InboundBudget::new(self.connection.options.max_inbound_messages_per_pass, None);
+        self.chat_within(network, sortdb, chainstate, dns_client_opt, ibd, budget)
     }
 
-    /// Like `chat()`, but also stops handling messages once `deadline` has passed, so one peer's
+    /// Like `chat()`, but handles inbox messages within `budget` instead: at most
+    /// `budget.max_messages` of them, stopping once `budget.deadline` has passed so one peer's
     /// batch can't run the network pass past its `max_inbound_processing_ms` budget.  Always
     /// handles at least one message so the conversation makes progress.
-    pub fn chat_until(
+    pub fn chat_within(
         &mut self,
         network: &mut PeerNetwork,
         sortdb: &SortitionDB,
         chainstate: &mut StacksChainState,
         dns_client_opt: &mut Option<&mut DNSClient>,
         ibd: bool,
-        deadline: Option<Instant>,
+        budget: InboundBudget,
     ) -> Result<Vec<StacksMessage>, net_error> {
+        let InboundBudget {
+            max_messages,
+            deadline,
+        } = budget;
         let num_inbound = self.connection.inbox_len();
         debug!("{:?}: {} messages pending", &self, num_inbound);
 
         // don't let one peer monopolize the p2p thread -- leave the rest of its messages queued
         // for the next pass
-        let max_inbound = self.connection.options.max_inbound_messages_per_pass;
-        let num_to_handle = if max_inbound > 0 {
-            cmp::min(num_inbound, max_inbound)
-        } else {
-            num_inbound
-        };
+        let num_to_handle =
+            max_messages.map_or(num_inbound, |max| cmp::min(num_inbound, max.get()));
         if num_to_handle < num_inbound {
             debug!(
                 "{:?}: handle {} of {} pending messages this pass",
@@ -4954,13 +4985,13 @@ mod test {
 
         // with the pass deadline already expired, convo_2 still makes progress on one message
         convo_2
-            .chat_until(
+            .chat_within(
                 &mut net_2,
                 &sortdb_2,
                 &mut chainstate_2,
                 &mut None,
                 false,
-                Some(Instant::now()),
+                InboundBudget::new(2, Some(Instant::now())),
             )
             .unwrap();
         assert_eq!(convo_2.connection.inbox_len(), 3);

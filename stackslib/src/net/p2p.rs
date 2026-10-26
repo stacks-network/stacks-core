@@ -46,7 +46,7 @@ use crate::chainstate::stacks::StacksBlockHeader;
 use crate::core::{EpochList, StacksEpoch};
 use crate::monitoring::{update_inbound_neighbors, update_outbound_neighbors};
 use crate::net::atlas::{AtlasDB, AttachmentsDownloader};
-use crate::net::chat::{ConversationP2P, NeighborStats};
+use crate::net::chat::{ConversationP2P, InboundBudget, NeighborStats};
 use crate::net::connection::{ConnectionOptions, ReplyHandleP2P};
 use crate::net::db::{LocalPeer, PeerDB};
 use crate::net::download::epoch2x::{BlockDownloadOutcome, DownloadProgress};
@@ -2445,32 +2445,29 @@ impl PeerNetwork {
             // least drain the conversation inbox: the conversation is dropped after this pass,
             // and solicited replies in its inbox still have handles waiting on them.  Such a
             // drain ignores the per-pass limits; it is bounded by `inbox_maxlen` instead.
-            let recv_failed = convo_dead;
-            let mut unhandled = vec![];
-            loop {
-                let deadline = if recv_failed { None } else { deadline };
-                match convo.chat_until(
-                    network,
-                    sortdb,
-                    chainstate,
-                    dns_client_opt,
-                    ibd,
-                    deadline,
-                ) {
-                    Err(e) => {
-                        debug!(
-                            "Failed to converse on event {} (socket {:?}): {:?}",
-                            event_id, &client_sock, &e
-                        );
-                        convo_dead = true;
-                        break;
-                    }
-                    Ok(mut unhandled_messages) => unhandled.append(&mut unhandled_messages),
+            let budget = if convo_dead {
+                InboundBudget::unbounded()
+            } else {
+                InboundBudget::new(convo.connection.options.max_inbound_messages_per_pass, deadline)
+            };
+            let unhandled = match convo.chat_within(
+                network,
+                sortdb,
+                chainstate,
+                dns_client_opt,
+                ibd,
+                budget,
+            ) {
+                Err(e) => {
+                    debug!(
+                        "Failed to converse on event {} (socket {:?}): {:?}",
+                        event_id, &client_sock, &e
+                    );
+                    convo_dead = true;
+                    vec![]
                 }
-                if !recv_failed || convo.connection.inbox_len() == 0 {
-                    break;
-                }
-            }
+                Ok(unhandled_messages) => unhandled_messages,
+            };
 
             if !convo_dead {
                 // (continue) sending out data in this conversation, if the conversation is still
