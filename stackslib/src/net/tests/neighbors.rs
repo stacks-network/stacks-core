@@ -1993,6 +1993,136 @@ fn test_step_drain_inbox_on_send_failure() {
     run_drain_inbox_on_disconnect(function_name!(), true);
 }
 
+/// When a send to a neighbor fails in a pass that left its socket unread because of an inbox
+/// backlog, the replies still unread on the socket are delivered along with the backlog.
+#[test]
+fn test_step_drain_socket_on_send_failure() {
+    with_timeout(600, move || {
+        // every ping and every reply must fit in the socket buffers while the other peer isn't
+        // reading, which the tiny test buffers don't allow on Linux
+        std::env::set_var("STACKS_TEST_DISABLE_EDGE_TRIGGER_TEST", "1");
+        let mut peer_1_config = TestPeerConfig::new(function_name!(), 0, 0);
+        peer_1_config.connection_opts.max_inbound_messages_per_pass = 1;
+        let peer_2_config = TestPeerConfig::new(function_name!(), 0, 0);
+
+        let mut peer_1 = TestPeer::new(peer_1_config);
+        let mut peer_2 = TestPeer::new(peer_2_config);
+
+        peer_1.add_neighbor(&mut peer_2.to_neighbor(), None, true);
+
+        // wait for the peers to handshake
+        while peer_1
+            .network
+            .get_neighbor_stats(&peer_2.to_neighbor().addr)
+            .is_none_or(|stats| stats.last_handshake_time == 0)
+            || peer_2.network.peers.is_empty()
+        {
+            let _ = peer_1.step();
+            let _ = peer_2.step();
+        }
+
+        let nk_2 = peer_2.to_neighbor().addr;
+        let event_id_2 = *peer_2.network.peers.keys().next().unwrap();
+        let inbox_len = |peer_1: &TestPeer| {
+            peer_1
+                .network
+                .get_neighbor_convo(&nk_2)
+                .map(|convo| convo.connection.inbox_len())
+                .unwrap_or(0)
+        };
+
+        // peer 1 sends a batch of pings, and peer 2 receives them all and replies
+        let send_pings = |peer_1: &mut TestPeer, peer_2: &mut TestPeer, num_pings: u64| {
+            let pings_rx = |peer_2: &TestPeer| {
+                peer_2
+                    .network
+                    .get_p2p_convo(event_id_2)
+                    .unwrap()
+                    .stats
+                    .get_message_recv_count(StacksMessageID::Ping)
+            };
+            let pings_rx_2 = pings_rx(peer_2);
+            let mut reply_handles = vec![];
+            for _ in 0..num_pings {
+                let ping = peer_1
+                    .network
+                    .sign_for_neighbor(&nk_2, StacksMessageType::Ping(PingData::new()))
+                    .unwrap();
+                reply_handles.push(
+                    peer_1
+                        .network
+                        .send_neighbor_message(&nk_2, ping, 60)
+                        .unwrap(),
+                );
+            }
+            for _ in 0..100 {
+                let _ = peer_2.step();
+                if pings_rx(peer_2) >= pings_rx_2 + num_pings {
+                    break;
+                }
+            }
+            assert_eq!(
+                pings_rx(peer_2),
+                pings_rx_2 + num_pings,
+                "peer 2 never received all the pings"
+            );
+            reply_handles
+        };
+
+        // peer 1 reads the first batch of replies, handling one, so the rest stay queued and its
+        // socket is left unread from now on
+        let mut reply_handles = send_pings(&mut peer_1, &mut peer_2, 4);
+        for _ in 0..100 {
+            let _ = peer_1.step();
+            if inbox_len(&peer_1) > 0 {
+                break;
+            }
+        }
+        assert!(inbox_len(&peer_1) > 0, "peer 1 never built up a backlog");
+
+        // the second batch of replies stays on peer 1's socket
+        reply_handles.extend(send_pings(&mut peer_1, &mut peer_2, 4));
+
+        // peer 2 hangs up with a message from peer 1 still unread, so the connection is reset
+        // and peer 1's next send to it fails
+        let pong = peer_1
+            .network
+            .sign_for_neighbor(
+                &nk_2,
+                StacksMessageType::Pong(PongData::from_ping(&PingData::new())),
+            )
+            .unwrap();
+        peer_1.network.relay_signed_message(&nk_2, pong).unwrap();
+        std::thread::sleep(std::time::Duration::from_millis(100));
+        drop(peer_2.network.sockets.remove(&event_id_2));
+        std::thread::sleep(std::time::Duration::from_millis(100));
+
+        // the send fails in the same pass that handles the rest of the backlog
+        let pong = peer_1
+            .network
+            .sign_for_neighbor(
+                &nk_2,
+                StacksMessageType::Pong(PongData::from_ping(&PingData::new())),
+            )
+            .unwrap();
+        let _ = peer_1.network.relay_signed_message(&nk_2, pong);
+        let _ = peer_1.step();
+        assert!(
+            peer_1.network.get_neighbor_convo(&nk_2).is_none(),
+            "peer 1 never dropped the disconnected peer 2"
+        );
+
+        // every reply peer 2 sent was delivered, including the ones left on the socket
+        for rh in reply_handles {
+            match rh.try_send_recv() {
+                Ok(reply) => assert!(matches!(reply.payload, StacksMessageType::Pong(..))),
+                Err(Ok(_)) => panic!("reply handle still waiting on a reply"),
+                Err(Err(e)) => panic!("reply handle failed: {e:?}"),
+            }
+        }
+    })
+}
+
 fn run_drain_inbox_on_disconnect(test_name: &'static str, hang_up_with_backlog: bool) {
     with_timeout(600, move || {
         // every ping and every reply must fit in the socket buffers while the other peer isn't
