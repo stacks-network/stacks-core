@@ -34,7 +34,6 @@ use crate::vm::costs::{ExecutionCost, LimitedCostTracker, runtime_cost};
 use crate::vm::database::MemoryBackingStore;
 use crate::vm::hooks::EvalHook;
 use crate::vm::representations::SymbolicExpression;
-use crate::vm::tests::symbols_from_values;
 use crate::vm::types::{PrincipalData, QualifiedContractIdentifier, StandardPrincipalData, Value};
 
 const VERSION: ClarityVersion = ClarityVersion::Clarity2;
@@ -140,7 +139,7 @@ fn call(epoch: StacksEpochId, element: Element, op: &str, base: &str, function: 
                 None,
                 QualifiedContractIdentifier::local("caller").unwrap(),
                 function,
-                &symbols_from_values(element.args()),
+                element.args(),
             )
             .unwrap();
         assert!(
