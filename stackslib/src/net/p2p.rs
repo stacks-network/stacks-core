@@ -2543,22 +2543,22 @@ impl PeerNetwork {
         let deadline = (max_processing_ms > 0)
             .then(|| Instant::now().checked_add(Duration::from_millis(max_processing_ms)))
             .flatten();
-        let mut skipped = vec![];
+        let mut processed = 0;
         let mut leftover = vec![];
 
-        for (i, event_id) in event_ids.iter().enumerate() {
+        for event_id in event_ids.iter() {
             // always make progress on at least one conversation
-            if i > 0 && deadline.is_some_and(|deadline| Instant::now() >= deadline) {
-                skipped = event_ids.get(i..).unwrap_or_default().to_vec();
+            if processed > 0 && deadline.is_some_and(|deadline| Instant::now() >= deadline) {
                 debug!(
                     "{:?}: spent over {}ms processing {} conversations; deferring {} to the next pass",
                     &self.local_peer,
                     max_processing_ms,
-                    i,
-                    skipped.len()
+                    processed,
+                    event_ids.len().saturating_sub(processed)
                 );
                 break;
             }
+            processed += 1;
 
             let ConvoPassResult {
                 unhandled: mut convo_unhandled,
@@ -2628,6 +2628,7 @@ impl PeerNetwork {
         }
 
         // conversations we never got to go before ones we already served this pass
+        let mut skipped = event_ids.split_off(processed);
         skipped.append(&mut leftover);
         self.pending_inbound_convos = skipped;
 
