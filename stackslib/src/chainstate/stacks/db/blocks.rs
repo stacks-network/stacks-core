@@ -2039,22 +2039,27 @@ impl StacksChainState {
 
     /// Generate a blocks inventory message for a range of Stacks block heights.
     /// NOTE: header_hashes must be *only* for this reward cycle.
-    #[allow(clippy::indexing_slicing)]
     pub fn get_blocks_inventory_for_reward_cycle(
         &self,
         burnchain: &Burnchain,
         reward_cycle: u64,
         header_hashes: &[(ConsensusHash, Option<BlockHeaderHash>)],
     ) -> Result<BlocksInvData, Error> {
-        let bench_start = get_epoch_time_ms();
-        let mut block_bits = vec![false; header_hashes.len()];
-        let mut microblock_bits = vec![false; header_hashes.len()];
-        let mut num_rows = 0;
+        let accepted_blocks = self.get_accepted_blocks_in_reward_cycle(burnchain, reward_cycle)?;
+        Ok(Self::make_blocks_inventory(header_hashes, &accepted_blocks))
+    }
 
-        let mut ch_lookup: HashMap<&ConsensusHash, _> = HashMap::new();
-        for (i, (ch, _)) in header_hashes.iter().enumerate() {
-            ch_lookup.insert(ch, i);
-        }
+    /// Find the sortitions in a reward cycle whose staging block was processed and not orphaned.
+    /// Returns a map from each such sortition's consensus hash to whether or not the microblock
+    /// stream confirmed by that block was also processed and not orphaned.
+    pub fn get_accepted_blocks_in_reward_cycle(
+        &self,
+        burnchain: &Burnchain,
+        reward_cycle: u64,
+    ) -> Result<HashMap<ConsensusHash, bool>, Error> {
+        let bench_start = get_epoch_time_ms();
+        let mut accepted_blocks = HashMap::new();
+        let mut num_rows = 0;
 
         // find height range
         let (start_height, end_height) =
@@ -2080,53 +2085,54 @@ impl StacksChainState {
         while let Some(row) = rows.next()? {
             num_rows += 1;
             let consensus_hash: ConsensusHash = row.get_unwrap(0);
-            let index = match ch_lookup.get(&consensus_hash) {
-                Some(i) => *i,
-                None => {
-                    test_debug!("No staging block data for {}", &consensus_hash);
-                    continue;
-                }
-            };
-
             let block_processed: i64 = row.get_unwrap(1);
             let block_orphaned: i64 = row.get_unwrap(2);
             let microblock_processed_opt: Option<i64> = row.get_unwrap(3);
             let microblock_orphaned_opt: Option<i64> = row.get_unwrap(4);
 
-            if block_processed != 0 && block_orphaned == 0 {
-                block_bits[index] = true;
+            if block_processed == 0 || block_orphaned != 0 {
+                continue;
             }
 
-            if let Some(microblock_processed) = microblock_processed_opt {
-                if let Some(microblock_orphaned) = microblock_orphaned_opt {
-                    if block_processed != 0
-                        && block_orphaned == 0
-                        && microblock_processed != 0
-                        && microblock_orphaned == 0
-                    {
-                        microblock_bits[index] = true;
-                    }
-                }
-            }
+            let microblock_accepted = microblock_processed_opt.is_some_and(|p| p != 0)
+                && microblock_orphaned_opt.is_some_and(|o| o == 0);
+
+            let has_microblocks = accepted_blocks.entry(consensus_hash).or_insert(false);
+            *has_microblocks |= microblock_accepted;
         }
 
-        let block_bitvec = BlocksInvData::compress_bools(&block_bits);
-        let microblocks_bitvec = BlocksInvData::compress_bools(&microblock_bits);
         let bench_end = get_epoch_time_ms();
 
         debug!(
-            "Time to evaluate {} entries: {}ms; {} rows visited",
-            header_hashes.len(),
+            "Time to load accepted blocks for reward cycle {}: {}ms; {} rows visited",
+            reward_cycle,
             bench_end.saturating_sub(bench_start),
             num_rows
         );
 
-        Ok(BlocksInvData {
+        Ok(accepted_blocks)
+    }
+
+    /// Generate a blocks inventory message from the output of
+    /// `get_accepted_blocks_in_reward_cycle()`.
+    pub fn make_blocks_inventory(
+        header_hashes: &[(ConsensusHash, Option<BlockHeaderHash>)],
+        accepted_blocks: &HashMap<ConsensusHash, bool>,
+    ) -> BlocksInvData {
+        let (block_bits, microblock_bits): (Vec<bool>, Vec<bool>) = header_hashes
+            .iter()
+            .map(|(ch, _)| match accepted_blocks.get(ch) {
+                Some(has_microblocks) => (true, *has_microblocks),
+                None => (false, false),
+            })
+            .unzip();
+
+        BlocksInvData {
             bitlen: u16::try_from(block_bits.len())
                 .expect("FATAL: block bits has more than 2^16 members"),
-            block_bitvec,
-            microblocks_bitvec,
-        })
+            block_bitvec: BlocksInvData::compress_bools(&block_bits),
+            microblocks_bitvec: BlocksInvData::compress_bools(&microblock_bits),
+        }
     }
 
     /// Do we have a staging block?  Return true if the block is present and marked as unprocessed;
@@ -4096,11 +4102,11 @@ impl StacksChainState {
             }
             let result = clarity_tx.connection().as_transaction(|tx| {
                 tx.run_contract_call(
-                    &sender.clone().into(),
+                    sender.clone().into(),
                     None,
-                    &boot_code_id(active_pox_contract, mainnet),
+                    boot_code_id(active_pox_contract, mainnet),
                     "stack-stx",
-                    &args,
+                    args,
                     |_, _| None,
                     &ResourceBudget::unlimited(),
                 )
@@ -4136,7 +4142,7 @@ impl StacksChainState {
                             result: value,
                             post_condition_aborted: false,
                             stx_burned: 0,
-                            contract_analysis: None,
+                            contract_interface: None,
                             execution_cost,
                             microblock_header: None,
                             tx_index: 0,
@@ -4233,7 +4239,7 @@ impl StacksChainState {
                                     result: value,
                                     post_condition_aborted: false,
                                     stx_burned: 0,
-                                    contract_analysis: None,
+                                    contract_interface: None,
                                     execution_cost: ExecutionCost::ZERO,
                                     microblock_header: None,
                                     tx_index: 0,
@@ -4302,11 +4308,11 @@ impl StacksChainState {
             };
             let result = clarity_tx.connection().as_transaction(|tx| {
                 tx.run_contract_call(
-                    &sender.clone().into(),
+                    sender.clone().into(),
                     None,
-                    &boot_code_id(active_pox_contract, mainnet),
+                    boot_code_id(active_pox_contract, mainnet),
                     "delegate-stx",
-                    &[
+                    vec![
                         Value::UInt(*delegated_ustx),
                         Value::Principal(delegate_to.clone().into()),
                         until_burn_height_val,
@@ -4351,7 +4357,7 @@ impl StacksChainState {
                             result: value,
                             post_condition_aborted: false,
                             stx_burned: 0,
-                            contract_analysis: None,
+                            contract_interface: None,
                             execution_cost,
                             microblock_header: None,
                             tx_index: 0,
@@ -4410,11 +4416,11 @@ impl StacksChainState {
             );
             let result = clarity_tx.connection().as_transaction(|tx| {
                 tx.run_contract_call(
-                    &sender.clone().into(),
+                    sender.clone().into(),
                     None,
-                    &boot_code_id(SIGNERS_VOTING_NAME, mainnet),
+                    boot_code_id(SIGNERS_VOTING_NAME, mainnet),
                     "vote-for-aggregate-public-key",
-                    &[
+                    vec![
                         Value::UInt((*signer_index).into()),
                         Value::buff_from(aggregate_key.as_bytes().to_vec()).unwrap(),
                         Value::UInt((*round).into()),
@@ -4461,7 +4467,7 @@ impl StacksChainState {
                             result: value,
                             post_condition_aborted: false,
                             stx_burned: 0,
-                            contract_analysis: None,
+                            contract_interface: None,
                             execution_cost,
                             microblock_header: None,
                             tx_index: 0,

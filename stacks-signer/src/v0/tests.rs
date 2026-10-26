@@ -1,4 +1,4 @@
-// Copyright (C) 2020-2024 Stacks Open Internet Foundation
+// Copyright (C) 2020-2026 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -508,13 +508,18 @@ mod async_sibling_validation {
         block
     }
 
+    /// Binary response bodies served by the mock node, as `(path fragment, bytes)`.
+    type BinaryResponses = Arc<Mutex<Vec<(String, Vec<u8>)>>>;
+
     /// A mock stacks-node that serves a tenure tip per consensus hash (so the tenure-change
     /// parent check and the signing-time tip check each see their own tenure's tip) and an
     /// empty `/v2/info`; everything else 404s. `tips` maps a path fragment to a response body,
-    /// first match wins.
+    /// first match wins. `binary_responses` does the same with binary bodies (StackerDB chunks)
+    /// and is checked first.
     fn serve_node(
         listener: TcpListener,
         tips: Arc<Mutex<Vec<(String, String)>>>,
+        binary_responses: BinaryResponses,
         exit: Arc<AtomicBool>,
     ) {
         listener.set_nonblocking(true).unwrap();
@@ -536,6 +541,21 @@ mod async_sibling_validation {
                 }
             }
             let request = String::from_utf8_lossy(&request);
+            let binary_body = binary_responses
+                .lock()
+                .unwrap()
+                .iter()
+                .find(|(fragment, _)| request.contains(fragment.as_str()))
+                .map(|(_, body)| body.clone());
+            if let Some(body) = binary_body {
+                let head = format!(
+                    "HTTP/1.1 200 OK\r\nContent-Type: application/octet-stream\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                    body.len()
+                );
+                let _ = stream.write_all(head.as_bytes());
+                let _ = stream.write_all(&body);
+                continue;
+            }
             let tip_body = tips
                 .lock()
                 .unwrap()
@@ -568,6 +588,8 @@ mod async_sibling_validation {
         /// What the node currently answers, as `(path fragment, body)`; anything unmatched
         /// 404s. Replaceable so a test can change the node's view between events.
         tips: Arc<Mutex<Vec<(String, String)>>>,
+        /// Binary bodies the node answers, as `(path fragment, bytes)`, checked before `tips`.
+        pub(super) binary_responses: BinaryResponses,
     }
 
     impl MockNode {
@@ -581,7 +603,11 @@ mod async_sibling_validation {
             let server_exit = exit.clone();
             let tips = Arc::new(Mutex::new(tips));
             let served_tips = tips.clone();
-            let server = thread::spawn(move || serve_node(listener, served_tips, server_exit));
+            let binary_responses = Arc::new(Mutex::new(Vec::new()));
+            let served_binary_responses = binary_responses.clone();
+            let server = thread::spawn(move || {
+                serve_node(listener, served_tips, served_binary_responses, server_exit)
+            });
 
             let client = StacksClient::new(
                 &StacksPrivateKey::random(),
@@ -642,6 +668,7 @@ mod async_sibling_validation {
                 server: Some(server),
                 db_path,
                 tips,
+                binary_responses,
             }
         }
 
@@ -2860,5 +2887,262 @@ mod global_state_deferral {
             reject_reason(&recorder),
             Some(RejectReason::NoSignerConsensus)
         );
+    }
+}
+
+/// A signer drops every signer message until its reward cycle starts. A peer whose node is a
+/// little ahead at the cycle's first burn block sends its state update in that window, and does
+/// not send it again until its view changes. The signer must recover it from StackerDB when the
+/// cycle starts, or it lacks the peer's update until the next burn block and rejects every
+/// proposal in between with `NoSignerConsensus`.
+#[cfg(test)]
+mod cycle_start_state_sync {
+    use std::collections::HashMap;
+    use std::sync::mpsc;
+    use std::time::{Duration, SystemTime};
+
+    use clarity::types::chainstate::{ConsensusHash, StacksAddress, StacksBlockId};
+    use libsigner::v0::messages::{
+        RejectReason, SignerMessage, StateMachineUpdate, StateMachineUpdateContent,
+        StateMachineUpdateMinerState,
+    };
+    use libsigner::v0::signer_state::{GlobalStateEvaluator, MinerState, SignerStateMachine};
+    use libsigner::{BlockProposal, BlockProposalData, SignerEvent};
+    use stacks_common::codec::StacksMessageCodec;
+    use stacks_common::types::chainstate::{StacksPrivateKey, StacksPublicKey};
+    use stacks_common::util::get_epoch_time_secs;
+
+    use super::async_sibling_validation::{tenure_start, MockNode};
+    use super::BlockMessageRecorder;
+    use crate::v0::signer_state::LocalStateMachine;
+    use crate::Signer as SignerTrait;
+
+    const PROTOCOL_VERSION: u64 = 2;
+    /// The signer under test belongs to reward cycle 1 (see `MockNode`).
+    const OUR_CYCLE: u64 = 1;
+    /// The peer's StackerDB slot, and the request path fragment its state update is served at
+    /// (`signers-<cycle % 2>-<StateMachineUpdate slot id>`).
+    const PEER_SLOT: u32 = 1;
+    const PEER_UPDATE_PATH: &str = "/signers-1-2/1 ";
+
+    fn view(burn_block: &ConsensusHash) -> SignerStateMachine {
+        SignerStateMachine {
+            burn_block: burn_block.clone(),
+            burn_block_height: 1,
+            current_miner: MinerState::NoValidMiner,
+            active_signer_protocol_version: PROTOCOL_VERSION,
+        }
+    }
+
+    fn update(burn_block: &ConsensusHash) -> StateMachineUpdate {
+        let content = StateMachineUpdateContent::new(
+            PROTOCOL_VERSION,
+            StateMachineUpdateMinerState::NoValidMiner,
+            &view(burn_block),
+        )
+        .unwrap();
+        StateMachineUpdate::new(PROTOCOL_VERSION, PROTOCOL_VERSION, content).unwrap()
+    }
+
+    /// Our signer holds 40% of the weight and has moved on to `burn_block`; the peer holds the
+    /// other 60%, and we have no update from it at all. Its update is in StackerDB.
+    fn node_missing_peer_update(burn_block: &ConsensusHash) -> (MockNode, StacksAddress) {
+        let mut node = MockNode::new(vec![], Duration::from_secs(100_000));
+        node.signer.local_state_machine = LocalStateMachine::Initialized(view(burn_block));
+        let peer_key = StacksPrivateKey::from_seed(&[7, 7]);
+        let peer_addr = StacksAddress::p2pkh(false, &StacksPublicKey::from_private(&peer_key));
+        // The peer is signer id (and StackerDB slot) 1: `signer_addresses` is in id order.
+        node.signer.signer_addresses.push(peer_addr.clone());
+        assert_eq!(node.signer.signer_addresses.len(), PEER_SLOT as usize + 1);
+        let weights: HashMap<_, _> = [
+            (node.signer.stacks_address.clone(), 40),
+            (peer_addr.clone(), 60),
+        ]
+        .into_iter()
+        .collect();
+        node.signer.signer_weights = weights.clone();
+        node.signer.global_state_evaluator = GlobalStateEvaluator::new(HashMap::new(), weights);
+        serve_peer_update(&node, burn_block);
+        (node, peer_addr)
+    }
+
+    fn serve_peer_update(node: &MockNode, burn_block: &ConsensusHash) {
+        let chunk = SignerMessage::StateMachineUpdate(update(burn_block)).serialize_to_vec();
+        let mut responses = node.binary_responses.lock().unwrap();
+        responses.clear();
+        responses.push((PEER_UPDATE_PATH.to_string(), chunk));
+    }
+
+    fn peer_burn_block(node: &MockNode, peer: &StacksAddress) -> Option<ConsensusHash> {
+        node.signer
+            .global_state_evaluator
+            .address_updates
+            .get(peer)
+            .map(|update| update.content.burn_block_view().0.clone())
+    }
+
+    fn proposal_event(burn_block: &ConsensusHash) -> (BlockProposal, SignerEvent<SignerMessage>) {
+        let block = tenure_start(
+            &StacksPrivateKey::from_seed(&[0, 1]),
+            burn_block,
+            &ConsensusHash([0; 20]),
+            &StacksBlockId([9; 32]),
+            10,
+            get_epoch_time_secs(),
+        );
+        let proposal = BlockProposal {
+            block,
+            burn_height: 1,
+            reward_cycle: OUR_CYCLE,
+            block_proposal_data: BlockProposalData::empty(),
+        };
+        let event =
+            SignerEvent::MinerMessages(vec![SignerMessage::BlockProposal(proposal.clone())]);
+        (proposal, event)
+    }
+
+    #[test]
+    fn peer_update_missed_before_the_cycle_starts_is_recovered_when_it_starts() {
+        let burn_block = ConsensusHash([1; 20]);
+        let (mut node, peer) = node_missing_peer_update(&burn_block);
+        let (result_tx, _result_rx) = mpsc::channel();
+        let mut sortition = None;
+
+        // The cycle has not started: nothing is read from StackerDB yet.
+        node.signer.process_event(
+            &node.client,
+            &mut sortition,
+            None,
+            &result_tx,
+            OUR_CYCLE - 1,
+            Some(OUR_CYCLE - 1),
+        );
+        assert_eq!(peer_burn_block(&node, &peer), None);
+
+        // The first pass of our cycle reloads the peer's update before judging the proposal
+        // it carries, so the proposal is judged against the formed global state (whose miner
+        // view is `NoValidMiner`) instead of rejected for its absence.
+        let (proposal, event) = proposal_event(&burn_block);
+        node.signer.test_block_messages = Some(BlockMessageRecorder::new(
+            proposal.block.header.signer_signature_hash(),
+        ));
+        node.signer.process_event(
+            &node.client,
+            &mut sortition,
+            Some(&event),
+            &result_tx,
+            OUR_CYCLE,
+            Some(OUR_CYCLE),
+        );
+        let peer_view = peer_burn_block(&node, &peer);
+        let recorder = node.signer.test_block_messages.take().unwrap();
+        node.shutdown();
+        assert_eq!(peer_view, Some(burn_block));
+        assert_eq!(recorder.response_count, 1);
+        let reason = recorder
+            .first_response
+            .as_ref()
+            .and_then(|response| response.as_block_rejection())
+            .map(|rejection| rejection.response_data.reject_reason.clone());
+        assert_eq!(reason, Some(RejectReason::InvalidMiner));
+    }
+
+    #[test]
+    fn state_updates_are_reloaded_only_once_per_cycle() {
+        let burn_block = ConsensusHash([1; 20]);
+        let (mut node, peer) = node_missing_peer_update(&burn_block);
+        let (result_tx, _result_rx) = mpsc::channel();
+        let mut sortition = None;
+
+        node.signer.process_event(
+            &node.client,
+            &mut sortition,
+            None,
+            &result_tx,
+            OUR_CYCLE,
+            Some(OUR_CYCLE),
+        );
+        let first = peer_burn_block(&node, &peer);
+
+        // From here on, updates arrive as events as usual: StackerDB is not read again.
+        serve_peer_update(&node, &ConsensusHash([2; 20]));
+        node.signer.process_event(
+            &node.client,
+            &mut sortition,
+            None,
+            &result_tx,
+            OUR_CYCLE,
+            Some(OUR_CYCLE),
+        );
+        let second = peer_burn_block(&node, &peer);
+        node.shutdown();
+        assert_eq!(first, Some(burn_block.clone()));
+        assert_eq!(second, Some(burn_block));
+    }
+
+    #[test]
+    fn signer_messages_are_still_dropped_before_the_cycle_starts() {
+        let burn_block = ConsensusHash([1; 20]);
+        let (mut node, peer) = node_missing_peer_update(&burn_block);
+        let (result_tx, _result_rx) = mpsc::channel();
+        let mut sortition = None;
+        let peer_message = SignerEvent::SignerMessages {
+            // Odd, so that a reward-cycle-1 signer treats the message as its own set's.
+            signer_set: 1,
+            messages: vec![(
+                PEER_SLOT,
+                StacksPublicKey::from_private(&StacksPrivateKey::from_seed(&[7, 7])),
+                SignerMessage::StateMachineUpdate(update(&burn_block)),
+            )],
+            received_time: SystemTime::now(),
+        };
+
+        node.signer.process_event(
+            &node.client,
+            &mut sortition,
+            Some(&peer_message),
+            &result_tx,
+            OUR_CYCLE - 1,
+            Some(OUR_CYCLE - 1),
+        );
+        let peer_view = peer_burn_block(&node, &peer);
+        node.shutdown();
+        assert_eq!(
+            peer_view, None,
+            "a future-cycle signer still ignores signer messages"
+        );
+    }
+
+    #[test]
+    fn state_updates_are_reloaded_again_when_the_cycle_restarts_after_a_reorg() {
+        let burn_block = ConsensusHash([1; 20]);
+        let (mut node, peer) = node_missing_peer_update(&burn_block);
+        let (result_tx, _result_rx) = mpsc::channel();
+        let mut sortition = None;
+        let mut pass = |node: &mut MockNode, current_reward_cycle: u64| {
+            node.signer.process_event(
+                &node.client,
+                &mut sortition,
+                None,
+                &result_tx,
+                current_reward_cycle,
+                Some(current_reward_cycle),
+            );
+        };
+
+        pass(&mut node, OUR_CYCLE);
+        let first = peer_burn_block(&node, &peer);
+
+        // A burnchain reorg takes the tip back into the previous cycle, during which signer
+        // messages are dropped again, and then forward into ours: the cycle starts again, so
+        // StackerDB is read again.
+        let reorged_burn_block = ConsensusHash([2; 20]);
+        pass(&mut node, OUR_CYCLE - 1);
+        serve_peer_update(&node, &reorged_burn_block);
+        pass(&mut node, OUR_CYCLE);
+        let second = peer_burn_block(&node, &peer);
+        node.shutdown();
+        assert_eq!(first, Some(burn_block));
+        assert_eq!(second, Some(reorged_burn_block));
     }
 }

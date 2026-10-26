@@ -1147,11 +1147,11 @@ fn pox_2_delegate_extend_units() {
         // set burnchain params based on old testnet settings (< 2.0.11.0)
         conn.as_transaction(|tx| {
             tx.run_contract_call(
-                &boot_code_addr(false).into(),
+                boot_code_addr(false).into(),
                 None,
-                POX_2_CONTRACT_TESTNET.deref(),
+                POX_2_CONTRACT_TESTNET.deref().clone(),
                 "set-burnchain-parameters",
-                &[
+                vec![
                     Value::UInt(0),
                     Value::UInt(30),
                     Value::UInt(150),

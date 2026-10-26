@@ -1340,11 +1340,11 @@ impl<'a, 'b> ClarityBlockConnection<'a, 'b> {
 
                 let (_, _, _burnchain_params_events) = tx_conn
                     .run_contract_call(
-                        &consts_setter,
+                        consts_setter,
                         None,
-                        &pox_2_contract_id,
+                        pox_2_contract_id,
                         "set-burnchain-parameters",
-                        &params,
+                        params,
                         |_, _| None,
                         &ResourceBudget::unlimited(),
                     )
@@ -1572,11 +1572,11 @@ impl<'a, 'b> ClarityBlockConnection<'a, 'b> {
 
                 let (_, _, _burnchain_params_events) = tx_conn
                     .run_contract_call(
-                        &consts_setter,
+                        consts_setter,
                         None,
-                        &pox_3_contract_id,
+                        pox_3_contract_id,
                         "set-burnchain-parameters",
-                        &params,
+                        params,
                         |_, _| None,
                         &ResourceBudget::unlimited(),
                     )
@@ -1688,11 +1688,11 @@ impl<'a, 'b> ClarityBlockConnection<'a, 'b> {
 
                 let (_, _, _burnchain_params_events) = tx_conn
                     .run_contract_call(
-                        &consts_setter,
+                        consts_setter,
                         None,
-                        &pox_4_contract_id,
+                        pox_4_contract_id,
                         "set-burnchain-parameters",
-                        &params,
+                        params,
                         |_, _| None,
                         &ResourceBudget::unlimited(),
                     )
@@ -2152,11 +2152,11 @@ impl<'a, 'b> ClarityBlockConnection<'a, 'b> {
 
                 let (_, _, _burnchain_params_events) = tx_conn
                     .run_contract_call(
-                        &consts_setter,
+                        consts_setter,
                         None,
-                        &pox_5_contract_id,
+                        pox_5_contract_id,
                         "set-burnchain-parameters",
-                        &params,
+                        params,
                         |_, _| None,
                         &ResourceBudget::unlimited(),
                     )
@@ -2896,11 +2896,11 @@ mod tests {
 
             assert_eq!(
                 conn.as_transaction(|tx| tx.run_contract_call(
-                    &StandardPrincipalData::transient().into(),
+                    StandardPrincipalData::transient().into(),
                     None,
-                    &contract_identifier,
+                    contract_identifier.clone(),
                     "foo",
-                    &[Value::Int(1)],
+                    vec![Value::Int(1)],
                     |_, _| None,
                     &ResourceBudget::unlimited()
                 ))
@@ -3133,7 +3133,7 @@ mod tests {
         let marf = MarfedKV::temporary();
         let mut clarity_instance = ClarityInstance::new(false, CHAIN_ID_TESTNET, marf);
         let contract_identifier = QualifiedContractIdentifier::local("foo").unwrap();
-        let sender = StandardPrincipalData::transient().into();
+        let sender: PrincipalData = StandardPrincipalData::transient().into();
 
         clarity_instance
             .begin_test_genesis_block(
@@ -3183,11 +3183,11 @@ mod tests {
 
             assert_eq!(
                 conn.as_transaction(|tx| tx.run_contract_call(
-                    &sender,
+                    sender.clone(),
                     None,
-                    &contract_identifier,
+                    contract_identifier.clone(),
                     "get-bar",
-                    &[],
+                    vec![],
                     |_, _| None,
                     &ResourceBudget::unlimited()
                 ))
@@ -3198,11 +3198,11 @@ mod tests {
 
             assert_eq!(
                 conn.as_transaction(|tx| tx.run_contract_call(
-                    &sender,
+                    sender.clone(),
                     None,
-                    &contract_identifier,
+                    contract_identifier.clone(),
                     "set-bar",
-                    &[Value::Int(1), Value::Int(1)],
+                    vec![Value::Int(1), Value::Int(1)],
                     |_, _| None,
                     &ResourceBudget::unlimited()
                 ))
@@ -3214,11 +3214,11 @@ mod tests {
             let e = conn
                 .as_transaction(|tx| {
                     tx.run_contract_call(
-                        &sender,
+                        sender.clone(),
                         None,
-                        &contract_identifier,
+                        contract_identifier.clone(),
                         "set-bar",
-                        &[Value::Int(10), Value::Int(1)],
+                        vec![Value::Int(10), Value::Int(1)],
                         |_, _| Some("testing rollback".into()),
                         &ResourceBudget::unlimited(),
                     )
@@ -3235,11 +3235,11 @@ mod tests {
             // prior transaction should have rolled back due to abort call back!
             assert_eq!(
                 conn.as_transaction(|tx| tx.run_contract_call(
-                    &sender,
+                    sender.clone(),
                     None,
-                    &contract_identifier,
+                    contract_identifier.clone(),
                     "get-bar",
-                    &[],
+                    vec![],
                     |_, _| None,
                     &ResourceBudget::unlimited()
                 ))
@@ -3251,11 +3251,11 @@ mod tests {
             assert!(format!(
                 "{:?}",
                 conn.as_transaction(|tx| tx.run_contract_call(
-                    &sender,
+                    sender,
                     None,
-                    &contract_identifier,
+                    contract_identifier.clone(),
                     "set-bar",
-                    &[Value::Int(10), Value::Int(0)],
+                    vec![Value::Int(10), Value::Int(0)],
                     |_, _| Some("testing rollback".into()),
                     &ResourceBudget::unlimited()
                 ))
@@ -3266,11 +3266,11 @@ mod tests {
             // prior transaction should have rolled back due to runtime error
             assert_eq!(
                 conn.as_transaction(|tx| tx.run_contract_call(
-                    &StandardPrincipalData::transient().into(),
+                    StandardPrincipalData::transient().into(),
                     None,
-                    &contract_identifier,
+                    contract_identifier,
                     "get-bar",
-                    &[],
+                    vec![],
                     |_, _| None,
                     &ResourceBudget::unlimited()
                 ))
@@ -3565,11 +3565,11 @@ mod tests {
             );
             assert!(match conn
                 .as_transaction(|tx| tx.run_contract_call(
-                    &sender,
+                    sender,
                     None,
-                    &contract_identifier,
+                    contract_identifier,
                     "do-expand",
-                    &[],
+                    vec![],
                     |_, _| None,
                     &ResourceBudget::unlimited()
                 ))
@@ -3652,11 +3652,11 @@ mod tests {
             assert_eq!(tx.cache.contracts.misses(), 0);
 
             tx.run_contract_call(
-                &sender,
+                sender.clone(),
                 None,
-                &contract_identifier,
+                contract_identifier.clone(),
                 "noop",
-                &[],
+                vec![],
                 |_, _| None,
                 &ResourceBudget::unlimited(),
             )
@@ -3667,11 +3667,11 @@ mod tests {
             assert!(misses_after_first >= 1, "first call should miss");
 
             tx.run_contract_call(
-                &sender,
+                sender.clone(),
                 None,
-                &contract_identifier,
+                contract_identifier.clone(),
                 "noop",
-                &[],
+                vec![],
                 |_, _| None,
                 &ResourceBudget::unlimited(),
             )
@@ -3698,11 +3698,11 @@ mod tests {
             );
 
             tx.run_contract_call(
-                &sender,
+                sender,
                 None,
-                &contract_identifier,
+                contract_identifier,
                 "noop",
-                &[],
+                vec![],
                 |_, _| None,
                 &ResourceBudget::unlimited(),
             )

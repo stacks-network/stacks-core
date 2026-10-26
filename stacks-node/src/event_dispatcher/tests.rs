@@ -20,10 +20,11 @@ use std::thread;
 use std::time::{Instant, SystemTime};
 
 use clarity::boot_util::boot_code_id;
+use clarity::vm::analysis::contract_interface_builder::build_contract_interface;
 use clarity::vm::costs::ExecutionCost;
 use clarity::vm::events::SmartContractEventData;
 use clarity::vm::types::StacksAddressExtensions;
-use clarity::vm::{ClarityName, ContractName, Value};
+use clarity::vm::{analysis, ClarityName, ClarityVersion, ContractName, Value};
 use rusqlite::Connection;
 use serial_test::serial;
 use stacks::address::{AddressHashMode, C32_ADDRESS_VERSION_TESTNET_SINGLESIG};
@@ -50,12 +51,13 @@ use stacks::util::hash::{Hash160, Sha512Trunc256Sum};
 use stacks::util::secp256k1::MessageSignature;
 use stacks_common::bitvec::BitVec;
 use stacks_common::types::chainstate::{BurnchainHeaderHash, StacksBlockId};
+use stacks_common::types::StacksEpochId;
 use tempfile::tempdir;
 use tiny_http::{Method, Response, Server, StatusCode};
 
-use crate::event_dispatcher::payloads::*;
 use crate::event_dispatcher::*;
 
+/// Post-condition rollback suppresses transaction events in the delivered block payload.
 #[test]
 fn test_post_condition_aborted_transaction_does_not_emit_events() {
     // Create a transaction receipt with post_condition_aborted = true and a dummy event
@@ -104,7 +106,7 @@ fn test_post_condition_aborted_transaction_does_not_emit_events() {
         post_condition_aborted: true,
         result: Value::okay_true(),
         stx_burned: 0,
-        contract_analysis: None,
+        contract_interface: None,
         execution_cost: ExecutionCost::ZERO,
         microblock_header: None,
         tx_index: 0,
@@ -963,7 +965,7 @@ fn make_new_block_txs_payload_vm_error() {
         events: vec![],
         post_condition_aborted: true,
         result: Value::okay_true(),
-        contract_analysis: None,
+        contract_interface: None,
         execution_cost: ExecutionCost {
             write_length: 0,
             write_count: 0,
@@ -987,54 +989,51 @@ fn make_new_block_txs_payload_vm_error() {
     assert_eq!(payload_with_error.vm_error, receipt.vm_error);
 }
 
+/// Deployment payloads preserve the ABI's JSON fields and emit explicit null on opt-out.
 #[test]
-/// The `contract_interface` field is populated when inclusion is enabled, and is
-/// always `None` when disabled -- even when the receipt carries a contract analysis.
 fn make_new_block_txs_payload_contract_interface_toggle() {
-    let privkey = StacksPrivateKey::random();
+    let source = "(define-data-var counter uint u0)
+                  (define-read-only (get-counter) (var-get counter))";
     let tx = StacksTransaction {
         version: TransactionVersion::Testnet,
-        chain_id: 0x80000000,
-        auth: TransactionAuth::from_p2pkh(&privkey).unwrap(),
+        chain_id: CHAIN_ID_TESTNET,
+        auth: TransactionAuth::from_p2pkh(&StacksPrivateKey::random()).unwrap(),
         anchor_mode: TransactionAnchorMode::Any,
         post_condition_mode: TransactionPostConditionMode::Allow,
         post_conditions: vec![],
-        payload: TransactionPayload::TokenTransfer(
-            to_addr(&privkey).to_account_principal(),
-            123,
-            TokenTransferMemo([0u8; 34]),
-        ),
+        payload: TransactionPayload::new_smart_contract("counter", source, None).unwrap(),
     };
+    let (_, analysis) =
+        analysis::mem_type_check(source, ClarityVersion::Clarity1, StacksEpochId::Epoch21).unwrap();
+    let receipt =
+        StacksTransactionReceipt::from_smart_contract(tx, vec![], 0, analysis, ExecutionCost::ZERO);
 
-    let analysis = clarity::vm::analysis::ContractAnalysis::new(
-        clarity::vm::types::QualifiedContractIdentifier::transient(),
-        vec![],
-        clarity::vm::costs::LimitedCostTracker::new_free(),
-        stacks_common::types::StacksEpochId::Epoch21,
-        clarity::vm::ClarityVersion::Clarity1,
+    // Compare wire JSON directly: typed deserialization can ignore renamed or unknown fields.
+    let mut included = serde_json::to_value(make_new_block_txs_payload(&receipt, 0, true)).unwrap();
+    let expected_interface = serde_json::json!({
+        "functions": [{
+            "name": "get-counter",
+            "access": "read_only",
+            "args": [],
+            "outputs": { "type": "uint128" }
+        }],
+        "variables": [{ "name": "counter", "access": "variable", "type": "uint128" }],
+        "maps": [],
+        "fungible_tokens": [],
+        "non_fungible_tokens": [],
+        "epoch": "Epoch21",
+        "clarity_version": "Clarity1"
+    });
+    assert_eq!(
+        included.get("contract_interface"),
+        Some(&expected_interface)
     );
+    assert!(included.get("contract_abi").is_none());
 
-    let receipt = StacksTransactionReceipt {
-        transaction: TransactionOrigin::Stacks(tx),
-        events: vec![],
-        post_condition_aborted: false,
-        result: Value::okay_true(),
-        contract_analysis: Some(analysis),
-        execution_cost: ExecutionCost::ZERO,
-        microblock_header: None,
-        vm_error: None,
-        problematic_skipped: None,
-        stx_burned: 0u128,
-        tx_index: 0,
-    };
-
-    // Enabled: the ABI is present because the receipt has a contract analysis.
-    let included = make_new_block_txs_payload(&receipt, 0, true);
-    assert!(included.contract_interface.is_some());
-
-    // Disabled: the ABI is omitted regardless of the receipt's contract analysis.
-    let omitted = make_new_block_txs_payload(&receipt, 0, false);
-    assert!(omitted.contract_interface.is_none());
+    // Opt-out changes only the interface field, retaining it as explicit null.
+    let omitted = serde_json::to_value(make_new_block_txs_payload(&receipt, 0, false)).unwrap();
+    included["contract_interface"] = serde_json::Value::Null;
+    assert_eq!(omitted, included);
 }
 
 #[test]
@@ -1099,7 +1098,7 @@ fn new_block_event_omits_contract_interface_only_for_opted_out_observer() {
         events: vec![],
         post_condition_aborted: false,
         result: Value::okay_true(),
-        contract_analysis: Some(analysis),
+        contract_interface: Some(build_contract_interface(&analysis).unwrap()),
         execution_cost: ExecutionCost::ZERO,
         microblock_header: None,
         vm_error: None,
@@ -1180,6 +1179,7 @@ fn make_tenure_change_tx(payload: TenureChangePayload) -> StacksTransaction {
     }
 }
 
+/// Transaction event JSON preserves the existing wire fields for burnchain-origin receipts.
 #[test]
 fn backwards_compatibility_transaction_event_payload() {
     let tx = make_tenure_change_tx(make_tenure_change_payload());
@@ -1200,7 +1200,7 @@ fn backwards_compatibility_transaction_event_payload() {
         post_condition_aborted: false,
         result: Value::okay_true(),
         stx_burned: 100,
-        contract_analysis: None,
+        contract_interface: None,
         execution_cost: ExecutionCost {
             write_length: 1,
             write_count: 2,
@@ -1230,7 +1230,7 @@ fn backwards_compatibility_transaction_event_payload() {
                     "vtxindex": 0
                 }
             },
-            "contract_abi": null,
+            "contract_interface": null,
             "execution_cost": {
                 "read_count": 4,
                 "read_length": 3,
@@ -1245,13 +1245,12 @@ fn backwards_compatibility_transaction_event_payload() {
             "raw_tx": "0x00",
             "status": "success",
             "tx_index": 0,
+            "vm_error": null,
             "txid": "0xace70e63009a2c2d22c0f948b146d8a28df13a2900f3b5f3cc78b56459ffef05"
         }
         "#;
-    let new_value: TransactionEventPayload = serde_json::from_str(&new_serialized_data)
-        .expect("Failed to deserialize new data as TransactionEventPayload");
-    let old_value: TransactionEventPayload = serde_json::from_str(old_serialized_data)
-        .expect("Failed to deserialize old data as TransactionEventPayload");
+    let new_value: serde_json::Value = serde_json::from_str(&new_serialized_data).unwrap();
+    let old_value: serde_json::Value = serde_json::from_str(old_serialized_data).unwrap();
     assert_eq!(new_value, old_value);
 }
 
