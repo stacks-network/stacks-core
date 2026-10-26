@@ -2489,7 +2489,19 @@ impl PeerNetwork {
 
                     // the conversation is dropped after this pass, so drain whatever the limits
                     // left queued, as when recv() fails.  If the socket was left unread because
-                    // of a backlog, this is how we find out that the remote peer hung up.
+                    // of a backlog, this is how we find out that the remote peer hung up, and it
+                    // may have sent more before it did, so read that too.
+                    if deferred_recv {
+                        if let Err(e) = convo.recv(client_sock) {
+                            debug!(
+                                "{:?}: Failed to receive data on event {} (socket {:?}): {:?}",
+                                &network.get_local_peer(),
+                                event_id,
+                                &client_sock,
+                                &e
+                            );
+                        }
+                    }
                     if convo.connection.inbox_len() > 0 {
                         match convo.chat_within(
                             network,

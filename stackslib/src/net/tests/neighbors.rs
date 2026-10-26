@@ -1995,6 +1995,9 @@ fn test_step_drain_inbox_on_send_failure() {
 
 fn run_drain_inbox_on_disconnect(test_name: &'static str, hang_up_with_backlog: bool) {
     with_timeout(600, move || {
+        // every ping and every reply must fit in the socket buffers while the other peer isn't
+        // reading, which the tiny test buffers don't allow on Linux
+        std::env::set_var("STACKS_TEST_DISABLE_EDGE_TRIGGER_TEST", "1");
         let mut peer_1_config = TestPeerConfig::new(test_name, 0, 0);
         peer_1_config.connection_opts.max_inbound_messages_per_pass = 1;
         let peer_2_config = TestPeerConfig::new(test_name, 0, 0);
@@ -2017,12 +2020,16 @@ fn run_drain_inbox_on_disconnect(test_name: &'static str, hang_up_with_backlog: 
 
         let nk_2 = peer_2.to_neighbor().addr;
         let event_id_2 = *peer_2.network.peers.keys().next().unwrap();
-        let msgs_rx_2 = peer_2
-            .network
-            .get_p2p_convo(event_id_2)
-            .unwrap()
-            .stats
-            .msgs_rx;
+        // count pings alone: peer 1 also sends peer 2 other messages (e.g. for its neighbor walk)
+        let pings_rx = |peer_2: &TestPeer| {
+            peer_2
+                .network
+                .get_p2p_convo(event_id_2)
+                .unwrap()
+                .stats
+                .get_message_recv_count(StacksMessageID::Ping)
+        };
+        let pings_rx_2 = pings_rx(&peer_2);
 
         // peer 1 sends a batch of pings and waits on their replies
         let num_pings = 8;
@@ -2043,16 +2050,15 @@ fn run_drain_inbox_on_disconnect(test_name: &'static str, hang_up_with_backlog: 
         // peer 2 receives them all and replies, while peer 1 leaves the replies on its socket
         for _ in 0..100 {
             let _ = peer_2.step();
-            let msgs_rx = peer_2
-                .network
-                .get_p2p_convo(event_id_2)
-                .unwrap()
-                .stats
-                .msgs_rx;
-            if msgs_rx >= msgs_rx_2 + num_pings {
+            if pings_rx(&peer_2) >= pings_rx_2 + num_pings {
                 break;
             }
         }
+        assert_eq!(
+            pings_rx(&peer_2),
+            pings_rx_2 + num_pings,
+            "peer 2 never received all the pings"
+        );
 
         let mut pongs = 0;
         let mut poll_replies = |peer_1: &mut TestPeer, reply_handles: &mut Vec<ReplyHandleP2P>| {
