@@ -486,8 +486,9 @@ struct ConvoPassResult {
     unhandled: Vec<StacksMessage>,
     /// is the conversation still usable?
     alive: bool,
-    /// did we leave the socket unread because the inbox still had a backlog?
-    deferred_recv: bool,
+    /// must we come back to this conversation next pass, because we left its socket unread or
+    /// still have messages queued?
+    revisit: bool,
 }
 
 pub struct PeerNetwork {
@@ -2387,7 +2388,7 @@ impl PeerNetwork {
     /// Stops handling queued messages once `deadline` passes, unless the socket has failed: such
     /// a conversation is dropped after this pass, so everything it already sent is handled now.
     /// Returns list of unhandled messages, whether or not the convo is still alive, and whether
-    /// or not we left the socket unread because the inbox still had a backlog.
+    /// or not it must be revisited next pass.
     fn process_p2p_conversation(
         &mut self,
         event_id: usize,
@@ -2483,7 +2484,7 @@ impl PeerNetwork {
             ConvoPassResult {
                 unhandled,
                 alive: !convo_dead,
-                deferred_recv,
+                revisit: !convo_dead && (deferred_recv || convo.connection.inbox_len() > 0),
             }
         })
     }
@@ -2562,7 +2563,7 @@ impl PeerNetwork {
             let ConvoPassResult {
                 unhandled: mut convo_unhandled,
                 alive,
-                deferred_recv,
+                revisit,
             } = match self.process_p2p_conversation(
                 *event_id,
                 sortdb,
@@ -2594,15 +2595,7 @@ impl PeerNetwork {
                 }
             };
 
-            // the socket is edge-triggered, so if we didn't read it, or still have messages
-            // queued, we must come back to it ourselves
-            if alive
-                && (deferred_recv
-                    || self
-                        .peers
-                        .get(event_id)
-                        .is_some_and(|convo| convo.connection.inbox_len() > 0))
-            {
+            if revisit {
                 leftover.push(*event_id);
             }
 
