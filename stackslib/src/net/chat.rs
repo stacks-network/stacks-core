@@ -17,6 +17,7 @@
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::io::{Read, Write};
 use std::net::SocketAddr;
+use std::time::Instant;
 use std::{cmp, mem};
 
 use clarity::vm::types::QualifiedContractIdentifier;
@@ -2922,10 +2923,9 @@ impl ConversationP2P {
         self.chat_until(network, sortdb, chainstate, dns_client_opt, ibd, None)
     }
 
-    /// Like `chat()`, but also stops handling messages once `deadline_ms` (epoch milliseconds)
-    /// has passed, so one peer's batch can't run the network pass past its
-    /// `max_inbound_processing_ms` budget.  Always handles at least one message so the
-    /// conversation makes progress.
+    /// Like `chat()`, but also stops handling messages once `deadline` has passed, so one peer's
+    /// batch can't run the network pass past its `max_inbound_processing_ms` budget.  Always
+    /// handles at least one message so the conversation makes progress.
     pub fn chat_until(
         &mut self,
         network: &mut PeerNetwork,
@@ -2933,7 +2933,7 @@ impl ConversationP2P {
         chainstate: &mut StacksChainState,
         dns_client_opt: &mut Option<&mut DNSClient>,
         ibd: bool,
-        deadline_ms: Option<u128>,
+        deadline: Option<Instant>,
     ) -> Result<Vec<StacksMessage>, net_error> {
         let num_inbound = self.connection.inbox_len();
         debug!("{:?}: {} messages pending", &self, num_inbound);
@@ -2955,9 +2955,7 @@ impl ConversationP2P {
 
         let mut unsolicited = vec![];
         for num_handled in 0..num_to_handle {
-            if num_handled > 0
-                && deadline_ms.is_some_and(|deadline| get_epoch_time_ms() >= deadline)
-            {
+            if num_handled > 0 && deadline.is_some_and(|deadline| Instant::now() >= deadline) {
                 debug!(
                     "{:?}: out of time after handling {} messages; leaving {} queued for the next pass",
                     &self,
@@ -4962,7 +4960,7 @@ mod test {
                 &mut chainstate_2,
                 &mut None,
                 false,
-                Some(0),
+                Some(Instant::now()),
             )
             .unwrap();
         assert_eq!(convo_2.connection.inbox_len(), 3);

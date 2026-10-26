@@ -19,6 +19,7 @@ use std::mem;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::sync::mpsc::{sync_channel, Receiver, SyncSender, TryRecvError, TrySendError};
 use std::thread::JoinHandle;
+use std::time::{Duration, Instant};
 
 use clarity::vm::types::QualifiedContractIdentifier;
 use mio::{self, net as mio_net};
@@ -2383,9 +2384,8 @@ impl PeerNetwork {
     }
 
     /// Process network traffic on a p2p conversation.
-    /// Stops handling queued messages once `deadline_ms` (epoch milliseconds) passes, unless the
-    /// socket has failed: such a conversation is dropped after this pass, so everything it
-    /// already sent is handled now.
+    /// Stops handling queued messages once `deadline` passes, unless the socket has failed: such
+    /// a conversation is dropped after this pass, so everything it already sent is handled now.
     /// Returns list of unhandled messages, whether or not the convo is still alive, and whether
     /// or not we left the socket unread because the inbox still had a backlog.
     fn process_p2p_conversation(
@@ -2395,7 +2395,7 @@ impl PeerNetwork {
         chainstate: &mut StacksChainState,
         dns_client_opt: &mut Option<&mut DNSClient>,
         ibd: bool,
-        deadline_ms: Option<u128>,
+        deadline: Option<Instant>,
     ) -> Result<ConvoPassResult, net_error> {
         self.with_p2p_convo(event_id, |network, convo, client_sock| {
             // get incoming bytes and update the state of this conversation.
@@ -2448,14 +2448,14 @@ impl PeerNetwork {
             let recv_failed = convo_dead;
             let mut unhandled = vec![];
             loop {
-                let deadline_ms = if recv_failed { None } else { deadline_ms };
+                let deadline = if recv_failed { None } else { deadline };
                 match convo.chat_until(
                     network,
                     sortdb,
                     chainstate,
                     dns_client_opt,
                     ibd,
-                    deadline_ms,
+                    deadline,
                 ) {
                     Err(e) => {
                         debug!(
@@ -2542,14 +2542,15 @@ impl PeerNetwork {
         }
 
         let max_processing_ms = self.connection_opts.max_inbound_processing_ms;
-        let deadline_ms = (max_processing_ms > 0)
-            .then(|| get_epoch_time_ms().saturating_add(u128::from(max_processing_ms)));
+        let deadline = (max_processing_ms > 0)
+            .then(|| Instant::now().checked_add(Duration::from_millis(max_processing_ms)))
+            .flatten();
         let mut skipped = vec![];
         let mut leftover = vec![];
 
         for (i, event_id) in event_ids.iter().enumerate() {
             // always make progress on at least one conversation
-            if i > 0 && deadline_ms.is_some_and(|deadline| get_epoch_time_ms() >= deadline) {
+            if i > 0 && deadline.is_some_and(|deadline| Instant::now() >= deadline) {
                 skipped = event_ids.get(i..).unwrap_or_default().to_vec();
                 debug!(
                     "{:?}: spent over {}ms processing {} conversations; deferring {} to the next pass",
@@ -2571,7 +2572,7 @@ impl PeerNetwork {
                 chainstate,
                 dns_client_opt,
                 ibd,
-                deadline_ms,
+                deadline,
             ) {
                 Ok(res) => res,
                 Err(e) => {
