@@ -1867,6 +1867,117 @@ fn run_inbound_backlog_backpressure(test_name: &'static str, disable_cap_after_b
     })
 }
 
+/// A peer that runs out of `max_inbound_processing_ms` before it gets to every ready socket
+/// handles the rest in later passes.  The sockets are edge-triggered, so a skipped neighbor that
+/// sends nothing more is only handled because the pass carried it over.
+#[test]
+fn test_step_inbound_deadline_defers_conversations() {
+    with_timeout(600, || {
+        // only peer 1 opens connections, so peers 2 and 3 each have a single conversation with it
+        let peer_1_config = TestPeerConfig::new(function_name!(), 0, 0);
+        let mut peer_2_config = TestPeerConfig::new(function_name!(), 0, 0);
+        peer_2_config.connection_opts.disable_neighbor_walk = true;
+        peer_2_config.connection_opts.disable_inv_sync = true;
+        let mut peer_3_config = TestPeerConfig::new(function_name!(), 0, 0);
+        peer_3_config.connection_opts.disable_neighbor_walk = true;
+        peer_3_config.connection_opts.disable_inv_sync = true;
+
+        let mut peer_1 = TestPeer::new(peer_1_config);
+        let mut peer_2 = TestPeer::new(peer_2_config);
+        let mut peer_3 = TestPeer::new(peer_3_config);
+
+        peer_1.add_neighbor(&mut peer_2.to_neighbor(), None, true);
+        peer_1.add_neighbor(&mut peer_3.to_neighbor(), None, true);
+
+        let nk_2 = peer_2.to_neighbor().addr;
+        let nk_3 = peer_3.to_neighbor().addr;
+        let handshaked = |peer_1: &TestPeer, nk: &NeighborKey| {
+            peer_1
+                .network
+                .get_neighbor_stats(nk)
+                .is_some_and(|stats| stats.last_handshake_time > 0)
+        };
+
+        // wait for the peers to handshake
+        while !handshaked(&peer_1, &nk_2)
+            || !handshaked(&peer_1, &nk_3)
+            || peer_2.network.peers.is_empty()
+            || peer_3.network.peers.is_empty()
+        {
+            let _ = peer_1.step();
+            let _ = peer_2.step();
+            let _ = peer_3.step();
+        }
+
+        // peers 2 and 3 only write to their sockets when they step.  Let peer 1 alone read
+        // whatever they already sent, so from here on each of its sockets gets data (and a
+        // readiness edge) only when they next step.
+        for _ in 0..10 {
+            let _ = peer_1.step();
+        }
+        assert!(!peer_1.network.has_pending_inbound_work());
+        assert_eq!(peer_2.network.peers.len(), 1);
+        assert_eq!(peer_3.network.peers.len(), 1);
+
+        // from now on, each of peer 1's passes runs out of time after one conversation
+        peer_1.network.test_inbound_deadline_passed = true;
+
+        let bytes_rx = |peer_1: &TestPeer, nk: &NeighborKey| {
+            peer_1.network.get_neighbor_stats(nk).unwrap().bytes_rx
+        };
+        let bytes_rx_2 = bytes_rx(&peer_1, &nk_2);
+        let bytes_rx_3 = bytes_rx(&peer_1, &nk_3);
+        let received = |peer_1: &TestPeer| {
+            (
+                bytes_rx(peer_1, &nk_2) > bytes_rx_2,
+                bytes_rx(peer_1, &nk_3) > bytes_rx_3,
+            )
+        };
+
+        // peers 2 and 3 each send peer 1 a message, and then never step again
+        for peer in [&mut peer_2, &mut peer_3] {
+            let event_id = *peer.network.peers.keys().next().unwrap();
+            let nk_1 = peer
+                .network
+                .get_p2p_convo(event_id)
+                .unwrap()
+                .to_neighbor_key();
+            let pong = peer
+                .network
+                .sign_for_p2p(
+                    event_id,
+                    StacksMessageType::Pong(PongData::from_ping(&PingData::new())),
+                )
+                .unwrap();
+            peer.network.relay_signed_message(&nk_1, pong).unwrap();
+            let _ = peer.step();
+        }
+
+        // make sure both messages have arrived before peer 1 polls its sockets, so both
+        // sockets are ready in the same pass
+        std::thread::sleep(std::time::Duration::from_millis(500));
+
+        // peer 1 reads one of them, and carries the other over to the next pass
+        let _ = peer_1.step();
+        let (received_2, received_3) = received(&peer_1);
+        assert!(
+            received_2 != received_3,
+            "expected exactly one conversation handled (peer 2: {received_2}, peer 3: {received_3})"
+        );
+        assert!(peer_1.network.has_pending_inbound_work());
+
+        // and reads the other one on a later pass, though no more data arrives
+        for _ in 0..10 {
+            if !peer_1.network.has_pending_inbound_work() {
+                break;
+            }
+            let _ = peer_1.step();
+        }
+        assert_eq!(received(&peer_1), (true, true));
+        assert!(!peer_1.network.has_pending_inbound_work());
+    })
+}
+
 /// When a neighbor's socket closes, every solicited reply it already sent is still delivered to
 /// its waiting handle, even if there are more replies queued than a pass would normally handle.
 #[test]

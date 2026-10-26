@@ -675,6 +675,11 @@ pub struct PeerNetwork {
     /// processed first in the next pass instead.
     pending_inbound_convos: Vec<usize>,
 
+    /// Treat the `max_inbound_processing_ms` deadline as already passed in every network pass,
+    /// so each pass handles a single conversation
+    #[cfg(test)]
+    pub(crate) test_inbound_deadline_passed: bool,
+
     /// Thread handle for the async block proposal endpoint.
     block_proposal_thread: Option<JoinHandle<()>>,
 
@@ -838,6 +843,8 @@ impl PeerNetwork {
             blocks_inv_cache: BlocksInvCache::default(),
 
             pending_inbound_convos: vec![],
+            #[cfg(test)]
+            test_inbound_deadline_passed: false,
 
             block_proposal_thread: None,
 
@@ -2567,6 +2574,12 @@ impl PeerNetwork {
         let deadline = (max_processing_ms > 0)
             .then(|| Instant::now().checked_add(Duration::from_millis(max_processing_ms)))
             .flatten();
+        #[cfg(test)]
+        let deadline = if self.test_inbound_deadline_passed {
+            Some(Instant::now())
+        } else {
+            deadline
+        };
         let mut processed = 0;
         let mut leftover = vec![];
 
