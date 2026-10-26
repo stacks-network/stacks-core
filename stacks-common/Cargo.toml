@@ -48,6 +48,7 @@ p256 = { version = "0.13", default-features = false, features = ["std", "serde",
 # Optional dependencies
 getrandom = { version = "0.2", default-features = false, optional = true }
 rand = { workspace = true, optional = true }
+prometheus = { version = "0.9", optional = true }
 slog-json = { version = "2.3.0", default-features = false, optional = true }
 
 [target.'cfg(unix)'.dependencies]
@@ -88,6 +89,7 @@ developer-mode = []
 # This pulls in the `nix` or `winapi` dependency.
 ctrlc-handler = ["dep:nix", "dep:winapi"]
 slog_json = ["slog-json"]
+monitoring_prom = ["prometheus"]
 rusqlite = ["dep:rusqlite", "rand"]
 # Log the duration of every SQLite statement (requires `rusqlite`).
 profile-sqlite = ["rusqlite"]

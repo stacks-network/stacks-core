@@ -27,7 +27,8 @@ Arguments to the wrapper apply to both images:
 ```
 
 Pass `--build-arg CUSTOM_VERSION_STRING=my-custom-build` to embed a custom version
-in both binaries' build metadata logs. This also works with direct Docker builds.
+in both binaries' `stacks_build_info` Prometheus metric. This also works with direct
+Docker builds.
 
 Supported platforms are `linux/amd64` and `linux/arm64`; the default is the builder's
 platform. Foreign-platform builds require emulation or a matching native builder.

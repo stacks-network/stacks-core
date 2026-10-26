@@ -1,10 +1,15 @@
+use std::sync::LazyLock;
+
 use async_std::net::{TcpListener, TcpStream};
 use async_std::prelude::*;
 use async_std::task;
 use http_types::{Body, Response, StatusCode};
-use stacks::prometheus::{gather, Encoder, TextEncoder};
+use stacks::prometheus::{gather, Encoder, IntGauge, TextEncoder};
+use stacks_common::monitoring::register_build_info;
 
 use super::MonitoringError;
+
+static BUILD_INFO: LazyLock<IntGauge> = LazyLock::new(|| register_build_info(crate::version()));
 
 pub fn start_serving_prometheus_metrics(bind_address: String) -> Result<(), MonitoringError> {
     task::block_on(async {
@@ -47,6 +52,7 @@ pub fn start_serving_prometheus_metrics(bind_address: String) -> Result<(), Moni
 async fn accept(stream: TcpStream) -> http_types::Result<()> {
     debug!("Handle Prometheus polling ({})", stream.peer_addr()?);
     async_h1::accept(stream.clone(), |_| async {
+        LazyLock::force(&BUILD_INFO);
         let encoder = TextEncoder::new();
         let metric_families = gather();
         let mut buffer = vec![];

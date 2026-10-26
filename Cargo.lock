@@ -4479,6 +4479,7 @@ dependencies = [
  "nix",
  "p256",
  "pinny",
+ "prometheus",
  "proptest",
  "rand 0.8.5",
  "ripemd",
