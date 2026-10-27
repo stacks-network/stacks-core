@@ -529,7 +529,7 @@ paths:
 
         For non-existent accounts, this does not 404, rather it returns an object with balance and nonce of 0.
 
-        Under PoX-5, `unstake` keeps the amount locked and moves `unlock_height` to the first Bitcoin block of the next reward cycle. STX paired with a protocol bond stays locked until the bond ends. When the Bitcoin chain reaches `unlock_height`, the amount moves into `balance` with no transaction.
+        Under PoX-5, `unstake` keeps the amount locked and moves `unlock_height` to the first Bitcoin block of the next reward cycle. STX paired with a protocol bond stays locked until the bond ends. When the burn block height of the queried tip reaches `unlock_height`, the amount moves into `balance` with no transaction.
       parameters:
         - $ref: ./components/parameters/principal.yaml
         - $ref: ./components/parameters/proof.yaml
