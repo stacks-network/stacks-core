@@ -2,11 +2,28 @@ use async_std::net::{TcpListener, TcpStream};
 use async_std::prelude::*;
 use async_std::task;
 use http_types::{Body, Response, StatusCode};
-use stacks::prometheus::{gather, Encoder, TextEncoder};
+use lazy_static::lazy_static;
+use stacks::prometheus::{gather, opts, register_int_gauge, Encoder, IntGauge, TextEncoder};
+use stacks_common::monitoring::build_info_labels;
 
 use super::MonitoringError;
 
+lazy_static! {
+    static ref BUILD_INFO: IntGauge = register_int_gauge!(opts!(
+        "stacks_build_info",
+        "Build information for the Stacks process."
+    )
+    .const_labels(build_info_labels(crate::version())))
+    .unwrap();
+}
+
+/// Record the process build information. Repeated calls keep the same series at 1.
+fn record_build_info() {
+    BUILD_INFO.set(1);
+}
+
 pub fn start_serving_prometheus_metrics(bind_address: String) -> Result<(), MonitoringError> {
+    record_build_info();
     task::block_on(async {
         let listener = TcpListener::bind(bind_address)
             .await

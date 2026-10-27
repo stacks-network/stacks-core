@@ -62,6 +62,11 @@ pub mod actions {
     use crate::monitoring::{SignerAgreementStateChangeReason, SignerAgreementStateConflict};
     use crate::v0::signer_state::LocalStateMachine;
 
+    /// Record the process build information. Repeated calls keep the same series at 1.
+    pub fn record_build_info() {
+        BUILD_INFO.set(1);
+    }
+
     /// Update stacks tip height gauge
     pub fn update_stacks_tip_height(height: i64) {
         STACKS_TIP_HEIGHT_GAUGE.set(height);
@@ -175,6 +180,7 @@ pub mod actions {
         if config.metrics_endpoint.is_none() {
             return Ok(());
         }
+        record_build_info();
         let _ = std::thread::Builder::new()
             .name("signer_metrics".to_string())
             .spawn(move || {
@@ -195,6 +201,9 @@ pub mod actions {
     use crate::monitoring::{SignerAgreementStateChangeReason, SignerAgreementStateConflict};
     use crate::v0::signer_state::LocalStateMachine;
     use crate::GlobalConfig;
+
+    /// No-op when Prometheus monitoring is disabled.
+    pub fn record_build_info() {}
 
     /// Update stacks tip height gauge
     pub fn update_stacks_tip_height(_height: i64) {}
