@@ -675,6 +675,11 @@ pub struct PeerNetwork {
     /// processed first in the next pass instead.
     pending_inbound_convos: Vec<usize>,
 
+    /// Event IDs of conversations in `pending_inbound_convos` whose socket failed while sending
+    /// outside of `process_ready_sockets`.  They are kept until the next pass, which drains their
+    /// leftover inbound work and then drops them.
+    broken_inbound_convos: HashSet<usize>,
+
     /// Treat the `max_inbound_processing_ms` deadline as already passed in every network pass,
     /// so each pass handles a single conversation
     #[cfg(test)]
@@ -843,6 +848,7 @@ impl PeerNetwork {
             blocks_inv_cache: BlocksInvCache::default(),
 
             pending_inbound_convos: vec![],
+            broken_inbound_convos: HashSet::new(),
             #[cfg(test)]
             test_inbound_deadline_passed: false,
 
@@ -2165,6 +2171,7 @@ impl PeerNetwork {
                     }
                 }
                 self.relay_handles.remove(&event_id);
+                self.broken_inbound_convos.remove(&event_id);
                 self.peers.remove(&event_id);
             }
             // remove inventory state
@@ -2413,10 +2420,28 @@ impl PeerNetwork {
             // stay in the socket buffer, which is what pushes back on the remote peer.  The
             // caller keeps this conversation in `pending_inbound_convos` so the socket is read
             // again once the backlog is drained.
-            let mut convo_dead = false;
+            let mut convo_dead = network.broken_inbound_convos.remove(&event_id);
             let inbox_backlog = convo.connection.inbox_len();
             let deferred_recv = inbox_backlog > 0;
-            if deferred_recv {
+            if convo_dead {
+                // a send failed after the last pass left work on this conversation, so it's
+                // dropped after this pass.  Read whatever the remote peer sent before it hung up.
+                debug!(
+                    "{:?}: Socket on event {} failed with work left over; draining {:?}",
+                    &network.get_local_peer(),
+                    event_id,
+                    &client_sock
+                );
+                if let Err(e) = convo.recv(client_sock) {
+                    debug!(
+                        "{:?}: Failed to receive data on event {} (socket {:?}): {:?}",
+                        &network.get_local_peer(),
+                        event_id,
+                        &client_sock,
+                        &e
+                    );
+                }
+            } else if deferred_recv {
                 debug!(
                     "{:?}: {} messages still queued on event {}; not reading from socket {:?} this pass",
                     &network.get_local_peer(),
@@ -2981,8 +3006,10 @@ impl PeerNetwork {
 
     /// Flush relayed message handles, but don't block.
     /// Drop broken handles.
-    /// Return the list of broken conversation event IDs
-    fn flush_relay_handles(&mut self) -> Vec<DropPeer> {
+    /// Return the list of broken conversation event IDs, except for the ones with inbound work
+    /// left over from the last pass, which are kept in `broken_inbound_convos` until the next
+    /// pass drains them.
+    pub(crate) fn flush_relay_handles(&mut self) -> Vec<DropPeer> {
         let mut broken = vec![];
         let mut drained = vec![];
 
@@ -3031,7 +3058,15 @@ impl PeerNetwork {
                     Ok(Err(e)) | Err(e) => {
                         // connection broken; next list
                         debug!("Relay handle broken to event {event_id}");
-                        if let Some(peer) = self.peers.get(event_id) {
+                        if self.pending_inbound_convos.contains(event_id) {
+                            // the last pass left inbound work on this conversation, so let the
+                            // next pass drain it before dropping the peer
+                            debug!(
+                                "{:?}: Event {event_id} has inbound work left over; dropping it after the next pass",
+                                &self.local_peer
+                            );
+                            self.broken_inbound_convos.insert(*event_id);
+                        } else if let Some(peer) = self.peers.get(event_id) {
                             broken.push(DropPeer {
                                 address: peer.peer_addrbytes.clone(),
                                 port: peer.peer_port,

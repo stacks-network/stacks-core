@@ -1997,13 +1997,25 @@ fn test_step_drain_inbox_on_send_failure() {
 /// backlog, the replies still unread on the socket are delivered along with the backlog.
 #[test]
 fn test_step_drain_socket_on_send_failure() {
+    run_drain_socket_on_send_failure(function_name!(), false);
+}
+
+/// Like `test_step_drain_socket_on_send_failure`, but the send first fails while flushing relay
+/// handles, after the pass is done with peer 1's sockets.  Peer 2 is kept until the next pass,
+/// which delivers the backlog and the replies still unread on the socket before dropping it.
+#[test]
+fn test_step_drain_socket_on_relay_failure() {
+    run_drain_socket_on_send_failure(function_name!(), true);
+}
+
+fn run_drain_socket_on_send_failure(test_name: &'static str, fail_in_relay_flush: bool) {
     with_timeout(600, move || {
         // every ping and every reply must fit in the socket buffers while the other peer isn't
         // reading, which the tiny test buffers don't allow on Linux
         std::env::set_var("STACKS_TEST_DISABLE_EDGE_TRIGGER_TEST", "1");
-        let mut peer_1_config = TestPeerConfig::new(function_name!(), 0, 0);
+        let mut peer_1_config = TestPeerConfig::new(test_name, 0, 0);
         peer_1_config.connection_opts.max_inbound_messages_per_pass = 1;
-        let peer_2_config = TestPeerConfig::new(function_name!(), 0, 0);
+        let peer_2_config = TestPeerConfig::new(test_name, 0, 0);
 
         let mut peer_1 = TestPeer::new(peer_1_config);
         let mut peer_2 = TestPeer::new(peer_2_config);
@@ -2097,7 +2109,6 @@ fn test_step_drain_socket_on_send_failure() {
         drop(peer_2.network.sockets.remove(&event_id_2));
         std::thread::sleep(std::time::Duration::from_millis(100));
 
-        // the send fails in the same pass that handles the rest of the backlog
         let pong = peer_1
             .network
             .sign_for_neighbor(
@@ -2105,7 +2116,30 @@ fn test_step_drain_socket_on_send_failure() {
                 StacksMessageType::Pong(PongData::from_ping(&PingData::new())),
             )
             .unwrap();
-        let _ = peer_1.network.relay_signed_message(&nk_2, pong);
+        if fail_in_relay_flush {
+            // the send is only queued, so it first fails when the relay handles are flushed, as
+            // at the end of a pass.  Peer 2 must not be dropped yet.
+            let event_id_1 = peer_1.network.get_event_id(&nk_2).unwrap();
+            let relay_handle = peer_1
+                .network
+                .peers
+                .get_mut(&event_id_1)
+                .unwrap()
+                .relay_signed_message(pong)
+                .unwrap();
+            peer_1.network.add_relay_handle(event_id_1, relay_handle);
+            for peer in peer_1.network.flush_relay_handles() {
+                peer_1.network.deregister_peer(peer);
+            }
+            assert!(
+                peer_1.network.get_neighbor_convo(&nk_2).is_some(),
+                "peer 1 dropped peer 2 before draining it"
+            );
+        } else {
+            let _ = peer_1.network.relay_signed_message(&nk_2, pong);
+        }
+
+        // the next pass handles the rest of the backlog
         let _ = peer_1.step();
         assert!(
             peer_1.network.get_neighbor_convo(&nk_2).is_none(),
