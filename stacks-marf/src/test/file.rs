@@ -17,7 +17,7 @@
 use std::{assert_matches, fs};
 
 use rusqlite::{Connection, OpenFlags};
-use stacks_common::util::db::sqlite_open;
+use stacks_common::util::db::{self, sqlite_open};
 
 use super::*;
 use crate::file::*;
@@ -77,9 +77,11 @@ fn test_load_store_trie_blob() {
 #[test]
 fn test_migrate_tables_readonly_succeeds_when_current() {
     let mut db = setup_db(function_name!());
+    assert!(db::table_exists(&db, "mined_blocks").unwrap());
     // First migrate in writable mode to bring schema to current version
     let previous_version = trie_sql::migrate_tables_if_needed::<BlockHeaderHash>(&mut db).unwrap();
     assert_eq!(previous_version, 1);
+    assert!(!db::table_exists(&db, "mined_blocks").unwrap());
     // Now a read-only migration check should succeed
     trie_sql::ensure_no_migration_necessary::<BlockHeaderHash>(&mut db).unwrap();
 }

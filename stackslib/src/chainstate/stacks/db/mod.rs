@@ -575,11 +575,9 @@ impl<'a, 'b> ClarityTx<'a, 'b> {
         self.block.commit_block();
     }
 
-    pub fn commit_mined_block(
-        self,
-        block_hash: &StacksBlockId,
-    ) -> Result<ExecutionCost, ClarityError> {
-        Ok(self.block.commit_mined_block(block_hash)?.get_total())
+    /// Complete proposal execution and return its cost, discarding speculative state.
+    pub fn finish_block_proposal(self) -> Result<ExecutionCost, ClarityError> {
+        Ok(self.block.finish_block_proposal()?.get_total())
     }
 
     pub fn commit_to_block(self, consensus_hash: &ConsensusHash, block_hash: &BlockHeaderHash) {
@@ -1764,11 +1762,11 @@ impl StacksChainState {
         ];
         clarity_tx.connection().as_transaction(|conn| {
             conn.run_contract_call(
-                &sender,
+                sender,
                 None,
-                &contract,
+                contract,
                 "set-burnchain-parameters",
-                &params,
+                params,
                 |_, _| None,
                 &ResourceBudget::unlimited(),
             )

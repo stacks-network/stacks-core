@@ -201,8 +201,7 @@ pub trait WritableMarfStore:
 ///
 /// The Stacks node commits tries for one of three purposes:
 /// * It processed a block, and needs to persist its trie in the chainstate proper.
-/// * It mined a block, and needs to persist its trie outside of the chainstate proper. The miner
-///   may build on it later.
+/// * It constructed or validated a proposal and needs to discard its speculative trie.
 /// * It processed an unconfirmed microblock (Stacks 2.x only), and needs to persist the
 ///   unconfirmed chainstate outside of the chainstate proper so that the microblock miner can
 ///   continue to build on it and the network can service RPC requests on its state.
@@ -249,14 +248,9 @@ pub trait ClarityMarfStoreTransaction {
     /// Returns Err(..) if there was an error in trying to persist this block trie.
     fn commit_to_processed_block(self, target: &StacksBlockId) -> Result<(), VmExecutionError>;
 
-    /// Store a mined block's trie that this transaction was creating.
-    /// This function is distinct from `commit_to_processed_block()` in that the stored block will
-    /// not be added to the chainstate. However, it must be persisted so that the node can later
-    /// build on it.
-    ///
-    /// Returns Ok(()) if the block trie was successfully persisted.
-    /// Returns Err(..) if there was an error trying to persist this MARF trie.
-    fn commit_to_mined_block(self, target: &StacksBlockId) -> Result<(), VmExecutionError>;
+    /// Finish a proposal by discarding its speculative trie and metadata.
+    /// Commits side-store values without publishing accepted chainstate.
+    fn finish_block_proposal(self) -> Result<(), VmExecutionError>;
 
     /// Persist the unconfirmed state trie so that other parts of the Stacks node can read from it
     /// (such as to handle pending transactions or process RPC requests on it).
@@ -1084,19 +1078,10 @@ impl<'a, 'b> ClarityBlockConnection<'a, 'b> {
         self.cost_track.unwrap()
     }
 
-    /// Commits all changes in the current block by
-    /// (1) committing the current MARF tip to storage,
-    /// (2) committing side-storage.
-    ///    before this saves, it updates the metadata headers in
-    ///    the sidestore so that they don't get stepped on after
-    ///    a miner re-executes a constructed block.
-    pub fn commit_mined_block(
-        self,
-        bhh: &StacksBlockId,
-    ) -> Result<LimitedCostTracker, ClarityError> {
-        debug!("Commit mined Clarity datastore to {}", bhh);
-        self.datastore.commit_to_mined_block(bhh)?;
-
+    /// Complete speculative block processing by discarding its trie and metadata.
+    /// Side-store values commit, but the block does not become readable accepted chainstate.
+    pub fn finish_block_proposal(self) -> Result<LimitedCostTracker, ClarityError> {
+        self.datastore.finish_block_proposal()?;
         Ok(self.cost_track.unwrap())
     }
 
@@ -1340,11 +1325,11 @@ impl<'a, 'b> ClarityBlockConnection<'a, 'b> {
 
                 let (_, _, _burnchain_params_events) = tx_conn
                     .run_contract_call(
-                        &consts_setter,
+                        consts_setter,
                         None,
-                        &pox_2_contract_id,
+                        pox_2_contract_id,
                         "set-burnchain-parameters",
-                        &params,
+                        params,
                         |_, _| None,
                         &ResourceBudget::unlimited(),
                     )
@@ -1572,11 +1557,11 @@ impl<'a, 'b> ClarityBlockConnection<'a, 'b> {
 
                 let (_, _, _burnchain_params_events) = tx_conn
                     .run_contract_call(
-                        &consts_setter,
+                        consts_setter,
                         None,
-                        &pox_3_contract_id,
+                        pox_3_contract_id,
                         "set-burnchain-parameters",
-                        &params,
+                        params,
                         |_, _| None,
                         &ResourceBudget::unlimited(),
                     )
@@ -1688,11 +1673,11 @@ impl<'a, 'b> ClarityBlockConnection<'a, 'b> {
 
                 let (_, _, _burnchain_params_events) = tx_conn
                     .run_contract_call(
-                        &consts_setter,
+                        consts_setter,
                         None,
-                        &pox_4_contract_id,
+                        pox_4_contract_id,
                         "set-burnchain-parameters",
-                        &params,
+                        params,
                         |_, _| None,
                         &ResourceBudget::unlimited(),
                     )
@@ -2152,11 +2137,11 @@ impl<'a, 'b> ClarityBlockConnection<'a, 'b> {
 
                 let (_, _, _burnchain_params_events) = tx_conn
                     .run_contract_call(
-                        &consts_setter,
+                        consts_setter,
                         None,
-                        &pox_5_contract_id,
+                        pox_5_contract_id,
                         "set-burnchain-parameters",
-                        &params,
+                        params,
                         |_, _| None,
                         &ResourceBudget::unlimited(),
                     )
@@ -2896,11 +2881,11 @@ mod tests {
 
             assert_eq!(
                 conn.as_transaction(|tx| tx.run_contract_call(
-                    &StandardPrincipalData::transient().into(),
+                    StandardPrincipalData::transient().into(),
                     None,
-                    &contract_identifier,
+                    contract_identifier.clone(),
                     "foo",
-                    &[Value::Int(1)],
+                    vec![Value::Int(1)],
                     |_, _| None,
                     &ResourceBudget::unlimited()
                 ))
@@ -3133,7 +3118,7 @@ mod tests {
         let marf = MarfedKV::temporary();
         let mut clarity_instance = ClarityInstance::new(false, CHAIN_ID_TESTNET, marf);
         let contract_identifier = QualifiedContractIdentifier::local("foo").unwrap();
-        let sender = StandardPrincipalData::transient().into();
+        let sender: PrincipalData = StandardPrincipalData::transient().into();
 
         clarity_instance
             .begin_test_genesis_block(
@@ -3183,11 +3168,11 @@ mod tests {
 
             assert_eq!(
                 conn.as_transaction(|tx| tx.run_contract_call(
-                    &sender,
+                    sender.clone(),
                     None,
-                    &contract_identifier,
+                    contract_identifier.clone(),
                     "get-bar",
-                    &[],
+                    vec![],
                     |_, _| None,
                     &ResourceBudget::unlimited()
                 ))
@@ -3198,11 +3183,11 @@ mod tests {
 
             assert_eq!(
                 conn.as_transaction(|tx| tx.run_contract_call(
-                    &sender,
+                    sender.clone(),
                     None,
-                    &contract_identifier,
+                    contract_identifier.clone(),
                     "set-bar",
-                    &[Value::Int(1), Value::Int(1)],
+                    vec![Value::Int(1), Value::Int(1)],
                     |_, _| None,
                     &ResourceBudget::unlimited()
                 ))
@@ -3214,11 +3199,11 @@ mod tests {
             let e = conn
                 .as_transaction(|tx| {
                     tx.run_contract_call(
-                        &sender,
+                        sender.clone(),
                         None,
-                        &contract_identifier,
+                        contract_identifier.clone(),
                         "set-bar",
-                        &[Value::Int(10), Value::Int(1)],
+                        vec![Value::Int(10), Value::Int(1)],
                         |_, _| Some("testing rollback".into()),
                         &ResourceBudget::unlimited(),
                     )
@@ -3235,11 +3220,11 @@ mod tests {
             // prior transaction should have rolled back due to abort call back!
             assert_eq!(
                 conn.as_transaction(|tx| tx.run_contract_call(
-                    &sender,
+                    sender.clone(),
                     None,
-                    &contract_identifier,
+                    contract_identifier.clone(),
                     "get-bar",
-                    &[],
+                    vec![],
                     |_, _| None,
                     &ResourceBudget::unlimited()
                 ))
@@ -3251,11 +3236,11 @@ mod tests {
             assert!(format!(
                 "{:?}",
                 conn.as_transaction(|tx| tx.run_contract_call(
-                    &sender,
+                    sender,
                     None,
-                    &contract_identifier,
+                    contract_identifier.clone(),
                     "set-bar",
-                    &[Value::Int(10), Value::Int(0)],
+                    vec![Value::Int(10), Value::Int(0)],
                     |_, _| Some("testing rollback".into()),
                     &ResourceBudget::unlimited()
                 ))
@@ -3266,11 +3251,11 @@ mod tests {
             // prior transaction should have rolled back due to runtime error
             assert_eq!(
                 conn.as_transaction(|tx| tx.run_contract_call(
-                    &StandardPrincipalData::transient().into(),
+                    StandardPrincipalData::transient().into(),
                     None,
-                    &contract_identifier,
+                    contract_identifier,
                     "get-bar",
-                    &[],
+                    vec![],
                     |_, _| None,
                     &ResourceBudget::unlimited()
                 ))
@@ -3565,11 +3550,11 @@ mod tests {
             );
             assert!(match conn
                 .as_transaction(|tx| tx.run_contract_call(
-                    &sender,
+                    sender,
                     None,
-                    &contract_identifier,
+                    contract_identifier,
                     "do-expand",
-                    &[],
+                    vec![],
                     |_, _| None,
                     &ResourceBudget::unlimited()
                 ))
@@ -3652,11 +3637,11 @@ mod tests {
             assert_eq!(tx.cache.contracts.misses(), 0);
 
             tx.run_contract_call(
-                &sender,
+                sender.clone(),
                 None,
-                &contract_identifier,
+                contract_identifier.clone(),
                 "noop",
-                &[],
+                vec![],
                 |_, _| None,
                 &ResourceBudget::unlimited(),
             )
@@ -3667,11 +3652,11 @@ mod tests {
             assert!(misses_after_first >= 1, "first call should miss");
 
             tx.run_contract_call(
-                &sender,
+                sender.clone(),
                 None,
-                &contract_identifier,
+                contract_identifier.clone(),
                 "noop",
-                &[],
+                vec![],
                 |_, _| None,
                 &ResourceBudget::unlimited(),
             )
@@ -3698,11 +3683,11 @@ mod tests {
             );
 
             tx.run_contract_call(
-                &sender,
+                sender,
                 None,
-                &contract_identifier,
+                contract_identifier,
                 "noop",
-                &[],
+                vec![],
                 |_, _| None,
                 &ResourceBudget::unlimited(),
             )

@@ -29,6 +29,8 @@ mod assets;
 #[cfg(test)]
 mod bitcoin;
 #[cfg(test)]
+mod callable_type_size;
+#[cfg(test)]
 mod contracts;
 #[cfg(test)]
 mod conversions;

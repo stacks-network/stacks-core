@@ -1,0 +1,1 @@
+Unused speculative tries from mining and block-proposal validation are no longer persisted. MARF databases automatically migrate to schema 4 on writable open, removing the legacy `mined_blocks` table and its stored tries. Older binaries cannot open upgraded databases, including in read-only mode; upgrade chainstate inspection and snapshot tooling alongside the node.
