@@ -24,6 +24,7 @@ use clarity_types::types::{
 use stacks_common::util::hash::hex_bytes;
 
 use self::lexer::Lexer;
+use self::lexer::error::PlacedError as LexerPlacedError;
 use self::lexer::token::{PlacedToken, Token};
 use crate::vm::ast::errors::{ParseError, ParseErrorKind, ParseResult, PlacedError};
 use crate::vm::ast::stack_depth_checker::StackDepthLimits;
@@ -89,16 +90,12 @@ enum ParserStackElement {
     OpenTuple(OpenTuple),
 }
 
-/// Private fields: only `lex` builds one, so it always ends with `Token::Eof`.
-pub struct LexedTokens {
-    tokens: Vec<PlacedToken>,
-    fail_fast: bool,
-}
-
+/// Private fields: only `lex` builds one, so `tokens` always ends with `Token::Eof`.
 pub struct LexedSource {
-    pub tokens: LexedTokens,
-    pub diagnostics: Vec<PlacedError>,
-    pub success: bool,
+    tokens: Vec<PlacedToken>,
+    diagnostics: Vec<LexerPlacedError>,
+    success: bool,
+    fail_fast: bool,
 }
 
 pub fn lex(input: &str, fail_fast: bool) -> Result<LexedSource, ParseErrorKind> {
@@ -121,34 +118,30 @@ pub fn lex(input: &str, fail_fast: bool) -> Result<LexedSource, ParseErrorKind> 
             break;
         }
     }
-    let diagnostics = lexer
-        .diagnostics
-        .iter()
-        .map(|lex_error| PlacedError {
-            e: ParseErrorKind::Lexer(lex_error.e.clone()),
-            span: lex_error.span.clone(),
-        })
-        .collect();
     Ok(LexedSource {
-        tokens: LexedTokens { tokens, fail_fast },
-        diagnostics,
+        tokens,
+        diagnostics: lexer.diagnostics,
         success: lexer.success,
+        fail_fast,
     })
 }
 
 impl<'t> Parser<'t> {
-    pub fn new(
-        tokens: &'t LexedTokens,
-        diagnostics: Vec<PlacedError>,
-        success: bool,
-        depth_limits: StackDepthLimits,
-    ) -> Self {
+    pub fn new(lexed: &'t LexedSource, depth_limits: StackDepthLimits) -> Self {
+        let diagnostics = lexed
+            .diagnostics
+            .iter()
+            .map(|lex_error| PlacedError {
+                e: ParseErrorKind::Lexer(lex_error.e.clone()),
+                span: lex_error.span.clone(),
+            })
+            .collect();
         Self {
-            tokens: &tokens.tokens,
+            tokens: &lexed.tokens,
             next_token: 0,
             diagnostics,
-            success,
-            fail_fast: tokens.fail_fast,
+            success: lexed.success,
+            fail_fast: lexed.fail_fast,
             nesting_depth: 0,
             depth_limits,
         }
@@ -1147,12 +1140,8 @@ pub fn parse(
     input: &str,
     depth_limits: StackDepthLimits,
 ) -> ParseResult<Vec<PreSymbolicExpression>> {
-    let LexedSource {
-        tokens,
-        diagnostics,
-        success,
-    } = lex(input, true).map_err(ParseError::new)?;
-    let mut parser = Parser::new(&tokens, diagnostics, success, depth_limits);
+    let lexed = lex(input, true).map_err(ParseError::new)?;
+    let mut parser = Parser::new(&lexed, depth_limits);
     let stmts = parser.parse()?;
     if parser.success {
         Ok(stmts)
@@ -1168,12 +1157,8 @@ pub fn parse_collect_diagnostics(
     depth_limits: StackDepthLimits,
 ) -> (Vec<PreSymbolicExpression>, Vec<Diagnostic>, bool) {
     // When not in fail_fast mode, lex always returns Ok.
-    let LexedSource {
-        tokens,
-        diagnostics,
-        success,
-    } = lex(input, false).unwrap();
-    let mut parser = Parser::new(&tokens, diagnostics, success, depth_limits);
+    let lexed = lex(input, false).unwrap();
+    let mut parser = Parser::new(&lexed, depth_limits);
 
     // When not in fail_fast mode, Parser::parse always returns Ok.
     let stmts = parser.parse().unwrap();
