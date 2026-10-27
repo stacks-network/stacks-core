@@ -2420,7 +2420,8 @@ impl BitcoinRegtestController {
     /// Update the tracked block commit after a failed broadcast, based on what
     /// Bitcoin said. Returns `true` if the transaction turned out to be confirmed.
     /// - `-27` (already in chain), independently confirmed: success.
-    /// - `-25` (missing inputs): the tracked inputs are gone, so forget the
+    /// - `-25` (missing inputs): if a prior attempt confirmed, keep it as
+    ///   confirmed; otherwise the tracked inputs are gone, so forget the
     ///   commit and let the next attempt use fresh coins.
     /// - `-22`/`-26` (rejected): restore the previous attempt, if any.
     /// - Anything else is ambiguous: keep the signed bytes to resend.
@@ -2441,9 +2442,18 @@ impl BitcoinRegtestController {
                 return true;
             }
             -25 => {
-                warn!("Bitcoin rejected block commit for missing inputs; dropping tracked inputs";
-                    "txid" => %txid);
-                self.ongoing_block_commit = None;
+                if let Some(mut prior) = previous
+                    .filter(|prior| self.is_ongoing_commit_confirmed(prior))
+                {
+                    info!("Block commit replacement lost the race to a confirmed prior attempt";
+                        "txid" => %txid);
+                    prior.broadcast = CommitBroadcast::Confirmed;
+                    self.ongoing_block_commit = Some(prior);
+                } else {
+                    warn!("Bitcoin rejected block commit for missing inputs; dropping tracked inputs";
+                        "txid" => %txid);
+                    self.ongoing_block_commit = None;
+                }
             }
             -22 | -26 => {
                 warn!("Bitcoin rejected block commit";
