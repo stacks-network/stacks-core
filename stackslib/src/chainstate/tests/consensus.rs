@@ -1698,6 +1698,17 @@ impl ContractTxReport {
         }
     }
 
+    /// Return the tx execution cost if included in an accepted block,
+    /// panics otherwise.
+    pub fn cost(&self) -> &ExecutionCost {
+        match &self.outcome {
+            TxOutcome::BlockAccepted(t) => &t.cost,
+            TxOutcome::BlockRejected(err) => {
+                panic!("block rejected tx has no cost: {err}")
+            }
+        }
+    }
+
     /// Return the `vm error` in case of block accepted tx,
     /// panics otherwise.
     pub fn vm_error(&self) -> Option<&str> {
