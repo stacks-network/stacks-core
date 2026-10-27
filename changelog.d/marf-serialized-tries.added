@@ -1,0 +1,1 @@
+Added MARF APIs for serializing trie extensions and promoting serialized tries within a transaction.

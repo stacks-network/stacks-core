@@ -296,6 +296,34 @@ impl TrieFile {
         trie_sql::write_external_trie_blob(db, bhh, offset, buffer.len() as u64)
     }
 
+    /// Store a serialized trie in the external file, returning its SQL identifier. Bytes are
+    /// durable before their extent is registered in the caller's transaction.
+    ///
+    /// The caller must enforce the exact length and roll back on failure. Failed writes may leave
+    /// unregistered bytes, which subsequent writes reuse.
+    pub fn store_trie_blob_with<T: MarfTrieId>(
+        &mut self,
+        db: &Connection,
+        target: &T,
+        length: u64,
+        copy: impl FnOnce(&Connection, &mut dyn Write) -> Result<(), Error>,
+    ) -> Result<u32, Error> {
+        // Write after the last registered extent, reusing any unregistered bytes left by a failed write.
+        let offset = trie_sql::get_external_blobs_length(db)?;
+        offset.checked_add(length).ok_or(Error::BadSeekValue)?;
+
+        self.seek(SeekFrom::Start(offset))?;
+
+        copy(db, self)?;
+
+        // Flush and sync the external file to ensure data durability before registering the blob in the DB.
+        self.flush()?;
+        self.sync_data()?;
+
+        // Register the new trie blob in the database with its offset and length.
+        trie_sql::write_external_trie_blob(db, target, offset, length)
+    }
+
     /// Read a trie blob in its entirety from the DB
     fn read_trie_blob_from_db(db: &Connection, block_id: u32) -> Result<Vec<u8>, Error> {
         let trie_blob = {
@@ -576,6 +604,7 @@ impl TrieFile {
         &mut self,
         db: &Connection,
     ) -> Result<Vec<(TrieHash, T)>, Error> {
+        // TODO: Move this SQL into a dedicated test helper in the trie_sql module.
         let mut s =
             db.prepare("SELECT block_hash, external_offset FROM marf_data WHERE unconfirmed = 0 ORDER BY block_hash")?;
         let rows = s.query_and_then(params![], |row| {
