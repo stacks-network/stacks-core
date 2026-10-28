@@ -1,0 +1,1 @@
+Documented PoX-5 lock semantics for `locked` and `unlock_height` in the `/v2/accounts` RPC spec.
