@@ -75,13 +75,23 @@ pub fn mem_type_check(
     )
 }
 
-pub fn parse_only(exp: &str) -> ParseResult<ContractAST> {
+/// Preforms only the parsing stage of the analysis (AST building,
+/// definition sorter, depth check, etc.), but not the type checking.
+/// It's meant for tests where the expected behavior is a failure
+/// *before* the type checking even starts. Because `mem_type_check`
+/// and its brethren require the first stage to be successful, it can't
+/// be used for such tests.
+pub fn parsing_stage_only(
+    exp: &str,
+    version: ClarityVersion,
+    epoch: StacksEpochId,
+) -> ParseResult<ContractAST> {
     build_ast(
         &QualifiedContractIdentifier::transient(),
         exp,
         &mut (),
-        crate::vm::ClarityVersion::latest(),
-        StacksEpochId::latest(),
+        version,
+        epoch,
     )
 }
 
@@ -3064,8 +3074,8 @@ fn test_direct_access_to_persisted_var_should_fail() {
     ));
 }
 
-#[test]
-fn test_data_var_shadowed_by_let_should_fail() {
+#[apply(test_clarity_versions)]
+fn test_data_var_shadowed_by_let_should_fail(version: ClarityVersion, epoch: StacksEpochId) {
     let contract_src = r#"
         (define-data-var cursor int 0)
         (define-private (set-cursor (value int))
@@ -3075,8 +3085,16 @@ fn test_data_var_shadowed_by_let_should_fail() {
                     0)))
     "#;
 
-    let res = parse_only(contract_src).unwrap_err();
-    assert_matches!(*res.err, ParseErrorKind::NameAlreadyUsed(_));
+    // As of Clarity 7, these errors are already caught by the definition
+    // sorter, i.e. during the parsing stage (which `mem_type_check` requires
+    // to be successful). Thus the two different checks here, depending on version.
+    if version.definition_sorter_probes_binding_names() {
+        let res = parsing_stage_only(contract_src, version, epoch).unwrap_err();
+        assert_matches!(*res.err, ParseErrorKind::NameAlreadyUsed(_));
+    } else {
+        let res = type_check_helper_version(contract_src, version, epoch).unwrap_err();
+        assert_matches!(*res.err, StaticCheckErrorKind::NameAlreadyUsed(_));
+    }
 }
 
 #[test]
@@ -3132,8 +3150,11 @@ fn test_let_shadowed_by_nested_let_should_fail() {
     assert!(matches!(*res.err, StaticCheckErrorKind::NameAlreadyUsed(_)));
 }
 
-#[test]
-fn test_define_constant_shadowed_by_let_should_fail() {
+#[apply(test_clarity_versions)]
+fn test_define_constant_shadowed_by_let_should_fail(
+    #[case] version: ClarityVersion,
+    #[case] epoch: StacksEpochId,
+) {
     let contract_src = r#"
         (define-private (cursor) 0)
         (define-private (set-cursor (value int))
@@ -3141,20 +3162,39 @@ fn test_define_constant_shadowed_by_let_should_fail() {
                cursor))
     "#;
 
-    let res = parse_only(contract_src).unwrap_err();
-    assert_matches!(*res.err, ParseErrorKind::NameAlreadyUsed(_));
+    // As of Clarity 7, these errors are already caught by the definition
+    // sorter, i.e. during the parsing stage (which `mem_type_check` requires
+    // to be successful). Thus the two different checks here, depending on version.
+    if version.definition_sorter_probes_binding_names() {
+        let res = parsing_stage_only(contract_src, version, epoch).unwrap_err();
+        assert_matches!(*res.err, ParseErrorKind::NameAlreadyUsed(_));
+    } else {
+        let res = type_check_helper_version(contract_src, version, epoch).unwrap_err();
+        assert_matches!(*res.err, StaticCheckErrorKind::NameAlreadyUsed(_));
+    }
 }
 
-#[test]
-fn test_define_constant_shadowed_by_argument_should_fail() {
+#[apply(test_clarity_versions)]
+fn test_define_constant_shadowed_by_argument_should_fail(
+    #[case] version: ClarityVersion,
+    #[case] epoch: StacksEpochId,
+) {
     let contract_src = r#"
         (define-private (cursor) 0)
         (define-private (set-cursor (cursor int))
             cursor)
     "#;
 
-    let res = parse_only(contract_src).unwrap_err();
-    assert_matches!(*res.err, ParseErrorKind::NameAlreadyUsed(_));
+    // As of Clarity 7, these errors are already caught by the definition
+    // sorter, i.e. during the parsing stage (which `mem_type_check` requires
+    // to be successful). Thus the two different checks here, depending on version.
+    if version.definition_sorter_probes_binding_names() {
+        let res = parsing_stage_only(contract_src, version, epoch).unwrap_err();
+        assert_matches!(*res.err, ParseErrorKind::NameAlreadyUsed(_));
+    } else {
+        let res = type_check_helper_version(contract_src, version, epoch).unwrap_err();
+        assert_matches!(*res.err, StaticCheckErrorKind::NameAlreadyUsed(_));
+    }
 }
 
 #[test]
