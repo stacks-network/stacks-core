@@ -483,6 +483,8 @@ impl DefinitionSorter {
     ///    right here, the error message would depend on whether `a` calls
     ///    `b` or not. If no, the error is `NameAlreadyUsed`, but if it yes,
     ///    the error is `CircularReference`. It's nicer for this to be consistent.
+    ///
+    /// This is not applied to `match` bindings.
     fn check_binding_name(
         &self,
         name_expr: &PreSymbolicExpression,

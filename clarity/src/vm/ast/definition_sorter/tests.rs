@@ -600,20 +600,8 @@ fn epoch41_native_function_name_in_function_position_is_not_a_dependency() {
 }
 
 #[test]
-fn test_reordering_does_not_change_result() {
-    same_behavior_regardless_of_order(
-        "(define-read-only (g (c uint)) c)
-         (define-constant c u42)",
-        Some("NameAlreadyUsed(\\\"c\\\")"),
-    );
-
-    same_behavior_regardless_of_order(
-        "(define-read-only (g) (let ((c u7)) u1))
-         (define-constant c u42)
-         (define-constant d (g))",
-        Some("NameAlreadyUsed(\\\"c\\\")"),
-    );
-
+fn test_non_binding_behavior_regardless_of_order() {
+    // plain old cycle in the call graph
     same_behavior_regardless_of_order(
         "(define-read-only (a) (b))
          (define-read-only (b) (c))
@@ -621,6 +609,9 @@ fn test_reordering_does_not_change_result() {
         Some("CircularReference([\\\"a\\\", \\\"b\\\", \\\"c\\\"])"),
     );
 
+    // `some-name` used for various things (local variable, function parameter, trait
+    // function, tuple field) that do not conflict. There is no top-level definition
+    // with that name. So this is all legal.
     same_behavior_regardless_of_order(
         "(define-trait my-trait ((some-name (uint) (response uint uint))))
          (define-read-only (foo) (let ((some-name \"abc\")) { some-name: some-name }))
@@ -630,12 +621,82 @@ fn test_reordering_does_not_change_result() {
         None,
     );
 
+    // `dupe` exists as a top-level definition (constant), but it's also a trait function
+    // and a tuple field. This is no conflict and therefore legal.
     same_behavior_regardless_of_order(
         "(define-constant dupe u7)
          (define-trait my-trait ((dupe (uint) (response uint uint))))
          (define-read-only (foo) { dupe: dupe })
          (define-public (dispatch (target <my-trait>)) (contract-call? target dupe dupe))
          ",
+        None,
+    );
+}
+
+#[test]
+fn test_let_binding_shadowing_regardless_of_order() {
+    same_behavior_regardless_of_order(
+        "(define-read-only (g) (let ((c u7)) u1))
+         (define-constant c u42)
+         (define-constant d (g))",
+        Some("NameAlreadyUsed(\\\"c\\\")"),
+    );
+}
+
+#[test]
+fn test_parameter_binding_shadowing_regardless_of_order() {
+    same_behavior_regardless_of_order(
+        "(define-read-only (g (c uint)) c)
+         (define-constant c u42)",
+        Some("NameAlreadyUsed(\\\"c\\\")"),
+    );
+}
+
+/// `match` binding duplication is prevented just like for `let` and parameter
+/// bindings, but in a slightly different way (all `match` parameters are treated
+/// by the definition sorter as normal expressions, so the definition sorter will
+/// see dependencies and move the conflicting global to the top of the contract,
+/// and thus the type checker is guaranteed to see the duplication). The disadvantage
+/// is that this can change error messages purely because of code order. See #7791.
+///
+/// That's why this test only asserts that there is an error at all, but doesn't
+/// prescribe a specific error message. Once #7791 is addressed, that can be improved.
+#[test]
+fn test_match_binding_shadowing_regardless_of_order() {
+    // Optional form, no dependency between the function and the global.
+    same_behavior_regardless_of_order(
+        "(define-read-only (g (x (optional uint))) (match x c u1 u0))
+           (define-constant c u42)",
+        Some(""),
+    );
+
+    // Optional form, the global's initializer calls the function.
+    // Currently this reports `CircularReference` instead of `NameAlreadyUsed`,
+    // but most importantly, it's an error.
+    same_behavior_regardless_of_order(
+        "(define-read-only (g (x (optional uint))) (match x c u1 u0))
+           (define-constant c (g none))",
+        Some(""),
+    );
+
+    // Response form, shadowing via the `err` binding.
+    same_behavior_regardless_of_order(
+        "(define-read-only (g (x (response uint uint))) (match x okv u1 c u0))
+           (define-constant c (g (ok u1)))",
+        Some(""),
+    );
+
+    // Response form, the `ok` binding shadows a function.
+    same_behavior_regardless_of_order(
+        "(define-read-only (g (x (response uint uint))) (match x f u1 errv u0))
+           (define-read-only (f) (g (ok u1)))",
+        Some(""),
+    );
+
+    // Non-shadowing `match` bindings keep working in every order.
+    same_behavior_regardless_of_order(
+        "(define-read-only (g (x (optional uint))) (match x val (+ val c) c))
+           (define-constant c u42)",
         None,
     );
 }
