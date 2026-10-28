@@ -23,8 +23,7 @@ use clarity_types::types::{
 };
 use stacks_common::util::hash::hex_bytes;
 
-use self::lexer::Lexer;
-use self::lexer::error::PlacedError as LexerPlacedError;
+use self::lexer::LexedSource;
 use self::lexer::token::{PlacedToken, Token};
 use crate::vm::ast::errors::{ParseError, ParseErrorKind, ParseResult, PlacedError};
 use crate::vm::ast::stack_depth_checker::StackDepthLimits;
@@ -88,42 +87,6 @@ enum ParserStackElement {
         whitespace: bool,
     },
     OpenTuple(OpenTuple),
-}
-
-/// Private fields: only `lex` builds one, so `tokens` always ends with `Token::Eof`.
-pub struct LexedSource {
-    tokens: Vec<PlacedToken>,
-    diagnostics: Vec<LexerPlacedError>,
-    success: bool,
-    fail_fast: bool,
-}
-
-pub fn lex(input: &str, fail_fast: bool) -> Result<LexedSource, ParseErrorKind> {
-    let mut lexer = Lexer::new(input, fail_fast).map_err(ParseErrorKind::Lexer)?;
-    let mut tokens = vec![];
-    loop {
-        let token = match lexer.read_token() {
-            Ok(token) => token,
-            Err(e) => {
-                assert!(
-                    fail_fast,
-                    "Lexer::read_token should not return an error when not in fail_fast mode"
-                );
-                return Err(ParseErrorKind::Lexer(e));
-            }
-        };
-        let is_eof = token.token == Token::Eof;
-        tokens.push(token);
-        if is_eof {
-            break;
-        }
-    }
-    Ok(LexedSource {
-        tokens,
-        diagnostics: lexer.diagnostics,
-        success: lexer.success,
-        fail_fast,
-    })
 }
 
 impl<'t> Parser<'t> {
@@ -1140,7 +1103,7 @@ pub fn parse(
     input: &str,
     depth_limits: StackDepthLimits,
 ) -> ParseResult<Vec<PreSymbolicExpression>> {
-    let lexed = lex(input, true).map_err(ParseError::new)?;
+    let lexed = LexedSource::new(input, true)?;
     let mut parser = Parser::new(&lexed, depth_limits);
     let stmts = parser.parse()?;
     if parser.success {
@@ -1156,8 +1119,8 @@ pub fn parse_collect_diagnostics(
     input: &str,
     depth_limits: StackDepthLimits,
 ) -> (Vec<PreSymbolicExpression>, Vec<Diagnostic>, bool) {
-    // When not in fail_fast mode, lex always returns Ok.
-    let lexed = lex(input, false).unwrap();
+    // When not in fail_fast mode, LexedSource::new always returns Ok.
+    let lexed = LexedSource::new(input, false).unwrap();
     let mut parser = Parser::new(&lexed, depth_limits);
 
     // When not in fail_fast mode, Parser::parse always returns Ok.
