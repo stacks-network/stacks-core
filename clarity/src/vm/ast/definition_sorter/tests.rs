@@ -82,9 +82,12 @@ pub fn reorderings(contract: &str) -> Vec<String> {
 /// The caveats from [`reorderings`] apply.
 pub fn same_behavior_regardless_of_order(contract: &str, maybe_err_substr: Option<&str>) {
     for reordered in reorderings(contract) {
-        let result =
-            run_analysis_helper(contract, ClarityVersion::latest(), StacksEpochId::latest())
-                .map_err(|e| e.to_string());
+        let result = run_analysis_helper(
+            &reordered,
+            ClarityVersion::latest(),
+            StacksEpochId::latest(),
+        )
+        .map_err(|e| e.to_string());
 
         if let Some(expected_err) = maybe_err_substr {
             let err = result.expect_err("expected analysis to error");
@@ -94,9 +97,54 @@ pub fn same_behavior_regardless_of_order(contract: &str, maybe_err_substr: Optio
                 "Expected error to contain \"{expected_err}\" but got \"{err}\" when analyzing \"{reordered}\""
             );
         } else {
-            result.unwrap_or_else(|_| panic!("Expected analysis to succeed on \"{reordered}\""));
+            result.unwrap_or_else(|e| {
+                panic!("Expected analysis to succeed on \"{reordered}\" but got \"{e}\"")
+            });
         }
     }
+}
+
+/// Test for the above `same_behavior_regardless_of_order` helper -- assert
+/// that the contract is in fact reordered. The `NameAlreadyUsed` error
+/// should complain about whichever function is the first to be redefined,
+/// and is therefore different depending on order. Hence this test `should_panic`.
+#[test]
+#[should_panic = "Expected error to contain"]
+fn test_same_behavior_regardless_of_order_case_1() {
+    same_behavior_regardless_of_order(
+        "(define-private (x) 42)
+        (define-private (x) 42)
+        (define-private (y) 42)
+        (define-private (y) 42)",
+        Some("NameAlreadyUsed(\"x\")"),
+    );
+}
+
+/// see [`test_same_behavior_regardless_of_order_case_1`]
+#[test]
+#[should_panic = "Expected error to contain"]
+fn test_same_behavior_regardless_of_order_case_2() {
+    same_behavior_regardless_of_order(
+        "(define-private (x) 42)
+        (define-private (x) 42)
+        (define-private (y) 42)
+        (define-private (y) 42)",
+        Some("NameAlreadyUsed(\"y\")"),
+    );
+}
+
+/// Similar to the above, but this only tests that the error
+/// contains "NameAlreadyUsed", it doesn't assert a specific name.
+/// That assertion should be true regardless of order.
+#[test]
+fn test_same_behavior_regardless_of_order_case_3() {
+    same_behavior_regardless_of_order(
+        "(define-private (x) 42)
+        (define-private (x) 42)
+        (define-private (y) 42)
+        (define-private (y) 42)",
+        Some("NameAlreadyUsed"),
+    );
 }
 
 fn run_scoped_parsing_helper(
