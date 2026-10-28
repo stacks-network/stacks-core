@@ -2442,8 +2442,8 @@ impl BitcoinRegtestController {
                 return true;
             }
             -25 => {
-                if let Some(mut prior) = previous
-                    .filter(|prior| self.is_ongoing_commit_confirmed(prior))
+                if let Some(mut prior) =
+                    previous.filter(|prior| self.is_ongoing_commit_confirmed(prior))
                 {
                     info!("Block commit replacement lost the race to a confirmed prior attempt";
                         "txid" => %txid);

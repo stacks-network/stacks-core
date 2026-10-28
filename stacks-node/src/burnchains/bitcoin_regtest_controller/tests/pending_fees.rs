@@ -489,7 +489,11 @@ fn pending_pricing_raise_retarget_and_absolute_limit() {
     let size = pending_rpc(&config, "getmempoolentry", vec![retarget.to_hex().into()])["vsize"]
         .as_u64()
         .unwrap();
-    assert!((size..=size + 1).contains(&(second.miner_fee - first.miner_fee)));
+    let incremental =
+        bitcoin_amount(&pending_rpc(&config, "getmempoolinfo", vec![])["incrementalrelayfee"])
+            .unwrap();
+    let surcharge = replacement_pricing::rate_fee(incremental, size).unwrap();
+    assert!((surcharge..=surcharge + 1).contains(&(second.miner_fee - first.miner_fee)));
     assert!(matches!(
         pending_submit(&mut btc, &key, &op),
         Err(BurnchainControllerError::IdenticalOperation)
@@ -631,12 +635,12 @@ fn pending_fee_limits_and_insufficient_change() {
     let id = pending_submit(&mut btc, &key, &op).unwrap();
     let before = btc.get_ongoing_commit().unwrap();
     btc.config.burnchain.satoshis_per_byte = 2;
-    btc.config.burnchain.max_rbf = 50;
+    btc.config.burnchain.block_commit_replacement_fee_max_sats = Some(before.miner_fee);
     assert!(matches!(
         pending_submit(&mut btc, &key, &op),
         Err(BurnchainControllerError::MaxFeeRateExceeded)
     ));
-    btc.config.burnchain.max_rbf = 500;
+    btc.config.burnchain.block_commit_replacement_fee_max_sats = Some(10_000);
     assert!(
         pending_submit(&mut btc, &key, &op).is_err(),
         "insufficient change must reject the build"
@@ -990,10 +994,8 @@ fn pending_fee_lost_ack() {
     assert!(pending_submit(&mut btc, &key, &op).is_err());
     let in_pool = pending_rpc(&config, "getrawmempool", vec![]);
     assert_eq!(in_pool.as_array().unwrap().len(), 1);
-    // The accepted level-3 replacement already covers level 4 through its
-    // surcharge. A lost ack must still resend those exact bytes, not suppress
-    // recovery or advance the replacement ladder at the new fresh-commit target.
-    btc.config.burnchain.satoshis_per_byte = 4;
+    // The accepted level-3 replacement still pays the target. A lost ack must
+    // resend those exact bytes, not build another replacement.
     let id = pending_submit(&mut btc, &key, &op)
         .expect("retry must retransmit exactly the accepted bytes");
     assert_eq!(in_pool, serde_json::json!([id.to_hex()]));
@@ -1146,7 +1148,7 @@ fn pending_fee_real_replacements() {
 
 #[test]
 #[ignore]
-fn pending_fee_surcharge_coverage_and_fresh_target() {
+fn pending_fee_covered_target_and_fresh_target() {
     let (key, config, mut bitcoind, mut btc) = pending_fixture();
     btc.config.burnchain.block_commit_tx_estimated_size = 370;
     let mut op = utils::create_templated_commit_op();
@@ -1161,38 +1163,37 @@ fn pending_fee_surcharge_coverage_and_fresh_target() {
             * 1e8)
             .round() as u64
     };
-    // Bitcoin's actual mempool fee, not the internal level, proves the surplus.
-    assert_eq!(fee_sats(&second), 1111);
-    for level in [3, 3, 2, 3] {
+    // Bitcoin's actual mempool fee: the raise pays the new target, nothing more.
+    assert_eq!(fee_sats(&second), 740);
+    for level in [2, 1, 2] {
         btc.config.burnchain.satoshis_per_byte = level;
         assert!(
             matches!(
                 pending_submit(&mut btc, &key, &op),
                 Err(BurnchainControllerError::IdenticalOperation)
             ),
-            "already-paid surcharge covers the fresh target; no extra RBF"
+            "a pending fee covering the target needs no replacement"
         );
         assert_eq!(
             pending_rpc(&config, "getrawmempool", vec![]),
             serde_json::json!([second.to_hex()])
         );
-        assert_eq!(fee_sats(&second), 1111);
+        assert_eq!(fee_sats(&second), 740);
     }
     // A real payload change must still retarget, regardless of sufficient fees.
     op.burn_fee += 10;
     let retarget = pending_submit(&mut btc, &key, &op).unwrap();
     assert_ne!(retarget, second);
-    assert!(fee_sats(&retarget) > 1110);
+    assert!(fee_sats(&retarget) > 740);
     btc.build_next_block(1);
     assert!(btc.is_transaction_confirmed(&retarget));
     op.burn_fee += 10;
     let fresh = pending_submit(&mut btc, &key, &op).unwrap();
-    assert_eq!(get_satoshis_per_byte(&btc.config), 3);
+    assert_eq!(get_satoshis_per_byte(&btc.config), 2);
     assert_eq!(
         fee_sats(&fresh),
-        1110,
-        "next fresh commit uses level 3, with no inherited surcharge"
+        740,
+        "next fresh commit uses the target, with no inherited surcharge"
     );
-    println!("PENDING_COVERAGE_EVIDENCE pending_fee=1111 skipped_level=3 fresh_fee=1110 retarget={retarget}");
     bitcoind.stop_bitcoind().unwrap();
 }
