@@ -495,9 +495,9 @@ impl DefinitionSorter {
         }
         if let Some(name) = name_expr.match_atom() {
             if self.top_level_expressions_map.contains_key(name) {
-                return Err(ParseError::new(ParseErrorKind::NameAlreadyUsed(
-                    name.to_string(),
-                )));
+                let mut error = ParseError::new(ParseErrorKind::NameAlreadyUsed(name.to_string()));
+                error.set_pre_expression(name_expr);
+                return Err(error);
             }
         } else {
             // If it's not an atom, it's definitely wrong. The type checker's
