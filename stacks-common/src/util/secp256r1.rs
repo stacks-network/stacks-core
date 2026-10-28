@@ -18,8 +18,8 @@ use p256::ecdsa::signature::{Signer, Verifier};
 use p256::ecdsa::{
     Signature as P256Signature, SigningKey as P256SigningKey, VerifyingKey as P256VerifyingKey,
 };
-use p256::elliptic_curve::sec1::{FromEncodedPoint, ToEncodedPoint};
-use p256::{EncodedPoint, PublicKey as P256PublicKey, SecretKey as P256SecretKey};
+use p256::elliptic_curve::sec1::{FromSec1Point, ToSec1Point};
+use p256::{PublicKey as P256PublicKey, Sec1Point, SecretKey as P256SecretKey};
 use thiserror::Error;
 
 use crate::util::hash::{hex_bytes, to_hex, Sha256Sum};
@@ -100,8 +100,8 @@ impl MessageSignature {
     pub fn to_high_s(&self) -> Result<MessageSignature, Secp256r1Error> {
         let p256_sig = self.to_p256_signature()?;
         // Normalize to low-S first, then negate to get high-S
-        let low_sig = p256_sig.normalize_s().unwrap_or(p256_sig);
-        let (r, s) = (low_sig.r(), low_sig.s());
+        let low_sig = p256_sig.normalize_s();
+        let (r, s) = low_sig.split_scalars();
         let high_sig =
             P256Signature::from_scalars(*r, -(*s)).map_err(|_| Secp256r1Error::InvalidSignature)?;
         Ok(MessageSignature::from_p256_signature(&high_sig))
@@ -123,11 +123,11 @@ impl Secp256r1PublicKey {
 
     /// Creates a Secp256r1PublicKey from a byte slice.
     pub fn from_slice(data: &[u8]) -> Result<Secp256r1PublicKey, &'static str> {
-        let encoded_point = EncodedPoint::from_bytes(data)
+        let encoded_point = Sec1Point::from_bytes(data)
             .map_err(|_| "Invalid public key: failed to parse encoded point")?;
 
         let public_key =
-            Option::<P256PublicKey>::from(P256PublicKey::from_encoded_point(&encoded_point))
+            Option::<P256PublicKey>::from(P256PublicKey::from_sec1_point(&encoded_point))
                 .ok_or("Invalid public key: failed to decode point")?;
 
         let verifying_key = P256VerifyingKey::from(public_key);
@@ -154,14 +154,14 @@ impl Secp256r1PublicKey {
 
     pub fn to_bytes(&self) -> Vec<u8> {
         let public_key = P256PublicKey::from(&self.key);
-        let encoded_point = public_key.to_encoded_point(self.compressed);
+        let encoded_point = public_key.to_sec1_point(self.compressed);
         encoded_point.as_bytes().to_vec()
     }
 
     /// Converts the public key to a compressed byte representation.
     pub fn to_bytes_compressed(&self) -> Vec<u8> {
         let public_key = P256PublicKey::from(&self.key);
-        let encoded_point = public_key.to_encoded_point(true); // true = compressed
+        let encoded_point = public_key.to_sec1_point(true); // true = compressed
         encoded_point.as_bytes().to_vec()
     }
 
@@ -226,11 +226,21 @@ impl Secp256r1PrivateKey {
     /// Generates a new random private key.
     #[cfg(feature = "rand")]
     pub fn random() -> Secp256r1PrivateKey {
-        let secret_key = P256SecretKey::random(&mut rand::thread_rng());
-        let signing_key = P256SigningKey::from(secret_key);
-        Secp256r1PrivateKey {
-            key: signing_key,
-            compress_public: true,
+        use p256::elliptic_curve::zeroize::Zeroizing;
+        use rand::RngCore as _;
+
+        let mut rng = rand::thread_rng();
+        // wiped on drop so the secret bytes don't linger on the stack
+        let mut random_32_bytes = Zeroizing::new([0u8; 32]);
+        loop {
+            // keep trying to generate valid bytes
+            rng.fill_bytes(random_32_bytes.as_mut());
+            if let Ok(secret_key) = P256SecretKey::from_slice(random_32_bytes.as_ref()) {
+                return Secp256r1PrivateKey {
+                    key: P256SigningKey::from(secret_key),
+                    compress_public: true,
+                };
+            }
         }
     }
 
@@ -591,6 +601,8 @@ mod tests {
 
     #[test]
     fn test_high_s_signature() {
+        use p256::elliptic_curve::scalar::IsHigh;
+
         use crate::util::hash::Sha256Sum;
 
         let privk = Secp256r1PrivateKey::random();
@@ -607,14 +619,10 @@ mod tests {
         let original_sig = P256Signature::from_slice(&sig.0).unwrap();
 
         // Always get the low-s version first
-        let low_sig = if let Some(normalized) = original_sig.normalize_s() {
-            normalized // Original was high-s, use the normalized (low-s) version
-        } else {
-            original_sig // Original was already low-s
-        };
+        let low_sig = original_sig.normalize_s();
 
         // Now create high-s version from the low-s signature
-        let (r, s) = (low_sig.r(), low_sig.s());
+        let (r, s) = low_sig.split_scalars();
         let high_sig = {
             // Make high-s by negating s (s' = -s mod n)
             let s_hi = -(*s);
@@ -625,8 +633,8 @@ mod tests {
         let high_bytes = high_sig.to_bytes();
 
         // Verify our assumptions about which is which
-        let low_is_low_s = low_sig.normalize_s().is_none();
-        let high_is_high_s = high_sig.normalize_s().is_some();
+        let low_is_low_s = !bool::from(low_sig.s().is_high());
+        let high_is_high_s = bool::from(high_sig.s().is_high());
 
         assert!(low_is_low_s, "Low signature should be low-s");
         assert!(high_is_high_s, "High signature should be high-s");
@@ -646,21 +654,22 @@ mod tests {
         );
 
         // Test normalization: high-s should pass when normalized to low-s
-        if let Some(normalized_sig) = high_sig.normalize_s() {
-            let normalized_bytes = normalized_sig.to_bytes();
-            let normalized_result = secp256r1_verify(&msg_hash, &normalized_bytes, &pubkey_bytes);
-            assert!(
-                normalized_result.is_ok(),
-                "Normalized (low-s) signature should pass verification"
-            );
+        let normalized_sig = high_sig.normalize_s();
+        assert!(
+            !bool::from(normalized_sig.s().is_high()),
+            "High-s signature should normalize to low-s"
+        );
+        let normalized_bytes = normalized_sig.to_bytes();
+        let normalized_result = secp256r1_verify(&msg_hash, &normalized_bytes, &pubkey_bytes);
+        assert!(
+            normalized_result.is_ok(),
+            "Normalized (low-s) signature should pass verification"
+        );
 
-            // The normalized signature should be the same as our low signature
-            assert_eq!(
-                normalized_bytes, low_bytes,
-                "Normalized signature should match our low signature"
-            );
-        } else {
-            panic!("High-s signature should normalize to low-s");
-        }
+        // The normalized signature should be the same as our low signature
+        assert_eq!(
+            normalized_bytes, low_bytes,
+            "Normalized signature should match our low signature"
+        );
     }
 }

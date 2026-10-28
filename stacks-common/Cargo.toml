@@ -43,7 +43,7 @@ slog-term = { version = "2.6.0", default-features = false }
 thiserror = { workspace = true }
 
 # RustCrypto elliptic curve crates
-p256 = { version = "0.13", default-features = false, features = ["std", "serde", "ecdsa"] }
+p256 = { version = "0.14", default-features = false, features = ["alloc", "ecdsa"] }
 
 # Optional dependencies
 getrandom = { version = "0.2", default-features = false, optional = true }
