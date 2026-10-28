@@ -12,7 +12,7 @@
 //
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
-use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::sync::LazyLock;
 
 use clarity::boot_util::boot_code_addr;
@@ -40,7 +40,7 @@ use crate::chainstate::nakamoto::coordinator::load_nakamoto_reward_set;
 use crate::chainstate::nakamoto::test_signers::TestSigners;
 use crate::chainstate::nakamoto::tests::node::TestStacker;
 use crate::chainstate::nakamoto::NakamotoChainState;
-use crate::chainstate::stacks::db::{StacksChainState, StacksEpochReceipt};
+use crate::chainstate::stacks::db::{StacksChainState, StacksEpochReceipt, StacksHeaderInfo};
 use crate::chainstate::stacks::events::{BoundedErrorString, TransactionOrigin};
 use crate::chainstate::stacks::miner::{BlockBuilder, TransactionResourceBudgets};
 use crate::chainstate::stacks::tests::{make_coinbase, TestStacksNode};
@@ -363,6 +363,15 @@ impl ConsensusChain<'_> {
         Self::from_boot_plan(boot_plan, num_blocks_per_epoch)
     }
 
+    /// Creates a [`ConsensusChain`] and advances it into `epoch`. As its last epoch,
+    /// `epoch` has room for any number of tenures.
+    pub fn new_in_epoch(test_name: &str, epoch: StacksEpochId) -> Self {
+        let mut chain = Self::new(test_name, vec![], HashMap::from([(epoch, 1)]));
+        let miner_key = chain.test_chainstate.miner.nakamoto_miner_key();
+        chain.test_chainstate.advance_into_epoch(&miner_key, epoch);
+        chain
+    }
+
     fn new_with_signing_set(
         test_name: &str,
         initial_balances: Vec<(PrincipalData, u64)>,
@@ -631,19 +640,75 @@ impl ConsensusChain<'_> {
             .test_chainstate
             .append_nakamoto_block_with_txs(&test_block.transactions);
 
-        let burn_block_height = self.test_chainstate.get_burn_block_height();
-        let current_epoch =
-            SortitionDB::get_stacks_epoch(self.test_chainstate.sortdb().conn(), burn_block_height)
-                .unwrap()
-                .unwrap()
-                .epoch_id;
-
         ExpectedResult::create_from(
             outcome.execution,
             outcome.block.header.state_index_root,
-            current_epoch,
+            self.current_epoch(),
             &test_block,
         )
+    }
+
+    /// Starts a new tenure with a block of the [`TestBlock`]'s transactions and
+    /// returns the result for those transactions only.
+    pub fn append_tenure_start_block(&mut self, test_block: TestBlock) -> ExpectedResult {
+        debug!("--------- Running tenure-start block {test_block:?} ---------");
+        let outcome = self
+            .test_chainstate
+            .append_nakamoto_tenure_start_block_with_txs(&test_block.transactions);
+        let txids: HashSet<_> = test_block.transactions.iter().map(|tx| tx.txid()).collect();
+        let execution = outcome.execution.map(|mut receipt| {
+            receipt.tx_receipts.retain(|tx_receipt| {
+                matches!(
+                    &tx_receipt.transaction,
+                    TransactionOrigin::Stacks(tx) if txids.contains(&tx.txid())
+                )
+            });
+            receipt
+        });
+
+        ExpectedResult::create_from(
+            execution,
+            outcome.block.header.state_index_root,
+            self.current_epoch(),
+            &test_block,
+        )
+    }
+
+    fn current_epoch(&self) -> StacksEpochId {
+        let burn_block_height = self.test_chainstate.get_burn_block_height();
+        SortitionDB::get_stacks_epoch(self.test_chainstate.sortdb_ref().conn(), burn_block_height)
+            .unwrap()
+            .unwrap()
+            .epoch_id
+    }
+
+    /// The canonical Stacks tip.
+    pub fn tip(&self) -> StacksHeaderInfo {
+        NakamotoChainState::get_canonical_block_header(
+            self.test_chainstate.chainstate_ref().db(),
+            self.test_chainstate.sortdb_ref(),
+        )
+        .unwrap()
+        .unwrap()
+    }
+
+    /// Evaluates `code` in `contract` as a read-only call at the canonical tip.
+    pub fn eval_read_only_at_tip(
+        &mut self,
+        contract: &QualifiedContractIdentifier,
+        code: &str,
+    ) -> ClarityValue {
+        let tip = self.tip().index_block_hash();
+        let sortdb = self.test_chainstate.sortdb.as_ref().unwrap();
+        let chainstate = &mut self
+            .test_chainstate
+            .stacks_node
+            .as_mut()
+            .unwrap()
+            .chainstate;
+        chainstate
+            .eval_read_only(&sortdb.index_handle_at_tip(), &tip, contract, code)
+            .unwrap()
     }
 
     /// Appends a single block to the chain as a Pre-Nakamoto block and returns the result.
@@ -687,12 +752,7 @@ impl ConsensusChain<'_> {
         self.test_chainstate.sortdb = Some(sortdb);
         self.test_chainstate.stacks_node = Some(stacks_node);
 
-        let burn_block_height = self.test_chainstate.get_burn_block_height();
-        let current_epoch =
-            SortitionDB::get_stacks_epoch(self.test_chainstate.sortdb().conn(), burn_block_height)
-                .unwrap()
-                .unwrap()
-                .epoch_id;
+        let current_epoch = self.current_epoch();
 
         let remapped_result = res.map(|receipt| {
             let mut receipt = receipt.unwrap();
@@ -1638,6 +1698,17 @@ impl ContractTxReport {
         }
     }
 
+    /// Return the tx execution cost if included in an accepted block,
+    /// panics otherwise.
+    pub fn cost(&self) -> &ExecutionCost {
+        match &self.outcome {
+            TxOutcome::BlockAccepted(t) => &t.cost,
+            TxOutcome::BlockRejected(err) => {
+                panic!("block rejected tx has no cost: {err}")
+            }
+        }
+    }
+
     /// Return the `vm error` in case of block accepted tx,
     /// panics otherwise.
     pub fn vm_error(&self) -> Option<&str> {
@@ -2077,6 +2148,19 @@ impl ConsensusUtils {
         StacksTransaction::consensus_deserialize(&mut deploy_tx.as_slice()).unwrap()
     }
 
+    /// A 1 uSTX transfer from the faucet, for blocks that need any transaction.
+    pub fn new_transfer_tx(nonce: u64) -> StacksTransaction {
+        let recipient = StacksAddress::burn_address(false).into();
+        make_stacks_transfer_tx(
+            &FAUCET_PRIV_KEY,
+            nonce,
+            200,
+            CHAIN_ID_TESTNET,
+            &recipient,
+            1,
+        )
+    }
+
     pub fn new_call_tx(nonce: u64, contract_name: &str, funct_name: &str) -> StacksTransaction {
         let call_tx = make_contract_call(
             &FAUCET_PRIV_KEY,
@@ -2159,6 +2243,83 @@ fn test_append_empty_blocks() {
 
     let result = ConsensusTest::new(function_name!(), vec![], epoch_blocks).run();
     insta::assert_ron_snapshot!(result);
+}
+
+/// A block with one STX transfer from the faucet.
+fn transfer_block(nonce: u64) -> TestBlock {
+    TestBlock {
+        transactions: vec![ConsensusUtils::new_transfer_tx(nonce)],
+    }
+}
+
+/// Tenure-start blocks report only their own transactions, and extension blocks
+/// and later tenures build on them, also across a reward cycle.
+#[test]
+fn test_append_tenure_start_blocks() {
+    let mut chain = ConsensusChain::new_in_epoch(function_name!(), max_tested_epoch());
+    let contract = QualifiedContractIdentifier::new(
+        FAUCET_ADDRESS.clone().into(),
+        ContractName::try_from("tenure".to_string()).unwrap(),
+    );
+    let deploy = ConsensusUtils::new_deploy_tx(
+        0,
+        &contract.name,
+        "(define-read-only (height) tenure-height)",
+        None,
+    );
+    let ExpectedResult::Success(start) = chain.append_tenure_start_block(TestBlock {
+        transactions: vec![deploy],
+    }) else {
+        panic!("the first tenure-start block was rejected");
+    };
+    assert_eq!(start.transactions.len(), 1);
+    let first_tenure = chain.eval_read_only_at_tip(&contract, "(height)");
+
+    let reward_cycle_length = u64::from(
+        chain
+            .test_chainstate
+            .config
+            .burnchain
+            .pox_constants
+            .reward_cycle_length,
+    );
+    for tenure in 1..=reward_cycle_length {
+        let start = chain.append_tenure_start_block(transfer_block(2 * tenure - 1));
+        assert!(matches!(start, ExpectedResult::Success(_)), "{start:?}");
+        let extension = chain.append_block(transfer_block(2 * tenure), true);
+        assert!(
+            matches!(extension, ExpectedResult::Success(_)),
+            "{extension:?}"
+        );
+    }
+    let last_tenure = chain.eval_read_only_at_tip(&contract, "(height)");
+    assert_eq!(
+        last_tenure.expect_u128().unwrap(),
+        first_tenure.expect_u128().unwrap() + u128::from(reward_cycle_length)
+    );
+}
+
+/// After a rejected tenure-start block, the next tenure builds on the last
+/// accepted block.
+#[test]
+fn test_append_tenure_start_block_after_rejected_one() {
+    let mut chain = ConsensusChain::new_in_epoch(function_name!(), max_tested_epoch());
+    let height = chain.tip().stacks_block_height;
+
+    // The faucet's next nonce is 0.
+    let rejected = chain.append_tenure_start_block(transfer_block(1));
+    assert!(
+        matches!(rejected, ExpectedResult::Failure(_)),
+        "{rejected:?}"
+    );
+    let start = chain.append_tenure_start_block(transfer_block(0));
+    assert!(matches!(start, ExpectedResult::Success(_)), "{start:?}");
+    assert_eq!(chain.tip().stacks_block_height, height + 1);
+    let extension = chain.append_block(transfer_block(1), true);
+    assert!(
+        matches!(extension, ExpectedResult::Success(_)),
+        "{extension:?}"
+    );
 }
 
 #[test]

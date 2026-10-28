@@ -84,7 +84,7 @@ impl Allowance {
     /// Returns the size in bytes of the allowance when stored in memory.
     /// This is used to account for memory usage when evaluating `as-contract?`
     /// and `restrict-assets?` expressions.
-    pub fn size_in_bytes(&self) -> Result<usize, VmInternalError> {
+    pub fn size_in_bytes(&self, epoch: &StacksEpochId) -> Result<usize, VmInternalError> {
         match self {
             Allowance::Stx(_) => Ok(std::mem::size_of::<StxAllowance>()),
             Allowance::Ft(ft) => Ok(std::mem::size_of::<FtAllowance>()
@@ -98,7 +98,7 @@ impl Allowance {
                     + nft.asset.asset_name.len() as usize;
 
                 for id in &nft.asset_ids {
-                    let memory_use = id.get_memory_use().map_err(|e| {
+                    let memory_use = id.get_memory_use(epoch).map_err(|e| {
                         VmInternalError::Expect(format!("Failed to calculate memory use: {e}"))
                     })?;
                     total_size += memory_use as usize;
@@ -337,7 +337,7 @@ pub fn special_restrict_assets(
             if checks_with_all && matches!(allowance, Allowance::All) {
                 return Err(RuntimeCheckErrorKind::WithAllAllowanceNotAllowed.into());
             }
-            let allowance_memory = u64::try_from(allowance.size_in_bytes()?)
+            let allowance_memory = u64::try_from(allowance.size_in_bytes(exec_state.epoch())?)
                 .map_err(|_| VmInternalError::Expect("Allowance size too large".into()))?;
 
             match exec_state.add_memory(allowance_memory) {
@@ -478,7 +478,7 @@ pub fn special_as_contract(
         let mut allowances = Vec::with_capacity(allowance_list.len());
         for allowance_expr in allowance_list {
             let allowance = eval_allowance(allowance_expr, exec_state, invoke_ctx, context)?;
-            let allowance_memory = u64::try_from(allowance.size_in_bytes()?)
+            let allowance_memory = u64::try_from(allowance.size_in_bytes(exec_state.epoch())?)
                 .map_err(|_| VmInternalError::Expect("Allowance size too large".into()))?;
             exec_state.add_memory(allowance_memory)?;
             memory_use += allowance_memory;
