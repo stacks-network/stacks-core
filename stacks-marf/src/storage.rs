@@ -2212,7 +2212,11 @@ impl<'a, T: MarfTrieId> TrieStorageTransaction<'a, T> {
 
     /// Promote a serialized trie without committing or caching a provisional block ID.
     ///
-    /// See [`crate::MarfTransaction::promote_from`] for validation and rollback obligations.
+    /// Target existence is not checked. Failures after the header-length check, including a
+    /// duplicate target, require rollback.
+    ///
+    /// See [`crate::MarfTransaction::promote_from`] for serialized-input requirements and
+    /// restrictions on reading before commit.
     pub fn promote_from(
         &mut self,
         target: &T,

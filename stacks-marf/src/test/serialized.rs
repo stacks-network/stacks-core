@@ -194,6 +194,45 @@ fn serialized_promotion_round_trip(marf_opts: &MARFOpenOpts) {
     }
 }
 
+/// Duplicate targets are rejected without copying bytes or consuming the open extension.
+#[rstest::rstest]
+#[case::sqlite(&opts::OPTS_IMM)]
+#[case::external(&opts::OPTS_IMM_EXT)]
+fn serialized_promotion_existing_target_preserves_extension(#[case] marf_opts: &MARFOpenOpts) {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("marf.sqlite");
+    let mut marf = setup(path.to_str().unwrap(), marf_opts, 1);
+    let parent_bytes = stored_bytes(&mut marf, &PARENT);
+    let parent_root = marf.get_root_hash_at(&PARENT).unwrap();
+
+    let mut tx = marf.begin_tx().unwrap();
+    tx.begin(&PARENT, &PLACEHOLDER).unwrap();
+    tx.insert_batch(
+        &["extension-only".into()],
+        vec![MARFValue::from_value("preserved")],
+    )
+    .unwrap();
+    assert_matches!(
+        tx.promote_from(&PARENT, READER_PREFIX_LEN as u64, |_, _| {
+            panic!("duplicate-target rejection must precede callback")
+        }),
+        Err(Error::ExistsError)
+    );
+    assert_eq!(tx.get_open_chain_tip(), Some(&PLACEHOLDER));
+    tx.commit_to(&TARGET).unwrap();
+    drop(marf);
+
+    let mut marf = MARF::from_path(path.to_str().unwrap(), marf_opts.clone()).unwrap();
+    assert_eq!(stored_bytes(&mut marf, &PARENT), parent_bytes);
+    assert_eq!(marf.get_root_hash_at(&PARENT).unwrap(), parent_root);
+    assert_eq!(marf.get(&PARENT, "extension-only").unwrap(), None);
+    assert_eq!(
+        marf.get(&TARGET, "extension-only").unwrap(),
+        Some(MARFValue::from_value("preserved"))
+    );
+    assert_absent(&marf, &PLACEHOLDER);
+}
+
 /// Failed external registration preserves accepted bytes; reopening and retry reuse the orphan extent.
 #[test]
 fn serialized_promotion_registration_failure_reuses_extent() {

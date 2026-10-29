@@ -384,18 +384,18 @@ impl<'a, T: MarfTrieId> MarfTransaction<'a, T> {
         self.storage.serialize_and_discard()
     }
 
-    /// Promote a serialized trie of exactly `len` bytes without committing. The caller must roll
-    /// back the transaction on error.
+    /// Promote exactly `len` bytes of a serialized trie without committing.
     ///
-    /// The caller must verify the serialized parent and root hashes against the expected values in
-    /// this transaction. Serialized bytes depend on the originating database's ancestor layout,
-    /// which must remain valid through promotion and commit.
+    /// Header-length and target-existence checks leave the transaction unchanged on failure. An
+    /// existing target returns [`Error::ExistsError`]. Failures after these checks require
+    /// rollback.
     ///
-    /// Lengths shorter than the trie header are rejected before mutation. The copy callback must
-    /// close its source before returning.
+    /// The caller must verify the serialized parent and root hashes against expected values within
+    /// this transaction. The originating database's ancestor layout must remain valid through
+    /// commit. The copy callback must close its source before returning.
     ///
-    /// The promoted trie must not be read until the transaction commits: reads can cache provisional
-    /// block IDs that become invalid after rollback.
+    /// Do not read the promoted trie before commit: reads can cache provisional block IDs that
+    /// become invalid after rollback.
     pub fn promote_from(
         &mut self,
         target: &T,
@@ -412,6 +412,9 @@ impl<'a, T: MarfTrieId> MarfTransaction<'a, T> {
             return Err(Error::CorruptionError(
                 "serialized trie is shorter than its header".into(),
             ));
+        }
+        if self.storage.has_block(target)? {
+            return Err(Error::ExistsError);
         }
 
         // Prevent commit from attempting to flush the extension being replaced.
