@@ -139,6 +139,13 @@ impl ClarityVersion {
     pub fn supports_variadic_concat(&self) -> bool {
         self >= &ClarityVersion::Clarity6
     }
+
+    /// Before Clarity 7, the runtime check that prevents let bindings with names that
+    /// duplicate existing global definitions was incomplete: It only looked at global
+    /// function names.
+    pub fn fully_prevents_let_binding_name_duplication_at_runtime(&self) -> bool {
+        self >= &ClarityVersion::Clarity7
+    }
 }
 
 impl FromStr for ClarityVersion {
