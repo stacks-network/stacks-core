@@ -291,9 +291,9 @@ impl TrieFile {
         bhh: &T,
         buffer: &[u8],
     ) -> Result<u32, Error> {
-        let offset = self.append_trie_blob(db, buffer)?;
-        test_debug!("Stored trie blob {} to offset {}", bhh, offset);
-        trie_sql::write_external_trie_blob(db, bhh, offset, buffer.len() as u64)
+        self.store_trie_blob_with(db, bhh, buffer.len() as u64, |_, writer| {
+            Ok(writer.write_all(buffer)?)
+        })
     }
 
     /// Store a serialized trie in the external file, returning its SQL identifier. Bytes are
@@ -321,6 +321,7 @@ impl TrieFile {
         self.sync_data()?;
 
         // Register the new trie blob in the database with its offset and length.
+        test_debug!("Stored trie blob {} to offset {}", target, offset);
         trie_sql::write_external_trie_blob(db, target, offset, length)
     }
 
@@ -626,18 +627,6 @@ impl TrieFile {
             Ok((root_hash, block_hash))
         })?;
         rows.collect()
-    }
-
-    /// Append a serialized trie to the TrieFile.
-    /// Returns the offset at which it was appended.
-    pub fn append_trie_blob(&mut self, db: &Connection, buf: &[u8]) -> Result<u64, Error> {
-        let offset = trie_sql::get_external_blobs_length(db)?;
-        test_debug!("Write trie of {} bytes at {}", buf.len(), offset);
-        self.seek(SeekFrom::Start(offset))?;
-        self.write_all(buf)?;
-        self.flush()?;
-        self.sync_data()?;
-        Ok(offset)
     }
 
     /// Read a block's [`BlobHeader`].
