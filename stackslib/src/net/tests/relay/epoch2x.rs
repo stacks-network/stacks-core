@@ -39,6 +39,8 @@ use crate::chainstate::stacks::tests::{
 };
 use crate::chainstate::stacks::{Error as ChainstateError, *};
 use crate::clarity_vm::clarity::ClarityConnection;
+use crate::core::mempool::next_arrival_seq;
+use crate::core::test_util::{make_stacks_transfer_tx, to_addr};
 use crate::core::*;
 use crate::net::api::getinfo::RPCPeerInfoData;
 use crate::net::asn::*;
@@ -2774,6 +2776,7 @@ fn process_new_blocks_rejects_problematic_asts() {
             payload: StacksMessageType::Blocks(BlocksData {
                 blocks: vec![BlocksDatum(new_consensus_hash.clone(), bad_block.clone())],
             }),
+            arrival_seq: None,
         },
         StacksMessage {
             preamble: preamble.clone(),
@@ -2785,11 +2788,13 @@ fn process_new_blocks_rejects_problematic_asts() {
                 ),
                 microblocks: vec![bad_mblock.clone()],
             }),
+            arrival_seq: None,
         },
         StacksMessage {
             preamble,
             relayers: vec![],
             payload: StacksMessageType::Transaction(tx_high.clone()),
+            arrival_seq: None,
         },
     ];
     let mut unsolicited = HashMap::new();
@@ -3529,3 +3534,137 @@ proptest! {
 // TODO: test sending invalid blocks-available and microblocks-available (should result in a ban)
 // TODO: test sending invalid transactions (should result in a ban)
 // TODO: test bandwidth limits (sending too much should result in a nack, and then a ban)
+
+#[test]
+/// The relayer stores pushed and synced transactions with the stamps taken on receipt, in arrival
+/// order: of two conflicting transactions (same origin and nonce, equal fee), the earlier arrival
+/// is kept, whichever intake path each came from and whichever was stored first. Only stored pushed
+/// transactions are relayed. A transaction already in the mempool keeps the earlier of its stamps.
+fn test_store_transactions_in_arrival_order() {
+    let privks: Vec<_> = (0..5u64)
+        .map(|seed| StacksPrivateKey::from_seed(&seed.to_be_bytes()))
+        .collect();
+    let mut peer_config = TestPeerConfig::new(function_name!(), 4252, 4253);
+    peer_config.chain_config.initial_balances = privks
+        .iter()
+        .map(|privk| (to_addr(privk).to_account_principal(), 1_000_000_000))
+        .collect();
+    let chain_id = peer_config.chain_config.network_id;
+    let mut peer = TestPeer::new(peer_config);
+    let recipient = StacksAddress::from_string("ST1RFD5Q2QPK3E0F08HG9XDX7SSC7CNRS0QR0SGEV")
+        .unwrap()
+        .to_account_principal();
+    let transfer = |privk: &StacksPrivateKey, amount: u64| {
+        make_stacks_transfer_tx(privk, 0, 1000, chain_id, &recipient, amount)
+    };
+    let [pushed_key, synced_key, sibling_key, known_key, late_sibling_key] = privks.as_slice()
+    else {
+        panic!("expected five keys");
+    };
+    let pushed = transfer(pushed_key, 1);
+    let synced = transfer(synced_key, 1);
+    // conflicting: same origin, nonce, fee and length
+    let x = transfer(sibling_key, 1);
+    let y = transfer(sibling_key, 2);
+    let known = transfer(known_key, 1);
+    // conflicting, and the later one (u) gets stored first, as an RPC upload would
+    let u = transfer(late_sibling_key, 1);
+    let v = transfer(late_sibling_key, 2);
+
+    // y (synced) arrived before x (pushed)
+    let y_seq = next_arrival_seq();
+    let x_seq = next_arrival_seq();
+    let pushed_seq = next_arrival_seq();
+    let synced_seq = next_arrival_seq();
+    let known_early_seq = next_arrival_seq();
+    let known_late_seq = next_arrival_seq();
+    let v_seq = next_arrival_seq();
+    let u_seq = next_arrival_seq();
+
+    let nk = NeighborKey {
+        peer_version: 1,
+        network_id: 1,
+        addrbytes: PeerAddress([0x11; 16]),
+        port: 1,
+    };
+    let new_result = || {
+        NetworkResult::new(
+            StacksBlockId([0x11; 32]),
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            ConsensusHash([0x11; 20]),
+            HashMap::new(),
+        )
+    };
+
+    let sortdb = peer.chain.sortdb.take().unwrap();
+    let mut stacks_node = peer.chain.stacks_node.take().unwrap();
+    let mut mempool = peer.mempool.take().unwrap();
+    let mut store = |result: &mut NetworkResult| {
+        PeerNetwork::store_transactions(
+            &mut mempool,
+            &mut stacks_node.chainstate,
+            &sortdb,
+            result,
+            None,
+        )
+        .unwrap();
+    };
+
+    // `known` was stored from a later receipt first
+    let mut result = new_result();
+    result.synced_transactions = vec![known.clone(), u.clone()];
+    result.record_tx_arrival(known.txid(), known_late_seq);
+    result.record_tx_arrival(u.txid(), u_seq);
+    store(&mut result);
+
+    let mut result = new_result();
+    result.pushed_transactions.insert(
+        nk.clone(),
+        vec![
+            (vec![], pushed.clone()),
+            (vec![], x.clone()),
+            (vec![], known.clone()),
+            (vec![], v.clone()),
+        ],
+    );
+    result.synced_transactions = vec![synced.clone(), y.clone()];
+    for (tx, arrival_seq) in [
+        (&pushed, pushed_seq),
+        (&x, x_seq),
+        (&known, known_early_seq),
+        (&synced, synced_seq),
+        (&y, y_seq),
+        (&v, v_seq),
+    ] {
+        result.record_tx_arrival(tx.txid(), arrival_seq);
+    }
+    store(&mut result);
+
+    let stored_seq = |tx: &StacksTransaction| {
+        MemPoolDB::get_tx(mempool.conn(), &tx.txid())
+            .unwrap()
+            .map(|tx_info| tx_info.metadata.arrival_seq)
+    };
+    assert_eq!(stored_seq(&pushed), Some(pushed_seq));
+    assert_eq!(stored_seq(&synced), Some(synced_seq));
+    assert_eq!(stored_seq(&y), Some(y_seq));
+    assert_eq!(stored_seq(&x), None);
+    assert_eq!(stored_seq(&known), Some(known_early_seq));
+    assert_eq!(stored_seq(&v), Some(v_seq));
+    assert_eq!(stored_seq(&u), None);
+
+    // in stamp order
+    let relayed: Vec<_> = result
+        .pushed_transactions
+        .values()
+        .flatten()
+        .map(|(_, tx)| tx.txid())
+        .collect();
+    assert_eq!(relayed, vec![pushed.txid(), v.txid()]);
+}

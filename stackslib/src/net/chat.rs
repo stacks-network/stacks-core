@@ -41,6 +41,7 @@ use crate::net::connection::{ConnectionOptions, ConnectionP2P, ReplyHandleP2P};
 use crate::net::db::{PeerDB, *};
 use crate::net::neighbors::MAX_NEIGHBOR_BLOCK_DELAY;
 use crate::net::p2p::PeerNetwork;
+use crate::net::poll::{QueuedBytesReader, SocketArrival};
 use crate::net::{
     Error as net_error, GetBlocksInv, GetPoxInv, Neighbor, NeighborKey, StacksMessage, StacksP2P,
     GETPOXINV_MAX_BITLEN, *,
@@ -2392,6 +2393,24 @@ impl ConversationP2P {
                 Ok(Some(msg))
             }
         }
+    }
+
+    /// Load data into our connection from a socket `poll()` reported ready.  Transactions completed
+    /// by the bytes queued when the poll returned take the stamps it reserved; those completed by
+    /// bytes that landed later take a fresh stamp.
+    pub fn recv_ready<R: Read>(
+        &mut self,
+        r: &mut R,
+        arrival: Option<SocketArrival>,
+    ) -> Result<usize, net_error> {
+        let Some(arrival) = arrival else {
+            return self.recv(r);
+        };
+        self.connection.protocol.recv_arrival_seqs = Some(arrival.arrival_seqs);
+        let queued_res = self.recv(&mut QueuedBytesReader::new(r, arrival.queued_bytes));
+        self.connection.protocol.recv_arrival_seqs = None;
+        let num_queued = queued_res?;
+        Ok(num_queued.saturating_add(self.recv(r)?))
     }
 
     /// Load data into our connection
@@ -6475,6 +6494,87 @@ mod test {
             assert_eq!(stats.num_messages, 1);
             assert_eq!(stats.num_bytes, (msg.preamble.payload_len - 1) as u64);
         }
+    }
+
+    #[test]
+    /// Transactions completed by the bytes queued when `poll()` returned take its stamps in order.
+    /// One that needs bytes that landed later takes a fresh stamp, even if it began within the
+    /// queued bytes.
+    fn test_recv_ready_arrival_stamps() {
+        use stacks_common::codec::StacksMessageCodec;
+        use stacks_common::types::chainstate::StacksPrivateKey;
+
+        use crate::core::mempool::{ArrivalSeqBlock, ARRIVAL_SEQ_BLOCK_LEN};
+        use crate::core::test_util::{make_stacks_transfer_tx, to_addr};
+
+        let burnchain = testing_burnchain_config(function_name!());
+        let socketaddr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 8090);
+        let conn_opts = ConnectionOptions::default();
+        let mut convo = ConversationP2P::new(
+            123,
+            456,
+            &burnchain,
+            &socketaddr,
+            &conn_opts,
+            true,
+            0,
+            StacksEpoch::unit_test_up_to(0, StacksEpochId::Epoch20),
+        );
+
+        let privk = StacksPrivateKey::from_seed(&[1]);
+        let message = |amount: u64| {
+            let tx = make_stacks_transfer_tx(
+                &privk,
+                0,
+                200,
+                0x80000000,
+                &PrincipalData::from(to_addr(&privk)),
+                amount,
+            );
+            let mut msg = StacksMessage::new(
+                1,
+                1,
+                12345,
+                &BurnchainHeaderHash([0x11; 32]),
+                12339,
+                &BurnchainHeaderHash([0x22; 32]),
+                StacksMessageType::Transaction(tx),
+            );
+            msg.sign(1, &privk).unwrap();
+            msg.serialize_to_vec()
+        };
+        let (msg_1, msg_2, msg_3) = (message(1), message(2), message(3));
+
+        let (mut pipe_read, mut pipe_write) = Pipe::new();
+        pipe_read.set_nonblocking(true);
+        pipe_write
+            .write_all(&[msg_1.as_slice(), &msg_2, &msg_3].concat())
+            .unwrap();
+        pipe_write.try_flush().unwrap();
+
+        let block = ArrivalSeqBlock::reserve();
+        let mut expected = block;
+        let arrival = SocketArrival {
+            arrival_seqs: block,
+            // the third message starts within the queued bytes, but ends after them
+            queued_bytes: msg_1.len() + msg_2.len() + 1,
+        };
+        let num_read = convo.recv_ready(&mut pipe_read, Some(arrival)).unwrap();
+        assert_eq!(num_read, msg_1.len() + msg_2.len() + msg_3.len());
+
+        let mut stamp = || {
+            convo
+                .connection
+                .next_inbox_message()
+                .unwrap()
+                .arrival_seq
+                .unwrap()
+        };
+        let first = expected.take();
+        assert_eq!(stamp(), first);
+        assert_eq!(stamp(), expected.take());
+        assert!(stamp() >= first + ARRIVAL_SEQ_BLOCK_LEN);
+        assert_eq!(convo.connection.protocol.recv_arrival_seqs, None);
     }
 
     #[test]

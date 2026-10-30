@@ -2045,3 +2045,175 @@ fn test_update_highest_stacks_height_of_neighbors(
 
     assert_eq!(peer.network.highest_stacks_neighbor, expected_highest_peer);
 }
+
+fn arrival_seq_test_tx(amount: u64) -> StacksTransaction {
+    let privk = StacksPrivateKey::from_seed(&[1]);
+    crate::core::test_util::make_stacks_transfer_tx(
+        &privk,
+        0,
+        200,
+        0x80000000,
+        &PrincipalData::from(crate::core::test_util::to_addr(&privk)),
+        amount,
+    )
+}
+
+fn arrival_seq_test_message(payload: StacksMessageType) -> StacksMessage {
+    let mut msg = StacksMessage::new(
+        1,
+        1,
+        12345,
+        &BurnchainHeaderHash([0x11; 32]),
+        12339,
+        &BurnchainHeaderHash([0x22; 32]),
+        payload,
+    );
+    msg.sign(1, &StacksPrivateKey::from_seed(&[1])).unwrap();
+    msg
+}
+
+fn arrival_seq_test_result() -> NetworkResult {
+    NetworkResult::new(
+        StacksBlockId([0x11; 32]),
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        ConsensusHash([0x11; 20]),
+        HashMap::new(),
+    )
+}
+
+#[test]
+/// A pushed transaction takes the next arrival stamp reserved for the socket read that completed
+/// it, so the transactions one read completes keep their order; other messages take none. Without
+/// a reservation, a transaction takes a fresh stamp. The stamp is not message content.
+fn test_pushed_transaction_arrival_seq() {
+    use stacks_common::codec::StacksMessageCodec;
+
+    use crate::core::mempool::ArrivalSeqBlock;
+    use crate::net::{ProtocolFamily, StacksP2P};
+
+    let read = |protocol: &mut StacksP2P, payload: StacksMessageType| {
+        let msg = arrival_seq_test_message(payload);
+        let bytes = msg.serialize_to_vec();
+        let (preamble, preamble_len) = protocol.read_preamble(&bytes).unwrap();
+        let (received, _) = protocol
+            .read_payload(&preamble, bytes.get(preamble_len..).unwrap())
+            .unwrap();
+        assert_eq!(received, msg);
+        received
+    };
+
+    // one socket read completing a transaction, a ping, then another transaction
+    let mut protocol = StacksP2P::new();
+    let block = ArrivalSeqBlock::reserve();
+    let mut expected = block;
+    protocol.recv_arrival_seqs = Some(block);
+    let first = read(
+        &mut protocol,
+        StacksMessageType::Transaction(arrival_seq_test_tx(1)),
+    );
+    let ping = read(
+        &mut protocol,
+        StacksMessageType::Ping(PingData { nonce: 1 }),
+    );
+    let second = read(
+        &mut protocol,
+        StacksMessageType::Transaction(arrival_seq_test_tx(2)),
+    );
+    assert_eq!(first.arrival_seq, Some(expected.take()));
+    assert_eq!(ping.arrival_seq, None);
+    assert_eq!(second.arrival_seq, Some(expected.take()));
+
+    // no reservation: a fresh stamp
+    protocol.recv_arrival_seqs = None;
+    let third = read(
+        &mut protocol,
+        StacksMessageType::Transaction(arrival_seq_test_tx(3)),
+    );
+    assert!(third.arrival_seq.unwrap() > second.arrival_seq.unwrap());
+}
+
+#[test]
+/// A transaction received more than once keeps its earliest arrival stamp, whatever order the
+/// receipts are recorded in: within one peer's messages, across peers, and across buffered
+/// network results that get merged.
+fn test_tx_arrival_seq_keeps_earliest() {
+    use crate::net::p2p::PendingMessagesFrom;
+
+    let tx = arrival_seq_test_tx(1);
+    let received_at = |arrival_seq: u64| {
+        let mut msg = arrival_seq_test_message(StacksMessageType::Transaction(tx.clone()));
+        msg.arrival_seq = Some(arrival_seq);
+        msg
+    };
+    let neighbor = |i: u8| {
+        let nk = NeighborKey {
+            peer_version: 1,
+            network_id: 1,
+            addrbytes: PeerAddress([i; 16]),
+            port: 1,
+        };
+        let na = NeighborAddress::from_neighbor_key(nk.clone(), Hash160([i; 20]));
+        (nk, na)
+    };
+
+    // one peer: the later receipt is recorded first
+    let (nk_1, na_1) = neighbor(1);
+    let mut result = arrival_seq_test_result();
+    result.consume_unsolicited(HashMap::from([(
+        (1, nk_1.clone()),
+        PendingMessagesFrom::new(na_1.clone(), vec![received_at(20), received_at(10)]),
+    )]));
+    assert_eq!(result.tx_arrival_seqs.get(&tx.txid()), Some(&10));
+
+    // two peers, in either iteration order
+    let (nk_2, na_2) = neighbor(2);
+    let mut result = arrival_seq_test_result();
+    result.consume_unsolicited(HashMap::from([
+        (
+            (1, nk_1.clone()),
+            PendingMessagesFrom::new(na_1.clone(), vec![received_at(30)]),
+        ),
+        (
+            (2, nk_2.clone()),
+            PendingMessagesFrom::new(na_2.clone(), vec![received_at(5)]),
+        ),
+    ]));
+    assert_eq!(result.tx_arrival_seqs.get(&tx.txid()), Some(&5));
+
+    // merging a buffered (older) result into a newer one keeps the earliest stamp, whichever
+    // result holds it
+    for (older_seq, newer_seq) in [(7, 4), (2, 4)] {
+        let mut older = arrival_seq_test_result();
+        older.record_tx_arrival(tx.txid(), older_seq);
+        let mut newer = arrival_seq_test_result();
+        newer.record_tx_arrival(tx.txid(), newer_seq);
+        let merged = older.update(newer);
+        assert_eq!(
+            merged.tx_arrival_seqs.get(&tx.txid()),
+            Some(&older_seq.min(newer_seq))
+        );
+    }
+}
+
+#[test]
+/// A page of mempool-synced transactions is stamped in page order when it is consumed.
+fn test_synced_transactions_arrival_seq() {
+    let page = vec![arrival_seq_test_tx(1), arrival_seq_test_tx(2)];
+    let before = crate::core::mempool::next_arrival_seq();
+    let mut result = arrival_seq_test_result();
+    result.consume_synced_transactions(page.clone());
+
+    assert_eq!(result.synced_transactions, page);
+    let stamps = page
+        .iter()
+        .map(|tx| *result.tx_arrival_seqs.get(&tx.txid()).unwrap());
+    assert!(std::iter::once(before)
+        .chain(stamps)
+        .is_sorted_by(|a, b| a < b));
+}

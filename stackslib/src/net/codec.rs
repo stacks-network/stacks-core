@@ -40,6 +40,7 @@ use crate::chainstate::nakamoto::NakamotoBlock;
 use crate::chainstate::stacks::{
     StacksBlock, StacksMicroblock, StacksPublicKey, StacksTransaction, MAX_BLOCK_LEN,
 };
+use crate::core::mempool::take_arrival_seq;
 use crate::net::db::LocalPeer;
 use crate::net::{Error as net_error, *};
 
@@ -1347,6 +1348,7 @@ impl StacksMessageCodec for StacksMessage {
             preamble,
             relayers,
             payload,
+            arrival_seq: None,
         };
         Ok(message)
     }
@@ -1376,6 +1378,7 @@ impl StacksMessage {
             preamble,
             relayers: vec![],
             payload: message,
+            arrival_seq: None,
         }
     }
 
@@ -1503,7 +1506,7 @@ impl MessageSequence for StacksMessage {
 
 impl StacksP2P {
     pub fn new() -> StacksP2P {
-        StacksP2P {}
+        StacksP2P::default()
     }
 }
 
@@ -1555,10 +1558,18 @@ impl ProtocolFamily for StacksP2P {
 
         let mut cursor = io::Cursor::new(preamble_bytes);
         let (relayers, payload) = StacksMessage::deserialize_body(&mut cursor)?;
+        // A pushed transaction carries the arrival stamp of the socket read that completed it.
+        let arrival_seq = match payload {
+            StacksMessageType::Transaction(_) => {
+                Some(take_arrival_seq(self.recv_arrival_seqs.as_mut()))
+            }
+            _ => None,
+        };
         let message = StacksMessage {
             preamble: preamble.clone(),
             relayers,
             payload,
+            arrival_seq,
         };
         Ok((message, cursor.position() as usize))
     }
@@ -2646,6 +2657,7 @@ pub mod test {
                 preamble: preamble.clone(),
                 relayers: maximal_relayers.clone(),
                 payload: payload.clone(),
+                arrival_seq: None,
             };
 
             let mut stacks_message_bytes: Vec<u8> = vec![];
@@ -2672,6 +2684,7 @@ pub mod test {
                 preamble: preamble_too_many_relayers.clone(),
                 relayers: too_many_relayers.clone(),
                 payload: payload.clone(),
+                arrival_seq: None,
             };
             assert!(check_deserialize_failure(&stacks_message_too_many_relayers));
         }

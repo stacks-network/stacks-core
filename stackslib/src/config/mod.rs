@@ -2822,7 +2822,7 @@ pub struct MinerConfig {
     /// @default: `1048576`
     /// @units: items
     /// @notes:
-    ///   - Each element [`crate::core::mempool::MemPoolTxInfoPartial`] is currently 112 bytes.
+    ///   - Each element [`crate::core::mempool::MemPoolTxInfoPartial`] is currently 120 bytes.
     pub candidate_retry_cache_size: usize,
     /// Amount of time (in seconds) to wait for unprocessed blocks before mining a new block.
     /// ---
