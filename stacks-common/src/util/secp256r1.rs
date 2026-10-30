@@ -13,8 +13,12 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use p256::ecdsa::signature::hazmat::{PrehashSigner, PrehashVerifier};
-use p256::ecdsa::signature::{Signer, Verifier};
+#[cfg(any(test, feature = "testing"))]
+use p256::ecdsa::signature::hazmat::PrehashSigner;
+use p256::ecdsa::signature::hazmat::PrehashVerifier;
+#[cfg(any(test, feature = "testing"))]
+use p256::ecdsa::signature::Signer;
+use p256::ecdsa::signature::Verifier;
 use p256::ecdsa::{
     Signature as P256Signature, SigningKey as P256SigningKey, VerifyingKey as P256VerifyingKey,
 };
@@ -22,7 +26,9 @@ use p256::elliptic_curve::sec1::{FromSec1Point, ToSec1Point};
 use p256::{PublicKey as P256PublicKey, Sec1Point, SecretKey as P256SecretKey};
 use thiserror::Error;
 
-use crate::util::hash::{hex_bytes, to_hex, Sha256Sum};
+#[cfg(any(test, feature = "testing"))]
+use crate::util::hash::Sha256Sum;
+use crate::util::hash::{hex_bytes, to_hex};
 
 pub const MESSAGE_SIGNATURE_ENCODED_SIZE: u32 = 64;
 
@@ -223,8 +229,9 @@ impl Default for Secp256r1PublicKey {
 }
 
 impl Secp256r1PrivateKey {
-    /// Generates a new random private key.
+    /// Generates a new random private key (for testing purposes only).
     #[cfg(feature = "rand")]
+    #[cfg(any(test, feature = "testing"))]
     pub fn random() -> Secp256r1PrivateKey {
         use p256::elliptic_curve::zeroize::Zeroizing;
         use rand::RngCore as _;
@@ -249,6 +256,9 @@ impl Secp256r1PrivateKey {
     ///
     /// If `seed` is a valid private key, it will be returned without hashing.
     /// The returned private key's compress_public flag will be `true`.
+    ///
+    /// For testing purposes only.
+    #[cfg(any(test, feature = "testing"))]
     pub fn from_seed(seed: &[u8]) -> Secp256r1PrivateKey {
         let mut re_hashed_seed = Vec::from(seed);
         loop {
@@ -337,6 +347,9 @@ impl Secp256r1PrivateKey {
     /// to avoid double hashing.
     ///
     /// The message must be a 32-byte hash.
+    ///
+    /// For testing purposes only: the node only ever verifies secp256r1 signatures.
+    #[cfg(any(test, feature = "testing"))]
     pub fn sign(&self, data_hash: &[u8]) -> Result<MessageSignature, &'static str> {
         if data_hash.len() != 32 {
             return Err("Invalid message: must be a 32-byte hash");
@@ -348,6 +361,9 @@ impl Secp256r1PrivateKey {
 
     /// Sign a pre-hashed message, returning the signature without hashing again.
     /// The digest must be a 32-byte hash.
+    ///
+    /// For testing purposes only: the node only ever verifies secp256r1 signatures.
+    #[cfg(any(test, feature = "testing"))]
     pub fn sign_digest(&self, data_hash: &[u8]) -> Result<MessageSignature, &'static str> {
         if data_hash.len() != 32 {
             return Err("Invalid message: must be a 32-byte hash");
