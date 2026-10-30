@@ -1,0 +1,70 @@
+# Check Cargo.lock against the RustSec advisory database
+#   https://github.com/rustsec/rustsec/tree/main/cargo-audit
+#
+# Fails on known vulnerabilities. Unmaintained/unsound/yanked crates are
+# reported as warnings without failing the job. Accepted advisories are listed
+# in .cargo/audit.toml.
+#
+name: "Checks: Cargo Audit"
+run-name: "Checks: Cargo Audit [${{ github.ref_name }}]"
+
+# Only run when:
+#   - PRs change dependencies or the audit configuration
+#   - daily, since new advisories are published independently of our changes
+#   - manually triggered
+on:
+  workflow_dispatch:
+  schedule:
+    # Run at 06:17 UTC daily
+    - cron: "17 6 * * *"
+  pull_request:
+    types:
+      - opened
+      - reopened
+      - synchronize
+    paths:
+      - "Cargo.lock"
+      - "**/Cargo.toml"
+      - ".cargo/audit.toml"
+      - ".github/workflows/check-cargo-audit.yml"
+
+# Set default permissions
+permissions:
+  contents: read
+
+# Configure concurrency
+concurrency:
+  group: cargo-audit-${{ github.head_ref || github.ref || github.run_id }}
+  # Only cancel in progress if this is for a PR
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  # Check if CI is enabled
+  check-ci:
+    name: "Check: CI Enabled"
+    uses: $/.github/workflows/__check-ci.yml
+
+  cargo-audit:
+    name: "Check: Cargo Audit"
+    needs:
+      - check-ci
+    if: needs.check-ci.outputs.enabled == 'true'
+    runs-on: ubuntu-latest
+    # Read-only: the job only reads Cargo.lock and the public advisory database
+    permissions:
+      contents: read
+    steps:
+      # Checkout the code
+      - name: Checkout the latest code
+        uses: $/.github/wrappers/checkout
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.ref }}
+
+      - name: Install cargo-audit
+        uses: $/.github/actions/install-tool
+        with:
+          tools: cargo-audit
+
+      # Invoke the binary directly so rust-toolchain.toml doesn't trigger a toolchain install
+      - name: Cargo Audit
+        run: cargo-audit audit
