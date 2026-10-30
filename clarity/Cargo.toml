@@ -40,6 +40,7 @@ madhouse = { workspace = true }
 rstest = { version = "0.17.0" }
 rstest_reuse = { version = "0.5.0" }
 stacks_common = { package = "stacks-common", path = "../stacks-common", default-features = false, features = ["testing"] }
+itertools = "0.15.0"
 
 [[bench]]
 name = "sequence_ops"

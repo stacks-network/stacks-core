@@ -14,6 +14,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use std::assert_matches;
 use std::time::Duration;
 
 use clarity_types::types::SequenceSubtype;
@@ -28,12 +29,13 @@ use crate::vm::analysis::tests::utils::{SingleAnalysisPass, run_single_analysis_
 use crate::vm::analysis::type_checker::v2_1::{MAX_FUNCTION_PARAMETERS, MAX_TRAIT_METHODS};
 use crate::vm::analysis::types::ContractAnalysis;
 use crate::vm::analysis::{mem_type_check as mem_run_analysis, run_analysis};
-use crate::vm::ast::build_ast;
-use crate::vm::ast::errors::ParseErrorKind;
+use crate::vm::ast::errors::{ParseErrorKind, ParseResult};
 use crate::vm::ast::parser::v2::lexer::token::Token;
+use crate::vm::ast::{ContractAST, build_ast};
 use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::costs::{ExecutionCost, LimitedCostTracker, runtime_cost};
 use crate::vm::database::MemoryBackingStore;
+use crate::vm::errors::SyntaxBindingErrorType;
 use crate::vm::resource_limiter::{ResourceBudget, ResourceLimiter};
 use crate::vm::tests::test_clarity_versions;
 use crate::vm::types::SequenceSubtype::*;
@@ -70,6 +72,26 @@ pub fn mem_type_check(
         exp,
         crate::vm::ClarityVersion::latest(),
         StacksEpochId::latest(),
+    )
+}
+
+/// Preforms only the parsing stage of the analysis (AST building,
+/// definition sorter, depth check, etc.), but not the type checking.
+/// It's meant for tests where the expected behavior is a failure
+/// *before* the type checking even starts. Because `mem_type_check`
+/// and its brethren require the first stage to be successful, it can't
+/// be used for such tests.
+pub fn parsing_stage_only(
+    exp: &str,
+    version: ClarityVersion,
+    epoch: StacksEpochId,
+) -> ParseResult<ContractAST> {
+    build_ast(
+        &QualifiedContractIdentifier::transient(),
+        exp,
+        &mut (),
+        version,
+        epoch,
     )
 }
 
@@ -3052,8 +3074,8 @@ fn test_direct_access_to_persisted_var_should_fail() {
     ));
 }
 
-#[test]
-fn test_data_var_shadowed_by_let_should_fail() {
+#[apply(test_clarity_versions)]
+fn test_data_var_shadowed_by_let_should_fail(version: ClarityVersion, epoch: StacksEpochId) {
     let contract_src = r#"
         (define-data-var cursor int 0)
         (define-private (set-cursor (value int))
@@ -3063,8 +3085,16 @@ fn test_data_var_shadowed_by_let_should_fail() {
                     0)))
     "#;
 
-    let res = mem_type_check(contract_src).unwrap_err();
-    assert!(matches!(*res.err, StaticCheckErrorKind::NameAlreadyUsed(_)));
+    // As of Clarity 7, these errors are already caught by the definition
+    // sorter, i.e. during the parsing stage (which `mem_type_check` requires
+    // to be successful). Thus the two different checks here, depending on version.
+    if version.definition_sorter_probes_binding_names() {
+        let res = parsing_stage_only(contract_src, version, epoch).unwrap_err();
+        assert_matches!(*res.err, ParseErrorKind::NameAlreadyUsed(_));
+    } else {
+        let res = type_check_helper_version(contract_src, version, epoch).unwrap_err();
+        assert_matches!(*res.err, StaticCheckErrorKind::NameAlreadyUsed(_));
+    }
 }
 
 #[test]
@@ -3120,8 +3150,11 @@ fn test_let_shadowed_by_nested_let_should_fail() {
     assert!(matches!(*res.err, StaticCheckErrorKind::NameAlreadyUsed(_)));
 }
 
-#[test]
-fn test_define_constant_shadowed_by_let_should_fail() {
+#[apply(test_clarity_versions)]
+fn test_define_constant_shadowed_by_let_should_fail(
+    #[case] version: ClarityVersion,
+    #[case] epoch: StacksEpochId,
+) {
     let contract_src = r#"
         (define-private (cursor) 0)
         (define-private (set-cursor (value int))
@@ -3129,20 +3162,39 @@ fn test_define_constant_shadowed_by_let_should_fail() {
                cursor))
     "#;
 
-    let res = mem_type_check(contract_src).unwrap_err();
-    assert!(matches!(*res.err, StaticCheckErrorKind::NameAlreadyUsed(_)));
+    // As of Clarity 7, these errors are already caught by the definition
+    // sorter, i.e. during the parsing stage (which `mem_type_check` requires
+    // to be successful). Thus the two different checks here, depending on version.
+    if version.definition_sorter_probes_binding_names() {
+        let res = parsing_stage_only(contract_src, version, epoch).unwrap_err();
+        assert_matches!(*res.err, ParseErrorKind::NameAlreadyUsed(_));
+    } else {
+        let res = type_check_helper_version(contract_src, version, epoch).unwrap_err();
+        assert_matches!(*res.err, StaticCheckErrorKind::NameAlreadyUsed(_));
+    }
 }
 
-#[test]
-fn test_define_constant_shadowed_by_argument_should_fail() {
+#[apply(test_clarity_versions)]
+fn test_define_constant_shadowed_by_argument_should_fail(
+    #[case] version: ClarityVersion,
+    #[case] epoch: StacksEpochId,
+) {
     let contract_src = r#"
         (define-private (cursor) 0)
         (define-private (set-cursor (cursor int))
             cursor)
     "#;
 
-    let res = mem_type_check(contract_src).unwrap_err();
-    assert!(matches!(*res.err, StaticCheckErrorKind::NameAlreadyUsed(_)));
+    // As of Clarity 7, these errors are already caught by the definition
+    // sorter, i.e. during the parsing stage (which `mem_type_check` requires
+    // to be successful). Thus the two different checks here, depending on version.
+    if version.definition_sorter_probes_binding_names() {
+        let res = parsing_stage_only(contract_src, version, epoch).unwrap_err();
+        assert_matches!(*res.err, ParseErrorKind::NameAlreadyUsed(_));
+    } else {
+        let res = type_check_helper_version(contract_src, version, epoch).unwrap_err();
+        assert_matches!(*res.err, StaticCheckErrorKind::NameAlreadyUsed(_));
+    }
 }
 
 #[test]
@@ -4598,6 +4650,66 @@ fn test_contract_call_with_non_callable_constant_target(
     }
 }
 
+#[apply(test_clarity_versions)]
+fn test_non_atoms_as_binding_names(#[case] version: ClarityVersion, #[case] epoch: StacksEpochId) {
+    let not_atoms = [
+        "(ok 13)",
+        "\"string\"",
+        ".contract",
+        "256",
+        "0xdeadbeefcafe",
+    ];
+
+    for binding_name in not_atoms {
+        let let_binding = format!("(define-private (foo) (let (({binding_name} 27)) 7))");
+        assert_matches!(
+            *type_check_helper_version(&let_binding, version, epoch)
+                .expect_err(&format!("expected {let_binding} to fail analysis"))
+                .err,
+            StaticCheckErrorKind::BadSyntaxBinding(SyntaxBindingError::NotAtom(
+                SyntaxBindingErrorType::Let,
+                _
+            )),
+            "expected {let_binding} to cause BadSyntaxBinding(NotAtom(Let))"
+        );
+
+        let parameter_binding = format!("(define-private (foo ({binding_name} uint)) 14)");
+        assert_matches!(
+            *type_check_helper_version(&parameter_binding, version, epoch)
+                .expect_err(&format!("expected {parameter_binding} to fail analysis"))
+                .err,
+            StaticCheckErrorKind::BadSyntaxBinding(SyntaxBindingError::NotAtom(
+                SyntaxBindingErrorType::Eval,
+                _
+            )),
+            "expected {parameter_binding} to cause BadSyntaxBinding(NotAtom(Eval))"
+        );
+
+        let tuple_binding = format!("(define-private (foo) (tuple ({binding_name} \"hello\")))");
+        assert_matches!(
+            *type_check_helper_version(&tuple_binding, version, epoch)
+                .expect_err(&format!("expected {tuple_binding} to fail analysis"))
+                .err,
+            StaticCheckErrorKind::BadSyntaxBinding(SyntaxBindingError::NotAtom(
+                SyntaxBindingErrorType::TupleCons,
+                _
+            )),
+            "expected {tuple_binding} to cause BadSyntaxBinding(NotAtom(TupleCons))"
+        );
+
+        let tuple_curly_binding = format!("(define-private (foo) {{{binding_name}: \"hello\"}})");
+        assert_matches!(
+            *type_check_helper_version(&tuple_curly_binding, version, epoch)
+                .expect_err(&format!("expected {tuple_curly_binding} to fail analysis"))
+                .err,
+            StaticCheckErrorKind::BadSyntaxBinding(SyntaxBindingError::NotAtom(
+                SyntaxBindingErrorType::TupleCons,
+                _
+            )),
+            "expected {tuple_curly_binding} to cause BadSyntaxBinding(NotAtom(TupleCons))"
+        );
+    }
+}
 #[test]
 fn test_clarity2_inner_type_check_type_aborts_when_deadline_elapsed() {
     let mut marf = MemoryBackingStore::new();
