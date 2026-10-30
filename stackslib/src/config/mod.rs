@@ -3885,6 +3885,22 @@ pub struct ConnectionOptionsFile {
     /// @default: `0` (disabled)
     /// @units: bytes/second
     pub max_nakamoto_block_push_bandwidth: Option<u64>,
+
+    /// Maximum number of inbound p2p messages handled from a single peer in one
+    /// network pass. Messages beyond this stay queued and are handled in the next
+    /// pass. Zero disables the cap.
+    /// ---
+    /// @default: `64`
+    pub max_inbound_messages_per_pass: Option<usize>,
+
+    /// Maximum time spent handling inbound p2p messages in one network pass,
+    /// before the node moves on to the rest of the pass (inventory sync, block
+    /// downloads, StackerDB sync, ...). Peers not handled in time are handled
+    /// first in the next pass. Zero disables the limit.
+    /// ---
+    /// @default: `500`
+    /// @units: milliseconds
+    pub max_inbound_processing_ms: Option<u64>,
 }
 
 impl ConnectionOptionsFile {
@@ -4052,6 +4068,12 @@ impl ConnectionOptionsFile {
             max_nakamoto_block_push_bandwidth: self
                 .max_nakamoto_block_push_bandwidth
                 .unwrap_or(default.max_nakamoto_block_push_bandwidth),
+            max_inbound_messages_per_pass: self
+                .max_inbound_messages_per_pass
+                .unwrap_or(default.max_inbound_messages_per_pass),
+            max_inbound_processing_ms: self
+                .max_inbound_processing_ms
+                .unwrap_or(default.max_inbound_processing_ms),
             ..default
         })
     }
@@ -6050,6 +6072,45 @@ mod tests {
             30,
             config.connection_options.max_nakamoto_block_push_bandwidth,
         );
+    }
+
+    #[test]
+    fn test_load_inbound_limit_fields_config() {
+        // check defaults for omitted fields
+        let config = utils::config_from_valid_string(
+            r#"
+            [burnchain]
+            mode = "krypton"
+            "#,
+        );
+        assert_eq!(64, config.connection_options.max_inbound_messages_per_pass);
+        assert_eq!(500, config.connection_options.max_inbound_processing_ms);
+
+        // check values for configured fields
+        let config = utils::config_from_valid_string(
+            r#"
+            [burnchain]
+            mode = "krypton"
+            [connection_options]
+            max_inbound_messages_per_pass = 10
+            max_inbound_processing_ms = 20
+            "#,
+        );
+        assert_eq!(10, config.connection_options.max_inbound_messages_per_pass);
+        assert_eq!(20, config.connection_options.max_inbound_processing_ms);
+
+        // zero disables the limits
+        let config = utils::config_from_valid_string(
+            r#"
+            [burnchain]
+            mode = "krypton"
+            [connection_options]
+            max_inbound_messages_per_pass = 0
+            max_inbound_processing_ms = 0
+            "#,
+        );
+        assert_eq!(0, config.connection_options.max_inbound_messages_per_pass);
+        assert_eq!(0, config.connection_options.max_inbound_processing_ms);
     }
 
     /// There are three different ways to start a node with a default config:
