@@ -415,10 +415,7 @@ mod test {
     #[cfg(feature = "developer-mode")]
     fn error_formats() {
         let t = "(/ 10 0)";
-        let expected = "DivisionByZero
- Stack Trace:
-_native_:native_div
-";
+        let expected = "DivisionByZero\n Stack Trace: \n_native_:native_div\n";
 
         assert_eq!(format!("{}", crate::vm::execute(t).unwrap_err()), expected);
     }

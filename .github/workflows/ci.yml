@@ -313,6 +313,18 @@ jobs:
     uses: ./.github/workflows/_tests-wasm.yml
 
   ############################################################################
+  ### Developer Mode Tests
+  ############################################################################
+  tests-developer-mode:
+    name: "Tests: Developer Mode"
+    needs:
+      - check-changelog
+      - check-rustfmt
+      - check-test-caches
+      - setup-env
+    uses: ./.github/workflows/_tests-developer-mode.yml
+
+  ############################################################################
   ### Create Nextest Archive Artifact for Tests
   ############################################################################
   create-nextest-archive:
