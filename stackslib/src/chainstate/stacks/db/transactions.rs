@@ -971,6 +971,66 @@ pub mod test {
     }
 
     #[rstest]
+    #[case(StacksEpochId::Epoch40, None, true)]
+    #[case(StacksEpochId::Epoch40, Some(ClarityVersion::Clarity1), true)]
+    #[case(StacksEpochId::Epoch40, Some(ClarityVersion::Clarity2), true)]
+    #[case(StacksEpochId::Epoch40, Some(ClarityVersion::Clarity3), true)]
+    #[case(StacksEpochId::Epoch40, Some(ClarityVersion::Clarity4), true)]
+    #[case(StacksEpochId::Epoch40, Some(ClarityVersion::Clarity5), true)]
+    #[case(StacksEpochId::Epoch40, Some(ClarityVersion::Clarity6), true)]
+    #[case(StacksEpochId::Epoch41, None, false)]
+    fn precheck_rejects_transient_contract_names_from_epoch41(
+        #[case] epoch_id: StacksEpochId,
+        #[case] explicit_clarity_version: Option<ClarityVersion>,
+        #[case] should_succeed: bool,
+    ) {
+        let sk = Secp256k1PrivateKey::random();
+        let auth = TransactionAuth::from_p2pkh(&sk).unwrap();
+        let chain_id = 0x80000000;
+
+        let tx = StacksTransaction {
+            version: TransactionVersion::Testnet,
+            chain_id,
+            auth,
+            anchor_mode: TransactionAnchorMode::Any,
+            post_condition_mode: TransactionPostConditionMode::Allow,
+            post_conditions: vec![],
+            payload: TransactionPayload::SmartContract(
+                TransactionSmartContract {
+                    name: ContractName::from_literal("__transient"),
+                    code_body: StacksString::from_str("(define-constant zero 0)").unwrap(),
+                },
+                explicit_clarity_version,
+            ),
+        };
+        let mut signer = StacksTransactionSigner::new(&tx);
+        signer.sign_origin(&sk).unwrap();
+        let tx = signer.get_tx().unwrap();
+
+        let config = DBConfig {
+            version: CHAINSTATE_VERSION.to_string(),
+            mainnet: false,
+            chain_id,
+        };
+        let result = TransactionProcessor::from(&tx).precheck(&config, epoch_id);
+        // The precheck and static block validation must agree.
+        assert_eq!(
+            should_succeed,
+            StacksBlock::validate_transaction_static_epoch(&tx, epoch_id)
+        );
+        if should_succeed {
+            result.unwrap();
+        } else {
+            match result.unwrap_err() {
+                Error::InvalidStacksTransaction(msg, false) => {
+                    assert!(msg.contains("Transient contract not supported"), "{msg}");
+                }
+                e => panic!("Expected InvalidStacksTransaction for epoch {epoch_id:?}, got {e:?}"),
+            }
+        };
+    }
+
+    #[rstest]
     #[case(StacksEpochId::Epoch30, false)]
     #[case(StacksEpochId::Epoch31, false)]
     #[case(StacksEpochId::Epoch32, false)]
