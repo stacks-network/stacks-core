@@ -91,6 +91,12 @@ impl NetworkState {
                 net_error::BindError
             })
         } else {
+            // Tests may bind a port that a previous listener is still releasing, so retry for a
+            // while instead of failing at once.  Give up eventually: if something else holds the
+            // port for good, the test should fail with this error rather than hang.
+            const MAX_BACKOFF_MS: u64 = 5_000;
+            const MAX_WAIT: Duration = Duration::from_secs(60);
+            let start = time::Instant::now();
             let mut backoff = 1000;
             let mut rng = rand::thread_rng();
             let mut count = 1000;
@@ -101,13 +107,17 @@ impl NetworkState {
                     }
                     Err(e) => match e.kind() {
                         io::ErrorKind::AddrInUse => {
-                            debug!(
-                                "Waiting {} millis and trying to bind {:?} again",
-                                backoff, addr
-                            );
+                            if start.elapsed() >= MAX_WAIT {
+                                error!(
+                                    "Failed to bind {addr:?}: still in use after {}s",
+                                    MAX_WAIT.as_secs()
+                                );
+                                return Err(net_error::BindError);
+                            }
+                            warn!("{addr:?} is in use; waiting {backoff} millis to bind it again");
                             sleep_ms(backoff);
-                            backoff = count + (rng.next_u64() % count);
-                            count += count;
+                            backoff = (count + (rng.next_u64() % count)).min(MAX_BACKOFF_MS);
+                            count = (count + count).min(MAX_BACKOFF_MS);
                             continue;
                         }
                         _ => {
