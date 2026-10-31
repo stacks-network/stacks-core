@@ -2755,6 +2755,110 @@ mod test {
         );
     }
 
+    /// Block responses as serialized by stacks-signer 3.3.0.0.5 (`BlockResponseData` version 4,
+    /// before `failed_txid` was added).
+    const V3_3_0_0_5_BLOCK_ACCEPTED_HEX: &str = "01006dc06b8ae0cb304b1808731bd5e77b0befec809f6e02379623ee0f00c10b6586f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f300000017737461636b732d7369676e657220332e332e302e302e3504000000110000000000000801ff00000000000013c2";
+    const V3_3_0_0_5_BLOCK_REJECTED_HEX: &str = "010100000017426c6f636b2076616c69646174696f6e206661696c656400015de625f37ad6824e38d7677bf0bcab391c6001f2485341cb07fb55536b86946e800000003f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f00000017737461636b732d7369676e657220332e332e302e302e3504000000120000000000000801000100000000000013c2";
+
+    /// Block responses as serialized by the current signer (`BlockResponseData` version 5).
+    /// These exact bytes were verified to deserialize with stacks-signer 3.3.0.0.5, which keeps
+    /// the `failed_txid` encoding in `unknown_bytes` and re-serializes them byte-for-byte.
+    const V5_BLOCK_ACCEPTED_HEX: &str = "01006dc06b8ae0cb304b1808731bd5e77b0befec809f6e02379623ee0f00c10b6586f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f300000015737461636b732d7369676e65722063757272656e7405000000120000000000000801ff00000000000013c200";
+    const V5_BLOCK_REJECTED_HEX: &str = "010100000017426c6f636b2076616c69646174696f6e206661696c656400015de625f37ad6824e38d7677bf0bcab391c6001f2485341cb07fb55536b86946e800000003f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f00000015737461636b732d7369676e65722063757272656e7405000000330000000000000801000100000000000013c201abababababababababababababababababababababababababababababababab";
+
+    fn compat_block_accepted(
+        server_version: &str,
+        response_data: BlockResponseData,
+    ) -> SignerMessage {
+        SignerMessage::BlockResponse(BlockResponse::Accepted(BlockAccepted {
+            signer_signature_hash: Sha512Trunc256Sum::from_data(&[0, 1, 2, 3]),
+            signature: MessageSignature([0xf3; 65]),
+            metadata: SignerMessageMetadata {
+                server_version: server_version.into(),
+            },
+            response_data,
+        }))
+    }
+
+    fn compat_block_rejected(
+        server_version: &str,
+        response_data: BlockResponseData,
+    ) -> SignerMessage {
+        SignerMessage::BlockResponse(BlockResponse::Rejected(BlockRejection {
+            reason: "Block validation failed".into(),
+            reason_code: RejectCode::ValidationFailed(ValidateRejectCode::BadTransaction),
+            signer_signature_hash: Sha512Trunc256Sum::from_data(&[4, 5, 6, 7]),
+            signature: MessageSignature([0x3f; 65]),
+            chain_id: CHAIN_ID_TESTNET,
+            metadata: SignerMessageMetadata {
+                server_version: server_version.into(),
+            },
+            response_data,
+        }))
+    }
+
+    #[test]
+    fn deserialize_v3_3_0_0_5_block_responses() {
+        let v4_response_data = |reject_reason| BlockResponseData {
+            version: 4,
+            ..BlockResponseData::new(2049, reject_reason, 5058, None)
+        };
+
+        let bytes = hex_bytes(V3_3_0_0_5_BLOCK_ACCEPTED_HEX).unwrap();
+        let accepted = read_next::<SignerMessage, _>(&mut &bytes[..]).unwrap();
+        assert_eq!(
+            accepted,
+            compat_block_accepted(
+                "stacks-signer 3.3.0.0.5",
+                v4_response_data(RejectReason::NotRejected)
+            )
+        );
+
+        let bytes = hex_bytes(V3_3_0_0_5_BLOCK_REJECTED_HEX).unwrap();
+        let rejected = read_next::<SignerMessage, _>(&mut &bytes[..]).unwrap();
+        assert_eq!(
+            rejected,
+            compat_block_rejected(
+                "stacks-signer 3.3.0.0.5",
+                v4_response_data(RejectReason::ValidationFailed(
+                    ValidateRejectCode::BadTransaction
+                ))
+            )
+        );
+    }
+
+    /// The fixtures were checked against stacks-signer 3.3.0.0.5's parser, so any change to these
+    /// bytes must be re-verified for compatibility with older signers.
+    #[test]
+    fn block_responses_serialize_in_v3_3_0_0_5_compatible_format() {
+        let accepted = compat_block_accepted(
+            "stacks-signer current",
+            BlockResponseData::new(2049, RejectReason::NotRejected, 5058, None),
+        );
+        let bytes = accepted.serialize_to_vec();
+        assert_eq!(bytes, hex_bytes(V5_BLOCK_ACCEPTED_HEX).unwrap());
+        assert_eq!(
+            read_next::<SignerMessage, _>(&mut &bytes[..]).unwrap(),
+            accepted
+        );
+
+        let rejected = compat_block_rejected(
+            "stacks-signer current",
+            BlockResponseData::new(
+                2049,
+                RejectReason::ValidationFailed(ValidateRejectCode::BadTransaction),
+                5058,
+                Some(Txid([0xab; 32])),
+            ),
+        );
+        let bytes = rejected.serialize_to_vec();
+        assert_eq!(bytes, hex_bytes(V5_BLOCK_REJECTED_HEX).unwrap());
+        assert_eq!(
+            read_next::<SignerMessage, _>(&mut &bytes[..]).unwrap(),
+            rejected
+        );
+    }
+
     #[test]
     fn version_check_state_machine_update() {
         let content = StateMachineUpdateContent::V1 {
