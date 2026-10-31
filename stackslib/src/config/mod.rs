@@ -112,6 +112,8 @@ pub const OP_TX_ANY_ESTIM_SIZE: u64 = fmax!(
 /// Default maximum percentage of `satoshis_per_byte` that a Bitcoin fee rate
 /// may be increased to when RBFing a transaction
 const DEFAULT_MAX_RBF_RATE: u64 = 150; // 1.5x
+/// Upper bound for [`BurnchainConfig::block_commit_fee_rate_sat_per_kvb`] (100 sats/vB).
+pub const MAX_BLOCK_COMMIT_FEE_RATE_SAT_PER_KVB: u64 = 100_000;
 /// Amount to increment the fee by, in Sats/vByte, when RBFing a Bitcoin
 /// transaction
 const DEFAULT_RBF_FEE_RATE_INCREMENT: u64 = 5;
@@ -379,10 +381,13 @@ impl Config {
         let Ok(config_file) = ConfigFile::from_path(path.as_str()) else {
             return self.burnchain.clone();
         };
-        let Ok(config) = Config::from_config_file(config_file, false) else {
-            return self.burnchain.clone();
-        };
-        config.burnchain
+        match Config::from_config_file(config_file, false) {
+            Ok(config) => config.burnchain,
+            Err(e) => {
+                warn!("Failed to reload burnchain config, keeping the startup config"; "path" => path, "err" => e);
+                self.burnchain.clone()
+            }
+        }
     }
 
     /// get the up-to-date miner options from the config
@@ -1482,6 +1487,31 @@ pub struct BurnchainConfig {
     /// @notes:
     ///   - Only relevant if [`NodeConfig::miner`] is `true`.
     pub block_commit_tx_estimated_size: u64,
+    /// Opts in to managed block commit fees, capping the miner fee of any block
+    /// commit at this absolute amount. When set, the miner:
+    /// - raises the fee of a pending block commit when the target fee rises,
+    /// - prices replacements at the minimum Bitcoin's mempool policy requires,
+    /// - resends the same signed transaction after an ambiguous broadcast failure.
+    ///
+    /// Unlike [`BurnchainConfig::max_rbf`], the cap does not move with the target.
+    /// ---
+    /// @default: `None` (disabled)
+    /// @units: satoshis
+    /// @notes:
+    ///   - Only relevant if [`NodeConfig::miner`] is `true`.
+    ///   - Excludes the PoX/burn outputs of the block commit.
+    ///   - Requires [`BurnchainConfig::rbf_fee_increment`] to be `0`.
+    pub block_commit_replacement_fee_max_sats: Option<u64>,
+    /// Target fee rate for block commits, priced against the transaction's actual
+    /// virtual size instead of [`BurnchainConfig::block_commit_tx_estimated_size`].
+    /// ---
+    /// @default: `None` (use [`BurnchainConfig::satoshis_per_byte`])
+    /// @units: sats per 1000 vbytes
+    /// @notes:
+    ///   - Only relevant if [`NodeConfig::miner`] is `true`.
+    ///   - Requires [`BurnchainConfig::block_commit_replacement_fee_max_sats`].
+    ///   - Must be between 1 and [`MAX_BLOCK_COMMIT_FEE_RATE_SAT_PER_KVB`].
+    pub block_commit_fee_rate_sat_per_kvb: Option<u64>,
     /// The incremental amount (in sats/vByte) to add to the previous transaction's
     /// fee rate for RBF bitcoin transactions.
     /// ---
@@ -1683,6 +1713,8 @@ impl BurnchainConfig {
             max_rbf: DEFAULT_MAX_RBF_RATE,
             leader_key_tx_estimated_size: OP_TX_LEADER_KEY_ESTIM_SIZE,
             block_commit_tx_estimated_size: OP_TX_BLOCK_COMMIT_ESTIM_SIZE,
+            block_commit_replacement_fee_max_sats: None,
+            block_commit_fee_rate_sat_per_kvb: None,
             rbf_fee_increment: DEFAULT_RBF_FEE_RATE_INCREMENT,
             first_burn_block_height: None,
             first_burn_block_timestamp: None,
@@ -1696,6 +1728,28 @@ impl BurnchainConfig {
             wallet_name: None,
             fault_injection_burnchain_block_delay: 0,
             max_unspent_utxos: Some(1024),
+        }
+    }
+
+    /// Whether block commit fees are managed (see
+    /// [`BurnchainConfig::block_commit_replacement_fee_max_sats`]).
+    pub fn block_commit_fee_management_enabled(&self) -> bool {
+        self.block_commit_replacement_fee_max_sats.is_some()
+    }
+
+    fn validate_block_commit_fees(&self) -> Result<(), String> {
+        match (
+            self.block_commit_replacement_fee_max_sats,
+            self.block_commit_fee_rate_sat_per_kvb,
+        ) {
+            (None, None) => Ok(()),
+            (None, Some(_)) => Err("burnchain.block_commit_fee_rate_sat_per_kvb requires burnchain.block_commit_replacement_fee_max_sats".into()),
+            (Some(0), _) => Err("burnchain.block_commit_replacement_fee_max_sats must be greater than 0".into()),
+            (Some(_), _) if self.rbf_fee_increment != 0 => Err("burnchain.block_commit_replacement_fee_max_sats requires burnchain.rbf_fee_increment = 0".into()),
+            (Some(_), Some(rate)) if !(1..=MAX_BLOCK_COMMIT_FEE_RATE_SAT_PER_KVB).contains(&rate) => Err(format!(
+                "burnchain.block_commit_fee_rate_sat_per_kvb must be between 1 and {MAX_BLOCK_COMMIT_FEE_RATE_SAT_PER_KVB}"
+            )),
+            (Some(_), _) => Ok(()),
         }
     }
 
@@ -1763,6 +1817,8 @@ pub struct BurnchainConfigFile {
     pub satoshis_per_byte: Option<u64>,
     pub leader_key_tx_estimated_size: Option<u64>,
     pub block_commit_tx_estimated_size: Option<u64>,
+    pub block_commit_replacement_fee_max_sats: Option<u64>,
+    pub block_commit_fee_rate_sat_per_kvb: Option<u64>,
     pub rbf_fee_increment: Option<u64>,
     pub max_rbf: Option<u64>,
     pub first_burn_block_height: Option<u64>,
@@ -1910,6 +1966,8 @@ impl BurnchainConfigFile {
             block_commit_tx_estimated_size: self
                 .block_commit_tx_estimated_size
                 .unwrap_or(default_burnchain_config.block_commit_tx_estimated_size),
+            block_commit_replacement_fee_max_sats: self.block_commit_replacement_fee_max_sats,
+            block_commit_fee_rate_sat_per_kvb: self.block_commit_fee_rate_sat_per_kvb,
             rbf_fee_increment: self
                 .rbf_fee_increment
                 .unwrap_or(default_burnchain_config.rbf_fee_increment),
@@ -1971,6 +2029,8 @@ impl BurnchainConfigFile {
                 return Err("First burn block parameters are not configurable in mainnet".into());
             }
         }
+
+        config.validate_block_commit_fees()?;
 
         if config.mode == "signet" && self.epochs.is_none() {
             config.epochs = Some(signet::default_epochs());
@@ -5260,6 +5320,58 @@ mod tests {
                 "miner.block_reward_recipient has a contract name longer than 40 bytes",
                 result.unwrap_err()
             );
+        }
+    }
+
+    #[rstest]
+    #[case::unset("", None)]
+    #[case::cap_only(
+        "rbf_fee_increment = 0\nblock_commit_replacement_fee_max_sats = 10000",
+        None
+    )]
+    #[case::cap_and_rate(
+        "rbf_fee_increment = 0\nblock_commit_replacement_fee_max_sats = 10000\nblock_commit_fee_rate_sat_per_kvb = 100000",
+        None
+    )]
+    #[case::rate_without_cap(
+        "block_commit_fee_rate_sat_per_kvb = 1300",
+        Some("burnchain.block_commit_fee_rate_sat_per_kvb requires burnchain.block_commit_replacement_fee_max_sats")
+    )]
+    #[case::zero_cap(
+        "rbf_fee_increment = 0\nblock_commit_replacement_fee_max_sats = 0",
+        Some("burnchain.block_commit_replacement_fee_max_sats must be greater than 0")
+    )]
+    #[case::nonzero_increment(
+        "rbf_fee_increment = 5\nblock_commit_replacement_fee_max_sats = 10000",
+        Some("burnchain.block_commit_replacement_fee_max_sats requires burnchain.rbf_fee_increment = 0")
+    )]
+    #[case::default_increment(
+        "block_commit_replacement_fee_max_sats = 10000",
+        Some("burnchain.block_commit_replacement_fee_max_sats requires burnchain.rbf_fee_increment = 0")
+    )]
+    #[case::zero_rate(
+        "rbf_fee_increment = 0\nblock_commit_replacement_fee_max_sats = 10000\nblock_commit_fee_rate_sat_per_kvb = 0",
+        Some("burnchain.block_commit_fee_rate_sat_per_kvb must be between 1 and 100000")
+    )]
+    #[case::rate_too_high(
+        "rbf_fee_increment = 0\nblock_commit_replacement_fee_max_sats = 10000\nblock_commit_fee_rate_sat_per_kvb = 100001",
+        Some("burnchain.block_commit_fee_rate_sat_per_kvb must be between 1 and 100000")
+    )]
+    fn test_block_commit_fee_management_validation(
+        #[case] fields: &str,
+        #[case] expected_err: Option<&str>,
+    ) {
+        let config = format!("[burnchain]\nmode = \"krypton\"\n{fields}");
+        let result = Config::from_config_file(ConfigFile::from_str(&config).unwrap(), false);
+        match expected_err {
+            None => assert_eq!(
+                result
+                    .unwrap()
+                    .burnchain
+                    .block_commit_fee_management_enabled(),
+                !fields.is_empty()
+            ),
+            Some(err) => assert_eq!(err, result.unwrap_err()),
         }
     }
 

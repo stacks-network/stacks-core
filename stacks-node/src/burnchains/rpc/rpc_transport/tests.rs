@@ -286,6 +286,69 @@ fn test_send_fails_with_service_error() {
 }
 
 #[test]
+fn test_bitcoin_http_500_preserves_service_error_and_validates_id() {
+    for (id, error, expected) in [
+        (
+            "client_id",
+            json!({"code": -26, "message": "insufficient fee"}),
+            "service",
+        ),
+        (
+            "different_id",
+            json!({"code": -26, "message": "insufficient fee"}),
+            "id",
+        ),
+        ("client_id", Value::Null, "http"),
+    ] {
+        let mut server = mockito::Server::new();
+        let _request = server
+            .mock("POST", "/")
+            .with_status(500)
+            .with_header("Content-Type", "application/json")
+            .with_body(json!({"id": id, "result": null, "error": error}).to_string())
+            .create();
+        let result: RpcResult<Value> =
+            utils::rpc_no_auth(&server).send("client_id", None, "sendrawtransaction", vec![]);
+        match (expected, result) {
+            ("service", Err(RpcError::Service(error))) => assert_eq!(error.code, -26),
+            ("id", Err(RpcError::MismatchedId(..))) => {}
+            ("http", Err(RpcError::NetworkIO(..))) => {}
+            (_, result) => panic!("unexpected HTTP 500 classification: {result:?}"),
+        }
+    }
+}
+
+#[test]
+fn test_non_broadcast_http_errors_keep_existing_retry_classification() {
+    for method in [
+        "listwallets",
+        "listwalletdir",
+        "loadwallet",
+        "gettransaction",
+    ] {
+        for code in [-28, -4, -35] {
+            let mut server = mockito::Server::new();
+            let _request = server
+                .mock("POST", "/")
+                .with_status(500)
+                .with_header("Content-Type", "application/json")
+                .with_body(
+                    json!({"id": "client_id", "result": null,
+                    "error": {"code": code, "message": "startup race"}})
+                    .to_string(),
+                )
+                .create();
+            let result: RpcResult<Value> =
+                utils::rpc_no_auth(&server).send("client_id", None, method, vec![]);
+            assert!(
+                matches!(result, Err(RpcError::NetworkIO(_))),
+                "{method} ({code}) must retain its pre-patch transient classification: {result:?}"
+            );
+        }
+    }
+}
+
+#[test]
 fn test_send_fails_due_to_timeout() {
     let expected_request = json!({
         "jsonrpc": "2.0",
