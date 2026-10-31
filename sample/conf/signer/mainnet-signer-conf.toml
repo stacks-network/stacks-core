@@ -215,11 +215,23 @@ db_path = "/var/lib/stacks-signer/signerdb.sqlite"
 # Prune the signer database online. Every 10 seconds, a small batch of
 # records older than the last 100 burn blocks of tenures is removed, so
 # the database no longer grows without bound. Freed space is reused but
-# not returned to the OS: an existing large file keeps its size until it
-# is compacted offline.
+# not returned to the OS: the file keeps its size until it is shrunk at
+# startup (see db_shrink).
 #
 # Default: true
 # db_pruning = true
+
+# Shrink the signer database file when the signer starts, if enough of it
+# is free space (e.g. space freed by pruning): the file is rebuilt with
+# only its live data, and the space goes back to the OS. It only runs when
+# at least 256 MiB of the file is free and its live data is at most 1 GiB.
+# It needs about twice the size of the live data in free disk space next 
+# to the database (a temporary copy and a WAL), for a few seconds. 
+# If it fails, e.g. for lack of space, the database is unchanged and 
+# the signer starts as usual. Independent of db_pruning.
+#
+# Default: true
+# db_shrink = true
 
 # HTTP timeout for StackerDB read/write operations.
 # Default: 10
