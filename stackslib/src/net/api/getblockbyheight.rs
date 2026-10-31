@@ -44,11 +44,11 @@ impl RPCNakamotoBlockByHeightRequestHandler {
 
 /// Decode the HTTP request
 impl HttpRequest for RPCNakamotoBlockByHeightRequestHandler {
-    fn verb(&self) -> &'static str {
+    fn verb() -> &'static str {
         "GET"
     }
 
-    fn path_regex(&self) -> Regex {
+    fn path_regex() -> Regex {
         Regex::new(r#"^/v3/blocks/height/(?P<block_height>[0-9]{1,20})$"#).unwrap()
     }
 

@@ -869,6 +869,21 @@ where
     })
 }
 
+/// Wait for the Nakamoto miner to submit a block-commit built on the node's
+/// current burn tip. Use this before mining the next burn block so that the
+/// commit lands in it. A commit that misses its target burn block is rejected
+/// as a missed commit, producing an empty sortition.
+pub fn wait_for_naka_tip_commit(
+    conf: &Config,
+    counters: &Counters,
+    timeout_secs: u64,
+) -> Result<(), String> {
+    let burn_height = get_chain_info(conf).burn_block_height;
+    wait_for(timeout_secs, || {
+        Ok(counters.naka_submitted_commit_last_burn_height.get() >= burn_height)
+    })
+}
+
 /// Mine a bitcoin block, and wait until:
 ///  (1) a new block has been processed by the coordinator
 ///  (2) 2 block commits have been issued ** or ** more than 10 seconds have
@@ -886,6 +901,20 @@ pub fn next_block_and_mine_commit(
         &[node_counters],
         true,
     )
+}
+
+/// like [`next_block_and_mine_commit`], but first waits for a block-commit on the current burn tip
+/// so the new burn block includes it instead of producing an empty sortition. use this after mining
+/// burn blocks without waiting for commits.
+pub fn next_block_and_mine_commit_on_tip(
+    btc_controller: &BitcoinRegtestController,
+    timeout_secs: u64,
+    node_conf: &Config,
+    node_counters: &Counters,
+) -> Result<(), String> {
+    wait_for_naka_tip_commit(node_conf, node_counters, timeout_secs)
+        .map_err(|e| format!("waiting for a block-commit on the current burn tip: {e}"))?;
+    next_block_and_mine_commit(btc_controller, timeout_secs, node_conf, node_counters)
 }
 
 /// Mine a bitcoin block, and wait until:
@@ -15156,7 +15185,7 @@ fn check_block_time_keyword() {
     let info = get_chain_info_result(&naka_conf).unwrap();
     let last_stacks_block_height = info.stacks_tip_height as u128;
 
-    next_block_and_mine_commit(&btc_regtest_controller, 60, &naka_conf, &counters).unwrap();
+    next_block_and_mine_commit_on_tip(&btc_regtest_controller, 60, &naka_conf, &counters).unwrap();
 
     let mut sender_nonce = 0;
     let contract_name = "test-contract";
@@ -15937,7 +15966,7 @@ fn check_with_stacking_allowances_delegate_stx() {
     let info = get_chain_info_result(&naka_conf).unwrap();
     let last_stacks_block_height = info.stacks_tip_height as u128;
 
-    next_block_and_mine_commit(&btc_regtest_controller, 60, &naka_conf, &counters).unwrap();
+    next_block_and_mine_commit_on_tip(&btc_regtest_controller, 60, &naka_conf, &counters).unwrap();
 
     let mut sender_nonce = 0;
     let contract_name = "test-contract";
@@ -16346,7 +16375,7 @@ fn check_with_stacking_allowances_stack_stx() {
     let info = get_chain_info_result(&naka_conf).unwrap();
     let last_stacks_block_height = info.stacks_tip_height as u128;
 
-    next_block_and_mine_commit(&btc_regtest_controller, 60, &naka_conf, &counters).unwrap();
+    next_block_and_mine_commit_on_tip(&btc_regtest_controller, 60, &naka_conf, &counters).unwrap();
 
     let signer_key_hex = Value::buff_from(signer_pk.to_bytes_compressed()).unwrap();
     let mut sender_nonce = 0;
@@ -16944,7 +16973,7 @@ fn check_restrict_assets_rollback() {
     let info = get_chain_info_result(&naka_conf).unwrap();
     let last_stacks_block_height = info.stacks_tip_height as u128;
 
-    next_block_and_mine_commit(&btc_regtest_controller, 60, &naka_conf, &counters).unwrap();
+    next_block_and_mine_commit_on_tip(&btc_regtest_controller, 60, &naka_conf, &counters).unwrap();
 
     let mut sender_nonce = 0;
     let contract_name = "test-contract";
@@ -17663,7 +17692,7 @@ fn check_as_contract_rollback() {
     let info = get_chain_info_result(&naka_conf).unwrap();
     let last_stacks_block_height = info.stacks_tip_height as u128;
 
-    next_block_and_mine_commit(&btc_regtest_controller, 60, &naka_conf, &counters).unwrap();
+    next_block_and_mine_commit_on_tip(&btc_regtest_controller, 60, &naka_conf, &counters).unwrap();
 
     let mut sender_nonce = 0;
     let contract = r#"
