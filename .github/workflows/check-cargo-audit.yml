@@ -9,7 +9,9 @@ name: "Checks: Cargo Audit"
 run-name: "Checks: Cargo Audit [${{ github.ref_name }}]"
 
 # Only run when:
-#   - PRs change dependencies or the audit configuration
+#   - PRs are (re)opened (any target branch)
+#   - commit is pushed to PR
+#   - PR is added to merge queue
 #   - daily, since new advisories are published independently of our changes
 #   - manually triggered
 on:
@@ -17,16 +19,14 @@ on:
   schedule:
     # Run at 06:17 UTC daily
     - cron: "17 6 * * *"
+  merge_group:
+    types:
+      - checks_requested
   pull_request:
     types:
       - opened
       - reopened
       - synchronize
-    paths:
-      - "Cargo.lock"
-      - "**/Cargo.toml"
-      - ".cargo/audit.toml"
-      - ".github/workflows/check-cargo-audit.yml"
 
 # Set default permissions
 permissions:
@@ -42,7 +42,7 @@ jobs:
   # Check if CI is enabled
   check-ci:
     name: "Check: CI Enabled"
-    uses: $/.github/workflows/__check-ci.yml
+    uses: ./.github/workflows/__check-ci.yml
 
   cargo-audit:
     name: "Check: Cargo Audit"
@@ -61,7 +61,7 @@ jobs:
           ref: ${{ github.event.pull_request.head.sha || github.ref }}
 
       - name: Install cargo-audit
-        uses: $/.github/actions/install-tool
+        uses: ./.github/actions/install-tool
         with:
           tools: cargo-audit
 
