@@ -4,12 +4,14 @@ ARG STACKS_NODE_VERSION="No Version Info"
 ARG CUSTOM_VERSION_STRING
 ARG GIT_BRANCH='No Branch Info'
 ARG GIT_COMMIT='No Commit Info'
+# Cargo features to build with
+ARG CARGO_FEATURES="monitoring_prom,slog_json"
 
 WORKDIR /src
 COPY . .
 RUN mkdir /out
 RUN rustup toolchain install stable
-RUN cargo build --features monitoring_prom,slog_json --release
+RUN cargo build --features "${CARGO_FEATURES}" --release
 RUN cp -R target/release/. /out
 
 FROM debian:bookworm-slim
