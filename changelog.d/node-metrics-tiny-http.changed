@@ -1,0 +1,1 @@
+The node's Prometheus metrics endpoint is now served by `tiny_http` instead of `async-std`/`async-h1`, removing those dependencies and `http-types`. The endpoint's responses are unchanged.

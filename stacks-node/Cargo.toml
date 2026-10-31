@@ -26,9 +26,7 @@ url = "2.1.0"
 rand = { workspace = true }
 hashbrown = { workspace = true }
 rusqlite = { workspace = true }
-async-h1 = { version = "2.3.2", optional = true }
-async-std = { version = "1.6", optional = true, features = ["attributes"] }
-http-types = { version = "2.12", default-features = false, optional = true }
+tiny_http = { version = "0.12.0", optional = true }
 thiserror = { workspace = true }
 
 # This dependency is used for the multiversion integration tests which live behind the build-v3-1-0-0-4 feature flag
@@ -53,7 +51,6 @@ tracing = "0.1.37"
 tracing-subscriber = { version = "0.3.17", features = ["env-filter"] }
 mutants = "0.0.3"
 tiny_http = "0.12.0"
-http-types =  { version = "2.12", default-features = false }
 tempfile = "3.3"
 mockito = "1.5"
 serial_test = "3.2.0"
@@ -64,7 +61,7 @@ stdext = "0.3.1"
 testcontainers =  { version = "0.27.0", features = ["blocking"] }
 
 [features]
-monitoring_prom = ["stacks/monitoring_prom", "async-h1", "async-std", "http-types"]
+monitoring_prom = ["stacks/monitoring_prom", "tiny_http"]
 slog_json = ["stacks/slog_json", "stacks-common/slog_json", "clarity/slog_json"]
 prod-genesis-chainstate = []
 default = []
