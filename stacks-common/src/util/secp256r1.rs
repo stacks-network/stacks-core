@@ -233,22 +233,7 @@ impl Secp256r1PrivateKey {
     #[cfg(feature = "rand")]
     #[cfg(any(test, feature = "testing"))]
     pub fn random() -> Secp256r1PrivateKey {
-        use p256::elliptic_curve::zeroize::Zeroizing;
-        use rand::RngCore as _;
-
-        let mut rng = rand::thread_rng();
-        // wiped on drop so the secret bytes don't linger on the stack
-        let mut random_32_bytes = Zeroizing::new([0u8; 32]);
-        loop {
-            // keep trying to generate valid bytes
-            rng.fill_bytes(random_32_bytes.as_mut());
-            if let Ok(secret_key) = P256SecretKey::from_slice(random_32_bytes.as_ref()) {
-                return Secp256r1PrivateKey {
-                    key: P256SigningKey::from(secret_key),
-                    compress_public: true,
-                };
-            }
-        }
+        Self::from_seed(&rand::random::<[u8; 32]>())
     }
 
     /// Creates a Secp256r1PrivateKey from seed bytes by repeatedly
