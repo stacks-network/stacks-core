@@ -36,7 +36,7 @@ run-name: Build Release Binaries ${{ inputs.tag }}
 # Set default env vars
 env:
   # Set a default command to build. we'll define specific build config options later per arch.
-  CMD: "cargo build --features monitoring_prom,slog_json --profile release --workspace"
+  CMD: "cargo build --locked --features monitoring_prom,slog_json --profile release --workspace"
 
 jobs:
   build-binaries:
