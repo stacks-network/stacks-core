@@ -1,0 +1,51 @@
+# Dependabot version updates.
+#
+# Security updates are not affected by the cooldowns below: Dependabot opens
+# those as soon as an advisory is published.
+#
+# The cooldowns delay *version* updates until a release has been public for a
+# while, so a compromised or broken release is usually yanked before we ever
+# see a PR for it.
+
+version: 2
+updates:
+  - package-ecosystem: cargo
+    directory: "/"
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 14
+      semver-major-days: 30
+      semver-minor-days: 14
+      semver-patch-days: 7
+    groups:
+      # One PR for all semver-compatible updates; majors get their own PRs.
+      cargo-minor-and-patch:
+        update-types:
+          - minor
+          - patch
+    ignore:
+      # The multiversion signer tests intentionally pin these to an old
+      # release by git rev; never bump them automatically.
+      - dependency-name: stacks-signer
+      - dependency-name: libsigner
+      - dependency-name: stackslib
+      - dependency-name: stacks-common
+    open-pull-requests-limit: 5
+
+  - package-ecosystem: github-actions
+    directories:
+      - "/"
+      - "/.github/actions/*"
+      - "/.github/actions/*/*"
+      - "/.github/wrappers/*"
+      - "/.github/wrappers/*/*"
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 14
+    groups:
+      github-actions:
+        patterns:
+          - "*"
+    open-pull-requests-limit: 5

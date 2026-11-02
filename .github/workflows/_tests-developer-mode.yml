@@ -1,0 +1,64 @@
+# Run the clarity tests with the `developer-mode` feature enabled.
+#
+# `developer-mode` is off by default and the shared nextest archive is built
+# without it, so tests gated behind `#[cfg(feature = "developer-mode")]` only
+# run here.
+
+name: "Tests: Developer Mode"
+
+on:
+  workflow_call:
+
+# Set default permissions
+permissions:
+  contents: read
+
+# Set default shell
+defaults:
+  run:
+    shell: bash
+
+# Set default env vars
+env:
+  RUST_BACKTRACE: full
+
+# Configure concurrency
+concurrency:
+  group: developer-mode-tests-${{ github.head_ref || github.ref || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  # No caching needed as it runs in parallel with much longer jobs.
+  # The shared Cargo cache is built by `cargo llvm-cov`, so this plain build
+  # could not reuse its `target/` anyway.
+  developer-mode-tests:
+    name: Clarity Tests (developer-mode)
+    runs-on: ubuntu-latest
+    steps:
+      # Checkout the code
+      - name: Checkout the latest code
+        uses: $/.github/wrappers/checkout
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.ref }}
+          persist-credentials: false
+
+      # Setup the rust toolchain using repo config
+      - name: Setup Rust Toolchain
+        uses: ./.github/actions/setup-rust-toolchain
+
+      - name: Install nextest
+        # Fail fast if GitHub rate-limits the download instead of retrying
+        # until the job times out
+        timeout-minutes: 5
+        uses: ./.github/actions/install-tool
+        with:
+          tools: nextest
+
+      - name: Run clarity tests with developer-mode
+        run: |
+          cargo nextest run \
+            --package clarity \
+            --features developer-mode \
+            --locked \
+            --config-file ./.github/nextest/ci-nextest.toml \
+            --profile ci-parallel

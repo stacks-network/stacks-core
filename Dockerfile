@@ -9,7 +9,7 @@ WORKDIR /src
 COPY . .
 RUN mkdir /out
 RUN rustup toolchain install stable
-RUN cargo build --features monitoring_prom,slog_json --release
+RUN cargo build --locked --features monitoring_prom,slog_json --release
 RUN cp -R target/release/. /out
 
 FROM debian:bookworm-slim
