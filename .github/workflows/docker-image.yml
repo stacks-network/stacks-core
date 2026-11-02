@@ -31,7 +31,7 @@ env:
   # Publish images to ghcr
   DOCKER_REGISTRY: "ghcr.io"
   # Set a default command to build. we'll define specific build config options later per arch.
-  CMD: "cargo build --features monitoring_prom,slog_json --profile release --workspace"
+  CMD: "cargo build --locked --features monitoring_prom,slog_json --profile release --workspace"
   # Do not generate provenance from the docker build step, instead attest the image specifically
   PROVENANCE: false
 # Configure concurrency
