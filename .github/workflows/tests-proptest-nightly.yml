@@ -229,7 +229,7 @@ jobs:
       # Notify Slack when proptest tests fail.
       - name: Slack — proptest run failure
         if: failure() && steps.run_tests.outcome == 'failure' && env.SLACK_NOTIFY == 'true'
-        uses: slackapi/slack-github-action@e090a7a7c0b2d9b7ae32bd34f086e680ce260b06 # v3.0.0
+        uses: slackapi/slack-github-action@dcb1066f776dd043e64d0e8ba94ca15cc7e1875d # v4.0.0
         with:
           webhook: ${{ secrets.SLACK_WEBHOOK_CI_NIGHTLY }}
           webhook-type: incoming-webhook
@@ -288,7 +288,7 @@ jobs:
       # Notify Slack when the workflow fails for reasons other than test failures
       - name: Slack — workflow error
         if: failure() && steps.run_tests.outcome != 'failure' && env.SLACK_NOTIFY == 'true'
-        uses: slackapi/slack-github-action@e090a7a7c0b2d9b7ae32bd34f086e680ce260b06 # v3.0.0
+        uses: slackapi/slack-github-action@dcb1066f776dd043e64d0e8ba94ca15cc7e1875d # v4.0.0
         with:
           webhook: ${{ secrets.SLACK_WEBHOOK_CI_NIGHTLY }}
           webhook-type: incoming-webhook
