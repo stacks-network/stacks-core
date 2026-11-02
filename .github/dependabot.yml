@@ -24,13 +24,6 @@ updates:
         update-types:
           - minor
           - patch
-    ignore:
-      # The multiversion signer tests intentionally pin these to an old
-      # release by git rev; never bump them automatically.
-      - dependency-name: stacks-signer
-      - dependency-name: libsigner
-      - dependency-name: stackslib
-      - dependency-name: stacks-common
     open-pull-requests-limit: 5
 
   - package-ecosystem: github-actions
