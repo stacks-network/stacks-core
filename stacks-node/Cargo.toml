@@ -14,7 +14,7 @@ stacks = { package = "stackslib", path = "../stackslib" }
 stacks-marf = { path = "../stacks-marf" }
 stx-genesis = { path = "../stx-genesis"}
 base64 = "0.12.0"
-backtrace = "0.3.50"
+backtrace = "0.3.77"
 libc = "0.2.151"
 slog = { version = "2.5.2", features = [ "max_level_trace" ] }
 clarity = { path = "../clarity" }
