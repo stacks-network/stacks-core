@@ -30,7 +30,6 @@ use clarity::vm::representations::ContractName;
 use clarity::vm::types::{
     PrincipalData, QualifiedContractIdentifier, StandardPrincipalData, TupleData, Value,
 };
-use clarity::vm::SymbolicExpression;
 use lazy_static::lazy_static;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use stacks_common::codec::StacksMessageCodec;
@@ -65,11 +64,7 @@ pub const BOOT_CODE_COSTS_2_TESTNET: &str = std::include_str!("costs-2-testnet.c
 pub const BOOT_CODE_COST_VOTING_MAINNET: &str = std::include_str!("cost-voting.clar");
 pub const BOOT_CODE_BNS: &str = std::include_str!("bns.clar");
 pub const BOOT_CODE_GENESIS: &str = std::include_str!("genesis.clar");
-pub const POX_1_NAME: &str = "pox";
-pub const POX_2_NAME: &str = "pox-2";
-pub const POX_3_NAME: &str = "pox-3";
-pub const POX_4_NAME: &str = "pox-4";
-pub const POX_5_NAME: &str = "pox-5";
+pub use pox_locking::{POX_1_NAME, POX_2_NAME, POX_3_NAME, POX_4_NAME, POX_5_NAME};
 /// pox-5's flat minimum to participate as a stacker, mirroring
 /// `SIGNER_SET_MIN_USTX` in `pox-5.clar` (`u50000000000` = 50,000 STX).
 pub const POX_5_SIGNER_SET_MIN_USTX: u64 = 50_000_000_000;
@@ -314,23 +309,7 @@ pub struct RawRewardSetEntry {
     pub signer: Option<[u8; SIGNERS_PK_LEN]>,
 }
 
-define_named_enum!(
-    /// This enum captures the names of the PoX contracts by version.
-    // This should deprecate the const values `POX_version_NAME`, but
-    // that is the kind of refactor that should be in its own PR.
-    // Having an enum here is useful for a bunch of reasons, but chiefly:
-    //   * we'll be able to add an Ord implementation, so that we can
-    //     do much easier version checks
-    //   * static enforcement of matches
-    #[derive(PartialOrd, Ord)]
-    PoxVersions {
-        Pox1("pox"),
-        Pox2("pox-2"),
-        Pox3("pox-3"),
-        Pox4("pox-4"),
-        Pox5("pox-5"),
-    }
-);
+pub use pox_locking::PoxVersions;
 
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
 pub struct PoxStartCycleInfo {
@@ -845,12 +824,10 @@ impl StacksChainState {
                                     invoke_ctx,
                                     &pox_contract,
                                     "handle-unlock",
-                                    &[
-                                        SymbolicExpression::atom_value(principal.clone().into()),
-                                        SymbolicExpression::atom_value(Value::UInt(*amount_locked)),
-                                        SymbolicExpression::atom_value(Value::UInt(
-                                            cycle_number.into(),
-                                        )),
+                                    vec![
+                                        principal.clone().into(),
+                                        Value::UInt(*amount_locked),
+                                        Value::UInt(cycle_number.into()),
                                     ],
                                     false,
                                 )
@@ -960,7 +937,7 @@ impl StacksChainState {
                                     invoke_ctx,
                                     &contract_identifier,
                                     function,
-                                    &[SymbolicExpression::atom_value(Value::UInt(reward_cycle))],
+                                    vec![Value::UInt(reward_cycle)],
                                     true,
                                 )
                                 .map_err(ClarityEvalError::from)

@@ -26,7 +26,8 @@ use crate::vm::errors::{
 };
 use crate::vm::representations::SymbolicExpression;
 use crate::vm::types::{
-    AssetIdentifier, BuffData, PrincipalData, SequenceData, TupleData, TypeSignature, Value,
+    AssetIdentifier, BuffData, INT_SIZE, PRINCIPAL_SIZE, PrincipalData, SequenceData, TupleData,
+    TypeSignature, Value,
 };
 use crate::vm::{LocalContext, eval};
 
@@ -142,8 +143,8 @@ pub fn stx_transfer_consolidated(
     }
 
     // loading from/to principals and balances
-    exec_state.add_memory(TypeSignature::PrincipalType.size()?.into())?;
-    exec_state.add_memory(TypeSignature::PrincipalType.size()?.into())?;
+    exec_state.add_memory(PRINCIPAL_SIZE.into())?;
+    exec_state.add_memory(PRINCIPAL_SIZE.into())?;
     // loading from's locked amount and height
     // TODO: this does not count the inner stacks block header load, but arguably,
     // this could be optimized away, so it shouldn't penalize the caller.
@@ -311,7 +312,7 @@ pub fn special_stx_burn(
             return clarity_ecode!(StxErrorCodes::SENDER_IS_NOT_TX_SENDER);
         }
 
-        exec_state.add_memory(TypeSignature::PrincipalType.size()?.into())?;
+        exec_state.add_memory(PRINCIPAL_SIZE.into())?;
         exec_state.add_memory(STXBalance::unlocked_and_v1_size.try_into().map_err(|_| {
             RuntimeCheckErrorKind::Unreachable(
                 "BUG: STXBalance::unlocked_and_v1_size does not fit into a u64".into(),
@@ -390,8 +391,8 @@ pub fn special_mint_token(
             .checked_add(*amount)
             .ok_or_else(|| VmInternalError::Expect("STX overflow".into()))?;
 
-        exec_state.add_memory(TypeSignature::PrincipalType.size()?.into())?;
-        exec_state.add_memory(TypeSignature::UIntType.size()?.into())?;
+        exec_state.add_memory(PRINCIPAL_SIZE.into())?;
+        exec_state.add_memory(INT_SIZE.into())?;
 
         exec_state.global_context.database.set_ft_balance(
             &invoke_ctx.contract_context.contract_identifier,
@@ -432,11 +433,8 @@ pub fn special_mint_asset_v200(
     )?;
     let expected_asset_type = &nft_metadata.key_type;
 
-    runtime_cost(
-        ClarityCostFunction::NftMint,
-        exec_state,
-        expected_asset_type.size()?,
-    )?;
+    let asset_size = expected_asset_type.charged_size(exec_state.epoch())?;
+    runtime_cost(ClarityCostFunction::NftMint, exec_state, asset_size)?;
 
     if !expected_asset_type.admits(exec_state.epoch(), asset.as_ref())? {
         return Err(RuntimeCheckErrorKind::TypeValueError(
@@ -458,8 +456,8 @@ pub fn special_mint_asset_v200(
             Err(e) => Err(e),
         }?;
 
-        exec_state.add_memory(TypeSignature::PrincipalType.size()?.into())?;
-        exec_state.add_memory(expected_asset_type.size()?.into())?;
+        exec_state.add_memory(PRINCIPAL_SIZE.into())?;
+        exec_state.add_memory(asset_size.into())?;
 
         let epoch = *exec_state.epoch();
         exec_state.global_context.database.set_nft_owner(
@@ -536,7 +534,7 @@ pub fn special_mint_asset_v205(
             Err(e) => Err(e),
         }?;
 
-        exec_state.add_memory(TypeSignature::PrincipalType.size()?.into())?;
+        exec_state.add_memory(PRINCIPAL_SIZE.into())?;
         exec_state.add_memory(asset_size)?;
 
         let epoch = *exec_state.epoch();
@@ -587,11 +585,8 @@ pub fn special_transfer_asset_v200(
     )?;
     let expected_asset_type = &nft_metadata.key_type;
 
-    runtime_cost(
-        ClarityCostFunction::NftTransfer,
-        exec_state,
-        expected_asset_type.size()?,
-    )?;
+    let asset_size = expected_asset_type.charged_size(exec_state.epoch())?;
+    runtime_cost(ClarityCostFunction::NftTransfer, exec_state, asset_size)?;
 
     if !expected_asset_type.admits(exec_state.epoch(), asset.as_ref())? {
         return Err(RuntimeCheckErrorKind::TypeValueError(
@@ -625,8 +620,8 @@ pub fn special_transfer_asset_v200(
             return clarity_ecode!(TransferAssetErrorCodes::NOT_OWNED_BY);
         }
 
-        exec_state.add_memory(TypeSignature::PrincipalType.size()?.into())?;
-        exec_state.add_memory(expected_asset_type.size()?.into())?;
+        exec_state.add_memory(PRINCIPAL_SIZE.into())?;
+        exec_state.add_memory(asset_size.into())?;
 
         let epoch = *exec_state.epoch();
         exec_state.global_context.database.set_nft_owner(
@@ -724,7 +719,7 @@ pub fn special_transfer_asset_v205(
             return clarity_ecode!(TransferAssetErrorCodes::NOT_OWNED_BY);
         }
 
-        exec_state.add_memory(TypeSignature::PrincipalType.size()?.into())?;
+        exec_state.add_memory(PRINCIPAL_SIZE.into())?;
         exec_state.add_memory(asset_size)?;
 
         let epoch = *exec_state.epoch();
@@ -821,10 +816,10 @@ pub fn special_transfer_token(
             .checked_add(*amount)
             .ok_or(RuntimeError::ArithmeticOverflow)?;
 
-        exec_state.add_memory(TypeSignature::PrincipalType.size()?.into())?;
-        exec_state.add_memory(TypeSignature::PrincipalType.size()?.into())?;
-        exec_state.add_memory(TypeSignature::UIntType.size()?.into())?;
-        exec_state.add_memory(TypeSignature::UIntType.size()?.into())?;
+        exec_state.add_memory(PRINCIPAL_SIZE.into())?;
+        exec_state.add_memory(PRINCIPAL_SIZE.into())?;
+        exec_state.add_memory(INT_SIZE.into())?;
+        exec_state.add_memory(INT_SIZE.into())?;
 
         exec_state.global_context.database.set_ft_balance(
             &invoke_ctx.contract_context.contract_identifier,
@@ -919,11 +914,8 @@ pub fn special_get_owner_v200(
     )?;
     let expected_asset_type = &nft_metadata.key_type;
 
-    runtime_cost(
-        ClarityCostFunction::NftOwner,
-        exec_state,
-        expected_asset_type.size()?,
-    )?;
+    let asset_size = expected_asset_type.charged_size(exec_state.epoch())?;
+    runtime_cost(ClarityCostFunction::NftOwner, exec_state, asset_size)?;
 
     if !expected_asset_type.admits(exec_state.epoch(), asset.as_ref())? {
         return Err(RuntimeCheckErrorKind::TypeValueError(
@@ -1074,8 +1066,8 @@ pub fn special_burn_token(
         };
         exec_state.register_ft_burn_event(burner.clone(), *amount, asset_identifier)?;
 
-        exec_state.add_memory(TypeSignature::PrincipalType.size()?.into())?;
-        exec_state.add_memory(TypeSignature::UIntType.size()?.into())?;
+        exec_state.add_memory(PRINCIPAL_SIZE.into())?;
+        exec_state.add_memory(INT_SIZE.into())?;
 
         exec_state.global_context.log_token_transfer(
             burner,
@@ -1112,11 +1104,8 @@ pub fn special_burn_asset_v200(
     )?;
     let expected_asset_type = &nft_metadata.key_type;
 
-    runtime_cost(
-        ClarityCostFunction::NftBurn,
-        exec_state,
-        expected_asset_type.size()?,
-    )?;
+    let asset_size = expected_asset_type.charged_size(exec_state.epoch())?;
+    runtime_cost(ClarityCostFunction::NftBurn, exec_state, asset_size)?;
 
     if !expected_asset_type.admits(exec_state.epoch(), asset.as_ref())? {
         return Err(RuntimeCheckErrorKind::TypeValueError(
@@ -1144,8 +1133,8 @@ pub fn special_burn_asset_v200(
             return clarity_ecode!(BurnAssetErrorCodes::NOT_OWNED_BY);
         }
 
-        exec_state.add_memory(TypeSignature::PrincipalType.size()?.into())?;
-        exec_state.add_memory(expected_asset_type.size()?.into())?;
+        exec_state.add_memory(PRINCIPAL_SIZE.into())?;
+        exec_state.add_memory(asset_size.into())?;
 
         let epoch = *exec_state.epoch();
         exec_state.global_context.database.burn_nft(
@@ -1236,7 +1225,7 @@ pub fn special_burn_asset_v205(
             return clarity_ecode!(BurnAssetErrorCodes::NOT_OWNED_BY);
         }
 
-        exec_state.add_memory(TypeSignature::PrincipalType.size()?.into())?;
+        exec_state.add_memory(PRINCIPAL_SIZE.into())?;
         exec_state.add_memory(asset_size)?;
 
         let epoch = *exec_state.epoch();

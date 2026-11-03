@@ -99,8 +99,9 @@ macro_rules! define_named_enum {
                 }
             }
 
-            /// Gets the name of the enum variant as a static string slice.
-            pub fn get_name_str(&self) -> &'static str {
+            /// Gets the name of the enum variant as a static string slice. `const` so that
+            /// constants can be defined from it.
+            pub const fn get_name_str(&self) -> &'static str {
                 match self {
                     $(
                         $Name::$Variant => $VarName,

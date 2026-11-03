@@ -1,0 +1,1 @@
+In Clarity 7, variable shadowing (i.e. a local binding with the same name as a top-level definition) is prevented during contract analysis in all cases. Previously, some cases would have been missed, only breaking (or leading to unexpected behavior) at runtime.

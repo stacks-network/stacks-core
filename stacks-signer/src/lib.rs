@@ -55,6 +55,7 @@ use config::GlobalConfig;
 use libsigner::{SignerEvent, SignerEventReceiver, SignerEventTrait, VERSION_STRING};
 use runloop::SignerResult;
 use signerdb::BlockInfo;
+use stacks_common::versions::CUSTOM_VERSION_STRING;
 use stacks_common::{info, warn};
 use v0::signer_state::LocalStateMachine;
 
@@ -129,7 +130,9 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SpawnedSigner
     /// Create a new spawned signer
     pub fn new(config: GlobalConfig) -> Self {
         let endpoint = config.endpoint;
-        info!("Stacks signer version {:?}", VERSION_STRING.as_str());
+        info!("Stacks signer version {:?}", VERSION_STRING.as_str();
+            "custom_version" => CUSTOM_VERSION_STRING
+        );
         info!("Starting signer with config: {:?}", config);
         warn!(
             "Reminder: The signer is primarily designed for use with a local or subnet network stacks node. \

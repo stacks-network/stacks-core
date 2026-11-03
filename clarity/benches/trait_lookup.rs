@@ -24,7 +24,7 @@ use std::hint::black_box;
 use clarity::vm::contexts::OwnedEnvironment;
 use clarity::vm::database::{ClarityExecutionCache, MemoryBackingStore};
 use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier};
-use clarity::vm::{ClarityVersion, SymbolicExpression, Value};
+use clarity::vm::{ClarityVersion, Value};
 use criterion::{BenchmarkId, Criterion, criterion_group, criterion_main};
 use stacks_common::consts::CHAIN_ID_TESTNET;
 use stacks_common::types::StacksEpochId;
@@ -61,7 +61,7 @@ fn bench_trait_lookup(c: &mut Criterion) {
         let caller = QualifiedContractIdentifier::local("caller").unwrap();
         let target = QualifiedContractIdentifier::local("target").unwrap();
         let sender: PrincipalData = caller.issuer.clone().into();
-        let args = [SymbolicExpression::atom_value(Value::from(target.clone()))];
+        let args = vec![Value::from(target.clone())];
         let mut store = MemoryBackingStore::new();
         setup_store(&mut store);
         let mut cache = ClarityExecutionCache::default();
@@ -78,7 +78,7 @@ fn bench_trait_lookup(c: &mut Criterion) {
 
         // The warm-up also verifies that runtime trait dispatch returns the expected value.
         let result = env
-            .execute_transaction(sender.clone(), None, caller.clone(), "call", &args)
+            .execute_transaction(sender.clone(), None, caller.clone(), "call", args.clone())
             .unwrap();
         assert_eq!(result.0, Value::okay(Value::UInt(1)).unwrap());
 
@@ -98,7 +98,7 @@ fn bench_trait_lookup(c: &mut Criterion) {
                         None,
                         caller.clone(),
                         "call",
-                        black_box(&args),
+                        black_box(args.clone()),
                     )
                     .expect("benchmark trait call failed"),
                 )

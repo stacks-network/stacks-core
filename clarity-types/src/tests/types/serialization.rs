@@ -20,10 +20,11 @@ use stacks_common::util::hash::hex_bytes;
 
 use crate::errors::ClarityTypeError;
 use crate::types::serialization::SerializationError;
+use crate::types::signatures::CallableSubtype;
 use crate::types::{
-    ASCIIData, CharType, MAX_TYPE_DEPTH, MAX_VALUE_SIZE, OptionalData, PrincipalData,
-    QualifiedContractIdentifier, SequenceData, StandardPrincipalData, TupleData,
-    TupleTypeSignature, TypeSignature, Value,
+    ASCIIData, CallableData, CharType, ListTypeData, MAX_TYPE_DEPTH, MAX_VALUE_SIZE, OptionalData,
+    PrincipalData, QualifiedContractIdentifier, SequenceData, StandardPrincipalData,
+    TraitIdentifier, TupleData, TupleTypeSignature, TypeSignature, Value,
 };
 use crate::{ClarityName, ContractName};
 
@@ -828,4 +829,140 @@ fn test_contains_overlong_contract_name_depth_bound() {
         unreachable!()
     };
     assert!(!inner.contains_overlong_contract_name().unwrap());
+}
+
+fn zero_buff(len: usize) -> Value {
+    Value::buff_from(vec![0; len]).unwrap()
+}
+
+fn uint_tuple(fields: &[&str]) -> Value {
+    let fields = fields
+        .iter()
+        .map(|name| {
+            (
+                ClarityName::try_from(name.to_string()).unwrap(),
+                Value::UInt(1),
+            )
+        })
+        .collect();
+    Value::Tuple(TupleData::from_data(fields).unwrap())
+}
+
+fn type_of(value: &Value) -> TypeSignature {
+    TypeSignature::type_of(value).unwrap()
+}
+
+/// A `(list 10 uint)` holding one item: its `type_signature` is wider than its contents.
+fn wide_uint_list() -> Value {
+    Value::list_with_type(
+        &StacksEpochId::Epoch41,
+        vec![Value::UInt(1)],
+        ListTypeData::new_list(TypeSignature::UIntType, 10).unwrap(),
+    )
+    .unwrap()
+}
+
+fn ascii(text: &str) -> Value {
+    Value::string_ascii_from_bytes(text.as_bytes().to_vec()).unwrap()
+}
+
+fn utf8(text: &str) -> Value {
+    Value::string_utf8_from_bytes(text.as_bytes().to_vec()).unwrap()
+}
+
+fn standard_principal() -> Value {
+    Value::Principal(PrincipalData::Standard(StandardPrincipalData::transient()))
+}
+
+fn contract_principal() -> Value {
+    Value::Principal(PrincipalData::Contract(
+        QualifiedContractIdentifier::transient(),
+    ))
+}
+
+fn trait_id(name: &str) -> TraitIdentifier {
+    TraitIdentifier {
+        name: ClarityName::try_from(name.to_string()).unwrap(),
+        contract_identifier: QualifiedContractIdentifier::transient(),
+    }
+}
+
+fn trait_type(name: &str) -> TypeSignature {
+    TypeSignature::CallableType(CallableSubtype::Trait(trait_id(name)))
+}
+
+fn callable_contract(trait_identifier: Option<TraitIdentifier>) -> Value {
+    Value::CallableContract(CallableData {
+        contract_identifier: QualifiedContractIdentifier::transient(),
+        trait_identifier: trait_identifier.map(Box::new),
+    })
+}
+
+/// Sanitizes `value` with both `sanitize_value` and `sanitize_value_or_return`, checks
+/// that they agree, and returns the result.
+fn sanitize_both_ways(
+    epoch: StacksEpochId,
+    expected: &TypeSignature,
+    value: Value,
+) -> Result<Value, Value> {
+    let sanitized = Value::sanitize_value(&epoch, expected, value.clone())
+        .map(|(sanitized, _)| sanitized)
+        .ok_or(value.clone());
+    let result = Value::sanitize_value_or_return(&epoch, expected, value);
+    assert_eq!(result, sanitized);
+    // `Value` equality ignores the `type_signature` of lists and tuples, which feeds costs.
+    let type_signature = |result: &Result<Value, Value>| match result {
+        Ok(value) | Err(value) => type_of(value),
+    };
+    assert_eq!(type_signature(&result), type_signature(&sanitized));
+    result
+}
+
+/// `sanitize_value_or_return` admits what `sanitize_value` admits. Each value it checks
+/// without calling `sanitize_value` has a case here and one in
+/// `test_sanitize_value_or_return_rejects`, to help catch an arm in `sanitize_value`
+/// that treats one of them differently.
+#[rstest]
+#[case::int(Value::Int(-1), TypeSignature::IntType)]
+#[case::uint(Value::UInt(1), TypeSignature::UIntType)]
+#[case::bool(Value::Bool(true), TypeSignature::BoolType)]
+#[case::standard_principal(standard_principal(), TypeSignature::PrincipalType)]
+#[case::contract_principal(contract_principal(), TypeSignature::PrincipalType)]
+#[case::callable_contract(callable_contract(None), TypeSignature::PrincipalType)]
+#[case::callable_contract_with_trait(callable_contract(Some(trait_id("a"))), trait_type("a"))]
+#[case::buffer(zero_buff(3), type_of(&zero_buff(4)))]
+#[case::ascii(ascii("ab"), type_of(&ascii("abc")))]
+#[case::utf8(utf8("é"), type_of(&utf8("éé")))]
+#[case::list_wide_type_signature(wide_uint_list(), type_of(&wide_uint_list()))]
+#[case::tuple_extra_field(uint_tuple(&["a", "b"]), type_of(&uint_tuple(&["a"])))]
+fn test_sanitize_value_or_return_admits(#[case] value: Value, #[case] expected: TypeSignature) {
+    assert!(sanitize_both_ways(StacksEpochId::Epoch24, &expected, value).is_ok());
+}
+
+/// `sanitize_value_or_return` rejects what `sanitize_value` rejects, and hands the
+/// original value back.
+#[rstest]
+#[case::int(Value::Int(-1), TypeSignature::UIntType)]
+#[case::uint(Value::UInt(1), TypeSignature::IntType)]
+#[case::bool(Value::Bool(true), TypeSignature::UIntType)]
+#[case::principal(standard_principal(), TypeSignature::UIntType)]
+#[case::callable_contract(callable_contract(None), TypeSignature::UIntType)]
+#[case::callable_contract_other_trait(callable_contract(Some(trait_id("a"))), trait_type("b"))]
+#[case::buffer_too_long(zero_buff(3), type_of(&zero_buff(2)))]
+#[case::ascii_too_long(ascii("abc"), type_of(&ascii("ab")))]
+#[case::utf8_too_long(utf8("éé"), type_of(&utf8("é")))]
+#[case::tuple_missing_field(uint_tuple(&["a"]), type_of(&uint_tuple(&["a", "b"])))]
+fn test_sanitize_value_or_return_rejects(#[case] value: Value, #[case] expected: TypeSignature) {
+    assert!(sanitize_both_ways(StacksEpochId::Epoch24, &expected, value).is_err());
+}
+
+/// Before 2.4 nothing is sanitized, so even a value of the wrong type comes back as is.
+#[test]
+fn test_sanitize_value_or_return_skips_before_2_4() {
+    let result = sanitize_both_ways(
+        StacksEpochId::Epoch23,
+        &TypeSignature::IntType,
+        Value::UInt(1),
+    );
+    assert_eq!(result, Ok(Value::UInt(1)));
 }
