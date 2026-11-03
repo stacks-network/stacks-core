@@ -33,7 +33,6 @@ use stacks::chainstate::nakamoto::NakamotoBlockHeader;
 use stacks::chainstate::stacks::boot::{NakamotoSignerEntry, RewardSet, SIGNERS_NAME};
 use stacks::chainstate::stacks::events::StackerDBChunksEvent;
 use stacks::chainstate::stacks::Error as ChainstateError;
-use stacks::codec::StacksMessageCodec;
 use stacks::net::api::postblock_proposal::ValidateRejectCode;
 use stacks::net::stackerdb::StackerDBs;
 use stacks::types::chainstate::{StacksAddress, StacksPublicKey};
@@ -262,9 +261,7 @@ impl StackerDBListener {
                 continue;
             };
             let address = StacksAddress::p2pkh(config.is_mainnet(), &signer_pubkey);
-            if let Ok(SignerMessageV0::StateMachineUpdate(update)) =
-                SignerMessageV0::consensus_deserialize(&mut chunk.as_slice())
-            {
+            if let Some(update) = StateMachineUpdate::from_signer_message_chunk(&chunk) {
                 global_state_evaluator.insert_update(address, update);
             }
         }
