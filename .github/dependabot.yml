@@ -6,6 +6,9 @@
 # The cooldowns delay *version* updates until a release has been public for a
 # while, so a compromised or broken release is usually yanked before we ever
 # see a PR for it.
+#
+# Setting `labels` replaces Dependabot's defaults, so they are listed again
+# alongside "no changelog", which skips the changelog-fragment check.
 
 version: 2
 updates:
@@ -24,6 +27,10 @@ updates:
         update-types:
           - minor
           - patch
+    labels:
+      - dependencies
+      - rust
+      - no changelog
     open-pull-requests-limit: 5
 
   - package-ecosystem: github-actions
@@ -41,4 +48,8 @@ updates:
       github-actions:
         patterns:
           - "*"
+    labels:
+      - dependencies
+      - github_actions
+      - no changelog
     open-pull-requests-limit: 5
