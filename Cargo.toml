@@ -66,7 +66,7 @@ criterion = { version = "0.8.2", default-features = false, features = ["html_rep
 syn = { version = "2.0.115", default-features = false, features = ["full", "extra-traits"] }
 quote = { version = "1.0.44", default-features = false, features = ["proc-macro"] }
 proc-macro2 = { version = "1.0.106", default-features = false, features = ["proc-macro", "span-locations"] }
-darling = { version = "0.23.0", default-features = false, features = ["suggestions"] }
+darling = { version = "0.24.1", default-features = false, features = ["suggestions"] }
 
 # Use a bit more than default optimization for
 # dev builds to speed up test execution
