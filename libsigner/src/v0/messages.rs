@@ -2763,6 +2763,7 @@ mod test {
     /// Block responses as serialized by the current signer (`BlockResponseData` version 5).
     /// These exact bytes were verified to deserialize with stacks-signer 3.3.0.0.5, which keeps
     /// the `failed_txid` encoding in `unknown_bytes` and re-serializes them byte-for-byte.
+    /// Any change to these bytes must be re-verified for compatibility with older signers.
     const V5_BLOCK_ACCEPTED_HEX: &str = "01006dc06b8ae0cb304b1808731bd5e77b0befec809f6e02379623ee0f00c10b6586f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f300000015737461636b732d7369676e65722063757272656e7405000000120000000000000801ff00000000000013c200";
     const V5_BLOCK_REJECTED_HEX: &str = "010100000017426c6f636b2076616c69646174696f6e206661696c656400015de625f37ad6824e38d7677bf0bcab391c6001f2485341cb07fb55536b86946e800000003f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f00000015737461636b732d7369676e65722063757272656e7405000000330000000000000801000100000000000013c201abababababababababababababababababababababababababababababababab";
 
@@ -2827,8 +2828,6 @@ mod test {
         );
     }
 
-    /// The fixtures were checked against stacks-signer 3.3.0.0.5's parser, so any change to these
-    /// bytes must be re-verified for compatibility with older signers.
     #[test]
     fn block_responses_serialize_in_v3_3_0_0_5_compatible_format() {
         let accepted = compat_block_accepted(
