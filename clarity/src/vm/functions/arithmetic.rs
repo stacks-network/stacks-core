@@ -392,10 +392,14 @@ fn special_geq_v2(
     check_argument_count(2, args)?;
     let a = eval(&args[0], exec_state, invoke_ctx, context)?;
     let b = eval(&args[1], exec_state, invoke_ctx, context)?;
+    let epoch = *exec_state.epoch();
     runtime_cost(
         ClarityCostFunction::Geq,
         exec_state,
-        cmp::min(a.as_ref().size()?, b.as_ref().size()?),
+        cmp::min(
+            a.as_ref().charged_size(&epoch)?,
+            b.as_ref().charged_size(&epoch)?,
+        ),
     )?;
     type_force_binary_comparison_v2!(geq, a, b, exec_state)
 }
@@ -442,10 +446,14 @@ fn special_leq_v2(
     check_argument_count(2, args)?;
     let a = eval(&args[0], exec_state, invoke_ctx, context)?;
     let b = eval(&args[1], exec_state, invoke_ctx, context)?;
+    let epoch = *exec_state.epoch();
     runtime_cost(
         ClarityCostFunction::Leq,
         exec_state,
-        cmp::min(a.as_ref().size()?, b.as_ref().size()?),
+        cmp::min(
+            a.as_ref().charged_size(&epoch)?,
+            b.as_ref().charged_size(&epoch)?,
+        ),
     )?;
     type_force_binary_comparison_v2!(leq, a, b, exec_state)
 }
@@ -491,10 +499,14 @@ fn special_greater_v2(
     check_argument_count(2, args)?;
     let a = eval(&args[0], exec_state, invoke_ctx, context)?;
     let b = eval(&args[1], exec_state, invoke_ctx, context)?;
+    let epoch = *exec_state.epoch();
     runtime_cost(
         ClarityCostFunction::Ge,
         exec_state,
-        cmp::min(a.as_ref().size()?, b.as_ref().size()?),
+        cmp::min(
+            a.as_ref().charged_size(&epoch)?,
+            b.as_ref().charged_size(&epoch)?,
+        ),
     )?;
     type_force_binary_comparison_v2!(greater, a, b, exec_state)
 }
@@ -540,10 +552,14 @@ fn special_less_v2(
     check_argument_count(2, args)?;
     let a = eval(&args[0], exec_state, invoke_ctx, context)?;
     let b = eval(&args[1], exec_state, invoke_ctx, context)?;
+    let epoch = *exec_state.epoch();
     runtime_cost(
         ClarityCostFunction::Le,
         exec_state,
-        cmp::min(a.as_ref().size()?, b.as_ref().size()?),
+        cmp::min(
+            a.as_ref().charged_size(&epoch)?,
+            b.as_ref().charged_size(&epoch)?,
+        ),
     )?;
     type_force_binary_comparison_v2!(less, a, b, exec_state)
 }

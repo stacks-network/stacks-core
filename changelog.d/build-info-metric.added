@@ -1,0 +1,1 @@
+Adds the build-time environment variable `CUSTOM_VERSION_STRING` and exposes `stacks_build_info` through node and signer Prometheus metrics, with standard version, `STACKS_NODE_VERSION`, Git commit, and custom version labels. Custom metadata remains excluded from public version strings.

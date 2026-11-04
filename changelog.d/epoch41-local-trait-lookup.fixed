@@ -1,0 +1,1 @@
+From Epoch 4.1, a contract can call `contract-call?` through a trait it defines while it deploys, at the top level. Before, the deploy failed with `NoSuchContract` ([#6831](https://github.com/stacks-network/stacks-core/issues/6831)).

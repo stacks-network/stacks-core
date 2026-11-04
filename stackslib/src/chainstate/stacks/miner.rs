@@ -2033,28 +2033,9 @@ impl StacksBlockBuilder {
 
     /// Finish up mining an epoch's transactions
     pub fn epoch_finish(self, tx: ClarityTx) -> Result<ExecutionCost, Error> {
-        let new_consensus_hash = MINER_BLOCK_CONSENSUS_HASH.clone();
-        let new_block_hash = MINER_BLOCK_HEADER_HASH.clone();
-
-        let index_block_hash =
-            StacksBlockHeader::make_index_block_hash(&new_consensus_hash, &new_block_hash);
-
-        // clear out the block trie we just created, so the block validator logic doesn't step all
-        // over it.
-        //        let moved_name = format!("{}.mined", index_block_hash);
-
-        // write out the trie...
-        let consumed = tx.commit_mined_block(&index_block_hash)?;
-
-        test_debug!(
-            "\n\nMiner {}: Finished mining child of {}/{}. Trie is in mined_blocks table.\n",
-            self.miner_id,
-            self.chain_tip.consensus_hash,
-            self.chain_tip.anchored_header.block_hash()
-        );
-
-        Ok(consumed)
+        Ok(tx.finish_block_proposal()?)
     }
+
     /// Unconditionally build an anchored block from a list of transactions.
     ///  Used in test cases
     #[cfg(test)]

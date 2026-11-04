@@ -25,7 +25,7 @@ use clarity::vm::errors::VmExecutionError::{self, RuntimeCheck};
 use clarity::vm::representations::{CONTRACT_NAME_REGEX_STRING, STANDARD_PRINCIPAL_REGEX_STRING};
 use clarity::vm::resource_limiter::{ResourceBudget, ResourceLimiter};
 use clarity::vm::types::{BoundedErrorString, PrincipalData, QualifiedContractIdentifier};
-use clarity::vm::{ClarityName, ContractName, SymbolicExpression, Value};
+use clarity::vm::{ClarityName, ContractName, Value};
 use regex::{Captures, Regex};
 use stacks_common::types::chainstate::StacksAddress;
 use stacks_common::types::net::PeerHost;
@@ -207,17 +207,11 @@ impl RPCRequestHandler for RPCCallReadOnlyRequestHandler {
             .take()
             .ok_or(NetError::SendError("Missing `arguments`".into()))?;
 
-        // Started before the argument conversion so it counts against execution.
         let resource_limiter = self.execution_resource_limiter();
 
         // run the read-only call
         let data_resp =
             node.with_node_state(|_network, sortdb, chainstate, _mempool, _rpc_args| {
-                let args: Vec<_> = arguments
-                    .into_iter()
-                    .map(SymbolicExpression::atom_value)
-                    .collect();
-
                 let mainnet = chainstate.mainnet;
                 let chain_id = chainstate.chain_id;
                 let mut cost_limit = self.read_only_call_limit.clone();
@@ -259,7 +253,7 @@ impl RPCRequestHandler for RPCCallReadOnlyRequestHandler {
                                         invoke_ctx,
                                         &contract_identifier,
                                         function.as_str(),
-                                        &args,
+                                        arguments,
                                         false,
                                     )
                                     .map_err(ClarityEvalError::from)

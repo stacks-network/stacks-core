@@ -23,7 +23,7 @@ use super::{
 };
 use crate::vm::analysis::type_checker::contexts::TypingContext;
 use crate::vm::costs::cost_functions::ClarityCostFunction;
-use crate::vm::costs::{CostErrors, CostTracker, analysis_typecheck_cost, runtime_cost};
+use crate::vm::costs::{CostErrors, CostTracker, analysis_typecheck_cost_for_epoch, runtime_cost};
 use crate::vm::representations::SymbolicExpression;
 
 pub fn check_special_okay(
@@ -114,7 +114,7 @@ pub fn check_special_default_to(
     let default = checker.type_check(&args[0], context)?;
     let input = checker.type_check(&args[1], context)?;
 
-    analysis_typecheck_cost(checker, &default, &input)?;
+    analysis_typecheck_cost_for_epoch(checker, checker.epoch, &default, &input)?;
 
     if let TypeSignature::OptionalType(input_type) = input {
         let contained_type = *input_type;
@@ -295,12 +295,12 @@ fn eval_with_new_binding(
     runtime_cost(
         ClarityCostFunction::AnalysisBindName,
         checker,
-        bind_type.type_size()?,
+        bind_type.charged_type_size(&checker.epoch)?,
     )?;
     let mut memory_use = 0;
     if checker.epoch.analysis_memory() {
         memory_use = u64::from(bind_name.len())
-            .checked_add(u64::from(bind_type.type_size()?))
+            .checked_add(u64::from(bind_type.charged_type_size(&checker.epoch)?))
             .ok_or_else(|| CostErrors::CostOverflow)?;
         checker.add_memory(memory_use)?;
     }
@@ -348,7 +348,12 @@ fn check_special_match_opt(
         eval_with_new_binding(some_branch, bind_name, option_type, checker, context)?;
     let none_branch_type = checker.type_check(none_branch, context)?;
 
-    analysis_typecheck_cost(checker, &some_branch_type, &none_branch_type)?;
+    analysis_typecheck_cost_for_epoch(
+        checker,
+        checker.epoch,
+        &some_branch_type,
+        &none_branch_type,
+    )?;
 
     TypeSignature::least_supertype_for_analysis(
         &checker.epoch,
@@ -405,7 +410,7 @@ fn check_special_match_resp(
     let err_branch_type =
         eval_with_new_binding(err_branch, err_bind_name, err_type, checker, context)?;
 
-    analysis_typecheck_cost(checker, &ok_branch_type, &err_branch_type)?;
+    analysis_typecheck_cost_for_epoch(checker, checker.epoch, &ok_branch_type, &err_branch_type)?;
 
     TypeSignature::least_supertype_for_analysis(&checker.epoch, &ok_branch_type, &err_branch_type)
         .map_err(|_| {

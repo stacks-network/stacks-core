@@ -30,7 +30,7 @@ use crate::storage::{TrieFileStorage, TrieHashCalculationMode, TrieStorageConnec
 use crate::test::{
     make_node4_path, make_node_path, merkle_test_marf, merkle_test_marf_key_value, opts,
 };
-use crate::{ClarityMarfTrieId, Error, MARFValue, TrieLeaf};
+use crate::{trie_sql, ClarityMarfTrieId, Error, MARFValue, TrieLeaf};
 
 #[test]
 fn marf_insert_different_leaf_same_block_100() {
@@ -1839,6 +1839,71 @@ fn marf_insert_flush_to_different_block() {
     }
 }
 
+/// Discarding a trie commits other SQL writes and leaves its placeholder reusable.
+#[test]
+fn test_marf_discard_trie_and_commit() {
+    let mut marf = MARF::from_path(":memory:", opts::OPTS_IMM.clone()).unwrap();
+    let placeholder = BlockHeaderHash([1; 32]);
+    marf.sqlite_conn()
+        .execute_batch("CREATE TABLE test_writes(value INTEGER)")
+        .unwrap();
+    marf.begin(&BlockHeaderHash::sentinel(), &placeholder)
+        .unwrap();
+    marf.insert("key", MARFValue::from_value("discarded"))
+        .unwrap();
+    let tx = marf.begin_tx().unwrap();
+    tx.sqlite_tx()
+        .execute("INSERT INTO test_writes VALUES(42)", [])
+        .unwrap();
+    tx.discard_trie_and_commit().unwrap();
+    assert_matches!(
+        trie_sql::get_block_identifier(marf.sqlite_conn(), &placeholder),
+        Err(Error::NotFoundError)
+    );
+    assert_eq!(
+        marf.sqlite_conn()
+            .query_row("SELECT value FROM test_writes", [], |row| row
+                .get::<_, u64>(0))
+            .unwrap(),
+        42
+    );
+    marf.begin(&BlockHeaderHash::sentinel(), &placeholder)
+        .unwrap();
+    marf.drop_current();
+}
+
+/// Transaction rollback releases the extension even when explicit lock deletion fails.
+#[test]
+fn test_marf_drop_current_without_cleanup_queries() {
+    let mut marf = MARF::from_path(":memory:", opts::OPTS_IMM.clone()).unwrap();
+    let placeholder = BlockHeaderHash([1; 32]);
+    let mut tx = marf.begin_tx().unwrap();
+    tx.begin(&BlockHeaderHash::sentinel(), &placeholder)
+        .unwrap();
+    tx.insert_batch(&["key".into()], vec![MARFValue::from_value("discarded")])
+        .unwrap();
+    tx.sqlite_tx()
+        .execute_batch(
+            "CREATE TEMP TRIGGER reject_lock_delete BEFORE DELETE ON block_extension_locks
+         BEGIN SELECT RAISE(ABORT, 'lock deletion rejected'); END;",
+        )
+        .unwrap();
+    assert_matches!(
+        trie_sql::drop_lock(tx.sqlite_tx(), &placeholder),
+        Err(Error::SQLError(_))
+    );
+    tx.drop_current();
+    assert_matches!(
+        trie_sql::get_block_identifier(marf.sqlite_conn(), &placeholder),
+        Err(Error::NotFoundError)
+    );
+    let mut retry = marf.begin_tx().unwrap();
+    retry
+        .begin(&BlockHeaderHash::sentinel(), &placeholder)
+        .unwrap();
+    retry.drop_current();
+}
+
 #[test]
 fn test_marf_read_only() {
     let marf_opts = MARFOpenOpts::default();
@@ -1878,10 +1943,6 @@ fn test_marf_read_only() {
         Err(Error::ReadOnlyError)
     );
     assert_matches!(ro_marf.commit(), Err(Error::ReadOnlyError));
-    assert_matches!(
-        ro_marf.commit_mined(&BlockHeaderHash([0x22; 32])),
-        Err(Error::ReadOnlyError)
-    );
     assert_matches!(
         ro_marf.commit_to(&BlockHeaderHash([0x33; 32])),
         Err(Error::ReadOnlyError)

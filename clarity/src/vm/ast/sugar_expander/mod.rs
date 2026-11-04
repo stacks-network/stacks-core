@@ -22,7 +22,9 @@ use stacks_common::types::StacksEpochId;
 use crate::vm::ClarityVersion;
 use crate::vm::ast::errors::{ParseErrorKind, ParseResult};
 use crate::vm::ast::types::{BuildASTPass, ContractAST, PreExpressionsDrain};
-use crate::vm::representations::{PreSymbolicExpressionType, SymbolicExpression};
+use crate::vm::representations::{
+    PreSymbolicExpression, PreSymbolicExpressionType, SymbolicExpression,
+};
 
 pub struct SugarExpander {
     issuer: StandardPrincipalData,
@@ -51,14 +53,24 @@ impl SugarExpander {
         Ok(())
     }
 
-    // TODO: add tests from mutation testing results #4830
-    #[cfg_attr(test, mutants::skip)]
     pub fn transform(
         &self,
         pre_exprs_iter: PreExpressionsDrain,
         contract_ast: &mut ContractAST,
     ) -> ParseResult<Vec<SymbolicExpression>> {
-        let mut expressions: Vec<SymbolicExpression> = Vec::with_capacity(pre_exprs_iter.len());
+        let len = pre_exprs_iter.len();
+        self.transform_iter(pre_exprs_iter, len, contract_ast)
+    }
+
+    // TODO: add tests from mutation testing results #4830
+    #[cfg_attr(test, mutants::skip)]
+    fn transform_iter(
+        &self,
+        pre_exprs_iter: impl Iterator<Item = PreSymbolicExpression>,
+        len: usize,
+        contract_ast: &mut ContractAST,
+    ) -> ParseResult<Vec<SymbolicExpression>> {
+        let mut expressions: Vec<SymbolicExpression> = Vec::with_capacity(len);
         #[cfg(feature = "developer-mode")]
         let mut comments = Vec::new();
 
@@ -70,27 +82,29 @@ impl SugarExpander {
                 }
                 PreSymbolicExpressionType::Atom(content) => SymbolicExpression::atom(content),
                 PreSymbolicExpressionType::List(pre_exprs) => {
-                    let drain = PreExpressionsDrain::new(pre_exprs.to_vec().drain(..), None);
-                    let expression = self.transform(drain, contract_ast)?;
+                    let len = pre_exprs.len();
+                    let expression =
+                        self.transform_iter(pre_exprs.into_iter(), len, contract_ast)?;
                     SymbolicExpression::list(expression)
                 }
                 PreSymbolicExpressionType::Tuple(pre_exprs) => {
-                    let drain = PreExpressionsDrain::new(pre_exprs.to_vec().drain(..), None);
-                    let expression = self.transform(drain, contract_ast)?;
-                    let mut pairs = expression
-                        .chunks(2)
-                        .map(|pair| pair.to_vec())
-                        .map(SymbolicExpression::list)
-                        .collect::<Vec<_>>();
-                    pairs.insert(
-                        0,
-                        SymbolicExpression::atom(
-                            "tuple"
-                                .to_string()
-                                .try_into()
-                                .map_err(|_| ParseErrorKind::InterpreterFailure)?,
-                        ),
-                    );
+                    let len = pre_exprs.len();
+                    let expression =
+                        self.transform_iter(pre_exprs.into_iter(), len, contract_ast)?;
+                    let mut pairs = Vec::with_capacity(expression.len().div_ceil(2) + 1);
+                    pairs.push(SymbolicExpression::atom(
+                        "tuple"
+                            .to_string()
+                            .try_into()
+                            .map_err(|_| ParseErrorKind::InterpreterFailure)?,
+                    ));
+                    let mut children = expression.into_iter();
+                    while let Some(key) = children.next() {
+                        pairs.push(SymbolicExpression::list(match children.next() {
+                            Some(value) => vec![key, value],
+                            None => vec![key],
+                        }));
+                    }
                     SymbolicExpression::list(pairs)
                 }
                 PreSymbolicExpressionType::SugaredContractIdentifier(contract_name) => {

@@ -24,10 +24,7 @@ use clarity::vm::costs::{
 use clarity::vm::errors::VmExecutionError;
 use clarity::vm::events::StacksTransactionEvent;
 use clarity::vm::functions::NativeFunctions;
-use clarity::vm::representations::SymbolicExpression;
-use clarity::vm::test_util::{
-    execute, generate_test_burn_state_db, symbols_from_values, TEST_HEADER_DB,
-};
+use clarity::vm::test_util::{execute, generate_test_burn_state_db, TEST_HEADER_DB};
 use clarity::vm::types::{
     PrincipalData, QualifiedContractIdentifier, StandardPrincipalData, Value,
 };
@@ -198,7 +195,7 @@ fn execute_transaction(
     issuer: PrincipalData,
     contract_identifier: &QualifiedContractIdentifier,
     tx: &str,
-    args: &[SymbolicExpression],
+    args: Vec<Value>,
 ) -> Result<(Value, AssetMap, Vec<StacksTransactionEvent>), VmExecutionError> {
     env.execute_transaction(issuer, None, contract_identifier.clone(), tx, args)
 }
@@ -245,7 +242,7 @@ fn exec_cost(contract: &str, use_mainnet: bool, epoch: StacksEpochId) -> Executi
             p1_principal.clone().into(),
             &contract_id,
             "execute",
-            &[],
+            vec![],
         )
         .unwrap();
 
@@ -1004,7 +1001,7 @@ fn test_program_cost(
         p2_principal,
         &self_contract_id,
         "execute",
-        &symbols_from_values(vec![target_contract]),
+        vec![target_contract],
     )
     .unwrap();
 
@@ -1210,7 +1207,7 @@ fn test_cost_change() {
             StandardPrincipalData::transient().into(),
             &contract_id,
             "execute",
-            &symbols_from_values(vec![Value::buff_from_byte(0)]),
+            vec![Value::buff_from_byte(0)],
         )
         .unwrap();
 
@@ -1242,7 +1239,7 @@ fn test_cost_change() {
             StandardPrincipalData::transient().into(),
             &contract_id,
             "execute",
-            &symbols_from_values(vec![Value::buff_from_byte(0)]),
+            vec![Value::buff_from_byte(0)],
         )
         .unwrap();
 
@@ -1276,7 +1273,7 @@ fn test_cost_change() {
             StandardPrincipalData::transient().into(),
             &contract_id,
             "execute",
-            &symbols_from_values(vec![Value::buff_from_byte(0)]),
+            vec![Value::buff_from_byte(0)],
         )
         .unwrap();
 
@@ -1308,7 +1305,7 @@ fn test_cost_change() {
             StandardPrincipalData::transient().into(),
             &contract_id,
             "execute",
-            &symbols_from_values(vec![Value::buff_from_byte(0)]),
+            vec![Value::buff_from_byte(0)],
         )
         .unwrap();
 
