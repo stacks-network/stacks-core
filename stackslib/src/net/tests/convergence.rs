@@ -60,6 +60,9 @@ fn make_stacker_db_ids(i: usize) -> Vec<QualifiedContractIdentifier> {
     dbs
 }
 
+/// Peer `i` binds p2p port `port_base + 2 * i` and HTTP port `port_base + 2 * i + 1`.
+/// Keep `port_base` below 32768: Linux hands out ports from 32768 and up to outbound
+/// connections, and any of those can hold one of our ports and stop the peer from binding.
 fn setup_peer_config(
     i: usize,
     port_base: u16,
@@ -116,7 +119,7 @@ fn test_walk_ring_allow_15() {
         let neighbor_count: usize = 3;
 
         for i in 0..peer_count {
-            let mut conf = setup_peer_config(i, 32800, neighbor_count, peer_count);
+            let mut conf = setup_peer_config(i, 22800, neighbor_count, peer_count);
 
             conf.allowed = -1; // always allowed
             conf.denied = 0;
@@ -145,7 +148,7 @@ fn test_walk_ring_15_plain() {
         let neighbor_count: usize = 3;
 
         for i in 0..peer_count {
-            let mut conf = setup_peer_config(i, 32900, neighbor_count, peer_count);
+            let mut conf = setup_peer_config(i, 22900, neighbor_count, peer_count);
 
             conf.allowed = 0;
             conf.denied = 0;
@@ -170,7 +173,7 @@ fn test_walk_ring_15_pingback() {
         let neighbor_count: usize = 3;
 
         for i in 0..peer_count {
-            let mut conf = setup_peer_config(i, 32950, neighbor_count, peer_count);
+            let mut conf = setup_peer_config(i, 22950, neighbor_count, peer_count);
 
             conf.allowed = 0;
             conf.denied = 0;
@@ -194,15 +197,15 @@ fn test_walk_ring_15_org_biased() {
         // one outlier peer has a different org than the others.
         use std::env;
 
-        // ::33000 is in AS 1
-        env::set_var("BLOCKSTACK_NEIGHBOR_TEST_33000", "1");
+        // ::23000 is in AS 1
+        env::set_var("BLOCKSTACK_NEIGHBOR_TEST_23000", "1");
 
         let mut peer_configs = vec![];
         let peer_count: usize = 15;
         let neighbor_count: usize = 3;
 
         for i in 0..peer_count {
-            let mut conf = setup_peer_config(i, 33000, neighbor_count, peer_count);
+            let mut conf = setup_peer_config(i, 23000, neighbor_count, peer_count);
 
             conf.allowed = 0;
             conf.denied = 0;
@@ -217,7 +220,7 @@ fn test_walk_ring_15_org_biased() {
             peer_configs.push(conf);
         }
 
-        // all peers see peer ::33000 as having ASN and Org ID 1
+        // all peers see peer ::23000 as having ASN and Org ID 1
         let peer_0 = peer_configs[0].to_neighbor();
 
         let peers = test_walk_ring(&mut peer_configs);
@@ -236,7 +239,7 @@ fn test_walk_ring_15_org_biased() {
             }
         }
 
-        // no peer pruned peer ::33000
+        // no peer pruned peer ::23000
         for peer in peers[..peer_count].iter().skip(1) {
             match peer.network.prune_inbound_counts.get(&peer_0.addr) {
                 None => {}
@@ -325,7 +328,7 @@ fn test_walk_line_allowed_15() {
         let neighbor_count: usize = 3;
 
         for i in 0..peer_count {
-            let mut conf = setup_peer_config(i, 33100, neighbor_count, peer_count);
+            let mut conf = setup_peer_config(i, 23100, neighbor_count, peer_count);
 
             conf.allowed = -1;
             conf.denied = 0;
@@ -354,7 +357,7 @@ fn test_walk_line_15_plain() {
         let neighbor_count: usize = 3;
 
         for i in 0..peer_count {
-            let mut conf = setup_peer_config(i, 33200, neighbor_count, peer_count);
+            let mut conf = setup_peer_config(i, 23200, neighbor_count, peer_count);
 
             conf.allowed = 0;
             conf.denied = 0;
@@ -376,14 +379,14 @@ fn test_walk_line_15_org_biased() {
         // one outlier peer has a different org than the others.
         use std::env;
 
-        // ::33300 is in AS 1
-        env::set_var("BLOCKSTACK_NEIGHBOR_TEST_33300", "1");
+        // ::23300 is in AS 1
+        env::set_var("BLOCKSTACK_NEIGHBOR_TEST_23300", "1");
 
         let mut peer_configs = vec![];
         let peer_count: usize = 15;
         let neighbor_count: usize = 3; // make this a little bigger to speed this test up
         for i in 0..peer_count {
-            let mut conf = setup_peer_config(i, 33300, neighbor_count, peer_count);
+            let mut conf = setup_peer_config(i, 23300, neighbor_count, peer_count);
 
             conf.allowed = 0;
             conf.denied = 0;
@@ -397,7 +400,7 @@ fn test_walk_line_15_org_biased() {
 
             peer_configs.push(conf);
         }
-        // all peers see peer ::33300 as having ASN and Org ID 1
+        // all peers see peer ::23300 as having ASN and Org ID 1
         let peer_0 = peer_configs[0].to_neighbor();
 
         let peers = test_walk_line(&mut peer_configs);
@@ -416,7 +419,7 @@ fn test_walk_line_15_org_biased() {
             }
         }
 
-        // no peer pruned peer ::33300
+        // no peer pruned peer ::23300
         for peer in peers[..peer_count].iter().skip(1) {
             match peer.network.prune_inbound_counts.get(&peer_0.addr) {
                 None => {}
@@ -441,7 +444,7 @@ fn test_walk_line_15_pingback() {
         let neighbor_count: usize = 3;
 
         for i in 0..peer_count {
-            let mut conf = setup_peer_config(i, 33350, neighbor_count, peer_count);
+            let mut conf = setup_peer_config(i, 23350, neighbor_count, peer_count);
 
             conf.allowed = 0;
             conf.denied = 0;
@@ -537,7 +540,7 @@ fn test_walk_star_allowed_15() {
         let peer_count: usize = 15;
         let neighbor_count: usize = 3;
         for i in 0..peer_count {
-            let mut conf = setup_peer_config(i, 33400, neighbor_count, peer_count);
+            let mut conf = setup_peer_config(i, 23400, neighbor_count, peer_count);
 
             conf.allowed = -1; // always allowed
             conf.denied = 0;
@@ -564,7 +567,7 @@ fn test_walk_star_15_plain() {
         let peer_count: usize = 15;
         let neighbor_count: usize = 3;
         for i in 0..peer_count {
-            let mut conf = setup_peer_config(i, 33500, neighbor_count, peer_count);
+            let mut conf = setup_peer_config(i, 23500, neighbor_count, peer_count);
 
             conf.allowed = 0;
             conf.denied = 0;
@@ -587,7 +590,7 @@ fn test_walk_star_15_pingback() {
         let peer_count: usize = 15;
         let neighbor_count: usize = 3;
         for i in 0..peer_count {
-            let mut conf = setup_peer_config(i, 33550, neighbor_count, peer_count);
+            let mut conf = setup_peer_config(i, 23550, neighbor_count, peer_count);
 
             conf.allowed = 0;
             conf.denied = 0;
@@ -612,14 +615,14 @@ fn test_walk_star_15_org_biased() {
         // one outlier peer has a different org than the others.
         use std::env;
 
-        // ::33600 is in AS 1
-        env::set_var("BLOCKSTACK_NEIGHBOR_TEST_33600", "1");
+        // ::23600 is in AS 1
+        env::set_var("BLOCKSTACK_NEIGHBOR_TEST_23600", "1");
 
         let mut peer_configs = vec![];
         let peer_count: usize = 15;
         let neighbor_count: usize = 3;
         for i in 0..peer_count {
-            let mut conf = setup_peer_config(i, 33600, neighbor_count, peer_count);
+            let mut conf = setup_peer_config(i, 23600, neighbor_count, peer_count);
 
             conf.allowed = 0;
             conf.denied = 0;
@@ -633,7 +636,7 @@ fn test_walk_star_15_org_biased() {
 
             peer_configs.push(conf);
         }
-        // all peers see peer ::33600 as having ASN and Org ID 1
+        // all peers see peer ::23600 as having ASN and Org ID 1
         let peer_0 = peer_configs[0].to_neighbor();
 
         let peers = test_walk_star(&mut peer_configs);
@@ -652,7 +655,7 @@ fn test_walk_star_15_org_biased() {
             }
         }
 
-        // no peer pruned peer ::33600
+        // no peer pruned peer ::23600
         for peer in peers[..peer_count].iter().skip(1) {
             match peer.network.prune_inbound_counts.get(&peer_0.addr) {
                 None => {}
@@ -822,7 +825,7 @@ fn test_walk_inbound_line_15() {
         let neighbor_count: usize = 15; // make this test go faster
 
         for i in 0..peer_count {
-            let mut conf = setup_peer_config(i, 33250, neighbor_count, peer_count);
+            let mut conf = setup_peer_config(i, 23250, neighbor_count, peer_count);
 
             conf.allowed = 0;
             conf.denied = 0;
