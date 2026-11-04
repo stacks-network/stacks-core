@@ -51,7 +51,7 @@ use crate::chainstate::v2::GlobalStateView;
 use crate::chainstate::{ProposalEvalConfig, SelfAsTip, SortitionData, SortitionStateVersion};
 use crate::client::{ClientError, SignerSlotID, StackerDB, StacksClient};
 use crate::config::{SignerConfig, SignerConfigMode};
-use crate::runloop::SignerResult;
+use crate::runloop::{PoxGeometry, SignerResult};
 use crate::signerdb::{
     BlockInfo, BlockState, PendingBlockResponses, ReorgPermit, SignedConflictInfo, SignerDb,
     MAX_FORK_DEPTH,
@@ -120,6 +120,8 @@ pub struct Signer {
     pub signer_addresses: Vec<StacksAddress>,
     /// The reward cycle this signer belongs to
     pub reward_cycle: u64,
+    /// The PoX reward cycle geometry
+    pub pox_geometry: PoxGeometry,
     /// Reward set signer addresses and their weights
     pub signer_weights: HashMap<StacksAddress, u32>,
     /// SignerDB for state management
@@ -340,6 +342,7 @@ impl SignerTrait<SignerMessage> for Signer {
             signer_weights: signer_config.signer_entries.signer_addr_to_weight.clone(),
             signer_slot_ids: signer_config.signer_slot_ids.clone(),
             reward_cycle: signer_config.reward_cycle,
+            pox_geometry: signer_config.pox_geometry,
             signer_db,
             proposal_config,
             submitted_block_proposal: None,
@@ -1907,6 +1910,27 @@ impl Signer {
             );
             return;
         }
+        match self.place_proposal_tenure(stacks_client, block_proposal) {
+            TenurePlacement::Matches => {}
+            TenurePlacement::Misstated => return,
+            TenurePlacement::Unknown => {
+                // Our node has not processed the tenure's sortition yet, which is usual right
+                // after a new burn block. Reject rather than silently drop, and without
+                // storing the block: the miner treats `NoSortitionView` as transient and
+                // re-sends the proposal after its transient retry timeout, and with no row
+                // for the block we then judge the re-sent proposal afresh.
+                warn!(
+                    "{self}: Received a block proposal for a tenure our node has no sortition for yet. Rejecting it as transient.";
+                    "signer_signature_hash" => %block_proposal.block.header.signer_signature_hash(),
+                    "consensus_hash" => %block_proposal.block.header.consensus_hash,
+                    "proposed_burn_height" => block_proposal.burn_height,
+                );
+                let rejection = self
+                    .create_block_rejection(RejectReason::NoSortitionView, &block_proposal.block);
+                self.send_block_response(&block_proposal.block, rejection.into());
+                return;
+            }
+        }
 
         let signer_signature_hash = block_proposal.block.header.signer_signature_hash();
         let prior_block_info = self.block_lookup_by_reward_cycle(&signer_signature_hash);
@@ -2067,6 +2091,60 @@ impl Signer {
                 pending_responses,
             );
         }
+    }
+
+    /// Place a block proposal by the tenure its block commits to (the sortition named by the
+    /// block's consensus hash), and check the proposal's `burn_height` and `reward_cycle`
+    /// against it.
+    ///
+    /// Both fields are supplied by the miner, outside the signed block, so they must not decide
+    /// which cycle's signer instance owns the block: the two instances share one signer DB,
+    /// where a block's row is keyed by its signer signature hash alone. The burn height comes
+    /// from the signer DB when we have seen the tenure's burn block, and from the node
+    /// otherwise.
+    fn place_proposal_tenure(
+        &self,
+        stacks_client: &StacksClient,
+        block_proposal: &BlockProposal,
+    ) -> TenurePlacement {
+        let consensus_hash = &block_proposal.block.header.consensus_hash;
+        let burn_height = match self.signer_db.get_burn_block_by_ch(consensus_hash) {
+            Ok(burn_block) => burn_block.block_height,
+            Err(DBError::NotFoundError) => {
+                match stacks_client.get_sortition_by_consensus_hash(consensus_hash) {
+                    Ok(sortition) => sortition.burn_block_height,
+                    Err(e) => {
+                        debug!(
+                            "{self}: The node has no sortition for a block proposal's tenure: {e:?}";
+                            "consensus_hash" => %consensus_hash,
+                        );
+                        return TenurePlacement::Unknown;
+                    }
+                }
+            }
+            Err(e) => {
+                warn!(
+                    "{self}: Failed to look up the burn block for a block proposal's tenure: {e:?}";
+                    "consensus_hash" => %consensus_hash,
+                );
+                return TenurePlacement::Unknown;
+            }
+        };
+        let reward_cycle = self.pox_geometry.reward_cycle_of(burn_height);
+        if block_proposal.burn_height != burn_height || block_proposal.reward_cycle != reward_cycle
+        {
+            warn!(
+                "{self}: Received a block proposal that misstates its tenure's burn height or reward cycle. Ignoring it.";
+                "signer_signature_hash" => %block_proposal.block.header.signer_signature_hash(),
+                "consensus_hash" => %consensus_hash,
+                "burn_height" => burn_height,
+                "reward_cycle" => reward_cycle,
+                "proposed_burn_height" => block_proposal.burn_height,
+                "proposed_reward_cycle" => block_proposal.reward_cycle,
+            );
+            return TenurePlacement::Misstated;
+        }
+        TenurePlacement::Matches
     }
 
     /// Process pending responses for a block proposal that we may have received late.
@@ -3104,6 +3182,19 @@ impl Signer {
     fn get_signer_protocol_version(&self) -> u64 {
         self.test_get_signer_protocol_version()
     }
+}
+
+/// How a block proposal's `burn_height` and `reward_cycle` relate to the tenure its block
+/// commits to; see [`Signer::place_proposal_tenure`].
+#[derive(Debug, PartialEq, Eq)]
+enum TenurePlacement {
+    /// Both are those of the tenure's sortition.
+    Matches,
+    /// At least one is not: the proposal is dropped.
+    Misstated,
+    /// Neither the signer DB nor the node knows the tenure's sortition, so the proposal cannot
+    /// be placed yet.
+    Unknown,
 }
 
 /// Determine if a block should be re-evaluated based on its rejection reason.

@@ -411,6 +411,7 @@ mod async_sibling_validation {
     use crate::chainstate::{SelfAsTip, SortitionData};
     use crate::client::{SignerSlotID, StacksClient};
     use crate::config::{SignerConfig, SignerConfigMode};
+    use crate::runloop::PoxGeometry;
     use crate::signerdb::{BlockInfo, BlockState};
     use crate::v0::signer::Signer;
     use crate::v0::signer_state::LocalStateMachine;
@@ -508,12 +509,23 @@ mod async_sibling_validation {
         block
     }
 
+    /// The burn height of the sortition that elected every fixture tenure.
+    pub(super) const FIXTURE_BURN_HEIGHT: u64 = 1;
+    /// One burn block per reward cycle, so `FIXTURE_BURN_HEIGHT` is in reward cycle 1, the
+    /// cycle the mock signer signs for.
+    const FIXTURE_POX_GEOMETRY: PoxGeometry = PoxGeometry {
+        reward_cycle_length: 1,
+        prepare_phase_block_length: 0,
+        first_burnchain_block_height: 0,
+    };
+
     /// Binary response bodies served by the mock node, as `(path fragment, bytes)`.
     type BinaryResponses = Arc<Mutex<Vec<(String, Vec<u8>)>>>;
 
     /// A mock stacks-node that serves a tenure tip per consensus hash (so the tenure-change
     /// parent check and the signing-time tip check each see their own tenure's tip) and an
-    /// empty `/v2/info`; everything else 404s. `tips` maps a path fragment to a response body,
+    /// empty `/v2/info` and, by default, a sortition at `FIXTURE_BURN_HEIGHT` for any consensus
+    /// hash; everything else 404s. `tips` maps a path fragment to a response body,
     /// first match wins. `binary_responses` does the same with binary bodies (StackerDB chunks)
     /// and is checked first.
     fn serve_node(
@@ -561,7 +573,17 @@ mod async_sibling_validation {
                 .unwrap()
                 .iter()
                 .find(|(fragment, _)| request.contains(fragment.as_str()))
-                .map(|(_, body)| body.clone());
+                .map(|(_, body)| body.clone())
+                .or_else(|| {
+                    // Unless a test says otherwise, every tenure was elected at the fixture
+                    // burn height.
+                    request.contains("/v3/sortitions/consensus/").then(|| {
+                        canonical_sortition_response(
+                            &BurnchainHeaderHash([0; 32]),
+                            FIXTURE_BURN_HEIGHT,
+                        )
+                    })
+                });
             let (status, body) = if let Some(body) = tip_body.as_deref() {
                 ("200 OK", body)
             } else if request.contains("/v2/info") {
@@ -587,7 +609,7 @@ mod async_sibling_validation {
         db_path: std::path::PathBuf,
         /// What the node currently answers, as `(path fragment, body)`; anything unmatched
         /// 404s. Replaceable so a test can change the node's view between events.
-        tips: Arc<Mutex<Vec<(String, String)>>>,
+        pub(super) tips: Arc<Mutex<Vec<(String, String)>>>,
         /// Binary bodies the node answers, as `(path fragment, bytes)`, checked before `tips`.
         pub(super) binary_responses: BinaryResponses,
     }
@@ -638,6 +660,7 @@ mod async_sibling_validation {
 
             let signer_config = SignerConfig {
                 reward_cycle: 1,
+                pox_geometry: FIXTURE_POX_GEOMETRY,
                 supported_signer_protocol_version: 2,
                 signer_entries,
                 signer_slot_ids: vec![SignerSlotID(0)],
@@ -1881,7 +1904,10 @@ mod async_sibling_validation {
 
     /// Build the JSON the node serves for a burn block that IS on its canonical chain. Only
     /// the fact that the request succeeded matters to the caller under test.
-    fn canonical_sortition_response(burn_hash: &BurnchainHeaderHash, height: u64) -> String {
+    pub(super) fn canonical_sortition_response(
+        burn_hash: &BurnchainHeaderHash,
+        height: u64,
+    ) -> String {
         let info = SortitionInfo {
             burn_block_hash: burn_hash.clone(),
             burn_block_height: height,
@@ -3144,5 +3170,199 @@ mod cycle_start_state_sync {
         node.shutdown();
         assert_eq!(first, Some(burn_block));
         assert_eq!(second, Some(reorged_burn_block));
+    }
+}
+
+/// A block proposal's `burn_height` and `reward_cycle` are miner-supplied and outside the signed
+/// block. The two cycles' signer instances share one signer DB row per block, so a miner that
+/// could steer a block to the other instance by misstating its cycle could have that instance
+/// overwrite the row. A signer instead places the proposal by the tenure its block commits to,
+/// and drops a proposal that misstates it. A tenure the signer's node has no sortition for yet
+/// draws a transient rejection instead, so that the miner re-sends the proposal once the node
+/// has caught up.
+#[cfg(test)]
+mod proposal_tenure_placement {
+    use std::sync::mpsc;
+    use std::time::{Duration, SystemTime};
+
+    use clarity::types::chainstate::{BurnchainHeaderHash, ConsensusHash, StacksBlockId};
+    use libsigner::v0::messages::{RejectReason, SignerMessage};
+    use libsigner::{BlockProposal, BlockProposalData, SignerEvent};
+    use stacks_common::types::chainstate::StacksPrivateKey;
+
+    use super::async_sibling_validation::{
+        canonical_sortition_response, tenure_start, MockNode, FIXTURE_BURN_HEIGHT,
+    };
+    use super::BlockMessageRecorder;
+    use crate::Signer as SignerTrait;
+
+    /// The tenure every proposal here belongs to.
+    const TENURE: ConsensusHash = ConsensusHash([1; 20]);
+
+    /// A proposal for a block in `TENURE` whose wrapper claims `burn_height` and
+    /// `reward_cycle`. The block is too old to sign, so a proposal the signer accepts as its own
+    /// draws an immediate `ProposalTooOld` rejection without needing any other node state.
+    fn stale_proposal(burn_height: u64, reward_cycle: u64) -> BlockProposal {
+        let block = tenure_start(
+            &StacksPrivateKey::from_seed(&[0, 1]),
+            &TENURE,
+            &ConsensusHash([0; 20]),
+            &StacksBlockId([9; 32]),
+            10,
+            1,
+        );
+        BlockProposal {
+            block,
+            burn_height,
+            reward_cycle,
+            block_proposal_data: BlockProposalData::empty(),
+        }
+    }
+
+    /// Hand `proposal` to the signer of `node`, which signs for reward cycle 1, and return the
+    /// reject reason of every response it sent for the block.
+    fn judge_with(node: &mut MockNode, proposal: &BlockProposal) -> Vec<RejectReason> {
+        let hash = proposal.block.header.signer_signature_hash();
+        node.signer.test_block_messages = Some(BlockMessageRecorder::new(hash.clone()));
+        let (result_tx, _result_rx) = mpsc::channel();
+        let mut sortition = None;
+        node.signer.process_event(
+            &node.client,
+            &mut sortition,
+            Some(&SignerEvent::MinerMessages(vec![
+                SignerMessage::BlockProposal(proposal.clone()),
+            ])),
+            &result_tx,
+            1,
+            Some(1),
+        );
+        let stored = node.signer.signer_db.block_lookup(&hash).unwrap();
+        let recorder = node.signer.test_block_messages.take().unwrap();
+        assert!(stored.is_none(), "a proposal judged here is never stored");
+        let reason = recorder
+            .first_response
+            .as_ref()
+            .and_then(|response| response.as_block_rejection())
+            .map(|rejection| rejection.response_data.reject_reason.clone());
+        assert_eq!(recorder.response_count, usize::from(reason.is_some()));
+        reason.into_iter().collect()
+    }
+
+    /// `judge_with` on a fresh node that answers `tips`, after `setup`.
+    fn judge(
+        tips: Vec<(String, String)>,
+        setup: impl FnOnce(&mut MockNode),
+        proposal: &BlockProposal,
+    ) -> Vec<RejectReason> {
+        let mut node = MockNode::new(tips, Duration::from_secs(100_000));
+        setup(&mut node);
+        let reasons = judge_with(&mut node, proposal);
+        node.shutdown();
+        reasons
+    }
+
+    /// The node places `TENURE` at `burn_height`.
+    fn tenure_at(burn_height: u64) -> Vec<(String, String)> {
+        vec![(
+            format!("/v3/sortitions/consensus/{}", TENURE.to_hex()),
+            canonical_sortition_response(&BurnchainHeaderHash([0; 32]), burn_height),
+        )]
+    }
+
+    #[test]
+    fn proposal_that_states_its_tenure_is_judged() {
+        let reasons = judge(
+            tenure_at(FIXTURE_BURN_HEIGHT),
+            |_| {},
+            &stale_proposal(FIXTURE_BURN_HEIGHT, 1),
+        );
+        assert_eq!(reasons, vec![RejectReason::ProposalTooOld]);
+    }
+
+    #[test]
+    fn proposal_steered_into_our_cycle_is_ignored() {
+        // The tenure was elected in reward cycle 2, but the wrapper claims cycle 1 to reach
+        // the cycle 1 signer: with and without also misstating the burn height.
+        for proposal in [stale_proposal(1, 1), stale_proposal(2, 1)] {
+            assert_eq!(judge(tenure_at(2), |_| {}, &proposal), vec![]);
+        }
+    }
+
+    #[test]
+    fn proposal_misstating_its_burn_height_is_ignored() {
+        // Same reward cycle, wrong burn height.
+        assert_eq!(
+            judge(
+                tenure_at(FIXTURE_BURN_HEIGHT),
+                |_| {},
+                &stale_proposal(0, 1)
+            ),
+            vec![]
+        );
+    }
+
+    #[test]
+    fn burn_block_the_signer_has_seen_places_the_tenure() {
+        // The signer heard the tenure's burn block arrive at height 2, so the node is not
+        // asked (its answer of `FIXTURE_BURN_HEIGHT` would have placed the proposal in our cycle).
+        let reasons = judge(
+            tenure_at(FIXTURE_BURN_HEIGHT),
+            |node| {
+                node.signer
+                    .signer_db
+                    .insert_burn_block(
+                        &BurnchainHeaderHash([0xaa; 32]),
+                        &TENURE,
+                        2,
+                        &SystemTime::now(),
+                        &BurnchainHeaderHash([0xa9; 32]),
+                    )
+                    .unwrap();
+            },
+            &stale_proposal(FIXTURE_BURN_HEIGHT, 1),
+        );
+        assert_eq!(reasons, vec![]);
+    }
+
+    /// The node knows no sortition for `TENURE`.
+    fn unknown_tenure() -> Vec<(String, String)> {
+        vec![(
+            format!("/v3/sortitions/consensus/{}", TENURE.to_hex()),
+            "[]".to_string(),
+        )]
+    }
+
+    #[test]
+    fn proposal_whose_tenure_cannot_be_placed_yet_is_rejected_transiently() {
+        // Neither the signer DB nor the node can place the tenure, as right after a new burn
+        // block that the node has not processed yet. The miner re-sends on a transient
+        // rejection, so that is the answer rather than silence.
+        assert!(RejectReason::NoSortitionView.is_transient());
+        assert_eq!(
+            judge(
+                unknown_tenure(),
+                |_| {},
+                &stale_proposal(FIXTURE_BURN_HEIGHT, 1)
+            ),
+            vec![RejectReason::NoSortitionView]
+        );
+    }
+
+    #[test]
+    fn proposal_re_sent_once_the_node_knows_the_tenure_is_judged() {
+        let mut node = MockNode::new(unknown_tenure(), Duration::from_secs(100_000));
+        let proposal = stale_proposal(FIXTURE_BURN_HEIGHT, 1);
+        assert_eq!(
+            judge_with(&mut node, &proposal),
+            vec![RejectReason::NoSortitionView]
+        );
+        // The node processes the tenure's sortition, and the miner re-sends the proposal:
+        // nothing was stored for the first attempt, so it is judged afresh.
+        *node.tips.lock().unwrap() = tenure_at(FIXTURE_BURN_HEIGHT);
+        assert_eq!(
+            judge_with(&mut node, &proposal),
+            vec![RejectReason::ProposalTooOld]
+        );
+        node.shutdown();
     }
 }
