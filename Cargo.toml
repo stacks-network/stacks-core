@@ -43,6 +43,7 @@ pinny = { git = "https://github.com/stx-labs/pinny-rs.git", rev = "0e888bce54c82
 rand_core = "0.6.4"
 rand = "0.8"
 rand_chacha = "0.3.1"
+reqwest = { version = "0.13", default-features = false, features = ["blocking", "json"] }
 serde = "1"
 serde_derive = "1"
 serde_json = { version = "1.0", features = ["arbitrary_precision", "unbounded_depth"] }

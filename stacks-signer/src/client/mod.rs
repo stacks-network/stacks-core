@@ -59,7 +59,7 @@ pub enum ClientError {
     #[error("Failed to call read only function. {0}")]
     ReadOnlyFailure(String),
     /// Reqwest specific error occurred
-    #[error("{0}")]
+    #[error("{}", display_with_sources(.0))]
     ReqwestError(#[from] reqwest::Error),
     /// Failed to build and sign a new Stacks transaction.
     #[error("Failed to generate transaction from a transaction signer: {0}")]
@@ -97,6 +97,20 @@ pub enum ClientError {
     /// An RPC libsigner error occurred
     #[error("A libsigner RPC error occurred: {0}")]
     RPCError(#[from] RPCError),
+}
+
+/// Format an error followed by its chain of sources, separated by `": "`.
+/// Since 0.12, reqwest's `Display` omits the underlying cause (e.g. "Connection
+/// refused"), so walk the chain to keep it in the logs.
+fn display_with_sources(err: &dyn std::error::Error) -> String {
+    let mut msg = err.to_string();
+    let mut source = err.source();
+    while let Some(cause) = source {
+        msg.push_str(": ");
+        msg.push_str(&cause.to_string());
+        source = cause.source();
+    }
+    msg
 }
 
 /// Retry a function F with an exponential backoff and notification on transient failure
@@ -498,5 +512,23 @@ pub(crate) mod tests {
     pub fn build_get_last_set_cycle_response(cycle: u64) -> String {
         let clarity_value = ClarityValue::okay(ClarityValue::UInt(cycle as u128)).unwrap();
         build_read_only_response(&clarity_value)
+    }
+
+    #[test]
+    fn reqwest_error_display_includes_cause() {
+        // Bind and immediately drop a listener to get a port that refuses connections
+        let addr = TcpListener::bind("127.0.0.1:0")
+            .unwrap()
+            .local_addr()
+            .unwrap();
+        let err = reqwest::blocking::get(format!("http://{addr}/v2/info")).unwrap_err();
+        let msg = ClientError::from(err).to_string();
+        assert!(
+            msg.starts_with(&format!(
+                "error sending request for url (http://{addr}/v2/info): "
+            )),
+            "{msg}"
+        );
+        assert!(msg.contains("tcp connect error"), "{msg}");
     }
 }
