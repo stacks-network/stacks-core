@@ -3194,6 +3194,7 @@ mod proposal_tenure_placement {
         canonical_sortition_response, tenure_start, MockNode, FIXTURE_BURN_HEIGHT,
     };
     use super::BlockMessageRecorder;
+    use crate::signerdb::BlockInfo;
     use crate::Signer as SignerTrait;
 
     /// The tenure every proposal here belongs to.
@@ -3364,5 +3365,76 @@ mod proposal_tenure_placement {
             vec![RejectReason::ProposalTooOld]
         );
         node.shutdown();
+    }
+
+    /// Store `proposal`'s block as `decide` leaves it, then re-propose it to a signer that can
+    /// place neither the tenure (no burn block row, and the node's lookup fails) nor, therefore,
+    /// the proposal. Returns the signer's responses and the block's row afterwards.
+    fn repropose_unplaceable(
+        proposal: &BlockProposal,
+        decide: impl FnOnce(&mut BlockInfo),
+    ) -> (BlockMessageRecorder, BlockInfo, BlockInfo) {
+        let mut node = MockNode::new(unknown_tenure(), Duration::from_secs(100_000));
+        let hash = proposal.block.header.signer_signature_hash();
+        let mut stored = BlockInfo::from(proposal.clone());
+        decide(&mut stored);
+        node.signer.signer_db.insert_block(&stored).unwrap();
+        assert!(node.signer.signer_db.get_burn_block_by_ch(&TENURE).is_err());
+
+        node.signer.test_block_messages = Some(BlockMessageRecorder::new(hash.clone()));
+        let (result_tx, _result_rx) = mpsc::channel();
+        let mut sortition = None;
+        node.signer.process_event(
+            &node.client,
+            &mut sortition,
+            Some(&SignerEvent::MinerMessages(vec![
+                SignerMessage::BlockProposal(proposal.clone()),
+            ])),
+            &result_tx,
+            1,
+            Some(1),
+        );
+        let after = node.signer.signer_db.block_lookup(&hash).unwrap().unwrap();
+        let recorder = node.signer.test_block_messages.take().unwrap();
+        node.shutdown();
+        (recorder, stored, after)
+    }
+
+    #[test]
+    fn signed_block_is_not_contradicted_when_its_tenure_cannot_be_placed() {
+        // We signed the block when the node could place its tenure. On a re-proposal the
+        // lookup fails, but our signature stands: we repeat it rather than reject the block.
+        let (recorder, stored, after) =
+            repropose_unplaceable(&stale_proposal(FIXTURE_BURN_HEIGHT, 1), |info| {
+                info.mark_locally_accepted(false).unwrap();
+            });
+        assert_eq!(recorder.response_count, 1);
+        assert!(recorder
+            .first_response
+            .as_ref()
+            .and_then(|response| response.as_block_accepted())
+            .is_some());
+        assert_eq!(after, stored, "the decision is kept as it was");
+    }
+
+    #[test]
+    fn transiently_rejected_block_is_still_refused_when_its_tenure_cannot_be_placed() {
+        // A stored decision we would reconsider anyway gives no reason to judge the block
+        // without placing it: it is refused as transient again, and left as it was.
+        let (recorder, stored, after) =
+            repropose_unplaceable(&stale_proposal(FIXTURE_BURN_HEIGHT, 1), |info| {
+                info.mark_locally_rejected().unwrap();
+                info.reject_reason = Some(RejectReason::NoSortitionView);
+            });
+        assert_eq!(recorder.response_count, 1);
+        assert_eq!(
+            recorder
+                .first_response
+                .as_ref()
+                .and_then(|response| response.as_block_rejection())
+                .map(|rejection| rejection.response_data.reject_reason.clone()),
+            Some(RejectReason::NoSortitionView)
+        );
+        assert_eq!(after, stored);
     }
 }

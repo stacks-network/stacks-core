@@ -1914,6 +1914,20 @@ impl Signer {
             TenurePlacement::Matches => {}
             TenurePlacement::Misstated => return,
             TenurePlacement::Unknown => {
+                // A stored row means this block already passed placement, so keep our earlier
+                // decision rather than contradict it on a failed lookup.
+                if let Some(block_info) = self.block_lookup_by_reward_cycle(
+                    &block_proposal.block.header.signer_signature_hash(),
+                ) {
+                    if !self.should_reevaluate_block(
+                        stacks_client,
+                        sortition_state,
+                        &block_info,
+                        block_proposal,
+                    ) {
+                        return;
+                    }
+                }
                 // Our node has not processed the tenure's sortition yet, which is usual right
                 // after a new burn block. Reject rather than silently drop, and without
                 // storing the block: the miner treats `NoSortitionView` as transient and
