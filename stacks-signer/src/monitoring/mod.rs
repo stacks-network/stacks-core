@@ -130,14 +130,14 @@ pub mod actions {
         let diff =
             get_epoch_time_ms().saturating_sub(block.header.timestamp.saturating_mul(1000).into());
         SIGNER_BLOCK_RESPONSE_LATENCIES_HISTOGRAM
-            .with_label_values(&[])
+            .with_label_values::<&str>(&[])
             .observe(diff as f64 / 1000.0);
     }
 
     /// Record the time taken to validate a block, as reported by the Stacks node.
     pub fn record_block_validation_latency(latency_ms: u64) {
         SIGNER_BLOCK_VALIDATION_LATENCIES_HISTOGRAM
-            .with_label_values(&[])
+            .with_label_values::<&str>(&[])
             .observe(latency_ms as f64 / 1000.0);
     }
 
@@ -170,7 +170,7 @@ pub mod actions {
     /// Record the time (seconds) taken for a signer to agree with the signer set
     pub fn record_signer_agreement_capitulation_latency(latency_s: u64) {
         SIGNER_AGREEMENT_CAPITULATION_LATENCIES_HISTOGRAM
-            .with_label_values(&[])
+            .with_label_values::<&str>(&[])
             .observe(latency_s as f64);
     }
 
