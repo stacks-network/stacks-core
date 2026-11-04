@@ -24,7 +24,7 @@ use crate::chainstate::stacks::{
 };
 use crate::core::StacksEpochId;
 
-// FIXME: There's too much duplication between this and
+// FIXME (#7817): There's too much duplication between this and
 // [`StacksBlock::validate_transaction_static_epoch`].
 /// Pre-check a transaction -- make sure it's well-formed.
 pub fn precheck_transaction(

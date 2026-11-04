@@ -562,7 +562,7 @@ impl StacksBlock {
         true
     }
 
-    // FIXME: There's too much duplication between this and
+    // FIXME (#7817): There's too much duplication between this and
     // [`validation::precheck_transaction`].
     /// Verify that one transaction is supported in the given epoch, as indicated by `epoch_id`
     pub fn validate_transaction_static_epoch(
