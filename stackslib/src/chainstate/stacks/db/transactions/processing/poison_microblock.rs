@@ -19,7 +19,7 @@ use clarity::vm::contexts::{ExecutionState, InvocationContext};
 use clarity::vm::costs::cost_functions::ClarityCostFunction;
 use clarity::vm::costs::{runtime_cost, CostTracker as _};
 use clarity::vm::representations::ClarityName;
-use clarity::vm::types::{BuffData, PrincipalData, SequenceData, TupleData, TypeSignature, Value};
+use clarity::vm::types::{BuffData, PrincipalData, SequenceData, TupleData, Value, PRINCIPAL_SIZE};
 
 use crate::chainstate::stacks::db::MINER_REWARD_MATURITY;
 use crate::chainstate::stacks::{Error, MicroblockSignerMatch, StacksMicroblockHeader};
@@ -128,10 +128,8 @@ pub fn handle(
         .get_microblock_poison_report(mblock_pubk_height)?
     {
         // account for report loaded
-        env.add_memory(u64::from(TypeSignature::PrincipalType.size().map_err(
-            |_| Error::Expects("Failed to get size of PrincipalType".into()),
-        )?))
-        .map_err(|e| Error::from_cost_error(e, cost_before.clone(), env.global_context))?;
+        env.add_memory(u64::from(PRINCIPAL_SIZE))
+            .map_err(|e| Error::from_cost_error(e, cost_before.clone(), env.global_context))?;
 
         // u128 sequence
         env.add_memory(16)

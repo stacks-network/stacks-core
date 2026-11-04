@@ -51,6 +51,7 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry,sharing=locked \
 FROM dependencies AS build
 COPY . .
 # Apply revision metadata after dependency caching.
+ARG CUSTOM_VERSION_STRING
 ARG GIT_COMMIT=unknown
 ARG GIT_BRANCH=unknown
 # Empty means clean, + means modified, and ? means unavailable.

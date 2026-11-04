@@ -56,6 +56,7 @@ use stacks::config::chain_data::MinerStats;
 pub use stacks::config::{Config, ConfigFile};
 use stacks_common::alloc_tracker::{tracking_allocator_installed, TrackingAllocator};
 use stacks_common::util::db::{set_sqlite_vfs, SqliteVfs};
+use stacks_common::versions::CUSTOM_VERSION_STRING;
 #[cfg(not(any(target_os = "macos", target_os = "windows", target_arch = "arm")))]
 use tikv_jemallocator::Jemalloc;
 
@@ -326,7 +327,7 @@ fn main() {
     let mut args = Arguments::from_env();
     let subcommand = args.subcommand().unwrap().unwrap_or_default();
 
-    info!("{}", version());
+    info!("{}", version(); "custom_version" => CUSTOM_VERSION_STRING);
 
     let mine_start: Option<u64> = args
         .opt_value_from_str("--mine-at-height")

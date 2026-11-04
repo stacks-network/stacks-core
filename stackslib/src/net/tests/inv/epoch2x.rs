@@ -17,6 +17,7 @@
 use std::collections::HashMap;
 
 use stacks_common::deps_common::bitcoin::network::serialize::BitcoinHash;
+use stacks_common::types::{StacksEpoch, StacksEpochId};
 
 use crate::burnchains::bitcoin::indexer::BitcoinIndexer;
 use crate::burnchains::db::BurnchainHeaderReader;
@@ -24,6 +25,7 @@ use crate::burnchains::tests::BURNCHAIN_TEST_BLOCK_TIME;
 use crate::burnchains::{Burnchain, BurnchainBlockHeader, BurnchainView, PoxConstants};
 use crate::chainstate::coordinator::tests::get_burnchain;
 use crate::chainstate::tests::TestChainstate;
+use crate::core::StacksEpochExtension;
 use crate::net::chat::ConversationP2P;
 use crate::net::inv::inv2x::*;
 use crate::net::test::*;
@@ -1132,6 +1134,178 @@ fn test_sync_inv_make_inv_messages() {
             panic!("Did not get Nack, but got {x:?}");
         }
     };
+}
+
+/// `GetBlocksInv` replies are loaded from the chainstate while epoch 2.x blocks can still be
+/// processed, and served from `BlocksInvCache` once the Stacks tip is a Nakamoto block and the
+/// burnchain tip is past the first Nakamoto reward cycle.
+#[test]
+fn test_sync_inv_make_blocks_inv_cached() {
+    /// Where the node is relative to the Nakamoto transition
+    #[derive(Clone, Copy)]
+    enum TipState {
+        /// Stacks tip is an epoch 2.x block
+        Epoch2,
+        /// Stacks tip is a Nakamoto block, burnchain tip is in the first Nakamoto reward cycle
+        FirstNakamotoCycle,
+        /// Stacks tip is a Nakamoto block, burnchain tip is in a later Nakamoto reward cycle
+        LaterNakamotoCycle,
+    }
+
+    let peer_1_config = TestPeerConfig::new(function_name!(), 0, 0);
+    let reward_cycle_length = peer_1_config
+        .chain_config
+        .burnchain
+        .pox_constants
+        .reward_cycle_length;
+    let num_blocks = reward_cycle_length * 2;
+
+    let mut peer_1 = TestPeer::new(peer_1_config);
+
+    let first_stacks_block_height = {
+        let sn = SortitionDB::get_canonical_burn_chain_tip(peer_1.sortdb_ref().conn()).unwrap();
+        sn.block_height
+    };
+
+    for _ in 0..num_blocks {
+        let (burn_ops, stacks_block, microblocks) = peer_1.make_default_tenure();
+
+        peer_1.next_burnchain_block(burn_ops.clone());
+        peer_1.process_stacks_epoch_at_tip(&stacks_block, &microblocks);
+    }
+
+    let tip = SortitionDB::get_canonical_burn_chain_tip(peer_1.sortdb_ref().conn()).unwrap();
+
+    // pretend that Nakamoto starts at the burnchain tip
+    let epoch3_start_height = tip.block_height;
+    peer_1
+        .with_network_state(|sortdb, chainstate, network, _relayer, _mempool| {
+            network.refresh_local_peer().unwrap();
+            network
+                .refresh_burnchain_view(sortdb, chainstate, false)
+                .unwrap();
+            network.refresh_sortition_view(sortdb).unwrap();
+            network.epochs =
+                StacksEpoch::unit_test_epoch_only(epoch3_start_height, StacksEpochId::Epoch30);
+            Ok(())
+        })
+        .unwrap();
+
+    let reward_cycle = peer_1
+        .network
+        .burnchain
+        .block_height_to_reward_cycle(first_stacks_block_height)
+        .unwrap();
+    let make_request = |peer: &mut TestPeer, num_blocks: u16| {
+        peer.with_network_state(|sortdb, _chainstate, network, _relayer, _mempool| {
+            let height = network.burnchain.reward_cycle_to_block_height(reward_cycle);
+            let sn =
+                SortitionDB::get_ancestor_snapshot(&sortdb.index_conn(), height, &tip.sortition_id)
+                    .unwrap()
+                    .unwrap();
+            Ok(GetBlocksInv {
+                consensus_hash: sn.consensus_hash,
+                num_blocks,
+            })
+        })
+        .unwrap()
+    };
+    let get_blocks_inv = |peer: &mut TestPeer, num_blocks: u16, tip_state: TipState| {
+        let request = make_request(peer, num_blocks);
+        peer.with_network_state(|sortdb, chainstate, network, _relayer, _mempool| {
+            network.stacks_tip.is_nakamoto = !matches!(tip_state, TipState::Epoch2);
+            network.burnchain_tip.block_height = match tip_state {
+                TipState::Epoch2 | TipState::FirstNakamotoCycle => epoch3_start_height,
+                TipState::LaterNakamotoCycle => {
+                    epoch3_start_height + u64::from(reward_cycle_length)
+                }
+            };
+            let reply =
+                ConversationP2P::make_getblocksinv_response(network, sortdb, chainstate, &request)?;
+            let StacksMessageType::BlocksInv(blocks_inv) = reply else {
+                panic!("Did not get BlocksInv, but got {reply:?}");
+            };
+            Ok((blocks_inv, network.blocks_inv_cache.is_cached(reward_cycle)))
+        })
+        .unwrap()
+    };
+    let orphan_all_blocks = |peer: &mut TestPeer| {
+        peer.with_network_state(|_sortdb, chainstate, _network, _relayer, _mempool| {
+            chainstate
+                .db()
+                .execute(
+                    "UPDATE staging_blocks SET orphaned = 1",
+                    rusqlite::params![],
+                )
+                .unwrap();
+            Ok(())
+        })
+        .unwrap();
+    };
+
+    let full_cycle = reward_cycle_length as u16;
+    let expected = BlocksInvData {
+        bitlen: full_cycle,
+        block_bitvec: vec![0x1f],
+        microblocks_bitvec: vec![0x1e],
+    };
+
+    // epoch 2.x tip: nothing is cached
+    let (blocks_inv, cached) = get_blocks_inv(&mut peer_1, full_cycle, TipState::Epoch2);
+    assert_eq!(blocks_inv, expected);
+    assert!(!cached);
+
+    // Nakamoto tip, but still in the first Nakamoto reward cycle: epoch 2.x blocks can still be
+    // processed, so nothing is cached
+    let (blocks_inv, cached) =
+        get_blocks_inv(&mut peer_1, full_cycle, TipState::FirstNakamotoCycle);
+    assert_eq!(blocks_inv, expected);
+    assert!(!cached);
+
+    // Nakamoto tip in a later reward cycle: the reward cycle gets cached
+    let (blocks_inv, cached) =
+        get_blocks_inv(&mut peer_1, full_cycle, TipState::LaterNakamotoCycle);
+    assert_eq!(blocks_inv, expected);
+    assert!(cached);
+
+    // later chainstate changes are not visible while the reward cycle is cached, and partial
+    // requests are answered from the same cache entry
+    orphan_all_blocks(&mut peer_1);
+    let (blocks_inv, cached) =
+        get_blocks_inv(&mut peer_1, full_cycle, TipState::LaterNakamotoCycle);
+    assert_eq!(blocks_inv, expected);
+    assert!(cached);
+
+    let (blocks_inv, _) = get_blocks_inv(&mut peer_1, 3, TipState::LaterNakamotoCycle);
+    assert_eq!(
+        blocks_inv,
+        BlocksInvData {
+            bitlen: 3,
+            block_bitvec: vec![0x07],
+            microblocks_bitvec: vec![0x06],
+        }
+    );
+
+    // back in the first Nakamoto reward cycle (e.g. after a burnchain reorg): the cache is
+    // cleared and the chainstate is read again
+    let empty = BlocksInvData {
+        bitlen: full_cycle,
+        block_bitvec: vec![0x00],
+        microblocks_bitvec: vec![0x00],
+    };
+    let (blocks_inv, cached) =
+        get_blocks_inv(&mut peer_1, full_cycle, TipState::FirstNakamotoCycle);
+    assert_eq!(blocks_inv, empty);
+    assert!(!cached);
+
+    // re-cache, then go back to an epoch 2.x tip: the cache is cleared again
+    let (blocks_inv, cached) =
+        get_blocks_inv(&mut peer_1, full_cycle, TipState::LaterNakamotoCycle);
+    assert_eq!(blocks_inv, empty);
+    assert!(cached);
+    let (blocks_inv, cached) = get_blocks_inv(&mut peer_1, full_cycle, TipState::Epoch2);
+    assert_eq!(blocks_inv, empty);
+    assert!(!cached);
 }
 
 #[test]

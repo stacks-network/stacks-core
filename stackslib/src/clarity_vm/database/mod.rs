@@ -31,7 +31,7 @@ use crate::chainstate::stacks::boot::PoxStartCycleInfo;
 use crate::chainstate::stacks::db::accounts::MinerReward;
 use crate::chainstate::stacks::db::{ChainstateTx, StacksChainState, StacksDBConn, StacksDBTx};
 use crate::chainstate::stacks::Error as ChainstateError;
-use crate::clarity_vm::special::handle_contract_call_special_cases;
+use crate::clarity_vm::special::special_cases_handler_for;
 use crate::core::{StacksEpoch, StacksEpochId};
 use crate::util_lib::db::{DBConn, Error as DBError, FromColumn, FromRow};
 
@@ -1322,8 +1322,11 @@ impl ClarityBackingStore for MemoryBackingStore {
         0
     }
 
-    fn get_cc_special_cases_handler(&self) -> Option<SpecialCaseHandler> {
-        Some(&handle_contract_call_special_cases)
+    fn get_cc_special_cases_handler(
+        &self,
+        contract: &QualifiedContractIdentifier,
+    ) -> Option<SpecialCaseHandler> {
+        special_cases_handler_for(contract)
     }
 
     fn put_all_data(&mut self, items: Vec<(String, String)>) -> Result<(), VmExecutionError> {

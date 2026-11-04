@@ -1,0 +1,1 @@
+Consensus tests can start a tenure with a block of chosen transactions through `ConsensusChain::append_tenure_start_block`, which keeps invalid transactions and returns the block's result like other test blocks. Test-only change.

@@ -1,0 +1,1 @@
+Signers now reload the signer set's state machine updates from StackerDB when their reward cycle starts, so a signer whose node reaches the cycle's first burn block after its peers' nodes no longer rejects every proposal with `NoSignerConsensus` until the next burn block.
