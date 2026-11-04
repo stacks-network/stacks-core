@@ -1,5 +1,9 @@
 # Dependabot version updates.
 #
+# PAUSED: `open-pull-requests-limit: 0` disables version updates for every
+# ecosystem below while concerns are resolved. Restore the limits (previously
+# 5) to re-enable.
+#
 # Security updates are not affected by the cooldowns below: Dependabot opens
 # those as soon as an advisory is published.
 #
@@ -31,7 +35,7 @@ updates:
       - dependencies
       - rust
       - no changelog
-    open-pull-requests-limit: 5
+    open-pull-requests-limit: 0
 
   - package-ecosystem: github-actions
     directories:
@@ -52,4 +56,4 @@ updates:
       - dependencies
       - github_actions
       - no changelog
-    open-pull-requests-limit: 5
+    open-pull-requests-limit: 0
