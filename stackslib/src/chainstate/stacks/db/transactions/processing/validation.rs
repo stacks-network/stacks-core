@@ -125,7 +125,6 @@ pub fn precheck_transaction(
             );
             info!("{msg}");
 
-            error!("Transient contract not supported in Epoch {epoch_id}"; "txid" => %tx.txid());
             return Err(Error::InvalidStacksTransaction(msg, false));
         }
     }
