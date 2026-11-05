@@ -1,0 +1,59 @@
+# Copyright (C) 2026 Stacks Open Internet Foundation
+name: "Checks: sBTC Fixtures"
+
+on:
+  workflow_dispatch:
+  merge_group:
+    types: [checks_requested]
+  pull_request:
+    types: [opened, reopened, synchronize]
+    paths:
+      - '.github/workflows/check-sbtc-fixtures.yml'
+      - '.github/workflows/__check-ci.yml'
+      - '.github/actions/setup-rust-toolchain/**'
+      - '.github/wrappers/checkout/**'
+      - 'contrib/tools/sbtc-fixtures/**'
+      - 'stackslib/src/chainstate/stacks/sbtc.rs'
+      - 'stackslib/src/chainstate/stacks/fixtures/**'
+      - 'stackslib/src/chainstate/nakamoto/signer_set.rs'
+      - 'stackslib/src/core/mod.rs'
+      - 'stacks-common/src/types/mod.rs'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - 'stackslib/Cargo.toml'
+      - '.cargo/config.toml'
+      - 'rust-toolchain.toml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sbtc-fixtures-${{ github.head_ref || github.ref || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  check-ci:
+    name: "Check: CI Enabled"
+    uses: ./.github/workflows/__check-ci.yml
+
+  sbtc-fixtures:
+    name: "Check: sBTC Fixtures"
+    needs: check-ci
+    if: needs.check-ci.outputs.enabled == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout the latest code
+        uses: $/.github/wrappers/checkout
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.ref }}
+          persist-credentials: false
+
+      - name: Setup Rust Toolchain
+        uses: ./.github/actions/setup-rust-toolchain
+
+      - name: Regenerate and compare pinned sBTC fixtures
+        shell: bash
+        run: |
+          cargo run --locked --manifest-path contrib/tools/sbtc-fixtures/Cargo.toml -- "$RUNNER_TEMP/sbtc-v2.json"
+          cmp "$RUNNER_TEMP/sbtc-v2.json" stackslib/src/chainstate/stacks/fixtures/sbtc-v2.json

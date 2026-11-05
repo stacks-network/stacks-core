@@ -129,17 +129,52 @@ const POX_5_SBTC_TOKEN_STUB_BODY: &str = r#"
 "#;
 
 /// Minimal `sbtc-registry` stub deployed alongside the token stub. Exposes
-/// `get-current-aggregate-pubkey` so signer-set computation has a real
-/// contract to read from. The returned key is the secp256k1 generator point:
-/// a deterministic, valid compressed key whose x-only coordinate is on the
-/// curve, so Waterfall recipient derivation succeeds. Tests that need a
-/// specific aggregate pubkey should override via their own setup.
+/// the two read-only functions signer-set computation reads:
+///
+/// * `get-current-aggregate-pubkey` (Epoch 4.0, v1 recipient): the secp256k1
+///   generator point, a deterministic, valid compressed key whose x-only
+///   coordinate is on the curve, so Waterfall recipient derivation succeeds.
+/// * `get-current-signer-data` (Epoch 4.1+, v2 recipient): the sBTC devenv
+///   2-of-3 signer set ([`POX_5_SBTC_REGISTRY_STUB_SIGNER_KEYS`]), whose
+///   derived addresses are pinned in `chainstate::stacks::sbtc` tests.
+///
+/// Tests that need a specific registry state should override via their own
+/// setup.
 const POX_5_SBTC_REGISTRY_STUB_NAME: &str = "sbtc-registry";
 const POX_5_SBTC_REGISTRY_STUB_BODY: &str = r#"
 (define-read-only (get-current-aggregate-pubkey)
     0x0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798
 )
+(define-read-only (get-current-signer-data)
+    {
+        current-signer-set: (list
+            0x035249137286c077ccee65ecc43e724b9b9e5a588e3d7f51e3b62f9624c2a49e46
+            0x031a4d9f4903da97498945a4e01a5023a1d53bc96ad670bfe03adf8a06c52e6380
+            0x02007311430123d4cad97f4f7e86e023b28143130a18099ecf094d36fef0f6135c
+        ),
+        current-aggregate-pubkey: 0x0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798,
+        current-signer-principal: 'ST000000000000000000002AMW42H,
+        current-signature-threshold: u2,
+    }
+)
 "#;
+
+/// The compressed signer keys served by [`POX_5_SBTC_REGISTRY_STUB_BODY`]'s
+/// `get-current-signer-data` (the sBTC devenv signer set).
+pub const POX_5_SBTC_REGISTRY_STUB_SIGNER_KEYS: [&str; 3] = [
+    "035249137286c077ccee65ecc43e724b9b9e5a588e3d7f51e3b62f9624c2a49e46",
+    "031a4d9f4903da97498945a4e01a5023a1d53bc96ad670bfe03adf8a06c52e6380",
+    "02007311430123d4cad97f4f7e86e023b28143130a18099ecf094d36fef0f6135c",
+];
+
+/// The signature threshold served by [`POX_5_SBTC_REGISTRY_STUB_BODY`]'s
+/// `get-current-signer-data`.
+pub const POX_5_SBTC_REGISTRY_STUB_SIGNATURE_THRESHOLD: u128 = 2;
+
+/// The aggregate pubkey served by [`POX_5_SBTC_REGISTRY_STUB_BODY`]'s
+/// `get-current-aggregate-pubkey`.
+pub const POX_5_SBTC_REGISTRY_STUB_AGGREGATE_PUBKEY: &str =
+    "0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798";
 
 /// Match the harness's long-lived PoX-4 lock so test signers remain active
 /// through the first PoX-5 Waterfall cycle.

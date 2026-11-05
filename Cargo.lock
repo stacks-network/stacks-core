@@ -3991,6 +3991,7 @@ dependencies = [
  "chrono",
  "clarity",
  "ed25519-dalek",
+ "hmac 0.12.1",
  "insta",
  "lazy_static",
  "libstackerdb",
