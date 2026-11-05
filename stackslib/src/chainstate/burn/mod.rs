@@ -129,8 +129,12 @@ impl SortitionHash {
     }
 
     /// Mix in a new VRF seed to make a new sortition hash.
-    pub fn mix_VRF_seed(&self, VRF_seed: &VRFSeed) -> SortitionHash {
+    /// If `scope` is given, it is hashed first, so that each scope yields an independent digest.
+    pub fn mix_VRF_seed(&self, VRF_seed: &VRFSeed, scope: Option<&[u8]>) -> SortitionHash {
         let mut sha2 = Sha256::new();
+        if let Some(scope) = scope {
+            sha2.update(scope);
+        }
         sha2.update(self.as_bytes());
         sha2.update(VRF_seed.as_bytes());
         let mut ret = [0u8; 32];

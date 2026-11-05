@@ -36,6 +36,11 @@ use crate::chainstate::stacks::db::StacksChainState;
 use crate::core::*;
 use crate::util_lib::db::Error as db_error;
 
+/// Domain separator for sampling the winning block-commit (Epoch 4.1 and later).
+pub const SORTITION_SCOPE: &[u8] = b"SORTITION";
+/// Domain separator for sampling the null miner's challenge (Epoch 4.1 and later).
+pub const NULL_MINER_SCOPE: &[u8] = b"NULL_MINER";
+
 impl BlockSnapshot {
     /// Creates an "empty" (i.e. zeroed out) BlockSnapshot, to make a basis for creating
     /// `BlockSnapshot` with a few key fields filled.
@@ -119,10 +124,12 @@ impl BlockSnapshot {
 
     /// Given the weighted burns, VRF seed of the last winner, and sortition hash, pick the next
     /// winner.  Return the index into the distribution *if there is a sample to take*.
+    /// `scope`, if given, domain-separates this sample from samples taken in other scopes.
     fn sample_burn_distribution(
         dist: &[BurnSamplePoint],
         VRF_seed: &VRFSeed,
         sortition_hash: &SortitionHash,
+        scope: Option<&[u8]>,
     ) -> Option<usize> {
         if dist.is_empty() {
             // no winners
@@ -133,7 +140,7 @@ impl BlockSnapshot {
             return Some(0);
         }
 
-        let index = sortition_hash.mix_VRF_seed(VRF_seed).to_uint256();
+        let index = sortition_hash.mix_VRF_seed(VRF_seed, scope).to_uint256();
         for (i, dist_elem) in dist.iter().enumerate() {
             if (dist_elem.range_start <= index) && (index < dist_elem.range_end) {
                 debug!(
@@ -194,12 +201,15 @@ impl BlockSnapshot {
         block_header: &BurnchainBlockHeader,
         sortition_hash: &SortitionHash,
         burn_dist: &[BurnSamplePoint],
+        epoch_id: StacksEpochId,
     ) -> Result<Option<(LeaderBlockCommitOp, usize)>, db_error> {
         let vrf_seed = Self::get_last_vrf_seed(sort_tx, block_header)?;
 
+        let scope = epoch_id.uses_sortition_scopes().then_some(SORTITION_SCOPE);
+
         // pick the next winner
         let win_idx_opt =
-            BlockSnapshot::sample_burn_distribution(burn_dist, &vrf_seed, sortition_hash);
+            BlockSnapshot::sample_burn_distribution(burn_dist, &vrf_seed, sortition_hash, scope);
         match win_idx_opt {
             None => {
                 // no winner
@@ -424,12 +434,16 @@ impl BlockSnapshot {
     /// This works by creating a second burn distribution: one with the winning block-commit, and
     /// one with the null miner.  The null miner's mining power will be computed as a function of
     /// their ATC advantage.
+    ///
+    /// From Epoch 4.1, this sample is drawn in its own scope, so that it is independent of the
+    /// sample that selected `commit_winner`.  Before then, both samples used the same digest.
     fn null_miner_wins(
         sort_tx: &mut SortitionHandleTx,
         block_header: &BurnchainBlockHeader,
         sortition_hash: &SortitionHash,
         commit_winner: &LeaderBlockCommitOp,
         atc: AtcRational,
+        epoch_id: StacksEpochId,
     ) -> Result<bool, db_error> {
         let vrf_seed = Self::get_last_vrf_seed(sort_tx, block_header)?;
 
@@ -472,9 +486,11 @@ impl BlockSnapshot {
             burn_sample_winner,
         ];
 
+        let scope = epoch_id.uses_sortition_scopes().then_some(NULL_MINER_SCOPE);
+
         // pick the next winner
         let Some(win_idx) =
-            BlockSnapshot::sample_burn_distribution(&burn_dist, &vrf_seed, sortition_hash)
+            BlockSnapshot::sample_burn_distribution(&burn_dist, &vrf_seed, sortition_hash, scope)
         else {
             // miner wins by default if there's no winner index
             return Ok(false);
@@ -643,6 +659,7 @@ impl BlockSnapshot {
             block_header,
             &next_sortition_hash,
             &state_transition.burn_dist,
+            epoch_id,
         )?
         .expect("FATAL: there must be a winner if the burn distribution has 1 or more points");
 
@@ -678,6 +695,7 @@ impl BlockSnapshot {
                     &next_sortition_hash,
                     &winning_block,
                     atc,
+                    epoch_id,
                 )? {
                     // null wins
                     reject_winner_reason = Some(
@@ -712,7 +730,7 @@ impl BlockSnapshot {
 
         // mix in the winning block's VRF seed to the sortition hash.  The next block commits must
         // prove on this final sortition hash.
-        let final_sortition_hash = next_sortition_hash.mix_VRF_seed(&winning_block.new_seed);
+        let final_sortition_hash = next_sortition_hash.mix_VRF_seed(&winning_block.new_seed, None);
         let next_ops_hash = OpsHash::from_txids(&state_transition.txids());
         let next_ch = ConsensusHash::from_parent_block_data(
             sort_tx,
@@ -770,6 +788,7 @@ impl BlockSnapshot {
 
 #[cfg(test)]
 mod test {
+    use sha2::{Digest, Sha256};
     use stacks_common::address::*;
     use stacks_common::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash, VRFSeed};
     use stacks_common::util::get_epoch_time_secs;
@@ -1066,8 +1085,13 @@ mod test {
     /// `null_miner_wins()` function returns `true` exactly when the sortition index falls into the
     /// null miner's range.  The ATC-C values are sampled through linear interpolation between 0.0
     /// and 1.0 in steps of 0.01.
-    #[test]
-    fn test_null_miner_wins() {
+    ///
+    /// From Epoch 4.1, the sortition index for the null miner is taken in `NULL_MINER_SCOPE`.
+    #[rstest::rstest]
+    #[case::unscoped(StacksEpochId::Epoch30, None)]
+    #[case::unscoped_epoch40(StacksEpochId::Epoch40, None)]
+    #[case::scoped(StacksEpochId::Epoch41, Some(NULL_MINER_SCOPE))]
+    fn test_null_miner_wins(#[case] epoch_id: StacksEpochId, #[case] scope: Option<&[u8]>) {
         let first_burn_hash = BurnchainHeaderHash([0xfe; 32]);
         let parent_first_burn_hash = BurnchainHeaderHash([0xff; 32]);
         let first_block_height = 120;
@@ -1162,12 +1186,13 @@ mod test {
                     &sortition_hash,
                     &commit_winner,
                     atc,
+                    epoch_id,
                 )
                 .unwrap();
                 debug!("null_wins: {},{}: {}", i, j, null_wins);
 
                 let vrf_seed = BlockSnapshot::get_last_vrf_seed(&mut sort_tx, &header).unwrap();
-                let index = sortition_hash.mix_VRF_seed(&vrf_seed).to_uint256();
+                let index = sortition_hash.mix_VRF_seed(&vrf_seed, scope).to_uint256();
 
                 if index < null_prob_u256 {
                     assert!(null_wins);
@@ -1177,6 +1202,90 @@ mod test {
             }
 
             prev_block_header = header.clone();
+        }
+    }
+
+    /// Unscoped sampling keeps the pre-Epoch 4.1 digest, and each scope yields a distinct digest.
+    #[test]
+    fn test_mix_VRF_seed_scopes() {
+        let sortition_hash = SortitionHash([0x11; 32]);
+        let vrf_seed = VRFSeed([0x22; 32]);
+
+        let mut sha2 = Sha256::new();
+        sha2.update(sortition_hash.as_bytes());
+        sha2.update(vrf_seed.as_bytes());
+        let legacy = SortitionHash(sha2.finalize().into());
+
+        let unscoped = sortition_hash.mix_VRF_seed(&vrf_seed, None);
+        let sortition = sortition_hash.mix_VRF_seed(&vrf_seed, Some(SORTITION_SCOPE));
+        let null_miner = sortition_hash.mix_VRF_seed(&vrf_seed, Some(NULL_MINER_SCOPE));
+
+        assert_eq!(unscoped, legacy);
+        assert_ne!(sortition, unscoped);
+        assert_ne!(null_miner, unscoped);
+        assert_ne!(sortition, null_miner);
+    }
+
+    /// `sample_burn_distribution()` picks the range containing the digest for the given scope.
+    #[test]
+    fn test_sample_burn_distribution_scopes() {
+        let commit = |b: u8| LeaderBlockCommitOp {
+            sunset_burn: 0,
+            block_header_hash: BlockHeaderHash([b; 32]),
+            new_seed: VRFSeed([b; 32]),
+            parent_block_ptr: 0,
+            parent_vtxindex: 0,
+            key_block_ptr: 0,
+            key_vtxindex: 0,
+            memo: vec![0x80],
+            commit_outs: vec![],
+            burn_fee: 100,
+            input: (Txid([0; 32]), 0),
+            apparent_sender: BurnchainSigner(format!("signer {b}")),
+            txid: Txid([b; 32]),
+            vtxindex: 0,
+            block_height: 0,
+            burn_parent_modulus: 0,
+            burn_header_hash: BurnchainHeaderHash([0; 32]),
+            treatment: vec![],
+        };
+
+        // four equal ranges
+        let quarter = Uint256::max() >> 2;
+        let dist: Vec<_> = (0..4u8)
+            .map(|b| {
+                let mut point = BurnSamplePoint::zero(commit(b));
+                point.range_start = quarter * Uint256::from_u64(u64::from(b));
+                point.range_end = if b == 3 {
+                    Uint256::max()
+                } else {
+                    quarter * Uint256::from_u64(u64::from(b) + 1)
+                };
+                point
+            })
+            .collect();
+
+        let expected_index = |index: Uint256| {
+            dist.iter()
+                .position(|point| point.range_start <= index && index < point.range_end)
+                .unwrap()
+        };
+
+        for i in 0..16u8 {
+            let sortition_hash = SortitionHash([i; 32]);
+            let vrf_seed = VRFSeed([i.wrapping_mul(7); 32]);
+            for scope in [None, Some(SORTITION_SCOPE), Some(NULL_MINER_SCOPE)] {
+                let index = sortition_hash.mix_VRF_seed(&vrf_seed, scope).to_uint256();
+                assert_eq!(
+                    BlockSnapshot::sample_burn_distribution(
+                        &dist,
+                        &vrf_seed,
+                        &sortition_hash,
+                        scope
+                    ),
+                    Some(expected_index(index))
+                );
+            }
         }
     }
 }

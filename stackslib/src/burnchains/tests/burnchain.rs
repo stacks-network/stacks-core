@@ -629,7 +629,7 @@ fn test_process_block_ops() {
         if next_sortition {
             block_124_snapshot.sortition_hash = block_124_snapshot
                 .sortition_hash
-                .mix_VRF_seed(&block_124_winners[scenario_idx].new_seed);
+                .mix_VRF_seed(&block_124_winners[scenario_idx].new_seed, None);
         }
 
         let block124 = BurnchainBlock::Bitcoin(BitcoinBlock::new(

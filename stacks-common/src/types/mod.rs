@@ -901,6 +901,13 @@ impl StacksEpochId {
         self >= &StacksEpochId::Epoch41
     }
 
+    /// Whether sortition samples the winning block-commit and the null miner's challenge from
+    /// separate, domain-separated digests of the sortition hash and VRF seed, rather than both
+    /// from the same digest.
+    pub fn uses_sortition_scopes(&self) -> bool {
+        self >= &StacksEpochId::Epoch41
+    }
+
     pub fn supports_call_with_constant(&self) -> bool {
         self >= &StacksEpochId::Epoch34
     }
