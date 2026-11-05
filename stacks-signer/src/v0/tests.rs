@@ -14,7 +14,7 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use std::collections::HashMap;
-use std::sync::LazyLock;
+use std::sync::{LazyLock, Mutex};
 
 use blockstack_lib::chainstate::nakamoto::NakamotoBlock;
 use blockstack_lib::chainstate::stacks::StacksTransaction;
@@ -22,12 +22,15 @@ use clarity::types::chainstate::{ConsensusHash, StacksAddress, StacksBlockId};
 use clarity::util::hash::Sha512Trunc256Sum;
 use libsigner::v0::messages::{BlockRejection, BlockResponse, RejectReason};
 use libsigner::BlockProposal;
+use serde::Deserialize;
 use stacks_common::types::chainstate::StacksPublicKey;
 use stacks_common::util::get_epoch_time_secs;
+use stacks_common::util::secp256k1::Secp256k1PublicKey;
 use stacks_common::util::tests::TestFlag;
-use stacks_common::{info, warn};
+use stacks_common::{error, info, warn};
 
-use super::signer::Signer;
+use super::signer::{Signer, TEST_REPEAT_PROPOSAL_RESPONSE};
+use super::signer_state::TEST_IGNORE_BITCOIN_FORK_PUBKEYS;
 use crate::signerdb::BlockInfo;
 
 /// A global variable that can be used to pin a signer's highest supported protocol version if the signer's public key is in the provided list
@@ -85,6 +88,117 @@ pub static TEST_SIGNERS_IGNORE_BLOCK_ANNOUNCEMENT: LazyLock<TestFlag<Vec<StacksP
 pub static TEST_SIGNERS_INSERT_BLOCK_PROPOSAL_WITHOUT_PROCESSING: LazyLock<
     TestFlag<Vec<StacksPublicKey>>,
 > = LazyLock::new(TestFlag::default);
+
+/// Environment variable naming a JSON file of test flags, so a harness driving the signer
+/// binary as a separate process can set the flags above. See [`ExternalTestFlags`].
+pub const TEST_FLAGS_FILE_ENV: &str = "STACKS_SIGNER_TEST_FLAGS_FILE";
+
+/// Last contents applied from [`TEST_FLAGS_FILE_ENV`], to apply each change once.
+static APPLIED_EXTERNAL_TEST_FLAGS: LazyLock<Mutex<Option<String>>> =
+    LazyLock::new(|| Mutex::new(None));
+
+/// The desired state of every test flag, read from [`TEST_FLAGS_FILE_ENV`]. A flag absent from
+/// the file is reset. Flags keyed by signer public key take a bool here: `true` sets them for
+/// this signer's own key.
+#[derive(Debug, Default, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct ExternalTestFlags {
+    /// Sets `TEST_PIN_SUPPORTED_SIGNER_PROTOCOL_VERSION` for this signer
+    pub pin_supported_signer_protocol_version: Option<u64>,
+    /// Sets `TEST_REJECT_ALL_BLOCK_PROPOSAL`
+    pub reject_all_block_proposal: bool,
+    /// Sets `TEST_REJECT_ALL_BLOCK_PROPOSAL_REASON`
+    pub reject_all_block_proposal_reason: Option<RejectReason>,
+    /// Sets `TEST_IGNORE_ALL_BLOCK_PROPOSALS`
+    pub ignore_all_block_proposals: bool,
+    /// Sets `TEST_PAUSE_BLOCK_BROADCAST`
+    pub pause_block_broadcast: bool,
+    /// Sets `TEST_SKIP_BLOCK_BROADCAST`
+    pub skip_block_broadcast: bool,
+    /// Sets `TEST_STALL_BLOCK_VALIDATION_SUBMISSION`
+    pub stall_block_validation_submission: bool,
+    /// Sets `TEST_SKIP_SIGNER_CLEANUP`
+    pub skip_signer_cleanup: bool,
+    /// Sets `TEST_SIGNERS_SKIP_BLOCK_RESPONSE_BROADCAST`
+    pub skip_block_response_broadcast: bool,
+    /// Sets `TEST_STALL_BLOCK_RESPONSE`
+    pub stall_block_response: bool,
+    /// Sets `TEST_SIGNERS_IGNORE_BLOCK_RESPONSES`
+    pub ignore_block_responses: bool,
+    /// Sets `TEST_SIGNERS_IGNORE_PRE_COMMITS`
+    pub ignore_pre_commits: bool,
+    /// Sets `TEST_SIGNERS_IGNORE_BLOCK_ANNOUNCEMENT`
+    pub ignore_block_announcement: bool,
+    /// Sets `TEST_SIGNERS_INSERT_BLOCK_PROPOSAL_WITHOUT_PROCESSING`
+    pub insert_block_proposal_without_processing: bool,
+    /// Sets `TEST_REPEAT_PROPOSAL_RESPONSE`
+    pub repeat_proposal_response: bool,
+    /// Sets `TEST_IGNORE_BITCOIN_FORK_PUBKEYS`
+    pub ignore_bitcoin_fork: bool,
+}
+
+impl ExternalTestFlags {
+    fn apply(&self, own_key: &StacksPublicKey) {
+        let keys = |on: bool| if on { vec![own_key.clone()] } else { vec![] };
+        TEST_PIN_SUPPORTED_SIGNER_PROTOCOL_VERSION.set(
+            self.pin_supported_signer_protocol_version
+                .map(|v| HashMap::from([(own_key.clone(), v)]))
+                .unwrap_or_default(),
+        );
+        TEST_REJECT_ALL_BLOCK_PROPOSAL.set(keys(self.reject_all_block_proposal));
+        *TEST_REJECT_ALL_BLOCK_PROPOSAL_REASON.0.lock().unwrap() =
+            self.reject_all_block_proposal_reason.clone();
+        TEST_IGNORE_ALL_BLOCK_PROPOSALS.set(keys(self.ignore_all_block_proposals));
+        TEST_PAUSE_BLOCK_BROADCAST.set(self.pause_block_broadcast);
+        TEST_SKIP_BLOCK_BROADCAST.set(self.skip_block_broadcast);
+        TEST_STALL_BLOCK_VALIDATION_SUBMISSION.set(self.stall_block_validation_submission);
+        TEST_SKIP_SIGNER_CLEANUP.set(self.skip_signer_cleanup);
+        TEST_SIGNERS_SKIP_BLOCK_RESPONSE_BROADCAST.set(keys(self.skip_block_response_broadcast));
+        TEST_STALL_BLOCK_RESPONSE.set(self.stall_block_response);
+        TEST_SIGNERS_IGNORE_BLOCK_RESPONSES.set(keys(self.ignore_block_responses));
+        TEST_SIGNERS_IGNORE_PRE_COMMITS.set(keys(self.ignore_pre_commits));
+        TEST_SIGNERS_IGNORE_BLOCK_ANNOUNCEMENT.set(keys(self.ignore_block_announcement));
+        TEST_SIGNERS_INSERT_BLOCK_PROPOSAL_WITHOUT_PROCESSING
+            .set(keys(self.insert_block_proposal_without_processing));
+        TEST_REPEAT_PROPOSAL_RESPONSE.set(keys(self.repeat_proposal_response));
+        let own_secp_key = Secp256k1PublicKey::from_slice(&own_key.to_bytes_compressed())
+            .expect("signer public key is a valid secp256k1 key");
+        TEST_IGNORE_BITCOIN_FORK_PUBKEYS.set(if self.ignore_bitcoin_fork {
+            vec![own_secp_key]
+        } else {
+            vec![]
+        });
+    }
+}
+
+/// If [`TEST_FLAGS_FILE_ENV`] is set, apply the flags in that file whenever its contents
+/// change. Called once per runloop pass, so a change takes effect on the next event or event
+/// timeout. An unreadable or malformed file is logged and leaves the flags unchanged.
+pub fn apply_external_test_flags(own_key: &StacksPublicKey) {
+    let Ok(path) = std::env::var(TEST_FLAGS_FILE_ENV) else {
+        return;
+    };
+    let contents = std::fs::read_to_string(&path).unwrap_or_default();
+    let mut applied = APPLIED_EXTERNAL_TEST_FLAGS.lock().unwrap();
+    if applied.as_deref() == Some(contents.as_str()) {
+        return;
+    }
+    let flags = if contents.trim().is_empty() {
+        ExternalTestFlags::default()
+    } else {
+        match serde_json::from_str::<ExternalTestFlags>(&contents) {
+            Ok(flags) => flags,
+            Err(e) => {
+                error!("Invalid test flags file"; "path" => &path, "error" => %e);
+                *applied = Some(contents);
+                return;
+            }
+        }
+    };
+    flags.apply(own_key);
+    info!("Applied external test flags"; "path" => &path, "flags" => ?flags);
+    *applied = Some(contents);
+}
 
 /// Opt-in capture owned by one signer for one block. Retains only the first response and
 /// message counts, so unexpected repeated responses fail assertions without growing storage.
@@ -3144,5 +3258,47 @@ mod cycle_start_state_sync {
         node.shutdown();
         assert_eq!(first, Some(burn_block));
         assert_eq!(second, Some(reorged_burn_block));
+    }
+}
+
+#[cfg(test)]
+mod external_test_flags {
+    use clarity::types::chainstate::StacksPrivateKey;
+
+    use super::*;
+
+    /// `apply` sets every flag process-wide, so this would disturb a concurrent test that sets
+    /// these flags; no other unit test in this crate does.
+    #[test]
+    fn keyed_flags_apply_to_own_key_and_absent_flags_reset() {
+        let own_key = StacksPublicKey::from_private(&StacksPrivateKey::random());
+        let flags: ExternalTestFlags = serde_json::from_str(
+            r#"{"ignore_pre_commits": true,
+                "pin_supported_signer_protocol_version": 1,
+                "reject_all_block_proposal_reason": "NotLatestSortitionWinner"}"#,
+        )
+        .unwrap();
+        flags.apply(&own_key);
+        assert_eq!(TEST_SIGNERS_IGNORE_PRE_COMMITS.get(), vec![own_key.clone()]);
+        assert_eq!(
+            TEST_PIN_SUPPORTED_SIGNER_PROTOCOL_VERSION
+                .get()
+                .get(&own_key),
+            Some(&1)
+        );
+        assert_eq!(
+            TEST_REJECT_ALL_BLOCK_PROPOSAL_REASON.get_opt(),
+            Some(RejectReason::NotLatestSortitionWinner)
+        );
+
+        ExternalTestFlags::default().apply(&own_key);
+        assert!(TEST_SIGNERS_IGNORE_PRE_COMMITS.get().is_empty());
+        assert!(TEST_PIN_SUPPORTED_SIGNER_PROTOCOL_VERSION.get().is_empty());
+        assert_eq!(TEST_REJECT_ALL_BLOCK_PROPOSAL_REASON.get_opt(), None);
+    }
+
+    #[test]
+    fn unknown_flags_are_rejected() {
+        assert!(serde_json::from_str::<ExternalTestFlags>(r#"{"no_such_flag": true}"#).is_err());
     }
 }

@@ -858,6 +858,12 @@ impl<Signer: SignerTrait<T>, T: StacksMessageCodec + Clone + Send + Debug>
             "Running one pass for the signer. state={:?}, event={event:?}",
             self.state
         );
+        #[cfg(any(test, feature = "testing"))]
+        crate::v0::tests::apply_external_test_flags(
+            &stacks_common::types::chainstate::StacksPublicKey::from_private(
+                &self.config.stacks_private_key,
+            ),
+        );
 
         // This is the only event that we respond to from the outer signer runloop
         if let Some(SignerEvent::StatusCheck) = event {
