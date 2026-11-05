@@ -32,6 +32,7 @@ use http_types::headers::AUTHORIZATION;
 use lazy_static::lazy_static;
 use libsigner::v0::messages::{RejectReason, SignerMessage as SignerMessageV0};
 use libsigner::{SignerSession, StackerDBSession, StacksBlockEvent};
+use pinny::tag;
 use rand::{thread_rng, Rng};
 use rusqlite::{Connection, OptionalExtension};
 use serial_test::serial;
@@ -4716,8 +4717,10 @@ fn follower_bootup_with_recovery(
 /// Build with `cargo build -p stacks-inspect --features stackslib/testing` so
 /// coinbase maturity matches this fixture. STACKS_INSPECT_BIN overrides the binary.
 /// Never invoke Cargo from a test.
-#[test]
+/// Skipped in CI: the nextest archive does not include this prebuilt binary.
+#[tag(ci_skip)]
 #[ignore]
+#[test]
 fn follower_chainstate_cli_recovery() {
     follower_bootup_with_recovery(None, 2, 3, true);
 }
