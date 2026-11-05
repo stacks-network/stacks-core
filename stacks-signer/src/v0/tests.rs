@@ -25,12 +25,10 @@ use libsigner::BlockProposal;
 use serde::Deserialize;
 use stacks_common::types::chainstate::StacksPublicKey;
 use stacks_common::util::get_epoch_time_secs;
-use stacks_common::util::secp256k1::Secp256k1PublicKey;
 use stacks_common::util::tests::TestFlag;
 use stacks_common::{error, info, warn};
 
 use super::signer::{Signer, TEST_REPEAT_PROPOSAL_RESPONSE};
-use super::signer_state::TEST_IGNORE_BITCOIN_FORK_PUBKEYS;
 use crate::signerdb::BlockInfo;
 
 /// A global variable that can be used to pin a signer's highest supported protocol version if the signer's public key is in the provided list
@@ -133,8 +131,6 @@ pub struct ExternalTestFlags {
     pub insert_block_proposal_without_processing: bool,
     /// Sets `TEST_REPEAT_PROPOSAL_RESPONSE`
     pub repeat_proposal_response: bool,
-    /// Sets `TEST_IGNORE_BITCOIN_FORK_PUBKEYS`
-    pub ignore_bitcoin_fork: bool,
 }
 
 impl ExternalTestFlags {
@@ -161,13 +157,6 @@ impl ExternalTestFlags {
         TEST_SIGNERS_INSERT_BLOCK_PROPOSAL_WITHOUT_PROCESSING
             .set(keys(self.insert_block_proposal_without_processing));
         TEST_REPEAT_PROPOSAL_RESPONSE.set(keys(self.repeat_proposal_response));
-        let own_secp_key = Secp256k1PublicKey::from_slice(&own_key.to_bytes_compressed())
-            .expect("signer public key is a valid secp256k1 key");
-        TEST_IGNORE_BITCOIN_FORK_PUBKEYS.set(if self.ignore_bitcoin_fork {
-            vec![own_secp_key]
-        } else {
-            vec![]
-        });
     }
 }
 
