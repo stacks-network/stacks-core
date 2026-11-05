@@ -1,0 +1,1 @@
+Signers and miners now ignore block rejections whose chain id is for another network (mainnet vs. testnet). Previously such a rejection was still counted, since its signature recovers to the same signer key.
