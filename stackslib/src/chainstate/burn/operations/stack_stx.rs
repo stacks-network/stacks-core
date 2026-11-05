@@ -392,7 +392,12 @@ impl StacksMessageCodec for StackStxOp {
 }
 
 impl StackStxOp {
-    pub fn check(&self) -> Result<(), op_error> {
+    pub fn check(&self, epoch_id: StacksEpochId) -> Result<(), op_error> {
+        if epoch_id.rejects_burn_op(Opcodes::StackStx) {
+            warn!("Invalid StackStxOp: rejected in epoch {epoch_id}"; "txid" => %self.txid);
+            return Err(op_error::RejectedInEpoch(epoch_id));
+        }
+
         if self.stacked_ustx == 0 {
             warn!("Invalid StackStxOp, must have positive ustx");
             return Err(op_error::StackStxMustBePositive);

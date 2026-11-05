@@ -1,0 +1,1 @@
+Starting in Epoch 4.1, the sortition DB rejects the defunct `stack-stx`, `delegate-stx`, and `vote-for-aggregate-key` burnchain operations. Operations mined in earlier epochs are still accepted so that sortition history replays unchanged; `transfer-stx` and `pre-stx` are unaffected.

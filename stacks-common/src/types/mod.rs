@@ -40,7 +40,7 @@ use crate::consts::{
     PEER_VERSION_EPOCH_3_1, PEER_VERSION_EPOCH_3_2, PEER_VERSION_EPOCH_3_3, PEER_VERSION_EPOCH_3_4,
     PEER_VERSION_EPOCH_4_0, PEER_VERSION_EPOCH_4_1, STACKS_EPOCH_MAX,
 };
-use crate::types::chainstate::{StacksAddress, StacksPublicKey};
+use crate::types::chainstate::{Opcodes, StacksAddress, StacksPublicKey};
 use crate::util::hash::Hash160;
 use crate::util::secp256k1::{MessageSignature, Secp256k1PublicKey};
 
@@ -603,6 +603,22 @@ impl StacksEpochId {
     /// exist.  Building off of genesis (`(0, 0)`) is unaffected.
     pub fn allows_missing_vtxindex_zero_commit_parent(&self) -> bool {
         self >= &StacksEpochId::Epoch30 && self < &StacksEpochId::Epoch41
+    }
+
+    /// Whether the sortition DB rejects burnchain operations with `opcode` in this epoch.
+    ///
+    /// From Epoch 4.1, `stack-stx`, `delegate-stx`, and `vote-for-aggregate-key` are rejected:
+    /// they call into PoX-4 and `.signers-voting`, which PoX-5 superseded.
+    pub fn rejects_burn_op(&self, opcode: Opcodes) -> bool {
+        match opcode {
+            Opcodes::StackStx | Opcodes::DelegateStx | Opcodes::VoteForAggregateKey => {
+                self >= &StacksEpochId::Epoch41
+            }
+            Opcodes::LeaderBlockCommit
+            | Opcodes::LeaderKeyRegister
+            | Opcodes::PreStx
+            | Opcodes::TransferStx => false,
+        }
     }
 
     /// Does this epoch support unlocking PoX contributors that miss a slot?
