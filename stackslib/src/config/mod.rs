@@ -2132,6 +2132,11 @@ pub struct NodeConfig {
     /// address to expose internal metrics for scraping by a Prometheus instance.
     /// ---
     /// @default: `None` (Prometheus server disabled)
+    /// @notes:
+    ///   - WARNING: The metrics server does not limit the size of request headers,
+    ///     so a client that can reach it can make the node use unbounded memory.
+    ///     Bind it to a loopback or private interface, or restrict access with a
+    ///     firewall, so that only trusted scrapers can connect.
     pub prometheus_bind: Option<String>,
     /// Controls the timing of hash calculations for MARF trie nodes.
     /// - If `true`, hashes are calculated only when the MARF is flushed to disk
