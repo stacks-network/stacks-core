@@ -36,7 +36,7 @@ node_host = "127.0.0.1:20443"
 
 # REQUIRED: Local endpoint this signer listens on for events from the node.
 # Must match the endpoint in the node's [[events_observer]] section.
-endpoint = "0.0.0.0:30000"
+endpoint = "127.0.0.1:30000"
 
 # REQUIRED: Network selection.
 # Valid values: "mainnet", "testnet", "signet"
@@ -237,4 +237,4 @@ db_path = "/var/lib/stacks-signer/signerdb.sqlite"
 
 # Prometheus metrics endpoint. Uncomment to enable.
 # Format: "host:port"
-# metrics_endpoint = "0.0.0.0:9090"
+# metrics_endpoint = "127.0.0.1:9090"
