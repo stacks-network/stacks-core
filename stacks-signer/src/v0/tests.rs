@@ -23,7 +23,7 @@ use clarity::util::hash::Sha512Trunc256Sum;
 use libsigner::v0::messages::{BlockRejection, BlockResponse, RejectReason};
 use libsigner::BlockProposal;
 use serde::Deserialize;
-use stacks_common::types::chainstate::StacksPublicKey;
+use stacks_common::types::chainstate::{StacksPrivateKey, StacksPublicKey};
 use stacks_common::util::get_epoch_time_secs;
 use stacks_common::util::tests::TestFlag;
 use stacks_common::{error, info, warn};
@@ -88,11 +88,17 @@ pub static TEST_SIGNERS_INSERT_BLOCK_PROPOSAL_WITHOUT_PROCESSING: LazyLock<
 > = LazyLock::new(TestFlag::default);
 
 /// Environment variable naming a JSON file of test flags, so a harness driving the signer
-/// binary as a separate process can set the flags above. See [`ExternalTestFlags`].
+/// binary as a separate process can set the flags above. See [`ExternalTestFlags`]. It is
+/// read once, on first use.
 pub const TEST_FLAGS_FILE_ENV: &str = "STACKS_SIGNER_TEST_FLAGS_FILE";
 
-/// Last contents applied from [`TEST_FLAGS_FILE_ENV`], to apply each change once.
-static APPLIED_EXTERNAL_TEST_FLAGS: LazyLock<Mutex<Option<String>>> =
+/// How the test flags file looked when it was last applied: its modification time and size,
+/// or the error that stopped it being read. Every write of the file changes this, even one
+/// of the same contents, so every write is applied and acknowledged in the log.
+type TestFlagsFileState = Result<(std::time::SystemTime, u64), String>;
+
+/// State of [`TEST_FLAGS_FILE_ENV`] when it was last applied, to apply each write once.
+static APPLIED_EXTERNAL_TEST_FLAGS: LazyLock<Mutex<Option<TestFlagsFileState>>> =
     LazyLock::new(|| Mutex::new(None));
 
 /// The desired state of every test flag, read from [`TEST_FLAGS_FILE_ENV`]. A flag absent from
@@ -142,8 +148,8 @@ impl ExternalTestFlags {
                 .unwrap_or_default(),
         );
         TEST_REJECT_ALL_BLOCK_PROPOSAL.set(keys(self.reject_all_block_proposal));
-        *TEST_REJECT_ALL_BLOCK_PROPOSAL_REASON.0.lock().unwrap() =
-            self.reject_all_block_proposal_reason.clone();
+        TEST_REJECT_ALL_BLOCK_PROPOSAL_REASON
+            .set_opt(self.reject_all_block_proposal_reason.clone());
         TEST_IGNORE_ALL_BLOCK_PROPOSALS.set(keys(self.ignore_all_block_proposals));
         TEST_PAUSE_BLOCK_BROADCAST.set(self.pause_block_broadcast);
         TEST_SKIP_BLOCK_BROADCAST.set(self.skip_block_broadcast);
@@ -160,42 +166,45 @@ impl ExternalTestFlags {
     }
 }
 
-/// If [`TEST_FLAGS_FILE_ENV`] is set, apply the flags in that file whenever its contents
-/// change. Called once per runloop pass, so a change takes effect on the next event or event
-/// timeout, and from the stall loops (see [`wait_while_set`]) so a stall can be cleared.
-pub fn apply_external_test_flags(own_key: &StacksPublicKey) {
-    if let Ok(path) = std::env::var(TEST_FLAGS_FILE_ENV) {
-        apply_test_flags_file(&path, own_key);
+/// If [`TEST_FLAGS_FILE_ENV`] is set, apply the flags in that file whenever it is written.
+/// Called once per runloop pass, so a write takes effect on the next event or event timeout,
+/// and from the stall loops (see [`Signer::stall_while_set`]) so a stall can be cleared. A
+/// fresh process applies whatever the file holds on its first pass, so a harness that
+/// restarts the signer should blank the file first unless it means the flags to carry over.
+pub fn apply_external_test_flags(private_key: &StacksPrivateKey) {
+    static PATH: LazyLock<Option<String>> =
+        LazyLock::new(|| std::env::var(TEST_FLAGS_FILE_ENV).ok());
+    if let Some(path) = PATH.as_deref() {
+        apply_test_flags_file(path, private_key);
     }
 }
 
-/// Apply the flags in `path` if its contents changed since the last call. An unreadable,
-/// blank or malformed file leaves the flags unchanged (a write of `{}` resets them); read
-/// and parse errors are logged once per distinct error.
-fn apply_test_flags_file(path: &str, own_key: &StacksPublicKey) {
-    // On a read error, the error text is cached instead of the contents, prefixed with a NUL
-    // that a JSON file can't start with, so it is logged once and not mistaken for contents.
-    let contents = std::fs::read_to_string(path).map_err(|e| format!("\0{e}"));
-    let seen = match &contents {
-        Ok(c) => c.as_str(),
-        Err(e) => e.as_str(),
-    };
+/// Apply the flags in `path` if the file was written since the last call (see
+/// [`TestFlagsFileState`]), logging "Applied external test flags" each time. An unreadable,
+/// blank or malformed file leaves the flags unchanged (a write of `{}` resets them); read and
+/// parse errors are logged once per write. An unchanged file costs one `stat`, so this is
+/// cheap enough to call from the stall loops.
+fn apply_test_flags_file(path: &str, private_key: &StacksPrivateKey) {
+    let state: TestFlagsFileState = std::fs::metadata(path)
+        .and_then(|m| Ok((m.modified()?, m.len())))
+        .map_err(|e| e.to_string());
     let mut applied = APPLIED_EXTERNAL_TEST_FLAGS.lock().unwrap();
-    if applied.as_deref() == Some(seen) {
+    if applied.as_ref() == Some(&state) {
         return;
     }
-    *applied = Some(seen.to_string());
+    *applied = Some(state.clone());
+    let contents = state.and_then(|_| std::fs::read_to_string(path).map_err(|e| e.to_string()));
     let contents = match contents {
         Ok(c) if c.trim().is_empty() => return,
         Ok(c) => c,
         Err(e) => {
-            warn!("Unreadable test flags file"; "path" => path, "error" => &e[1..]);
+            warn!("Unreadable test flags file"; "path" => path, "error" => e);
             return;
         }
     };
     match serde_json::from_str::<ExternalTestFlags>(&contents) {
         Ok(flags) => {
-            flags.apply(own_key);
+            flags.apply(&StacksPublicKey::from_private(private_key));
             info!("Applied external test flags"; "path" => path, "flags" => ?flags);
         }
         Err(e) => error!("Invalid test flags file"; "path" => path, "error" => %e),
@@ -315,6 +324,12 @@ impl Signer {
         }
     }
 
+    /// Sleep while `flag` is set, re-reading the test flags file meanwhile so the stall can
+    /// also be cleared from outside the process.
+    fn stall_while_set(&self, flag: &TestFlag<bool>) {
+        wait_while_set(flag, || apply_external_test_flags(&self.private_key));
+    }
+
     /// Pause the block broadcast if the TEST_PAUSE_BLOCK_BROADCAST flag is set
     pub fn test_pause_block_broadcast(&self, block: &NakamotoBlock) {
         if TEST_PAUSE_BLOCK_BROADCAST.get() {
@@ -323,10 +338,8 @@ impl Signer {
                 "block_id" => %block.block_id(),
                 "height" => block.header.chain_length,
             );
-            wait_while_set(&TEST_PAUSE_BLOCK_BROADCAST, || {
-                apply_external_test_flags(&StacksPublicKey::from_private(&self.private_key))
-            });
-            info!("{self}: Block validation is no longer stalled due to testing directive.";
+            self.stall_while_set(&TEST_PAUSE_BLOCK_BROADCAST);
+            info!("{self}: Block broadcast is no longer stalled due to testing directive.";
                 "block_id" => %block.block_id(),
                 "height" => block.header.chain_length,
             );
@@ -354,9 +367,7 @@ impl Signer {
         if TEST_STALL_BLOCK_VALIDATION_SUBMISSION.get() {
             // Do an extra check just so we don't log EVERY time.
             warn!("{self}: Block validation submission is stalled due to testing directive");
-            wait_while_set(&TEST_STALL_BLOCK_VALIDATION_SUBMISSION, || {
-                apply_external_test_flags(&StacksPublicKey::from_private(&self.private_key))
-            });
+            self.stall_while_set(&TEST_STALL_BLOCK_VALIDATION_SUBMISSION);
             warn!("{self}: Block validation submission is no longer stalled due to testing directive. Continuing...");
         }
     }
@@ -397,9 +408,7 @@ impl Signer {
         if TEST_STALL_BLOCK_RESPONSE.get() {
             // Do an extra check just so we don't log EVERY time.
             warn!("{self}: Block response is stalled due to testing directive");
-            wait_while_set(&TEST_STALL_BLOCK_RESPONSE, || {
-                apply_external_test_flags(&StacksPublicKey::from_private(&self.private_key))
-            });
+            self.stall_while_set(&TEST_STALL_BLOCK_RESPONSE);
             warn!("{self}: Block response is no longer stalled due to testing directive. Continuing...");
         }
     }
@@ -3274,13 +3283,36 @@ mod cycle_start_state_sync {
 
 #[cfg(test)]
 mod external_test_flags {
-    use clarity::types::chainstate::StacksPrivateKey;
+    use std::sync::MutexGuard;
 
     use super::*;
 
-    /// `apply` sets every flag process-wide, so the tests here take this lock to run one at a
-    /// time. No other unit test in this crate sets these flags.
+    /// `apply` sets every flag process-wide, and the other unit tests in this crate read them
+    /// (the stall flags block `send_block_response`), so the tests here run one at a time and
+    /// reset every flag when they finish, even on a panic: a stall flag left set would hang
+    /// the rest of the test run.
     static FLAGS_LOCK: Mutex<()> = Mutex::new(());
+
+    struct FlagsGuard(#[allow(dead_code)] MutexGuard<'static, ()>);
+
+    impl FlagsGuard {
+        fn take() -> Self {
+            Self(FLAGS_LOCK.lock().unwrap_or_else(|e| e.into_inner()))
+        }
+    }
+
+    impl Drop for FlagsGuard {
+        fn drop(&mut self) {
+            ExternalTestFlags::default().apply(&StacksPublicKey::from_private(&own_key()));
+            *APPLIED_EXTERNAL_TEST_FLAGS
+                .lock()
+                .unwrap_or_else(|e| e.into_inner()) = None;
+        }
+    }
+
+    fn own_key() -> StacksPrivateKey {
+        StacksPrivateKey::random()
+    }
 
     /// A file path unique to this test run.
     fn flags_path() -> std::path::PathBuf {
@@ -3292,8 +3324,8 @@ mod external_test_flags {
 
     #[test]
     fn keyed_flags_apply_to_own_key_and_absent_flags_reset() {
-        let _guard = FLAGS_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-        let own_key = StacksPublicKey::from_private(&StacksPrivateKey::random());
+        let _guard = FlagsGuard::take();
+        let own_key = StacksPublicKey::from_private(&own_key());
         let flags: ExternalTestFlags = serde_json::from_str(
             r#"{"ignore_pre_commits": true,
                 "pin_supported_signer_protocol_version": 1,
@@ -3321,43 +3353,72 @@ mod external_test_flags {
 
     #[test]
     fn unreadable_blank_or_malformed_file_keeps_flags() {
-        let _guard = FLAGS_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-        let own_key = StacksPublicKey::from_private(&StacksPrivateKey::random());
+        let _guard = FlagsGuard::take();
+        let key = own_key();
+        let own_key = StacksPublicKey::from_private(&key);
         let path = flags_path();
         let path_str = path.to_str().unwrap();
         std::fs::write(&path, r#"{"ignore_pre_commits": true}"#).unwrap();
-        apply_test_flags_file(path_str, &own_key);
+        apply_test_flags_file(path_str, &key);
         assert_eq!(TEST_SIGNERS_IGNORE_PRE_COMMITS.get(), vec![own_key.clone()]);
 
         for contents in ["", "  \n", r#"{"ignore_pre_commits": tr"#] {
             std::fs::write(&path, contents).unwrap();
-            apply_test_flags_file(path_str, &own_key);
+            apply_test_flags_file(path_str, &key);
             assert_eq!(TEST_SIGNERS_IGNORE_PRE_COMMITS.get(), vec![own_key.clone()]);
         }
         std::fs::remove_file(&path).unwrap();
-        apply_test_flags_file(path_str, &own_key);
+        apply_test_flags_file(path_str, &key);
         assert_eq!(TEST_SIGNERS_IGNORE_PRE_COMMITS.get(), vec![own_key.clone()]);
 
         std::fs::write(&path, "{}").unwrap();
-        apply_test_flags_file(path_str, &own_key);
+        apply_test_flags_file(path_str, &key);
         assert!(TEST_SIGNERS_IGNORE_PRE_COMMITS.get().is_empty());
+        std::fs::remove_file(&path).unwrap();
+    }
+
+    /// A harness waits for each write to be acknowledged, so a write must be applied even
+    /// when it repeats the previous contents, and an unchanged file must not be re-applied.
+    #[test]
+    fn every_write_is_applied_and_an_unchanged_file_is_not() {
+        let _guard = FlagsGuard::take();
+        let key = own_key();
+        let own_key = StacksPublicKey::from_private(&key);
+        let path = flags_path();
+        let path_str = path.to_str().unwrap();
+        let contents = r#"{"ignore_pre_commits": true}"#;
+        std::fs::write(&path, contents).unwrap();
+        apply_test_flags_file(path_str, &key);
+        assert_eq!(TEST_SIGNERS_IGNORE_PRE_COMMITS.get(), vec![own_key.clone()]);
+
+        // Unchanged file: a flag cleared behind the file's back stays cleared.
+        TEST_SIGNERS_IGNORE_PRE_COMMITS.set(vec![]);
+        apply_test_flags_file(path_str, &key);
+        assert!(TEST_SIGNERS_IGNORE_PRE_COMMITS.get().is_empty());
+
+        // The same contents written again (as a harness does when it resets twice in a
+        // row, or re-sets flags a restarted process already read) are applied again.
+        std::thread::sleep(std::time::Duration::from_millis(20));
+        std::fs::write(&path, contents).unwrap();
+        apply_test_flags_file(path_str, &key);
+        assert_eq!(TEST_SIGNERS_IGNORE_PRE_COMMITS.get(), vec![own_key]);
         std::fs::remove_file(&path).unwrap();
     }
 
     #[test]
     fn stall_is_cleared_by_rewriting_the_file() {
-        let _guard = FLAGS_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-        let own_key = StacksPublicKey::from_private(&StacksPrivateKey::random());
+        let _guard = FlagsGuard::take();
+        let key = own_key();
         let path = flags_path();
         let path_str = path.to_str().unwrap().to_string();
         std::fs::write(&path, r#"{"stall_block_response": true}"#).unwrap();
-        apply_test_flags_file(&path_str, &own_key);
+        apply_test_flags_file(&path_str, &key);
         assert!(TEST_STALL_BLOCK_RESPONSE.get());
 
         let (done_tx, done_rx) = std::sync::mpsc::channel();
         let waiter = std::thread::spawn(move || {
             wait_while_set(&TEST_STALL_BLOCK_RESPONSE, || {
-                apply_test_flags_file(&path_str, &own_key)
+                apply_test_flags_file(&path_str, &key)
             });
             done_tx.send(()).unwrap();
         });
