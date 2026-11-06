@@ -1316,52 +1316,67 @@ mod test {
         let first_block_height = 120;
         let mut db = SortitionDB::connect_test(first_block_height, &first_burn_hash).unwrap();
 
-        let header = BurnchainBlockHeader {
-            block_height: first_block_height + 1,
-            block_hash: BurnchainHeaderHash([0x01; 32]),
-            parent_block_hash: first_burn_hash.clone(),
-            num_txs: 0,
-            timestamp: 12345,
-        };
-
-        // give the fork a prior winner, so the sample uses a non-initial VRF seed
+        // Give the fork a prior winner, so the sample uses that winner's VRF seed rather than
+        // the initial one.  The winning snapshot needs a non-initial sortition hash, or
+        // `get_last_vrf_seed()` treats it as the first-sortition sentinel.
+        let parent_block_hash = BurnchainHeaderHash([0x01; 32]);
         let mut parent_winner = test_commit(0xaa);
-        parent_winner.block_height = header.block_height;
-        parent_winner.burn_header_hash = header.block_hash.clone();
-        let tip = SortitionDB::get_canonical_burn_chain_tip(db.conn()).unwrap();
+        parent_winner.block_height = first_block_height + 1;
+        parent_winner.burn_header_hash = parent_block_hash.clone();
+        let mut tip = SortitionDB::get_canonical_burn_chain_tip(db.conn()).unwrap();
+        tip.sortition_hash = SortitionHash([0x55; 32]);
         test_append_snapshot_with_winner(
             &mut db,
-            header.block_hash.clone(),
+            parent_block_hash.clone(),
             &[BlockstackOperationType::LeaderBlockCommit(
                 parent_winner.clone(),
             )],
             Some(tip),
-            Some(parent_winner),
+            Some(parent_winner.clone()),
         );
+
+        // sample in the child of the winning block
+        let header = BurnchainBlockHeader {
+            block_height: first_block_height + 2,
+            block_hash: BurnchainHeaderHash([0x02; 32]),
+            parent_block_hash,
+            num_txs: 0,
+            timestamp: 12345,
+        };
 
         let mut sort_tx = db.tx_begin_at_tip();
         let vrf_seed = BlockSnapshot::get_last_vrf_seed(&mut sort_tx, &header).unwrap();
+        assert_eq!(vrf_seed, parent_winner.new_seed);
+        assert_ne!(vrf_seed, VRFSeed::initial());
         let dist = test_quarters_dist();
 
-        let range_of = |sortition_hash: &SortitionHash, scope| {
-            let index = sortition_hash.mix_VRF_seed(scope, &vrf_seed).to_uint256();
+        let range_of = |sortition_hash: &SortitionHash, scope, vrf_seed: &VRFSeed| {
+            let index = sortition_hash.mix_VRF_seed(scope, vrf_seed).to_uint256();
             dist.iter()
                 .position(|point| point.range_start <= index && index < point.range_end)
                 .unwrap()
         };
 
+        // Also require that sampling with the initial VRF seed picks a different winner, so a
+        // fallback to the initial seed is caught too.
         let (sortition_hash, legacy_idx, winner_idx) = (0..=u8::MAX)
             .map(|i| SortitionHash([i; 32]))
             .find_map(|sortition_hash| {
-                let legacy_idx = range_of(&sortition_hash, SampleScope::Unscoped);
-                let winner_idx = range_of(&sortition_hash, SampleScope::Winner);
-                let null_miner_idx = range_of(&sortition_hash, SampleScope::NullMiner);
+                let legacy_idx = range_of(&sortition_hash, SampleScope::Unscoped, &vrf_seed);
+                let winner_idx = range_of(&sortition_hash, SampleScope::Winner, &vrf_seed);
+                let null_miner_idx = range_of(&sortition_hash, SampleScope::NullMiner, &vrf_seed);
+                let initial_legacy_idx =
+                    range_of(&sortition_hash, SampleScope::Unscoped, &VRFSeed::initial());
+                let initial_winner_idx =
+                    range_of(&sortition_hash, SampleScope::Winner, &VRFSeed::initial());
                 (legacy_idx != winner_idx
                     && legacy_idx != null_miner_idx
-                    && winner_idx != null_miner_idx)
+                    && winner_idx != null_miner_idx
+                    && legacy_idx != initial_legacy_idx
+                    && winner_idx != initial_winner_idx)
                     .then_some((sortition_hash, legacy_idx, winner_idx))
             })
-            .expect("no sortition hash separates all three scopes");
+            .expect("no sortition hash separates the scopes and VRF seeds");
 
         for (epoch_id, expected_idx) in [
             (StacksEpochId::Epoch30, legacy_idx),
