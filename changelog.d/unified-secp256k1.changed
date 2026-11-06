@@ -1,0 +1,1 @@
+Replaced the C `secp256k1` (native) and `libsecp256k1` (WASM) backends in `stacks-common` with the pure-Rust `k256` crate, so every target uses the same secp256k1 implementation ([#7305](https://github.com/stacks-network/stacks-core/pull/7305))
