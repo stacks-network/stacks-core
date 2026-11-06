@@ -1424,6 +1424,53 @@ mod async_sibling_validation {
         );
     }
 
+    #[test]
+    fn recheck_accepts_a_block_that_is_already_the_node_tenure_tip() {
+        // The group can sign a block and the node process it before our own validation
+        // returns. The post-validation re-check must then accept the block as the tenure's tip
+        // rather than reject it for not exceeding itself; the proposal-time check still does.
+        let now = get_epoch_time_secs();
+        let (block_a, _block_b, _tips) = sibling_fixture(now, false);
+        let tenure = block_a.header.consensus_hash.clone();
+        let block_c = plain_block(&tenure, &block_a.header.parent_block_id, now + 2);
+        let tip = BlockHeaderWithMetadata {
+            anchored_header: block_c.header.clone().into(),
+            burn_view: Some(tenure.clone()),
+        };
+        let tips = vec![(
+            format!("/v3/tenures/tip_metadata/{tenure}"),
+            serde_json::to_string(&tip).unwrap(),
+        )];
+        let mut node = MockNode::new(tips, Duration::from_secs(100_000));
+        let plain = SortitionData::check_latest_block_in_tenure(
+            &tenure,
+            &block_c,
+            &mut node.signer.signer_db,
+            &node.client,
+            Duration::from_secs(100_000),
+            Duration::from_secs(3),
+            SelfAsTip::Counts,
+        );
+        let ignoring_self = SortitionData::check_latest_block_in_tenure(
+            &tenure,
+            &block_c,
+            &mut node.signer.signer_db,
+            &node.client,
+            Duration::from_secs(100_000),
+            Duration::from_secs(3),
+            SelfAsTip::Ignored,
+        );
+        node.shutdown();
+        assert!(
+            matches!(plain, Ok(false)),
+            "proposal-time check must not accept a block that is already the tip, got {plain:?}"
+        );
+        assert!(
+            matches!(ignoring_self, Ok(true)),
+            "re-check must accept a block the node already has as the tenure tip, got {ignoring_self:?}"
+        );
+    }
+
     /// Assert that A was signed as soon as its validation returned.
     fn assert_a_signed(info_a: &BlockInfo) {
         assert_eq!(
