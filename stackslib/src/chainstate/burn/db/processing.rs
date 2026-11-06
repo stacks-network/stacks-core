@@ -28,7 +28,7 @@ use crate::chainstate::burn::operations::{BlockstackOperationType, Error as OpEr
 use crate::chainstate::burn::BlockSnapshot;
 use crate::chainstate::coordinator::RewardCycleInfo;
 use crate::chainstate::stacks::db::StacksChainState;
-use crate::core::INITIAL_MINING_BONUS_WINDOW;
+use crate::core::{StacksEpochId, INITIAL_MINING_BONUS_WINDOW};
 
 impl SortitionHandleTx<'_> {
     /// Run a blockstack operation's "check()" method and return the result.
@@ -37,7 +37,20 @@ impl SortitionHandleTx<'_> {
         burnchain: &Burnchain,
         blockstack_op: &mut BlockstackOperationType,
         reward_info: Option<&RewardSetInfo>,
+        epoch_id: StacksEpochId,
     ) -> Result<(), BurnchainError> {
+        if epoch_id.rejects_burn_op(blockstack_op.opcode()) {
+            warn!(
+                "REJECTED({}) {:?} op {} at {},{}: not accepted in epoch {epoch_id}",
+                blockstack_op.block_height(),
+                blockstack_op.opcode(),
+                blockstack_op.txid_ref(),
+                blockstack_op.block_height(),
+                blockstack_op.vtxindex()
+            );
+            return Err(BurnchainError::OpError(OpError::RejectedInEpoch(epoch_id)));
+        }
+
         match blockstack_op {
             BlockstackOperationType::LeaderKeyRegister(ref op) => {
                 op.check(burnchain, self).map_err(|e| {
@@ -265,10 +278,18 @@ impl SortitionHandleTx<'_> {
         );
 
         let mut missed_block_commits = vec![];
+        let epoch_id = SortitionDB::get_stacks_epoch(self, block_header.block_height)?
+            .unwrap_or_else(|| {
+                panic!(
+                    "FATAL: no epoch defined for burn height {}",
+                    block_header.block_height
+                )
+            })
+            .epoch_id;
 
         // classify and check each transaction
         blockstack_txs.retain_mut(|blockstack_op| {
-            match self.check_transaction(burnchain, blockstack_op, reward_set_info) {
+            match self.check_transaction(burnchain, blockstack_op, reward_set_info, epoch_id) {
                 Ok(_) => true,
                 Err(BurnchainError::OpError(OpError::MissedBlockCommit(missed_op))) => {
                     missed_block_commits.push(missed_op);
@@ -348,8 +369,9 @@ impl SortitionHandleTx<'_> {
 
 #[cfg(test)]
 mod tests {
-    use stacks_common::types::chainstate::{BlockHeaderHash, VRFSeed};
-    use stacks_common::util::hash::hex_bytes;
+    use stacks_common::types::chainstate::{BlockHeaderHash, StacksAddress, VRFSeed};
+    use stacks_common::types::StacksPublicKeyBuffer;
+    use stacks_common::util::hash::{hex_bytes, Hash160};
     use stacks_common::util::vrf::VRFPublicKey;
 
     use super::*;
@@ -357,9 +379,14 @@ mod tests {
     use crate::chainstate::burn::db::sortdb::tests::test_append_snapshot;
     use crate::chainstate::burn::db::sortdb::SortitionDB;
     use crate::chainstate::burn::operations::leader_block_commit::BURN_BLOCK_MINED_AT_MODULUS;
-    use crate::chainstate::burn::operations::{LeaderBlockCommitOp, LeaderKeyRegisterOp};
+    use crate::chainstate::burn::operations::{
+        DelegateStxOp, LeaderBlockCommitOp, LeaderKeyRegisterOp, StackStxOp, TransferStxOp,
+        VoteForAggregateKeyOp,
+    };
     use crate::chainstate::burn::*;
-    use crate::core::MICROSTACKS_PER_STACKS;
+    use crate::chainstate::stacks::address::PoxAddress;
+    use crate::chainstate::stacks::StacksPublicKey;
+    use crate::core::{EpochList, StacksEpoch, StacksEpochExtension, MICROSTACKS_PER_STACKS};
 
     #[test]
     fn test_initial_block_reward() {
@@ -477,5 +504,195 @@ mod tests {
                 reward_per_block * (INITIAL_MINING_BONUS_WINDOW as u128 - 1)
             );
         }
+    }
+
+    const STACKS_OPS_FIRST_BLOCK_HEIGHT: u64 = 100;
+
+    /// Open a sortition DB with `epochs`, returning it, its burnchain, and its genesis snapshot.
+    fn stacks_ops_sortdb(epochs: EpochList) -> (SortitionDB, Burnchain, BlockSnapshot) {
+        let first_burn_hash = BurnchainHeaderHash([0; 32]);
+        let burnchain =
+            Burnchain::default_unittest(STACKS_OPS_FIRST_BLOCK_HEIGHT, &first_burn_hash);
+        let db = SortitionDB::connect_test_with_epochs(
+            STACKS_OPS_FIRST_BLOCK_HEIGHT,
+            &first_burn_hash,
+            epochs,
+        )
+        .unwrap();
+        let tip = SortitionDB::get_canonical_burn_chain_tip(db.conn()).unwrap();
+        (db, burnchain, tip)
+    }
+
+    /// Process a burn block at `block_height` atop `parent`, carrying one of each
+    /// Stacks-on-Bitcoin op.  Returns its snapshot and the txids of the ops the sortition DB
+    /// accepted.
+    fn process_stacks_ops_block(
+        db: &mut SortitionDB,
+        burnchain: &Burnchain,
+        parent: &BlockSnapshot,
+        block_height: u64,
+    ) -> (BlockSnapshot, Vec<Txid>) {
+        let burn_header_hash = BurnchainHeaderHash([u8::try_from(block_height).unwrap(); 32]);
+        let key: StacksPublicKeyBuffer = StacksPublicKey::new()
+            .to_bytes_compressed()
+            .as_slice()
+            .into();
+        let addr = |b| StacksAddress::new(1, Hash160([b; 20])).unwrap();
+        let ops = vec![
+            BlockstackOperationType::TransferStx(TransferStxOp {
+                sender: addr(1),
+                recipient: addr(2),
+                transfered_ustx: 123,
+                memo: vec![],
+                txid: Txid([0x01; 32]),
+                vtxindex: 1,
+                block_height,
+                burn_header_hash: burn_header_hash.clone(),
+            }),
+            BlockstackOperationType::StackStx(StackStxOp {
+                sender: addr(3),
+                reward_addr: PoxAddress::Standard(addr(4), None),
+                stacked_ustx: 456,
+                num_cycles: 6,
+                signer_key: Some(key.clone()),
+                max_amount: Some(u128::MAX),
+                auth_id: Some(0),
+                txid: Txid([0x02; 32]),
+                vtxindex: 2,
+                block_height,
+                burn_header_hash: burn_header_hash.clone(),
+            }),
+            BlockstackOperationType::DelegateStx(DelegateStxOp {
+                sender: addr(5),
+                delegate_to: addr(6),
+                reward_addr: None,
+                delegated_ustx: 789,
+                until_burn_height: None,
+                txid: Txid([0x03; 32]),
+                vtxindex: 3,
+                block_height,
+                burn_header_hash: burn_header_hash.clone(),
+            }),
+            BlockstackOperationType::VoteForAggregateKey(VoteForAggregateKeyOp {
+                sender: addr(7),
+                aggregate_key: key.clone(),
+                signer_key: key,
+                round: 1,
+                reward_cycle: 2,
+                signer_index: 3,
+                txid: Txid([0x04; 32]),
+                vtxindex: 4,
+                block_height,
+                burn_header_hash: burn_header_hash.clone(),
+            }),
+        ];
+        let header = BurnchainBlockHeader {
+            block_height,
+            block_hash: burn_header_hash,
+            parent_block_hash: parent.burn_header_hash.clone(),
+            num_txs: ops.len() as u64,
+            timestamp: 10,
+        };
+
+        let mut ic = SortitionHandleTx::begin(db, &parent.sortition_id).unwrap();
+        let (snapshot, transition) = ic
+            .process_block_ops(
+                false,
+                burnchain,
+                parent,
+                &header,
+                ops,
+                None,
+                PoxId::initial(),
+                None,
+                0,
+            )
+            .unwrap();
+        ic.commit().unwrap();
+
+        // the ops Stacks chainstate later reads must match what the sortition accepted
+        let conn = db.conn();
+        let stored: Vec<_> = [
+            SortitionDB::get_transfer_stx_ops(conn, &header.block_hash)
+                .unwrap()
+                .into_iter()
+                .map(|op| op.txid)
+                .collect::<Vec<_>>(),
+            SortitionDB::get_stack_stx_ops(conn, &header.block_hash)
+                .unwrap()
+                .into_iter()
+                .map(|op| op.txid)
+                .collect(),
+            SortitionDB::get_delegate_stx_ops(conn, &header.block_hash)
+                .unwrap()
+                .into_iter()
+                .map(|op| op.txid)
+                .collect(),
+            SortitionDB::get_vote_for_aggregate_key_ops(conn, &header.block_hash)
+                .unwrap()
+                .into_iter()
+                .map(|op| op.txid)
+                .collect(),
+        ]
+        .concat();
+        let accepted: Vec<_> = transition.accepted_ops.iter().map(|op| op.txid()).collect();
+        assert_eq!(stored, accepted);
+        (snapshot, accepted)
+    }
+
+    fn all_stacks_ops() -> Vec<Txid> {
+        (1..=4).map(|b| Txid([b; 32])).collect()
+    }
+
+    fn transfer_stx_op_only() -> Vec<Txid> {
+        vec![Txid([0x01; 32])]
+    }
+
+    /// Stack-stx, delegate-stx, and vote-for-aggregate-key ops are rejected from
+    /// Epoch 4.1, but still accepted before it.  Transfer-stx is unaffected.
+    #[test]
+    fn test_burn_ops_rejected_from_epoch_4_1() {
+        for &epoch_id in StacksEpochId::ALL
+            .iter()
+            .filter(|&&e| e >= StacksEpochId::Epoch30)
+        {
+            let (mut db, burnchain, genesis) = stacks_ops_sortdb(
+                StacksEpoch::unit_test_epoch_only(STACKS_OPS_FIRST_BLOCK_HEIGHT, epoch_id),
+            );
+            let (_, accepted) = process_stacks_ops_block(
+                &mut db,
+                &burnchain,
+                &genesis,
+                STACKS_OPS_FIRST_BLOCK_HEIGHT + 1,
+            );
+            let expected = if epoch_id < StacksEpochId::Epoch41 {
+                all_stacks_ops()
+            } else {
+                transfer_stx_op_only()
+            };
+            assert_eq!(accepted, expected, "{epoch_id}");
+        }
+    }
+
+    /// the last 4.0 block accepts every op, and the first 4.1 block rejects the stack-stx,
+    /// delegate-stx, and vote-for-aggregate-key ops.
+    #[test]
+    fn test_burn_ops_rejected_at_epoch_4_1_boundary() {
+        let activation_height = STACKS_OPS_FIRST_BLOCK_HEIGHT + 2;
+        let mut epochs = StacksEpoch::unit_test_epoch_only(
+            STACKS_OPS_FIRST_BLOCK_HEIGHT,
+            StacksEpochId::Epoch41,
+        );
+        epochs[StacksEpochId::Epoch40].end_height = activation_height;
+        epochs[StacksEpochId::Epoch41].start_height = activation_height;
+        let (mut db, burnchain, genesis) = stacks_ops_sortdb(epochs);
+
+        let (last_4_0, accepted) =
+            process_stacks_ops_block(&mut db, &burnchain, &genesis, activation_height - 1);
+        assert_eq!(accepted, all_stacks_ops());
+
+        let (_, accepted) =
+            process_stacks_ops_block(&mut db, &burnchain, &last_4_0, activation_height);
+        assert_eq!(accepted, transfer_stx_op_only());
     }
 }

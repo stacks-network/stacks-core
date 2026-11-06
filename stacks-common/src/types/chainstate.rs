@@ -579,3 +579,53 @@ impl VRFSeed {
 
 // The (ConsensusHash, BurnchainHeaderHash) codec impl is provided by the
 // generic (A, B) impl in `crate::codec`.
+
+/// Opcodes of the Stacks operations that can be mined in burnchain transactions.
+#[derive(Debug, Clone, Copy, PartialEq)]
+#[repr(u8)]
+pub enum Opcodes {
+    LeaderBlockCommit = b'[',
+    LeaderKeyRegister = b'^',
+    StackStx = b'x',
+    PreStx = b'p',
+    TransferStx = b'$',
+    DelegateStx = b'#',
+    VoteForAggregateKey = b'v',
+}
+
+impl Opcodes {
+    const HTTP_BLOCK_COMMIT: &str = "block_commit";
+    const HTTP_KEY_REGISTER: &str = "key_register";
+    const HTTP_STACK_STX: &str = "stack_stx";
+    const HTTP_PRE_STX: &str = "pre_stx";
+    const HTTP_TRANSFER_STX: &str = "transfer_stx";
+    const HTTP_DELEGATE_STX: &str = "delegate_stx";
+    const HTTP_VOTE_FOR_AGGREGATE_KEY: &str = "vote_for_aggregate_key";
+
+    pub fn to_http_str(&self) -> &'static str {
+        match self {
+            Opcodes::LeaderBlockCommit => Self::HTTP_BLOCK_COMMIT,
+            Opcodes::LeaderKeyRegister => Self::HTTP_KEY_REGISTER,
+            Opcodes::StackStx => Self::HTTP_STACK_STX,
+            Opcodes::PreStx => Self::HTTP_PRE_STX,
+            Opcodes::TransferStx => Self::HTTP_TRANSFER_STX,
+            Opcodes::DelegateStx => Self::HTTP_DELEGATE_STX,
+            Opcodes::VoteForAggregateKey => Self::HTTP_VOTE_FOR_AGGREGATE_KEY,
+        }
+    }
+
+    pub fn from_http_str(input: &str) -> Option<Opcodes> {
+        let opcode = match input {
+            Self::HTTP_BLOCK_COMMIT => Opcodes::LeaderBlockCommit,
+            Self::HTTP_KEY_REGISTER => Opcodes::LeaderKeyRegister,
+            Self::HTTP_STACK_STX => Opcodes::StackStx,
+            Self::HTTP_PRE_STX => Opcodes::PreStx,
+            Self::HTTP_TRANSFER_STX => Opcodes::TransferStx,
+            Self::HTTP_DELEGATE_STX => Opcodes::DelegateStx,
+            Self::HTTP_VOTE_FOR_AGGREGATE_KEY => Opcodes::VoteForAggregateKey,
+            _ => return None,
+        };
+
+        Some(opcode)
+    }
+}
