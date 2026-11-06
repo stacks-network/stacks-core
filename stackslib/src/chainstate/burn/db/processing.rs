@@ -386,7 +386,7 @@ mod tests {
     use crate::chainstate::burn::*;
     use crate::chainstate::stacks::address::PoxAddress;
     use crate::chainstate::stacks::StacksPublicKey;
-    use crate::core::{StacksEpoch, StacksEpochExtension, MICROSTACKS_PER_STACKS};
+    use crate::core::{EpochList, StacksEpoch, StacksEpochExtension, MICROSTACKS_PER_STACKS};
 
     #[test]
     fn test_initial_block_reward() {
@@ -506,23 +506,33 @@ mod tests {
         }
     }
 
-    /// Process a burn block carrying one of each Stacks-on-Bitcoin op in `epoch_id`, and return
-    /// the txids of the ops the sortition DB accepted.
-    fn accepted_stacks_ops_in_epoch(epoch_id: StacksEpochId) -> Vec<Txid> {
-        let first_block_height = 100;
-        let first_burn_hash = BurnchainHeaderHash([0; 32]);
-        let burn_header_hash = BurnchainHeaderHash([0x01; 32]);
-        let block_height = first_block_height + 1;
+    const STACKS_OPS_FIRST_BLOCK_HEIGHT: u64 = 100;
 
-        let burnchain = Burnchain::default_unittest(first_block_height, &first_burn_hash);
-        let mut db = SortitionDB::connect_test_with_epochs(
-            first_block_height,
+    /// Open a sortition DB with `epochs`, returning it, its burnchain, and its genesis snapshot.
+    fn stacks_ops_sortdb(epochs: EpochList) -> (SortitionDB, Burnchain, BlockSnapshot) {
+        let first_burn_hash = BurnchainHeaderHash([0; 32]);
+        let burnchain =
+            Burnchain::default_unittest(STACKS_OPS_FIRST_BLOCK_HEIGHT, &first_burn_hash);
+        let db = SortitionDB::connect_test_with_epochs(
+            STACKS_OPS_FIRST_BLOCK_HEIGHT,
             &first_burn_hash,
-            StacksEpoch::unit_test_epoch_only(first_block_height, epoch_id),
+            epochs,
         )
         .unwrap();
         let tip = SortitionDB::get_canonical_burn_chain_tip(db.conn()).unwrap();
+        (db, burnchain, tip)
+    }
 
+    /// Process a burn block at `block_height` atop `parent`, carrying one of each
+    /// Stacks-on-Bitcoin op.  Returns its snapshot and the txids of the ops the sortition DB
+    /// accepted.
+    fn process_stacks_ops_block(
+        db: &mut SortitionDB,
+        burnchain: &Burnchain,
+        parent: &BlockSnapshot,
+        block_height: u64,
+    ) -> (BlockSnapshot, Vec<Txid>) {
+        let burn_header_hash = BurnchainHeaderHash([u8::try_from(block_height).unwrap(); 32]);
         let key: StacksPublicKeyBuffer = StacksPublicKey::new()
             .to_bytes_compressed()
             .as_slice()
@@ -579,17 +589,17 @@ mod tests {
         let header = BurnchainBlockHeader {
             block_height,
             block_hash: burn_header_hash,
-            parent_block_hash: first_burn_hash,
+            parent_block_hash: parent.burn_header_hash.clone(),
             num_txs: ops.len() as u64,
             timestamp: 10,
         };
 
-        let mut ic = SortitionHandleTx::begin(&mut db, &tip.sortition_id).unwrap();
-        let (_, transition) = ic
+        let mut ic = SortitionHandleTx::begin(db, &parent.sortition_id).unwrap();
+        let (snapshot, transition) = ic
             .process_block_ops(
                 false,
-                &burnchain,
-                &tip,
+                burnchain,
+                parent,
                 &header,
                 ops,
                 None,
@@ -627,29 +637,62 @@ mod tests {
         .concat();
         let accepted: Vec<_> = transition.accepted_ops.iter().map(|op| op.txid()).collect();
         assert_eq!(stored, accepted);
-        accepted
+        (snapshot, accepted)
+    }
+
+    fn all_stacks_ops() -> Vec<Txid> {
+        (1..=4).map(|b| Txid([b; 32])).collect()
+    }
+
+    fn transfer_stx_op_only() -> Vec<Txid> {
+        vec![Txid([0x01; 32])]
     }
 
     /// Stack-stx, delegate-stx, and vote-for-aggregate-key ops are rejected from
     /// Epoch 4.1, but still accepted before it.  Transfer-stx is unaffected.
     #[test]
     fn test_burn_ops_rejected_from_epoch_4_1() {
-        let all: Vec<_> = (1..=4).map(|b| Txid([b; 32])).collect();
-        let transfer_only = vec![Txid([0x01; 32])];
         for &epoch_id in StacksEpochId::ALL
             .iter()
             .filter(|&&e| e >= StacksEpochId::Epoch30)
         {
-            let expected = if epoch_id < StacksEpochId::Epoch41 {
-                &all
-            } else {
-                &transfer_only
-            };
-            assert_eq!(
-                &accepted_stacks_ops_in_epoch(epoch_id),
-                expected,
-                "{epoch_id}"
+            let (mut db, burnchain, genesis) = stacks_ops_sortdb(
+                StacksEpoch::unit_test_epoch_only(STACKS_OPS_FIRST_BLOCK_HEIGHT, epoch_id),
             );
+            let (_, accepted) = process_stacks_ops_block(
+                &mut db,
+                &burnchain,
+                &genesis,
+                STACKS_OPS_FIRST_BLOCK_HEIGHT + 1,
+            );
+            let expected = if epoch_id < StacksEpochId::Epoch41 {
+                all_stacks_ops()
+            } else {
+                transfer_stx_op_only()
+            };
+            assert_eq!(accepted, expected, "{epoch_id}");
         }
+    }
+
+    /// the last 4.0 block accepts every op, and the first 4.1 block rejects the stack-stx,
+    /// delegate-stx, and vote-for-aggregate-key ops.
+    #[test]
+    fn test_burn_ops_rejected_at_epoch_4_1_boundary() {
+        let activation_height = STACKS_OPS_FIRST_BLOCK_HEIGHT + 2;
+        let mut epochs = StacksEpoch::unit_test_epoch_only(
+            STACKS_OPS_FIRST_BLOCK_HEIGHT,
+            StacksEpochId::Epoch41,
+        );
+        epochs[StacksEpochId::Epoch40].end_height = activation_height;
+        epochs[StacksEpochId::Epoch41].start_height = activation_height;
+        let (mut db, burnchain, genesis) = stacks_ops_sortdb(epochs);
+
+        let (last_4_0, accepted) =
+            process_stacks_ops_block(&mut db, &burnchain, &genesis, activation_height - 1);
+        assert_eq!(accepted, all_stacks_ops());
+
+        let (_, accepted) =
+            process_stacks_ops_block(&mut db, &burnchain, &last_4_0, activation_height);
+        assert_eq!(accepted, transfer_stx_op_only());
     }
 }
