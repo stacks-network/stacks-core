@@ -22,8 +22,8 @@ use std::sync::{Arc, Condvar, Mutex};
 use std::time::Duration;
 
 use libsigner::v0::messages::{
-    BlockAccepted, BlockResponse, MessageSlotID, RejectCode, SignerMessage as SignerMessageV0,
-    StateMachineUpdate,
+    BlockAccepted, BlockRejection, BlockResponse, MessageSlotID, RejectCode,
+    SignerMessage as SignerMessageV0, StateMachineUpdate,
 };
 use libsigner::v0::signer_state::{GlobalStateEvaluator, SignerStateMachine};
 use libsigner::{SignerEntries, SignerEvent};
@@ -501,6 +501,18 @@ impl StackerDBListener {
                             );
                             continue;
                         };
+
+                        let expected_chain_id =
+                            BlockRejection::chain_id_for_network(self.is_mainnet);
+                        if rejected_data.chain_id != expected_chain_id {
+                            warn!("StackerDBListener: Received rejection for another network. Ignoring.";
+                                "signer_signature_hash" => %rejected_data.signer_signature_hash,
+                                "slot_id" => slot_id,
+                                "chain_id" => rejected_data.chain_id,
+                                "expected_chain_id" => expected_chain_id,
+                            );
+                            continue;
+                        }
 
                         let rejected_pubkey = match rejected_data.recover_public_key() {
                             Ok(rejected_pubkey) => {
