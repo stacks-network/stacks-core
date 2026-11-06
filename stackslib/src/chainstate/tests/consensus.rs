@@ -2576,12 +2576,41 @@ fn expected_stub_sbtc_recipient_v2() -> PoxAddress {
 /// cycle from the first one through two full cycles past the boundary and
 /// checks each recipient against the epoch of its computing block; both
 /// formats must be observed.
-#[test]
-fn test_pox_5_sbtc_recipient_switches_to_taproot_multisig_in_epoch_4_1() {
+#[rstest::rstest]
+#[case::default_boundary(false)]
+#[case::prepare_phase_boundary(true)]
+fn test_pox_5_sbtc_recipient_switches_to_taproot_multisig_in_epoch_4_1(
+    #[case] activate_at_prepare_start: bool,
+) {
     let mut num_blocks_per_epoch = HashMap::new();
     num_blocks_per_epoch.insert(StacksEpochId::Epoch40, 1);
     num_blocks_per_epoch.insert(StacksEpochId::Epoch41, 1);
-    let mut chain = ConsensusChain::new(function_name!(), vec![], num_blocks_per_epoch);
+    let test_name = format!("{}-{activate_at_prepare_start}", function_name!());
+    let boot_plan = ConsensusChain::new_boot_plan(&test_name, vec![]);
+    let (epochs, first_burnchain_height) =
+        ConsensusChain::calculate_epochs(&boot_plan.pox_constants, num_blocks_per_epoch);
+    let mut epochs: Vec<_> = epochs.iter().cloned().collect();
+    if activate_at_prepare_start {
+        let start = epochs
+            .iter()
+            .find(|epoch| epoch.epoch_id == StacksEpochId::Epoch41)
+            .unwrap()
+            .start_height;
+        let cycle = start / u64::from(boot_plan.pox_constants.reward_cycle_length) + 1;
+        let prepare_start = boot_plan.pox_constants.prepare_phase_start(0, cycle);
+        for epoch in &mut epochs {
+            match epoch.epoch_id {
+                StacksEpochId::Epoch40 => epoch.end_height = prepare_start,
+                StacksEpochId::Epoch41 => epoch.start_height = prepare_start,
+                _ => {}
+            }
+        }
+    }
+    let mut chain = ConsensusChain {
+        test_chainstate: boot_plan
+            .with_epochs(EpochList::new(&epochs))
+            .to_chainstate(None, Some(first_burnchain_height)),
+    };
     let miner_key = chain.test_chainstate.miner.nakamoto_miner_key();
     chain
         .test_chainstate

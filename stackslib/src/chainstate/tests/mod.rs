@@ -128,23 +128,18 @@ const POX_5_SBTC_TOKEN_STUB_BODY: &str = r#"
 )
 "#;
 
-/// Minimal `sbtc-registry` stub deployed alongside the token stub. Exposes
-/// the two read-only functions signer-set computation reads:
-///
-/// * `get-current-aggregate-pubkey` (Epoch 4.0, v1 recipient): the secp256k1
-///   generator point, a deterministic, valid compressed key whose x-only
-///   coordinate is on the curve, so Waterfall recipient derivation succeeds.
-/// * `get-current-signer-data` (Epoch 4.1+, v2 recipient): the sBTC devenv
-///   2-of-3 signer set ([`POX_5_SBTC_REGISTRY_STUB_SIGNER_KEYS`]), whose
-///   derived addresses are pinned in `chainstate::stacks::sbtc` tests.
-///
-/// Tests that need a specific registry state should override via their own
-/// setup.
+/// Genesis registry stub. Keep its source unchanged so pre-4.1 snapshot
+/// state remains identical for tests whose schedules stop before Epoch 4.1.
 const POX_5_SBTC_REGISTRY_STUB_NAME: &str = "sbtc-registry";
 const POX_5_SBTC_REGISTRY_STUB_BODY: &str = r#"
 (define-read-only (get-current-aggregate-pubkey)
     0x0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798
 )
+"#;
+
+/// Additional registry method for tests that explicitly enable Epoch 4.1.
+/// These chains have different genesis state from pre-4.1 snapshot fixtures.
+const POX_5_SBTC_REGISTRY_V2_STUB_BODY: &str = r#"
 (define-read-only (get-current-signer-data)
     {
         current-signer-set: (list
@@ -159,7 +154,7 @@ const POX_5_SBTC_REGISTRY_STUB_BODY: &str = r#"
 )
 "#;
 
-/// The compressed signer keys served by [`POX_5_SBTC_REGISTRY_STUB_BODY`]'s
+/// The compressed signer keys served by [`POX_5_SBTC_REGISTRY_V2_STUB_BODY`]'s
 /// `get-current-signer-data` (the sBTC devenv signer set).
 pub const POX_5_SBTC_REGISTRY_STUB_SIGNER_KEYS: [&str; 3] = [
     "035249137286c077ccee65ecc43e724b9b9e5a588e3d7f51e3b62f9624c2a49e46",
@@ -167,7 +162,7 @@ pub const POX_5_SBTC_REGISTRY_STUB_SIGNER_KEYS: [&str; 3] = [
     "02007311430123d4cad97f4f7e86e023b28143130a18099ecf094d36fef0f6135c",
 ];
 
-/// The signature threshold served by [`POX_5_SBTC_REGISTRY_STUB_BODY`]'s
+/// The signature threshold served by [`POX_5_SBTC_REGISTRY_V2_STUB_BODY`]'s
 /// `get-current-signer-data`.
 pub const POX_5_SBTC_REGISTRY_STUB_SIGNATURE_THRESHOLD: u128 = 2;
 
@@ -598,10 +593,15 @@ impl<'a> TestChainstate<'a> {
                 POX_5_SBTC_TOKEN_STUB_NAME,
                 POX_5_SBTC_TOKEN_STUB_BODY,
             ));
+            let registry_body = if conf.is_epoch_enabled(StacksEpochId::Epoch41) {
+                format!("{POX_5_SBTC_REGISTRY_STUB_BODY}{POX_5_SBTC_REGISTRY_V2_STUB_BODY}")
+            } else {
+                POX_5_SBTC_REGISTRY_STUB_BODY.to_string()
+            };
             receipts.push(deploy_stub(
                 clarity_tx,
                 POX_5_SBTC_REGISTRY_STUB_NAME,
-                POX_5_SBTC_REGISTRY_STUB_BODY,
+                &registry_body,
             ));
             // add test-specific boot code
             if !conf.setup_code.is_empty() {
