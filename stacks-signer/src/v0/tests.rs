@@ -14,6 +14,7 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use std::collections::HashMap;
+use std::path::{Path, PathBuf};
 use std::sync::{LazyLock, Mutex};
 
 use blockstack_lib::chainstate::nakamoto::NakamotoBlock;
@@ -110,7 +111,7 @@ enum TestFlagsFileState {
 
 impl TestFlagsFileState {
     /// The current state of the file at `path`
-    fn of(path: &str) -> Self {
+    fn of(path: &Path) -> Self {
         match std::fs::metadata(path).and_then(|m| Ok((m.modified()?, m.len()))) {
             Ok((last_modified_at, size)) => Self::Written {
                 last_modified_at,
@@ -196,8 +197,8 @@ impl ExternalTestFlags {
 /// fresh process applies whatever the file holds on its first pass, so a harness that
 /// restarts the signer should blank the file first unless it means the flags to carry over.
 pub fn apply_external_test_flags(private_key: &StacksPrivateKey) {
-    static PATH: LazyLock<Option<String>> =
-        LazyLock::new(|| std::env::var(TEST_FLAGS_FILE_ENV).ok());
+    static PATH: LazyLock<Option<PathBuf>> =
+        LazyLock::new(|| std::env::var_os(TEST_FLAGS_FILE_ENV).map(PathBuf::from));
     if let Some(path) = PATH.as_deref() {
         apply_test_flags_file(path, private_key);
     }
@@ -208,7 +209,7 @@ pub fn apply_external_test_flags(private_key: &StacksPrivateKey) {
 /// blank or malformed file leaves the flags unchanged (a write of `{}` resets them); read and
 /// parse errors are logged once per write. An unchanged file costs one `stat`, so this is
 /// cheap enough to call from the stall loops.
-fn apply_test_flags_file(path: &str, private_key: &StacksPrivateKey) {
+fn apply_test_flags_file(path: &Path, private_key: &StacksPrivateKey) {
     let state = TestFlagsFileState::of(path);
     let mut applied = APPLIED_EXTERNAL_TEST_FLAGS.lock().unwrap();
     if applied.as_ref() == Some(&state) {
@@ -225,16 +226,16 @@ fn apply_test_flags_file(path: &str, private_key: &StacksPrivateKey) {
         Ok(c) if c.trim().is_empty() => return,
         Ok(c) => c,
         Err(e) => {
-            warn!("Unreadable test flags file"; "path" => path, "error" => e);
+            warn!("Unreadable test flags file"; "path" => %path.display(), "error" => e);
             return;
         }
     };
     match serde_json::from_str::<ExternalTestFlags>(&contents) {
         Ok(flags) => {
             flags.apply(&StacksPublicKey::from_private(private_key));
-            info!("Applied external test flags"; "path" => path, "flags" => ?flags);
+            info!("Applied external test flags"; "path" => %path.display(), "flags" => ?flags);
         }
-        Err(e) => error!("Invalid test flags file"; "path" => path, "error" => %e),
+        Err(e) => error!("Invalid test flags file"; "path" => %path.display(), "error" => %e),
     }
 }
 
@@ -3342,7 +3343,7 @@ mod external_test_flags {
     }
 
     /// A file path unique to this test run.
-    fn flags_path() -> std::path::PathBuf {
+    fn flags_path() -> PathBuf {
         std::env::temp_dir().join(format!(
             "stacks-signer-test-flags-{}.json",
             StacksPrivateKey::random().to_hex()
@@ -3384,22 +3385,21 @@ mod external_test_flags {
         let key = own_key();
         let own_key = StacksPublicKey::from_private(&key);
         let path = flags_path();
-        let path_str = path.to_str().unwrap();
         std::fs::write(&path, r#"{"ignore_pre_commits": true}"#).unwrap();
-        apply_test_flags_file(path_str, &key);
+        apply_test_flags_file(&path, &key);
         assert_eq!(TEST_SIGNERS_IGNORE_PRE_COMMITS.get(), vec![own_key.clone()]);
 
         for contents in ["", "  \n", r#"{"ignore_pre_commits": tr"#] {
             std::fs::write(&path, contents).unwrap();
-            apply_test_flags_file(path_str, &key);
+            apply_test_flags_file(&path, &key);
             assert_eq!(TEST_SIGNERS_IGNORE_PRE_COMMITS.get(), vec![own_key.clone()]);
         }
         std::fs::remove_file(&path).unwrap();
-        apply_test_flags_file(path_str, &key);
+        apply_test_flags_file(&path, &key);
         assert_eq!(TEST_SIGNERS_IGNORE_PRE_COMMITS.get(), vec![own_key.clone()]);
 
         std::fs::write(&path, "{}").unwrap();
-        apply_test_flags_file(path_str, &key);
+        apply_test_flags_file(&path, &key);
         assert!(TEST_SIGNERS_IGNORE_PRE_COMMITS.get().is_empty());
         std::fs::remove_file(&path).unwrap();
     }
@@ -3412,22 +3412,21 @@ mod external_test_flags {
         let key = own_key();
         let own_key = StacksPublicKey::from_private(&key);
         let path = flags_path();
-        let path_str = path.to_str().unwrap();
         let contents = r#"{"ignore_pre_commits": true}"#;
         std::fs::write(&path, contents).unwrap();
-        apply_test_flags_file(path_str, &key);
+        apply_test_flags_file(&path, &key);
         assert_eq!(TEST_SIGNERS_IGNORE_PRE_COMMITS.get(), vec![own_key.clone()]);
 
         // Unchanged file: a flag cleared behind the file's back stays cleared.
         TEST_SIGNERS_IGNORE_PRE_COMMITS.set(vec![]);
-        apply_test_flags_file(path_str, &key);
+        apply_test_flags_file(&path, &key);
         assert!(TEST_SIGNERS_IGNORE_PRE_COMMITS.get().is_empty());
 
         // The same contents written again (as a harness does when it resets twice in a
         // row, or re-sets flags a restarted process already read) are applied again.
         std::thread::sleep(std::time::Duration::from_millis(20));
         std::fs::write(&path, contents).unwrap();
-        apply_test_flags_file(path_str, &key);
+        apply_test_flags_file(&path, &key);
         assert_eq!(TEST_SIGNERS_IGNORE_PRE_COMMITS.get(), vec![own_key]);
         std::fs::remove_file(&path).unwrap();
     }
@@ -3437,15 +3436,15 @@ mod external_test_flags {
         let _guard = FlagsGuard::take();
         let key = own_key();
         let path = flags_path();
-        let path_str = path.to_str().unwrap().to_string();
+        let thread_path = path.clone();
         std::fs::write(&path, r#"{"stall_block_response": true}"#).unwrap();
-        apply_test_flags_file(&path_str, &key);
+        apply_test_flags_file(&path, &key);
         assert!(TEST_STALL_BLOCK_RESPONSE.get());
 
         let (done_tx, done_rx) = std::sync::mpsc::channel();
         let waiter = std::thread::spawn(move || {
             wait_while_set(&TEST_STALL_BLOCK_RESPONSE, || {
-                apply_test_flags_file(&path_str, &key)
+                apply_test_flags_file(&thread_path, &key)
             });
             done_tx.send(()).unwrap();
         });
