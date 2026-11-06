@@ -593,6 +593,11 @@ pub enum StateMachineUpdateContent {
         /// it fail to decode the whole update. Retained so the variant matches the format it
         /// declares. **Do not carry this field into a future content version**; a `V3` without it
         /// is the proper way to retire it.
+        ///
+        /// Inbound updates never populate it: any transactions on the wire are skipped
+        /// undecoded (see `skip_legacy_replay_transactions`), and any persisted by an older
+        /// binary are skipped when deserializing.
+        #[serde(skip_deserializing)]
         replay_transactions: Vec<StacksTransaction>,
     },
     /// Version 2 is exactly the same as Version 1, but is used to indicate this signer is
@@ -611,6 +616,11 @@ pub enum StateMachineUpdateContent {
         /// it fail to decode the whole update. Retained so the variant matches the format it
         /// declares. **Do not carry this field into a future content version**; a `V3` without it
         /// is the proper way to retire it.
+        ///
+        /// Inbound updates never populate it: any transactions on the wire are skipped
+        /// undecoded (see `skip_legacy_replay_transactions`), and any persisted by an older
+        /// binary are skipped when deserializing.
+        #[serde(skip_deserializing)]
         replay_transactions: Vec<StacksTransaction>,
     },
 }
@@ -679,6 +689,21 @@ pub enum StateMachineUpdateMinerState {
     NoValidMiner,
 }
 impl StateMachineUpdate {
+    /// Decode a `StateMachineUpdate` from a raw `SignerMessage` StackerDB chunk.
+    ///
+    /// Returns `None` unless the chunk's type prefix is `StateMachineUpdate`. The prefix is
+    /// checked before anything else is decoded, so a chunk holding some other message type
+    /// (e.g. a `BlockPushed`) is never decoded as part of loading state machine updates. This
+    /// mirrors the lane check applied to live StackerDB events.
+    pub fn from_signer_message_chunk(chunk: &[u8]) -> Option<Self> {
+        let (&type_byte, rest) = chunk.split_first()?;
+        let payload_kind = SignerMessageTypePrefix::from_u8(type_byte)?;
+        if payload_kind.msg_id() != Some(MessageSlotID::StateMachineUpdate) {
+            return None;
+        }
+        Self::consensus_deserialize(&mut &rest[..]).ok()
+    }
+
     /// Create a `StateMachineUpdate` for **outbound** messages.
     ///
     /// The content version **must exactly match** the negotiated protocol version:
@@ -911,6 +936,20 @@ impl StateMachineUpdateContent {
         }
         Ok(())
     }
+
+    /// Read past the legacy `replay_transactions` wire field without decoding it.
+    ///
+    /// Transaction replay was removed, so the transactions are never used and there is no reason
+    /// to decode, clone or persist them. Only the item count is read; the transactions are the
+    /// last field of the length-delimited content buffer, so the caller discards them with the
+    /// buffer. Updates from older signers that still send a replay set therefore remain readable.
+    fn skip_legacy_replay_transactions<R: Read>(fd: &mut R) -> Result<(), CodecError> {
+        let _num_replay_transactions: u32 = read_next(fd)?;
+        Ok(())
+    }
+
+    /// Deserialize the content from `fd`, which must hold exactly the content's
+    /// length-delimited buffer: any bytes after the fields read here are ignored.
     fn deserialize<R: Read>(fd: &mut R, version: u64) -> Result<Self, CodecError> {
         let burn_block = read_next(fd)?;
         let burn_block_height = read_next(fd)?;
@@ -922,21 +961,21 @@ impl StateMachineUpdateContent {
                 current_miner,
             }),
             1 => {
-                let replay_transactions = read_next(fd)?;
+                Self::skip_legacy_replay_transactions(fd)?;
                 Ok(Self::V1 {
                     burn_block,
                     burn_block_height,
                     current_miner,
-                    replay_transactions,
+                    replay_transactions: vec![],
                 })
             }
             2 => {
-                let replay_transactions = read_next(fd)?;
+                Self::skip_legacy_replay_transactions(fd)?;
                 Ok(Self::V2 {
                     burn_block,
                     burn_block_height,
                     current_miner,
-                    replay_transactions,
+                    replay_transactions: vec![],
                 })
             }
             other => Err(CodecError::DeserializeError(format!(
@@ -2752,6 +2791,109 @@ mod test {
         assert_eq!(
             accepted.response_data.tenure_extend_read_count_timestamp,
             u64::MAX
+        );
+    }
+
+    /// Block responses as serialized by stacks-signer 3.3.0.0.5 (`BlockResponseData` version 4,
+    /// before `failed_txid` was added).
+    const V3_3_0_0_5_BLOCK_ACCEPTED_HEX: &str = "01006dc06b8ae0cb304b1808731bd5e77b0befec809f6e02379623ee0f00c10b6586f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f300000017737461636b732d7369676e657220332e332e302e302e3504000000110000000000000801ff00000000000013c2";
+    const V3_3_0_0_5_BLOCK_REJECTED_HEX: &str = "010100000017426c6f636b2076616c69646174696f6e206661696c656400015de625f37ad6824e38d7677bf0bcab391c6001f2485341cb07fb55536b86946e800000003f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f00000017737461636b732d7369676e657220332e332e302e302e3504000000120000000000000801000100000000000013c2";
+
+    /// Block responses as serialized by the current signer (`BlockResponseData` version 5).
+    /// These exact bytes were verified to deserialize with stacks-signer 3.3.0.0.5, which keeps
+    /// the `failed_txid` encoding in `unknown_bytes` and re-serializes them byte-for-byte.
+    /// Any change to these bytes must be re-verified for compatibility with older signers.
+    const V5_BLOCK_ACCEPTED_HEX: &str = "01006dc06b8ae0cb304b1808731bd5e77b0befec809f6e02379623ee0f00c10b6586f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f300000015737461636b732d7369676e65722063757272656e7405000000120000000000000801ff00000000000013c200";
+    const V5_BLOCK_REJECTED_HEX: &str = "010100000017426c6f636b2076616c69646174696f6e206661696c656400015de625f37ad6824e38d7677bf0bcab391c6001f2485341cb07fb55536b86946e800000003f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f00000015737461636b732d7369676e65722063757272656e7405000000330000000000000801000100000000000013c201abababababababababababababababababababababababababababababababab";
+
+    fn compat_block_accepted(
+        server_version: &str,
+        response_data: BlockResponseData,
+    ) -> SignerMessage {
+        SignerMessage::BlockResponse(BlockResponse::Accepted(BlockAccepted {
+            signer_signature_hash: Sha512Trunc256Sum::from_data(&[0, 1, 2, 3]),
+            signature: MessageSignature([0xf3; 65]),
+            metadata: SignerMessageMetadata {
+                server_version: server_version.into(),
+            },
+            response_data,
+        }))
+    }
+
+    fn compat_block_rejected(
+        server_version: &str,
+        response_data: BlockResponseData,
+    ) -> SignerMessage {
+        SignerMessage::BlockResponse(BlockResponse::Rejected(BlockRejection {
+            reason: "Block validation failed".into(),
+            reason_code: RejectCode::ValidationFailed(ValidateRejectCode::BadTransaction),
+            signer_signature_hash: Sha512Trunc256Sum::from_data(&[4, 5, 6, 7]),
+            signature: MessageSignature([0x3f; 65]),
+            chain_id: CHAIN_ID_TESTNET,
+            metadata: SignerMessageMetadata {
+                server_version: server_version.into(),
+            },
+            response_data,
+        }))
+    }
+
+    #[test]
+    fn deserialize_v3_3_0_0_5_block_responses() {
+        let v4_response_data = |reject_reason| BlockResponseData {
+            version: 4,
+            ..BlockResponseData::new(2049, reject_reason, 5058, None)
+        };
+
+        let bytes = hex_bytes(V3_3_0_0_5_BLOCK_ACCEPTED_HEX).unwrap();
+        let accepted = read_next::<SignerMessage, _>(&mut &bytes[..]).unwrap();
+        assert_eq!(
+            accepted,
+            compat_block_accepted(
+                "stacks-signer 3.3.0.0.5",
+                v4_response_data(RejectReason::NotRejected)
+            )
+        );
+
+        let bytes = hex_bytes(V3_3_0_0_5_BLOCK_REJECTED_HEX).unwrap();
+        let rejected = read_next::<SignerMessage, _>(&mut &bytes[..]).unwrap();
+        assert_eq!(
+            rejected,
+            compat_block_rejected(
+                "stacks-signer 3.3.0.0.5",
+                v4_response_data(RejectReason::ValidationFailed(
+                    ValidateRejectCode::BadTransaction
+                ))
+            )
+        );
+    }
+
+    #[test]
+    fn block_responses_serialize_in_v3_3_0_0_5_compatible_format() {
+        let accepted = compat_block_accepted(
+            "stacks-signer current",
+            BlockResponseData::new(2049, RejectReason::NotRejected, 5058, None),
+        );
+        let bytes = accepted.serialize_to_vec();
+        assert_eq!(bytes, hex_bytes(V5_BLOCK_ACCEPTED_HEX).unwrap());
+        assert_eq!(
+            read_next::<SignerMessage, _>(&mut &bytes[..]).unwrap(),
+            accepted
+        );
+
+        let rejected = compat_block_rejected(
+            "stacks-signer current",
+            BlockResponseData::new(
+                2049,
+                RejectReason::ValidationFailed(ValidateRejectCode::BadTransaction),
+                5058,
+                Some(Txid([0xab; 32])),
+            ),
+        );
+        let bytes = rejected.serialize_to_vec();
+        assert_eq!(bytes, hex_bytes(V5_BLOCK_REJECTED_HEX).unwrap());
+        assert_eq!(
+            read_next::<SignerMessage, _>(&mut &bytes[..]).unwrap(),
+            rejected
         );
     }
 

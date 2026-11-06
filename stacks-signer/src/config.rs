@@ -289,8 +289,12 @@ struct RawConfigFile {
     /// ---
     /// @default: (required, no default)
     /// @notes:
-    ///   - Format: `"host:port"` (e.g., `"0.0.0.0:30000"`).
+    ///   - Format: `"host:port"` (e.g., `"127.0.0.1:30000"`).
     ///   - Must match the `endpoint` in the node's `[[events_observer]]` section.
+    ///   - WARNING: The event server does not limit the size of request headers or
+    ///     bodies, so a client that can reach it can make the signer use unbounded
+    ///     memory. Bind it to a loopback or private interface, or restrict access
+    ///     with a firewall, so that only the Stacks node can connect.
     pub endpoint: String,
     /// The hex representation of the signer's Stacks private key used for communicating
     /// with the Stacks Node, including writing to the Stacker DB instance.
@@ -339,7 +343,11 @@ struct RawConfigFile {
     /// ---
     /// @default: `None` (disabled)
     /// @notes:
-    ///   - Format: `"host:port"` (e.g., `"0.0.0.0:9090"`).
+    ///   - Format: `"host:port"` (e.g., `"127.0.0.1:9090"`).
+    ///   - WARNING: The metrics server does not limit the size of request headers,
+    ///     so a client that can reach it can make the signer use unbounded memory.
+    ///     Bind it to a loopback or private interface, or restrict access with a
+    ///     firewall, so that only trusted scrapers can connect.
     pub metrics_endpoint: Option<String>,
     /// Reorg protection window. Measures the time between when a tenure's first block
     /// was signed and when the next burn block arrived.
