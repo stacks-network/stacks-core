@@ -42,6 +42,7 @@ use crate::chainstate::burn::db::sortdb::SortitionDB;
 use crate::chainstate::burn::BlockSnapshot;
 use crate::chainstate::nakamoto::NakamotoChainState;
 use crate::chainstate::stacks::db::{StacksChainState, StacksHeaderInfo};
+use crate::core::mempool::{take_arrival_seq, ArrivalSeqBlock};
 use crate::core::StacksEpoch;
 use crate::net::connection::{ConnectionOptions, NetworkConnection};
 use crate::net::http::common::{parse_raw_bytes, HTTP_PREAMBLE_MAX_ENCODED_SIZE};
@@ -417,6 +418,9 @@ pub trait RPCRequestHandler: HttpRequest + HttpResponse + RPCRequestHandlerClone
     /// Reset the RPC handler.  This clears any internal state this handler stored between calls to
     /// `try_handle_request()`
     fn restart(&mut self);
+    /// Called after a successful `try_parse_request()` with the request's arrival stamp (see
+    /// `core::mempool::next_arrival_seq()`). Only handlers that admit transactions need it.
+    fn set_arrival_seq(&mut self, _arrival_seq: u64) {}
     /// Instantiate the HTTP response headers and body from a request
     fn try_handle_request(
         &mut self,
@@ -1022,6 +1026,9 @@ pub struct StacksHttp {
     pub read_only_max_execution_time: Duration,
     /// Maximum heap allocation for a single read-only call before it is aborted
     pub read_only_call_max_mem_bytes: u64,
+    /// Arrival stamps reserved for the socket being read, if the caller reserved them (see
+    /// `core::mempool::ArrivalSeqBlock`). Requests parsed during that read take them.
+    recv_arrival_seqs: Option<ArrivalSeqBlock>,
 }
 
 impl StacksHttp {
@@ -1044,6 +1051,7 @@ impl StacksHttp {
                 conn_opts.read_only_max_execution_time_secs,
             ),
             read_only_call_max_mem_bytes: conn_opts.read_only_call_max_mem_bytes,
+            recv_arrival_seqs: None,
         };
         http.register_rpc_methods();
         http
@@ -1068,7 +1076,13 @@ impl StacksHttp {
                 conn_opts.read_only_max_execution_time_secs,
             ),
             read_only_call_max_mem_bytes: conn_opts.read_only_call_max_mem_bytes,
+            recv_arrival_seqs: None,
         }
+    }
+
+    /// Set (or clear) the arrival stamps reserved for the socket about to be read
+    pub fn set_recv_arrival_seqs(&mut self, arrival_seqs: Option<ArrivalSeqBlock>) {
+        self.recv_arrival_seqs = arrival_seqs;
     }
 
     /// Register an API RPC endpoint.
@@ -1164,6 +1178,7 @@ impl StacksHttp {
                 return Err(e.into());
             }
         };
+        handler.set_arrival_seq(crate::core::mempool::next_arrival_seq());
 
         let request = StacksHttpRequest::new(preamble.clone(), payload);
         Ok(request)
@@ -1214,6 +1229,7 @@ impl StacksHttp {
                     return Err(e.into());
                 }
             };
+            request.set_arrival_seq(take_arrival_seq(self.recv_arrival_seqs.as_mut()));
 
             debug!("Handle StacksHttpRequest"; "verb" => %verb, "peer_addr" => %self.peer_addr, "path" => %decoded_path, "query" => %query);
             return Ok(StacksHttpRequest::new(preamble.clone(), payload));

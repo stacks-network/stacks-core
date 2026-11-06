@@ -21,6 +21,7 @@ use stacks_common::util::hash::{hex_bytes, to_hex};
 
 use crate::burnchains::Txid;
 use crate::chainstate::stacks::{StacksTransaction, TransactionPayload};
+use crate::core::mempool::next_arrival_seq;
 use crate::net::http::{
     parse_json, Error, HttpBadRequest, HttpContentType, HttpRequest, HttpRequestContents,
     HttpRequestPreamble, HttpResponse, HttpResponseContents, HttpResponsePayload,
@@ -40,12 +41,15 @@ pub struct PostTransactionRequestBody {
 pub struct RPCPostTransactionRequestHandler {
     pub tx: Option<StacksTransaction>,
     pub attachment: Option<Attachment>,
+    /// Arrival stamp of the socket read that delivered the request (see `next_arrival_seq()`)
+    pub arrival_seq: Option<u64>,
 }
 impl RPCPostTransactionRequestHandler {
     pub fn new() -> Self {
         Self {
             tx: None,
             attachment: None,
+            arrival_seq: None,
         }
     }
 
@@ -163,6 +167,12 @@ impl RPCRequestHandler for RPCPostTransactionRequestHandler {
     fn restart(&mut self) {
         self.tx = None;
         self.attachment = None;
+        self.arrival_seq = None;
+    }
+
+    /// Remember the arrival stamp of the request just parsed
+    fn set_arrival_seq(&mut self, arrival_seq: u64) {
+        self.arrival_seq = Some(arrival_seq);
     }
 
     /// Make the response
@@ -177,13 +187,17 @@ impl RPCRequestHandler for RPCPostTransactionRequestHandler {
             .take()
             .ok_or(NetError::SendError("`tx` not set".into()))?;
         let attachment_opt = self.attachment.take();
+        let arrival_seq = self.arrival_seq.take().unwrap_or_else(next_arrival_seq);
 
         let txid = tx.txid();
 
         let data_resp = node.with_node_state(|network, sortdb, chainstate, mempool, rpc_args| {
             if mempool.has_tx(&txid) {
-                // will not accept
+                // will not accept, but it may have been stored from a later receipt
                 debug!("Mempool already has POSTed transaction {}", &txid);
+                if let Err(e) = mempool.note_tx_arrival(&txid, arrival_seq) {
+                    warn!("Failed to update arrival stamp of {txid}: {e:?}");
+                }
                 return Ok(false);
             }
 
@@ -211,7 +225,7 @@ impl RPCRequestHandler for RPCPostTransactionRequestHandler {
             let stacks_tip = self.get_stacks_chain_tip(&preamble, sortdb, chainstate)?;
 
             // accept to mempool
-            if let Err(e) = mempool.submit(
+            if let Err(e) = mempool.submit_with_arrival_seq(
                 chainstate,
                 sortdb,
                 &stacks_tip.consensus_hash,
@@ -220,6 +234,7 @@ impl RPCRequestHandler for RPCPostTransactionRequestHandler {
                 event_observer,
                 &stacks_epoch.block_limit,
                 &stacks_epoch.epoch_id,
+                arrival_seq,
             ) {
                 return Err(StacksHttpResponse::new_error(
                     &preamble,

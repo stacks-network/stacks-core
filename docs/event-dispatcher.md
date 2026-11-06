@@ -509,6 +509,7 @@ Delivers information about transactions dropped from the mempool.
 Reason can be one of:
 
 * `ReplaceByFee` - replaced by a transaction with the same nonce, but a higher fee
+* `ReplaceByArrival` - replaced by a transaction with the same nonce and fee that this node received earlier
 * `ReplaceAcrossFork` - replaced by a transaction with the same nonce but in the canonical fork
 * `TooExpensive` - the transaction is too expensive to include in a block
 * `StaleGarbageCollect` - transaction was dropped because it became stale

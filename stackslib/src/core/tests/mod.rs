@@ -31,7 +31,7 @@ use stacks_common::codec::StacksMessageCodec;
 use stacks_common::types::chainstate::{
     BlockHeaderHash, BurnchainHeaderHash, StacksAddress, StacksBlockId, StacksWorkScore, TrieHash,
 };
-use stacks_common::types::{MempoolCollectionBehavior, StacksEpochId};
+use stacks_common::types::{Address, MempoolCollectionBehavior, StacksEpochId};
 use stacks_common::util::hash::{Hash160, *};
 use stacks_common::util::secp256k1::MessageSignature;
 use stacks_common::util::vrf::VRFProof;
@@ -54,11 +54,16 @@ use crate::chainstate::stacks::{
     TransactionSpendingCondition, TransactionVersion,
 };
 use crate::core::mempool::{
-    db_get_all_nonces, MemPoolSyncData, MemPoolWalkSettings, MemPoolWalkTxTypes, TxTag,
-    BLOOM_COUNTER_DEPTH, BLOOM_COUNTER_ERROR_RATE, MAX_BLOOM_COUNTER_TXS,
+    db_get_all_nonces, next_arrival_seq, take_arrival_seq, ArrivalSeqBlock, MemPoolSyncData,
+    MemPoolWalkSettings, MemPoolWalkTxTypes, TxTag, ARRIVAL_SEQ_BLOCK_LEN, BLOOM_COUNTER_DEPTH,
+    BLOOM_COUNTER_ERROR_RATE, MAX_BLOOM_COUNTER_TXS,
 };
-use crate::core::test_util::{insert_tx_in_mempool, make_stacks_transfer_serialized, to_addr};
-use crate::core::{FIRST_BURNCHAIN_CONSENSUS_HASH, FIRST_STACKS_BLOCK_HASH};
+use crate::core::test_util::{
+    insert_tx_in_mempool, make_stacks_transfer_serialized, make_stacks_transfer_tx, to_addr,
+};
+use crate::core::{CHAIN_ID_TESTNET, FIRST_BURNCHAIN_CONSENSUS_HASH, FIRST_STACKS_BLOCK_HASH};
+use crate::cost_estimates::metrics::UnitMetric;
+use crate::cost_estimates::UnitEstimator;
 use crate::util_lib::bloom::test::setup_bloom_counter;
 use crate::util_lib::bloom::*;
 use crate::util_lib::db::tx_begin_immediate;
@@ -2833,4 +2838,492 @@ fn large_mempool() {
             assert!(count_txs > 10000);
         },
     );
+}
+
+/// Arrival-order tie-break tests: a chainstate with `b_1`, its child `b_2`, and `b_fork` (a
+/// sibling of `b_1`), so transactions can be admitted at `b_1` (or across a fork at `b_fork`) and
+/// the mempool walked at `b_2`.
+pub(crate) struct ArrivalOrderFixture {
+    chainstate: StacksChainState,
+    chainstate_path: String,
+    b_1: (ConsensusHash, BlockHeaderHash),
+    b_2: (ConsensusHash, BlockHeaderHash),
+    b_fork: (ConsensusHash, BlockHeaderHash),
+}
+
+impl ArrivalOrderFixture {
+    pub(crate) fn new(test_name: &str) -> Self {
+        let mut chainstate = TestChainstateBuilder::new_testnet(test_name).build();
+        let chainstate_path = chainstate_path(test_name);
+        let genesis = (
+            FIRST_BURNCHAIN_CONSENSUS_HASH.clone(),
+            FIRST_STACKS_BLOCK_HASH.clone(),
+        );
+        let b_1 = make_block(&mut chainstate, ConsensusHash([0x1; 20]), &genesis, 1, 1);
+        let b_2 = make_block(&mut chainstate, ConsensusHash([0x2; 20]), &b_1, 2, 2);
+        let b_fork = make_block(&mut chainstate, ConsensusHash([0x3; 20]), &genesis, 1, 1);
+        Self {
+            chainstate,
+            chainstate_path,
+            b_1,
+            b_2,
+            b_fork,
+        }
+    }
+
+    pub(crate) fn open_mempool(&self, name: &str) -> MemPoolDB {
+        MemPoolDB::open_db(
+            &format!("{}/{name}.sqlite", &self.chainstate_path),
+            Box::new(UnitEstimator),
+            Box::new(UnitMetric),
+        )
+        .unwrap()
+    }
+
+    /// Admit `(tx, fee_rate, arrival_seq)` entries at `b_1` in one DB transaction: each with the
+    /// stamp it got on receipt, and the fee rate to store.
+    pub(crate) fn admit(
+        &mut self,
+        mempool: &mut MemPoolDB,
+        txs: &[(&StacksTransaction, f64, u64)],
+    ) -> Result<(), MemPoolRejection> {
+        let tip = self.b_1.clone();
+        self.admit_at(mempool, &tip, txs)
+    }
+
+    /// Like `admit()`, but at `b_fork`
+    pub(crate) fn admit_on_fork(
+        &mut self,
+        mempool: &mut MemPoolDB,
+        txs: &[(&StacksTransaction, f64, u64)],
+    ) -> Result<(), MemPoolRejection> {
+        let tip = self.b_fork.clone();
+        self.admit_at(mempool, &tip, txs)
+    }
+
+    fn admit_at(
+        &mut self,
+        mempool: &mut MemPoolDB,
+        tip: &(ConsensusHash, BlockHeaderHash),
+        txs: &[(&StacksTransaction, f64, u64)],
+    ) -> Result<(), MemPoolRejection> {
+        let mut mempool_tx = mempool.tx_begin().unwrap();
+        for (tx, fee_rate, arrival_seq) in txs {
+            let origin_address = tx.origin_address();
+            let origin_nonce = tx.get_origin_nonce();
+            let sponsor_address = tx.sponsor_address().unwrap_or(origin_address.clone());
+            let sponsor_nonce = tx.get_sponsor_nonce().unwrap_or(origin_nonce);
+            let txid = tx.txid();
+            MemPoolDB::try_add_tx_with_arrival_seq(
+                &mut mempool_tx,
+                &mut self.chainstate,
+                &tip.0,
+                &tip.1,
+                true,
+                &txid,
+                tx.serialize_to_vec(),
+                tx.get_tx_fee(),
+                100,
+                &origin_address,
+                origin_nonce,
+                &sponsor_address,
+                sponsor_nonce,
+                None,
+                *arrival_seq,
+            )?;
+            mempool_tx
+                .execute(
+                    "UPDATE mempool SET fee_rate = ? WHERE txid = ?",
+                    params![Some(*fee_rate), &txid],
+                )
+                .unwrap();
+        }
+        mempool_tx.commit().unwrap();
+        Ok(())
+    }
+
+    /// Walk the whole mempool at `b_2`, returning txids in the order they were considered
+    pub(crate) fn walk(
+        &mut self,
+        mempool: &mut MemPoolDB,
+        strategy: MemPoolWalkStrategy,
+    ) -> Vec<Txid> {
+        mempool.reset_mempool_caches().unwrap();
+        let settings = MemPoolWalkSettings {
+            strategy,
+            max_walk_time_ms: 600_000,
+            ..Default::default()
+        };
+        let mut considered = vec![];
+        let mut tx_events = vec![];
+        self.chainstate.with_read_only_clarity_tx(
+            &TEST_BURN_STATE_DB,
+            &StacksBlockHeader::make_index_block_hash(&self.b_2.0, &self.b_2.1),
+            |clarity_conn| {
+                mempool
+                    .iterate_candidates::<_, ChainstateError, _>(
+                        clarity_conn,
+                        &mut tx_events,
+                        settings,
+                        |_, available_tx, _| {
+                            considered.push(available_tx.tx.tx.txid());
+                            Ok(Some(
+                                TransactionResult::success(
+                                    &available_tx.tx.tx,
+                                    StacksTransactionReceipt::from_stx_transfer(
+                                        available_tx.tx.tx.clone(),
+                                        vec![],
+                                        Value::okay(Value::Bool(true)).unwrap(),
+                                        ExecutionCost::ZERO,
+                                    ),
+                                )
+                                .convert_to_event(),
+                            ))
+                        },
+                    )
+                    .unwrap()
+            },
+        );
+        considered
+    }
+
+    pub(crate) fn arrival_seq(mempool: &MemPoolDB, txid: &Txid) -> u64 {
+        MemPoolDB::get_tx(mempool.conn(), txid)
+            .unwrap()
+            .unwrap()
+            .metadata
+            .arrival_seq
+    }
+}
+
+/// An STX transfer with nonce 0 from the key derived from `seed`
+pub(crate) fn arrival_order_transfer(seed: u64, fee: u64, amount: u64) -> StacksTransaction {
+    let sender = StacksPrivateKey::from_seed(&seed.to_be_bytes());
+    let recipient = PrincipalData::from(
+        StacksAddress::from_string("ST1RFD5Q2QPK3E0F08HG9XDX7SSC7CNRS0QR0SGEV").unwrap(),
+    );
+    make_stacks_transfer_tx(&sender, 0, fee, CHAIN_ID_TESTNET, &recipient, amount)
+}
+
+#[test]
+/// An RBF replacement is stored with its own arrival stamp, so it does not move ahead of a
+/// transaction that arrived before it at the same fee rate.
+fn mempool_arrival_seq_rbf() {
+    let mut fixture = ArrivalOrderFixture::new(function_name!());
+    for strategy in [
+        MemPoolWalkStrategy::GlobalFeeRate,
+        MemPoolWalkStrategy::NextNonceWithHighestFeeRate,
+    ] {
+        let mut mempool = fixture.open_mempool(&format!("{strategy:?}"));
+        let x = arrival_order_transfer(1, 200, 1);
+        let y = arrival_order_transfer(2, 200, 1);
+        let x_rbf = arrival_order_transfer(1, 400, 1);
+        let (x_seq, y_seq, x_rbf_seq) =
+            (next_arrival_seq(), next_arrival_seq(), next_arrival_seq());
+
+        fixture
+            .admit(&mut mempool, &[(&x, 100.0, x_seq), (&y, 200.0, y_seq)])
+            .unwrap();
+        // replace x with a higher fee, matching y's fee rate
+        fixture
+            .admit(&mut mempool, &[(&x_rbf, 200.0, x_rbf_seq)])
+            .unwrap();
+        assert!(!mempool.has_tx(&x.txid()));
+        assert_eq!(
+            ArrivalOrderFixture::arrival_seq(&mempool, &x_rbf.txid()),
+            x_rbf_seq
+        );
+
+        // y arrived before the replacement
+        assert_eq!(
+            fixture.walk(&mut mempool, strategy),
+            vec![y.txid(), x_rbf.txid()],
+            "{strategy:?}"
+        );
+    }
+}
+
+#[test]
+/// A transaction re-added across a fork keeps the earlier of its arrival stamps.
+fn mempool_arrival_seq_replace_across_fork() {
+    let mut fixture = ArrivalOrderFixture::new(function_name!());
+    let mut mempool = fixture.open_mempool("mempool");
+    let tx = arrival_order_transfer(1, 200, 1);
+    let (earliest, early, late) = (next_arrival_seq(), next_arrival_seq(), next_arrival_seq());
+
+    fixture.admit(&mut mempool, &[(&tx, 200.0, early)]).unwrap();
+
+    // received again later, and re-added on another fork
+    fixture
+        .admit_on_fork(&mut mempool, &[(&tx, 200.0, late)])
+        .unwrap();
+    assert_eq!(
+        ArrivalOrderFixture::arrival_seq(&mempool, &tx.txid()),
+        early
+    );
+
+    // a receipt stamped before the stored one, re-added back on the first fork
+    fixture
+        .admit(&mut mempool, &[(&tx, 200.0, earliest)])
+        .unwrap();
+    assert_eq!(
+        ArrivalOrderFixture::arrival_seq(&mempool, &tx.txid()),
+        earliest
+    );
+}
+
+#[test]
+/// Of two conflicting transactions at equal fee, the one received first is kept, whichever was
+/// admitted first. A higher fee still wins, whatever the stamps.
+fn mempool_arrival_seq_conflict_keeps_earlier_arrival() {
+    let mut fixture = ArrivalOrderFixture::new(function_name!());
+    let mut mempool = fixture.open_mempool("mempool");
+    let (earlier, later) = (next_arrival_seq(), next_arrival_seq());
+
+    // the later one is admitted first (an RPC upload), then the earlier one (from the relayer)
+    let later_tx = arrival_order_transfer(1, 200, 1);
+    let earlier_tx = arrival_order_transfer(1, 200, 2);
+    fixture
+        .admit(&mut mempool, &[(&later_tx, 200.0, later)])
+        .unwrap();
+    fixture
+        .admit(&mut mempool, &[(&earlier_tx, 200.0, earlier)])
+        .unwrap();
+    assert!(!mempool.has_tx(&later_tx.txid()));
+    assert_eq!(
+        ArrivalOrderFixture::arrival_seq(&mempool, &earlier_tx.txid()),
+        earlier
+    );
+
+    // the earlier one is admitted first: the later one is rejected
+    let earlier_tx = arrival_order_transfer(2, 200, 1);
+    let later_tx = arrival_order_transfer(2, 200, 2);
+    fixture
+        .admit(&mut mempool, &[(&earlier_tx, 200.0, earlier)])
+        .unwrap();
+    assert!(matches!(
+        fixture.admit(&mut mempool, &[(&later_tx, 200.0, later)]),
+        Err(MemPoolRejection::ConflictingNonceInMempool)
+    ));
+    assert!(mempool.has_tx(&earlier_tx.txid()));
+
+    // a lower fee doesn't replace, even with an earlier stamp; a higher fee does, even with a later
+    let stored = arrival_order_transfer(3, 200, 1);
+    let lower_fee = arrival_order_transfer(3, 100, 1);
+    let higher_fee = arrival_order_transfer(3, 300, 1);
+    fixture
+        .admit(&mut mempool, &[(&stored, 200.0, later)])
+        .unwrap();
+    assert!(matches!(
+        fixture.admit(&mut mempool, &[(&lower_fee, 100.0, earlier)]),
+        Err(MemPoolRejection::ConflictingNonceInMempool)
+    ));
+    assert!(mempool.has_tx(&stored.txid()));
+    let latest = next_arrival_seq();
+    fixture
+        .admit(&mut mempool, &[(&higher_fee, 300.0, latest)])
+        .unwrap();
+    assert!(!mempool.has_tx(&stored.txid()));
+    assert_eq!(
+        ArrivalOrderFixture::arrival_seq(&mempool, &higher_fee.txid()),
+        latest
+    );
+}
+
+#[test]
+/// Rows inserted by the test helper get arrival stamps in insertion order, so tests using it don't
+/// all tie at the column's default of 0.
+fn insert_tx_in_mempool_stamps_rows() {
+    let fixture = ArrivalOrderFixture::new(function_name!());
+    let mut mempool = fixture.open_mempool("mempool");
+    let txs: Vec<_> = (0..2)
+        .map(|seed| arrival_order_transfer(seed, 200, 1))
+        .collect();
+    let mempool_tx = mempool.tx_begin().unwrap();
+    for tx in txs.iter() {
+        insert_tx_in_mempool(
+            &mempool_tx,
+            tx.serialize_to_vec(),
+            &tx.origin_address(),
+            0,
+            200,
+            &ConsensusHash([0x2; 20]),
+            &FIRST_STACKS_BLOCK_HASH,
+            1,
+        );
+    }
+    mempool_tx.commit().unwrap();
+    let stamps = txs
+        .iter()
+        .map(|tx| ArrivalOrderFixture::arrival_seq(&mempool, &tx.txid()));
+    assert!(std::iter::once(0).chain(stamps).is_sorted_by(|a, b| a < b));
+}
+
+#[test]
+/// `note_tx_arrival()` lowers a stored arrival stamp, never raises it, and ignores transactions
+/// that are not in the mempool.
+fn mempool_arrival_seq_note_tx_arrival() {
+    let mut fixture = ArrivalOrderFixture::new(function_name!());
+    let mut mempool = fixture.open_mempool("mempool");
+    let tx = arrival_order_transfer(1, 200, 1);
+    let (early, stored, late) = (next_arrival_seq(), next_arrival_seq(), next_arrival_seq());
+    fixture
+        .admit(&mut mempool, &[(&tx, 200.0, stored)])
+        .unwrap();
+
+    mempool.note_tx_arrival(&tx.txid(), late).unwrap();
+    assert_eq!(
+        ArrivalOrderFixture::arrival_seq(&mempool, &tx.txid()),
+        stored
+    );
+
+    mempool.note_tx_arrival(&tx.txid(), early).unwrap();
+    assert_eq!(
+        ArrivalOrderFixture::arrival_seq(&mempool, &tx.txid()),
+        early
+    );
+
+    mempool.note_tx_arrival(&Txid([0x11; 32]), 1).unwrap();
+}
+
+#[test]
+/// Reopening the mempool keeps the stored order and resumes the arrival counter above it.
+fn mempool_arrival_seq_restart() {
+    let mut fixture = ArrivalOrderFixture::new(function_name!());
+    let mut mempool = fixture.open_mempool("mempool");
+    let early = arrival_order_transfer(1, 200, 1);
+    // far above anything the other tests in this process can reach
+    let early_seq = next_arrival_seq() + (1 << 60);
+    fixture
+        .admit(&mut mempool, &[(&early, 200.0, early_seq)])
+        .unwrap();
+    drop(mempool);
+
+    let mut mempool = fixture.open_mempool("mempool");
+    let late_seq = next_arrival_seq();
+    assert!(late_seq > early_seq);
+    let late = arrival_order_transfer(2, 200, 1);
+    fixture
+        .admit(&mut mempool, &[(&late, 200.0, late_seq)])
+        .unwrap();
+    for strategy in [
+        MemPoolWalkStrategy::GlobalFeeRate,
+        MemPoolWalkStrategy::NextNonceWithHighestFeeRate,
+    ] {
+        assert_eq!(
+            fixture.walk(&mut mempool, strategy),
+            vec![early.txid(), late.txid()],
+            "{strategy:?}"
+        );
+    }
+}
+
+#[test]
+/// Migrating a schema-8 mempool backfills `arrival_seq` by accept time, then insertion order,
+/// and replaces `by_fee_rate` with the arrival-order indexes.
+fn mempool_arrival_seq_migration() {
+    let mut fixture = ArrivalOrderFixture::new(function_name!());
+    let mut mempool = fixture.open_mempool("mempool");
+    let txs: Vec<_> = (0..4)
+        .map(|seed| arrival_order_transfer(seed, 200, 1))
+        .collect();
+    let batch: Vec<_> = txs
+        .iter()
+        .map(|tx| (tx, 200.0, next_arrival_seq()))
+        .collect();
+    fixture.admit(&mut mempool, &batch).unwrap();
+    for (tx, accept_time) in txs.iter().zip([30, 10, 20, 10]) {
+        mempool
+            .db
+            .execute(
+                "UPDATE mempool SET accept_time = ? WHERE txid = ?",
+                params![accept_time, tx.txid()],
+            )
+            .unwrap();
+    }
+
+    // strip it back to schema 8
+    mempool
+        .db
+        .execute_batch(
+            "DROP INDEX by_fee_rate_arrival_seq;
+             DROP INDEX by_arrival_seq;
+             ALTER TABLE mempool DROP COLUMN arrival_seq;
+             CREATE INDEX by_fee_rate ON mempool(fee_rate);
+             DELETE FROM schema_version WHERE version = 9;",
+        )
+        .unwrap();
+    drop(mempool);
+
+    let mempool = fixture.open_mempool("mempool");
+    let version: i64 = mempool
+        .db
+        .query_row("SELECT MAX(version) FROM schema_version", [], |row| {
+            row.get(0)
+        })
+        .unwrap();
+    assert_eq!(version, 9);
+
+    // accept time first; the two admitted at time 10 in insertion order
+    let stamps: Vec<_> = txs
+        .iter()
+        .map(|tx| ArrivalOrderFixture::arrival_seq(&mempool, &tx.txid()))
+        .collect();
+    assert_eq!(stamps, vec![4, 1, 3, 2]);
+
+    for (index, expected) in [
+        ("by_fee_rate_arrival_seq", 1),
+        ("by_arrival_seq", 1),
+        ("by_fee_rate", 0),
+    ] {
+        let found: i64 = mempool
+            .db
+            .query_row(
+                "SELECT COUNT(*) FROM sqlite_master WHERE type = 'index' AND name = ?",
+                params![index],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(found, expected, "index {index}");
+    }
+}
+
+#[test]
+/// The arrival counter resumes above the largest stored stamp. Out-of-range stamps from a damaged
+/// mempool are ignored (negative) or saturate (too large) instead of failing the open.
+fn mempool_arrival_seq_resume_point() {
+    assert_eq!(MemPoolDB::arrival_seq_resume_point(None), None);
+    assert_eq!(MemPoolDB::arrival_seq_resume_point(Some(41)), Some(42));
+    assert_eq!(MemPoolDB::arrival_seq_resume_point(Some(-1)), None);
+    assert_eq!(
+        MemPoolDB::arrival_seq_resume_point(Some(i64::MAX - 1)),
+        Some(i64::MAX as u64)
+    );
+    assert_eq!(
+        MemPoolDB::arrival_seq_resume_point(Some(i64::MAX)),
+        Some(i64::MAX as u64)
+    );
+}
+
+#[test]
+/// Each socket read gets its own block of arrival stamps: what it completes takes them in order,
+/// after every stamp taken before the block was reserved and before every stamp taken after it.
+/// A block that runs out keeps returning its last stamp.
+fn mempool_arrival_seq_blocks() {
+    let before = next_arrival_seq();
+    let mut block = ArrivalSeqBlock::reserve();
+    let first = take_arrival_seq(Some(&mut block));
+    assert!(first > before);
+    assert_eq!(take_arrival_seq(Some(&mut block)), first + 1);
+
+    let after = take_arrival_seq(None);
+    assert!(after >= first + ARRIVAL_SEQ_BLOCK_LEN);
+
+    let mut exhausted = block;
+    for _ in 0..ARRIVAL_SEQ_BLOCK_LEN {
+        exhausted.take();
+    }
+    let last = first + ARRIVAL_SEQ_BLOCK_LEN - 1;
+    assert_eq!(exhausted.take(), last);
+    assert_eq!(exhausted.take(), last);
 }

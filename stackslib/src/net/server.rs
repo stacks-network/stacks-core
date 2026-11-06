@@ -413,17 +413,19 @@ impl HttpPeer {
     }
 
     /// Process network traffic on a HTTP conversation.
+    /// `arrival` is what this poll recorded about the socket, if it had bytes queued.
     /// Returns whether or not the convo is still alive, as well as any message(s) that need to be
     /// forwarded to the peer network.
     fn process_http_conversation(
         node_state: &mut StacksNodeState,
         event_id: usize,
+        arrival: Option<SocketArrival>,
         client_sock: &mut mio_net::TcpStream,
         convo: &mut ConversationHttp,
     ) -> (bool, Vec<StacksMessageType>) {
         // get incoming bytes and update the state of this conversation.
         let mut convo_dead = false;
-        let recv_res = convo.recv(client_sock);
+        let recv_res = convo.recv_ready(client_sock, arrival);
         if let Err(e) = recv_res {
             match e {
                 net_error::PermanentlyDrained => {
@@ -554,6 +556,7 @@ impl HttpPeer {
                     let (alive, mut new_msgs) = HttpPeer::process_http_conversation(
                         node_state,
                         *event_id,
+                        poll_state.arrivals.get(event_id).copied(),
                         client_sock,
                         convo,
                     );
@@ -770,6 +773,96 @@ mod test {
         let num_events = num_events_rx.recv().unwrap();
         http_thread.join().unwrap();
         num_events
+    }
+
+    #[test]
+    /// A ready HTTP socket's read uses what `poll()` recorded about that socket.
+    fn test_process_ready_sockets_uses_poll_arrival() {
+        use std::io::Write;
+
+        use clarity::vm::types::StacksAddressExtensions;
+
+        use crate::core::mempool::{ArrivalSeqBlock, MemPoolDB};
+        use crate::core::test_util::{make_stacks_transfer_tx, to_addr};
+
+        let privk = StacksPrivateKey::from_seed(&[1]);
+        let mut config = TestPeerConfig::new(function_name!(), 2038, 2039);
+        config.chain_config.initial_balances =
+            vec![(to_addr(&privk).to_account_principal(), 1_000_000_000)];
+        let chain_id = config.chain_config.network_id;
+        let mut peer = TestPeer::new(config);
+        let mut coinbase_nonce = 0;
+        peer.tenure_with_txs(&[], &mut coinbase_nonce);
+
+        let http_addr = peer.network.http.as_ref().unwrap().http_server_addr;
+        let mut client = std::net::TcpStream::connect(http_addr).unwrap();
+        let mut event_id = None;
+        for _ in 0..100 {
+            let _ = peer.step();
+            event_id = peer
+                .network
+                .http
+                .as_ref()
+                .unwrap()
+                .peers
+                .keys()
+                .next()
+                .copied();
+            if event_id.is_some() {
+                break;
+            }
+            sleep_ms(10);
+        }
+        let event_id = event_id.expect("HTTP connection was not registered");
+
+        let recipient = StacksAddress::burn_address(false).to_account_principal();
+        let tx = make_stacks_transfer_tx(&privk, 0, 1000, chain_id, &recipient, 1);
+        let bytes = StacksHttpRequest::new_post_transaction(http_addr.into(), tx.clone())
+            .try_serialize()
+            .unwrap();
+        client.write_all(&bytes).unwrap();
+
+        let mut http = peer.network.http.take().unwrap();
+        let mut peeked = vec![0u8; bytes.len()];
+        for _ in 0..100 {
+            let sock = http.sockets.get(&event_id).unwrap();
+            if sock.peek(&mut peeked).unwrap_or(0) == bytes.len() {
+                break;
+            }
+            sleep_ms(10);
+        }
+
+        let block = ArrivalSeqBlock::reserve();
+        let mut expected = block;
+        let mut poll_state = NetworkPollState::new();
+        poll_state.ready.push(event_id);
+        poll_state.arrivals.insert(
+            event_id,
+            SocketArrival {
+                arrival_seqs: block,
+                queued_bytes: bytes.len(),
+            },
+        );
+
+        let sortdb = peer.chain.sortdb.take().unwrap();
+        let mut stacks_node = peer.chain.stacks_node.take().unwrap();
+        let mut mempool = peer.mempool.take().unwrap();
+        let rpc_args = RPCHandlerArgsType::make_default();
+        let mut node_state = StacksNodeState::new(
+            &mut peer.network,
+            &sortdb,
+            &mut stacks_node.chainstate,
+            &mut mempool,
+            &rpc_args,
+            false,
+            false,
+        );
+        http.process_ready_sockets(&mut poll_state, &mut node_state);
+
+        let stored = MemPoolDB::get_tx(mempool.conn(), &tx.txid())
+            .unwrap()
+            .expect("transaction was not stored");
+        assert_eq!(stored.metadata.arrival_seq, expected.take());
     }
 
     #[test]
