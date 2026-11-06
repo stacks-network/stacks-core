@@ -19,7 +19,7 @@ use std::io::{Read, Write};
 use stacks_common::codec::{write_next, Error as codec_error, StacksMessageCodec};
 use stacks_common::deps_common::bitcoin::blockdata::script::Builder;
 use stacks_common::types::chainstate::{BurnchainHeaderHash, StacksAddress};
-use stacks_common::types::{StacksEpochId, StacksPublicKeyBuffer};
+use stacks_common::types::StacksPublicKeyBuffer;
 use stacks_common::util::secp256k1::Secp256k1PublicKey;
 
 use crate::burnchains::bitcoin::bits::parse_script;
@@ -174,12 +174,7 @@ impl VoteForAggregateKeyOp {
     /// Check the payload of a vote-for-aggregate-key burn op.
     /// Both `signer_key` and `aggregate_key` are checked for validity against
     /// `Secp256k1PublicKey` from `stacks_common`
-    pub fn check(&self, epoch_id: StacksEpochId) -> Result<(), op_error> {
-        if epoch_id.rejects_burn_op(Opcodes::VoteForAggregateKey) {
-            warn!("Invalid VoteForAggregateKeyOp: rejected in epoch {epoch_id}"; "txid" => %self.txid);
-            return Err(op_error::RejectedInEpoch(epoch_id));
-        }
-
+    pub fn check(&self) -> Result<(), op_error> {
         // Check to see if the aggregate key is valid
         let aggregate_key_bytes = self.aggregate_key.as_bytes();
         Secp256k1PublicKey::from_slice(aggregate_key_bytes)
@@ -235,7 +230,7 @@ impl StacksMessageCodec for VoteForAggregateKeyOp {
 #[cfg(test)]
 mod tests {
     use stacks_common::types::chainstate::{BurnchainHeaderHash, StacksAddress};
-    use stacks_common::types::{Address, StacksEpochId, StacksPublicKeyBuffer};
+    use stacks_common::types::{Address, StacksPublicKeyBuffer};
     use stacks_common::util::hash::*;
     use stacks_common::util::secp256k1::Secp256k1PublicKey;
 
@@ -406,7 +401,7 @@ mod tests {
             burn_header_hash: BurnchainHeaderHash([0x10; 32]),
         };
 
-        match op.check(StacksEpochId::Epoch40) {
+        match op.check() {
             Ok(_) => panic!("Invalid key should not pass validation"),
             Err(op_error::VoteForAggregateKeyInvalidKey) => (),
             Err(e) => panic!("Unexpected error: {:?}", e),

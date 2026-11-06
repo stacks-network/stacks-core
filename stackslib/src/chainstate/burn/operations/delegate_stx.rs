@@ -2,7 +2,6 @@ use std::io::{Read, Write};
 
 use stacks_common::codec::{write_next, Error as codec_error, StacksMessageCodec};
 use stacks_common::types::chainstate::{BurnchainHeaderHash, StacksAddress};
-use stacks_common::types::StacksEpochId;
 
 use crate::burnchains::{BurnchainBlockHeader, BurnchainTransaction, Txid};
 use crate::chainstate::burn::operations::{
@@ -205,12 +204,7 @@ impl DelegateStxOp {
         })
     }
 
-    pub fn check(&self, epoch_id: StacksEpochId) -> Result<(), op_error> {
-        if epoch_id.rejects_burn_op(Opcodes::DelegateStx) {
-            warn!("Invalid DelegateStxOp: rejected in epoch {epoch_id}"; "txid" => %self.txid);
-            return Err(op_error::RejectedInEpoch(epoch_id));
-        }
-
+    pub fn check(&self) -> Result<(), op_error> {
         if self.delegated_ustx == 0 {
             warn!("Invalid DelegateStxOp, must have positive ustx");
             return Err(op_error::DelegateStxMustBePositive);

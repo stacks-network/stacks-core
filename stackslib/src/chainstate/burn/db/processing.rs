@@ -39,6 +39,18 @@ impl SortitionHandleTx<'_> {
         reward_info: Option<&RewardSetInfo>,
         epoch_id: StacksEpochId,
     ) -> Result<(), BurnchainError> {
+        if epoch_id.rejects_burn_op(blockstack_op.opcode()) {
+            warn!(
+                "REJECTED({}) {:?} op {} at {},{}: not accepted in epoch {epoch_id}",
+                blockstack_op.block_height(),
+                blockstack_op.opcode(),
+                blockstack_op.txid_ref(),
+                blockstack_op.block_height(),
+                blockstack_op.vtxindex()
+            );
+            return Err(BurnchainError::OpError(OpError::RejectedInEpoch(epoch_id)));
+        }
+
         match blockstack_op {
             BlockstackOperationType::LeaderKeyRegister(ref op) => {
                 op.check(burnchain, self).map_err(|e| {
@@ -66,7 +78,7 @@ impl SortitionHandleTx<'_> {
                     BurnchainError::OpError(e)
                 })
             }
-            BlockstackOperationType::StackStx(ref op) => op.check(epoch_id).map_err(|e| {
+            BlockstackOperationType::StackStx(ref op) => op.check().map_err(|e| {
                 warn!(
                     "REJECTED({}) stack stx op {} at {},{}: {:?}",
                     op.block_height, &op.txid, op.block_height, op.vtxindex, &e
@@ -84,22 +96,20 @@ impl SortitionHandleTx<'_> {
                 // no check() required for PreStx
                 Ok(())
             }
-            BlockstackOperationType::DelegateStx(ref op) => op.check(epoch_id).map_err(|e| {
+            BlockstackOperationType::DelegateStx(ref op) => op.check().map_err(|e| {
                 warn!(
                     "REJECTED({}) delegate stx op {} at {},{}: {:?}",
                     op.block_height, &op.txid, op.block_height, op.vtxindex, &e
                 );
                 BurnchainError::OpError(e)
             }),
-            BlockstackOperationType::VoteForAggregateKey(ref op) => {
-                op.check(epoch_id).map_err(|e| {
-                    warn!(
-                        "REJECTED({}) vote for aggregate key op {} at {},{}: {:?}",
-                        op.block_height, &op.txid, op.block_height, op.vtxindex, &e
-                    );
-                    BurnchainError::OpError(e)
-                })
-            }
+            BlockstackOperationType::VoteForAggregateKey(ref op) => op.check().map_err(|e| {
+                warn!(
+                    "REJECTED({}) vote for aggregate key op {} at {},{}: {:?}",
+                    op.block_height, &op.txid, op.block_height, op.vtxindex, &e
+                );
+                BurnchainError::OpError(e)
+            }),
         }
     }
 
