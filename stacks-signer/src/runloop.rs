@@ -513,8 +513,14 @@ impl<Signer: SignerTrait<T>, T: StacksMessageCodec + Clone + Send + Debug> RunLo
             };
             SignerConfigMode::DryRun
         };
+        let pox_geometry = self
+            .burnchain_view
+            .as_ref()
+            .expect("FATAL: cannot configure a signer with no burnchain view.")
+            .geometry;
         Ok(Some(SignerConfig {
             reward_cycle,
+            pox_geometry,
             signer_mode: signer_config_mode,
             signer_entries,
             signer_slot_ids: signer_slot_ids.into_values().collect(),
@@ -583,12 +589,14 @@ impl<Signer: SignerTrait<T>, T: StacksMessageCodec + Clone + Send + Debug> RunLo
                 ))
             })?;
         let current_reward_cycle = burnchain_view.current_reward_cycle();
+        let is_in_next_prepare_phase = burnchain_view.is_in_next_prepare_phase();
+        // Set before configuring any signer: a signer takes its PoX geometry from the view.
+        self.burnchain_view = Some(burnchain_view);
         self.refresh_signer_config(current_reward_cycle);
         // We should only attempt to initialize the next reward cycle signer if we are in the prepare phase of the next reward cycle
-        if burnchain_view.is_in_next_prepare_phase() {
+        if is_in_next_prepare_phase {
             self.refresh_signer_config(current_reward_cycle.saturating_add(1));
         }
-        self.burnchain_view = Some(burnchain_view);
         self.refresh_signer_retention();
         Ok(())
     }
