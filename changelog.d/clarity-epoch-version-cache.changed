@@ -1,0 +1,1 @@
+The per-transaction `ClarityExecutionCache` now holds the stored Clarity epoch version, so a transaction reads it from the MARF once per block view instead of on every map, variable and set operation, and a contract-call that misses the contract cache no longer reads the contract size twice. Charged costs are unchanged.
