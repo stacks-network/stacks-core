@@ -1,10 +1,7 @@
-use async_std::net::{TcpListener, TcpStream};
-use async_std::prelude::*;
-use async_std::task;
-use http_types::{Body, Response, StatusCode};
 use lazy_static::lazy_static;
 use stacks::prometheus::{gather, opts, register_int_gauge, Encoder, IntGauge, TextEncoder};
 use stacks_common::monitoring::build_info_labels;
+use tiny_http::{Header, Request, Response, Server};
 
 use super::MonitoringError;
 
@@ -24,57 +21,39 @@ fn record_build_info() {
 
 pub fn start_serving_prometheus_metrics(bind_address: String) -> Result<(), MonitoringError> {
     record_build_info();
-    task::block_on(async {
-        let listener = TcpListener::bind(bind_address)
-            .await
-            .map_err(|_| {
-                warn!("Prometheus monitoring: unable to bind address, will not spawn prometheus endpoint service.");
-                MonitoringError::AlreadyBound
-            })?;
-        let local_addr = listener
-                .local_addr()
-                .map_err(|_| {
-                    warn!("Prometheus monitoring: unable to get local bind address, will not spawn prometheus endpoint service.");
-                    MonitoringError::UnableToGetAddress
-                })?;
-        info!("Prometheus monitoring: server listening on http://{local_addr}");
+    let server = Server::http(bind_address).map_err(|_| {
+        warn!("Prometheus monitoring: unable to bind address, will not spawn prometheus endpoint service.");
+        MonitoringError::AlreadyBound
+    })?;
+    let local_addr = server.server_addr().to_ip().ok_or_else(|| {
+        warn!("Prometheus monitoring: unable to get local bind address, will not spawn prometheus endpoint service.");
+        MonitoringError::UnableToGetAddress
+    })?;
+    info!("Prometheus monitoring: server listening on http://{local_addr}");
 
-        let mut incoming = listener.incoming();
-        while let Some(stream) = incoming.next().await {
-            let stream = match stream {
-                Ok(stream) => stream,
-                Err(err) => {
-                    error!(
-                        "Prometheus monitoring: unable to open socket and serve metrics - {err:?}",
-                    );
-                    continue;
-                }
-            };
-            task::spawn(async {
-                if let Err(err) = accept(stream).await {
-                    error!("{err}");
-                }
-            });
+    loop {
+        let request = match server.recv() {
+            Ok(request) => request,
+            Err(err) => {
+                error!("Prometheus monitoring: unable to open socket and serve metrics - {err:?}");
+                continue;
+            }
+        };
+        if let Err(err) = respond_with_metrics(request) {
+            error!("Prometheus monitoring: failed to send metrics response - {err:?}");
         }
-
-        Ok::<_, MonitoringError>(())
-    })
+    }
 }
 
-async fn accept(stream: TcpStream) -> http_types::Result<()> {
-    debug!("Handle Prometheus polling ({})", stream.peer_addr()?);
-    async_h1::accept(stream.clone(), |_| async {
-        let encoder = TextEncoder::new();
-        let metric_families = gather();
-        let mut buffer = vec![];
-        encoder.encode(&metric_families, &mut buffer).unwrap();
+/// Every request is answered with the encoded metrics, regardless of path.
+fn respond_with_metrics(request: Request) -> std::io::Result<()> {
+    debug!("Handle Prometheus polling ({:?})", request.remote_addr());
+    let encoder = TextEncoder::new();
+    let metric_families = gather();
+    let mut buffer = vec![];
+    encoder.encode(&metric_families, &mut buffer).unwrap();
 
-        let mut response = Response::new(StatusCode::Ok);
-        response.append_header("Content-Type", encoder.format_type());
-        response.set_body(Body::from(buffer));
-
-        Ok(response)
-    })
-    .await?;
-    Ok(())
+    let content_type = Header::from_bytes("Content-Type", encoder.format_type())
+        .expect("FATAL: invalid Content-Type header");
+    request.respond(Response::from_data(buffer).with_header(content_type))
 }

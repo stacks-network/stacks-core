@@ -1,0 +1,1 @@
+Upgraded `prometheus` from 0.9 to 0.14 with its `protobuf` feature disabled, removing unused `protobuf` from `monitoring_prom` builds of the node and signer. Exported metrics are unchanged.
