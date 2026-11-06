@@ -170,6 +170,15 @@ define_stacks_epochs! {
     Epoch41 = 0x04001 => "4.1",
 }
 
+/// Deposit format used for the PoX-5 per-cycle sBTC recipient.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SbtcDepositFormat {
+    /// Deposit locked by the registry's aggregate public key.
+    V1,
+    /// Taproot multisig deposit locked by derived per-signer keys.
+    V2,
+}
+
 #[derive(Debug)]
 pub enum MempoolCollectionBehavior {
     ByStacksHeight,
@@ -867,6 +876,38 @@ impl StacksEpochId {
     /// supertype. Runtime inference is never gated; deployed contracts depend on it.
     pub fn requires_matching_tuple_fields_in_analysis(&self) -> bool {
         self >= &StacksEpochId::Epoch41
+    }
+
+    /// The deposit format used to derive the PoX-5 per-cycle sBTC recipient.
+    /// Epochs before 4.1 use the aggregate-key format; 4.1 uses Taproot multisig.
+    ///
+    /// The reward set for cycle `N+1` is computed at the first Stacks block of
+    /// cycle `N`'s prepare phase, and it is that block's epoch which selects
+    /// the derivation. The block-commit output therefore switches at the first
+    /// reward cycle whose prepare phase begins in Epoch 4.1, at most one
+    /// reward cycle after activation. Once this epoch is active the node never
+    /// reads the registry's aggregate pubkey, so sBTC may rotate to a v2 key
+    /// set (which stores a non-pubkey tag in that field) at any time after
+    /// activation.
+    pub fn sbtc_deposit_format(&self) -> SbtcDepositFormat {
+        // Enumerate epochs so a new epoch requires an explicit format choice.
+        match self {
+            Self::Epoch10
+            | Self::Epoch20
+            | Self::Epoch2_05
+            | Self::Epoch21
+            | Self::Epoch22
+            | Self::Epoch23
+            | Self::Epoch24
+            | Self::Epoch25
+            | Self::Epoch30
+            | Self::Epoch31
+            | Self::Epoch32
+            | Self::Epoch33
+            | Self::Epoch34
+            | Self::Epoch40 => SbtcDepositFormat::V1,
+            Self::Epoch41 => SbtcDepositFormat::V2,
+        }
     }
 
     /// Whether analysis types a `fold` result to admit its initial value, which an

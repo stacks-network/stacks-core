@@ -684,8 +684,20 @@ fn runtime_check_error_kind_sequence_element_arity_mismatch_cdeploy() {
         deploy_epochs: &[
             StacksEpochId::Epoch34,
             StacksEpochId::Epoch40,
-            StacksEpochId::Epoch41,
         ],
+        clarity_versions: ClarityVersion::since(ClarityVersion::Clarity2),
+    );
+}
+
+/// Epoch 4.1 coverage uses a separate chain with the signer-data registry stub.
+#[test]
+fn runtime_check_error_kind_sequence_element_arity_mismatch_cdeploy_epoch_41() {
+    contract_deploy_consensus_snap_test!(
+        contract_name: "check-error-kind",
+        // `as-max-len?` widens `0x` to type `(buff 1)` while it still holds 0 bytes,
+        // so analysis passes in every epoch and the runtime arity check fires.
+        contract_code: "(replace-at? 0x0102 u0 (unwrap-panic (as-max-len? 0x u1)))",
+        deploy_epochs: &[StacksEpochId::Epoch41],
         clarity_versions: ClarityVersion::since(ClarityVersion::Clarity2),
     );
 }
@@ -705,8 +717,22 @@ fn runtime_check_error_kind_sequence_element_arity_mismatch_ccall() {
         call_epochs: &[
             StacksEpochId::Epoch34,
             StacksEpochId::Epoch40,
-            StacksEpochId::Epoch41,
         ],
+        clarity_versions: ClarityVersion::since(ClarityVersion::Clarity2),
+    );
+}
+
+/// Epoch 4.1 coverage uses a separate chain with the signer-data registry stub.
+#[test]
+fn runtime_check_error_kind_sequence_element_arity_mismatch_ccall_epoch_41() {
+    contract_call_consensus_snap_test!(
+        contract_name: "check-error-kind",
+        contract_code: "(define-public (trigger-error)
+            (ok (replace-at? 0x0102 u0 (unwrap-panic (as-max-len? 0x u1)))))",
+        function_name: "trigger-error",
+        function_args: &[],
+        deploy_epochs: EPOCHS_TO_TEST,
+        call_epochs: &[StacksEpochId::Epoch41],
         clarity_versions: ClarityVersion::since(ClarityVersion::Clarity2),
     );
 }
@@ -1043,8 +1069,25 @@ fn runtime_check_error_kind_with_all_allowance_not_allowed_ccall() {
         call_epochs: &[
             StacksEpochId::Epoch34,
             StacksEpochId::Epoch40,
-            StacksEpochId::Epoch41,
         ],
+        clarity_versions: ClarityVersion::since(ClarityVersion::Clarity4),
+    );
+}
+
+/// Epoch 4.1 coverage uses a separate chain with the signer-data registry stub.
+#[test]
+fn runtime_check_error_kind_with_all_allowance_not_allowed_ccall_epoch_41() {
+    contract_call_consensus_snap_test!(
+        contract_name: "check-error-kind",
+        contract_code: "(define-private (ignore) true)
+            (define-public (trigger-error)
+              (begin
+                (ignore (restrict-assets? tx-sender ((with-all-assets-unsafe)) true))
+                (ok true)))",
+        function_name: "trigger-error",
+        function_args: &[],
+        deploy_epochs: EPOCHS_TO_TEST,
+        call_epochs: &[StacksEpochId::Epoch41],
         clarity_versions: ClarityVersion::since(ClarityVersion::Clarity4),
     );
 }
