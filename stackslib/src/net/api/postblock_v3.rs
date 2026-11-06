@@ -63,11 +63,11 @@ impl RPCPostBlockRequestHandler {
 
 /// Decode the HTTP request
 impl HttpRequest for RPCPostBlockRequestHandler {
-    fn verb(&self) -> &'static str {
+    fn verb() -> &'static str {
         "POST"
     }
 
-    fn path_regex(&self) -> Regex {
+    fn path_regex() -> Regex {
         Regex::new(&format!("^{}(/)?$", PATH.trim_end_matches('/'))).unwrap()
     }
 

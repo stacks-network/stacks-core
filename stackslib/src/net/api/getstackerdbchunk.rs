@@ -46,11 +46,11 @@ impl RPCGetStackerDBChunkRequestHandler {
 
 /// Decode the HTTP request
 impl HttpRequest for RPCGetStackerDBChunkRequestHandler {
-    fn verb(&self) -> &'static str {
+    fn verb() -> &'static str {
         "GET"
     }
 
-    fn path_regex(&self) -> Regex {
+    fn path_regex() -> Regex {
         Regex::new(&format!(
             r#"^/v2/stackerdb/(?P<address>{})/(?P<contract>{})/(?P<slot_id>[0-9]+)(/(?P<slot_version>[0-9]+)){{0,1}}$"#,
             *STANDARD_PRINCIPAL_REGEX_STRING, *CONTRACT_NAME_REGEX_STRING

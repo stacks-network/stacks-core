@@ -222,11 +222,11 @@ impl GetSortitionHandler {
 }
 /// Decode the HTTP request
 impl HttpRequest for GetSortitionHandler {
-    fn verb(&self) -> &'static str {
+    fn verb() -> &'static str {
         "GET"
     }
 
-    fn path_regex(&self) -> Regex {
+    fn path_regex() -> Regex {
         Regex::new(PATH_REGEX).unwrap()
     }
 

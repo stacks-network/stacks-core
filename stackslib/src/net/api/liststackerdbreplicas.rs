@@ -47,11 +47,11 @@ impl RPCListStackerDBReplicasRequestHandler {
 
 /// Decode the HTTP request
 impl HttpRequest for RPCListStackerDBReplicasRequestHandler {
-    fn verb(&self) -> &'static str {
+    fn verb() -> &'static str {
         "GET"
     }
 
-    fn path_regex(&self) -> Regex {
+    fn path_regex() -> Regex {
         Regex::new(&format!(
             r#"^/v2/stackerdb/(?P<address>{})/(?P<contract>{})/replicas$"#,
             *STANDARD_PRINCIPAL_REGEX_STRING, *CONTRACT_NAME_REGEX_STRING

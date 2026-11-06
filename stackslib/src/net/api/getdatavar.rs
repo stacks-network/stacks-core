@@ -60,11 +60,11 @@ impl RPCGetDataVarRequestHandler {
 
 /// Decode the HTTP request
 impl HttpRequest for RPCGetDataVarRequestHandler {
-    fn verb(&self) -> &'static str {
+    fn verb() -> &'static str {
         "GET"
     }
 
-    fn path_regex(&self) -> Regex {
+    fn path_regex() -> Regex {
         Regex::new(&format!(
             "^/v2/data_var/(?P<address>{})/(?P<contract>{})/(?P<varname>{})$",
             *STANDARD_PRINCIPAL_REGEX_STRING, *CONTRACT_NAME_REGEX_STRING, *CLARITY_NAME_REGEX
