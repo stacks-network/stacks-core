@@ -1,0 +1,1 @@
+The MARF no longer redirects the process-wide `TMPDIR` while vacuuming after blob migration; it already points `SQLITE_TMPDIR` at the database's directory, which is all SQLite consults. Redirecting `TMPDIR` leaked other threads' temporary files into that directory, which made the MARF and chainstate snapshot tests flaky when run in parallel.
