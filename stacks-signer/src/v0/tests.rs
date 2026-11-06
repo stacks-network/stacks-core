@@ -92,10 +92,34 @@ pub static TEST_SIGNERS_INSERT_BLOCK_PROPOSAL_WITHOUT_PROCESSING: LazyLock<
 /// read once, on first use.
 pub const TEST_FLAGS_FILE_ENV: &str = "STACKS_SIGNER_TEST_FLAGS_FILE";
 
-/// How the test flags file looked when it was last applied: its modification time and size,
-/// or the error that stopped it being read. Every write of the file changes this, even one
-/// of the same contents, so every write is applied and acknowledged in the log.
-type TestFlagsFileState = Result<(std::time::SystemTime, u64), String>;
+/// How the test flags file looked when it was last applied. Every write of the file changes
+/// this, even one of the same contents, so every write is applied and acknowledged in the
+/// log. A stat failure is kept as state too, so it is logged once rather than on every call.
+#[derive(Clone, PartialEq)]
+enum TestFlagsFileState {
+    /// The file could be stat'd
+    Written {
+        /// The last known modification time of the file
+        last_modified_at: std::time::SystemTime,
+        /// The last known size of the file
+        size: u64,
+    },
+    /// The file could not be stat'd
+    Unreadable(String),
+}
+
+impl TestFlagsFileState {
+    /// The current state of the file at `path`
+    fn of(path: &str) -> Self {
+        match std::fs::metadata(path).and_then(|m| Ok((m.modified()?, m.len()))) {
+            Ok((last_modified_at, size)) => Self::Written {
+                last_modified_at,
+                size,
+            },
+            Err(e) => Self::Unreadable(e.to_string()),
+        }
+    }
+}
 
 /// State of [`TEST_FLAGS_FILE_ENV`] when it was last applied, to apply each write once.
 static APPLIED_EXTERNAL_TEST_FLAGS: LazyLock<Mutex<Option<TestFlagsFileState>>> =
@@ -185,15 +209,18 @@ pub fn apply_external_test_flags(private_key: &StacksPrivateKey) {
 /// parse errors are logged once per write. An unchanged file costs one `stat`, so this is
 /// cheap enough to call from the stall loops.
 fn apply_test_flags_file(path: &str, private_key: &StacksPrivateKey) {
-    let state: TestFlagsFileState = std::fs::metadata(path)
-        .and_then(|m| Ok((m.modified()?, m.len())))
-        .map_err(|e| e.to_string());
+    let state = TestFlagsFileState::of(path);
     let mut applied = APPLIED_EXTERNAL_TEST_FLAGS.lock().unwrap();
     if applied.as_ref() == Some(&state) {
         return;
     }
-    *applied = Some(state.clone());
-    let contents = state.and_then(|_| std::fs::read_to_string(path).map_err(|e| e.to_string()));
+    let contents = match &state {
+        TestFlagsFileState::Written { .. } => {
+            std::fs::read_to_string(path).map_err(|e| e.to_string())
+        }
+        TestFlagsFileState::Unreadable(e) => Err(e.clone()),
+    };
+    *applied = Some(state);
     let contents = match contents {
         Ok(c) if c.trim().is_empty() => return,
         Ok(c) => c,
