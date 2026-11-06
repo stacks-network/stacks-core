@@ -26,7 +26,9 @@ use base64::encode;
 use serde::Deserialize;
 use serde_json::Value;
 use stacks::net::http::{HttpRequestContents, HttpResponsePayload};
-use stacks::net::httpcore::{send_http_request, StacksHttpRequest};
+use stacks::net::httpcore::{
+    send_http_request, send_http_request_with_error_response, StacksHttpRequest,
+};
 use stacks::types::net::PeerHost;
 use url::Url;
 
@@ -71,6 +73,13 @@ pub struct JsonRpcError {
     message: String,
     /// data can be any JSON value or omitted
     data: Option<Value>,
+}
+
+impl JsonRpcError {
+    /// Inspect the service error without parsing its human-readable message.
+    pub fn code(&self) -> i32 {
+        self.code
+    }
 }
 
 /// Represents a JSON-RPC error encountered during a transport operation.
@@ -140,6 +149,12 @@ pub struct RpcTransport {
 }
 
 impl RpcTransport {
+    /// Clone the transport with a bounded deadline for optional pricing observations.
+    pub fn with_timeout(&self, timeout: Duration) -> Self {
+        let mut copy = self.clone();
+        copy.timeout = timeout;
+        copy
+    }
     /// Creates a new `RpcTransport` with the given URL, authentication, and optional timeout.
     ///
     /// # Arguments
@@ -217,9 +232,22 @@ impl RpcTransport {
         let host = request.preamble().host.hostname();
         let port = request.preamble().host.port();
 
-        let response = send_http_request(&host, port, request, self.timeout)?;
+        // Broadcasting needs rejection codes; a targeted mempool read needs
+        // Bitcoin's explicit -5 absence result. No wallet-startup calls opt in.
+        // Other calls retain their existing HTTP-error classification: wallet
+        // startup relies on HTTP 500 (including warm-up -28 and loading races)
+        // remaining a transient network error.
+        let response = if matches!(method, "sendrawtransaction" | "getmempoolentry") {
+            send_http_request_with_error_response(&host, port, request, self.timeout)?
+        } else {
+            send_http_request(&host, port, request, self.timeout)?
+        };
+        let status = response.preamble().status_code;
+        let http_error =
+            || RpcError::NetworkIO(io::Error::other(format!("JSON-RPC HTTP status {status}")));
         let json_response = match response.destruct().1 {
             HttpResponsePayload::JSON(js) => Ok(js),
+            _ if status != 200 => Err(http_error()),
             _ => Err(RpcError::InvalidJsonPayload),
         }?;
 
@@ -232,6 +260,10 @@ impl RpcTransport {
 
         if let Some(error) = parsed_response.error {
             return Err(RpcError::Service(error));
+        }
+
+        if status != 200 {
+            return Err(http_error());
         }
 
         if let Some(result) = parsed_response.result {
