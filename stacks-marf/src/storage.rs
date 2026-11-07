@@ -1389,13 +1389,13 @@ impl Deref for SqliteConnection<'_> {
 impl<'a, T: MarfTrieId> Deref for TrieStorageTransaction<'a, T> {
     type Target = TrieStorageConnection<'a, T>;
     fn deref(&self) -> &TrieStorageConnection<'a, T> {
-        &self.0
+        &self.connection
     }
 }
 
 impl<'a, T: MarfTrieId> DerefMut for TrieStorageTransaction<'a, T> {
     fn deref_mut(&mut self) -> &mut TrieStorageConnection<'a, T> {
-        &mut self.0
+        &mut self.connection
     }
 }
 
@@ -1404,7 +1404,12 @@ impl<'a, T: MarfTrieId> DerefMut for TrieStorageTransaction<'a, T> {
 ///   open SQLite transaction. Any storage methods which require a transaction
 ///   are defined _only_ for this struct (e.g., the flush methods).
 ///
-pub struct TrieStorageTransaction<'a, T: MarfTrieId>(TrieStorageConnection<'a, T>);
+pub struct TrieStorageTransaction<'a, T: MarfTrieId> {
+    /// Storage view backed by this transaction.
+    connection: TrieStorageConnection<'a, T>,
+    /// Serialized extension whose lock may be restored by savepoint rollback in this transaction.
+    serialized_lock: Option<T>,
+}
 
 /// Hash calculation mode
 #[derive(Debug, Clone, PartialEq, Copy)]
@@ -1519,6 +1524,70 @@ pub struct TrieFileStorage<T: MarfTrieId> {
     //   when the trie struct is tested outside of marf.rs usage
     #[cfg(test)]
     pub test_genesis_block: Option<T>,
+}
+
+/// A writer that requires an exact byte count and rejects writes exceeding the remaining length.
+///
+/// Write and flush failures remain observable at completion even if the callback ignores them.
+struct ExactLengthWriter<'a> {
+    /// Backend destination owned by the current transaction.
+    writer: &'a mut dyn Write,
+    /// Bytes still required to complete the extent.
+    remaining: u64,
+    /// Whether a write or flush failed.
+    failed: bool,
+}
+
+impl ExactLengthWriter<'_> {
+    /// Succeed only if the exact byte count was written without any write or flush failures.
+    fn finish(self) -> Result<(), Error> {
+        if self.failed {
+            return Err(io::Error::other("serialized trie copy failed").into());
+        }
+
+        // Reject a short copy even if the callback reported success.
+        if self.remaining != 0 {
+            return Err(
+                io::Error::new(io::ErrorKind::UnexpectedEof, "short serialized trie copy").into(),
+            );
+        }
+
+        Ok(())
+    }
+}
+
+impl Write for ExactLengthWriter<'_> {
+    fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
+        // Reject writes that would exceed the remaining length.
+        if bytes.len() as u64 > self.remaining {
+            self.failed = true;
+
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "serialized trie exceeds its extent",
+            ));
+        }
+
+        // Attempt to write the bytes to the underlying writer.
+        match self.writer.write(bytes) {
+            Ok(written) => {
+                self.remaining = self.remaining.checked_sub(written as u64).ok_or_else(|| {
+                    self.failed = true;
+                    io::Error::other("destination reported a write beyond the serialized extent")
+                })?;
+
+                Ok(written)
+            }
+            Err(error) => {
+                self.failed = true;
+                Err(error)
+            }
+        }
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        self.writer.flush().inspect_err(|_| self.failed = true)
+    }
 }
 
 /// Helper to open a MARF
@@ -1677,19 +1746,22 @@ impl<T: MarfTrieId> TrieFileStorage<T> {
         }
         let tx = tx_begin_immediate(&mut self.db)?;
 
-        Ok(TrieStorageTransaction(TrieStorageConnection {
-            db: SqliteConnection::Tx(tx),
-            db_path: &self.db_path,
-            data: &mut self.data,
-            blobs: self.blobs.as_mut(),
-            cache: &mut self.cache,
-            hash_calculation_mode: self.hash_calculation_mode,
-            compress: self.compress,
-            unconfirmed_block_id: None,
+        Ok(TrieStorageTransaction {
+            serialized_lock: None,
+            connection: TrieStorageConnection {
+                db: SqliteConnection::Tx(tx),
+                db_path: &self.db_path,
+                data: &mut self.data,
+                blobs: self.blobs.as_mut(),
+                cache: &mut self.cache,
+                hash_calculation_mode: self.hash_calculation_mode,
+                compress: self.compress,
+                unconfirmed_block_id: None,
 
-            #[cfg(test)]
-            test_genesis_block: &mut self.test_genesis_block,
-        }))
+                #[cfg(test)]
+                test_genesis_block: &mut self.test_genesis_block,
+            },
+        })
     }
 
     pub fn sqlite_conn(&self) -> &Connection {
@@ -2018,13 +2090,7 @@ impl<'a, T: MarfTrieId> TrieStorageTransaction<'a, T> {
             let marf_compression_enabled =
                 self.compress && !matches!(flush_options, FlushOptions::UnconfirmedTable);
 
-            let mut cursor = Cursor::new(Vec::new());
-            if marf_compression_enabled {
-                trie_ram.dump_compressed(self, &mut cursor, &bhh)?;
-            } else {
-                trie_ram.dump(self, &mut cursor, &bhh)?;
-            }
-            let buffer = cursor.into_inner();
+            let buffer = self.serialize_trie(bhh.clone(), trie_ram, marf_compression_enabled)?;
 
             trace!("Buffering block flush finished.");
             debug!("Flush: {} to {}", &bhh, flush_options);
@@ -2093,6 +2159,103 @@ impl<'a, T: MarfTrieId> TrieStorageTransaction<'a, T> {
         self.inner_flush(FlushOptions::NewHeader(bhh))
     }
 
+    /// Return sealed trie bytes in the same format as an ordinary flush.
+    fn serialize_trie(
+        &mut self,
+        bhh: T,
+        trie: UncommittedState<T>,
+        compress: bool,
+    ) -> Result<Vec<u8>, Error> {
+        let mut cursor = Cursor::new(Vec::new());
+        if compress {
+            trie.dump_compressed(self, &mut cursor, &bhh)?;
+        } else {
+            trie.dump(self, &mut cursor, &bhh)?;
+        }
+        Ok(cursor.into_inner())
+    }
+
+    /// Return sealed bytes and discard the current extension without registering a block.
+    ///
+    /// See [`crate::MarfTransaction::serialize_and_discard`] for format, transaction and
+    /// error semantics.
+    pub fn serialize_and_discard(&mut self) -> Result<Vec<u8>, Error> {
+        if self.readonly() {
+            return Err(Error::ReadOnlyError);
+        }
+        if self.unconfirmed() {
+            return Err(Error::UnconfirmedError);
+        }
+
+        // Remove the extension from pending writes so it cannot be flushed by a later commit.
+        let (bhh, trie) = self
+            .data
+            .uncommitted_writes
+            .take()
+            .ok_or(Error::NotOpenedError)?;
+
+        // Serialize the trie to obtain its sealed bytes.
+        let result = self.serialize_trie(bhh.clone(), trie, self.compress);
+
+        // Retain the lock identity for savepoint recovery and reset the read cursor,
+        // even if serialization failed.
+        self.serialized_lock = Some(bhh.clone());
+        self.data.set_block(T::sentinel(), None);
+
+        let bytes = result?;
+
+        // Release the lock now; savepoint rollback may restore it.
+        trie_sql::drop_lock(&self.db, &bhh)?;
+
+        Ok(bytes)
+    }
+
+    /// Promote a serialized trie without committing or caching a provisional block ID.
+    ///
+    /// See [`crate::MarfTransaction::promote_from`] for validation and rollback obligations.
+    pub fn promote_from(
+        &mut self,
+        target: &T,
+        len: u64,
+        copy: impl FnOnce(&Connection, &mut dyn Write) -> Result<(), Error>,
+    ) -> Result<(), Error> {
+        if self.readonly() {
+            return Err(Error::ReadOnlyError);
+        }
+        if self.unconfirmed() {
+            return Err(Error::UnconfirmedError);
+        }
+        if len < blob_layout::READER_PREFIX_LEN as u64 {
+            return Err(Error::CorruptionError(
+                "serialized trie is shorter than its header".into(),
+            ));
+        }
+
+        // Discard the current extension so commit cannot flush it alongside the promoted trie.
+        self.discard_provisional_trie()?;
+
+        // Promote by storing the serialized bytes and registering them under the target block hash.
+        // Both storage backends must receive exactly `len` bytes.
+        self.with_trie_blobs(|db, blobs| {
+            let copy_exact = |db: &Connection, writer: &mut dyn Write| {
+                let mut writer = ExactLengthWriter {
+                    writer,
+                    remaining: len,
+                    failed: false,
+                };
+                copy(db, &mut writer)?;
+                writer.finish()
+            };
+
+            match blobs {
+                Some(blobs) => blobs.store_trie_blob_with(db, target, len, copy_exact),
+                None => trie_sql::write_trie_blob_with(db, target, len, copy_exact),
+            }
+        })?;
+
+        Ok(())
+    }
+
     /// Drop the uncommitted state and any associated cached state.
     pub fn drop_extending_trie(&mut self) {
         if let Some(bhh) = self.clear_extending_trie() {
@@ -2103,44 +2266,58 @@ impl<'a, T: MarfTrieId> TrieStorageTransaction<'a, T> {
 
     /// Discard the current extension and release its lock without committing.
     ///
-    /// Lock-release failure leaves no trie to flush; the caller must roll back the transaction.
+    /// Locks restored by savepoint rollback are released even if serialization already
+    /// consumed the in-memory trie. Lock-release failure leaves no trie to flush;
+    /// the caller must roll back the transaction.
     pub fn discard_provisional_trie(&mut self) -> Result<(), Error> {
         if self.data.readonly {
             return Err(Error::ReadOnlyError);
         }
 
-        if let Some(bhh) = self.clear_extending_trie() {
+        // Serialization may have consumed the extension before savepoint rollback restored its lock.
+        let bhh = self
+            .clear_extending_trie()
+            .or_else(|| self.serialized_lock.clone());
+
+        // Reset the read cursor before lock cleanup, even if releasing the lock fails.
+        self.data.set_block(T::sentinel(), None);
+
+        if let Some(bhh) = bhh {
             trie_sql::drop_lock(&self.db, &bhh)?;
         }
 
         Ok(())
     }
 
-    /// Remove transient trie state without SQL, returning the discarded extension's block hash.
+    /// Remove transient trie state, returning the discarded extension's block hash.
     fn clear_extending_trie(&mut self) -> Option<T> {
-        self.clear_cached_ancestor_hashes_bytes();
-
         if self.data.readonly {
             return None;
         }
 
+        // Discard the buffered extension and invalidate its cached state.
+        self.clear_cached_ancestor_hashes_bytes();
         let trie = self.data.uncommitted_writes.take();
         self.data.clear_block_id();
+
         trie.map(|(bhh, _)| bhh)
     }
 
     /// Drop the unconfirmed state and uncommitted state.
     pub fn drop_unconfirmed_trie(&mut self, bhh: &T) {
-        self.clear_cached_ancestor_hashes_bytes();
-        if !self.data.readonly && self.data.unconfirmed {
-            trie_sql::drop_unconfirmed_trie(&self.db, bhh)
-                .expect("Corruption: Failed to drop unconfirmed trie");
-            trie_sql::drop_lock(&self.db, bhh)
-                .expect("Corruption: Failed to drop the extended trie lock");
-            self.data.uncommitted_writes = None;
-            self.data.clear_block_id();
-            self.data.trie_ancestor_hash_bytes_cache = None;
+        if self.readonly() || !self.unconfirmed() {
+            return;
         }
+
+        self.clear_cached_ancestor_hashes_bytes();
+
+        trie_sql::drop_unconfirmed_trie(&self.db, bhh)
+            .expect("Corruption: Failed to drop unconfirmed trie");
+        trie_sql::drop_lock(&self.db, bhh)
+            .expect("Corruption: Failed to drop the extended trie lock");
+
+        self.data.uncommitted_writes = None;
+        self.data.clear_block_id();
     }
 
     /// Seal the inner uncommitted TrieRAM and return the MARF root hash.
@@ -2165,18 +2342,18 @@ impl<'a, T: MarfTrieId> TrieStorageTransaction<'a, T> {
     /// Fails if the block already exists, or if the storage is read-only, or open
     /// only for unconfirmed state.
     pub fn extend_to_block(&mut self, bhh: &T) -> Result<(), Error> {
-        self.clear_cached_ancestor_hashes_bytes();
         if self.data.readonly {
             return Err(Error::ReadOnlyError);
         }
         if self.data.unconfirmed {
             return Err(Error::UnconfirmedError);
         }
-
         if self.get_block_id_caching(bhh).is_ok() {
             warn!("Block already exists: {}", &bhh);
             return Err(Error::ExistsError);
         }
+
+        self.clear_cached_ancestor_hashes_bytes();
 
         self.flush()?;
 
@@ -2201,10 +2378,11 @@ impl<'a, T: MarfTrieId> TrieStorageTransaction<'a, T> {
     /// If the unconfirmed block (bhh) already exists, then load up its trie as the uncommitted_writes
     /// trie.
     pub fn extend_to_unconfirmed_block(&mut self, bhh: &T) -> Result<bool, Error> {
-        self.clear_cached_ancestor_hashes_bytes();
         if !self.data.unconfirmed {
             return Err(Error::UnconfirmedError);
         }
+
+        self.clear_cached_ancestor_hashes_bytes();
 
         self.flush()?;
 
@@ -2269,7 +2447,7 @@ impl<'a, T: MarfTrieId> TrieStorageTransaction<'a, T> {
     }
 
     pub fn sqlite_tx(&self) -> &Transaction<'a> {
-        match &self.0.db {
+        match &self.connection.db {
             SqliteConnection::Tx(ref tx) => tx,
             SqliteConnection::ConnRef(_) => {
                 unreachable!(
@@ -2280,7 +2458,7 @@ impl<'a, T: MarfTrieId> TrieStorageTransaction<'a, T> {
     }
 
     pub fn sqlite_tx_mut(&mut self) -> &mut Transaction<'a> {
-        match &mut self.0.db {
+        match &mut self.connection.db {
             SqliteConnection::Tx(ref mut tx) => tx,
             SqliteConnection::ConnRef(_) => {
                 unreachable!(
@@ -2291,7 +2469,7 @@ impl<'a, T: MarfTrieId> TrieStorageTransaction<'a, T> {
     }
 
     pub fn commit_tx(self) {
-        match self.0.db {
+        match self.connection.db {
             SqliteConnection::Tx(tx) => {
                 tx.commit().expect("CORRUPTION: Failed to commit MARF");
             }
@@ -2312,7 +2490,7 @@ impl<'a, T: MarfTrieId> TrieStorageTransaction<'a, T> {
     }
 
     pub fn rollback(self) {
-        match self.0.db {
+        match self.connection.db {
             SqliteConnection::Tx(tx) => {
                 tx.rollback().expect("CORRUPTION: Failed to commit MARF");
             }
@@ -2410,13 +2588,7 @@ impl<T: MarfTrieId> TrieStorageConnection<'_, T> {
         match self.blobs.as_deref_mut() {
             Some(trie_file) => trie_file.read_blob_header::<T>(db, block_id),
             None => {
-                let mut blob = db.blob_open(
-                    rusqlite::DatabaseName::Main,
-                    "marf_data",
-                    "data",
-                    block_id.into(),
-                    true,
-                )?;
+                let mut blob = trie_sql::open_trie_blob(db, block_id)?;
                 let mut buf = [0u8; blob_layout::READER_PREFIX_LEN];
                 blob.read_exact(&mut buf)?;
                 Ok(BlobHeader::parse(&buf))

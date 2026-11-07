@@ -741,6 +741,41 @@ pub fn write_external_trie_blob<T: MarfTrieId>(
     inner_write_external_trie_blob(conn, block_hash, offset, length, None)
 }
 
+/// Store a serialized confirmed trie in the caller's transaction, returning its SQL identifier.
+/// Copying uses incremental blob I/O without buffering the entire trie.
+///
+/// The callback must write exactly `length` bytes and close its source before returning. The caller
+/// must roll back on failure; a partially written row must not be committed.
+pub fn write_trie_blob_with<T: MarfTrieId>(
+    conn: &Connection,
+    target: &T,
+    length: u64,
+    copy: impl FnOnce(&Connection, &mut dyn Write) -> Result<(), Error>,
+) -> Result<u32, Error> {
+    let length = u64_to_sql(length)?;
+    let id: u32 = conn
+        .prepare(
+            "INSERT INTO marf_data(block_hash,data,unconfirmed,external_offset,external_length)
+             VALUES(?1,zeroblob(?2),0,0,0)",
+        )?
+        .insert(params![target, length])?
+        .try_into()
+        .map_err(|_| Error::OverflowError)?;
+
+    let mut blob = conn.blob_open(
+        DatabaseName::Main,
+        "marf_data",
+        "data",
+        i64::from(id),
+        false,
+    )?;
+
+    copy(conn, &mut blob)?;
+    blob.close()?;
+
+    Ok(id)
+}
+
 /// Write a serialized unconfirmed trie blob
 pub fn write_trie_blob_to_unconfirmed<T: MarfTrieId>(
     conn: &Connection,
