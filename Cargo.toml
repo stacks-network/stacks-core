@@ -64,10 +64,10 @@ trybuild = { version = "1.0.116", default-features = false }
 criterion = { version = "0.8.2", default-features = false, features = ["html_reports"] }
 
 # Procedural macro dependencies
-syn = { version = "2.0.115", default-features = false, features = ["full", "extra-traits"] }
+syn = { version = "3.0.9", default-features = false, features = ["full", "extra-traits", "parsing", "printing", "proc-macro"] }
 quote = { version = "1.0.44", default-features = false, features = ["proc-macro"] }
 proc-macro2 = { version = "1.0.106", default-features = false, features = ["proc-macro", "span-locations"] }
-darling = { version = "0.23.0", default-features = false, features = ["suggestions"] }
+darling = { version = "0.24.1", default-features = false, features = ["suggestions"] }
 
 # Use a bit more than default optimization for
 # dev builds to speed up test execution
