@@ -15,9 +15,9 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use std::backtrace::Backtrace;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::str::FromStr;
-use std::sync::{LazyLock, Mutex, OnceLock};
+use std::sync::{LazyLock, Mutex, OnceLock, PoisonError};
 use std::time::Instant;
 use std::{fmt, thread};
 
@@ -42,6 +42,10 @@ pub const SQLITE_MARF_PAGE_SIZE: i64 = 32768;
 /// working set is ~120 distinct statements (the sortition MARF);
 /// rusqlite's default of 16 would LRU-thrash.
 pub const SQLITE_STATEMENT_CACHE_CAPACITY: usize = 200;
+
+/// Serializes the calls to [`sql_vacuum_with_temp`], which change SQLite's process-wide temporary
+/// directory
+static TEMP_STORE_DIRECTORY_LOCK: Mutex<()> = Mutex::new(());
 
 /// The SQLite VFS (OS interface layer) used to open on-disk databases.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -147,11 +151,12 @@ impl SqliteVfsSelection {
     }
 }
 
-/// Process-wide VFS used by [`sqlite_open`]. Fixed by [`set_sqlite_vfs`], or by the first
-/// [`sqlite_open`] call, whichever happens first.
+/// Process-wide VFS used by [`sqlite_open`] and [`sqlite_open_exclusive`]. Fixed by
+/// [`set_sqlite_vfs`], or by the first call to either, whichever happens first.
 static SQLITE_VFS: SqliteVfsSelection = SqliteVfsSelection::new();
 
-/// Select the VFS used by every [`sqlite_open`] call in this process.
+/// Select the VFS used by every [`sqlite_open`] and [`sqlite_open_exclusive`] call in this
+/// process.
 ///
 /// The choice is fixed for the lifetime of the process, and it is also fixed implicitly by the
 /// first database open, so this must run before any database is opened. Setting the value that
@@ -359,6 +364,181 @@ fn sqlite_open_with_vfs<P: AsRef<Path>>(
         sql_pragma(&db, "foreign_keys", &true)?;
     }
     Ok(db)
+}
+
+/// Open an existing database for maintenance (e.g. [`sql_vacuum_with_temp`]), with an exclusive
+/// lock held until the connection is dropped. It never creates a database.
+///
+/// Unlike [`sqlite_open`], it never waits for a lock: if another connection has the database
+/// open, in this process or another, even idle, it fails at once with `SQLITE_BUSY` (see
+/// [`is_busy`]). A connection opened meanwhile with [`sqlite_open`] waits in its busy handler
+/// until the lock is released. Like [`sqlite_open`], it uses the process-wide VFS (see
+/// [`set_sqlite_vfs`]), in WAL mode.
+pub fn sqlite_open_exclusive<P: AsRef<Path>>(path: P) -> Result<Connection, SqliteError> {
+    let flags = OpenFlags::SQLITE_OPEN_READ_WRITE | OpenFlags::SQLITE_OPEN_NO_MUTEX;
+    let db = inner_connection_open(path, flags, SQLITE_VFS.fix())?;
+    db.busy_timeout(std::time::Duration::ZERO)?;
+    // Before the first access, so that SQLite keeps the WAL index in heap memory and never
+    // shares the `-shm` file with another process
+    sql_pragma(&db, "locking_mode", &"EXCLUSIVE")?;
+    db.execute_batch("BEGIN EXCLUSIVE; COMMIT;")?;
+    sql_pragma(&db, "journal_mode", &"WAL")?;
+    sql_pragma(&db, "synchronous", &"NORMAL")?;
+    Ok(db)
+}
+
+/// How a database file is used, in pages (see [`sql_space_usage`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SpaceUsage {
+    /// Size of a page, in bytes
+    pub page_size: u64,
+    /// Pages in the database file
+    pub page_count: u64,
+    /// Pages on the freelist: freed by deletes, reused by later writes, and only given back to
+    /// the OS by a `VACUUM`
+    pub freelist_count: u64,
+}
+
+impl SpaceUsage {
+    /// Size of the database file, in bytes, once the WAL is checkpointed
+    pub fn file_bytes(&self) -> u64 {
+        self.page_count.saturating_mul(self.page_size)
+    }
+
+    /// Bytes holding data: what a `VACUUM` keeps
+    pub fn live_bytes(&self) -> u64 {
+        self.page_count
+            .saturating_sub(self.freelist_count)
+            .saturating_mul(self.page_size)
+    }
+
+    /// Bytes on the freelist: what a `VACUUM` gives back to the OS
+    pub fn free_bytes(&self) -> u64 {
+        self.freelist_count.saturating_mul(self.page_size)
+    }
+}
+
+/// How the database of `conn` uses its pages, as the connection sees it: changes still in the
+/// WAL are included, so the file on disk has [`SpaceUsage::file_bytes`] only once the WAL is
+/// checkpointed (see [`sql_checkpoint_truncate`]).
+pub fn sql_space_usage(conn: &Connection) -> Result<SpaceUsage, SqliteError> {
+    let pragma = |name: &str| -> Result<u64, SqliteError> {
+        conn.pragma_query_value(None, name, |row| row.get(0))
+    };
+    Ok(SpaceUsage {
+        page_size: pragma("page_size")?,
+        page_count: pragma("page_count")?,
+        freelist_count: pragma("freelist_count")?,
+    })
+}
+
+/// Write the whole WAL back into the database file, then truncate the WAL to zero bytes.
+/// Fails with `SQLITE_BUSY` (see [`is_busy`]) if another connection keeps part of the WAL from
+/// being written back.
+pub fn sql_checkpoint_truncate(conn: &Connection) -> Result<(), SqliteError> {
+    let busy: i64 = conn.query_row("PRAGMA wal_checkpoint(TRUNCATE)", NO_PARAMS, |row| {
+        row.get(0)
+    })?;
+    if busy != 0 {
+        return Err(SqliteError::SqliteFailure(
+            rusqlite::ffi::Error::new(rusqlite::ffi::SQLITE_BUSY),
+            Some("WAL checkpoint incomplete: another connection is using the database".into()),
+        ));
+    }
+    Ok(())
+}
+
+/// Where a `VACUUM` builds its temporary copy of the live data (see [`sql_vacuum_with_temp`]):
+/// a file about the size of the live data, deleted as soon as the `VACUUM` ends
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum VacuumTemp {
+    /// In this directory, e.g. the database's own, on the disk sized for it. It must exist and
+    /// be writable.
+    Dir(PathBuf),
+    /// In SQLite's default temporary directory: on Unix the first usable one of
+    /// `SQLITE_TMPDIR`, `TMPDIR`, `/var/tmp`, `/usr/tmp` and `/tmp`
+    SystemDefault,
+}
+
+/// Rebuild the database file of `conn` in place with only its live data, giving the freelist
+/// back to the OS. Run it only when no other connection uses the database, e.g. after
+/// [`sqlite_open_exclusive`].
+///
+/// SQLite first builds a compacted copy of the live data in a temporary file (see
+/// [`VacuumTemp`]), then writes it back through a WAL of about the same size next to the
+/// database, which [`sql_checkpoint_truncate`] then truncates. If it fails, e.g. for lack of
+/// disk space, the database is left as it was. A [`VacuumTemp::Dir`] that is missing, not
+/// writable or not valid UTF-8 is rejected before anything is written.
+///
+/// The connection's `temp_store` and SQLite's process-wide temporary directory are set only for
+/// the `VACUUM`, and put back however it ends. Changing `temp_store` drops the connection's
+/// temporary tables, indices and views, so if it was not `FILE` before, those are gone.
+///
+/// Calls in the same process run one at a time, so that each one puts back the directory that
+/// was really in place before it. Other connections of the process that do not go through this
+/// function may still put their own temporary files in a [`VacuumTemp::Dir`] while a `VACUUM`
+/// runs: prefer calling it when nothing else in the process uses SQLite, e.g. at startup.
+pub fn sql_vacuum_with_temp(conn: &Connection, temp: &VacuumTemp) -> Result<(), SqliteError> {
+    // Held for the whole sequence, for both variants: `SystemDefault` relies on the directory
+    // being SQLite's default, which another call may have changed
+    let _lock = TEMP_STORE_DIRECTORY_LOCK
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner);
+    let dir = match temp {
+        VacuumTemp::Dir(dir) => Some(
+            dir.to_str()
+                .ok_or_else(|| SqliteError::InvalidPath(dir.clone()))?,
+        ),
+        VacuumTemp::SystemDefault => None,
+    };
+    let previous: i64 = conn.pragma_query_value(None, "temp_store", |row| row.get(0))?;
+    // A file, never memory: running out of disk makes the `VACUUM` fail cleanly, whereas
+    // running out of memory can get the whole process killed
+    sql_pragma(conn, "temp_store", &"FILE")?;
+    let result = match dir {
+        Some(dir) => vacuum_in_dir(conn, dir),
+        None => sql_vacuum(conn),
+    };
+    // The connection's own setting: 0 (the default), 1 (file) or 2 (memory)
+    let restored = sql_pragma(conn, "temp_store", &previous);
+    result?;
+    restored
+}
+
+/// Run a `VACUUM` with SQLite's process-wide temporary directory set to `dir` (see
+/// [`sql_vacuum_with_temp`])
+fn vacuum_in_dir(conn: &Connection, dir: &str) -> Result<(), SqliteError> {
+    // The temporary directory is a global setting of SQLite: while it is set, every connection
+    // of the process puts its temporary files there. It is set only for this `VACUUM`, and the
+    // previous value is put back however the `VACUUM` ends.
+    let previous: Option<String> = conn
+        .pragma_query_value(None, "temp_store_directory", |row| row.get(0))
+        .optional()?;
+    // Rejected at once if the directory is missing or not writable
+    sql_pragma(conn, "temp_store_directory", &dir)?;
+    let result = sql_vacuum(conn);
+    // An empty value puts SQLite's default back
+    let restored = sql_pragma(conn, "temp_store_directory", &previous.unwrap_or_default());
+    result?;
+    restored
+}
+
+/// Whether `error` means another connection holds the database, e.g. from
+/// [`sqlite_open_exclusive`] while another connection has it open
+pub fn is_busy(error: &SqliteError) -> bool {
+    matches!(
+        error,
+        SqliteError::SqliteFailure(e, _)
+            if matches!(e.code, rusqlite::ErrorCode::DatabaseBusy | rusqlite::ErrorCode::DatabaseLocked)
+    )
+}
+
+/// Whether `error` means the disk ran out of space, e.g. during a `VACUUM`
+pub fn is_disk_full(error: &SqliteError) -> bool {
+    matches!(
+        error,
+        SqliteError::SqliteFailure(e, _) if e.code == rusqlite::ErrorCode::DiskFull
+    )
 }
 
 #[cfg(test)]
@@ -649,5 +829,243 @@ mod tests {
                 .expect_err("read-only open of a missing database must fail");
             assert!(!db_path.exists(), "{flags:?} created the database file");
         }
+    }
+
+    /// Size of a file, or 0 if it does not exist
+    fn file_size(path: &Path) -> u64 {
+        fs::metadata(path).map(|m| m.len()).unwrap_or(0)
+    }
+
+    /// A database at `db_path` with `rows` rows of 1 KiB stored, then all but the first `kept`
+    /// deleted, and its WAL checkpointed: most of the file is on the freelist
+    fn create_bloated_db(db_path: &Path, rows: i64, kept: i64) {
+        let conn = sqlite_open(db_path, CREATE_FLAGS, false).expect("open");
+        create_table(&conn);
+        let value = "x".repeat(1024);
+        for k in 0..rows {
+            insert(&conn, k, &value).expect("insert");
+        }
+        conn.execute("DELETE FROM kv WHERE k >= ?1", [kept])
+            .expect("delete");
+        sql_checkpoint_truncate(&conn).expect("checkpoint");
+    }
+
+    fn row_count(conn: &Connection) -> i64 {
+        conn.query_row("SELECT COUNT(*) FROM kv", NO_PARAMS, |row| row.get(0))
+            .expect("count")
+    }
+
+    /// SQLite's process-wide temporary directory, `None` for its default
+    fn temp_store_directory(conn: &Connection) -> Option<String> {
+        conn.pragma_query_value(None, "temp_store_directory", |row| row.get(0))
+            .optional()
+            .expect("temp_store_directory")
+    }
+
+    /// The `temp_store` setting of `conn`: 0 (the default), 1 (file) or 2 (memory)
+    fn temp_store(conn: &Connection) -> i64 {
+        conn.pragma_query_value(None, "temp_store", |row| row.get(0))
+            .expect("temp_store")
+    }
+
+    /// Held by the tests that check SQLite's process-wide temporary directory between calls to
+    /// [`sql_vacuum_with_temp`], or set it themselves: the function's own lock only covers each
+    /// call, and tests run in parallel threads of one process
+    fn lock_temp_store_directory() -> std::sync::MutexGuard<'static, ()> {
+        static LOCK: Mutex<()> = Mutex::new(());
+        LOCK.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    #[test]
+    fn open_exclusive_holds_the_lock_without_waiting() {
+        let dir = TestDir::new("open-exclusive-lock");
+        let db_path = dir.db_path();
+        drop(sqlite_open(&db_path, CREATE_FLAGS, false).expect("create"));
+
+        let conn = sqlite_open_exclusive(&db_path).expect("open exclusive");
+        // A second exclusive open is refused while the first one is held, without waiting
+        let start = Instant::now();
+        let err = sqlite_open_exclusive(&db_path).unwrap_err();
+        assert!(is_busy(&err), "{err:?}");
+        assert!(start.elapsed() < std::time::Duration::from_secs(1));
+
+        drop(conn);
+        sqlite_open_exclusive(&db_path).expect("open exclusive again");
+    }
+
+    #[test]
+    fn open_exclusive_refuses_a_database_in_use() {
+        let dir = TestDir::new("open-exclusive-in-use");
+        let db_path = dir.db_path();
+        let other = sqlite_open(&db_path, CREATE_FLAGS, false).expect("create");
+        create_table(&other);
+
+        // idle
+        let err = sqlite_open_exclusive(&db_path).unwrap_err();
+        assert!(is_busy(&err), "{err:?}");
+
+        // in a read transaction
+        other.execute_batch("BEGIN").expect("begin");
+        value(&other, 1);
+        let err = sqlite_open_exclusive(&db_path).unwrap_err();
+        assert!(is_busy(&err), "{err:?}");
+        other.execute_batch("COMMIT").expect("commit");
+
+        drop(other);
+        sqlite_open_exclusive(&db_path).expect("open exclusive");
+    }
+
+    #[test]
+    fn open_exclusive_never_creates_a_database() {
+        let dir = TestDir::new("open-exclusive-missing");
+        let db_path = dir.db_path();
+        sqlite_open_exclusive(&db_path).expect_err("no database to open");
+        assert!(!db_path.exists());
+    }
+
+    #[test]
+    fn checkpoint_truncates_the_wal() {
+        let dir = TestDir::new("checkpoint-truncate");
+        let db_path = dir.db_path();
+        let conn = sqlite_open(&db_path, CREATE_FLAGS, false).expect("open");
+        create_table(&conn);
+        insert(&conn, 1, "one").expect("insert");
+        assert!(file_size(&sidecar(&db_path, "-wal")) > 0);
+
+        sql_checkpoint_truncate(&conn).expect("checkpoint");
+        assert_eq!(file_size(&sidecar(&db_path, "-wal")), 0);
+    }
+
+    #[test]
+    fn vacuum_gives_the_freelist_back() {
+        let _lock = lock_temp_store_directory();
+        let dir = TestDir::new("vacuum-freelist");
+        for (i, temp) in [VacuumTemp::Dir(dir.0.clone()), VacuumTemp::SystemDefault]
+            .into_iter()
+            .enumerate()
+        {
+            let db_path = dir.0.join(format!("bloated-{i}.sqlite"));
+            create_bloated_db(&db_path, 300, 10);
+            let conn = sqlite_open_exclusive(&db_path).expect("open exclusive");
+            let before = sql_space_usage(&conn).expect("space");
+            assert!(before.free_bytes() > before.live_bytes(), "{before:?}");
+            assert_eq!(file_size(&db_path), before.file_bytes());
+
+            sql_vacuum_with_temp(&conn, &temp).expect("vacuum");
+            sql_checkpoint_truncate(&conn).expect("checkpoint");
+
+            let after = sql_space_usage(&conn).expect("space");
+            assert_eq!(after.freelist_count, 0, "{temp:?}");
+            assert!(
+                after.file_bytes() <= before.live_bytes(),
+                "{temp:?}: {after:?} {before:?}"
+            );
+            assert_eq!(file_size(&db_path), after.file_bytes(), "{temp:?}");
+            assert_eq!(file_size(&sidecar(&db_path, "-wal")), 0, "{temp:?}");
+            // The data is still there, and the process-wide temporary directory is back to
+            // SQLite's default
+            assert_eq!(row_count(&conn), 10, "{temp:?}");
+            assert_eq!(temp_store_directory(&conn), None, "{temp:?}");
+        }
+    }
+
+    #[test]
+    fn vacuum_refuses_a_missing_temp_dir_and_leaves_the_database() {
+        let _lock = lock_temp_store_directory();
+        let dir = TestDir::new("vacuum-missing-temp");
+        let db_path = dir.db_path();
+        create_bloated_db(&db_path, 100, 10);
+        let conn = sqlite_open_exclusive(&db_path).expect("open exclusive");
+        let before = sql_space_usage(&conn).expect("space");
+
+        sql_pragma(&conn, "temp_store", &"MEMORY").expect("set");
+        sql_vacuum_with_temp(&conn, &VacuumTemp::Dir(dir.0.join("missing")))
+            .expect_err("a missing directory is rejected");
+        assert_eq!(temp_store(&conn), 2);
+
+        assert_eq!(sql_space_usage(&conn).expect("space"), before);
+        assert_eq!(file_size(&db_path), before.file_bytes());
+        assert_eq!(temp_store_directory(&conn), None);
+    }
+
+    #[test]
+    fn vacuum_puts_the_previous_temp_dir_back() {
+        let _lock = lock_temp_store_directory();
+        let dir = TestDir::new("vacuum-restore-temp");
+        let db_path = dir.db_path();
+        create_bloated_db(&db_path, 100, 10);
+        let conn = sqlite_open_exclusive(&db_path).expect("open exclusive");
+        let previous = std::env::temp_dir().to_str().expect("utf-8").to_string();
+        sql_pragma(&conn, "temp_store_directory", &previous).expect("set");
+
+        sql_vacuum_with_temp(&conn, &VacuumTemp::Dir(dir.0.clone())).expect("vacuum");
+        assert_eq!(temp_store_directory(&conn), Some(previous));
+
+        // Back to SQLite's default for the other tests
+        sql_pragma(&conn, "temp_store_directory", &"").expect("reset");
+        assert_eq!(temp_store_directory(&conn), None);
+    }
+
+    #[test]
+    fn vacuum_puts_the_previous_temp_store_back() {
+        let _lock = lock_temp_store_directory();
+        let dir = TestDir::new("vacuum-restore-store");
+        for (i, temp) in [VacuumTemp::Dir(dir.0.clone()), VacuumTemp::SystemDefault]
+            .into_iter()
+            .enumerate()
+        {
+            let db_path = dir.0.join(format!("bloated-{i}.sqlite"));
+            create_bloated_db(&db_path, 100, 10);
+            let conn = sqlite_open_exclusive(&db_path).expect("open exclusive");
+            for (setting, value) in [("DEFAULT", 0), ("FILE", 1), ("MEMORY", 2)] {
+                sql_pragma(&conn, "temp_store", &setting).expect("set");
+                sql_vacuum_with_temp(&conn, &temp).expect("vacuum");
+                assert_eq!(temp_store(&conn), value, "{temp:?} {setting}");
+            }
+        }
+    }
+
+    #[test]
+    fn concurrent_vacuums_put_the_default_temp_dir_back() {
+        let _lock = lock_temp_store_directory();
+        let dirs = [
+            TestDir::new("vacuum-concurrent-a"),
+            TestDir::new("vacuum-concurrent-b"),
+        ];
+        // Each thread shrinks its own database into its own directory, several times, so that
+        // unserialized calls would interleave and put back each other's directory
+        let threads: Vec<_> = dirs
+            .iter()
+            .map(|dir| {
+                let dir = dir.0.clone();
+                thread::spawn(move || {
+                    for round in 0..5 {
+                        let db_path = dir.join(format!("bloated-{round}.sqlite"));
+                        create_bloated_db(&db_path, 100, 10);
+                        let conn = sqlite_open_exclusive(&db_path).expect("open exclusive");
+                        sql_vacuum_with_temp(&conn, &VacuumTemp::Dir(dir.clone())).expect("vacuum");
+                        sql_checkpoint_truncate(&conn).expect("checkpoint");
+                        assert_eq!(sql_space_usage(&conn).expect("space").freelist_count, 0);
+                        assert_eq!(row_count(&conn), 10);
+                    }
+                })
+            })
+            .collect();
+        for t in threads {
+            t.join().expect("thread");
+        }
+
+        let conn = Connection::open_in_memory().expect("open");
+        assert_eq!(temp_store_directory(&conn), None);
+    }
+
+    #[test]
+    fn classifies_busy_and_disk_full_errors() {
+        let failure = |code| SqliteError::SqliteFailure(rusqlite::ffi::Error::new(code), None);
+        assert!(is_busy(&failure(rusqlite::ffi::SQLITE_BUSY)));
+        assert!(is_busy(&failure(rusqlite::ffi::SQLITE_LOCKED)));
+        assert!(!is_busy(&failure(rusqlite::ffi::SQLITE_FULL)));
+        assert!(is_disk_full(&failure(rusqlite::ffi::SQLITE_FULL)));
+        assert!(!is_disk_full(&failure(rusqlite::ffi::SQLITE_BUSY)));
     }
 }
