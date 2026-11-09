@@ -986,6 +986,12 @@ impl StacksEpochId {
         self >= &StacksEpochId::Epoch41
     }
 
+    /// Disallow the deployment of contracts called `__transient`, a legacy mechanism that's
+    /// no longer useful.
+    pub fn rejects_transient_contracts(&self) -> bool {
+        self >= &StacksEpochId::Epoch41
+    }
+
     /// Return the network epoch associated with the StacksEpochId
     pub fn network_epoch(epoch: StacksEpochId) -> u8 {
         match epoch {
