@@ -19,6 +19,7 @@ use std::mem;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::sync::mpsc::{sync_channel, Receiver, SyncSender, TryRecvError, TrySendError};
 use std::thread::JoinHandle;
+use std::time::{Duration, Instant};
 
 use clarity::vm::types::QualifiedContractIdentifier;
 use mio::{self, net as mio_net};
@@ -45,7 +46,7 @@ use crate::chainstate::stacks::StacksBlockHeader;
 use crate::core::{EpochList, StacksEpoch};
 use crate::monitoring::{update_inbound_neighbors, update_outbound_neighbors};
 use crate::net::atlas::{AtlasDB, AttachmentsDownloader};
-use crate::net::chat::{ConversationP2P, NeighborStats};
+use crate::net::chat::{ConversationP2P, InboundBudget, NeighborStats};
 use crate::net::connection::{ConnectionOptions, ReplyHandleP2P};
 use crate::net::db::{LocalPeer, PeerDB};
 use crate::net::download::epoch2x::{BlockDownloadOutcome, DownloadProgress};
@@ -479,6 +480,17 @@ impl From<&DropNeighbor> for DropPeer {
     }
 }
 
+/// Outcome of running one p2p conversation in a network pass
+struct ConvoPassResult {
+    /// messages received that no other thread was waiting for
+    unhandled: Vec<StacksMessage>,
+    /// is the conversation still usable?
+    alive: bool,
+    /// must we come back to this conversation next pass, because we left its socket unread or
+    /// still have messages queued?
+    revisit: bool,
+}
+
 pub struct PeerNetwork {
     // constants
     pub peer_version: u32,
@@ -655,6 +667,24 @@ pub struct PeerNetwork {
     /// Epoch 2.x cache of chainstate data, for the purposes of generating block inventories
     pub blocks_inv_cache: BlocksInvCache,
 
+    /// Event IDs of p2p conversations with work left over from the last network pass: their
+    /// inbox still had messages after `max_inbound_messages_per_pass` or
+    /// `max_inbound_processing_ms`, their socket was left unread because of such a backlog, or
+    /// the pass ran out of `max_inbound_processing_ms` before reaching them.  Their sockets are
+    /// edge-triggered, so they won't be reported as ready again until more data arrives; they are
+    /// processed first in the next pass instead.
+    pending_inbound_convos: Vec<usize>,
+
+    /// Event IDs of conversations in `pending_inbound_convos` whose socket failed while sending
+    /// outside of `process_ready_sockets`.  They are kept until the next pass, which drains their
+    /// leftover inbound work and then drops them.
+    broken_inbound_convos: HashSet<usize>,
+
+    /// Treat the `max_inbound_processing_ms` deadline as already passed in every network pass,
+    /// so each pass handles a single conversation
+    #[cfg(test)]
+    pub(crate) test_inbound_deadline_passed: bool,
+
     /// Thread handle for the async block proposal endpoint.
     block_proposal_thread: Option<JoinHandle<()>>,
 
@@ -816,6 +846,11 @@ impl PeerNetwork {
 
             nakamoto_inv_generator: InvGenerator::new(),
             blocks_inv_cache: BlocksInvCache::default(),
+
+            pending_inbound_convos: vec![],
+            broken_inbound_convos: HashSet::new(),
+            #[cfg(test)]
+            test_inbound_deadline_passed: false,
 
             block_proposal_thread: None,
 
@@ -2136,6 +2171,7 @@ impl PeerNetwork {
                     }
                 }
                 self.relay_handles.remove(&event_id);
+                self.broken_inbound_convos.remove(&event_id);
                 self.peers.remove(&event_id);
             }
             // remove inventory state
@@ -2363,7 +2399,10 @@ impl PeerNetwork {
     }
 
     /// Process network traffic on a p2p conversation.
-    /// Returns list of unhandled messages, and whether or not the convo is still alive.
+    /// Stops handling queued messages once `deadline` passes, unless the socket has failed: such
+    /// a conversation is dropped after this pass, so everything it already sent is handled now.
+    /// Returns list of unhandled messages, whether or not the convo is still alive, and whether
+    /// or not it must be revisited next pass.
     fn process_p2p_conversation(
         &mut self,
         event_id: usize,
@@ -2371,11 +2410,46 @@ impl PeerNetwork {
         chainstate: &mut StacksChainState,
         dns_client_opt: &mut Option<&mut DNSClient>,
         ibd: bool,
-    ) -> Result<(Vec<StacksMessage>, bool), net_error> {
+        deadline: Option<Instant>,
+    ) -> Result<ConvoPassResult, net_error> {
         self.with_p2p_convo(event_id, |network, convo, client_sock| {
             // get incoming bytes and update the state of this conversation.
-            let mut convo_dead = false;
-            if let Err(e) = convo.recv(client_sock) {
+            // If `max_inbound_messages_per_pass` or `max_inbound_processing_ms` left messages
+            // queued from the last pass, don't read more until they're handled: reading into a
+            // non-empty inbox could overflow it (which kills the conversation).  The unread bytes
+            // stay in the socket buffer, which is what pushes back on the remote peer.  The
+            // caller keeps this conversation in `pending_inbound_convos` so the socket is read
+            // again once the backlog is drained.
+            let mut convo_dead = network.broken_inbound_convos.remove(&event_id);
+            let inbox_backlog = convo.connection.inbox_len();
+            let deferred_recv = inbox_backlog > 0;
+            if convo_dead {
+                // a send failed after the last pass left work on this conversation, so it's
+                // dropped after this pass.  Read whatever the remote peer sent before it hung up.
+                debug!(
+                    "{:?}: Socket on event {} failed with work left over; draining {:?}",
+                    &network.get_local_peer(),
+                    event_id,
+                    &client_sock
+                );
+                if let Err(e) = convo.recv(client_sock) {
+                    debug!(
+                        "{:?}: Failed to receive data on event {} (socket {:?}): {:?}",
+                        &network.get_local_peer(),
+                        event_id,
+                        &client_sock,
+                        &e
+                    );
+                }
+            } else if deferred_recv {
+                debug!(
+                    "{:?}: {} messages still queued on event {}; not reading from socket {:?} this pass",
+                    &network.get_local_peer(),
+                    inbox_backlog,
+                    event_id,
+                    &client_sock
+                );
+            } else if let Err(e) = convo.recv(client_sock) {
                 match e {
                     net_error::PermanentlyDrained => {
                         // socket got closed, but we might still have pending unsolicited messages
@@ -2401,8 +2475,22 @@ impl PeerNetwork {
 
             // react to inbound messages -- do we need to send something out, or fulfill requests
             // to other threads?  Try to chat even if the recv() failed, since we'll want to at
-            // least drain the conversation inbox.
-            let unhandled = match convo.chat(network, sortdb, chainstate, dns_client_opt, ibd) {
+            // least drain the conversation inbox: the conversation is dropped after this pass,
+            // and solicited replies in its inbox still have handles waiting on them.  Such a
+            // drain ignores the per-pass limits; it is bounded by `inbox_maxlen` instead.
+            let budget = if convo_dead {
+                InboundBudget::unbounded()
+            } else {
+                InboundBudget::new(convo.connection.options.max_inbound_messages_per_pass, deadline)
+            };
+            let mut unhandled = match convo.chat_within(
+                network,
+                sortdb,
+                chainstate,
+                dns_client_opt,
+                ibd,
+                budget,
+            ) {
                 Err(e) => {
                     debug!(
                         "Failed to converse on event {} (socket {:?}): {:?}",
@@ -2423,9 +2511,49 @@ impl PeerNetwork {
                         event_id, &client_sock, &e
                     );
                     convo_dead = true;
+
+                    // the conversation is dropped after this pass, so drain whatever the limits
+                    // left queued, as when recv() fails.  If the socket was left unread because
+                    // of a backlog, this is how we find out that the remote peer hung up, and it
+                    // may have sent more before it did, so read that too.
+                    if deferred_recv {
+                        if let Err(e) = convo.recv(client_sock) {
+                            debug!(
+                                "{:?}: Failed to receive data on event {} (socket {:?}): {:?}",
+                                &network.get_local_peer(),
+                                event_id,
+                                &client_sock,
+                                &e
+                            );
+                        }
+                    }
+                    if convo.connection.inbox_len() > 0 {
+                        match convo.chat_within(
+                            network,
+                            sortdb,
+                            chainstate,
+                            dns_client_opt,
+                            ibd,
+                            InboundBudget::unbounded(),
+                        ) {
+                            Err(e) => {
+                                debug!(
+                                    "Failed to converse on event {} (socket {:?}): {:?}",
+                                    event_id, &client_sock, &e
+                                );
+                            }
+                            Ok(mut unhandled_messages) => {
+                                unhandled.append(&mut unhandled_messages)
+                            }
+                        }
+                    }
                 }
             }
-            (unhandled, !convo_dead)
+            ConvoPassResult {
+                unhandled,
+                alive: !convo_dead,
+                revisit: !convo_dead && (deferred_recv || convo.connection.inbox_len() > 0),
+            }
         })
     }
 
@@ -2454,6 +2582,9 @@ impl PeerNetwork {
 
     /// Process sockets that are ready, but specifically inbound or outbound only.
     /// Advance the state of all such conversations with remote peers.
+    /// Conversations left over from the last pass are processed first.  Stops handling messages
+    /// once `max_inbound_processing_ms` has elapsed, and remembers the conversations it skipped
+    /// (and the ones with messages still queued or sockets left unread) for the next pass.
     /// Return the list of events that correspond to failed conversations, as well as the set of
     /// unhandled messages grouped by event_id.
     fn process_ready_sockets(
@@ -2467,15 +2598,55 @@ impl PeerNetwork {
         let mut to_remove = vec![];
         let mut unhandled: HashMap<usize, Vec<StacksMessage>> = HashMap::new();
 
-        for event_id in &poll_state.ready {
-            let (mut convo_unhandled, alive) = match self.process_p2p_conversation(
+        let mut event_ids = mem::take(&mut self.pending_inbound_convos);
+        event_ids.retain(|event_id| self.peers.contains_key(event_id));
+        let mut seen: HashSet<usize> = event_ids.iter().copied().collect();
+        for event_id in poll_state.ready.iter() {
+            if seen.insert(*event_id) {
+                event_ids.push(*event_id);
+            }
+        }
+
+        let max_processing_ms = self.connection_opts.max_inbound_processing_ms;
+        let deadline = (max_processing_ms > 0)
+            .then(|| Instant::now().checked_add(Duration::from_millis(max_processing_ms)))
+            .flatten();
+        #[cfg(test)]
+        let deadline = if self.test_inbound_deadline_passed {
+            Some(Instant::now())
+        } else {
+            deadline
+        };
+        let mut processed = 0;
+        let mut leftover = vec![];
+
+        for event_id in event_ids.iter() {
+            // always make progress on at least one conversation
+            if processed > 0 && deadline.is_some_and(|deadline| Instant::now() >= deadline) {
+                debug!(
+                    "{:?}: spent over {}ms processing {} conversations; deferring {} to the next pass",
+                    &self.local_peer,
+                    max_processing_ms,
+                    processed,
+                    event_ids.len().saturating_sub(processed)
+                );
+                break;
+            }
+            processed += 1;
+
+            let ConvoPassResult {
+                unhandled: mut convo_unhandled,
+                alive,
+                revisit,
+            } = match self.process_p2p_conversation(
                 *event_id,
                 sortdb,
                 chainstate,
                 dns_client_opt,
                 ibd,
+                deadline,
             ) {
-                Ok((convo_unhandled, alive)) => (convo_unhandled, alive),
+                Ok(res) => res,
                 Err(e) => {
                     let convo = self.get_p2p_convo(*event_id);
                     debug!(
@@ -2497,6 +2668,10 @@ impl PeerNetwork {
                     continue;
                 }
             };
+
+            if revisit {
+                leftover.push(*event_id);
+            }
 
             if !alive {
                 let convo = self.get_p2p_convo(*event_id);
@@ -2526,7 +2701,18 @@ impl PeerNetwork {
             }
         }
 
+        // conversations we never got to go before ones we already served this pass
+        let mut skipped = event_ids.split_off(processed);
+        skipped.append(&mut leftover);
+        self.pending_inbound_convos = skipped;
+
         (to_remove, unhandled)
+    }
+
+    /// Do we need to call .run() again, shortly, to process inbound messages left over from the
+    /// last pass?
+    pub fn has_pending_inbound_work(&self) -> bool {
+        !self.pending_inbound_convos.is_empty()
     }
 
     /// Get stats for a neighbor
@@ -2820,8 +3006,10 @@ impl PeerNetwork {
 
     /// Flush relayed message handles, but don't block.
     /// Drop broken handles.
-    /// Return the list of broken conversation event IDs
-    fn flush_relay_handles(&mut self) -> Vec<DropPeer> {
+    /// Return the list of broken conversation event IDs, except for the ones with inbound work
+    /// left over from the last pass, which are kept in `broken_inbound_convos` until the next
+    /// pass drains them.
+    pub(crate) fn flush_relay_handles(&mut self) -> Vec<DropPeer> {
         let mut broken = vec![];
         let mut drained = vec![];
 
@@ -2870,7 +3058,15 @@ impl PeerNetwork {
                     Ok(Err(e)) | Err(e) => {
                         // connection broken; next list
                         debug!("Relay handle broken to event {event_id}");
-                        if let Some(peer) = self.peers.get(event_id) {
+                        if self.pending_inbound_convos.contains(event_id) {
+                            // the last pass left inbound work on this conversation, so let the
+                            // next pass drain it before dropping the peer
+                            debug!(
+                                "{:?}: Event {event_id} has inbound work left over; dropping it after the next pass",
+                                &self.local_peer
+                            );
+                            self.broken_inbound_convos.insert(*event_id);
+                        } else if let Some(peer) = self.peers.get(event_id) {
                             broken.push(DropPeer {
                                 address: peer.peer_addrbytes.clone(),
                                 port: peer.peer_port,
