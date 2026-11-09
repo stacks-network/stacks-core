@@ -1840,7 +1840,7 @@ impl SignerDb {
             std::cmp::Ordering::Greater => {
                 sql_tx.rollback()?;
                 return Err(DBError::Other(format!(
-                    "Database schema is newer than SCHEMA_VERSION. SCHEMA_VERSION = {}, Current version = {}. Did you forget to update SCHEMA_VERSION?",
+                    "Database schema is newer than SCHEMA_VERSION. SCHEMA_VERSION = {}, Current version = {}. The database was likely written by a newer signer release; downgrading is not supported. Run a newer release or use a different db_path.",
                     Self::SCHEMA_VERSION, current_db_version
                 )));
             }

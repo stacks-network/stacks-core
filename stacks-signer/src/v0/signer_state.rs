@@ -14,14 +14,10 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use std::collections::{HashMap, HashSet};
-#[cfg(any(test, feature = "testing"))]
-use std::sync::LazyLock;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use blockstack_lib::chainstate::burn::ConsensusHashExtensions;
 use blockstack_lib::util_lib::db::Error as DBError;
-#[cfg(any(test, feature = "testing"))]
-use clarity::util::tests::TestFlag;
 use libsigner::v0::messages::{
     MessageSlotID, SignerMessage, StateMachineUpdate as StateMachineUpdateMessage,
     StateMachineUpdateContent, StateMachineUpdateMinerState,
@@ -31,8 +27,6 @@ use serde::{Deserialize, Serialize};
 use stacks_common::codec::Error as CodecError;
 use stacks_common::types::chainstate::{ConsensusHash, StacksBlockId};
 use stacks_common::util::hash::Hash160;
-#[cfg(any(test, feature = "testing"))]
-use stacks_common::util::secp256k1::Secp256k1PublicKey;
 use stacks_common::{debug, info, warn};
 
 use crate::chainstate::v1::{SortitionMinerStatus, SortitionsView};
@@ -46,11 +40,6 @@ use crate::signerdb::SignerDb;
 pub static SUPPORTED_SIGNER_PROTOCOL_VERSION: u64 = 2;
 /// The version at which global signer state activates
 pub static GLOBAL_SIGNER_STATE_ACTIVATION_VERSION: u64 = 2;
-
-/// Vec of pubkeys that should ignore checking for a bitcoin fork
-#[cfg(any(test, feature = "testing"))]
-pub static TEST_IGNORE_BITCOIN_FORK_PUBKEYS: LazyLock<TestFlag<Vec<Secp256k1PublicKey>>> =
-    LazyLock::new(TestFlag::default);
 
 /// The local signer state machine
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
