@@ -42,6 +42,7 @@ use crate::chainstate::nakamoto::coordinator::load_nakamoto_reward_set;
 use crate::chainstate::stacks::boot::RewardSet;
 use crate::chainstate::stacks::db::{StacksBlockHeaderTypes, StacksChainState};
 use crate::chainstate::stacks::StacksBlockHeader;
+use crate::core::mempool::next_arrival_seq;
 use crate::core::{EpochList, StacksEpoch};
 use crate::monitoring::{update_inbound_neighbors, update_outbound_neighbors};
 use crate::net::atlas::{AtlasDB, AttachmentsDownloader};
@@ -55,7 +56,7 @@ use crate::net::inv::inv2x::*;
 use crate::net::inv::nakamoto::{InvGenerator, NakamotoInvStateMachine};
 use crate::net::mempool::MempoolSync;
 use crate::net::neighbors::*;
-use crate::net::poll::{NetworkPollState, NetworkState};
+use crate::net::poll::{NetworkPollState, NetworkState, SocketArrival};
 use crate::net::relay::{RelayerStats, *};
 use crate::net::server::*;
 use crate::net::stackerdb::{StackerDBConfig, StackerDBSync, StackerDBTx, StackerDBs};
@@ -2363,10 +2364,12 @@ impl PeerNetwork {
     }
 
     /// Process network traffic on a p2p conversation.
+    /// `arrival` is what this poll recorded about the socket, if it had bytes queued.
     /// Returns list of unhandled messages, and whether or not the convo is still alive.
     fn process_p2p_conversation(
         &mut self,
         event_id: usize,
+        arrival: Option<SocketArrival>,
         sortdb: &SortitionDB,
         chainstate: &mut StacksChainState,
         dns_client_opt: &mut Option<&mut DNSClient>,
@@ -2375,7 +2378,7 @@ impl PeerNetwork {
         self.with_p2p_convo(event_id, |network, convo, client_sock| {
             // get incoming bytes and update the state of this conversation.
             let mut convo_dead = false;
-            if let Err(e) = convo.recv(client_sock) {
+            if let Err(e) = convo.recv_ready(client_sock, arrival) {
                 match e {
                     net_error::PermanentlyDrained => {
                         // socket got closed, but we might still have pending unsolicited messages
@@ -2470,6 +2473,7 @@ impl PeerNetwork {
         for event_id in &poll_state.ready {
             let (mut convo_unhandled, alive) = match self.process_p2p_conversation(
                 *event_id,
+                poll_state.arrivals.get(event_id).copied(),
                 sortdb,
                 chainstate,
                 dns_client_opt,
@@ -5123,8 +5127,8 @@ impl PeerNetwork {
 
         // In parallel, do a mempool sync.
         // Remember any txs we get, so we can feed them to the relayer thread.
-        if let Some(mut txs) = self.run_mempool_sync(&mut dns_client_opt, mempool, ibd) {
-            network_result.synced_transactions.append(&mut txs);
+        if let Some(txs) = self.run_mempool_sync(&mut dns_client_opt, mempool, ibd) {
+            network_result.consume_synced_transactions(txs);
         }
 
         // download attachments
@@ -5223,10 +5227,15 @@ impl PeerNetwork {
         block_hash: &BlockHeaderHash,
         tx: StacksTransaction,
         event_observer: Option<&dyn MemPoolEventDispatcher>,
+        arrival_seq: u64,
     ) -> bool {
         let txid = tx.txid();
         if mempool.has_tx(&txid) {
             debug!("Already have tx {}", txid);
+            // it may have been stored from a later receipt (e.g. an RPC upload)
+            if let Err(e) = mempool.note_tx_arrival(&txid, arrival_seq) {
+                warn!("Failed to update arrival stamp of {txid}: {e:?}");
+            }
             return false;
         }
         let stacks_epoch = match SortitionDB::get_stacks_epoch(
@@ -5244,7 +5253,7 @@ impl PeerNetwork {
             }
         };
 
-        if let Err(e) = mempool.submit(
+        if let Err(e) = mempool.submit_with_arrival_seq(
             chainstate,
             sortdb,
             consensus_hash,
@@ -5253,6 +5262,7 @@ impl PeerNetwork {
             event_observer,
             &stacks_epoch.block_limit,
             &stacks_epoch.epoch_id,
+            arrival_seq,
         ) {
             debug!("Transaction rejected from mempool, {}", &e.into_json(&txid));
             return false;
@@ -5288,41 +5298,60 @@ impl PeerNetwork {
         let mut ret: HashMap<NeighborKey, Vec<(Vec<RelayData>, StacksTransaction)>> =
             HashMap::new();
 
-        // messages pushed via the p2p network
+        // arrival stamps taken on receipt
+        let arrival_seqs = std::mem::take(&mut network_result.tx_arrival_seqs);
+        let arrival_seq_of = |tx: &StacksTransaction| {
+            let txid = tx.txid();
+            arrival_seqs.get(&txid).copied().unwrap_or_else(|| {
+                debug!("No arrival stamp for tx {txid}; stamping it now");
+                next_arrival_seq()
+            })
+        };
+
+        // Messages pushed via the p2p network (with the neighbor to relay for), and
+        // mempool-synced transactions (`None`: don't re-relay these).
+        // (HTTP-uploaded transactions are already in the mempool)
+        let mut received = vec![];
         for (nk, tx_data) in network_result.pushed_transactions.drain() {
             for (relayers, tx) in tx_data.into_iter() {
-                if PeerNetwork::store_transaction(
+                received.push((arrival_seq_of(&tx), Some((nk.clone(), relayers)), tx));
+            }
+        }
+        for tx in network_result.synced_transactions.drain(..) {
+            received.push((arrival_seq_of(&tx), None, tx));
+        }
+
+        // Store in arrival order, so that of two conflicting transactions (same origin and nonce)
+        // the earlier arrival is the one admitted.
+        received.sort_by_key(|(arrival_seq, ..)| *arrival_seq);
+        for (arrival_seq, pushed_by, tx) in received.into_iter() {
+            let Some((nk, relayers)) = pushed_by else {
+                PeerNetwork::store_transaction(
                     mempool,
                     sortdb,
                     chainstate,
                     &sn,
                     &canonical_consensus_hash,
                     &canonical_block_hash,
-                    tx.clone(),
+                    tx,
                     event_observer,
-                ) {
-                    if let Some(ref mut new_tx_data) = ret.get_mut(&nk) {
-                        new_tx_data.push((relayers, tx));
-                    } else {
-                        ret.insert(nk.clone(), vec![(relayers, tx)]);
-                    }
-                }
-            }
-        }
-
-        // (HTTP-uploaded transactions are already in the mempool)
-        // Mempool-synced transactions (don't re-relay these)
-        for tx in network_result.synced_transactions.drain(..) {
-            PeerNetwork::store_transaction(
+                    arrival_seq,
+                );
+                continue;
+            };
+            if PeerNetwork::store_transaction(
                 mempool,
                 sortdb,
                 chainstate,
                 &sn,
                 &canonical_consensus_hash,
                 &canonical_block_hash,
-                tx,
+                tx.clone(),
                 event_observer,
-            );
+                arrival_seq,
+            ) {
+                ret.entry(nk).or_default().push((relayers, tx));
+            }
         }
 
         network_result.pushed_transactions.extend(ret);
@@ -5618,6 +5647,111 @@ mod test {
     use crate::net::test::*;
     use crate::net::*;
     use crate::util_lib::test::*;
+
+    #[test]
+    /// A ready p2p socket's read uses what `poll()` recorded about that socket.
+    fn test_process_ready_sockets_uses_poll_arrival() {
+        use std::io::Write;
+
+        use stacks_common::codec::StacksMessageCodec;
+        use stacks_common::types::chainstate::StacksPrivateKey;
+
+        use crate::core::mempool::ArrivalSeqBlock;
+        use crate::core::test_util::{make_stacks_transfer_tx, to_addr};
+
+        let mut peer_1 = TestPeer::new(TestPeerConfig::new(function_name!(), 0, 0));
+        let mut peer_2 = TestPeer::new(TestPeerConfig::new(function_name!(), 0, 0));
+        peer_1.add_neighbor(&mut peer_2.to_neighbor(), None, true);
+        peer_2.add_neighbor(&mut peer_1.to_neighbor(), None, true);
+
+        // find a connection authenticated on both ends
+        let connected = |peer_1: &TestPeer, peer_2: &TestPeer| {
+            peer_1.network.sockets.iter().find_map(|(event_1, sock_1)| {
+                let local_addr = sock_1.local_addr().ok()?;
+                let event_2 = peer_2
+                    .network
+                    .sockets
+                    .iter()
+                    .find_map(|(event_2, sock_2)| {
+                        (sock_2.peer_addr().ok()? == local_addr).then_some(*event_2)
+                    })?;
+                let authenticated = peer_1.network.peers.get(event_1)?.is_authenticated()
+                    && peer_2.network.peers.get(&event_2)?.is_authenticated();
+                authenticated.then_some((*event_1, event_2))
+            })
+        };
+        let mut events = None;
+        for _ in 0..1000 {
+            let _ = peer_1.step();
+            let _ = peer_2.step();
+            events = connected(&peer_1, &peer_2);
+            if events.is_some() {
+                break;
+            }
+            sleep_ms(10);
+        }
+        let (event_1, event_2) = events.expect("peers did not connect");
+
+        let privk = StacksPrivateKey::from_seed(&[1]);
+        let tx = make_stacks_transfer_tx(
+            &privk,
+            0,
+            1000,
+            0x80000000,
+            &PrincipalData::from(to_addr(&privk)),
+            1,
+        );
+        let message = peer_1
+            .network
+            .sign_for_p2p(event_1, StacksMessageType::Transaction(tx))
+            .unwrap();
+        let message_bytes = message.serialize_to_vec();
+        let sock_1 = peer_1.network.sockets.get_mut(&event_1).unwrap();
+        sock_1.write_all(&message_bytes).unwrap();
+
+        // wait until the message is queued on the receiving socket
+        let mut peeked = vec![0u8; 1 << 16];
+        for _ in 0..100 {
+            let sock_2 = peer_2.network.sockets.get(&event_2).unwrap();
+            let num_peeked = sock_2.peek(&mut peeked).unwrap_or(0);
+            let queued = peeked.get(..num_peeked).unwrap();
+            if queued
+                .windows(message_bytes.len())
+                .any(|window| window == message_bytes.as_slice())
+            {
+                break;
+            }
+            sleep_ms(10);
+        }
+
+        let block = ArrivalSeqBlock::reserve();
+        let mut expected = block;
+        let mut poll_state = NetworkPollState::new();
+        poll_state.ready.push(event_2);
+        poll_state.arrivals.insert(
+            event_2,
+            SocketArrival {
+                arrival_seqs: block,
+                queued_bytes: usize::MAX,
+            },
+        );
+        let sortdb = peer_2.chain.sortdb.take().unwrap();
+        let mut stacks_node = peer_2.chain.stacks_node.take().unwrap();
+        let (_, mut unhandled) = peer_2.network.process_ready_sockets(
+            &sortdb,
+            &mut stacks_node.chainstate,
+            &mut None,
+            &mut poll_state,
+            false,
+        );
+        let received = unhandled
+            .remove(&event_2)
+            .unwrap_or_default()
+            .into_iter()
+            .find(|msg| matches!(msg.payload, StacksMessageType::Transaction(_)))
+            .expect("transaction was not received");
+        assert_eq!(received.arrival_seq, Some(expected.take()));
+    }
 
     fn make_test_neighbor(port: u16) -> Neighbor {
         Neighbor {

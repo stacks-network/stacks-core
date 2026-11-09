@@ -14,19 +14,23 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use std::io::Write;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 
 use clarity::vm::types::PrincipalData;
 use stacks_common::address::{AddressHashMode, C32_ADDRESS_VERSION_TESTNET_SINGLESIG};
 use stacks_common::codec::StacksMessageCodec;
 use stacks_common::types::chainstate::{StacksAddress, StacksPrivateKey, StacksPublicKey};
+use stacks_common::util::pipe::Pipe;
 
 use super::TestRPC;
 use crate::chainstate::stacks::{
     StacksTransaction, StacksTransactionSigner, TransactionAuth, TransactionPayload,
     TransactionVersion,
 };
-use crate::core::mempool::MAXIMUM_MEMPOOL_TX_CHAINING;
+use crate::core::mempool::{
+    ArrivalSeqBlock, MemPoolDB, ARRIVAL_SEQ_BLOCK_LEN, MAXIMUM_MEMPOOL_TX_CHAINING,
+};
 use crate::core::test_util::{
     make_sponsored_stacks_transfer_on_testnet, make_stacks_transfer_tx, to_addr,
 };
@@ -34,7 +38,10 @@ use crate::core::CHAIN_ID_TESTNET;
 use crate::net::api::posttransaction;
 use crate::net::connection::ConnectionOptions;
 use crate::net::httpcore::{RPCRequestHandler, StacksHttp, StacksHttpRequest, StacksHttpResponse};
-use crate::net::{Attachment, ProtocolFamily};
+use crate::net::poll::SocketArrival;
+use crate::net::rpc::ConversationHttp;
+use crate::net::test::{RPCHandlerArgsType, TestPeer};
+use crate::net::{Attachment, ProtocolFamily, StacksNodeState};
 
 fn rejection_data(
     response: StacksHttpResponse,
@@ -102,6 +109,8 @@ fn test_try_parse_request() {
 
     assert_eq!(handler.tx, Some(tx_cc_signed.clone()));
     assert!(handler.attachment.is_none());
+    // the body was stamped on receipt
+    let first_arrival_seq = handler.arrival_seq.expect("request body was not stamped");
 
     // parsed request consumes headers that would not be in a constructed reqeuest
     parsed_request.clear_headers();
@@ -112,6 +121,7 @@ fn test_try_parse_request() {
     handler.restart();
     assert!(handler.tx.is_none());
     assert!(handler.attachment.is_none());
+    assert!(handler.arrival_seq.is_none());
 
     // Test with a null attachment
     let request = StacksHttpRequest::new_post_transaction_with_attachment(
@@ -133,6 +143,8 @@ fn test_try_parse_request() {
 
     assert_eq!(handler.tx, Some(tx_cc_signed.clone()));
     assert_eq!(handler.attachment, None);
+    // a later receipt gets a later stamp
+    assert!(handler.arrival_seq.unwrap() > first_arrival_seq);
 
     handler.restart();
     assert!(handler.tx.is_none());
@@ -175,6 +187,101 @@ fn test_try_parse_request() {
     handler.restart();
     assert!(handler.tx.is_none());
     assert!(handler.attachment.is_none());
+}
+
+/// Deliver a `POST /v2/transactions` to `convo` as a socket read, with the first `queued_bytes` of
+/// it already queued when `poll()` reserved `arrival_seqs`, then handle it on `peer`.
+fn post_tx_as_socket_read(
+    peer: &mut TestPeer,
+    convo: &mut ConversationHttp,
+    tx: &StacksTransaction,
+    arrival_seqs: ArrivalSeqBlock,
+    queued_bytes: impl FnOnce(usize) -> usize,
+) {
+    let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 33333);
+    let bytes = StacksHttpRequest::new_post_transaction(addr.into(), tx.clone())
+        .try_serialize()
+        .unwrap();
+    let arrival = SocketArrival {
+        arrival_seqs,
+        queued_bytes: queued_bytes(bytes.len()),
+    };
+    let (mut pipe_read, mut pipe_write) = Pipe::new();
+    pipe_read.set_nonblocking(true);
+    pipe_write.write_all(&bytes).unwrap();
+    pipe_write.try_flush().unwrap();
+    convo.recv_ready(&mut pipe_read, Some(arrival)).unwrap();
+
+    peer.refresh_burnchain_view();
+    let sortdb = peer.chain.sortdb.take().unwrap();
+    let mut stacks_node = peer.chain.stacks_node.take().unwrap();
+    let mut mempool = peer.mempool.take().unwrap();
+    let rpc_args = RPCHandlerArgsType::make_default();
+    let mut node_state = StacksNodeState::new(
+        &mut peer.network,
+        &sortdb,
+        &mut stacks_node.chainstate,
+        &mut mempool,
+        &rpc_args,
+        false,
+        peer.config.chain_config.txindex,
+    );
+    convo.chat(&mut node_state).unwrap();
+    peer.chain.sortdb = Some(sortdb);
+    peer.chain.stacks_node = Some(stacks_node);
+    peer.mempool = Some(mempool);
+
+    // clear the reply, so the conversation can take the next request
+    let mut reply = vec![];
+    convo.send(&mut reply).unwrap();
+    assert!(!reply.is_empty());
+}
+
+#[test]
+/// `POST /v2/transactions` over a conversation: the transaction is stored with the arrival stamp
+/// `poll()` reserved if all of the request was queued by then, and a fresh stamp otherwise. A
+/// duplicate lowers the stored stamp if it was received earlier.
+fn test_post_transaction_uses_socket_arrival_seq() {
+    let TestRPC {
+        mut peer_2,
+        mut convo_2,
+        sendable_txs,
+        ..
+    } = TestRPC::setup(function_name!());
+    let [fully_queued, partly_queued, duplicate, ..] = sendable_txs.as_slice() else {
+        panic!("expected at least three sendable transactions");
+    };
+    let stored_stamp = |peer: &TestPeer, tx: &StacksTransaction| {
+        let mempool = peer.mempool.as_ref().unwrap();
+        MemPoolDB::get_tx(mempool.conn(), &tx.txid())
+            .unwrap()
+            .unwrap()
+            .metadata
+            .arrival_seq
+    };
+
+    // all of it was queued when the poll returned: stamped by the poll, not when handled
+    let block = ArrivalSeqBlock::reserve();
+    let mut expected = block;
+    post_tx_as_socket_read(&mut peer_2, &mut convo_2, fully_queued, block, |len| len);
+    assert_eq!(stored_stamp(&peer_2, fully_queued), expected.take());
+
+    // its last byte landed after the poll returned: stamped when read
+    let block = ArrivalSeqBlock::reserve();
+    let mut reserved = block;
+    post_tx_as_socket_read(&mut peer_2, &mut convo_2, partly_queued, block, |len| {
+        len - 1
+    });
+    assert!(stored_stamp(&peer_2, partly_queued) >= reserved.take() + ARRIVAL_SEQ_BLOCK_LEN);
+
+    // stored from a later receipt, then received again with an earlier stamp
+    let earlier = ArrivalSeqBlock::reserve();
+    let later = ArrivalSeqBlock::reserve();
+    let mut expected = earlier;
+    post_tx_as_socket_read(&mut peer_2, &mut convo_2, duplicate, later, |len| len);
+    assert!(stored_stamp(&peer_2, duplicate) > { expected }.take());
+    post_tx_as_socket_read(&mut peer_2, &mut convo_2, duplicate, earlier, |len| len);
+    assert_eq!(stored_stamp(&peer_2, duplicate), expected.take());
 }
 
 #[test]

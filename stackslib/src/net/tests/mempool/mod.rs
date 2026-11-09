@@ -417,6 +417,7 @@ fn test_mempool_sync_2_peers_paginated() {
     let mut round = 0;
     let mut peer_1_mempool_txs = 0;
     let mut peer_2_mempool_txs = 0;
+    let mut num_synced_txs = 0;
 
     while peer_1_mempool_txs < num_txs || peer_2_mempool_txs < num_txs {
         if let Ok(mut result) = peer_1.step_with_ibd(false) {
@@ -440,6 +441,11 @@ fn test_mempool_sync_2_peers_paginated() {
         }
 
         if let Ok(mut result) = peer_2.step_with_ibd(false) {
+            // pages are stamped as they are consumed, before the relayer gets them
+            for tx in result.synced_transactions.iter() {
+                assert!(result.tx_arrival_seqs.contains_key(&tx.txid()));
+                num_synced_txs += 1;
+            }
             let lp = peer_2.network.local_peer.clone();
             let burnchain = peer_2.network.burnchain.clone();
             peer_2
@@ -476,6 +482,8 @@ fn test_mempool_sync_2_peers_paginated() {
     }
 
     info!("Completed mempool sync in {} step(s)", round);
+
+    assert!(num_synced_txs > 0);
 
     let mp = peer_2.mempool.take().unwrap();
     let peer_2_mempool_txs = MemPoolDB::get_all_txs(mp.conn()).unwrap();

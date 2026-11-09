@@ -1242,11 +1242,23 @@ pub enum StacksMessageID {
 }
 
 /// Message type for all P2P Stacks network messages
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone)]
 pub struct StacksMessage {
     pub preamble: Preamble,
     pub relayers: Vec<RelayData>,
     pub payload: StacksMessageType,
+    /// Local only, never serialized: for a received `Transaction` message, the arrival stamp of
+    /// the socket read that completed it (see `core::mempool::next_arrival_seq()`).
+    pub arrival_seq: Option<u64>,
+}
+
+/// `arrival_seq` is local bookkeeping, not message content
+impl PartialEq for StacksMessage {
+    fn eq(&self, other: &Self) -> bool {
+        self.preamble == other.preamble
+            && self.relayers == other.relayers
+            && self.payload == other.payload
+    }
 }
 
 /// Network messages implement this to have multiple messages in flight.
@@ -1325,7 +1337,11 @@ pub trait ProtocolFamily {
 
 // these implement the ProtocolFamily trait
 #[derive(Debug, Clone, Default, PartialEq)]
-pub struct StacksP2P {}
+pub struct StacksP2P {
+    /// Arrival stamps reserved for the socket being read, if the caller reserved them (see
+    /// `core::mempool::ArrivalSeqBlock`). Transaction messages completed by that read take them.
+    pub recv_arrival_seqs: Option<ArrivalSeqBlock>,
+}
 
 // an array in our protocol can't exceed this many items
 pub const ARRAY_MAX_LEN: u32 = u32::MAX;
@@ -1585,6 +1601,9 @@ pub struct NetworkResult {
     pub attachments: Vec<(AttachmentInstance, Attachment)>,
     /// transactions we downloaded via a mempool sync
     pub synced_transactions: Vec<StacksTransaction>,
+    /// arrival stamps (see `core::mempool::next_arrival_seq()`) of the pushed and synced
+    /// transactions above, taken on first receipt
+    pub tx_arrival_seqs: HashMap<Txid, u64>,
     /// chunks for stacker DBs we downloaded
     pub stacker_db_sync_results: Vec<StackerDBSyncResult>,
     /// Number of times the network state machine has completed one pass
@@ -1639,6 +1658,7 @@ impl NetworkResult {
             pushed_stackerdb_chunks: vec![],
             attachments: vec![],
             synced_transactions: vec![],
+            tx_arrival_seqs: HashMap::new(),
             stacker_db_sync_results: vec![],
             num_state_machine_passes,
             num_inv_sync_passes,
@@ -1887,6 +1907,11 @@ impl NetworkResult {
             retain
         });
         newer.nakamoto_blocks.extend(self.nakamoto_blocks.drain());
+
+        // carry arrival stamps over, keeping the earliest stamp per transaction
+        for (txid, arrival_seq) in self.tx_arrival_seqs.drain() {
+            newer.record_tx_arrival(txid, arrival_seq);
+        }
 
         // merge pushed transactions, but deduplicate
         for (nk, mut tx_data) in self.pushed_transactions.drain() {
@@ -2221,6 +2246,23 @@ impl NetworkResult {
         self.has_blocks() || self.has_microblocks() || self.has_nakamoto_blocks()
     }
 
+    /// Remember a transaction's arrival stamp. A transaction received more than once keeps its
+    /// earliest stamp, whatever order the receipts are recorded in.
+    pub fn record_tx_arrival(&mut self, txid: Txid, arrival_seq: u64) {
+        self.tx_arrival_seqs
+            .entry(txid)
+            .and_modify(|seq| *seq = (*seq).min(arrival_seq))
+            .or_insert(arrival_seq);
+    }
+
+    /// Remember a page of mempool-synced transactions, consumed just now: stamp them in page order
+    pub fn consume_synced_transactions(&mut self, mut txs: Vec<StacksTransaction>) {
+        for tx in txs.iter() {
+            self.record_tx_arrival(tx.txid(), next_arrival_seq());
+        }
+        self.synced_transactions.append(&mut txs);
+    }
+
     pub fn consume_unsolicited(&mut self, unhandled_messages: PendingMessages) {
         for ((_event_id, neighbor_key), inbox) in unhandled_messages.into_iter() {
             let neighbor_addr = inbox.neighbor_addr;
@@ -2245,6 +2287,9 @@ impl NetworkResult {
                         }
                     }
                     StacksMessageType::Transaction(tx_data) => {
+                        if let Some(arrival_seq) = message.arrival_seq {
+                            self.record_tx_arrival(tx_data.txid(), arrival_seq);
+                        }
                         if let Some(tx_msgs) = self.pushed_transactions.get_mut(&neighbor_key) {
                             tx_msgs.push((message.relayers, tx_data));
                         } else {

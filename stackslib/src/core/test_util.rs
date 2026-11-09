@@ -34,6 +34,7 @@ use crate::chainstate::stacks::{
     TransactionPostConditionMode, TransactionSmartContract, TransactionSpendingCondition,
     TransactionVersion,
 };
+use crate::core::mempool::next_arrival_seq;
 use crate::util_lib::strings::StacksString;
 
 #[allow(clippy::too_many_arguments)]
@@ -575,8 +576,9 @@ pub fn insert_tx_in_mempool(
         height,
         accept_time,
         tx,
-        fee_rate)
-        VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)";
+        fee_rate,
+        arrival_seq)
+        VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)";
 
     let origin_addr_str = origin_addr.to_string();
     let length = tx_hex.len() as u64;
@@ -601,7 +603,8 @@ pub fn insert_tx_in_mempool(
         height,
         Utc::now().timestamp(),
         tx_hex,
-        fee_rate
+        fee_rate,
+        next_arrival_seq()
     ];
     db_tx
         .execute(sql, args)

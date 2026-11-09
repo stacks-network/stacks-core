@@ -31,6 +31,7 @@ use crate::net::httpcore::{
     HttpPreambleExtensions as _, StacksHttp, StacksHttpMessage, StacksHttpRequest,
     StacksHttpResponse, HTTP_REQUEST_ID_RESERVED,
 };
+use crate::net::poll::{QueuedBytesReader, SocketArrival};
 use crate::net::{Error as net_error, StacksMessageType, StacksNodeState};
 use crate::util_lib::strings::UrlString;
 
@@ -563,6 +564,26 @@ impl ConversationHttp {
     #[cfg_attr(test, mutants::skip)]
     pub fn clear_timeouts(&mut self) {
         self.connection.drain_timeouts();
+    }
+
+    /// Load data into our HTTP connection from a socket `poll()` reported ready.  Requests completed
+    /// by the bytes queued when the poll returned take the stamps it reserved; those completed by
+    /// bytes that landed later take a fresh stamp.
+    pub fn recv_ready<R: Read>(
+        &mut self,
+        r: &mut R,
+        arrival: Option<SocketArrival>,
+    ) -> Result<usize, net_error> {
+        let Some(arrival) = arrival else {
+            return self.recv(r);
+        };
+        self.connection
+            .protocol
+            .set_recv_arrival_seqs(Some(arrival.arrival_seqs));
+        let queued_res = self.recv(&mut QueuedBytesReader::new(r, arrival.queued_bytes));
+        self.connection.protocol.set_recv_arrival_seqs(None);
+        let num_queued = queued_res?;
+        Ok(num_queued.saturating_add(self.recv(r)?))
     }
 
     /// Load data into our HTTP connection

@@ -15,7 +15,7 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use std::collections::{HashMap, HashSet};
-use std::io::ErrorKind;
+use std::io::{ErrorKind, Read};
 use std::net::{Shutdown, SocketAddr};
 use std::time::Duration;
 use std::{io, time};
@@ -24,12 +24,83 @@ use mio::{self, net as mio_net, PollOpt, Ready};
 use rand::{self, RngCore};
 use stacks_common::util::sleep_ms;
 
+use crate::core::mempool::ArrivalSeqBlock;
 use crate::net::Error as net_error;
+
+#[cfg(unix)]
+type SocketHandle = std::os::unix::io::RawFd;
+#[cfg(not(unix))]
+type SocketHandle = ();
+
+#[cfg(unix)]
+fn socket_handle(sock: &mio_net::TcpStream) -> SocketHandle {
+    std::os::unix::io::AsRawFd::as_raw_fd(sock)
+}
+#[cfg(not(unix))]
+fn socket_handle(_sock: &mio_net::TcpStream) -> SocketHandle {}
+
+/// How many bytes are queued to be read on a socket?  0 if we can't tell.
+#[cfg(unix)]
+fn queued_bytes(handle: SocketHandle) -> usize {
+    nix::ioctl_read_bad!(fionread, nix::libc::FIONREAD, nix::libc::c_int);
+    let mut queued: nix::libc::c_int = 0;
+    // SAFETY: the ioctl only writes a c_int through a pointer that is valid for this call, and a
+    // stale fd only makes it return an error.
+    match unsafe { fionread(handle, &mut queued) } {
+        Ok(_) => usize::try_from(queued).unwrap_or(0),
+        Err(e) => {
+            debug!("Failed to get queued bytes of socket: {e:?}");
+            0
+        }
+    }
+}
+#[cfg(not(unix))]
+fn queued_bytes(_handle: SocketHandle) -> usize {
+    0
+}
+
+/// What `poll()` recorded about a ready socket with bytes queued, before any socket was read
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct SocketArrival {
+    /// Stamps for the transactions those bytes complete (see `core::mempool::ArrivalSeqBlock`)
+    pub arrival_seqs: ArrivalSeqBlock,
+    /// How many bytes were queued
+    pub queued_bytes: usize,
+}
+
+/// Reads at most `remaining` bytes, then reports `WouldBlock` as if the socket were empty.
+/// (`Read::take()` won't do: it returns `Ok(0)`, which readers take to mean the socket closed.)
+pub struct QueuedBytesReader<'a, R: Read> {
+    inner: &'a mut R,
+    remaining: usize,
+}
+
+impl<'a, R: Read> QueuedBytesReader<'a, R> {
+    pub fn new(inner: &'a mut R, remaining: usize) -> Self {
+        Self { inner, remaining }
+    }
+}
+
+impl<R: Read> Read for QueuedBytesReader<'_, R> {
+    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+        if self.remaining == 0 {
+            return Err(ErrorKind::WouldBlock.into());
+        }
+        let max_len = buf.len().min(self.remaining);
+        let bounded = buf.get_mut(..max_len).ok_or(ErrorKind::InvalidInput)?;
+        let num_read = self.inner.read(bounded)?;
+        self.remaining = self.remaining.saturating_sub(num_read);
+        Ok(num_read)
+    }
+}
 
 #[derive(Default)]
 pub struct NetworkPollState {
     pub new: HashMap<usize, mio_net::TcpStream>,
     pub ready: Vec<usize>,
+    /// For each ready socket with bytes queued: its queued bytes and reserved arrival stamps, taken
+    /// in event order as soon as the poll returns, across all servers and before any socket is read
+    pub arrivals: HashMap<usize, SocketArrival>,
 }
 
 impl NetworkPollState {
@@ -37,6 +108,7 @@ impl NetworkPollState {
         NetworkPollState {
             new: HashMap::new(),
             ready: vec![],
+            arrivals: HashMap::new(),
         }
     }
 }
@@ -57,6 +129,7 @@ pub struct NetworkState {
     servers: Vec<NetworkServerState>,
     count: usize,
     event_map: HashMap<usize, usize>, // map socket events to their registered server socket (including server sockets)
+    socket_handles: HashMap<usize, SocketHandle>, // map socket events to their sockets (excluding server sockets)
 }
 
 impl NetworkState {
@@ -75,6 +148,7 @@ impl NetworkState {
             servers: vec![],
             count: 1,
             event_map: HashMap::new(),
+            socket_handles: HashMap::new(),
         })
     }
 
@@ -222,6 +296,7 @@ impl NetworkState {
             })?;
 
         self.event_map.insert(event_id, server_event_id);
+        self.socket_handles.insert(event_id, socket_handle(sock));
 
         debug!(
             "Socket registered: {}, hint {}, {:?} on server {} (Events total: {}, max: {})",
@@ -247,6 +322,7 @@ impl NetworkState {
             event_id
         );
         self.event_map.remove(&event_id);
+        self.socket_handles.remove(&event_id);
 
         if let Err(e) = self.poll.deregister(sock) {
             warn!("Failed to deregister socket {}: {:?}", event_id, &e);
@@ -472,6 +548,19 @@ impl NetworkState {
                             server_event_id
                         );
                         poll_state.ready.push(event_id);
+                        let queued = self
+                            .socket_handles
+                            .get(&event_id)
+                            .map_or(0, |handle| queued_bytes(*handle));
+                        if queued > 0 {
+                            poll_state
+                                .arrivals
+                                .entry(event_id)
+                                .or_insert_with(|| SocketArrival {
+                                    arrival_seqs: ArrivalSeqBlock::reserve(),
+                                    queued_bytes: queued,
+                                });
+                        }
                     } else {
                         warn!("Unknown server event ID {}", server_event_id);
                     }
@@ -563,6 +652,108 @@ mod test {
                 ns.register(client_events[i], i + 1, &sock)
             );
         }
+    }
+
+    #[test]
+    /// Every ready socket with bytes queued gets its queued byte count and its own block of arrival
+    /// stamps as soon as the poll returns, across servers, in event order. Sockets with nothing
+    /// queued reserve nothing.
+    fn test_poll_records_socket_arrivals() {
+        use std::io::Write;
+
+        use crate::core::mempool::ARRIVAL_SEQ_BLOCK_LEN;
+
+        let mut ns = NetworkState::new(100).unwrap();
+        let addr = "127.0.0.1:0".parse::<SocketAddr>().unwrap();
+        let (server_1, local_1) = ns.bind(&addr).unwrap();
+        let (server_2, local_2) = ns.bind(&addr).unwrap();
+        let mut client_1 = std::net::TcpStream::connect(local_1).unwrap();
+        let mut client_2 = std::net::TcpStream::connect(local_2).unwrap();
+
+        // accept and register one connection per server
+        let mut accepted = vec![];
+        for _ in 0..100 {
+            if accepted.len() == 2 {
+                break;
+            }
+            let mut poll_states = ns.poll(100).unwrap();
+            for server in [server_1, server_2] {
+                let new = std::mem::take(&mut poll_states.get_mut(&server).unwrap().new);
+                for (hint_event_id, sock) in new.into_iter() {
+                    let event_id = ns.register(server, hint_event_id, &sock).unwrap();
+                    accepted.push((server, event_id, sock));
+                }
+            }
+        }
+        assert_eq!(accepted.len(), 2);
+
+        // nothing queued yet, so nothing reserved
+        for poll_state in ns.poll(100).unwrap().values() {
+            assert!(poll_state.arrivals.is_empty());
+        }
+
+        client_1.write_all(b"hello").unwrap();
+        client_2.write_all(b"hi").unwrap();
+
+        let first_stamp = |arrival: &SocketArrival| {
+            let mut block = arrival.arrival_seqs;
+            block.take()
+        };
+        let mut seen = HashMap::new();
+        for _ in 0..100 {
+            if seen.len() == accepted.len() {
+                break;
+            }
+            let poll_states = ns.poll(100).unwrap();
+            let mut stamps = vec![];
+            for poll_state in poll_states.values() {
+                let in_ready_order: Vec<_> = poll_state
+                    .ready
+                    .iter()
+                    .filter_map(|event_id| poll_state.arrivals.get(event_id))
+                    .map(first_stamp)
+                    .collect();
+                assert!(in_ready_order.is_sorted_by(|a, b| a < b));
+                stamps.extend(in_ready_order);
+                seen.extend(
+                    poll_state
+                        .arrivals
+                        .iter()
+                        .map(|(event_id, arrival)| (*event_id, arrival.queued_bytes)),
+                );
+            }
+            // the blocks do not overlap
+            stamps.sort();
+            assert!(stamps.is_sorted_by(|a, b| a + ARRIVAL_SEQ_BLOCK_LEN <= *b));
+        }
+        for (server, event_id, _) in accepted.iter() {
+            let expected = if *server == server_1 { 5 } else { 2 };
+            assert_eq!(seen.get(event_id), Some(&expected), "socket {event_id}");
+        }
+    }
+
+    #[test]
+    /// The reader stops at its limit as if the socket were empty, without looking closed, and still
+    /// passes through what the underlying reader reports.
+    fn test_queued_bytes_reader() {
+        let mut inner = std::io::Cursor::new(vec![1u8, 2, 3, 4]);
+        let mut reader = QueuedBytesReader::new(&mut inner, 3);
+        let mut buf = [0u8; 2];
+        assert_eq!(reader.read(&mut buf).unwrap(), 2);
+        assert_eq!(reader.read(&mut buf).unwrap(), 1);
+        assert_eq!(buf, [3, 2]);
+        assert_eq!(
+            reader.read(&mut buf).unwrap_err().kind(),
+            ErrorKind::WouldBlock
+        );
+
+        // whatever is past the limit is still there for the next reader
+        assert_eq!(inner.read(&mut buf).unwrap(), 1);
+        assert_eq!(buf, [4, 2]);
+
+        // a closed socket still reads as closed
+        let mut reader = QueuedBytesReader::new(&mut inner, 3);
+        assert_eq!(reader.read(&mut buf).unwrap(), 0);
     }
 
     #[test]

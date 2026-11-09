@@ -29,7 +29,9 @@ use clarity::vm::costs::LimitedCostTracker;
 use clarity::vm::events::STXEventType;
 use clarity::vm::test_util::TEST_BURN_STATE_DB;
 use mempool::MemPoolWalkStrategy;
-use rand::{thread_rng, Rng};
+use rand::rngs::StdRng;
+use rand::seq::SliceRandom;
+use rand::{thread_rng, Rng, SeedableRng};
 use rusqlite::params;
 use stacks_common::types::chainstate::VRFSeed;
 use stacks_common::util::hash::MerkleTree;
@@ -47,7 +49,7 @@ use crate::chainstate::stacks::tests::*;
 use crate::chainstate::stacks::{Error as ChainstateError, C32_ADDRESS_VERSION_TESTNET_SINGLESIG};
 use crate::core::mempool::{MemPoolWalkSettings, MAXIMUM_MEMPOOL_TX_CHAINING};
 use crate::core::test_util::sign_standard_single_sig_tx_anchor_mode_version;
-use crate::core::tests::make_block;
+use crate::core::tests::{arrival_order_transfer, make_block, ArrivalOrderFixture};
 use crate::core::{FIRST_BURNCHAIN_CONSENSUS_HASH, *};
 use crate::cost_estimates::metrics::UnitMetric;
 use crate::cost_estimates::UnitEstimator;
@@ -6485,5 +6487,246 @@ fn test_build_anchored_blocks_nonce_order_next_nonce_with_highest_fee_rate_strat
             // Each group of 10 transactions corresponds to one nonce value, across all 10 accounts.
             (tx_index / 10) as u64
         },
+    );
+}
+
+/// Equal fee rates: the walk visits transactions in the order this node received them, however
+/// they were admitted, and with or without the arrival-order indexes (so the `ORDER BY` decides
+/// the order, not the query plan). Fee rate still comes first.
+fn run_arrival_order_walk_test(test_name: &str, strategy: MemPoolWalkStrategy) {
+    let mut fixture = ArrivalOrderFixture::new(test_name);
+    let mut mempool = fixture.open_mempool("mempool");
+
+    // 20 senders, received in this order; odd seeds pay the higher fee rate
+    let received: Vec<_> = (0..20)
+        .map(|seed| {
+            let fee_rate = if seed % 2 == 1 { 300.0 } else { 200.0 };
+            (
+                arrival_order_transfer(seed, 200, 1),
+                fee_rate,
+                mempool::next_arrival_seq(),
+            )
+        })
+        .collect();
+
+    // admitted in a shuffled order, as if validation took different times
+    let mut admitted: Vec<_> = received
+        .iter()
+        .map(|(tx, fee_rate, arrival_seq)| (tx, *fee_rate, *arrival_seq))
+        .collect();
+    admitted.shuffle(&mut StdRng::seed_from_u64(0x5eed));
+    let admitted_txids: Vec<_> = admitted.iter().map(|(tx, ..)| tx.txid()).collect();
+    let received_txids: Vec<_> = received.iter().map(|(tx, ..)| tx.txid()).collect();
+    assert_ne!(admitted_txids, received_txids);
+    fixture.admit(&mut mempool, &admitted).unwrap();
+
+    let by_fee_rate = |fee_rate: f64| {
+        received
+            .iter()
+            .filter(move |(_, rate, _)| *rate == fee_rate)
+            .map(|(tx, ..)| tx.txid())
+    };
+    let expected: Vec<_> = by_fee_rate(300.0).chain(by_fee_rate(200.0)).collect();
+    assert_eq!(
+        fixture.walk(&mut mempool, strategy),
+        expected,
+        "{strategy:?}, with indexes"
+    );
+
+    mempool
+        .db
+        .execute_batch("DROP INDEX by_fee_rate_arrival_seq; DROP INDEX by_arrival_seq;")
+        .unwrap();
+    assert_eq!(
+        fixture.walk(&mut mempool, strategy),
+        expected,
+        "{strategy:?}, without indexes"
+    );
+}
+
+#[test]
+fn mempool_walk_global_fee_rate_breaks_ties_by_arrival() {
+    run_arrival_order_walk_test(function_name!(), MemPoolWalkStrategy::GlobalFeeRate);
+}
+
+#[test]
+fn mempool_walk_next_nonce_breaks_ties_by_arrival() {
+    run_arrival_order_walk_test(
+        function_name!(),
+        MemPoolWalkStrategy::NextNonceWithHighestFeeRate,
+    );
+}
+
+#[test]
+/// The `NextNonceWithHighestFeeRate` pre-limit (one block's worth of candidates per query) keeps
+/// the earliest arrivals: a later arrival waits for the next query, even with a higher fee rate,
+/// an older accept time and the lowest rowid.
+fn mempool_walk_pre_limit_keeps_earliest_arrivals() {
+    const PRE_LIMIT: u64 = 11_650;
+    let mut fixture = ArrivalOrderFixture::new(function_name!());
+    let mut mempool = fixture.open_mempool("mempool");
+
+    let early: Vec<_> = (0..PRE_LIMIT)
+        .map(|seed| arrival_order_transfer(seed, 200, 1))
+        .collect();
+    let early_seqs: Vec<_> = early.iter().map(|_| mempool::next_arrival_seq()).collect();
+    let late = arrival_order_transfer(PRE_LIMIT, 200, 1);
+    let late_seq = mempool::next_arrival_seq();
+
+    // admitted first, so it has the lowest rowid
+    let mut batch = vec![(&late, 1000.0, late_seq)];
+    batch.extend(
+        early
+            .iter()
+            .zip(early_seqs)
+            .map(|(tx, arrival_seq)| (tx, 100.0, arrival_seq)),
+    );
+    fixture.admit(&mut mempool, &batch).unwrap();
+    mempool
+        .db
+        .execute(
+            "UPDATE mempool SET accept_time = 0 WHERE txid = ?",
+            params![late.txid()],
+        )
+        .unwrap();
+
+    let walked = fixture.walk(
+        &mut mempool,
+        MemPoolWalkStrategy::NextNonceWithHighestFeeRate,
+    );
+    assert_eq!(walked.len(), batch.len());
+    assert_eq!(walked.last(), Some(&late.txid()));
+}
+
+/// Block assembly: transactions that tie on fee rate are included in the order this node received
+/// them, not the order they were admitted.
+fn run_arrival_order_block_test(
+    test_name: &str,
+    strategy: MemPoolWalkStrategy,
+    p2p_port: u16,
+    rpc_port: u16,
+) {
+    let private_keys: Vec<_> = (0..10u64)
+        .map(|seed| StacksPrivateKey::from_seed(&seed.to_be_bytes()))
+        .collect();
+    let initial_balances: Vec<_> = private_keys
+        .iter()
+        .map(|sk| {
+            let addr = StacksAddress::from_public_keys(
+                C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
+                &AddressHashMode::SerializeP2PKH,
+                1,
+                &vec![StacksPublicKey::from_private(sk)],
+            )
+            .unwrap();
+            (addr.to_account_principal(), 100000000000)
+        })
+        .collect();
+
+    let mut peer_config = TestPeerConfig::new(test_name, p2p_port, rpc_port);
+    peer_config.chain_config.initial_balances = initial_balances;
+    let burnchain = peer_config.chain_config.burnchain.clone();
+
+    let mut peer = TestPeer::new(peer_config);
+    let chainstate_path = peer.chain.chainstate_path.clone();
+    let mut mempool = MemPoolDB::open_test(false, 0x80000000, &chainstate_path).unwrap();
+
+    let tip = SortitionDB::get_canonical_burn_chain_tip(peer.chain.sortdb.as_ref().unwrap().conn())
+        .unwrap();
+
+    // received in key order; equal fees and lengths, so equal fee rates
+    let recipient = StacksAddress::from_string("ST1RFD5Q2QPK3E0F08HG9XDX7SSC7CNRS0QR0SGEV")
+        .unwrap()
+        .to_account_principal();
+    let received: Vec<_> = private_keys
+        .iter()
+        .map(|sk| {
+            (
+                make_user_stacks_transfer(sk, 0, 200, &recipient, 1),
+                mempool::next_arrival_seq(),
+            )
+        })
+        .collect();
+    let mut admitted: Vec<_> = received.iter().collect();
+    admitted.shuffle(&mut StdRng::seed_from_u64(0x5eed));
+    let received_txids: Vec<_> = received.iter().map(|(tx, _)| tx.txid()).collect();
+    let admitted_txids: Vec<_> = admitted.iter().map(|(tx, _)| tx.txid()).collect();
+    assert_ne!(admitted_txids, received_txids);
+
+    let (burn_ops, stacks_block, microblocks) = peer.make_tenure(
+        |ref mut miner,
+         ref mut sortdb,
+         ref mut chainstate,
+         vrf_proof,
+         ref parent_opt,
+         ref parent_microblock_header_opt| {
+            assert!(parent_opt.is_none());
+            let parent_tip = StacksChainState::get_genesis_header_info(chainstate.db()).unwrap();
+            let parent_header_hash = parent_tip.anchored_header.block_hash();
+            let parent_consensus_hash = parent_tip.consensus_hash.clone();
+            let coinbase_tx = make_coinbase(miner, 0);
+
+            for (tx, arrival_seq) in admitted.iter() {
+                mempool
+                    .submit_with_arrival_seq(
+                        chainstate,
+                        sortdb,
+                        &parent_consensus_hash,
+                        &parent_header_hash,
+                        tx,
+                        None,
+                        &ExecutionCost::max_value(),
+                        &StacksEpochId::Epoch20,
+                        *arrival_seq,
+                    )
+                    .unwrap();
+            }
+
+            let mut settings = BlockBuilderSettings::limited();
+            settings.mempool_settings.strategy = strategy;
+            let anchored_block = StacksBlockBuilder::build_anchored_block(
+                chainstate,
+                &sortdb.index_handle_at_tip(),
+                &mut mempool,
+                &parent_tip,
+                tip.total_burn,
+                vrf_proof,
+                &Hash160([0; 20]),
+                &coinbase_tx,
+                settings,
+                None,
+                &burnchain,
+            )
+            .unwrap();
+            (anchored_block.0, vec![])
+        },
+    );
+
+    peer.next_burnchain_block(burn_ops);
+    peer.process_stacks_epoch_at_tip(&stacks_block, &microblocks);
+
+    let (coinbase, included) = stacks_block.txs.split_first().unwrap();
+    assert!(matches!(coinbase.payload, TransactionPayload::Coinbase(..)));
+    let included_txids: Vec<_> = included.iter().map(|tx| tx.txid()).collect();
+    assert_eq!(included_txids, received_txids, "{strategy:?}");
+}
+
+#[test]
+fn test_build_anchored_blocks_arrival_order_global_fee_rate_strategy() {
+    run_arrival_order_block_test(
+        function_name!(),
+        MemPoolWalkStrategy::GlobalFeeRate,
+        2034,
+        2035,
+    );
+}
+
+#[test]
+fn test_build_anchored_blocks_arrival_order_next_nonce_strategy() {
+    run_arrival_order_block_test(
+        function_name!(),
+        MemPoolWalkStrategy::NextNonceWithHighestFeeRate,
+        2036,
+        2037,
     );
 }

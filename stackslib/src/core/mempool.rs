@@ -21,6 +21,7 @@ use std::io::{Read, Write};
 use std::ops::{Deref, DerefMut};
 use std::path::PathBuf;
 use std::str::FromStr;
+use std::sync::atomic::{AtomicU64, Ordering as AtomicOrdering};
 use std::time::{Duration, Instant};
 use std::{fs, io, thread};
 
@@ -98,6 +99,72 @@ const DEFAULT_MAX_TX_TAGS: u32 = 2048;
 
 // maximum number of transactions that can fit in a single block
 const MAX_BLOCK_TXS: usize = 11_650;
+
+/// Process-wide transaction arrival counter.  When `poll()` returns, the network loop reserves a
+/// block of stamps (`ArrivalSeqBlock`) for each ready socket with bytes queued, before handling any
+/// of them; a transaction completed by those bytes (p2p push or RPC upload) takes the next stamp in
+/// the block, and one completed by bytes that landed later takes a fresh stamp when read.
+/// Mempool-synced pages are stamped when consumed, in page order.  The stamp is stored in
+/// `mempool.arrival_seq` and is the final tie-break when the miner orders otherwise-equal
+/// transactions: the earlier arrival is considered first.
+static ARRIVAL_SEQ: AtomicU64 = AtomicU64::new(1);
+
+/// Largest stamp that fits in a SQLite integer.
+const MAX_ARRIVAL_SEQ: u64 = i64::MAX as u64;
+
+/// Number of stamps reserved for each socket read.
+pub(crate) const ARRIVAL_SEQ_BLOCK_LEN: u64 = 1 << 16;
+
+/// Take the next arrival stamp.  Stamps are unique and increasing within this process, until
+/// they saturate at `MAX_ARRIVAL_SEQ`.
+pub(crate) fn next_arrival_seq() -> u64 {
+    ARRIVAL_SEQ
+        .fetch_add(1, AtomicOrdering::Relaxed)
+        .min(MAX_ARRIVAL_SEQ)
+}
+
+/// Arrival stamps reserved for one ready socket when `poll()` returns.  Transactions completed by
+/// the bytes queued at that moment take them in the order they were read, so they stay distinct and
+/// in order.  If those bytes complete more than `ARRIVAL_SEQ_BLOCK_LEN` of them, the rest share the
+/// block's last stamp.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct ArrivalSeqBlock {
+    next: u64,
+    last: u64,
+}
+
+impl ArrivalSeqBlock {
+    /// Reserve the next block of stamps
+    pub(crate) fn reserve() -> Self {
+        let first = ARRIVAL_SEQ
+            .fetch_add(ARRIVAL_SEQ_BLOCK_LEN, AtomicOrdering::Relaxed)
+            .min(MAX_ARRIVAL_SEQ);
+        let last = first
+            .saturating_add(ARRIVAL_SEQ_BLOCK_LEN - 1)
+            .min(MAX_ARRIVAL_SEQ);
+        Self { next: first, last }
+    }
+
+    /// Take the next stamp in this block
+    pub(crate) fn take(&mut self) -> u64 {
+        let seq = self.next;
+        self.next = self.next.saturating_add(1).min(self.last);
+        seq
+    }
+}
+
+/// The next stamp from `block` if the caller reserved one for this read, else a fresh stamp.
+pub(crate) fn take_arrival_seq(block: Option<&mut ArrivalSeqBlock>) -> u64 {
+    match block {
+        Some(block) => block.take(),
+        None => next_arrival_seq(),
+    }
+}
+
+/// Make sure future stamps sort after `next - 1` (used to resume after a restart).
+fn seed_arrival_seq(next: u64) {
+    ARRIVAL_SEQ.fetch_max(next, AtomicOrdering::Relaxed);
+}
 
 /// A node-specific transaction tag -- the first 8 bytes of siphash(local-seed,txid)
 #[derive(Debug, Clone, PartialEq, Hash, Eq)]
@@ -379,6 +446,7 @@ impl MemPoolAdmitter {
 pub enum MemPoolDropReason {
     REPLACE_ACROSS_FORK,
     REPLACE_BY_FEE,
+    REPLACE_BY_ARRIVAL,
     STALE_COLLECT,
     TOO_EXPENSIVE,
     PROBLEMATIC,
@@ -399,6 +467,7 @@ impl std::fmt::Display for MemPoolDropReason {
             MemPoolDropReason::TOO_EXPENSIVE => write!(f, "TooExpensive"),
             MemPoolDropReason::REPLACE_ACROSS_FORK => write!(f, "ReplaceAcrossFork"),
             MemPoolDropReason::REPLACE_BY_FEE => write!(f, "ReplaceByFee"),
+            MemPoolDropReason::REPLACE_BY_ARRIVAL => write!(f, "ReplaceByArrival"),
             MemPoolDropReason::PROBLEMATIC => write!(f, "Problematic"),
         }
     }
@@ -458,6 +527,8 @@ pub struct MemPoolTxInfoPartial {
     pub origin_nonce: u64,
     pub sponsor_address: StacksAddress,
     pub sponsor_nonce: u64,
+    /// See `next_arrival_seq()`
+    pub arrival_seq: u64,
 }
 
 #[derive(Debug, PartialEq, Clone)]
@@ -486,6 +557,8 @@ pub struct MemPoolTxMetadata {
     pub last_known_sponsor_nonce: Option<u64>,
     pub accept_time: u64,
     pub time_estimate_ms: Option<u64>,
+    /// Order in which this node first received the transaction. See `next_arrival_seq()`.
+    pub arrival_seq: u64,
 }
 
 impl MemPoolTxMetadata {
@@ -639,6 +712,7 @@ impl FromRow<MemPoolTxMetadata> for MemPoolTxMetadata {
         let last_known_sponsor_nonce = u64::from_column(row, "last_known_sponsor_nonce")?;
         let last_known_origin_nonce = u64::from_column(row, "last_known_origin_nonce")?;
         let time_estimate_ms: Option<u64> = row.get("time_estimate_ms")?;
+        let arrival_seq = u64::from_column(row, "arrival_seq")?;
 
         Ok(MemPoolTxMetadata {
             txid,
@@ -655,6 +729,7 @@ impl FromRow<MemPoolTxMetadata> for MemPoolTxMetadata {
             last_known_sponsor_nonce,
             accept_time,
             time_estimate_ms,
+            arrival_seq,
         })
     }
 }
@@ -682,6 +757,7 @@ impl FromRow<MemPoolTxInfoPartial> for MemPoolTxInfoPartial {
         let origin_nonce = u64::from_column(row, "origin_nonce")?;
         let sponsor_address = StacksAddress::from_column(row, "sponsor_address")?;
         let sponsor_nonce = u64::from_column(row, "sponsor_nonce")?;
+        let arrival_seq = u64::from_column(row, "arrival_seq")?;
 
         Ok(MemPoolTxInfoPartial {
             txid,
@@ -690,6 +766,7 @@ impl FromRow<MemPoolTxInfoPartial> for MemPoolTxInfoPartial {
             origin_nonce,
             sponsor_address,
             sponsor_nonce,
+            arrival_seq,
         })
     }
 }
@@ -873,6 +950,36 @@ const MEMPOOL_SCHEMA_8_NONCE_SORTING: &[&str] = &[
     "#,
     r#"
     INSERT INTO schema_version (version) VALUES (8)
+    "#,
+];
+
+const MEMPOOL_SCHEMA_9_ARRIVAL_SEQ: &[&str] = &[
+    r#"
+    -- Order in which this node first received each transaction (see `next_arrival_seq()`).
+    -- Final tie-break when ordering otherwise-equal transactions.
+    ALTER TABLE mempool ADD COLUMN arrival_seq INTEGER NOT NULL DEFAULT 0;
+    "#,
+    r#"
+    -- Rows from before this column existed: approximate arrival order by accept time, then insertion.
+    UPDATE mempool
+    SET arrival_seq = ranked.seq
+    FROM (
+        SELECT txid, ROW_NUMBER() OVER (ORDER BY accept_time ASC, rowid ASC) AS seq FROM mempool
+    ) AS ranked
+    WHERE ranked.txid = mempool.txid;
+    "#,
+    r#"
+    CREATE INDEX IF NOT EXISTS by_fee_rate_arrival_seq ON mempool(fee_rate DESC, arrival_seq ASC);
+    "#,
+    r#"
+    CREATE INDEX IF NOT EXISTS by_arrival_seq ON mempool(arrival_seq);
+    "#,
+    r#"
+    -- Covered by by_fee_rate_arrival_seq.
+    DROP INDEX IF EXISTS by_fee_rate;
+    "#,
+    r#"
+    INSERT INTO schema_version (version) VALUES (9)
     "#,
 ];
 
@@ -1089,6 +1196,10 @@ pub fn db_get_all_nonces(conn: &DBConn) -> Result<Vec<(StacksAddress, u64)>, db_
 /// to process yet (but could be processed in the future) are added to `next`.
 /// In the next pass, `next` is moved to `cache` and these transactions are
 /// checked before reading more from the mempool DB.
+///
+/// Retries keep the order in which candidates were first read (fee rate, then `arrival_seq`):
+/// `next` only receives entries popped from the front of `cache`, or read from the DB once `cache`
+/// is empty, so `reset()` never moves a later candidate ahead of an earlier one.
 struct CandidateCache {
     cache: VecDeque<MemPoolTxInfoPartial>,
     next: VecDeque<MemPoolTxInfoPartial>,
@@ -1240,6 +1351,9 @@ impl MemPoolDB {
                     MemPoolDB::instantiate_schema_8(tx)?;
                 }
                 8 => {
+                    MemPoolDB::instantiate_schema_9(tx)?;
+                }
+                9 => {
                     break;
                 }
                 _ => {
@@ -1336,6 +1450,42 @@ impl MemPoolDB {
         Ok(())
     }
 
+    /// Add the arrival-order column used to break ties between otherwise-equal transactions
+    fn instantiate_schema_9(tx: &DBTx) -> Result<(), db_error> {
+        for sql_exec in MEMPOOL_SCHEMA_9_ARRIVAL_SEQ {
+            tx.execute_batch(sql_exec)?;
+        }
+
+        Ok(())
+    }
+
+    /// Resume the arrival counter above every stamp already stored in this mempool
+    fn seed_arrival_seq_from_db(conn: &DBConn) -> Result<(), db_error> {
+        let max_seq: Option<i64> =
+            conn.query_row("SELECT MAX(arrival_seq) FROM mempool", NO_PARAMS, |row| {
+                row.get(0)
+            })?;
+        if let Some(next) = MemPoolDB::arrival_seq_resume_point(max_seq) {
+            seed_arrival_seq(next);
+        }
+        Ok(())
+    }
+
+    /// Where the arrival counter resumes, given the largest stored stamp (`None` if the mempool is
+    /// empty). Out-of-range values from a damaged database are logged and ignored (negative) or
+    /// saturated (too large) rather than failing the open.
+    pub(crate) fn arrival_seq_resume_point(max_seq: Option<i64>) -> Option<u64> {
+        let max_seq = max_seq?;
+        let Ok(max_seq) = u64::try_from(max_seq) else {
+            warn!("Mempool has a negative arrival_seq ({max_seq}); not resuming the arrival counter from it");
+            return None;
+        };
+        if max_seq >= MAX_ARRIVAL_SEQ {
+            warn!("Mempool arrival_seq is saturated ({max_seq}); new transactions will tie on arrival order");
+        }
+        Some(max_seq.saturating_add(1).min(MAX_ARRIVAL_SEQ))
+    }
+
     #[cfg_attr(test, mutants::skip)]
     pub fn db_path(chainstate_root_path: &str) -> Result<String, db_error> {
         let mut path = PathBuf::from(chainstate_root_path);
@@ -1384,6 +1534,8 @@ impl MemPoolDB {
             MemPoolDB::add_indexes(&mut tx)?;
             tx.commit().map_err(db_error::SqliteError)?;
         }
+
+        MemPoolDB::seed_arrival_seq_from_db(&conn)?;
 
         let bloom_counter = BloomCounter::<BloomNodeHasher>::try_load(&conn, BLOOM_COUNTER_TABLE)?
             .ok_or(db_error::Other("Failed to load bloom counter".to_string()))?;
@@ -1573,7 +1725,7 @@ impl MemPoolDB {
         let mut rng = rand::thread_rng();
         let mut candidate_cache = CandidateCache::new(settings.candidate_retry_cache_size);
         let sql = "
-            SELECT txid, origin_nonce, origin_address, sponsor_nonce, sponsor_address, fee_rate
+            SELECT txid, origin_nonce, origin_address, sponsor_nonce, sponsor_address, fee_rate, arrival_seq
             FROM mempool
             WHERE fee_rate IS NULL
             ";
@@ -1581,11 +1733,12 @@ impl MemPoolDB {
         let mut null_iterator = query_stmt_null
             .query(NO_PARAMS)
             .map_err(Error::SqliteError)?;
+        // Equal fee rates are visited in arrival order.
         let sql = "
-            SELECT txid, origin_nonce, origin_address, sponsor_nonce, sponsor_address, fee_rate
+            SELECT txid, origin_nonce, origin_address, sponsor_nonce, sponsor_address, fee_rate, arrival_seq
             FROM mempool
             WHERE fee_rate IS NOT NULL
-            ORDER BY fee_rate DESC
+            ORDER BY fee_rate DESC, arrival_seq ASC
             ";
         let mut query_stmt_fee = self.db.prepare(sql).map_err(Error::SqliteError)?;
         let mut fee_iterator = query_stmt_fee
@@ -1617,6 +1770,10 @@ impl MemPoolDB {
             // 3. Ranks transactions by prioritizing those with next nonces and higher fees (per origin and sponsor address)
             // 4. Takes the top ranked transaction and returns it for evaluation
             //
+            // Transactions otherwise tied in the final ORDER BY are ranked by `arrival_seq` (the one
+            // this node received first goes first), and the pre-limit cut in `nonce_filtered` keeps
+            // the earliest arrivals. The rank windows need no tie-break: (address, nonce) is unique.
+            //
             // This logic prevents miners from repeatedly visiting (and then skipping) high fee transactions that would get evaluated
             // first based on their `fee_rate` but are otherwise non-mineable because they have very high or invalid nonces. A large
             // volume of these transactions would cause considerable slowness when selecting valid transactions to mine. This query
@@ -1624,7 +1781,7 @@ impl MemPoolDB {
             // their origin address nonce.
             let sql = "
             WITH nonce_filtered AS (
-                SELECT txid, origin_nonce, origin_address, sponsor_nonce, sponsor_address, fee_rate,
+                SELECT txid, origin_nonce, origin_address, sponsor_nonce, sponsor_address, fee_rate, arrival_seq,
                     CASE
                         WHEN fee_rate IS NULL THEN (ABS(RANDOM()) % 10000 / 10000.0) * (SELECT MAX(fee_rate) FROM mempool)
                         ELSE fee_rate
@@ -1635,7 +1792,7 @@ impl MemPoolDB {
                 WHERE (no.address IS NULL OR m.origin_nonce = no.nonce)
                     AND (ns.address IS NULL OR m.sponsor_nonce = ns.nonce)
                     AND m.txid NOT IN (SELECT txid FROM considered_txs)
-                ORDER BY accept_time ASC
+                ORDER BY arrival_seq ASC
                 LIMIT 11650 -- max transactions that can fit in one block
             ),
             address_nonce_ranked AS (
@@ -1650,9 +1807,9 @@ impl MemPoolDB {
                     ) AS sponsor_rank
                 FROM nonce_filtered
             )
-            SELECT txid, origin_nonce, origin_address, sponsor_nonce, sponsor_address, fee_rate
+            SELECT txid, origin_nonce, origin_address, sponsor_nonce, sponsor_address, fee_rate, arrival_seq
             FROM address_nonce_ranked
-            ORDER BY origin_rank ASC, sponsor_rank ASC, sort_fee_rate DESC
+            ORDER BY origin_rank ASC, sponsor_rank ASC, sort_fee_rate DESC, arrival_seq ASC
             ";
             let mut query_stmt_nonce_rank = self.db.prepare(sql).map_err(Error::SqliteError)?;
             let mut nonce_rank_iterator = query_stmt_nonce_rank
@@ -2067,6 +2224,8 @@ impl MemPoolDB {
     /// The tenure resolution behavior can be short-circuited with `resolve_tenure = false`.
     /// However, this is only used in testing.
     ///
+    /// Stamps the transaction as arriving now; see `try_add_tx_with_arrival_seq()`.
+    ///
     /// Don't call directly; use submit().
     pub(crate) fn try_add_tx(
         tx: &mut MemPoolTx,
@@ -2083,6 +2242,49 @@ impl MemPoolDB {
         sponsor_address: &StacksAddress,
         sponsor_nonce: u64,
         event_observer: Option<&dyn MemPoolEventDispatcher>,
+    ) -> Result<(), MemPoolRejection> {
+        MemPoolDB::try_add_tx_with_arrival_seq(
+            tx,
+            chainstate,
+            tip_consensus_hash,
+            tip_block_header_hash,
+            resolve_tenure,
+            txid,
+            tx_bytes,
+            tx_fee,
+            coinbase_height,
+            origin_address,
+            origin_nonce,
+            sponsor_address,
+            sponsor_nonce,
+            event_observer,
+            next_arrival_seq(),
+        )
+    }
+
+    /// Like `try_add_tx()`, but with the arrival stamp taken when the transaction was received
+    /// (see `next_arrival_seq()`). Re-adding a transaction that is already in the mempool (e.g. on
+    /// another fork) keeps the earlier of the two stamps; a replacement (RBF) is stored with
+    /// `arrival_seq`. Of two conflicting transactions at equal fee on one fork, the one with the
+    /// earlier stamp is kept, whichever was admitted first.
+    ///
+    /// Don't call directly; use submit_with_arrival_seq().
+    pub(crate) fn try_add_tx_with_arrival_seq(
+        tx: &mut MemPoolTx,
+        chainstate: &mut StacksChainState,
+        tip_consensus_hash: &ConsensusHash,
+        tip_block_header_hash: &BlockHeaderHash,
+        resolve_tenure: bool,
+        txid: &Txid,
+        tx_bytes: Vec<u8>,
+        tx_fee: u64,
+        coinbase_height: u64,
+        origin_address: &StacksAddress,
+        origin_nonce: u64,
+        sponsor_address: &StacksAddress,
+        sponsor_nonce: u64,
+        event_observer: Option<&dyn MemPoolEventDispatcher>,
+        arrival_seq: u64,
     ) -> Result<(), MemPoolRejection> {
         let length = tx_bytes.len() as u64;
 
@@ -2127,6 +2329,12 @@ impl MemPoolDB {
 
         let mut replace_reason = MemPoolDropReason::REPLACE_BY_FEE;
 
+        // a transaction we already have keeps its earliest stamp
+        let arrival_seq = match prior_tx {
+            Some(ref prior_tx) if prior_tx.txid == *txid => prior_tx.arrival_seq.min(arrival_seq),
+            _ => arrival_seq,
+        };
+
         // if so, is this a replace-by-fee? or a replace-in-chain-tip?
         let add_tx = if let Some(ref prior_tx) = prior_tx {
             if tx_fee > prior_tx.tx_fee {
@@ -2150,6 +2358,23 @@ impl MemPoolDB {
                     &prior_tx.txid, &txid, origin_address, origin_nonce
                 );
                 replace_reason = MemPoolDropReason::REPLACE_ACROSS_FORK;
+                true
+            } else if tx_fee == prior_tx.tx_fee
+                && prior_tx.txid != *txid
+                && arrival_seq < prior_tx.arrival_seq
+            {
+                // same fee, but this one reached us first: it was admitted later because it waited
+                // for the relayer while the stored one came in over RPC
+                debug!(
+                    "Can replace {} with {} for {},{} by arrival ({} < {})",
+                    &prior_tx.txid,
+                    &txid,
+                    origin_address,
+                    origin_nonce,
+                    arrival_seq,
+                    prior_tx.arrival_seq
+                );
+                replace_reason = MemPoolDropReason::REPLACE_BY_ARRIVAL;
                 true
             } else {
                 // there's a >= fee tx in this fork, cannot add
@@ -2187,8 +2412,9 @@ impl MemPoolDB {
             block_header_hash,
             height,
             accept_time,
-            tx)
-            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)";
+            tx,
+            arrival_seq)
+            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)";
 
         let args = params![
             txid,
@@ -2203,6 +2429,7 @@ impl MemPoolDB {
             u64_to_sql(coinbase_height)?,
             u64_to_sql(get_epoch_time_secs())?,
             tx_bytes,
+            u64_to_sql(arrival_seq)?,
         ];
 
         tx.execute(sql, args)
@@ -2315,6 +2542,7 @@ impl MemPoolDB {
         do_admission_checks: bool,
         event_observer: Option<&dyn MemPoolEventDispatcher>,
         fee_rate_estimate: Option<f64>,
+        arrival_seq: u64,
     ) -> Result<(), MemPoolRejection> {
         test_debug!(
             "Mempool submit {} at {}/{}",
@@ -2370,7 +2598,7 @@ impl MemPoolDB {
                 .will_admit_tx(chainstate, sortdb, tx, len)?;
         }
 
-        MemPoolDB::try_add_tx(
+        MemPoolDB::try_add_tx_with_arrival_seq(
             mempool_tx,
             chainstate,
             consensus_hash,
@@ -2385,6 +2613,7 @@ impl MemPoolDB {
             &sponsor_address,
             sponsor_nonce,
             event_observer,
+            arrival_seq,
         )?;
 
         mempool_tx
@@ -2415,6 +2644,9 @@ impl MemPoolDB {
     /// No action is required by te caller to handle this discrepancy; the caller should just submit
     /// the canonical Stacks tip.  If the current epoch is a Nakamoto epoch, it will be resolved to
     /// the tenure-start block internally.
+    ///
+    /// The transaction is stamped as arriving now. Network intake paths should instead take a stamp
+    /// on receipt and use `submit_with_arrival_seq()`.
     pub fn submit(
         &mut self,
         chainstate: &mut StacksChainState,
@@ -2425,6 +2657,33 @@ impl MemPoolDB {
         event_observer: Option<&dyn MemPoolEventDispatcher>,
         block_limit: &ExecutionCost,
         stacks_epoch_id: &StacksEpochId,
+    ) -> Result<(), MemPoolRejection> {
+        self.submit_with_arrival_seq(
+            chainstate,
+            sortdb,
+            consensus_hash,
+            block_hash,
+            tx,
+            event_observer,
+            block_limit,
+            stacks_epoch_id,
+            next_arrival_seq(),
+        )
+    }
+
+    /// Like `submit()`, but with the arrival stamp taken when the transaction's bytes were first
+    /// received (see `next_arrival_seq()`).
+    pub(crate) fn submit_with_arrival_seq(
+        &mut self,
+        chainstate: &mut StacksChainState,
+        sortdb: &SortitionDB,
+        consensus_hash: &ConsensusHash,
+        block_hash: &BlockHeaderHash,
+        tx: &StacksTransaction,
+        event_observer: Option<&dyn MemPoolEventDispatcher>,
+        block_limit: &ExecutionCost,
+        stacks_epoch_id: &StacksEpochId,
+        arrival_seq: u64,
     ) -> Result<(), MemPoolRejection> {
         if self.is_tx_blacklisted(&tx.txid())? {
             // don't re-store this transaction
@@ -2463,6 +2722,7 @@ impl MemPoolDB {
             true,
             event_observer,
             fee_rate,
+            arrival_seq,
         )?;
         mempool_tx.commit().map_err(MemPoolRejection::DBError)?;
         Ok(())
@@ -2493,6 +2753,7 @@ impl MemPoolDB {
             false,
             event_observer,
             fee_estimate,
+            next_arrival_seq(),
         )?;
         mempool_tx.commit().map_err(MemPoolRejection::DBError)?;
         Ok(())
@@ -2552,6 +2813,7 @@ impl MemPoolDB {
             false,
             None,
             fee_rate,
+            next_arrival_seq(),
         )?;
         mempool_tx.commit().map_err(MemPoolRejection::DBError)?;
         Ok(())
@@ -2660,6 +2922,30 @@ impl MemPoolDB {
         }
         mempool_tx.commit()?;
 
+        Ok(())
+    }
+
+    /// A transaction we already have was received again: keep the earlier of its two arrival
+    /// stamps (it may have been stored from a later receipt on another intake path).
+    pub(crate) fn note_tx_arrival(
+        &mut self,
+        txid: &Txid,
+        arrival_seq: u64,
+    ) -> Result<(), db_error> {
+        let arrival_seq_sql = u64_to_sql(arrival_seq)?;
+        let stored: Option<i64> = query_row(
+            &self.db,
+            "SELECT arrival_seq FROM mempool WHERE txid = ?1",
+            params![txid],
+        )?;
+        if stored.is_none_or(|stored| stored <= arrival_seq_sql) {
+            // usually: not present, or this receipt is the later one
+            return Ok(());
+        }
+        let sql = "UPDATE mempool SET arrival_seq = ?1 WHERE txid = ?2 AND arrival_seq > ?1";
+        let mempool_tx = self.tx_begin()?;
+        mempool_tx.tx.execute(sql, params![arrival_seq_sql, txid])?;
+        mempool_tx.commit()?;
         Ok(())
     }
 
