@@ -845,3 +845,96 @@ impl StackerDBListenerComms {
         eval.determine_global_state()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use std::sync::mpsc::channel;
+
+    use libsigner::v0::messages::RejectReason;
+    use stacks::chainstate::nakamoto::signer_set::NakamotoSigners;
+    use stacks::libstackerdb::StackerDBChunkData;
+    use stacks::types::chainstate::StacksPrivateKey;
+
+    use super::*;
+
+    /// Deliver a rejection of a tracked block from the only registered signer (weight 1), signed
+    /// for mainnet or testnet, to a testnet listener and report the block's resulting status.
+    fn run_rejection_case(mainnet: bool) -> BlockStatus {
+        let signer_key = StacksPrivateKey::from_seed(&[9, 1]);
+        let signer_pk = StacksPublicKey::from_private(&signer_key);
+        let signer_set = 1;
+        let signer_entry = NakamotoSignerEntry {
+            signing_key: signer_pk.to_bytes_compressed().try_into().unwrap(),
+            stacked_amt: 0,
+            weight: 1,
+        };
+
+        let (sender, receiver) = channel();
+        let mut listener = StackerDBListener {
+            stackerdb_channel: Arc::new(Mutex::new(StackerDBChannel::new())),
+            receiver: Some(receiver),
+            node_keep_running: Arc::new(AtomicBool::new(true)),
+            keep_running: Arc::new(AtomicBool::new(true)),
+            signer_set,
+            total_weight: 1,
+            weight_threshold: 1,
+            signer_entries: HashMap::from([(0, signer_entry)]),
+            blocks: Arc::new((Mutex::new(HashMap::new()), Condvar::new())),
+            signer_idle_timestamps: Arc::new(Mutex::new(HashMap::new())),
+            signer_read_count_timestamps: Arc::new(Mutex::new(HashMap::new())),
+            global_state_evaluator: Arc::new(Mutex::new(GlobalStateEvaluator::new(
+                HashMap::new(),
+                HashMap::new(),
+            ))),
+            is_mainnet: false,
+        };
+        let comms = listener.get_comms();
+
+        let header = NakamotoBlockHeader::empty();
+        let hash = header.signer_signature_hash();
+        comms.insert_block(&header);
+
+        let rejection = BlockRejection::new(
+            hash.clone(),
+            RejectReason::TestingDirective,
+            &signer_key,
+            mainnet,
+            u64::MAX,
+            u64::MAX,
+        );
+        let message = SignerMessageV0::BlockResponse(BlockResponse::Rejected(rejection));
+        let mut chunk = StackerDBChunkData::new(0, 1, message.serialize_to_vec());
+        chunk.sign(&signer_key).unwrap();
+        sender
+            .send(StackerDBChunksEvent {
+                contract_id: NakamotoSigners::make_signers_db_contract_id(
+                    signer_set.into(),
+                    MessageSlotID::BlockResponse.to_u32(),
+                    false,
+                ),
+                modified_slots: vec![chunk],
+            })
+            .unwrap();
+        // With the sender gone, `run` handles the queued event and then exits on disconnect.
+        drop(sender);
+        assert!(listener.run().is_err());
+
+        let (lock, _cvar) = &*comms.blocks;
+        let blocks = lock.lock().unwrap();
+        blocks.get(&hash).unwrap().clone()
+    }
+
+    #[test]
+    fn rejection_for_this_network_is_counted() {
+        let status = run_rejection_case(false);
+        assert_eq!(status.total_weight_rejected, 1);
+        assert!(status.responded_signers.contains(&0));
+    }
+
+    #[test]
+    fn rejection_for_another_network_is_ignored() {
+        let status = run_rejection_case(true);
+        assert_eq!(status.total_weight_rejected, 0);
+        assert!(status.responded_signers.is_empty());
+    }
+}
