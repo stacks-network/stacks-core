@@ -39,6 +39,8 @@ pub mod runloop;
 pub mod signerdb;
 /// Online pruning of the signer db
 pub mod signerdb_pruner;
+/// Shrinking of the signer db file
+pub mod signerdb_shrink;
 /// The util module for the signer
 pub mod utils;
 /// The v0 implementation of the signer.

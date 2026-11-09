@@ -20,7 +20,7 @@
 
 use blockstack_lib::chainstate::stacks::{
     StacksTransaction, TokenTransferMemo, TransactionAnchorMode, TransactionAuth,
-    TransactionPayload, TransactionPostConditionMode, TransactionVersion,
+    TransactionContractCall, TransactionPayload, TransactionPostConditionMode, TransactionVersion,
 };
 use blockstack_lib::net::api::get_tenures_fork_info::TenureForkingInfo;
 use blockstack_lib::net::api::postblock_proposal::{BlockValidateOk, ValidateRejectCode};
@@ -28,8 +28,9 @@ use clarity::codec::StacksMessageCodec;
 use clarity::types::chainstate::{
     BurnchainHeaderHash, ConsensusHash, SortitionId, StacksAddress, StacksPrivateKey,
 };
-use clarity::vm::types::PrincipalData;
-use libsigner::v0::messages::StateMachineUpdate;
+use clarity::vm::types::{PrincipalData, TupleData};
+use clarity::vm::{ClarityName, ContractName, Value};
+use libsigner::v0::messages::{SignerMessage, SignerMessageTypePrefix, StateMachineUpdate};
 use serde_json::json;
 
 /// Byte layout of a `StateMachineUpdate` carrying a `V2` content payload with an
@@ -64,7 +65,7 @@ fn encode_state_machine_update_v2(replay_txs: &[StacksTransaction]) -> Vec<u8> {
     bytes
 }
 
-fn make_transaction(memo: [u8; 34]) -> StacksTransaction {
+fn make_transaction_with_payload(payload: TransactionPayload) -> StacksTransaction {
     let pk = StacksPrivateKey::random();
     StacksTransaction {
         version: TransactionVersion::Testnet,
@@ -73,12 +74,16 @@ fn make_transaction(memo: [u8; 34]) -> StacksTransaction {
         anchor_mode: TransactionAnchorMode::Any,
         post_condition_mode: TransactionPostConditionMode::Allow,
         post_conditions: vec![],
-        payload: TransactionPayload::TokenTransfer(
-            PrincipalData::from(StacksAddress::burn_address(false)),
-            100,
-            TokenTransferMemo(memo),
-        ),
+        payload,
     }
+}
+
+fn make_transaction(memo: [u8; 34]) -> StacksTransaction {
+    make_transaction_with_payload(TransactionPayload::TokenTransfer(
+        PrincipalData::from(StacksAddress::burn_address(false)),
+        100,
+        TokenTransferMemo(memo),
+    ))
 }
 
 /// Tripwire 1 — the `StateMachineUpdate` V2 wire format is frozen.
@@ -136,7 +141,8 @@ fn state_machine_update_v2_wire_format_is_frozen() {
 /// Tripwire 2 — a message from a *pre-removal* signer still decodes.
 ///
 /// Until every signer has upgraded, peers keep broadcasting populated replay sets. Those
-/// messages must still parse.
+/// messages must still parse. The transactions themselves are skipped undecoded, so the update
+/// decodes with an empty replay set and re-encodes as the frozen empty-vector form.
 #[test]
 fn state_machine_update_v2_with_populated_replay_set_still_decodes() {
     let txs = vec![make_transaction([1u8; 34]), make_transaction([2u8; 34])];
@@ -157,10 +163,101 @@ fn state_machine_update_v2_with_populated_replay_set_still_decodes() {
         .consensus_serialize(&mut reencoded)
         .expect("re-encoding must succeed");
     assert_eq!(
-        reencoded, bytes,
-        "V1/V2 keep their declared replay_transactions field and the codec is untouched, \
-         so a populated set must survive a decode/encode round trip"
+        reencoded,
+        encode_state_machine_update_v2(&[]),
+        "inbound replay transactions are discarded, so the update must re-encode with the \
+         frozen empty replay vector"
     );
+}
+
+/// Tripwire 2a — inbound replay transactions are never decoded.
+///
+/// The replay set is unused, so only its count is read. The bytes after the count must not even
+/// be parsed, so garbage there must not stop the update from decoding.
+#[test]
+fn state_machine_update_v2_replay_set_is_not_decoded() {
+    let tuple_arg = Value::Tuple(
+        TupleData::from_data(vec![(ClarityName::from_literal("a"), Value::none())]).unwrap(),
+    );
+    let replay_tx =
+        make_transaction_with_payload(TransactionPayload::ContractCall(TransactionContractCall {
+            address: StacksAddress::burn_address(false),
+            contract_name: ContractName::from_literal("c"),
+            function_name: ClarityName::from_literal("f"),
+            function_args: vec![tuple_arg; 10_000],
+        }));
+    let bytes = encode_state_machine_update_v2(&[replay_tx]);
+    let decoded = StateMachineUpdate::consensus_deserialize(&mut &bytes[..])
+        .expect("a V2 update carrying a populated replay set must decode");
+    let mut reencoded = Vec::new();
+    decoded.consensus_serialize(&mut reencoded).unwrap();
+    assert_eq!(reencoded, encode_state_machine_update_v2(&[]));
+
+    // A count followed by bytes that are not a valid transaction still decodes.
+    let mut garbage = encode_state_machine_update_v2(&[]);
+    garbage.truncate(garbage.len() - 4);
+    garbage.extend_from_slice(&1u32.to_be_bytes());
+    garbage.extend_from_slice(&[0xff; 64]);
+    let content_len = u32::try_from(garbage.len() - 20).unwrap();
+    garbage[16..20].copy_from_slice(&content_len.to_be_bytes());
+    StateMachineUpdate::consensus_deserialize(&mut &garbage[..])
+        .expect("bytes after the replay count must be skipped, not parsed");
+}
+
+/// Tripwire 2b — raw state machine update chunks are only decoded as state machine updates.
+///
+/// The startup loaders read each signer's state machine update slot directly from StackerDB,
+/// without the lane check applied to live events. A chunk with any other type prefix must be
+/// rejected before its payload is decoded.
+#[test]
+fn state_machine_update_chunk_requires_matching_prefix() {
+    let update = encode_state_machine_update_v2(&[]);
+
+    let mut chunk = vec![SignerMessageTypePrefix::StateMachineUpdate.to_u8()];
+    chunk.extend_from_slice(&update);
+    let decoded = StateMachineUpdate::from_signer_message_chunk(&chunk)
+        .expect("a state machine update chunk must decode");
+    let Ok(SignerMessage::StateMachineUpdate(expected)) =
+        SignerMessage::consensus_deserialize(&mut &chunk[..])
+    else {
+        panic!("chunk must decode as a SignerMessage::StateMachineUpdate");
+    };
+    assert_eq!(decoded, expected);
+
+    chunk[0] = SignerMessageTypePrefix::BlockPushed.to_u8();
+    assert!(StateMachineUpdate::from_signer_message_chunk(&chunk).is_none());
+    assert!(StateMachineUpdate::from_signer_message_chunk(&[]).is_none());
+}
+
+/// Tripwire 2c — persisted replay transactions are never deserialized.
+///
+/// The signer DB stores state machine updates as JSON. Rows written by a pre-removal binary may
+/// hold a populated replay set, which must not be rebuilt when the row is loaded: the field is
+/// skipped, so even a value that is not a valid transaction list loads as an empty set.
+#[test]
+fn state_machine_update_persisted_replay_set_is_not_deserialized() {
+    let update =
+        StateMachineUpdate::consensus_deserialize(&mut &encode_state_machine_update_v2(&[])[..])
+            .unwrap();
+    let mut value = serde_json::to_value(&update).unwrap();
+    let replay_transactions = value
+        .pointer_mut("/content/V2/replay_transactions")
+        .expect("V2 content must serialize a replay_transactions key");
+
+    *replay_transactions = serde_json::to_value(vec![make_transaction([1u8; 34])]).unwrap();
+    let parsed = serde_json::from_value::<StateMachineUpdate>(value.clone())
+        .expect("a persisted update with a replay set must deserialize");
+    assert_eq!(
+        parsed, update,
+        "persisted replay transactions must be dropped"
+    );
+
+    *value
+        .pointer_mut("/content/V2/replay_transactions")
+        .unwrap() = json!("not transactions");
+    let parsed = serde_json::from_value::<StateMachineUpdate>(value)
+        .expect("the persisted replay set must be skipped, not parsed");
+    assert_eq!(parsed, update);
 }
 
 /// Tripwire 3 — `/v3/block_proposal` responses still carry the replay fields.

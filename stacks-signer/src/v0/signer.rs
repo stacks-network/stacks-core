@@ -25,7 +25,6 @@ use blockstack_lib::net::api::postblock_proposal::{
     TOO_MANY_REQUESTS_STATUS,
 };
 use blockstack_lib::util_lib::db::Error as DBError;
-use clarity::codec::read_next;
 use clarity::types::chainstate::{StacksBlockId, StacksPrivateKey};
 use clarity::types::{PrivateKey, StacksEpochId};
 use clarity::util::hash::{MerkleHashFunc, Sha512Trunc256Sum};
@@ -258,9 +257,7 @@ fn load_state_machine_updates(
             continue;
         };
 
-        let Ok(SignerMessage::StateMachineUpdate(update)) =
-            read_next::<SignerMessage, _>(&mut &chunk[..])
-        else {
+        let Some(update) = StateMachineUpdate::from_signer_message_chunk(&chunk) else {
             continue;
         };
 
