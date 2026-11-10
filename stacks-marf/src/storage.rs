@@ -2411,7 +2411,7 @@ impl<T: MarfTrieId> TrieStorageConnection<'_, T> {
             Some(trie_file) => trie_file.read_blob_header::<T>(db, block_id),
             None => {
                 let mut blob = db.blob_open(
-                    rusqlite::DatabaseName::Main,
+                    rusqlite::MAIN_DB,
                     "marf_data",
                     "data",
                     block_id.into(),

@@ -1291,38 +1291,6 @@ impl<'a> SortitionHandleTx<'a> {
         })
     }
 
-    /// Find the VRF public keys consumed by each block candidate in the given list.
-    /// The burn DB should have a key for each candidate; otherwise the candidate would not have
-    /// been accepted.
-    pub fn get_consumed_leader_keys(
-        &mut self,
-        parent_tip: &BlockSnapshot,
-        block_candidates: &[LeaderBlockCommitOp],
-    ) -> Result<Vec<LeaderKeyRegisterOp>, db_error> {
-        // get the set of VRF keys consumed by these commits
-        let mut leader_keys = vec![];
-        for candidate in block_candidates.iter() {
-            let leader_key_block_height = candidate.key_block_ptr as u64;
-            let leader_key_vtxindex = candidate.key_vtxindex as u32;
-            let leader_key = self
-                .get_leader_key_at(
-                    leader_key_block_height,
-                    leader_key_vtxindex,
-                    &parent_tip.sortition_id,
-                )?
-                .unwrap_or_else(|| {
-                    panic!(
-                        "FATAL: no leader key for accepted block commit {} (at {},{})",
-                        &candidate.txid, leader_key_block_height, leader_key_vtxindex
-                    )
-                });
-
-            leader_keys.push(leader_key);
-        }
-
-        Ok(leader_keys)
-    }
-
     /// Get a block commit by its content-addressed location in a specific sortition.
     pub fn get_block_commit(
         &self,
@@ -5698,7 +5666,8 @@ impl SortitionHandleTx<'_> {
         let args = params![
             new_sortition,
             serde_json::to_string(&transition.accepted_ops).unwrap(),
-            serde_json::to_string(&transition.consumed_leader_keys).unwrap(),
+            // consumed_keys is no longer tracked; the NOT NULL column is kept to avoid a migration
+            "[]",
         ];
         self.execute(sql, args)?;
         self.store_burn_distribution(new_sortition, transition);
@@ -6738,7 +6707,7 @@ impl ChainstateDB for SortitionDB {
 
 #[cfg(test)]
 pub mod tests {
-    use std::{assert_matches, slice};
+    use std::assert_matches;
 
     use clarity::vm::costs::ExecutionCost;
     use rand::RngCore;
@@ -7838,13 +7807,36 @@ pub mod tests {
             )],
         );
 
-        // test get_consumed_leader_keys()
+        // many commits referencing the same key must not store copies of it
         {
-            let mut ic = SortitionHandleTx::begin(&mut db, &snapshot.sortition_id).unwrap();
-            let keys = ic
-                .get_consumed_leader_keys(&snapshot, slice::from_ref(&block_commit))
+            let burnchain = Burnchain::default_unittest(block_height, &first_burn_hash);
+            let commits: Vec<_> = (0..100u8)
+                .map(|i| {
+                    let mut commit = block_commit.clone();
+                    commit.txid = Txid([i; 32]);
+                    commit.vtxindex = i.into();
+                    BlockstackOperationType::LeaderBlockCommit(commit)
+                })
+                .collect();
+            let mut tx = SortitionHandleTx::begin(&mut db, &snapshot.sortition_id).unwrap();
+            let transition = BurnchainStateTransition::from_block_ops(
+                &mut tx,
+                &burnchain,
+                &snapshot,
+                &commits,
+                &[],
+            )
+            .unwrap();
+            let sortition_id = SortitionId([0xff; 32]);
+            tx.store_transition_ops(&sortition_id, &transition).unwrap();
+            let consumed_keys: String = tx
+                .query_row(
+                    "SELECT consumed_keys FROM snapshot_transition_ops WHERE sortition_id = ?",
+                    [&sortition_id],
+                    |row| row.get(0),
+                )
                 .unwrap();
-            assert_eq!(keys, vec![leader_key.clone()]);
+            assert_eq!(consumed_keys, "[]");
         }
 
         let snapshot_consumed = test_append_snapshot(
@@ -7931,15 +7923,6 @@ pub mod tests {
             );
         }
 
-        // test get_consumed_leader_keys() (should be doable at any subsequent index root)
-        {
-            let mut ic = SortitionHandleTx::begin(&mut db, &snapshot.sortition_id).unwrap();
-            let keys = ic
-                .get_consumed_leader_keys(&empty_snapshot, slice::from_ref(&block_commit))
-                .unwrap();
-            assert_eq!(keys, vec![leader_key.clone()]);
-        }
-
         // make a fork between the leader key and block commit, and verify that the key is
         // unconsumed
         let fork_snapshot = {
@@ -7968,13 +7951,17 @@ pub mod tests {
             sn
         };
 
-        // test get_consumed_leader_keys() and is_leader_key_consumed() against this new fork
+        // the key is still visible on this new fork
         {
             let mut ic = SortitionHandleTx::begin(&mut db, &snapshot.sortition_id).unwrap();
-            let keys = ic
-                .get_consumed_leader_keys(&fork_snapshot, &[block_commit])
+            let key = ic
+                .get_leader_key_at(
+                    block_commit.key_block_ptr.into(),
+                    block_commit.key_vtxindex.into(),
+                    &fork_snapshot.sortition_id,
+                )
                 .unwrap();
-            assert_eq!(keys, vec![leader_key]);
+            assert_eq!(key, Some(leader_key));
         }
     }
 

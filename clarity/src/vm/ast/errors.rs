@@ -261,6 +261,12 @@ impl From<ParseErrorKind> for ParseError {
     }
 }
 
+impl From<LexerError> for ParseError {
+    fn from(err: LexerError) -> Self {
+        ParseError::new(ParseErrorKind::Lexer(err))
+    }
+}
+
 impl From<CostErrors> for ParseError {
     fn from(err: CostErrors) -> Self {
         match err {
