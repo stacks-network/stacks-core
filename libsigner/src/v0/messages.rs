@@ -593,6 +593,11 @@ pub enum StateMachineUpdateContent {
         /// it fail to decode the whole update. Retained so the variant matches the format it
         /// declares. **Do not carry this field into a future content version**; a `V3` without it
         /// is the proper way to retire it.
+        ///
+        /// Inbound updates never populate it: any transactions on the wire are skipped
+        /// undecoded (see `skip_legacy_replay_transactions`), and any persisted by an older
+        /// binary are skipped when deserializing.
+        #[serde(skip_deserializing)]
         replay_transactions: Vec<StacksTransaction>,
     },
     /// Version 2 is exactly the same as Version 1, but is used to indicate this signer is
@@ -611,6 +616,11 @@ pub enum StateMachineUpdateContent {
         /// it fail to decode the whole update. Retained so the variant matches the format it
         /// declares. **Do not carry this field into a future content version**; a `V3` without it
         /// is the proper way to retire it.
+        ///
+        /// Inbound updates never populate it: any transactions on the wire are skipped
+        /// undecoded (see `skip_legacy_replay_transactions`), and any persisted by an older
+        /// binary are skipped when deserializing.
+        #[serde(skip_deserializing)]
         replay_transactions: Vec<StacksTransaction>,
     },
 }
@@ -679,6 +689,21 @@ pub enum StateMachineUpdateMinerState {
     NoValidMiner,
 }
 impl StateMachineUpdate {
+    /// Decode a `StateMachineUpdate` from a raw `SignerMessage` StackerDB chunk.
+    ///
+    /// Returns `None` unless the chunk's type prefix is `StateMachineUpdate`. The prefix is
+    /// checked before anything else is decoded, so a chunk holding some other message type
+    /// (e.g. a `BlockPushed`) is never decoded as part of loading state machine updates. This
+    /// mirrors the lane check applied to live StackerDB events.
+    pub fn from_signer_message_chunk(chunk: &[u8]) -> Option<Self> {
+        let (&type_byte, rest) = chunk.split_first()?;
+        let payload_kind = SignerMessageTypePrefix::from_u8(type_byte)?;
+        if payload_kind.msg_id() != Some(MessageSlotID::StateMachineUpdate) {
+            return None;
+        }
+        Self::consensus_deserialize(&mut &rest[..]).ok()
+    }
+
     /// Create a `StateMachineUpdate` for **outbound** messages.
     ///
     /// The content version **must exactly match** the negotiated protocol version:
@@ -911,6 +936,20 @@ impl StateMachineUpdateContent {
         }
         Ok(())
     }
+
+    /// Read past the legacy `replay_transactions` wire field without decoding it.
+    ///
+    /// Transaction replay was removed, so the transactions are never used and there is no reason
+    /// to decode, clone or persist them. Only the item count is read; the transactions are the
+    /// last field of the length-delimited content buffer, so the caller discards them with the
+    /// buffer. Updates from older signers that still send a replay set therefore remain readable.
+    fn skip_legacy_replay_transactions<R: Read>(fd: &mut R) -> Result<(), CodecError> {
+        let _num_replay_transactions: u32 = read_next(fd)?;
+        Ok(())
+    }
+
+    /// Deserialize the content from `fd`, which must hold exactly the content's
+    /// length-delimited buffer: any bytes after the fields read here are ignored.
     fn deserialize<R: Read>(fd: &mut R, version: u64) -> Result<Self, CodecError> {
         let burn_block = read_next(fd)?;
         let burn_block_height = read_next(fd)?;
@@ -922,21 +961,21 @@ impl StateMachineUpdateContent {
                 current_miner,
             }),
             1 => {
-                let replay_transactions = read_next(fd)?;
+                Self::skip_legacy_replay_transactions(fd)?;
                 Ok(Self::V1 {
                     burn_block,
                     burn_block_height,
                     current_miner,
-                    replay_transactions,
+                    replay_transactions: vec![],
                 })
             }
             2 => {
-                let replay_transactions = read_next(fd)?;
+                Self::skip_legacy_replay_transactions(fd)?;
                 Ok(Self::V2 {
                     burn_block,
                     burn_block_height,
                     current_miner,
-                    replay_transactions,
+                    replay_transactions: vec![],
                 })
             }
             other => Err(CodecError::DeserializeError(format!(

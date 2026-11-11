@@ -252,6 +252,12 @@ impl PeerThread {
                 self.net.has_more_downloads()
             );
             1
+        } else if !download_backpressure && self.net.has_pending_inbound_work() {
+            // finish handling inbound messages left over from the last pass.  Like the
+            // downloader, don't spin while the relayer is still working through the blocks we
+            // already handed it -- the leftover messages stay queued until it catches up.
+            debug!("P2P: inbound messages pending");
+            1
         } else {
             self.poll_timeout
         };
