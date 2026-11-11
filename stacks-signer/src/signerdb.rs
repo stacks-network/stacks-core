@@ -4370,7 +4370,7 @@ pub mod tests {
         let db = SignerDb::new(db_path).expect("Failed to create signer db");
         assert_eq!(
             query_row(&db.db, "SELECT sqlite_version()", []).unwrap(),
-            Some("3.45.0".to_string())
+            Some("3.54.1".to_string())
         );
     }
 
