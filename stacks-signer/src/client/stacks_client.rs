@@ -170,7 +170,10 @@ impl StacksClient {
                 .get(self.tenure_tip_path(tenure_id))
                 .send()
                 .map_err(|e| {
-                    warn!("Signer failed to request latest sortition"; "err" => ?e);
+                    warn!("Signer failed to request tenure tip";
+                        "consensus_hash" => %tenure_id,
+                        "err" => ?e,
+                    );
                     e
                 })
         };
