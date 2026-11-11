@@ -1,0 +1,1 @@
+Added `GET /v3/blocks/:block_id/view`, reporting the tenure and burn view a block hangs from and whether a burnchain fork has orphaned either, and a `canonical` field on the sortition info returned by `/v3/sortitions`. Signers use both to tell whether a conflicting block is dead.

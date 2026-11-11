@@ -20,13 +20,15 @@ use clarity::types::chainstate::VRFSeed;
 use stacks_common::types::chainstate::{BurnchainHeaderHash, ConsensusHash};
 use stacks_common::types::net::PeerHost;
 
+use crate::chainstate::burn::db::sortdb::SortitionDB;
 use crate::net::api::getsortition::{GetSortitionHandler, QuerySpecifier, SortitionInfo};
-use crate::net::api::tests::test_rpc;
+use crate::net::api::tests::{test_rpc, TestRPC};
 use crate::net::connection::ConnectionOptions;
 use crate::net::http::{
     Error as HttpError, HttpRequestContents, HttpRequestPreamble, HttpResponsePayload, HttpVersion,
 };
 use crate::net::httpcore::{RPCRequestHandler, StacksHttp, StacksHttpRequest};
+use crate::net::test::TestEventObserver;
 use crate::net::Error as NetError;
 
 fn make_preamble(query: &str) -> HttpRequestPreamble {
@@ -41,6 +43,34 @@ fn make_preamble(query: &str) -> HttpRequestPreamble {
         headers: BTreeMap::new(),
         set_cookie: Vec::new(),
     }
+}
+
+/// A signer may run against a node too old to report `canonical`. That response has to keep
+/// deserializing: `SortitionInfo` also carries the current-and-last sortition query that drives
+/// signer state reconstruction, so a hard failure here would stop a signer updating its state
+/// at all rather than merely losing one field.
+#[test]
+fn response_without_canonical_still_deserializes() {
+    let without_canonical = r#"{
+        "burn_block_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
+        "burn_block_height": 1,
+        "burn_header_timestamp": 0,
+        "sortition_id": "0x0000000000000000000000000000000000000000000000000000000000000000",
+        "parent_sortition_id": "0x0000000000000000000000000000000000000000000000000000000000000000",
+        "consensus_hash": "0x0000000000000000000000000000000000000000",
+        "was_sortition": true,
+        "miner_pk_hash160": null,
+        "stacks_parent_ch": null,
+        "last_sortition_ch": null,
+        "committed_block_hash": null,
+        "vrf_seed": null
+    }"#;
+    let info: SortitionInfo = serde_json::from_str(without_canonical)
+        .expect("an older node's sortition response must still deserialize");
+    assert_eq!(
+        info.canonical, None,
+        "a missing `canonical` is the unanswered question, not either answer"
+    );
 }
 
 #[test]
@@ -172,4 +202,53 @@ fn response() {
         first_entry.last_sortition_ch.as_ref().unwrap(),
         &second_entry.consensus_hash,
     );
+}
+
+/// `canonical` reports where the node placed the sortition: `false` for one a burnchain fork
+/// orphaned, `true` for one below the fork point. Signers read `false` as proof a tenure is dead
+/// and release a signature on it, so that answer in particular has to be right.
+#[test]
+fn response_reports_orphaned_sortition() {
+    let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 33333);
+
+    let test_observer = TestEventObserver::new();
+    let mut rpc_test = TestRPC::setup_nakamoto(function_name!(), &test_observer);
+    let orphaned_ch = rpc_test.consensus_hash.clone();
+    let surviving_ch = {
+        let sortdb = rpc_test.peer_2.sortdb();
+        let orphaned = SortitionDB::get_block_snapshot_consensus(sortdb.conn(), &orphaned_ch)
+            .unwrap()
+            .unwrap();
+        SortitionDB::get_block_snapshot(sortdb.conn(), &orphaned.parent_sortition_id)
+            .unwrap()
+            .unwrap()
+            .consensus_hash
+    };
+
+    rpc_test.orphan_sortition(&orphaned_ch);
+
+    let request_for = |ch: &ConsensusHash| {
+        StacksHttpRequest::new_for_peer(
+            addr.into(),
+            "GET".into(),
+            format!("/v3/sortitions/consensus/{ch}"),
+            HttpRequestContents::new(),
+        )
+        .expect("FATAL: failed to construct request from infallible data")
+    };
+    let mut responses = rpc_test.run(vec![request_for(&orphaned_ch), request_for(&surviving_ch)]);
+
+    let mut decode = |expected_ch: &ConsensusHash| {
+        let HttpResponsePayload::JSON(response) =
+            responses.remove(0).get_http_payload_ok().unwrap()
+        else {
+            panic!("Expected JSON response");
+        };
+        let info: SortitionInfo = serde_json::from_value(response[0].clone())
+            .expect("Response array elements should parse to SortitionInfo");
+        assert_eq!(&info.consensus_hash, expected_ch);
+        info.canonical
+    };
+    assert_eq!(decode(&orphaned_ch), Some(false));
+    assert_eq!(decode(&surviving_ch), Some(true));
 }

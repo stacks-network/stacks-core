@@ -99,6 +99,7 @@ fn setup_test_environment(
             first_proposal_burn_block_timing: Duration::from_secs(30),
             block_proposal_timeout: Duration::from_secs(5),
             tenure_last_block_proposal_timeout: Duration::from_secs(30),
+            pre_commit_exclusivity_timeout: Duration::ZERO,
             tenure_idle_timeout: Duration::from_secs(300),
             tenure_idle_timeout_buffer: Duration::from_secs(2),
             reorg_attempts_activity_timeout: Duration::from_secs(3),
@@ -676,6 +677,7 @@ fn check_proposal_refresh() {
 
     let expected_result = vec![
         SortitionInfo {
+            canonical: Some(true),
             burn_block_hash: last_sortition.burn_block_hash.clone(),
             burn_block_height: 2,
             sortition_id: SortitionId([2; 32]),
@@ -690,6 +692,7 @@ fn check_proposal_refresh() {
             vrf_seed: None,
         },
         SortitionInfo {
+            canonical: Some(true),
             burn_block_hash: BurnchainHeaderHash([128; 32]),
             burn_block_height: 1,
             sortition_id: SortitionId([1; 32]),
