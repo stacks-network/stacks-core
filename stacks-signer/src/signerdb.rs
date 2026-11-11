@@ -20,7 +20,7 @@ use std::path::Path;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use blockstack_lib::chainstate::nakamoto::NakamotoBlock;
-use blockstack_lib::chainstate::stacks::{TenureChangeCause, TransactionPayload};
+use blockstack_lib::chainstate::stacks::{TenureChangeCause, TransactionPayload, MAX_EPOCH_SIZE};
 use blockstack_lib::util_lib::db::{
     query_row, query_rows, sqlite_open, table_exists, tx_begin_immediate, u64_to_sql, DBTx,
     Error as DBError, FromColumn, FromRow,
@@ -40,7 +40,7 @@ use stacks_common::util::hash::Sha512Trunc256Sum;
 use stacks_common::util::secp256k1::MessageSignature;
 #[cfg(test)]
 use stacks_common::util::secp256k1::Secp256k1PrivateKey;
-use stacks_common::{debug, define_u8_enum, error, warn};
+use stacks_common::{debug, define_u8_enum, error};
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 /// A vote across the signer set for a block
@@ -367,20 +367,46 @@ impl BlockInfo {
             && (self.signed_self.is_some() || self.valid == Some(false))
     }
 
-    /// Perform static checks on the BlockInfo and determine if it is syntactically valid.
-    /// Specifically, all integer values must be less than i64::MAX, since these values get stored
-    /// in the sqlite DB via u64_to_sql()
+    /// Check integer storage bounds and the consensus transaction-byte limit.
     pub fn check_static_valid_block(&self) -> bool {
+        Self::check_static_block_parts(&self.block, self.burn_block_height, self.reward_cycle)
+    }
+
+    /// Check a proposal before it can be deferred or stored.
+    pub fn check_static_valid_proposal(proposal: &BlockProposal) -> bool {
+        Self::check_static_block_parts(&proposal.block, proposal.burn_height, proposal.reward_cycle)
+    }
+
+    /// Check fields that do not depend on signer or chain state.
+    fn check_static_block_parts(
+        block: &NakamotoBlock,
+        burn_height: u64,
+        reward_cycle: u64,
+    ) -> bool {
         let max_val = u64::try_from(i64::MAX).expect("infallible");
-        if self.block.header.chain_length >= max_val {
+
+        if block.header.chain_length >= max_val {
             return false;
         }
-        if self.burn_block_height >= max_val {
+
+        if burn_height >= max_val {
             return false;
         }
-        if self.reward_cycle >= max_val {
+
+        if reward_cycle >= max_val {
             return false;
         }
+
+        let mut transaction_bytes = 0u64;
+        for tx in block.txs() {
+            transaction_bytes =
+                transaction_bytes.saturating_add(tx.tx_ignoring_problematic_state().tx_len());
+
+            if transaction_bytes > u64::from(MAX_EPOCH_SIZE) {
+                return false;
+            }
+        }
+
         true
     }
 }
@@ -847,6 +873,48 @@ pub struct SignerDb {
     /// Connection to the SQLite database
     db: Connection,
 }
+
+/// Outcome of recording a signer's rejection of a block.
+#[derive(Debug, PartialEq, Eq)]
+pub enum BlockRejectionUpdate {
+    /// The signer's first recorded rejection of this block.
+    Inserted,
+    /// An existing rejection changed its reason code.
+    Updated,
+    /// The rejection was a duplicate or the signer already accepted the block.
+    Unchanged,
+}
+
+/// Scalar block fields needed to process signer responses without loading the body.
+#[derive(Debug)]
+pub struct BlockMessageInfo {
+    /// Reward cycle in which the proposal was received.
+    pub reward_cycle: u64,
+    /// Whether local validation has accepted or rejected the proposal.
+    pub valid: Option<bool>,
+    /// Whether this signer has already signed the block.
+    pub signed_self: bool,
+    /// Whether the block has reached a global decision.
+    pub has_reached_consensus: bool,
+    /// Tenure identifier for progress logs.
+    pub consensus_hash: String,
+    /// Proposed Stacks height for progress logs.
+    pub stacks_height: u64,
+}
+
+/// Read signer-response metadata from the covering index.
+const BLOCK_MESSAGE_INFO_QUERY: &str = "
+SELECT
+    reward_cycle,
+    valid,
+    signed_self IS NOT NULL,
+    consensus_hash,
+    stacks_height,
+    state IN ('GloballyAccepted', 'GloballyRejected')
+FROM blocks
+INDEXED BY blocks_message_info
+WHERE signer_signature_hash = ?1
+";
 
 static CREATE_BLOCKS_TABLE_1: &str = "
 CREATE TABLE IF NOT EXISTS blocks (
@@ -1598,6 +1666,21 @@ static SCHEMA_22: &[&str] = &[
     "INSERT INTO db_config (version) VALUES (22);",
 ];
 
+static SCHEMA_23: &[&str] = &[
+    // Cover all scalar fields used by signer-response handlers.
+    "CREATE INDEX IF NOT EXISTS blocks_message_info
+    ON blocks (
+        signer_signature_hash,
+        reward_cycle,
+        valid,
+        signed_self,
+        state,
+        consensus_hash,
+        stacks_height
+    );",
+    "INSERT INTO db_config (version) VALUES (23);",
+];
+
 struct Migration {
     version: SchemaVersion,
     statements: &'static [&'static str],
@@ -1632,6 +1715,7 @@ enum SchemaVersion {
     V20 = 20,
     V21 = 21,
     V22 = 22,
+    V23 = 23,
 }
 
 impl SchemaVersion {
@@ -1729,11 +1813,15 @@ static MIGRATIONS: &[Migration] = &[
         version: SchemaVersion::V22,
         statements: SCHEMA_22,
     },
+    Migration {
+        version: SchemaVersion::V23,
+        statements: SCHEMA_23,
+    },
 ];
 
 impl SignerDb {
     /// The current schema version used in this build of the signer binary.
-    pub const SCHEMA_VERSION: u32 = SchemaVersion::V22.as_u32();
+    pub const SCHEMA_VERSION: u32 = SchemaVersion::V23.as_u32();
 
     /// Create a new `SignerState` instance.
     /// This will create a new SQLite database at the given path
@@ -1960,6 +2048,56 @@ impl SignerDb {
         )?;
 
         try_deserialize(result)
+    }
+
+    /// Fetch a block only when it belongs to the requested reward cycle.
+    pub fn block_lookup_for_reward_cycle(
+        &self,
+        hash: &Sha512Trunc256Sum,
+        reward_cycle: u64,
+    ) -> Result<Option<BlockInfo>, DBError> {
+        let result: Option<String> = query_row(
+            &self.db,
+            "SELECT block_info FROM blocks WHERE signer_signature_hash = ?1 AND reward_cycle = ?2",
+            params![hash.to_string(), u64_to_sql(reward_cycle)?],
+        )?;
+
+        try_deserialize(result)
+    }
+
+    /// Whether a known block hash belongs to a different reward cycle.
+    pub fn block_exists_in_another_reward_cycle(
+        &self,
+        hash: &Sha512Trunc256Sum,
+        reward_cycle: u64,
+    ) -> Result<bool, DBError> {
+        let result: Option<u64> = query_row(
+            &self.db,
+            "SELECT 1 FROM blocks WHERE signer_signature_hash = ?1 AND reward_cycle != ?2",
+            params![hash.to_string(), u64_to_sql(reward_cycle)?],
+        )?;
+
+        Ok(result.is_some())
+    }
+
+    /// Read only scalar fields required for signer-response accounting.
+    pub fn block_message_info(
+        &self,
+        hash: &Sha512Trunc256Sum,
+    ) -> Result<Option<BlockMessageInfo>, DBError> {
+        self.db
+            .query_row(BLOCK_MESSAGE_INFO_QUERY, params![hash.to_string()], |row| {
+                Ok(BlockMessageInfo {
+                    reward_cycle: row.get(0)?,
+                    valid: row.get(1)?,
+                    signed_self: row.get(2)?,
+                    consensus_hash: row.get(3)?,
+                    stacks_height: row.get(4)?,
+                    has_reached_consensus: row.get(5)?,
+                })
+            })
+            .optional()
+            .map_err(DBError::from)
     }
 
     /// Return whether there was an approved/signed block in a tenure (identified by its consensus hash)
@@ -2479,6 +2617,21 @@ impl SignerDb {
         Ok(is_new_signature)
     }
 
+    /// Whether this signer has already supplied a signature for the block.
+    pub fn has_block_signature(
+        &self,
+        block_sighash: &Sha512Trunc256Sum,
+        signer_addr: &StacksAddress,
+    ) -> Result<bool, DBError> {
+        let result: Option<u64> = query_row(
+            &self.db,
+            "SELECT 1 FROM block_signatures WHERE signer_signature_hash = ?1 AND signer_addr = ?2",
+            params![block_sighash, signer_addr.to_string()],
+        )?;
+
+        Ok(result.is_some())
+    }
+
     /// Get all signatures for a block
     pub fn get_block_signatures(
         &self,
@@ -2493,24 +2646,24 @@ impl SignerDb {
             .collect()
     }
 
-    /// Record an observed block rejection_signature
+    /// Record an observed block rejection, distinguishing first receipt from reason updates.
     pub fn add_block_rejection_signer_addr(
         &self,
         block_sighash: &Sha512Trunc256Sum,
         addr: &StacksAddress,
         reject_reason: RejectReasonPrefix,
-    ) -> Result<bool, DBError> {
+    ) -> Result<BlockRejectionUpdate, DBError> {
         // If this signer/block already has a signature, do not allow a rejection
         let sig_qry = "SELECT EXISTS(SELECT 1 FROM block_signatures WHERE signer_signature_hash = ?1 AND signer_addr = ?2)";
         let sig_args = params![block_sighash, addr.to_string()];
         let exists = self.db.query_row(sig_qry, sig_args, |row| row.get(0))?;
         if exists {
-            warn!("Cannot add block rejection because a signature already exists.";
+            debug!("Cannot add block rejection because a signature already exists.";
                 "signer_signature_hash" => %block_sighash,
                 "signer_address" => %addr,
                 "reject_reason" => ?reject_reason
             );
-            return Ok(false);
+            return Ok(BlockRejectionUpdate::Unchanged);
         }
 
         // Check if a row exists for this sighash/signer combo
@@ -2529,7 +2682,7 @@ impl SignerDb {
                     "signer_address" => %addr,
                     "reject_reason" => ?reject_reason
                 );
-                Ok(false)
+                Ok(BlockRejectionUpdate::Unchanged)
             }
             Some(_) => {
                 // Row exists but with different reject_reason, update it
@@ -2541,7 +2694,7 @@ impl SignerDb {
                     "signer_address" => %addr,
                     "reject_reason" => ?reject_reason
                 );
-                Ok(true)
+                Ok(BlockRejectionUpdate::Updated)
             }
             None => {
                 // Row does not exist, insert it
@@ -2553,7 +2706,7 @@ impl SignerDb {
                     "signer_address" => %addr,
                     "reject_reason" => ?reject_reason
                 );
-                Ok(true)
+                Ok(BlockRejectionUpdate::Inserted)
             }
         }
     }
@@ -2980,21 +3133,22 @@ impl SignerDb {
         Ok(None)
     }
 
-    /// Record an observed block pre-commit
+    /// Record an observed block pre-commit.
+    ///
+    /// Returns `true` if the pre-commit was newly added, `false` if it was already present.
     pub fn add_block_pre_commit(
         &self,
         block_sighash: &Sha512Trunc256Sum,
         address: &StacksAddress,
-    ) -> Result<(), DBError> {
-        let qry = "INSERT OR REPLACE INTO block_pre_commits (signer_signature_hash, signer_addr) VALUES (?1, ?2);";
+    ) -> Result<bool, DBError> {
+        let qry = "INSERT OR IGNORE INTO block_pre_commits (signer_signature_hash, signer_addr) VALUES (?1, ?2);";
         let args = params![block_sighash, address.to_string()];
 
         debug!("Inserting block pre-commit.";
             "signer_signature_hash" => %block_sighash,
             "signer_addr" => %address);
 
-        self.db.execute(qry, args)?;
-        Ok(())
+        Ok(self.db.execute(qry, args)? > 0)
     }
 
     /// Check if the given address has already committed to sign the block identified by block_sighash
@@ -4520,25 +4674,29 @@ pub mod tests {
             vec![]
         );
 
-        assert!(db
-            .add_block_rejection_signer_addr(
+        std::assert_matches!(
+            db.add_block_rejection_signer_addr(
                 &block_id,
                 &address1,
                 RejectReasonPrefix::DuplicateBlockFound,
             )
-            .unwrap());
+            .unwrap(),
+            BlockRejectionUpdate::Inserted
+        );
         assert_eq!(
             db.get_block_rejection_signer_addrs(&block_id).unwrap(),
             vec![(address1.clone(), RejectReasonPrefix::DuplicateBlockFound)]
         );
 
-        assert!(db
-            .add_block_rejection_signer_addr(
+        std::assert_matches!(
+            db.add_block_rejection_signer_addr(
                 &block_id,
                 &address2,
                 RejectReasonPrefix::InvalidParentBlock,
             )
-            .unwrap());
+            .unwrap(),
+            BlockRejectionUpdate::Inserted
+        );
         assert_eq!(
             db.get_block_rejection_signer_addrs(&block_id).unwrap(),
             vec![
@@ -4608,29 +4766,43 @@ pub mod tests {
             vec![]
         );
 
-        assert!(db
-            .add_block_rejection_signer_addr(
+        std::assert_matches!(
+            db.add_block_rejection_signer_addr(
                 &block_id,
                 &address,
                 RejectReasonPrefix::InvalidParentBlock
             )
-            .unwrap());
+            .unwrap(),
+            BlockRejectionUpdate::Inserted
+        );
         assert_eq!(
             db.get_block_rejection_signer_addrs(&block_id).unwrap(),
             vec![(address.clone(), RejectReasonPrefix::InvalidParentBlock)]
         );
 
-        assert!(db
-            .add_block_rejection_signer_addr(&block_id, &address, RejectReasonPrefix::InvalidMiner)
-            .unwrap());
+        std::assert_matches!(
+            db.add_block_rejection_signer_addr(
+                &block_id,
+                &address,
+                RejectReasonPrefix::InvalidMiner
+            )
+            .unwrap(),
+            BlockRejectionUpdate::Updated
+        );
         assert_eq!(
             db.get_block_rejection_signer_addrs(&block_id).unwrap(),
             vec![(address.clone(), RejectReasonPrefix::InvalidMiner)]
         );
 
-        assert!(!db
-            .add_block_rejection_signer_addr(&block_id, &address, RejectReasonPrefix::InvalidMiner)
-            .unwrap());
+        std::assert_matches!(
+            db.add_block_rejection_signer_addr(
+                &block_id,
+                &address,
+                RejectReasonPrefix::InvalidMiner
+            )
+            .unwrap(),
+            BlockRejectionUpdate::Unchanged
+        );
         assert_eq!(
             db.get_block_rejection_signer_addrs(&block_id).unwrap(),
             vec![(address, RejectReasonPrefix::InvalidMiner)]
@@ -4648,13 +4820,15 @@ pub mod tests {
 
         assert_eq!(db.get_block_signatures(&block_id).unwrap(), vec![]);
 
-        assert!(db
-            .add_block_rejection_signer_addr(
+        std::assert_matches!(
+            db.add_block_rejection_signer_addr(
                 &block_id,
                 &address,
                 RejectReasonPrefix::InvalidParentBlock
             )
-            .unwrap());
+            .unwrap(),
+            BlockRejectionUpdate::Inserted
+        );
         assert_eq!(
             db.get_block_rejection_signer_addrs(&block_id).unwrap(),
             vec![(address.clone(), RejectReasonPrefix::InvalidParentBlock)]
@@ -4689,13 +4863,15 @@ pub mod tests {
             .unwrap()
             .is_empty());
 
-        assert!(!db
-            .add_block_rejection_signer_addr(
+        std::assert_matches!(
+            db.add_block_rejection_signer_addr(
                 &block_id,
                 &address,
                 RejectReasonPrefix::InvalidParentBlock
             )
-            .unwrap());
+            .unwrap(),
+            BlockRejectionUpdate::Unchanged
+        );
         assert_eq!(db.get_block_signatures(&block_id).unwrap(), vec![sig1]);
         assert!(db
             .get_block_rejection_signer_addrs(&block_id)
@@ -6748,6 +6924,19 @@ pub mod tests {
                         plan.iter().any(|step| step.contains("blocks_consensus_hash_height")),
                         "get_sibling_commitments should use blocks_consensus_hash_height, got: {plan:?}"
                     );
+                }
+                SchemaVersion::V23 => {
+                    // The covering index used by `block_message_info` exists
+                    let index: Option<String> = signer_db
+                        .db
+                        .query_row(
+                            "SELECT name FROM sqlite_master WHERE type = 'index' AND name = 'blocks_message_info'",
+                            [],
+                            |row| row.get(0),
+                        )
+                        .optional()
+                        .unwrap();
+                    assert_eq!(index.as_deref(), Some("blocks_message_info"));
                 }
             }
         }

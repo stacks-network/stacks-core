@@ -44,6 +44,7 @@ use stacks_common::util::get_epoch_time_secs;
 use stacks_common::util::secp256k1::MessageSignature;
 use stacks_common::{debug, error, info, warn};
 
+use super::pre_commit::PreCommitThrottle;
 use super::signer_state::LocalStateMachine;
 use crate::chainstate::v1::{SortitionMinerStatus, SortitionsView};
 use crate::chainstate::v2::GlobalStateView;
@@ -52,8 +53,8 @@ use crate::client::{ClientError, SignerSlotID, StackerDB, StacksClient};
 use crate::config::{SignerConfig, SignerConfigMode};
 use crate::runloop::SignerResult;
 use crate::signerdb::{
-    BlockInfo, BlockState, PendingBlockResponses, ReorgPermit, SiblingCommitment,
-    SignedConflictInfo, SignerDb, MAX_FORK_DEPTH,
+    BlockInfo, BlockRejectionUpdate, BlockState, PendingBlockResponses, ReorgPermit,
+    SiblingCommitment, SignedConflictInfo, SignerDb, MAX_FORK_DEPTH,
 };
 #[cfg(not(any(test, feature = "testing")))]
 use crate::v0::signer_state::SUPPORTED_SIGNER_PROTOCOL_VERSION;
@@ -144,6 +145,8 @@ pub struct Signer {
     /// arrived, each with the time it was first seen. Evaluated as soon as the state forms, or
     /// regardless once `global_state_defer_timeout` has passed.
     pub(crate) deferred_proposals: Vec<(BlockProposal, Instant)>,
+    /// Throttles duplicate pre-commit evaluations without losing a later retry.
+    pre_commit_throttle: PreCommitThrottle,
     /// How long a proposal may wait in `deferred_proposals` for the global signer state
     pub global_state_defer_timeout: Duration,
     /// Time to wait between updating our local state machine view point and capitulating to other signers miner view
@@ -347,6 +350,7 @@ impl SignerTrait<SignerMessage> for Signer {
             recently_processed: RecentlyProcessedBlocks::new(),
             global_state_evaluator,
             deferred_proposals: Vec::new(),
+            pre_commit_throttle: PreCommitThrottle::default(),
             global_state_defer_timeout: DEFAULT_GLOBAL_STATE_DEFER_TIMEOUT,
             capitulate_miner_view_timeout: signer_config.capitulate_miner_view_timeout,
             last_capitulate_miner_view: SystemTime::now(),
@@ -389,6 +393,7 @@ impl SignerTrait<SignerMessage> for Signer {
         self.check_submitted_block_proposal();
         self.check_pending_block_validations(stacks_client);
         self.process_deferred_proposals(stacks_client, sortition_state);
+        self.process_due_pre_commit_retries(stacks_client, sortition_state);
 
         let mut prior_state = self.local_state_machine.clone();
         let local_signer_protocol_version = self.get_signer_protocol_version();
@@ -1642,6 +1647,24 @@ impl Signer {
         self.send_block_response(&block_info.block, rejection.into());
     }
 
+    /// Re-evaluate pre-commits whose throttled retry is due, even if no further signer message
+    /// arrives.
+    fn process_due_pre_commit_retries(
+        &mut self,
+        stacks_client: &StacksClient,
+        sortition_state: &mut Option<SortitionsView>,
+    ) {
+        // Pause retries while this signer cannot sign. If it becomes active again, pending
+        // retries remain relevant; otherwise signer cleanup eventually drops them.
+        if self.is_reward_cycle_retired() {
+            return;
+        }
+
+        for (hash, sender) in self.pre_commit_throttle.take_due(Instant::now()) {
+            self.handle_block_pre_commit(stacks_client, sortition_state, &sender, &hash);
+        }
+    }
+
     /// Handle pre-commit message from another signer
     fn handle_block_pre_commit(
         &mut self,
@@ -1650,41 +1673,45 @@ impl Signer {
         stacker_address: &StacksAddress,
         block_hash: &Sha512Trunc256Sum,
     ) {
-        let Some(mut block_info) = self.block_lookup_by_reward_cycle(block_hash) else {
-            // A pre-commit for a block we have not seen proposed yet means the proposal
-            // has not reached us. Log it at INFO: it is a direct signal that our view of
-            // the proposal stream is behind the rest of the signer set.
-            info!("{self}: Received block pre-commit for an unknown block, storing as pending";
-                "signer_address" => %stacker_address,
-                "signer_signature_hash" => %block_hash,
-                "signer_weight" => self.signer_weights.get(stacker_address).copied().unwrap_or(0),
-            );
-            if let Err(e) = self
-                .signer_db
-                .add_pending_block_pre_commit_response(block_hash, stacker_address)
-            {
-                warn!("{self}: Failed to save pending block pre-commit response: {e:?}");
+        let block_status = match self.signer_db.block_message_info(block_hash) {
+            // Ignore blocks proposed in a different reward cycle.
+            Ok(Some(status)) if status.reward_cycle != self.reward_cycle => return,
+            // A current-cycle block: continue with its metadata, without loading the block body.
+            Ok(Some(status)) => status,
+            // Unknown block: its proposal may still arrive, so keep the pre-commit as pending.
+            Ok(None) => {
+                info!("{self}: Received block pre-commit for an unknown block, storing as pending";
+                    "signer_address" => %stacker_address,
+                    "signer_signature_hash" => %block_hash,
+                    "signer_weight" => self.signer_weights.get(stacker_address).copied().unwrap_or(0),
+                );
+
+                if let Err(e) = self
+                    .signer_db
+                    .add_pending_block_pre_commit_response(block_hash, stacker_address)
+                {
+                    warn!("{self}: Failed to save pending block pre-commit response: {e:?}");
+                }
+
+                return;
             }
-            return;
+            // The lookup failed, so drop the pre-commit.
+            Err(e) => {
+                warn!("{self}: Failed to lookup pre-commit block metadata: {e:?}");
+                return;
+            }
         };
-        // Always save the pre-commit - we will need to store signer responses for determining which
-        // are misbehaving, offline, etc.
-        // commit message is from a valid sender! store it
-        self.signer_db
+
+        // Record each sender once for signer-response accounting.
+        let is_new = self
+            .signer_db
             .add_block_pre_commit(block_hash, stacker_address)
             .unwrap_or_else(|_| panic!("{self}: Failed to save block pre-commit"));
 
-        let block_hash = block_info.block.header.signer_signature_hash();
-        // do we have enough pre-commits to reach consensus?
-        // i.e. is the threshold reached?
-        //
-        // Tally this up front, before the early returns below, so that every pre-commit we
-        // receive can be logged with the running weight. Crossing this threshold is what
-        // triggers our block response, so without it the wait for the threshold, which can
-        // be minutes and is the bulk of a stalled block's latency, leaves no trace at all.
+        // Tally the pre-commit weight before loading the full block.
         let committers = self
             .signer_db
-            .get_block_pre_committers(&block_hash)
+            .get_block_pre_committers(block_hash)
             .unwrap_or_else(|_| panic!("{self}: Failed to load block commits"));
 
         let commit_weight = self.compute_signature_signing_weight(committers.iter());
@@ -1695,32 +1722,35 @@ impl Signer {
                 panic!("{self}: Failed to compute threshold weight for {total_weight}")
             });
 
-        info!("{self}: Received block pre-commit";
-            "signer_address" => %stacker_address,
-            "signer_signature_hash" => %block_hash,
-            "consensus_hash" => %block_info.block.header.consensus_hash,
-            "block_height" => block_info.block.header.chain_length,
-            "signer_weight" => self.signer_weights.get(stacker_address).copied().unwrap_or(0),
-            "pre_commit_weight" => commit_weight,
-            "pre_commit_weight_required" => min_weight,
-            "total_weight" => total_weight,
-            "pre_commit_threshold_reached" => commit_weight >= min_weight,
-            "already_signed" => block_info.signed_self.is_some(),
-        );
+        // Only log new pre-commits; duplicates are still evaluated below.
+        if is_new {
+            info!("{self}: Received block pre-commit";
+                "signer_address" => %stacker_address,
+                "signer_signature_hash" => %block_hash,
+                "consensus_hash" => %block_status.consensus_hash,
+                "block_height" => block_status.stacks_height,
+                "signer_weight" => self.signer_weights.get(stacker_address).copied().unwrap_or(0),
+                "pre_commit_weight" => commit_weight,
+                "pre_commit_weight_required" => min_weight,
+                "total_weight" => total_weight,
+                "pre_commit_threshold_reached" => commit_weight >= min_weight,
+                "already_signed" => block_status.signed_self,
+            );
+        }
 
-        if block_info.signed_self.is_some() {
+        if block_status.signed_self {
             debug!(
                 "{self}: Received pre-commit for a block that we have already signed. Doing nothing...",
             );
             return;
         }
 
-        if !block_info.valid.unwrap_or(false) {
+        if !block_status.valid.unwrap_or(false) {
             // We received a pre-commit for a block that we have not validated or we have already marked this block as invalid.
             // We should not do anything further as we do not know what our response should be and we do not change our votes on rejected
             // blocks unless we receive a new block proposal for it and the reject reason allows us to reconsider.
             debug!(
-                "{self}: Received a pre-commit for a block that we have not determined to be valid: {:?}. Doing nothing...", block_info.valid
+                "{self}: Received a pre-commit for a block that we have not determined to be valid: {:?}. Doing nothing...", block_status.valid
             );
             return;
         }
@@ -1731,6 +1761,22 @@ impl Signer {
             );
             return;
         }
+
+        // Past the threshold, the block body is loaded below; repeats are limited to one per
+        // interval and a skipped duplicate is retried later.
+        if self
+            .pre_commit_throttle
+            .throttle(block_hash, stacker_address, is_new, Instant::now())
+        {
+            return;
+        }
+
+        let Some(mut block_info) = self.block_lookup_by_reward_cycle(block_hash) else {
+            warn!("{self}: Failed to load validated pre-commit block {block_hash}");
+            return;
+        };
+
+        let block_hash = block_info.block.header.signer_signature_hash();
 
         // The chain and signer db state may have changed materially since this block passed the
         // proposal-time checks (e.g. between validation and reaching the pre-commit threshold we
@@ -2319,6 +2365,21 @@ impl Signer {
             let rejection =
                 self.create_block_rejection(RejectReason::ProposalTooOld, &block_proposal.block);
             self.send_block_response(&block_proposal.block, rejection.into());
+            return;
+        }
+
+        // Check static proposal validity before deferring or storing it.
+        let is_statically_valid = BlockInfo::check_static_valid_proposal(block_proposal);
+        let has_excess_signatures =
+            block_proposal.block.header.signer_signature.len() > self.signer_addresses.len();
+        if !is_statically_valid || has_excess_signatures {
+            let rejection = self.create_block_rejection(
+                RejectReason::ValidationFailed(ValidateRejectCode::InvalidBlock),
+                &block_proposal.block,
+            );
+
+            self.send_block_response(&block_proposal.block, rejection.into());
+
             return;
         }
 
@@ -3063,30 +3124,72 @@ impl Signer {
             return;
         }
 
-        let Some(mut block_info) = self.block_lookup_by_reward_cycle(block_hash) else {
-            if let Err(e) = self.signer_db.add_pending_block_rejection_response(
-                block_hash,
-                &signer_address,
-                (&rejection.response_data.reject_reason).into(),
-            ) {
-                warn!("{self}: Failed to add pending block rejection response: {e:?}");
+        let reject_reason = (&rejection.response_data.reject_reason).into();
+        let block_status = match self.signer_db.block_message_info(block_hash) {
+            // Ignore blocks proposed in a different reward cycle.
+            Ok(Some(status)) if status.reward_cycle != self.reward_cycle => return,
+            // A current-cycle block: continue with its metadata, without loading the block body.
+            Ok(Some(status)) => status,
+            // Unknown block: its proposal may still arrive, so keep the rejection as pending.
+            Ok(None) => {
+                if let Err(e) = self.signer_db.add_pending_block_rejection_response(
+                    block_hash,
+                    &signer_address,
+                    reject_reason,
+                ) {
+                    warn!("{self}: Failed to add pending block rejection response: {e:?}");
+                }
+                return;
             }
+            // The lookup failed, so drop the rejection.
+            Err(e) => {
+                warn!("{self}: Failed to lookup rejection block metadata: {e:?}");
+                return;
+            }
+        };
+
+        match self.signer_db.add_block_rejection_signer_addr(
+            block_hash,
+            &signer_address,
+            reject_reason,
+        ) {
+            Ok(BlockRejectionUpdate::Inserted) => {
+                info!("{self}: Received block rejection";
+                    "signer_pubkey" => public_key.to_hex(),
+                    "signer_signature_hash" => %block_hash,
+                    "consensus_hash" => %block_status.consensus_hash,
+                    "block_height" => block_status.stacks_height,
+                    "reject_reason" => ?rejection.response_data.reject_reason,
+                );
+            }
+            Ok(BlockRejectionUpdate::Updated) => {}
+            Ok(BlockRejectionUpdate::Unchanged) => return,
+            Err(e) => {
+                warn!("{self}: Failed to save block rejection signature: {e:?}");
+                return;
+            }
+        }
+
+        if block_status.has_reached_consensus {
+            return;
+        }
+
+        // Load the block only once the rejection decision is reached.
+        let Some((rejection_addrs, total_reject_weight)) = self.block_rejection_quorum(block_hash)
+        else {
             return;
         };
 
-        info!("{self}: Received block rejection";
-            "signer_pubkey" => public_key.to_hex(),
-            "signer_signature_hash" => %block_hash,
-            "consensus_hash" => %block_info.block.header.consensus_hash,
-            "block_height" => block_info.block.header.chain_length,
-            "reject_reason" => ?rejection.response_data.reject_reason,
-        );
-
-        self.store_and_process_block_rejection(
+        let Some(mut block_info) = self.block_lookup_by_reward_cycle(block_hash) else {
+            warn!("{self}: Failed to load rejected block {block_hash}");
+            return;
+        };
+        self.apply_block_rejection_quorum(
             sortition_state,
             &mut block_info,
             &signer_address,
-            (&rejection.response_data.reject_reason).into(),
+            &rejection_addrs,
+            total_reject_weight,
         );
     }
 
@@ -3099,6 +3202,7 @@ impl Signer {
         reject_reason: RejectReasonPrefix,
     ) {
         let block_hash = &block_info.signer_signature_hash();
+
         // We should still store signatures even on consensus reached blocks for auditing purposes.
         // signature is valid! store it
         match self.signer_db.add_block_rejection_signer_addr(
@@ -3109,8 +3213,8 @@ impl Signer {
             Err(e) => {
                 warn!("{self}: Failed to save block rejection signature: {e:?}",);
             }
-            Ok(false) => return, // We already have this signature, do not process it again.
-            Ok(true) => (),
+            Ok(BlockRejectionUpdate::Unchanged) => return,
+            Ok(BlockRejectionUpdate::Inserted | BlockRejectionUpdate::Updated) => (),
         }
 
         if block_info.has_reached_consensus() {
@@ -3118,37 +3222,75 @@ impl Signer {
             return;
         }
 
-        // do we have enough signatures to mark a block a globally rejected?
-        // i.e. is (set-size) - (threshold) + 1 reached.
-        let rejection_addrs = match self.signer_db.get_block_rejection_signer_addrs(block_hash) {
-            Ok(addrs) => addrs,
-            Err(e) => {
-                warn!("{self}: Failed to load block rejection addresses: {e:?}.",);
-                return;
-            }
+        let Some((rejection_addrs, total_reject_weight)) =
+            self.block_rejection_quorum(&block_info.signer_signature_hash())
+        else {
+            return;
         };
-        let signature_weight = self.signer_weights.get(signer_address).unwrap_or(&0);
+
+        self.apply_block_rejection_quorum(
+            sortition_state,
+            block_info,
+            signer_address,
+            &rejection_addrs,
+            total_reject_weight,
+        );
+    }
+
+    /// The block's recorded rejections and their weight, once that weight reaches the rejection
+    /// threshold, i.e. (set-size) - (threshold) + 1.
+    fn block_rejection_quorum(
+        &self,
+        block_hash: &Sha512Trunc256Sum,
+    ) -> Option<(Vec<(StacksAddress, RejectReasonPrefix)>, u32)> {
+        let rejection_addrs = self
+            .signer_db
+            .get_block_rejection_signer_addrs(block_hash)
+            .inspect_err(|e| warn!("{self}: Failed to load block rejection addresses: {e:?}"))
+            .ok()?;
+
         let total_reject_weight =
             self.compute_signature_signing_weight(rejection_addrs.iter().map(|(addr, _)| addr));
-        let total_weight = self.compute_signature_total_weight();
 
-        let min_weight = NakamotoBlockHeader::compute_voting_weight_threshold(total_weight)
-            .unwrap_or_else(|_| {
-                panic!("{self}: Failed to compute threshold weight for {total_weight}")
-            });
-        if total_reject_weight.saturating_add(min_weight) <= total_weight {
-            // Not enough rejection signatures to make a decision
-            info!("{self}: Have not yet received enough block rejections to reach a consensus decision on this block";
+        if !self.reaches_rejection_threshold(total_reject_weight) {
+            let total_weight = self.compute_signature_total_weight();
+
+            debug!("{self}: Have not yet received enough block rejections to reach a consensus decision on this block";
                 "signer_signature_hash" => %block_hash,
-                "signature_weight" => signature_weight,
-                "consensus_hash" => %block_info.block.header.consensus_hash,
-                "block_height" => block_info.block.header.chain_length,
                 "total_weight_rejected" => total_reject_weight,
                 "total_weight" => total_weight,
                 "percent_rejected" => (total_reject_weight as f64 / total_weight as f64 * 100.0),
             );
-            return;
+
+            return None;
         }
+
+        Some((rejection_addrs, total_reject_weight))
+    }
+
+    /// Whether rejections of `weight` prevent the block from reaching the signing threshold.
+    fn reaches_rejection_threshold(&self, weight: u32) -> bool {
+        let total_weight = self.compute_signature_total_weight();
+        let min_weight = NakamotoBlockHeader::compute_voting_weight_threshold(total_weight)
+            .unwrap_or_else(|_| {
+                panic!("{self}: Failed to compute threshold weight for {total_weight}")
+            });
+        weight.saturating_add(min_weight) > total_weight
+    }
+
+    /// Mark the block globally rejected after its rejections reached the threshold.
+    fn apply_block_rejection_quorum(
+        &mut self,
+        sortition_state: &mut Option<SortitionsView>,
+        block_info: &mut BlockInfo,
+        signer_address: &StacksAddress,
+        rejection_addrs: &[(StacksAddress, RejectReasonPrefix)],
+        total_reject_weight: u32,
+    ) {
+        let block_hash = &block_info.signer_signature_hash();
+        let signature_weight = self.signer_weights.get(signer_address).unwrap_or(&0);
+        let total_weight = self.compute_signature_total_weight();
+
         info!("{self}: have reached the block rejection threshold";
             "signer_signature_hash" => %block_hash,
             "signature_weight" => signature_weight,
@@ -3158,13 +3300,16 @@ impl Signer {
             "total_weight" => total_weight,
             "percent_rejected" => (total_reject_weight as f64 / total_weight as f64 * 100.0),
         );
+
         if let Err(e) = block_info.mark_globally_rejected() {
             warn!("{self}: Failed to mark block as globally rejected: {e:?}",);
         }
+
         if let Err(e) = self.signer_db.insert_block(block_info) {
             error!("{self}: Failed to update block state: {e:?}",);
             panic!("{self} Failed to update block state: {e}");
         }
+
         // NOTE: This is only used by active signer protocol versions < Global state activation
         // If 30% of the signers have rejected the block due to an invalid
         // reorg, mark the miner as invalid.
@@ -3177,11 +3322,13 @@ impl Signer {
         {
             return;
         };
+
         let total_reorg_reject_weight = self.compute_reject_code_signing_weight(
             rejection_addrs.iter(),
             RejectReasonPrefix::ReorgNotAllowed,
         );
-        if total_reorg_reject_weight.saturating_add(min_weight) > total_weight {
+
+        if self.reaches_rejection_threshold(total_reorg_reject_weight) {
             // Mark the miner as invalid
             if let Some(sortition_state) = sortition_state {
                 let ch = block_info.block.header.consensus_hash.clone();
@@ -3252,7 +3399,24 @@ impl Signer {
             );
             return;
         }
+
+        match self
+            .signer_db
+            .has_block_signature(block_hash, &signer_address)
+        {
+            Ok(true) => return,
+            Ok(false) => {}
+            Err(e) => {
+                warn!("{self}: Failed to check for an existing block signature: {e:?}");
+                return;
+            }
+        }
+
         let Some(mut block_info) = self.block_lookup_by_reward_cycle(block_hash) else {
+            if self.block_exists_in_another_reward_cycle(block_hash) {
+                return;
+            }
+
             if let Err(e) = self.signer_db.add_pending_block_signature_response(
                 block_hash,
                 &signer_address,
@@ -3260,6 +3424,7 @@ impl Signer {
             ) {
                 warn!("{self}: Failed to add pending block signature response: {e:?}");
             }
+
             return;
         };
 
@@ -3501,19 +3666,23 @@ impl Signer {
         &self,
         block_hash: &Sha512Trunc256Sum,
     ) -> Option<BlockInfo> {
-        let block_info = self
-            .signer_db
-            .block_lookup(block_hash)
+        self.signer_db
+            .block_lookup_for_reward_cycle(block_hash, self.reward_cycle)
             .inspect_err(|e| {
                 error!("{self}: Failed to lookup block hash {block_hash} in signer db: {e:?}");
             })
             .ok()
-            .flatten()?;
-        if block_info.reward_cycle == self.reward_cycle {
-            Some(block_info)
-        } else {
-            None
-        }
+            .flatten()
+    }
+
+    /// Check whether a missing current-cycle block belongs to an earlier or later cycle.
+    fn block_exists_in_another_reward_cycle(&self, block_hash: &Sha512Trunc256Sum) -> bool {
+        self.signer_db
+            .block_exists_in_another_reward_cycle(block_hash, self.reward_cycle)
+            .inspect_err(|e| {
+                error!("{self}: Failed to check block hash {block_hash} reward cycle: {e:?}");
+            })
+            .unwrap_or(false)
     }
 
     /// Check if the signer identified by the StacksAddress is part of the signer's list of signer addresses
