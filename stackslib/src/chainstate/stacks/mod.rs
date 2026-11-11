@@ -112,6 +112,9 @@ pub enum Error {
     BlockTooBigError,
     BlockCostLimitError,
     TransactionTooBigError(Option<ExecutionCost>),
+    /// The transaction's receipt alone reaches the block builder's per-transaction receipt size
+    /// limit, so it cannot be mined into a block and should not be re-attempted.
+    TransactionReceiptTooBig,
     BlockCostExceeded,
     NoTransactionsToMine,
     MicroblockStreamTooLongError,
@@ -200,6 +203,7 @@ impl fmt::Display for Error {
             Error::TransactionTooBigError(ref c) => {
                 write!(f, "Too much data in transaction: measured_cost={c:?}")
             }
+            Error::TransactionReceiptTooBig => write!(f, "Transaction receipt is too big"),
             Error::BlockCostExceeded => write!(f, "Block execution budget exceeded"),
             Error::MicroblockStreamTooLongError => write!(f, "Too many microblocks in stream"),
             Error::IncompatibleSpendingConditionError => {
@@ -288,6 +292,7 @@ impl error::Error for Error {
             Error::BlockTooBigError => None,
             Error::BlockCostLimitError => None,
             Error::TransactionTooBigError(..) => None,
+            Error::TransactionReceiptTooBig => None,
             Error::BlockCostExceeded => None,
             Error::MicroblockStreamTooLongError => None,
             Error::IncompatibleSpendingConditionError => None,
@@ -339,6 +344,7 @@ impl Error {
             Error::BlockTooBigError => "BlockTooBigError",
             Error::BlockCostLimitError => "BlockCostLimitError",
             Error::TransactionTooBigError(..) => "TransactionTooBigError",
+            Error::TransactionReceiptTooBig => "TransactionReceiptTooBig",
             Error::BlockCostExceeded => "BlockCostExceeded",
             Error::MicroblockStreamTooLongError => "MicroblockStreamTooLongError",
             Error::IncompatibleSpendingConditionError => "IncompatibleSpendingConditionError",
