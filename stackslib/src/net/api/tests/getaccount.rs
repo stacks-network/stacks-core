@@ -23,7 +23,10 @@ use stacks_common::types::Address;
 use super::test_rpc;
 use crate::net::api::*;
 use crate::net::connection::ConnectionOptions;
-use crate::net::httpcore::{RPCRequestHandler, StacksHttp, StacksHttpRequest};
+use crate::net::http::HttpRequestContents;
+use crate::net::httpcore::{
+    HttpRequestContentsExtensions as _, RPCRequestHandler, StacksHttp, StacksHttpRequest,
+};
 use crate::net::{ProtocolFamily, TipRequest};
 
 #[test]
@@ -98,6 +101,25 @@ fn test_try_make_response() {
     );
     requests.push(request);
 
+    // Initial balances do not create nonce entries.
+    let request = StacksHttpRequest::new_for_peer(
+        addr.into(),
+        "GET".into(),
+        "/v2/accounts/STVN97YYA10MY5F6KQJHKNYJNM24C4A1AT39WRW".into(),
+        HttpRequestContents::new().for_tip(TipRequest::UseLatestAnchoredTip),
+    )
+    .unwrap();
+    requests.push(request);
+
+    // Publishing a contract does not create account entries for its principal.
+    let request = StacksHttpRequest::new_getaccount(
+        addr.into(),
+        PrincipalData::parse("ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R.hello-world").unwrap(),
+        TipRequest::UseLatestAnchoredTip,
+        true,
+    );
+    requests.push(request);
+
     // query nonexistant
     let request = StacksHttpRequest::new_getaccount(
         addr.into(),
@@ -149,6 +171,27 @@ fn test_try_make_response() {
     assert_eq!(resp.nonce, 2);
     assert!(resp.balance_proof.is_some());
     assert!(resp.nonce_proof.is_some());
+
+    let response = responses.remove(0);
+    let resp = response.decode_account_entry_response().unwrap();
+
+    assert_eq!(resp.balance, "0x0000000000000000000000003b9aca00");
+    assert_eq!(resp.locked, "0x00000000000000000000000000000000");
+    assert_eq!(resp.nonce, 0);
+    assert!(resp
+        .balance_proof
+        .as_ref()
+        .is_some_and(|proof| !proof.is_empty()));
+    assert_eq!(resp.nonce_proof, Some("".to_string()));
+
+    let response = responses.remove(0);
+    let resp = response.decode_account_entry_response().unwrap();
+
+    assert_eq!(resp.balance, "0x00000000000000000000000000000000");
+    assert_eq!(resp.locked, "0x00000000000000000000000000000000");
+    assert_eq!(resp.nonce, 0);
+    assert_eq!(resp.balance_proof, Some("".to_string()));
+    assert_eq!(resp.nonce_proof, Some("".to_string()));
 
     let response = responses.remove(0);
     debug!(

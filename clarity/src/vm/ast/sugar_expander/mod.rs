@@ -14,9 +14,6 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::collections::{HashMap, HashSet};
-
-use clarity_types::representations::ClarityName;
 use clarity_types::types::{
     PrincipalData, QualifiedContractIdentifier, StandardPrincipalData, TraitIdentifier, Value,
 };
@@ -25,12 +22,12 @@ use stacks_common::types::StacksEpochId;
 use crate::vm::ClarityVersion;
 use crate::vm::ast::errors::{ParseErrorKind, ParseResult};
 use crate::vm::ast::types::{BuildASTPass, ContractAST, PreExpressionsDrain};
-use crate::vm::representations::{PreSymbolicExpressionType, SymbolicExpression};
+use crate::vm::representations::{
+    PreSymbolicExpression, PreSymbolicExpressionType, SymbolicExpression,
+};
 
 pub struct SugarExpander {
     issuer: StandardPrincipalData,
-    defined_traits: HashSet<ClarityName>,
-    imported_traits: HashMap<ClarityName, TraitIdentifier>,
 }
 
 impl BuildASTPass for SugarExpander {
@@ -47,11 +44,7 @@ impl BuildASTPass for SugarExpander {
 
 impl SugarExpander {
     fn new(issuer: StandardPrincipalData) -> Self {
-        Self {
-            issuer,
-            defined_traits: HashSet::new(),
-            imported_traits: HashMap::new(),
-        }
+        Self { issuer }
     }
 
     pub fn run(&self, contract_ast: &mut ContractAST) -> ParseResult<()> {
@@ -60,14 +53,24 @@ impl SugarExpander {
         Ok(())
     }
 
-    // TODO: add tests from mutation testing results #4830
-    #[cfg_attr(test, mutants::skip)]
     pub fn transform(
         &self,
         pre_exprs_iter: PreExpressionsDrain,
         contract_ast: &mut ContractAST,
     ) -> ParseResult<Vec<SymbolicExpression>> {
-        let mut expressions: Vec<SymbolicExpression> = Vec::with_capacity(pre_exprs_iter.len());
+        let len = pre_exprs_iter.len();
+        self.transform_iter(pre_exprs_iter, len, contract_ast)
+    }
+
+    // TODO: add tests from mutation testing results #4830
+    #[cfg_attr(test, mutants::skip)]
+    fn transform_iter(
+        &self,
+        pre_exprs_iter: impl Iterator<Item = PreSymbolicExpression>,
+        len: usize,
+        contract_ast: &mut ContractAST,
+    ) -> ParseResult<Vec<SymbolicExpression>> {
+        let mut expressions: Vec<SymbolicExpression> = Vec::with_capacity(len);
         #[cfg(feature = "developer-mode")]
         let mut comments = Vec::new();
 
@@ -79,27 +82,29 @@ impl SugarExpander {
                 }
                 PreSymbolicExpressionType::Atom(content) => SymbolicExpression::atom(content),
                 PreSymbolicExpressionType::List(pre_exprs) => {
-                    let drain = PreExpressionsDrain::new(pre_exprs.to_vec().drain(..), None);
-                    let expression = self.transform(drain, contract_ast)?;
+                    let len = pre_exprs.len();
+                    let expression =
+                        self.transform_iter(pre_exprs.into_iter(), len, contract_ast)?;
                     SymbolicExpression::list(expression)
                 }
                 PreSymbolicExpressionType::Tuple(pre_exprs) => {
-                    let drain = PreExpressionsDrain::new(pre_exprs.to_vec().drain(..), None);
-                    let expression = self.transform(drain, contract_ast)?;
-                    let mut pairs = expression
-                        .chunks(2)
-                        .map(|pair| pair.to_vec())
-                        .map(SymbolicExpression::list)
-                        .collect::<Vec<_>>();
-                    pairs.insert(
-                        0,
-                        SymbolicExpression::atom(
-                            "tuple"
-                                .to_string()
-                                .try_into()
-                                .map_err(|_| ParseErrorKind::InterpreterFailure)?,
-                        ),
-                    );
+                    let len = pre_exprs.len();
+                    let expression =
+                        self.transform_iter(pre_exprs.into_iter(), len, contract_ast)?;
+                    let mut pairs = Vec::with_capacity(expression.len().div_ceil(2) + 1);
+                    pairs.push(SymbolicExpression::atom(
+                        "tuple"
+                            .to_string()
+                            .try_into()
+                            .map_err(|_| ParseErrorKind::InterpreterFailure)?,
+                    ));
+                    let mut children = expression.into_iter();
+                    while let Some(key) = children.next() {
+                        pairs.push(SymbolicExpression::list(match children.next() {
+                            Some(value) => vec![key, value],
+                            None => vec![key],
+                        }));
+                    }
                     SymbolicExpression::list(pairs)
                 }
                 PreSymbolicExpressionType::SugaredContractIdentifier(contract_name) => {
@@ -171,6 +176,8 @@ impl SugarExpander {
 
 #[cfg(test)]
 mod test {
+    use clarity_types::ClarityName;
+
     use crate::vm::Value;
     use crate::vm::ast::sugar_expander::SugarExpander;
     use crate::vm::ast::types::ContractAST;
@@ -178,13 +185,13 @@ mod test {
     use crate::vm::types::{PrincipalData, QualifiedContractIdentifier};
 
     fn make_pre_atom(
-        x: &str,
+        x: &'static str,
         start_line: u32,
         start_column: u32,
         end_line: u32,
         end_column: u32,
     ) -> PreSymbolicExpression {
-        let mut e = PreSymbolicExpression::atom(x.into());
+        let mut e = PreSymbolicExpression::atom(ClarityName::from_literal(x));
         e.set_span(start_line, start_column, end_line, end_column);
         e
     }
@@ -237,6 +244,8 @@ mod test {
         e
     }
 
+    /// Builds a comment with a source span for comment-preservation tests.
+    #[cfg(feature = "developer-mode")]
     fn make_pre_comment(
         comment: String,
         start_line: u32,
@@ -250,25 +259,13 @@ mod test {
     }
 
     fn make_atom(
-        x: &str,
+        x: &'static str,
         start_line: u32,
         start_column: u32,
         end_line: u32,
         end_column: u32,
     ) -> SymbolicExpression {
-        let mut e = SymbolicExpression::atom(x.into());
-        e.set_span(start_line, start_column, end_line, end_column);
-        e
-    }
-
-    fn make_atom_value(
-        x: Value,
-        start_line: u32,
-        start_column: u32,
-        end_line: u32,
-        end_column: u32,
-    ) -> SymbolicExpression {
-        let mut e = SymbolicExpression::atom_value(x);
+        let mut e = SymbolicExpression::atom(ClarityName::from_literal(x));
         e.set_span(start_line, start_column, end_line, end_column);
         e
     }
@@ -538,7 +535,7 @@ mod test {
 
     #[test]
     fn test_transform_sugared_contract_identifier() {
-        let contract_name = "tokens".into();
+        let contract_name = ContractName::from_literal("tokens");
         let pre_ast = vec![make_sugared_contract_identifier(contract_name, 1, 1, 1, 1)];
         let unsugared_contract_id =
             QualifiedContractIdentifier::parse("S1G2081040G2081040G2081040G208105NK8PE5.tokens")

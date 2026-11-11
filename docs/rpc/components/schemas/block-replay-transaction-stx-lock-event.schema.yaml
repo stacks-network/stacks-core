@@ -1,0 +1,34 @@
+type: object
+required:
+  - committed
+  - event_index
+  - stx_lock_event
+  - txid
+  - type
+properties:
+  committed:
+    type: boolean
+  event_index:
+    type: integer
+  stx_lock_event:
+    type: object
+    required:
+      - contract_identifier
+      - locked_address
+      - locked_amount
+      - unlock_height
+    properties:
+      contract_identifier:
+        type: string
+      locked_address:
+        type: string
+      locked_amount:
+        type: string
+      unlock_height:
+        type: string
+  txid:
+    type: string
+  type:
+    type: string
+    enum:
+      - stx_lock_event

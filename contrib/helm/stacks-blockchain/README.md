@@ -31,7 +31,7 @@ To install the chart with the release name `my-release` and run the node as a **
 
 ```bash
 $ helm repo add blockstack https://charts.blockstack.xyz
-$ helm install my-release blockstack/stacks-blockchain --set config.node.miner=true --set config.node.seed="REPLACE-WITH-YOUR-PRIVATE-KEY"
+$ helm install my-release blockstack/stacks-blockchain --set config.node.miner=true --set config.node.seed="REPLACE-WITH-YOUR-PRIVATE-KEY" --set config.burnchain.wallet_name="REPLACE-WITH-YOUR-BITCOIN-WALLET-NAME"
 ```
 
 These commands deploy the Stacks Blockchain node on a Kubernetes cluster in the default configuration.
@@ -96,6 +96,7 @@ The following tables lists the configurable parameters of the stacks-blockchain 
 | config.burnchain.peer_host |  | bitcoin.mainnet.stacks.org |
 | config.burnchain.rpc_port |  | 18443 |
 | config.burnchain.peer_port |  | 18444 |
+| config.burnchain.wallet_name | Existing Bitcoin wallet required when deploying a miner node, unless `mock_mining` is enabled. Allowed characters: ASCII letters, digits, and `. _ - /`. The node loads it into the running bitcoind. Set `wallet=<name>` in `bitcoin.conf` for it to survive a bitcoind restart. | "" |
 | config.ustx_balance |  | See values.yaml |
 | config.raw | Uncommenting this block will give you greater control over the settings in the Configmap | nil |
 | config.annotations | Annotations to be added to the Configmap | {} |

@@ -1,5 +1,5 @@
 // Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
-// Copyright (C) 2020-2023 Stacks Open Internet Foundation
+// Copyright (C) 2020-2026 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -18,16 +18,23 @@ use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 
 use clarity::types::chainstate::StacksBlockId;
 use clarity::vm::types::QualifiedContractIdentifier;
+use clarity::vm::ClarityName;
 use stacks_common::types::chainstate::StacksAddress;
 use stacks_common::types::Address;
 
-use super::test_rpc;
+use super::{test_rpc, TestRPC};
 use crate::net::api::*;
 use crate::net::connection::ConnectionOptions;
 use crate::net::httpcore::{
     HttpRequestContentsExtensions as _, RPCRequestHandler, StacksHttp, StacksHttpRequest,
 };
 use crate::net::{ProtocolFamily, TipRequest};
+
+/// Unconfirmed contract that declares the trait instead of only matching it.
+const EXPLICIT_TRAIT_CONTRACT: &str = "
+(impl-trait .hello-world.test-trait)
+(define-public (do-test) (ok u1))
+";
 
 #[test]
 fn test_try_parse_request() {
@@ -80,7 +87,10 @@ fn test_try_parse_request() {
             .unwrap()
         )
     );
-    assert_eq!(handler.trait_name, Some("trait-name".into()));
+    assert_eq!(
+        handler.trait_name,
+        Some(ClarityName::from_literal("trait-name"))
+    );
 
     // parsed request consumes headers that would not be in a constructed reqeuest
     parsed_request.clear_headers();
@@ -107,7 +117,7 @@ fn test_try_make_response() {
         "hello-world".try_into().unwrap(),
         StacksAddress::from_string("ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R").unwrap(),
         "hello-world".try_into().unwrap(),
-        "test-trait".into(),
+        ClarityName::from_literal("test-trait"),
         TipRequest::UseLatestAnchoredTip,
     );
     requests.push(request);
@@ -119,20 +129,32 @@ fn test_try_make_response() {
         "hello-world".try_into().unwrap(),
         StacksAddress::from_string("ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R").unwrap(),
         "hello-world".try_into().unwrap(),
-        "test-trait-2".into(),
+        ClarityName::from_literal("test-trait-2"),
         TipRequest::UseLatestAnchoredTip,
     );
     requests.push(request);
 
-    // query existing unconfirmed
+    // a separate unconfirmed contract that matches the trait without `impl-trait`
     let request = StacksHttpRequest::new_get_is_trait_implemented(
         addr.into(),
         StacksAddress::from_string("ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R").unwrap(),
         "hello-world-unconfirmed".try_into().unwrap(),
         StacksAddress::from_string("ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R").unwrap(),
         "hello-world".try_into().unwrap(),
-        "test-trait".into(),
+        ClarityName::from_literal("test-trait"),
         TipRequest::UseLatestUnconfirmedTip,
+    );
+    requests.push(request);
+
+    // The implementation and trait analyses do not exist before publication.
+    let request = StacksHttpRequest::new_get_is_trait_implemented(
+        addr.into(),
+        StacksAddress::from_string("ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R").unwrap(),
+        "hello-world".try_into().unwrap(),
+        StacksAddress::from_string("ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R").unwrap(),
+        "hello-world".try_into().unwrap(),
+        ClarityName::from_literal("test-trait"),
+        TipRequest::SpecificTip(StacksBlockId::first_mined()),
     );
     requests.push(request);
 
@@ -143,7 +165,7 @@ fn test_try_make_response() {
         "hello-world".try_into().unwrap(),
         StacksAddress::from_string("ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R").unwrap(),
         "hello-world".try_into().unwrap(),
-        "does-not-exist".into(),
+        ClarityName::from_literal("does-not-exist"),
         TipRequest::UseLatestAnchoredTip,
     );
     requests.push(request);
@@ -155,7 +177,7 @@ fn test_try_make_response() {
         "does-not-exist".try_into().unwrap(),
         StacksAddress::from_string("ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R").unwrap(),
         "hello-world".try_into().unwrap(),
-        "test-trait".into(),
+        ClarityName::from_literal("test-trait"),
         TipRequest::UseLatestAnchoredTip,
     );
     requests.push(request);
@@ -192,6 +214,15 @@ fn test_try_make_response() {
     let resp = response.decode_is_trait_implemented_response().unwrap();
     assert!(resp.is_implemented);
 
+    let response = responses.remove(0);
+    let (preamble, body) = response.destruct();
+    assert_eq!(preamble.status_code, 404);
+    let body: String = body.try_into().unwrap();
+    assert_eq!(
+        body,
+        "No contract analysis found or trait definition not found"
+    );
+
     // no such trait
     let response = responses.remove(0);
     debug!(
@@ -211,4 +242,39 @@ fn test_try_make_response() {
 
     let (preamble, body) = response.destruct();
     assert_eq!(preamble.status_code, 404);
+}
+
+/// An `impl-trait` declaration is recorded in the contract analysis, so the
+/// handler answers from it without checking the trait's functions.
+#[test]
+fn test_try_make_response_explicit_impl_trait() {
+    let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 33333);
+    let contract_addr =
+        StacksAddress::from_string("ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R").unwrap();
+    let request = StacksHttpRequest::new_get_is_trait_implemented(
+        addr.into(),
+        contract_addr.clone(),
+        "hello-world-unconfirmed".try_into().unwrap(),
+        contract_addr,
+        "hello-world".try_into().unwrap(),
+        ClarityName::from_literal("test-trait"),
+        TipRequest::UseLatestUnconfirmedTip,
+    );
+
+    let test = TestRPC::setup_ex_with_unconfirmed_contract(
+        function_name!(),
+        true,
+        None,
+        None,
+        EXPLICIT_TRAIT_CONTRACT,
+        |_| {},
+        |_| {},
+    );
+    let mut responses = test.run(vec![request]);
+
+    let resp = responses
+        .remove(0)
+        .decode_is_trait_implemented_response()
+        .unwrap();
+    assert!(resp.is_implemented);
 }

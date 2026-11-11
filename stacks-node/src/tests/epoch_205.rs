@@ -1,3 +1,18 @@
+// Copyright (C) 2021-2026 Stacks Open Internet Foundation
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program.  If not, see <http://www.gnu.org/licenses/>.
+
 use std::collections::HashMap;
 use std::{env, thread};
 
@@ -27,7 +42,7 @@ use stacks_common::util::hash::hex_bytes;
 use crate::burnchains::bitcoin::core_controller::BitcoinCoreController;
 use crate::tests::neon_integrations::*;
 use crate::tests::{run_until_burnchain_height, select_transactions_where};
-use crate::{neon, BitcoinRegtestController, BurnchainController, Keychain};
+use crate::{neon, BitcoinRegtestController, Keychain};
 
 #[test]
 #[ignore]
@@ -50,7 +65,7 @@ fn test_exact_block_costs() {
     let transactions_to_broadcast = 25;
 
     let (mut conf, _miner_account) = neon_integration_test_conf();
-    let mut epochs = EpochList::new(&*core::STACKS_EPOCHS_REGTEST);
+    let mut epochs = EpochList::new(&core::STACKS_EPOCHS_REGTEST);
     epochs[StacksEpochId::Epoch20].end_height = epoch_205_transition_height;
     epochs[StacksEpochId::Epoch2_05].start_height = epoch_205_transition_height;
     epochs[StacksEpochId::Epoch2_05].end_height = epoch_205_transition_height + 100;
@@ -126,7 +141,7 @@ fn test_exact_block_costs() {
         .map_err(|_e| ())
         .expect("Failed starting bitcoind");
 
-    let mut btc_regtest_controller = BitcoinRegtestController::new(conf.clone(), None);
+    let btc_regtest_controller = BitcoinRegtestController::new(conf.clone(), None);
     let http_origin = format!("http://{}", &conf.node.rpc_bind);
 
     btc_regtest_controller.bootstrap_chain(201);
@@ -144,13 +159,13 @@ fn test_exact_block_costs() {
     wait_for_runloop(&blocks_processed);
 
     // first block wakes up the run loop
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&btc_regtest_controller, &blocks_processed);
 
     // first block will hold our VRF registration
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&btc_regtest_controller, &blocks_processed);
 
     // second block will be the first mined Stacks block
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&btc_regtest_controller, &blocks_processed);
 
     let tip_info = get_chain_info(&conf);
     let current_burn_height = tip_info.burn_block_height as u32;
@@ -158,13 +173,13 @@ fn test_exact_block_costs() {
 
     // broadcast the contract
     submit_tx(&http_origin, &contract_publish_tx);
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&btc_regtest_controller, &blocks_processed);
 
     let tip_info = get_chain_info(&conf);
     let current_burn_height = tip_info.burn_block_height as u32;
     assert_eq!(current_burn_height, 205);
 
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&btc_regtest_controller, &blocks_processed);
 
     let tip_info = get_chain_info(&conf);
     let current_burn_height = tip_info.burn_block_height as u32;
@@ -177,7 +192,7 @@ fn test_exact_block_costs() {
 
     // produce 10 more blocks
     for _i in 0..10 {
-        next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+        next_block_and_wait(&btc_regtest_controller, &blocks_processed);
     }
 
     let tip_info = get_chain_info(&conf);
@@ -300,7 +315,7 @@ fn test_dynamic_db_method_costs() {
     ";
 
     let (mut conf, _miner_account) = neon_integration_test_conf();
-    let mut epochs = EpochList::new(&*core::STACKS_EPOCHS_REGTEST);
+    let mut epochs = EpochList::new(&core::STACKS_EPOCHS_REGTEST);
     epochs[StacksEpochId::Epoch20].end_height = epoch_205_transition_height;
     epochs[StacksEpochId::Epoch2_05].start_height = epoch_205_transition_height;
     epochs[StacksEpochId::Epoch2_05].end_height = epoch_205_transition_height + 100;
@@ -360,7 +375,7 @@ fn test_dynamic_db_method_costs() {
         .map_err(|_e| ())
         .expect("Failed starting bitcoind");
 
-    let mut btc_regtest_controller = BitcoinRegtestController::new(conf.clone(), None);
+    let btc_regtest_controller = BitcoinRegtestController::new(conf.clone(), None);
     let http_origin = format!("http://{}", &conf.node.rpc_bind);
 
     btc_regtest_controller.bootstrap_chain(201);
@@ -378,27 +393,27 @@ fn test_dynamic_db_method_costs() {
     wait_for_runloop(&blocks_processed);
 
     // first block wakes up the run loop
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&btc_regtest_controller, &blocks_processed);
 
     // first block will hold our VRF registration
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&btc_regtest_controller, &blocks_processed);
 
     // second block will be the first mined Stacks block
     //  include the testing contract publish tx
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&btc_regtest_controller, &blocks_processed);
 
     let tip_info = get_chain_info(&conf);
     let current_burn_height = tip_info.burn_block_height as u32;
     assert_eq!(current_burn_height, 204);
     submit_tx(&http_origin, &contract_publish_tx);
 
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&btc_regtest_controller, &blocks_processed);
 
     let tip_info = get_chain_info(&conf);
     let current_burn_height = tip_info.burn_block_height as u32;
     assert_eq!(current_burn_height, 205);
 
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&btc_regtest_controller, &blocks_processed);
 
     let tip_info = get_chain_info(&conf);
     let current_burn_height = tip_info.burn_block_height as u32;
@@ -412,7 +427,7 @@ fn test_dynamic_db_method_costs() {
     for i in 0..10 {
         submit_tx(&http_origin, &make_db_get1_call(1 + (2 * i)));
         submit_tx(&http_origin, &make_db_get2_call(2 + (2 * i)));
-        next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+        next_block_and_wait(&btc_regtest_controller, &blocks_processed);
     }
 
     let tip_info = get_chain_info(&conf);
@@ -506,7 +521,7 @@ fn transition_empty_blocks() {
 
     let (mut conf, miner_account) = neon_integration_test_conf();
 
-    let mut epochs = EpochList::new(&*core::STACKS_EPOCHS_REGTEST);
+    let mut epochs = EpochList::new(&core::STACKS_EPOCHS_REGTEST);
     epochs[StacksEpochId::Epoch20].end_height = epoch_2_05;
     epochs[StacksEpochId::Epoch2_05].start_height = epoch_2_05;
     epochs[StacksEpochId::Epoch2_05].end_height = epoch_2_05 + 100;
@@ -524,7 +539,7 @@ fn transition_empty_blocks() {
         .map_err(|_e| ())
         .expect("Failed starting bitcoind");
 
-    let mut btc_regtest_controller = BitcoinRegtestController::new(conf.clone(), None);
+    let btc_regtest_controller = BitcoinRegtestController::new(conf.clone(), None);
     let http_origin = format!("http://{}", &conf.node.rpc_bind);
 
     btc_regtest_controller.bootstrap_chain(epoch_2_05 - 5);
@@ -542,17 +557,17 @@ fn transition_empty_blocks() {
     wait_for_runloop(&blocks_processed);
 
     // first block wakes up the run loop
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&btc_regtest_controller, &blocks_processed);
 
     // first block will hold our VRF registration
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&btc_regtest_controller, &blocks_processed);
 
     let tip_info = get_chain_info(&conf);
     let key_block_ptr = tip_info.burn_block_height as u32;
     let key_vtxindex = 1; // nothing else here but the coinbase
 
     // second block will be the first mined Stacks block
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&btc_regtest_controller, &blocks_processed);
 
     let burnchain = Burnchain::regtest(&conf.get_burn_db_path());
     let mut bitcoin_controller = BitcoinRegtestController::new_dummy(conf.clone());
@@ -644,7 +659,7 @@ fn transition_empty_blocks() {
             assert!(res.is_ok(), "Failed to submit block-commit");
         }
 
-        next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+        next_block_and_wait(&btc_regtest_controller, &blocks_processed);
     }
 
     let account = get_account(&http_origin, &miner_account);
@@ -829,7 +844,7 @@ fn test_cost_limit_switch_version205() {
         &test_observer::get_blocks(),
         |transaction| match &transaction.payload {
             TransactionPayload::SmartContract(contract, ..) => {
-                contract.name == ContractName::from("increment-contract")
+                contract.name == ContractName::from_literal("increment-contract")
             }
             _ => false,
         },
@@ -861,7 +876,7 @@ fn test_cost_limit_switch_version205() {
         &test_observer::get_blocks(),
         |transaction| match &transaction.payload {
             TransactionPayload::ContractCall(contract) => {
-                contract.contract_name == ContractName::from("increment-contract")
+                contract.contract_name == ContractName::from_literal("increment-contract")
             }
             _ => false,
         },
@@ -895,7 +910,7 @@ fn test_cost_limit_switch_version205() {
         &test_observer::get_blocks(),
         |transaction| match &transaction.payload {
             TransactionPayload::ContractCall(contract) => {
-                contract.contract_name == ContractName::from("increment-contract")
+                contract.contract_name == ContractName::from_literal("increment-contract")
             }
             _ => false,
         },

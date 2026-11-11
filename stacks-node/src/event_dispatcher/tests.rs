@@ -1,5 +1,5 @@
 // Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
-// Copyright (C) 2020-2025 Stacks Open Internet Foundation
+// Copyright (C) 2020-2026 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -15,14 +15,16 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use std::net::TcpListener;
+use std::sync::atomic::{AtomicU32, Ordering};
 use std::thread;
 use std::time::{Instant, SystemTime};
 
 use clarity::boot_util::boot_code_id;
+use clarity::vm::analysis::contract_interface_builder::build_contract_interface;
 use clarity::vm::costs::ExecutionCost;
 use clarity::vm::events::SmartContractEventData;
 use clarity::vm::types::StacksAddressExtensions;
-use clarity::vm::Value;
+use clarity::vm::{analysis, ClarityName, ClarityVersion, ContractName, Value};
 use rusqlite::Connection;
 use serial_test::serial;
 use stacks::address::{AddressHashMode, C32_ADDRESS_VERSION_TESTNET_SINGLESIG};
@@ -32,23 +34,135 @@ use stacks::chainstate::nakamoto::{NakamotoBlock, NakamotoBlockHeader};
 use stacks::chainstate::stacks::db::{StacksBlockHeaderTypes, StacksHeaderInfo};
 use stacks::chainstate::stacks::events::{StacksBlockEventData, TransactionOrigin};
 use stacks::chainstate::stacks::{
-    SinglesigHashMode, SinglesigSpendingCondition, StacksBlock, TenureChangeCause,
-    TenureChangePayload, TokenTransferMemo, TransactionAnchorMode, TransactionAuth,
-    TransactionPayload, TransactionPostConditionMode, TransactionPublicKeyEncoding,
-    TransactionSpendingCondition, TransactionVersion,
+    SinglesigHashMode, SinglesigSpendingCondition, StacksBlock, StacksTransactionSigner,
+    TenureChangeCause, TenureChangePayload, TokenTransferMemo, TransactionAnchorMode,
+    TransactionAuth, TransactionContractCall, TransactionPayload, TransactionPostConditionMode,
+    TransactionPublicKeyEncoding, TransactionSpendingCondition, TransactionVersion,
 };
+use stacks::core::test_util::{make_unsigned_tx, to_addr};
+use stacks::core::CHAIN_ID_TESTNET;
+use stacks::net::http::HttpRequestContents;
+use stacks::net::httpcore::{send_http_request, StacksHttpRequest};
 use stacks::types::chainstate::{
     BlockHeaderHash, StacksAddress, StacksPrivateKey, StacksPublicKey,
 };
+use stacks::types::net::PeerHost;
 use stacks::util::hash::{Hash160, Sha512Trunc256Sum};
 use stacks::util::secp256k1::MessageSignature;
 use stacks_common::bitvec::BitVec;
 use stacks_common::types::chainstate::{BurnchainHeaderHash, StacksBlockId};
+use stacks_common::types::StacksEpochId;
 use tempfile::tempdir;
 use tiny_http::{Method, Response, Server, StatusCode};
 
-use crate::event_dispatcher::payloads::*;
 use crate::event_dispatcher::*;
+
+/// Post-condition rollback suppresses transaction events in the delivered block payload.
+#[test]
+fn test_post_condition_aborted_transaction_does_not_emit_events() {
+    // Create a transaction receipt with post_condition_aborted = true and a dummy event
+    let tx = {
+        let private_key = StacksPrivateKey::from_seed("PostConditionFailure".as_bytes());
+        let addr = to_addr(&private_key);
+
+        let contract_name = ContractName::from_literal("test");
+        let function_name = ClarityName::from_literal("test");
+
+        let payload = TransactionContractCall {
+            address: addr.clone(),
+            contract_name,
+            function_name,
+            function_args: vec![],
+        };
+        let mut unsigned_tx = make_unsigned_tx(
+            TransactionPayload::ContractCall(payload),
+            &private_key,
+            None,
+            1,
+            None,
+            1000,
+            CHAIN_ID_TESTNET,
+            TransactionAnchorMode::Any,
+            TransactionVersion::Testnet,
+        );
+        unsigned_tx.post_condition_mode = TransactionPostConditionMode::Deny;
+
+        let mut tx_signer = StacksTransactionSigner::new(&unsigned_tx);
+        tx_signer.sign_origin(&private_key).unwrap();
+        tx_signer.get_tx().unwrap()
+    };
+    let txid = tx.txid();
+    let mut receipt = StacksTransactionReceipt {
+        transaction: TransactionOrigin::Stacks(tx),
+        events: vec![StacksTransactionEvent::SmartContractEvent(
+            SmartContractEventData {
+                key: (
+                    clarity::boot_util::boot_code_id("dummy", false),
+                    "dummy".into(),
+                ),
+                value: Value::Bool(true),
+            },
+        )],
+        post_condition_aborted: true,
+        result: Value::okay_true(),
+        stx_burned: 0,
+        contract_interface: None,
+        execution_cost: ExecutionCost::ZERO,
+        microblock_header: None,
+        tx_index: 0,
+        vm_error: None,
+        problematic_skipped: None,
+    };
+
+    let receipts = vec![receipt.clone()];
+
+    // Set up a dispatcher with a dummy observer
+    let dir = tempfile::tempdir().unwrap();
+    let mut dispatcher = EventDispatcher::new(dir.path().to_path_buf());
+    dispatcher.register_observer(&EventObserverConfig {
+        endpoint: "dummy-endpoint".to_string(),
+        events_keys: vec![EventKeyType::AnyEvent],
+        timeout_ms: 1000,
+        disable_retries: true,
+        disable_contract_interface: false,
+    });
+
+    // Call create_dispatch_matrix_and_event_vector with the aborted receipt
+    let (dispatch_matrix, events) = dispatcher.create_dispatch_matrix_and_event_vector(&receipts);
+
+    // There should be no events emitted for post-condition aborted transactions
+    assert!(
+        events.is_empty(),
+        "No events should be emitted for post-condition aborted transactions"
+    );
+    for observer_events in dispatch_matrix {
+        assert!(
+            observer_events.is_empty(),
+            "No observer should receive events for post-condition aborted transactions"
+        );
+    }
+
+    receipt.post_condition_aborted = false;
+    let receipts = vec![receipt];
+    // Call create_dispatch_matrix_and_event_vector with a successful receipt
+    let (dispatch_matrix, events) = dispatcher.create_dispatch_matrix_and_event_vector(&receipts);
+
+    // There should be events emitted for successful transactions
+    assert_eq!(
+        events.len(),
+        1,
+        "Events should be emitted for successful transactions"
+    );
+
+    assert_eq!(events.first().unwrap().0, txid);
+    for observer_events in dispatch_matrix {
+        assert_eq!(
+            observer_events.len(),
+            1,
+            "Observers should receive events for successful transactions"
+        );
+    }
+}
 
 #[test]
 fn build_block_processed_event() {
@@ -87,6 +201,7 @@ fn build_block_processed_event() {
         &Some(signer_bitvec.clone()),
         block_timestamp,
         coinbase_height,
+        true,
     );
     assert_eq!(
         payload
@@ -95,6 +210,30 @@ fn build_block_processed_event() {
             .as_u64()
             .unwrap(),
         pox_constants.v1_unlock_height as u64
+    );
+    assert_eq!(
+        payload
+            .get("pox_v2_unlock_height")
+            .unwrap()
+            .as_u64()
+            .unwrap(),
+        pox_constants.v2_unlock_height as u64
+    );
+    assert_eq!(
+        payload
+            .get("pox_v3_unlock_height")
+            .unwrap()
+            .as_u64()
+            .unwrap(),
+        pox_constants.v3_unlock_height as u64
+    );
+    assert_eq!(
+        payload
+            .get("pox_v4_unlock_height")
+            .unwrap()
+            .as_u64()
+            .unwrap(),
+        pox_constants.pox_5_activation_height as u64
     );
 
     let expected_bitvec_str = serde_json::to_value(signer_bitvec)
@@ -117,10 +256,7 @@ fn test_block_processed_event_nakamoto() {
         MessageSignature::from_bytes(&[1; 65]).unwrap(),
     ];
     block_header.signer_signature = signer_signature.clone();
-    let block = NakamotoBlock {
-        header: block_header.clone(),
-        txs: vec![],
-    };
+    let block = NakamotoBlock::new(block_header.clone(), vec![]);
     let mut metadata = StacksHeaderInfo::regtest_genesis();
     metadata.anchored_header = StacksBlockHeaderTypes::Nakamoto(block_header);
     let receipts = vec![];
@@ -155,6 +291,7 @@ fn test_block_processed_event_nakamoto() {
         &Some(signer_bitvec),
         block_timestamp,
         coinbase_height,
+        true,
     );
 
     let event_signer_signature = payload
@@ -238,13 +375,14 @@ fn test_process_pending_payloads() {
     info!("endpoint: {}", endpoint);
     let timeout = Duration::from_secs(5);
 
-    let mut dispatcher = EventDispatcher::new(dir.path().to_path_buf());
+    let mut dispatcher = EventDispatcher::new_with_custom_queue_size(dir.path().to_path_buf(), 0);
 
     dispatcher.register_observer(&EventObserverConfig {
         endpoint: endpoint.clone(),
         events_keys: vec![EventKeyType::AnyEvent],
         timeout_ms: timeout.as_millis() as u64,
         disable_retries: false,
+        disable_contract_interface: false,
     });
 
     let conn =
@@ -303,6 +441,7 @@ fn pending_payloads_are_skipped_if_url_does_not_match() {
         events_keys: vec![EventKeyType::AnyEvent],
         timeout_ms: timeout.as_millis() as u64,
         disable_retries: false,
+        disable_contract_interface: false,
     });
 
     let conn =
@@ -372,12 +511,13 @@ fn test_new_event_observer() {
     let endpoint = "http://example.com".to_string();
     let timeout = Duration::from_secs(5);
 
-    let observer = EventObserver::new(endpoint.clone(), timeout, false);
+    let observer = EventObserver::new(endpoint.clone(), timeout, false, false);
 
     // Verify fields
     assert_eq!(observer.endpoint, endpoint);
     assert_eq!(observer.timeout, timeout);
-    assert_eq!(observer.disable_retries, false);
+    assert!(!observer.disable_retries);
+    assert!(!observer.disable_contract_interface);
 }
 
 #[test]
@@ -403,12 +543,15 @@ fn test_send_payload_with_db() {
     let endpoint = server.url().strip_prefix("http://").unwrap().to_string();
     let timeout = Duration::from_secs(5);
 
-    let observer = EventObserver::new(endpoint, timeout, false);
+    let observer = EventObserver::new(endpoint, timeout, false, false);
 
     TEST_EVENT_OBSERVER_SKIP_RETRY.set(false);
 
     // Call send_payload
-    dispatcher.dispatch_to_observer(&observer, &payload, "/test");
+    dispatcher
+        .dispatch_to_observer(&observer, &payload, "/test")
+        .unwrap()
+        .wait_until_complete();
 
     // Verify that the payload was sent and database is empty
     _m.assert();
@@ -445,7 +588,12 @@ fn test_send_payload_success() {
         tx.send(()).unwrap();
     });
 
-    let observer = EventObserver::new(format!("127.0.0.1:{port}"), Duration::from_secs(3), false);
+    let observer = EventObserver::new(
+        format!("127.0.0.1:{port}"),
+        Duration::from_secs(3),
+        false,
+        false,
+    );
 
     let payload = json!({"key": "value"});
 
@@ -453,7 +601,7 @@ fn test_send_payload_success() {
     let working_dir = dir.path().to_path_buf();
     let dispatcher = EventDispatcher::new(working_dir);
 
-    dispatcher.dispatch_to_observer(&observer, &payload, "/test");
+    dispatcher.dispatch_to_observer_or_log_error(&observer, &payload, "/test");
 
     // Wait for the server to process the request
     rx.recv_timeout(Duration::from_secs(5))
@@ -497,7 +645,12 @@ fn test_send_payload_retry() {
         }
     });
 
-    let observer = EventObserver::new(format!("127.0.0.1:{port}"), Duration::from_secs(3), false);
+    let observer = EventObserver::new(
+        format!("127.0.0.1:{port}"),
+        Duration::from_secs(3),
+        false,
+        false,
+    );
 
     let payload = json!({"key": "value"});
 
@@ -505,7 +658,7 @@ fn test_send_payload_retry() {
     let working_dir = dir.path().to_path_buf();
     let dispatcher = EventDispatcher::new(working_dir);
 
-    dispatcher.dispatch_to_observer(&observer, &payload, "/test");
+    dispatcher.dispatch_to_observer_or_log_error(&observer, &payload, "/test");
 
     // Wait for the server to process the request
     rx.recv_timeout(Duration::from_secs(5))
@@ -550,7 +703,7 @@ fn test_send_payload_timeout() {
         }
     });
 
-    let observer = EventObserver::new(format!("127.0.0.1:{port}"), timeout, false);
+    let observer = EventObserver::new(format!("127.0.0.1:{port}"), timeout, false, false);
 
     let payload = json!({"key": "value"});
 
@@ -562,7 +715,10 @@ fn test_send_payload_timeout() {
     let dispatcher = EventDispatcher::new(working_dir);
 
     // Call the function being tested
-    dispatcher.dispatch_to_observer(&observer, &payload, "/test");
+    dispatcher
+        .dispatch_to_observer(&observer, &payload, "/test")
+        .unwrap()
+        .wait_until_complete();
 
     // Record the time after the function returns
     let elapsed_time = start_time.elapsed();
@@ -656,6 +812,7 @@ fn test_send_payload_with_db_force_restart() {
         timeout_ms: timeout.as_millis() as u64,
         events_keys: vec![EventKeyType::AnyEvent],
         disable_retries: false,
+        disable_contract_interface: false,
     });
 
     EventDispatcherDbConnection::new(&dispatcher.clone().db_path).unwrap();
@@ -670,7 +827,10 @@ fn test_send_payload_with_db_force_restart() {
     info!("Sending payload 1");
 
     // Send the payload
-    dispatcher.dispatch_to_observer(&observer, &payload, "/test");
+    dispatcher
+        .dispatch_to_observer(&observer, &payload, "/test")
+        .unwrap()
+        .wait_until_complete();
 
     // Re-enable retrying
     TEST_EVENT_OBSERVER_SKIP_RETRY.set(false);
@@ -680,7 +840,7 @@ fn test_send_payload_with_db_force_restart() {
     info!("Sending payload 2");
 
     // Send another payload
-    dispatcher.dispatch_to_observer(&observer, &payload2, "/test");
+    dispatcher.dispatch_to_observer_or_log_error(&observer, &payload2, "/test");
 
     // Wait for the server to process the requests
     rx.recv_timeout(Duration::from_secs(5))
@@ -700,14 +860,17 @@ fn test_event_dispatcher_disable_retries() {
 
     let endpoint = server.url().strip_prefix("http://").unwrap().to_string();
 
-    let observer = EventObserver::new(endpoint, timeout, true);
+    let observer = EventObserver::new(endpoint, timeout, true, false);
 
     let dir = tempdir().unwrap();
     let working_dir = dir.path().to_path_buf();
     let dispatcher = EventDispatcher::new(working_dir);
 
     // in non "disable_retries" mode this will run forever
-    dispatcher.dispatch_to_observer(&observer, &payload, "/test");
+    dispatcher
+        .dispatch_to_observer(&observer, &payload, "/test")
+        .unwrap()
+        .wait_until_complete();
 
     // Verify that the payload was sent
     _m.assert();
@@ -720,14 +883,17 @@ fn test_event_dispatcher_disable_retries_invalid_url() {
 
     let endpoint = String::from("255.255.255.255");
 
-    let observer = EventObserver::new(endpoint, timeout, true);
+    let observer = EventObserver::new(endpoint, timeout, true, false);
 
     let dir = tempdir().unwrap();
     let working_dir = dir.path().to_path_buf();
     let dispatcher = EventDispatcher::new(working_dir);
 
     // in non "disable_retries" mode this will run forever
-    dispatcher.dispatch_to_observer(&observer, &payload, "/test");
+    dispatcher
+        .dispatch_to_observer(&observer, &payload, "/test")
+        .unwrap()
+        .wait_until_complete();
 }
 
 #[test]
@@ -743,13 +909,11 @@ fn block_event_with_disable_retries_observer() {
         events_keys: vec![EventKeyType::MinedBlocks],
         timeout_ms: 1000,
         disable_retries: true,
+        disable_contract_interface: false,
     };
     event_dispatcher.register_observer(&config);
 
-    let nakamoto_block = NakamotoBlock {
-        header: NakamotoBlockHeader::empty(),
-        txs: vec![],
-    };
+    let nakamoto_block = NakamotoBlock::new(NakamotoBlockHeader::empty(), vec![]);
 
     // this will block forever in non "disable_retries" mode
     event_dispatcher.process_mined_nakamoto_block_event(
@@ -801,7 +965,7 @@ fn make_new_block_txs_payload_vm_error() {
         events: vec![],
         post_condition_aborted: true,
         result: Value::okay_true(),
-        contract_analysis: None,
+        contract_interface: None,
         execution_cost: ExecutionCost {
             write_length: 0,
             write_count: 0,
@@ -811,17 +975,175 @@ fn make_new_block_txs_payload_vm_error() {
         },
         microblock_header: None,
         vm_error: None,
+        problematic_skipped: None,
         stx_burned: 0u128,
         tx_index: 0,
     };
 
-    let payload_no_error = make_new_block_txs_payload(&receipt, 0);
+    let payload_no_error = make_new_block_txs_payload(&receipt, 0, true);
     assert_eq!(payload_no_error.vm_error, receipt.vm_error);
 
     receipt.vm_error = Some("Inconceivable!".into());
 
-    let payload_with_error = make_new_block_txs_payload(&receipt, 0);
+    let payload_with_error = make_new_block_txs_payload(&receipt, 0, true);
     assert_eq!(payload_with_error.vm_error, receipt.vm_error);
+}
+
+/// Deployment payloads preserve the ABI's JSON fields and emit explicit null on opt-out.
+#[test]
+fn make_new_block_txs_payload_contract_interface_toggle() {
+    let source = "(define-data-var counter uint u0)
+                  (define-read-only (get-counter) (var-get counter))";
+    let tx = StacksTransaction {
+        version: TransactionVersion::Testnet,
+        chain_id: CHAIN_ID_TESTNET,
+        auth: TransactionAuth::from_p2pkh(&StacksPrivateKey::random()).unwrap(),
+        anchor_mode: TransactionAnchorMode::Any,
+        post_condition_mode: TransactionPostConditionMode::Allow,
+        post_conditions: vec![],
+        payload: TransactionPayload::new_smart_contract("counter", source, None).unwrap(),
+    };
+    let (_, analysis) =
+        analysis::mem_type_check(source, ClarityVersion::Clarity1, StacksEpochId::Epoch21).unwrap();
+    let receipt =
+        StacksTransactionReceipt::from_smart_contract(tx, vec![], 0, analysis, ExecutionCost::ZERO);
+
+    // Compare wire JSON directly: typed deserialization can ignore renamed or unknown fields.
+    let mut included = serde_json::to_value(make_new_block_txs_payload(&receipt, 0, true)).unwrap();
+    let expected_interface = serde_json::json!({
+        "functions": [{
+            "name": "get-counter",
+            "access": "read_only",
+            "args": [],
+            "outputs": { "type": "uint128" }
+        }],
+        "variables": [{ "name": "counter", "access": "variable", "type": "uint128" }],
+        "maps": [],
+        "fungible_tokens": [],
+        "non_fungible_tokens": [],
+        "epoch": "Epoch21",
+        "clarity_version": "Clarity1"
+    });
+    assert_eq!(
+        included.get("contract_interface"),
+        Some(&expected_interface)
+    );
+    assert!(included.get("contract_abi").is_none());
+
+    // Opt-out changes only the interface field, retaining it as explicit null.
+    let omitted = serde_json::to_value(make_new_block_txs_payload(&receipt, 0, false)).unwrap();
+    included["contract_interface"] = serde_json::Value::Null;
+    assert_eq!(omitted, included);
+}
+
+#[test]
+/// `disable_contract_interface` is applied per observer when a processed block is
+/// dispatched: the same contract-publish receipt reaches the opted-out observer
+/// with `contract_interface` null and every other observer with the ABI.
+fn new_block_event_omits_contract_interface_only_for_opted_out_observer() {
+    fn spawn_capturing_server() -> (u16, std::sync::mpsc::Receiver<serde_json::Value>) {
+        let port = get_random_port();
+        let (tx, rx) = channel();
+        let server = Server::http(format!("127.0.0.1:{port}")).unwrap();
+        thread::spawn(move || {
+            let mut request = server.recv().unwrap();
+            assert_eq!(request.url(), format!("/{PATH_BLOCK_PROCESSED}"));
+            let payload = serde_json::from_reader(request.as_reader()).unwrap();
+            request
+                .respond(Response::from_string("HTTP/1.1 200 OK"))
+                .unwrap();
+            tx.send(payload).unwrap();
+        });
+        (port, rx)
+    }
+
+    let (abi_port, abi_rx) = spawn_capturing_server();
+    let (no_abi_port, no_abi_rx) = spawn_capturing_server();
+
+    let dir = tempdir().unwrap();
+    let mut dispatcher = EventDispatcher::new(dir.path().to_path_buf());
+    for (port, disable_contract_interface) in [(abi_port, false), (no_abi_port, true)] {
+        dispatcher.register_observer(&EventObserverConfig {
+            endpoint: format!("127.0.0.1:{port}"),
+            events_keys: vec![EventKeyType::AnyEvent],
+            timeout_ms: 3_000,
+            disable_retries: false,
+            disable_contract_interface,
+        });
+    }
+
+    let publish = StacksTransaction {
+        version: TransactionVersion::Testnet,
+        chain_id: CHAIN_ID_TESTNET,
+        auth: TransactionAuth::from_p2pkh(&StacksPrivateKey::random()).unwrap(),
+        anchor_mode: TransactionAnchorMode::Any,
+        post_condition_mode: TransactionPostConditionMode::Allow,
+        post_conditions: vec![],
+        payload: TransactionPayload::new_smart_contract(
+            "faucet",
+            "(define-public (spout) (ok true))",
+            None,
+        )
+        .unwrap(),
+    };
+    let analysis = clarity::vm::analysis::ContractAnalysis::new(
+        clarity::vm::types::QualifiedContractIdentifier::transient(),
+        vec![],
+        clarity::vm::costs::LimitedCostTracker::new_free(),
+        stacks_common::types::StacksEpochId::Epoch21,
+        clarity::vm::ClarityVersion::Clarity1,
+    );
+    let receipt = StacksTransactionReceipt {
+        transaction: TransactionOrigin::Stacks(publish),
+        events: vec![],
+        post_condition_aborted: false,
+        result: Value::okay_true(),
+        contract_interface: Some(build_contract_interface(&analysis).unwrap()),
+        execution_cost: ExecutionCost::ZERO,
+        microblock_header: None,
+        vm_error: None,
+        problematic_skipped: None,
+        stx_burned: 0,
+        tx_index: 0,
+    };
+
+    dispatcher.process_chain_tip(
+        &StacksBlock::genesis_block().into(),
+        &StacksHeaderInfo::regtest_genesis(),
+        &[receipt],
+        &StacksBlockId([0; 32]),
+        &Txid([0; 32]),
+        &[],
+        None,
+        &BurnchainHeaderHash([0; 32]),
+        0,
+        0,
+        &ExecutionCost::ZERO,
+        &ExecutionCost::ZERO,
+        &PoxConstants::testnet_default(),
+        &None,
+        &None,
+        None,
+        1,
+    );
+
+    let contract_interface = |payload: serde_json::Value| {
+        let transactions = payload["transactions"].as_array().unwrap().clone();
+        assert_eq!(transactions.len(), 1);
+        // Observers get an explicit `null` when opted out, never a missing field.
+        transactions[0]
+            .get("contract_interface")
+            .expect("contract_interface field must be present")
+            .clone()
+    };
+    let with_abi = abi_rx
+        .recv_timeout(Duration::from_secs(5))
+        .expect("observer with the ABI enabled did not receive the block");
+    assert!(contract_interface(with_abi).is_object());
+    let without_abi = no_abi_rx
+        .recv_timeout(Duration::from_secs(5))
+        .expect("opted-out observer did not receive the block");
+    assert!(contract_interface(without_abi).is_null());
 }
 
 fn make_tenure_change_payload() -> TenureChangePayload {
@@ -857,6 +1179,7 @@ fn make_tenure_change_tx(payload: TenureChangePayload) -> StacksTransaction {
     }
 }
 
+/// Transaction event JSON preserves the existing wire fields for burnchain-origin receipts.
 #[test]
 fn backwards_compatibility_transaction_event_payload() {
     let tx = make_tenure_change_tx(make_tenure_change_payload());
@@ -877,7 +1200,7 @@ fn backwards_compatibility_transaction_event_payload() {
         post_condition_aborted: false,
         result: Value::okay_true(),
         stx_burned: 100,
-        contract_analysis: None,
+        contract_interface: None,
         execution_cost: ExecutionCost {
             write_length: 1,
             write_count: 2,
@@ -888,8 +1211,9 @@ fn backwards_compatibility_transaction_event_payload() {
         microblock_header: None,
         tx_index: 1,
         vm_error: None,
+        problematic_skipped: None,
     };
-    let payload = make_new_block_txs_payload(&receipt, 0);
+    let payload = make_new_block_txs_payload(&receipt, 0, true);
     let new_serialized_data = serde_json::to_string_pretty(&payload).expect("Failed");
     let old_serialized_data = r#"
         {
@@ -906,7 +1230,7 @@ fn backwards_compatibility_transaction_event_payload() {
                     "vtxindex": 0
                 }
             },
-            "contract_abi": null,
+            "contract_interface": null,
             "execution_cost": {
                 "read_count": 4,
                 "read_length": 3,
@@ -921,13 +1245,12 @@ fn backwards_compatibility_transaction_event_payload() {
             "raw_tx": "0x00",
             "status": "success",
             "tx_index": 0,
+            "vm_error": null,
             "txid": "0xace70e63009a2c2d22c0f948b146d8a28df13a2900f3b5f3cc78b56459ffef05"
         }
         "#;
-    let new_value: TransactionEventPayload = serde_json::from_str(&new_serialized_data)
-        .expect("Failed to deserialize new data as TransactionEventPayload");
-    let old_value: TransactionEventPayload = serde_json::from_str(&old_serialized_data)
-        .expect("Failed to deserialize old data as TransactionEventPayload");
+    let new_value: serde_json::Value = serde_json::from_str(&new_serialized_data).unwrap();
+    let old_value: serde_json::Value = serde_json::from_str(old_serialized_data).unwrap();
     assert_eq!(new_value, old_value);
 }
 
@@ -939,11 +1262,13 @@ fn test_block_proposal_validation_event() {
     let endpoint = server.url().strip_prefix("http://").unwrap().to_string();
     let dir = tempdir().unwrap();
     let mut dispatcher = EventDispatcher::new(dir.path().to_path_buf());
+
     dispatcher.register_observer(&EventObserverConfig {
         endpoint: endpoint.clone(),
         events_keys: vec![EventKeyType::BlockProposal],
         timeout_ms: 3_000,
         disable_retries: false,
+        disable_contract_interface: false,
     });
 
     // The below matches what the `RPCBlockProposalRequestHandler` does via
@@ -967,6 +1292,270 @@ fn test_block_proposal_validation_event() {
     });
 
     validation_thread.join().unwrap();
+
+    mock.assert();
+}
+
+/// Upper bound on how long the HTTP delivery tests wait for the event
+/// dispatcher's worker to make progress.
+const MAX_WAIT: Duration = Duration::from_secs(30);
+
+/// Block until `counter` reaches `expected`, panicking if it has not done so
+/// within `timeout`.
+#[track_caller]
+fn wait_for_count(counter: &AtomicU32, expected: u32, timeout: Duration) {
+    let start = Instant::now();
+    loop {
+        let observed = counter.load(Ordering::SeqCst);
+        if observed >= expected {
+            return;
+        }
+        assert!(
+            start.elapsed() < timeout,
+            "timed out waiting for count to reach {expected}, got {observed}"
+        );
+        thread::sleep(Duration::from_millis(20));
+    }
+}
+
+#[test]
+fn test_http_delivery_non_blocking() {
+    let mut slow_server = mockito::Server::new();
+
+    let start_count = Arc::new(AtomicU32::new(0));
+    let end_count = Arc::new(AtomicU32::new(0));
+
+    let start_count2 = start_count.clone();
+    let end_count2 = end_count.clone();
+
+    let mock = slow_server
+        .mock("POST", "/mined_nakamoto_block")
+        .with_body_from_request(move |_| {
+            start_count2.fetch_add(1, Ordering::SeqCst);
+            thread::sleep(Duration::from_secs(2));
+            end_count2.fetch_add(1, Ordering::SeqCst);
+            "".into()
+        })
+        .create();
+
+    let endpoint = slow_server
+        .url()
+        .strip_prefix("http://")
+        .unwrap()
+        .to_string();
+
+    let dir = tempdir().unwrap();
+    let mut dispatcher = EventDispatcher::new(dir.path().to_path_buf());
+
+    dispatcher.register_observer(&EventObserverConfig {
+        endpoint: endpoint.clone(),
+        events_keys: vec![EventKeyType::MinedBlocks],
+        timeout_ms: 3_000,
+        disable_retries: false,
+        disable_contract_interface: false,
+    });
+
+    let nakamoto_block = NakamotoBlock::new(NakamotoBlockHeader::empty(), vec![]);
+
+    let start = Instant::now();
+
+    dispatcher.process_mined_nakamoto_block_event(
+        0,
+        &nakamoto_block,
+        0,
+        &ExecutionCost::max_value(),
+        vec![],
+    );
+
+    // a blocking dispatcher would have waited out the server's 2s delay, so
+    // this bound only has to be comfortably below that -- the send itself has
+    // to serialize the payload and commit it to SQLite, which is not free on a
+    // loaded machine
+    assert!(
+        start.elapsed() < Duration::from_millis(500),
+        "dispatcher blocked while sending event"
+    );
+
+    // the worker picks the event up, but the server has not responded yet
+    wait_for_count(&start_count, 1, MAX_WAIT);
+    assert_eq!(end_count.load(Ordering::SeqCst), 0);
+
+    // the request eventually completes, and it was the only one sent
+    wait_for_count(&end_count, 1, MAX_WAIT);
+    assert_eq!(start_count.load(Ordering::SeqCst), 1);
+
+    mock.assert();
+}
+
+#[test]
+fn test_http_delivery_blocks_once_queue_is_full() {
+    let mut slow_server = mockito::Server::new();
+
+    let start_count = Arc::new(AtomicU32::new(0));
+    let end_count = Arc::new(AtomicU32::new(0));
+
+    let start_count2 = start_count.clone();
+    let end_count2 = end_count.clone();
+
+    // this server takes 2 seconds until it finally responds
+    let mock = slow_server
+        .mock("POST", "/mined_nakamoto_block")
+        .expect(4)
+        .with_body_from_request(move |_| {
+            start_count2.fetch_add(1, Ordering::SeqCst);
+            thread::sleep(Duration::from_secs(2));
+            end_count2.fetch_add(1, Ordering::SeqCst);
+            "".into()
+        })
+        .create();
+
+    let endpoint = slow_server
+        .url()
+        .strip_prefix("http://")
+        .unwrap()
+        .to_string();
+
+    let dir = tempdir().unwrap();
+
+    // Create a dispatcher with a queue size of 3, so that three pending requests
+    // don't block, but the fourth one does.
+    let mut dispatcher = EventDispatcher::new_with_custom_queue_size(dir.path().to_path_buf(), 3);
+
+    dispatcher.register_observer(&EventObserverConfig {
+        endpoint: endpoint.clone(),
+        events_keys: vec![EventKeyType::MinedBlocks],
+        timeout_ms: 3_000,
+        disable_retries: false,
+        disable_contract_interface: false,
+    });
+
+    let nakamoto_block = NakamotoBlock::new(NakamotoBlockHeader::empty(), vec![]);
+
+    let start = Instant::now();
+
+    // send the first three requests
+    for _ in 1..=3 {
+        dispatcher.process_mined_nakamoto_block_event(
+            0,
+            &nakamoto_block,
+            0,
+            &ExecutionCost::max_value(),
+            vec![],
+        );
+    }
+
+    // this shouldn't block because they fit in the queue
+    assert!(
+        start.elapsed() < Duration::from_millis(500),
+        "dispatcher blocked while sending first three events"
+    );
+
+    // the worker picks the first event up, but the server has not responded yet
+    wait_for_count(&start_count, 1, MAX_WAIT);
+    assert_eq!(end_count.load(Ordering::SeqCst), 0);
+
+    let start = Instant::now();
+
+    // send the fourth request -- this should now block until the first request is complete
+    dispatcher.process_mined_nakamoto_block_event(
+        0,
+        &nakamoto_block,
+        0,
+        &ExecutionCost::max_value(),
+        vec![],
+    );
+
+    // the first request was already in flight, so this had to wait out the
+    // remainder of the server's 2s delay
+    assert!(
+        start.elapsed() > Duration::from_millis(1000),
+        "dispatcher did not block when sending fourth event"
+    );
+
+    // it only waited for the *first* request: if the queue were smaller than
+    // three, the second request would have had to complete as well
+    assert_eq!(end_count.load(Ordering::SeqCst), 1);
+
+    // The worker delivers the remaining requests strictly one at a time: each
+    // one only starts once its predecessor has completed.
+    for completed in 1..=3 {
+        wait_for_count(&end_count, completed, MAX_WAIT);
+        wait_for_count(&start_count, completed + 1, MAX_WAIT);
+
+        // give the worker a chance to (incorrectly) run ahead, then confirm
+        // that it did not -- only one request is ever in flight
+        thread::sleep(Duration::from_millis(100));
+        assert_eq!(start_count.load(Ordering::SeqCst), completed + 1);
+        assert_eq!(end_count.load(Ordering::SeqCst), completed);
+    }
+
+    // the fourth request completes with nothing left to start
+    wait_for_count(&end_count, 4, MAX_WAIT);
+    dispatcher.catch_up();
+    assert_eq!(start_count.load(Ordering::SeqCst), 4);
+    assert_eq!(end_count.load(Ordering::SeqCst), 4);
+
+    mock.assert();
+}
+
+#[test]
+fn test_http_delivery_always_blocks_if_queue_size_is_zero() {
+    let mut slow_server = mockito::Server::new();
+
+    let start_count = Arc::new(AtomicU32::new(0));
+    let end_count = Arc::new(AtomicU32::new(0));
+
+    let start_count2 = start_count.clone();
+    let end_count2 = end_count.clone();
+
+    let mock = slow_server
+        .mock("POST", "/mined_nakamoto_block")
+        .with_body_from_request(move |_| {
+            start_count2.fetch_add(1, Ordering::SeqCst);
+            thread::sleep(Duration::from_secs(2));
+            end_count2.fetch_add(1, Ordering::SeqCst);
+            "".into()
+        })
+        .create();
+
+    let endpoint = slow_server
+        .url()
+        .strip_prefix("http://")
+        .unwrap()
+        .to_string();
+
+    let dir = tempdir().unwrap();
+    let mut dispatcher = EventDispatcher::new_with_custom_queue_size(dir.path().to_path_buf(), 0);
+
+    dispatcher.register_observer(&EventObserverConfig {
+        endpoint: endpoint.clone(),
+        events_keys: vec![EventKeyType::MinedBlocks],
+        timeout_ms: 3_000,
+        disable_retries: false,
+        disable_contract_interface: false,
+    });
+
+    let nakamoto_block = NakamotoBlock::new(NakamotoBlockHeader::empty(), vec![]);
+
+    let start = Instant::now();
+
+    dispatcher.process_mined_nakamoto_block_event(
+        0,
+        &nakamoto_block,
+        0,
+        &ExecutionCost::max_value(),
+        vec![],
+    );
+
+    assert!(
+        start.elapsed() > Duration::from_millis(1900),
+        "dispatcher did not block while sending event"
+    );
+
+    thread::sleep(Duration::from_millis(100));
+
+    assert!(start_count.load(Ordering::SeqCst) == 1);
+    assert!(end_count.load(Ordering::SeqCst) == 1);
 
     mock.assert();
 }

@@ -29,6 +29,7 @@ use clarity::vm::database::{
 };
 use clarity::vm::errors::{ClarityEvalError, StaticCheckError, VmExecutionError};
 use clarity::vm::events::StacksTransactionEvent;
+use clarity::vm::resource_limiter::ResourceLimiter;
 use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier};
 use clarity::vm::{
     ClarityVersion, ContractContext, ContractName, SymbolicExpression, Value, analysis, ast,
@@ -47,6 +48,7 @@ use stacks_common::types::chainstate::{
 };
 use stacks_common::types::sqlite::NO_PARAMS;
 use stacks_common::util::hash::{Hash160, Sha512Trunc256Sum, bytes_to_hex};
+use stacks_marf::ClarityMarfTrieId;
 use stackslib::burnchains::{PoxConstants, Txid};
 use stackslib::chainstate::stacks::boot::{
     BOOT_CODE_BNS, BOOT_CODE_COST_VOTING_MAINNET, BOOT_CODE_COST_VOTING_TESTNET, BOOT_CODE_COSTS,
@@ -54,11 +56,10 @@ use stackslib::chainstate::stacks::boot::{
     BOOT_CODE_GENESIS, BOOT_CODE_LOCKUP, BOOT_CODE_POX_MAINNET, BOOT_CODE_POX_TESTNET,
     POX_2_MAINNET_CODE, POX_2_TESTNET_CODE,
 };
-use stackslib::chainstate::stacks::index::ClarityMarfTrieId;
 use stackslib::clarity_vm::clarity::{ClarityMarfStore, ClarityMarfStoreTransaction};
 use stackslib::clarity_vm::database::MemoryBackingStore;
 use stackslib::clarity_vm::database::marf::{MarfedKV, PersistentWritableMarfStore};
-use stackslib::core::{BLOCK_LIMIT_MAINNET_205, HELIUM_BLOCK_LIMIT_20, StacksEpochId};
+use stackslib::core::{BLOCK_LIMIT_MAINNET_205, BLOCK_LIMIT_REGTEST_20, StacksEpochId};
 use stackslib::util_lib::boot::{boot_code_addr, boot_code_id};
 use stackslib::util_lib::db::{FromColumn, sqlite_open};
 
@@ -102,14 +103,14 @@ macro_rules! panic_test {
     };
 }
 
-fn friendly_expect<A, B: std::fmt::Display>(input: Result<A, B>, msg: &str) -> A {
+pub fn friendly_expect<A, B: std::fmt::Display>(input: Result<A, B>, msg: &str) -> A {
     input.unwrap_or_else(|e| {
         eprintln!("{msg}\nCaused by: {e}");
         panic_test!();
     })
 }
 
-fn friendly_expect_opt<A>(input: Option<A>, msg: &str) -> A {
+pub fn friendly_expect_opt<A>(input: Option<A>, msg: &str) -> A {
     input.unwrap_or_else(|| {
         eprintln!("{msg}");
         panic_test!();
@@ -118,27 +119,45 @@ fn friendly_expect_opt<A>(input: Option<A>, msg: &str) -> A {
 
 /// Read text content from a file path or stdin if path is "-"
 pub fn read_file_or_stdin(path: &str) -> String {
-    if path == "-" {
-        let mut buffer = String::new();
-        io::stdin()
-            .read_to_string(&mut buffer)
-            .expect("Error reading from stdin");
-        buffer
-    } else {
-        fs::read_to_string(path).unwrap_or_else(|e| panic!("Error reading file {path}: {e}"))
-    }
+    friendly_expect(try_read_file_or_stdin(path), &read_error_message(path))
 }
 
 /// Read binary content from a file path or stdin if path is "-"
 pub fn read_file_or_stdin_bytes(path: &str) -> Vec<u8> {
+    friendly_expect(
+        try_read_file_or_stdin_bytes(path),
+        &read_error_message(path),
+    )
+}
+
+/// Build the error message shown when a read of `path` fails.
+fn read_error_message(path: &str) -> String {
+    if path == "-" {
+        "Error reading from stdin".to_string()
+    } else {
+        format!("Error reading file {path}")
+    }
+}
+
+/// Read UTF-8 content from `path`, or from stdin if `path` is "-".
+fn try_read_file_or_stdin(path: &str) -> io::Result<String> {
+    if path == "-" {
+        let mut buffer = String::new();
+        io::stdin().read_to_string(&mut buffer)?;
+        Ok(buffer)
+    } else {
+        fs::read_to_string(path)
+    }
+}
+
+/// Read raw bytes from `path`, or from stdin if `path` is "-".
+fn try_read_file_or_stdin_bytes(path: &str) -> io::Result<Vec<u8>> {
     if path == "-" {
         let mut buffer = vec![];
-        io::stdin()
-            .read_to_end(&mut buffer)
-            .expect("Error reading from stdin");
-        buffer
+        io::stdin().read_to_end(&mut buffer)?;
+        Ok(buffer)
     } else {
-        fs::read(path).unwrap_or_else(|e| panic!("Error reading file {path}: {e}"))
+        fs::read(path)
     }
 }
 
@@ -245,6 +264,8 @@ fn run_analysis_free<C: ClarityStorage>(
         clarity_version,
         // no type map data is used in the clarity_cli
         false,
+        // CLI tool: no analysis deadline
+        ResourceLimiter::unlimited(),
     )
 }
 
@@ -264,7 +285,7 @@ fn run_analysis<C: ClarityStorage>(
         if mainnet {
             BLOCK_LIMIT_MAINNET_205
         } else {
-            HELIUM_BLOCK_LIMIT_20
+            BLOCK_LIMIT_REGTEST_20
         },
         &mut marf_kv.get_clarity_db(header_db, &NULL_BURN_STATE_DB),
         epoch,
@@ -280,6 +301,8 @@ fn run_analysis<C: ClarityStorage>(
         clarity_version,
         // no type map data is used in the clarity_cli
         false,
+        // CLI tool: no analysis deadline
+        ResourceLimiter::unlimited(),
     )
 }
 
@@ -445,7 +468,7 @@ where
         if mainnet {
             BLOCK_LIMIT_MAINNET_205
         } else {
-            HELIUM_BLOCK_LIMIT_20
+            BLOCK_LIMIT_REGTEST_20
         },
         &mut db,
         epoch,
@@ -666,6 +689,7 @@ impl HeadersDB for CLIHeadersDB {
     fn get_vrf_seed_for_block(
         &self,
         id_bhh: &StacksBlockId,
+        _tip: &StacksBlockId,
         _epoch: &StacksEpochId,
     ) -> Option<VRFSeed> {
         let conn = self.conn();
@@ -718,6 +742,7 @@ impl HeadersDB for CLIHeadersDB {
     fn get_miner_address(
         &self,
         _id_bhh: &StacksBlockId,
+        _tip: &StacksBlockId,
         _epoch: &StacksEpochId,
     ) -> Option<StacksAddress> {
         None
@@ -726,6 +751,7 @@ impl HeadersDB for CLIHeadersDB {
     fn get_burnchain_tokens_spent_for_block(
         &self,
         id_bhh: &StacksBlockId,
+        _tip: &StacksBlockId,
         _epoch: &StacksEpochId,
     ) -> Option<u128> {
         // if the block is defined at all, then return a constant
@@ -735,6 +761,7 @@ impl HeadersDB for CLIHeadersDB {
     fn get_burnchain_tokens_spent_for_winning_block(
         &self,
         id_bhh: &StacksBlockId,
+        _tip: &StacksBlockId,
         _epoch: &StacksEpochId,
     ) -> Option<u128> {
         // if the block is defined at all, then return a constant
@@ -744,6 +771,7 @@ impl HeadersDB for CLIHeadersDB {
     fn get_tokens_earned_for_block(
         &self,
         id_bhh: &StacksBlockId,
+        _tip: &StacksBlockId,
         _epoch: &StacksEpochId,
     ) -> Option<u128> {
         // if the block is defined at all, then return a constant
@@ -780,7 +808,7 @@ fn install_boot_code<C: ClarityStorage>(
                 QualifiedContractIdentifier::transient().issuer.into(),
                 None,
                 None,
-                |env| {
+                |env, _invoke_ctx| {
                     let res: Result<_, VmExecutionError> =
                         Ok(env.global_context.database.set_clarity_epoch_version(epoch));
                     res
@@ -851,10 +879,10 @@ fn install_boot_code<C: ClarityStorage>(
     };
 
     let params = vec![
-        SymbolicExpression::atom_value(Value::UInt(0)), // first burnchain block height
-        SymbolicExpression::atom_value(Value::UInt(pox_params.prepare_length as u128)),
-        SymbolicExpression::atom_value(Value::UInt(pox_params.reward_cycle_length as u128)),
-        SymbolicExpression::atom_value(Value::UInt(pox_params.pox_rejection_fraction as u128)),
+        Value::UInt(0), // first burnchain block height
+        Value::UInt(pox_params.prepare_length as u128),
+        Value::UInt(pox_params.reward_cycle_length as u128),
+        Value::UInt(pox_params.pox_rejection_fraction as u128),
     ];
 
     let db = marf.get_clarity_db(header_db, &NULL_BURN_STATE_DB);
@@ -865,7 +893,7 @@ fn install_boot_code<C: ClarityStorage>(
             None,
             pox_contract,
             "set-burnchain-parameters",
-            params.as_slice(),
+            params,
         )
         .unwrap();
 }
@@ -952,7 +980,7 @@ pub fn execute_generate_address() -> (i32, Option<serde_json::Value>) {
     // Version = 22
     let addr = friendly_expect(c32_address(22, &random_bytes), "Failed to generate address");
 
-    (0, Some(json!({ "address": format!("{addr}") })))
+    (0, Some(json!({ "address": addr.to_string() })))
 }
 
 /// Typecheck a potential contract definition
@@ -1072,7 +1100,8 @@ pub fn execute_repl(
     );
     let placeholder_context =
         ContractContext::new(QualifiedContractIdentifier::transient(), clarity_version);
-    let mut exec_env = vm_env.get_exec_environment(None, None, &placeholder_context);
+    let (mut exec_state, invoke_ctx) =
+        vm_env.get_exec_environment(None, None, &placeholder_context);
     let mut analysis_marf = MemoryBackingStore::new();
 
     let contract_id = QualifiedContractIdentifier::transient();
@@ -1125,7 +1154,7 @@ pub fn execute_repl(
         }
 
         // Evaluate the expression
-        let eval_result = match exec_env.eval_raw(&content) {
+        let eval_result = match exec_state.eval_raw(&invoke_ctx, &content) {
             Ok(val) => val,
             Err(error) => {
                 println!("Execution error:\n{error}");
@@ -1174,9 +1203,9 @@ pub fn execute_eval_raw(
     ) {
         Ok(_) => {
             // Analysis passed, now evaluate
-            let result = vm_env
-                .get_exec_environment(None, None, &placeholder_context)
-                .eval_raw(content);
+            let (mut exec_state, invoke_ctx) =
+                vm_env.get_exec_environment(None, None, &placeholder_context);
+            let result = exec_state.eval_raw(&invoke_ctx, content);
             match result {
                 Ok(x) => (
                     0,
@@ -1231,9 +1260,9 @@ pub fn execute_eval(
     // Evaluate in a new block
     let (_, _, result_and_cost) = in_block(header_db, marf_kv, |header_db, mut marf| {
         let result_and_cost = with_env_costs(mainnet, epoch, &header_db, &mut marf, |vm_env| {
-            vm_env
-                .get_exec_environment(None, None, &placeholder_context)
-                .eval_read_only(contract_identifier, content)
+            let (mut exec_state, invoke_ctx) =
+                vm_env.get_exec_environment(None, None, &placeholder_context);
+            exec_state.eval_read_only(&invoke_ctx, contract_identifier, content)
         });
         (header_db, marf, result_and_cost)
     });
@@ -1290,9 +1319,9 @@ pub fn execute_eval_at_chaintip(
     // Evaluate at chaintip (no block advance)
     let result_and_cost = at_chaintip(vm_filename, marf_kv, |mut marf| {
         let result_and_cost = with_env_costs(mainnet, epoch, &header_db, &mut marf, |vm_env| {
-            vm_env
-                .get_exec_environment(None, None, &placeholder_context)
-                .eval_read_only(contract_identifier, content)
+            let (mut exec_state, invoke_ctx) =
+                vm_env.get_exec_environment(None, None, &placeholder_context);
+            exec_state.eval_read_only(&invoke_ctx, contract_identifier, content)
         });
         let (result, cost) = result_and_cost;
 
@@ -1351,9 +1380,9 @@ pub fn execute_eval_at_block(
     // Evaluate at specific block
     let result_and_cost = at_block(chain_tip, marf_kv, |mut marf| {
         let result_and_cost = with_env_costs(mainnet, epoch, &header_db, &mut marf, |vm_env| {
-            vm_env
-                .get_exec_environment(None, None, &placeholder_context)
-                .eval_read_only(contract_identifier, content)
+            let (mut exec_state, invoke_ctx) =
+                vm_env.get_exec_environment(None, None, &placeholder_context);
+            exec_state.eval_read_only(&invoke_ctx, contract_identifier, content)
         });
         (marf, result_and_cost)
     });
@@ -1503,7 +1532,7 @@ pub fn execute_execute(
     contract_identifier: &QualifiedContractIdentifier,
     tx_name: &str,
     sender: PrincipalData,
-    arguments: &[SymbolicExpression],
+    arguments: Vec<Value>,
     costs: bool,
     assets: bool,
     epoch: StacksEpochId,
@@ -1876,13 +1905,13 @@ mod test {
         )
         .expect("Failed to parse argument")
         .expect("Failed to get value from argument");
-        let arguments = vec![SymbolicExpression::atom_value(arg_parsed)];
+        let arguments = vec![arg_parsed];
         let (exit, result) = execute_execute(
             &db_name,
             &contract_id,
             "mint!",
             sender,
-            &arguments,
+            arguments,
             false,
             false,
             DEFAULT_CLI_EPOCH,
@@ -2480,5 +2509,33 @@ mod test {
             result_json
         );
         assert!(result_json["error"]["runtime"] != json!(null));
+    }
+
+    #[test]
+    fn test_read_missing_file_is_an_error() {
+        let missing = "path/to/unexistent_contract.clar";
+
+        assert_eq!(
+            try_read_file_or_stdin(missing).unwrap_err().kind(),
+            io::ErrorKind::NotFound
+        );
+        assert_eq!(
+            try_read_file_or_stdin_bytes(missing).unwrap_err().kind(),
+            io::ErrorKind::NotFound
+        );
+    }
+
+    #[test]
+    fn test_read_file_returns_its_contents() {
+        let path = format!(
+            "/tmp/clarity_cli_read_file_{}.clar",
+            rand::thread_rng().r#gen::<i32>()
+        );
+        fs::write(&path, "(ok u1)").unwrap();
+
+        assert_eq!(try_read_file_or_stdin(&path).unwrap(), "(ok u1)");
+        assert_eq!(try_read_file_or_stdin_bytes(&path).unwrap(), b"(ok u1)");
+
+        fs::remove_file(&path).unwrap();
     }
 }

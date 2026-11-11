@@ -1,0 +1,1 @@
+../../../stackslib/src/chainstate/stacks/boot/pox-5.clar

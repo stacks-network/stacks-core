@@ -1,0 +1,28 @@
+type: object
+required:
+  - committed
+  - event_index
+  - stx_burn_event
+  - txid
+  - type
+properties:
+  committed:
+    type: boolean
+  event_index:
+    type: integer
+  stx_burn_event:
+    type: object
+    required:
+      - amount
+      - sender
+    properties:
+      amount:
+        type: string
+      sender:
+        type: string
+  txid:
+    type: string
+  type:
+    type: string
+    enum:
+      - stx_burn_event

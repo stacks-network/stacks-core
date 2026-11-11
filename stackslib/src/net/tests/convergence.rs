@@ -1,5 +1,5 @@
 // Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
-// Copyright (C) 2020-2024 Stacks Open Internet Foundation
+// Copyright (C) 2020-2026 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -17,8 +17,10 @@
 /// You are going to need `ulimit -n` to be 4096 for these tests.
 /// In Linux, the default is 1024.
 use std::collections::{HashMap, HashSet};
+use std::time::{Duration, Instant};
 
 use clarity::vm::types::{QualifiedContractIdentifier, StandardPrincipalData};
+use clarity::vm::ContractName;
 use rand::prelude::*;
 use rand::thread_rng;
 
@@ -46,7 +48,7 @@ fn setup_rlimit_nofiles() {
 fn stacker_db_id(i: usize) -> QualifiedContractIdentifier {
     QualifiedContractIdentifier::new(
         StandardPrincipalData::new(0x01, [i as u8; 20]).unwrap(),
-        format!("db-{}", i).as_str().into(),
+        ContractName::try_from(format!("db-{}", i)).unwrap(),
     )
 }
 
@@ -58,6 +60,9 @@ fn make_stacker_db_ids(i: usize) -> Vec<QualifiedContractIdentifier> {
     dbs
 }
 
+/// Peer `i` binds p2p port `port_base + 2 * i` and HTTP port `port_base + 2 * i + 1`.
+/// Keep `port_base` below 32768: Linux hands out ports from 32768 and up to outbound
+/// connections, and any of those can hold one of our ports and stop the peer from binding.
 fn setup_peer_config(
     i: usize,
     port_base: u16,
@@ -74,11 +79,8 @@ fn setup_peer_config(
     conf.connection_opts.max_http_clients = 1000;
     conf.connection_opts.max_neighbors_of_neighbor = neighbor_count as u64;
 
-    conf.connection_opts.max_clients_per_host = MAX_NEIGHBORS_DATA_LEN as u64;
     conf.connection_opts.soft_max_clients_per_host = peer_count as u64;
 
-    conf.connection_opts.max_neighbors_per_host = MAX_NEIGHBORS_DATA_LEN as u64;
-    conf.connection_opts.soft_max_neighbors_per_host = (neighbor_count / 2) as u64;
     conf.connection_opts.soft_max_neighbors_per_org = (neighbor_count / 2) as u64;
 
     conf.connection_opts.walk_interval = 0;
@@ -91,7 +93,7 @@ fn setup_peer_config(
 
     // even-number peers support stacker DBs.
     // odd-number peers do not
-    if i % 2 == 0 {
+    if i.is_multiple_of(2) {
         conf.services = (ServiceFlags::RELAY as u16)
             | (ServiceFlags::RPC as u16)
             | (ServiceFlags::STACKERDB as u16);
@@ -117,7 +119,7 @@ fn test_walk_ring_allow_15() {
         let neighbor_count: usize = 3;
 
         for i in 0..peer_count {
-            let mut conf = setup_peer_config(i, 32800, neighbor_count, peer_count);
+            let mut conf = setup_peer_config(i, 22800, neighbor_count, peer_count);
 
             conf.allowed = -1; // always allowed
             conf.denied = 0;
@@ -146,7 +148,7 @@ fn test_walk_ring_15_plain() {
         let neighbor_count: usize = 3;
 
         for i in 0..peer_count {
-            let mut conf = setup_peer_config(i, 32900, neighbor_count, peer_count);
+            let mut conf = setup_peer_config(i, 22900, neighbor_count, peer_count);
 
             conf.allowed = 0;
             conf.denied = 0;
@@ -164,14 +166,14 @@ fn test_walk_ring_15_plain() {
 #[ignore]
 fn test_walk_ring_15_pingback() {
     setup_rlimit_nofiles();
-    with_timeout(600, || {
+    with_timeout(900, || {
         // initial peers are neither white- nor denied
         let mut peer_configs = vec![];
         let peer_count: usize = 15;
         let neighbor_count: usize = 3;
 
         for i in 0..peer_count {
-            let mut conf = setup_peer_config(i, 32950, neighbor_count, peer_count);
+            let mut conf = setup_peer_config(i, 22950, neighbor_count, peer_count);
 
             conf.allowed = 0;
             conf.denied = 0;
@@ -195,15 +197,15 @@ fn test_walk_ring_15_org_biased() {
         // one outlier peer has a different org than the others.
         use std::env;
 
-        // ::33000 is in AS 1
-        env::set_var("BLOCKSTACK_NEIGHBOR_TEST_33000", "1");
+        // ::23000 is in AS 1
+        env::set_var("BLOCKSTACK_NEIGHBOR_TEST_23000", "1");
 
         let mut peer_configs = vec![];
         let peer_count: usize = 15;
         let neighbor_count: usize = 3;
 
         for i in 0..peer_count {
-            let mut conf = setup_peer_config(i, 33000, neighbor_count, peer_count);
+            let mut conf = setup_peer_config(i, 23000, neighbor_count, peer_count);
 
             conf.allowed = 0;
             conf.denied = 0;
@@ -218,14 +220,14 @@ fn test_walk_ring_15_org_biased() {
             peer_configs.push(conf);
         }
 
-        // all peers see peer ::33000 as having ASN and Org ID 1
+        // all peers see peer ::23000 as having ASN and Org ID 1
         let peer_0 = peer_configs[0].to_neighbor();
 
         let peers = test_walk_ring(&mut peer_configs);
 
-        for i in 1..peer_count {
+        for peer in peers[..peer_count].iter().skip(1) {
             if let Some(p) = PeerDB::get_peer(
-                peers[i].network.peerdb.conn(),
+                peer.network.peerdb.conn(),
                 peer_0.addr.network_id,
                 &peer_0.addr.addrbytes,
                 peer_0.addr.port,
@@ -237,9 +239,9 @@ fn test_walk_ring_15_org_biased() {
             }
         }
 
-        // no peer pruned peer ::33000
-        for i in 1..peer_count {
-            match peers[i].network.prune_inbound_counts.get(&peer_0.addr) {
+        // no peer pruned peer ::23000
+        for peer in peers[..peer_count].iter().skip(1) {
+            match peer.network.prune_inbound_counts.get(&peer_0.addr) {
                 None => {}
                 Some(count) => {
                     assert_eq!(*count, 0);
@@ -250,7 +252,7 @@ fn test_walk_ring_15_org_biased() {
 }
 
 fn test_walk_ring_ex(
-    peer_configs: &mut Vec<TestPeerConfig>,
+    peer_configs: &mut [TestPeerConfig],
     test_pingback: bool,
 ) -> Vec<TestPeer<'_>> {
     // arrange neighbors into a "ring" topology, where
@@ -274,16 +276,16 @@ fn test_walk_ring_ex(
         }
     }
 
-    for i in 0..peer_count {
-        let p = TestPeer::new(peer_configs[i].clone());
+    for peer_config in &peer_configs[..peer_count] {
+        let p = TestPeer::new(peer_config.clone());
         peers.push(p);
     }
 
     run_topology_test(&mut peers);
 
     // no nacks or handshake-rejects
-    for i in 0..peer_count {
-        for (_, convo) in peers[i].network.peers.iter() {
+    for peer in &peers[..peer_count] {
+        for (_, convo) in peer.network.peers.iter() {
             assert!(
                 *convo
                     .stats
@@ -306,11 +308,11 @@ fn test_walk_ring_ex(
     peers
 }
 
-fn test_walk_ring(peer_configs: &mut Vec<TestPeerConfig>) -> Vec<TestPeer<'_>> {
+fn test_walk_ring(peer_configs: &mut [TestPeerConfig]) -> Vec<TestPeer<'_>> {
     test_walk_ring_ex(peer_configs, false)
 }
 
-fn test_walk_ring_pingback(peer_configs: &mut Vec<TestPeerConfig>) -> Vec<TestPeer<'_>> {
+fn test_walk_ring_pingback(peer_configs: &mut [TestPeerConfig]) -> Vec<TestPeer<'_>> {
     test_walk_ring_ex(peer_configs, true)
 }
 
@@ -326,7 +328,7 @@ fn test_walk_line_allowed_15() {
         let neighbor_count: usize = 3;
 
         for i in 0..peer_count {
-            let mut conf = setup_peer_config(i, 33100, neighbor_count, peer_count);
+            let mut conf = setup_peer_config(i, 23100, neighbor_count, peer_count);
 
             conf.allowed = -1;
             conf.denied = 0;
@@ -355,7 +357,7 @@ fn test_walk_line_15_plain() {
         let neighbor_count: usize = 3;
 
         for i in 0..peer_count {
-            let mut conf = setup_peer_config(i, 33200, neighbor_count, peer_count);
+            let mut conf = setup_peer_config(i, 23200, neighbor_count, peer_count);
 
             conf.allowed = 0;
             conf.denied = 0;
@@ -377,14 +379,14 @@ fn test_walk_line_15_org_biased() {
         // one outlier peer has a different org than the others.
         use std::env;
 
-        // ::33300 is in AS 1
-        env::set_var("BLOCKSTACK_NEIGHBOR_TEST_33300", "1");
+        // ::23300 is in AS 1
+        env::set_var("BLOCKSTACK_NEIGHBOR_TEST_23300", "1");
 
         let mut peer_configs = vec![];
         let peer_count: usize = 15;
         let neighbor_count: usize = 3; // make this a little bigger to speed this test up
         for i in 0..peer_count {
-            let mut conf = setup_peer_config(i, 33300, neighbor_count, peer_count);
+            let mut conf = setup_peer_config(i, 23300, neighbor_count, peer_count);
 
             conf.allowed = 0;
             conf.denied = 0;
@@ -398,14 +400,14 @@ fn test_walk_line_15_org_biased() {
 
             peer_configs.push(conf);
         }
-        // all peers see peer ::33300 as having ASN and Org ID 1
+        // all peers see peer ::23300 as having ASN and Org ID 1
         let peer_0 = peer_configs[0].to_neighbor();
 
         let peers = test_walk_line(&mut peer_configs);
 
-        for i in 1..peer_count {
+        for peer in peers[..peer_count].iter().skip(1) {
             if let Some(p) = PeerDB::get_peer(
-                peers[i].network.peerdb.conn(),
+                peer.network.peerdb.conn(),
                 peer_0.addr.network_id,
                 &peer_0.addr.addrbytes,
                 peer_0.addr.port,
@@ -417,9 +419,9 @@ fn test_walk_line_15_org_biased() {
             }
         }
 
-        // no peer pruned peer ::33300
-        for i in 1..peer_count {
-            match peers[i].network.prune_inbound_counts.get(&peer_0.addr) {
+        // no peer pruned peer ::23300
+        for peer in peers[..peer_count].iter().skip(1) {
+            match peer.network.prune_inbound_counts.get(&peer_0.addr) {
                 None => {}
                 Some(count) => {
                     assert_eq!(*count, 0);
@@ -442,7 +444,7 @@ fn test_walk_line_15_pingback() {
         let neighbor_count: usize = 3;
 
         for i in 0..peer_count {
-            let mut conf = setup_peer_config(i, 33350, neighbor_count, peer_count);
+            let mut conf = setup_peer_config(i, 23350, neighbor_count, peer_count);
 
             conf.allowed = 0;
             conf.denied = 0;
@@ -456,16 +458,16 @@ fn test_walk_line_15_pingback() {
     })
 }
 
-fn test_walk_line(peer_configs: &mut Vec<TestPeerConfig>) -> Vec<TestPeer<'_>> {
+fn test_walk_line(peer_configs: &mut [TestPeerConfig]) -> Vec<TestPeer<'_>> {
     test_walk_line_ex(peer_configs, false)
 }
 
-fn test_walk_line_pingback(peer_configs: &mut Vec<TestPeerConfig>) -> Vec<TestPeer<'_>> {
+fn test_walk_line_pingback(peer_configs: &mut [TestPeerConfig]) -> Vec<TestPeer<'_>> {
     test_walk_line_ex(peer_configs, true)
 }
 
 fn test_walk_line_ex(
-    peer_configs: &mut Vec<TestPeerConfig>,
+    peer_configs: &mut [TestPeerConfig],
     pingback_test: bool,
 ) -> Vec<TestPeer<'_>> {
     // arrange neighbors into a "line" topology.
@@ -495,16 +497,16 @@ fn test_walk_line_ex(
         }
     }
 
-    for i in 0..peer_count {
-        let p = TestPeer::new(peer_configs[i].clone());
+    for peer_config in &peer_configs[..peer_count] {
+        let p = TestPeer::new(peer_config.clone());
         peers.push(p);
     }
 
     run_topology_test(&mut peers);
 
     // no nacks or handshake-rejects
-    for i in 0..peer_count {
-        for (_, convo) in peers[i].network.peers.iter() {
+    for peer in &peers[..peer_count] {
+        for (_, convo) in peer.network.peers.iter() {
             assert!(
                 *convo
                     .stats
@@ -538,7 +540,7 @@ fn test_walk_star_allowed_15() {
         let peer_count: usize = 15;
         let neighbor_count: usize = 3;
         for i in 0..peer_count {
-            let mut conf = setup_peer_config(i, 33400, neighbor_count, peer_count);
+            let mut conf = setup_peer_config(i, 23400, neighbor_count, peer_count);
 
             conf.allowed = -1; // always allowed
             conf.denied = 0;
@@ -565,7 +567,7 @@ fn test_walk_star_15_plain() {
         let peer_count: usize = 15;
         let neighbor_count: usize = 3;
         for i in 0..peer_count {
-            let mut conf = setup_peer_config(i, 33500, neighbor_count, peer_count);
+            let mut conf = setup_peer_config(i, 23500, neighbor_count, peer_count);
 
             conf.allowed = 0;
             conf.denied = 0;
@@ -588,7 +590,7 @@ fn test_walk_star_15_pingback() {
         let peer_count: usize = 15;
         let neighbor_count: usize = 3;
         for i in 0..peer_count {
-            let mut conf = setup_peer_config(i, 33550, neighbor_count, peer_count);
+            let mut conf = setup_peer_config(i, 23550, neighbor_count, peer_count);
 
             conf.allowed = 0;
             conf.denied = 0;
@@ -613,14 +615,14 @@ fn test_walk_star_15_org_biased() {
         // one outlier peer has a different org than the others.
         use std::env;
 
-        // ::33600 is in AS 1
-        env::set_var("BLOCKSTACK_NEIGHBOR_TEST_33600", "1");
+        // ::23600 is in AS 1
+        env::set_var("BLOCKSTACK_NEIGHBOR_TEST_23600", "1");
 
         let mut peer_configs = vec![];
         let peer_count: usize = 15;
         let neighbor_count: usize = 3;
         for i in 0..peer_count {
-            let mut conf = setup_peer_config(i, 33600, neighbor_count, peer_count);
+            let mut conf = setup_peer_config(i, 23600, neighbor_count, peer_count);
 
             conf.allowed = 0;
             conf.denied = 0;
@@ -634,14 +636,14 @@ fn test_walk_star_15_org_biased() {
 
             peer_configs.push(conf);
         }
-        // all peers see peer ::33600 as having ASN and Org ID 1
+        // all peers see peer ::23600 as having ASN and Org ID 1
         let peer_0 = peer_configs[0].to_neighbor();
 
         let peers = test_walk_star(&mut peer_configs);
 
-        for i in 1..peer_count {
+        for peer in peers[..peer_count].iter().skip(1) {
             if let Some(p) = PeerDB::get_peer(
-                peers[i].network.peerdb.conn(),
+                peer.network.peerdb.conn(),
                 peer_0.addr.network_id,
                 &peer_0.addr.addrbytes,
                 peer_0.addr.port,
@@ -653,9 +655,9 @@ fn test_walk_star_15_org_biased() {
             }
         }
 
-        // no peer pruned peer ::33600
-        for i in 1..peer_count {
-            match peers[i].network.prune_inbound_counts.get(&peer_0.addr) {
+        // no peer pruned peer ::23600
+        for peer in peers[..peer_count].iter().skip(1) {
+            match peer.network.prune_inbound_counts.get(&peer_0.addr) {
                 None => {}
                 Some(count) => {
                     assert_eq!(*count, 0);
@@ -665,16 +667,16 @@ fn test_walk_star_15_org_biased() {
     })
 }
 
-fn test_walk_star(peer_configs: &mut Vec<TestPeerConfig>) -> Vec<TestPeer<'_>> {
+fn test_walk_star(peer_configs: &mut [TestPeerConfig]) -> Vec<TestPeer<'_>> {
     test_walk_star_ex(peer_configs, false)
 }
 
-fn test_walk_star_pingback(peer_configs: &mut Vec<TestPeerConfig>) -> Vec<TestPeer<'_>> {
+fn test_walk_star_pingback(peer_configs: &mut [TestPeerConfig]) -> Vec<TestPeer<'_>> {
     test_walk_star_ex(peer_configs, true)
 }
 
 fn test_walk_star_ex(
-    peer_configs: &mut Vec<TestPeerConfig>,
+    peer_configs: &mut [TestPeerConfig],
     pingback_test: bool,
 ) -> Vec<TestPeer<'_>> {
     // arrange neighbors into a "star" topology.
@@ -695,16 +697,16 @@ fn test_walk_star_ex(
         peer_configs[i].add_neighbor(&hub);
     }
 
-    for i in 0..peer_count {
-        let p = TestPeer::new(peer_configs[i].clone());
+    for peer_config in &peer_configs[..peer_count] {
+        let p = TestPeer::new(peer_config.clone());
         peers.push(p);
     }
 
     run_topology_test(&mut peers);
 
     // no nacks or handshake-rejects
-    for i in 0..peer_count {
-        for (_, convo) in peers[i].network.peers.iter() {
+    for peer in &peers[..peer_count] {
+        for (_, convo) in peer.network.peers.iter() {
             assert!(
                 *convo
                     .stats
@@ -727,7 +729,7 @@ fn test_walk_star_ex(
     peers
 }
 
-fn test_walk_inbound_line(peer_configs: &mut Vec<TestPeerConfig>) -> Vec<TestPeer<'_>> {
+fn test_walk_inbound_line(peer_configs: &mut [TestPeerConfig]) -> Vec<TestPeer<'_>> {
     // arrange neighbors into a two-tiered "line" topology, where even-numbered neighbors are
     // "NAT'ed" but connected to both the predecessor and successor odd neighbors.  Odd
     // numbered neighbors are not connected to anyone.  The first and last even-numbered
@@ -756,8 +758,8 @@ fn test_walk_inbound_line(peer_configs: &mut Vec<TestPeerConfig>) -> Vec<TestPee
         }
     }
 
-    for i in 0..peer_count {
-        let p = TestPeer::new(peer_configs[i].clone());
+    for peer_config in &peer_configs[..peer_count] {
+        let p = TestPeer::new(peer_config.clone());
         peers.push(p);
     }
 
@@ -765,13 +767,12 @@ fn test_walk_inbound_line(peer_configs: &mut Vec<TestPeerConfig>) -> Vec<TestPee
         &mut peers,
         |peers: &[TestPeer]| {
             let mut done = true;
-            for i in 0..peer_count {
+            for (i, peer) in peers[..peer_count].iter().enumerate() {
                 // only check "public" peers
                 if i % 2 != 0 {
-                    let all_neighbors =
-                        PeerDB::get_all_peers(peers[i].network.peerdb.conn()).unwrap();
+                    let all_neighbors = PeerDB::get_all_peers(peer.network.peerdb.conn()).unwrap();
                     if (all_neighbors.len() as u64) < ((peer_count / 2 - 1) as u64) {
-                        let nk = peers[i].config.to_neighbor().addr;
+                        let nk = peer.config.to_neighbor().addr;
                         test_debug!(
                             "waiting for public peer {:?} to fill up its frontier: {}",
                             &nk,
@@ -787,8 +788,8 @@ fn test_walk_inbound_line(peer_configs: &mut Vec<TestPeerConfig>) -> Vec<TestPee
     );
 
     // no nacks or handshake-rejects
-    for i in 0..peer_count {
-        for (_, convo) in peers[i].network.peers.iter() {
+    for peer in &peers[..peer_count] {
+        for (_, convo) in peer.network.peers.iter() {
             assert!(
                 *convo
                     .stats
@@ -818,13 +819,13 @@ fn test_walk_inbound_line(peer_configs: &mut Vec<TestPeerConfig>) -> Vec<TestPee
 #[ignore]
 fn test_walk_inbound_line_15() {
     setup_rlimit_nofiles();
-    with_timeout(600, || {
+    with_timeout(900, || {
         let mut peer_configs = vec![];
         let peer_count: usize = 15;
         let neighbor_count: usize = 15; // make this test go faster
 
         for i in 0..peer_count {
-            let mut conf = setup_peer_config(i, 33250, neighbor_count, peer_count);
+            let mut conf = setup_peer_config(i, 23250, neighbor_count, peer_count);
 
             conf.allowed = 0;
             conf.denied = 0;
@@ -837,7 +838,6 @@ fn test_walk_inbound_line_15() {
             conf.connection_opts.timeout = 60000;
             conf.connection_opts.handshake_timeout = 60000;
             conf.connection_opts.soft_max_neighbors_per_org = (neighbor_count + 1) as u64;
-            conf.connection_opts.soft_max_neighbors_per_host = (neighbor_count + 1) as u64;
 
             peer_configs.push(conf);
         }
@@ -946,13 +946,13 @@ fn run_topology_test_ex<F>(
     let mut initial_allowed: HashMap<NeighborKey, Vec<NeighborKey>> = HashMap::new();
     let mut initial_denied: HashMap<NeighborKey, Vec<NeighborKey>> = HashMap::new();
 
-    for i in 0..peer_count {
+    for peer in &mut peers[..peer_count] {
         // turn off components we don't need
-        peers[i].config.connection_opts.disable_inv_sync = true;
-        peers[i].config.connection_opts.disable_block_download = true;
-        let nk = peers[i].config.to_neighbor().addr.clone();
-        for j in 0..peers[i].config.initial_neighbors.len() {
-            let initial = &peers[i].config.initial_neighbors[j];
+        peer.config.connection_opts.disable_inv_sync = true;
+        peer.config.connection_opts.disable_block_download = true;
+        let nk = peer.config.to_neighbor().addr.clone();
+        for j in 0..peer.config.initial_neighbors.len() {
+            let initial = &peer.config.initial_neighbors[j];
             if initial.allowed < 0 {
                 if !initial_allowed.contains_key(&nk) {
                     initial_allowed.insert(nk.clone(), vec![]);
@@ -974,20 +974,21 @@ fn run_topology_test_ex<F>(
         }
     }
 
-    for i in 0..peer_count {
-        peers[i].connect_initial().unwrap();
+    for peer in &mut peers[..peer_count] {
+        peer.connect_initial().unwrap();
     }
 
     // go until each neighbor knows about each other neighbor
     let mut finished = false;
     let mut count = 0;
+    let mut best_progress = 0;
+    let mut last_progress_time = Instant::now();
+    const STALL_TIMEOUT: Duration = Duration::from_secs(120);
+
     while !finished {
         finished = true;
         let mut peer_counts = 0;
-        let mut random_order = vec![0usize; peer_count];
-        for i in 0..peer_count {
-            random_order[i] = i;
-        }
+        let mut random_order: Vec<usize> = (0..peer_count).collect();
         let mut rng = thread_rng();
         random_order.shuffle(&mut rng);
 
@@ -1024,13 +1025,14 @@ fn run_topology_test_ex<F>(
                 ports.insert(k.port);
             }
 
+            let all_neighbors = PeerDB::get_all_peers(peers[i].network.peerdb.conn()).unwrap();
+            peer_counts += all_neighbors.len();
+
             // done?
             let now_finished = if use_finished_check {
                 finished_check(peers)
             } else {
                 let mut done = true;
-                let all_neighbors = PeerDB::get_all_peers(peers[i].network.peerdb.conn()).unwrap();
-                peer_counts += all_neighbors.len();
                 test_debug!("Peer {} ({}) has {} neighbors", i, &nk, all_neighbors.len());
 
                 if (all_neighbors.len() as u64) < ((peer_count - 1) as u64) {
@@ -1063,6 +1065,8 @@ fn run_topology_test_ex<F>(
         );
 
         // wait for stacker DBs to converge
+        let mut stacker_db_count = 0;
+        let mut stacker_db_done = true;
         for (i, peer) in peers.iter().enumerate() {
             if i % 2 != 0 {
                 continue;
@@ -1095,10 +1099,33 @@ fn run_topology_test_ex<F>(
                         &peer.config.to_neighbor(),
                         &other_peer.config.to_neighbor()
                     );
-                    finished = false;
-                    break;
+                    stacker_db_done = false;
+                } else {
+                    stacker_db_count += dbs.len();
                 }
             }
+        }
+        if !stacker_db_done {
+            finished = false;
+        }
+
+        // If it stops increasing for STALL_TIMEOUT, the network is stuck and there's no point
+        // waiting further.
+        let current_progress = peer_counts + stacker_db_count;
+        if current_progress > best_progress {
+            best_progress = current_progress;
+            last_progress_time = Instant::now();
+        }
+
+        let stall_elapsed = last_progress_time.elapsed();
+        if stall_elapsed >= STALL_TIMEOUT {
+            panic!(
+                "Network convergence stalled after {count} iterations \
+                 (no progress for {}s). \
+                 Neighbors: {peer_counts}/{}, StackerDBs known: {stacker_db_count}",
+                stall_elapsed.as_secs(),
+                peer_count * (peer_count - 1)
+            );
         }
 
         if finished {

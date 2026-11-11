@@ -12,21 +12,6 @@
 //
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
+mod asset_map;
 mod representations;
 mod types;
-
-use crate::{BUILD_TYPE, version_string};
-
-#[test]
-fn test_version_string_basic_no_env() {
-    let version = version_string("test-package", "1.0.0");
-
-    assert_eq!(
-        version,
-        format!(
-            "test-package 1.0.0 (:, {BUILD_TYPE} build, {} [{}])",
-            std::env::consts::OS,
-            std::env::consts::ARCH
-        )
-    );
-}

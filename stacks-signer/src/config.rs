@@ -1,5 +1,5 @@
 // Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
-// Copyright (C) 2020-2024 Stacks Open Internet Foundation
+// Copyright (C) 2020-2026 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -28,7 +28,7 @@ use serde::Deserialize;
 use stacks_common::address::{
     C32_ADDRESS_VERSION_MAINNET_SINGLESIG, C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
 };
-use stacks_common::consts::{CHAIN_ID_MAINNET, CHAIN_ID_TESTNET};
+use stacks_common::consts::{CHAIN_ID_MAINNET, CHAIN_ID_SIGNET, CHAIN_ID_TESTNET};
 use stacks_common::types::chainstate::{StacksAddress, StacksPrivateKey, StacksPublicKey};
 use stacks_common::util::hash::Hash160;
 
@@ -42,10 +42,12 @@ const BLOCK_PROPOSAL_VALIDATION_TIMEOUT_MS: u64 = 120_000;
 const DEFAULT_FIRST_PROPOSAL_BURN_BLOCK_TIMING_SECS: u64 = 60;
 const DEFAULT_TENURE_LAST_BLOCK_PROPOSAL_TIMEOUT_SECS: u64 = 30;
 const DEFAULT_DRY_RUN: bool = false;
+const DEFAULT_DB_PRUNING: bool = true;
+const DEFAULT_DB_SHRINK: bool = true;
 /// Default number of idle seconds before the signer will accept a
 ///  tenure extend from the miner
-const TENURE_IDLE_TIMEOUT_SECS: u64 = 60;
-const READ_COUNT_IDLE_TIMEOUT_SECS: u64 = 20;
+const TENURE_IDLE_TIMEOUT_SECS: u64 = 30;
+const READ_COUNT_IDLE_TIMEOUT_SECS: u64 = 15;
 const DEFAULT_REORG_ATTEMPTS_ACTIVITY_TIMEOUT_MS: u64 = 200_000;
 /// Default number of seconds to add to the tenure extend time, after computing the idle timeout,
 /// to allow for clock skew between the signer and the miner
@@ -54,14 +56,11 @@ const DEFAULT_TENURE_IDLE_TIMEOUT_BUFFER_SECS: u64 = 2;
 ///  cannot determine that our stacks-node has processed the parent
 ///  block
 const DEFAULT_PROPOSAL_WAIT_TIME_FOR_PARENT_SECS: u64 = 15;
-/// Default number of blocks after a fork to reset the replay set,
-/// as a failsafe mechanism
-pub const DEFAULT_RESET_REPLAY_SET_AFTER_FORK_BLOCKS: u64 = 2;
 /// Default time (in secs) to wait between updating our local state
 /// machine view point and capitulating to other signers tenure view
 const DEFAULT_CAPITULATE_MINER_VIEW_SECS: u64 = 20;
 /// Default HTTP timeout (in seconds) for read/write operations with StackerDB.
-pub const DEFAULT_STACKERDB_TIMEOUT_SECS: u64 = 120;
+pub const DEFAULT_STACKERDB_TIMEOUT_SECS: u64 = 10;
 
 #[derive(thiserror::Error, Debug)]
 /// An error occurred parsing the provided configuration
@@ -80,16 +79,17 @@ pub enum ConfigError {
     UnsupportedAddressVersion,
 }
 
+/// Signer configuration profile selecting the default chain ID and encoding family.
+/// Non-mainnet profiles share address and transaction encodings.
 #[derive(serde::Deserialize, Debug, Clone, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
-/// The Stacks network to use.
 pub enum Network {
     /// The mainnet network
     Mainnet,
     /// The testnet network
     Testnet,
-    /// The mocknet network
-    Mocknet,
+    /// A Stacks network backed by public or custom Bitcoin signet.
+    Signet,
 }
 
 impl std::fmt::Display for Network {
@@ -97,7 +97,7 @@ impl std::fmt::Display for Network {
         match self {
             Self::Mainnet => write!(f, "mainnet"),
             Self::Testnet => write!(f, "testnet"),
-            Self::Mocknet => write!(f, "mocknet"),
+            Self::Signet => write!(f, "signet"),
         }
     }
 }
@@ -107,7 +107,7 @@ impl Network {
     pub const fn to_address_version(&self) -> u8 {
         match self {
             Self::Mainnet => C32_ADDRESS_VERSION_MAINNET_SINGLESIG,
-            Self::Testnet | Self::Mocknet => C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
+            Self::Testnet | Self::Signet => C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
         }
     }
 
@@ -115,7 +115,7 @@ impl Network {
     pub const fn to_transaction_version(&self) -> TransactionVersion {
         match self {
             Self::Mainnet => TransactionVersion::Mainnet,
-            Self::Testnet | Self::Mocknet => TransactionVersion::Testnet,
+            Self::Testnet | Self::Signet => TransactionVersion::Testnet,
         }
     }
 
@@ -123,7 +123,7 @@ impl Network {
     pub const fn is_mainnet(&self) -> bool {
         match self {
             Self::Mainnet => true,
-            Self::Testnet | Self::Mocknet => false,
+            Self::Testnet | Self::Signet => false,
         }
     }
 }
@@ -197,11 +197,6 @@ pub struct SignerConfig {
     /// Time to wait before submitting a block proposal to the stacks-node if we cannot
     ///  determine that the stacks-node has processed the parent
     pub proposal_wait_for_parent_time: Duration,
-    /// Whether or not to validate blocks with replay transactions
-    pub validate_with_replay_tx: bool,
-    /// How many blocks after a fork should we reset the replay set,
-    /// as a failsafe mechanism
-    pub reset_replay_set_after_fork_blocks: u64,
     /// Time to wait between updating our local state machine view point and capitulating to other signers miner view
     pub capitulate_miner_view_timeout: Duration,
     /// The HTTP timeout for read/write operations with StackerDB.
@@ -222,7 +217,7 @@ pub struct GlobalConfig {
     pub stacks_private_key: StacksPrivateKey,
     /// The signer's Stacks address
     pub stacks_address: StacksAddress,
-    /// The network to use. One of "mainnet" or "testnet".
+    /// The network whose address, transaction, and chain-ID defaults to use.
     pub network: Network,
     /// The time to wait for a response from the stacker-db instance
     pub event_timeout: Duration,
@@ -230,6 +225,10 @@ pub struct GlobalConfig {
     pub auth_password: String,
     /// The path to the signer's database file
     pub db_path: PathBuf,
+    /// Whether the signer db is pruned online
+    pub db_pruning: bool,
+    /// Whether the signer db file is shrunk at startup, when enough of it is free space
+    pub db_shrink: bool,
     /// Metrics endpoint
     pub metrics_endpoint: Option<SocketAddr>,
     /// How much time between the first block proposal in a tenure and the next bitcoin block
@@ -262,11 +261,6 @@ pub struct GlobalConfig {
     pub proposal_wait_for_parent_time: Duration,
     /// Is this signer binary going to be running in dry-run mode?
     pub dry_run: bool,
-    /// Whether or not to validate blocks with replay transactions
-    pub validate_with_replay_tx: bool,
-    /// How many blocks after a fork should we reset the replay set,
-    /// as a failsafe mechanism
-    pub reset_replay_set_after_fork_blocks: u64,
     /// Time to wait between updating our local state machine view point and capitulating to other signers miner view
     pub capitulate_miner_view_timeout: Duration,
     /// The HTTP timeout for read/write operations with StackerDB.
@@ -276,66 +270,220 @@ pub struct GlobalConfig {
     pub supported_signer_protocol_version: u64,
 }
 
-/// Internal struct for loading up the config file
+/// Internal struct for loading up the config file.
+///
+/// This struct represents the TOML configuration file format for the
+/// `stacks-signer` binary. All fields with `Option` types will use their
+/// documented defaults when omitted.
 #[derive(Deserialize, Debug)]
+#[serde(deny_unknown_fields)]
 struct RawConfigFile {
-    /// endpoint to stacks node
+    /// The Stacks node RPC endpoint that this signer will connect to.
+    /// ---
+    /// @default: (required, no default)
+    /// @notes:
+    ///   - Format: `"host:port"` (e.g., `"127.0.0.1:20443"`).
+    ///   - Must point to the `rpc_bind` address of the Stacks node.
     pub node_host: String,
-    /// endpoint to event receiver
+    /// The local endpoint the signer will listen on for events from the Stacks node.
+    /// ---
+    /// @default: (required, no default)
+    /// @notes:
+    ///   - Format: `"host:port"` (e.g., `"127.0.0.1:30000"`).
+    ///   - Must match the `endpoint` in the node's `[[events_observer]]` section.
+    ///   - WARNING: The event server does not limit the size of request headers or
+    ///     bodies, so a client that can reach it can make the signer use unbounded
+    ///     memory. Bind it to a loopback or private interface, or restrict access
+    ///     with a firewall, so that only the Stacks node can connect.
     pub endpoint: String,
     /// The hex representation of the signer's Stacks private key used for communicating
     /// with the Stacks Node, including writing to the Stacker DB instance.
+    /// ---
+    /// @default: (required, no default)
+    /// @notes:
+    ///   - 64 or 66 hex characters (with optional `01` compression suffix).
+    ///   - This key determines the signer's on-chain identity and address.
     pub stacks_private_key: String,
-    /// The network to use. One of "mainnet" or "testnet".
+    /// The network to use. One of `"mainnet"`, `"testnet"`, or `"signet"`.
+    /// ---
+    /// @default: (required, no default)
+    /// @notes:
+    ///   - Determines address version, transaction version, and default chain ID.
     pub network: Network,
-    /// The time to wait (in millisecs) for a response from the stacker-db instance
+    /// The time to wait for a response from the stacker-db instance.
+    /// ---
+    /// @default: `5_000`
+    /// @units: milliseconds
     pub event_timeout_ms: Option<u64>,
-    /// The authorization password for the block proposal endpoint
+    /// The authorization password for the block proposal endpoint.
+    /// ---
+    /// @default: (required, no default)
+    /// @notes:
+    ///   - WARNING: Must match the `auth_token` in the Stacks node's
+    ///     `[connection_options]` section. If these do not match, the signer
+    ///     cannot communicate with the node.
     pub auth_password: String,
-    /// The path to the signer's database file or :memory: for an in-memory database
+    /// The path to the signer's database file or `:memory:` for an in-memory database.
+    /// ---
+    /// @default: (required, no default)
+    /// @notes:
+    ///   - Use an absolute path for production (e.g., `"/var/lib/stacks-signer/signerdb.sqlite"`).
+    ///   - Use `":memory:"` only for testing.
     pub db_path: String,
-    /// Metrics endpoint
+    /// Prune the signer database online. Every 10 seconds, a small batch of records older than
+    /// the last 100 burn blocks of tenures is removed, so the database no longer grows without
+    /// bound.
+    /// ---
+    /// @default: `true`
+    /// @notes:
+    ///   - Freed space is reused but not returned to the OS: the database file keeps its size
+    ///     until it is shrunk at startup (see `db_shrink`).
+    pub db_pruning: Option<bool>,
+    /// Shrink the signer database file when the signer starts, if enough of it is free space
+    /// (e.g. space freed by pruning): the file is rebuilt with only its live data, and the space
+    /// goes back to the OS. Otherwise the file is left as it is.
+    /// ---
+    /// @default: `true`
+    /// @notes:
+    ///   - Only runs at startup, before the signer opens the database, and only when at least
+    ///     256 MiB of the file is free and its live data is at most 1 GiB.
+    ///   - Needs about twice the size of the live data in free disk space next to the database
+    ///     (a temporary copy and a WAL), for a few seconds. If it fails, e.g. for lack of space,
+    ///     the database is unchanged and the signer starts as usual.
+    ///   - Independent of `db_pruning`: it reclaims free space whatever freed it.
+    pub db_shrink: Option<bool>,
+    /// Optional Prometheus metrics endpoint.
+    /// ---
+    /// @default: `None` (disabled)
+    /// @notes:
+    ///   - Format: `"host:port"` (e.g., `"127.0.0.1:9090"`).
+    ///   - WARNING: The metrics server does not limit the size of request headers,
+    ///     so a client that can reach it can make the signer use unbounded memory.
+    ///     Bind it to a loopback or private interface, or restrict access with a
+    ///     firewall, so that only trusted scrapers can connect.
     pub metrics_endpoint: Option<String>,
-    /// How much time (in secs) must pass between the first block proposal in a tenure and the next bitcoin block
-    /// before a subsequent miner isn't allowed to reorg the tenure
+    /// Reorg protection window. Measures the time between when a tenure's first block
+    /// was signed and when the next burn block arrived.
+    ///
+    /// If `(burn_block_received - first_block_signed) < this value`, the signer allows
+    /// a new miner to reorg the tenure. Otherwise, the tenure is considered established
+    /// and the reorg is denied.
+    /// ---
+    /// @default: `60`
+    /// @units: seconds
+    /// @notes:
+    ///   - WARNING: Setting too low allows reorgs of established tenures.
+    ///     Setting too high blocks legitimate miner handoffs.
     pub first_proposal_burn_block_timing_secs: Option<u64>,
-    /// How much time (in millisecs) to wait for a miner to propose a block following a sortition
+    /// How long to wait for the current sortition winner to propose a block before
+    /// the signer marks that miner as inactive (`InvalidatedBeforeFirstBlock`).
+    ///
+    /// This is one of two gates for accepting tenure extends from the previous miner.
+    /// The signer will not accept a tenure extend until both this timeout fires
+    /// (invalidating the unresponsive new winner) AND `tenure_idle_timeout + buffer`
+    /// has passed since the last block.
+    /// ---
+    /// @default: `120_000`
+    /// @units: milliseconds
+    /// @notes:
+    ///   - WARNING: Interacts with miner's `tenure_extend_wait_timeout_ms` (default 120_000ms).
+    ///     If the miner's value is lower, the miner extends before the signer invalidates
+    ///     the new sortition winner, causing the extend to be rejected.
     pub block_proposal_timeout_ms: Option<u64>,
-    /// An optional custom Chain ID
+    /// An optional custom Chain ID. Overrides the default for the selected network.
+    /// ---
+    /// @default: `0x00000001` (mainnet), `0x80000001` (signet), or `0x80000000` (testnet)
+    /// @notes:
+    ///   - Only set this for custom/private networks.
     pub chain_id: Option<u32>,
-    /// Time in seconds to wait for the last block of a tenure to be globally accepted or rejected
+    /// Time to wait for the last block of a tenure to be globally accepted or rejected
     /// before considering a new miner's block at the same height as potentially valid.
+    /// ---
+    /// @default: `30`
+    /// @units: seconds
     pub tenure_last_block_proposal_timeout_secs: Option<u64>,
-    /// How long to wait (in millisecs) for a response from a block proposal validation response from the node
-    /// before marking that block as invalid and rejecting it
+    /// How long to wait for a response from a block proposal validation response from
+    /// the node before marking that block as invalid and rejecting it.
+    /// ---
+    /// @default: `120_000`
+    /// @units: milliseconds
     pub block_proposal_validation_timeout_ms: Option<u64>,
-    /// How much idle time (in seconds) must pass before a tenure extend is allowed
+    /// How much time since the last block in a tenure must pass before the signer
+    /// will allow a tenure extend.
+    ///
+    /// The signer computes: `extend_timestamp = last_block_time + this + buffer`
+    /// and includes it in the `BlockAccepted` response. The miner cannot extend
+    /// until `current_time >= extend_timestamp`.
+    ///
+    /// This is one of two gates for tenure extends (the other is
+    /// `block_proposal_timeout` for new-winner invalidation).
+    /// ---
+    /// @default: `30`
+    /// @units: seconds
+    /// @notes:
+    ///   - WARNING: Must coordinate with miner's `tenure_timeout` (default 180s,
+    ///     must be > this + buffer) and `tenure_extend_wait_timeout_ms`
+    ///     (default 120_000ms, should be >= this + buffer).
     pub tenure_idle_timeout_secs: Option<u64>,
-    /// How much idle time (in seconds) must pass before a read-count tenure extend is allowed
+    /// How much idle time must pass before allowing a read-count tenure extend.
+    /// A read-count tenure extend is triggered when the read count budget is nearly
+    /// exhausted.
+    /// ---
+    /// @default: `15`
+    /// @units: seconds
     pub read_count_idle_timeout_secs: Option<u64>,
-    /// Number of seconds of buffer to add to the tenure extend time sent to miners to allow for
-    /// clock skew
+    /// Buffer time added to the tenure extend time sent to miners to account for
+    /// clock skew between signer and miner nodes.
+    /// ---
+    /// @default: `2`
+    /// @units: seconds
+    /// @notes:
+    ///   - Increase if signer and miner clocks are poorly synchronized.
     pub tenure_idle_timeout_buffer_secs: Option<u64>,
-    /// The maximum age of a block proposal (in secs) that will be processed by the signer.
+    /// The maximum age of a block proposal that will be processed by the signer.
+    /// Proposals older than this are rejected (without validation) with a
+    /// `ProposalTooOld` response, unless the signer has already decided on the
+    /// block, in which case it resends its prior decision.
+    /// ---
+    /// @default: `600`
+    /// @units: seconds
     pub block_proposal_max_age_secs: Option<u64>,
-    /// Time (in millisecs) following a block's global acceptance that a signer will consider an attempt by a miner
-    /// to reorg the block as valid towards miner activity
+    /// Time following a block's global acceptance during which a signer will consider
+    /// a miner's attempt to reorg it as valid miner activity.
+    /// ---
+    /// @default: `200_000`
+    /// @units: milliseconds
     pub reorg_attempts_activity_timeout_ms: Option<u64>,
-    /// Time to wait (in millisecs) before submitting a block proposal to the stacks-node
+    /// Time to wait before submitting a block proposal to the stacks-node if we cannot
+    /// determine that the stacks-node has processed the parent block.
+    /// ---
+    /// @default: `15`
+    /// @units: seconds
     pub proposal_wait_for_parent_time_secs: Option<u64>,
-    /// Is this signer binary going to be running in dry-run mode?
+    /// Run in dry-run mode. In dry-run mode, the signer will not submit
+    /// StackerDB messages or participate in signing, but will log what it
+    /// would have done.
+    /// ---
+    /// @default: `false`
     pub dry_run: Option<bool>,
-    /// Whether or not to validate blocks with replay transactions
-    pub validate_with_replay_tx: Option<bool>,
-    /// How many blocks after a fork should we reset the replay set,
-    /// as a failsafe mechanism
-    pub reset_replay_set_after_fork_blocks: Option<u64>,
-    /// Time to wait (in secs) between updating our local state machine view point and capitulating to other signers miner view
+    /// Time to wait between updating the local state machine view and capitulating
+    /// to other signers' tenure view.
+    /// ---
+    /// @default: `20`
+    /// @units: seconds
+    /// @notes:
+    ///   - Controls how quickly a signer will adopt the consensus view when its
+    ///     local view differs from the majority.
     pub capitulate_miner_view_timeout_secs: Option<u64>,
-    /// Time to wait (in secs) before timing out an HTTP request with StackerDB.
+    /// HTTP timeout for read/write operations with StackerDB.
+    /// ---
+    /// @default: `10`
+    /// @units: seconds
     pub stackerdb_timeout_secs: Option<u64>,
     #[cfg(any(test, feature = "testing"))]
-    /// Only used for testing to enable specific signer protocol versions
+    /// Only used for testing to enable specific signer protocol versions.
+    /// ---
+    /// @default: `SUPPORTED_SIGNER_PROTOCOL_VERSION`
     pub supported_signer_protocol_version: Option<u64>,
 }
 
@@ -396,6 +544,8 @@ impl TryFrom<RawConfigFile> for GlobalConfig {
                 .unwrap_or(DEFAULT_FIRST_PROPOSAL_BURN_BLOCK_TIMING_SECS),
         );
         let db_path = raw_data.db_path.into();
+        let db_pruning = raw_data.db_pruning.unwrap_or(DEFAULT_DB_PRUNING);
+        let db_shrink = raw_data.db_shrink.unwrap_or(DEFAULT_DB_SHRINK);
 
         let metrics_endpoint = match raw_data.metrics_endpoint {
             Some(endpoint) => Some(
@@ -464,14 +614,6 @@ impl TryFrom<RawConfigFile> for GlobalConfig {
                 .unwrap_or(DEFAULT_PROPOSAL_WAIT_TIME_FOR_PARENT_SECS),
         );
 
-        // TODO: remove this before going to mainnet
-        // https://github.com/stacks-network/stacks-core/issues/6087
-        let validate_with_replay_tx = raw_data.validate_with_replay_tx.unwrap_or(false);
-
-        let reset_replay_set_after_fork_blocks = raw_data
-            .reset_replay_set_after_fork_blocks
-            .unwrap_or(DEFAULT_RESET_REPLAY_SET_AFTER_FORK_BLOCKS);
-
         let capitulate_miner_view_timeout = Duration::from_secs(
             raw_data
                 .capitulate_miner_view_timeout_secs
@@ -497,6 +639,8 @@ impl TryFrom<RawConfigFile> for GlobalConfig {
             event_timeout,
             auth_password: raw_data.auth_password,
             db_path,
+            db_pruning,
+            db_shrink,
             metrics_endpoint,
             first_proposal_burn_block_timing,
             block_proposal_timeout,
@@ -510,8 +654,6 @@ impl TryFrom<RawConfigFile> for GlobalConfig {
             tenure_idle_timeout_buffer,
             read_count_idle_timeout,
             proposal_wait_for_parent_time,
-            validate_with_replay_tx,
-            reset_replay_set_after_fork_blocks,
             capitulate_miner_view_timeout,
             stackerdb_timeout,
             #[cfg(any(test, feature = "testing"))]
@@ -556,6 +698,8 @@ Public key: {public_key}
 Network: {network}
 Chain ID: 0x{chain_id}
 Database path: {db_path}
+DB pruning: {db_pruning}
+DB shrink: {db_shrink}
 Metrics endpoint: {metrics_endpoint}
 Dry run: {dry_run}
 "#,
@@ -567,6 +711,8 @@ Dry run: {dry_run}
             ),
             network = self.network,
             db_path = self.db_path.to_str().unwrap_or_default(),
+            db_pruning = self.db_pruning,
+            db_shrink = self.db_shrink,
             metrics_endpoint = metrics_endpoint,
             dry_run = self.dry_run,
         )
@@ -576,7 +722,8 @@ Dry run: {dry_run}
     pub fn to_chain_id(&self) -> u32 {
         self.chain_id.unwrap_or(match self.network {
             Network::Mainnet => CHAIN_ID_MAINNET,
-            Network::Testnet | Network::Mocknet => CHAIN_ID_TESTNET,
+            Network::Signet => CHAIN_ID_SIGNET,
+            Network::Testnet => CHAIN_ID_TESTNET,
         })
     }
 }
@@ -603,8 +750,6 @@ pub fn build_signer_config_tomls(
     password: &str,
     run_stamp: u16,
     mut port_start: usize,
-    max_tx_fee_ustx: Option<u64>,
-    tx_fee_ustx: Option<u64>,
     mut metrics_port_start: Option<usize>,
     chain_id: Option<u32>,
 ) -> Vec<String> {
@@ -638,25 +783,7 @@ db_path = "{db_path}"
             signer_config_toml = format!(
                 r#"
 {signer_config_toml}
-event_timeout = {event_timeout_ms}
-"#
-            )
-        }
-
-        if let Some(max_tx_fee_ustx) = max_tx_fee_ustx {
-            signer_config_toml = format!(
-                r#"
-{signer_config_toml}
-max_tx_fee_ustx = {max_tx_fee_ustx}
-"#
-            )
-        }
-
-        if let Some(tx_fee_ustx) = tx_fee_ustx {
-            signer_config_toml = format!(
-                r#"
-{signer_config_toml}
-tx_fee_ustx = {tx_fee_ustx}
+event_timeout_ms = {event_timeout_ms}
 "#
             )
         }
@@ -692,6 +819,47 @@ mod tests {
     use super::*;
 
     #[test]
+    fn test_example_confs() {
+        // Validate that all sample signer config files in sample/conf/signer/ parse as valid TOML.
+        // Uses RawConfigFile (not GlobalConfig) since reference configs have placeholder values.
+        let conf_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../sample/conf/signer");
+        println!("Reading signer config files from: {conf_dir:?}");
+        let conf_files = fs::read_dir(&conf_dir).unwrap();
+
+        for entry in conf_files {
+            let entry = entry.unwrap();
+            let path = entry.path();
+            if path.is_file() {
+                let file_name = path.file_name().unwrap().to_str().unwrap();
+                if file_name.ends_with(".toml") {
+                    let data = fs::read_to_string(&path).unwrap();
+                    RawConfigFile::load_from_str(&data)
+                        .unwrap_or_else(|e| panic!("Failed to parse {file_name}: {e}"));
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn test_unknown_fields_rejected() {
+        let config_toml = r#"
+node_host = "127.0.0.1:20443"
+endpoint = "127.0.0.1:30000"
+network = "testnet"
+auth_password = "abcd"
+db_path = ":memory:"
+stacks_private_key = "eb05c83546fdd2c79f10f5ad5434a90dd28f7e3acb7c092157aa1bc3656b012c01"
+tenure_idle_timeout_sec = 30 # Error: missing trailing 's' in 'secs'
+"#;
+        let result = RawConfigFile::load_from_str(config_toml);
+        let err = result.expect_err("Config with a misspelled field should fail to parse");
+        assert!(
+            format!("{err:?}").contains("tenure_idle_timeout_sec"),
+            "Error should name the unknown field: {err:?}"
+        );
+    }
+
+    #[test]
     fn build_signer_config_tomls_should_produce_deserializable_strings() {
         let pk = StacksPrivateKey::from_hex(
             "eb05c83546fdd2c79f10f5ad5434a90dd28f7e3acb7c092157aa1bc3656b012c01",
@@ -710,8 +878,6 @@ mod tests {
             password,
             rand::random(),
             3000,
-            None,
-            None,
             Some(4000),
             None,
         );
@@ -738,6 +904,8 @@ Public key: 03bc489f27da3701d9f9e577c88de5567cf4023111b7577042d55cde4d823a3505
 Network: testnet
 Chain ID: 0x80000000
 Database path: :memory:
+DB pruning: true
+DB shrink: true
 Metrics endpoint: 0.0.0.0:9090
 Dry run: false
 "#;
@@ -750,6 +918,8 @@ Public key: 03bc489f27da3701d9f9e577c88de5567cf4023111b7577042d55cde4d823a3505
 Network: testnet
 Chain ID: 0x80000000
 Database path: :memory:
+DB pruning: true
+DB shrink: true
 Metrics endpoint: 0.0.0.0:9090
 Dry run: false
 "#;
@@ -781,7 +951,6 @@ db_path = ":memory:"
         );
         let config = GlobalConfig::load_from_str(&config_toml).unwrap();
         assert_eq!(config.stacks_address.to_string(), expected_addr);
-        assert!(!config.validate_with_replay_tx);
         assert_eq!(
             config.capitulate_miner_view_timeout,
             Duration::from_secs(DEFAULT_CAPITULATE_MINER_VIEW_SECS)
@@ -797,20 +966,47 @@ endpoint = "localhost:30000"
 network = "mainnet"
 auth_password = "abcd"
 db_path = ":memory:"
-validate_with_replay_tx = true
-reset_replay_set_after_fork_blocks = 100
 capitulate_miner_view_timeout_secs = 1000
             "#
         );
         let config = GlobalConfig::load_from_str(&config_toml).unwrap();
         assert_eq!(config.stacks_address.to_string(), expected_addr);
         assert_eq!(config.to_chain_id(), CHAIN_ID_MAINNET);
-        assert!(config.validate_with_replay_tx);
-        assert_eq!(config.reset_replay_set_after_fork_blocks, 100);
         assert_eq!(
             config.capitulate_miner_view_timeout,
             Duration::from_secs(1000)
         );
+    }
+
+    /// Signet defaults and explicit deployment IDs survive config serialization and parsing.
+    #[test]
+    fn test_signet_network_defaults_and_override() {
+        let key = StacksPrivateKey::from_seed(b"signet-signer-config");
+        for chain_id in [None, Some(0x80000100)] {
+            let configs = build_signer_config_tomls(
+                std::slice::from_ref(&key),
+                "127.0.0.1:20443",
+                None,
+                &Network::Signet,
+                "test-password",
+                0,
+                3000,
+                None,
+                chain_id,
+            );
+            let config = GlobalConfig::load_from_str(&configs[0]).unwrap();
+            assert_eq!(config.network, Network::Signet);
+            assert_eq!(config.to_chain_id(), chain_id.unwrap_or(CHAIN_ID_SIGNET));
+            assert!(!config.network.is_mainnet());
+            assert_eq!(
+                config.network.to_transaction_version(),
+                TransactionVersion::Testnet
+            );
+            assert_eq!(
+                config.network.to_address_version(),
+                C32_ADDRESS_VERSION_TESTNET_SINGLESIG
+            );
+        }
     }
 
     #[test]
@@ -831,8 +1027,6 @@ capitulate_miner_view_timeout_secs = 1000
             password,
             rand::random(),
             3000,
-            None,
-            None,
             Some(4000),
             Some(0x80000100),
         );
@@ -842,5 +1036,64 @@ capitulate_miner_view_timeout_secs = 1000
         assert_eq!(config.chain_id, Some(0x80000100));
         let global_config = GlobalConfig::try_from(config).unwrap();
         assert_eq!(global_config.to_chain_id(), 0x80000100);
+    }
+
+    #[test]
+    fn test_db_pruning_defaults_to_enabled_and_can_be_disabled() {
+        let pk = StacksPrivateKey::from_hex(
+            "eb05c83546fdd2c79f10f5ad5434a90dd28f7e3acb7c092157aa1bc3656b012c01",
+        )
+        .unwrap();
+        let config_toml = build_signer_config_tomls(
+            &[pk],
+            "localhost",
+            None,
+            &Network::Testnet,
+            "melon",
+            rand::random(),
+            3000,
+            Some(4000),
+            None,
+        )
+        .remove(0);
+
+        // Default to `true` when the field is missing
+        let config = GlobalConfig::load_from_str(&config_toml).unwrap();
+        assert!(config.db_pruning);
+
+        // Use the configured value when the field is present
+        let config =
+            GlobalConfig::load_from_str(&format!("{config_toml}\ndb_pruning = false\n")).unwrap();
+        assert!(!config.db_pruning);
+    }
+
+    #[test]
+    fn test_db_shrink_defaults_to_enabled_and_can_be_disabled() {
+        let pk = StacksPrivateKey::from_hex(
+            "eb05c83546fdd2c79f10f5ad5434a90dd28f7e3acb7c092157aa1bc3656b012c01",
+        )
+        .unwrap();
+        let config_toml = build_signer_config_tomls(
+            &[pk],
+            "localhost",
+            None,
+            &Network::Testnet,
+            "melon",
+            rand::random(),
+            3000,
+            Some(4000),
+            None,
+        )
+        .remove(0);
+
+        // Default to `true` when the field is missing
+        let config = GlobalConfig::load_from_str(&config_toml).unwrap();
+        assert!(config.db_shrink);
+
+        // Use the configured value when the field is present, independently of `db_pruning`
+        let config =
+            GlobalConfig::load_from_str(&format!("{config_toml}\ndb_shrink = false\n")).unwrap();
+        assert!(!config.db_shrink);
+        assert!(config.db_pruning);
     }
 }

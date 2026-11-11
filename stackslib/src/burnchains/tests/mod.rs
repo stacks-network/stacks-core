@@ -14,6 +14,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 pub mod burnchain;
+pub mod cycle_dispatch;
 pub mod db;
 pub mod thread_join;
 
@@ -44,26 +45,6 @@ use crate::util_lib::db::*;
 // all SPV headers will have this timestamp, so that multiple burnchain nodes will always have the
 // same SPV header timestamps regardless of when they are instantiated.
 pub const BURNCHAIN_TEST_BLOCK_TIME: u64 = 1629739098;
-
-impl Txid {
-    pub fn from_test_data(
-        block_height: u64,
-        vtxindex: u32,
-        burn_header_hash: &BurnchainHeaderHash,
-        noise: u64,
-    ) -> Txid {
-        let mut bytes = vec![];
-        bytes.extend_from_slice(&block_height.to_be_bytes());
-        bytes.extend_from_slice(&vtxindex.to_be_bytes());
-        bytes.extend_from_slice(burn_header_hash.as_bytes());
-        bytes.extend_from_slice(&noise.to_be_bytes());
-        let h = DoubleSha256::from_data(&bytes[..]);
-        let mut hb = [0u8; 32];
-        hb.copy_from_slice(h.as_bytes());
-
-        Txid(hb)
-    }
-}
 
 impl BurnchainBlockHeader {
     pub fn from_parent_snapshot(
@@ -241,10 +222,8 @@ impl TestMiner {
         match self.vrf_key_map.get(vrf_pubkey) {
             Some(prover_key) => {
                 let proof = VRF::prove(prover_key, last_sortition_hash.as_bytes())?;
-                let valid = match VRF::verify(vrf_pubkey, &proof, last_sortition_hash.as_bytes()) {
-                    Ok(v) => v,
-                    Err(e) => false,
-                };
+                let valid = VRF::verify(vrf_pubkey, &proof, last_sortition_hash.as_bytes())
+                    .unwrap_or_default();
                 assert!(valid);
                 Some(proof)
             }
@@ -266,10 +245,8 @@ impl TestMiner {
     }
 
     pub fn origin_address(&self) -> Option<StacksAddress> {
-        match self.as_transaction_auth() {
-            Some(auth) => Some(auth.origin().address_testnet()),
-            None => None,
-        }
+        self.as_transaction_auth()
+            .map(|auth| auth.origin().address_testnet())
     }
 
     pub fn get_nonce(&self) -> u64 {
@@ -310,6 +287,12 @@ impl TestMiner {
 }
 
 // creates miners deterministically
+impl Default for TestMinerFactory {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl TestMinerFactory {
     pub fn new() -> TestMinerFactory {
         TestMinerFactory {
@@ -414,7 +397,6 @@ impl TestBurnchainBlock {
         parent_block_snapshot: Option<&BlockSnapshot>,
         new_seed: Option<VRFSeed>,
         epoch_marker: u8,
-        parent_is_shadow: bool,
     ) -> LeaderBlockCommitOp {
         let pubks = miner
             .privks
@@ -450,13 +432,6 @@ impl TestBurnchainBlock {
         )
         .expect("FATAL: failed to read block commit");
 
-        if parent_is_shadow {
-            assert!(
-                get_commit_res.is_none(),
-                "FATAL: shadow parent should not have a block-commit"
-            );
-        }
-
         let input = SortitionDB::get_last_block_commit_by_sender(ic.conn(), &apparent_sender)
             .unwrap()
             .map(|commit| (commit.txid.clone(), 1 + (commit.commit_outs.len() as u32)))
@@ -472,7 +447,8 @@ impl TestBurnchainBlock {
                     self.block_height,
                     &parent
                 );
-                let txop = LeaderBlockCommitOp::new(
+
+                LeaderBlockCommitOp::new(
                     block_hash,
                     self.block_height,
                     &new_seed,
@@ -483,47 +459,24 @@ impl TestBurnchainBlock {
                     burn_fee,
                     &input,
                     &apparent_sender,
-                );
-                txop
+                )
             }
             None => {
-                let txop = if parent_is_shadow {
-                    test_debug!(
-                        "Block-commit for {} (burn height {}) builds on shadow sortition",
-                        block_hash,
-                        self.block_height
-                    );
-
-                    LeaderBlockCommitOp::new(
-                        block_hash,
-                        self.block_height,
-                        &new_seed,
-                        last_snapshot_with_sortition.block_height as u32,
-                        0,
-                        leader_key.block_height as u32,
-                        leader_key.vtxindex as u16,
-                        burn_fee,
-                        &input,
-                        &apparent_sender,
-                    )
-                } else {
-                    // initial
-                    test_debug!(
-                        "Block-commit for {} (burn height {}) builds on genesis",
-                        block_hash,
-                        self.block_height,
-                    );
-                    LeaderBlockCommitOp::initial(
-                        block_hash,
-                        self.block_height,
-                        &new_seed,
-                        leader_key,
-                        burn_fee,
-                        &input,
-                        &apparent_sender,
-                    )
-                };
-                txop
+                // initial
+                test_debug!(
+                    "Block-commit for {} (burn height {}) builds on genesis",
+                    block_hash,
+                    self.block_height,
+                );
+                LeaderBlockCommitOp::initial(
+                    block_hash,
+                    self.block_height,
+                    &new_seed,
+                    leader_key,
+                    burn_fee,
+                    &input,
+                    &apparent_sender,
+                )
             }
         };
 
@@ -566,7 +519,6 @@ impl TestBurnchainBlock {
             parent_block_snapshot,
             None,
             STACKS_EPOCH_2_4_MARKER,
-            false,
         )
     }
 
@@ -640,12 +592,11 @@ impl TestBurnchainBlock {
         R: RewardSetProvider,
         CE: CostEstimator,
         FE: FeeEstimator,
-        B: BurnchainHeaderReader,
     >(
         &self,
         db: &mut SortitionDB,
         burnchain: &Burnchain,
-        coord: &mut ChainsCoordinator<'_, T, N, R, CE, FE, B>,
+        coord: &mut ChainsCoordinator<'_, T, N, R, CE, FE>,
     ) -> BlockSnapshot {
         let mut indexer = BitcoinIndexer::new_unit_test(&burnchain.working_dir);
         let parent_hdr = indexer
@@ -780,12 +731,11 @@ impl TestBurnchainFork {
         R: RewardSetProvider,
         CE: CostEstimator,
         FE: FeeEstimator,
-        B: BurnchainHeaderReader,
     >(
         &mut self,
         db: &mut SortitionDB,
         burnchain: &Burnchain,
-        coord: &mut ChainsCoordinator<'_, T, N, R, CE, FE, B>,
+        coord: &mut ChainsCoordinator<'_, T, N, R, CE, FE>,
     ) -> BlockSnapshot {
         let mut snapshot = {
             let ic = db.index_conn();
@@ -811,6 +761,8 @@ impl TestBurnchainFork {
     }
 }
 
+// A default would hide test database initialization and a possible panic.
+#[allow(clippy::new_without_default)]
 impl TestBurnchainNode {
     pub fn new() -> TestBurnchainNode {
         let first_block_height = 100;
@@ -872,8 +824,8 @@ fn process_next_sortition(
     }
 
     // have each leader register a VRF key
-    for j in 0..miners.len() {
-        let key_register_op = block.add_leader_key_register(&mut miners[j]);
+    for miner in miners.iter_mut() {
+        let key_register_op = block.add_leader_key_register(miner);
         next_prev_keys.push(key_register_op);
     }
 

@@ -1,3 +1,18 @@
+// Copyright (C) 2025-2026 Stacks Open Internet Foundation
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program.  If not, see <http://www.gnu.org/licenses/>.
+
 use std::io::Cursor;
 
 use chrono::Utc;
@@ -13,10 +28,11 @@ use clarity::vm::{ClarityName, ClarityVersion, ContractName, Value};
 use crate::chainstate::stacks::db::StacksChainState;
 use crate::chainstate::stacks::miner::{BlockBuilderSettings, StacksMicroblockBuilder};
 use crate::chainstate::stacks::{
-    CoinbasePayload, StacksBlock, StacksMicroblock, StacksMicroblockHeader, StacksTransaction,
-    StacksTransactionSigner, TenureChangePayload, TokenTransferMemo, TransactionAnchorMode,
-    TransactionAuth, TransactionContractCall, TransactionPayload, TransactionPostConditionMode,
-    TransactionSmartContract, TransactionSpendingCondition, TransactionVersion,
+    CoinbasePayload, StacksBlock, StacksMicroblock, StacksTransaction, StacksTransactionSigner,
+    TenureChangePayload, TokenTransferMemo, TransactionAnchorMode, TransactionAuth,
+    TransactionContractCall, TransactionPayload, TransactionPostCondition,
+    TransactionPostConditionMode, TransactionSmartContract, TransactionSpendingCondition,
+    TransactionVersion,
 };
 use crate::util_lib::strings::StacksString;
 
@@ -175,35 +191,6 @@ pub fn sign_tx_anchor_mode_version(
     tx_signer.get_tx().unwrap()
 }
 
-#[allow(clippy::too_many_arguments)]
-pub fn serialize_sign_tx_anchor_mode_version(
-    payload: TransactionPayload,
-    sender: &StacksPrivateKey,
-    payer: Option<&StacksPrivateKey>,
-    sender_nonce: u64,
-    payer_nonce: Option<u64>,
-    tx_fee: u64,
-    chain_id: u32,
-    anchor_mode: TransactionAnchorMode,
-    version: TransactionVersion,
-) -> Vec<u8> {
-    let tx = sign_tx_anchor_mode_version(
-        payload,
-        sender,
-        payer,
-        sender_nonce,
-        payer_nonce,
-        tx_fee,
-        chain_id,
-        anchor_mode,
-        version,
-    );
-
-    let mut buf = vec![];
-    tx.consensus_serialize(&mut buf).unwrap();
-    buf
-}
-
 pub fn make_contract_publish_tx(
     sender: &StacksPrivateKey,
     nonce: u64,
@@ -213,7 +200,7 @@ pub fn make_contract_publish_tx(
     contract_content: &str,
     version: Option<ClarityVersion>,
 ) -> StacksTransaction {
-    let name = ContractName::from(contract_name);
+    let name = ContractName::try_from(contract_name).expect("invalid contract name");
     let code_body = StacksString::from_string(&contract_content.to_string()).unwrap();
 
     let payload =
@@ -271,7 +258,7 @@ pub fn make_contract_publish_microblock_only_versioned(
     contract_content: &str,
     version: Option<ClarityVersion>,
 ) -> Vec<u8> {
-    let name = ContractName::from(contract_name);
+    let name = ContractName::try_from(contract_name).expect("invalid contract name");
     let code_body = StacksString::from_string(&contract_content.to_string()).unwrap();
 
     let payload =
@@ -393,21 +380,6 @@ pub fn make_stacks_transfer_mblock_only(
     tx_bytes
 }
 
-pub fn make_poison(
-    sender: &StacksPrivateKey,
-    nonce: u64,
-    tx_fee: u64,
-    chain_id: u32,
-    header_1: StacksMicroblockHeader,
-    header_2: StacksMicroblockHeader,
-) -> Vec<u8> {
-    let payload = TransactionPayload::PoisonMicroblock(header_1, header_2);
-    let tx = sign_standard_single_sig_tx(payload, sender, nonce, tx_fee, chain_id);
-    let mut tx_bytes = vec![];
-    tx.consensus_serialize(&mut tx_bytes).unwrap();
-    tx_bytes
-}
-
 pub fn make_coinbase_tx(
     sender: &StacksPrivateKey,
     nonce: u64,
@@ -415,8 +387,8 @@ pub fn make_coinbase_tx(
     chain_id: u32,
 ) -> StacksTransaction {
     let payload = TransactionPayload::Coinbase(CoinbasePayload([0; 32]), None, None);
-    let tx = sign_standard_single_sig_tx(payload, sender, nonce, tx_fee, chain_id);
-    tx
+
+    sign_standard_single_sig_tx(payload, sender, nonce, tx_fee, chain_id)
 }
 
 pub fn make_coinbase(sender: &StacksPrivateKey, nonce: u64, tx_fee: u64, chain_id: u32) -> Vec<u8> {
@@ -431,13 +403,10 @@ pub fn make_contract_call_tx(
     tx_fee: u64,
     chain_id: u32,
     contract_addr: &StacksAddress,
-    contract_name: &str,
-    function_name: &str,
+    contract_name: ContractName,
+    function_name: ClarityName,
     function_args: &[Value],
 ) -> StacksTransaction {
-    let contract_name = ContractName::from(contract_name);
-    let function_name = ClarityName::from(function_name);
-
     let payload = TransactionContractCall {
         address: contract_addr.clone(),
         contract_name,
@@ -446,6 +415,47 @@ pub fn make_contract_call_tx(
     };
 
     sign_standard_single_sig_tx(payload.into(), sender, nonce, tx_fee, chain_id)
+}
+
+/// Build, sign, and serialize a contract-call transaction with explicit
+/// post-conditions and post-condition mode (the plain [`make_contract_call`]
+/// uses `Allow` mode with no post-conditions).
+#[allow(clippy::too_many_arguments)]
+pub fn make_contract_call_with_post_conditions(
+    sender: &StacksPrivateKey,
+    nonce: u64,
+    tx_fee: u64,
+    chain_id: u32,
+    contract_addr: &StacksAddress,
+    contract_name: &str,
+    function_name: &str,
+    function_args: &[Value],
+    post_condition_mode: TransactionPostConditionMode,
+    post_conditions: Vec<TransactionPostCondition>,
+) -> Vec<u8> {
+    let payload = TransactionContractCall {
+        address: contract_addr.clone(),
+        contract_name: contract_name.try_into().expect("invalid contract name"),
+        function_name: function_name.try_into().expect("invalid function name"),
+        function_args: function_args.to_vec(),
+    };
+    let mut unsigned_tx = make_unsigned_tx(
+        payload.into(),
+        sender,
+        None,
+        nonce,
+        None,
+        tx_fee,
+        chain_id,
+        TransactionAnchorMode::OnChainOnly,
+        TransactionVersion::Testnet,
+    );
+    unsigned_tx.post_condition_mode = post_condition_mode;
+    unsigned_tx.post_conditions = post_conditions;
+
+    let mut tx_signer = StacksTransactionSigner::new(&unsigned_tx);
+    tx_signer.sign_origin(sender).unwrap();
+    tx_signer.get_tx().unwrap().serialize_to_vec()
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -465,8 +475,8 @@ pub fn make_contract_call(
         tx_fee,
         chain_id,
         contract_addr,
-        contract_name,
-        function_name,
+        contract_name.try_into().expect("invalid contract name"),
+        function_name.try_into().expect("invalid function name"),
         function_args,
     )
     .serialize_to_vec()
@@ -479,12 +489,12 @@ pub fn make_contract_call_mblock_only(
     tx_fee: u64,
     chain_id: u32,
     contract_addr: &StacksAddress,
-    contract_name: &str,
-    function_name: &str,
+    contract_name: &'static str,
+    function_name: &'static str,
     function_args: &[Value],
 ) -> Vec<u8> {
-    let contract_name = ContractName::from(contract_name);
-    let function_name = ClarityName::from(function_name);
+    let contract_name = ContractName::from_literal(contract_name);
+    let function_name = ClarityName::from_literal(function_name);
 
     let payload = TransactionContractCall {
         address: contract_addr.clone(),
@@ -604,7 +614,7 @@ pub fn make_big_read_count_contract(limit: ExecutionCost, proportion: u64) -> St
     let read_count = (limit.read_count * proportion) / 100;
 
     let read_lines = (0..read_count)
-        .map(|_| format!("(var-get my-var)"))
+        .map(|_| "(var-get my-var)".to_string())
         .collect::<Vec<_>>()
         .join("\n");
 

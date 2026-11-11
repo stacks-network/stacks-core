@@ -174,11 +174,9 @@ impl HttpRequest for RPCNakamotoBlockSimulateRequestHandler {
 
         if let Some(query_string) = query {
             for (key, value) in form_urlencoded::parse(query_string.as_bytes()) {
-                if key == "profiler" {
-                    if value == "1" {
-                        self.profiler = true;
-                        break;
-                    }
+                if key == "profiler" && value == "1" {
+                    self.profiler = true;
+                    break;
                 }
             }
         }
@@ -244,15 +242,13 @@ impl RPCRequestHandler for RPCNakamotoBlockSimulateRequestHandler {
                     &HttpNotFound::new(format!("No such block {block_id}\n")),
                 )
                 .try_into_contents()
-                .map_err(NetError::from)
             }
             Err(e) => {
                 // nope -- error trying to check
                 let msg = format!("Failed to simulate block {}: {:?}\n", &block_id, &e);
                 warn!("{}", &msg);
                 return StacksHttpResponse::new_error(&preamble, &HttpServerError::new(msg))
-                    .try_into_contents()
-                    .map_err(NetError::from);
+                    .try_into_contents();
             }
         };
 
@@ -267,8 +263,8 @@ impl StacksHttpRequest {
     pub fn new_block_simulate(
         host: PeerHost,
         block_id: &StacksBlockId,
-        transactions: &Vec<StacksTransaction>,
-        mint: &Vec<RPCNakamotoBlockSimulateMint>,
+        transactions: &[StacksTransaction],
+        mint: &[RPCNakamotoBlockSimulateMint],
     ) -> StacksHttpRequest {
         let transactions_hex = transactions
             .iter()
@@ -276,7 +272,7 @@ impl StacksHttpRequest {
             .collect();
 
         let block_simulate_body = RPCNakamotoBlockSimulateBody {
-            mint: mint.clone(),
+            mint: mint.to_owned(),
             transactions_hex,
         };
 
@@ -296,8 +292,8 @@ impl StacksHttpRequest {
         host: PeerHost,
         block_id: &StacksBlockId,
         profiler: bool,
-        transactions: &Vec<StacksTransaction>,
-        mint: &Vec<RPCNakamotoBlockSimulateMint>,
+        transactions: &[StacksTransaction],
+        mint: &[RPCNakamotoBlockSimulateMint],
     ) -> StacksHttpRequest {
         let transactions_hex = transactions
             .iter()
@@ -305,7 +301,7 @@ impl StacksHttpRequest {
             .collect();
 
         let block_simulate_body = RPCNakamotoBlockSimulateBody {
-            mint: mint.clone(),
+            mint: mint.to_owned(),
             transactions_hex,
         };
         StacksHttpRequest::new_for_peer(
@@ -336,7 +332,7 @@ impl HttpResponse for RPCNakamotoBlockSimulateRequestHandler {
         body: &[u8],
     ) -> Result<HttpResponsePayload, Error> {
         let rpc_replayed_block: RPCReplayedBlock = parse_json(preamble, body)?;
-        Ok(HttpResponsePayload::try_from_json(rpc_replayed_block)?)
+        HttpResponsePayload::try_from_json(rpc_replayed_block)
     }
 }
 

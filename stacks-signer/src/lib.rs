@@ -37,6 +37,10 @@ pub mod monitoring;
 pub mod runloop;
 /// The signer state module
 pub mod signerdb;
+/// Online pruning of the signer db
+pub mod signerdb_pruner;
+/// Shrinking of the signer db file
+pub mod signerdb_shrink;
 /// The util module for the signer
 pub mod utils;
 /// The v0 implementation of the signer.
@@ -53,6 +57,7 @@ use config::GlobalConfig;
 use libsigner::{SignerEvent, SignerEventReceiver, SignerEventTrait, VERSION_STRING};
 use runloop::SignerResult;
 use signerdb::BlockInfo;
+use stacks_common::versions::CUSTOM_VERSION_STRING;
 use stacks_common::{info, warn};
 use v0::signer_state::LocalStateMachine;
 
@@ -67,6 +72,12 @@ pub trait Signer<T: SignerEventTrait>: Debug + Display {
     /// Get the reward cycle of the signer
     fn reward_cycle(&self) -> u64;
     /// Process an event
+    ///
+    /// `latest_sortition_reward_cycle` is the reward cycle of the
+    /// most recent winning sortition on the canonical burnchain fork,
+    /// or `None` if it could not be determined. This is not
+    /// necessarily the same as `current_reward_cycle` (e.g., a burn
+    /// block with no sortition leaves it pointing at the prior cycle)
     fn process_event(
         &mut self,
         stacks_client: &StacksClient,
@@ -74,6 +85,7 @@ pub trait Signer<T: SignerEventTrait>: Debug + Display {
         event: Option<&SignerEvent<T>>,
         res: &Sender<SignerResult>,
         current_reward_cycle: u64,
+        latest_sortition_reward_cycle: Option<u64>,
     );
     /// Check if the signer is in the middle of processing blocks
     fn has_unprocessed_blocks(&self) -> bool;
@@ -120,7 +132,9 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SpawnedSigner
     /// Create a new spawned signer
     pub fn new(config: GlobalConfig) -> Self {
         let endpoint = config.endpoint;
-        info!("Stacks signer version {:?}", VERSION_STRING.as_str());
+        info!("Stacks signer version {:?}", VERSION_STRING.as_str();
+            "custom_version" => CUSTOM_VERSION_STRING
+        );
         info!("Starting signer with config: {:?}", config);
         warn!(
             "Reminder: The signer is primarily designed for use with a local or subnet network stacks node. \

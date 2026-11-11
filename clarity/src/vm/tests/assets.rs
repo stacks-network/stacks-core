@@ -14,12 +14,15 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #[cfg(test)]
+use clarity_types::ClarityName;
+#[cfg(test)]
+use clarity_types::ContractName;
+#[cfg(test)]
 use stacks_common::types::StacksEpochId;
 
 use crate::vm::contexts::{AssetMap, OwnedEnvironment};
 use crate::vm::errors::VmExecutionError;
 use crate::vm::events::StacksTransactionEvent;
-use crate::vm::representations::SymbolicExpression;
 use crate::vm::tests::{test_clarity_versions, test_epochs};
 use crate::vm::types::{PrincipalData, QualifiedContractIdentifier, Value};
 #[cfg(test)]
@@ -29,7 +32,7 @@ use crate::vm::{
     errors::{ClarityEvalError, RuntimeCheckErrorKind, RuntimeError},
     tests::{
         TopLevelMemoryEnvironmentGenerator, execute, is_committed, is_err_code,
-        symbols_from_values, tl_env_factory as env_factory,
+        tl_env_factory as env_factory,
     },
     types::AssetIdentifier,
     version::ClarityVersion,
@@ -135,13 +138,15 @@ fn execute_transaction(
     issuer: PrincipalData,
     contract_identifier: &QualifiedContractIdentifier,
     tx: &str,
-    args: &[SymbolicExpression],
+    args: Vec<Value>,
 ) -> Result<(Value, AssetMap, Vec<StacksTransactionEvent>), VmExecutionError> {
     env.execute_transaction(issuer, None, contract_identifier.clone(), tx, args)
 }
 
 #[apply(test_epochs)]
 fn test_native_stx_ops(epoch: StacksEpochId, mut env_factory: TopLevelMemoryEnvironmentGenerator) {
+    use clarity_types::ContractName;
+
     let mut owned_env = env_factory.get_env(epoch);
     let contract = r#"(define-public (burn-stx (amount uint) (p principal)) (stx-burn? amount p))
                     (define-public (xfer-stx (amount uint) (p principal) (t principal)) (stx-transfer? amount p t))
@@ -177,10 +182,14 @@ fn test_native_stx_ops(epoch: StacksEpochId, mut env_factory: TopLevelMemoryEnvi
         panic!("Expected principal data");
     };
 
-    let token_contract_id =
-        QualifiedContractIdentifier::new(p1_std_principal_data.clone(), "tokens".into());
-    let second_contract_id =
-        QualifiedContractIdentifier::new(p1_std_principal_data, "second".into());
+    let token_contract_id = QualifiedContractIdentifier::new(
+        p1_std_principal_data.clone(),
+        ContractName::from_literal("tokens"),
+    );
+    let second_contract_id = QualifiedContractIdentifier::new(
+        p1_std_principal_data,
+        ContractName::from_literal("second"),
+    );
 
     owned_env
         .initialize_contract(token_contract_id.clone(), contract, None)
@@ -199,7 +208,7 @@ fn test_native_stx_ops(epoch: StacksEpochId, mut env_factory: TopLevelMemoryEnvi
         p1_principal.clone(),
         &token_contract_id,
         "xfer-stx",
-        &symbols_from_values(vec![Value::UInt(0), p1.clone(), p2.clone()]),
+        vec![Value::UInt(0), p1.clone(), p2.clone()],
     )
     .unwrap();
 
@@ -211,7 +220,7 @@ fn test_native_stx_ops(epoch: StacksEpochId, mut env_factory: TopLevelMemoryEnvi
         p1_principal.clone(),
         &token_contract_id,
         "burn-stx",
-        &symbols_from_values(vec![Value::UInt(0), p1.clone()]),
+        vec![Value::UInt(0), p1.clone()],
     )
     .unwrap();
 
@@ -225,7 +234,7 @@ fn test_native_stx_ops(epoch: StacksEpochId, mut env_factory: TopLevelMemoryEnvi
         p2_principal.clone(),
         &token_contract_id,
         "xfer-stx",
-        &symbols_from_values(vec![Value::UInt(50), p2.clone(), p2.clone()]),
+        vec![Value::UInt(50), p2.clone(), p2.clone()],
     )
     .unwrap();
 
@@ -239,7 +248,7 @@ fn test_native_stx_ops(epoch: StacksEpochId, mut env_factory: TopLevelMemoryEnvi
         p2_principal.clone(),
         &token_contract_id,
         "xfer-stx",
-        &symbols_from_values(vec![Value::UInt(50), p1.clone(), p2.clone()]),
+        vec![Value::UInt(50), p1.clone(), p2.clone()],
     )
     .unwrap();
 
@@ -251,7 +260,7 @@ fn test_native_stx_ops(epoch: StacksEpochId, mut env_factory: TopLevelMemoryEnvi
         p2_principal.clone(),
         &token_contract_id,
         "burn-stx",
-        &symbols_from_values(vec![Value::UInt(50), p1.clone()]),
+        vec![Value::UInt(50), p1.clone()],
     )
     .unwrap();
 
@@ -265,7 +274,7 @@ fn test_native_stx_ops(epoch: StacksEpochId, mut env_factory: TopLevelMemoryEnvi
         p2_principal.clone(),
         &token_contract_id,
         "xfer-stx",
-        &symbols_from_values(vec![Value::UInt(1001), p2.clone(), p3.clone()]),
+        vec![Value::UInt(1001), p2.clone(), p3.clone()],
     )
     .unwrap();
 
@@ -277,7 +286,7 @@ fn test_native_stx_ops(epoch: StacksEpochId, mut env_factory: TopLevelMemoryEnvi
         p2_principal.clone(),
         &token_contract_id,
         "burn-stx",
-        &symbols_from_values(vec![Value::UInt(1001), p2.clone()]),
+        vec![Value::UInt(1001), p2.clone()],
     )
     .unwrap();
 
@@ -293,7 +302,7 @@ fn test_native_stx_ops(epoch: StacksEpochId, mut env_factory: TopLevelMemoryEnvi
     //         p2.clone(),
     //         &token_contract_id,
     //         "xfer-stx",
-    //         &symbols_from_values(vec![Value::UInt(2), p2.clone(), p1.clone()])
+    //         vec![Value::UInt(2), p2.clone(), p1.clone()]
     //     )
     //     .unwrap_err(),
     //     RuntimeError::ArithmeticOverflow.into()
@@ -306,7 +315,7 @@ fn test_native_stx_ops(epoch: StacksEpochId, mut env_factory: TopLevelMemoryEnvi
         p2_principal.clone(),
         &token_contract_id,
         "balance-stx",
-        &symbols_from_values(vec![p2.clone()]),
+        vec![p2.clone()],
     )
     .unwrap();
 
@@ -324,7 +333,7 @@ fn test_native_stx_ops(epoch: StacksEpochId, mut env_factory: TopLevelMemoryEnvi
         p2_principal.clone(),
         &token_contract_id,
         "balance-stx",
-        &symbols_from_values(vec![nonexistent_principal]),
+        vec![nonexistent_principal],
     )
     .unwrap();
 
@@ -337,7 +346,7 @@ fn test_native_stx_ops(epoch: StacksEpochId, mut env_factory: TopLevelMemoryEnvi
         p2_principal.clone(),
         &token_contract_id,
         "burn-stx",
-        &symbols_from_values(vec![Value::UInt(10), p2.clone()]),
+        vec![Value::UInt(10), p2.clone()],
     )
     .unwrap();
 
@@ -353,7 +362,7 @@ fn test_native_stx_ops(epoch: StacksEpochId, mut env_factory: TopLevelMemoryEnvi
         p2_principal.clone(),
         &token_contract_id,
         "xfer-stx",
-        &symbols_from_values(vec![Value::UInt(500), p2.clone(), p3.clone()]),
+        vec![Value::UInt(500), p2.clone(), p3.clone()],
     )
     .unwrap();
 
@@ -369,7 +378,7 @@ fn test_native_stx_ops(epoch: StacksEpochId, mut env_factory: TopLevelMemoryEnvi
         p3_principal.clone(),
         &token_contract_id,
         "xfer-stx",
-        &symbols_from_values(vec![Value::UInt(1), p3.clone(), p1]),
+        vec![Value::UInt(1), p3.clone(), p1],
     )
     .unwrap();
 
@@ -387,7 +396,7 @@ fn test_native_stx_ops(epoch: StacksEpochId, mut env_factory: TopLevelMemoryEnvi
         p2_principal.clone(),
         &token_contract_id,
         "to-contract",
-        &symbols_from_values(vec![Value::UInt(10), p2]),
+        vec![Value::UInt(10), p2],
     )
     .unwrap();
 
@@ -411,7 +420,7 @@ fn test_native_stx_ops(epoch: StacksEpochId, mut env_factory: TopLevelMemoryEnvi
         p2_principal.clone(),
         &token_contract_id,
         "balance-stx",
-        &symbols_from_values(vec![contract_principal]),
+        vec![contract_principal],
     )
     .unwrap();
 
@@ -424,7 +433,7 @@ fn test_native_stx_ops(epoch: StacksEpochId, mut env_factory: TopLevelMemoryEnvi
         p3_principal.clone(),
         &token_contract_id,
         "from-contract",
-        &symbols_from_values(vec![Value::UInt(10), p3]),
+        vec![Value::UInt(10), p3],
     )
     .unwrap();
 
@@ -451,7 +460,7 @@ fn test_native_stx_ops(epoch: StacksEpochId, mut env_factory: TopLevelMemoryEnvi
         p2_principal.clone(),
         &second_contract_id,
         "send-to-other",
-        &symbols_from_values(vec![Value::UInt(500)]),
+        vec![Value::UInt(500)],
     )
     .unwrap();
 
@@ -472,7 +481,7 @@ fn test_native_stx_ops(epoch: StacksEpochId, mut env_factory: TopLevelMemoryEnvi
         p3_principal,
         &token_contract_id,
         "from-contract",
-        &symbols_from_values(vec![Value::UInt(100), second_contract_id.clone().into()]),
+        vec![Value::UInt(100), second_contract_id.clone().into()],
     )
     .unwrap();
 
@@ -491,7 +500,7 @@ fn test_native_stx_ops(epoch: StacksEpochId, mut env_factory: TopLevelMemoryEnvi
         p2_principal.clone(),
         &second_contract_id,
         "send-to-other",
-        &symbols_from_values(vec![Value::UInt(100)]),
+        vec![Value::UInt(100)],
     )
     .unwrap();
 
@@ -511,6 +520,8 @@ fn test_simple_token_system(
     epoch: StacksEpochId,
     mut env_factory: TopLevelMemoryEnvironmentGenerator,
 ) {
+    use clarity_types::{ClarityName, ContractName};
+
     let mut owned_env = env_factory.get_env(epoch);
     let tokens_contract = FIRST_CLASS_TOKENS;
 
@@ -529,12 +540,14 @@ fn test_simple_token_system(
         panic!("Expected principal data");
     };
 
-    let token_contract_id =
-        QualifiedContractIdentifier::new(p1_std_principal_data, "tokens".into());
+    let token_contract_id = QualifiedContractIdentifier::new(
+        p1_std_principal_data,
+        ContractName::from_literal("tokens"),
+    );
 
     let token_identifier = AssetIdentifier {
         contract_identifier: token_contract_id.clone(),
-        asset_name: "stackaroos".into(),
+        asset_name: ClarityName::from_literal("stackaroos"),
     };
 
     let contract_principal = PrincipalData::Contract(token_contract_id.clone());
@@ -548,7 +561,7 @@ fn test_simple_token_system(
         p2_principal.clone(),
         &token_contract_id,
         "my-token-transfer",
-        &symbols_from_values(vec![p1.clone(), Value::UInt(210)]),
+        vec![p1.clone(), Value::UInt(210)],
     )
     .unwrap();
     assert!(!is_committed(&result));
@@ -560,7 +573,7 @@ fn test_simple_token_system(
         p1_principal.clone(),
         &token_contract_id,
         "my-token-transfer",
-        &symbols_from_values(vec![p2.clone(), Value::UInt(9000)]),
+        vec![p2.clone(), Value::UInt(9000)],
     )
     .unwrap();
     assert!(is_committed(&result));
@@ -576,7 +589,7 @@ fn test_simple_token_system(
         p1_principal.clone(),
         &token_contract_id,
         "my-token-transfer",
-        &symbols_from_values(vec![p2.clone(), Value::UInt(1001)]),
+        vec![p2.clone(), Value::UInt(1001)],
     )
     .unwrap();
 
@@ -588,7 +601,7 @@ fn test_simple_token_system(
         p1_principal.clone(),
         &token_contract_id,
         "my-token-transfer",
-        &symbols_from_values(vec![p1.clone(), Value::UInt(1000)]),
+        vec![p1.clone(), Value::UInt(1000)],
     )
     .unwrap();
 
@@ -600,7 +613,7 @@ fn test_simple_token_system(
         p1_principal.clone(),
         &token_contract_id,
         "my-token-transfer",
-        &symbols_from_values(vec![p1.clone(), Value::Int(-1)]),
+        vec![p1.clone(), Value::Int(-1)],
     )
     .unwrap_err();
 
@@ -614,7 +627,7 @@ fn test_simple_token_system(
         p1_principal.clone(),
         &token_contract_id,
         "my-ft-get-balance",
-        &symbols_from_values(vec![p1.clone()]),
+        vec![p1.clone()],
     )
     .unwrap();
 
@@ -626,7 +639,7 @@ fn test_simple_token_system(
         p1_principal.clone(),
         &token_contract_id,
         "my-ft-get-balance",
-        &symbols_from_values(vec![p2.clone()]),
+        vec![p2.clone()],
     )
     .unwrap();
 
@@ -638,7 +651,7 @@ fn test_simple_token_system(
         p1_principal.clone(),
         &token_contract_id,
         "faucet",
-        &[],
+        vec![],
     )
     .unwrap();
 
@@ -655,7 +668,7 @@ fn test_simple_token_system(
         p1_principal.clone(),
         &token_contract_id,
         "faucet",
-        &[],
+        vec![],
     )
     .unwrap();
 
@@ -671,7 +684,7 @@ fn test_simple_token_system(
         p1_principal.clone(),
         &token_contract_id,
         "faucet",
-        &[],
+        vec![],
     )
     .unwrap();
 
@@ -687,7 +700,7 @@ fn test_simple_token_system(
         p1_principal.clone(),
         &token_contract_id,
         "my-ft-get-balance",
-        &symbols_from_values(vec![p1]),
+        vec![p1],
     )
     .unwrap();
 
@@ -699,7 +712,7 @@ fn test_simple_token_system(
         p1_principal.clone(),
         &token_contract_id,
         "get-total-supply",
-        &symbols_from_values(vec![]),
+        vec![],
     )
     .unwrap();
     assert_eq!(result, Value::UInt(10204));
@@ -710,7 +723,7 @@ fn test_simple_token_system(
         p2_principal.clone(),
         &token_contract_id,
         "burn",
-        &symbols_from_values(vec![Value::UInt(100), p2.clone()]),
+        vec![Value::UInt(100), p2.clone()],
     )
     .unwrap();
 
@@ -727,7 +740,7 @@ fn test_simple_token_system(
         p1_principal.clone(),
         &token_contract_id,
         "my-ft-get-balance",
-        &symbols_from_values(vec![p2.clone()]),
+        vec![p2.clone()],
     )
     .unwrap();
 
@@ -739,7 +752,7 @@ fn test_simple_token_system(
         p1_principal.clone(),
         &token_contract_id,
         "get-total-supply",
-        &symbols_from_values(vec![]),
+        vec![],
     )
     .unwrap();
     assert_eq!(result, Value::UInt(10104));
@@ -750,7 +763,7 @@ fn test_simple_token_system(
         p2_principal.clone(),
         &token_contract_id,
         "burn",
-        &symbols_from_values(vec![Value::UInt(9101), p2.clone()]),
+        vec![Value::UInt(9101), p2.clone()],
     )
     .unwrap();
 
@@ -763,7 +776,7 @@ fn test_simple_token_system(
         p2_principal.clone(),
         &token_contract_id,
         "burn",
-        &symbols_from_values(vec![Value::UInt(0), p2.clone()]),
+        vec![Value::UInt(0), p2.clone()],
     )
     .unwrap();
 
@@ -777,7 +790,7 @@ fn test_simple_token_system(
         p1_principal.clone(),
         &token_contract_id,
         "burn",
-        &symbols_from_values(vec![Value::UInt(1), p2]),
+        vec![Value::UInt(1), p2],
     )
     .unwrap();
 
@@ -793,7 +806,7 @@ fn test_simple_token_system(
         p1_principal,
         &token_contract_id,
         "mint-after",
-        &symbols_from_values(vec![Value::UInt(25)]),
+        vec![Value::UInt(25)],
     )
     .unwrap();
 
@@ -803,6 +816,8 @@ fn test_simple_token_system(
 
 #[apply(test_epochs)]
 fn test_total_supply(epoch: StacksEpochId, mut env_factory: TopLevelMemoryEnvironmentGenerator) {
+    use clarity_types::ContractName;
+
     let mut owned_env = env_factory.get_env(epoch);
     let bad_0 = "(define-fungible-token stackaroos (- 5))";
     let bad_1 = "(define-fungible-token stackaroos true)";
@@ -828,8 +843,10 @@ fn test_total_supply(epoch: StacksEpochId, mut env_factory: TopLevelMemoryEnviro
         panic!("Expected principal data");
     };
 
-    let token_contract_id =
-        QualifiedContractIdentifier::new(p1_std_principal_data, "tokens".into());
+    let token_contract_id = QualifiedContractIdentifier::new(
+        p1_std_principal_data,
+        ContractName::from_literal("tokens"),
+    );
     let err = owned_env
         .initialize_contract(token_contract_id.clone(), bad_0, None)
         .unwrap_err();
@@ -859,7 +876,7 @@ fn test_total_supply(epoch: StacksEpochId, mut env_factory: TopLevelMemoryEnviro
         p1_principal.clone(),
         &token_contract_id,
         "gated-faucet",
-        &symbols_from_values(vec![Value::Bool(true)]),
+        vec![Value::Bool(true)],
     )
     .unwrap();
     assert!(is_committed(&result));
@@ -869,7 +886,7 @@ fn test_total_supply(epoch: StacksEpochId, mut env_factory: TopLevelMemoryEnviro
         p1_principal.clone(),
         &token_contract_id,
         "gated-faucet",
-        &symbols_from_values(vec![Value::Bool(false)]),
+        vec![Value::Bool(false)],
     )
     .unwrap();
     assert!(!is_committed(&result));
@@ -879,7 +896,7 @@ fn test_total_supply(epoch: StacksEpochId, mut env_factory: TopLevelMemoryEnviro
         p1_principal.clone(),
         &token_contract_id,
         "gated-faucet",
-        &symbols_from_values(vec![Value::Bool(true)]),
+        vec![Value::Bool(true)],
     )
     .unwrap();
     assert!(is_committed(&result));
@@ -889,7 +906,7 @@ fn test_total_supply(epoch: StacksEpochId, mut env_factory: TopLevelMemoryEnviro
         p1_principal,
         &token_contract_id,
         "gated-faucet",
-        &symbols_from_values(vec![Value::Bool(false)]),
+        vec![Value::Bool(false)],
     )
     .unwrap_err();
     println!("{err}");
@@ -904,6 +921,8 @@ fn test_overlapping_nfts(
     epoch: StacksEpochId,
     mut env_factory: TopLevelMemoryEnvironmentGenerator,
 ) {
+    use clarity_types::ContractName;
+
     let mut owned_env = env_factory.get_env(epoch);
     let tokens_contract = FIRST_CLASS_TOKENS;
     let names_contract = ASSET_NAMES;
@@ -914,12 +933,18 @@ fn test_overlapping_nfts(
         panic!("Expected standard principal data");
     };
 
-    let tokens_contract_id =
-        QualifiedContractIdentifier::new(p1_std_principal_data.clone(), "tokens".into());
-    let names_contract_id =
-        QualifiedContractIdentifier::new(p1_std_principal_data.clone(), "names".into());
-    let names_2_contract_id =
-        QualifiedContractIdentifier::new(p1_std_principal_data, "names-2".into());
+    let tokens_contract_id = QualifiedContractIdentifier::new(
+        p1_std_principal_data.clone(),
+        ContractName::from_literal("tokens"),
+    );
+    let names_contract_id = QualifiedContractIdentifier::new(
+        p1_std_principal_data.clone(),
+        ContractName::from_literal("names"),
+    );
+    let names_2_contract_id = QualifiedContractIdentifier::new(
+        p1_std_principal_data,
+        ContractName::from_literal("names-2"),
+    );
 
     owned_env
         .initialize_contract(tokens_contract_id, tokens_contract, None)
@@ -938,6 +963,8 @@ fn test_simple_naming_system(
     epoch: StacksEpochId,
     mut env_factory: TopLevelMemoryEnvironmentGenerator,
 ) {
+    use clarity_types::{ClarityName, ContractName};
+
     let mut owned_env = env_factory.get_env(epoch);
     let tokens_contract = FIRST_CLASS_TOKENS;
 
@@ -961,19 +988,23 @@ fn test_simple_naming_system(
     let placeholder_context =
         ContractContext::new(QualifiedContractIdentifier::transient(), version);
 
-    let tokens_contract_id =
-        QualifiedContractIdentifier::new(p1_std_principal_data.clone(), "tokens".into());
+    let tokens_contract_id = QualifiedContractIdentifier::new(
+        p1_std_principal_data.clone(),
+        ContractName::from_literal("tokens"),
+    );
 
-    let names_contract_id =
-        QualifiedContractIdentifier::new(p1_std_principal_data.clone(), "names".into());
+    let names_contract_id = QualifiedContractIdentifier::new(
+        p1_std_principal_data.clone(),
+        ContractName::from_literal("names"),
+    );
 
     let names_identifier = AssetIdentifier {
         contract_identifier: names_contract_id,
-        asset_name: "names".into(),
+        asset_name: ClarityName::from_literal("names"),
     };
     let tokens_identifier = AssetIdentifier {
         contract_identifier: tokens_contract_id.clone(),
-        asset_name: "stackaroos".into(),
+        asset_name: ClarityName::from_literal("stackaroos"),
     };
 
     let name_hash_expensive_0 = execute("(hash160 1)");
@@ -984,7 +1015,10 @@ fn test_simple_naming_system(
         .initialize_contract(tokens_contract_id, tokens_contract, None)
         .unwrap();
 
-    let names_contract_id = QualifiedContractIdentifier::new(p1_std_principal_data, "names".into());
+    let names_contract_id = QualifiedContractIdentifier::new(
+        p1_std_principal_data,
+        ContractName::from_literal("names"),
+    );
     owned_env
         .initialize_contract(names_contract_id.clone(), names_contract, None)
         .unwrap();
@@ -994,7 +1028,7 @@ fn test_simple_naming_system(
         p2_principal.clone(),
         &names_contract_id,
         "preorder",
-        &symbols_from_values(vec![name_hash_expensive_0.clone(), Value::UInt(1000)]),
+        vec![name_hash_expensive_0.clone(), Value::UInt(1000)],
     )
     .unwrap();
 
@@ -1005,7 +1039,7 @@ fn test_simple_naming_system(
         p1_principal.clone(),
         &names_contract_id,
         "preorder",
-        &symbols_from_values(vec![name_hash_expensive_0.clone(), Value::UInt(1000)]),
+        vec![name_hash_expensive_0.clone(), Value::UInt(1000)],
     )
     .unwrap();
 
@@ -1016,7 +1050,7 @@ fn test_simple_naming_system(
         p1_principal.clone(),
         &names_contract_id,
         "preorder",
-        &symbols_from_values(vec![name_hash_expensive_0, Value::UInt(1000)]),
+        vec![name_hash_expensive_0, Value::UInt(1000)],
     )
     .unwrap();
 
@@ -1029,7 +1063,7 @@ fn test_simple_naming_system(
         p2_principal.clone(),
         &names_contract_id,
         "register",
-        &symbols_from_values(vec![p2.clone(), Value::Int(1), Value::Int(0)]),
+        vec![p2.clone(), Value::Int(1), Value::Int(0)],
     )
     .unwrap();
 
@@ -1042,16 +1076,22 @@ fn test_simple_naming_system(
         p1_principal.clone(),
         &names_contract_id,
         "register",
-        &symbols_from_values(vec![p2.clone(), Value::Int(1), Value::Int(0)]),
+        vec![p2.clone(), Value::Int(1), Value::Int(0)],
     )
     .unwrap();
 
     assert!(is_committed(&result));
 
     {
-        let mut env = owned_env.get_exec_environment(None, None, &placeholder_context);
+        let (mut exec_state, invoke_ctx) =
+            owned_env.get_exec_environment(None, None, &placeholder_context);
         assert_eq!(
-            env.eval_read_only(&names_contract_id.clone(), "(nft-get-owner? names 1)")
+            exec_state
+                .eval_read_only(
+                    &invoke_ctx,
+                    &names_contract_id.clone(),
+                    "(nft-get-owner? names 1)"
+                )
                 .unwrap(),
             Value::some(p2.clone()).unwrap()
         );
@@ -1064,7 +1104,7 @@ fn test_simple_naming_system(
         p1_principal.clone(),
         &names_contract_id,
         "try-bad-transfers",
-        &[],
+        vec![],
     )
     .unwrap();
     assert!(is_err_code(&result, 0));
@@ -1075,7 +1115,7 @@ fn test_simple_naming_system(
         p1_principal.clone(),
         &names_contract_id,
         "try-bad-transfers-but-ok",
-        &[],
+        vec![],
     )
     .unwrap();
 
@@ -1094,7 +1134,7 @@ fn test_simple_naming_system(
         p1_principal.clone(),
         &names_contract_id,
         "force-mint",
-        &symbols_from_values(vec![Value::Int(1)]),
+        vec![Value::Int(1)],
     )
     .unwrap();
 
@@ -1106,7 +1146,7 @@ fn test_simple_naming_system(
         p1_principal.clone(),
         &names_contract_id,
         "force-mint",
-        &symbols_from_values(vec![Value::Int(5)]),
+        vec![Value::Int(5)],
     )
     .unwrap();
 
@@ -1120,7 +1160,7 @@ fn test_simple_naming_system(
         p1_principal.clone(),
         &names_contract_id,
         "transfer",
-        &symbols_from_values(vec![Value::Int(7), p2.clone()]),
+        vec![Value::Int(7), p2.clone()],
     )
     .unwrap();
 
@@ -1132,7 +1172,7 @@ fn test_simple_naming_system(
         p1_principal.clone(),
         &names_contract_id,
         "transfer",
-        &symbols_from_values(vec![Value::Int(1), p2.clone()]),
+        vec![Value::Int(1), p2.clone()],
     )
     .unwrap();
 
@@ -1144,7 +1184,7 @@ fn test_simple_naming_system(
         p2_principal.clone(),
         &names_contract_id,
         "transfer",
-        &symbols_from_values(vec![Value::Int(1), p2.clone()]),
+        vec![Value::Int(1), p2.clone()],
     )
     .unwrap();
 
@@ -1156,7 +1196,7 @@ fn test_simple_naming_system(
         p1_principal.clone(),
         &names_contract_id,
         "transfer",
-        &symbols_from_values(vec![Value::Int(5), p2.clone()]),
+        vec![Value::Int(5), p2.clone()],
     )
     .unwrap();
 
@@ -1179,7 +1219,7 @@ fn test_simple_naming_system(
         p2_principal.clone(),
         &names_contract_id,
         "preorder",
-        &symbols_from_values(vec![name_hash_expensive_1, Value::UInt(100)]),
+        vec![name_hash_expensive_1, Value::UInt(100)],
     )
     .unwrap();
 
@@ -1190,7 +1230,7 @@ fn test_simple_naming_system(
         p2_principal.clone(),
         &names_contract_id,
         "register",
-        &symbols_from_values(vec![p2.clone(), Value::Int(2), Value::Int(0)]),
+        vec![p2.clone(), Value::Int(2), Value::Int(0)],
     )
     .unwrap();
 
@@ -1203,7 +1243,7 @@ fn test_simple_naming_system(
         p2_principal.clone(),
         &names_contract_id,
         "preorder",
-        &symbols_from_values(vec![name_hash_cheap_0, Value::UInt(100)]),
+        vec![name_hash_cheap_0, Value::UInt(100)],
     )
     .unwrap();
 
@@ -1214,7 +1254,7 @@ fn test_simple_naming_system(
         p2_principal.clone(),
         &names_contract_id,
         "register",
-        &symbols_from_values(vec![p2.clone(), Value::Int(100001), Value::Int(0)]),
+        vec![p2.clone(), Value::Int(100001), Value::Int(0)],
     )
     .unwrap();
 
@@ -1225,7 +1265,7 @@ fn test_simple_naming_system(
         p2_principal.clone(),
         &names_contract_id,
         "register",
-        &symbols_from_values(vec![p2.clone(), Value::Int(100001), Value::Int(0)]),
+        vec![p2.clone(), Value::Int(100001), Value::Int(0)],
     )
     .unwrap();
 
@@ -1238,7 +1278,7 @@ fn test_simple_naming_system(
         p1_principal.clone(),
         &names_contract_id,
         "force-burn",
-        &symbols_from_values(vec![Value::Int(5), p1.clone()]),
+        vec![Value::Int(5), p1.clone()],
     )
     .unwrap();
 
@@ -1251,7 +1291,7 @@ fn test_simple_naming_system(
         p1_principal.clone(),
         &names_contract_id,
         "force-mint",
-        &symbols_from_values(vec![Value::Int(8)]),
+        vec![Value::Int(8)],
     )
     .unwrap();
 
@@ -1264,7 +1304,7 @@ fn test_simple_naming_system(
         p2_principal.clone(),
         &names_contract_id,
         "force-burn",
-        &symbols_from_values(vec![Value::Int(8), p1.clone()]),
+        vec![Value::Int(8), p1.clone()],
     )
     .unwrap();
 
@@ -1282,7 +1322,7 @@ fn test_simple_naming_system(
         p2_principal.clone(),
         &names_contract_id,
         "force-burn",
-        &symbols_from_values(vec![Value::Int(5), p2.clone()]),
+        vec![Value::Int(5), p2.clone()],
     )
     .unwrap();
 
@@ -1300,7 +1340,7 @@ fn test_simple_naming_system(
         p2_principal,
         &names_contract_id,
         "force-burn",
-        &symbols_from_values(vec![Value::Int(5), p2]),
+        vec![Value::Int(5), p2],
     )
     .unwrap();
     assert!(!is_committed(&result));
@@ -1312,7 +1352,7 @@ fn test_simple_naming_system(
         p1_principal,
         &names_contract_id,
         "force-mint",
-        &symbols_from_values(vec![Value::Int(5)]),
+        vec![Value::Int(5)],
     )
     .unwrap();
 
@@ -1320,11 +1360,678 @@ fn test_simple_naming_system(
     assert!(asset_map.to_table().is_empty());
 
     {
-        let mut env = owned_env.get_exec_environment(None, None, &placeholder_context);
+        let (mut exec_state, invoke_ctx) =
+            owned_env.get_exec_environment(None, None, &placeholder_context);
         assert_eq!(
-            env.eval_read_only(&names_contract_id.clone(), "(nft-get-owner? names 5)")
+            exec_state
+                .eval_read_only(
+                    &invoke_ctx,
+                    &names_contract_id.clone(),
+                    "(nft-get-owner? names 5)"
+                )
                 .unwrap(),
             Value::some(p1).unwrap()
         );
     }
+}
+
+/// Contract principal constants used as principal arguments in STX operations.
+#[test]
+fn test_constant_contract_principal_in_stx_ops() {
+    let mut env_factory = env_factory();
+    let mut owned_env = env_factory.get_env(StacksEpochId::Epoch34);
+
+    let p1 = execute("'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR");
+    let Value::Principal(PrincipalData::Standard(p1_std)) = p1.clone() else {
+        panic!("Expected standard principal data");
+    };
+    let Value::Principal(p1_principal) = p1.clone() else {
+        panic!("Expected principal data");
+    };
+
+    let helper_id =
+        QualifiedContractIdentifier::new(p1_std.clone(), ContractName::from_literal("helper"));
+    let test_id =
+        QualifiedContractIdentifier::new(p1_std.clone(), ContractName::from_literal("test-stx"));
+
+    owned_env
+        .initialize_versioned_contract(
+            helper_id.clone(),
+            ClarityVersion::Clarity5,
+            "(define-public (ping) (ok true))",
+            None,
+        )
+        .unwrap();
+
+    let test_contract = "
+        (define-constant TARGET .helper)
+        (define-read-only (get-bal)
+            (stx-get-balance TARGET))
+        (define-read-only (get-acct)
+            (stx-account TARGET))
+        (define-public (do-transfer (amount uint))
+            (stx-transfer? amount tx-sender TARGET))
+        (define-public (do-transfer2 (amount uint))
+            (stx-transfer? amount TARGET tx-sender))
+        (define-public (do-transfer-memo (amount uint))
+            (stx-transfer-memo? amount tx-sender TARGET 0x01020304))
+        (define-public (do-burn (amount uint))
+            (stx-burn? amount TARGET))
+    ";
+    owned_env
+        .initialize_versioned_contract(
+            test_id.clone(),
+            ClarityVersion::Clarity5,
+            test_contract,
+            None,
+        )
+        .unwrap();
+
+    // stx-get-balance with constant contract principal
+    let (result, _, _) = execute_transaction(
+        &mut owned_env,
+        p1_principal.clone(),
+        &test_id,
+        "get-bal",
+        vec![],
+    )
+    .unwrap();
+    assert_eq!(result, Value::UInt(0));
+
+    // stx-account with constant contract principal
+    let (result, _, _) = execute_transaction(
+        &mut owned_env,
+        p1_principal.clone(),
+        &test_id,
+        "get-acct",
+        vec![],
+    )
+    .unwrap();
+    // stx-account returns a tuple; just verify it succeeds
+    assert!(matches!(result, Value::Tuple(_)));
+
+    // Fund p1 so transfers work
+    owned_env.stx_faucet(&p1_principal, 10_000);
+
+    // stx-transfer? with constant contract principal as recipient
+    let (result, _, _) = execute_transaction(
+        &mut owned_env,
+        p1_principal.clone(),
+        &test_id,
+        "do-transfer",
+        vec![Value::UInt(100)],
+    )
+    .unwrap();
+    assert!(is_committed(&result));
+
+    // stx-transfer? with constant contract principal as sender
+    let (result, _, _) = execute_transaction(
+        &mut owned_env,
+        p1_principal.clone(),
+        &test_id,
+        "do-transfer2",
+        vec![Value::UInt(100)],
+    )
+    .unwrap();
+    // This should fail, but only because a send from sender != tx-sender fails
+    let expected = Value::err_uint(4);
+    assert_eq!(result, expected);
+
+    // stx-transfer-memo? with constant contract principal as recipient
+    let (result, _, _) = execute_transaction(
+        &mut owned_env,
+        p1_principal.clone(),
+        &test_id,
+        "do-transfer-memo",
+        vec![Value::UInt(100)],
+    )
+    .unwrap();
+    assert!(is_committed(&result));
+
+    // stx-burn? with constant contract principal as sender arg.
+    // This will fail with SENDER_IS_NOT_TX_SENDER (the caller is p1, not
+    // the helper contract), but the important thing is it doesn't crash
+    // with TypeValueError from failing to match Value::Principal.
+    let (result, _, _) = execute_transaction(
+        &mut owned_env,
+        p1_principal,
+        &test_id,
+        "do-burn",
+        vec![Value::UInt(100)],
+    )
+    .unwrap();
+    assert!(is_err_code(&result, 4));
+}
+
+/// Contract principal constants used as principal arguments in FT operations.
+#[test]
+fn test_constant_contract_principal_in_ft_ops() {
+    let mut env_factory = env_factory();
+    let mut owned_env = env_factory.get_env(StacksEpochId::Epoch34);
+
+    let p1 = execute("'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR");
+    let Value::Principal(PrincipalData::Standard(p1_std)) = p1.clone() else {
+        panic!("Expected standard principal data");
+    };
+    let Value::Principal(p1_principal) = p1.clone() else {
+        panic!("Expected principal data");
+    };
+
+    let helper_id =
+        QualifiedContractIdentifier::new(p1_std.clone(), ContractName::from_literal("helper"));
+    let test_id =
+        QualifiedContractIdentifier::new(p1_std.clone(), ContractName::from_literal("test-ft"));
+
+    owned_env
+        .initialize_versioned_contract(
+            helper_id,
+            ClarityVersion::Clarity5,
+            "(define-public (ping) (ok true))",
+            None,
+        )
+        .unwrap();
+
+    let test_contract = "
+        (define-fungible-token my-ft)
+        (define-constant TARGET .helper)
+        (define-public (do-mint (amount uint))
+            (ft-mint? my-ft amount TARGET))
+        (define-read-only (get-bal)
+            (ft-get-balance my-ft TARGET))
+        (define-public (do-transfer (amount uint) (to principal))
+            (ft-transfer? my-ft amount TARGET to))
+        (define-public (do-burn (amount uint))
+            (ft-burn? my-ft amount TARGET))
+    ";
+    owned_env
+        .initialize_versioned_contract(
+            test_id.clone(),
+            ClarityVersion::Clarity5,
+            test_contract,
+            None,
+        )
+        .unwrap();
+
+    // ft-mint? with constant as recipient
+    let (result, _, _) = execute_transaction(
+        &mut owned_env,
+        p1_principal.clone(),
+        &test_id,
+        "do-mint",
+        vec![Value::UInt(500)],
+    )
+    .unwrap();
+    assert!(is_committed(&result));
+
+    // ft-get-balance with constant
+    let (result, _, _) = execute_transaction(
+        &mut owned_env,
+        p1_principal.clone(),
+        &test_id,
+        "get-bal",
+        vec![],
+    )
+    .unwrap();
+    assert_eq!(result, Value::UInt(500));
+
+    // ft-transfer? with constant as sender
+    let (result, _, _) = execute_transaction(
+        &mut owned_env,
+        p1_principal.clone(),
+        &test_id,
+        "do-transfer",
+        vec![Value::UInt(100), p1.clone()],
+    )
+    .unwrap();
+    assert!(is_committed(&result));
+
+    // ft-burn? with constant as owner
+    let (result, _, _) = execute_transaction(
+        &mut owned_env,
+        p1_principal,
+        &test_id,
+        "do-burn",
+        vec![Value::UInt(50)],
+    )
+    .unwrap();
+    assert!(is_committed(&result));
+}
+
+/// Contract principal constants used as principal arguments in NFT
+/// mint/transfer/burn operations (the to/from/sender args, not the token ID
+/// which is covered below in
+/// `test_nft_with_constant_contract_principal_as_token_id`).
+#[test]
+fn test_constant_contract_principal_in_nft_principal_args() {
+    let mut env_factory = env_factory();
+    let mut owned_env = env_factory.get_env(StacksEpochId::Epoch34);
+
+    let p1 = execute("'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR");
+    let Value::Principal(PrincipalData::Standard(p1_std)) = p1.clone() else {
+        panic!("Expected standard principal data");
+    };
+    let Value::Principal(p1_principal) = p1.clone() else {
+        panic!("Expected principal data");
+    };
+
+    let helper_id =
+        QualifiedContractIdentifier::new(p1_std.clone(), ContractName::from_literal("helper"));
+    let test_id =
+        QualifiedContractIdentifier::new(p1_std.clone(), ContractName::from_literal("test-nft"));
+
+    owned_env
+        .initialize_versioned_contract(
+            helper_id,
+            ClarityVersion::Clarity5,
+            "(define-public (ping) (ok true))",
+            None,
+        )
+        .unwrap();
+
+    let test_contract = "
+        (define-non-fungible-token my-nft uint)
+        (define-constant TARGET .helper)
+        (define-public (do-mint (id uint))
+            (nft-mint? my-nft id TARGET))
+        (define-public (do-transfer (id uint) (to principal))
+            (nft-transfer? my-nft id TARGET to))
+        (define-public (do-burn (id uint))
+            (nft-burn? my-nft id TARGET))
+    ";
+    owned_env
+        .initialize_versioned_contract(
+            test_id.clone(),
+            ClarityVersion::Clarity5,
+            test_contract,
+            None,
+        )
+        .unwrap();
+
+    // nft-mint? with constant as recipient
+    let (result, _, _) = execute_transaction(
+        &mut owned_env,
+        p1_principal.clone(),
+        &test_id,
+        "do-mint",
+        vec![Value::UInt(1)],
+    )
+    .unwrap();
+    assert!(is_committed(&result));
+
+    // nft-transfer? with constant as sender
+    let (result, _, _) = execute_transaction(
+        &mut owned_env,
+        p1_principal.clone(),
+        &test_id,
+        "do-transfer",
+        vec![Value::UInt(1), p1],
+    )
+    .unwrap();
+    assert!(is_committed(&result));
+
+    // Mint another for burn test
+    let (result, _, _) = execute_transaction(
+        &mut owned_env,
+        p1_principal.clone(),
+        &test_id,
+        "do-mint",
+        vec![Value::UInt(2)],
+    )
+    .unwrap();
+    assert!(is_committed(&result));
+
+    // nft-burn? with constant as owner
+    let (result, _, _) = execute_transaction(
+        &mut owned_env,
+        p1_principal,
+        &test_id,
+        "do-burn",
+        vec![Value::UInt(2)],
+    )
+    .unwrap();
+    assert!(is_committed(&result));
+}
+
+/// Contract principal constants wrapped in compound values (optional, response,
+/// tuple, list) and then passed to native functions that expect principals.
+/// Guards against regressions if the value representation changes again.
+#[test]
+fn test_constant_contract_principal_in_compound_values() {
+    let mut env_factory = env_factory();
+    let mut owned_env = env_factory.get_env(StacksEpochId::Epoch34);
+
+    let p1 = execute("'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR");
+    let Value::Principal(PrincipalData::Standard(p1_std)) = p1.clone() else {
+        panic!("Expected standard principal data");
+    };
+    let Value::Principal(p1_principal) = p1.clone() else {
+        panic!("Expected principal data");
+    };
+
+    let helper_id =
+        QualifiedContractIdentifier::new(p1_std.clone(), ContractName::from_literal("helper"));
+    let test_id = QualifiedContractIdentifier::new(
+        p1_std.clone(),
+        ContractName::from_literal("test-compound"),
+    );
+
+    owned_env
+        .initialize_versioned_contract(
+            helper_id,
+            ClarityVersion::Clarity5,
+            "(define-public (ping) (ok true))",
+            None,
+        )
+        .unwrap();
+
+    let test_contract = "
+        (define-constant TARGET .helper)
+
+        ;; Wrap constant in an optional and unwrap to use as principal
+        (define-read-only (via-optional)
+            (stx-get-balance (unwrap-panic (some TARGET))))
+
+        ;; Wrap constant in an ok response and unwrap to use as principal
+        (define-read-only (via-response)
+            (stx-get-balance (unwrap-panic (ok TARGET))))
+
+        ;; Wrap constant in a tuple and extract to use as principal
+        (define-read-only (via-tuple)
+            (stx-get-balance (get addr { addr: TARGET })))
+
+        ;; Put constant in a list and extract to use as principal
+        (define-read-only (via-list)
+            (stx-get-balance (unwrap-panic (element-at? (list TARGET) u0))))
+    ";
+    owned_env
+        .initialize_versioned_contract(
+            test_id.clone(),
+            ClarityVersion::Clarity5,
+            test_contract,
+            None,
+        )
+        .unwrap();
+
+    for func in &["via-optional", "via-response", "via-tuple", "via-list"] {
+        let (result, _, _) =
+            execute_transaction(&mut owned_env, p1_principal.clone(), &test_id, func, vec![])
+                .unwrap();
+        assert_eq!(result, Value::UInt(0), "{func} failed");
+    }
+}
+
+/// Verify that NFT operations work correctly when a contract principal
+/// constant is used as the token identifier, and that the asset map and
+/// events contain the canonical `Value::Principal` form.
+#[test]
+fn test_nft_with_constant_contract_principal_as_token_id() {
+    let mut env_factory = env_factory();
+    let mut owned_env = env_factory.get_env(StacksEpochId::Epoch34);
+
+    let p1 = execute("'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR");
+    let p2 = execute("'SM2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQVX8X0G");
+
+    let Value::Principal(PrincipalData::Standard(p1_std)) = p1.clone() else {
+        panic!("Expected standard principal data");
+    };
+    let Value::Principal(p1_principal) = p1.clone() else {
+        panic!("Expected principal data");
+    };
+
+    let helper_contract_id =
+        QualifiedContractIdentifier::new(p1_std.clone(), ContractName::from_literal("helper"));
+    let nft_contract_id = QualifiedContractIdentifier::new(
+        p1_std.clone(),
+        ContractName::from_literal("nft-contract"),
+    );
+
+    // A trivial contract so we have a valid contract principal to reference.
+    owned_env
+        .initialize_versioned_contract(
+            helper_contract_id.clone(),
+            ClarityVersion::Clarity5,
+            "(define-public (ping) (ok true))",
+            None,
+        )
+        .unwrap();
+
+    let nft_contract = "
+        (define-non-fungible-token nft principal)
+        (define-constant CALLABLE_ID .helper)
+        (define-public (mint)
+            (nft-mint? nft CALLABLE_ID tx-sender))
+        (define-public (xfer (to principal))
+            (nft-transfer? nft CALLABLE_ID tx-sender to))
+    ";
+    owned_env
+        .initialize_versioned_contract(
+            nft_contract_id.clone(),
+            ClarityVersion::Clarity5,
+            nft_contract,
+            None,
+        )
+        .unwrap();
+
+    // Mint the NFT using the constant as token id.
+    let (result, _asset_map, _events) = execute_transaction(
+        &mut owned_env,
+        p1_principal.clone(),
+        &nft_contract_id,
+        "mint",
+        vec![],
+    )
+    .unwrap();
+    assert!(is_committed(&result));
+
+    // Transfer the NFT – the constant flows through log_asset_transfer
+    // into the asset map.
+    let (result, asset_map, events) = execute_transaction(
+        &mut owned_env,
+        p1_principal.clone(),
+        &nft_contract_id,
+        "xfer",
+        vec![p2],
+    )
+    .unwrap();
+    assert!(is_committed(&result));
+
+    let table = asset_map.to_table();
+    let p1_assets = table
+        .get(&p1_principal)
+        .expect("p1 should have asset entries");
+    let nft_identifier = AssetIdentifier {
+        contract_identifier: nft_contract_id,
+        asset_name: ClarityName::from_literal("nft"),
+    };
+    let entry = p1_assets
+        .get(&nft_identifier)
+        .expect("should have an NFT entry");
+
+    match entry {
+        AssetMapEntry::Asset(values) => {
+            assert_eq!(values.len(), 1);
+            let expected = Value::Principal(PrincipalData::Contract(helper_contract_id));
+            assert_eq!(
+                values[0], expected,
+                "asset map value must equal the contract principal"
+            );
+        }
+        other => panic!("expected AssetMapEntry::Asset, got: {:?}", other),
+    }
+
+    // NFT events must contain Value::Principal.
+    let nft_transfer_event = events.iter().find(|e| {
+        matches!(
+            e,
+            StacksTransactionEvent::NFTEvent(crate::vm::events::NFTEventType::NFTTransferEvent(_))
+        )
+    });
+    if let Some(StacksTransactionEvent::NFTEvent(
+        crate::vm::events::NFTEventType::NFTTransferEvent(data),
+    )) = nft_transfer_event
+    {
+        assert!(
+            matches!(&data.value, Value::Principal(PrincipalData::Contract(_))),
+            "NFT transfer event must contain Value::Principal, got: {:?}",
+            data.value
+        );
+    } else {
+        panic!("expected an NFT transfer event");
+    }
+}
+
+/// Verify that `is-eq` returns true when comparing a contract principal
+/// constant against the same principal passed as an argument or written
+/// as a literal.
+#[test]
+fn test_constant_contract_principal_is_eq() {
+    let mut env_factory = env_factory();
+    let mut owned_env = env_factory.get_env(StacksEpochId::Epoch34);
+
+    let p1 = execute("'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR");
+    let Value::Principal(PrincipalData::Standard(p1_std)) = p1.clone() else {
+        panic!("Expected standard principal data");
+    };
+    let Value::Principal(p1_principal) = p1.clone() else {
+        panic!("Expected principal data");
+    };
+
+    let helper_id =
+        QualifiedContractIdentifier::new(p1_std.clone(), ContractName::from_literal("helper"));
+    let test_id = QualifiedContractIdentifier::new(
+        p1_std.clone(),
+        ContractName::from_literal("test-contract"),
+    );
+
+    owned_env
+        .initialize_versioned_contract(
+            helper_id,
+            ClarityVersion::Clarity5,
+            "(define-public (ping) (ok true))",
+            None,
+        )
+        .unwrap();
+
+    let test_contract = "
+        (define-constant CALLABLE_ID .helper)
+        (define-read-only (check-eq (p principal))
+            (is-eq CALLABLE_ID p))
+        (define-read-only (check-eq-literal)
+            (is-eq CALLABLE_ID 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR.helper))
+    ";
+    owned_env
+        .initialize_versioned_contract(
+            test_id.clone(),
+            ClarityVersion::Clarity5,
+            test_contract,
+            None,
+        )
+        .unwrap();
+
+    let helper_principal = execute("'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR.helper");
+    let (result, _asset_map, _events) = execute_transaction(
+        &mut owned_env,
+        p1_principal.clone(),
+        &test_id,
+        "check-eq",
+        vec![helper_principal],
+    )
+    .unwrap();
+
+    assert_eq!(result, Value::Bool(true));
+
+    let (result_literal, _asset_map, _events) = execute_transaction(
+        &mut owned_env,
+        p1_principal,
+        &test_id,
+        "check-eq-literal",
+        vec![],
+    )
+    .unwrap();
+
+    assert_eq!(result_literal, Value::Bool(true));
+}
+
+/// Verify that `index-of?` and list equality work correctly when a contract
+/// principal constant is compared against principal values in a list.
+#[test]
+fn test_constant_contract_principal_index_of_and_list_ops() {
+    let mut env_factory = env_factory();
+    let mut owned_env = env_factory.get_env(StacksEpochId::Epoch34);
+
+    let p1 = execute("'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR");
+    let Value::Principal(PrincipalData::Standard(p1_std)) = p1.clone() else {
+        panic!("Expected standard principal data");
+    };
+    let Value::Principal(p1_principal) = p1 else {
+        panic!("Expected principal data");
+    };
+
+    let helper_id =
+        QualifiedContractIdentifier::new(p1_std.clone(), ContractName::from_literal("helper"));
+    let test_id = QualifiedContractIdentifier::new(
+        p1_std.clone(),
+        ContractName::from_literal("test-contract"),
+    );
+
+    owned_env
+        .initialize_versioned_contract(
+            helper_id,
+            ClarityVersion::Clarity5,
+            "(define-public (ping) (ok true))",
+            None,
+        )
+        .unwrap();
+
+    let test_contract = "
+        (define-constant CALLABLE_ID .helper)
+
+        ;; Search for constant in a list of principal literals
+        (define-read-only (index-of-callable-in-principal-list)
+            (index-of? (list 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR.helper) CALLABLE_ID))
+
+        ;; Search for principal literal in a list built with the constant
+        (define-read-only (index-of-principal-in-callable-list)
+            (index-of? (list CALLABLE_ID) 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR.helper))
+
+        ;; Compare a list containing the constant against
+        ;; a list containing the equivalent principal literal
+        (define-read-only (list-eq)
+            (is-eq (list CALLABLE_ID) (list 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR.helper)))
+    ";
+    owned_env
+        .initialize_versioned_contract(
+            test_id.clone(),
+            ClarityVersion::Clarity5,
+            test_contract,
+            None,
+        )
+        .unwrap();
+
+    // index-of? should find the constant in a principal list
+    let (result, _, _) = execute_transaction(
+        &mut owned_env,
+        p1_principal.clone(),
+        &test_id,
+        "index-of-callable-in-principal-list",
+        vec![],
+    )
+    .unwrap();
+    assert_eq!(result, Value::some(Value::UInt(0)).unwrap());
+
+    // index-of? should find a principal in a list built from the constant
+    let (result, _, _) = execute_transaction(
+        &mut owned_env,
+        p1_principal.clone(),
+        &test_id,
+        "index-of-principal-in-callable-list",
+        vec![],
+    )
+    .unwrap();
+    assert_eq!(result, Value::some(Value::UInt(0)).unwrap());
+
+    // Lists containing constant/literal principal values should be equal
+    let (result, _, _) =
+        execute_transaction(&mut owned_env, p1_principal, &test_id, "list-eq", vec![]).unwrap();
+    assert_eq!(result, Value::Bool(true));
 }

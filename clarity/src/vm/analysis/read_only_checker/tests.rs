@@ -21,36 +21,52 @@ use rstest_reuse::{self, *};
 use stacks_common::types::StacksEpochId;
 
 use crate::vm::ClarityVersion;
+use crate::vm::analysis::tests::utils::{SingleAnalysisPass, run_single_analysis_pass};
 use crate::vm::analysis::type_check;
-use crate::vm::analysis::type_checker::v2_1::tests::mem_type_check;
 use crate::vm::ast::parse;
 use crate::vm::database::MemoryBackingStore;
-use crate::vm::errors::StaticCheckErrorKind;
+use crate::vm::errors::{StaticCheckError, StaticCheckErrorKind};
+use crate::vm::functions::NativeFunctions;
 use crate::vm::tests::test_clarity_versions;
 use crate::vm::types::QualifiedContractIdentifier;
 
-#[test]
-fn test_argument_count_violations() {
-    let examples = [
-        (
-            "(define-private (foo-bar)
-           (at-block))",
-            StaticCheckErrorKind::IncorrectArgumentCount(2, 0),
-        ),
-        (
-            "(define-private (foo-bar) (map-get?))",
-            StaticCheckErrorKind::IncorrectArgumentCount(2, 0),
-        ),
-    ];
+/// Helper: returns true if `at-block` is available in the given clarity version.
+fn has_at_block(version: &ClarityVersion) -> bool {
+    NativeFunctions::lookup_by_name_at_version("at-block", version).is_some()
+}
 
-    for (contract, expected) in examples.iter() {
-        let err = mem_type_check(contract).unwrap_err();
-        assert_eq!(*err.err, *expected)
+fn run_read_only_checker(
+    snippet: &str,
+    version: ClarityVersion,
+    epoch: StacksEpochId,
+) -> Result<(), StaticCheckError> {
+    run_single_analysis_pass(SingleAnalysisPass::ReadOnlyChecker, snippet, version, epoch)
+        .map(|_| ())
+}
+
+#[apply(test_clarity_versions)]
+fn test_argument_count_violations(#[case] version: ClarityVersion, #[case] epoch: StacksEpochId) {
+    // map-get? is available in all versions
+    let err =
+        run_read_only_checker("(define-private (foo-bar) (map-get?))", version, epoch).unwrap_err();
+    assert_eq!(*err.err, StaticCheckErrorKind::IncorrectArgumentCount(2, 0));
+
+    // at-block is removed in Clarity 5
+    let at_block_contract = "(define-private (foo-bar)
+           (at-block))";
+    let err = run_read_only_checker(at_block_contract, version, epoch).unwrap_err();
+    if has_at_block(&version) {
+        assert_eq!(*err.err, StaticCheckErrorKind::IncorrectArgumentCount(2, 0));
+    } else {
+        assert_eq!(
+            *err.err,
+            StaticCheckErrorKind::UnknownFunction("at-block".into())
+        );
     }
 }
 
-#[test]
-fn test_at_block_violations() {
+#[apply(test_clarity_versions)]
+fn test_at_block_violations(#[case] version: ClarityVersion, #[case] epoch: StacksEpochId) {
     let examples = [
         "(define-data-var foo int 1)
          (define-private (foo-bar)
@@ -71,14 +87,30 @@ fn test_at_block_violations() {
     ];
 
     for contract in examples.iter() {
-        let err = mem_type_check(contract).unwrap_err();
-        eprintln!("{err}");
-        assert_eq!(*err.err, StaticCheckErrorKind::AtBlockClosureMustBeReadOnly)
+        let err = run_read_only_checker(contract, version, epoch).unwrap_err();
+        if has_at_block(&version) {
+            assert_eq!(
+                *err.err,
+                StaticCheckErrorKind::AtBlockClosureMustBeReadOnly,
+                "Expected AtBlockClosureMustBeReadOnly in {version}/{epoch}"
+            );
+        } else {
+            assert_eq!(
+                *err.err,
+                StaticCheckErrorKind::UnknownFunction("at-block".into()),
+                "Expected UnknownFunction for at-block in {version}/{epoch}"
+            );
+        }
     }
 }
 
-#[test]
-fn test_simple_read_only_violations() {
+#[apply(test_clarity_versions)]
+fn test_simple_read_only_violations(#[case] version: ClarityVersion, #[case] epoch: StacksEpochId) {
+    // replace-at? is only available in Clarity 2+
+    if version < ClarityVersion::Clarity2 {
+        return;
+    }
+
     // note -- these examples have _type errors_ in addition to read-only errors,
     //    but the read only error should end up taking precedence
     let bad_contracts = [
@@ -163,13 +195,13 @@ fn test_simple_read_only_violations() {
     ];
 
     for contract in bad_contracts.iter() {
-        let err = mem_type_check(contract).unwrap_err();
+        let err = run_read_only_checker(contract, version, epoch).unwrap_err();
         assert_eq!(*err.err, StaticCheckErrorKind::WriteAttemptedInReadOnly)
     }
 }
 
-#[test]
-fn test_nested_writing_closure() {
+#[apply(test_clarity_versions)]
+fn test_nested_writing_closure(#[case] version: ClarityVersion, #[case] epoch: StacksEpochId) {
     let bad_contracts = ["(define-data-var cursor int 0)
         (define-public (bad-at-block-function)
             (begin
@@ -180,8 +212,20 @@ fn test_nested_writing_closure() {
                 (ok 1)))"];
 
     for contract in bad_contracts.iter() {
-        let err = mem_type_check(contract).unwrap_err();
-        assert_eq!(*err.err, StaticCheckErrorKind::AtBlockClosureMustBeReadOnly)
+        let err = run_read_only_checker(contract, version, epoch).unwrap_err();
+        if has_at_block(&version) {
+            assert_eq!(
+                *err.err,
+                StaticCheckErrorKind::AtBlockClosureMustBeReadOnly,
+                "Expected AtBlockClosureMustBeReadOnly in {version}/{epoch}"
+            );
+        } else {
+            assert_eq!(
+                *err.err,
+                StaticCheckErrorKind::UnknownFunction("at-block".into()),
+                "Expected UnknownFunction for at-block in {version}/{epoch}"
+            );
+        }
     }
 }
 

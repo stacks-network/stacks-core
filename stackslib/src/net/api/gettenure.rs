@@ -32,7 +32,7 @@ use crate::net::httpcore::{RPCRequestHandler, StacksHttpRequest, StacksHttpRespo
 use crate::net::{Error as NetError, StacksNodeState};
 use crate::util_lib::db::DBConn;
 
-#[derive(Clone)]
+#[derive(Clone, Default)]
 pub struct RPCNakamotoTenureRequestHandler {
     /// Block to start streaming from. It and its ancestors will be incrementally streamed until one of
     /// hte following happens:
@@ -239,15 +239,13 @@ impl RPCRequestHandler for RPCNakamotoTenureRequestHandler {
                     &HttpNotFound::new(format!("No such block {block_id:?}\n")),
                 )
                 .try_into_contents()
-                .map_err(NetError::from)
             }
             Err(e) => {
                 // nope -- error trying to check
                 let msg = format!("Failed to load block {block_id}: {e:?}\n");
                 warn!("{msg}");
                 return StacksHttpResponse::new_error(&preamble, &HttpServerError::new(msg))
-                    .try_into_contents()
-                    .map_err(NetError::from);
+                    .try_into_contents();
             }
         };
 

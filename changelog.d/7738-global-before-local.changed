@@ -1,0 +1,1 @@
+A globally defined constant now wins over a local variable or parameter of the same name. Such a case should not actually exist (it would be prevented earlier). This change merely makes the behavior consistent for the unlikely case that it *does* happen.

@@ -1,5 +1,5 @@
 // Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
-// Copyright (C) 2020-2023 Stacks Open Internet Foundation
+// Copyright (C) 2020-2026 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -15,14 +15,14 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use clarity::boot_util::boot_code_id;
-use clarity::vm::contexts::GlobalContext;
+use clarity::vm::contexts::{ExecutionState, GlobalContext};
 use clarity::vm::costs::cost_functions::ClarityCostFunction;
 use clarity::vm::costs::runtime_cost;
 use clarity::vm::database::{ClarityDatabase, STXBalance};
-use clarity::vm::errors::{RuntimeError, VmExecutionError, VmInternalError};
+use clarity::vm::errors::{RuntimeCheckErrorKind, RuntimeError, VmExecutionError, VmInternalError};
 use clarity::vm::events::{STXEventType, STXLockEventData, StacksTransactionEvent};
 use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier};
-use clarity::vm::{Environment, Value};
+use clarity::vm::Value;
 use stacks_common::{debug, error};
 
 use crate::events::synthesize_pox_event_info;
@@ -31,6 +31,32 @@ use crate::pox_2::{parse_pox_extend_result, parse_pox_increase, parse_pox_stacki
 use crate::{LockingError, POX_4_NAME};
 
 /////////////////////// PoX-4 /////////////////////////////////
+
+/// is a PoX-4 function call read only?
+pub(crate) fn is_read_only(func_name: &str) -> bool {
+    "burn-height-to-reward-cycle" == func_name
+        || "reward-cycle-to-burn-height" == func_name
+        || "current-pox-reward-cycle" == func_name
+        || "get-stacker-info" == func_name
+        || "check-caller-allowed" == func_name
+        || "get-check-delegation" == func_name
+        || "get-reward-set-size" == func_name
+        || "get-total-ustx-stacked" == func_name
+        || "get-reward-set-pox-address" == func_name
+        || "get-stacking-minimum" == func_name
+        || "check-pox-addr-version" == func_name
+        || "check-pox-addr-hashbytes" == func_name
+        || "check-pox-lock-period" == func_name
+        || "can-stack-stx" == func_name
+        || "minimal-can-stack-stx" == func_name
+        || "get-signer-key-message-hash" == func_name
+        || "verify-signer-key-sig" == func_name
+        || "get-pox-info" == func_name
+        || "get-delegation-info" == func_name
+        || "get-allowance-contract-callers" == func_name
+        || "get-num-reward-set-pox-addresses" == func_name
+        || "get-partial-stacked-by-cycle" == func_name
+}
 
 /// Lock up STX for PoX for a time.  Does NOT touch the account nonce.
 pub fn pox_lock_v4(
@@ -370,8 +396,10 @@ pub fn handle_contract_call(
             if let Some(event_info) = event_info_opt {
                 let event_response =
                     Value::okay(event_info).expect("FATAL: failed to construct (ok event-info)");
-                let tx_event =
-                    Environment::construct_print_transaction_event(contract_id, &event_response);
+                let tx_event = ExecutionState::construct_print_transaction_event(
+                    contract_id.clone(),
+                    event_response,
+                );
                 Some(tx_event)
             } else {
                 None
@@ -398,6 +426,17 @@ pub fn handle_contract_call(
         // Update the asset map to reflect the delegation
         match (sender_opt, args.first()) {
             (Some(sender), Some(Value::UInt(amount))) => {
+                // Reject any transaction that would overwrite an
+                // existing asset-map stacking entry for `sender`.
+                if global_context
+                    .get_readonly_asset_map()?
+                    .get_stacking(sender)
+                    .is_some()
+                {
+                    return Err(VmExecutionError::from(
+                        RuntimeCheckErrorKind::PoxStxAssetMapOverwrite,
+                    ));
+                }
                 global_context.log_stacking(sender, *amount)?;
             }
             _ => {
@@ -438,7 +477,7 @@ mod tests {
     use clarity::vm::database::MemoryBackingStore;
     use clarity::vm::errors::{RuntimeError, VmExecutionError};
     use clarity::vm::types::{StandardPrincipalData, TupleData};
-    use clarity::vm::Value;
+    use clarity::vm::{ClarityName, Value};
 
     use crate::pox_4::{handle_contract_call, POX_4_NAME};
 
@@ -490,9 +529,18 @@ mod tests {
         // (stacker, lock-amount, unlock-height) tuple
         let stack_stx_response = Value::okay(Value::Tuple(
             TupleData::from_data(vec![
-                ("stacker".into(), Value::Principal(stacker.clone())),
-                ("lock-amount".into(), Value::UInt(100_000_000)), // trying to lock 100 more STX
-                ("unlock-burn-height".into(), Value::UInt(15_000)),
+                (
+                    ClarityName::from_literal("stacker"),
+                    Value::Principal(stacker.clone()),
+                ),
+                (
+                    ClarityName::from_literal("lock-amount"),
+                    Value::UInt(100_000_000),
+                ), // trying to lock 100 more STX
+                (
+                    ClarityName::from_literal("unlock-burn-height"),
+                    Value::UInt(15_000),
+                ),
             ])
             .unwrap(),
         ))

@@ -1,0 +1,9 @@
+# Keep local Git metadata and build output out of the source build.
+.git
+**/.git
+**/target
+.codex
+.DS_Store
+**/.DS_Store
+# Packaging scripts and docs do not affect compiled binaries.
+contrib/docker

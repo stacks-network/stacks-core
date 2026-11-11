@@ -24,11 +24,12 @@ use stacks_common::util::retry::BoundReader;
 
 use super::{ListTypeData, TupleTypeSignature};
 use crate::errors::{ClarityTypeError, IncomparableError};
-use crate::representations::{ClarityName, ContractName, MAX_STRING_LEN};
+use crate::representations::{CONTRACT_MAX_NAME_LENGTH, ClarityName, ContractName, MAX_STRING_LEN};
 use crate::types::{
     BOUND_VALUE_SERIALIZATION_BYTES, BufferLength, CallableData, CharType, MAX_TYPE_DEPTH,
     MAX_VALUE_SIZE, OptionalData, PrincipalData, QualifiedContractIdentifier, SequenceData,
-    SequenceSubtype, StandardPrincipalData, StringSubtype, TupleData, TypeSignature, Value,
+    SequenceSubtype, StandardPrincipalData, StringSubtype, TupleData, TupleFieldsBehavior,
+    TypeSignature, Value,
 };
 
 /// Errors that may occur in serialization or deserialization
@@ -68,6 +69,9 @@ const SANITIZATION_READ_BOUND: u64 = 15_000_000;
 /// After epoch-2.4, with type sanitization support, the full
 ///  clarity depth limit is supported.
 const UNSANITIZED_DEPTH_CHECK: usize = 16;
+/// Initial capacity used when deserializing list/tuple containers; the vector
+/// grows as elements are read. Does not change the accepted serialized length.
+const INITIAL_DESERIALIZATION_CONTAINER_CAPACITY: usize = 1024;
 
 impl std::fmt::Display for SerializationError {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
@@ -250,6 +254,26 @@ macro_rules! serialize_guarded_string {
 serialize_guarded_string!(ClarityName);
 serialize_guarded_string!(ContractName);
 
+/// How value deserialization treats contract names longer than
+/// [`CONTRACT_MAX_NAME_LENGTH`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ContractNameLimit {
+    /// Accept names up to [`MAX_STRING_LEN`], as all epochs before 4.1 do.
+    Legacy,
+    /// Epoch 4.1+: reject names longer than [`CONTRACT_MAX_NAME_LENGTH`].
+    Enforced,
+}
+
+impl ContractNameLimit {
+    fn from_epoch(epoch: &StacksEpochId) -> Self {
+        if epoch.enforces_contract_name_length_limit() {
+            Self::Enforced
+        } else {
+            Self::Legacy
+        }
+    }
+}
+
 impl PrincipalData {
     fn inner_consensus_serialize<W: Write>(&self, w: &mut W) -> std::io::Result<()> {
         w.write_all(&[TypePrefix::from(self) as u8])?;
@@ -304,7 +328,9 @@ macro_rules! check_match {
         match $item {
             None => Ok(()),
             Some($Pattern) => Ok(()),
-            Some(x) => Err(SerializationError::DeserializeExpected(Box::new(x.clone()))),
+            Some(x) => Err(SerializationError::DeserializeExpected(Box::new(
+                (*x).clone(),
+            ))),
         }
     };
 }
@@ -346,12 +372,13 @@ impl DeserializeStackItem {
     ///
     /// Returns `None` if this stack item either doesn't have an expected type, or the
     ///   next child is going to be sanitized/elided.
-    fn next_expected_type(&self) -> Result<Option<TypeSignature>, SerializationError> {
+    ///
+    /// Returns a reference.
+    fn next_expected_type(&self) -> Result<Option<&TypeSignature>, SerializationError> {
         match self {
-            DeserializeStackItem::List { expected_type, .. } => Ok(expected_type
-                .as_ref()
-                .map(|lt| lt.get_list_item_type())
-                .cloned()),
+            DeserializeStackItem::List { expected_type, .. } => {
+                Ok(expected_type.as_ref().map(|lt| lt.get_list_item_type()))
+            }
             DeserializeStackItem::Tuple {
                 expected_type,
                 next_name,
@@ -370,19 +397,19 @@ impl DeserializeStackItem {
                             some_tuple.clone(),
                         )))
                     })?;
-                    Ok(Some(field_type.clone()))
+                    Ok(Some(field_type))
                 }
             },
             DeserializeStackItem::OptionSome {
                 inner_expected_type,
-            } => Ok(inner_expected_type.clone()),
+            } => Ok(inner_expected_type.as_ref()),
             DeserializeStackItem::ResponseOk {
                 inner_expected_type,
-            } => Ok(inner_expected_type.clone()),
+            } => Ok(inner_expected_type.as_ref()),
             DeserializeStackItem::ResponseErr {
                 inner_expected_type,
-            } => Ok(inner_expected_type.clone()),
-            DeserializeStackItem::TopLevel { expected_type } => Ok(expected_type.clone()),
+            } => Ok(inner_expected_type.as_ref()),
+            DeserializeStackItem::TopLevel { expected_type } => Ok(expected_type.as_ref()),
         }
     }
 }
@@ -417,14 +444,14 @@ impl TypeSignature {
                     .get_max_len()
                     .checked_mul(list_type.get_list_item_type().max_serialized_size()?)
                     .and_then(|x| x.checked_add(list_length_encode))
-                    .ok_or_else(|| ClarityTypeError::ValueTooLarge)?
+                    .ok_or(ClarityTypeError::ValueTooLarge)?
             }
             TypeSignature::SequenceType(SequenceSubtype::BufferType(buff_length)) => {
                 // u32 length as big-endian bytes
                 let buff_length_encode = 4;
                 u32::from(buff_length)
                     .checked_add(buff_length_encode)
-                    .ok_or_else(|| ClarityTypeError::ValueTooLarge)?
+                    .ok_or(ClarityTypeError::ValueTooLarge)?
             }
             TypeSignature::SequenceType(SequenceSubtype::StringType(StringSubtype::ASCII(
                 length,
@@ -434,7 +461,7 @@ impl TypeSignature {
                 // ascii is 1-byte per character
                 u32::from(length)
                     .checked_add(str_length_encode)
-                    .ok_or_else(|| ClarityTypeError::ValueTooLarge)?
+                    .ok_or(ClarityTypeError::ValueTooLarge)?
             }
             TypeSignature::SequenceType(SequenceSubtype::StringType(StringSubtype::UTF8(
                 length,
@@ -445,7 +472,7 @@ impl TypeSignature {
                 u32::from(length)
                     .checked_mul(4)
                     .and_then(|x| x.checked_add(str_length_encode))
-                    .ok_or_else(|| ClarityTypeError::ValueTooLarge)?
+                    .ok_or(ClarityTypeError::ValueTooLarge)?
             }
             TypeSignature::PrincipalType
             | TypeSignature::CallableType(_)
@@ -468,7 +495,7 @@ impl TypeSignature {
                         .checked_add(1) // length of key-name
                         .and_then(|x| x.checked_add(key.len() as u32)) // ClarityName is ascii-only, so 1 byte per length
                         .and_then(|x| x.checked_add(value_size))
-                        .ok_or_else(|| ClarityTypeError::ValueTooLarge)?;
+                        .ok_or(ClarityTypeError::ValueTooLarge)?;
                 }
                 total_size
             }
@@ -511,7 +538,7 @@ impl TypeSignature {
 
         max_output_size
             .checked_add(type_prefix_size)
-            .ok_or_else(|| ClarityTypeError::ValueTooLarge)
+            .ok_or(ClarityTypeError::ValueTooLarge)
     }
 }
 
@@ -529,10 +556,29 @@ impl Value {
     /// If `sanitize` argument is set to true and `expected_type` is supplied,
     ///  this method will remove any extraneous tuple fields which may have been
     ///  allowed by `least_super_type`.
+    ///
+    /// Strict typed-tuple enforcement is reachable only via the epoch-aware
+    /// `*_at_epoch` deserialization entry points, never here.
     pub fn deserialize_read_count<R: Read>(
         r: &mut R,
         expected_type: Option<&TypeSignature>,
         sanitize: bool,
+    ) -> Result<(Value, u64), SerializationError> {
+        Self::deserialize_read_count_with_options(
+            r,
+            expected_type,
+            sanitize,
+            TupleFieldsBehavior::LEGACY,
+            ContractNameLimit::Legacy,
+        )
+    }
+
+    fn deserialize_read_count_with_options<R: Read>(
+        r: &mut R,
+        expected_type: Option<&TypeSignature>,
+        sanitize: bool,
+        behavior: TupleFieldsBehavior,
+        contract_name_limit: ContractNameLimit,
     ) -> Result<(Value, u64), SerializationError> {
         let bound_value_serialization_bytes = if sanitize && expected_type.is_some() {
             SANITIZATION_READ_BOUND
@@ -540,7 +586,13 @@ impl Value {
             BOUND_VALUE_SERIALIZATION_BYTES as u64
         };
         let mut bound_reader = BoundReader::from_reader(r, bound_value_serialization_bytes);
-        let value = Value::inner_deserialize_read(&mut bound_reader, expected_type, sanitize)?;
+        let value = Value::inner_deserialize_read(
+            &mut bound_reader,
+            expected_type,
+            sanitize,
+            behavior,
+            contract_name_limit,
+        )?;
         let bytes_read = bound_reader.num_read();
         if let Some(expected_type) = expected_type {
             let expect_size = match expected_type.max_serialized_size() {
@@ -569,6 +621,8 @@ impl Value {
         r: &mut R,
         top_expected_type: Option<&TypeSignature>,
         sanitize: bool,
+        behavior: TupleFieldsBehavior,
+        contract_name_limit: ContractNameLimit,
     ) -> Result<Value, SerializationError> {
         use super::Value::*;
 
@@ -613,7 +667,7 @@ impl Value {
                     let mut buffer_len = [0; 4];
                     r.read_exact(&mut buffer_len)?;
                     let buffer_len = BufferLength::try_from(u32::from_be_bytes(buffer_len))?;
-                    if let Some(x) = &expected_type {
+                    if let Some(x) = expected_type {
                         let passed_test = match x {
                             TypeSignature::SequenceType(SequenceSubtype::BufferType(
                                 expected_len,
@@ -649,12 +703,19 @@ impl Value {
                     check_match!(expected_type, TypeSignature::PrincipalType)?;
                     let issuer = StandardPrincipalData::deserialize_read(r)?;
                     let name = ContractName::deserialize_read(r)?;
+                    if contract_name_limit == ContractNameLimit::Enforced
+                        && usize::from(name.len()) > CONTRACT_MAX_NAME_LENGTH
+                    {
+                        return Err(SerializationError::DeserializationFailure(
+                            "Contract name too long".to_string(),
+                        ));
+                    }
                     Ok(Value::from(QualifiedContractIdentifier { issuer, name }))
                 }
                 TypePrefix::ResponseOk | TypePrefix::ResponseErr => {
                     let committed = prefix == TypePrefix::ResponseOk;
 
-                    let expect_contained_type = match &expected_type {
+                    let expect_contained_type = match expected_type {
                         None => None,
                         Some(x) => {
                             let contained_type = match (committed, x) {
@@ -686,7 +747,7 @@ impl Value {
                     Ok(Value::none())
                 }
                 TypePrefix::OptionalSome => {
-                    let expect_contained_type = match &expected_type {
+                    let expect_contained_type = match expected_type {
                         None => None,
                         Some(x) => {
                             let contained_type = match x {
@@ -715,14 +776,14 @@ impl Value {
                         return Err("Illegal list type".into());
                     }
 
-                    let (list_type, _entry_type) = match expected_type.as_ref() {
+                    let (list_type, _entry_type) = match expected_type {
                         None => (None, None),
                         Some(TypeSignature::SequenceType(SequenceSubtype::ListType(list_type))) => {
                             if len > list_type.get_max_len() {
                                 // unwrap is safe because of the match condition
                                 #[allow(clippy::unwrap_used)]
                                 return Err(SerializationError::DeserializeExpected(Box::new(
-                                    expected_type.unwrap(),
+                                    expected_type.cloned().unwrap(),
                                 )));
                             }
                             (Some(list_type), Some(list_type.get_list_item_type()))
@@ -735,7 +796,9 @@ impl Value {
                     };
 
                     if len > 0 {
-                        let items = Vec::with_capacity(len as usize);
+                        let items = Vec::with_capacity(
+                            (len as usize).min(INITIAL_DESERIALIZATION_CONTAINER_CAPACITY),
+                        );
                         let stack_item = DeserializeStackItem::List {
                             items,
                             expected_len: len,
@@ -771,7 +834,7 @@ impl Value {
                         ));
                     }
 
-                    let tuple_type = match expected_type.as_ref() {
+                    let tuple_type = match expected_type {
                         None => None,
                         Some(TypeSignature::TupleType(tuple_type)) => {
                             if sanitize {
@@ -779,14 +842,14 @@ impl Value {
                                     // unwrap is safe because of the match condition
                                     #[allow(clippy::unwrap_used)]
                                     return Err(SerializationError::DeserializeExpected(Box::new(
-                                        expected_type.unwrap(),
+                                        expected_type.cloned().unwrap(),
                                     )));
                                 }
                             } else if u64::from(len) != tuple_type.len() {
                                 // unwrap is safe because of the match condition
                                 #[allow(clippy::unwrap_used)]
                                 return Err(SerializationError::DeserializeExpected(Box::new(
-                                    expected_type.unwrap(),
+                                    expected_type.cloned().unwrap(),
                                 )));
                             }
                             Some(tuple_type)
@@ -799,7 +862,9 @@ impl Value {
                     };
 
                     if len > 0 {
-                        let items = Vec::with_capacity(expected_len as usize);
+                        let items = Vec::with_capacity(
+                            (expected_len as usize).min(INITIAL_DESERIALIZATION_CONTAINER_CAPACITY),
+                        );
                         let first_key = ClarityName::deserialize_read(r)?;
                         // figure out if the next (key, value) pair for this
                         //  tuple will be elided (or sanitized) from the tuple.
@@ -829,6 +894,7 @@ impl Value {
                                 &DESERIALIZATION_TYPE_CHECK_EPOCH,
                                 vec![],
                                 tuple_type,
+                                behavior,
                             )
                             .map_err(|_| "Illegal tuple type")
                             .map(Value::from)?
@@ -845,7 +911,7 @@ impl Value {
                     r.read_exact(&mut buffer_len)?;
                     let buffer_len = BufferLength::try_from(u32::from_be_bytes(buffer_len))?;
 
-                    if let Some(x) = &expected_type {
+                    if let Some(x) = expected_type {
                         let passed_test = match x {
                             TypeSignature::SequenceType(SequenceSubtype::StringType(
                                 StringSubtype::ASCII(expected_len),
@@ -877,7 +943,7 @@ impl Value {
                     let value = Value::string_utf8_from_bytes(data)
                         .map_err(|_| "Illegal string_utf8 type".into());
 
-                    if let Some(x) = &expected_type {
+                    if let Some(x) = expected_type {
                         let passed_test = match (x, &value) {
                             (
                                 TypeSignature::SequenceType(SequenceSubtype::StringType(
@@ -900,9 +966,7 @@ impl Value {
 
             let mut finished_item = Some(item);
             while let Some(item) = finished_item.take() {
-                let stack_bottom = if let Some(stack_item) = stack.pop() {
-                    stack_item
-                } else {
+                let Some(stack_frame) = stack.last_mut() else {
                     // this should be unreachable!
                     warn!(
                         "Deserializer reached unexpected path: item processed, but deserializer stack does not expect another value";
@@ -910,21 +974,34 @@ impl Value {
                     );
                     return Err("Deserializer processed item, but deserializer stack does not expect another value".into());
                 };
-                match stack_bottom {
+                // Pop frames only on completion: pop/re-push per element
+                // would memcpy the whole frame twice each time.
+                match stack_frame {
                     DeserializeStackItem::TopLevel { .. } => return Ok(item),
                     DeserializeStackItem::List {
-                        mut items,
+                        items,
                         expected_len,
-                        expected_type,
+                        ..
                     } => {
                         items.push(item);
-                        if expected_len as usize <= items.len() {
+                        if (*expected_len as usize) <= items.len() {
                             // list is finished!
+                            let Some(DeserializeStackItem::List {
+                                items,
+                                expected_type,
+                                ..
+                            }) = stack.pop()
+                            else {
+                                return Err(
+                                    "BUG: deserializer stack should have a List frame on top"
+                                        .into(),
+                                );
+                            };
                             let finished_list = if let Some(list_type) = expected_type {
                                 Value::list_with_type(
                                     &DESERIALIZATION_TYPE_CHECK_EPOCH,
                                     items,
-                                    list_type.clone(),
+                                    list_type,
                                 )
                                 .map_err(|_| "Illegal list type")?
                             } else {
@@ -933,28 +1010,22 @@ impl Value {
                             };
 
                             finished_item.replace(finished_list);
-                        } else {
-                            // list is not finished, reinsert on stack
-                            stack.push(DeserializeStackItem::List {
-                                items,
-                                expected_len,
-                                expected_type,
-                            });
                         }
+                        // else: not finished; keep the frame for the next element
                     }
                     DeserializeStackItem::Tuple {
-                        mut items,
+                        items,
                         expected_len,
                         expected_type,
                         next_name,
                         next_sanitize,
-                        mut processed_entries,
+                        processed_entries,
                     } => {
                         let push_entry = if sanitize {
                             if expected_type.is_some() {
                                 // if performing tuple sanitization, don't include a field
                                 //  if it was sanitized
-                                !next_sanitize
+                                !*next_sanitize
                             } else {
                                 // always push the entry if there's no type expectation
                                 true
@@ -962,13 +1033,24 @@ impl Value {
                         } else {
                             true
                         };
-                        let tuple_entry = (next_name, item);
-                        if push_entry {
-                            items.push(tuple_entry);
-                        }
-                        processed_entries += 1;
-                        if expected_len <= processed_entries {
+                        *processed_entries += 1;
+                        if *expected_len <= *processed_entries {
                             // tuple is finished!
+                            let Some(DeserializeStackItem::Tuple {
+                                mut items,
+                                expected_type,
+                                next_name,
+                                ..
+                            }) = stack.pop()
+                            else {
+                                return Err(
+                                    "BUG: deserializer stack should have a Tuple frame on top"
+                                        .into(),
+                                );
+                            };
+                            if push_entry {
+                                items.push((next_name, item));
+                            }
                             let finished_tuple = if let Some(tuple_type) = expected_type {
                                 if items.len() != tuple_type.len() as usize {
                                     return Err(SerializationError::DeserializeExpected(Box::new(
@@ -979,6 +1061,7 @@ impl Value {
                                     &DESERIALIZATION_TYPE_CHECK_EPOCH,
                                     items,
                                     &tuple_type,
+                                    behavior,
                                 )
                                 .map_err(|_| "Illegal tuple type")
                                 .map(Value::from)?
@@ -990,8 +1073,8 @@ impl Value {
 
                             finished_item.replace(finished_tuple);
                         } else {
-                            // tuple is not finished, read the next key name and reinsert on stack
-                            let key = ClarityName::deserialize_read(r)?;
+                            // tuple is not finished: the new key swaps into
+                            //  the frame, releasing the current name for the entry.
                             // figure out if the next (key, value) pair for this
                             //  tuple will be elided (or sanitized) from the tuple.
                             // the logic here is that the next pair should be elided if:
@@ -999,30 +1082,30 @@ impl Value {
                             //    * `tuple_type` is some (i.e., there is an expected type for the
                             //       tuple)
                             //    * `tuple_type` does not contain an entry for `key`
-                            let next_sanitize = sanitize
+                            let key = ClarityName::deserialize_read(r)?;
+                            *next_sanitize = sanitize
                                 && expected_type
                                     .as_ref()
                                     .map(|tt| tt.field_type(&key).is_none())
                                     .unwrap_or(false);
-                            stack.push(DeserializeStackItem::Tuple {
-                                items,
-                                expected_type,
-                                expected_len,
-                                next_name: key,
-                                next_sanitize,
-                                processed_entries,
-                            });
+                            let name = std::mem::replace(next_name, key);
+                            if push_entry {
+                                items.push((name, item));
+                            }
                         }
                     }
                     DeserializeStackItem::OptionSome { .. } => {
+                        stack.pop();
                         let finished_some = Value::some(item).map_err(|_x| "Value too large")?;
                         finished_item.replace(finished_some);
                     }
                     DeserializeStackItem::ResponseOk { .. } => {
+                        stack.pop();
                         let finished_some = Value::okay(item).map_err(|_x| "Value too large")?;
                         finished_item.replace(finished_some);
                     }
                     DeserializeStackItem::ResponseErr { .. } => {
+                        stack.pop();
                         let finished_some = Value::error(item).map_err(|_x| "Value too large")?;
                         finished_item.replace(finished_some);
                     }
@@ -1116,8 +1199,8 @@ impl Value {
 
     /// This function attempts to deserialize a byte buffer into a Clarity Value.
     /// The `expected_type` parameter tells the deserializer to expect (and enforce)
-    /// a particular type. `ClarityDB` uses this to ensure that lists, tuples, etc. loaded from the database
-    /// have their max-length and other type information set by the type declarations in the contract.
+    /// a particular type. Uses legacy tuple-field handling; consensus code should
+    /// prefer the epoch-aware [`Self::try_deserialize_bytes_at_epoch`].
     pub fn try_deserialize_bytes(
         bytes: &Vec<u8>,
         expected: &TypeSignature,
@@ -1126,10 +1209,32 @@ impl Value {
         Value::deserialize_read(&mut bytes.as_slice(), Some(expected), sanitize)
     }
 
+    /// Behaves like [`Self::try_deserialize_bytes`], selecting historical
+    /// tuple-field handling before Epoch 4.1 and exact field-set enforcement
+    /// from Epoch 4.1 onward.
+    ///
+    /// Contract names up to [`MAX_STRING_LEN`] are accepted in every epoch:
+    /// this reads values back from chainstate, which may have been stored
+    /// before the Epoch 4.1 contract-name limit and must remain readable.
+    pub fn try_deserialize_bytes_at_epoch(
+        bytes: &Vec<u8>,
+        expected: &TypeSignature,
+        epoch: &StacksEpochId,
+    ) -> Result<Value, SerializationError> {
+        Self::deserialize_read_count_with_options(
+            &mut bytes.as_slice(),
+            Some(expected),
+            epoch.value_sanitizing(),
+            TupleFieldsBehavior::from_epoch(epoch),
+            ContractNameLimit::Legacy,
+        )
+        .map(|(value, _)| value)
+    }
+
     /// This function attempts to deserialize a hex string into a Clarity Value.
     /// The `expected_type` parameter tells the deserializer to expect (and enforce)
-    /// a particular type. `ClarityDB` uses this to ensure that lists, tuples, etc. loaded from the database
-    /// have their max-length and other type information set by the type declarations in the contract.
+    /// a particular type. Uses legacy tuple-field handling; consensus code should
+    /// prefer the epoch-aware [`Self::try_deserialize_hex_at_epoch`].
     pub fn try_deserialize_hex(
         hex: &str,
         expected: &TypeSignature,
@@ -1139,22 +1244,40 @@ impl Value {
         Value::try_deserialize_bytes(&data, expected, sanitize)
     }
 
-    /// This function attempts to deserialize a byte buffer into a
-    /// Clarity Value, while ensuring that the whole byte buffer is
-    /// consumed by the deserialization, erroring if it is not. The
-    /// `expected_type` parameter tells the deserializer to expect
-    /// (and enforce) a particular type. `ClarityDB` uses this to
-    /// ensure that lists, tuples, etc. loaded from the database have
-    /// their max-length and other type information set by the type
-    /// declarations in the contract.
-    pub fn try_deserialize_bytes_exact(
+    /// Epoch-aware variant of [`Self::try_deserialize_hex`]. `ClarityDB` reads
+    /// values through this so that lists, tuples, etc. loaded from the database
+    /// carry the max-length and other type information declared in the contract.
+    pub fn try_deserialize_hex_at_epoch(
+        hex: &str,
+        expected: &TypeSignature,
+        epoch: &StacksEpochId,
+    ) -> Result<Value, SerializationError> {
+        let data = hex_bytes(hex).map_err(|_| "Bad hex string")?;
+        Value::try_deserialize_bytes_at_epoch(&data, expected, epoch)
+    }
+
+    /// Deserialize a byte buffer into a Clarity Value of `expected` type,
+    /// requiring the whole buffer to be consumed. Sanitization (Epoch 2.4+),
+    /// strict typed-tuple field enforcement (Epoch 4.1+), and the contract-name
+    /// length limit (Epoch 4.1+) are derived from `epoch` so consensus behavior
+    /// is gated entirely by the execution epoch.
+    ///
+    /// Unlike [`Self::try_deserialize_bytes_at_epoch`], this decodes new,
+    /// untrusted input (`from-consensus-buff?`), so it enforces the contract-name
+    /// limit.
+    pub fn try_deserialize_bytes_exact_at_epoch(
         bytes: &Vec<u8>,
         expected: &TypeSignature,
-        sanitize: bool,
+        epoch: &StacksEpochId,
     ) -> Result<Value, SerializationError> {
         let input_length = bytes.len();
-        let (value, read_count) =
-            Value::deserialize_read_count(&mut bytes.as_slice(), Some(expected), sanitize)?;
+        let (value, read_count) = Value::deserialize_read_count_with_options(
+            &mut bytes.as_slice(),
+            Some(expected),
+            epoch.value_sanitizing(),
+            TupleFieldsBehavior::from_epoch(epoch),
+            ContractNameLimit::from_epoch(epoch),
+        )?;
         if read_count != (input_length as u64) {
             Err(SerializationError::LeftoverBytesInDeserialization)
         } else {
@@ -1325,12 +1448,17 @@ impl Value {
                 };
                 (sanitized_resp.ok()?, did_sanitize_child)
             }
-            value => {
-                if expected.admits(epoch, &value).ok()? {
-                    return Some((value, false));
-                } else {
-                    return None;
-                }
+            // `sanitize_value_or_return` checks the values this arm handles without calling
+            // this function. If one of them gets its own arm here, remove it from the list there.
+            Value::Int(_)
+            | Value::UInt(_)
+            | Value::Bool(_)
+            | Value::Principal(_)
+            | Value::CallableContract(_)
+            | Value::Sequence(SequenceData::Buffer(_) | SequenceData::String(_)) => {
+                return Self::sanitize_leaf_value(epoch, expected, value)
+                    .ok()
+                    .map(|value| (value, false));
             }
         };
 
@@ -1338,6 +1466,49 @@ impl Value {
             Some((output, did_sanitize))
         } else {
             None
+        }
+    }
+
+    /// Sanitizes a value that has no inner values: it is returned unchanged if
+    /// `expected` admits it, and handed back as the error otherwise.
+    fn sanitize_leaf_value(
+        epoch: &StacksEpochId,
+        expected: &TypeSignature,
+        value: Value,
+    ) -> Result<Value, Value> {
+        match expected.admits(epoch, &value) {
+            Ok(true) => Ok(value),
+            _ => Err(value),
+        }
+    }
+
+    /// Like [`Self::sanitize_value`], but hands `value` back on failure so the caller
+    /// can still report it. Values without inner values are checked in place and moved;
+    /// anything else is sanitized from a copy, because a failure part way through would
+    /// leave it partly consumed.
+    pub fn sanitize_value_or_return(
+        epoch: &StacksEpochId,
+        expected: &TypeSignature,
+        value: Value,
+    ) -> Result<Value, Value> {
+        // `sanitize_leaf_value` has no epoch check of its own.
+        if !epoch.value_sanitizing() {
+            return Ok(value);
+        }
+        match value {
+            // The values `sanitize_value` checks with `sanitize_leaf_value`.
+            Value::Int(_)
+            | Value::UInt(_)
+            | Value::Bool(_)
+            | Value::Principal(_)
+            | Value::CallableContract(_)
+            | Value::Sequence(SequenceData::Buffer(_) | SequenceData::String(_)) => {
+                Self::sanitize_leaf_value(epoch, expected, value)
+            }
+            value => match Self::sanitize_value(epoch, expected, value.clone()) {
+                Some((sanitized, _)) => Ok(sanitized),
+                None => Err(value),
+            },
         }
     }
 }

@@ -65,73 +65,73 @@
 /// When the node is running, there are 4-5 active threads at once. They are:
 ///
 /// * **RunLoop Thread**:
-///     This is the main thread, whose code body lives in `src/run_loop/neon.rs`.
-///     This thread is responsible for:
-///       * Bootup
-///       * Running the burnchain indexer
-///       * Notifying the ChainsCoordinator thread when there are new burnchain blocks to process
+///   This is the main thread, whose code body lives in `src/run_loop/neon.rs`.
+///   This thread is responsible for:
+///   * Bootup
+///   * Running the burnchain indexer
+///   * Notifying the ChainsCoordinator thread when there are new burnchain blocks to process
 ///
 /// * **Relayer Thread**:
-///     This is the thread that stores and relays blocks and microblocks. Both
-///     it and the ChainsCoordinator thread are very I/O-heavy threads, and care has been taken to
-///     ensure that neither one attempts to acquire a write-lock in the underlying databases.
-///     Specifically, this thread directs the ChainsCoordinator thread when to process new Stacks
-///     blocks, and it directs the miner thread (if running) to stop when either it or the
-///     ChainsCoordinator thread needs to acquire the write-lock.
-///     This thread is responsible for:
-///       * Receiving new blocks and microblocks from the P2P thread via a shared channel
-///       * (Synchronously) requesting the CoordinatorThread to process newly-stored Stacks blocks
-///         and microblocks
-///       * Building up the node's unconfirmed microblock stream state, and sharing it with the P2P
-///         thread so it can answer queries about the unconfirmed microblock chain
-///       * Pushing newly-discovered blocks and microblocks to the P2P thread for broadcast
-///       * Registering the VRF public key for the miner
-///       * Spawning the block and microblock miner threads, and stopping them if their continued
-///         execution would inhibit block or microblock storage or processing.
-///       * Submitting the burnchain operation to commit to a freshly-mined block
+///   This is the thread that stores and relays blocks and microblocks. Both
+///   it and the ChainsCoordinator thread are very I/O-heavy threads, and care has been taken to
+///   ensure that neither one attempts to acquire a write-lock in the underlying databases.
+///   Specifically, this thread directs the ChainsCoordinator thread when to process new Stacks
+///   blocks, and it directs the miner thread (if running) to stop when either it or the
+///   ChainsCoordinator thread needs to acquire the write-lock.
+///   This thread is responsible for:
+///   * Receiving new blocks and microblocks from the P2P thread via a shared channel
+///   * (Synchronously) requesting the CoordinatorThread to process newly-stored Stacks blocks
+///     and microblocks
+///   * Building up the node's unconfirmed microblock stream state, and sharing it with the P2P
+///     thread so it can answer queries about the unconfirmed microblock chain
+///   * Pushing newly-discovered blocks and microblocks to the P2P thread for broadcast
+///   * Registering the VRF public key for the miner
+///   * Spawning the block and microblock miner threads, and stopping them if their continued
+///     execution would inhibit block or microblock storage or processing.
+///   * Submitting the burnchain operation to commit to a freshly-mined block
 ///
 /// * **Miner Thread**:
-///     This is the thread that actually produces new blocks and microblocks. It
-///     is spawned only by the Relayer thread to carry out mining activity when the underlying
-///     chainstate is not needed by either the Relayer or ChainsCoordinator threads.
-///     This thread does the following:
-///       * Walk the mempool DB to build a new block or microblock
-///       * Return the block or microblock to the Relayer thread
+///   This is the thread that actually produces new blocks and microblocks. It
+///   is spawned only by the Relayer thread to carry out mining activity when the underlying
+///   chainstate is not needed by either the Relayer or ChainsCoordinator threads.
+///   This thread does the following:
+///   * Walk the mempool DB to build a new block or microblock
+///   * Return the block or microblock to the Relayer thread
 ///
 /// * **P2P Thread**:
-///     This is the thread that communicates with the rest of the P2P network, and
-///     handles RPC requests. It is meant to do as little storage-write I/O as possible to avoid lock
-///     contention with the Miner, Relayer, and ChainsCoordinator threads. In particular, it forwards
-///     data it receives from the P2P thread to the Relayer thread for I/O-bound processing. At the
-///     time of this writing, it still requires holding a write-lock to handle some RPC requests, but
-///     future work will remove this so that this thread's execution will not interfere with the
-///     others. This is the only thread that does socket I/O.
-///     This thread runs the PeerNetwork state machines, which include the following:
-///       * Learning the node's public IP address
-///       * Discovering neighbor nodes
-///       * Forwarding newly-discovered blocks, microblocks, and transactions from the Relayer thread
-///         to other neighbors
-///       * Synchronizing block and microblock inventory state with other neighbors
-///       * Downloading blocks and microblocks, and passing them to the Relayer for storage and
-///         processing
-///       * Downloading transaction attachments as their hashes are discovered during block processing
-///       * Synchronizing the local mempool database with other neighbors
-///         (notifications for new attachments come from a shared channel in the ChainsCoordinator thread)
-///       * Handling HTTP requests
+///   This is the thread that communicates with the rest of the P2P network, and
+///   handles RPC requests. It is meant to do as little storage-write I/O as possible to avoid lock
+///   contention with the Miner, Relayer, and ChainsCoordinator threads. In particular, it forwards
+///   data it receives from the P2P thread to the Relayer thread for I/O-bound processing. At the
+///   time of this writing, it still requires holding a write-lock to handle some RPC requests, but
+///   future work will remove this so that this thread's execution will not interfere with the
+///   others. This is the only thread that does socket I/O.
+///   This thread runs the PeerNetwork state machines, which include the following:
+///   * Learning the node's public IP address
+///   * Discovering neighbor nodes
+///   * Forwarding newly-discovered blocks, microblocks, and transactions from the Relayer thread
+///     to other neighbors
+///   * Synchronizing block and microblock inventory state with other neighbors
+///   * Downloading blocks and microblocks, and passing them to the Relayer for storage and
+///     processing
+///   * Downloading transaction attachments as their hashes are discovered during block processing
+///   * Synchronizing the local mempool database with other neighbors
+///     (notifications for new attachments come from a shared channel in the ChainsCoordinator thread)
+///   * Handling HTTP requests
 ///
 /// * **ChainsCoordinator Thread**:
-///     This thread processes sortitions and Stacks blocks and
-///     microblocks, and handles PoX reorgs should they occur (this mainly happens in boot-up). It,
-///     like the Relayer thread, is a very I/O-heavy thread, and it will hold a write-lock on the
-///     chainstate DBs while it works. Its actions are controlled by a CoordinatorComms structure in
-///     the Globals shared state, which the Relayer thread and RunLoop thread both drive (the former
-///     drives Stacks blocks processing, the latter sortitions).
-///     This thread is responsible for:
-///       * Responding to requests from other threads to process sortitions
-///       * Responding to requests from other threads to process Stacks blocks and microblocks
-///       * Processing PoX chain reorgs, should they ever happen
-///       * Detecting attachment creation events, and informing the P2P thread of them so it can go
-///         and download them
+///   This thread processes sortitions and Stacks blocks and
+///   microblocks, and handles PoX reorgs should they occur (this mainly happens in boot-up). It,
+///   like the Relayer thread, is a very I/O-heavy thread, and it will hold a write-lock on the
+///   chainstate DBs while it works. Its actions are controlled by a CoordinatorComms structure in
+///   the Globals shared state, which the Relayer thread and RunLoop thread both drive (the former
+///   drives Stacks blocks processing, the latter sortitions).
+///   This thread is responsible for:
+///   * Responding to requests from other threads to process sortitions
+///   * Responding to requests from other threads to process Stacks blocks and microblocks
+///   * Processing PoX chain reorgs, should they ever happen
+///   * Detecting attachment creation events, and informing the P2P thread of them so it can go
+///     and download them
 ///
 /// In addition to the mempool and chainstate databases, these threads share access to a Globals
 /// singleton that contains soft state shared between threads. Mainly, the Globals struct is meant
@@ -206,8 +206,8 @@ use stacks::util_lib::strings::{UrlString, VecDisplay};
 use stacks::{monitoring, version_string};
 use stacks_common::codec::StacksMessageCodec;
 use stacks_common::types::chainstate::{
-    BlockHeaderHash, BurnchainHeaderHash, SortitionId, StacksAddress, StacksBlockId,
-    StacksPrivateKey, VRFSeed,
+    BlockHeaderHash, BurnchainHeaderHash, SortitionId, StacksAddress, StacksBlockId, TrieHash,
+    VRFSeed,
 };
 use stacks_common::types::net::PeerAddress;
 use stacks_common::types::{PublicKey, StacksEpochId};
@@ -216,7 +216,7 @@ use stacks_common::util::secp256k1::Secp256k1PrivateKey;
 use stacks_common::util::vrf::{VRFProof, VRFPublicKey};
 use stacks_common::util::{get_epoch_time_ms, get_epoch_time_secs};
 
-use super::{BurnchainController, Config, EventDispatcher, Keychain};
+use super::{Config, EventDispatcher, Keychain};
 use crate::burnchains::bitcoin_regtest_controller::{
     burnchain_params_from_config, BitcoinRegtestController, OngoingBlockCommit,
 };
@@ -226,7 +226,6 @@ use crate::nakamoto_node::miner_db::MinerDB;
 use crate::nakamoto_node::signer_coordinator::SignerCoordinator;
 use crate::run_loop::neon::RunLoop;
 use crate::run_loop::RegisteredKey;
-use crate::ChainTip;
 
 pub const RELAYER_MAX_BUFFER: usize = 100;
 const VRF_MOCK_MINER_KEY: u64 = 1;
@@ -1567,15 +1566,16 @@ impl BlockMinerThread {
             debug!("No Stacks chain tip known, will return a genesis block");
             let burnchain_params = burnchain_params_from_config(&self.config.burnchain);
 
-            let chain_tip = ChainTip::genesis(
+            let genesis_header = StacksHeaderInfo::genesis(
+                TrieHash([0u8; 32]),
                 &burnchain_params.first_block_hash,
-                burnchain_params.first_block_height,
+                burnchain_params.first_block_height as u32,
                 burnchain_params.first_block_timestamp.into(),
             );
 
             (
                 Some(ParentStacksBlockInfo {
-                    stacks_parent_header: chain_tip.metadata,
+                    stacks_parent_header: genesis_header,
                     parent_consensus_hash: FIRST_BURNCHAIN_CONSENSUS_HASH,
                     parent_block_burn_height: 0,
                     parent_block_total_burn: 0,
@@ -1810,7 +1810,10 @@ impl BlockMinerThread {
                 u16::MAX,
             ) {
                 Ok(x) => {
-                    let num_mblocks = x.as_ref().map(|(mblocks, ..)| mblocks.len()).unwrap_or(0);
+                    let num_mblocks = x
+                        .as_ref()
+                        .map(|stream| stream.microblocks.len())
+                        .unwrap_or(0);
                     debug!(
                         "Loaded {num_mblocks} microblocks descending from {parent_consensus_hash}/{} (data: {})",
                         &stacks_parent_header.anchored_header.block_hash(),
@@ -1827,7 +1830,9 @@ impl BlockMinerThread {
                 }
             };
 
-        if let Some((ref microblocks, ref poison_opt)) = &microblock_info_opt {
+        if let Some(stream) = &microblock_info_opt {
+            let microblocks = &stream.microblocks;
+            let poison_opt = &stream.poison_payload;
             if let Some(tail) = microblocks.last() {
                 debug!(
                     "Confirm microblock stream tailed at {} (seq {})",
@@ -1871,7 +1876,7 @@ impl BlockMinerThread {
             }
         }
 
-        microblock_info_opt.map(|(stream, _)| stream)
+        microblock_info_opt.map(|stream| stream.microblocks)
     }
 
     /// Get the list of possible burn addresses this miner is using
@@ -2645,6 +2650,11 @@ impl BlockMinerThread {
         );
 
         // let's commit
+        #[cfg(test)]
+        if self.globals.counters.skip_commit_op.get() {
+            debug!("Relayer: fault injection: skip block commit");
+            return None;
+        }
         let op = self.make_block_commit(
             &mut burn_db,
             &mut chain_state,
@@ -3216,7 +3226,6 @@ impl RelayerThread {
                 parent_consensus_hash,
                 anchored_block: mined_block,
                 burn_hash: mined_burn_hash,
-                attempt: _,
                 ..
             } = last_mined_block_data;
 
@@ -3903,7 +3912,6 @@ impl RelayerThread {
                 "Relayer: miner is blocked as of {}; cannot mine microblock at this time",
                 &burnchain_tip.burn_header_hash
             );
-            self.globals.counters.set_microblocks_processed(0);
             return false;
         }
 
@@ -4027,7 +4035,6 @@ impl RelayerThread {
                                 next_microblock.header.sequence,
                                 next_microblock.txs.len()
                             );
-                            self.globals.counters.set_microblocks_processed(num_mblocks);
 
                             let parent_index_block_hash = StacksBlockHeader::make_index_block_hash(
                                 &miner_tip.consensus_hash,
@@ -4182,10 +4189,6 @@ impl RelayerThread {
                 debug!("Relayer: directive Ran tenure");
                 true
             }
-            RelayerDirective::NakamotoTenureStartProcessed(_, _) => {
-                warn!("Relayer: Nakamoto tenure start notification received while still operating 2.x neon node");
-                true
-            }
             RelayerDirective::Exit => false,
         };
         if !continue_running {
@@ -4338,11 +4341,7 @@ pub struct PeerThread {
     /// channel, because we need to know when backpressure occurs in order to throttle the p2p
     /// thread's downloader.
     results_with_data: VecDeque<RelayerDirective>,
-    /// total number of p2p state-machine passes so far. Used to signal when to download the next
-    /// reward cycle of blocks
-    num_p2p_state_machine_passes: u64,
-    /// total number of inventory state-machine passes so far. Used to signal when to download the
-    /// next reward cycle of blocks.
+    /// total number of inventory state-machine passes so far. The relayer acts on new passes.
     num_inv_sync_passes: u64,
     /// total number of download state-machine passes so far. Used to signal when to download the
     /// next reward cycle of blocks.
@@ -4431,7 +4430,6 @@ impl PeerThread {
             chainstate: Some(chainstate),
             mempool: Some(mempool),
             results_with_data: VecDeque::new(),
-            num_p2p_state_machine_passes: 0,
             num_inv_sync_passes: 0,
             num_download_passes: 0,
             last_burn_block_height: 0,
@@ -4504,6 +4502,12 @@ impl PeerThread {
                 self.get_network().has_more_downloads()
             );
             1
+        } else if !download_backpressure && self.get_network().has_pending_inbound_work() {
+            // finish handling inbound messages left over from the last pass.  Like the
+            // downloader, don't spin while the relayer is still working through the blocks we
+            // already handed it -- the leftover messages stay queued until it catches up.
+            debug!("P2P: inbound messages pending");
+            1
         } else {
             self.poll_timeout
         };
@@ -4549,15 +4553,8 @@ impl PeerThread {
         match p2p_res {
             Ok(network_result) => {
                 let mut have_update = false;
-                if self.num_p2p_state_machine_passes < network_result.num_state_machine_passes {
-                    // p2p state-machine did a full pass. Notify anyone listening.
-                    self.globals.sync_comms.notify_p2p_state_pass();
-                    self.num_p2p_state_machine_passes = network_result.num_state_machine_passes;
-                }
-
                 if self.num_inv_sync_passes < network_result.num_inv_sync_passes {
-                    // inv-sync state-machine did a full pass. Notify anyone listening.
-                    self.globals.sync_comms.notify_inv_sync_pass();
+                    // inv-sync state-machine did a full pass.
                     self.num_inv_sync_passes = network_result.num_inv_sync_passes;
 
                     // the relayer cares about the number of inventory passes, so pass this along
@@ -4626,25 +4623,6 @@ impl PeerThread {
 }
 
 impl StacksNode {
-    /// Create a StacksPrivateKey from a given seed buffer
-    pub fn make_node_private_key_from_seed(seed: &[u8]) -> StacksPrivateKey {
-        let node_privkey = {
-            let mut re_hashed_seed = seed.to_vec();
-            let my_private_key = loop {
-                match Secp256k1PrivateKey::from_slice(&re_hashed_seed[..]) {
-                    Ok(sk) => break sk,
-                    Err(_) => {
-                        re_hashed_seed = Sha256Sum::from_data(&re_hashed_seed[..])
-                            .as_bytes()
-                            .to_vec()
-                    }
-                }
-            };
-            my_private_key
-        };
-        node_privkey
-    }
-
     /// Set up the mempool DB by making sure it exists.
     /// Panics on failure.
     fn setup_mempool_db(config: &Config) -> MemPoolDB {
@@ -4950,6 +4928,14 @@ impl StacksNode {
         {
             warn!("Failed to direct relayer thread to exit, sleeping and trying again");
             thread::sleep(Duration::from_secs(5));
+        }
+
+        // Blocks still queued in `results_with_data` or for the relayer (which exits without
+        // handling them) are dropped, but the downloaders already count them as downloaded. The
+        // Nakamoto node reuses this network at the Epoch 3.0 handoff, and would otherwise never
+        // fetch the Nakamoto tenures among them again.
+        if let Some(net) = p2p_thread.net.as_mut() {
+            net.forget_completed_downloads();
         }
         info!("P2P thread exit!");
         p2p_thread.net

@@ -1,0 +1,91 @@
+name: Bitcoin Cache
+description: |
+    Bitcoin binary cache management.
+
+inputs:
+  action:
+    description: "Type of operation (check,restore,create)"
+    required: false
+    default: "check"
+  btc-version:
+    description: "The Bitcoin binary version"
+    required: true
+  btc-version-sha:
+    description: "The SHA256 of the bitcoin binary to verify before executing tests"
+    required: true
+
+outputs:
+  cache-key:
+    description: "Cache Key"
+    value: ${{ steps.generate-key.outputs.bitcoin-cache-key }}
+  cache-matched-key:
+    description: "Key of the cache that was checked or restored, it could either be the primary key on cache-hit or a partial/complete match of one of the restore keys."
+    value: ${{ steps.check-cache.outputs.cache-matched-key || steps.restore-cache.outputs.cache-matched-key }}
+
+runs:
+  using: "composite"
+  steps:
+    # Generate cache keys
+    - name: Generate Bitcoin Cache Key
+      id: generate-key
+      uses: ./.github/actions/cache/generate-bitcoin-key
+      with:
+        btc-version: ${{ inputs.btc-version }}
+  
+    # Check if cache data exists
+    - name: Check Cache
+      if: |
+        inputs.action == 'check'
+      uses: ./.github/wrappers/cache/restore
+      id: check-cache
+      with:
+        lookup-only: true
+        path: ~/bitcoin
+        key: ${{ steps.generate-key.outputs.bitcoin-cache-key }}
+        # Allows cache to "fallback" to `main` generated cache, using a prefix. The most recently created cache will be selected.
+        restore-keys: ${{ steps.generate-key.outputs.bitcoin-restore-key }}
+
+    # Restore cache data
+    - name: Restore Cache
+      if: |
+        inputs.action == 'restore'
+      uses: ./.github/wrappers/cache/restore
+      id: restore-cache
+      with:
+        path: ~/bitcoin
+        key: ${{ steps.generate-key.outputs.bitcoin-cache-key }}
+        # Allows cache to "fallback" to `main` generated cache, using a prefix. The most recently created cache will be selected.
+        restore-keys: ${{ steps.generate-key.outputs.bitcoin-restore-key }}
+        fail-on-cache-miss: true
+
+    # Install bitcoin binary on cache-miss
+    - name: Install Bitcoin Binary
+      if: |
+        inputs.action == 'create'
+      shell: bash
+      run: |
+        VERSION="${{ steps.generate-key.outputs.bitcoin-binary-version }}"
+        EXPECTED_SHA="${{ inputs.btc-version-sha }}"
+        
+        # 1. Download the binary from the official bitcoincore.org releases
+        URL="https://bitcoincore.org/bin/bitcoin-core-${VERSION}/bitcoin-${VERSION}-x86_64-linux-gnu.tar.gz"
+        curl -LSf -# -o bitcoin.tar.gz "$URL"
+        
+        # 2. Enforce the checksum validation. If this fails, the script exits immediately.
+        echo "$EXPECTED_SHA  bitcoin.tar.gz" | sha256sum --check --status || {
+          echo "ERROR: SHA-256 checksum mismatch! The downloaded binary may be tampered with." >&2
+          exit 1
+        }
+        
+        # 4. Safely extract
+        tar zxf bitcoin.tar.gz -C ~
+        mv ~/bitcoin-${VERSION} ~/bitcoin
+
+    # Save cache data
+    - name: Save Cache
+      if: |
+        inputs.action == 'create'
+      uses: ./.github/wrappers/cache/save
+      with:
+        path: ~/bitcoin
+        key: ${{ steps.generate-key.outputs.bitcoin-cache-key }}

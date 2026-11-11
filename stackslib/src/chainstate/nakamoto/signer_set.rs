@@ -14,27 +14,216 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use std::collections::HashMap;
+use std::sync::{LazyLock, RwLock};
 
 use clarity::vm::events::StacksTransactionEvent;
 use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier, TupleData};
-use clarity::vm::{SymbolicExpression, Value};
+use clarity::vm::{ClarityName, Value};
 use stacks_common::types::chainstate::{StacksAddress, StacksBlockId};
 use stacks_common::types::StacksEpochId;
 use stacks_common::util::hash::{to_hex, Hash160};
 
 use crate::burnchains::PoxConstants;
 use crate::chainstate::burn::db::sortdb::SortitionDB;
-use crate::chainstate::stacks::address::PoxAddress;
+use crate::chainstate::stacks::address::{PoxAddress, PoxAddressType32};
 use crate::chainstate::stacks::boot::{
-    PoxVersions, RawRewardSetEntry, RewardSet, SIGNERS_MAX_LIST_SIZE, SIGNERS_NAME, SIGNERS_PK_LEN,
-    SIGNERS_UPDATE_STATE, SIGNERS_VOTING_FUNCTION_NAME, SIGNERS_VOTING_NAME,
+    NakamotoSignerEntry, PoxVersions, RawRewardSetEntry, RewardSet, WaterfallCycleSet, POX_5_NAME,
+    SIGNERS_MAX_LIST_SIZE, SIGNERS_NAME, SIGNERS_PK_LEN, SIGNERS_UPDATE_STATE,
+    SIGNERS_VOTING_FUNCTION_NAME, SIGNERS_VOTING_NAME,
 };
 use crate::chainstate::stacks::db::{ClarityTx, StacksChainState};
+use crate::chainstate::stacks::sbtc::sbtc_pox5_deposit_taproot_output_key;
 use crate::chainstate::stacks::{Error as ChainstateError, StacksTransaction, TransactionPayload};
 use crate::clarity::vm::clarity::{ClarityConnection, TransactionConnection};
 use crate::clarity_vm::clarity::ClarityTransactionConnection;
+use crate::core::POX_5_SBTC_DEPOSIT_MAX_FEE_SATS;
 use crate::util_lib::boot;
 use crate::util_lib::boot::boot_code_id;
+
+/// The default mainnet sBTC token contract.
+pub const SBTC_TOKEN_MAINNET_CONTRACT: &str =
+    "SM3VDXK3WZZSA84XXFKAFAF15NNZX32CTSG82JFQ4.sbtc-token";
+
+/// The default testnet sBTC token contract.
+/// Used as the default on any testnet unless overridden via
+/// [`set_pox_5_sbtc_contract`], typically via the `pox_5_sbtc_contract`
+/// field in the node config file.
+pub const SBTC_TOKEN_TESTNET_CONTRACT: &str = "SN69P7RZRKK8ERQCCABHT2JWKB2S4DHH9H74231T.sbtc-token";
+
+/// The default mainnet sBTC registry contract.
+pub const SBTC_REGISTRY_MAINNET_CONTRACT: &str =
+    "SM3VDXK3WZZSA84XXFKAFAF15NNZX32CTSG82JFQ4.sbtc-registry";
+
+/// The default testnet sBTC registry contract.
+/// Used as the default on any testnet unless overridden via
+/// [`set_pox_5_sbtc_registry_contract`], typically via the
+/// `pox_5_sbtc_registry_contract` field in the node config file.
+pub const SBTC_REGISTRY_TESTNET_CONTRACT: &str =
+    "SN69P7RZRKK8ERQCCABHT2JWKB2S4DHH9H74231T.sbtc-registry";
+
+pub static SBTC_TOKEN_MAINNET_CONTRACT_ID: LazyLock<QualifiedContractIdentifier> =
+    LazyLock::new(|| {
+        QualifiedContractIdentifier::parse(SBTC_TOKEN_MAINNET_CONTRACT)
+            .expect("Invalid default mainnet sBTC contract ID")
+    });
+
+pub static SBTC_TOKEN_TESTNET_CONTRACT_ID: LazyLock<QualifiedContractIdentifier> =
+    LazyLock::new(|| {
+        QualifiedContractIdentifier::parse(SBTC_TOKEN_TESTNET_CONTRACT)
+            .expect("Invalid default mainnet sBTC contract ID")
+    });
+
+pub static SBTC_REGISTRY_MAINNET_CONTRACT_ID: LazyLock<QualifiedContractIdentifier> =
+    LazyLock::new(|| {
+        QualifiedContractIdentifier::parse(SBTC_REGISTRY_MAINNET_CONTRACT)
+            .expect("Invalid default mainnet sBTC registry contract ID")
+    });
+
+pub static SBTC_REGISTRY_TESTNET_CONTRACT_ID: LazyLock<QualifiedContractIdentifier> =
+    LazyLock::new(|| {
+        QualifiedContractIdentifier::parse(SBTC_REGISTRY_TESTNET_CONTRACT)
+            .expect("Invalid default testnet sBTC registry contract ID")
+    });
+
+/// Epoch 4.0 / PoX-5 scaffolding: the sBTC token contract that pox-5
+/// references. `make_pox_5_body` rewrites the canonical mainnet sBTC token
+/// literal in the contract source so pox-5's
+/// `(contract-call? ... get-balance ...)` hits this contract.
+///
+/// Set once at node startup from `NodeConfig::pox_5_sbtc_contract`.
+static POX_5_SBTC_CONTRACT: RwLock<Option<QualifiedContractIdentifier>> = RwLock::new(None);
+
+/// Set the configured PoX-5 sBTC token contract id. Call once during node
+/// startup from the run-loop, with the value parsed out of `NodeConfig`.
+pub fn set_pox_5_sbtc_contract(contract_id: Option<QualifiedContractIdentifier>) {
+    *POX_5_SBTC_CONTRACT.write().unwrap() = contract_id;
+}
+
+pub fn pox_5_sbtc_contract(is_mainnet: bool) -> QualifiedContractIdentifier {
+    if is_mainnet {
+        return SBTC_TOKEN_MAINNET_CONTRACT_ID.clone();
+    }
+    let contract_id = POX_5_SBTC_CONTRACT.read().unwrap().clone();
+    if let Some(contract_id) = contract_id {
+        contract_id
+    } else {
+        SBTC_TOKEN_TESTNET_CONTRACT_ID.clone()
+    }
+}
+
+/// Epoch 4.0 / PoX-5 scaffolding: the sBTC registry contract that signer-set
+/// computation reads `get-current-aggregate-pubkey` from to derive the
+/// per-cycle sBTC waterfall recipient. Not substituted into the pox-5
+/// contract body; only read by `pox_5_make_signer_set`.
+///
+/// Set once at node startup from `NodeConfig::pox_5_sbtc_registry_contract`.
+static POX_5_SBTC_REGISTRY_CONTRACT: RwLock<Option<QualifiedContractIdentifier>> =
+    RwLock::new(None);
+
+/// Set the configured PoX-5 sBTC registry contract id. Call once during node
+/// startup from the run-loop, with the value parsed out of `NodeConfig`.
+pub fn set_pox_5_sbtc_registry_contract(contract_id: Option<QualifiedContractIdentifier>) {
+    *POX_5_SBTC_REGISTRY_CONTRACT.write().unwrap() = contract_id;
+}
+
+pub fn pox_5_sbtc_registry_contract(is_mainnet: bool) -> QualifiedContractIdentifier {
+    if is_mainnet {
+        return SBTC_REGISTRY_MAINNET_CONTRACT_ID.clone();
+    }
+    let contract_id = POX_5_SBTC_REGISTRY_CONTRACT.read().unwrap().clone();
+    if let Some(contract_id) = contract_id {
+        contract_id
+    } else {
+        SBTC_REGISTRY_TESTNET_CONTRACT_ID.clone()
+    }
+}
+
+/// The default mainnet PoX-5 bond admin principal.
+pub const POX_5_BOND_ADMIN_MAINNET: &str = "SP72DMR3MJKS7RVBY33JVV7EEJSQ1PYDVKDP10FX";
+
+/// The default non-mainnet PoX-5 bond admin principal — the unsignable
+/// testnet boot principal. Used as the substitution target on non-mainnet
+/// unless overridden via [`set_pox_5_bond_admin`].
+pub const POX_5_BOND_ADMIN_TESTNET: &str = "ST000000000000000000002AMW42H";
+
+/// Epoch 4.0 / PoX-5 scaffolding: the principal that pox-5 initializes the
+/// `bond-admin` data var to. The contract source bakes in the mainnet
+/// principal ([`POX_5_BOND_ADMIN_MAINNET`]); on non-mainnet,
+/// `make_pox_5_body` rewrites it to the configured override (set via
+/// `NodeConfig::pox_5_bond_admin`) or the testnet default
+/// ([`POX_5_BOND_ADMIN_TESTNET`]). Forbidden on mainnet.
+static POX_5_BOND_ADMIN: RwLock<Option<PrincipalData>> = RwLock::new(None);
+
+/// Set the configured PoX-5 bond admin principal. Call once during node
+/// startup from the run-loop, with the value parsed out of `NodeConfig`.
+pub fn set_pox_5_bond_admin(principal: Option<PrincipalData>) {
+    *POX_5_BOND_ADMIN.write().unwrap() = principal;
+}
+
+/// Resolve the PoX-5 bond admin principal from an explicit override,
+/// if any, otherwise the network-specific default.
+///
+/// Panics on a mainnet override that differs from the baked-in default.
+fn resolve_pox_5_bond_admin(
+    is_mainnet: bool,
+    override_admin: Option<PrincipalData>,
+) -> PrincipalData {
+    let mainnet_principal = PrincipalData::parse(POX_5_BOND_ADMIN_MAINNET)
+        .expect("Invalid default mainnet bond admin principal");
+    if let Some(principal) = override_admin {
+        if is_mainnet && principal != mainnet_principal {
+            panic!("FATAL: attempted to override PoX-5 bond admin in mainnet, which is disallowed")
+        }
+        principal
+    } else if is_mainnet {
+        mainnet_principal
+    } else {
+        PrincipalData::parse(POX_5_BOND_ADMIN_TESTNET)
+            .expect("Invalid default testnet bond admin principal")
+    }
+}
+
+/// Resolve the PoX-5 bond admin principal: the configured override if any,
+/// otherwise the network-specific default.
+pub fn pox_5_bond_admin(is_mainnet: bool) -> PrincipalData {
+    resolve_pox_5_bond_admin(is_mainnet, POX_5_BOND_ADMIN.read().unwrap().clone())
+}
+
+pub const POX_5_PAUSE_ADMIN_MAINNET: &str = "SP72DMR3MJKS7RVBY33JVV7EEJSQ1PYDVKDP10FX";
+pub const POX_5_PAUSE_ADMIN_TESTNET: &str = "ST000000000000000000002AMW42H";
+
+static POX_5_PAUSE_ADMIN: RwLock<Option<PrincipalData>> = RwLock::new(None);
+
+pub fn set_pox_5_pause_admin(principal: Option<PrincipalData>) {
+    *POX_5_PAUSE_ADMIN.write().unwrap() = principal;
+}
+
+/// Resolve the PoX-5 pause admin principal from an explicit override,
+/// if any, otherwise the network-specific default.
+///
+/// Panics on a mainnet override that differs from the baked-in default.
+fn resolve_pox_5_pause_admin(
+    is_mainnet: bool,
+    override_admin: Option<PrincipalData>,
+) -> PrincipalData {
+    let mainnet_principal = PrincipalData::parse(POX_5_PAUSE_ADMIN_MAINNET)
+        .expect("Invalid default mainnet pause admin principal");
+    if let Some(principal) = override_admin {
+        if is_mainnet && principal != mainnet_principal {
+            panic!("FATAL: attempted to override PoX-5 pause admin in mainnet, which is disallowed")
+        }
+        principal
+    } else if is_mainnet {
+        mainnet_principal
+    } else {
+        PrincipalData::parse(POX_5_PAUSE_ADMIN_TESTNET)
+            .expect("Invalid default testnet pause admin principal")
+    }
+}
+
+pub fn pox_5_pause_admin(is_mainnet: bool) -> PrincipalData {
+    resolve_pox_5_pause_admin(is_mainnet, POX_5_PAUSE_ADMIN.read().unwrap().clone())
+}
 
 pub struct NakamotoSigners();
 
@@ -50,6 +239,12 @@ pub struct AggregateKeyVoteParams {
     pub reward_cycle: u64,
 }
 
+#[derive(Debug)]
+pub(crate) struct Pox5SignerSetOutput {
+    pub(crate) signer_set: Vec<NakamotoSignerEntry>,
+    pub(crate) pox_ustx_threshold: u128,
+}
+
 impl RawRewardSetEntry {
     pub fn from_pox_4_tuple(is_mainnet: bool, tuple: TupleData) -> Result<Self, ChainstateError> {
         let mut tuple_data = tuple.data_map;
@@ -61,9 +256,10 @@ impl RawRewardSetEntry {
         })?;
 
         let reward_address = PoxAddress::try_from_pox_tuple(is_mainnet, &pox_addr_tuple)
-            .ok_or_else(|| {
-                ChainstateError::Expects(format!("not a valid PoX address: {pox_addr_tuple}"))
-            })?;
+            .unwrap_or_else(|| {
+                warn!("Invalid PoX address supplied, replacing with burn address"; "pox_addr_tuple" => %pox_addr_tuple);
+                PoxAddress::standard_burn_address(is_mainnet)
+            });
 
         let total_ustx = tuple_data
             .remove("total-ustx")
@@ -77,7 +273,7 @@ impl RawRewardSetEntry {
                 ChainstateError::Expects(
                     "'total-ustx' in return value from (pox-4.get-reward-set-pox-address) is not a u128".into(),
                 )
-            })?.try_into().map_err(|_| ChainstateError::Expects("'total-ustx' value out of range for u64".into()))?;
+            })?;
 
         let stacker = tuple_data
             .remove("stacker")
@@ -137,8 +333,182 @@ impl RawRewardSetEntry {
     }
 }
 
+/// One (signer_key, amount_ustx) pair contributing to a cycle's signer set,
+/// as produced by walking pox-5's per-cycle signer-set linked list.
+#[derive(Debug, PartialEq, Eq, Hash, Clone)]
+pub struct RawPox5Entry {
+    pub(crate) amount_ustx: u128,
+    pub(crate) signer_key: [u8; SIGNERS_PK_LEN],
+}
+
+/// Walks the pox-5 per-cycle signer-set linked list, yielding one
+/// `RawPox5Entry` per registered signer for the cycle.
+pub struct StakeEntryIteratorPox5<'a, 'b, 'c> {
+    current_signer: Option<PrincipalData>,
+    pox_contract: QualifiedContractIdentifier,
+    clarity: &'a mut ClarityTransactionConnection<'b, 'c>,
+    reward_cycle_clar: Value,
+}
+
+#[derive(Debug)]
+pub enum PoxEntryParsingError {
+    /// Errors for which PoX set calculation should continue, but skip
+    ///  the offending entry.
+    Skip(String),
+    /// Errors for which PoX set calculation should abort.
+    Abort(String),
+}
+
+impl<'a, 'b, 'c> StakeEntryIteratorPox5<'a, 'b, 'c> {
+    fn fallible_next(&mut self) -> Result<Option<RawPox5Entry>, PoxEntryParsingError> {
+        let Some(cur_signer) = self.current_signer.take() else {
+            return Ok(None);
+        };
+
+        let lookup_signer = Value::Principal(cur_signer.clone());
+
+        // Advance the linked list before any per-entry lookups: a malformed
+        // entry skips this iteration but must not stall the iterator.
+        let next_signer = self
+            .clarity
+            .eval_method_read_only(
+                &self.pox_contract,
+                "get-signer-set-next-item-for-cycle",
+                vec![lookup_signer.clone(), self.reward_cycle_clar.clone()],
+            )
+            .map_err(|e| PoxEntryParsingError::Abort(e.to_string()))?
+            .expect_optional()
+            .map_err(|_| {
+                PoxEntryParsingError::Abort(
+                    "get-signer-set-next-item-for-cycle did not return optional".into(),
+                )
+            })?
+            .map(|entry| entry.expect_principal())
+            .transpose()
+            .map_err(|_| {
+                PoxEntryParsingError::Abort(
+                    "get-signer-set-next-item-for-cycle did not return principal".into(),
+                )
+            })?;
+        self.current_signer = next_signer;
+
+        // Errors below this point skip the entry but continue iteration.
+
+        // Signer key from `signers` map (written by register-signer).
+        let signer_key_buff = self
+            .clarity
+            .eval_method_read_only(
+                &self.pox_contract,
+                "get-signer-info",
+                vec![lookup_signer.clone()],
+            )
+            .map_err(|e| PoxEntryParsingError::Skip(e.to_string()))?
+            .expect_optional()
+            .map_err(|_| {
+                PoxEntryParsingError::Skip("get-signer-info did not return optional".into())
+            })?
+            .ok_or_else(|| {
+                PoxEntryParsingError::Skip(format!(
+                    "get-signer-info did not return Some: {cur_signer}"
+                ))
+            })?
+            .expect_buff(SIGNERS_PK_LEN)
+            .map_err(|_| {
+                PoxEntryParsingError::Skip(format!(
+                    "get-signer-info value should be (buff {SIGNERS_PK_LEN})"
+                ))
+            })?;
+        let signer_key: [u8; SIGNERS_PK_LEN] =
+            signer_key_buff.try_into().unwrap_or([0; SIGNERS_PK_LEN]);
+
+        // Total uSTX delegated to this signer for this cycle (sums STX-only
+        // staking and protocol bonds; see signer-delegated-per-cycle).
+        let amount_ustx = self
+            .clarity
+            .eval_method_read_only(
+                &self.pox_contract,
+                "get-amount-delegated-for-signer",
+                vec![lookup_signer, self.reward_cycle_clar.clone()],
+            )
+            .map_err(|e| PoxEntryParsingError::Skip(e.to_string()))?
+            .expect_u128()
+            .map_err(|_| {
+                PoxEntryParsingError::Skip(
+                    "get-amount-delegated-for-signer did not return uint".into(),
+                )
+            })?;
+
+        // Signers only enter the linked list after crossing SIGNER_SET_MIN_USTX,
+        // so a zero here means contract state is inconsistent. Skip defensively.
+        if amount_ustx == 0 {
+            return Err(PoxEntryParsingError::Skip(format!(
+                "signer {cur_signer} is in cycle linked list with zero delegated uSTX"
+            )));
+        }
+
+        Ok(Some(RawPox5Entry {
+            amount_ustx,
+            signer_key,
+        }))
+    }
+}
+
+impl<'a, 'b, 'c> Iterator for StakeEntryIteratorPox5<'a, 'b, 'c> {
+    type Item = Result<RawPox5Entry, PoxEntryParsingError>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        StakeEntryIteratorPox5::fallible_next(self).transpose()
+    }
+}
+
 impl NakamotoSigners {
-    fn get_reward_slots(
+    fn pox_5_stake_entries<'a, 'b, 'c>(
+        clarity: &'a mut ClarityTransactionConnection<'b, 'c>,
+        reward_cycle: u64,
+        pox_contract: &str,
+    ) -> Result<StakeEntryIteratorPox5<'a, 'b, 'c>, ChainstateError> {
+        let is_mainnet = clarity.is_mainnet();
+        if let Some(pox_version) = PoxVersions::lookup_by_name(pox_contract) {
+            if pox_version < PoxVersions::Pox5 {
+                error!("Invoked PoX-5 reward-set fetch on lower than pox-5 contract");
+                return Err(ChainstateError::DefunctPoxContract);
+            }
+        } else {
+            error!("Invalid pox contract");
+            return Err(ChainstateError::DefunctPoxContract);
+        }
+
+        let pox_contract = boot_code_id(pox_contract, is_mainnet);
+        let reward_cycle_clar = Value::UInt(reward_cycle.into());
+        let current_signer = clarity
+            .eval_method_read_only(
+                &pox_contract,
+                "get-signer-set-first-item-for-cycle",
+                vec![reward_cycle_clar.clone()],
+            )?
+            .expect_optional()
+            .map_err(|_| {
+                ChainstateError::Expects(
+                    "get-signer-set-first-item-for-cycle did not return optional".into(),
+                )
+            })?
+            .map(|value| value.expect_principal())
+            .transpose()
+            .map_err(|_| {
+                ChainstateError::Expects(
+                    "get-signer-set-first-item-for-cycle did not return optional principal".into(),
+                )
+            })?;
+
+        Ok(StakeEntryIteratorPox5 {
+            current_signer,
+            pox_contract,
+            clarity,
+            reward_cycle_clar,
+        })
+    }
+
+    fn get_pox_4_reward_slots(
         clarity: &mut ClarityTransactionConnection,
         reward_cycle: u64,
         pox_contract: &str,
@@ -148,18 +518,17 @@ impl NakamotoSigners {
             PoxVersions::lookup_by_name(pox_contract),
             Some(PoxVersions::Pox4)
         ) {
-            error!("Invoked Nakamoto reward-set fetch on non-pox-4 contract");
+            error!("Invoked Nakamoto PoX-4 reward-set fetch on non-pox-4 contract");
             return Err(ChainstateError::DefunctPoxContract);
         }
+
         let pox_contract = &boot_code_id(pox_contract, is_mainnet);
 
         let list_length = clarity
             .eval_method_read_only(
                 pox_contract,
                 "get-reward-set-size",
-                &[SymbolicExpression::atom_value(Value::UInt(
-                    reward_cycle.into(),
-                ))],
+                vec![Value::UInt(reward_cycle.into())],
             )?
             .expect_u128()
             .map_err(|_| {
@@ -172,9 +541,9 @@ impl NakamotoSigners {
                 .eval_method_read_only(
                     pox_contract,
                     "get-reward-set-pox-address",
-                    &[
-                        SymbolicExpression::atom_value(Value::UInt(reward_cycle.into())),
-                        SymbolicExpression::atom_value(Value::UInt(index)),
+                    vec![
+                        Value::UInt(reward_cycle.into()),
+                        Value::UInt(index),
                     ],
                 )?
                 .expect_optional().map_err(|_| {
@@ -188,54 +557,36 @@ impl NakamotoSigners {
                 })?;
 
             let entry = RawRewardSetEntry::from_pox_4_tuple(is_mainnet, tuple)?;
-
             slots.push(entry)
         }
 
         Ok(slots)
     }
 
-    /// Compute the reward set for the next reward cycle, store it, and write it to the .signers
-    /// contract.  `reward_cycle` is the _current_ reward cycle.
-    pub fn handle_signer_stackerdb_update(
+    fn update_signers(
         clarity: &mut ClarityTransactionConnection,
-        pox_constants: &PoxConstants,
         reward_cycle: u64,
-        pox_contract: &str,
+        signers: &[NakamotoSignerEntry],
+        signers_contract: &QualifiedContractIdentifier,
+        has_participation: bool,
         coinbase_height: u64,
-    ) -> Result<SignerCalculation, ChainstateError> {
-        let is_mainnet = clarity.is_mainnet();
+        is_mainnet: bool,
+    ) -> Result<Vec<StacksTransactionEvent>, ChainstateError> {
         let sender_addr = PrincipalData::from(boot::boot_code_addr(is_mainnet));
-        let signers_contract = &boot_code_id(SIGNERS_NAME, is_mainnet);
-
-        let liquid_ustx = clarity.with_clarity_db_readonly(|db| db.get_total_liquid_ustx())?;
-        let reward_slots = Self::get_reward_slots(clarity, reward_cycle, pox_contract)?;
-        let (threshold, participation) = StacksChainState::get_reward_threshold_and_participation(
-            pox_constants,
-            &reward_slots[..],
-            liquid_ustx,
-        );
-        let reward_set =
-            StacksChainState::make_reward_set(threshold, reward_slots, StacksEpochId::Epoch30);
-
-        test_debug!("Reward set for cycle {}: {:?}", &reward_cycle, &reward_set);
-        let stackerdb_list = if participation == 0 {
+        let stackerdb_list = if !has_participation {
             vec![]
         } else {
-            reward_set
-                .signers
-                .as_ref()
-                .ok_or(ChainstateError::PoxNoRewardCycle)?
+            signers
                 .iter()
                 .map(|signer| {
                     let signer_hash = Hash160::from_data(&signer.signing_key);
                     let signing_address = StacksAddress::p2pkh_from_hash(is_mainnet, signer_hash);
                     let tuple_data = TupleData::from_data(vec![
                         (
-                            "signer".into(),
+                            ClarityName::from_literal("signer"),
                             Value::Principal(PrincipalData::from(signing_address)),
                         ),
-                        ("num-slots".into(), Value::UInt(1)),
+                        (ClarityName::from_literal("num-slots"), Value::UInt(1)),
                     ])
                     .map_err(|e| {
                         ChainstateError::Expects(format!(
@@ -247,23 +598,23 @@ impl NakamotoSigners {
                 .collect::<Result<Vec<_>, _>>()?
         };
 
-        let signers_list = if participation == 0 {
+        let signers_list = if !has_participation {
             vec![]
         } else {
-            reward_set
-                .signers
-                .as_ref()
-                .ok_or(ChainstateError::PoxNoRewardCycle)?
+            signers
                 .iter()
                 .map(|signer| {
                     let signer_hash = Hash160::from_data(&signer.signing_key);
                     let signing_address = StacksAddress::p2pkh_from_hash(is_mainnet, signer_hash);
                     let tuple = TupleData::from_data(vec![
                         (
-                            "signer".into(),
+                            ClarityName::from_literal("signer"),
                             Value::Principal(PrincipalData::from(signing_address)),
                         ),
-                        ("weight".into(), Value::UInt(signer.weight.into())),
+                        (
+                            ClarityName::from_literal("weight"),
+                            Value::UInt(signer.weight.into()),
+                        ),
                     ])
                     .map_err(|e| {
                         ChainstateError::Expects(format!(
@@ -282,42 +633,38 @@ impl NakamotoSigners {
             )));
         }
 
-        let set_stackerdb_args = [
-            SymbolicExpression::atom_value(Value::cons_list_unsanitized(stackerdb_list).map_err(
-                |e| {
-                    ChainstateError::Expects(format!(
-                        "Failed to create cons list for stackerdb arg: {e}"
-                    ))
-                },
-            )?),
-            SymbolicExpression::atom_value(Value::UInt(reward_cycle.into())),
-            SymbolicExpression::atom_value(Value::UInt(coinbase_height.into())),
+        let set_stackerdb_args = vec![
+            Value::cons_list_unsanitized(stackerdb_list).map_err(|e| {
+                ChainstateError::Expects(format!(
+                    "Failed to create cons list for stackerdb arg: {e}"
+                ))
+            })?,
+            Value::UInt(reward_cycle.into()),
+            Value::UInt(coinbase_height.into()),
         ];
 
-        let set_signers_args = [
-            SymbolicExpression::atom_value(Value::UInt(reward_cycle.into())),
-            SymbolicExpression::atom_value(Value::cons_list_unsanitized(signers_list).map_err(
-                |e| {
-                    ChainstateError::Expects(format!(
-                        "Failed to create cons list for signers arg: {e}"
-                    ))
-                },
-            )?),
+        let set_signers_args = vec![
+            Value::UInt(reward_cycle.into()),
+            Value::cons_list_unsanitized(signers_list).map_err(|e| {
+                ChainstateError::Expects(format!("Failed to create cons list for signers arg: {e}"))
+            })?,
         ];
 
         let (value, _, events, _) = clarity.with_abort_callback(
             |vm_env| {
-                vm_env.execute_in_env(sender_addr.clone(), None, None, |env| {
-                    env.execute_contract_allow_private(
+                vm_env.execute_in_env(sender_addr.clone(), None, None, |exec_state, invoke_ctx| {
+                    exec_state.execute_contract_allow_private(
+                        invoke_ctx,
                         signers_contract,
                         "stackerdb-set-signer-slots",
-                        &set_stackerdb_args,
+                        set_stackerdb_args,
                         false,
                     )?;
-                    env.execute_contract_allow_private(
+                    exec_state.execute_contract_allow_private(
+                        invoke_ctx,
                         signers_contract,
                         "set-signers",
-                        &set_signers_args,
+                        set_signers_args,
                         false,
                     )
                 })
@@ -338,7 +685,247 @@ impl NakamotoSigners {
             }
         }
 
+        Ok(events)
+    }
+
+    /// For PoX-4, compute the reward set for the next reward cycle,
+    /// store it, and write it to the .signers contract.
+    ///
+    /// * `reward_cycle` is the reward cycle for the calculation (i.e., the next cycle).
+    fn pox_4_compute_and_update_signers(
+        clarity: &mut ClarityTransactionConnection,
+        pox_constants: &PoxConstants,
+        reward_cycle: u64,
+        pox_contract: &str,
+        coinbase_height: u64,
+    ) -> Result<SignerCalculation, ChainstateError> {
+        let is_mainnet = clarity.is_mainnet();
+        let signers_contract = &boot_code_id(SIGNERS_NAME, is_mainnet);
+
+        let liquid_ustx = clarity.with_clarity_db_readonly(|db| db.get_total_liquid_ustx())?;
+        let reward_slots = Self::get_pox_4_reward_slots(clarity, reward_cycle, pox_contract)?;
+        let (threshold, participation) = StacksChainState::get_reward_threshold_and_participation(
+            pox_constants,
+            &reward_slots[..],
+            liquid_ustx,
+        );
+
+        let reward_set =
+            StacksChainState::make_reward_set(threshold, reward_slots, StacksEpochId::Epoch30);
+
+        test_debug!("Reward set for cycle {}: {:?}", &reward_cycle, &reward_set);
+
+        let empty_signers = vec![];
+        let events = Self::update_signers(
+            clarity,
+            reward_cycle,
+            reward_set.signers().unwrap_or(&empty_signers),
+            signers_contract,
+            participation > 0,
+            coinbase_height,
+            is_mainnet,
+        )?;
+
         Ok(SignerCalculation { events, reward_set })
+    }
+
+    /// For PoX-5, compute the reward set for the next reward cycle,
+    /// store it, and write it to the .signers contract.
+    ///
+    /// * `reward_cycle` is the reward cycle for the calculation (i.e., the next cycle).
+    fn pox_5_compute_and_update_signers(
+        clarity: &mut ClarityTransactionConnection,
+        pox_constants: &PoxConstants,
+        reward_cycle: u64,
+        pox_contract: &str,
+        coinbase_height: u64,
+        _current_calculation_btc_height: u32,
+        _current_epoch: &StacksEpochId,
+    ) -> Result<SignerCalculation, ChainstateError> {
+        let is_mainnet = clarity.is_mainnet();
+        let signers_contract = &boot_code_id(SIGNERS_NAME, is_mainnet);
+
+        // Build the `(signer_key, amount_ustx)` pair stream
+        let mut entries = Self::pox_5_stake_entries(clarity, reward_cycle, pox_contract)?;
+        let Pox5SignerSetOutput {
+            signer_set,
+            pox_ustx_threshold,
+        } = Self::pox_5_make_signer_set(&mut entries, pox_constants)?;
+
+        if signer_set.is_empty() {
+            error!("Fatal network condition: reward set computed with an empty signer set. Cannot continue producing blocks");
+            return Err(ChainstateError::PoxNoRewardCycle);
+        }
+
+        let events = Self::update_signers(
+            clarity,
+            reward_cycle,
+            &signer_set,
+            signers_contract,
+            !signer_set.is_empty(),
+            coinbase_height,
+            is_mainnet,
+        )?;
+
+        let sbtc_registry_contract_id = pox_5_sbtc_registry_contract(is_mainnet);
+
+        let pubkey_buff = clarity
+            .eval_method_read_only(
+                &sbtc_registry_contract_id,
+                "get-current-aggregate-pubkey",
+                vec![],
+            )?
+            .expect_buff(33)
+            .map_err(|_| {
+                ChainstateError::Expects(
+                    "get-current-aggregate-pubkey did not return a buffer of <= 33 bytes".into(),
+                )
+            })?;
+        if pubkey_buff.len() != 33 {
+            return Err(ChainstateError::Expects(format!(
+                    "get-current-aggregate-pubkey returned {} bytes; expected exactly 33 (compressed secp256k1)",
+                    pubkey_buff.len()
+                )));
+        }
+        let pubkey_array: [u8; 33] = pubkey_buff.try_into().expect("length checked above");
+
+        let sbtc_recipient = PrincipalData::Contract(boot_code_id(POX_5_NAME, is_mainnet));
+        let output_key = sbtc_pox5_deposit_taproot_output_key(
+            &pubkey_array,
+            &sbtc_recipient,
+            POX_5_SBTC_DEPOSIT_MAX_FEE_SATS,
+        )?;
+
+        let sbtc_address = PoxAddress::Addr32(is_mainnet, PoxAddressType32::P2TR, output_key);
+
+        // if we want to "write-back" any state to PoX-5 (e.g., computed weights)
+        //  we should do it here
+
+        Ok(SignerCalculation {
+            reward_set: RewardSet::Waterfall(WaterfallCycleSet {
+                sbtc_address,
+                signers: signer_set,
+                pox_ustx_threshold,
+            }),
+            events,
+        })
+    }
+
+    pub(crate) fn pox_5_make_signer_set<I>(
+        entries: &mut I,
+        pox_constants: &PoxConstants,
+    ) -> Result<Pox5SignerSetOutput, ChainstateError>
+    where
+        I: Iterator<Item = Result<RawPox5Entry, PoxEntryParsingError>>,
+    {
+        let mut signer_set = HashMap::new();
+        let mut total_ustx_locked = 0u128;
+        for entry_res in entries {
+            let entry = match entry_res {
+                Ok(x) => x,
+                Err(PoxEntryParsingError::Skip(err_str)) => {
+                    warn!(
+                        "Error while iterating PoX-5 entries, impacting a single entry. Dropping entry from signer set";
+                        "error" => err_str
+                    );
+                    continue;
+                }
+                Err(PoxEntryParsingError::Abort(err_str)) => {
+                    error!(
+                        "Abort-triggering error while iterating PoX-5 entries";
+                        "error" => err_str
+                    );
+                    return Err(ChainstateError::PoxNoRewardCycle);
+                }
+            };
+
+            total_ustx_locked += entry.amount_ustx;
+
+            signer_set
+                .entry(entry.signer_key)
+                .and_modify(|existing_entry| *existing_entry += entry.amount_ustx)
+                .or_insert_with(|| entry.amount_ustx);
+        }
+
+        // Allocate `reward_slots` weight across signers in proportion to stake using the
+        // a largest-remainder method:
+        //
+        // The threshold is `ceil(total / reward_slots)`.
+        //
+        // Flooring each signer's `stacked / threshold` assigns a base weight where the sum is `<= reward_slots`
+        // (the ceil makes `total/threshold <= reward_slots`).
+        //
+        // This leaves some unassigned ("leftover") slots, which are handed out one-per-signer
+        //  in descending fractional-remainder order (ties broken by pubkey-sort order).
+        //
+        // This avoids degenerate modes of the floor-and-drop scheme: when more than
+        // `reward_slots` distinct signers hold roughly equal stake, every base weight floors to
+        // 0, and without the leftover round the entire signer set could be dropped.
+        let reward_slots = u128::from(pox_constants.reward_slots());
+        let threshold = std::cmp::max(1, total_ustx_locked.div_ceil(reward_slots));
+
+        struct Apportionment {
+            signing_key: [u8; SIGNERS_PK_LEN],
+            stacked_amt: u128,
+            weight: u128,
+            remainder: u128,
+        }
+
+        let mut apportioned: Vec<Apportionment> = signer_set
+            .into_iter()
+            .map(|(signing_key, stacked_amt)| Apportionment {
+                signing_key,
+                stacked_amt,
+                weight: stacked_amt / threshold,
+                remainder: stacked_amt % threshold,
+            })
+            .collect();
+
+        // Guaranteed `<= reward_slots` by the ceil quota, so leftover does not underflow.
+        let assigned: u128 = apportioned.iter().map(|entry| entry.weight).sum();
+        let mut leftover = reward_slots.saturating_sub(assigned);
+
+        if leftover > 0 {
+            // Largest fractional remainder wins the next slot; ties broken by signing_key
+            // ascending so the apportionment is deterministic (and matches the final sort).
+            apportioned.sort_by(|a, b| {
+                b.remainder
+                    .cmp(&a.remainder)
+                    .then_with(|| a.signing_key.cmp(&b.signing_key))
+            });
+            for entry in apportioned.iter_mut() {
+                if leftover == 0 {
+                    break;
+                }
+                entry.weight += 1;
+                leftover -= 1;
+            }
+        }
+
+        let mut signer_set: Vec<_> = apportioned
+            .into_iter()
+            .filter_map(|entry| {
+                if entry.weight == 0 {
+                    return None;
+                }
+                let weight = u32::try_from(entry.weight)
+                    .expect("CORRUPTION: Stacker claimed > u32::max() reward slots");
+                Some(NakamotoSignerEntry {
+                    signing_key: entry.signing_key,
+                    stacked_amt: entry.stacked_amt,
+                    weight,
+                })
+            })
+            .collect();
+
+        // finally, we must sort the signer set: the signer participation bit vector depends
+        //  on a consensus-critical ordering of the signer set.
+        signer_set.sort_by_key(|entry| entry.signing_key);
+
+        Ok(Pox5SignerSetOutput {
+            signer_set,
+            pox_ustx_threshold: threshold,
+        })
     }
 
     /// If this block is mined in the prepare phase, based on its tenure's `burn_tip_height`.  If
@@ -350,7 +937,7 @@ impl NakamotoSigners {
         clarity_tx: &mut ClarityTx,
         first_block_height: u64,
         pox_constants: &PoxConstants,
-        burn_tip_height: u64,
+        burn_tip_height: u32,
         coinbase_height: u64,
     ) -> Result<Option<SignerCalculation>, ChainstateError> {
         let current_epoch = clarity_tx.get_epoch();
@@ -358,27 +945,37 @@ impl NakamotoSigners {
             // before Epoch-2.5, no need for special handling
             return Ok(None);
         }
+
         // now, determine if we are in a prepare phase, and we are the first
         //  block in this prepare phase in our fork
-        if !pox_constants.is_in_prepare_phase(first_block_height, burn_tip_height) {
+        if !pox_constants.is_in_prepare_phase(first_block_height, burn_tip_height.into()) {
             // if we're not in a prepare phase, don't need to do anything
             return Ok(None);
         }
 
         let Some(cycle_of_prepare_phase) =
-            pox_constants.reward_cycle_of_prepare_phase(first_block_height, burn_tip_height)
+            pox_constants.reward_cycle_of_prepare_phase(first_block_height, burn_tip_height.into())
         else {
             // if we're not in a prepare phase, don't need to do anything
             return Ok(None);
         };
 
-        let active_pox_contract = pox_constants.active_pox_contract(burn_tip_height);
-        if !matches!(
-            PoxVersions::lookup_by_name(active_pox_contract),
-            Some(PoxVersions::Pox4)
-        ) {
+        // Dispatch must be cycle-stable: every block of this prepare phase
+        // must agree on which pox contract supplies cycle_of_prepare_phase's
+        // signer set, regardless of which block first triggers the update.
+        // Tip-keyed `active_pox_contract` is wrong here -- it can flip
+        // mid-prepare-phase if pox_5_activation_height falls inside it.
+        let active_pox_contract =
+            pox_constants.active_pox_contract_for_cycle(first_block_height, cycle_of_prepare_phase);
+
+        let Some(current_pox_version) = PoxVersions::lookup_by_name(active_pox_contract) else {
+            debug!("Active PoX contract is not a recognized version, skipping .signers updates");
+            return Ok(None);
+        };
+
+        if current_pox_version < PoxVersions::Pox4 {
             debug!(
-                "Active PoX contract is not PoX-4, skipping .signers updates until PoX-4 is active"
+                "Active PoX contract is lower than PoX-4, skipping .signers updates until PoX-4 is active"
             );
             return Ok(None);
         }
@@ -386,7 +983,7 @@ impl NakamotoSigners {
         let signers_contract = &boot_code_id(SIGNERS_NAME, clarity_tx.config.mainnet);
 
         // are we the first block in the prepare phase in our fork?
-        let needs_update: Result<_, ChainstateError> = clarity_tx
+        let needs_update_result: Result<_, ChainstateError> = clarity_tx
             .connection()
             .with_clarity_db_readonly(|clarity_db| {
                 if !clarity_db.has_contract(signers_contract) {
@@ -405,10 +1002,13 @@ impl NakamotoSigners {
                 })?;
                 // if the cycle_number is less than `cycle_of_prepare_phase`, we need to update
                 //  the .signers state.
-                Ok(cycle_number < u128::from(cycle_of_prepare_phase))
+                let needs_update = cycle_number < u128::from(cycle_of_prepare_phase);
+                Ok(needs_update)
             });
 
-        if !needs_update? {
+        let needs_update = needs_update_result?;
+
+        if !needs_update {
             debug!("Current cycle has already been setup in .signers or .signers is not initialized yet");
             return Ok(None);
         }
@@ -423,14 +1023,28 @@ impl NakamotoSigners {
 
         clarity_tx
             .connection()
-            .as_free_transaction(|clarity| {
-                Self::handle_signer_stackerdb_update(
+            .as_free_transaction(|clarity| match current_pox_version {
+                PoxVersions::Pox1 | PoxVersions::Pox2 | PoxVersions::Pox3 => {
+                    Err(ChainstateError::Expects(
+                        "Unexpected Pre-Nakamoto PoX version when computing signer set".into(),
+                    ))
+                }
+                PoxVersions::Pox4 => Self::pox_4_compute_and_update_signers(
                     clarity,
                     pox_constants,
                     cycle_of_prepare_phase,
                     active_pox_contract,
                     coinbase_height,
-                )
+                ),
+                PoxVersions::Pox5 => Self::pox_5_compute_and_update_signers(
+                    clarity,
+                    pox_constants,
+                    cycle_of_prepare_phase,
+                    active_pox_contract,
+                    coinbase_height,
+                    burn_tip_height,
+                    &current_epoch,
+                ),
             })
             .map(Some)
     }
@@ -556,7 +1170,7 @@ impl NakamotoSigners {
         };
         if payload.contract_identifier()
             != boot_code_id(SIGNERS_VOTING_NAME, transaction.is_mainnet())
-            || payload.function_name != SIGNERS_VOTING_FUNCTION_NAME.into()
+            || payload.function_name != ClarityName::from_literal(SIGNERS_VOTING_FUNCTION_NAME)
         {
             // This is not a special cased transaction.
             return None;
@@ -603,5 +1217,73 @@ impl NakamotoSigners {
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod pox_5_admin_tests {
+    use super::*;
+
+    /// The non-mainnet resolvers return the configured override when set, and
+    /// fall back to the network default when unset.
+    #[test]
+    fn non_mainnet_resolution() {
+        let override_principal =
+            PrincipalData::parse("ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM").unwrap();
+        let testnet_bond = PrincipalData::parse(POX_5_BOND_ADMIN_TESTNET).unwrap();
+        let testnet_pause = PrincipalData::parse(POX_5_PAUSE_ADMIN_TESTNET).unwrap();
+
+        assert_eq!(
+            resolve_pox_5_bond_admin(false, Some(override_principal.clone())),
+            override_principal
+        );
+        assert_eq!(
+            resolve_pox_5_pause_admin(false, Some(override_principal.clone())),
+            override_principal
+        );
+
+        assert_eq!(resolve_pox_5_bond_admin(false, None), testnet_bond);
+        assert_eq!(resolve_pox_5_pause_admin(false, None), testnet_pause);
+    }
+
+    /// On mainnet, with no override set, the resolvers return the baked-in
+    /// mainnet default without panicking.
+    #[test]
+    fn mainnet_default_no_panic() {
+        let mainnet_bond = PrincipalData::parse(POX_5_BOND_ADMIN_MAINNET).unwrap();
+        let mainnet_pause = PrincipalData::parse(POX_5_PAUSE_ADMIN_MAINNET).unwrap();
+        assert_eq!(resolve_pox_5_bond_admin(true, None), mainnet_bond);
+        assert_eq!(resolve_pox_5_pause_admin(true, None), mainnet_pause);
+    }
+
+    /// On mainnet, an override that matches the mainnet default is harmless and
+    /// must not panic (it resolves to the same principal).
+    #[test]
+    fn mainnet_override_equal_to_default_ok() {
+        let mainnet_bond = PrincipalData::parse(POX_5_BOND_ADMIN_MAINNET).unwrap();
+        assert_eq!(
+            resolve_pox_5_bond_admin(true, Some(mainnet_bond.clone())),
+            mainnet_bond
+        );
+    }
+
+    /// On mainnet, a bond-admin override that differs from the default is a
+    /// misconfiguration the config layer already rejects; the resolver panics
+    /// as a defense-in-depth backstop.
+    #[test]
+    #[should_panic(expected = "attempted to override PoX-5 bond admin in mainnet")]
+    fn mainnet_bond_admin_override_panics() {
+        let override_principal =
+            PrincipalData::parse("ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM").unwrap();
+        let _ = resolve_pox_5_bond_admin(true, Some(override_principal));
+    }
+
+    /// As above, for the pause-admin resolver.
+    #[test]
+    #[should_panic(expected = "attempted to override PoX-5 pause admin in mainnet")]
+    fn mainnet_pause_admin_override_panics() {
+        let override_principal =
+            PrincipalData::parse("ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM").unwrap();
+        let _ = resolve_pox_5_pause_admin(true, Some(override_principal));
     }
 }

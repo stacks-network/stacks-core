@@ -14,9 +14,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use clarity::vm::analysis::contract_interface_builder::{
-    build_contract_interface, ContractInterface,
-};
+use clarity::vm::analysis::contract_interface_builder::ContractInterface;
 use clarity::vm::costs::ExecutionCost;
 use clarity::vm::types::Value;
 use serde_json::json;
@@ -33,8 +31,8 @@ use stacks::chainstate::stacks::boot::{
 };
 use stacks::chainstate::stacks::db::{StacksBlockHeaderTypes, StacksHeaderInfo};
 use stacks::chainstate::stacks::events::{
-    BurnBlockEvent, BurnBlockEventRewardRecipient, StacksBlockEventData, StacksTransactionEvent,
-    StacksTransactionReceipt, TransactionOrigin,
+    BoundedErrorString, BurnBlockEvent, BurnBlockEventRewardRecipient, StacksBlockEventData,
+    StacksTransactionEvent, StacksTransactionReceipt, TransactionOrigin,
 };
 use stacks::chainstate::stacks::miner::TransactionEvent;
 use stacks::chainstate::stacks::{StacksTransaction, TransactionPayload};
@@ -147,14 +145,29 @@ impl RewardSetEventPayload {
         }
     }
     pub fn from_reward_set(reward_set: &RewardSet) -> Self {
-        Self {
-            rewarded_addresses: reward_set.rewarded_addresses.clone(),
-            start_cycle_state: reward_set.start_cycle_state.clone(),
-            signers: reward_set
-                .signers
-                .as_ref()
-                .map(|signers| signers.iter().map(Self::signer_entry_to_payload).collect()),
-            pox_ustx_threshold: reward_set.pox_ustx_threshold,
+        match reward_set {
+            RewardSet::V0(v0) => Self {
+                rewarded_addresses: v0.rewarded_addresses.clone(),
+                start_cycle_state: v0.start_cycle_state.clone(),
+                signers: v0
+                    .signers
+                    .as_ref()
+                    .map(|signers| signers.iter().map(Self::signer_entry_to_payload).collect()),
+                pox_ustx_threshold: v0.pox_ustx_threshold,
+            },
+            RewardSet::Waterfall(wf) => Self {
+                rewarded_addresses: vec![],
+                start_cycle_state: PoxStartCycleInfo {
+                    missed_reward_slots: vec![],
+                },
+                signers: Some(
+                    wf.signers
+                        .iter()
+                        .map(Self::signer_entry_to_payload)
+                        .collect(),
+                ),
+                pox_ustx_threshold: None,
+            },
         }
     }
 }
@@ -193,7 +206,14 @@ pub struct TransactionEventPayload<'a> {
     /// The microblock parent hash
     pub microblock_parent_hash: Option<BlockHeaderHash>,
     /// Error information if one occurred in the Clarity VM
-    pub vm_error: Option<String>,
+    pub vm_error: Option<BoundedErrorString>,
+    /// Set when the transaction was marked problematic by the block's
+    /// `problematic_txs` list (Epoch 4.0+). When `Some(category)`, the
+    /// transaction's payload was NOT executed but the fee was still debited
+    /// and the origin (and sponsor) nonces were still bumped. `status` will be
+    /// `"problematic_skipped"`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub problematic_skipped: Option<u8>,
 }
 
 pub fn make_new_mempool_txs_payload(transactions: Vec<StacksTransaction>) -> serde_json::Value {
@@ -237,34 +257,40 @@ pub fn make_new_burn_block_payload(
 const STATUS_RESP_TRUE: &str = "success";
 const STATUS_RESP_NOT_COMMITTED: &str = "abort_by_response";
 const STATUS_RESP_POST_CONDITION: &str = "abort_by_post_condition";
+const STATUS_RESP_PROBLEMATIC_SKIPPED: &str = "problematic_skipped";
 
 /// Returns transaction event payload to send for new block or microblock event
 pub fn make_new_block_txs_payload(
     receipt: &StacksTransactionReceipt,
     tx_index: u32,
+    include_contract_interface: bool,
 ) -> TransactionEventPayload<'_> {
     let tx = &receipt.transaction;
 
-    let status = match (receipt.post_condition_aborted, &receipt.result) {
-        (false, Value::Response(response_data)) => {
-            if response_data.committed {
+    let status = if receipt.problematic_skipped.is_some() {
+        STATUS_RESP_PROBLEMATIC_SKIPPED
+    } else {
+        match (receipt.post_condition_aborted, &receipt.result) {
+            (false, Value::Response(response_data)) => {
+                if response_data.committed {
+                    STATUS_RESP_TRUE
+                } else {
+                    STATUS_RESP_NOT_COMMITTED
+                }
+            }
+            (true, Value::Response(_)) => STATUS_RESP_POST_CONDITION,
+            _ => {
+                if !matches!(
+                    tx,
+                    TransactionOrigin::Stacks(StacksTransaction {
+                        payload: TransactionPayload::PoisonMicroblock(_, _),
+                        ..
+                    })
+                ) {
+                    unreachable!("Unexpected transaction result type");
+                }
                 STATUS_RESP_TRUE
-            } else {
-                STATUS_RESP_NOT_COMMITTED
             }
-        }
-        (true, Value::Response(_)) => STATUS_RESP_POST_CONDITION,
-        _ => {
-            if !matches!(
-                tx,
-                TransactionOrigin::Stacks(StacksTransaction {
-                    payload: TransactionPayload::PoisonMicroblock(_, _),
-                    ..
-                })
-            ) {
-                unreachable!("Unexpected transaction result type");
-            }
-            STATUS_RESP_TRUE
         }
     };
 
@@ -283,10 +309,11 @@ pub fn make_new_block_txs_payload(
         status,
         raw_result: receipt.result.clone(),
         raw_tx,
-        contract_interface: receipt.contract_analysis.as_ref().map(|analysis| {
-            build_contract_interface(analysis)
-                .expect("FATAL: failed to serialize contract publish receipt")
-        }),
+        contract_interface: if include_contract_interface {
+            receipt.contract_interface.clone()
+        } else {
+            None
+        },
         burnchain_op,
         execution_cost: receipt.execution_cost.clone(),
         microblock_sequence: receipt.microblock_header.as_ref().map(|x| x.sequence),
@@ -296,6 +323,7 @@ pub fn make_new_block_txs_payload(
             .as_ref()
             .map(|x| x.prev_block.clone()),
         vm_error: receipt.vm_error.clone(),
+        problematic_skipped: receipt.problematic_skipped,
     }
 }
 
@@ -316,7 +344,7 @@ pub fn make_new_attachment_payload(
 
 #[allow(clippy::too_many_arguments)]
 pub fn make_new_block_processed_payload(
-    filtered_events: Vec<(usize, &(bool, Txid, &StacksTransactionEvent))>,
+    filtered_events: Vec<(usize, &(Txid, &StacksTransactionEvent))>,
     block: &StacksBlockEventData,
     metadata: &StacksHeaderInfo,
     receipts: &[StacksTransactionReceipt],
@@ -333,14 +361,15 @@ pub fn make_new_block_processed_payload(
     signer_bitvec_opt: &Option<BitVec<4000>>,
     block_timestamp: Option<u64>,
     coinbase_height: u64,
+    include_contract_interface: bool,
 ) -> serde_json::Value {
     // Serialize events to JSON
     let serialized_events: Vec<serde_json::Value> = filtered_events
         .iter()
-        .map(|(event_index, (committed, txid, event))| {
-            event
-                .json_serialize(*event_index, txid, *committed)
-                .unwrap()
+        .map(|(event_index, (txid, event))| {
+            // Since we no longer send events for post condition aborted transactions,
+            // all events we serialize here are committed events, so we can set the `committed` field to `true`.
+            event.json_serialize(*event_index, txid, true).unwrap()
         })
         .collect();
 
@@ -351,6 +380,7 @@ pub fn make_new_block_processed_payload(
             tx_index
                 .try_into()
                 .expect("BUG: more receipts than U32::MAX"),
+            include_contract_interface,
         );
         serialized_txs.push(payload);
     }
@@ -394,6 +424,7 @@ pub fn make_new_block_processed_payload(
         "pox_v1_unlock_height": pox_constants.v1_unlock_height,
         "pox_v2_unlock_height": pox_constants.v2_unlock_height,
         "pox_v3_unlock_height": pox_constants.v3_unlock_height,
+        "pox_v4_unlock_height": pox_constants.pox_5_activation_height,
         "signer_bitvec": signer_bitvec_value,
         "reward_set": reward_set_value,
         "cycle_number": cycle_number_value,

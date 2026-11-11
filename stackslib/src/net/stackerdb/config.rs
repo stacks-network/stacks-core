@@ -1,5 +1,5 @@
 // Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
-// Copyright (C) 2020-2023 Stacks Open Internet Foundation
+// Copyright (C) 2020-2026 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -64,13 +64,13 @@ const MAX_HINT_REPLICAS: u32 = 128;
 lazy_static! {
     pub static ref REQUIRED_FUNCTIONS: [(ClarityName, Vec<TypeSignature>, TypeSignature); 2] = [
         (
-            STACKERDB_SLOTS_FUNCTION.into(),
+            ClarityName::from_literal(STACKERDB_SLOTS_FUNCTION),
             vec![],
             TypeSignature::new_response(
                 ListTypeData::new_list(
                     TupleTypeSignature::try_from(vec![
-                        ("signer".into(), TypeSignature::PrincipalType),
-                        ("num-slots".into(), TypeSignature::UIntType)
+                        (ClarityName::from_literal("signer"), TypeSignature::PrincipalType),
+                        (ClarityName::from_literal("num-slots"), TypeSignature::UIntType)
                     ])
                     .expect("FATAL: failed to construct signer list type")
                     .into(),
@@ -82,23 +82,23 @@ lazy_static! {
             ).expect("FATAL: failed to construct response with signer slots"),
         ),
         (
-            STACKERDB_CONFIG_FUNCTION.into(),
+            ClarityName::from_literal(STACKERDB_CONFIG_FUNCTION),
             vec![],
             TypeSignature::new_response(
                 TypeSignature::TupleType(
                     TupleTypeSignature::try_from(vec![
-                        ("chunk-size".into(), TypeSignature::UIntType),
-                        ("write-freq".into(), TypeSignature::UIntType),
-                        ("max-writes".into(), TypeSignature::UIntType),
-                        ("max-neighbors".into(), TypeSignature::UIntType),
-                        ("hint-replicas".into(), ListTypeData::new_list(
+                        (ClarityName::from_literal("chunk-size"), TypeSignature::UIntType),
+                        (ClarityName::from_literal("write-freq"), TypeSignature::UIntType),
+                        (ClarityName::from_literal("max-writes"), TypeSignature::UIntType),
+                        (ClarityName::from_literal("max-neighbors"), TypeSignature::UIntType),
+                        (ClarityName::from_literal("hint-replicas"), ListTypeData::new_list(
                             TypeSignature::TupleType(
                                 TupleTypeSignature::try_from(vec![
-                                    ("addr".into(), ListTypeData::new_list(TypeSignature::UIntType, 16)
+                                    (ClarityName::from_literal("addr"), ListTypeData::new_list(TypeSignature::UIntType, 16)
                                         .expect("FATAL: invalid IP address list")
                                         .into()),
-                                    ("port".into(), TypeSignature::UIntType),
-                                    ("public-key-hash".into(),
+                                    (ClarityName::from_literal("port"), TypeSignature::UIntType),
+                                    (ClarityName::from_literal("public-key-hash"),
                                         // can't use BUFF_20 here because it's also in a
                                         // lazy_static! block
                                         TypeSignature::SequenceType(SequenceSubtype::BufferType(BufferLength::try_from(20u32).expect("FATAL: could not create (buff 20)"))))

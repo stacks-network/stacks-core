@@ -1,3 +1,19 @@
+// Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
+// Copyright (C) 2020-2026 Stacks Open Internet Foundation
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program.  If not, see <http://www.gnu.org/licenses/>.
+
 #[cfg(test)]
 use std::sync::atomic::AtomicU64;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -29,22 +45,19 @@ use stacks_common::types::PublicKey;
 use stacks_common::util::hash::Hash160;
 use stx_genesis::GenesisData;
 
-use super::RunLoopCallbacks;
-use crate::burnchains::{make_bitcoin_indexer, Error};
+use crate::burnchains::Error;
+use crate::genesis::{
+    get_account_balances, get_account_lockups, get_names, get_namespaces,
+    use_test_genesis_chainstate,
+};
 use crate::globals::NeonGlobals as Globals;
 use crate::monitoring::{start_serving_monitoring_metrics, MonitoringError};
 use crate::neon_node::{
     LeaderKeyRegistrationState, StacksNode, BLOCK_PROCESSOR_STACK_SIZE, RELAYER_MAX_BUFFER,
 };
-use crate::node::{
-    get_account_balances, get_account_lockups, get_names, get_namespaces,
-    use_test_genesis_chainstate,
-};
 use crate::run_loop::boot_nakamoto::Neon2NakaData;
 use crate::syncctl::{PoxSyncWatchdog, PoxSyncWatchdogComms};
-use crate::{
-    run_loop, BitcoinRegtestController, BurnchainController, Config, EventDispatcher, Keychain,
-};
+use crate::{run_loop, BitcoinRegtestController, Config, EventDispatcher, Keychain};
 
 pub const STDERR: i32 = 2;
 
@@ -106,10 +119,7 @@ impl std::ops::Deref for RunLoopCounter {
 #[derive(Clone, Default)]
 pub struct Counters {
     pub blocks_processed: RunLoopCounter,
-    pub microblocks_processed: RunLoopCounter,
     pub missed_tenures: RunLoopCounter,
-    pub missed_microblock_tenures: RunLoopCounter,
-    pub cancelled_commits: RunLoopCounter,
 
     pub sortitions_processed: RunLoopCounter,
 
@@ -135,7 +145,7 @@ pub struct Counters {
     pub naka_miner_current_rejections_timeout_secs: RunLoopCounter,
 
     #[cfg(test)]
-    pub naka_skip_commit_op: TestFlag<bool>,
+    pub skip_commit_op: TestFlag<bool>,
 }
 
 impl Counters {
@@ -176,20 +186,8 @@ impl Counters {
         Counters::inc(&self.sortitions_processed);
     }
 
-    pub fn bump_microblocks_processed(&self) {
-        Counters::inc(&self.microblocks_processed);
-    }
-
     pub fn bump_missed_tenures(&self) {
         Counters::inc(&self.missed_tenures);
-    }
-
-    pub fn bump_missed_microblock_tenures(&self) {
-        Counters::inc(&self.missed_microblock_tenures);
-    }
-
-    pub fn bump_cancelled_commits(&self) {
-        Counters::inc(&self.cancelled_commits);
     }
 
     pub fn bump_neon_submitted_commits(&self, committed_burn_height: u64) {
@@ -254,10 +252,6 @@ impl Counters {
         Counters::inc(&self.naka_miner_directives);
     }
 
-    pub fn set_microblocks_processed(&self, value: u64) {
-        Counters::set(&self.microblocks_processed, value)
-    }
-
     pub fn set_miner_current_rejections_timeout_secs(&self, value: u64) {
         Counters::set(&self.naka_miner_current_rejections_timeout_secs, value)
     }
@@ -270,7 +264,6 @@ impl Counters {
 /// Coordinating a node running in neon mode.
 pub struct RunLoop {
     config: Config,
-    pub callbacks: RunLoopCallbacks,
     globals: Option<Globals>,
     counters: Counters,
     coordinator_channels: Option<(CoordinatorReceivers, CoordinatorChannels)>,
@@ -314,17 +307,12 @@ impl RunLoop {
             config.burnchain.burn_fee_cap,
         )));
 
-        let mut event_dispatcher = EventDispatcher::new(config.get_working_dir());
-        for observer in config.events_observers.iter() {
-            event_dispatcher.register_observer(observer);
-        }
-        event_dispatcher.process_pending_payloads();
+        let event_dispatcher = EventDispatcher::from_config(&config);
 
         Self {
             config,
             globals: None,
             coordinator_channels: Some(channels),
-            callbacks: RunLoopCallbacks::new(),
             counters: Counters::default(),
             should_keep_running,
             event_dispatcher,
@@ -355,20 +343,8 @@ impl RunLoop {
         self.counters.blocks_processed.clone()
     }
 
-    pub fn get_microblocks_processed_arc(&self) -> RunLoopCounter {
-        self.counters.microblocks_processed.clone()
-    }
-
     pub fn get_missed_tenures_arc(&self) -> RunLoopCounter {
         self.counters.missed_tenures.clone()
-    }
-
-    pub fn get_missed_microblock_tenures_arc(&self) -> RunLoopCounter {
-        self.counters.missed_microblock_tenures.clone()
-    }
-
-    pub fn get_cancelled_commits_arc(&self) -> RunLoopCounter {
-        self.counters.cancelled_commits.clone()
     }
 
     pub fn get_counters(&self) -> Counters {
@@ -455,9 +431,10 @@ impl RunLoop {
             }
             let keychain = Keychain::default(self.config.node.seed.clone());
             let mut op_signer = keychain.generate_op_signer();
-            if let Err(e) = burnchain.create_wallet_if_dne() {
-                warn!("Error when creating wallet: {e:?}");
-            }
+
+            // a miner cannot operate without a wallet; retry: bitcoind may
+            // still be starting up
+            burnchain.ensure_miner_wallet_loaded();
             let mut btc_addrs = vec![(
                 StacksEpochId::Epoch2_05,
                 // legacy
@@ -569,7 +546,7 @@ impl RunLoop {
         };
 
         burnchain_controller
-            .start(Some(target_burnchain_block_height))
+            .start(target_burnchain_block_height)
             .map_err(|e| {
                 if matches!(e, Error::CoordinatorClosed)
                     && !should_keep_running.load(Ordering::SeqCst)
@@ -636,7 +613,7 @@ impl RunLoop {
         )
         .unwrap();
         run_loop::announce_boot_receipts(
-            &mut self.event_dispatcher,
+            &self.event_dispatcher,
             &chain_state_db,
             &burnchain_config.pox_constants,
             &receipts,
@@ -676,8 +653,6 @@ impl RunLoop {
             true,
         )
         .expect("Failed to connect Atlas DB during startup");
-        let coordinator_indexer =
-            make_bitcoin_indexer(&self.config, Some(self.should_keep_running.clone()));
 
         let coordinator_thread_handle = thread::Builder::new()
             .name(format!(
@@ -706,7 +681,6 @@ impl RunLoop {
                     cost_estimator.as_deref_mut(),
                     fee_estimator.as_deref_mut(),
                     miner_status,
-                    coordinator_indexer,
                     atlas_db,
                 );
             })
@@ -792,6 +766,9 @@ impl RunLoop {
             .take()
             .expect("Run loop already started, can only start once after initialization.");
 
+        // Apply config-driven process-wide state before any chainstate is opened.
+        self.config.apply_runtime_state();
+
         Self::setup_termination_handler(self.should_keep_running.clone(), false);
 
         let burnchain_result = Self::instantiate_burnchain_state(
@@ -861,7 +838,6 @@ impl RunLoop {
             burnchain
                 .wait_for_sortitions(globals.coord().clone(), sn.block_height + 1)
                 .expect("Unable to get burnchain tip")
-                .block_snapshot
         } else {
             sn
         };
@@ -932,7 +908,7 @@ impl RunLoop {
 
             // calculate burnchain sync percentage
             let percent: f64 = if remote_chain_height > 0 {
-                burnchain_tip.block_snapshot.block_height as f64 / remote_chain_height as f64
+                burnchain_tip.block_height as f64 / remote_chain_height as f64
             } else {
                 0.0
             };
@@ -948,7 +924,7 @@ impl RunLoop {
                     .block_height_to_reward_cycle(target_burnchain_block_height)
                     .expect("FATAL: target burnchain block height does not have a reward cycle");
                 "total_burn_sync_percent" => %percent,
-                "local_burn_height" => burnchain_tip.block_snapshot.block_height,
+                "local_burn_height" => burnchain_tip.block_height,
                 "remote_tip_height" => remote_chain_height
             );
 
@@ -958,7 +934,7 @@ impl RunLoop {
                 }
 
                 let (next_burnchain_tip, tip_burnchain_height) =
-                    match burnchain.sync(Some(target_burnchain_block_height)) {
+                    match burnchain.sync(target_burnchain_block_height) {
                         Ok(x) => x,
                         Err(e) => {
                             warn!("Runloop: Burnchain controller stopped: {e}");
@@ -970,8 +946,8 @@ impl RunLoop {
                 burnchain_tip = next_burnchain_tip;
                 burnchain_height = tip_burnchain_height;
 
-                let sortition_tip = &burnchain_tip.block_snapshot.sortition_id;
-                let next_sortition_height = burnchain_tip.block_snapshot.block_height;
+                let sortition_tip = &burnchain_tip.sortition_id;
+                let next_sortition_height = burnchain_tip.block_height;
 
                 if next_sortition_height != last_tenure_sortition_height {
                     info!(

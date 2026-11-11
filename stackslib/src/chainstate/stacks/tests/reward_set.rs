@@ -1,4 +1,4 @@
-// Copyright (C) 2025 Stacks Open Internet Foundation
+// Copyright (C) 2025-2026 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -15,6 +15,7 @@
 
 use std::collections::HashMap;
 
+use pinny::tag;
 use proptest::prelude::{prop, proptest, TestCaseError};
 use proptest::{prop_assert_eq, prop_assume};
 use stacks_common::types::chainstate::StacksAddress;
@@ -55,7 +56,7 @@ pub fn check_make_reward_set(
     let reward_set =
         StacksChainState::make_reward_set(threshold, addresses.to_vec(), StacksEpochId::latest());
 
-    prop_assert_eq!(Some(threshold), reward_set.pox_ustx_threshold);
+    prop_assert_eq!(Some(threshold), reward_set.pox_ustx_threshold());
 
     let mut sum_by_addresses: HashMap<PoxAddress, u128> = HashMap::new();
     for addr in addresses.iter() {
@@ -67,7 +68,8 @@ pub fn check_make_reward_set(
 
     for (addr, stacked_amount) in sum_by_addresses.iter() {
         let slot_count: u128 = reward_set
-            .rewarded_addresses
+            .rewarded_addresses()
+            .unwrap()
             .iter()
             .filter(|x| *x == addr)
             .count()
@@ -99,6 +101,7 @@ fn units_make_reward_set() {
         10,
         u64::MAX,
         u64::MAX,
+        u32::MAX,
         u32::MAX,
         u32::MAX,
         u32::MAX,
@@ -207,6 +210,7 @@ fn units_make_reward_set() {
 }
 
 proptest! {
+    #[tag(t_prop)]
     /// Property testing for the make_reward_set:
     ///
     /// * Each reward set participants' allotted slots should equal
@@ -234,6 +238,7 @@ proptest! {
             10,
             u64::MAX,
             u64::MAX,
+            u32::MAX,
             u32::MAX,
             u32::MAX,
             u32::MAX,

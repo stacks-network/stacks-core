@@ -1,4 +1,4 @@
-// Copyright (C) 2025 Stacks Open Internet Foundation
+// Copyright (C) 2025-2026 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -16,6 +16,7 @@
 use std::time::Duration;
 use std::{panic, thread};
 
+use pinny::tag;
 use proptest::prelude::*;
 
 use crate::burnchains::bitcoin::Error as bitcoin_error;
@@ -26,6 +27,7 @@ use crate::burnchains::{Burnchain, Error as burnchain_error};
 //     PROPTEST_CASES=500 cargo test -p stackslib -- \
 //     burnchains::tests::thread_join
 
+#[tag(t_prop)]
 #[test]
 fn join_success() {
     proptest!(|(v in any::<u32>(), s in "[ -~]{1,20}")| {
@@ -36,6 +38,7 @@ fn join_success() {
     });
 }
 
+#[tag(t_prop)]
 #[test]
 fn join_with_name() {
     proptest!(|(v in any::<u32>(), s in "[ -~]{1,20}")| {
@@ -46,6 +49,7 @@ fn join_with_name() {
     });
 }
 
+#[tag(t_prop)]
 #[test]
 fn join_delay() {
     proptest!(|(d in 10u64..100, v in any::<u32>(), s in "[ -~]{1,20}")| {

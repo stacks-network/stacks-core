@@ -95,6 +95,8 @@ components:
       $ref: ./components/schemas/pox-info.schema.yaml
     Sortitions:
       $ref: ./components/schemas/sortitions.schema.yaml
+    Sortition:
+      $ref: ./components/schemas/sortition.schema.yaml
     GetHealth:
       $ref: ./components/schemas/get-health.schema.yaml
     AccountData:
@@ -128,7 +130,39 @@ components:
     IsTraitImplemented:
       $ref: ./components/schemas/is-trait-implemented.schema.yaml
 
+    # Block Replay Schemas
+    BlockReplay:
+      $ref: ./components/schemas/block-replay.schema.yaml
+    BlockReplayTransaction:
+      $ref: ./components/schemas/block-replay-transaction.schema.yaml
+    BlockReplayTransactionEvent:
+      $ref: ./components/schemas/block-replay-transaction-event.schema.yaml
+    BlockReplayTransactionStxTransferEvent:
+      $ref: ./components/schemas/block-replay-transaction-stx-transfer-event.schema.yaml
+    BlockReplayTransactionStxBurnEvent:
+      $ref: ./components/schemas/block-replay-transaction-stx-burn-event.schema.yaml
+    BlockReplayTransactionStxLockEvent:
+      $ref: ./components/schemas/block-replay-transaction-stx-lock-event.schema.yaml
+    BlockReplayTransactionStxMintEvent:
+      $ref: ./components/schemas/block-replay-transaction-stx-mint-event.schema.yaml
+    BlockReplayTransactionFtMintEvent:
+      $ref: ./components/schemas/block-replay-transaction-ft-mint-event.schema.yaml
+    BlockReplayTransactionFtTransferEvent:
+      $ref: ./components/schemas/block-replay-transaction-ft-transfer-event.schema.yaml
+    BlockReplayTransactionFtBurnEvent:
+      $ref: ./components/schemas/block-replay-transaction-ft-burn-event.schema.yaml
+    BlockReplayTransactionNftMintEvent:
+      $ref: ./components/schemas/block-replay-transaction-nft-mint-event.schema.yaml
+    BlockReplayTransactionNftTransferEvent:
+      $ref: ./components/schemas/block-replay-transaction-nft-transfer-event.schema.yaml
+    BlockReplayTransactionNftBurnEvent:
+      $ref: ./components/schemas/block-replay-transaction-nft-burn-event.schema.yaml
+    BlockReplayTransactionContractEvent:
+      $ref: ./components/schemas/block-replay-transaction-contract-event.schema.yaml
+
     # Other Schemas
+    ClarityType:
+      $ref: ./components/schemas/clarity-type.schema.yaml
     SignerBlocksSigned:
       $ref: ./components/schemas/signer-blocks-signed.schema.yaml
     UnconfirmedTransaction:
@@ -155,6 +189,8 @@ components:
       $ref: ./components/schemas/block-proposal.schema.yaml
     NetworkPeers:
       $ref: ./components/schemas/network-peers.schema.yaml
+    RPCNeighbor:
+      $ref: ./components/schemas/rpc-neighbor.schema.yaml
     TransactionInfo:
       $ref: ./components/schemas/get-transaction.schema.yaml
     TenureForkInfo:
@@ -169,8 +205,8 @@ components:
       $ref: ./components/schemas/get-stacker-set.schema.yaml
     TenureBlocks:
       $ref: ./components/schemas/tenure-blocks.schema.yaml
-    BlockReplay:
-      $ref: ./components/schemas/block-replay.schema.yaml
+    ExecutionCost:
+      $ref: ./components/schemas/execution-cost.schema.yaml
 
 paths:
   /v2/transactions:
@@ -374,7 +410,7 @@ paths:
 
         The arguments to the function are supplied via the POST body.
         This should be a JSON object with two main properties:
-        - `sender` which should be a standard Stacks address
+        - `sender` which should be a Stacks address or contract principal
         - `arguments` which should be an array of hex-encoded Clarity values.
       tags:
         - Smart Contracts
@@ -425,7 +461,7 @@ paths:
 
         The arguments to the function are supplied via the POST body.
         This should be a JSON object with two main properties:
-        - `sender` which should be a standard Stacks address
+        - `sender` which should be a Stacks address or contract principal
         - `arguments` which should be an array of hex-encoded Clarity values.
 
         **This API endpoint requires a basic Authorization header.**
@@ -476,8 +512,6 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "404":
           $ref: "#/components/responses/NotFound"
-        "408":
-          $ref: "#/components/responses/Timeout"
         "500":
           $ref: "#/components/responses/InternalServerError"
 
@@ -494,6 +528,8 @@ paths:
         Where balance is the hex encoding of a unsigned 128-bit integer (big-endian), nonce is a unsigned 64-bit integer, and the proofs are provided as hex strings.
 
         For non-existent accounts, this does not 404, rather it returns an object with balance and nonce of 0.
+
+        Under PoX-5, `unstake` keeps the amount locked and moves `unlock_height` to the first Bitcoin block of the next reward cycle. STX paired with a protocol bond stays locked until the bond ends. When the burn block height of the queried tip reaches `unlock_height`, the amount moves into `balance` with no transaction.
       parameters:
         - $ref: ./components/parameters/principal.yaml
         - $ref: ./components/parameters/proof.yaml
@@ -953,8 +989,9 @@ paths:
       description: |
         Used to get stacker and signer set information for a given cycle.
 
-        This will only return information for cycles started in Epoch-2.5
-        where PoX-4 was active and subsequent cycles.
+        This will only return information for cycles starting in Epoch 2.5
+        (PoX-4) or later, including PoX-5 cycles. The response shape depends on
+        `reward_set_version`: `0` for PoX-4 cycles, `1` for PoX-5 cycles.
       parameters:
         - name: cycle_number
           in: path
@@ -971,8 +1008,10 @@ paths:
               schema:
                 $ref: "#/components/schemas/GetStackerSet"
               examples:
-                stacker-set:
-                  $ref: "./components/examples/get-stacker-set.example.json"
+                stacker-set-pox4:
+                  $ref: "./components/examples/get-stacker-set-pox4.example.json"
+                stacker-set-pox5:
+                  $ref: "./components/examples/get-stacker-set-pox5.example.json"
         "400":
           description: Could not fetch the given reward set
           content:
@@ -1444,7 +1483,6 @@ paths:
           schema:
             type: integer
             minimum: 0
-        - $ref: ./components/parameters/tip.yaml
       responses:
         "200":
           description: Number of blocks signed
@@ -1636,7 +1674,6 @@ paths:
           schema:
             type: string
             pattern: "^[0-9a-f]{64}$"
-        - $ref: ./components/parameters/tip.yaml
       responses:
         "200":
           description: Stream of confirmed microblocks
@@ -2466,6 +2503,103 @@ paths:
                 $ref: "#/components/schemas/BlockReplay"
               example:
                 $ref: "./components/examples/block-replay.example.json"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  /v3/transactions/simulate:
+    post:
+      summary: Simulate a single transaction on top of a chain tip
+      tags:
+        - Transactions
+      security:
+        - rpcAuth: []
+      operationId: transactionSimulate
+      parameters:
+        - $ref: ./components/parameters/tip.yaml
+      description: |
+        Simulate a single transaction in an ephemeral block built on top of
+        the given chain tip, or the canonical chain tip if the `tip` query
+        parameter is omitted (no data is written in the MARF), and return its
+        result, events, and execution cost. The simulation runs with the full
+        tenure execution budget, independent of the cost already consumed in
+        the current tenure. The transaction must be fully signed and valid
+        (correct nonce, sufficient balance for the fee). The simulation
+        enforces the same per-transaction wall-clock and memory limits the
+        signers apply during block proposal validation (the
+        `connection_options.block_proposal_max_tx_execution_time_secs`,
+        `block_proposal_max_tx_analysis_time_secs`, and
+        `block_proposal_max_tx_mem_bytes` options), so a transaction which
+        exceeds them fails to simulate.
+
+        A `tip` naming a block that does not exist returns 404. A `tip` naming
+        a block that exists but cannot be simulated by this endpoint (for
+        example an epoch-2.x block) returns 400.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - transaction_hex
+              properties:
+                transaction_hex:
+                  type: string
+                  minLength: 2
+                  pattern: "^([0-9a-fA-F]{2})+$"
+                  description: SIP-005-encoded transaction in hex format
+      responses:
+        "200":
+          description: Result of the simulated transaction
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  txid:
+                    type: string
+                    description: The transaction ID
+                  tip_block_id:
+                    type: string
+                    description: The block ID of the chain tip the transaction was simulated on top of
+                  consensus_hash:
+                    type: string
+                    description: Consensus hash of the tenure the simulated block would extend
+                  block_height:
+                    type: integer
+                    description: Height of the ephemeral block the transaction was simulated in
+                  result_hex:
+                    type: string
+                    pattern: "^0x([0-9a-fA-F]{2})+$"
+                    description: Clarity value returned by the transaction, encoded as a 0x-prefixed hex string
+                  stx_burned:
+                    type: integer
+                    description: Amount of microSTX burned
+                  execution_cost:
+                    $ref: "#/components/schemas/ExecutionCost"
+                    description: Execution cost consumed by the transaction
+                  execution_limit:
+                    $ref: "#/components/schemas/ExecutionCost"
+                    description: The execution limit the simulation ran under (the full tenure budget)
+                  events:
+                    type: array
+                    items:
+                      type: object
+                    description: Events generated by the transaction
+                  post_condition_aborted:
+                    type: boolean
+                    description: Whether the transaction was aborted by a post-condition
+                  vm_error:
+                    type:
+                      - string
+                      - "null"
+                    description: VM error, if any
         "400":
           $ref: "#/components/responses/BadRequest"
         "401":

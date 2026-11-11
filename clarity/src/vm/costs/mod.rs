@@ -17,31 +17,28 @@
 use std::collections::HashMap;
 use std::{cmp, fmt};
 
-pub use clarity_types::errors::CostErrors;
-pub use clarity_types::execution_cost::{CostOverflowingMath, ExecutionCost};
 use costs_1::Costs1;
 use costs_2::Costs2;
 use costs_2_testnet::Costs2Testnet;
 use costs_3::Costs3;
 use costs_4::Costs4;
-use lazy_static::lazy_static;
+use costs_5::Costs5;
 use serde::{Deserialize, Serialize};
 use stacks_common::types::StacksEpochId;
 
 use super::errors::{RuntimeCheckErrorKind, RuntimeError};
 use crate::boot_util::boot_code_id;
-use crate::vm::contexts::{ContractContext, GlobalContext};
+use crate::vm::contexts::{ExecutionState, GlobalContext, InvocationContext};
+use crate::vm::contracts::Contract;
 use crate::vm::costs::cost_functions::ClarityCostFunction;
+pub use crate::vm::costs::errors::CostErrors;
+pub use crate::vm::costs::execution_cost::{CostOverflowingMath, ExecutionCost};
 use crate::vm::database::ClarityDatabase;
 use crate::vm::database::clarity_store::NullBackingStore;
-use crate::vm::errors::VmExecutionError;
+use crate::vm::errors::{ClarityTypeError, VmExecutionError};
 use crate::vm::types::Value::UInt;
-use crate::vm::types::signatures::FunctionType::Fixed;
-use crate::vm::types::signatures::TupleTypeSignature;
-use crate::vm::types::{
-    FunctionType, PrincipalData, QualifiedContractIdentifier, TupleData, TypeSignature,
-};
-use crate::vm::{CallStack, ClarityName, Environment, LocalContext, SymbolicExpression, Value};
+use crate::vm::types::{PrincipalData, QualifiedContractIdentifier, TypeSignature};
+use crate::vm::{CallStack, LocalContext, SymbolicExpression, Value};
 pub mod constants;
 pub mod cost_functions;
 #[allow(unused_variables)]
@@ -54,6 +51,9 @@ pub mod costs_2_testnet;
 pub mod costs_3;
 #[allow(unused_variables)]
 pub mod costs_4;
+pub mod costs_5;
+pub mod errors;
+pub mod execution_cost;
 
 pub const CLARITY_MEMORY_LIMIT: u64 = 100 * 1000 * 1000;
 
@@ -62,22 +62,7 @@ pub const COSTS_1_NAME: &str = "costs";
 pub const COSTS_2_NAME: &str = "costs-2";
 pub const COSTS_3_NAME: &str = "costs-3";
 pub const COSTS_4_NAME: &str = "costs-4";
-
-lazy_static! {
-    static ref COST_TUPLE_TYPE_SIGNATURE: TypeSignature = {
-        #[allow(clippy::expect_used)]
-        TypeSignature::TupleType(
-            TupleTypeSignature::try_from(vec![
-                ("runtime".into(), TypeSignature::UIntType),
-                ("write_length".into(), TypeSignature::UIntType),
-                ("write_count".into(), TypeSignature::UIntType),
-                ("read_count".into(), TypeSignature::UIntType),
-                ("read_length".into(), TypeSignature::UIntType),
-            ])
-            .expect("BUG: failed to construct type signature for cost tuple"),
-        )
-    };
-}
+pub const COSTS_5_NAME: &str = "costs-5";
 
 pub fn runtime_cost<T: TryInto<u64>, C: CostTracker>(
     cost_function: ClarityCostFunction,
@@ -91,37 +76,66 @@ pub fn runtime_cost<T: TryInto<u64>, C: CostTracker>(
 }
 
 macro_rules! finally_drop_memory {
-    ( $env: expr, $used_mem:expr; $exec:expr ) => {{
+    ( $gc: expr, $used_mem:expr; $exec:expr ) => {{
         let result = (|| $exec)();
-        $env.drop_memory($used_mem)?;
+        $gc.drop_memory($used_mem)?;
         result
     }};
 }
 
+/// Cost of checking `t1` against `t2`, with types sized for `epoch`.
+pub fn compute_typecheck_cost<T: CostTracker>(
+    track: &mut T,
+    epoch: StacksEpochId,
+    t1: &TypeSignature,
+    t2: &TypeSignature,
+) -> Result<ExecutionCost, CostErrors> {
+    let t1_size = t1
+        .charged_type_size(&epoch)
+        .map_err(|_| CostErrors::CostOverflow)?;
+    let t2_size = t2
+        .charged_type_size(&epoch)
+        .map_err(|_| CostErrors::CostOverflow)?;
+    track.compute_cost(
+        ClarityCostFunction::AnalysisTypeCheck,
+        &[cmp::max(t1_size, t2_size).into()],
+    )
+}
+
+/// Charges for checking `t1` against `t2`, with types sized for `epoch`.
+pub fn analysis_typecheck_cost_for_epoch<T: CostTracker>(
+    track: &mut T,
+    epoch: StacksEpochId,
+    t1: &TypeSignature,
+    t2: &TypeSignature,
+) -> Result<(), CostErrors> {
+    let cost = compute_typecheck_cost(track, epoch, t1, t2)?;
+    track.add_cost(cost)
+}
+
+/// [`analysis_typecheck_cost_for_epoch`] with legacy type sizes, for the 2.05
+/// type checker.
 pub fn analysis_typecheck_cost<T: CostTracker>(
     track: &mut T,
     t1: &TypeSignature,
     t2: &TypeSignature,
 ) -> Result<(), CostErrors> {
-    let t1_size = t1.type_size().map_err(|_| CostErrors::CostOverflow)?;
-    let t2_size = t2.type_size().map_err(|_| CostErrors::CostOverflow)?;
-    let cost = track.compute_cost(
-        ClarityCostFunction::AnalysisTypeCheck,
-        &[cmp::max(t1_size, t2_size) as u64],
-    )?;
-    track.add_cost(cost)
+    analysis_typecheck_cost_for_epoch(track, StacksEpochId::Epoch2_05, t1, t2)
 }
 
 pub trait MemoryConsumer {
-    fn get_memory_use(&self) -> Result<u64, CostErrors>;
+    fn get_memory_use(&self, epoch: &StacksEpochId) -> Result<u64, CostErrors>;
 }
 
 impl MemoryConsumer for Value {
-    fn get_memory_use(&self) -> Result<u64, CostErrors> {
-        Ok(self
-            .size()
-            .map_err(|_| CostErrors::InterpreterFailure)?
-            .into())
+    fn get_memory_use(&self, epoch: &StacksEpochId) -> Result<u64, CostErrors> {
+        let size = self.charged_size(epoch).map_err(|e| match e {
+            // From Epoch 4.1 a charged size can overflow; fail it like any
+            // other charge overflow.
+            ClarityTypeError::ValueTooLarge => CostErrors::CostOverflow,
+            _ => CostErrors::InterpreterFailure,
+        })?;
+        Ok(size.into())
     }
 }
 
@@ -135,15 +149,6 @@ pub trait CostTracker {
     fn add_memory(&mut self, memory: u64) -> Result<(), CostErrors>;
     fn drop_memory(&mut self, memory: u64) -> Result<(), CostErrors>;
     fn reset_memory(&mut self);
-    /// Check if the given contract-call should be short-circuited.
-    ///  If so: this charges the cost to the CostTracker, and return true
-    ///  If not: return false
-    fn short_circuit_contract_call(
-        &mut self,
-        contract: &QualifiedContractIdentifier,
-        function: &ClarityName,
-        input: &[u64],
-    ) -> Result<bool, CostErrors>;
 }
 
 // Don't track!
@@ -165,14 +170,6 @@ impl CostTracker for () {
         Ok(())
     }
     fn reset_memory(&mut self) {}
-    fn short_circuit_contract_call(
-        &mut self,
-        _contract: &QualifiedContractIdentifier,
-        _function: &ClarityName,
-        _input: &[u64],
-    ) -> Result<bool, CostErrors> {
-        Ok(false)
-    }
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone, PartialEq, Eq)]
@@ -183,7 +180,7 @@ pub struct ClarityCostFunctionReference {
 
 impl ::std::fmt::Display for ClarityCostFunctionReference {
     fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
-        write!(f, "{}.{}", &self.contract_id, &self.function_name)
+        write!(f, "{}.{}", self.contract_id, self.function_name)
     }
 }
 
@@ -194,6 +191,7 @@ pub enum DefaultVersion {
     Costs2Testnet,
     Costs3,
     Costs4,
+    Costs5,
 }
 
 impl DefaultVersion {
@@ -212,6 +210,7 @@ impl DefaultVersion {
             DefaultVersion::Costs2Testnet => f.eval::<Costs2Testnet>(*n),
             DefaultVersion::Costs3 => f.eval::<Costs3>(*n),
             DefaultVersion::Costs4 => f.eval::<Costs4>(*n),
+            DefaultVersion::Costs5 => f.eval::<Costs5>(*n),
         };
         r.map_err(|e| {
             let e = match e {
@@ -248,8 +247,10 @@ impl DefaultVersion {
             Ok(Self::Costs3)
         } else if value.name.as_str() == COSTS_4_NAME {
             Ok(Self::Costs4)
+        } else if value.name.as_str() == COSTS_5_NAME {
+            Ok(Self::Costs5)
         } else {
-            Err(format!("Unknown default contract {}", &value.name))
+            Err(format!("Unknown default contract {}", value.name))
         }
     }
 }
@@ -273,64 +274,11 @@ impl ClarityCostFunctionReference {
     }
 }
 
-#[derive(Debug, Clone)]
-pub struct CostStateSummary {
-    pub contract_call_circuits:
-        HashMap<(QualifiedContractIdentifier, ClarityName), ClarityCostFunctionReference>,
-    pub cost_function_references: HashMap<ClarityCostFunction, ClarityCostFunctionReference>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-struct SerializedCostStateSummary {
-    contract_call_circuits: Vec<(
-        (QualifiedContractIdentifier, ClarityName),
-        ClarityCostFunctionReference,
-    )>,
-    cost_function_references: Vec<(ClarityCostFunction, ClarityCostFunctionReference)>,
-}
-
-impl From<CostStateSummary> for SerializedCostStateSummary {
-    fn from(other: CostStateSummary) -> SerializedCostStateSummary {
-        let CostStateSummary {
-            contract_call_circuits,
-            cost_function_references,
-        } = other;
-        SerializedCostStateSummary {
-            contract_call_circuits: contract_call_circuits.into_iter().collect(),
-            cost_function_references: cost_function_references.into_iter().collect(),
-        }
-    }
-}
-
-impl From<SerializedCostStateSummary> for CostStateSummary {
-    fn from(other: SerializedCostStateSummary) -> CostStateSummary {
-        let SerializedCostStateSummary {
-            contract_call_circuits,
-            cost_function_references,
-        } = other;
-        CostStateSummary {
-            contract_call_circuits: contract_call_circuits.into_iter().collect(),
-            cost_function_references: cost_function_references.into_iter().collect(),
-        }
-    }
-}
-
-impl CostStateSummary {
-    pub fn empty() -> CostStateSummary {
-        CostStateSummary {
-            contract_call_circuits: HashMap::new(),
-            cost_function_references: HashMap::new(),
-        }
-    }
-}
-
 #[derive(Clone)]
 /// This struct holds all of the data required for non-free LimitedCostTracker instances
 pub struct TrackerData {
     cost_function_references: HashMap<&'static ClarityCostFunction, ClarityCostFunctionEvaluator>,
-    cost_contracts: HashMap<QualifiedContractIdentifier, ContractContext>,
-    contract_call_circuits:
-        HashMap<(QualifiedContractIdentifier, ClarityName), ClarityCostFunctionReference>,
+    cost_contracts: HashMap<QualifiedContractIdentifier, Contract>,
     total: ExecutionCost,
     limit: ExecutionCost,
     memory: u64,
@@ -352,17 +300,6 @@ pub enum LimitedCostTracker {
 
 #[cfg(any(test, feature = "testing"))]
 impl LimitedCostTracker {
-    pub fn contract_call_circuits(
-        &self,
-    ) -> HashMap<(QualifiedContractIdentifier, ClarityName), ClarityCostFunctionReference> {
-        match self {
-            Self::Free => panic!("Cannot get contract call circuits on free tracker"),
-            Self::Limited(TrackerData {
-                contract_call_circuits,
-                ..
-            }) => contract_call_circuits.clone(),
-        }
-    }
     pub fn cost_function_references(
         &self,
     ) -> HashMap<&'static ClarityCostFunction, ClarityCostFunctionEvaluator> {
@@ -412,360 +349,6 @@ impl PartialEq for LimitedCostTracker {
     }
 }
 
-fn load_state_summary(
-    mainnet: bool,
-    clarity_db: &mut ClarityDatabase,
-) -> Result<CostStateSummary, CostErrors> {
-    let cost_voting_contract = boot_code_id("cost-voting", mainnet);
-
-    let clarity_epoch = clarity_db
-        .get_clarity_epoch_version()
-        .map_err(|e| CostErrors::CostComputationFailed(e.to_string()))?;
-    let last_processed_at = match clarity_db.get_value(
-        "vm-costs::last-processed-at-height",
-        &TypeSignature::UIntType,
-        &clarity_epoch,
-    ) {
-        Ok(Some(v)) => u32::try_from(
-            v.value
-                .expect_u128()
-                .map_err(|_| CostErrors::InterpreterFailure)?,
-        )
-        .map_err(|_| CostErrors::InterpreterFailure)?,
-        Ok(None) => return Ok(CostStateSummary::empty()),
-        Err(e) => return Err(CostErrors::CostComputationFailed(e.to_string())),
-    };
-
-    let metadata_result = clarity_db
-        .fetch_metadata_manual::<String>(
-            last_processed_at,
-            &cost_voting_contract,
-            "::state_summary",
-        )
-        .map_err(|e| CostErrors::CostComputationFailed(e.to_string()))?;
-    let serialized: SerializedCostStateSummary = match metadata_result {
-        Some(serialized) => {
-            serde_json::from_str(&serialized).map_err(|_| CostErrors::InterpreterFailure)?
-        }
-        None => return Ok(CostStateSummary::empty()),
-    };
-    Ok(CostStateSummary::from(serialized))
-}
-
-fn store_state_summary(
-    mainnet: bool,
-    clarity_db: &mut ClarityDatabase,
-    to_store: &CostStateSummary,
-) -> Result<(), CostErrors> {
-    let block_height = clarity_db.get_current_block_height();
-    let cost_voting_contract = boot_code_id("cost-voting", mainnet);
-    let epoch = clarity_db
-        .get_clarity_epoch_version()
-        .map_err(|e| CostErrors::CostComputationFailed(e.to_string()))?;
-    clarity_db
-        .put_value(
-            "vm-costs::last-processed-at-height",
-            Value::UInt(block_height as u128),
-            &epoch,
-        )
-        .map_err(|_e| CostErrors::CostContractLoadFailure)?;
-    let serialized_summary =
-        serde_json::to_string(&SerializedCostStateSummary::from(to_store.clone()))
-            .map_err(|_| CostErrors::InterpreterFailure)?;
-    clarity_db
-        .set_metadata(
-            &cost_voting_contract,
-            "::state_summary",
-            &serialized_summary,
-        )
-        .map_err(|e| CostErrors::Expect(e.to_string()))?;
-
-    Ok(())
-}
-
-///
-/// This method loads a cost state summary structure from the currently open stacks chain tip
-///   In doing so, it reads from the cost-voting contract to find any newly confirmed proposals,
-///    checks those proposals for validity, and then applies those changes to the cached set
-///    of cost functions.
-///
-/// `apply_updates` - tells this function to look for any changes in the cost voting contract
-///   which would need to be applied. if `false`, just load the last computed cost state in this
-///   fork.
-///
-fn load_cost_functions(
-    mainnet: bool,
-    clarity_db: &mut ClarityDatabase,
-    apply_updates: bool,
-) -> Result<CostStateSummary, CostErrors> {
-    let clarity_epoch = clarity_db
-        .get_clarity_epoch_version()
-        .map_err(|e| CostErrors::CostComputationFailed(e.to_string()))?;
-    let last_processed_count = clarity_db
-        .get_value(
-            "vm-costs::last_processed_count",
-            &TypeSignature::UIntType,
-            &clarity_epoch,
-        )
-        .map_err(|_e| CostErrors::CostContractLoadFailure)?
-        .map(|result| result.value)
-        .unwrap_or(Value::UInt(0))
-        .expect_u128()
-        .map_err(|_| CostErrors::InterpreterFailure)?;
-    let cost_voting_contract = boot_code_id("cost-voting", mainnet);
-    let confirmed_proposals_count = clarity_db
-        .lookup_variable_unknown_descriptor(
-            &cost_voting_contract,
-            "confirmed-proposal-count",
-            &clarity_epoch,
-        )
-        .map_err(|e| CostErrors::CostComputationFailed(e.to_string()))?
-        .expect_u128()
-        .map_err(|_| CostErrors::InterpreterFailure)?;
-    debug!("Check cost voting contract";
-           "confirmed_proposal_count" => confirmed_proposals_count,
-           "last_processed_count" => last_processed_count);
-
-    // we need to process any confirmed proposals in the range [fetch-start, fetch-end)
-    let (fetch_start, fetch_end) = (last_processed_count, confirmed_proposals_count);
-    let mut state_summary = load_state_summary(mainnet, clarity_db)?;
-    if !apply_updates {
-        return Ok(state_summary);
-    }
-
-    for confirmed_proposal in fetch_start..fetch_end {
-        // fetch the proposal data
-        let entry = clarity_db
-            .fetch_entry_unknown_descriptor(
-                &cost_voting_contract,
-                "confirmed-proposals",
-                &Value::from(
-                    TupleData::from_data(vec![(
-                        "confirmed-id".into(),
-                        Value::UInt(confirmed_proposal),
-                    )])
-                    .map_err(|_| {
-                        CostErrors::Expect("BUG: failed to construct simple tuple".into())
-                    })?,
-                ),
-                &clarity_epoch,
-            )
-            .map_err(|_| CostErrors::Expect("BUG: Failed querying confirmed-proposals".into()))?
-            .expect_optional()
-            .map_err(|_| CostErrors::InterpreterFailure)?
-            .ok_or_else(|| {
-                CostErrors::Expect("BUG: confirmed-proposal-count exceeds stored proposals".into())
-            })?
-            .expect_tuple()
-            .map_err(|_| CostErrors::InterpreterFailure)?;
-        let target_contract = match entry
-            .get("function-contract")
-            .map_err(|_| CostErrors::Expect("BUG: malformed cost proposal tuple".into()))?
-            .clone()
-            .expect_principal()
-            .map_err(|_| CostErrors::InterpreterFailure)?
-        {
-            PrincipalData::Contract(contract_id) => contract_id,
-            _ => {
-                warn!("Confirmed cost proposal invalid: function-contract is not a contract principal";
-                          "confirmed_proposal_id" => confirmed_proposal);
-                continue;
-            }
-        };
-        let target_function = match ClarityName::try_from(
-            entry
-                .get("function-name")
-                .map_err(|_| CostErrors::Expect("BUG: malformed cost proposal tuple".into()))?
-                .clone()
-                .expect_ascii()
-                .map_err(|_| CostErrors::InterpreterFailure)?,
-        ) {
-            Ok(x) => x,
-            Err(_) => {
-                warn!("Confirmed cost proposal invalid: function-name is not a valid function name";
-                          "confirmed_proposal_id" => confirmed_proposal);
-                continue;
-            }
-        };
-        let cost_contract = match entry
-            .get("cost-function-contract")
-            .map_err(|_| CostErrors::Expect("BUG: malformed cost proposal tuple".into()))?
-            .clone()
-            .expect_principal()
-            .map_err(|_| CostErrors::InterpreterFailure)?
-        {
-            PrincipalData::Contract(contract_id) => contract_id,
-            _ => {
-                warn!("Confirmed cost proposal invalid: cost-function-contract is not a contract principal";
-                          "confirmed_proposal_id" => confirmed_proposal);
-                continue;
-            }
-        };
-
-        let cost_function = match ClarityName::try_from(
-            entry
-                .get_owned("cost-function-name")
-                .map_err(|_| CostErrors::Expect("BUG: malformed cost proposal tuple".into()))?
-                .expect_ascii()
-                .map_err(|_| CostErrors::InterpreterFailure)?,
-        ) {
-            Ok(x) => x,
-            Err(_) => {
-                warn!("Confirmed cost proposal invalid: cost-function-name is not a valid function name";
-                          "confirmed_proposal_id" => confirmed_proposal);
-                continue;
-            }
-        };
-
-        // Here is where we perform the required validity checks for a confirmed proposal:
-        //  * Replaced contract-calls _must_ be `define-read-only` _or_ refer to one of the boot code
-        //      cost functions
-        //  * cost-function contracts must be arithmetic only
-
-        // make sure the contract is "cost contract eligible" via the
-        //  arithmetic-checking analysis pass
-        let (cost_func_ref, cost_func_type) = match clarity_db
-            .load_contract_analysis(&cost_contract)
-            .map_err(|e| CostErrors::CostComputationFailed(e.to_string()))?
-        {
-            Some(c) => {
-                if !c.is_cost_contract_eligible {
-                    warn!("Confirmed cost proposal invalid: cost-function-contract uses non-arithmetic or otherwise illegal operations";
-                          "confirmed_proposal_id" => confirmed_proposal,
-                          "contract_name" => %cost_contract,
-                    );
-                    continue;
-                }
-
-                if let Some(FunctionType::Fixed(cost_function_type)) = c
-                    .read_only_function_types
-                    .get(&cost_function)
-                    .or_else(|| c.private_function_types.get(&cost_function))
-                {
-                    if !cost_function_type.returns.eq(&COST_TUPLE_TYPE_SIGNATURE) {
-                        warn!("Confirmed cost proposal invalid: cost-function-name does not return a cost tuple";
-                              "confirmed_proposal_id" => confirmed_proposal,
-                              "contract_name" => %cost_contract,
-                              "function_name" => %cost_function,
-                              "return_type" => %cost_function_type.returns,
-                        );
-                        continue;
-                    }
-                    if !cost_function_type.args.len() == 1
-                        || cost_function_type.args[0].signature != TypeSignature::UIntType
-                    {
-                        warn!("Confirmed cost proposal invalid: cost-function-name args should be length-1 and only uint";
-                              "confirmed_proposal_id" => confirmed_proposal,
-                              "contract_name" => %cost_contract,
-                              "function_name" => %cost_function,
-                        );
-                        continue;
-                    }
-                    (
-                        ClarityCostFunctionReference {
-                            contract_id: cost_contract,
-                            function_name: cost_function.to_string(),
-                        },
-                        cost_function_type.clone(),
-                    )
-                } else {
-                    warn!("Confirmed cost proposal invalid: cost-function-name not defined";
-                          "confirmed_proposal_id" => confirmed_proposal,
-                          "contract_name" => %cost_contract,
-                          "function_name" => %cost_function,
-                    );
-                    continue;
-                }
-            }
-            None => {
-                warn!("Confirmed cost proposal invalid: cost-function-contract is not a published contract";
-                      "confirmed_proposal_id" => confirmed_proposal,
-                      "contract_name" => %cost_contract,
-                );
-                continue;
-            }
-        };
-
-        if target_contract == boot_code_id("costs", mainnet) {
-            // refering to one of the boot code cost functions
-            let target = match ClarityCostFunction::lookup_by_name(&target_function) {
-                Some(ClarityCostFunction::Unimplemented) => {
-                    warn!("Attempted vote on unimplemented cost function";
-                              "confirmed_proposal_id" => confirmed_proposal,
-                              "cost_function" => %target_function);
-                    continue;
-                }
-                Some(cost_func) => cost_func,
-                None => {
-                    warn!("Confirmed cost proposal invalid: function-name does not reference a Clarity cost function";
-                              "confirmed_proposal_id" => confirmed_proposal,
-                              "cost_function" => %target_function);
-                    continue;
-                }
-            };
-            state_summary
-                .cost_function_references
-                .insert(target, cost_func_ref);
-        } else {
-            // referring to a user-defined function
-            match clarity_db
-                .load_contract_analysis(&target_contract)
-                .map_err(|e| CostErrors::CostComputationFailed(e.to_string()))?
-            {
-                Some(c) => {
-                    if let Some(Fixed(tf)) = c.read_only_function_types.get(&target_function) {
-                        if cost_func_type.args.len() != tf.args.len() {
-                            warn!("Confirmed cost proposal invalid: cost-function contains the wrong number of arguments";
-                                  "confirmed_proposal_id" => confirmed_proposal,
-                                  "target_contract_name" => %target_contract,
-                                  "target_function_name" => %target_function,
-                            );
-                            continue;
-                        }
-                        for arg in &cost_func_type.args {
-                            if arg.signature != TypeSignature::UIntType {
-                                warn!("Confirmed cost proposal invalid: contains non uint argument";
-                                      "confirmed_proposal_id" => confirmed_proposal,
-                                );
-                                continue;
-                            }
-                        }
-                    } else {
-                        warn!("Confirmed cost proposal invalid: function-name not defined or is not read-only";
-                              "confirmed_proposal_id" => confirmed_proposal,
-                              "target_contract_name" => %target_contract,
-                              "target_function_name" => %target_function,
-                        );
-                        continue;
-                    }
-                }
-                None => {
-                    warn!("Confirmed cost proposal invalid: contract-name not a published contract";
-                          "confirmed_proposal_id" => confirmed_proposal,
-                          "target_contract_name" => %target_contract,
-                    );
-                    continue;
-                }
-            }
-            state_summary
-                .contract_call_circuits
-                .insert((target_contract, target_function), cost_func_ref);
-        }
-    }
-    if confirmed_proposals_count > last_processed_count {
-        store_state_summary(mainnet, clarity_db, &state_summary)?;
-        clarity_db
-            .put_value(
-                "vm-costs::last_processed_count",
-                Value::UInt(confirmed_proposals_count),
-                &clarity_epoch,
-            )
-            .map_err(|_e| CostErrors::CostContractLoadFailure)?;
-    }
-
-    Ok(state_summary)
-}
-
 impl LimitedCostTracker {
     pub fn new(
         mainnet: bool,
@@ -777,7 +360,6 @@ impl LimitedCostTracker {
         let mut cost_tracker = TrackerData {
             cost_function_references: HashMap::new(),
             cost_contracts: HashMap::new(),
-            contract_call_circuits: HashMap::new(),
             limit,
             memory_limit: CLARITY_MEMORY_LIMIT,
             total: ExecutionCost::ZERO,
@@ -787,7 +369,7 @@ impl LimitedCostTracker {
             chain_id,
         };
         assert!(clarity_db.is_stack_empty());
-        cost_tracker.load_costs(clarity_db, true)?;
+        cost_tracker.load_costs(clarity_db)?;
         Ok(Self::Limited(cost_tracker))
     }
 
@@ -801,7 +383,6 @@ impl LimitedCostTracker {
         let mut cost_tracker = TrackerData {
             cost_function_references: HashMap::new(),
             cost_contracts: HashMap::new(),
-            contract_call_circuits: HashMap::new(),
             limit,
             memory_limit: CLARITY_MEMORY_LIMIT,
             total: ExecutionCost::ZERO,
@@ -810,7 +391,7 @@ impl LimitedCostTracker {
             mainnet,
             chain_id,
         };
-        cost_tracker.load_costs(clarity_db, false)?;
+        cost_tracker.load_costs(clarity_db)?;
         Ok(Self::Limited(cost_tracker))
     }
 
@@ -836,6 +417,7 @@ impl LimitedCostTracker {
         Self::Free
     }
 
+    /// Return the default cost contract name for the provided epoch.
     pub fn default_cost_contract_for_epoch(epoch_id: StacksEpochId) -> Result<String, CostErrors> {
         let result = match epoch_id {
             StacksEpochId::Epoch10 => {
@@ -852,6 +434,7 @@ impl LimitedCostTracker {
             | StacksEpochId::Epoch31
             | StacksEpochId::Epoch32 => COSTS_3_NAME.to_string(),
             StacksEpochId::Epoch33 | StacksEpochId::Epoch34 => COSTS_4_NAME.to_string(),
+            StacksEpochId::Epoch40 | StacksEpochId::Epoch41 => COSTS_5_NAME.to_string(),
         };
         Ok(result)
     }
@@ -886,7 +469,6 @@ impl LimitedCostTracker {
         let cost_tracker = TrackerData {
             cost_function_references: cost_functions,
             cost_contracts: HashMap::new(),
-            contract_call_circuits: HashMap::new(),
             limit,
             memory_limit: CLARITY_MEMORY_LIMIT,
             total: ExecutionCost::ZERO,
@@ -901,16 +483,11 @@ impl LimitedCostTracker {
 }
 
 impl TrackerData {
-    // TODO: add tests from mutation testing results #4831
-    #[cfg_attr(test, mutants::skip)]
-    /// `apply_updates` - tells this function to look for any changes in the cost voting contract
-    ///   which would need to be applied. if `false`, just load the last computed cost state in this
-    ///   fork.
-    fn load_costs(
-        &mut self,
-        clarity_db: &mut ClarityDatabase,
-        apply_updates: bool,
-    ) -> Result<(), CostErrors> {
+    /// Load the default cost functions for this tracker's epoch.
+    ///
+    /// Before Epoch 4.0, this also loads the corresponding boot cost contract.
+    /// Epoch 4.0 and later use the native Rust cost implementation.
+    fn load_costs(&mut self, clarity_db: &mut ClarityDatabase) -> Result<(), CostErrors> {
         clarity_db.begin();
         let epoch_id = clarity_db
             .get_clarity_epoch_version()
@@ -926,87 +503,39 @@ impl TrackerData {
             ))
         })?;
 
-        let CostStateSummary {
-            contract_call_circuits,
-            mut cost_function_references,
-        } = load_cost_functions(self.mainnet, clarity_db, apply_updates).map_err(|e| {
-            let result = clarity_db
-                .roll_back()
-                .map_err(|e| CostErrors::Expect(e.to_string()));
-            match result {
-                Ok(_) => e,
-                Err(rollback_err) => rollback_err,
-            }
-        })?;
-
-        self.contract_call_circuits = contract_call_circuits;
-
-        let iter = ClarityCostFunction::ALL.iter();
-        let iter_len = iter.len();
-        let mut cost_contracts = HashMap::with_capacity(iter_len);
-        let mut m = HashMap::with_capacity(iter_len);
-
-        for f in iter {
-            let cost_function_ref = cost_function_references.remove(f).unwrap_or_else(|| {
-                ClarityCostFunctionReference::new(boot_costs_id.clone(), f.get_name())
-            });
-            if !cost_contracts.contains_key(&cost_function_ref.contract_id) {
-                let contract_context = match clarity_db.get_contract(&cost_function_ref.contract_id)
-                {
-                    Ok(contract) => contract.contract_context,
-                    Err(e) => {
-                        error!("Failed to load intended Clarity cost contract";
-                               "contract" => %cost_function_ref.contract_id,
-                               "error" => ?e);
-                        clarity_db
-                            .roll_back()
-                            .map_err(|e| CostErrors::Expect(e.to_string()))?;
-                        return Err(CostErrors::CostContractLoadFailure);
-                    }
-                };
-                cost_contracts.insert(cost_function_ref.contract_id.clone(), contract_context);
-            }
-
-            if cost_function_ref.contract_id == boot_costs_id {
-                m.insert(
-                    f,
-                    ClarityCostFunctionEvaluator::Default(cost_function_ref, f.clone(), v),
-                );
-            } else {
-                m.insert(f, ClarityCostFunctionEvaluator::Clarity(cost_function_ref));
-            }
+        let mut m = HashMap::with_capacity(ClarityCostFunction::ALL.len());
+        for f in ClarityCostFunction::ALL.iter() {
+            let cost_function_ref =
+                ClarityCostFunctionReference::new(boot_costs_id.clone(), f.get_name());
+            m.insert(
+                f,
+                ClarityCostFunctionEvaluator::Default(cost_function_ref, f.clone(), v),
+            );
         }
 
-        for (_, circuit_target) in self.contract_call_circuits.iter() {
-            if !cost_contracts.contains_key(&circuit_target.contract_id) {
-                let contract_context = match clarity_db.get_contract(&circuit_target.contract_id) {
-                    Ok(contract) => contract.contract_context,
-                    Err(e) => {
-                        error!("Failed to load intended Clarity cost contract";
-                               "contract" => %boot_costs_id.to_string(),
-                               "error" => %format!("{:?}", e));
-                        clarity_db
-                            .roll_back()
-                            .map_err(|e| CostErrors::Expect(e.to_string()))?;
-                        return Err(CostErrors::CostContractLoadFailure);
-                    }
-                };
-                cost_contracts.insert(circuit_target.contract_id.clone(), contract_context);
-            }
+        let mut cost_contracts = HashMap::with_capacity(1);
+        if epoch_id < StacksEpochId::Epoch40 {
+            let boot_cost_contract = match clarity_db.get_contract(&boot_costs_id) {
+                Ok(contract) => contract,
+                Err(e) => {
+                    error!("Failed to load intended Clarity cost contract";
+                           "contract" => %boot_costs_id,
+                           "error" => ?e);
+                    clarity_db
+                        .roll_back()
+                        .map_err(|e| CostErrors::Expect(e.to_string()))?;
+                    return Err(CostErrors::CostContractLoadFailure);
+                }
+            };
+            cost_contracts.insert(boot_costs_id, boot_cost_contract);
         }
 
         self.cost_function_references = m;
         self.cost_contracts = cost_contracts;
 
-        if apply_updates {
-            clarity_db
-                .commit()
-                .map_err(|e| CostErrors::Expect(e.to_string()))?;
-        } else {
-            clarity_db
-                .roll_back()
-                .map_err(|e| CostErrors::Expect(e.to_string()))?;
-        }
+        clarity_db
+            .commit()
+            .map_err(|e| CostErrors::Expect(e.to_string()))?;
 
         Ok(())
     }
@@ -1050,10 +579,10 @@ impl LimitedCostTracker {
 
 pub fn parse_cost(
     cost_function_name: &str,
-    eval_result: Result<Option<Value>, VmExecutionError>,
+    eval_result: Result<Value, VmExecutionError>,
 ) -> Result<ExecutionCost, CostErrors> {
     match eval_result {
-        Ok(Some(Value::Tuple(data))) => {
+        Ok(Value::Tuple(data)) => {
             let results = (
                 data.data_map.get("write_length"),
                 data.data_map.get("write_count"),
@@ -1081,11 +610,8 @@ pub fn parse_cost(
                 )),
             }
         }
-        Ok(Some(_)) => Err(CostErrors::CostComputationFailed(
+        Ok(_) => Err(CostErrors::CostComputationFailed(
             "Clarity cost function returned something other than a Cost tuple".to_string(),
-        )),
-        Ok(None) => Err(CostErrors::CostComputationFailed(
-            "Clarity cost function returned nothing".to_string(),
         )),
         Err(e) => Err(CostErrors::CostComputationFailed(format!(
             "Error evaluating result of cost function {cost_function_name}: {e}"
@@ -1121,7 +647,12 @@ pub fn compute_cost(
         )))?;
 
     let mut program = vec![SymbolicExpression::atom(
-        cost_function_reference.function_name[..].into(),
+        cost_function_reference.function_name[..]
+            .to_string()
+            .try_into()
+            .map_err(|_| {
+                CostErrors::Expect("Cost function should be a valid Clarity name".to_string())
+            })?,
     )];
 
     for input_size in input_sizes.iter() {
@@ -1135,19 +666,19 @@ pub fn compute_cost(
         let context = LocalContext::new();
         let mut call_stack = CallStack::new();
         let publisher: PrincipalData = cost_contract.contract_identifier.issuer.clone().into();
-        let mut env = Environment::new(
+        let mut env = ExecutionState {
             global_context,
-            cost_contract,
-            &mut call_stack,
-            Some(publisher.clone()),
-            Some(publisher.clone()),
-            None,
-        );
-
-        let result = super::eval(&function_invocation, &mut env, &context)?;
-        Ok(Some(result))
+            call_stack: &mut call_stack,
+        };
+        let invoke_ctx = InvocationContext {
+            contract_context: cost_contract,
+            sender: Some(publisher.clone()),
+            caller: Some(publisher.clone()),
+            sponsor: None,
+        };
+        super::eval(&function_invocation, &mut env, &invoke_ctx, &context)
+            .and_then(|v| v.clone_with_cost(&mut env))
     });
-
     parse_cost(&cost_function_reference.to_string(), eval_result)
 }
 
@@ -1246,29 +777,6 @@ impl CostTracker for LimitedCostTracker {
             }
         }
     }
-    fn short_circuit_contract_call(
-        &mut self,
-        contract: &QualifiedContractIdentifier,
-        function: &ClarityName,
-        input: &[u64],
-    ) -> Result<bool, CostErrors> {
-        match self {
-            Self::Free => {
-                // if we're already free, no need to worry about short circuiting contract-calls
-                Ok(false)
-            }
-            Self::Limited(data) => {
-                // grr, if HashMap::get didn't require Borrow, we wouldn't need this cloning.
-                let lookup_key = (contract.clone(), function.clone());
-                if let Some(cost_function) = data.contract_call_circuits.get(&lookup_key).cloned() {
-                    compute_cost(data, cost_function, input, data.epoch)?;
-                    Ok(true)
-                } else {
-                    Ok(false)
-                }
-            }
-        }
-    }
 }
 
 impl CostTracker for &mut LimitedCostTracker {
@@ -1291,17 +799,10 @@ impl CostTracker for &mut LimitedCostTracker {
     fn reset_memory(&mut self) {
         LimitedCostTracker::reset_memory(self)
     }
-    fn short_circuit_contract_call(
-        &mut self,
-        contract: &QualifiedContractIdentifier,
-        function: &ClarityName,
-        input: &[u64],
-    ) -> Result<bool, CostErrors> {
-        LimitedCostTracker::short_circuit_contract_call(self, contract, function, input)
-    }
 }
 
-// ONLY WORKS IF INPUT IS u64
+/// Returns the ceiling of the base-2 logarithm, or `None` for zero.
+#[cfg(test)]
 fn int_log2(input: u64) -> Option<u64> {
     63_u32.checked_sub(input.leading_zeros()).map(|floor_log| {
         if input.trailing_zeros() == floor_log {
@@ -1314,7 +815,81 @@ fn int_log2(input: u64) -> Option<u64> {
 
 #[cfg(test)]
 mod unit_tests {
+    use clarity_types::types::{CallableData, TraitIdentifier, TupleData};
+    use pinny::tag;
+    use proptest::collection::vec;
+    use proptest::prelude::*;
+    use rstest::rstest;
+
     use super::*;
+    use crate::vm::ClarityName;
+    use crate::vm::tests::proptest_utils::clarity_values;
+    use crate::vm::types::{QualifiedContractIdentifier, TypeSignature};
+
+    /// [`clarity_values`], plus the tuples and lists of tuples it does not
+    /// generate.
+    fn values_with_tuples() -> BoxedStrategy<Value> {
+        let tuples = vec(clarity_values(), 1..4)
+            .prop_filter_map("tuple construction failed", |fields| {
+                let fields = fields
+                    .into_iter()
+                    .enumerate()
+                    .map(|(i, value)| (ClarityName::try_from(format!("f{i}")).unwrap(), value))
+                    .collect();
+                TupleData::from_data(fields).ok().map(Value::from)
+            })
+            .boxed();
+        let tuple_lists = tuples
+            .clone()
+            .prop_filter_map("list construction failed", |tuple| {
+                Value::list_from(vec![tuple.clone(), tuple]).ok()
+            });
+        prop_oneof![clarity_values(), tuples, tuple_lists].boxed()
+    }
+
+    proptest! {
+        /// Values without callable types are charged the same from Epoch 4.1.
+        #[tag(t_prop)]
+        #[test]
+        fn prop_non_callable_charges_unchanged_in_epoch41(value in values_with_tuples()) {
+            let epoch = StacksEpochId::Epoch41;
+            let ty = TypeSignature::type_of(&value).unwrap();
+            prop_assert_eq!(ty.charged_type_size(&epoch).unwrap(), ty.type_size().unwrap());
+            prop_assert_eq!(ty.charged_size(&epoch).unwrap(), ty.size().unwrap());
+            prop_assert_eq!(
+                value.get_memory_use(&epoch).unwrap(),
+                u64::from(value.size().unwrap())
+            );
+        }
+    }
+
+    fn trait_id(name: &'static str) -> TraitIdentifier {
+        TraitIdentifier {
+            name: ClarityName::from_literal(name),
+            contract_identifier: QualifiedContractIdentifier::transient(),
+        }
+    }
+
+    /// A list of two values of one trait.
+    fn trait_list() -> Value {
+        let trait_ref = Value::CallableContract(CallableData {
+            contract_identifier: QualifiedContractIdentifier::local("impl").unwrap(),
+            trait_identifier: Some(Box::new(trait_id("trait-a"))),
+        });
+        Value::cons_list(vec![trait_ref.clone(), trait_ref], &StacksEpochId::Epoch41).unwrap()
+    }
+
+    /// From Epoch 4.1, a list's memory use counts the traits its type holds.
+    #[rstest]
+    #[case::trait_list_before_epoch41(trait_list(), StacksEpochId::Epoch40, 2 * 276 + 1 + 5)]
+    #[case::trait_list_from_epoch41(trait_list(), StacksEpochId::Epoch41, 2 * 276 + 1 + 276 + 5)]
+    fn test_memory_use_counts_callable_types_from_epoch41(
+        #[case] value: Value,
+        #[case] epoch: StacksEpochId,
+        #[case] expected: u64,
+    ) {
+        assert_eq!(value.get_memory_use(&epoch).unwrap(), expected);
+    }
 
     #[test]
     fn test_simple_overflows() {

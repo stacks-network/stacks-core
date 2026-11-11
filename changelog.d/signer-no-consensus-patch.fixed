@@ -1,0 +1,1 @@
+Signers will now attempt to defer proposals received before the global state machine has reached consensus amongst the signer set, rather than immediately rejecting with `NoSignerConsensus`. This should improve block production at Bitcoin block boundaries.

@@ -185,14 +185,14 @@ impl StacksMessageCodec for LeaderKeyRegisterOp {
     fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), codec_error> {
         write_next(fd, &(Opcodes::LeaderKeyRegister as u8))?;
         write_next(fd, &self.consensus_hash)?;
-        fd.write_all(&self.public_key.as_bytes()[..])
+        fd.write_all(self.public_key.as_bytes())
             .map_err(codec_error::WriteError)?;
         let memo = match self.memo.len() {
             l if l <= 25 => self.memo.get(0..),
             _ => self.memo.get(0..25),
         }
         .expect("FATAL: improper memo serialization");
-        fd.write_all(&memo).map_err(codec_error::WriteError)?;
+        fd.write_all(memo).map_err(codec_error::WriteError)?;
         Ok(())
     }
 

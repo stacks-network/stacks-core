@@ -22,17 +22,17 @@ use rusqlite::{params, Connection, OpenFlags, Row, Transaction};
 use serde_json;
 use stacks_common::types::chainstate::BurnchainHeaderHash;
 use stacks_common::types::sqlite::NO_PARAMS;
+use stacks_marf::ClarityMarfTrieId;
 
 use crate::burnchains::{
     Burnchain, BurnchainBlock, BurnchainBlockHeader, Error as BurnchainError, Txid,
 };
 use crate::chainstate::burn::operations::{BlockstackOperationType, LeaderBlockCommitOp};
 use crate::chainstate::burn::BlockSnapshot;
-use crate::chainstate::stacks::index::ClarityMarfTrieId;
 use crate::core::StacksEpochId;
 use crate::util_lib::db::{
-    opt_u64_to_sql, query_row, query_row_panic, query_rows, sqlite_open, table_exists,
-    tx_begin_immediate, u64_to_sql, DBConn, Error as DBError, FromColumn, FromRow,
+    opt_u64_to_sql, query_row, query_rows, sqlite_open, table_exists, tx_begin_immediate,
+    u64_to_sql, DBConn, Error as DBError, FromColumn, FromRow,
 };
 
 struct Migration {
@@ -140,7 +140,7 @@ impl FromRow<BlockCommitMetadata> for BlockCommitMetadata {
 /// - make sure there are no vtxindex duplicates
 pub(crate) fn apply_blockstack_txs_safety_checks(
     block_height: u64,
-    blockstack_txs: &mut Vec<BlockstackOperationType>,
+    blockstack_txs: &mut [BlockstackOperationType],
 ) {
     test_debug!(
         "Apply safety checks on {} txs at burnchain height {}",
@@ -401,16 +401,6 @@ impl BurnchainDBTransaction<'_> {
         }
     }
 
-    /// Unmark all block-commit(s) that were anchor block(s) for this reward cycle.
-    pub fn clear_anchor_block(&self, reward_cycle: u64) -> Result<(), DBError> {
-        let sql = "UPDATE block_commit_metadata SET anchor_block = NULL WHERE anchor_block = ?1";
-        let args = params![u64_to_sql(reward_cycle)?];
-        self.sql_tx
-            .execute(sql, args)
-            .map(|_| ())
-            .map_err(DBError::SqliteError)
-    }
-
     fn insert_block_commit_metadata(&self, bcm: BlockCommitMetadata) -> Result<(), BurnchainError> {
         let commit_metadata_sql = "INSERT OR REPLACE INTO block_commit_metadata
                                    (burn_block_hash, txid, block_height, vtxindex, anchor_block, anchor_block_descendant)
@@ -531,7 +521,7 @@ impl BurnchainDB {
                             let pparent_path = ppath
                                 .parent()
                                 .unwrap_or_else(|| panic!("BUG: no parent of '{path}'"));
-                            fs::create_dir_all(&pparent_path)
+                            fs::create_dir_all(pparent_path)
                                 .map_err(|e| BurnchainError::from(DBError::IOError(e)))?;
 
                             OpenFlags::SQLITE_OPEN_READ_WRITE | OpenFlags::SQLITE_OPEN_CREATE
@@ -715,19 +705,9 @@ impl BurnchainDB {
         BurnchainDB::inner_get_canonical_chain_tip(&self.conn)
     }
 
-    pub fn has_burnchain_block_at_height(
-        conn: &DBConn,
-        height: u64,
-    ) -> Result<bool, BurnchainError> {
-        let qry = "SELECT 1 FROM burnchain_db_block_headers WHERE block_height = ?1";
-        let args = params![u64_to_sql(height)?];
-        let res: Option<i64> = query_row(conn, qry, args)?;
-        Ok(res.is_some())
-    }
-
     pub fn has_burnchain_block(&self, block: &BurnchainHeaderHash) -> Result<bool, BurnchainError> {
         let qry = "SELECT 1 FROM burnchain_db_block_headers WHERE block_hash = ?1";
-        let res: Option<i64> = query_row(&self.conn, qry, &[block])?;
+        let res: Option<i64> = query_row(&self.conn, qry, [block])?;
         Ok(res.is_some())
     }
 
@@ -753,14 +733,11 @@ impl BurnchainDB {
             "SELECT * FROM burnchain_db_block_headers WHERE block_hash = ? LIMIT 1";
         let block_ops_qry = "SELECT DISTINCT * FROM burnchain_db_block_ops WHERE block_hash = ?";
 
-        let block_header = query_row(conn, block_header_qry, params![block])?
+        let header = query_row(conn, block_header_qry, params![block])?
             .ok_or_else(|| BurnchainError::UnknownBlock(block.clone()))?;
-        let block_ops = query_rows(conn, block_ops_qry, params![block])?;
+        let ops = query_rows(conn, block_ops_qry, params![block])?;
 
-        Ok(BurnchainBlockData {
-            header: block_header,
-            ops: block_ops,
-        })
+        Ok(BurnchainBlockData { header, ops })
     }
 
     fn inner_get_burnchain_op(
@@ -793,17 +770,12 @@ impl BurnchainDB {
 
         let ops: Vec<BlockstackOperationType> =
             query_rows(&self.conn, qry, args).expect("FATAL: burnchain DB query error");
-        for op in ops {
-            if indexer
+        ops.into_iter().find(|op| {
+            indexer
                 .find_burnchain_header_height(&op.burn_header_hash())
                 .expect("FATAL: burnchain DB query error")
                 .is_some()
-            {
-                // this is the op on the canonical fork
-                return Some(op);
-            }
-        }
-        None
+        })
     }
 
     /// Filter out the burnchain block's transactions that could be blockstack transactions.
@@ -815,6 +787,7 @@ impl BurnchainDB {
         block: &BurnchainBlock,
         block_header: &BurnchainBlockHeader,
         epoch_id: StacksEpochId,
+        first_pox_waterfall_block: u64,
     ) -> Vec<BlockstackOperationType> {
         debug!(
             "Extract Blockstack transactions from block {} {} ({} txs)",
@@ -833,6 +806,7 @@ impl BurnchainDB {
                 self,
                 block_header,
                 epoch_id,
+                first_pox_waterfall_block,
                 tx,
                 &pre_stx_ops,
             );
@@ -872,17 +846,6 @@ impl BurnchainDB {
         Ok(query_row::<bool, _>(conn, sql, args)?.is_some())
     }
 
-    pub fn get_anchor_block_commit_metadatas(
-        conn: &DBConn,
-        reward_cycle: u64,
-    ) -> Result<Vec<BlockCommitMetadata>, DBError> {
-        let sql = "SELECT * FROM block_commit_metadata WHERE anchor_block = ?1";
-        let args = params![u64_to_sql(reward_cycle)?];
-
-        let metadatas: Vec<BlockCommitMetadata> = query_rows(conn, sql, args)?;
-        Ok(metadatas)
-    }
-
     pub fn get_canonical_anchor_block_commit_metadata<B: BurnchainHeaderReader>(
         conn: &DBConn,
         indexer: &B,
@@ -899,28 +862,7 @@ impl BurnchainDB {
                 }
             }
         }
-        return Ok(None);
-    }
-
-    pub fn get_canonical_anchor_block_commit<B: BurnchainHeaderReader>(
-        conn: &DBConn,
-        indexer: &B,
-        reward_cycle: u64,
-    ) -> Result<Option<(LeaderBlockCommitOp, BlockCommitMetadata)>, DBError> {
-        if let Some(commit_metadata) =
-            Self::get_canonical_anchor_block_commit_metadata(conn, indexer, reward_cycle)?
-        {
-            let commit = BurnchainDB::get_block_commit(
-                conn,
-                &commit_metadata.burn_block_hash,
-                &commit_metadata.txid,
-            )?
-            .expect("BUG: no block-commit for block-commit metadata");
-
-            Ok(Some((commit, commit_metadata)))
-        } else {
-            Ok(None)
-        }
+        Ok(None)
     }
 
     pub fn get_anchor_block_commit(
@@ -944,9 +886,97 @@ impl BurnchainDB {
             Ok(None)
         }
     }
+}
 
+// Raw-row test fixture writers. Each helper owns its table's column
+// list so fixtures can't drift from the schema; values are raw
+// TEXT/ints because fixtures use readable labels, not valid hashes
+// (which the typed write paths would reject).
+#[cfg(test)]
+impl BurnchainDB {
+    /// Insert a `burnchain_db_block_headers` row with no transactions.
+    pub fn test_insert_block_header_row(
+        conn: &Connection,
+        block_height: u64,
+        block_hash: &str,
+        parent_block_hash: &str,
+    ) -> Result<(), DBError> {
+        conn.execute(
+            "INSERT INTO burnchain_db_block_headers \
+             (block_height, block_hash, parent_block_hash, num_txs, timestamp) \
+             VALUES (?1, ?2, ?3, 0, 0)",
+            params![u64_to_sql(block_height)?, block_hash, parent_block_hash],
+        )?;
+        Ok(())
+    }
+
+    /// Insert a `burnchain_db_block_ops` row with an opaque op payload.
+    pub fn test_insert_block_ops_row(
+        conn: &Connection,
+        block_hash: &str,
+        op: &str,
+        txid: &str,
+    ) -> rusqlite::Result<()> {
+        conn.execute(
+            "INSERT INTO burnchain_db_block_ops (block_hash, op, txid) VALUES (?1, ?2, ?3)",
+            params![block_hash, op, txid],
+        )?;
+        Ok(())
+    }
+
+    /// Insert a minimal `block_commit_metadata` row.
+    pub fn test_insert_block_commit_metadata_row(
+        conn: &Connection,
+        burn_block_hash: &str,
+        txid: &str,
+        block_height: u64,
+        anchor_block: Option<u64>,
+    ) -> Result<(), DBError> {
+        conn.execute(
+            "INSERT INTO block_commit_metadata \
+             (burn_block_hash, txid, block_height, vtxindex, anchor_block, \
+              anchor_block_descendant) \
+             VALUES (?1, ?2, ?3, 0, ?4, NULL)",
+            params![
+                burn_block_hash,
+                txid,
+                u64_to_sql(block_height)?,
+                opt_u64_to_sql(anchor_block)?,
+            ],
+        )?;
+        Ok(())
+    }
+
+    /// Insert an `anchor_blocks` row.
+    pub fn test_insert_anchor_block_row(
+        conn: &Connection,
+        reward_cycle: u64,
+    ) -> Result<(), DBError> {
+        conn.execute(
+            "INSERT INTO anchor_blocks (reward_cycle) VALUES (?1)",
+            params![u64_to_sql(reward_cycle)?],
+        )?;
+        Ok(())
+    }
+
+    /// Insert an `overrides` row.
+    pub fn test_insert_override_row(
+        conn: &Connection,
+        reward_cycle: u64,
+        affirmation_map: &str,
+    ) -> Result<(), DBError> {
+        conn.execute(
+            "INSERT INTO overrides (reward_cycle, affirmation_map) VALUES (?1, ?2)",
+            params![u64_to_sql(reward_cycle)?, affirmation_map],
+        )?;
+        Ok(())
+    }
+}
+
+impl BurnchainDB {
     // do NOT call directly; only call directly in tests.
     // This is only `pub` because the tests for it live in a different file.
+    #[cfg(test)]
     pub fn store_new_burnchain_block_ops_unchecked(
         &mut self,
         block_header: &BurnchainBlockHeader,
@@ -975,17 +1005,35 @@ impl BurnchainDB {
         indexer: &B,
         block: &BurnchainBlock,
         epoch_id: StacksEpochId,
+        first_pox_waterfall_block: u64,
     ) -> Result<Vec<BlockstackOperationType>, BurnchainError> {
         let header = block.header();
         debug!("Storing new burnchain block";
               "burn_block_hash" => %header.block_hash,
               "block_height" => header.block_height
         );
-        let mut blockstack_ops =
-            self.get_blockstack_transactions(burnchain, indexer, block, &header, epoch_id);
+        let mut blockstack_ops = self.get_blockstack_transactions(
+            burnchain,
+            indexer,
+            block,
+            &header,
+            epoch_id,
+            first_pox_waterfall_block,
+        );
         apply_blockstack_txs_safety_checks(header.block_height, &mut blockstack_ops);
 
-        self.store_new_burnchain_block_ops_unchecked(&header, &blockstack_ops)?;
+        // Store block header and blockstack ops in a single transaction
+        let db_tx = self.tx_begin()?;
+        test_debug!(
+            "Store block {},{} with {} ops",
+            &header.block_hash,
+            header.block_height,
+            blockstack_ops.len(),
+        );
+        db_tx.store_burnchain_db_entry(&header)?;
+        db_tx.store_blockstack_ops(&header, &blockstack_ops)?;
+        db_tx.commit()?;
+
         Ok(blockstack_ops)
     }
 
@@ -1049,24 +1097,5 @@ impl BurnchainDB {
         };
 
         BurnchainDB::get_commit_in_block_at(conn, &header_hash, block_ptr, vtxindex)
-    }
-
-    pub fn get_commit_metadata(
-        conn: &DBConn,
-        burn_block_hash: &BurnchainHeaderHash,
-        txid: &Txid,
-    ) -> Result<Option<BlockCommitMetadata>, DBError> {
-        let args = params![burn_block_hash, txid];
-        query_row_panic(
-            conn,
-            "SELECT * FROM block_commit_metadata WHERE burn_block_hash = ?1 AND txid = ?2",
-            args,
-            || {
-                format!(
-                    "BUG: more than one block-commit {},{}",
-                    burn_block_hash, txid
-                )
-            },
-        )
     }
 }

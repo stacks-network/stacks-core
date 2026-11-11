@@ -201,7 +201,7 @@ impl MonitoringServer {
         let balance = i64::from_str_radix(&account_entry.balance[2..], 16).map_err(|e| {
             MonitoringError::FetchError(ClientError::MalformedClarityValue(format!(
                 "Failed to parse balance: {} with err: {}",
-                &account_entry.balance, e,
+                account_entry.balance, e,
             )))
         })?;
         update_signer_nonce(account_entry.nonce);

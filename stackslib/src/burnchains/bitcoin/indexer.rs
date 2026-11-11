@@ -39,7 +39,7 @@ use crate::burnchains::bitcoin::blocks::{
 };
 use crate::burnchains::bitcoin::messages::BitcoinMessageHandler;
 use crate::burnchains::bitcoin::spv::*;
-use crate::burnchains::bitcoin::{BitcoinNetworkType, Error as btc_error};
+use crate::burnchains::bitcoin::{signet, BitcoinNetworkType, Error as btc_error};
 use crate::burnchains::db::BurnchainHeaderReader;
 use crate::burnchains::indexer::{BurnchainIndexer, *};
 use crate::burnchains::{
@@ -56,6 +56,10 @@ pub const USER_AGENT: &str = "Stacks/2.1";
 pub const BITCOIN_MAINNET: u32 = 0xD9B4BEF9;
 pub const BITCOIN_TESTNET: u32 = 0x0709110B;
 pub const BITCOIN_REGTEST: u32 = 0xDAB5BFFA;
+/// Public signet wire magic; custom challenges derive their own wire magic.
+pub const BITCOIN_SIGNET: u32 = 0x40CF030A;
+/// Name used to select BIP 325 burnchain parameters.
+pub const BITCOIN_SIGNET_NAME: &str = "signet";
 
 pub const BITCOIN_MAINNET_NAME: &str = "mainnet";
 pub const BITCOIN_TESTNET_NAME: &str = "testnet";
@@ -73,6 +77,7 @@ pub fn network_id_to_bytes(network_id: BitcoinNetworkType) -> u32 {
         BitcoinNetworkType::Mainnet => BITCOIN_MAINNET,
         BitcoinNetworkType::Testnet => BITCOIN_TESTNET,
         BitcoinNetworkType::Regtest => BITCOIN_REGTEST,
+        BitcoinNetworkType::Signet => BITCOIN_SIGNET,
     }
 }
 
@@ -84,6 +89,7 @@ impl TryFrom<u32> for BitcoinNetworkType {
             BITCOIN_MAINNET => Ok(BitcoinNetworkType::Mainnet),
             BITCOIN_TESTNET => Ok(BitcoinNetworkType::Testnet),
             BITCOIN_REGTEST => Ok(BitcoinNetworkType::Regtest),
+            BITCOIN_SIGNET => Ok(BitcoinNetworkType::Signet),
             _ => Err("Invalid network type"),
         }
     }
@@ -97,6 +103,7 @@ pub fn get_bitcoin_stacks_epochs(network_id: BitcoinNetworkType) -> EpochList {
         BitcoinNetworkType::Mainnet => (*STACKS_EPOCHS_MAINNET).clone(),
         BitcoinNetworkType::Testnet => (*STACKS_EPOCHS_TESTNET).clone(),
         BitcoinNetworkType::Regtest => (*STACKS_EPOCHS_REGTEST).clone(),
+        BitcoinNetworkType::Signet => signet::default_epochs(),
     }
 }
 
@@ -108,8 +115,6 @@ pub struct BitcoinIndexerConfig {
     pub peer_port: u16,
     /// Port number of the Bitcoin RPC interface
     pub rpc_port: u16,
-    /// Whether to use SSL for the RPC interface
-    pub rpc_ssl: bool,
     /// Username for the RPC interface
     pub username: Option<String>,
     /// Password for the RPC interface
@@ -126,6 +131,8 @@ pub struct BitcoinIndexerConfig {
     pub magic_bytes: MagicBytes,
     /// The epochs for this network
     pub epochs: Option<EpochList>,
+    /// Resolved BIP 325 challenge; required on signet and unused on other networks.
+    pub signet_challenge: Option<Vec<u8>>,
 }
 
 #[derive(Debug)]
@@ -153,7 +160,6 @@ impl BitcoinIndexerConfig {
             peer_host: "bitcoin.blockstack.com".to_string(),
             peer_port: 8333,
             rpc_port: 8332,
-            rpc_ssl: false,
             username: Some("blockstack".to_string()),
             password: Some("blockstacksystem".to_string()),
             timeout: 300,
@@ -162,6 +168,7 @@ impl BitcoinIndexerConfig {
             first_block,
             magic_bytes: BLOCKSTACK_MAGIC_MAINNET,
             epochs: None,
+            signet_challenge: None,
         }
     }
 
@@ -170,7 +177,6 @@ impl BitcoinIndexerConfig {
             peer_host: "127.0.0.1".to_string(),
             peer_port: 18444,
             rpc_port: 18443,
-            rpc_ssl: false,
             username: Some("blockstack".to_string()),
             password: Some("blockstacksystem".to_string()),
             timeout: 300,
@@ -179,6 +185,24 @@ impl BitcoinIndexerConfig {
             first_block: 0,
             magic_bytes: BLOCKSTACK_MAGIC_MAINNET,
             epochs: None,
+            signet_challenge: None,
+        }
+    }
+
+    /// Configure a local public-signet Core peer; replace the challenge for custom signets.
+    #[cfg(test)]
+    pub fn default_signet(spv_headers_path: String) -> Self {
+        use crate::config::{DEFAULT_SIGNET_CHALLENGE, DEFAULT_SIGNET_MAGIC_BYTES};
+
+        Self {
+            peer_port: signet::P2P_PORT,
+            rpc_port: signet::RPC_PORT,
+            magic_bytes: DEFAULT_SIGNET_MAGIC_BYTES,
+            signet_challenge: Some(
+                signet::parse_challenge(DEFAULT_SIGNET_CHALLENGE)
+                    .expect("Valid public signet challenge"),
+            ),
+            ..Self::default_regtest(spv_headers_path)
         }
     }
 
@@ -188,7 +212,6 @@ impl BitcoinIndexerConfig {
             peer_host: "127.0.0.1".to_string(),
             peer_port: 18444,
             rpc_port: 18443,
-            rpc_ssl: false,
             username: Some("blockstack".to_string()),
             password: Some("blockstacksystem".to_string()),
             timeout: 300,
@@ -197,6 +220,7 @@ impl BitcoinIndexerConfig {
             first_block: 0,
             magic_bytes: BLOCKSTACK_MAGIC_MAINNET,
             epochs: None,
+            signet_challenge: None,
         }
     }
 }
@@ -219,6 +243,21 @@ impl BitcoinIndexerRuntime {
 }
 
 impl BitcoinIndexer {
+    /// Select the wire magic bytes for the configured Bitcoin network.
+    ///
+    /// Signet derives them from the configured challenge; other networks use fixed values.
+    pub fn network_magic(&self) -> u32 {
+        match self.runtime.network_id {
+            BitcoinNetworkType::Signet => signet::network_magic(
+                self.config
+                    .signet_challenge
+                    .as_deref()
+                    .expect("BUG: signet configuration must include its resolved challenge"),
+            ),
+            other_networks => network_id_to_bytes(other_networks),
+        }
+    }
+
     #[cfg(test)]
     pub fn new(
         config: BitcoinIndexerConfig,
@@ -265,10 +304,7 @@ impl BitcoinIndexer {
     pub fn dup(&self) -> BitcoinIndexer {
         BitcoinIndexer {
             config: self.config.clone(),
-            runtime: BitcoinIndexerRuntime::new(
-                self.runtime.network_id,
-                self.config.timeout.into(),
-            ),
+            runtime: BitcoinIndexerRuntime::new(self.runtime.network_id, self.config.timeout),
             should_keep_running: self.should_keep_running.clone(),
         }
     }
@@ -402,7 +438,7 @@ impl BitcoinIndexer {
                             }
                         }
                         Err(btc_error::UnhandledMessage(m)) => {
-                            match m {
+                            match *m {
                                 // some Bitcoin nodes send this to tell us to upgrade, so just
                                 // consume it
                                 NetworkMessage::Alert(..) => {}
@@ -512,7 +548,7 @@ impl BitcoinIndexer {
         remove_old: bool,
     ) -> Result<SpvClient, btc_error> {
         if remove_old && PathBuf::from(&reorg_headers_path).exists() {
-            fs::remove_file(&reorg_headers_path).map_err(|e| {
+            fs::remove_file(reorg_headers_path).map_err(|e| {
                 error!("Failed to remove {}", reorg_headers_path);
                 btc_error::Io(e)
             })?;
@@ -929,7 +965,7 @@ impl BitcoinIndexer {
             highest_header_height, highest_header.block_header.header.time
         );
         self.drop_headers(highest_header_height.saturating_sub(1))?;
-        return Err(burnchain_error::TrySyncAgain);
+        Err(burnchain_error::TrySyncAgain)
     }
 }
 
@@ -1603,7 +1639,6 @@ mod test {
             peer_host: host,
             peer_port: port,
             rpc_port: port + 1, // ignored
-            rpc_ssl: false,
             username: Some("blockstack".to_string()),
             password: Some("blockstacksystem".to_string()),
             timeout: 300,
@@ -1612,6 +1647,7 @@ mod test {
             first_block: 0,
             magic_bytes: MagicBytes([105, 100]),
             epochs: None,
+            signet_challenge: None,
         };
 
         if fs::metadata(&indexer_conf.spv_headers_path).is_ok() {
@@ -3214,7 +3250,7 @@ mod test {
                         if block_height > 40320 {
                             break;
                         }
-                        if block_height >= 40319 && block_height <= 40320 {
+                        if (40319..=40320).contains(&block_height) {
                             test_debug!("insert bad header {}", block_height);
                             ret.push(bad_headers[(block_height - 40319) as usize].clone());
                             inserted_bad_header = true;
@@ -3377,7 +3413,7 @@ mod test {
                         if block_height > 40320 {
                             break;
                         }
-                        if block_height >= 40319 && block_height <= 40320 {
+                        if (40319..=40320).contains(&block_height) {
                             test_debug!("insert good header {}", block_height);
                             ret.push(good_headers[(block_height - 40319) as usize].clone());
                             inserted_good_header = true;

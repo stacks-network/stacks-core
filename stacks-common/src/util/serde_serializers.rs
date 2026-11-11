@@ -33,15 +33,16 @@ pub mod prefix_opt_hex {
     }
 }
 
-/// This module serde encodes and decodes byte fields in RPC
-/// responses as a String where the String is a `0x` prefixed
-/// hex string.
+/// This module serde encodes and decodes implementations of
+/// `HexSer` and `HexDeser` in RPC responses as a String where the
+/// String is a `0x` prefixed hex string.
 pub mod prefix_hex {
-    pub fn serialize<S: serde::Serializer, T: std::fmt::LowerHex>(
+    pub fn serialize<S: serde::Serializer, T: crate::util::HexSer>(
         val: &T,
         s: S,
     ) -> Result<S::Ok, S::Error> {
-        s.serialize_str(&format!("0x{val:x}"))
+        let val_fmter = std::fmt::from_fn(|f| T::fmt_hex(val, f));
+        s.serialize_str(&format!("0x{val_fmter}"))
     }
 
     pub fn deserialize<'de, D: serde::Deserializer<'de>, T: crate::util::HexDeser>(
@@ -54,6 +55,9 @@ pub mod prefix_hex {
                 &"at least length 2 string",
             ));
         };
+        if inst_str.get(0..2) != Some("0x") {
+            return Err(serde::de::Error::custom("must supply 0x-prefix"));
+        }
         T::try_from_hex(hex_str).map_err(serde::de::Error::custom)
     }
 }
@@ -149,5 +153,65 @@ pub mod prefix_string_0x {
             ));
         };
         Ok(hex_str.to_string())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    fn ser_helper<const N: usize>(bytes: &[u8; N]) -> Result<String, serde_json::Error> {
+        let mut ser = serde_json::Serializer::new(vec![]);
+        super::prefix_hex::serialize(bytes, &mut ser)?;
+        // read the json string (i.e., "\"0x00\"") into the hex string ("0x00")
+        let out = serde_json::from_slice(&ser.into_inner()).unwrap();
+        Ok(out)
+    }
+
+    fn deser_helper<const N: usize>(hex: &str) -> Result<[u8; N], serde_json::Error> {
+        let json_str = format!("\"{hex}\"");
+        let mut deser = serde_json::Deserializer::from_str(&json_str);
+        super::prefix_hex::deserialize(&mut deser)
+    }
+
+    #[test]
+    fn prefix_hex_byte_array_errors() {
+        let err = deser_helper::<1>("0").unwrap_err();
+        assert!(err.to_string().contains("at least length 2 string"));
+        let err = deser_helper::<1>("00aa").unwrap_err();
+        assert!(err.to_string().contains("must supply 0x-prefix"));
+        let err = deser_helper::<1>("0x").unwrap_err();
+        assert!(err.to_string().contains("bad length 0"));
+        let err = deser_helper::<2>("0x00").unwrap_err();
+        assert!(err.to_string().contains("bad length 2"));
+        let err = deser_helper::<3>("0x000").unwrap_err();
+        assert!(err.to_string().contains("bad length 3"));
+        let err = deser_helper::<3>("0x00aaq1").unwrap_err();
+        assert!(err.to_string().contains("bad character q for hex string"));
+    }
+
+    #[test]
+    fn prefix_hex_byte_array_okay() {
+        let n1_fixtures = [([0x00u8], "0x00"), ([0xff], "0xFf")];
+        for (bytes, hex) in n1_fixtures.iter() {
+            let out = deser_helper(hex).unwrap();
+            assert_eq!(out, *bytes);
+            let out = ser_helper(bytes).unwrap();
+            assert_eq!(&out, &hex.to_ascii_lowercase());
+        }
+        let n5_fixtures = [
+            ([0xff, 0xaa, 0xbc, 0x1f, 0x24], "0xffaabC1f24"),
+            ([0xff, 0x00, 0xbc, 0x1f, 0x24], "0xff00Bc1f24"),
+            ([0xff, 0xaa, 0xac, 0x0f, 0x24], "0xffaaac0F24"),
+        ];
+        for (bytes, hex) in n5_fixtures.iter() {
+            let out = deser_helper(hex).unwrap();
+            assert_eq!(out, *bytes);
+            let out = ser_helper(bytes).unwrap();
+            assert_eq!(&out, &hex.to_ascii_lowercase());
+        }
+        let out: [u8; 0] = deser_helper("0x").unwrap();
+        let test: [u8; 0] = [];
+        assert_eq!(out, test);
+        let out = ser_helper(&test).unwrap();
+        assert_eq!("0x", out);
     }
 }

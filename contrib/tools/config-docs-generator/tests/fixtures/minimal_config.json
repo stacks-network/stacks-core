@@ -5,16 +5,6 @@
             "description": "Configuration settings for a Stacks node",
             "fields": [
                 {
-                    "name": "name",
-                    "description": "Human-readable name for the node. Primarily used for identification in testing\nenvironments (e.g., deriving log file names, temporary directory names).",
-                    "default_value": "`\"helium-node\"`",
-                    "notes": null,
-                    "deprecated": null,
-                    "toml_example": null,
-                    "required": null,
-                    "units": null
-                },
-                {
                     "name": "seed",
                     "description": "The node's Bitcoin wallet private key, provided as a hex string in the config file.\nUsed to initialize the node's keychain for signing operations.\nIf [`MinerConfig::mining_key`] is not set, this seed may also be used for\nmining-related signing.",
                     "default_value": "Randomly generated 32 bytes",

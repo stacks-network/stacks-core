@@ -45,7 +45,7 @@ pub struct AccountEntryResponse {
     pub nonce_proof: Option<String>,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Default)]
 pub struct RPCGetAccountRequestHandler {
     pub account: Option<PrincipalData>,
 }
@@ -120,7 +120,7 @@ impl RPCRequestHandler for RPCGetAccountRequestHandler {
         let tip = match node.load_stacks_chain_tip(&preamble, &contents) {
             Ok(tip) => tip,
             Err(error_resp) => {
-                return error_resp.try_into_contents().map_err(NetError::from);
+                return error_resp.try_into_contents();
             }
         };
         let account = self
@@ -142,6 +142,7 @@ impl RPCRequestHandler for RPCGetAccountRequestHandler {
                             let v1_unlock_height = clarity_db.get_v1_unlock_height();
                             let v2_unlock_height = clarity_db.get_v2_unlock_height().ok()?;
                             let v3_unlock_height = clarity_db.get_v3_unlock_height().ok()?;
+                            let v4_unlock_height = clarity_db.get_v4_unlock_height().ok()?;
                             let (balance, balance_proof) = if with_proof {
                                 clarity_db
                                     .get_data_with_proof::<STXBalance>(&key)
@@ -181,6 +182,7 @@ impl RPCRequestHandler for RPCGetAccountRequestHandler {
                                     v1_unlock_height,
                                     v2_unlock_height,
                                     v3_unlock_height,
+                                    v4_unlock_height,
                                 )
                                 .ok()?;
 
@@ -189,6 +191,7 @@ impl RPCRequestHandler for RPCGetAccountRequestHandler {
                                 v1_unlock_height,
                                 v2_unlock_height,
                                 v3_unlock_height,
+                                v4_unlock_height,
                             );
 
                             let balance = format!("0x{}", to_hex(&unlocked.to_be_bytes()));
@@ -214,8 +217,7 @@ impl RPCRequestHandler for RPCGetAccountRequestHandler {
                 &preamble,
                 &HttpNotFound::new(format!("Chain tip '{}' not found", &tip)),
             )
-            .try_into_contents()
-            .map_err(NetError::from);
+            .try_into_contents();
         };
 
         let preamble = HttpResponsePreamble::ok_json(&preamble);
@@ -232,7 +234,7 @@ impl HttpResponse for RPCGetAccountRequestHandler {
         body: &[u8],
     ) -> Result<HttpResponsePayload, Error> {
         let account: AccountEntryResponse = parse_json(preamble, body)?;
-        Ok(HttpResponsePayload::try_from_json(account)?)
+        HttpResponsePayload::try_from_json(account)
     }
 }
 

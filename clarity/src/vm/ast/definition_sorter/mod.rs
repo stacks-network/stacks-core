@@ -17,19 +17,20 @@
 use std::collections::{HashMap, HashSet};
 
 use clarity_types::representations::ClarityName;
+use stacks_common::types::StacksEpochId;
 
-use crate::vm::ClarityVersion;
 use crate::vm::ast::errors::{ParseError, ParseErrorKind, ParseResult};
 use crate::vm::ast::types::ContractAST;
 use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::costs::{CostTracker, runtime_cost};
-use crate::vm::functions::NativeFunctions;
 use crate::vm::functions::define::DefineFunctions;
+use crate::vm::functions::{NativeFunctions, lookup_reserved_functions};
 use crate::vm::representations::PreSymbolicExpression;
 use crate::vm::representations::PreSymbolicExpressionType::{
     Atom, AtomValue, Comment, FieldIdentifier, List, Placeholder, SugaredContractIdentifier,
     SugaredFieldIdentifier, TraitReference, Tuple,
 };
+use crate::vm::{ClarityVersion, is_reserved};
 
 #[cfg(test)]
 mod tests;
@@ -37,13 +38,25 @@ mod tests;
 pub struct DefinitionSorter {
     graph: Graph,
     top_level_expressions_map: HashMap<ClarityName, TopLevelExpressionIndex>,
+    epoch: StacksEpochId,
+}
+
+#[derive(PartialEq)]
+enum KeyValuePairKind {
+    /// This key-value-pair is a binding (`let` or parameter in function definition),
+    /// that is, its name has to be checked for collisions.
+    Binding,
+    /// This key-value-pair is a tuple field. Its name never depends on or clashes with
+    /// other definitions.
+    Tuple,
 }
 
 impl DefinitionSorter {
-    fn new() -> Self {
+    fn new(epoch: StacksEpochId) -> Self {
         Self {
             top_level_expressions_map: HashMap::new(),
             graph: Graph::new(),
+            epoch,
         }
     }
 
@@ -51,8 +64,9 @@ impl DefinitionSorter {
         contract_ast: &mut ContractAST,
         accounting: &mut T,
         version: ClarityVersion,
+        epoch: StacksEpochId,
     ) -> ParseResult<()> {
-        let mut pass = DefinitionSorter::new();
+        let mut pass = DefinitionSorter::new(epoch);
         pass.run(contract_ast, accounting, version)?;
         Ok(())
     }
@@ -63,7 +77,7 @@ impl DefinitionSorter {
         accounting: &mut T,
         version: ClarityVersion,
     ) -> ParseResult<()> {
-        let exprs = contract_ast.pre_expressions[..].to_vec();
+        let exprs = &contract_ast.pre_expressions;
         for (expr_index, expr) in exprs.iter().enumerate() {
             self.graph.add_node(expr_index);
 
@@ -118,6 +132,12 @@ impl DefinitionSorter {
     ) -> ParseResult<()> {
         match expr.pre_expr {
             Atom(ref name) => {
+                // From Epoch 4.1 a user function may share a native's name
+                // (see `is_shadowable_reserved`); in value position the atom
+                // means the native, never that definition.
+                if self.epoch.allows_shadowable_reserved_names() && is_reserved(name, &version) {
+                    return Ok(());
+                }
                 if let Some(dep) = self.top_level_expressions_map.get(name)
                     && dep.atom_index != expr.id
                 {
@@ -142,9 +162,9 @@ impl DefinitionSorter {
 
                 // Avoid looking for dependencies in tuples
                 // TODO: Eliminate special handling of tuples as it is a separate presymbolic expression type
-                if let Some((function_name, rest)) = filtered_exprs.split_first() {
+                if let Some((head, rest)) = filtered_exprs.split_first() {
                     let function_args = rest.to_vec();
-                    if let Some(function_name) = function_name.match_atom() {
+                    if let Some(function_name) = head.match_atom() {
                         if let Some(define_function) =
                             DefineFunctions::lookup_by_name(function_name)
                         {
@@ -237,11 +257,14 @@ impl DefinitionSorter {
                         {
                             match native_function {
                                 NativeFunctions::ContractCall => {
-                                    // Args: [contract-name, function-name, ...]: ignore contract-name, function-name, handle rest
-                                    if function_args.len() > 2 {
-                                        for expr in function_args[2..].iter() {
-                                            self.probe_for_dependencies(expr, tle_index, version)?;
+                                    // Args: [contract-name, function-name, ...]: Always ignore function-name because it's not
+                                    // a dependency *in this contract*. Handle contract-name beginning in Epoch 4.1, see
+                                    // `should_skip_contract_call_argument` for details. Always handle the rest.
+                                    for (index, expr) in function_args.iter().enumerate() {
+                                        if self.should_skip_contract_call_argument(index) {
+                                            continue;
                                         }
+                                        self.probe_for_dependencies(expr, tle_index, version)?;
                                     }
                                     return Ok(());
                                 }
@@ -249,7 +272,12 @@ impl DefinitionSorter {
                                     // Args: [((name-1 value-1) (name-2 value-2)), ...]: handle 1st arg as a tuple
                                     if function_args.len() > 1 {
                                         if let Some(bindings) = function_args[0].match_list() {
-                                            self.probe_for_dependencies_in_list_of_wrapped_key_value_pairs(bindings.iter().collect(), tle_index, version)?;
+                                            self.probe_for_dependencies_in_list_of_wrapped_key_value_pairs(
+                                                bindings.iter().collect(),
+                                                tle_index,
+                                                version,
+                                                &KeyValuePairKind::Binding
+                                            )?;
                                         }
                                         for expr in function_args[1..function_args.len()].iter() {
                                             self.probe_for_dependencies(expr, tle_index, version)?;
@@ -274,11 +302,39 @@ impl DefinitionSorter {
                                         function_args,
                                         tle_index,
                                         version,
+                                        &KeyValuePairKind::Tuple,
                                     )?;
+                                    return Ok(());
+                                }
+                                NativeFunctions::Map
+                                | NativeFunctions::Fold
+                                | NativeFunctions::Filter
+                                    if self.epoch.allows_shadowable_reserved_names() =>
+                                {
+                                    // Args: [function-name, ...]
+                                    if let Some((function_ref, rest)) = function_args.split_first()
+                                    {
+                                        self.probe_function_reference(
+                                            function_ref,
+                                            tle_index,
+                                            version,
+                                        )?;
+                                        for expr in rest.iter() {
+                                            self.probe_for_dependencies(expr, tle_index, version)?;
+                                        }
+                                    }
                                     return Ok(());
                                 }
                                 _ => {}
                             }
+                        } else if self.epoch.allows_shadowable_reserved_names() {
+                            // Not a native function, so applying the name resolves
+                            // to the user function even when it is a keyword.
+                            self.probe_function_reference(head, tle_index, version)?;
+                            for expr in function_args.iter() {
+                                self.probe_for_dependencies(expr, tle_index, version)?;
+                            }
+                            return Ok(());
                         }
                     }
                 }
@@ -300,6 +356,29 @@ impl DefinitionSorter {
         }
     }
 
+    /// Dependency of a function-position atom (application head; function
+    /// argument of `map`/`fold`/`filter`). Unlike value position, a keyword
+    /// name counts here: a same-named user function is what it resolves to.
+    fn probe_function_reference(
+        &mut self,
+        expr: &PreSymbolicExpression,
+        tle_index: usize,
+        version: ClarityVersion,
+    ) -> ParseResult<()> {
+        let Some(name) = expr.match_atom() else {
+            return self.probe_for_dependencies(expr, tle_index, version);
+        };
+        if lookup_reserved_functions(name, &version).is_some() {
+            return Ok(());
+        }
+        if let Some(dep) = self.top_level_expressions_map.get(name)
+            && dep.atom_index != expr.id
+        {
+            self.graph.add_directed_edge(tle_index, dep.expr_index)?;
+        }
+        Ok(())
+    }
+
     /// accept a slice of expected-pairs, e.g., [ (a b) (c d) (e f) ], and
     ///   probe them for dependencies as if they were part of a tuple definition.
     fn probe_for_dependencies_in_tuple(
@@ -308,13 +387,13 @@ impl DefinitionSorter {
         tle_index: usize,
         version: ClarityVersion,
     ) -> ParseResult<()> {
-        let pairs = pairs
-            .chunks(2)
-            .map(|pair| pair.to_vec().into_boxed_slice())
-            .collect::<Vec<_>>();
-
-        for pair in pairs.iter() {
-            self.probe_for_dependencies_in_key_value_pair(pair, tle_index, version)?;
+        for pair in pairs.chunks(2) {
+            self.probe_for_dependencies_in_key_value_pair(
+                pair,
+                tle_index,
+                version,
+                &KeyValuePairKind::Tuple,
+            )?;
         }
         Ok(())
     }
@@ -330,10 +409,14 @@ impl DefinitionSorter {
             // 1. (define-public func_name body)
             // 2. (define-public (func_name (arg uint) ...) body)
             // The goal here is to traverse case 2, looking for trait references
+            // as well as argument names that shadow globals
             if let Some((_, pairs)) = func_sig.split_first() {
                 let pairs_vec: Vec<&PreSymbolicExpression> = pairs.iter().collect();
                 self.probe_for_dependencies_in_list_of_wrapped_key_value_pairs(
-                    pairs_vec, tle_index, version,
+                    pairs_vec,
+                    tle_index,
+                    version,
+                    &KeyValuePairKind::Binding,
                 )?;
             }
         }
@@ -345,9 +428,10 @@ impl DefinitionSorter {
         pairs: Vec<&PreSymbolicExpression>,
         tle_index: usize,
         version: ClarityVersion,
+        kind: &KeyValuePairKind,
     ) -> ParseResult<()> {
         for pair in pairs.iter() {
-            self.probe_for_dependencies_in_wrapped_key_value_pairs(pair, tle_index, version)?;
+            self.probe_for_dependencies_in_wrapped_key_value_pairs(pair, tle_index, version, kind)?;
         }
         Ok(())
     }
@@ -357,9 +441,10 @@ impl DefinitionSorter {
         expr: &PreSymbolicExpression,
         tle_index: usize,
         version: ClarityVersion,
+        kind: &KeyValuePairKind,
     ) -> ParseResult<()> {
         if let Some(pair) = expr.match_list() {
-            self.probe_for_dependencies_in_key_value_pair(pair, tle_index, version)?;
+            self.probe_for_dependencies_in_key_value_pair(pair, tle_index, version, kind)?;
         }
         Ok(())
     }
@@ -369,9 +454,56 @@ impl DefinitionSorter {
         pair: &[PreSymbolicExpression],
         tle_index: usize,
         version: ClarityVersion,
+        kind: &KeyValuePairKind,
     ) -> ParseResult<()> {
         if pair.len() == 2 {
+            if *kind == KeyValuePairKind::Binding {
+                self.check_binding_name(&pair[0], version)?;
+            }
             self.probe_for_dependencies(&pair[1], tle_index, version)?;
+        }
+        Ok(())
+    }
+
+    /// Checks if the given pre-expression, which is the first item of a
+    /// key-value-pair that creates a binding, conflicts with an existing
+    /// global definition. If so, we immediately error out with
+    /// `NameAlreadyUsed`.
+    ///
+    /// Theoretically we could just insert a dependency edge instead. The
+    /// type checker would then be guaranteed to complain, because post-sorting,
+    /// the binding comes after the defintion. This would come with two
+    /// downsides however:
+    ///
+    /// 1. All other dependency probes check values, and that assumption is
+    ///    built-in into some code here (e.g. the allows_shadowable_reserved_names
+    ///    case).
+    /// 2. Say you have a function `a`, and you have a function `b` with a
+    ///    parameter called `a`. That's not allowed, but if we didn't error from
+    ///    right here, the error message would depend on whether `a` calls
+    ///    `b` or not. If no, the error is `NameAlreadyUsed`, but if it yes,
+    ///    the error is `CircularReference`. It's nicer for this to be consistent.
+    ///
+    /// This is not applied to `match` bindings.
+    fn check_binding_name(
+        &self,
+        name_expr: &PreSymbolicExpression,
+        version: ClarityVersion,
+    ) -> ParseResult<()> {
+        if !version.definition_sorter_probes_binding_names() {
+            return Ok(());
+        }
+        if let Some(name) = name_expr.match_atom() {
+            if self.top_level_expressions_map.contains_key(name) {
+                let mut error = ParseError::new(ParseErrorKind::NameAlreadyUsed(name.to_string()));
+                error.set_pre_expression(name_expr);
+                return Err(error);
+            }
+        } else {
+            // If it's not an atom, it's definitely wrong. The type checker's
+            // `handle_binding_list` will catch that error; we don't do it here
+            // because we don't know the exact type of the binding. The type
+            // checker can therefore return a more specific error message.
         }
         Ok(())
     }
@@ -393,6 +525,24 @@ impl DefinitionSorter {
         };
         let tle_name = defined_name.match_atom()?;
         Some((tle_name.clone(), defined_name.id, defined_name))
+    }
+
+    /// When probing dependencies of a `contract-call?` invocation, should
+    /// the argument with the given index be ignored? The signature is
+    /// `(contract-call? contract-principal function-name other-args...)`,
+    /// so `contract-principal` is index 0 and `function-name` is index 1.
+    fn should_skip_contract_call_argument(&self, argument_index: usize) -> bool {
+        if self.epoch.checks_dependency_of_contract_call_target() {
+            // only skip argument 1, the function name (because it doesn't
+            // refer to a name in the current contract, but in the called contract)
+            argument_index == 1
+        } else {
+            // also skip argument 0, the target contract, because that is
+            // the legacy behavior that we have to support, even though it
+            // was incorrect starting with Clarity 2 when this argument no
+            // longer had to be a principal literal
+            argument_index <= 1
+        }
     }
 }
 
@@ -467,28 +617,39 @@ impl GraphWalker {
     fn get_sorted_dependencies(&mut self, graph: &Graph) -> Vec<usize> {
         let mut sorted_indexes = Vec::<usize>::new();
         for expr_index in 0..graph.nodes_count() {
-            self.sort_dependencies_recursion(expr_index, graph, &mut sorted_indexes);
+            if !self.seen.contains(&expr_index) {
+                self.sort_dependencies(expr_index, graph, &mut sorted_indexes);
+            }
         }
         sorted_indexes
     }
 
-    fn sort_dependencies_recursion(
-        &mut self,
-        tle_index: usize,
-        graph: &Graph,
-        branch: &mut Vec<usize>,
-    ) {
-        if self.seen.contains(&tle_index) {
-            return;
-        }
+    fn sort_dependencies(&mut self, expr_index: usize, graph: &Graph, branch: &mut Vec<usize>) {
+        let mut stack = vec![(expr_index, false)];
 
-        self.seen.insert(tle_index);
-        if let Some(list) = graph.adjacency_list.get(tle_index) {
-            for neighbor in list.iter() {
-                self.sort_dependencies_recursion(*neighbor, graph, branch);
+        while let Some((tle_index, processed)) = stack.pop() {
+            if processed {
+                branch.push(tle_index);
+                continue;
+            }
+
+            if self.seen.contains(&tle_index) {
+                continue;
+            }
+
+            self.seen.insert(tle_index);
+
+            stack.push((tle_index, true));
+
+            if let Some(list) = graph.adjacency_list.get(tle_index) {
+                // reverse iteration to keep a recursive-like result
+                for node_index in list.iter().rev() {
+                    if !self.seen.contains(node_index) {
+                        stack.push((*node_index, false));
+                    }
+                }
             }
         }
-        branch.push(tle_index);
     }
 
     fn get_cycling_dependencies(

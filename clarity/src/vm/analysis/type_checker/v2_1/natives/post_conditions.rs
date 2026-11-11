@@ -13,13 +13,12 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use clarity_types::errors::StaticCheckError;
-use clarity_types::errors::analysis::{
-    StaticCheckErrorKind, check_argument_count, check_arguments_at_least,
-};
 use clarity_types::representations::SymbolicExpression;
 use clarity_types::types::{SequenceSubtype, TypeSignature};
 
+use crate::vm::analysis::errors::{
+    StaticCheckError, StaticCheckErrorKind, check_argument_count, check_arguments_at_least,
+};
 use crate::vm::analysis::type_checker::contexts::TypingContext;
 use crate::vm::analysis::type_checker::v2_1::TypeChecker;
 use crate::vm::costs::cost_functions::ClarityCostFunction;
@@ -85,7 +84,7 @@ pub fn check_restrict_assets(
         last_return = Some(type_return);
     }
 
-    let ok_type = last_return.ok_or_else(|| StaticCheckErrorKind::CheckerImplementationFailure)?;
+    let ok_type = last_return.ok_or(StaticCheckErrorKind::CheckerImplementationFailure)?;
 
     Ok(TypeSignature::new_response(
         ok_type,
@@ -140,7 +139,7 @@ pub fn check_as_contract(
         last_return = Some(type_return);
     }
 
-    let ok_type = last_return.ok_or_else(|| StaticCheckErrorKind::CheckerImplementationFailure)?;
+    let ok_type = last_return.ok_or(StaticCheckErrorKind::CheckerImplementationFailure)?;
     Ok(TypeSignature::new_response(
         ok_type,
         TypeSignature::UIntType,
@@ -184,9 +183,10 @@ pub fn check_allowance(
         NativeFunctions::AllowanceWithStx => check_allowance_with_stx(checker, args, context),
         NativeFunctions::AllowanceWithFt => check_allowance_with_ft(checker, args, context),
         NativeFunctions::AllowanceWithNft => check_allowance_with_nft(checker, args, context),
-        NativeFunctions::AllowanceWithStacking => {
+        NativeFunctions::AllowanceWithStacking | NativeFunctions::AllowanceWithStaking => {
             check_allowance_with_stacking(checker, args, context)
         }
+        NativeFunctions::AllowanceWithPox => check_allowance_with_pox(checker, args, context),
         NativeFunctions::AllowanceAll => check_allowance_all(checker, args, context),
         _ => Err(StaticCheckErrorKind::ExpectedAllowanceExpr(function_name.to_string()).into()),
     }
@@ -299,6 +299,18 @@ fn check_allowance_with_stacking(
         context,
         &TypeSignature::UIntType,
     )?;
+
+    Ok(false)
+}
+
+/// Type check a `with-pox` allowance expression.
+/// `(with-pox)`
+fn check_allowance_with_pox(
+    _checker: &mut TypeChecker,
+    args: &[SymbolicExpression],
+    _context: &TypingContext,
+) -> Result<bool, StaticCheckError> {
+    check_argument_count(0, args)?;
 
     Ok(false)
 }

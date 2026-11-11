@@ -227,9 +227,9 @@ config:
     mode: krypton
     peer_host: bitcoin.testnet.stacks.org
     # process_exit_at_block_height: 5340
-    # commit_anchor_block_within: 10000
     rpc_port: 18443
     peer_port: 18444
+    wallet_name: "" # REQUIRED existing wallet when mining (unless mock_mining is true)
   ustx_balance:
     - address: ST2QKZ4FKHAH1NQKYKYAYZPY440FEPK7GZ1R5HBP2
       amount: "10000000000000000"
@@ -257,7 +257,6 @@ config:
   #   mode = "krypton"
   #   peer_host = "bitcoin.mainnet.stacks.org"
   #   #process_exit_at_block_height = 5340
-  #   #commit_anchor_block_within = 10000
   #   rpc_port = 18443
   #   peer_port = 18444
 

@@ -24,7 +24,7 @@ use crate::net::api::getsigner;
 use crate::net::api::tests::TestRPC;
 use crate::net::connection::ConnectionOptions;
 use crate::net::http::{Error as HttpError, HttpRequestPreamble, HttpVersion};
-use crate::net::httpcore::{RPCRequestHandler, StacksHttp, StacksHttpRequest, TipRequest};
+use crate::net::httpcore::{RPCRequestHandler, StacksHttp, StacksHttpRequest};
 use crate::net::test::TestEventObserver;
 use crate::net::Error as NetError;
 
@@ -109,26 +109,14 @@ fn test_try_make_response() {
     let random_private_key = StacksPrivateKey::random();
     let random_public_key = StacksPublicKey::from_private(&random_private_key);
 
-    let nakamoto_chain_tip = rpc_test.canonical_tip.clone();
-
     let mut requests = vec![];
 
     // Query existing signer
-    let info = StacksHttpRequest::new_getsigner(
-        addr.into(),
-        &public_key,
-        cycle_num,
-        TipRequest::SpecificTip(nakamoto_chain_tip.clone()),
-    );
+    let info = StacksHttpRequest::new_getsigner(addr.into(), &public_key, cycle_num);
     requests.push(info);
 
     // query random signer that doesn't exist
-    let request = StacksHttpRequest::new_getsigner(
-        addr.into(),
-        &random_public_key,
-        cycle_num,
-        TipRequest::SpecificTip(nakamoto_chain_tip),
-    );
+    let request = StacksHttpRequest::new_getsigner(addr.into(), &random_public_key, cycle_num);
     requests.push(request);
 
     let mut responses = rpc_test.run(requests);

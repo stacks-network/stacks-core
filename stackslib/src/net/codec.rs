@@ -1,5 +1,5 @@
 // Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
-// Copyright (C) 2020-2023 Stacks Open Internet Foundation
+// Copyright (C) 2020-2026 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -16,13 +16,11 @@
 
 use std::collections::HashSet;
 use std::io;
-use std::io::prelude::*;
 use std::io::Read;
 
 use clarity::vm::types::QualifiedContractIdentifier;
 use clarity::vm::ContractName;
-use rand;
-use rand::Rng;
+use rand::{self, Rng};
 use sha2::{Digest, Sha512_256};
 use stacks_common::bitvec::BitVec;
 use stacks_common::codec::{
@@ -46,7 +44,7 @@ use crate::net::db::LocalPeer;
 use crate::net::{Error as net_error, *};
 
 pub fn bitvec_len(bitlen: u16) -> u16 {
-    (bitlen / 8) + (if bitlen % 8 != 0 { 1 } else { 0 })
+    (bitlen / 8) + (if !bitlen.is_multiple_of(8) { 1 } else { 0 })
 }
 
 impl Preamble {
@@ -465,19 +463,6 @@ impl BlocksAvailableData {
     pub fn new() -> BlocksAvailableData {
         BlocksAvailableData { available: vec![] }
     }
-
-    pub fn try_push(
-        &mut self,
-        ch: ConsensusHash,
-        bhh: BurnchainHeaderHash,
-    ) -> Result<(), net_error> {
-        if self.available.len() < BLOCKS_AVAILABLE_MAX_LEN as usize {
-            self.available.push((ch, bhh));
-            return Ok(());
-        } else {
-            return Err(net_error::InvalidMessage);
-        }
-    }
 }
 
 impl StacksMessageCodec for BlocksDatum {
@@ -617,8 +602,7 @@ impl HandshakeData {
             local_peer.data_url.clone()
         } else if let Some(data_port) = local_peer.data_url.get_port() {
             // deduce from public IP
-            UrlString::try_from(format!("http://{}", addrbytes.to_socketaddr(data_port)).as_str())
-                .unwrap()
+            UrlString::try_from(format!("http://{}", addrbytes.to_socketaddr(data_port))).unwrap()
         } else {
             // unroutable, so don't bother
             UrlString::try_from("").unwrap()
@@ -716,6 +700,8 @@ impl StacksMessageCodec for NackData {
     }
 }
 
+// A default would misleadingly consume randomness to generate a fresh nonce.
+#[allow(clippy::new_without_default)]
 impl PingData {
     pub fn new() -> PingData {
         let mut rng = rand::thread_rng();
@@ -1551,7 +1537,7 @@ impl ProtocolFamily for StacksP2P {
         &mut self,
         _preamble: &Preamble,
         _fd: &mut R,
-    ) -> Result<(Option<(StacksMessage, usize)>, usize), net_error> {
+    ) -> Result<StreamRead<StacksMessage>, net_error> {
         panic!(
             "BUG: tried to stream a StacksP2P message, even though their lengths are always known"
         )
@@ -1604,42 +1590,9 @@ pub mod test {
     use stacks_common::bitvec::BitVec;
     use stacks_common::codec::NEIGHBOR_ADDRESS_ENCODED_SIZE;
     use stacks_common::util::hash::hex_bytes;
-    use stacks_common::util::secp256k1::*;
 
     use super::*;
     use crate::net::{GetNakamotoInvData, NakamotoInvData};
-
-    fn check_overflow<T>(r: Result<T, net_error>) -> bool {
-        match r {
-            Ok(_) => {
-                test_debug!("did not get an overflow error, or any error");
-                false
-            }
-            Err(e) => match e {
-                net_error::OverflowError(_) => true,
-                _ => {
-                    test_debug!("did not get an overflow error, but got {:?}", &e);
-                    false
-                }
-            },
-        }
-    }
-
-    fn check_underflow<T>(r: Result<T, net_error>) -> bool {
-        match r {
-            Ok(_) => {
-                test_debug!("did not get an underflow error, or any error");
-                false
-            }
-            Err(e) => match e {
-                net_error::UnderflowError(_) => true,
-                _ => {
-                    test_debug!("did not get an underflow error, but got {:?}", &e);
-                    false
-                }
-            },
-        }
-    }
 
     fn check_deserialize<T: std::fmt::Debug>(r: Result<T, codec_error>) -> bool {
         match r {
@@ -1659,53 +1612,8 @@ pub mod test {
         check_deserialize(T::consensus_deserialize(&mut &bytes[..]))
     }
 
-    pub fn check_codec_and_corruption<T: StacksMessageCodec + fmt::Debug + Clone + PartialEq>(
-        obj: &T,
-        bytes: &[u8],
-    ) {
-        // obj should serialize to bytes
-        let mut write_buf: Vec<u8> = Vec::with_capacity(bytes.len());
-        obj.consensus_serialize(&mut write_buf).unwrap();
-        assert_eq!(write_buf, *bytes);
-
-        // bytes should deserialize to obj
-        let read_buf: Vec<u8> = write_buf.clone();
-        let res = T::consensus_deserialize(&mut &read_buf[..]);
-        match res {
-            Ok(out) => {
-                assert_eq!(out, *obj);
-            }
-            Err(e) => {
-                panic!("Failed to parse to {obj:?}: {bytes:?}\nerror: {e:?}");
-            }
-        }
-
-        // short message shouldn't parse, but should EOF
-        if !write_buf.is_empty() {
-            let mut short_buf = write_buf.clone();
-            let short_len = short_buf.len() - 1;
-            short_buf.truncate(short_len);
-
-            let underflow_res = T::consensus_deserialize(&mut &short_buf[..]);
-            match underflow_res {
-                Ok(oops) => {
-                    test_debug!(
-                        "\nMissing Underflow: Parsed {oops:?}\nFrom {:?}\n",
-                        &write_buf[0..short_len].to_vec()
-                    );
-                }
-                Err(codec_error::ReadError(io_error)) => match io_error.kind() {
-                    io::ErrorKind::UnexpectedEof => {}
-                    _ => {
-                        panic!("Got unexpected I/O error: {io_error:?}");
-                    }
-                },
-                Err(e) => {
-                    panic!("Got unexpected Net error: {e:?}");
-                }
-            };
-        }
-    }
+    // Canonical implementation lives in `stacks_common::codec::testing`.
+    pub use stacks_common::codec::testing::check_codec_and_corruption;
 
     #[test]
     fn codec_primitive_types() {

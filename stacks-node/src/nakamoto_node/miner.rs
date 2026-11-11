@@ -1,5 +1,5 @@
 // Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
-// Copyright (C) 2020-2023 Stacks Open Internet Foundation
+// Copyright (C) 2020-2026 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -13,6 +13,7 @@
 //
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
+use std::collections::HashSet;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 #[cfg(test)]
@@ -26,11 +27,11 @@ use clarity::vm::types::PrincipalData;
 use libsigner::v0::messages::{MinerSlotID, SignerMessage};
 use libsigner::StackerDBSession;
 use rand::{thread_rng, Rng};
-use stacks::burnchains::Burnchain;
+use stacks::burnchains::{Burnchain, Txid};
 use stacks::chainstate::burn::db::sortdb::SortitionDB;
 use stacks::chainstate::burn::{BlockSnapshot, ConsensusHash};
 use stacks::chainstate::coordinator::OnChainRewardSetProvider;
-use stacks::chainstate::nakamoto::coordinator::load_nakamoto_reward_set;
+use stacks::chainstate::nakamoto::coordinator::load_nakamoto_reward_set_for_tenure;
 use stacks::chainstate::nakamoto::miner::{NakamotoBlockBuilder, NakamotoTenureInfo};
 use stacks::chainstate::nakamoto::staging_blocks::NakamotoBlockObtainMethod;
 use stacks::chainstate::nakamoto::{NakamotoBlock, NakamotoChainState};
@@ -47,6 +48,7 @@ use stacks::net::p2p::NetworkHandle;
 use stacks::net::stackerdb::StackerDBs;
 use stacks::net::{NakamotoBlocksData, StacksMessageType};
 use stacks::types::chainstate::BlockHeaderHash;
+use stacks::types::{MinerDiagnosticData, MiningReason};
 use stacks::util::get_epoch_time_secs;
 use stacks::util::secp256k1::MessageSignature;
 #[cfg(test)]
@@ -65,6 +67,7 @@ use super::miner_db::MinerDB;
 use super::relayer::{MinerStopHandle, RelayerThread};
 use super::{Config, Error as NakamotoNodeError, EventDispatcher, Keychain};
 use crate::nakamoto_node::signer_coordinator::SignerCoordinator;
+use crate::nakamoto_node::stackerdb_listener::InitialChunksLoader;
 use crate::nakamoto_node::VRF_MOCK_MINER_KEY;
 use crate::neon_node;
 use crate::run_loop::nakamoto::Globals;
@@ -104,6 +107,20 @@ pub static TEST_BLOCK_PUSH_SKIP: LazyLock<TestFlag<bool>> = LazyLock::new(TestFl
 #[cfg(test)]
 // Test flag to indicate the block that the miner most recently tried to broadcast
 pub static TEST_MINER_BROADCASTING_BLOCK: LazyLock<TestFlag<NakamotoBlock>> =
+    LazyLock::new(TestFlag::default);
+#[cfg(test)]
+#[derive(Clone, Copy, Debug, PartialEq)]
+/// Kinds of transient errors that tests can inject into `mine_block()` via
+/// `TEST_MINE_TRANSIENT_ERRORS` to exercise the miner thread's retry paths.
+pub enum TestTransientError {
+    ParentNotFound,
+    NewParentDiscovered,
+    DBError,
+}
+#[cfg(test)]
+/// Test flag holding transient errors to inject into `mine_block()`. Each
+/// mining attempt pops and returns one error until the list is empty.
+pub static TEST_MINE_TRANSIENT_ERRORS: LazyLock<TestFlag<Vec<TestTransientError>>> =
     LazyLock::new(TestFlag::default);
 
 #[cfg(test)]
@@ -239,6 +256,16 @@ impl std::fmt::Display for MinerReason {
     }
 }
 
+impl From<MinerReason> for MiningReason {
+    fn from(reason: MinerReason) -> Self {
+        match reason {
+            MinerReason::BlockFound { .. } => MiningReason::BlockFound,
+            MinerReason::Extended { .. } => MiningReason::Extended,
+            MinerReason::ReadCountExtend { .. } => MiningReason::ReadCountExtend,
+        }
+    }
+}
+
 pub struct BlockMinerThread {
     /// node config struct
     config: Config,
@@ -262,9 +289,9 @@ pub struct BlockMinerThread {
     burn_election_block: BlockSnapshot,
     /// Current burnchain tip as of the last TenureChange
     /// * if the last tenure-change was a BlockFound, then this is the same as the
-    /// `burn_election_block` (and it is also the `burn_view`)
+    ///   `burn_election_block` (and it is also the `burn_view`)
     /// * otherwise, if the last tenure-change is an Extend, then this is the sortition of the burn
-    /// view consensus hash in the TenureChange
+    ///   view consensus hash in the TenureChange
     burn_block: BlockSnapshot,
     /// The start of the parent tenure for this tenure
     parent_tenure_id: StacksBlockId,
@@ -285,10 +312,19 @@ pub struct BlockMinerThread {
     burn_tip_at_start: ConsensusHash,
     /// flag to indicate an abort driven from the relayer
     abort_flag: Arc<AtomicBool>,
-    /// Should the nonce and considered transactions cache be reset before mining the next block?
-    reset_mempool_caches: bool,
+    /// The Stacks block ID that the mempool nonce and considered-transaction
+    /// caches are known to be consistent with, if any. Before each mempool
+    /// walk, the caches are reset unless this matches the parent block being
+    /// built upon.
+    mempool_caches_valid_for: Option<StacksBlockId>,
     /// Storage for persisting non-confidential miner information
     miner_db: MinerDB,
+    /// Transaction IDs to exclude from the next block proposal only.
+    /// Replaced (not accumulated) on each signer rejection.
+    temporarily_excluded_txids: HashSet<Txid>,
+    /// Transaction IDs to permanently ban from the mempool.
+    /// Drained and blacklisted from the mempool in mine_block().
+    permanently_excluded_txids: HashSet<Txid>,
 }
 
 /// Trait for the coordinator's read count extend timestamp check.
@@ -336,13 +372,20 @@ impl BlockMinerThread {
             abort_flag: Arc::new(AtomicBool::new(false)),
             tenure_cost: ExecutionCost::ZERO,
             tenure_budget: ExecutionCost::ZERO,
-            reset_mempool_caches: true,
+            mempool_caches_valid_for: None,
             miner_db: MinerDB::open_with_config(&rt.config)?,
+            temporarily_excluded_txids: HashSet::new(),
+            permanently_excluded_txids: HashSet::new(),
         })
     }
 
     pub fn get_abort_flag(&self) -> Arc<AtomicBool> {
         self.abort_flag.clone()
+    }
+
+    /// Has the relayer asked this miner thread to abort?
+    fn is_aborted(&self) -> bool {
+        self.abort_flag.load(Ordering::SeqCst)
     }
 
     #[cfg(test)]
@@ -393,6 +436,29 @@ impl BlockMinerThread {
     #[cfg(not(test))]
     fn fault_injection_block_mining_skip() -> bool {
         false
+    }
+
+    #[cfg(test)]
+    fn fault_injection_transient_mining_error() -> Option<NakamotoNodeError> {
+        let mut errors = TEST_MINE_TRANSIENT_ERRORS.get();
+        if errors.is_empty() {
+            return None;
+        }
+        let injected = errors.remove(0);
+        TEST_MINE_TRANSIENT_ERRORS.set(errors);
+        warn!("Fault injection: injecting transient mining error {injected:?}");
+        Some(match injected {
+            TestTransientError::ParentNotFound => NakamotoNodeError::ParentNotFound,
+            TestTransientError::NewParentDiscovered => NakamotoNodeError::NewParentDiscovered,
+            TestTransientError::DBError => NakamotoNodeError::DBError(
+                stacks::util_lib::db::Error::Other("Fault injection: transient DB error".into()),
+            ),
+        })
+    }
+
+    #[cfg(not(test))]
+    fn fault_injection_transient_mining_error() -> Option<NakamotoNodeError> {
+        None
     }
 
     #[cfg(test)]
@@ -508,6 +574,8 @@ impl BlockMinerThread {
         let mut last_block_rejected = false;
 
         let reward_set = self.load_signer_set()?;
+        let initial_chunks_loader = self.build_initial_chunks_loader(&stackerdbs, &reward_set);
+
         let Some(miner_privkey) = self.config.miner.mining_key.clone() else {
             return Err(NakamotoNodeError::MinerConfigurationFailed(
                 "No mining key configured, cannot mine",
@@ -525,7 +593,9 @@ impl BlockMinerThread {
         let mut coordinator = SignerCoordinator::new(
             self.event_dispatcher.stackerdb_channel.clone(),
             self.globals.should_keep_running.clone(),
+            self.abort_flag.clone(),
             &reward_set,
+            initial_chunks_loader,
             &self.burn_election_block,
             &self.burnchain,
             miner_privkey,
@@ -559,7 +629,7 @@ impl BlockMinerThread {
         &self,
         new_block: &NakamotoBlock,
         last_block_rejected: &mut bool,
-        e: NakamotoNodeError,
+        e: &NakamotoNodeError,
     ) {
         // Sleep for a bit to allow signers to catch up
         let pause_ms = if *last_block_rejected {
@@ -593,6 +663,16 @@ impl BlockMinerThread {
         reward_set: &RewardSet,
     ) -> Result<(), NakamotoNodeError> {
         Self::fault_injection_miner_stall();
+        // Check the abort flag first: every retryable error path loops back
+        // through this function, so this check guarantees that a retry loop
+        // can always be stopped by the relayer, even if the failing step
+        // comes before the block builder's own abort checks.
+        if self.is_aborted() {
+            info!("Miner interrupted while mining in order to shut down");
+            self.globals
+                .raise_initiative("MiningFailure: aborted by node".to_string());
+            return Err(ChainstateError::MinerAborted.into());
+        }
         let mut chain_state =
             neon_node::open_chainstate_with_faults(&self.config).map_err(|e| {
                 NakamotoNodeError::SigningCoordinatorFailure(format!(
@@ -602,11 +682,37 @@ impl BlockMinerThread {
         // Late block tenures are initiated only to issue the BlockFound
         //  tenure change tx (because they can be immediately extended to
         //  the next burn view). This checks whether or not we're in such a
-        //  tenure and have produced a block already. If so, it exits the
-        //  mining thread to allow the tenure extension thread to take over.
-        if self.last_block_mined.is_some() && self.reason.is_late_block() {
-            info!("Miner: finished mining a late tenure");
-            return Err(NakamotoNodeError::StacksTipChanged);
+        //  tenure and the tenure has already started: either this thread
+        //  produced a block, or a tenure-start block proposed earlier (e.g.
+        //  by the miner thread this one replaced) was signed and pushed by
+        //  the signers in the meantime. Either way this thread's work is
+        //  done, so exit and let the tenure extension thread take over rather
+        //  than proposing a sibling of a tenure-start block that has landed.
+        if self.reason.is_late_block() {
+            let tenure_started = if self.last_block_mined.is_some() {
+                true
+            } else {
+                // An empty tenure reports `Ok(None)` here, so an error means the lookup
+                // itself failed (e.g. lock contention with the chains coordinator).
+                // Proceeding on that would propose a BlockFound without knowing whether
+                // the tenure has already started, which is how a sibling of a landed
+                // tenure-start block gets created. Retry instead; the abort check at the
+                // top of this function lets the relayer stop the retry loop.
+                match self.find_highest_known_block_in_my_tenure(sortdb, &chain_state) {
+                    Ok(highest) => highest.is_some(),
+                    Err(e) => {
+                        warn!("Miner: failed to look up the late tenure's highest block, will try again: {e:?}");
+                        thread::sleep(Duration::from_millis(ABORT_TRY_AGAIN_MS));
+                        return Ok(());
+                    }
+                }
+            };
+            if tenure_started {
+                info!("Miner: finished mining a late tenure";
+                    "tenure_id" => %self.burn_election_block.consensus_hash,
+                );
+                return Err(NakamotoNodeError::StacksTipChanged);
+            }
         }
         // If we're mock mining, we may not have processed the block that the
         // actual tenure winner committed to yet. So, before attempting to
@@ -617,29 +723,6 @@ impl BlockMinerThread {
             info!("Mock miner has not processed parent block yet, sleeping and trying again");
             thread::sleep(Duration::from_millis(ABORT_TRY_AGAIN_MS));
             return Ok(());
-        }
-
-        // Reset the mempool caches if needed. When mock-mining, we always
-        // reset the caches, because the blocks we mine are not actually
-        // processed, so the mempool caches are not valid.
-        if self.reset_mempool_caches
-            || self.config.miner.mempool_walk_strategy
-                == MemPoolWalkStrategy::NextNonceWithHighestFeeRate
-            || self.config.node.mock_mining
-        {
-            let mut mem_pool = self
-                .config
-                .connect_mempool_db()
-                .expect("Database failure opening mempool");
-
-            if self.reset_mempool_caches || self.config.node.mock_mining {
-                mem_pool.reset_mempool_caches()?;
-            } else {
-                // Even if the nonce cache is still valid, NextNonceWithHighestFeeRate strategy
-                // needs to reset this cache after each block. This prevents skipping transactions
-                // that were previously considered, but not included in previous blocks.
-                mem_pool.reset_considered_txs_cache()?;
-            }
         }
 
         let Some(new_block) = self.mine_block_and_handle_result(coordinator)? else {
@@ -699,20 +782,29 @@ impl BlockMinerThread {
         coordinator: &mut SignerCoordinator,
     ) -> Result<Option<NakamotoBlock>, NakamotoNodeError> {
         match self.mine_block(coordinator) {
-            Ok(x) => {
-                if !self.validate_timestamp(&x)? {
+            Ok(x) => match self.validate_timestamp(&x) {
+                Ok(true) => Ok(Some(x)),
+                Ok(false) => {
                     info!("Block mined too quickly. Will try again.";
                         "block_timestamp" => x.header.timestamp,
                     );
-                    return Ok(None);
+                    Ok(None)
                 }
-                Ok(Some(x))
-            }
+                Err(e) => {
+                    // We just mined this block atop its parent, so a failure to
+                    // query the parent header here is almost certainly transient
+                    // DB contention with the chains coordinator. Retry rather
+                    // than exiting the miner thread.
+                    warn!("Failed to validate timestamp of mined block, will try again: {e:?}");
+                    thread::sleep(Duration::from_millis(ABORT_TRY_AGAIN_MS));
+                    Ok(None)
+                }
+            },
             Err(NakamotoNodeError::MiningFailure(ChainstateError::MinerAborted)) => {
-                if self.abort_flag.load(Ordering::SeqCst) {
+                if self.is_aborted() {
                     info!("Miner interrupted while mining in order to shut down");
                     self.globals
-                        .raise_initiative(format!("MiningFailure: aborted by node"));
+                        .raise_initiative("MiningFailure: aborted by node".to_string());
                     return Err(ChainstateError::MinerAborted.into());
                 }
 
@@ -728,15 +820,14 @@ impl BlockMinerThread {
                     "Miner did not find any transactions to mine, sleeping for {:?}",
                     self.config.miner.empty_mempool_sleep_time
                 );
-                self.reset_mempool_caches = false;
 
                 // Pause the miner to wait for transactions to arrive
                 let now = Instant::now();
                 while now.elapsed() < self.config.miner.empty_mempool_sleep_time {
-                    if self.abort_flag.load(Ordering::SeqCst) {
+                    if self.is_aborted() {
                         info!("Miner interrupted while mining in order to shut down");
                         self.globals
-                            .raise_initiative(format!("MiningFailure: aborted by node"));
+                            .raise_initiative("MiningFailure: aborted by node".to_string());
                         return Err(ChainstateError::MinerAborted.into());
                     }
 
@@ -758,10 +849,36 @@ impl BlockMinerThread {
                 }
                 Ok(None)
             }
-            Err(NakamotoNodeError::ParentNotFound) if self.config.node.mock_mining => {
-                info!(
-                    "Mock miner could not load parent tenure info yet. Will try again.";
-                );
+            Err(NakamotoNodeError::ParentNotFound) => {
+                // The parent block may not have been processed yet (e.g. this
+                // tenure just started), or a transient DB error was mapped to
+                // `ParentNotFound` while loading parent info. Sleep and retry;
+                // if the burnchain tip has changed, the next `mine_block()`
+                // call will error and exit the miner thread.
+                info!("Miner: could not load parent info yet. Will try again.");
+                thread::sleep(Duration::from_millis(ABORT_TRY_AGAIN_MS));
+                Ok(None)
+            }
+            Err(NakamotoNodeError::NewParentDiscovered) => {
+                // A new block in the parent tenure was processed while we were
+                // loading parent info. Retry to build atop the new tip.
+                info!("Miner: new parent block discovered while mining. Will try again.");
+                Ok(None)
+            }
+            Err(NakamotoNodeError::StacksTipChanged) => {
+                // A late tenure adopted the canonical tip of its tenure. Retry. The next
+                // attempt exits through the late-tenure check.
+                info!("Miner: Stacks tip changed while mining. Will try again.");
+                Ok(None)
+            }
+            Err(
+                ref e @ (NakamotoNodeError::MiningFailure(ChainstateError::DBError(_))
+                | NakamotoNodeError::DBError(_)),
+            ) => {
+                // Transient DB errors (e.g. lock contention with the chains
+                // coordinator) are expected occasionally. Retry rather than
+                // exiting the miner thread.
+                warn!("Miner: transient DB error while mining, will try again: {e:?}");
                 thread::sleep(Duration::from_millis(ABORT_TRY_AGAIN_MS));
                 Ok(None)
             }
@@ -792,6 +909,15 @@ impl BlockMinerThread {
     ) -> Result<bool, NakamotoNodeError> {
         Self::fault_injection_block_proposal_stall(&new_block);
 
+        // Tell the relayer that a tenure-start proposal is going out
+        if new_block
+            .get_tenure_change_tx_payload()
+            .is_some_and(|payload| payload.cause.is_eq(&TenureChangeCause::BlockFound))
+        {
+            self.globals
+                .set_last_proposed_tenure_start(new_block.header.consensus_hash.clone());
+        }
+
         let signer_signature = match self.propose_block(
             coordinator,
             &mut new_block,
@@ -808,6 +934,16 @@ impl BlockMinerThread {
                     );
                     return Ok(false);
                 }
+                NakamotoNodeError::MiningFailure(ChainstateError::MinerAborted) => {
+                    info!("Miner interrupted while waiting for signatures in order to shut down";
+                        "signer_signature_hash" => %new_block.header.signer_signature_hash(),
+                        "block_height" => new_block.header.chain_length,
+                        "consensus_hash" => %new_block.header.consensus_hash,
+                    );
+                    self.globals
+                        .raise_initiative("MiningFailure: aborted by node".to_string());
+                    return Err(e);
+                }
                 NakamotoNodeError::BurnchainTipChanged => {
                     info!("Burnchain tip changed while waiting for signatures";
                         "signer_signature_hash" => %new_block.header.signer_signature_hash(),
@@ -817,19 +953,55 @@ impl BlockMinerThread {
                     return Err(e);
                 }
                 NakamotoNodeError::StackerDBUploadError(ref ack) => {
-                    if ack.code == Some(StackerDBErrorCodes::BadSigner.code()) {
-                        error!("Error while gathering signatures: failed to upload miner StackerDB data: {ack:?}. Giving up.";
+                    // A rejected ack must carry an error code. A missing code indicates a malformed
+                    // or unexpected response. Treat it as a terminal error.
+                    let Some(code) = ack.code else {
+                        error!("Error while gathering signatures: malformed miner StackerDB ack (chunk rejected without an error code): {ack:?}. Giving up.";
                             "signer_signature_hash" => %new_block.header.signer_signature_hash(),
                             "block_height" => new_block.header.chain_length,
                             "consensus_hash" => %new_block.header.consensus_hash,
                         );
                         return Err(e);
+                    };
+                    // Classify the rejection by its error code. `DataAlreadyExists` (a stale
+                    // slot version) is the only retryable case — bump the version and
+                    // re-upload. Every other code, plus any unknown code, is permanent for an
+                    // identical payload, so retrying can never succeed.
+                    match StackerDBErrorCodes::from_code(code) {
+                        Some(StackerDBErrorCodes::DataAlreadyExists) => {
+                            self.pause_and_retry(&new_block, last_block_rejected, &e);
+                            return Ok(false);
+                        }
+                        _ => {
+                            // Terminal for an identical chunk. `TooManySlotWrites` can't really occur:
+                            // `.miners` uses `max_writes = u32::MAX`, so the local `MinerDB`
+                            // version never needs to attempt reconciling with the replica.
+                            error!("Error while gathering signatures: failed to upload miner StackerDB data: {ack:?}. Giving up.";
+                                "signer_signature_hash" => %new_block.header.signer_signature_hash(),
+                                "block_height" => new_block.header.chain_length,
+                                "consensus_hash" => %new_block.header.consensus_hash,
+                            );
+                            return Err(e);
+                        }
                     }
-                    self.pause_and_retry(&new_block, last_block_rejected, e);
+                }
+                NakamotoNodeError::SignersRejected {
+                    ref temporarily_excluded_txids,
+                    ref permanently_excluded_txids,
+                } => {
+                    // Replace (not extend) temporarily_excluded_txids so the ban
+                    // only applies to the next block proposal — transient failures
+                    // may resolve after one block.
+                    self.temporarily_excluded_txids = temporarily_excluded_txids.clone();
+                    // Permanently excluded txids will be blacklisted from the
+                    // mempool when mine_block opens the mempool connection.
+                    self.permanently_excluded_txids
+                        .extend(permanently_excluded_txids.iter().cloned());
+                    self.pause_and_retry(&new_block, last_block_rejected, &e);
                     return Ok(false);
                 }
                 _ => {
-                    self.pause_and_retry(&new_block, last_block_rejected, e);
+                    self.pause_and_retry(&new_block, last_block_rejected, &e);
                     return Ok(false);
                 }
             },
@@ -850,8 +1022,13 @@ impl BlockMinerThread {
                 "consensus_hash" => %new_block.header.consensus_hash,
             );
 
-            // We successfully mined, so the mempool caches are valid.
-            self.reset_mempool_caches = false;
+            // The mempool walk advanced the caches past the transactions
+            // included in this block, so they are consistent with the
+            // chainstate as of the block we just broadcast — which is the
+            // parent we expect to build on next.
+            self.mempool_caches_valid_for = Some(new_block.header.block_id());
+            // Block was accepted — clear any single-block exclusions
+            self.temporarily_excluded_txids.clear();
         }
 
         // update mined-block counters and mined-tenure counters
@@ -897,10 +1074,21 @@ impl BlockMinerThread {
         }
 
         loop {
-            let (_, processed, _, _) = chain_state
+            let processed = match chain_state
                 .nakamoto_blocks_db()
-                .get_block_processed_and_signed_weight(last_consensus_hash, &last_bhh)?
-                .ok_or_else(|| NakamotoNodeError::UnexpectedChainState)?;
+                .get_block_processed_and_signed_weight(last_consensus_hash, last_bhh)
+            {
+                Ok(Some((_, processed, _, _))) => processed,
+                Ok(None) => return Err(NakamotoNodeError::UnexpectedChainState),
+                Err(e) => {
+                    // Transient DB errors (e.g. lock contention with the chains
+                    // coordinator) are expected occasionally. Fall through to
+                    // the abort and burn-tip checks below, then retry rather
+                    // than exiting the miner thread.
+                    warn!("Miner: transient DB error while checking block processed status, will try again: {e:?}");
+                    false
+                }
+            };
 
             // Once the block has been processed and the miner is no longer
             // blocked, we can continue mining.
@@ -917,10 +1105,10 @@ impl BlockMinerThread {
 
             thread::sleep(Duration::from_millis(ABORT_TRY_AGAIN_MS));
 
-            if self.abort_flag.load(Ordering::SeqCst) {
+            if self.is_aborted() {
                 info!("Miner interrupted while mining in order to shut down");
                 self.globals
-                    .raise_initiative(format!("MiningFailure: aborted by node"));
+                    .raise_initiative("MiningFailure: aborted by node".to_string());
                 return Err(ChainstateError::MinerAborted.into());
             }
 
@@ -958,6 +1146,22 @@ impl BlockMinerThread {
                     "Failed to open chainstate DB. Cannot mine! {e:?}"
                 ))
             })?;
+
+        let burn_tip = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn()).map_err(|e| {
+            NakamotoNodeError::SigningCoordinatorFailure(format!(
+                "Failed to open sortition DB. Cannot mine! {e:?}"
+            ))
+        })?;
+
+        let diagnostics = MinerDiagnosticData {
+            burnchain_tip_height: burn_tip.block_height,
+            burnchain_tip_consensus_hash: burn_tip.consensus_hash,
+            burnchain_tip_header_hash: burn_tip.burn_header_hash,
+            tenure_extend_time_stamp: coordinator.get_tenure_extend_timestamp(),
+            read_count_extend_timestamp: coordinator.get_read_count_extend_timestamp(),
+            mining_reason: self.reason.clone().into(),
+        };
+
         coordinator.propose_block(
             new_block,
             &self.burnchain,
@@ -967,6 +1171,7 @@ impl BlockMinerThread {
             &self.globals.counters,
             &self.burn_election_block,
             &self.miner_db,
+            diagnostics,
         )
     }
 
@@ -997,26 +1202,23 @@ impl BlockMinerThread {
                 ))
             })?;
 
-        let burn_election_height = self.burn_election_block.block_height;
-
-        let reward_cycle = self
-            .burnchain
-            .block_height_to_reward_cycle(burn_election_height)
-            .expect("FATAL: no reward cycle for sortition");
-
-        let reward_info = match load_nakamoto_reward_set(
-            reward_cycle,
-            &self.burn_election_block.sortition_id,
+        let reward_set = match load_nakamoto_reward_set_for_tenure(
+            &self.burn_election_block,
             &self.burnchain,
             &mut chain_state,
             &self.parent_tenure_id,
             &sort_db,
             &OnChainRewardSetProvider::new(),
         ) {
-            Ok(Some((reward_info, _))) => reward_info,
+            Ok(Some(reward_set)) => reward_set,
             Ok(None) => {
                 return Err(NakamotoNodeError::SigningCoordinatorFailure(
                     "No reward set stored yet. Cannot mine!".into(),
+                ));
+            }
+            Err(ChainstateError::NoRegisteredSigners(..)) => {
+                return Err(NakamotoNodeError::SigningCoordinatorFailure(
+                    "Current reward cycle did not select a reward set. Cannot mine!".into(),
                 ));
             }
             Err(e) => {
@@ -1024,12 +1226,6 @@ impl BlockMinerThread {
                     "Failure while fetching reward set. Cannot initialize miner coordinator. {e:?}"
                 )));
             }
-        };
-
-        let Some(reward_set) = reward_info.known_selected_anchor_block_owned() else {
-            return Err(NakamotoNodeError::SigningCoordinatorFailure(
-                "Current reward cycle did not select a reward set. Cannot mine!".into(),
-            ));
         };
 
         self.signer_set_cache = Some(reward_set.clone());
@@ -1281,7 +1477,7 @@ impl BlockMinerThread {
         chain_state: &mut StacksChainState,
     ) -> Result<StacksHeaderInfo, NakamotoNodeError> {
         let my_tenure_tip = self
-            .find_highest_known_block_in_my_tenure(&burn_db, &chain_state)
+            .find_highest_known_block_in_my_tenure(burn_db, chain_state)
             .map_err(|e| {
                 error!(
                     "Could not find highest header info for miner's tenure {}: {e:?}",
@@ -1320,7 +1516,7 @@ impl BlockMinerThread {
                 })?;
 
         let header_opt = NakamotoChainState::find_highest_known_block_header_in_tenure(
-            &chain_state,
+            chain_state,
             burn_db,
             &parent_tenure_header.consensus_hash,
         )
@@ -1464,6 +1660,20 @@ impl BlockMinerThread {
         Ok(self.validate_timestamp_info(x.header.timestamp, &stacks_parent_header))
     }
 
+    /// Decide whether the mempool nonce and considered-transaction caches
+    /// must be fully reset before walking the mempool to build a block on
+    /// `parent_tip`. The caches are usable only if they are known to be
+    /// consistent with `parent_tip`'s chainstate. When mock-mining, they
+    /// never are: mock-mined blocks are never processed, so the cache
+    /// updates made during a walk never match the chainstate.
+    fn mempool_caches_need_reset(
+        caches_valid_for: Option<&StacksBlockId>,
+        parent_tip: &StacksBlockId,
+        mock_mining: bool,
+    ) -> bool {
+        mock_mining || caches_valid_for != Some(parent_tip)
+    }
+
     // TODO: add tests from mutation testing results #4869
     #[cfg_attr(test, mutants::skip)]
     /// Try to mine a Stacks block by assembling one from mempool transactions and sending a
@@ -1495,6 +1705,9 @@ impl BlockMinerThread {
         if Self::fault_injection_block_mining_skip() {
             return Err(ChainstateError::MinerAborted.into());
         }
+        if let Some(e) = Self::fault_injection_transient_mining_error() {
+            return Err(e);
+        }
         neon_node::fault_injection_long_tenure();
 
         let mut mem_pool = self
@@ -1502,9 +1715,19 @@ impl BlockMinerThread {
             .connect_mempool_db()
             .expect("Database failure opening mempool");
 
+        // Blacklist permanently excluded transactions reported by signers
+        if !self.permanently_excluded_txids.is_empty() {
+            let txids: Vec<Txid> = self.permanently_excluded_txids.drain().collect();
+            info!("Miner: blacklisting permanently excluded transaction(s) from mempool";
+                "count" => txids.len(),
+            );
+            if let Err(e) = mem_pool.drop_and_blacklist_txs(&txids) {
+                warn!("Miner: failed to blacklist permanently excluded transactions: {e:?}");
+            }
+        }
+
         let target_epoch_id =
-            SortitionDB::get_stacks_epoch(burn_db.conn(), self.burn_block.block_height + 1)
-                .map_err(|_| NakamotoNodeError::SnapshotNotFoundForChainTip)?
+            SortitionDB::get_stacks_epoch(burn_db.conn(), self.burn_election_block.block_height)?
                 .expect("FATAL: no epoch defined")
                 .epoch_id;
         let mut parent_block_info = self.load_block_parent_info(&mut burn_db, &mut chain_state)?;
@@ -1537,6 +1760,55 @@ impl BlockMinerThread {
                     self.last_block_mined = None;
                 }
             }
+        } else if self.last_block_mined.is_none()
+            && parent_block_info.parent_tenure.is_none()
+            && parent_block_info.stacks_parent_header.consensus_hash
+                == self.burn_election_block.consensus_hash
+        {
+            // Our tenure already has a canonical tip, but we never saw it accepted: a
+            // different proposal for this tenure reached consensus (e.g. an earlier proposal
+            // of ours that the signers pushed after we had re-mined). Adopt it and continue
+            // the tenure on top of it.
+            let stacks_parent_header = &parent_block_info.stacks_parent_header;
+            let stacks_parent_id = stacks_parent_header.index_block_hash();
+            let tenure_len = NakamotoChainState::get_nakamoto_tenure_length(
+                chain_state.db(),
+                &stacks_parent_id,
+            )?;
+            let tenure_cost =
+                NakamotoChainState::get_total_tenure_cost_at(chain_state.db(), &stacks_parent_id)?
+                    .ok_or_else(|| {
+                        error!("Miner: no total tenure cost for the canonical tip of our tenure";
+                            "block_id" => %stacks_parent_id,
+                        );
+                        NakamotoNodeError::UnexpectedChainState
+                    })?;
+            info!("Miner: adopting the canonical tip of our tenure, which we did not see accepted";
+                "block_hash" => %stacks_parent_header.anchored_header.block_hash(),
+                "block_height" => stacks_parent_header.stacks_block_height,
+                "consensus_hash" => %stacks_parent_header.consensus_hash,
+                "tenure_length" => tenure_len,
+                "tenure_cost" => %tenure_cost,
+            );
+            self.globals.counters.bump_naka_mined_tenures();
+            self.last_block_mined = Some((
+                stacks_parent_header.consensus_hash.clone(),
+                stacks_parent_header.anchored_header.block_hash(),
+            ));
+            self.mined_blocks = u64::from(tenure_len);
+            self.tenure_cost = tenure_cost;
+            // The tenure budget is determined by the epoch of the parent block.
+            self.tenure_budget = SortitionDB::get_stacks_epoch(
+                burn_db.conn(),
+                u64::from(stacks_parent_header.burn_header_height),
+            )?
+            .expect("FATAL: no epoch defined")
+            .block_limit;
+            if self.reason.is_late_block() {
+                // A late tenure only exists to get its BlockFound block on chain, and the
+                // adopted tip has done that.
+                return Err(NakamotoNodeError::StacksTipChanged);
+            }
         }
 
         if self.last_block_mined.is_none() && parent_block_info.parent_tenure.is_none() {
@@ -1561,7 +1833,10 @@ impl BlockMinerThread {
 
         parent_block_info.stacks_parent_header.microblock_tail = None;
 
-        let signer_bitvec_len = reward_set.rewarded_addresses.len().try_into().ok();
+        // Length of the per-block `pox_treatment` BitVec.
+        // Must be `> 0`:
+        //   the BitVec codec rejects zero-length bitvecs at deserialization.
+        let signer_bitvec_len = reward_set.pox_treatment_bitvec_len();
 
         if !self.validate_timestamp_info(
             get_epoch_time_secs(),
@@ -1572,23 +1847,29 @@ impl BlockMinerThread {
             return Err(ChainstateError::MinerAborted.into());
         }
 
-        // If we attempt to build a block, we should reset the nonce cache.
-        // In the special case where no transactions are found, this flag will
-        // be reset to false.
-        self.reset_mempool_caches = true;
+        let parent_tip = parent_block_info.stacks_parent_header.index_block_hash();
+        if Self::mempool_caches_need_reset(
+            self.mempool_caches_valid_for.as_ref(),
+            &parent_tip,
+            self.config.node.mock_mining,
+        ) {
+            mem_pool.reset_mempool_caches()?;
+        } else if self.config.miner.mempool_walk_strategy
+            == MemPoolWalkStrategy::NextNonceWithHighestFeeRate
+        {
+            // Even if the nonce cache is still valid, NextNonceWithHighestFeeRate strategy
+            // needs to reset this cache after each block. This prevents skipping transactions
+            // that were previously considered, but not included in previous blocks.
+            mem_pool.reset_considered_txs_cache()?;
+        }
+        // The mempool walk mutates the caches, so consider them invalid until
+        // we know which chainstate the walk's result is consistent with: the
+        // parent tip if no transactions were selected, or the new block once
+        // it is signed and broadcast.
+        self.mempool_caches_valid_for = None;
 
-        let replay_transactions = if self.config.miner.replay_transactions {
-            coordinator
-                .get_signer_global_state()
-                .map(|state| state.tx_replay_set.unwrap_or_default())
-                .unwrap_or_default()
-        } else {
-            vec![]
-        };
         // build the block itself
-        let mining_burn_handle = burn_db
-            .index_handle_at_ch(&self.burn_block.consensus_hash)
-            .map_err(|_| NakamotoNodeError::UnexpectedChainState)?;
+        let mining_burn_handle = burn_db.index_handle_at_ch(&self.burn_block.consensus_hash)?;
         if let Some(parent_burn_view) = &parent_block_info.stacks_parent_header.burn_view {
             if !mining_burn_handle.processed_block(parent_burn_view)? {
                 error!(
@@ -1608,25 +1889,42 @@ impl BlockMinerThread {
             &self.burn_election_block.consensus_hash,
             self.burn_block.total_burn,
             tenure_start_info,
-            self.config
-                .make_nakamoto_block_builder_settings(self.globals.get_miner_status()),
+            {
+                let mut settings = self
+                    .config
+                    .make_nakamoto_block_builder_settings(self.globals.get_miner_status());
+                if !self.temporarily_excluded_txids.is_empty() {
+                    info!("Miner: excluding signer-rejected transaction(s) from block building";
+                        "count" => self.temporarily_excluded_txids.len(),
+                    );
+                    settings.temporarily_excluded_txids = self.temporarily_excluded_txids.clone();
+                }
+                settings
+            },
             // we'll invoke the event dispatcher ourselves so that it calculates the
             //  correct signer_signature_hash for `process_mined_nakamoto_block_event`
             Some(&self.event_dispatcher),
-            signer_bitvec_len.unwrap_or(0),
-            &replay_transactions,
+            signer_bitvec_len,
         )
         .map_err(|e| {
-            if !matches!(
-                e,
-                ChainstateError::MinerAborted | ChainstateError::NoTransactionsToMine
-            ) {
-                error!("Relayer: Failure mining anchored block: {e}");
+            match e {
+                ChainstateError::NoTransactionsToMine => {
+                    // The walk selected nothing, so the caches still reflect
+                    // the chainstate as of the parent tip. Keeping them valid
+                    // means an idle miner does not reset its caches on every
+                    // empty-mempool retry.
+                    self.mempool_caches_valid_for = Some(parent_tip.clone());
+                }
+                ChainstateError::MinerAborted => {}
+                ref e => error!("Relayer: Failure mining anchored block: {e}"),
             }
             e
         })?;
 
-        if block_metadata.block.txs.is_empty() {
+        if block_metadata.block.tx_count() == 0 {
+            // Defensive check: an empty block exits above through the
+            // `NoTransactionsToMine` error, so this should be unreachable.
+            self.mempool_caches_valid_for = Some(parent_tip);
             return Err(ChainstateError::NoTransactionsToMine.into());
         }
         let mining_key = self.keychain.get_nakamoto_sk();
@@ -1645,7 +1943,7 @@ impl BlockMinerThread {
             "Miner: Assembled block #{} for signer set proposal: {}, with {} txs",
             block_metadata.block.header.chain_length,
             block_metadata.block.header.block_hash(),
-            block_metadata.block.txs.len();
+            block_metadata.block.tx_count();
             "signer_signature_hash" => %block_metadata.block.header.signer_signature_hash(),
             "consensus_hash" => %block_metadata.block.header.consensus_hash,
             "parent_block_id" => %block_metadata.block.header.parent_block_id,
@@ -1691,17 +1989,6 @@ impl BlockMinerThread {
             // if we haven't mined blocks yet, no tenure extends needed
             return Ok(false);
         }
-        let is_replay = self.config.miner.replay_transactions
-            && coordinator
-                .get_signer_global_state()
-                .map(|state| state.tx_replay_set.is_some())
-                .unwrap_or(false);
-        if is_replay {
-            // we're in replay, we should always TenureExtend
-            info!("Tenure extend: In replay, always extending tenure");
-            return Ok(true);
-        }
-
         // Do not extend if we have spent a threshold amount of the
         // budget, since it is not necessary.
         let usage = self
@@ -1926,6 +2213,27 @@ impl BlockMinerThread {
         };
         self.mined_blocks = 0;
     }
+
+    /// Collect whatever we need to inject into the [`StackerDBListener`] (via the
+    /// [`SignerCoordinator`]) so that it can load its initial state upon which to apply
+    /// any updates it receives.
+    fn build_initial_chunks_loader<'a>(
+        &self,
+        stackerdbs: &'a StackerDBs,
+        reward_set: &RewardSet,
+    ) -> InitialChunksLoader<'a> {
+        let reward_cycle_id = self
+            .burnchain
+            .block_height_to_reward_cycle(self.burn_election_block.block_height)
+            .expect("FATAL: tried to initialize miner before first burn block height");
+
+        let signer_count = reward_set
+            .signers()
+            .map(|s| u32::try_from(s.len()).unwrap_or_default())
+            .unwrap_or_default();
+
+        InitialChunksLoader::new(reward_cycle_id, signer_count, stackerdbs)
+    }
 }
 
 impl ParentStacksBlockInfo {
@@ -2046,9 +2354,10 @@ impl ParentStacksBlockInfo {
             let principal = miner_address.into();
             let account = chain_state
                 .with_read_only_clarity_tx(
-                    &burn_db
-                        .index_handle_at_block(chain_state, &stacks_tip_header.index_block_hash())
-                        .map_err(|_| NakamotoNodeError::UnexpectedChainState)?,
+                    &burn_db.index_handle_at_block(
+                        chain_state,
+                        &stacks_tip_header.index_block_hash(),
+                    )?,
                     &stacks_tip_header.index_block_hash(),
                     |conn| StacksChainState::get_account(conn, &principal),
                 )
@@ -2126,8 +2435,10 @@ fn should_read_count_extend_units() {
         tenure_change_time: Instant::now(),
         burn_tip_at_start: ConsensusHash([0; 20]),
         abort_flag: Arc::new(AtomicBool::new(false)),
-        reset_mempool_caches: false,
-        miner_db: MinerDB::open("/tmp/should_read_count_extend_units.db").unwrap(),
+        mempool_caches_valid_for: None,
+        miner_db: MinerDB::open(":memory:").unwrap(),
+        temporarily_excluded_txids: HashSet::new(),
+        permanently_excluded_txids: HashSet::new(),
     };
     miner.config.miner.read_count_extend_cost_threshold = 20;
 
@@ -2147,9 +2458,8 @@ fn should_read_count_extend_units() {
         runtime: 1000,
     };
 
-    assert_eq!(
-        miner.should_read_count_extend(&()).unwrap(),
-        false,
+    assert!(
+        !miner.should_read_count_extend(&()).unwrap(),
         "When read_count is below the configured threshold, we shouldn't try to extend"
     );
 
@@ -2169,9 +2479,31 @@ fn should_read_count_extend_units() {
         runtime: 1000,
     };
 
-    assert_eq!(
+    assert!(
         miner.should_read_count_extend(&()).unwrap(),
-        true,
         "When read_count is at the configured threshhold, we should try to extend"
+    );
+}
+
+#[test]
+fn mempool_caches_need_reset_units() {
+    let tip_a = StacksBlockId([1; 32]);
+    let tip_b = StacksBlockId([2; 32]);
+
+    assert!(
+        BlockMinerThread::mempool_caches_need_reset(None, &tip_a, false),
+        "Caches of unknown validity must be reset"
+    );
+    assert!(
+        !BlockMinerThread::mempool_caches_need_reset(Some(&tip_a), &tip_a, false),
+        "Caches consistent with the parent tip must be preserved"
+    );
+    assert!(
+        BlockMinerThread::mempool_caches_need_reset(Some(&tip_a), &tip_b, false),
+        "Caches consistent with a different tip must be reset when the parent changes"
+    );
+    assert!(
+        BlockMinerThread::mempool_caches_need_reset(Some(&tip_a), &tip_a, true),
+        "Mock miners must always reset, because their blocks are never processed"
     );
 }

@@ -27,6 +27,17 @@ This project and everyone participating in it is governed by this [Code of Condu
 
 See the branching document in [branching.md](./docs/branching.md).
 
+### Enabling CI on Forks
+
+The CI will always run on `stacks-network/stacks-core` with other forks and cloned repos able to opt-in.
+
+To **enable** CI workflows within your fork or cloned repository, add a GitHub Actions Variable:
+
+- Name: `ENABLE_CI_WORKFLOWS`
+- Value: `true`
+
+This will enable CI functionality within your repo or fork.
+
 ### Merging PRs from Forks
 
 PRs from forks or opened by contributors without commit access require
@@ -48,16 +59,14 @@ For an example of this process, see PRs
 
 ### Documentation Updates
 
-- Any major changes should be added to the [CHANGELOG](CHANGELOG.md)[*].
+- Any changes should be added to the Changelog via
+  [Changelog Fragments](changelog.d/README.md).
 - Mention any required documentation changes in the description of your pull request.
 - If adding or updating an RPC endpoint, ensure the change is documented in the
   OpenAPI spec: [`./docs/rpc/openapi.yaml`](./docs/rpc/openapi.yaml).
 - If your code adds or modifies any major features (struct, trait,
   test, module, function, etc.), each should be documented according
   to our [coding guidelines](#Coding-Guidelines).
-
-> [*] The Changelog focuses on product changes. A "major change" refers to updates that have a direct impact on the end user, such as introducing new features, modifying existing functionality, or optimizing runtime performance.
-On the other hand, changes that do not need to be reflected in the Changelog include code refactoring, writing tests, or automating processes, as these do not directly affect the user experience.
 
 ## Git Commit Messages
 
@@ -128,7 +137,7 @@ Reviewers should aim to **perform a review in one sitting** whenever possible. T
 Code reviews should be timely. Reviewers should start no more than
 **2 business days** after reviewers are assigned. This applies to each
 reviewer: i.e., we expect all reviewers to respond within two days.
-The `develop` and `next` branches in particular often change quickly,
+The `main` branch in particular often changes quickly,
 so letting a PR languish only creates more merge work for the
 submitter. If a review cannot be started within this timeframe, then
 the reviewers should **tell the submitter when they can begin**. This
@@ -212,6 +221,22 @@ mask compiler warnings with macros.
 ### Minimal `unsafe` code
 
 Contributions should not contain `unsafe` blocks if at all possible.
+
+### Preventing Accidental Releases ("DO NOT RELEASE" Markers)
+
+To safeguard against accidentally deploying incomplete work, experimental features, or unvetted consensus changes, our release pipeline includes an automated check for release-blocking markers.
+
+- **How to use it:** If a pull request contains code or configuration that must **never** be included in a production release, add the exact string `"DO NOT RELEASE"` in a comment or file within the codebase.
+- **CI Safety Check:** During automated release workflows, the `check-do-not-release` job recursively scans the codebase (excluding `.git` and `.github`). If it detects the string anywhere, it immediately halts the pipeline, logs an inline error annotation, and writes a detailed breakdown to the GitHub Job Summary showing every location where the phrase was found.
+- **Resolving the block:** A release cannot proceed until all instances of `"DO NOT RELEASE"` are removed from the codebase and merged to the target branch.
+
+### Blocking a Release With a Label (`X.Y.Z-blocker`)
+
+Work that must land _before_ a given release can also be tracked with a label instead of a marker in the code.
+
+- **How to use it:** Apply the label `X.Y.Z-blocker` (where `X.Y.Z` is the release version, i.e. `4.0.0-blocker`) to any issue or pull request that must be resolved before that release ships.
+- **CI Safety Check:** During automated release workflows, the `check-release-blockers` job derives the label from the release tag and queries the repository for open issues and pull requests carrying it. If any are found, it halts the pipeline, logs an inline error annotation, and writes a list of the blocking issues/PRs to the GitHub Job Summary.
+- **Resolving the block:** A release cannot proceed until every issue/PR with that label is closed (or merged), or the label is removed from anything that turns out not to be a blocker.
 
 # Coding Guidelines
 
@@ -333,9 +358,9 @@ For an example, see [PR #3075](https://github.com/stacks-network/stacks-core/pul
 
 A **consensus-critical change** is a change that affects how the Stacks blockchain processes blocks, microblocks, or transactions, such that a node with the patch _could_ produce a different state root hash than a node without the patch. If this is even _possible_, then the PR is automatically treated as a consensus-critical change and must ship as part of a hard fork. It must also be described in a SIP.
 
-- **All changes to consensus-critical code must be opened against `next`**. It is _never acceptable_ to open them against `develop` or `master`.
-
 - **All consensus-critical changes must be gated on the Stacks epoch**. They may only take effect once the system enters a specific epoch (and this must be documented).
+
+- **Consensus-critical changes are opened against `main`**, like any other change. The epoch gate, not a separate long-lived branch, is what keeps them inert until activation.
 
 A non-exhaustive list of examples of consensus-critical changes include:
 
@@ -371,20 +396,19 @@ A test should be marked `#[ignore]` if:
   2. Or, it runs for over a minute via a normal `cargo test` execution
    (the `cargo test` command will warn if this is not the case).
 
-- **Integration tests need to be properly tagged** using [pinny-rs](https://github.com/BitcoinL2-Labs/pinny-rs/) crate. Tagging requires two fundamental steps:
+- **Integration tests need to be properly tagged** using [pinny-rs](https://github.com/stx-labs/pinny-rs) crate. Tagging requires two fundamental steps:
   1. Define allowed tags in the package `Cargo.toml` file (if needed).
   2. Apply relevant tags to the tests, picking from the allowed set.
 
   Then it will be possible to run tests with filtering based on the tags using `cargo test` and `cargo nextest` runner.
-  > For more information and examples on how tagging works, refer to the [pinny-rs](https://github.com/BitcoinL2-Labs/pinny-rs/) readme.
+  > For more information and examples on how tagging works, refer to the [pinny-rs](https://github.com/stx-labs/pinny-rs) readme.
 
   Below the tag set currently defined with related purpose:
 
   | Tag             | Description                                  |
   |-----------------|----------------------------------------------|
-  | `slow`          | tests running over a minute                  |
-  | `bitcoind`      | tests requiring bitcoin daemon               |
-  | `flaky`         | tests that exhibit flaky behavior            |
+  | `t_prop`        | tests related to property testing            |
+  | `ci_skip`       | tests to be excluded from automatic CI run   |
 
 - **Consensus tests use `insta` to record snapshots** and then compare results across runs to ensure that there are no accidental consensus changes.
 1. Install `insta`:

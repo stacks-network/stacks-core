@@ -85,6 +85,10 @@ fn make_utf8_string(n: usize) -> SequenceData {
 // ---------------------------------------------------------------------------
 
 /// Old behavior: drain(..).collect() + iter + to_value (clone) + SymbolicExpression wrap.
+#[expect(
+    clippy::drain_collect,
+    reason = "This benchmark compares drain-and-collect with mem::take."
+)]
 fn drain_and_clone(sequence_data: &mut SequenceData) {
     let result: Vec<_> = match sequence_data {
         SequenceData::Buffer(data) => data
@@ -244,6 +248,97 @@ fn bench_atom_values_utf8(c: &mut Criterion) {
     group.finish();
 }
 
+// ---------------------------------------------------------------------------
+// try_retain benchmarks (O(n) swap-to-front vs old O(n²) Vec::remove)
+// ---------------------------------------------------------------------------
+
+/// Simulates the old O(n²) filter: Vec::remove(i) on every discard.
+fn old_retain_quadratic(
+    sequence_data: &mut SequenceData,
+    predicate: &mut impl FnMut(SymbolicExpression) -> Result<bool, ()>,
+) {
+    macro_rules! retain_old {
+        ($data:expr, $seq_type:ident) => {{
+            let mut i = 0;
+            while i != $data.data.len() {
+                let atom_value =
+                    SymbolicExpression::atom_value($seq_type::to_value(&$data.data[i]).unwrap());
+                let keep = predicate(atom_value).unwrap();
+                if keep {
+                    i += 1;
+                } else {
+                    $data.data.remove(i);
+                }
+            }
+        }};
+    }
+    match sequence_data {
+        SequenceData::Buffer(data) => retain_old!(data, BuffData),
+        SequenceData::List(data) => retain_old!(data, ListData),
+        SequenceData::String(CharType::ASCII(data)) => retain_old!(data, ASCIIData),
+        SequenceData::String(CharType::UTF8(data)) => retain_old!(data, UTF8Data),
+    }
+}
+
+/// Uses the new O(n) try_retain (swap-to-front + truncate).
+fn new_try_retain_linear(
+    sequence_data: SequenceData,
+    predicate: &mut impl FnMut(Value) -> Result<bool, ()>,
+) -> SequenceData {
+    sequence_data.try_retain::<(), _>(predicate).unwrap()
+}
+
+fn bench_try_retain(c: &mut Criterion) {
+    let mut group = c.benchmark_group("try_retain");
+
+    // Alternate keep/discard (~50% filtered out).
+    let mut counter = 0usize;
+
+    for &(outer, inner) in &[(100, 5), (500, 5), (500, 10)] {
+        let label = format!("{outer}x{inner}");
+
+        group.bench_with_input(
+            BenchmarkId::new("old_quadratic", &label),
+            &(outer, inner),
+            |b, &(outer, inner)| {
+                b.iter_batched(
+                    || make_nested_list(outer, inner),
+                    |mut seq| {
+                        counter = 0;
+                        old_retain_quadratic(&mut seq, &mut |_sym| {
+                            counter += 1;
+                            Ok(counter.is_multiple_of(2))
+                        });
+                        black_box(seq);
+                    },
+                    criterion::BatchSize::SmallInput,
+                );
+            },
+        );
+
+        group.bench_with_input(
+            BenchmarkId::new("new_linear", &label),
+            &(outer, inner),
+            |b, &(outer, inner)| {
+                b.iter_batched(
+                    || make_nested_list(outer, inner),
+                    |seq| {
+                        counter = 0;
+                        let seq = new_try_retain_linear(seq, &mut |_sym| {
+                            counter += 1;
+                            Ok(counter.is_multiple_of(2))
+                        });
+                        black_box(seq);
+                    },
+                    criterion::BatchSize::SmallInput,
+                );
+            },
+        );
+    }
+
+    group.finish();
+}
+
 criterion_group!(
     benches,
     bench_atom_values_int_list,
@@ -251,5 +346,6 @@ criterion_group!(
     bench_atom_values_buffer,
     bench_atom_values_ascii,
     bench_atom_values_utf8,
+    bench_try_retain,
 );
 criterion_main!(benches);

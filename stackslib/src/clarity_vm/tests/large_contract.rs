@@ -1,5 +1,5 @@
 // Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
-// Copyright (C) 2020 Stacks Open Internet Foundation
+// Copyright (C) 2020-2026 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -23,6 +23,7 @@ use clarity::vm::clarity::{ClarityConnection, TransactionConnection};
 use clarity::vm::contexts::OwnedEnvironment;
 use clarity::vm::database::HeadersDB;
 use clarity::vm::errors::{StaticCheckErrorKind, VmExecutionError};
+use clarity::vm::resource_limiter::ResourceBudget;
 use clarity::vm::test_util::*;
 use clarity::vm::tests::{test_clarity_versions, BurnStateDB};
 use clarity::vm::types::{
@@ -38,15 +39,18 @@ use rstest_reuse::{self, *};
 use stacks_common::consts::CHAIN_ID_TESTNET;
 use stacks_common::types::chainstate::StacksBlockId;
 use stacks_common::types::StacksEpochId;
+use stacks_marf::ClarityMarfTrieId;
 
 use crate::chainstate::stacks::boot::{BOOT_CODE_COSTS_2, BOOT_CODE_COSTS_3, BOOT_CODE_COSTS_4};
-use crate::chainstate::stacks::index::ClarityMarfTrieId;
 use crate::chainstate::tests::consensus::{
     ConsensusTest, ConsensusUtils, ExpectedResult, TestBlock,
 };
 use crate::clarity_vm::clarity::{ClarityBlockConnection, ClarityError, ClarityInstance};
 use crate::clarity_vm::database::marf::MarfedKV;
 use crate::clarity_vm::database::MemoryBackingStore;
+use crate::clarity_vm::tests::utils::{
+    new_cost_test_clarity_instance, next_test_block_id, setup_cost_test_epochs_through,
+};
 use crate::util_lib::boot::boot_code_id;
 
 fn test_block_headers(n: u8) -> StacksBlockId {
@@ -143,80 +147,80 @@ fn test_simple_token_system(#[case] version: ClarityVersion, #[case] epoch: Stac
         burn_db,
     );
 
-    gb.as_transaction(|tx| {
-        tx.with_clarity_db(|db| {
-            db.set_clarity_epoch_version(epoch).unwrap();
-            Ok(())
-        })
-        .unwrap();
+    gb.set_epoch_for_testing(epoch);
 
-        match epoch {
-            StacksEpochId::Epoch2_05 => {
-                let (ast, _analysis) = tx
-                    .analyze_smart_contract(
-                        &boot_code_id("costs-2", false),
-                        ClarityVersion::Clarity1,
-                        BOOT_CODE_COSTS_2,
-                    )
-                    .unwrap();
-                tx.initialize_smart_contract(
+    gb.as_transaction(|tx| match epoch {
+        StacksEpochId::Epoch2_05 => {
+            let (ast, _analysis) = tx
+                .analyze_smart_contract(
                     &boot_code_id("costs-2", false),
                     ClarityVersion::Clarity1,
-                    &ast,
                     BOOT_CODE_COSTS_2,
-                    None,
-                    |_, _| None,
-                    None,
+                    &ResourceBudget::unlimited(),
                 )
                 .unwrap();
-            }
-            StacksEpochId::Epoch21
-            | StacksEpochId::Epoch22
-            | StacksEpochId::Epoch23
-            | StacksEpochId::Epoch24
-            | StacksEpochId::Epoch25
-            | StacksEpochId::Epoch30
-            | StacksEpochId::Epoch31
-            | StacksEpochId::Epoch32 => {
-                let (ast, _analysis) = tx
-                    .analyze_smart_contract(
-                        &boot_code_id("costs-3", false),
-                        ClarityVersion::Clarity2,
-                        BOOT_CODE_COSTS_3,
-                    )
-                    .unwrap();
-                tx.initialize_smart_contract(
+            tx.initialize_smart_contract(
+                &boot_code_id("costs-2", false),
+                ClarityVersion::Clarity1,
+                &ast,
+                BOOT_CODE_COSTS_2,
+                None,
+                |_, _| None,
+                &ResourceBudget::unlimited(),
+            )
+            .unwrap();
+        }
+        StacksEpochId::Epoch21
+        | StacksEpochId::Epoch22
+        | StacksEpochId::Epoch23
+        | StacksEpochId::Epoch24
+        | StacksEpochId::Epoch25
+        | StacksEpochId::Epoch30
+        | StacksEpochId::Epoch31
+        | StacksEpochId::Epoch32 => {
+            let (ast, _analysis) = tx
+                .analyze_smart_contract(
                     &boot_code_id("costs-3", false),
                     ClarityVersion::Clarity2,
-                    &ast,
                     BOOT_CODE_COSTS_3,
-                    None,
-                    |_, _| None,
-                    None,
+                    &ResourceBudget::unlimited(),
                 )
                 .unwrap();
-            }
-            StacksEpochId::Epoch33 | StacksEpochId::Epoch34 => {
-                let (ast, _analysis) = tx
-                    .analyze_smart_contract(
-                        &boot_code_id("costs-4", false),
-                        ClarityVersion::Clarity2,
-                        BOOT_CODE_COSTS_4,
-                    )
-                    .unwrap();
-                tx.initialize_smart_contract(
+            tx.initialize_smart_contract(
+                &boot_code_id("costs-3", false),
+                ClarityVersion::Clarity2,
+                &ast,
+                BOOT_CODE_COSTS_3,
+                None,
+                |_, _| None,
+                &ResourceBudget::unlimited(),
+            )
+            .unwrap();
+        }
+        StacksEpochId::Epoch33 | StacksEpochId::Epoch34 => {
+            let (ast, _analysis) = tx
+                .analyze_smart_contract(
                     &boot_code_id("costs-4", false),
                     ClarityVersion::Clarity2,
-                    &ast,
                     BOOT_CODE_COSTS_4,
-                    None,
-                    |_, _| None,
-                    None,
+                    &ResourceBudget::unlimited(),
                 )
                 .unwrap();
-            }
-            _ => panic!("Epoch {} not covered.", &epoch),
+            tx.initialize_smart_contract(
+                &boot_code_id("costs-4", false),
+                ClarityVersion::Clarity2,
+                &ast,
+                BOOT_CODE_COSTS_4,
+                None,
+                |_, _| None,
+                &ResourceBudget::unlimited(),
+            )
+            .unwrap();
         }
+        StacksEpochId::Epoch40 | StacksEpochId::Epoch41 => {
+            // Epoch 4.0 onwards no longer deploy a costs boot contract
+        }
+        _ => panic!("Epoch {} not covered.", &epoch),
     });
 
     gb.commit_block();
@@ -249,7 +253,7 @@ fn test_simple_token_system(#[case] version: ClarityVersion, #[case] epoch: Stac
                 tokens_contract,
                 None,
                 |_, _| None,
-                None,
+                &ResourceBudget::unlimited(),
             )
             .unwrap()
         });
@@ -257,13 +261,13 @@ fn test_simple_token_system(#[case] version: ClarityVersion, #[case] epoch: Stac
         assert!(!is_committed(
             &block
                 .as_transaction(|tx| tx.run_contract_call(
-                    &p2,
+                    p2.clone(),
                     None,
-                    &contract_identifier,
+                    contract_identifier.clone(),
                     "token-transfer",
-                    &[p1.clone().into(), Value::UInt(210)],
+                    vec![p1.clone().into(), Value::UInt(210)],
                     |_, _| None,
-                    None
+                    &ResourceBudget::unlimited()
                 ))
                 .unwrap()
                 .0
@@ -271,13 +275,13 @@ fn test_simple_token_system(#[case] version: ClarityVersion, #[case] epoch: Stac
         assert!(is_committed(
             &block
                 .as_transaction(|tx| tx.run_contract_call(
-                    &p1,
+                    p1.clone(),
                     None,
-                    &contract_identifier,
+                    contract_identifier.clone(),
                     "token-transfer",
-                    &[p2.clone().into(), Value::UInt(9000)],
+                    vec![p2.clone().into(), Value::UInt(9000)],
                     |_, _| None,
-                    None
+                    &ResourceBudget::unlimited()
                 ))
                 .unwrap()
                 .0
@@ -286,21 +290,21 @@ fn test_simple_token_system(#[case] version: ClarityVersion, #[case] epoch: Stac
         assert!(!is_committed(
             &block
                 .as_transaction(|tx| tx.run_contract_call(
-                    &p1,
+                    p1.clone(),
                     None,
-                    &contract_identifier,
+                    contract_identifier.clone(),
                     "token-transfer",
-                    &[p2.clone().into(), Value::UInt(1001)],
+                    vec![p2.clone().into(), Value::UInt(1001)],
                     |_, _| None,
-                    None
+                    &ResourceBudget::unlimited()
                 ))
                 .unwrap()
                 .0
         ));
         assert!(is_committed(
             & // send to self!
-            block.as_transaction(|tx| tx.run_contract_call(&p1, None, &contract_identifier, "token-transfer",
-                                    &[p1.clone().into(), Value::UInt(1000)], |_, _| None, None)).unwrap().0
+            block.as_transaction(|tx| tx.run_contract_call(p1.clone(), None, contract_identifier.clone(), "token-transfer",
+                                    vec![p1.clone().into(), Value::UInt(1000)], |_, _| None, &ResourceBudget::unlimited())).unwrap().0
         ));
 
         assert_eq!(
@@ -325,13 +329,13 @@ fn test_simple_token_system(#[case] version: ClarityVersion, #[case] epoch: Stac
         assert!(is_committed(
             &block
                 .as_transaction(|tx| tx.run_contract_call(
-                    &p1,
+                    p1.clone(),
                     None,
-                    &contract_identifier,
+                    contract_identifier.clone(),
                     "faucet",
-                    &[],
+                    vec![],
                     |_, _| None,
-                    None
+                    &ResourceBudget::unlimited()
                 ))
                 .unwrap()
                 .0
@@ -340,13 +344,13 @@ fn test_simple_token_system(#[case] version: ClarityVersion, #[case] epoch: Stac
         assert!(is_committed(
             &block
                 .as_transaction(|tx| tx.run_contract_call(
-                    &p1,
+                    p1.clone(),
                     None,
-                    &contract_identifier,
+                    contract_identifier.clone(),
                     "faucet",
-                    &[],
+                    vec![],
                     |_, _| None,
-                    None
+                    &ResourceBudget::unlimited()
                 ))
                 .unwrap()
                 .0
@@ -355,13 +359,13 @@ fn test_simple_token_system(#[case] version: ClarityVersion, #[case] epoch: Stac
         assert!(is_committed(
             &block
                 .as_transaction(|tx| tx.run_contract_call(
-                    &p1,
+                    p1.clone(),
                     None,
-                    &contract_identifier,
+                    contract_identifier.clone(),
                     "faucet",
-                    &[],
+                    vec![],
                     |_, _| None,
-                    None
+                    &ResourceBudget::unlimited()
                 ))
                 .unwrap()
                 .0
@@ -380,13 +384,13 @@ fn test_simple_token_system(#[case] version: ClarityVersion, #[case] epoch: Stac
         assert!(!is_committed(
             &block
                 .as_transaction(|tx| tx.run_contract_call(
-                    &p1,
+                    p1.clone(),
                     None,
-                    &contract_identifier,
+                    contract_identifier.clone(),
                     "mint-after",
-                    &[Value::UInt(25)],
+                    vec![Value::UInt(25)],
                     |_, _| None,
-                    None
+                    &ResourceBudget::unlimited()
                 ))
                 .unwrap()
                 .0
@@ -418,13 +422,13 @@ fn test_simple_token_system(#[case] version: ClarityVersion, #[case] epoch: Stac
         assert!(is_committed(
             &block
                 .as_transaction(|tx| tx.run_contract_call(
-                    &p1,
+                    p1.clone(),
                     None,
-                    &contract_identifier,
+                    contract_identifier.clone(),
                     "mint-after",
-                    &[Value::UInt(25)],
+                    vec![Value::UInt(25)],
                     |_, _| None,
-                    None
+                    &ResourceBudget::unlimited()
                 ))
                 .unwrap()
                 .0
@@ -433,13 +437,13 @@ fn test_simple_token_system(#[case] version: ClarityVersion, #[case] epoch: Stac
         assert!(!is_committed(
             &block
                 .as_transaction(|tx| tx.run_contract_call(
-                    &p1,
+                    p1.clone(),
                     None,
-                    &contract_identifier,
+                    contract_identifier.clone(),
                     "faucet",
-                    &[],
+                    vec![],
                     |_, _| None,
-                    None
+                    &ResourceBudget::unlimited()
                 ))
                 .unwrap()
                 .0
@@ -457,13 +461,13 @@ fn test_simple_token_system(#[case] version: ClarityVersion, #[case] epoch: Stac
         assert_eq!(
             block
                 .as_transaction(|tx| tx.run_contract_call(
-                    &p1,
+                    p1.clone(),
                     None,
-                    &contract_identifier,
+                    contract_identifier,
                     "my-get-token-balance",
-                    &[p1.clone().into()],
+                    vec![p1.clone().into()],
                     |_, _| None,
-                    None
+                    &ResourceBudget::unlimited()
                 ))
                 .unwrap()
                 .0,
@@ -561,156 +565,179 @@ fn inner_test_simple_naming_system(owned_env: &mut OwnedEnvironment, version: Cl
     );
 
     {
-        let mut env = owned_env.get_exec_environment(None, None, &placeholder_context);
+        let (mut exec_state, invoke_ctx) =
+            owned_env.get_exec_environment(None, None, &placeholder_context);
 
         let contract_identifier = QualifiedContractIdentifier::local("tokens").unwrap();
-        env.initialize_contract(contract_identifier, tokens_contract)
+        exec_state
+            .initialize_contract(&invoke_ctx, contract_identifier, tokens_contract)
             .unwrap();
 
         let contract_identifier = QualifiedContractIdentifier::local("names").unwrap();
-        env.initialize_contract(contract_identifier, names_contract)
+        exec_state
+            .initialize_contract(&invoke_ctx, contract_identifier, names_contract)
             .unwrap();
     }
 
     {
-        let mut env = owned_env.get_exec_environment(
+        let (mut exec_state, invoke_ctx) = owned_env.get_exec_environment(
             Some(p2.clone().expect_principal().unwrap()),
             None,
             &placeholder_context,
         );
 
         assert!(is_err_code_i128(
-            &env.execute_contract(
-                &QualifiedContractIdentifier::local("names").unwrap(),
-                "preorder",
-                &symbols_from_values(vec![name_hash_expensive_0.clone(), Value::UInt(1000)]),
-                false
-            )
-            .unwrap(),
+            &exec_state
+                .execute_contract(
+                    &invoke_ctx,
+                    &QualifiedContractIdentifier::local("names").unwrap(),
+                    "preorder",
+                    vec![name_hash_expensive_0.clone(), Value::UInt(1000)],
+                    false
+                )
+                .unwrap(),
             1
         ));
     }
 
     {
-        let mut env = owned_env.get_exec_environment(
+        let (mut exec_state, invoke_ctx) = owned_env.get_exec_environment(
             Some(p1.clone().expect_principal().unwrap()),
             None,
             &placeholder_context,
         );
         assert!(is_committed(
-            &env.execute_contract(
-                &QualifiedContractIdentifier::local("names").unwrap(),
-                "preorder",
-                &symbols_from_values(vec![name_hash_expensive_0.clone(), Value::UInt(1000)]),
-                false
-            )
-            .unwrap()
+            &exec_state
+                .execute_contract(
+                    &invoke_ctx,
+                    &QualifiedContractIdentifier::local("names").unwrap(),
+                    "preorder",
+                    vec![name_hash_expensive_0.clone(), Value::UInt(1000)],
+                    false
+                )
+                .unwrap()
         ));
         assert!(is_err_code_i128(
-            &env.execute_contract(
-                &QualifiedContractIdentifier::local("names").unwrap(),
-                "preorder",
-                &symbols_from_values(vec![name_hash_expensive_0, Value::UInt(1000)]),
-                false
-            )
-            .unwrap(),
+            &exec_state
+                .execute_contract(
+                    &invoke_ctx,
+                    &QualifiedContractIdentifier::local("names").unwrap(),
+                    "preorder",
+                    vec![name_hash_expensive_0, Value::UInt(1000)],
+                    false
+                )
+                .unwrap(),
             2
         ));
     }
 
     {
         // shouldn't be able to register a name you didn't preorder!
-        let mut env = owned_env.get_exec_environment(
+        let (mut exec_state, invoke_ctx) = owned_env.get_exec_environment(
             Some(p2.clone().expect_principal().unwrap()),
             None,
             &placeholder_context,
         );
         assert!(is_err_code_i128(
-            &env.execute_contract(
-                &QualifiedContractIdentifier::local("names").unwrap(),
-                "register",
-                &symbols_from_values(vec![p2.clone(), Value::Int(1), Value::Int(0)]),
-                false
-            )
-            .unwrap(),
+            &exec_state
+                .execute_contract(
+                    &invoke_ctx,
+                    &QualifiedContractIdentifier::local("names").unwrap(),
+                    "register",
+                    vec![p2.clone(), Value::Int(1), Value::Int(0)],
+                    false
+                )
+                .unwrap(),
             4
         ));
     }
 
     {
         // should work!
-        let mut env = owned_env.get_exec_environment(
+        let (mut exec_state, invoke_ctx) = owned_env.get_exec_environment(
             Some(p1.expect_principal().unwrap()),
             None,
             &placeholder_context,
         );
         assert!(is_committed(
-            &env.execute_contract(
-                &QualifiedContractIdentifier::local("names").unwrap(),
-                "register",
-                &symbols_from_values(vec![p2.clone(), Value::Int(1), Value::Int(0)]),
-                false
-            )
-            .unwrap()
+            &exec_state
+                .execute_contract(
+                    &invoke_ctx,
+                    &QualifiedContractIdentifier::local("names").unwrap(),
+                    "register",
+                    vec![p2.clone(), Value::Int(1), Value::Int(0)],
+                    false
+                )
+                .unwrap()
         ));
     }
 
     {
         // try to underpay!
-        let mut env = owned_env.get_exec_environment(
+        let (mut exec_state, invoke_ctx) = owned_env.get_exec_environment(
             Some(p2.clone().expect_principal().unwrap()),
             None,
             &placeholder_context,
         );
         assert!(is_committed(
-            &env.execute_contract(
-                &QualifiedContractIdentifier::local("names").unwrap(),
-                "preorder",
-                &symbols_from_values(vec![name_hash_expensive_1, Value::UInt(100)]),
-                false
-            )
-            .unwrap()
+            &exec_state
+                .execute_contract(
+                    &invoke_ctx,
+                    &QualifiedContractIdentifier::local("names").unwrap(),
+                    "preorder",
+                    vec![name_hash_expensive_1, Value::UInt(100)],
+                    false
+                )
+                .unwrap()
         ));
         assert!(is_err_code_i128(
-            &env.execute_contract(
-                &QualifiedContractIdentifier::local("names").unwrap(),
-                "register",
-                &symbols_from_values(vec![p2.clone(), Value::Int(2), Value::Int(0)]),
-                false
-            )
-            .unwrap(),
+            &exec_state
+                .execute_contract(
+                    &invoke_ctx,
+                    &QualifiedContractIdentifier::local("names").unwrap(),
+                    "register",
+                    vec![p2.clone(), Value::Int(2), Value::Int(0)],
+                    false
+                )
+                .unwrap(),
             4
         ));
 
         // register a cheap name!
         assert!(is_committed(
-            &env.execute_contract(
-                &QualifiedContractIdentifier::local("names").unwrap(),
-                "preorder",
-                &symbols_from_values(vec![name_hash_cheap_0, Value::UInt(100)]),
-                false
-            )
-            .unwrap()
+            &exec_state
+                .execute_contract(
+                    &invoke_ctx,
+                    &QualifiedContractIdentifier::local("names").unwrap(),
+                    "preorder",
+                    vec![name_hash_cheap_0, Value::UInt(100)],
+                    false
+                )
+                .unwrap()
         ));
         assert!(is_committed(
-            &env.execute_contract(
-                &QualifiedContractIdentifier::local("names").unwrap(),
-                "register",
-                &symbols_from_values(vec![p2.clone(), Value::Int(100001), Value::Int(0)]),
-                false
-            )
-            .unwrap()
+            &exec_state
+                .execute_contract(
+                    &invoke_ctx,
+                    &QualifiedContractIdentifier::local("names").unwrap(),
+                    "register",
+                    vec![p2.clone(), Value::Int(100001), Value::Int(0)],
+                    false
+                )
+                .unwrap()
         ));
 
         // preorder must exist!
         assert!(is_err_code_i128(
-            &env.execute_contract(
-                &QualifiedContractIdentifier::local("names").unwrap(),
-                "register",
-                &symbols_from_values(vec![p2, Value::Int(100001), Value::Int(0)]),
-                false
-            )
-            .unwrap(),
+            &exec_state
+                .execute_contract(
+                    &invoke_ctx,
+                    &QualifiedContractIdentifier::local("names").unwrap(),
+                    "register",
+                    vec![p2, Value::Int(100001), Value::Int(0)],
+                    false
+                )
+                .unwrap(),
             5
         ));
     }
@@ -726,26 +753,24 @@ pub fn rollback_log_memory_test(
     #[case] clarity_version: ClarityVersion,
     #[case] epoch_id: StacksEpochId,
 ) {
-    let marf = MarfedKV::temporary();
-    let mut clarity_instance = ClarityInstance::new(false, CHAIN_ID_TESTNET, marf);
+    let (mut clarity_instance, mut tip, mut block_id_byte) = new_cost_test_clarity_instance(false);
     let EXPLODE_N = 100;
     let burn_db = &generate_test_burn_state_db(epoch_id);
 
     let contract_identifier = QualifiedContractIdentifier::local("foo").unwrap();
-    clarity_instance
-        .begin_test_genesis_block(
-            &StacksBlockId::sentinel(),
-            &StacksBlockId([0; 32]),
-            &TEST_HEADER_DB,
-            burn_db,
-        )
-        .commit_block();
+    setup_cost_test_epochs_through(
+        &mut clarity_instance,
+        &mut tip,
+        &mut block_id_byte,
+        epoch_id,
+    );
 
     {
+        let work_block = next_test_block_id(&mut block_id_byte);
         let mut conn = new_block(
             &mut clarity_instance,
-            &StacksBlockId([0; 32]),
-            &StacksBlockId([1; 32]),
+            &tip,
+            &work_block,
             &TEST_HEADER_DB,
             burn_db,
         );
@@ -770,7 +795,12 @@ pub fn rollback_log_memory_test(
 
         conn.as_transaction(|conn| {
             let (ct_ast, _ct_analysis) = conn
-                .analyze_smart_contract(&contract_identifier, clarity_version, &contract)
+                .analyze_smart_contract(
+                    &contract_identifier,
+                    clarity_version,
+                    &contract,
+                    &ResourceBudget::unlimited(),
+                )
                 .unwrap();
             assert!(format!(
                 "{:?}",
@@ -781,7 +811,7 @@ pub fn rollback_log_memory_test(
                     &contract,
                     None,
                     |_, _| None,
-                    None
+                    &ResourceBudget::unlimited()
                 )
                 .unwrap_err()
             )
@@ -792,27 +822,24 @@ pub fn rollback_log_memory_test(
 
 #[apply(test_clarity_versions)]
 pub fn let_memory_test(#[case] clarity_version: ClarityVersion, #[case] epoch_id: StacksEpochId) {
-    let marf = MarfedKV::temporary();
-    let mut clarity_instance = ClarityInstance::new(false, CHAIN_ID_TESTNET, marf);
+    let (mut clarity_instance, mut tip, mut block_id_byte) = new_cost_test_clarity_instance(false);
     let EXPLODE_N = 100;
     let burn_db = &generate_test_burn_state_db(epoch_id);
 
     let contract_identifier = QualifiedContractIdentifier::local("foo").unwrap();
-
-    clarity_instance
-        .begin_test_genesis_block(
-            &StacksBlockId::sentinel(),
-            &StacksBlockId([0; 32]),
-            &TEST_HEADER_DB,
-            burn_db,
-        )
-        .commit_block();
+    setup_cost_test_epochs_through(
+        &mut clarity_instance,
+        &mut tip,
+        &mut block_id_byte,
+        epoch_id,
+    );
 
     {
+        let work_block = next_test_block_id(&mut block_id_byte);
         let mut conn = new_block(
             &mut clarity_instance,
-            &StacksBlockId([0; 32]),
-            &StacksBlockId([1; 32]),
+            &tip,
+            &work_block,
             &TEST_HEADER_DB,
             burn_db,
         );
@@ -842,7 +869,12 @@ pub fn let_memory_test(#[case] clarity_version: ClarityVersion, #[case] epoch_id
 
         conn.as_transaction(|conn| {
             let (ct_ast, _ct_analysis) = conn
-                .analyze_smart_contract(&contract_identifier, clarity_version, &contract)
+                .analyze_smart_contract(
+                    &contract_identifier,
+                    clarity_version,
+                    &contract,
+                    &ResourceBudget::unlimited(),
+                )
                 .unwrap();
             assert!(format!(
                 "{:?}",
@@ -853,7 +885,7 @@ pub fn let_memory_test(#[case] clarity_version: ClarityVersion, #[case] epoch_id
                     &contract,
                     None,
                     |_, _| None,
-                    None
+                    &ResourceBudget::unlimited()
                 )
                 .unwrap_err()
             )
@@ -867,27 +899,24 @@ pub fn argument_memory_test(
     #[case] clarity_version: ClarityVersion,
     #[case] epoch_id: StacksEpochId,
 ) {
-    let marf = MarfedKV::temporary();
-    let mut clarity_instance = ClarityInstance::new(false, CHAIN_ID_TESTNET, marf);
+    let (mut clarity_instance, mut tip, mut block_id_byte) = new_cost_test_clarity_instance(false);
     let EXPLODE_N = 100;
 
     let contract_identifier = QualifiedContractIdentifier::local("foo").unwrap();
     let burn_db = &generate_test_burn_state_db(epoch_id);
-
-    clarity_instance
-        .begin_test_genesis_block(
-            &StacksBlockId::sentinel(),
-            &StacksBlockId([0; 32]),
-            &TEST_HEADER_DB,
-            burn_db,
-        )
-        .commit_block();
+    setup_cost_test_epochs_through(
+        &mut clarity_instance,
+        &mut tip,
+        &mut block_id_byte,
+        epoch_id,
+    );
 
     {
+        let work_block = next_test_block_id(&mut block_id_byte);
         let mut conn = new_block(
             &mut clarity_instance,
-            &StacksBlockId([0; 32]),
-            &StacksBlockId([1; 32]),
+            &tip,
+            &work_block,
             &TEST_HEADER_DB,
             burn_db,
         );
@@ -917,7 +946,12 @@ pub fn argument_memory_test(
 
         conn.as_transaction(|conn| {
             let (ct_ast, _ct_analysis) = conn
-                .analyze_smart_contract(&contract_identifier, clarity_version, &contract)
+                .analyze_smart_contract(
+                    &contract_identifier,
+                    clarity_version,
+                    &contract,
+                    &ResourceBudget::unlimited(),
+                )
                 .unwrap();
             assert!(format!(
                 "{:?}",
@@ -928,7 +962,7 @@ pub fn argument_memory_test(
                     &contract,
                     None,
                     |_, _| None,
-                    None
+                    &ResourceBudget::unlimited()
                 )
                 .unwrap_err()
             )
@@ -939,28 +973,25 @@ pub fn argument_memory_test(
 
 #[apply(test_clarity_versions)]
 pub fn fcall_memory_test(#[case] clarity_version: ClarityVersion, #[case] epoch_id: StacksEpochId) {
-    let marf = MarfedKV::temporary();
-    let mut clarity_instance = ClarityInstance::new(false, CHAIN_ID_TESTNET, marf);
+    let (mut clarity_instance, mut tip, mut block_id_byte) = new_cost_test_clarity_instance(false);
     let COUNT_PER_FUNC = 10;
     let FUNCS = 10;
     let burn_db = &generate_test_burn_state_db(epoch_id);
 
     let contract_identifier = QualifiedContractIdentifier::local("foo").unwrap();
-
-    clarity_instance
-        .begin_test_genesis_block(
-            &StacksBlockId::sentinel(),
-            &StacksBlockId([0; 32]),
-            &TEST_HEADER_DB,
-            burn_db,
-        )
-        .commit_block();
+    setup_cost_test_epochs_through(
+        &mut clarity_instance,
+        &mut tip,
+        &mut block_id_byte,
+        epoch_id,
+    );
 
     {
+        let work_block = next_test_block_id(&mut block_id_byte);
         let mut conn = new_block(
             &mut clarity_instance,
-            &StacksBlockId([0; 32]),
-            &StacksBlockId([1; 32]),
+            &tip,
+            &work_block,
             &TEST_HEADER_DB,
             burn_db,
         );
@@ -1008,7 +1039,12 @@ pub fn fcall_memory_test(#[case] clarity_version: ClarityVersion, #[case] epoch_
 
         conn.as_transaction(|conn| {
             let (ct_ast, _ct_analysis) = conn
-                .analyze_smart_contract(&contract_identifier, clarity_version, &contract_ok)
+                .analyze_smart_contract(
+                    &contract_identifier,
+                    clarity_version,
+                    &contract_ok,
+                    &ResourceBudget::unlimited(),
+                )
                 .unwrap();
             assert!(match conn
                 .initialize_smart_contract(
@@ -1018,8 +1054,8 @@ pub fn fcall_memory_test(#[case] clarity_version: ClarityVersion, #[case] epoch_
                     &ct_ast,
                     &contract_ok,
                     None,
-                    |_, _| Some("abort".to_string()),
-                    None
+                    |_, _| Some("abort".into()),
+                    &ResourceBudget::unlimited()
                 )
                 .unwrap_err()
             {
@@ -1030,7 +1066,12 @@ pub fn fcall_memory_test(#[case] clarity_version: ClarityVersion, #[case] epoch_
 
         conn.as_transaction(|conn| {
             let (ct_ast, _ct_analysis) = conn
-                .analyze_smart_contract(&contract_identifier, clarity_version, &contract_err)
+                .analyze_smart_contract(
+                    &contract_identifier,
+                    clarity_version,
+                    &contract_err,
+                    &ResourceBudget::unlimited(),
+                )
                 .unwrap();
             assert!(format!(
                 "{:?}",
@@ -1041,7 +1082,7 @@ pub fn fcall_memory_test(#[case] clarity_version: ClarityVersion, #[case] epoch_
                     &contract_err,
                     None,
                     |_, _| None,
-                    None
+                    &ResourceBudget::unlimited()
                 )
                 .unwrap_err()
             )
@@ -1052,26 +1093,23 @@ pub fn fcall_memory_test(#[case] clarity_version: ClarityVersion, #[case] epoch_
 
 #[apply(test_clarity_versions)]
 pub fn ccall_memory_test(#[case] clarity_version: ClarityVersion, #[case] epoch_id: StacksEpochId) {
-    let marf = MarfedKV::temporary();
-    let mut clarity_instance = ClarityInstance::new(false, CHAIN_ID_TESTNET, marf);
+    let (mut clarity_instance, mut tip, mut block_id_byte) = new_cost_test_clarity_instance(false);
     let COUNT_PER_CONTRACT = 20;
     let CONTRACTS = 5;
     let burn_db = &generate_test_burn_state_db(epoch_id);
-
-    clarity_instance
-        .begin_test_genesis_block(
-            &StacksBlockId::sentinel(),
-            &StacksBlockId([0; 32]),
-            &TEST_HEADER_DB,
-            burn_db,
-        )
-        .commit_block();
+    setup_cost_test_epochs_through(
+        &mut clarity_instance,
+        &mut tip,
+        &mut block_id_byte,
+        epoch_id,
+    );
 
     {
+        let work_block = next_test_block_id(&mut block_id_byte);
         let mut conn = new_block(
             &mut clarity_instance,
-            &StacksBlockId([0; 32]),
-            &StacksBlockId([1; 32]),
+            &tip,
+            &work_block,
             &TEST_HEADER_DB,
             burn_db,
         );
@@ -1114,7 +1152,12 @@ pub fn ccall_memory_test(#[case] clarity_version: ClarityVersion, #[case] epoch_
             if i < (CONTRACTS - 1) {
                 conn.as_transaction(|conn| {
                     let (ct_ast, ct_analysis) = conn
-                        .analyze_smart_contract(&contract_identifier, clarity_version, &contract)
+                        .analyze_smart_contract(
+                            &contract_identifier,
+                            clarity_version,
+                            &contract,
+                            &ResourceBudget::unlimited(),
+                        )
                         .unwrap();
                     conn.initialize_smart_contract(
                         &contract_identifier,
@@ -1123,7 +1166,7 @@ pub fn ccall_memory_test(#[case] clarity_version: ClarityVersion, #[case] epoch_
                         &contract,
                         None,
                         |_, _| None,
-                        None,
+                        &ResourceBudget::unlimited(),
                     )
                     .unwrap();
                     conn.save_analysis(&contract_identifier, &ct_analysis)
@@ -1132,7 +1175,12 @@ pub fn ccall_memory_test(#[case] clarity_version: ClarityVersion, #[case] epoch_
             } else {
                 conn.as_transaction(|conn| {
                     let (ct_ast, _ct_analysis) = conn
-                        .analyze_smart_contract(&contract_identifier, clarity_version, &contract)
+                        .analyze_smart_contract(
+                            &contract_identifier,
+                            clarity_version,
+                            &contract,
+                            &ResourceBudget::unlimited(),
+                        )
                         .unwrap();
                     assert!(format!(
                         "{:?}",
@@ -1143,7 +1191,7 @@ pub fn ccall_memory_test(#[case] clarity_version: ClarityVersion, #[case] epoch_
                             &contract,
                             None,
                             |_, _| None,
-                            None
+                            &ResourceBudget::unlimited()
                         )
                         .unwrap_err()
                     )
@@ -1189,8 +1237,12 @@ fn test_deep_tuples() {
         let _res = block.as_transaction(|tx| {
             //  basically, without the new stack depth checks in the lexer/parser,
             //    and without the VaryStackDepthChecker, this next call will return a StaticCheckError
-            let analysis_resp =
-                tx.analyze_smart_contract(&contract_identifier, *version, &meets_stack_depth_tuple);
+            let analysis_resp = tx.analyze_smart_contract(
+                &contract_identifier,
+                *version,
+                &meets_stack_depth_tuple,
+                &ResourceBudget::unlimited(),
+            );
             eprintln!(
                 "analyze_smart_contract() with meets_stack_depth_tuple: {}",
                 analysis_resp.is_ok()
@@ -1211,6 +1263,7 @@ fn test_deep_tuples() {
                 &contract_identifier,
                 *version,
                 &exceeds_stack_depth_tuple,
+                &ResourceBudget::unlimited(),
             );
             analysis_resp.unwrap_err()
         });
@@ -1279,6 +1332,7 @@ fn test_deep_tuples_ast_precheck() {
                 &contract_identifier,
                 *version,
                 &exceeds_stack_depth_tuple,
+                &ResourceBudget::unlimited(),
             );
             analysis_resp.unwrap_err()
         });
@@ -1352,8 +1406,12 @@ fn test_deep_type_nesting() {
             }
             //  basically, without the new stack depth checks in the lexer/parser,
             //    and without the VaryStackDepthChecker, this next call will return a StaticCheckError
-            let analysis_resp =
-                tx.analyze_smart_contract(&contract_identifier, *version, &exceeds_type_depth);
+            let analysis_resp = tx.analyze_smart_contract(
+                &contract_identifier,
+                *version,
+                &exceeds_type_depth,
+                &ResourceBudget::unlimited(),
+            );
             analysis_resp.unwrap_err()
         });
 
@@ -1376,7 +1434,7 @@ fn test_deep_type_nesting() {
 /// Tests that when `MemoryBalanceExceeded` error occurs in a block, the transactions fail, but are
 /// still committed to the block, and the "valid" transactions are still executed without errors.
 ///
-/// 1. Deploy the memory-test-contract once in epoch 3.2
+/// 1. Deploy the memory-test-contract once in the latest epoch
 /// 2. Create a second block with 21 transactions:
 ///    - 20 transactions that call the contract (should fail with MemoryBalanceExceeded)
 ///    - 1 transaction that is expected to succeed
@@ -1414,12 +1472,7 @@ fn test_memory_balance_exceeded_multiple_calls() {
 
     let mut nonce = 0;
 
-    let deploy_tx = ConsensusUtils::new_deploy_tx(
-        nonce,
-        contract_name,
-        &contract_code,
-        Some(ClarityVersion::Clarity4),
-    );
+    let deploy_tx = ConsensusUtils::new_deploy_tx(nonce, contract_name, &contract_code, None);
 
     let block1 = TestBlock {
         transactions: vec![deploy_tx],
@@ -1460,7 +1513,7 @@ fn test_memory_balance_exceeded_multiple_calls() {
     }
     if let ExpectedResult::Success(expected_block_output) = &result[1] {
         assert_eq!(expected_block_output.transactions.len(), 21);
-        let expected_vm_error = Some("MemoryBalanceExceeded(100665664, 100000000)".to_string());
+        let expected_vm_error = Some("MemoryBalanceExceeded(100665664, 100000000)");
         let expected_failure_return_type = ClarityValue::Response(ResponseData {
             committed: false,
             data: Box::new(ClarityValue::Optional(OptionalData { data: None })),
@@ -1468,7 +1521,7 @@ fn test_memory_balance_exceeded_multiple_calls() {
 
         for transaction in &expected_block_output.transactions[..20] {
             assert_eq!(transaction.return_type, expected_failure_return_type);
-            assert_eq!(transaction.vm_error, expected_vm_error);
+            assert_eq!(transaction.vm_error.as_deref(), expected_vm_error);
         }
         assert_eq!(
             expected_block_output.transactions[20].return_type,

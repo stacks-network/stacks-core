@@ -1,0 +1,127 @@
+name: Cargo Cache
+description: |
+    Cargo crate cache management.
+
+inputs:
+  action:
+    description: "Type of operation (check,restore,create)"
+    required: false
+    default: "check"
+
+outputs:
+  cache-key:
+    description: "Cache Key"
+    value: ${{ steps.generate-key.outputs.cargo-cache-key }}
+  cache-matched-key:
+    description: "Key of the cache that was checked or restored, it could either be the primary key on cache-hit or a partial/complete match of one of the restore keys."
+    value: ${{ steps.check-cache.outputs.cache-matched-key || steps.restore-cache.outputs.cache-matched-key }}
+
+runs:
+  using: "composite"
+  steps:
+    # Generate cache keys
+    - name: Generate Cargo Cache Key
+      id: generate-key
+      uses: ./.github/actions/cache/generate-cargo-key
+      
+    # Check if cache data exists
+    - name: Check Cache
+      if: |
+        inputs.action == 'check'
+      uses: ./.github/wrappers/cache/restore
+      id: check-cache
+      with:
+        lookup-only: true
+        path: |
+          ~/.cargo/bin/
+          ~/.cargo/registry/index/
+          ~/.cargo/registry/cache/
+          ~/.cargo/git/db/
+          target/
+        key: ${{ steps.generate-key.outputs.cargo-cache-key }}
+        # Allows cache to "fallback" to `main` generated cache, using a prefix. The most recently created cache will be selected.
+        restore-keys: ${{ steps.generate-key.outputs.cargo-restore-key }}
+
+    # Restore cache data
+    - name: Restore Cache
+      if: |
+        inputs.action == 'restore'
+      uses: ./.github/wrappers/cache/restore
+      id: restore-cache
+      with:
+        path: |
+          ~/.cargo/bin/
+          ~/.cargo/registry/index/
+          ~/.cargo/registry/cache/
+          ~/.cargo/git/db/
+          target/
+        key: ${{ steps.generate-key.outputs.cargo-cache-key }}
+        # Allows cache to "fallback" to `main` generated cache, using a prefix. The most recently created cache will be selected.
+        restore-keys: ${{ steps.generate-key.outputs.cargo-restore-key }}
+        fail-on-cache-miss: true
+
+    # Checkout the code
+    - name: Checkout the latest code
+      if: |
+        inputs.action == 'create'
+      uses: ./.github/wrappers/checkout
+      with:
+        ref: ${{ github.ref }}
+  
+    # Setup rust toolchain
+    - name: Setup Rust Toolchain
+      if: |
+        inputs.action == 'create'
+      uses: ./.github/actions/setup-rust-toolchain
+      with:
+        components: llvm-tools-preview
+    
+    #  Install nextest and cargo-llvm-cov
+    - name: Install nextest and cargo-llvm-cov
+      if: |
+        inputs.action == 'create'
+      uses: ./.github/actions/install-tool
+      with:
+        tools: nextest, cargo-llvm-cov
+    
+    # Install mold linker and clang (faster than default)      
+    - name: Install mold Linker (and clang)
+      if: |
+        inputs.action == 'create'
+      shell: bash
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y mold clang
+  
+    # Build the cargo crates
+    # This will include local workspace crates, which will be automatically recompiled by future `cargo build`
+    # commands if they differ from the source code being built.
+    - name: Build Cargo Crates
+      if: |
+        inputs.action == 'create'
+      shell: bash
+      env:
+        RUSTFLAGS: "-C linker=clang -C link-arg=-fuse-ld=mold -A warnings"
+        CARGO_INCREMENTAL: 0
+      # This command should be kept in sync with the same command in artifacts/nextest-archive action
+      run: |
+        cargo llvm-cov nextest-archive \
+          --workspace \
+          --tests \
+          --locked \
+          --features monitoring_prom \
+          --archive-file "not_used.tar.zst"
+  
+    # Save cache data
+    - name: Save Cache
+      if: |
+        inputs.action == 'create'
+      uses: ./.github/wrappers/cache/save
+      with:
+        path: |
+          ~/.cargo/bin/
+          ~/.cargo/registry/index/
+          ~/.cargo/registry/cache/
+          ~/.cargo/git/db/
+          target/
+        key: ${{ steps.generate-key.outputs.cargo-cache-key }}

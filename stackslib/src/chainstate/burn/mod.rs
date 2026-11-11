@@ -112,6 +112,30 @@ pub struct BlockSnapshot {
     pub miner_pk_hash: Option<Hash160>,
 }
 
+/// Domain separator for a sample taken from a sortition hash and VRF seed, so that samples
+/// taken for different purposes in the same sortition are independent of each other.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SampleScope {
+    /// No domain separation.  Used before Epoch 4.1, where the winning block-commit and the
+    /// null miner's challenge were drawn from the same digest.
+    Unscoped,
+    /// Sampling the winning block-commit (Epoch 4.1 and later).
+    Winner,
+    /// Sampling the null miner's challenge (Epoch 4.1 and later).
+    NullMiner,
+}
+
+impl SampleScope {
+    /// The bytes hashed ahead of the sortition hash and VRF seed for this scope.
+    pub const fn tag(self) -> &'static [u8] {
+        match self {
+            Self::Unscoped => b"",
+            Self::Winner => b"SORTITION",
+            Self::NullMiner => b"NULL_MINER",
+        }
+    }
+}
+
 impl SortitionHash {
     /// Calculate a new sortition hash from the given burn header hash
     pub fn initial() -> SortitionHash {
@@ -128,9 +152,12 @@ impl SortitionHash {
         SortitionHash(ret)
     }
 
-    /// Mix in a new VRF seed to make a new sortition hash.
-    pub fn mix_VRF_seed(&self, VRF_seed: &VRFSeed) -> SortitionHash {
+    /// Mix in a new VRF seed in the given scope to make a new sortition hash.  The scope's tag
+    /// is hashed first, so that each scope yields an independent digest.
+    /// `SampleScope::Unscoped` has an empty tag, so it yields HASH(self ++ VRF_seed).
+    pub fn mix_VRF_seed(&self, scope: SampleScope, VRF_seed: &VRFSeed) -> SortitionHash {
         let mut sha2 = Sha256::new();
+        sha2.update(scope.tag());
         sha2.update(self.as_bytes());
         sha2.update(VRF_seed.as_bytes());
         let mut ret = [0u8; 32];
@@ -176,14 +203,10 @@ impl SortitionHash {
 impl Opcodes {
     const HTTP_BLOCK_COMMIT: &str = "block_commit";
     const HTTP_KEY_REGISTER: &str = "key_register";
-    const HTTP_BURN_SUPPORT: &str = "burn_support";
     const HTTP_STACK_STX: &str = "stack_stx";
     const HTTP_PRE_STX: &str = "pre_stx";
     const HTTP_TRANSFER_STX: &str = "transfer_stx";
     const HTTP_DELEGATE_STX: &str = "delegate_stx";
-    const HTTP_PEG_IN: &str = "peg_in";
-    const HTTP_PEG_OUT_REQUEST: &str = "peg_out_request";
-    const HTTP_PEG_OUT_FULFILL: &str = "peg_out_fulfill";
     const HTTP_VOTE_FOR_AGGREGATE_KEY: &str = "vote_for_aggregate_key";
 
     pub fn to_http_str(&self) -> &'static str {
@@ -307,7 +330,7 @@ impl ConsensusHashExtensions for ConsensusHash {
             hasher.update(opshash.as_bytes());
 
             // total burn amount on this fork...
-            hasher.update(&burn_bytes);
+            hasher.update(burn_bytes);
 
             // pox-fork bit vector
             write!(hasher, "{}", pox_id).unwrap();
@@ -322,7 +345,7 @@ impl ConsensusHashExtensions for ConsensusHash {
 
         use ripemd::Digest;
         let mut r160 = Ripemd160::new();
-        r160.update(&result);
+        r160.update(result);
 
         let mut ch_bytes = [0u8; 20];
         ch_bytes.copy_from_slice(r160.finalize().as_slice());
@@ -401,7 +424,7 @@ impl ConsensusHashExtensions for ConsensusHash {
 
         use ripemd::Digest;
         let mut r160 = Ripemd160::new();
-        r160.update(&result);
+        r160.update(result);
 
         let mut ch_bytes = [0u8; 20];
         ch_bytes.copy_from_slice(r160.finalize().as_slice());

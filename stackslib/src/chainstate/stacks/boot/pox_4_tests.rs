@@ -1,5 +1,5 @@
 // Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
-// Copyright (C) 2020-2023 Stacks Open Internet Foundation
+// Copyright (C) 2020-2026 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -15,6 +15,7 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use std::collections::{HashMap, HashSet};
+use std::slice;
 
 use clarity::vm::clarity::ClarityConnection;
 use clarity::vm::costs::LimitedCostTracker;
@@ -52,10 +53,6 @@ use crate::net::test::{TestEventObserver, TestEventObserverBlock, TestPeer, Test
 use crate::net::tests::NakamotoBootPlan;
 use crate::util_lib::boot::boot_code_id;
 use crate::util_lib::signed_structured_data::pox4::Pox4SignatureTopic;
-
-const USTX_PER_HOLDER: u128 = 1_000_000;
-
-const ERR_REUSED_SIGNER_KEY: i128 = 33;
 
 /// Return the BlockSnapshot for the latest sortition in the provided
 ///  SortitionDB option-reference. Panics on any errors.
@@ -840,8 +837,9 @@ fn get_burn_pox_addr_info(peer: &mut TestPeer) -> (Vec<PoxAddress>, u128) {
                             PrincipalData::Standard(StandardPrincipalData::transient()),
                             None,
                             LimitedCostTracker::new_free(),
-                            |env| {
-                                env.eval_read_only(
+                            |exec_state, invoke_ctx| {
+                                exec_state.eval_read_only(
+                                    invoke_ctx,
                                     &boot_code_id("pox-2", false),
                                     &format!("(get-burn-block-info? pox-addrs u{})", &burn_height),
                                 )
@@ -2493,7 +2491,8 @@ fn pox_4_check_cycle_id_range_in_print_events_before_prepare_phase() {
     );
     steph_nonce += 1;
 
-    latest_block = Some(peer.tenure_with_txs(&[steph_stacking.clone()], &mut coinbase_nonce));
+    latest_block =
+        Some(peer.tenure_with_txs(slice::from_ref(&steph_stacking), &mut coinbase_nonce));
 
     let txs: HashMap<_, _> = observer
         .get_blocks()
@@ -2613,7 +2612,8 @@ fn pox_4_check_cycle_id_range_in_print_events_in_prepare_phase() {
     );
     steph_nonce += 1;
 
-    latest_block = Some(peer.tenure_with_txs(&[steph_stacking.clone()], &mut coinbase_nonce));
+    latest_block =
+        Some(peer.tenure_with_txs(slice::from_ref(&steph_stacking), &mut coinbase_nonce));
 
     let txs: HashMap<_, _> = observer
         .get_blocks()
@@ -2966,7 +2966,7 @@ fn verify_signer_key_sig(
                         PrincipalData::Standard(StandardPrincipalData::transient()),
                         None,
                         LimitedCostTracker::new_free(),
-                        |env| {
+                        |exec_state, invoke_ctx| {
                             let program = format!(
                                 "(verify-signer-key-sig {} u{} \"{}\" u{} (some 0x{}) 0x{} u{} u{} u{})",
                                 Value::Tuple(pox_addr.clone().as_clarity_tuple().unwrap()),
@@ -2979,7 +2979,7 @@ fn verify_signer_key_sig(
                                 max_amount,
                                 auth_id
                             );
-                            env.eval_read_only(&boot_code_id("pox-4", false), &program)
+                            exec_state.eval_read_only(invoke_ctx, &boot_code_id("pox-4", false), &program)
                         },
                     )
                     .unwrap()
@@ -4310,7 +4310,10 @@ fn stack_agg_increase() {
     peer_config
         .stacker_dbs
         .push(boot_code_id(MINERS_NAME, false));
-    peer_config.chain_config.epochs = Some(StacksEpoch::unit_test_3_0_only(1000)); // Let us not activate nakamoto to make life easier
+    peer_config.chain_config.epochs = Some(StacksEpoch::unit_test_epoch_only(
+        1000,
+        StacksEpochId::Epoch30,
+    )); // Let us not activate nakamoto to make life easier
     peer_config.chain_config.initial_balances =
         vec![(addr.to_account_principal(), 1_000_000_000_000_000_000)];
     peer_config
@@ -4687,10 +4690,13 @@ fn stack_agg_increase() {
     let expected_result = Value::okay(Value::Tuple(
         TupleData::from_data(vec![
             (
-                "stacker".into(),
+                ClarityName::from_literal("stacker"),
                 Value::Principal(PrincipalData::from(bob.address.clone())),
             ),
-            ("total-locked".into(), Value::UInt(min_ustx * 2)),
+            (
+                ClarityName::from_literal("total-locked"),
+                Value::UInt(min_ustx * 2),
+            ),
         ])
         .unwrap(),
     ))
@@ -5284,7 +5290,7 @@ fn stack_stx_signer_key(use_nakamoto: bool) {
     let stacker_txs =
         get_last_block_sender_transactions(&observer, key_to_stacks_addr(stacker_key));
 
-    let stacking_tx = stacker_txs.get(0).unwrap();
+    let stacking_tx = stacker_txs.first().unwrap();
     let events: Vec<&STXLockEventData> = stacking_tx
         .events
         .iter()
@@ -5294,7 +5300,7 @@ fn stack_stx_signer_key(use_nakamoto: bool) {
         })
         .collect();
 
-    assert_eq!(events.get(0).unwrap().locked_amount, min_ustx);
+    assert_eq!(events.first().unwrap().locked_amount, min_ustx);
 
     let next_reward_cycle = 1 + burnchain
         .block_height_to_reward_cycle(block_height)
@@ -6459,10 +6465,13 @@ fn stack_increase(use_nakamoto: bool) {
     let expected_result = Value::okay(Value::Tuple(
         TupleData::from_data(vec![
             (
-                "stacker".into(),
+                ClarityName::from_literal("stacker"),
                 Value::Principal(PrincipalData::from(alice_address.clone())),
             ),
-            ("total-locked".into(), Value::UInt(min_ustx * 2)),
+            (
+                ClarityName::from_literal("total-locked"),
+                Value::UInt(min_ustx * 2),
+            ),
         ])
         .unwrap(),
     ))
@@ -6644,8 +6653,14 @@ fn delegate_stack_increase(use_nakamoto: bool) {
 
     let expected_result = Value::okay(Value::Tuple(
         TupleData::from_data(vec![
-            ("stacker".into(), Value::Principal(alice_address)),
-            ("total-locked".into(), Value::UInt(min_ustx * 2)),
+            (
+                ClarityName::from_literal("stacker"),
+                Value::Principal(alice_address),
+            ),
+            (
+                ClarityName::from_literal("total-locked"),
+                Value::UInt(min_ustx * 2),
+            ),
         ])
         .unwrap(),
     ))
@@ -6709,7 +6724,10 @@ pub fn pox_4_scenario_test_setup<'a>(
     peer_config
         .stacker_dbs
         .push(boot_code_id(MINERS_NAME, false));
-    peer_config.chain_config.epochs = Some(StacksEpoch::unit_test_3_0_only(1000));
+    peer_config.chain_config.epochs = Some(StacksEpoch::unit_test_epoch_only(
+        1000,
+        StacksEpochId::Epoch30,
+    ));
     peer_config.chain_config.initial_balances =
         vec![(addr.to_account_principal(), 1_000_000_000_000_000_000)];
     peer_config
@@ -6789,9 +6807,9 @@ pub fn pox_4_scenario_test_setup<'a>(
         peer,
         peer_nonce,
         burn_block_height,
-        reward_cycle as u128,
-        next_reward_cycle as u128,
-        min_ustx as u128,
+        reward_cycle,
+        next_reward_cycle,
+        min_ustx,
         peer_config.clone(),
         None,
     )
@@ -6832,7 +6850,7 @@ pub fn pox_4_scenario_test_setup_nakamoto<'a>(
     let test_signers = TestSigners::new(test_keys.clone());
     let addrs: Vec<StacksAddress> = test_keys.iter().map(key_to_stacks_addr).collect();
     let initial_stacker_balance = initial_balances
-        .get(0)
+        .first()
         .expect("Expected at least 1 initial balance")
         .1;
     let test_stackers = vec![TestStacker {
@@ -9048,7 +9066,11 @@ pub fn get_stacking_state_pox_4(
 ) -> Option<Value> {
     with_clarity_db_ro(peer, tip, |db| {
         let lookup_tuple = Value::Tuple(
-            TupleData::from_data(vec![("stacker".into(), account.clone().into())]).unwrap(),
+            TupleData::from_data(vec![(
+                ClarityName::from_literal("stacker"),
+                account.clone().into(),
+            )])
+            .unwrap(),
         );
         let epoch = db.get_clarity_epoch_version().unwrap();
         db.fetch_entry_unknown_descriptor(
@@ -9074,21 +9096,27 @@ pub fn make_signer_key_authorization_lookup_key(
 ) -> Value {
     TupleData::from_data(vec![
         (
-            "pox-addr".into(),
+            ClarityName::from_literal("pox-addr"),
             pox_addr.as_clarity_tuple().unwrap().into(),
         ),
-        ("reward-cycle".into(), Value::UInt(reward_cycle.into())),
         (
-            "topic".into(),
+            ClarityName::from_literal("reward-cycle"),
+            Value::UInt(reward_cycle.into()),
+        ),
+        (
+            ClarityName::from_literal("topic"),
             Value::string_ascii_from_bytes(topic.get_name_str().into()).unwrap(),
         ),
-        ("period".into(), Value::UInt(period)),
+        (ClarityName::from_literal("period"), Value::UInt(period)),
         (
-            "signer-key".into(),
+            ClarityName::from_literal("signer-key"),
             Value::buff_from(signer_key.to_bytes_compressed()).unwrap(),
         ),
-        ("max-amount".into(), Value::UInt(max_amount)),
-        ("auth-id".into(), Value::UInt(auth_id)),
+        (
+            ClarityName::from_literal("max-amount"),
+            Value::UInt(max_amount),
+        ),
+        (ClarityName::from_literal("auth-id"), Value::UInt(auth_id)),
     ])
     .unwrap()
     .into()
@@ -9178,11 +9206,17 @@ pub fn get_partially_stacked_state_pox_4(
     with_clarity_db_ro(peer, tip, |db| {
         let lookup_tuple = TupleData::from_data(vec![
             (
-                "pox-addr".into(),
+                ClarityName::from_literal("pox-addr"),
                 pox_addr.as_clarity_tuple().unwrap().into(),
             ),
-            ("reward-cycle".into(), Value::UInt(reward_cycle.into())),
-            ("sender".into(), PrincipalData::from(sender.clone()).into()),
+            (
+                ClarityName::from_literal("reward-cycle"),
+                Value::UInt(reward_cycle.into()),
+            ),
+            (
+                ClarityName::from_literal("sender"),
+                PrincipalData::from(sender.clone()).into(),
+            ),
         ])
         .unwrap()
         .into();
@@ -9214,7 +9248,11 @@ pub fn get_delegation_state_pox_4(
 ) -> Option<Value> {
     with_clarity_db_ro(peer, tip, |db| {
         let lookup_tuple = Value::Tuple(
-            TupleData::from_data(vec![("stacker".into(), account.clone().into())]).unwrap(),
+            TupleData::from_data(vec![(
+                ClarityName::from_literal("stacker"),
+                account.clone().into(),
+            )])
+            .unwrap(),
         );
         let epoch = db.get_clarity_epoch_version().unwrap();
         db.fetch_entry_unknown_descriptor(
@@ -9528,7 +9566,7 @@ fn missed_slots_no_unlock() {
     let alice_lockup =
         make_simple_pox_4_lock(&alice, &mut peer, 1024 * POX_THRESHOLD_STEPS_USTX, 6);
 
-    let bob_lockup = make_simple_pox_4_lock(&bob, &mut peer, 1 * POX_THRESHOLD_STEPS_USTX, 6);
+    let bob_lockup = make_simple_pox_4_lock(&bob, &mut peer, POX_THRESHOLD_STEPS_USTX, 6);
 
     let txs = [alice_lockup, bob_lockup];
     let mut latest_block = peer.tenure_with_txs(&txs, &mut coinbase_nonce);
@@ -9658,7 +9696,7 @@ fn missed_slots_no_unlock() {
 
     for b in blocks.into_iter() {
         if let Some(ref reward_set_data) = b.reward_set_data {
-            let signers_set = reward_set_data.reward_set.signers.as_ref().unwrap();
+            let signers_set = reward_set_data.reward_set.signers().unwrap();
             assert_eq!(signers_set.len(), 1);
             assert_eq!(
                 StacksPublicKey::from_private(&alice).to_bytes_compressed(),
@@ -9667,13 +9705,14 @@ fn missed_slots_no_unlock() {
             let rewarded_addrs = HashSet::<_>::from_iter(
                 reward_set_data
                     .reward_set
-                    .rewarded_addresses
+                    .rewarded_addresses()
+                    .unwrap()
                     .iter()
                     .map(|a| a.to_burnchain_repr()),
             );
             assert_eq!(rewarded_addrs.len(), 1);
             assert_eq!(
-                reward_set_data.reward_set.rewarded_addresses[0].bytes(),
+                reward_set_data.reward_set.rewarded_addresses().unwrap()[0].bytes(),
                 alice_address.bytes().0.to_vec(),
             );
             reward_cycles_in_2_5 += 1;
@@ -9775,7 +9814,7 @@ fn no_lockups_2_5() {
 
     let tip = get_tip(peer.chain.sortdb.as_ref());
 
-    let bob_lockup = make_simple_pox_4_lock(&bob, &mut peer, 1 * POX_THRESHOLD_STEPS_USTX, 6);
+    let bob_lockup = make_simple_pox_4_lock(&bob, &mut peer, POX_THRESHOLD_STEPS_USTX, 6);
 
     let txs = [bob_lockup];
     let mut latest_block = peer.tenure_with_txs(&txs, &mut coinbase_nonce);
@@ -9815,8 +9854,12 @@ fn no_lockups_2_5() {
     let blocks = observer.get_blocks();
     for b in blocks.into_iter() {
         if let Some(ref reward_set_data) = b.reward_set_data {
-            assert_eq!(reward_set_data.reward_set.signers, Some(vec![]));
-            assert!(reward_set_data.reward_set.rewarded_addresses.is_empty());
+            assert_eq!(reward_set_data.reward_set.signers().cloned(), Some(vec![]));
+            assert!(reward_set_data
+                .reward_set
+                .rewarded_addresses()
+                .unwrap()
+                .is_empty());
             eprintln!("{:?}", b.reward_set_data)
         }
     }

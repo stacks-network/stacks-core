@@ -14,6 +14,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 use clarity_types::errors::ClarityTypeError;
+use stacks_common::bounded_format;
 
 use crate::vm::errors::{
     ClarityEvalError, EarlyReturnError, RuntimeCheckErrorKind, SyntaxBindingError, VmExecutionError,
@@ -254,22 +255,22 @@ fn test_set_tuple_variable() {
     let expected = Value::list_from(vec![
         Value::Tuple(
             TupleData::from_data(vec![
-                ("k1".into(), Value::Int(1)),
-                ("v1".into(), Value::Int(1)),
+                (ClarityName::from_literal("k1"), Value::Int(1)),
+                (ClarityName::from_literal("v1"), Value::Int(1)),
             ])
             .unwrap(),
         ),
         Value::Tuple(
             TupleData::from_data(vec![
-                ("k1".into(), Value::Int(2)),
-                ("v1".into(), Value::Int(0)),
+                (ClarityName::from_literal("k1"), Value::Int(2)),
+                (ClarityName::from_literal("v1"), Value::Int(0)),
             ])
             .unwrap(),
         ),
         Value::Tuple(
             TupleData::from_data(vec![
-                ("k1".into(), Value::Int(2)),
-                ("v1".into(), Value::Int(0)),
+                (ClarityName::from_literal("k1"), Value::Int(2)),
+                (ClarityName::from_literal("v1"), Value::Int(0)),
             ])
             .unwrap(),
         ),
@@ -476,7 +477,7 @@ fn datamap_errors() {
     for program in tests.iter() {
         assert_eq!(
             execute(program).unwrap_err(),
-            RuntimeCheckErrorKind::Unreachable("No such map: non-existent".to_string()).into()
+            RuntimeCheckErrorKind::Unreachable("No such map: non-existent".into()).into()
         );
     }
 }
@@ -652,21 +653,21 @@ fn bad_define_maps() {
         "(define-map lists { name: int } { contents: (list 5 0 int) })",
     ];
     let expected: Vec<ClarityEvalError> = vec![
-        RuntimeCheckErrorKind::Unreachable(format!(
+        RuntimeCheckErrorKind::Unreachable(bounded_format!(
             "Bad syntax binding: {}",
             SyntaxBindingError::tuple_cons_invalid_length(0)
         ))
         .into(),
-        RuntimeCheckErrorKind::Unreachable("Unknown type name: contents".to_string()).into(),
-        RuntimeCheckErrorKind::Unreachable("Expected name".to_string()).into(),
+        RuntimeCheckErrorKind::Unreachable("Unknown type name: contents".into()).into(),
+        RuntimeCheckErrorKind::Unreachable("Expected name".into()).into(),
         RuntimeCheckErrorKind::IncorrectArgumentCount(3, 4).into(),
         RuntimeCheckErrorKind::Unreachable(
-            "Unexpected error type during runtime analysis: InvalidTypeDescription".to_string(),
+            "Unexpected error type during runtime analysis: InvalidTypeDescription".into(),
         )
         .into(),
     ];
 
-    for (test, expected_err) in tests.iter().zip(expected.into_iter()) {
+    for (test, expected_err) in tests.iter().zip(expected) {
         let outcome = execute(test).unwrap_err();
         assert_eq!(outcome, expected_err);
     }
@@ -684,14 +685,14 @@ fn bad_tuples() {
     ];
     let expected = vec![
         RuntimeCheckErrorKind::NameAlreadyUsed("name".into()),
-        RuntimeCheckErrorKind::Unreachable(format!("Bad syntax binding: {}", SyntaxBindingError::tuple_cons_not_list(0))),
-        RuntimeCheckErrorKind::Unreachable(format!("Bad syntax binding: {}", SyntaxBindingError::tuple_cons_invalid_length(1))),
-        RuntimeCheckErrorKind::Unreachable("Unexpected error type during runtime analysis: NoSuchTupleField(\"value\", TupleTypeSignature { \"name\": int,})".to_string()),
+        RuntimeCheckErrorKind::Unreachable(bounded_format!("Bad syntax binding: {}", SyntaxBindingError::tuple_cons_not_list(0))),
+        RuntimeCheckErrorKind::Unreachable(bounded_format!("Bad syntax binding: {}", SyntaxBindingError::tuple_cons_invalid_length(1))),
+        RuntimeCheckErrorKind::Unreachable("Unexpected error type during runtime analysis: NoSuchTupleField(\"value\", TupleTypeSignature { \"name\": int,})".into()),
         RuntimeCheckErrorKind::IncorrectArgumentCount(2, 3),
-        RuntimeCheckErrorKind::Unreachable("Expected name".to_string()),
+        RuntimeCheckErrorKind::Unreachable("Expected name".into()),
     ];
 
-    for (test, expected_err) in tests.iter().zip(expected.into_iter()) {
+    for (test, expected_err) in tests.iter().zip(expected) {
         let outcome = execute(test).unwrap_err();
         assert_eq!(outcome, expected_err.into());
     }
@@ -713,31 +714,34 @@ fn test_combines_tuples() {
 
     let expected = [
         make_tuple(vec![
-            ("a".into(), Value::Int(5)),
-            ("b".into(), Value::Int(2)),
-            ("c".into(), Value::Int(3)),
+            (ClarityName::from_literal("a"), Value::Int(5)),
+            (ClarityName::from_literal("b"), Value::Int(2)),
+            (ClarityName::from_literal("c"), Value::Int(3)),
         ]),
         make_tuple(vec![
-            ("a".into(), make_tuple(vec![("x".into(), Value::Int(5))])),
-            ("b".into(), Value::Int(2)),
-            ("c".into(), Value::Int(3)),
+            (
+                ClarityName::from_literal("a"),
+                make_tuple(vec![(ClarityName::from_literal("x"), Value::Int(5))]),
+            ),
+            (ClarityName::from_literal("b"), Value::Int(2)),
+            (ClarityName::from_literal("c"), Value::Int(3)),
         ]),
         make_tuple(vec![
-            ("a".into(), Value::none()),
-            ("b".into(), Value::Int(2)),
-            ("c".into(), Value::Int(3)),
+            (ClarityName::from_literal("a"), Value::none()),
+            (ClarityName::from_literal("b"), Value::Int(2)),
+            (ClarityName::from_literal("c"), Value::Int(3)),
         ]),
         make_tuple(vec![
-            ("a".into(), Value::Int(4)),
-            ("b".into(), Value::Int(5)),
-            ("c".into(), Value::Int(6)),
+            (ClarityName::from_literal("a"), Value::Int(4)),
+            (ClarityName::from_literal("b"), Value::Int(5)),
+            (ClarityName::from_literal("c"), Value::Int(6)),
         ]),
         make_tuple(vec![
-            ("a".into(), Value::Int(1)),
-            ("b".into(), Value::Int(2)),
-            ("c".into(), Value::Int(4)),
-            ("d".into(), Value::Int(5)),
-            ("e".into(), Value::Int(6)),
+            (ClarityName::from_literal("a"), Value::Int(1)),
+            (ClarityName::from_literal("b"), Value::Int(2)),
+            (ClarityName::from_literal("c"), Value::Int(4)),
+            (ClarityName::from_literal("d"), Value::Int(5)),
+            (ClarityName::from_literal("e"), Value::Int(6)),
         ]),
     ];
 

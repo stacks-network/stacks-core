@@ -24,38 +24,71 @@ use super::ClarityVersion;
 use super::costs::{CostErrors, CostOverflowingMath};
 use super::errors::VmInternalError;
 use super::types::signatures::CallableSubtype;
-use crate::vm::contexts::ContractContext;
+use crate::vm::contexts::{
+    ContractContext, ExecutionState, FunctionExecutionOptions, InvocationContext,
+};
 use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::costs::runtime_cost;
 use crate::vm::errors::{RuntimeCheckErrorKind, VmExecutionError, check_argument_count};
+use crate::vm::hooks::CallHook;
 use crate::vm::representations::SymbolicExpression;
 use crate::vm::types::{
-    CallableData, ListData, ListTypeData, OptionalData, PrincipalData, ResponseData, SequenceData,
-    SequenceSubtype, TraitIdentifier, TupleData, TypeSignature,
+    CallableData, FunctionSignature, ListData, ListTypeData, OptionalData, PrincipalData,
+    ResponseData, SequenceData, SequenceSubtype, TraitIdentifier, TupleData, TypeSignature,
 };
-use crate::vm::{Environment, LocalContext, Value, eval};
+use crate::vm::{LocalContext, Value, eval};
 
-#[allow(clippy::type_complexity, clippy::large_enum_variant)]
-pub enum CallableType {
-    UserFunction(DefinedFunction),
-    NativeFunction(&'static str, NativeHandle, ClarityCostFunction),
+type Native205CostInputFn = &'static dyn Fn(&[Value]) -> Result<u64, VmExecutionError>;
+
+type SpecialFunctionFn = &'static dyn Fn(
+    &[SymbolicExpression],
+    &mut ExecutionState,
+    &InvocationContext,
+    &LocalContext,
+) -> Result<Value, VmExecutionError>;
+
+/// A function resolved for a call. User functions are borrowed for `'a` from the contract
+/// context that defines them; builtins are `'static`.
+pub enum CallableType<'a> {
+    /// A function defined in a Clarity contract via `define-public`,
+    /// `define-read-only`, or `define-private`. Arguments are evaluated by
+    /// the caller and then bound into a fresh `LocalContext` before the
+    /// body is interpreted.
+    UserFunction(&'a DefinedFunction),
+    /// A reserved (built-in or special-form) function. `clarity_name` is the
+    /// source-level name (e.g. `"+"`, `"fold"`) and is uniform across every
+    /// builtin; the per-function dispatch detail lives in `kind`.
+    Builtin {
+        clarity_name: &'static str,
+        kind: BuiltinKind,
+    },
+}
+
+/// Dispatch detail for a reserved function. The leading `&'static str` on each
+/// variant is the Rust implementation name (e.g. `"native_add"`).
+pub enum BuiltinKind {
+    Native(&'static str, NativeHandle, ClarityCostFunction),
     /// These native functions have a new method for calculating input size in 2.05
     /// If the global context's epoch is >= 2.05, the fn field is applied to obtain
     /// the input to the cost function.
-    NativeFunction205(
+    Native205(
         &'static str,
         NativeHandle,
         ClarityCostFunction,
-        &'static dyn Fn(&[Value]) -> Result<u64, VmExecutionError>,
+        Native205CostInputFn,
     ),
-    SpecialFunction(
-        &'static str,
-        &'static dyn Fn(
-            &[SymbolicExpression],
-            &mut Environment,
-            &LocalContext,
-        ) -> Result<Value, VmExecutionError>,
-    ),
+    Special(&'static str, SpecialFunctionFn),
+}
+
+impl BuiltinKind {
+    /// Rust implementation name (e.g. `"native_add"`).
+    fn rust_name(&self) -> &'static str {
+        match self {
+            BuiltinKind::Native(rust_name, ..)
+            | BuiltinKind::Native205(rust_name, ..)
+            | BuiltinKind::Special(rust_name, ..) => rust_name,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -75,6 +108,10 @@ pub struct DefinedFunction {
     body: SymbolicExpression,
 }
 
+/// Native callable that also receives execution state and invocation context.
+pub type EnvNativeFn =
+    dyn Fn(Vec<Value>, &mut ExecutionState, &InvocationContext) -> Result<Value, VmExecutionError>;
+
 /// This enum handles the actual invocation of the method
 /// implementing a native function. Each variant handles
 /// different expected number of arguments.
@@ -82,15 +119,15 @@ pub enum NativeHandle {
     SingleArg(&'static dyn Fn(Value) -> Result<Value, VmExecutionError>),
     DoubleArg(&'static dyn Fn(Value, Value) -> Result<Value, VmExecutionError>),
     MoreArg(&'static dyn Fn(Vec<Value>) -> Result<Value, VmExecutionError>),
-    #[allow(clippy::type_complexity)]
-    MoreArgEnv(&'static dyn Fn(Vec<Value>, &mut Environment) -> Result<Value, VmExecutionError>),
+    MoreArgEnv(&'static EnvNativeFn),
 }
 
 impl NativeHandle {
     pub fn apply(
         &self,
         mut args: Vec<Value>,
-        env: &mut Environment,
+        exec_state: &mut ExecutionState,
+        invoke_ctx: &InvocationContext,
     ) -> Result<Value, VmExecutionError> {
         match self {
             Self::SingleArg(function) => {
@@ -111,7 +148,7 @@ impl NativeHandle {
                 function(first, second)
             }
             Self::MoreArg(function) => function(args),
-            Self::MoreArgEnv(function) => function(args, env),
+            Self::MoreArgEnv(function) => function(args, exec_state, invoke_ctx),
         }
     }
 }
@@ -147,27 +184,52 @@ impl DefinedFunction {
         }
     }
 
+    /// Clarity source-level function name.
+    pub fn name(&self) -> &str {
+        self.name.as_str()
+    }
+
+    /// Declared argument names, in source order.
+    pub fn argument_names(&self) -> &[ClarityName] {
+        &self.arguments
+    }
+
+    /// Declared argument types, in source order.
+    pub fn arg_types(&self) -> &[TypeSignature] {
+        &self.arg_types
+    }
+
+    /// Binds `args` to this function's parameters and evaluates its body. Takes `args`
+    /// by value so an argument that needs no cast moves into the body's context instead
+    /// of being copied.
     pub fn execute_apply(
         &self,
-        args: &[Value],
-        env: &mut Environment,
+        args: Vec<Value>,
+        exec_state: &mut ExecutionState,
+        invoke_ctx: &InvocationContext,
     ) -> Result<Value, VmExecutionError> {
         runtime_cost(
             ClarityCostFunction::UserFunctionApplication,
-            env,
+            exec_state,
             self.arguments.len(),
         )?;
 
-        if env.epoch().uses_arg_size_for_cost() {
+        let epoch = *exec_state.epoch();
+        if epoch.uses_arg_size_for_cost() {
             for arg in args.iter() {
-                runtime_cost(ClarityCostFunction::InnerTypeCheckCost, env, arg.size()?)?;
+                let arg_size = arg.charged_size(&epoch)?;
+                runtime_cost(
+                    ClarityCostFunction::InnerTypeCheckCost,
+                    exec_state,
+                    arg_size,
+                )?;
             }
         } else {
             for arg_type in self.arg_types.iter() {
                 runtime_cost(
                     ClarityCostFunction::InnerTypeCheckCost,
-                    env,
-                    arg_type.size()?,
+                    exec_state,
+                    arg_type.charged_size(&epoch)?,
                 )?;
             }
         }
@@ -180,24 +242,16 @@ impl DefinedFunction {
             ))?
         }
 
-        let arg_iterator: Vec<_> = self
-            .arguments
-            .iter()
-            .zip(self.arg_types.iter())
-            .zip(args.iter())
-            .collect();
-
-        for arg in arg_iterator.into_iter() {
-            let ((name, type_sig), value) = arg;
-
+        for ((name, type_sig), value) in self.arguments.iter().zip(self.arg_types.iter()).zip(args)
+        {
             // Clarity 1 behavior
-            if *env.contract_context.get_clarity_version() < ClarityVersion::Clarity2 {
-                match (type_sig, value) {
+            if *invoke_ctx.contract_context.get_clarity_version() < ClarityVersion::Clarity2 {
+                match (type_sig, &value) {
                     // Epoch < 2.1 uses TraitReferenceType
                     (
                         TypeSignature::TraitReferenceType(trait_identifier),
                         Value::Principal(PrincipalData::Contract(callee_contract_id)),
-                    ) if *env.epoch() < StacksEpochId::Epoch21 => {
+                    ) if *exec_state.epoch() < StacksEpochId::Epoch21 => {
                         // Argument is a trait reference, probably leading to a dynamic contract call
                         // We keep a reference of the mapping (var-name: (callee_contract_id, trait_id)) in the context.
                         // The code fetching and checking the trait is implemented in the contract_call eval function.
@@ -205,7 +259,7 @@ impl DefinedFunction {
                             name.clone(),
                             CallableData {
                                 contract_identifier: callee_contract_id.clone(),
-                                trait_identifier: Some(trait_identifier.clone()),
+                                trait_identifier: Some(Box::new(trait_identifier.clone())),
                             },
                         );
                     }
@@ -213,7 +267,7 @@ impl DefinedFunction {
                     (
                         TypeSignature::CallableType(CallableSubtype::Trait(trait_identifier)),
                         Value::Principal(PrincipalData::Contract(callee_contract_id)),
-                    ) if *env.epoch() >= StacksEpochId::Epoch21 => {
+                    ) if *exec_state.epoch() >= StacksEpochId::Epoch21 => {
                         // Argument is a trait reference, probably leading to a dynamic contract call
                         // We keep a reference of the mapping (var-name: (callee_contract_id, trait_id)) in the context.
                         // The code fetching and checking the trait is implemented in the contract_call eval function.
@@ -221,7 +275,7 @@ impl DefinedFunction {
                             name.clone(),
                             CallableData {
                                 contract_identifier: callee_contract_id.clone(),
-                                trait_identifier: Some(trait_identifier.clone()),
+                                trait_identifier: Some(Box::new(trait_identifier.clone())),
                             },
                         );
                     }
@@ -244,18 +298,14 @@ impl DefinedFunction {
                         );
                     }
                     _ => {
-                        if !type_sig.admits(env.epoch(), value)? {
+                        if !type_sig.admits(exec_state.epoch(), &value)? {
                             return Err(RuntimeCheckErrorKind::TypeValueError(
                                 Box::new(type_sig.clone()),
-                                Box::new(value.clone()),
+                                value.to_error_string(),
                             )
                             .into());
                         }
-                        if context
-                            .variables
-                            .insert(name.clone(), value.clone())
-                            .is_some()
-                        {
+                        if context.variables.insert(name.clone(), value).is_some() {
                             return Err(
                                 RuntimeCheckErrorKind::NameAlreadyUsed(name.to_string()).into()
                             );
@@ -269,7 +319,25 @@ impl DefinedFunction {
                 // e.g. `(some .foo)` to `(optional <trait>`)
                 // and traits can be implicitly cast to sub-traits
                 // e.g. `<foo-and-bar>` to `<foo>`
-                let cast_value = clarity2_implicit_cast(type_sig, value)?;
+                let sanitize = exec_state.epoch().sanitize_in_function_invocation();
+                let cast_value =
+                    match implicit_cast_if_needed(exec_state.epoch(), type_sig, &value)? {
+                        // The cast built a new value; `value` is kept only for the error message.
+                        Some(cast_value) if sanitize => {
+                            Value::sanitize_value(exec_state.epoch(), type_sig, cast_value)
+                                .ok_or_else(|| {
+                                    RuntimeCheckErrorKind::TypeValueError(
+                                        Box::new(type_sig.clone()),
+                                        value.to_error_string(),
+                                    )
+                                })?
+                                .0
+                        }
+                        Some(cast_value) => cast_value,
+                        // No cast applies, so `value` itself is bound.
+                        None if sanitize => sanitize_argument(exec_state.epoch(), type_sig, value)?,
+                        None => value,
+                    };
 
                 match (&type_sig, &cast_value) {
                     (
@@ -291,10 +359,10 @@ impl DefinedFunction {
                         );
                     }
                     _ => {
-                        if !type_sig.admits(env.epoch(), &cast_value)? {
+                        if !type_sig.admits(exec_state.epoch(), &cast_value)? {
                             return Err(RuntimeCheckErrorKind::TypeValueError(
                                 Box::new(type_sig.clone()),
-                                Box::new(cast_value),
+                                cast_value.to_error_string(),
                             )
                             .into());
                         }
@@ -307,12 +375,12 @@ impl DefinedFunction {
             }
         }
 
-        let result = eval(&self.body, env, &context);
+        let result = eval(&self.body, exec_state, invoke_ctx, &context);
 
         // if the error wasn't actually an error, but a function return,
         //    pull that out and return it.
         match result {
-            Ok(r) => Ok(r),
+            Ok(r) => Ok(r.clone_with_cost(exec_state)?),
             Err(e) => match e {
                 VmExecutionError::EarlyReturn(v) => Ok(v.into()),
                 _ => Err(e),
@@ -320,28 +388,26 @@ impl DefinedFunction {
         }
     }
 
-    pub fn check_trait_expectations(
+    /// Checks that this function's arguments satisfy the trait method of the same name and
+    /// returns that method's signature, whose return type dispatch checks the result against.
+    /// Fails with `TraitReferenceUnknown` or `TraitMethodUnknown` when `contract_defining_trait`
+    /// lacks the trait or the method, and with `BadTraitImplementation` when the arguments do
+    /// not comply.
+    pub fn check_trait_expectations<'t>(
         &self,
         epoch: &StacksEpochId,
-        contract_defining_trait: &ContractContext,
+        contract_defining_trait: &'t ContractContext,
         trait_identifier: &TraitIdentifier,
-    ) -> Result<(), VmExecutionError> {
+    ) -> Result<&'t FunctionSignature, VmExecutionError> {
         let trait_name = trait_identifier.name.to_string();
         let constraining_trait = contract_defining_trait
             .lookup_trait_definition(&trait_name)
-            .ok_or(RuntimeCheckErrorKind::TraitReferenceUnknown(
-                trait_name.to_string(),
-            ))?;
-        let expected_sig =
-            constraining_trait
-                .get(&self.name)
-                .ok_or(RuntimeCheckErrorKind::TraitMethodUnknown(
-                    trait_name.to_string(),
-                    self.name.to_string(),
-                ))?;
+            .ok_or_else(|| RuntimeCheckErrorKind::TraitReferenceUnknown(trait_name.clone()))?;
+        let expected_sig = constraining_trait.get(&self.name).ok_or_else(|| {
+            RuntimeCheckErrorKind::TraitMethodUnknown(trait_name.clone(), self.name.to_string())
+        })?;
 
-        let args = self.arg_types.to_vec();
-        if !expected_sig.check_args_trait_compliance(epoch, args)? {
+        if !expected_sig.check_args_trait_compliance(epoch, self.arg_types.iter())? {
             return Err(RuntimeCheckErrorKind::BadTraitImplementation(
                 trait_name,
                 self.name.to_string(),
@@ -349,18 +415,30 @@ impl DefinedFunction {
             .into());
         }
 
-        Ok(())
+        Ok(expected_sig)
     }
 
     pub fn is_read_only(&self) -> bool {
         self.define_type == DefineType::ReadOnly
     }
 
-    pub fn apply(&self, args: &[Value], env: &mut Environment) -> Result<Value, VmExecutionError> {
+    /// Applies this function directly or through a transaction boundary according to its
+    /// visibility.
+    pub fn apply(
+        &self,
+        args: Vec<Value>,
+        exec_state: &mut ExecutionState,
+        invoke_ctx: &InvocationContext,
+    ) -> Result<Value, VmExecutionError> {
         match self.define_type {
-            DefineType::Private => self.execute_apply(args, env),
-            DefineType::Public => env.execute_function_as_transaction(self, args, None, false),
-            DefineType::ReadOnly => env.execute_function_as_transaction(self, args, None, false),
+            DefineType::Private => self.execute_apply(args, exec_state, invoke_ctx),
+            DefineType::Public | DefineType::ReadOnly => exec_state
+                .execute_function_as_transaction(
+                    invoke_ctx,
+                    self,
+                    args,
+                    FunctionExecutionOptions::default(),
+                ),
         }
     }
 
@@ -396,35 +474,73 @@ impl DefinedFunction {
     }
 }
 
-impl CallableType {
+impl CallableType<'_> {
     pub fn get_identifier(&self) -> FunctionIdentifier {
         match self {
             CallableType::UserFunction(f) => f.get_identifier(),
-            CallableType::NativeFunction(s, _, _) => FunctionIdentifier::new_native_function(s),
-            CallableType::SpecialFunction(s, _) => FunctionIdentifier::new_native_function(s),
-            CallableType::NativeFunction205(s, _, _, _) => {
-                FunctionIdentifier::new_native_function(s)
+            CallableType::Builtin { kind, .. } => {
+                FunctionIdentifier::new_native_function(kind.rust_name())
+            }
+        }
+    }
+
+    pub fn call_trace_hook<'a>(&'a self, invoke_ctx: &'a InvocationContext) -> CallHook<'a> {
+        match self {
+            CallableType::Builtin { clarity_name, kind } => {
+                CallHook::builtin(clarity_name, kind.rust_name())
+            }
+            CallableType::UserFunction(function) => {
+                CallHook::user_defined(&invoke_ctx.contract_context.contract_identifier, function)
             }
         }
     }
 }
 
-// Implicitly cast principals to traits and traits to other traits as needed,
-// recursing into compound types. This function does not check for legality of
-// these casts, as that is done in the type-checker. Note: depth of recursion
-// should be capped by earlier checks on the types/values.
+/// Sanitizes `value` for a parameter of type `expected`. On failure, the
+/// `TypeValueError` shows `value` as it was passed in.
+pub fn sanitize_argument(
+    epoch: &StacksEpochId,
+    expected: &TypeSignature,
+    value: Value,
+) -> Result<Value, VmExecutionError> {
+    Value::sanitize_value_or_return(epoch, expected, value).map_err(|value| {
+        RuntimeCheckErrorKind::TypeValueError(Box::new(expected.clone()), value.to_error_string())
+            .into()
+    })
+}
+
+/// [`implicit_cast_if_needed`], but copies `value` when no cast applies.
 fn clarity2_implicit_cast(
+    epoch: &StacksEpochId,
     type_sig: &TypeSignature,
     value: &Value,
 ) -> Result<Value, VmExecutionError> {
-    Ok(match (type_sig, value) {
+    Ok(implicit_cast_if_needed(epoch, type_sig, value)?.unwrap_or_else(|| value.clone()))
+}
+
+/// Cast principals and traits recursively. Legality is checked by analysis;
+/// recursion depth is capped by earlier checks on the types/values.
+///
+/// Returns `None` when no cast applies, so the caller can use `value` itself. Lists,
+/// tuples, `some` values and responses are always rebuilt, even with no principal
+/// inside, and the rebuilt lists and tuples take the parameter's `type_signature`.
+fn implicit_cast_if_needed(
+    epoch: &StacksEpochId,
+    type_sig: &TypeSignature,
+    value: &Value,
+) -> Result<Option<Value>, VmExecutionError> {
+    Ok(Some(match (type_sig, value) {
         (
             TypeSignature::OptionalType(inner_type),
             Value::Optional(OptionalData {
                 data: Some(inner_value),
             }),
         ) => Value::Optional(OptionalData {
-            data: Some(Box::new(clarity2_implicit_cast(inner_type, inner_value)?)),
+            data: Some(Box::new(clarity2_implicit_cast(
+                epoch,
+                inner_type,
+                inner_value,
+            )?)),
         }),
         (
             TypeSignature::ResponseType(inner_types),
@@ -432,6 +548,7 @@ fn clarity2_implicit_cast(
         ) => Value::Response(ResponseData {
             committed: *committed,
             data: Box::new(clarity2_implicit_cast(
+                epoch,
                 if *committed {
                     &inner_types.0
                 } else {
@@ -442,22 +559,23 @@ fn clarity2_implicit_cast(
         }),
         (
             TypeSignature::SequenceType(SequenceSubtype::ListType(list_type)),
-            Value::Sequence(SequenceData::List(ListData {
-                data,
-                type_signature,
-            })),
+            Value::Sequence(SequenceData::List(list)),
         ) => {
-            let mut values = Vec::with_capacity(data.len());
-            for elem in data {
+            let mut values = Vec::with_capacity(list.data.len());
+            for elem in &list.data {
                 values.push(clarity2_implicit_cast(
+                    epoch,
                     list_type.get_list_item_type(),
                     elem,
                 )?);
             }
-            let cast_list_type_data = ListTypeData::new_list(
-                list_type.get_list_item_type().clone(),
-                type_signature.get_max_len(),
-            )?;
+            let max_len = if epoch.fixes_implicit_cast_list_bound() {
+                list.len()?
+            } else {
+                list.type_signature.get_max_len()
+            };
+            let cast_list_type_data =
+                ListTypeData::new_list(list_type.get_list_item_type().clone(), max_len)?;
             Value::Sequence(SequenceData::List(ListData {
                 data: values,
                 type_signature: cast_list_type_data,
@@ -478,12 +596,15 @@ fn clarity2_implicit_cast(
                         // This should be unreachable if the type-checker has already run successfully
                         return Err(RuntimeCheckErrorKind::TypeValueError(
                             Box::new(type_sig.clone()),
-                            Box::new(value.clone()),
+                            value.to_error_string(),
                         )
                         .into());
                     }
                 };
-                cast_data_map.insert(name.clone(), clarity2_implicit_cast(to_type, field_value)?);
+                cast_data_map.insert(
+                    name.clone(),
+                    clarity2_implicit_cast(epoch, to_type, field_value)?,
+                );
             }
             Value::Tuple(TupleData {
                 type_signature: tuple_type.clone(),
@@ -495,7 +616,7 @@ fn clarity2_implicit_cast(
             Value::CallableContract(callable_data),
         ) => Value::CallableContract(CallableData {
             contract_identifier: callable_data.contract_identifier.clone(),
-            trait_identifier: Some(trait_identifier.clone()),
+            trait_identifier: Some(Box::new(trait_identifier.clone())),
         }),
         // N.B. it seems like this should be illegal, since it is converting a
         // principal to a callable trait, and only principal literals should be
@@ -510,21 +631,74 @@ fn clarity2_implicit_cast(
             Value::Principal(PrincipalData::Contract(contract_identifier)),
         ) => Value::CallableContract(CallableData {
             contract_identifier: contract_identifier.clone(),
-            trait_identifier: Some(trait_identifier.clone()),
+            trait_identifier: Some(Box::new(trait_identifier.clone())),
         }),
-        _ => value.clone(),
-    })
+        _ => return Ok(None),
+    }))
 }
 
 #[cfg(test)]
 mod test {
+    use clarity_types::ContractName;
+    use rstest::rstest;
+
     use super::*;
     use crate::vm::types::{
         QualifiedContractIdentifier, StandardPrincipalData, TupleTypeSignature,
     };
 
+    /// A filtered list's cached bound can overflow when paired with a wide parameter type.
+    #[rstest]
+    #[case::legacy_overflow(
+        StacksEpochId::Epoch40,
+        2,
+        1,
+        Err(VmExecutionError::from(RuntimeCheckErrorKind::ValueTooLarge))
+    )]
+    #[case::filtered(StacksEpochId::Epoch41, 2, 1, Ok(1))]
+    #[case::empty(StacksEpochId::Epoch41, 2, 0, Ok(0))]
+    fn test_implicit_cast_list_bound(
+        #[case] epoch: StacksEpochId,
+        #[case] cached_bound: u32,
+        #[case] length: usize,
+        #[case] expected: Result<u32, VmExecutionError>,
+    ) {
+        let field = ClarityName::from_literal("n");
+        let value = Value::Tuple(
+            TupleData::from_data(vec![(field.clone(), Value::buff_from(vec![1]).unwrap())])
+                .unwrap(),
+        );
+        let input = Value::list_with_type(
+            &epoch,
+            vec![value.clone(); length],
+            ListTypeData::new_list(TypeSignature::type_of(&value).unwrap(), cached_bound).unwrap(),
+        )
+        .unwrap();
+        let parameter_item = TypeSignature::TupleType(
+            TupleTypeSignature::try_from(vec![(
+                field,
+                TypeSignature::SequenceType(SequenceSubtype::BufferType(
+                    600000_u32.try_into().unwrap(),
+                )),
+            )])
+            .unwrap(),
+        );
+        let parameter_type = TypeSignature::list_of(parameter_item, 1).unwrap();
+        let result = clarity2_implicit_cast(&epoch, &parameter_type, &input);
+        assert_eq!(
+            result.map(|value| {
+                let Value::Sequence(SequenceData::List(list)) = value else {
+                    panic!("expected list value");
+                };
+                list.type_signature.get_max_len()
+            }),
+            expected
+        );
+    }
+
     #[test]
     fn test_implicit_cast() {
+        let epoch = StacksEpochId::latest();
         // principal -> <trait>
         let trait_identifier = TraitIdentifier::parse_fully_qualified(
             "SP2PABAF9FTAJYNFZH93XENAJ8FVY99RRM50D2JG9.nft-trait.nft-trait",
@@ -548,22 +722,26 @@ mod test {
             contract_identifier: contract_identifier2,
             trait_identifier: None,
         });
-        let cast_contract = clarity2_implicit_cast(&trait_ty, &contract).unwrap();
+        let cast_contract = clarity2_implicit_cast(&epoch, &trait_ty, &contract).unwrap();
         let cast_trait = cast_contract.expect_callable().unwrap();
         assert_eq!(&cast_trait.contract_identifier, &contract_identifier);
-        assert_eq!(&cast_trait.trait_identifier.unwrap(), &trait_identifier);
+        assert_eq!(
+            cast_trait.trait_identifier.unwrap().as_ref(),
+            &trait_identifier
+        );
 
         // (optional principal) -> (optional <trait>)
         let optional_ty = TypeSignature::new_option(trait_ty.clone()).unwrap();
         let optional_contract = Value::some(contract.clone()).unwrap();
-        let cast_optional = clarity2_implicit_cast(&optional_ty, &optional_contract).unwrap();
+        let cast_optional =
+            clarity2_implicit_cast(&epoch, &optional_ty, &optional_contract).unwrap();
         match &cast_optional.expect_optional().unwrap().unwrap() {
             Value::CallableContract(CallableData {
                 contract_identifier: contract_id,
                 trait_identifier: trait_id,
             }) => {
                 assert_eq!(contract_id, &contract_identifier);
-                assert_eq!(trait_id.as_ref().unwrap(), &trait_identifier);
+                assert_eq!(trait_id.as_deref().unwrap(), &trait_identifier);
             }
             other => panic!("expected Value::CallableContract, got {other:?}"),
         }
@@ -572,58 +750,64 @@ mod test {
         let response_ok_ty =
             TypeSignature::new_response(trait_ty.clone(), TypeSignature::UIntType).unwrap();
         let response_contract = Value::okay(contract.clone()).unwrap();
-        let cast_response = clarity2_implicit_cast(&response_ok_ty, &response_contract).unwrap();
+        let cast_response =
+            clarity2_implicit_cast(&epoch, &response_ok_ty, &response_contract).unwrap();
         let cast_trait = cast_response
             .expect_result_ok()
             .unwrap()
             .expect_callable()
             .unwrap();
         assert_eq!(&cast_trait.contract_identifier, &contract_identifier);
-        assert_eq!(&cast_trait.trait_identifier.unwrap(), &trait_identifier);
+        assert_eq!(
+            cast_trait.trait_identifier.unwrap().as_ref(),
+            &trait_identifier
+        );
 
         // (err principal) -> (err <trait>)
         let response_err_ty =
             TypeSignature::new_response(TypeSignature::UIntType, trait_ty.clone()).unwrap();
         let response_contract = Value::error(contract.clone()).unwrap();
-        let cast_response = clarity2_implicit_cast(&response_err_ty, &response_contract).unwrap();
+        let cast_response =
+            clarity2_implicit_cast(&epoch, &response_err_ty, &response_contract).unwrap();
         let cast_trait = cast_response
             .expect_result_err()
             .unwrap()
             .expect_callable()
             .unwrap();
         assert_eq!(&cast_trait.contract_identifier, &contract_identifier);
-        assert_eq!(&cast_trait.trait_identifier.unwrap(), &trait_identifier);
+        assert_eq!(
+            cast_trait.trait_identifier.unwrap().as_ref(),
+            &trait_identifier
+        );
 
         // (list principal) -> (list <trait>)
         let list_ty = TypeSignature::list_of(trait_ty.clone(), 4).unwrap();
         let list_contract = Value::list_from(vec![contract.clone(), contract2.clone()]).unwrap();
-        let cast_list = clarity2_implicit_cast(&list_ty, &list_contract).unwrap();
+        let cast_list = clarity2_implicit_cast(&epoch, &list_ty, &list_contract).unwrap();
         let items = cast_list.expect_list().unwrap();
         for item in items {
             let cast_trait = item.expect_callable().unwrap();
-            assert_eq!(&cast_trait.trait_identifier.unwrap(), &trait_identifier);
+            assert_eq!(
+                cast_trait.trait_identifier.unwrap().as_ref(),
+                &trait_identifier
+            );
         }
 
         // {a: principal} -> {a: <trait>}
-        let a_name = ClarityName::from("a");
+        let a_name = ClarityName::from_literal("a");
         let tuple_ty = TypeSignature::TupleType(
             TupleTypeSignature::try_from(vec![(a_name.clone(), trait_ty)]).unwrap(),
         );
-        let contract_tuple_ty = TypeSignature::TupleType(
+        let contract_tuple_ty =
             TupleTypeSignature::try_from(vec![(a_name.clone(), TypeSignature::PrincipalType)])
-                .unwrap(),
-        );
+                .unwrap();
         let mut data_map = BTreeMap::new();
         data_map.insert(a_name.clone(), contract.clone());
         let tuple_contract = Value::Tuple(TupleData {
-            type_signature: TupleTypeSignature::try_from(vec![(
-                a_name.clone(),
-                TypeSignature::PrincipalType,
-            )])
-            .unwrap(),
+            type_signature: contract_tuple_ty,
             data_map,
         });
-        let cast_tuple = clarity2_implicit_cast(&tuple_ty, &tuple_contract).unwrap();
+        let cast_tuple = clarity2_implicit_cast(&epoch, &tuple_ty, &tuple_contract).unwrap();
         let cast_trait = cast_tuple
             .expect_tuple()
             .unwrap()
@@ -633,7 +817,10 @@ mod test {
             .expect_callable()
             .unwrap();
         assert_eq!(&cast_trait.contract_identifier, &contract_identifier);
-        assert_eq!(&cast_trait.trait_identifier.unwrap(), &trait_identifier);
+        assert_eq!(
+            cast_trait.trait_identifier.unwrap().as_ref(),
+            &trait_identifier
+        );
 
         // (list (optional principal)) -> (list (optional <trait>))
         let list_opt_ty = TypeSignature::list_of(optional_ty.clone(), 4).unwrap();
@@ -643,12 +830,15 @@ mod test {
             Value::none(),
         ])
         .unwrap();
-        let cast_list = clarity2_implicit_cast(&list_opt_ty, &list_opt_contract).unwrap();
+        let cast_list = clarity2_implicit_cast(&epoch, &list_opt_ty, &list_opt_contract).unwrap();
         let items = cast_list.expect_list().unwrap();
         for item in items {
             if let Some(cast_opt) = item.expect_optional().unwrap() {
                 let cast_trait = cast_opt.expect_callable().unwrap();
-                assert_eq!(&cast_trait.trait_identifier.unwrap(), &trait_identifier);
+                assert_eq!(
+                    cast_trait.trait_identifier.unwrap().as_ref(),
+                    &trait_identifier
+                );
             }
         }
 
@@ -660,11 +850,14 @@ mod test {
             Value::okay(contract2.clone()).unwrap(),
         ])
         .unwrap();
-        let cast_list = clarity2_implicit_cast(&list_res_ty, &list_res_contract).unwrap();
+        let cast_list = clarity2_implicit_cast(&epoch, &list_res_ty, &list_res_contract).unwrap();
         let items = cast_list.expect_list().unwrap();
         for item in items {
             let cast_trait = item.expect_result_ok().unwrap().expect_callable().unwrap();
-            assert_eq!(&cast_trait.trait_identifier.unwrap(), &trait_identifier);
+            assert_eq!(
+                cast_trait.trait_identifier.unwrap().as_ref(),
+                &trait_identifier
+            );
         }
 
         // (list (response uint principal)) -> (list (response uint <trait>))
@@ -675,11 +868,14 @@ mod test {
             Value::error(contract2.clone()).unwrap(),
         ])
         .unwrap();
-        let cast_list = clarity2_implicit_cast(&list_res_ty, &list_res_contract).unwrap();
+        let cast_list = clarity2_implicit_cast(&epoch, &list_res_ty, &list_res_contract).unwrap();
         let items = cast_list.expect_list().unwrap();
         for item in items {
             let cast_trait = item.expect_result_err().unwrap().expect_callable().unwrap();
-            assert_eq!(&cast_trait.trait_identifier.unwrap(), &trait_identifier);
+            assert_eq!(
+                cast_trait.trait_identifier.unwrap().as_ref(),
+                &trait_identifier
+            );
         }
 
         // (optional (list (response uint principal))) -> (optional (list (response uint <trait>)))
@@ -692,12 +888,16 @@ mod test {
         ])
         .unwrap();
         let opt_list_res_contract = Value::some(list_res_contract).unwrap();
-        let cast_opt = clarity2_implicit_cast(&opt_list_res_ty, &opt_list_res_contract).unwrap();
+        let cast_opt =
+            clarity2_implicit_cast(&epoch, &opt_list_res_ty, &opt_list_res_contract).unwrap();
         let inner = cast_opt.expect_optional().unwrap().unwrap();
         let items = inner.expect_list().unwrap();
         for item in items {
             let cast_trait = item.expect_result_err().unwrap().expect_callable().unwrap();
-            assert_eq!(&cast_trait.trait_identifier.unwrap(), &trait_identifier);
+            assert_eq!(
+                cast_trait.trait_identifier.unwrap().as_ref(),
+                &trait_identifier
+            );
         }
 
         // (optional (optional principal)) -> (optional (optional <trait>))
@@ -705,7 +905,8 @@ mod test {
         let optional_contract = Value::some(contract).unwrap();
         let optional_optional_contract = Value::some(optional_contract).unwrap();
         let cast_optional =
-            clarity2_implicit_cast(&optional_optional_ty, &optional_optional_contract).unwrap();
+            clarity2_implicit_cast(&epoch, &optional_optional_ty, &optional_optional_contract)
+                .unwrap();
 
         match &cast_optional
             .expect_optional()
@@ -720,7 +921,7 @@ mod test {
                 trait_identifier: trait_id,
             }) => {
                 assert_eq!(contract_id, &contract_identifier);
-                assert_eq!(trait_id.as_ref().unwrap(), &trait_identifier);
+                assert_eq!(trait_id.as_deref().unwrap(), &trait_identifier);
             }
             other => panic!("expected Value::CallableContract, got {other:?}"),
         }
@@ -730,17 +931,17 @@ mod test {
     fn test_canonicalize_defined_function() {
         let trait_id = TraitIdentifier::new(
             StandardPrincipalData::transient(),
-            "my-contract".into(),
-            "my-trait".into(),
+            ContractName::from_literal("my-contract"),
+            ClarityName::from_literal("my-trait"),
         );
         let mut f = DefinedFunction::new(
             vec![(
-                "a".into(),
+                ClarityName::from_literal("a"),
                 TypeSignature::TraitReferenceType(trait_id.clone()),
             )],
             SymbolicExpression::atom_value(Value::Int(3)),
             DefineType::Public,
-            &"foo".into(),
+            &ClarityName::from_literal("foo"),
             "testing",
         );
         f.canonicalize_types(&StacksEpochId::Epoch21);

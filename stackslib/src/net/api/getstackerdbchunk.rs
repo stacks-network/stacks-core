@@ -28,7 +28,7 @@ use crate::net::http::{
 use crate::net::httpcore::{request, RPCRequestHandler, StacksHttpRequest, StacksHttpResponse};
 use crate::net::{Error as NetError, StacksNodeState};
 
-#[derive(Clone)]
+#[derive(Clone, Default)]
 pub struct RPCGetStackerDBChunkRequestHandler {
     pub contract_identifier: Option<QualifiedContractIdentifier>,
     pub slot_id: Option<u32>,
@@ -173,7 +173,7 @@ impl RPCRequestHandler for RPCGetStackerDBChunkRequestHandler {
         let chunk_resp = match chunk_resp {
             Ok(chunk) => chunk,
             Err(response) => {
-                return response.try_into_contents().map_err(NetError::from);
+                return response.try_into_contents();
             }
         };
 

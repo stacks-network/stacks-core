@@ -1,0 +1,4 @@
+interface:
+  display_name: "Stacks PR Review"
+  short_description: "Review changes using the repository PR-review policy"
+  default_prompt: "Use $stacks-pr-review to review my current branch and uncommitted changes before I update the PR."

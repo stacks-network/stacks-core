@@ -53,7 +53,7 @@ fn rollback_check_pre_bottom_commit<T>(
 where
     T: Eq + Hash + Clone,
 {
-    for (_, edit_history) in lookup_map.iter_mut() {
+    for edit_history in lookup_map.values_mut() {
         edit_history.reverse();
     }
 
@@ -90,7 +90,7 @@ fn rollback_check_pre_bottom_commit<T>(
 where
     T: Eq + Hash + Clone,
 {
-    for (_, edit_history) in lookup_map.iter_mut() {
+    for edit_history in lookup_map.values_mut() {
         edit_history.reverse();
     }
     for (key, value) in edits.iter() {
@@ -226,8 +226,11 @@ impl<'a> RollbackWrapper<'a> {
         }
     }
 
-    pub fn get_cc_special_cases_handler(&self) -> Option<SpecialCaseHandler> {
-        self.store.get_cc_special_cases_handler()
+    pub fn get_cc_special_cases_handler(
+        &self,
+        contract: &QualifiedContractIdentifier,
+    ) -> Option<SpecialCaseHandler> {
+        self.store.get_cc_special_cases_handler(contract)
     }
 
     pub fn nest(&mut self) {
@@ -334,7 +337,12 @@ impl RollbackWrapper<'_> {
         Ok(())
     }
 
-    ///
+    /// Returns whether or not the wrapper is currently retargeted to another block by e.g. an
+    /// `at-block` scope.
+    pub fn is_retargeted(&self) -> bool {
+        !self.query_pending_data
+    }
+
     /// `query_pending_data` indicates whether the rollback wrapper should query the rollback
     ///    wrapper's pending data on reads. This is set to `false` during (at-block ...) closures,
     ///    and `true` otherwise.
@@ -427,8 +435,7 @@ impl RollbackWrapper<'_> {
         epoch: &StacksEpochId,
     ) -> Result<ValueResult, SerializationError> {
         let serialized_byte_len = value_hex.len() as u64 / 2;
-        let sanitize = epoch.value_sanitizing();
-        let value = Value::try_deserialize_hex(value_hex, expected, sanitize)?;
+        let value = Value::try_deserialize_hex_at_epoch(value_hex, expected, epoch)?;
 
         Ok(ValueResult {
             value,
@@ -594,5 +601,28 @@ impl RollbackWrapper<'_> {
         key: &str,
     ) -> bool {
         matches!(self.get_metadata(contract, key), Ok(Some(_)))
+    }
+
+    /// Returns `true` if any of the given metadata keys for `contract` has an uncommitted edit in
+    /// the rollback stack (i.e. would be served from pending data rather than the backing store on
+    /// a `get_metadata` call).
+    ///
+    /// Used by caching implementations to avoid caching reads whose metadata could later be rolled
+    /// back.
+    pub fn has_pending_metadata(
+        &self,
+        contract: &QualifiedContractIdentifier,
+        keys: &[&str],
+    ) -> bool {
+        // Retargeted wrappers always read from the backing store, so pending metadata is
+        // irrelevant.
+        if self.is_retargeted() {
+            return false;
+        }
+
+        keys.iter().any(|key| {
+            let metadata_key = (contract.clone(), (*key).to_string());
+            self.metadata_lookup_map.contains_key(&metadata_key)
+        })
     }
 }

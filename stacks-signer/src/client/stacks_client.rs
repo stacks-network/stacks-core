@@ -1,5 +1,5 @@
 // Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
-// Copyright (C) 2020-2024 Stacks Open Internet Foundation
+// Copyright (C) 2020-2026 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -17,7 +17,7 @@ use std::collections::{HashMap, VecDeque};
 
 use blockstack_lib::chainstate::nakamoto::NakamotoBlock;
 use blockstack_lib::chainstate::stacks::boot::{NakamotoSignerEntry, SIGNERS_NAME};
-use blockstack_lib::chainstate::stacks::{StacksTransaction, TransactionVersion};
+use blockstack_lib::chainstate::stacks::TransactionVersion;
 use blockstack_lib::net::api::callreadonly::CallReadOnlyResponse;
 use blockstack_lib::net::api::get_tenure_tip_meta::BlockHeaderWithMetadata;
 use blockstack_lib::net::api::get_tenures_fork_info::{
@@ -40,7 +40,7 @@ use serde_json::json;
 use stacks_common::codec::StacksMessageCodec;
 use stacks_common::consts::CHAIN_ID_MAINNET;
 use stacks_common::types::chainstate::{
-    ConsensusHash, StacksAddress, StacksPrivateKey, StacksPublicKey,
+    BurnchainHeaderHash, ConsensusHash, StacksAddress, StacksPrivateKey, StacksPublicKey,
 };
 use stacks_common::types::StacksEpochId;
 use stacks_common::{debug, warn};
@@ -48,7 +48,7 @@ use stacks_common::{debug, warn};
 use super::SignerSlotID;
 use crate::client::{retry_with_exponential_backoff, ClientError};
 use crate::config::GlobalConfig;
-use crate::runloop::RewardCycleInfo;
+use crate::runloop::{PoxGeometry, RewardCycleInfo};
 
 /// The Stacks signer client used to communicate with the stacks node
 #[derive(Clone, Debug)]
@@ -170,7 +170,10 @@ impl StacksClient {
                 .get(self.tenure_tip_path(tenure_id))
                 .send()
                 .map_err(|e| {
-                    warn!("Signer failed to request latest sortition"; "err" => ?e);
+                    warn!("Signer failed to request tenure tip";
+                        "consensus_hash" => %tenure_id,
+                        "err" => ?e,
+                    );
                     e
                 })
         };
@@ -187,7 +190,7 @@ impl StacksClient {
         debug!("StacksClient: Getting last set cycle");
         let signer_stackerdb_contract_id = boot_code_id(SIGNERS_NAME, self.mainnet);
         let function_name_str = "get-last-set-cycle";
-        let function_name = ClarityName::from(function_name_str);
+        let function_name = ClarityName::from_literal(function_name_str);
         let value = self.read_only_contract_call(
             &signer_stackerdb_contract_id.issuer.clone().into(),
             &signer_stackerdb_contract_id.name,
@@ -208,7 +211,7 @@ impl StacksClient {
             "page" => page,
         );
         let function_name_str = "stackerdb-get-signer-slots-page";
-        let function_name = ClarityName::from(function_name_str);
+        let function_name = ClarityName::from_literal(function_name_str);
         let function_args = &[ClarityValue::UInt(page.into())];
         let value = self.read_only_contract_call(
             &stackerdb_contract.issuer.clone().into(),
@@ -278,11 +281,7 @@ impl StacksClient {
     }
 
     /// Submit the block proposal to the stacks node. The block will be validated and returned via the HTTP endpoint for Block events.
-    pub fn submit_block_for_validation(
-        &self,
-        block: NakamotoBlock,
-        replay_txs: Option<Vec<StacksTransaction>>,
-    ) -> Result<(), ClientError> {
+    pub fn submit_block_for_validation(&self, block: NakamotoBlock) -> Result<(), ClientError> {
         debug!("StacksClient: Submitting block for validation";
             "signer_signature_hash" => %block.header.signer_signature_hash(),
             "block_id" => %block.header.block_id(),
@@ -291,7 +290,6 @@ impl StacksClient {
         let block_proposal = NakamotoBlockProposal {
             block,
             chain_id: self.chain_id,
-            replay_txs,
         };
         let timer = crate::monitoring::actions::new_rpc_call_timer(
             &self.block_proposal_path(),
@@ -350,7 +348,7 @@ impl StacksClient {
                         .into(),
                 ));
             }
-            tenures.extend(next_results.into_iter());
+            tenures.extend(next_results);
         }
 
         Ok(tenures.into_iter().collect())
@@ -446,6 +444,29 @@ impl StacksClient {
         })
     }
 
+    /// Get the sortition info for a given burnchain block hash.
+    ///
+    /// The node resolves the burn block hash against its *canonical* burnchain fork, so a
+    /// [`ClientError::RequestFailure`] with [`reqwest::StatusCode::NOT_FOUND`] means the burn
+    /// block is not on the canonical chain: it was orphaned by a burnchain fork.
+    pub fn get_sortition_by_burn_hash(
+        &self,
+        burn_hash: &BurnchainHeaderHash,
+    ) -> Result<SortitionInfo, ClientError> {
+        debug!("StacksClient: Getting sortition info by burn hash";
+            "burn_hash" => %burn_hash,
+        );
+        let path = self.sortition_by_burn_hash_path(burn_hash);
+        let response = self.stacks_node_client.get(&path).send()?;
+        if !response.status().is_success() {
+            return Err(ClientError::RequestFailure(response.status()));
+        }
+        let sortition_info = response.json::<Vec<SortitionInfo>>()?;
+        sortition_info.first().cloned().ok_or_else(|| {
+            ClientError::InvalidResponse("No sortition info found for given burn hash".into())
+        })
+    }
+
     /// Get the current peer info data from the stacks node
     pub fn get_peer_info(&self) -> Result<PeerInfo, ClientError> {
         debug!("StacksClient: Getting peer info");
@@ -473,6 +494,15 @@ impl StacksClient {
         &self,
         reward_cycle: u64,
     ) -> Result<Option<Vec<NakamotoSignerEntry>>, ClientError> {
+        Ok(self
+            .get_reward_set(reward_cycle)?
+            .stacker_set
+            .signers()
+            .cloned())
+    }
+
+    /// Get the reward set signers from the stacks node for the given reward cycle
+    pub fn get_reward_set(&self, reward_cycle: u64) -> Result<GetStackersResponse, ClientError> {
         debug!("StacksClient: Getting reward set signers";
             "reward_cycle" => reward_cycle,
         );
@@ -506,7 +536,7 @@ impl StacksClient {
         let stackers_response =
             retry_with_exponential_backoff::<_, ClientError, GetStackersResponse>(send_request)?;
         timer.stop_and_record();
-        Ok(stackers_response.stacker_set.signers)
+        Ok(stackers_response)
     }
 
     /// Retrieve the current pox data from the stacks node
@@ -529,24 +559,30 @@ impl StacksClient {
         Ok(pox_info_data)
     }
 
+    /// Get the PoX reward cycle geometry from the stacks node
+    pub fn get_pox_geometry(&self) -> Result<PoxGeometry, ClientError> {
+        debug!("StacksClient: Getting PoX geometry");
+        Ok(Self::pox_geometry_of(&self.get_pox_data()?))
+    }
+
     /// Get the current reward cycle info from the stacks node
     pub fn get_current_reward_cycle_info(&self) -> Result<RewardCycleInfo, ClientError> {
         debug!("StacksClient: Getting current reward cycle info");
         let pox_data = self.get_pox_data()?;
-        let blocks_mined = pox_data
-            .current_burnchain_block_height
-            .saturating_sub(pox_data.first_burnchain_block_height);
-        let reward_cycle_length = pox_data
-            .reward_phase_block_length
-            .saturating_add(pox_data.prepare_phase_block_length);
-        let reward_cycle = blocks_mined / reward_cycle_length;
-        Ok(RewardCycleInfo {
-            reward_cycle,
-            reward_cycle_length,
+        Ok(RewardCycleInfo::at_height(
+            &Self::pox_geometry_of(&pox_data),
+            pox_data.current_burnchain_block_height,
+        ))
+    }
+
+    fn pox_geometry_of(pox_data: &RPCPoxInfoData) -> PoxGeometry {
+        PoxGeometry {
+            reward_cycle_length: pox_data
+                .reward_phase_block_length
+                .saturating_add(pox_data.prepare_phase_block_length),
             prepare_phase_block_length: pox_data.prepare_phase_block_length,
             first_burnchain_block_height: pox_data.first_burnchain_block_height,
-            last_burnchain_block_height: pox_data.current_burnchain_block_height,
-        })
+        }
     }
 
     /// Helper function to retrieve the account info from the stacks node for a specific address
@@ -659,7 +695,8 @@ impl StacksClient {
                 "{function_name}: {}",
                 call_read_only_response
                     .cause
-                    .unwrap_or_else(|| "unknown".to_string())
+                    .as_deref()
+                    .unwrap_or("unknown")
             )));
         }
         let hex = call_read_only_response.result.unwrap_or_default();
@@ -696,6 +733,14 @@ impl StacksClient {
             "{}{RPC_SORTITION_INFO_PATH}/consensus/{}",
             self.http_origin,
             consensus_hash.to_hex()
+        )
+    }
+
+    fn sortition_by_burn_hash_path(&self, burn_hash: &BurnchainHeaderHash) -> String {
+        format!(
+            "{}{RPC_SORTITION_INFO_PATH}/burn/{}",
+            self.http_origin,
+            burn_hash.to_hex()
         )
     }
 
@@ -737,7 +782,7 @@ mod tests {
     use blockstack_lib::chainstate::nakamoto::NakamotoBlockHeader;
     use blockstack_lib::chainstate::stacks::address::PoxAddress;
     use blockstack_lib::chainstate::stacks::boot::{
-        NakamotoSignerEntry, PoxStartCycleInfo, RewardSet,
+        NakamotoSignerEntry, PoxStartCycleInfo, RewardSet, RewardSetV0,
     };
     use blockstack_lib::chainstate::stacks::db::StacksBlockHeaderTypes;
     use clarity::types::chainstate::{StacksBlockId, TrieHash};
@@ -767,8 +812,8 @@ mod tests {
         let h = spawn(move || {
             mock.client.read_only_contract_call(
                 &mock.client.stacks_address,
-                &ContractName::from("contract-name"),
-                &ClarityName::from("function-name"),
+                &ContractName::from_literal("contract-name"),
+                &ClarityName::from_literal("function-name"),
                 &[],
             )
         });
@@ -785,8 +830,8 @@ mod tests {
         let h = spawn(move || {
             mock.client.read_only_contract_call(
                 &mock.client.stacks_address,
-                &ContractName::from("contract-name"),
-                &ClarityName::from("function-name"),
+                &ContractName::from_literal("contract-name"),
+                &ClarityName::from_literal("function-name"),
                 &[ClarityValue::UInt(10_u128)],
             )
         });
@@ -801,8 +846,8 @@ mod tests {
         let h = spawn(move || {
             mock.client.read_only_contract_call(
                 &mock.client.stacks_address,
-                &ContractName::from("contract-name"),
-                &ClarityName::from("function-name"),
+                &ContractName::from_literal("contract-name"),
+                &ClarityName::from_literal("function-name"),
                 &[],
             )
         });
@@ -821,8 +866,8 @@ mod tests {
         let h = spawn(move || {
             mock.client.read_only_contract_call(
                 &mock.client.stacks_address,
-                &ContractName::from("contract-name"),
-                &ClarityName::from("function-name"),
+                &ContractName::from_literal("contract-name"),
+                &ClarityName::from_literal("function-name"),
                 &[],
             )
         });
@@ -843,8 +888,8 @@ mod tests {
         let h = spawn(move || {
             mock.client.read_only_contract_call(
                 &mock.client.stacks_address,
-                &ContractName::from("contract-name"),
-                &ClarityName::from("function-name"),
+                &ContractName::from_literal("contract-name"),
+                &ClarityName::from_literal("function-name"),
                 &[],
             )
         });
@@ -923,8 +968,14 @@ mod tests {
         ];
 
         let tuple_type_signature: TupleTypeSignature = [
-            (ClarityName::from("num_slots"), TypeSignature::UIntType),
-            (ClarityName::from("signer"), TypeSignature::PrincipalType),
+            (
+                ClarityName::from_literal("num_slots"),
+                TypeSignature::UIntType,
+            ),
+            (
+                ClarityName::from_literal("signer"),
+                TypeSignature::PrincipalType,
+            ),
         ]
         .into_iter()
         .collect::<BTreeMap<_, _>>()
@@ -937,9 +988,12 @@ mod tests {
                 let principal_data = StacksAddress::from_string(signer).unwrap().into();
 
                 let data_map = [
-                    ("num-slots".into(), ClarityValue::UInt(13)),
                     (
-                        "signer".into(),
+                        ClarityName::from_literal("num-slots"),
+                        ClarityValue::UInt(13),
+                    ),
+                    (
+                        ClarityName::from_literal("signer"),
                         ClarityValue::Principal(PrincipalData::Standard(principal_data)),
                     ),
                 ]
@@ -1004,11 +1058,8 @@ mod tests {
     fn submit_block_for_validation_should_succeed() {
         let mock = MockServerClient::new();
         let header = NakamotoBlockHeader::empty();
-        let block = NakamotoBlock {
-            header,
-            txs: vec![],
-        };
-        let h = spawn(move || mock.client.submit_block_for_validation(block, None));
+        let block = NakamotoBlock::new(header, vec![]);
+        let h = spawn(move || mock.client.submit_block_for_validation(block));
         write_response(mock.server, b"HTTP/1.1 200 OK\n\n");
         assert!(h.join().unwrap().is_ok());
     }
@@ -1017,11 +1068,8 @@ mod tests {
     fn submit_block_for_validation_should_fail() {
         let mock = MockServerClient::new();
         let header = NakamotoBlockHeader::empty();
-        let block = NakamotoBlock {
-            header,
-            txs: vec![],
-        };
-        let h = spawn(move || mock.client.submit_block_for_validation(block, None));
+        let block = NakamotoBlock::new(header, vec![]);
+        let h = spawn(move || mock.client.submit_block_for_validation(block));
         write_response(mock.server, b"HTTP/1.1 404 Not Found\n\n");
         assert!(h.join().unwrap().is_err());
     }
@@ -1053,7 +1101,7 @@ mod tests {
         let public_key = StacksPublicKey::from_private(&private_key);
         let mut bytes = [0u8; 33];
         bytes.copy_from_slice(&public_key.to_bytes_compressed());
-        let stacker_set = RewardSet {
+        let stacker_set = RewardSet::V0(RewardSetV0 {
             rewarded_addresses: vec![PoxAddress::standard_burn_address(false)],
             start_cycle_state: PoxStartCycleInfo {
                 missed_reward_slots: vec![],
@@ -1064,7 +1112,7 @@ mod tests {
                 weight: 1,
             }]),
             pox_ustx_threshold: None,
-        };
+        });
         let stackers_response = GetStackersResponse {
             stacker_set: stacker_set.clone(),
         };
@@ -1074,7 +1122,7 @@ mod tests {
         let response = format!("HTTP/1.1 200 OK\n\n{stackers_response_json}");
         let h = spawn(move || mock.client.get_reward_set_signers(0));
         write_response(mock.server, response.as_bytes());
-        assert_eq!(h.join().unwrap().unwrap(), stacker_set.signers);
+        assert_eq!(h.join().unwrap().unwrap(), stacker_set.signers().cloned());
     }
 
     #[test]
@@ -1093,6 +1141,7 @@ mod tests {
             miner_signature: MessageSignature::empty(),
             signer_signature: vec![],
             pox_treatment: BitVec::ones(1).unwrap(),
+            problematic_txs: vec![],
         });
         let with_metadata = BlockHeaderWithMetadata {
             anchored_header,
@@ -1103,6 +1152,21 @@ mod tests {
         let h = spawn(move || mock.client.get_tenure_tip(&consensus_hash));
         write_response(mock.server, response.as_bytes());
         assert_eq!(h.join().unwrap().unwrap(), with_metadata);
+    }
+
+    #[test]
+    fn get_sortition_by_burn_hash_reports_not_found_for_orphaned_burn_block() {
+        // The node resolves a burn block hash against its canonical burnchain fork, so a 404
+        // is how it reports that the burn block was orphaned. Callers key off exactly this
+        // error to decide that a tenure is void, so hold the mapping in place.
+        let mock = MockServerClient::new();
+        let burn_hash = BurnchainHeaderHash([3; 32]);
+        let h = spawn(move || mock.client.get_sortition_by_burn_hash(&burn_hash));
+        write_response(mock.server, b"HTTP/1.1 404 Not Found\n\n");
+        assert!(matches!(
+            h.join().unwrap(),
+            Err(ClientError::RequestFailure(reqwest::StatusCode::NOT_FOUND))
+        ));
     }
 
     #[test]

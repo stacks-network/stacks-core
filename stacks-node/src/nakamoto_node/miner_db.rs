@@ -55,7 +55,7 @@ impl MinerDB {
         let qry_db_exists =
             "SELECT name FROM sqlite_master WHERE type='table' AND name='db_config'";
         let db_exists = conn
-            .query_row(&qry_db_exists, [], |_| Ok(true))
+            .query_row(qry_db_exists, [], |_| Ok(true))
             .optional()?
             .is_some();
         if !db_exists {

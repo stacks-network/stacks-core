@@ -209,3 +209,21 @@ fn test_contract_name_deserialization_errors(#[case] buffer: Vec<u8>, #[case] er
     assert!(result.is_err());
     assert_eq!(result.unwrap_err().to_string(), error_message);
 }
+
+/// Regression test for the issue where some `try_*` calls might panic instead of
+/// returning an error as they should. See https://github.com/stacks-network/stacks-core/pull/7065
+#[test]
+fn test_try_functions_on_invalid_value_fail_but_do_not_panic() {
+    let as_str = "äß}🔥";
+    let as_string = as_str.to_string();
+
+    let into_result_str: Result<ClarityName, _> = as_str.try_into();
+    let into_result_string: Result<ClarityName, _> = as_string.clone().try_into();
+    let from_result_str = ClarityName::try_from(as_str);
+    let from_result_string = ClarityName::try_from(as_string);
+
+    assert!(into_result_str.is_err());
+    assert!(into_result_string.is_err());
+    assert!(from_result_str.is_err());
+    assert!(from_result_string.is_err());
+}

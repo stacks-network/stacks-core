@@ -14,12 +14,19 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 use std::io::Write;
 
+use rstest::rstest;
+use stacks_common::types::StacksEpochId;
+use stacks_common::util::hash::hex_bytes;
+
 use crate::errors::ClarityTypeError;
 use crate::types::serialization::SerializationError;
+use crate::types::signatures::CallableSubtype;
 use crate::types::{
-    ASCIIData, CharType, MAX_VALUE_SIZE, PrincipalData, QualifiedContractIdentifier, SequenceData,
-    StandardPrincipalData, TupleData, TypeSignature, Value,
+    ASCIIData, CallableData, CharType, ListTypeData, MAX_TYPE_DEPTH, MAX_VALUE_SIZE, OptionalData,
+    PrincipalData, QualifiedContractIdentifier, SequenceData, StandardPrincipalData,
+    TraitIdentifier, TupleData, TupleTypeSignature, TypeSignature, Value,
 };
+use crate::{ClarityName, ContractName};
 
 fn test_deser_ser(v: Value) {
     assert_eq!(
@@ -182,30 +189,32 @@ fn test_string_utf8() {
 fn test_tuples() {
     let t_1 = Value::from(
         TupleData::from_data(vec![
-            ("a".into(), Value::Int(1)),
-            ("b".into(), Value::Int(1)),
+            (ClarityName::from_literal("a"), Value::Int(1)),
+            (ClarityName::from_literal("b"), Value::Int(1)),
         ])
         .unwrap(),
     );
     let t_0 = Value::from(
         TupleData::from_data(vec![
-            ("b".into(), Value::Int(1)),
-            ("a".into(), Value::Int(1)),
+            (ClarityName::from_literal("b"), Value::Int(1)),
+            (ClarityName::from_literal("a"), Value::Int(1)),
         ])
         .unwrap(),
     );
     let t_2 = Value::from(
         TupleData::from_data(vec![
-            ("a".into(), Value::Int(1)),
-            ("b".into(), Value::Bool(true)),
+            (ClarityName::from_literal("a"), Value::Int(1)),
+            (ClarityName::from_literal("b"), Value::Bool(true)),
         ])
         .unwrap(),
     );
-    let t_3 = Value::from(TupleData::from_data(vec![("a".into(), Value::Int(1))]).unwrap());
+    let t_3 = Value::from(
+        TupleData::from_data(vec![(ClarityName::from_literal("a"), Value::Int(1))]).unwrap(),
+    );
     let t_4 = Value::from(
         TupleData::from_data(vec![
-            ("a".into(), Value::Int(1)),
-            ("c".into(), Value::Bool(true)),
+            (ClarityName::from_literal("a"), Value::Int(1)),
+            (ClarityName::from_literal("c"), Value::Bool(true)),
         ])
         .unwrap(),
     );
@@ -267,6 +276,255 @@ fn test_tuples() {
     ));
 }
 
+/// `{a:int,b:int}` buffer with a duplicate `a` field (values 1 then 2).
+const DUPLICATE_FIELDS: &str =
+    "0c000000020161000000000000000000000000000000000101610000000000000000000000000000000002";
+/// Like [`DUPLICATE_FIELDS`], plus a trailing unknown field `c`.
+const DUPLICATE_WITH_UNKNOWN_FIELD: &str = "0c00000003016100000000000000000000000000000000010161000000000000000000000000000000000201630000000000000000000000000000000003";
+/// The single-field `{a: 2}` tuple the duplicate buffers reduce to.
+const REDUCED_TUPLE: &str = "0c0000000101610000000000000000000000000000000002";
+
+#[derive(Clone, Copy, Debug)]
+enum TupleInput {
+    /// A canonical `{a: 1, b: 2}` tuple.
+    WellFormed,
+    /// `{a: 1, b: 2, c: 3}` - one field more than the expected type declares.
+    Wider,
+    /// A single-field `{a: 1}` tuple - one field fewer than declared.
+    MissingField,
+    /// Two fields both named `a` - the duplicate-key buffer.
+    Duplicate,
+    /// Two `a` fields plus an unknown `c` field.
+    DuplicateWithUnknown,
+    /// A canonical `{a: 1, b: 2}` tuple followed by one extra trailing byte.
+    TrailingBytes,
+    /// The duplicate-key tuple wrapped in an `optional`.
+    NestedOptionDuplicate,
+    /// The duplicate-key tuple nested as field `x` of an outer tuple.
+    NestedTupleDuplicate,
+}
+
+/// Expected outcome of a single deserialization call.
+#[derive(Clone, Copy, Debug)]
+enum Expect {
+    /// Succeeds, yielding the canonical `{a: 1, b: 2}` tuple.
+    WellFormed,
+    /// Succeeds, yielding the reduced single-field `{a: 2}` tuple.
+    Reduced,
+    /// Succeeds, yielding `(some {a: 2})`.
+    NestedOptionReduced,
+    /// Succeeds, yielding `{x: {a: 2}}`.
+    NestedTupleReduced,
+    /// Rejected because the wire field count does not match the declared type.
+    ErrFieldCount,
+    /// Rejected because a declared field was duplicated (strict construction).
+    ErrIllegalTuple,
+    /// Rejected because bytes remained after a complete value was read.
+    ErrTrailingBytes,
+}
+
+fn well_formed_tuple() -> Value {
+    Value::from(
+        TupleData::from_data(vec![
+            (ClarityName::from_literal("a"), Value::Int(1)),
+            (ClarityName::from_literal("b"), Value::Int(2)),
+        ])
+        .unwrap(),
+    )
+}
+
+fn tuple_case_input(input: TupleInput) -> (Vec<u8>, TypeSignature) {
+    let flat_type = TypeSignature::type_of(&well_formed_tuple()).unwrap();
+    match input {
+        TupleInput::WellFormed => (well_formed_tuple().serialize_to_vec().unwrap(), flat_type),
+        TupleInput::Wider => {
+            let wider = Value::from(
+                TupleData::from_data(vec![
+                    (ClarityName::from_literal("a"), Value::Int(1)),
+                    (ClarityName::from_literal("b"), Value::Int(2)),
+                    (ClarityName::from_literal("c"), Value::Int(3)),
+                ])
+                .unwrap(),
+            );
+            (wider.serialize_to_vec().unwrap(), flat_type)
+        }
+        TupleInput::MissingField => {
+            let single = Value::from(
+                TupleData::from_data(vec![(ClarityName::from_literal("a"), Value::Int(1))])
+                    .unwrap(),
+            );
+            (single.serialize_to_vec().unwrap(), flat_type)
+        }
+        TupleInput::Duplicate => (hex_bytes(DUPLICATE_FIELDS).unwrap(), flat_type),
+        TupleInput::DuplicateWithUnknown => {
+            (hex_bytes(DUPLICATE_WITH_UNKNOWN_FIELD).unwrap(), flat_type)
+        }
+        TupleInput::TrailingBytes => {
+            let mut bytes = well_formed_tuple().serialize_to_vec().unwrap();
+            bytes.push(0x00);
+            (bytes, flat_type)
+        }
+        TupleInput::NestedOptionDuplicate => (
+            hex_bytes(&format!("0a{DUPLICATE_FIELDS}")).unwrap(),
+            TypeSignature::new_option(flat_type).unwrap(),
+        ),
+        TupleInput::NestedTupleDuplicate => {
+            // `0x78` = field name "x"; its value is the inner duplicate tuple.
+            let outer_type = TypeSignature::TupleType(
+                TupleTypeSignature::try_from(vec![(ClarityName::from_literal("x"), flat_type)])
+                    .unwrap(),
+            );
+            (
+                hex_bytes(&format!("0c000000010178{DUPLICATE_FIELDS}")).unwrap(),
+                outer_type,
+            )
+        }
+    }
+}
+
+fn assert_deserialization_outcome(result: Result<Value, SerializationError>, expect: Expect) {
+    match expect {
+        Expect::WellFormed => assert_eq!(result.unwrap(), well_formed_tuple()),
+        Expect::Reduced => assert_eq!(result.unwrap().serialize_to_hex().unwrap(), REDUCED_TUPLE),
+        Expect::NestedOptionReduced => {
+            assert_eq!(
+                result.unwrap().serialize_to_hex().unwrap(),
+                format!("0a{REDUCED_TUPLE}")
+            )
+        }
+        Expect::NestedTupleReduced => {
+            assert_eq!(
+                result.unwrap().serialize_to_hex().unwrap(),
+                format!("0c000000010178{REDUCED_TUPLE}")
+            )
+        }
+        Expect::ErrFieldCount => assert!(
+            matches!(result, Err(SerializationError::DeserializeExpected(_))),
+            "expected a field-count rejection, got {result:?}"
+        ),
+        Expect::ErrIllegalTuple => assert!(
+            matches!(result, Err(SerializationError::DeserializationFailure(_))),
+            "expected a duplicate-field rejection, got {result:?}"
+        ),
+        Expect::ErrTrailingBytes => assert!(
+            matches!(
+                result,
+                Err(SerializationError::LeftoverBytesInDeserialization)
+            ),
+            "expected a trailing-bytes rejection, got {result:?}"
+        ),
+    }
+}
+
+/// Strict tuple-field enforcement are gated to Epoch 4.1+.
+#[rstest]
+#[case::well_formed_unsanitized(TupleInput::WellFormed, StacksEpochId::Epoch21, Expect::WellFormed)]
+#[case::well_formed_legacy_sanitized(
+    TupleInput::WellFormed,
+    StacksEpochId::Epoch40,
+    Expect::WellFormed
+)]
+#[case::well_formed_strict(TupleInput::WellFormed, StacksEpochId::Epoch41, Expect::WellFormed)]
+#[case::wider_unsanitized_rejected(
+    TupleInput::Wider,
+    StacksEpochId::Epoch21,
+    Expect::ErrFieldCount
+)]
+#[case::wider_sanitized_away_legacy(TupleInput::Wider, StacksEpochId::Epoch40, Expect::WellFormed)]
+#[case::wider_sanitized_away_strict(TupleInput::Wider, StacksEpochId::Epoch41, Expect::WellFormed)]
+#[case::missing_field_unsanitized(
+    TupleInput::MissingField,
+    StacksEpochId::Epoch21,
+    Expect::ErrFieldCount
+)]
+#[case::missing_field_strict(
+    TupleInput::MissingField,
+    StacksEpochId::Epoch41,
+    Expect::ErrFieldCount
+)]
+#[case::duplicate_unsanitized_legacy(
+    TupleInput::Duplicate,
+    StacksEpochId::Epoch21,
+    Expect::Reduced
+)]
+#[case::duplicate_sanitized_legacy(TupleInput::Duplicate, StacksEpochId::Epoch40, Expect::Reduced)]
+#[case::duplicate_strict_rejected(
+    TupleInput::Duplicate,
+    StacksEpochId::Epoch41,
+    Expect::ErrIllegalTuple
+)]
+#[case::duplicate_unknown_unsanitized(
+    TupleInput::DuplicateWithUnknown,
+    StacksEpochId::Epoch21,
+    Expect::ErrFieldCount
+)]
+#[case::duplicate_unknown_sanitized_legacy(
+    TupleInput::DuplicateWithUnknown,
+    StacksEpochId::Epoch40,
+    Expect::Reduced
+)]
+#[case::duplicate_unknown_strict_rejected(
+    TupleInput::DuplicateWithUnknown,
+    StacksEpochId::Epoch41,
+    Expect::ErrIllegalTuple
+)]
+#[case::trailing_bytes_legacy(
+    TupleInput::TrailingBytes,
+    StacksEpochId::Epoch40,
+    Expect::ErrTrailingBytes
+)]
+#[case::trailing_bytes_strict(
+    TupleInput::TrailingBytes,
+    StacksEpochId::Epoch41,
+    Expect::ErrTrailingBytes
+)]
+#[case::nested_option_legacy(
+    TupleInput::NestedOptionDuplicate,
+    StacksEpochId::Epoch40,
+    Expect::NestedOptionReduced
+)]
+#[case::nested_option_strict(
+    TupleInput::NestedOptionDuplicate,
+    StacksEpochId::Epoch41,
+    Expect::ErrIllegalTuple
+)]
+#[case::nested_tuple_legacy(
+    TupleInput::NestedTupleDuplicate,
+    StacksEpochId::Epoch40,
+    Expect::NestedTupleReduced
+)]
+#[case::nested_tuple_strict(
+    TupleInput::NestedTupleDuplicate,
+    StacksEpochId::Epoch41,
+    Expect::ErrIllegalTuple
+)]
+fn typed_tuple_deserialization_epoch_gated(
+    #[case] input: TupleInput,
+    #[case] epoch: StacksEpochId,
+    #[case] expect: Expect,
+) {
+    let (bytes, expected_type) = tuple_case_input(input);
+    assert_deserialization_outcome(
+        Value::try_deserialize_bytes_exact_at_epoch(&bytes, &expected_type, &epoch),
+        expect,
+    );
+}
+
+/// The hex entry point backing the DB read path shares the same epoch gate.
+#[rstest]
+#[case::legacy_sanitized(StacksEpochId::Epoch40, Expect::Reduced)]
+#[case::strict_from_epoch41(StacksEpochId::Epoch41, Expect::ErrIllegalTuple)]
+fn try_deserialize_hex_at_epoch_selects_tuple_field_handling(
+    #[case] epoch: StacksEpochId,
+    #[case] expect: Expect,
+) {
+    let expected_type = TypeSignature::type_of(&well_formed_tuple()).unwrap();
+    assert_deserialization_outcome(
+        Value::try_deserialize_hex_at_epoch(DUPLICATE_FIELDS, &expected_type, &epoch),
+        expect,
+    );
+}
+
 #[test]
 fn test_vectors() {
     let tests = [
@@ -303,7 +561,7 @@ fn test_vectors() {
                     ],
                 )
                 .unwrap(),
-                "abcd".into(),
+                ContractName::from_literal("abcd"),
             )
             .into()),
         ),
@@ -334,8 +592,8 @@ fn test_vectors() {
             "0c000000020362617a0906666f6f62617203",
             Ok(Value::from(
                 TupleData::from_data(vec![
-                    ("baz".into(), Value::none()),
-                    ("foobar".into(), Value::Bool(true)),
+                    (ClarityName::from_literal("baz"), Value::none()),
+                    (ClarityName::from_literal("foobar"), Value::Bool(true)),
                 ])
                 .unwrap(),
             )),
@@ -405,7 +663,8 @@ fn test_principals() {
             .unwrap();
     let standard_p = Value::from(issuer.clone());
 
-    let contract_identifier = QualifiedContractIdentifier::new(issuer, "foo".into());
+    let contract_identifier =
+        QualifiedContractIdentifier::new(issuer, ContractName::from_literal("foo"));
     let contract_p2 = Value::from(PrincipalData::Contract(contract_identifier));
 
     test_deser_ser(contract_p2.clone());
@@ -437,4 +696,273 @@ fn test_serialize_to_hex_returns_serialization_failure() {
         SerializationError::SerializationFailure(ClarityTypeError::ValueTooLarge.to_string()),
         err
     );
+}
+
+/// Truncating after the first entry's value makes the unwind loop hit EOF
+/// while reading the next key of a partially-filled tuple frame.
+#[test]
+fn test_tuple_truncated_at_next_key_errors() {
+    let tuple = Value::from(
+        TupleData::from_data(vec![
+            (
+                ClarityName::try_from("a".to_string()).unwrap(),
+                Value::Bool(true),
+            ),
+            (
+                ClarityName::try_from("b".to_string()).unwrap(),
+                Value::Bool(false),
+            ),
+        ])
+        .unwrap(),
+    );
+    let mut bytes = vec![];
+    tuple.serialize_write(&mut bytes).unwrap();
+
+    // tuple prefix (1) + entry count (4) + key "a" (1-byte len + 1) +
+    // BoolTrue prefix (1) = 8 bytes; cut right before key "b".
+    bytes.truncate(8);
+
+    match Value::deserialize_read(&mut bytes.as_slice(), None, false) {
+        Ok(value) => panic!("accidentally parsed truncated tuple: {value}"),
+        Err(SerializationError::IOError(e)) => {
+            assert_eq!(e.err.kind(), std::io::ErrorKind::UnexpectedEof);
+        }
+        Err(other) => panic!("expected IOError(UnexpectedEof), got {other:?}"),
+    }
+}
+
+/// A contract principal whose name is `name_len` bytes long.
+fn contract_principal_with_name_len(name_len: usize) -> Value {
+    Value::Principal(PrincipalData::Contract(QualifiedContractIdentifier::new(
+        StandardPrincipalData::transient(),
+        ContractName::try_from("a".repeat(name_len)).unwrap(),
+    )))
+}
+
+/// `from-consensus-buff?` decodes through `try_deserialize_bytes_exact_at_epoch`,
+/// which enforces the 40-byte contract-name limit from Epoch 4.1.
+#[rstest]
+#[case::max_len_legacy(40, StacksEpochId::Epoch40, true)]
+#[case::max_len_strict(40, StacksEpochId::Epoch41, true)]
+#[case::overlong_legacy(41, StacksEpochId::Epoch40, true)]
+#[case::overlong_strict(41, StacksEpochId::Epoch41, false)]
+#[case::max_string_len_legacy(128, StacksEpochId::Epoch40, true)]
+#[case::max_string_len_strict(128, StacksEpochId::Epoch41, false)]
+fn test_exact_at_epoch_contract_name_limit(
+    #[case] name_len: usize,
+    #[case] epoch: StacksEpochId,
+    #[case] accepted: bool,
+) {
+    // Nest the principal so the check is exercised below the top level.
+    let value = Value::some(contract_principal_with_name_len(name_len)).unwrap();
+    let bytes = value.serialize_to_vec().unwrap();
+    let expected_type = TypeSignature::type_of(&value).unwrap();
+
+    let result = Value::try_deserialize_bytes_exact_at_epoch(&bytes, &expected_type, &epoch);
+    if accepted {
+        assert_eq!(value, result.unwrap());
+    } else {
+        assert_eq!(
+            SerializationError::DeserializationFailure("Contract name too long".into()),
+            result.unwrap_err()
+        );
+    }
+}
+
+/// Chainstate reads go through `try_deserialize_bytes_at_epoch`, which must keep
+/// accepting long names stored before Epoch 4.1.
+#[test]
+fn test_at_epoch_reads_accept_legacy_contract_names() {
+    let value = contract_principal_with_name_len(128);
+    let bytes = value.serialize_to_vec().unwrap();
+    let decoded = Value::try_deserialize_bytes_at_epoch(
+        &bytes,
+        &TypeSignature::PrincipalType,
+        &StacksEpochId::Epoch41,
+    )
+    .unwrap();
+    assert_eq!(value, decoded);
+}
+
+#[rstest]
+#[case::standard(
+    Value::Principal(PrincipalData::Standard(StandardPrincipalData::transient())),
+    false
+)]
+#[case::max_len(contract_principal_with_name_len(40), false)]
+#[case::overlong(contract_principal_with_name_len(41), true)]
+#[case::in_list(
+    Value::cons_list_unsanitized(vec![
+        contract_principal_with_name_len(40),
+        contract_principal_with_name_len(41),
+    ]).unwrap(),
+    true
+)]
+#[case::in_tuple(
+    Value::from(TupleData::from_data(vec![(
+        ClarityName::from_literal("p"),
+        Value::okay(contract_principal_with_name_len(41)).unwrap(),
+    )]).unwrap()),
+    true
+)]
+#[case::string(Value::string_ascii_from_bytes("a".repeat(41).into_bytes()).unwrap(), false)]
+fn test_contains_overlong_contract_name(#[case] value: Value, #[case] expected: bool) {
+    assert_eq!(expected, value.contains_overlong_contract_name().unwrap());
+}
+
+#[test]
+fn test_contains_overlong_contract_name_depth_bound() {
+    // Build past MAX_TYPE_DEPTH directly, bypassing the constructors' depth checks.
+    let mut value = contract_principal_with_name_len(40);
+    for _ in 0..MAX_TYPE_DEPTH {
+        value = Value::Optional(OptionalData {
+            data: Some(Box::new(value)),
+        });
+    }
+    assert_eq!(
+        ClarityTypeError::TypeSignatureTooDeep,
+        value.contains_overlong_contract_name().unwrap_err()
+    );
+
+    // Exactly MAX_TYPE_DEPTH is allowed.
+    let Value::Optional(OptionalData { data: Some(inner) }) = value else {
+        unreachable!()
+    };
+    assert!(!inner.contains_overlong_contract_name().unwrap());
+}
+
+fn zero_buff(len: usize) -> Value {
+    Value::buff_from(vec![0; len]).unwrap()
+}
+
+fn uint_tuple(fields: &[&str]) -> Value {
+    let fields = fields
+        .iter()
+        .map(|name| {
+            (
+                ClarityName::try_from(name.to_string()).unwrap(),
+                Value::UInt(1),
+            )
+        })
+        .collect();
+    Value::Tuple(TupleData::from_data(fields).unwrap())
+}
+
+fn type_of(value: &Value) -> TypeSignature {
+    TypeSignature::type_of(value).unwrap()
+}
+
+/// A `(list 10 uint)` holding one item: its `type_signature` is wider than its contents.
+fn wide_uint_list() -> Value {
+    Value::list_with_type(
+        &StacksEpochId::Epoch41,
+        vec![Value::UInt(1)],
+        ListTypeData::new_list(TypeSignature::UIntType, 10).unwrap(),
+    )
+    .unwrap()
+}
+
+fn ascii(text: &str) -> Value {
+    Value::string_ascii_from_bytes(text.as_bytes().to_vec()).unwrap()
+}
+
+fn utf8(text: &str) -> Value {
+    Value::string_utf8_from_bytes(text.as_bytes().to_vec()).unwrap()
+}
+
+fn standard_principal() -> Value {
+    Value::Principal(PrincipalData::Standard(StandardPrincipalData::transient()))
+}
+
+fn contract_principal() -> Value {
+    Value::Principal(PrincipalData::Contract(
+        QualifiedContractIdentifier::transient(),
+    ))
+}
+
+fn trait_id(name: &str) -> TraitIdentifier {
+    TraitIdentifier {
+        name: ClarityName::try_from(name.to_string()).unwrap(),
+        contract_identifier: QualifiedContractIdentifier::transient(),
+    }
+}
+
+fn trait_type(name: &str) -> TypeSignature {
+    TypeSignature::CallableType(CallableSubtype::Trait(trait_id(name)))
+}
+
+fn callable_contract(trait_identifier: Option<TraitIdentifier>) -> Value {
+    Value::CallableContract(CallableData {
+        contract_identifier: QualifiedContractIdentifier::transient(),
+        trait_identifier: trait_identifier.map(Box::new),
+    })
+}
+
+/// Sanitizes `value` with both `sanitize_value` and `sanitize_value_or_return`, checks
+/// that they agree, and returns the result.
+fn sanitize_both_ways(
+    epoch: StacksEpochId,
+    expected: &TypeSignature,
+    value: Value,
+) -> Result<Value, Value> {
+    let sanitized = Value::sanitize_value(&epoch, expected, value.clone())
+        .map(|(sanitized, _)| sanitized)
+        .ok_or(value.clone());
+    let result = Value::sanitize_value_or_return(&epoch, expected, value);
+    assert_eq!(result, sanitized);
+    // `Value` equality ignores the `type_signature` of lists and tuples, which feeds costs.
+    let type_signature = |result: &Result<Value, Value>| match result {
+        Ok(value) | Err(value) => type_of(value),
+    };
+    assert_eq!(type_signature(&result), type_signature(&sanitized));
+    result
+}
+
+/// `sanitize_value_or_return` admits what `sanitize_value` admits. Each value it checks
+/// without calling `sanitize_value` has a case here and one in
+/// `test_sanitize_value_or_return_rejects`, to help catch an arm in `sanitize_value`
+/// that treats one of them differently.
+#[rstest]
+#[case::int(Value::Int(-1), TypeSignature::IntType)]
+#[case::uint(Value::UInt(1), TypeSignature::UIntType)]
+#[case::bool(Value::Bool(true), TypeSignature::BoolType)]
+#[case::standard_principal(standard_principal(), TypeSignature::PrincipalType)]
+#[case::contract_principal(contract_principal(), TypeSignature::PrincipalType)]
+#[case::callable_contract(callable_contract(None), TypeSignature::PrincipalType)]
+#[case::callable_contract_with_trait(callable_contract(Some(trait_id("a"))), trait_type("a"))]
+#[case::buffer(zero_buff(3), type_of(&zero_buff(4)))]
+#[case::ascii(ascii("ab"), type_of(&ascii("abc")))]
+#[case::utf8(utf8("é"), type_of(&utf8("éé")))]
+#[case::list_wide_type_signature(wide_uint_list(), type_of(&wide_uint_list()))]
+#[case::tuple_extra_field(uint_tuple(&["a", "b"]), type_of(&uint_tuple(&["a"])))]
+fn test_sanitize_value_or_return_admits(#[case] value: Value, #[case] expected: TypeSignature) {
+    assert!(sanitize_both_ways(StacksEpochId::Epoch24, &expected, value).is_ok());
+}
+
+/// `sanitize_value_or_return` rejects what `sanitize_value` rejects, and hands the
+/// original value back.
+#[rstest]
+#[case::int(Value::Int(-1), TypeSignature::UIntType)]
+#[case::uint(Value::UInt(1), TypeSignature::IntType)]
+#[case::bool(Value::Bool(true), TypeSignature::UIntType)]
+#[case::principal(standard_principal(), TypeSignature::UIntType)]
+#[case::callable_contract(callable_contract(None), TypeSignature::UIntType)]
+#[case::callable_contract_other_trait(callable_contract(Some(trait_id("a"))), trait_type("b"))]
+#[case::buffer_too_long(zero_buff(3), type_of(&zero_buff(2)))]
+#[case::ascii_too_long(ascii("abc"), type_of(&ascii("ab")))]
+#[case::utf8_too_long(utf8("éé"), type_of(&utf8("é")))]
+#[case::tuple_missing_field(uint_tuple(&["a"]), type_of(&uint_tuple(&["a", "b"])))]
+fn test_sanitize_value_or_return_rejects(#[case] value: Value, #[case] expected: TypeSignature) {
+    assert!(sanitize_both_ways(StacksEpochId::Epoch24, &expected, value).is_err());
+}
+
+/// Before 2.4 nothing is sanitized, so even a value of the wrong type comes back as is.
+#[test]
+fn test_sanitize_value_or_return_skips_before_2_4() {
+    let result = sanitize_both_ways(
+        StacksEpochId::Epoch23,
+        &TypeSignature::IntType,
+        Value::UInt(1),
+    );
+    assert_eq!(result, Ok(Value::UInt(1)));
 }

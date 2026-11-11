@@ -1,0 +1,1 @@
+Upgraded `rusqlite` from 0.31 to 0.41 for `libsqlite3-sys` (now 0.39.1). The bundled SQLite version moves from 3.45.0 to 3.54.1.

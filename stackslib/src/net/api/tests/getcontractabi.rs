@@ -17,11 +17,14 @@
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 
 use clarity::types::chainstate::StacksBlockId;
+use clarity::vm::analysis::contract_interface_builder::build_contract_interface;
+use clarity::vm::analysis::mem_type_check;
 use clarity::vm::types::QualifiedContractIdentifier;
+use clarity::vm::ClarityVersion;
 use stacks_common::types::chainstate::StacksAddress;
-use stacks_common::types::Address;
+use stacks_common::types::{Address, StacksEpochId};
 
-use super::test_rpc;
+use super::{test_rpc, TEST_CONTRACT, TEST_CONTRACT_UNCONFIRMED};
 use crate::net::api::*;
 use crate::net::connection::ConnectionOptions;
 use crate::net::httpcore::{
@@ -123,6 +126,14 @@ fn test_try_make_response() {
     );
 
     let resp = response.decode_contract_abi_response().unwrap();
+    let analysis = mem_type_check(
+        TEST_CONTRACT,
+        ClarityVersion::Clarity1,
+        StacksEpochId::Epoch20,
+    )
+    .unwrap()
+    .1;
+    assert_eq!(resp, build_contract_interface(&analysis).unwrap());
 
     // unconfirmed data
     let response = responses.remove(0);
@@ -132,6 +143,14 @@ fn test_try_make_response() {
     );
 
     let resp = response.decode_contract_abi_response().unwrap();
+    let analysis = mem_type_check(
+        TEST_CONTRACT_UNCONFIRMED,
+        ClarityVersion::Clarity1,
+        StacksEpochId::Epoch20,
+    )
+    .unwrap()
+    .1;
+    assert_eq!(resp, build_contract_interface(&analysis).unwrap());
 
     // no such contract
     let response = responses.remove(0);

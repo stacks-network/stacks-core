@@ -13,6 +13,7 @@ Stacks is a layer-2 blockchain that uses Bitcoin as a base layer for security an
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg?style=flat)](https://www.gnu.org/licenses/gpl-3.0)
 [![Release](https://img.shields.io/github/v/release/stacks-network/stacks-core?style=flat)](https://github.com/stacks-network/stacks-core/releases/latest)
 [![Discord Chat](https://img.shields.io/discord/621759717756370964.svg)](https://stacks.chat)
+[![Coverage Status](https://coveralls.io/repos/github/stacks-network/stacks-core/badge.svg)](https://coveralls.io/github/stacks-network/stacks-core)
 
 ## Building
 
@@ -26,7 +27,7 @@ source $HOME/.cargo/env
 rustup component add rustfmt
 ```
 
-- When building the [`master`](https://github.com/stacks-network/stacks-core/tree/master) branch, ensure you are using the latest stable release:
+- When building the [`main`](https://github.com/stacks-network/stacks-core/tree/main) branch, ensure you are using the latest stable release:
 
 ```bash
 rustup update

@@ -1,0 +1,1 @@
+Removed the `stackslib::chainstate::stacks::index` module; the MARF now lives in the `stacks-marf` crate. Downstream library consumers should import from `stacks_marf` instead. There is no functional change.

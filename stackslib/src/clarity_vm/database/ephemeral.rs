@@ -23,19 +23,18 @@ use clarity::vm::database::sqlite::{
 use clarity::vm::database::{ClarityBackingStore, SpecialCaseHandler, SqliteConnection};
 use clarity::vm::errors::{RuntimeError, VmExecutionError, VmInternalError};
 use clarity::vm::types::QualifiedContractIdentifier;
-use rusqlite;
-use rusqlite::Connection;
+use rusqlite::{self, Connection};
 use stacks_common::codec::StacksMessageCodec;
 use stacks_common::types::chainstate::{BlockHeaderHash, StacksBlockId, TrieHash};
 use stacks_common::types::sqlite::NO_PARAMS;
+use stacks_marf::marf::{MarfConnection, MarfTransaction, MARF};
+use stacks_marf::{Error, MARFValue};
 
-use crate::chainstate::stacks::index::marf::{MarfConnection, MarfTransaction, MARF};
-use crate::chainstate::stacks::index::{Error, MARFValue};
 use crate::clarity_vm::clarity::{
     ClarityMarfStore, ClarityMarfStoreTransaction, WritableMarfStore,
 };
 use crate::clarity_vm::database::marf::ReadOnlyMarfStore;
-use crate::clarity_vm::special::handle_contract_call_special_cases;
+use crate::clarity_vm::special::special_cases_handler_for;
 use crate::core::{FIRST_BURNCHAIN_CONSENSUS_HASH, FIRST_STACKS_BLOCK_HASH};
 
 /// Ephemeral MARF store.
@@ -139,27 +138,15 @@ impl ClarityMarfStoreTransaction for EphemeralMarfStore<'_> {
         Ok(())
     }
 
-    /// "Commit" the ephemeral MARF as if it were to be written to the `mined_blocks` table,
-    /// and consume this instance.  This is effectively a no-op since
-    /// nothing will hit disk, and all written data will be dropped.  However, we go through the
-    /// motions just in case any errors would be reported.
-    ///
-    /// Returns Ok(()) on success
-    /// Returns Err(VmInternalError(..)) on sqlite failure
-    fn commit_to_mined_block(mut self, target: &StacksBlockId) -> Result<(), VmExecutionError> {
+    /// Finish speculative execution without saving a trie; all writes remain ephemeral.
+    fn finish_block_proposal(mut self) -> Result<(), VmExecutionError> {
         if let Some(tip) = self.ephemeral_marf.get_open_chain_tip().cloned() {
-            // rollback the side_store
-            //    the side_store shouldn't commit data for blocks that won't be
-            //    included in the processed chainstate (like a block constructed during mining)
-            //    _if_ for some reason, we do want to be able to access that mined chain state in the future,
-            //    we should probably commit the data to a different table which does not have uniqueness constraints.
             self.drop_metadata_for_trie(&tip)?;
-            let _ = self.ephemeral_marf.commit_mined(target).map_err(|e| {
-                error!("Failed to commit to mined MARF block {target}: {e:?}",);
-                VmInternalError::Expect("Failed to commit to MARF block".into())
-            })?;
         }
-        Ok(())
+
+        self.ephemeral_marf
+            .discard_trie_and_commit()
+            .map_err(|e| VmInternalError::MarfFailure(e.to_string()).into())
     }
 
     /// "Commit" unconfirmed data to the ephemeral MARF as if it were to be written to unconfiremd
@@ -183,14 +170,14 @@ impl ClarityMarfStoreTransaction for EphemeralMarfStore<'_> {
 /// The tip can point to a block in the ephemeral RAM-backed MARF, or the on-disk MARF.
 #[derive(Debug, PartialEq, Clone)]
 enum EphemeralTip {
-    RAM(StacksBlockId),
+    Ram(StacksBlockId),
     Disk(StacksBlockId),
 }
 
 impl EphemeralTip {
     fn into_block_id(self) -> StacksBlockId {
         match self {
-            Self::RAM(tip) => tip,
+            Self::Ram(tip) => tip,
             Self::Disk(tip) => tip,
         }
     }
@@ -231,7 +218,7 @@ impl<'a> EphemeralMarfStore<'a> {
             .ok_or(Error::NotFoundError)?
             .clone();
         let ephemeral_marf_store = Self {
-            open_tip: EphemeralTip::RAM(ephemeral_tip),
+            open_tip: EphemeralTip::Ram(ephemeral_tip),
             base_tip: read_only_marf.get_chain_tip().clone(),
             base_tip_height,
             ephemeral_marf: ephemeral_marf_tx,
@@ -350,7 +337,7 @@ impl<'a> EphemeralMarfStore<'a> {
         MarfGetter: FnOnce(&mut ReadOnlyMarfStore, Key) -> Result<Option<V>, VmExecutionError>,
         Key: std::fmt::Debug + Copy,
     {
-        let value_opt = if let EphemeralTip::RAM(tip) = &self.open_tip {
+        let value_opt = if let EphemeralTip::Ram(tip) = &self.open_tip {
             // try the ephemeral MARF first
             tx_getter(&mut self.ephemeral_marf, tip, key)?
         } else {
@@ -386,8 +373,8 @@ impl ClarityBackingStore for EphemeralMarfStore<'_> {
 
             // update ephemeral MARF open tip
             let old_tip =
-                mem::replace(&mut self.open_tip, EphemeralTip::RAM(bhh.clone())).into_block_id();
-            self.open_tip = EphemeralTip::RAM(bhh);
+                mem::replace(&mut self.open_tip, EphemeralTip::Ram(bhh.clone())).into_block_id();
+            self.open_tip = EphemeralTip::Ram(bhh);
             return Ok(old_tip);
         }
 
@@ -415,9 +402,12 @@ impl ClarityBackingStore for EphemeralMarfStore<'_> {
         Ok(old_tip.into_block_id())
     }
 
-    /// Get the special-case contract-call handlers (e.g. for PoX and .costs-voting)
-    fn get_cc_special_cases_handler(&self) -> Option<SpecialCaseHandler> {
-        Some(&handle_contract_call_special_cases)
+    /// Get the special-case contract-call handler (for PoX)
+    fn get_cc_special_cases_handler(
+        &self,
+        contract: &QualifiedContractIdentifier,
+    ) -> Option<SpecialCaseHandler> {
+        special_cases_handler_for(contract)
     }
 
     /// Load a value associated with the give key from the MARF and its side-store.
@@ -569,7 +559,7 @@ impl ClarityBackingStore for EphemeralMarfStore<'_> {
     /// Returns Some(block-id) if there is a block at the given height.
     /// Returns None otherwise.
     fn get_block_at_height(&mut self, height: u32) -> Option<StacksBlockId> {
-        let block_id_opt = if let EphemeralTip::RAM(tip) = &self.open_tip {
+        let block_id_opt = if let EphemeralTip::Ram(tip) = &self.open_tip {
             // careful -- the ephemeral MARF's height 0 corresponds to the base tip height
             if height > self.base_tip_height {
                 self.ephemeral_marf
@@ -603,7 +593,7 @@ impl ClarityBackingStore for EphemeralMarfStore<'_> {
     /// If the tip points to the ephemeral MARF, then use that MARF.
     /// Otherwise, use the disk-backed one.
     fn get_open_chain_tip(&mut self) -> StacksBlockId {
-        if let EphemeralTip::RAM(..) = &self.open_tip {
+        if let EphemeralTip::Ram(..) = &self.open_tip {
             return self
                 .ephemeral_marf
                 .get_open_chain_tip()
@@ -618,7 +608,7 @@ impl ClarityBackingStore for EphemeralMarfStore<'_> {
     /// If the tip points to the ephemeral MARF, then use that MARF.
     /// Otherwise, use the disk-backed one.
     fn get_open_chain_tip_height(&mut self) -> u32 {
-        if let EphemeralTip::RAM(..) = &self.open_tip {
+        if let EphemeralTip::Ram(..) = &self.open_tip {
             return self
                 .ephemeral_marf
                 .get_open_chain_tip_height()
@@ -634,7 +624,7 @@ impl ClarityBackingStore for EphemeralMarfStore<'_> {
     /// If the tip points to the ephemeral MARF, then use that MARF.
     /// Otherwise, use the disk-backed one.
     fn get_current_block_height(&mut self) -> u32 {
-        let height_opt = if let EphemeralTip::RAM(tip) = &self.open_tip {
+        let height_opt = if let EphemeralTip::Ram(tip) = &self.open_tip {
             match self.ephemeral_marf.get_block_height_of(tip, tip) {
                 Ok(Some(x)) => Some(x + self.base_tip_height + 1),
                 Ok(None) => {

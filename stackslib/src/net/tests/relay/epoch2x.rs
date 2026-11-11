@@ -20,11 +20,13 @@ use clarity::vm::ast::stack_depth_checker::StackDepthLimits;
 use clarity::vm::costs::ExecutionCost;
 use clarity::vm::types::{QualifiedContractIdentifier, StacksAddressExtensions};
 use clarity::vm::ClarityVersion;
+use pinny::tag;
+use proptest::prelude::*;
 use rand::{thread_rng, Rng};
 use stacks_common::address::AddressHashMode;
 use stacks_common::types::chainstate::{BlockHeaderHash, StacksBlockId};
 use stacks_common::types::Address;
-use stacks_common::util::hash::{MerkleTree, Sha512Trunc256Sum};
+use stacks_common::util::hash::{Hash160, MerkleTree, Sha512Trunc256Sum};
 use stacks_common::util::vrf::VRFProof;
 
 use crate::burnchains::tests::TestMiner;
@@ -54,14 +56,11 @@ use crate::util_lib::test::*;
 #[test]
 fn test_sample_neighbors() {
     let neighbors: Vec<_> = (0..10)
-        .map(|i| {
-            let nk = NeighborKey {
-                peer_version: 12345,
-                network_id: 0x80000000,
-                addrbytes: PeerAddress([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0xff, 0xff, 127, 0, 0, 1]),
-                port: i,
-            };
-            nk
+        .map(|i| NeighborKey {
+            peer_version: 12345,
+            network_id: 0x80000000,
+            addrbytes: PeerAddress([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0xff, 0xff, 127, 0, 0, 1]),
+            port: i,
         })
         .collect();
 
@@ -190,8 +189,8 @@ fn test_relayer_stats_add_relyed_messages() {
         MAX_RECENT_MESSAGES
     );
 
-    for i in (all_transactions.len() - MAX_RECENT_MESSAGES)..MAX_RECENT_MESSAGES {
-        let digest = all_transactions[i].get_digest();
+    for transaction in all_transactions.iter().rev().take(MAX_RECENT_MESSAGES) {
+        let digest = transaction.get_digest();
         let mut found = false;
         for (_, hash) in relay_stats.recent_messages.get(&nk).unwrap().iter() {
             found = found || (*hash == digest);
@@ -506,206 +505,6 @@ fn test_relay_outbound_peer_rankings() {
     assert_eq!(*ranking.get(&nk_3).unwrap(), 4 - 2 + 1);
 }
 
-#[test]
-#[ignore]
-fn test_get_blocks_and_microblocks_3_peers_push_available() {
-    with_timeout(600, || {
-        run_get_blocks_and_microblocks(
-            "test_get_blocks_and_microblocks_3_peers_push_available",
-            4200,
-            3,
-            |ref mut peer_configs| {
-                // build initial network topology.
-                assert_eq!(peer_configs.len(), 3);
-
-                // peer 0 produces the blocks
-                peer_configs[0].connection_opts.disable_chat_neighbors = true;
-
-                // peer 1 downloads the blocks from peer 0, and sends
-                // BlocksAvailable and MicroblocksAvailable messages to
-                // peer 2.
-                peer_configs[1].connection_opts.disable_chat_neighbors = true;
-
-                // peer 2 learns about the blocks and microblocks from peer 1's
-                // BlocksAvaiable and MicroblocksAvailable messages, but
-                // not from inv syncs.
-                peer_configs[2].connection_opts.disable_chat_neighbors = true;
-                peer_configs[2].connection_opts.disable_inv_sync = true;
-
-                // disable nat punches -- disconnect/reconnect
-                // clears inv state
-                peer_configs[0].connection_opts.disable_natpunch = true;
-                peer_configs[1].connection_opts.disable_natpunch = true;
-                peer_configs[2].connection_opts.disable_natpunch = true;
-
-                // do not push blocks and microblocks; only announce them
-                peer_configs[0].connection_opts.disable_block_push = true;
-                peer_configs[1].connection_opts.disable_block_push = true;
-                peer_configs[2].connection_opts.disable_block_push = true;
-
-                peer_configs[0].connection_opts.disable_microblock_push = true;
-                peer_configs[1].connection_opts.disable_microblock_push = true;
-                peer_configs[2].connection_opts.disable_microblock_push = true;
-
-                // generous timeouts
-                peer_configs[0].connection_opts.connect_timeout = 180;
-                peer_configs[1].connection_opts.connect_timeout = 180;
-                peer_configs[2].connection_opts.connect_timeout = 180;
-                peer_configs[0].connection_opts.timeout = 180;
-                peer_configs[1].connection_opts.timeout = 180;
-                peer_configs[2].connection_opts.timeout = 180;
-
-                let peer_0 = peer_configs[0].to_neighbor();
-                let peer_1 = peer_configs[1].to_neighbor();
-                let peer_2 = peer_configs[2].to_neighbor();
-
-                peer_configs[0].add_neighbor(&peer_1);
-                peer_configs[1].add_neighbor(&peer_0);
-                peer_configs[2].add_neighbor(&peer_1);
-            },
-            |num_blocks, ref mut peers| {
-                let tip = SortitionDB::get_canonical_burn_chain_tip(peers[0].sortdb_ref().conn())
-                    .unwrap();
-                let this_reward_cycle = peers[0]
-                    .config
-                    .chain_config
-                    .burnchain
-                    .block_height_to_reward_cycle(tip.block_height)
-                    .unwrap();
-
-                // build up block data to replicate
-                let mut block_data = vec![];
-                for _ in 0..num_blocks {
-                    // only produce blocks for a single reward
-                    // cycle, since pushing block/microblock
-                    // announcements in reward cycles the remote
-                    // peer doesn't know about won't work.
-                    let tip =
-                        SortitionDB::get_canonical_burn_chain_tip(peers[0].sortdb_ref().conn())
-                            .unwrap();
-                    if peers[0]
-                        .config
-                        .chain_config
-                        .burnchain
-                        .block_height_to_reward_cycle(tip.block_height)
-                        .unwrap()
-                        != this_reward_cycle
-                    {
-                        continue;
-                    }
-
-                    let (mut burn_ops, stacks_block, microblocks) = peers[0].make_default_tenure();
-
-                    let (_, burn_header_hash, consensus_hash) =
-                        peers[0].next_burnchain_block(burn_ops.clone());
-                    peers[0].process_stacks_epoch_at_tip(&stacks_block, &microblocks);
-
-                    TestPeer::set_ops_burn_header_hash(&mut burn_ops, &burn_header_hash);
-
-                    for i in 1..peers.len() {
-                        peers[i].next_burnchain_block_raw(burn_ops.clone());
-                    }
-
-                    let sn =
-                        SortitionDB::get_canonical_burn_chain_tip(peers[0].sortdb_ref().conn())
-                            .unwrap();
-                    block_data.push((
-                        sn.consensus_hash.clone(),
-                        Some(stacks_block),
-                        Some(microblocks),
-                    ));
-                }
-
-                assert_eq!(block_data.len(), 5);
-
-                block_data
-            },
-            |ref mut peers| {
-                // make sure peer 2's inv has an entry for peer 1, even
-                // though it's not doing an inv sync. This is required for the downloader to
-                // work, and for (Micro)BlocksAvailable messages to be accepted
-                let peer_1_nk = peers[1].to_neighbor().addr;
-                let peer_2_nk = peers[2].to_neighbor().addr;
-                let bc = peers[1].config.chain_config.burnchain.clone();
-                match peers[2].network.inv_state {
-                    Some(ref mut inv_state) => {
-                        if inv_state.get_stats(&peer_1_nk).is_none() {
-                            test_debug!("initialize inv statistics for peer 1 in peer 2");
-                            inv_state.add_peer(peer_1_nk.clone(), true);
-                            if let Some(ref mut stats) = inv_state.get_stats_mut(&peer_1_nk) {
-                                stats.scans = 1;
-                                stats.inv.merge_pox_inv(&bc, 0, 6, vec![0xff], false);
-                                stats.inv.merge_blocks_inv(
-                                    0,
-                                    30,
-                                    vec![0, 0, 0, 0, 0],
-                                    vec![0, 0, 0, 0, 0],
-                                    false,
-                                );
-                            } else {
-                                panic!("Unable to instantiate inv stats for {:?}", &peer_1_nk);
-                            }
-                        } else {
-                            test_debug!("peer 2 has inv state for peer 1");
-                        }
-                    }
-                    None => {
-                        test_debug!("No inv state for peer 1");
-                    }
-                }
-
-                let tip = SortitionDB::get_canonical_burn_chain_tip(peers[0].sortdb_ref().conn())
-                    .unwrap();
-                let this_reward_cycle = peers[0]
-                    .config
-                    .chain_config
-                    .burnchain
-                    .block_height_to_reward_cycle(tip.block_height)
-                    .unwrap();
-
-                let peer_1_nk = peers[1].to_neighbor().addr;
-                match peers[2].network.inv_state {
-                    Some(ref mut inv_state) => {
-                        if inv_state.get_stats(&peer_1_nk).is_none() {
-                            test_debug!("initialize inv statistics for peer 1 in peer 2");
-                            inv_state.add_peer(peer_1_nk.clone(), true);
-
-                            inv_state
-                                .get_stats_mut(&peer_1_nk)
-                                .unwrap()
-                                .inv
-                                .num_reward_cycles = this_reward_cycle;
-                            inv_state.get_stats_mut(&peer_1_nk).unwrap().inv.pox_inv = vec![0x3f];
-                        } else {
-                            test_debug!("peer 2 has inv state for peer 1");
-                        }
-                    }
-                    None => {
-                        test_debug!("No inv state for peer 2");
-                    }
-                }
-
-                // peer 2 should never see a BlocksInv
-                // message.  That would imply it asked for an inv
-                for (_, convo) in peers[2].network.peers.iter() {
-                    assert_eq!(
-                        convo
-                            .stats
-                            .get_message_recv_count(StacksMessageID::BlocksInv),
-                        0
-                    );
-                }
-            },
-            |ref peer| {
-                // check peer health
-                // TODO
-                true
-            },
-            |_| true,
-        );
-    })
-}
-
 fn is_peer_connected(peer: &TestPeer, dest: &NeighborKey) -> bool {
     let event_id = match peer.network.events.get(dest) {
         Some(evid) => *evid,
@@ -715,12 +514,8 @@ fn is_peer_connected(peer: &TestPeer, dest: &NeighborKey) -> bool {
     };
 
     match peer.network.peers.get(&event_id) {
-        Some(convo) => {
-            return convo.is_authenticated();
-        }
-        None => {
-            return false;
-        }
+        Some(convo) => convo.is_authenticated(),
+        None => false,
     }
 }
 
@@ -752,15 +547,13 @@ fn push_message(
     };
 
     match peer.network.relay_signed_message(dest, relay_msg) {
-        Ok(_) => {
-            return true;
-        }
+        Ok(_) => true,
         Err(net_error::OutboxOverflow) => {
             test_debug!(
                 "{:?} outbox overflow; try again later",
                 &peer.to_neighbor().addr
             );
-            return false;
+            false
         }
         Err(net_error::SendError(msg)) => {
             warn!(
@@ -768,7 +561,7 @@ fn push_message(
                 &peer.to_neighbor().addr,
                 msg
             );
-            return false;
+            false
         }
         Err(e) => {
             panic!(
@@ -783,7 +576,7 @@ fn http_rpc(peer_http: u16, request: StacksHttpRequest) -> Result<StacksHttpResp
     use std::net::TcpStream;
 
     let mut sock = TcpStream::connect(
-        &format!("127.0.0.1:{}", peer_http)
+        format!("127.0.0.1:{}", peer_http)
             .parse::<SocketAddr>()
             .unwrap(),
     )
@@ -971,8 +764,8 @@ fn http_get_info(http_port: u16) -> RPCPeerInfoData {
     request.keep_alive = false;
     let getinfo = StacksHttpRequest::new(request, HttpRequestContents::new());
     let response = http_rpc(http_port, getinfo).unwrap();
-    let peer_info = response.decode_peer_info().unwrap();
-    peer_info
+
+    response.decode_peer_info().unwrap()
 }
 
 fn http_post_block(http_port: u16, consensus_hash: &ConsensusHash, block: &StacksBlock) -> bool {
@@ -1026,13 +819,10 @@ fn http_post_microblock(
     let response = http_rpc(http_port, post_microblock).unwrap();
     let payload = response.get_http_payload_ok().unwrap();
     let bhh: BlockHeaderHash = serde_json::from_value(payload.try_into().unwrap()).unwrap();
-    return true;
+    true
 }
 
-fn test_get_blocks_and_microblocks_2_peers_push_blocks_and_microblocks(
-    outbound_test: bool,
-    disable_push: bool,
-) {
+fn test_get_blocks_and_microblocks_2_peers_push_blocks_and_microblocks(outbound_test: bool) {
     with_timeout(600, move || {
         let original_blocks_and_microblocks = RefCell::new(vec![]);
         let blocks_and_microblocks = RefCell::new(vec![]);
@@ -1061,14 +851,6 @@ fn test_get_blocks_and_microblocks_2_peers_push_blocks_and_microblocks(
                 // clears inv state
                 peer_configs[0].connection_opts.disable_natpunch = true;
                 peer_configs[1].connection_opts.disable_natpunch = true;
-
-                // force usage of blocksavailable/microblocksavailable?
-                if disable_push {
-                    peer_configs[0].connection_opts.disable_block_push = true;
-                    peer_configs[0].connection_opts.disable_microblock_push = true;
-                    peer_configs[1].connection_opts.disable_block_push = true;
-                    peer_configs[1].connection_opts.disable_microblock_push = true;
-                }
 
                 let peer_0 = peer_configs[0].to_neighbor();
                 let peer_1 = peer_configs[1].to_neighbor();
@@ -1141,12 +923,9 @@ fn test_get_blocks_and_microblocks_2_peers_push_blocks_and_microblocks(
                 block_data
             },
             |ref mut peers| {
-                if !disable_push {
-                    for peer in peers.iter_mut() {
-                        // force peers to keep trying to process buffered data
-                        peer.network.burnchain_tip.burn_header_hash =
-                            BurnchainHeaderHash([0u8; 32]);
-                    }
+                for peer in peers.iter_mut() {
+                    // force peers to keep trying to process buffered data
+                    peer.network.burnchain_tip.burn_header_hash = BurnchainHeaderHash([0u8; 32]);
                 }
 
                 // make sure peer 1's inv has an entry for peer 0, even
@@ -1275,26 +1054,10 @@ fn test_get_blocks_and_microblocks_2_peers_push_blocks_and_microblocks(
 
 #[test]
 #[ignore]
-fn test_get_blocks_and_microblocks_2_peers_push_blocks_and_microblocks_outbound() {
-    // simulates node 0 pushing blocks to node 1, but node 0 is publicly routable.
-    // nodes rely on blocksavailable/microblocksavailable to discover blocks
-    test_get_blocks_and_microblocks_2_peers_push_blocks_and_microblocks(true, true)
-}
-
-#[test]
-#[ignore]
-fn test_get_blocks_and_microblocks_2_peers_push_blocks_and_microblocks_inbound() {
-    // simulates node 0 pushing blocks to node 1, where node 0 is behind a NAT
-    // nodes rely on blocksavailable/microblocksavailable to discover blocks
-    test_get_blocks_and_microblocks_2_peers_push_blocks_and_microblocks(false, true)
-}
-
-#[test]
-#[ignore]
 fn test_get_blocks_and_microblocks_2_peers_push_blocks_and_microblocks_outbound_direct() {
     // simulates node 0 pushing blocks to node 1, but node 0 is publicly routable.
     // nodes may push blocks and microblocks directly to each other
-    test_get_blocks_and_microblocks_2_peers_push_blocks_and_microblocks(true, false)
+    test_get_blocks_and_microblocks_2_peers_push_blocks_and_microblocks(true)
 }
 
 #[test]
@@ -1302,7 +1065,7 @@ fn test_get_blocks_and_microblocks_2_peers_push_blocks_and_microblocks_outbound_
 fn test_get_blocks_and_microblocks_2_peers_push_blocks_and_microblocks_inbound_direct() {
     // simulates node 0 pushing blocks to node 1, where node 0 is behind a NAT
     // nodes may push blocks and microblocks directly to each other
-    test_get_blocks_and_microblocks_2_peers_push_blocks_and_microblocks(false, false)
+    test_get_blocks_and_microblocks_2_peers_push_blocks_and_microblocks(false)
 }
 
 #[test]
@@ -1954,8 +1717,6 @@ fn test_get_blocks_and_microblocks_peers_broadcast() {
                     peer_configs[i].connection_opts.inv_sync_interval = 0;
 
                     let max_inflight = peer_configs[i].connection_opts.max_inflight_blocks;
-                    peer_configs[i].connection_opts.max_clients_per_host =
-                        ((num_peers + 1) as u64) * max_inflight;
                     peer_configs[i].connection_opts.soft_max_clients_per_host =
                         ((num_peers + 1) as u64) * max_inflight;
                     peer_configs[i].connection_opts.num_neighbors = (num_peers + 1) as u64;
@@ -2217,8 +1978,8 @@ fn test_get_blocks_and_microblocks_peers_broadcast() {
         let blocks_and_microblocks = blocks_and_microblocks.into_inner();
         let expected_txs = sent_txs.into_inner();
 
-        for i in 1..peers.len() {
-            let txs = MemPoolDB::get_all_txs(peers[i].mempool.as_ref().unwrap().conn()).unwrap();
+        for peer in peers.iter().skip(1) {
+            let txs = MemPoolDB::get_all_txs(peer.mempool.as_ref().unwrap().conn()).unwrap();
             for tx in txs.iter() {
                 let mut found = false;
                 for expected_tx in expected_txs.iter() {
@@ -2238,7 +1999,7 @@ fn test_get_blocks_and_microblocks_peers_broadcast() {
             {
                 let block_hash = block.block_hash();
                 let tx_infos = MemPoolDB::get_txs_after(
-                    peers[i].mempool.as_ref().unwrap().conn(),
+                    peer.mempool.as_ref().unwrap().conn(),
                     consensus_hash,
                     &block_hash,
                     0,
@@ -2542,23 +2303,16 @@ fn test_get_blocks_and_microblocks_2_peers_buffered_messages() {
                         - 1
                         == *i as u64
                     {
-                        let event_id = {
-                            let mut ret = 0;
-                            for (nk, event_id) in peers[1].network.events.iter() {
-                                ret = *event_id;
-                                break;
-                            }
-                            if ret == 0 {
-                                return;
-                            }
-                            ret
+                        let event_id = match peers[1].network.events.values().next().copied() {
+                            Some(0) | None => return,
+                            Some(event_id) => event_id,
                         };
                         let mut update_sortition = false;
                         for ((event_id, _neighbor_key), pending) in
                             peers[1].network.pending_messages.iter()
                         {
-                            debug!("Pending at {i} is ({event_id}, {})", pending.len());
-                            if !pending.is_empty() {
+                            debug!("Pending at {i} is ({event_id}, {})", pending.messages.len());
+                            if !pending.messages.is_empty() {
                                 update_sortition = true;
                             }
                         }
@@ -3039,7 +2793,13 @@ fn process_new_blocks_rejects_problematic_asts() {
         },
     ];
     let mut unsolicited = HashMap::new();
-    unsolicited.insert((1, nk), bad_msgs.clone());
+    unsolicited.insert(
+        (1, nk.clone()),
+        PendingMessagesFrom::new(
+            NeighborAddress::from_neighbor_key(nk, Hash160([0u8; 20])),
+            bad_msgs.clone(),
+        ),
+    );
 
     let mut network_result = NetworkResult::new(
         peer.network.stacks_tip.block_id(),
@@ -3077,22 +2837,30 @@ fn process_new_blocks_rejects_problematic_asts() {
     assert_eq!(network_result.pushed_blocks.len(), 1);
     assert_eq!(network_result.pushed_microblocks.len(), 1);
 
-    network_result
-        .blocks
-        .push((new_consensus_hash.clone(), bad_block.clone(), 123));
-    network_result
-        .confirmed_microblocks
-        .push((new_consensus_hash.clone(), vec![bad_mblock], 234));
+    network_result.blocks.push(Downloaded {
+        consensus_hash: new_consensus_hash.clone(),
+        data: bad_block.clone(),
+        download_time_secs: 123,
+    });
+    network_result.confirmed_microblocks.push(Downloaded {
+        consensus_hash: new_consensus_hash.clone(),
+        data: vec![bad_mblock],
+        download_time_secs: 234,
+    });
 
     let mut sortdb = peer.chain.sortdb.take().unwrap();
-    let (processed_blocks, processed_mblocks, relay_mblocks, bad_neighbors) =
-        Relayer::process_new_blocks(
-            &mut network_result,
-            &mut sortdb,
-            &mut peer.chain.stacks_node.as_mut().unwrap().chainstate,
-            None,
-        )
-        .unwrap();
+    let ProcessedBlocks {
+        blocks: processed_blocks,
+        confirmed_microblocks: processed_mblocks,
+        unconfirmed_microblocks: relay_mblocks,
+        bad_neighbors,
+    } = Relayer::process_new_blocks(
+        &mut network_result,
+        &mut sortdb,
+        &mut peer.chain.stacks_node.as_mut().unwrap().chainstate,
+        None,
+    )
+    .unwrap();
 
     // despite this data showing up in all aspects of the network result, none of it actually
     // gets relayed
@@ -3702,6 +3470,59 @@ fn test_block_versioned_smart_contract_mempool_rejection_until_v210() {
 
     peer.chain.sortdb = Some(sortdb);
     peer.chain.stacks_node = Some(node);
+}
+
+proptest! {
+    // Epoch34 removes the relay depth filter. The same over-limit contract
+    // must be rejected pre-Epoch34 but accepted in Epoch34. Depths 100+ avoid
+    // parser-version boundary ambiguity.
+    #[tag(t_prop)]
+    #[test]
+    fn prop_relay_depth_filter_removed_at_epoch34(
+        depth in 100usize..300,
+        pre_epoch in prop::sample::select(
+            StacksEpochId::ALL
+                .iter()
+                .copied()
+                .filter(|e| *e >= StacksEpochId::Epoch20
+                    && *e < StacksEpochId::Epoch34)
+                .collect::<Vec<_>>()
+        )
+    ) {
+        let body = format!(
+            "{} 1 {}",
+            "(+ ".repeat(depth),
+            ")".repeat(depth)
+        );
+        let tx = make_contract_tx(
+            &StacksPrivateKey::random(),
+            0,
+            100,
+            "proptest-depth",
+            &body,
+        );
+
+        // Pre-Epoch34: rejected.
+        let result_pre = Relayer::static_check_problematic_relayed_tx(
+            false, pre_epoch, &tx,
+        );
+        prop_assert!(
+            result_pre.is_err(),
+            "{:?} should reject depth {} (limit {})",
+            pre_epoch, depth,
+            StackDepthLimits::for_epoch(pre_epoch).max_nesting_depth()
+        );
+
+        // Epoch34: accepted (filter removed).
+        let result_34 = Relayer::static_check_problematic_relayed_tx(
+            false, StacksEpochId::Epoch34, &tx,
+        );
+        prop_assert!(
+            result_34.is_ok(),
+            "Epoch34 should accept depth {}: {:?}",
+            depth, result_34.err()
+        );
+    }
 }
 
 // TODO: process bans

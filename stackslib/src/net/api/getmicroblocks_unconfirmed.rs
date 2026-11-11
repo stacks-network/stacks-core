@@ -33,7 +33,7 @@ use crate::net::httpcore::{request, RPCRequestHandler, StacksHttpRequest, Stacks
 use crate::net::{Error as NetError, StacksNodeState, MAX_MICROBLOCKS_UNCONFIRMED};
 use crate::util_lib::db::DBConn;
 
-#[derive(Clone)]
+#[derive(Clone, Default)]
 pub struct RPCMicroblocksUnconfirmedRequestHandler {
     pub parent_block_id: Option<StacksBlockId>,
     pub start_sequence: Option<u16>,
@@ -168,15 +168,13 @@ impl RPCRequestHandler for RPCMicroblocksUnconfirmedRequestHandler {
                     &HttpNotFound::new(format!("No such block {:?}\n", &block_id)),
                 )
                 .try_into_contents()
-                .map_err(NetError::from)
             }
             Err(e) => {
                 // nope -- error trying to check
                 let msg = format!("Failed to load microblock: {:?}\n", &e);
                 warn!("{}", &msg);
                 return StacksHttpResponse::new_error(&preamble, &HttpServerError::new(msg))
-                    .try_into_contents()
-                    .map_err(NetError::from);
+                    .try_into_contents();
             }
         };
 
@@ -257,7 +255,7 @@ impl HttpChunkGenerator for StacksUnconfirmedMicroblockStream {
             self.finished = true;
         }
 
-        return Ok(buf);
+        Ok(buf)
     }
 }
 

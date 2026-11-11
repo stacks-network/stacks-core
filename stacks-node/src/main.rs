@@ -1,3 +1,19 @@
+// Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
+// Copyright (C) 2020-2026 Stacks Open Internet Foundation
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program.  If not, see <http://www.gnu.org/licenses/>.
+
 #[macro_use]
 extern crate serde_derive;
 #[macro_use]
@@ -17,16 +33,14 @@ pub mod monitoring;
 
 pub mod burnchains;
 pub mod event_dispatcher;
-pub mod genesis_data;
+pub mod genesis;
 pub mod globals;
 pub mod keychain;
 pub mod nakamoto_node;
 pub mod neon_node;
-pub mod node;
 pub mod operations;
 pub mod run_loop;
 pub mod syncctl;
-pub mod tenure;
 
 use std::collections::HashMap;
 use std::{env, panic, process};
@@ -36,39 +50,55 @@ use pico_args::Arguments;
 use stacks::chainstate::burn::db::sortdb::SortitionDB;
 use stacks::chainstate::burn::operations::leader_block_commit::RewardSetInfo;
 use stacks::chainstate::coordinator::{get_next_recipients, OnChainRewardSetProvider};
-use stacks::chainstate::stacks::address::PoxAddress;
 use stacks::chainstate::stacks::db::blocks::DummyEventDispatcher;
 use stacks::chainstate::stacks::db::StacksChainState;
 use stacks::config::chain_data::MinerStats;
 pub use stacks::config::{Config, ConfigFile};
+use stacks_common::alloc_tracker::{tracking_allocator_installed, TrackingAllocator};
+use stacks_common::util::db::{set_sqlite_vfs, SqliteVfs};
+use stacks_common::versions::CUSTOM_VERSION_STRING;
 #[cfg(not(any(target_os = "macos", target_os = "windows", target_arch = "arm")))]
 use tikv_jemallocator::Jemalloc;
 
-pub use self::burnchains::{
-    BitcoinRegtestController, BurnchainController, BurnchainTip, MocknetController,
-};
+pub use self::burnchains::BitcoinRegtestController;
 pub use self::event_dispatcher::EventDispatcher;
 pub use self::keychain::Keychain;
-pub use self::node::{ChainTip, Node};
-pub use self::run_loop::{helium, neon};
-pub use self::tenure::Tenure;
+pub use self::run_loop::neon;
 use crate::neon_node::{BlockMinerThread, TipCandidate};
 use crate::run_loop::boot_nakamoto;
 
 #[cfg(not(any(target_os = "macos", target_os = "windows", target_arch = "arm")))]
 #[global_allocator]
-static GLOBAL: Jemalloc = Jemalloc;
+static GLOBAL: TrackingAllocator<Jemalloc> = TrackingAllocator { inner: Jemalloc };
 
-/// Implmentation of `pick_best_tip` CLI option
-fn cli_pick_best_tip(config_path: &str, at_stacks_height: Option<u64>) -> TipCandidate {
+#[cfg(any(target_os = "macos", target_os = "windows", target_arch = "arm"))]
+#[global_allocator]
+static GLOBAL: TrackingAllocator<std::alloc::System> = TrackingAllocator {
+    inner: std::alloc::System,
+};
+
+/// Load and validate the config at `config_path`, exiting on any error.
+fn load_config_or_exit(config_path: &str) -> Config {
     info!("Loading config at path {config_path}");
-    let config = match ConfigFile::from_path(config_path) {
-        Ok(config_file) => Config::from_config_file(config_file, true).unwrap(),
+    let config_file = match ConfigFile::from_path(config_path) {
+        Ok(config_file) => config_file,
         Err(e) => {
             warn!("Invalid config file: {e}");
             process::exit(1);
         }
     };
+    match Config::from_config_file(config_file, true) {
+        Ok(config) => config,
+        Err(e) => {
+            warn!("Invalid config: {e}");
+            process::exit(1);
+        }
+    }
+}
+
+/// Implmentation of `pick_best_tip` CLI option
+fn cli_pick_best_tip(config_path: &str, at_stacks_height: Option<u64>) -> TipCandidate {
+    let config = load_config_or_exit(config_path);
     let burn_db_path = config.get_burn_db_file_path();
     let stacks_chainstate_path = config.get_chainstate_path_str();
     let burnchain = config.get_burnchain();
@@ -107,14 +137,7 @@ fn cli_get_miner_spend(
     mine_start: Option<u64>,
     at_burnchain_height: Option<u64>,
 ) -> u64 {
-    info!("Loading config at path {config_path}");
-    let config = match ConfigFile::from_path(config_path) {
-        Ok(config_file) => Config::from_config_file(config_file, true).unwrap(),
-        Err(e) => {
-            warn!("Invalid config file: {e}");
-            process::exit(1);
-        }
-    };
+    let config = load_config_or_exit(config_path);
     let keychain = Keychain::default(config.node.seed.clone());
     let burn_db_path = config.get_burn_db_file_path();
     let stacks_chainstate_path = config.get_chainstate_path_str();
@@ -153,11 +176,11 @@ fn cli_get_miner_spend(
     )
     .unwrap();
 
-    let commit_outs = if !burnchain.is_in_prepare_phase(tip.block_height + 1) {
-        RewardSetInfo::into_commit_outs(recipients, config.is_mainnet())
-    } else {
-        vec![PoxAddress::standard_burn_address(config.is_mainnet())]
-    };
+    let commit_outs = RewardSetInfo::commit_outs_for(
+        recipients,
+        burnchain.is_in_prepare_phase(tip.block_height + 1),
+        config.is_mainnet(),
+    );
 
     let spend_amount = BlockMinerThread::get_mining_spend_amount(
         &config,
@@ -265,6 +288,20 @@ fn cli_get_miner_spend(
     spend_amount
 }
 
+/// If the previous session was terminated before all the pending events had been sent,
+/// the DB will still contain them. Work through that before doing anything new.
+/// Pending events for observers that are no longer registered will be discarded.
+fn send_pending_event_payloads(conf: &Config) {
+    // This dispatcher gets a queue size of 0 to ensure that it blocks. Technically
+    // process_pending_payloads() always blocks; this is just an additional safeguard.
+    let mut event_dispatcher =
+        EventDispatcher::new_with_custom_queue_size(conf.get_working_dir(), 0);
+    for observer in &conf.events_observers {
+        event_dispatcher.register_observer(observer);
+    }
+    event_dispatcher.process_pending_payloads();
+}
+
 fn main() {
     panic::set_hook(Box::new(|panic_info| {
         error!("Process abort due to thread panic: {panic_info}");
@@ -290,7 +327,7 @@ fn main() {
     let mut args = Arguments::from_env();
     let subcommand = args.subcommand().unwrap().unwrap_or_default();
 
-    info!("{}", version());
+    info!("{}", version(); "custom_version" => CUSTOM_VERSION_STRING);
 
     let mine_start: Option<u64> = args
         .opt_value_from_str("--mine-at-height")
@@ -301,14 +338,6 @@ fn main() {
     }
 
     let config_file = match subcommand.as_str() {
-        "mocknet" => {
-            args.finish();
-            ConfigFile::mocknet()
-        }
-        "helium" => {
-            args.finish();
-            ConfigFile::helium()
-        }
         "testnet" => {
             args.finish();
             ConfigFile::xenon()
@@ -362,11 +391,7 @@ fn main() {
             let seed = {
                 let config_path: Option<String> = args.opt_value_from_str("--config").unwrap();
                 if let Some(config_path) = config_path {
-                    let conf = Config::from_config_file(
-                        ConfigFile::from_path(&config_path).unwrap(),
-                        true,
-                    )
-                    .unwrap();
+                    let conf = load_config_or_exit(&config_path);
                     args.finish();
                     conf.node.seed
                 } else {
@@ -409,9 +434,14 @@ fn main() {
             println!("Will spend {spend_amount}");
             process::exit(0);
         }
-        _ => {
+        "" | "help" => {
             print_help();
             return;
+        }
+        other => {
+            eprintln!("Unknown subcommand: {other}");
+            print_help();
+            process::exit(1);
         }
     };
 
@@ -423,28 +453,31 @@ fn main() {
         }
     };
 
+    // Must happen before the first database is opened: the VFS is fixed for the process.
+    if let Err(active) = set_sqlite_vfs(conf.node.sqlite_vfs) {
+        error!("Cannot apply node.sqlite_vfs: a database was already opened with another VFS";
+            "configured" => %conf.node.sqlite_vfs,
+            "active" => %active
+        );
+        process::exit(1);
+    }
+    if conf.node.sqlite_vfs != SqliteVfs::Default {
+        info!("Opening node databases with a non-default SQLite VFS";
+            "sqlite_vfs" => %conf.node.sqlite_vfs
+        );
+    }
+
     debug!("node configuration {:?}", &conf.node);
     debug!("burnchain configuration {:?}", &conf.burnchain);
     debug!("connection configuration {:?}", &conf.connection_options);
 
-    let num_round: u64 = 0; // Infinite number of rounds
+    send_pending_event_payloads(&conf);
 
-    if conf.burnchain.mode == "helium" || conf.burnchain.mode == "mocknet" {
-        let mut run_loop = helium::RunLoop::new(conf);
-        if let Err(e) = run_loop.start(num_round) {
-            warn!("Helium runloop exited: {e}");
-        }
-    } else if conf.burnchain.mode == "neon"
-        || conf.burnchain.mode == "nakamoto-neon"
-        || conf.burnchain.mode == "xenon"
-        || conf.burnchain.mode == "krypton"
-        || conf.burnchain.mode == "mainnet"
-    {
-        let mut run_loop = boot_nakamoto::BootRunLoop::new(conf).unwrap();
-        run_loop.start(None, 0);
-    } else {
-        println!("Burnchain mode '{}' not supported", conf.burnchain.mode);
+    if conf.memory_limit_configured() && !tracking_allocator_installed() {
+        panic!("Tracking allocator must be installed to set a memory limit");
     }
+    let mut run_loop = boot_nakamoto::BootRunLoop::new(conf).unwrap();
+    run_loop.start(None, 0);
 }
 
 fn version() -> String {
@@ -465,17 +498,6 @@ stacks-node <SUBCOMMAND>
 SUBCOMMANDS:
 
 mainnet\t\tStart a node that will join and stream blocks from the public mainnet.
-
-mocknet\t\tStart a node based on a fast local setup emulating a burnchain. Ideal for smart contract development.
-
-helium\t\tStart a node based on a local setup relying on a local instance of bitcoind.
-\t\tThe following bitcoin.conf is expected:
-\t\t  chain=regtest
-\t\t  disablewallet=0
-\t\t  txindex=1
-\t\t  server=1
-\t\t  rpcuser=helium
-\t\t  rpcpassword=helium
 
 testnet\t\tStart a node that will join and stream blocks from the public testnet, relying on Bitcoin Testnet.
 

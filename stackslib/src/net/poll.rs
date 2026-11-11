@@ -20,15 +20,13 @@ use std::net::{Shutdown, SocketAddr};
 use std::time::Duration;
 use std::{io, time};
 
-use mio::{net as mio_net, PollOpt, Ready, Token};
-use rand::RngCore;
+use mio::{self, net as mio_net, PollOpt, Ready};
+use rand::{self, RngCore};
 use stacks_common::util::sleep_ms;
-use {mio, rand};
 
 use crate::net::Error as net_error;
 
-const SERVER: Token = mio::Token(0);
-
+#[derive(Default)]
 pub struct NetworkPollState {
     pub new: HashMap<usize, mio_net::TcpStream>,
     pub ready: Vec<usize>,
@@ -46,7 +44,6 @@ impl NetworkPollState {
 // state for a single network server
 #[derive(Debug)]
 pub struct NetworkServerState {
-    addr: SocketAddr,
     server_socket: mio_net::TcpListener,
     server_event: mio::Token,
 }
@@ -82,6 +79,7 @@ impl NetworkState {
     }
 
     #[cfg_attr(test, mutants::skip)]
+    #[cfg(test)]
     pub fn num_events(&self) -> usize {
         self.event_map.len()
     }
@@ -93,6 +91,12 @@ impl NetworkState {
                 net_error::BindError
             })
         } else {
+            // Tests may bind a port that a previous listener is still releasing, so retry for a
+            // while instead of failing at once.  Give up eventually: if something else holds the
+            // port for good, the test should fail with this error rather than hang.
+            const MAX_BACKOFF_MS: u64 = 5_000;
+            const MAX_WAIT: Duration = Duration::from_secs(60);
+            let start = time::Instant::now();
             let mut backoff = 1000;
             let mut rng = rand::thread_rng();
             let mut count = 1000;
@@ -103,13 +107,17 @@ impl NetworkState {
                     }
                     Err(e) => match e.kind() {
                         io::ErrorKind::AddrInUse => {
-                            debug!(
-                                "Waiting {} millis and trying to bind {:?} again",
-                                backoff, addr
-                            );
+                            if start.elapsed() >= MAX_WAIT {
+                                error!(
+                                    "Failed to bind {addr:?}: still in use after {}s",
+                                    MAX_WAIT.as_secs()
+                                );
+                                return Err(net_error::BindError);
+                            }
+                            warn!("{addr:?} is in use; waiting {backoff} millis to bind it again");
                             sleep_ms(backoff);
-                            backoff = count + (rng.next_u64() % count);
-                            count += count;
+                            backoff = (count + (rng.next_u64() % count)).min(MAX_BACKOFF_MS);
+                            count = (count + count).min(MAX_BACKOFF_MS);
                             continue;
                         }
                         _ => {
@@ -148,7 +156,6 @@ impl NetworkState {
         })?;
 
         let network_server = NetworkServerState {
-            addr: local_addr,
             server_socket: server,
             server_event: mio::Token(next_server_event),
         };

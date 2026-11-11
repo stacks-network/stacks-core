@@ -1,10 +1,10 @@
 ---
 source: stackslib/src/chainstate/tests/runtime_analysis_tests.rs
-expression: result
+expression: result.get_expected_results()
 ---
 [
   Success(ExpectedBlockOutput(
-    marf_hash: "847643b0f429f82e39efe0557b9028e28e39fb96a44e47a413d025aa3fd49693",
+    marf_hash: "b580bad30608d6f0007f2737414c45144cf53b0de98d127c1679d19c7a49c258",
     evaluated_epoch: Epoch23,
     transactions: [
       ExpectedTransactionOutput(
@@ -32,7 +32,7 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "1e1c2a70d338329d148e1b417a2cfc785d1e0c26403cae5b97a8b49a34ba1af9",
+    marf_hash: "261beb5b164d7c64b1016821be9f3625b6fb2483a0b03e9846fe9a0a9c3df0ed",
     evaluated_epoch: Epoch24,
     transactions: [
       ExpectedTransactionOutput(
@@ -62,7 +62,7 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "571c0c7f27296ce1732975416706e9502f9c04ec2ca0fd3c9009fcab7f09288f",
+    marf_hash: "fc3875c53133c23d292ca83a23c5b4c9c6d5a957518baa14e28100dfe722c86c",
     evaluated_epoch: Epoch25,
     transactions: [
       ExpectedTransactionOutput(
@@ -92,7 +92,7 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "22b69b427d8707933848097bff4c3c4108a8c28e7b8a42f792bfc2e4bbb4468b",
+    marf_hash: "a4b1c0d6371edda020b21ed48267e319e8035b8a0ccb594017e4b31a151ef2a0",
     evaluated_epoch: Epoch30,
     transactions: [
       ExpectedTransactionOutput(
@@ -122,7 +122,7 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "e3985286d1b6361bebb65227b3c751394afd010718e802ab838ee9d471d10061",
+    marf_hash: "e7d2dfb97d06991baacaf7ae1e322b1c225cf41c399684531cca69fb6c3c484d",
     evaluated_epoch: Epoch31,
     transactions: [
       ExpectedTransactionOutput(
@@ -152,7 +152,7 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "28561492691efc4d14197ee64e9480d2b386a427b472a8dcafa5547c4fe18661",
+    marf_hash: "3f981f3ec74f18cebfcd48a4ce75fe546f95b49cabeb20d8151fecdc86eaaa2e",
     evaluated_epoch: Epoch32,
     transactions: [
       ExpectedTransactionOutput(
@@ -182,7 +182,7 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "e325646aeb312545532ec162e66287dcb0c6027c9c3dc51e2aaa7e65b7cb3a08",
+    marf_hash: "e53833268d7712f9012795fc45ceb53244bf488b941bc2caca132301628c0dbf",
     evaluated_epoch: Epoch33,
     transactions: [
       ExpectedTransactionOutput(
@@ -212,7 +212,7 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "1b2af8a682ed1c730b5e8fc99cb44c3d9ecaca3828467bb79b3d4f60cf50f1f9",
+    marf_hash: "28d520fb33f2d3cdba22ef49d72bce1ad1993ca7e480506e374918cc83abd71b",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -229,7 +229,7 @@ expression: result
           write_count: 0,
           read_length: 720,
           read_count: 3,
-          runtime: 1426,
+          runtime: 799,
         ),
       ),
     ],
@@ -238,7 +238,37 @@ expression: result
       write_count: 0,
       read_length: 720,
       read_count: 3,
-      runtime: 1426,
+      runtime: 799,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "6d6fc75ab32513effb92cfa13e3ba8dacf2591c509386b94d6026fba4d12e5a2",
+    evaluated_epoch: Epoch40,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: mixed-constant-Epoch2_3-Clarity2, function_name: trigger-error, function_args: [[]])",
+        vm_error: "Some(CouldNotDetermineType) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 0,
+          write_count: 0,
+          read_length: 720,
+          read_count: 3,
+          runtime: 799,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 0,
+      write_count: 0,
+      read_length: 720,
+      read_count: 3,
+      runtime: 799,
     ),
   )),
 ]

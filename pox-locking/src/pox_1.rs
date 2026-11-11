@@ -196,7 +196,7 @@ pub fn handle_contract_call(
         Err(e) => {
             panic!(
                 "FATAL: failed to lock {} from {} until {}: '{:?}'",
-                locked_amount, stacker, unlock_height, &e
+                locked_amount, stacker, unlock_height, e
             );
         }
     }

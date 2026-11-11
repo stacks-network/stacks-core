@@ -11,9 +11,10 @@ This crate provides the core components for working with Clarity data structures
 ## Key Features
 
 *   **Canonical Data Structures**: Rust representations for all Clarity types, including `int`, `uint`, `bool`, `principal`, `optional`, `response`, `tuple`, `list`, `buffer`, and strings.
+*   **Execution Effects**: `effects::AssetMap` records STX, fungible-token, non-fungible-token, stacking, and PoX changes without depending on the Clarity VM. `effects::AssetMapError` reports accumulation and merge failures for callers to map into their domain errors.
 *   **Consensus-Compatible Binary Codec**: Implements the binary serialization and deserialization format required by the Stacks blockchain.
 *   **Type Safety**: Includes type-checking logic (`admits`, `least_supertype`) for validating values against type signatures.
-*   **Canonical Errors**: The definitive enums for all static analysis, runtime, and internal errors that can occur during Clarity execution.
+*   **Type-level Errors**: Error types for Clarity type construction and validation (`ClarityTypeError`)
 
 ## Quick Start: Usage Examples
 
@@ -125,6 +126,7 @@ The crate implements the standard binary format for Clarity values as defined in
 This crate is designed to be minimal by default. Optional functionality is available via feature flags:
 
 *   `testing`: Enables helper functions and data structures used exclusively for unit and integration testing.
+*   `asset-map-json`: Enables JSON rendering for `effects::AssetMap`.
 *   `slog_json`: Integrates with `slog` for structured JSON logging.
 *   `wasm-web` / `wasm-deterministic`: Enables builds for WebAssembly environments with different determinism guarantees.
 

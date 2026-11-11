@@ -18,7 +18,6 @@ use std::collections::BTreeMap;
 use std::fmt;
 
 use clarity_types::ClarityTypeError;
-use clarity_types::errors::analysis::{CommonCheckErrorKind, StaticCheckErrorKind};
 pub use clarity_types::types::Value;
 pub use clarity_types::types::signatures::{
     AssetIdentifier, BufferLength, CallableSubtype, ListTypeData, SequenceSubtype, StringSubtype,
@@ -27,6 +26,7 @@ pub use clarity_types::types::signatures::{
 use stacks_common::types::StacksEpochId;
 
 use self::TypeSignature::SequenceType;
+use crate::vm::analysis::errors::{CommonCheckErrorKind, StaticCheckErrorKind};
 use crate::vm::analysis::type_checker::v2_1::{MAX_FUNCTION_PARAMETERS, MAX_TRAIT_METHODS};
 use crate::vm::costs::{CostOverflowingMath, runtime_cost};
 use crate::vm::errors::{SyntaxBindingError, SyntaxBindingErrorType};
@@ -505,36 +505,60 @@ impl TypeSignatureExt for TypeSignature {
 }
 
 impl FixedFunction {
+    /// [`Self::charged_total_type_size`] with legacy type sizes, for the
+    /// 2.05 type checker.
     pub fn total_type_size(&self) -> Result<u64, StaticCheckErrorKind> {
-        let mut function_type_size = u64::from(self.returns.type_size()?);
+        self.charged_total_type_size(&StacksEpochId::Epoch2_05)
+    }
+
+    /// [`Self::total_type_size`] to charge for in `epoch`; see
+    /// [`TypeSignature::charged_type_size`].
+    pub fn charged_total_type_size(
+        &self,
+        epoch: &StacksEpochId,
+    ) -> Result<u64, StaticCheckErrorKind> {
+        let mut function_type_size = u64::from(self.returns.charged_type_size(epoch)?);
         for arg in self.args.iter() {
-            function_type_size =
-                function_type_size.cost_overflow_add(u64::from(arg.signature.type_size()?))?;
+            function_type_size = function_type_size
+                .cost_overflow_add(u64::from(arg.signature.charged_type_size(epoch)?))?;
         }
         Ok(function_type_size)
     }
 }
 
 impl FunctionSignature {
+    /// [`Self::charged_total_type_size`] with legacy type sizes, for the
+    /// 2.05 type checker.
     pub fn total_type_size(&self) -> Result<u64, StaticCheckErrorKind> {
-        let mut function_type_size = u64::from(self.returns.type_size()?);
+        self.charged_total_type_size(&StacksEpochId::Epoch2_05)
+    }
+
+    /// [`Self::total_type_size`] to charge for in `epoch`; see
+    /// [`TypeSignature::charged_type_size`].
+    pub fn charged_total_type_size(
+        &self,
+        epoch: &StacksEpochId,
+    ) -> Result<u64, StaticCheckErrorKind> {
+        let mut function_type_size = u64::from(self.returns.charged_type_size(epoch)?);
         for arg in self.args.iter() {
             function_type_size = function_type_size
-                .cost_overflow_add(u64::from(arg.type_size()?))
+                .cost_overflow_add(u64::from(arg.charged_type_size(epoch)?))
                 .map_err(|_| StaticCheckErrorKind::CostOverflow)?;
         }
         Ok(function_type_size)
     }
 
-    pub fn check_args_trait_compliance(
+    /// Whether a function taking `args` can implement this signature: same count, and each
+    /// argument type admits the corresponding declared type.
+    pub fn check_args_trait_compliance<'a>(
         &self,
         epoch: &StacksEpochId,
-        args: Vec<TypeSignature>,
+        args: impl ExactSizeIterator<Item = &'a TypeSignature>,
     ) -> Result<bool, CommonCheckErrorKind> {
         if args.len() != self.args.len() {
             return Ok(false);
         }
-        let args_iter = self.args.iter().zip(args.iter());
+        let args_iter = self.args.iter().zip(args);
         for (expected_arg, arg) in args_iter {
             if !arg.admits_type(epoch, expected_arg)? {
                 return Ok(false);
@@ -647,15 +671,14 @@ impl fmt::Display for FunctionArg {
 
 #[cfg(test)]
 mod test {
-    use clarity_types::errors::RuntimeCheckErrorKind::*;
-    use clarity_types::errors::{ClarityTypeError, RuntimeCheckErrorKind};
-    #[cfg(test)]
+    use clarity_types::errors::ClarityTypeError;
     use rstest::rstest;
-    #[cfg(test)]
     use rstest_reuse::{self, *};
     use stacks_common::types::StacksEpochId;
 
     use super::*;
+    use crate::vm::analysis::errors::RuntimeCheckErrorKind;
+    use crate::vm::analysis::errors::RuntimeCheckErrorKind::*;
     use crate::vm::tests::test_clarity_versions;
     use crate::vm::types::QualifiedContractIdentifier;
     use crate::vm::{ClarityVersion, execute};
@@ -717,8 +740,7 @@ mod test {
             (
                 "(tuple)",
                 Unreachable(
-                    "Unexpected error type during runtime analysis: EmptyTuplesNotAllowed"
-                        .to_string(),
+                    "Unexpected error type during runtime analysis: EmptyTuplesNotAllowed".into(),
                 ),
             ),
             (

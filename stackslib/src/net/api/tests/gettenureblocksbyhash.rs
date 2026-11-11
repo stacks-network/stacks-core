@@ -30,7 +30,7 @@ use crate::net::ProtocolFamily;
 #[test]
 fn test_try_parse_request() {
     let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 33333);
-    let mut http = StacksHttp::new(addr.clone(), &ConnectionOptions::default());
+    let mut http = StacksHttp::new(addr, &ConnectionOptions::default());
 
     let request = StacksHttpRequest::new_get_tenure_blocks_by_hash(
         addr.into(),
@@ -81,8 +81,7 @@ fn test_try_make_response() {
     let mut requests = vec![];
 
     // query existing, non-empty Nakamoto tenure
-    let request =
-        StacksHttpRequest::new_get_tenure_blocks_by_hash(addr.clone().into(), &burn_header_hash);
+    let request = StacksHttpRequest::new_get_tenure_blocks_by_hash(addr.into(), &burn_header_hash);
     requests.push(request);
 
     let genesis_consensus_hash = test_observer
@@ -102,15 +101,13 @@ fn test_try_make_response() {
         .clone();
 
     // query existing, non-empty Epoch2 tenure
-    let request = StacksHttpRequest::new_get_tenure_blocks_by_hash(
-        addr.clone().into(),
-        &genesis_burn_header_hash,
-    );
+    let request =
+        StacksHttpRequest::new_get_tenure_blocks_by_hash(addr.into(), &genesis_burn_header_hash);
     requests.push(request);
 
     // query non-existant tenure
     let request = StacksHttpRequest::new_get_tenure_blocks_by_hash(
-        addr.clone().into(),
+        addr.into(),
         &BurnchainHeaderHash([0x01; 32]),
     );
     requests.push(request);
@@ -122,10 +119,8 @@ fn test_try_make_response() {
         !consensus_hashes_between.is_empty(),
         "Test requires at least one empty sortition between tenures"
     );
-    let request = StacksHttpRequest::new_get_tenure_blocks_by_hash(
-        addr.clone().into(),
-        &second.burn_header_hash,
-    );
+    let request =
+        StacksHttpRequest::new_get_tenure_blocks_by_hash(addr.into(), &second.burn_header_hash);
     requests.push(request);
 
     // query an empty sortition directly

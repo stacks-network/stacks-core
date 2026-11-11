@@ -4,8 +4,8 @@ expression: result
 ---
 [
   Success(ExpectedBlockOutput(
-    marf_hash: "0221a8b28a132a04a0a36c499529d642bf875c1ea6a8e3ccdbc2bc944e65fa5d",
-    evaluated_epoch: Epoch33,
+    marf_hash: "8b9842227991f875259cf0640e3d40b8495ea979816b6b05fb6dbc4b7391c315",
+    evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
         tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: non-existent-contract, function_name: this-function-does-not-exist, function_args: [[]])",
@@ -34,8 +34,8 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "c17e80838307c0e67c91e8af64dcd915a0987032f95573ecc3b51ccfa77d286e",
-    evaluated_epoch: Epoch34,
+    marf_hash: "46487cf249c7bb27e38e0484584061a84ead3cde7c2e2db6864128c950f292f5",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
         tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: non-existent-contract, function_name: this-function-does-not-exist, function_args: [[]])",

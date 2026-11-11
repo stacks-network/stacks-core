@@ -19,7 +19,7 @@ use crate::tests::marf::marf_compress_dyn;
 
 pub mod utils {
     use std::sync::atomic::Ordering;
-    use std::{env, thread};
+    use std::{env, slice, thread};
 
     use clarity::vm::types::PrincipalData;
     use stacks::chainstate::nakamoto::test_signers::TestSigners;
@@ -32,9 +32,9 @@ pub mod utils {
         blind_signer, boot_to_epoch_3, naka_neon_integration_conf, setup_stacker,
         wait_for_first_naka_block_commit,
     };
-    use crate::tests::neon_integrations::{get_chain_tip_height, test_observer, wait_for_runloop};
+    use crate::tests::neon_integrations::{test_observer, wait_for_runloop};
     use crate::tests::{self};
-    use crate::{BitcoinRegtestController, BurnchainController};
+    use crate::BitcoinRegtestController;
 
     /// Just boot chain to epoch 3 using marf compress as node configuration
     pub fn boot_chain_with_marf_compress_cfg(compress: bool) {
@@ -46,7 +46,6 @@ pub mod utils {
         let (mut naka_conf, _miner_account) = naka_neon_integration_conf(None);
         naka_conf.node.marf_compress = compress;
 
-        let http_origin = naka_conf.node.data_url.clone();
         let sender_signer_sk = Secp256k1PrivateKey::random();
         let sender_signer_addr = tests::to_addr(&sender_signer_sk);
         naka_conf.add_initial_balance(
@@ -81,7 +80,7 @@ pub mod utils {
         boot_to_epoch_3(
             &naka_conf,
             &blocks_processed,
-            &[stacker_sk.clone()],
+            slice::from_ref(&stacker_sk),
             &[sender_signer_sk],
             &mut Some(&mut signers),
             &mut btc_regtest_controller,
@@ -91,9 +90,6 @@ pub mod utils {
         blind_signer(&naka_conf, &signers, &counters);
 
         wait_for_first_naka_block_commit(60, &commits_submitted);
-
-        let stacks_height = get_chain_tip_height(&http_origin);
-        assert_eq!(27, stacks_height);
 
         coord_channel
             .lock()

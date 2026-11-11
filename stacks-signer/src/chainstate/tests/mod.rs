@@ -38,6 +38,7 @@ pub fn make_parent_header_meta(
         miner_signature: MessageSignature::empty(),
         signer_signature: vec![],
         pox_treatment: block.header.pox_treatment.clone(),
+        problematic_txs: vec![],
     };
 
     parent_block_header.sign_miner(miner_sk).unwrap();

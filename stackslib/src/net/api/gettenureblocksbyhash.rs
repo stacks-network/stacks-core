@@ -52,7 +52,7 @@ pub fn get_block_snapshot_by_burnchain_block_hash(
     )
 }
 
-#[derive(Clone)]
+#[derive(Clone, Default)]
 pub struct RPCNakamotoTenureBlocksByHashRequestHandler {
     pub(crate) burnchain_block_hash: Option<BurnchainHeaderHash>,
 }
@@ -118,19 +118,14 @@ impl RPCRequestHandler for RPCNakamotoTenureBlocksByHashRequestHandler {
             .take()
             .ok_or(NetError::SendError("`burnchain_block_hash` not set".into()))?;
 
-        let reply = node.with_node_state(|network, sortdb, chainstate, _mempool, _rpc_args| {
+        let reply = node.with_node_state(|_network, sortdb, chainstate, _mempool, _rpc_args| {
             let snapshot = get_block_snapshot_by_burnchain_block_hash(
                 sortdb,
                 &burnchain_block_hash,
                 &preamble,
             )?;
-            let last_sortition_ch = get_prior_last_sortition_consensus_hash(
-                chainstate,
-                sortdb,
-                &snapshot,
-                &preamble,
-                &network.stacks_tip.block_id(),
-            )?;
+            let last_sortition_ch =
+                get_prior_last_sortition_consensus_hash(sortdb, &snapshot, &preamble)?;
             TenureReply::try_from_header_or_snapshot(
                 chainstate,
                 &snapshot,
@@ -158,7 +153,7 @@ impl HttpResponse for RPCNakamotoTenureBlocksByHashRequestHandler {
         body: &[u8],
     ) -> Result<HttpResponsePayload, Error> {
         let tenure: RPCTenure = parse_json(preamble, body)?;
-        Ok(HttpResponsePayload::try_from_json(tenure)?)
+        HttpResponsePayload::try_from_json(tenure)
     }
 }
 

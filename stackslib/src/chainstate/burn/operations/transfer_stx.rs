@@ -164,7 +164,7 @@ impl TransferStxOp {
         assert!(!outputs.is_empty());
 
         let output = outputs
-            .get(0)
+            .first()
             .ok_or_else(|| {
                 warn!("Invalid tx: No first output");
                 op_error::InvalidInput
@@ -230,9 +230,7 @@ impl TransferStxOp {
 #[cfg(test)]
 mod tests {
     use stacks_common::types::chainstate::StacksAddress;
-    use stacks_common::util::hash::*;
 
-    use super::*;
     use crate::burnchains::bitcoin::address::*;
     use crate::burnchains::bitcoin::*;
     use crate::burnchains::*;

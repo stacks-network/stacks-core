@@ -1,5 +1,5 @@
 // Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
-// Copyright (C) 2020-2024 Stacks Open Internet Foundation
+// Copyright (C) 2020-2026 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -36,6 +36,7 @@ use stacks_common::codec::{
 use stacks_common::types::chainstate::{
     BlockHeaderHash, BurnchainHeaderHash, ConsensusHash, StacksPublicKey,
 };
+use stacks_common::types::MinerDiagnosticData;
 use stacks_common::util::hash::{hex_bytes, Sha512Trunc256Sum};
 use stacks_common::util::serde_serializers::{prefix_hex, prefix_opt_hex, prefix_string_0x};
 use stacks_common::versions::STACKS_NODE_VERSION;
@@ -43,7 +44,7 @@ use tiny_http::{
     Method as HttpMethod, Request as HttpRequest, Response as HttpResponse, Server as HttpServer,
 };
 
-use crate::v0::messages::BLOCK_RESPONSE_DATA_MAX_SIZE;
+use crate::v0::messages::{SignerMessageTypePrefix, BLOCK_RESPONSE_DATA_MAX_SIZE};
 use crate::EventError;
 
 /// Define the trait for the event processor
@@ -91,15 +92,19 @@ impl StacksMessageCodec for BlockProposal {
 }
 
 /// The latest version of the block response data
-pub const BLOCK_PROPOSAL_DATA_VERSION: u8 = 2;
+pub const BLOCK_PROPOSAL_DATA_VERSION: u8 = 3;
 
-/// Versioned, backwards-compatible struct for block response data
+/// Versioned, backwards-compatible struct for block proposal data
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct BlockProposalData {
     /// The version of the block proposal data
     pub version: u8,
     /// The miner's server version
     pub server_version: String,
+
+    /// Added in version 3
+    pub miner_diagnostic_data: Option<MinerDiagnosticData>,
+
     /// When deserializing future versions,
     /// there may be extra bytes that we don't know about
     pub unknown_bytes: Vec<u8>,
@@ -107,31 +112,46 @@ pub struct BlockProposalData {
 
 impl BlockProposalData {
     /// Create a new BlockProposalData for the provided server version and unknown bytes
-    pub fn new(server_version: String) -> Self {
+    pub fn new(server_version: String, miner_diagnostic_data: MinerDiagnosticData) -> Self {
         Self {
             version: BLOCK_PROPOSAL_DATA_VERSION,
             server_version,
+            miner_diagnostic_data: Some(miner_diagnostic_data),
             unknown_bytes: vec![],
         }
     }
 
     /// Create a new BlockProposalData with the current build's version
-    pub fn from_current_version() -> Self {
+    pub fn from_current_version(miner_diagnostic_data: MinerDiagnosticData) -> Self {
         let server_version = version_string(
             "stacks-node",
             option_env!("STACKS_NODE_VERSION").or(Some(STACKS_NODE_VERSION)),
         );
-        Self::new(server_version)
+        Self::new(server_version, miner_diagnostic_data)
     }
 
     /// Create an empty BlockProposalData
     pub fn empty() -> Self {
-        Self::new(String::new())
+        Self {
+            version: 1,
+            server_version: String::new(),
+            miner_diagnostic_data: None,
+            unknown_bytes: vec![],
+        }
     }
 
-    /// Serialize the "inner" block response data. Used to determine the bytes length of the serialized block response data
+    /// Serialize the "inner" block proposal data. Used to determine the bytes length of the serialized block proposal data
     fn inner_consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), CodecError> {
         write_next(fd, &self.server_version.as_bytes().to_vec())?;
+        if self.version >= 3 {
+            let miner_diagnostic_data =
+                self.miner_diagnostic_data
+                    .as_ref()
+                    .ok_or(CodecError::SerializeError(
+                        "BlockProposalData v3+ must have miner diagnostic data".into(),
+                    ))?;
+            miner_diagnostic_data.consensus_serialize(fd)?;
+        }
         fd.write_all(&self.unknown_bytes)
             .map_err(CodecError::WriteError)?;
         Ok(())
@@ -164,11 +184,19 @@ impl StacksMessageCodec for BlockProposalData {
         let mut inner_reader = inner_bytes.as_slice();
         let server_version: Vec<u8> = read_next(&mut inner_reader)?;
         let server_version = String::from_utf8(server_version).map_err(|e| {
-            CodecError::DeserializeError(format!("Failed to decode server version: {:?}", &e))
+            CodecError::DeserializeError(format!("Failed to decode server version: {:?}", e))
         })?;
+        let miner_diagnostic_data = if version >= 3 {
+            Some(MinerDiagnosticData::consensus_deserialize(
+                &mut inner_reader,
+            )?)
+        } else {
+            None
+        };
         Ok(Self {
             version,
             server_version,
+            miner_diagnostic_data,
             unknown_bytes: inner_reader.to_vec(),
         })
     }
@@ -402,7 +430,7 @@ impl<T: SignerEventTrait> EventReceiver<T> for SignerEventReceiver<T> {
             if request.method() != &HttpMethod::Post {
                 return Err(EventError::MalformedRequest(format!(
                     "Unrecognized method '{}'",
-                    &request.method(),
+                    request.method(),
                 )));
             }
             debug!("Processing {} event", request.url());
@@ -500,13 +528,13 @@ where
         ack_dispatcher(request);
         return Err(EventError::MalformedRequest(format!(
             "Failed to read body: {:?}",
-            &e
+            e
         )));
     }
     // Regardless of whether we successfully deserialize, we should ack the dispatcher so they don't keep resending it
     ack_dispatcher(request);
     let json_event: E = serde_json::from_slice(body.as_bytes())
-        .map_err(|e| EventError::Deserialize(format!("Could not decode body to JSON: {:?}", &e)))?;
+        .map_err(|e| EventError::Deserialize(format!("Could not decode body to JSON: {:?}", e)))?;
 
     let signer_event: SignerEvent<T> = json_event.try_into()?;
 
@@ -523,28 +551,81 @@ impl<T: SignerEventTrait> TryFrom<StackerDBChunksEvent> for SignerEvent<T> {
         {
             let mut messages = vec![];
             for chunk in event.modified_slots {
-                let Ok(msg) = T::consensus_deserialize(&mut chunk.data.as_slice()) else {
-                    continue;
-                };
-                messages.push(msg);
+                match T::consensus_deserialize(&mut chunk.data.as_slice()) {
+                    Ok(msg) => messages.push(msg),
+                    Err(e) => {
+                        debug!(
+                            "Signer failed to deserialize miner chunk";
+                            "slot_id" => chunk.slot_id,
+                            "slot_version" => chunk.slot_version,
+                            "data_len" => chunk.data.len(),
+                            "error" => %e,
+                        );
+                    }
+                }
             }
             SignerEvent::MinerMessages(messages)
         } else if event.contract_id.name.starts_with(SIGNERS_NAME) && event.contract_id.is_boot() {
-            let Some((signer_set, _)) =
+            let Some((signer_set, message_id)) =
                 get_signers_db_signer_set_message_id(event.contract_id.name.as_str())
             else {
                 return Err(EventError::UnrecognizedStackerDBContract(event.contract_id));
             };
             // signer-XXX-YYY boot contract
+            //
+            // NOTE: the payload-type check below uses v0 `SignerMessageTypePrefix` semantics
+            // (the mapping in `signer_message_payload_matches_lane` is fixed to v0). Future
+            // signer-message versions must extend that mapping, or their chunks will not be
+            // recognized here regardless of which `T` is in scope.
             let messages: Vec<_> = event
                 .modified_slots
                 .iter()
                 .filter_map(|chunk| {
-                    Some((
-                        chunk.slot_id,
-                        chunk.recover_pk().ok()?,
-                        read_next::<T, _>(&mut &chunk.data[..]).ok()?,
-                    ))
+                    // Accept only payloads whose type is valid for this contract's message id.
+                    let Some(&type_byte) = chunk.data.first() else {
+                        // An empty chunk is how a slot is cleared; there is no message to read.
+                        debug!(
+                            "Skipping empty signer chunk";
+                            "contract" => %event.contract_id,
+                            "slot_id" => chunk.slot_id,
+                        );
+                        return None;
+                    };
+                    let Some(payload_kind) = SignerMessageTypePrefix::from_u8(type_byte) else {
+                        warn!(
+                            "Skipping signer chunk with unknown payload type";
+                            "contract" => %event.contract_id,
+                            "slot_id" => chunk.slot_id,
+                            "payload_type_prefix" => type_byte,
+                        );
+                        return None;
+                    };
+                    if !signer_message_payload_matches_lane(payload_kind, message_id) {
+                        warn!(
+                            "Skipping signer chunk with unexpected payload type for contract";
+                            "contract" => %event.contract_id,
+                            "lane_message_id" => message_id,
+                            "payload_type_prefix" => type_byte,
+                        );
+                        return None;
+                    }
+                    let Ok(pk) = chunk.recover_pk() else {
+                        warn!(
+                            "Skipping signer chunk: signature recovery failed";
+                            "contract" => %event.contract_id,
+                            "slot_id" => chunk.slot_id,
+                        );
+                        return None;
+                    };
+                    let Ok(message) = read_next::<T, _>(&mut &chunk.data[..]) else {
+                        warn!(
+                            "Skipping signer chunk: payload deserialization failed";
+                            "contract" => %event.contract_id,
+                            "slot_id" => chunk.slot_id,
+                        );
+                        return None;
+                    };
+                    Some((chunk.slot_id, pk, message))
                 })
                 .collect();
             SignerEvent::SignerMessages {
@@ -632,8 +713,9 @@ pub struct StacksBlockEvent {
     signer_signature_hash: Option<Sha512Trunc256Sum>,
     #[serde(with = "prefix_hex")]
     consensus_hash: ConsensusHash,
-    #[serde(with = "prefix_hex")]
-    block_hash: BlockHeaderHash,
+    /// Validates the required node-supplied hash; signer events use the index block hash.
+    #[serde(rename = "block_hash", with = "prefix_hex")]
+    _block_hash: BlockHeaderHash,
     block_height: u64,
     /// The transactions included in the block
     #[serde(deserialize_with = "deserialize_raw_tx_hex")]
@@ -666,11 +748,99 @@ pub fn get_signers_db_signer_set_message_id(name: &str) -> Option<(u32, u32)> {
     Some((signer_set, message_id))
 }
 
+/// Whether a `SignerMessage` payload type is the one expected for the given contract message id.
+///
+/// `lane_message_id` is the trailing number in the `signers-X-{lane_message_id}` boot
+/// contract. Each signer-message contract is dedicated to exactly one `SignerMessage`
+/// variant, so the payload's type-prefix byte must map to the same numeric `MessageSlotID`.
+///
+/// Miner-only payloads (`BlockProposal`, `BlockPushed`, `MockProposal`, `MockBlock`) are not
+/// written to a signer contract and never match.
+fn signer_message_payload_matches_lane(
+    payload_kind: SignerMessageTypePrefix,
+    lane_message_id: u32,
+) -> bool {
+    payload_kind
+        .msg_id()
+        .is_some_and(|slot| slot.to_u32() == lane_message_id)
+}
+
 #[cfg(test)]
 mod tests {
     use blockstack_lib::chainstate::nakamoto::NakamotoBlockHeader;
+    use clarity::types::MiningReason;
+    use serde_json::{json, Value};
 
     use super::*;
+    use crate::v0::messages::{MessageSlotID, SignerMessage};
+
+    /// A minimal node block event with distinct hashes to check field mapping.
+    fn new_block_event_json() -> Value {
+        json!({
+            "index_block_hash": format!("0x{}", "11".repeat(32)),
+            "consensus_hash": format!("0x{}", "22".repeat(20)),
+            "block_hash": format!("0x{}", "33".repeat(32)),
+            "block_height": 42,
+            "transactions": [],
+        })
+    }
+
+    /// Block events retain their field mapping with or without a signer signature hash.
+    #[test]
+    fn test_stacks_block_event_conversion() {
+        for signer_sighash in [None, Some(Sha512Trunc256Sum([0x44; 32]))] {
+            let mut value = new_block_event_json();
+            if let Some(hash) = &signer_sighash {
+                value["signer_signature_hash"] = json!(format!("0x{hash:x}"));
+            }
+            let block_event: StacksBlockEvent = serde_json::from_value(value).unwrap();
+            let event = SignerEvent::<SignerMessage>::try_from(block_event).unwrap();
+            assert_eq!(
+                event,
+                SignerEvent::NewBlock {
+                    block_id: StacksBlockId([0x11; 32]),
+                    consensus_hash: ConsensusHash([0x22; 20]),
+                    signer_sighash,
+                    block_height: 42,
+                    transactions: vec![],
+                }
+            );
+        }
+    }
+
+    /// The unused block hash remains a required, validated field of incoming block events.
+    #[test]
+    fn test_stacks_block_event_requires_valid_block_hash() {
+        let invalid_hashes = [
+            None,
+            Some(Value::Null),
+            Some(json!(0)),
+            Some(json!("")),
+            Some(json!("0x")),
+            Some(json!("33".repeat(32))),
+            Some(json!(format!("0X{}", "33".repeat(32)))),
+            Some(json!(format!("0x{}", "gg".repeat(32)))),
+            Some(json!(format!("0x{}", "33".repeat(31)))),
+            Some(json!(format!("0x{}", "33".repeat(33)))),
+        ];
+        for hash in invalid_hashes {
+            let mut value = new_block_event_json();
+            if let Some(hash) = hash {
+                value["block_hash"] = hash;
+            } else {
+                value.as_object_mut().unwrap().remove("block_hash");
+            }
+            assert!(
+                serde_json::from_value::<StacksBlockEvent>(value.clone()).is_err(),
+                "invalid block hash accepted: {value}"
+            );
+        }
+
+        let mut value = new_block_event_json();
+        let hash = value.as_object_mut().unwrap().remove("block_hash").unwrap();
+        value["_block_hash"] = hash;
+        assert!(serde_json::from_value::<StacksBlockEvent>(value).is_err());
+    }
 
     #[test]
     fn test_get_signers_db_signer_set_message_id() {
@@ -686,6 +856,56 @@ mod tests {
 
         let name = "signer--2";
         assert!(get_signers_db_signer_set_message_id(name).is_none());
+    }
+
+    /// Each signer-message payload type is expected on exactly one lane; the matcher must
+    /// accept only that pairing and reject every other (payload type, lane) combination.
+    #[test]
+    fn test_signer_message_payload_matches_lane() {
+        use SignerMessageTypePrefix::*;
+
+        // Canonical pairings: each signer payload type maps to its own lane.
+        // (MockSignature shares the BlockResponse lane, as it is epoch-2.5 only.)
+        let canonical = [
+            (BlockResponse, MessageSlotID::BlockResponse.to_u32()),
+            (MockSignature, MessageSlotID::BlockResponse.to_u32()),
+            (
+                StateMachineUpdate,
+                MessageSlotID::StateMachineUpdate.to_u32(),
+            ),
+            (BlockPreCommit, MessageSlotID::BlockPreCommit.to_u32()),
+        ];
+        for (prefix, lane) in canonical {
+            assert!(
+                signer_message_payload_matches_lane(prefix, lane),
+                "{prefix:?} should match lane {lane}"
+            );
+        }
+
+        // Miner-only payloads are not written to a signer contract and match nothing.
+        for prefix in [BlockProposal, BlockPushed, MockProposal, MockBlock] {
+            for slot in MessageSlotID::ALL {
+                assert!(
+                    !signer_message_payload_matches_lane(prefix, slot.to_u32()),
+                    "{prefix:?} should not match {slot:?}"
+                );
+            }
+            assert!(!signer_message_payload_matches_lane(prefix, 0));
+        }
+
+        // A signer payload never matches a message id other than its own.
+        assert!(!signer_message_payload_matches_lane(
+            BlockResponse,
+            MessageSlotID::StateMachineUpdate.to_u32()
+        ));
+        assert!(!signer_message_payload_matches_lane(
+            StateMachineUpdate,
+            MessageSlotID::BlockResponse.to_u32()
+        ));
+        assert!(!signer_message_payload_matches_lane(
+            BlockPreCommit,
+            MessageSlotID::StateMachineUpdate.to_u32()
+        ));
     }
 
     // Older version of BlockProposal to ensure backwards compatibility
@@ -726,15 +946,12 @@ mod tests {
     /// version without crashing.
     fn test_old_deserialization_works() {
         let header = NakamotoBlockHeader::empty();
-        let block = NakamotoBlock {
-            header,
-            txs: vec![],
-        };
+        let block = NakamotoBlock::new(header, vec![]);
         let new_block_proposal = BlockProposal {
             block: block.clone(),
             burn_height: 1,
             reward_cycle: 2,
-            block_proposal_data: BlockProposalData::from_current_version(),
+            block_proposal_data: BlockProposalData::from_current_version(dummy_diagnostic_data()),
         };
         let mut bytes = vec![];
         new_block_proposal.consensus_serialize(&mut bytes).unwrap();
@@ -756,10 +973,7 @@ mod tests {
     /// and then deserialized into the new version.
     fn test_old_proposal_can_deserialize() {
         let header = NakamotoBlockHeader::empty();
-        let block = NakamotoBlock {
-            header,
-            txs: vec![],
-        };
+        let block = NakamotoBlock::new(header, vec![]);
         let old_block_proposal = BlockProposalOld {
             block: block.clone(),
             burn_height: 1,
@@ -782,5 +996,16 @@ mod tests {
             new_block_proposal.block_proposal_data.server_version,
             String::new()
         );
+    }
+
+    fn dummy_diagnostic_data() -> MinerDiagnosticData {
+        MinerDiagnosticData {
+            burnchain_tip_height: 42,
+            burnchain_tip_consensus_hash: ConsensusHash::from_bytes(&[42u8; 20]).unwrap(),
+            burnchain_tip_header_hash: BurnchainHeaderHash::from_bytes(&[42u8; 32]).unwrap(),
+            read_count_extend_timestamp: 1773830677,
+            tenure_extend_time_stamp: 1773830677,
+            mining_reason: MiningReason::ReadCountExtend,
+        }
     }
 }

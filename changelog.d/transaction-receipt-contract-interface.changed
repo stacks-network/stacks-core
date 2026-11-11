@@ -1,0 +1,1 @@
+Retain contract deployment interfaces in transaction receipts without retaining the full contract analysis graph.

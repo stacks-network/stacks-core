@@ -19,7 +19,7 @@ use std::env;
 use std::path::Path;
 
 use crate::burnchains::bitcoin::core_controller::BitcoinCoreController;
-use crate::{BitcoinRegtestController, BurnchainController};
+use crate::BitcoinRegtestController;
 
 mod utils {
     use std::net::TcpListener;

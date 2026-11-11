@@ -50,7 +50,6 @@ pub fn build_contract_interface(
         type_map: _,
         cost_track: _,
         contract_interface: _,
-        is_cost_contract_eligible: _,
     } = contract_analysis;
 
     contract_interface
@@ -385,6 +384,19 @@ pub struct ContractInterface {
     pub non_fungible_tokens: Vec<ContractInterfaceNonFungibleTokens>,
     pub epoch: StacksEpochId,
     pub clarity_version: ClarityVersion,
+}
+
+/// Consume the cached interface when present; otherwise build one from the analysis.
+/// The cached interface is moved without cloning; builder errors are propagated.
+impl TryFrom<ContractAnalysis> for ContractInterface {
+    type Error = StaticCheckError;
+
+    fn try_from(mut analysis: ContractAnalysis) -> Result<Self, Self::Error> {
+        match analysis.contract_interface.take() {
+            Some(interface) => Ok(interface),
+            None => build_contract_interface(&analysis),
+        }
+    }
 }
 
 impl ContractInterface {

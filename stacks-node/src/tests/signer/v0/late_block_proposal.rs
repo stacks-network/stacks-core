@@ -17,8 +17,6 @@ use std::time::Duration;
 
 use clarity::vm::types::PrincipalData;
 use libsigner::v0::messages::{BlockResponse, SignerMessage};
-use pinny::tag;
-use stacks::codec::StacksMessageCodec;
 use stacks::core::test_util::{make_stacks_transfer_serialized, to_addr};
 use stacks::types::chainstate::{StacksAddress, StacksPublicKey};
 use stacks::types::PublicKey;
@@ -31,9 +29,10 @@ use tracing_subscriber::{fmt, EnvFilter};
 use super::SignerTest;
 use crate::tests::nakamoto_integrations::wait_for;
 use crate::tests::neon_integrations::{get_chain_info, submit_tx, test_observer};
-use crate::tests::signer::v0::{wait_for_block_proposal, wait_for_block_pushed};
+use crate::tests::signer::v0::{
+    get_stackerdb_signer_messages, wait_for_block_proposal, wait_for_block_pushed_and_tip,
+};
 
-#[tag(bitcoind)]
 #[test]
 #[ignore]
 /// Test that a signer that receives a block proposal for a block that they have a block pushed event
@@ -89,7 +88,9 @@ fn signer_rejects_proposal_after_block_pushed() {
     info!("------------------------- Ignore all Proposals for Signer 1 -------------------------"; "signer_public_key" => ?signer_1);
     test_observer::clear();
     TEST_IGNORE_ALL_BLOCK_PROPOSALS.set(vec![signer_1.clone()]);
-    info!("------------------------- Force Miner to Send a Block Proposal To Signers -------------------------");
+    info!(
+        "------------------------- Force Miner to Send a Block Proposal To Signers -------------------------"
+    );
     let info_before = get_chain_info(&signer_test.running_nodes.conf);
     // submit a tx to force a block proposal
     let sender_nonce = 0;
@@ -107,48 +108,38 @@ fn signer_rejects_proposal_after_block_pushed() {
         wait_for_block_proposal(30, info_before.stacks_tip_height + 1, &miner_pk)
             .expect("Timed out waiting for block N+1 to be proposed");
     let signer_signature_hash = block_n_proposal.block.header.signer_signature_hash();
-    let _ = wait_for_block_pushed(30, &signer_signature_hash)
-        .expect("Failed to get BlockPushed for block N");
-    info!("------------------------- Advance Chain to Include Block N -------------------------");
-    // Shouldn't have to wait long for the chain to advance
-    wait_for(10, || {
-        let info_after = get_chain_info(&signer_test.running_nodes.conf);
-        Ok(info_after.stacks_tip_height >= info_before.stacks_tip_height + 1)
+    let _ = wait_for_block_pushed_and_tip(30, info_before.stacks_tip_height + 1, &miner_pk, || {
+        get_chain_info(&signer_test.running_nodes.conf).stacks_tip
     })
-    .expect("Chain did not advance to block N+1");
+    .expect("Failed to get BlockPushed for block N");
 
-    info!("------------------------- Verify Signer 1 did NOT respond to the Block Proposal -------------------------");
-    let chunks = test_observer::get_stackerdb_chunks();
-    for chunk in chunks.into_iter().flat_map(|chunk| chunk.modified_slots) {
-        let Ok(message) = SignerMessage::consensus_deserialize(&mut chunk.data.as_slice()) else {
-            continue;
-        };
+    info!(
+        "------------------------- Verify Signer 1 did NOT respond to the Block Proposal -------------------------"
+    );
+    let messages = get_stackerdb_signer_messages();
+    for (_chunk, message) in messages {
         match message {
             SignerMessage::BlockResponse(BlockResponse::Rejected(rejected)) => {
-                if rejected.signer_signature_hash == signer_signature_hash {
-                    if rejected.signer_signature_hash == signer_signature_hash {
-                        if rejected
-                            .verify(&signer_1)
-                            .expect("Failed to verify signature")
-                        {
-                            panic!("Signer 1 rejected the re-proposed block when it should have ignored it");
-                        }
-                    }
+                if rejected.signer_signature_hash == signer_signature_hash
+                    && rejected
+                        .verify(&signer_1)
+                        .expect("Failed to verify signature")
+                {
+                    panic!(
+                        "Signer 1 rejected the re-proposed block when it should have ignored it"
+                    );
                 }
             }
             SignerMessage::BlockResponse(BlockResponse::Accepted(accepted)) => {
-                if accepted.signer_signature_hash == signer_signature_hash {
-                    if signer_1
+                if accepted.signer_signature_hash == signer_signature_hash
+                    && signer_1
                         .verify(
                             accepted.signer_signature_hash.as_bytes(),
                             &accepted.signature,
                         )
                         .expect("Failed to verify signature")
-                    {
-                        panic!(
-                            "Signer 1 accepted the block proposal when it should have ignored it"
-                        );
-                    }
+                {
+                    panic!("Signer 1 accepted the block proposal when it should have ignored it");
                 }
             }
             _ => continue,
@@ -165,14 +156,8 @@ fn signer_rejects_proposal_after_block_pushed() {
         "------------------------- Verify Signer 1 Rejected the Proposal -------------------------"
     );
     wait_for(30, || {
-        let chunks: Vec<_> = test_observer::get_stackerdb_chunks()
-            .into_iter()
-            .flat_map(|chunk| chunk.modified_slots)
-            .collect();
-        for chunk in chunks {
-            let message = SignerMessage::consensus_deserialize(&mut chunk.data.as_slice())
-                .expect("Failed to deserialize SignerMessage");
-
+        let messages = get_stackerdb_signer_messages();
+        for (_chunk, message) in messages {
             let SignerMessage::BlockResponse(BlockResponse::Rejected(rejected)) = message else {
                 continue;
             };

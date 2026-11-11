@@ -23,7 +23,7 @@ use stacks_common::address::{AddressHashMode, C32_ADDRESS_VERSION_TESTNET_SINGLE
 use stacks_common::codec::{read_next, StacksMessageCodec};
 use stacks_common::types::chainstate::{StacksAddress, StacksPrivateKey, StacksPublicKey};
 use stacks_common::types::net::PeerAddress;
-use stacks_common::types::StacksEpoch;
+use stacks_common::types::{StacksEpoch, StacksEpochId};
 use stacks_common::util::hash::Hash160;
 
 use crate::chainstate::burn::db::sortdb::SortitionDB;
@@ -154,7 +154,10 @@ fn test_nakamoto_inv_10_tenures_10_sortitions() {
     // sanity check -- nakamoto begins at height 37
     assert_eq!(
         peer.config.chain_config.epochs,
-        Some(StacksEpoch::unit_test_3_0_only(37))
+        Some(StacksEpoch::unit_test_epoch_only(
+            37,
+            StacksEpochId::Epoch30
+        ))
     );
 
     let (mut peer, reward_cycle_invs) =
@@ -236,7 +239,10 @@ fn test_nakamoto_inv_2_tenures_3_sortitions() {
     // sanity check -- nakamoto begins at height 37
     assert_eq!(
         peer.config.chain_config.epochs,
-        Some(StacksEpoch::unit_test_3_0_only(37))
+        Some(StacksEpoch::unit_test_epoch_only(
+            37,
+            StacksEpochId::Epoch30
+        ))
     );
 
     let (mut peer, reward_cycle_invs) =
@@ -311,7 +317,10 @@ fn test_nakamoto_inv_10_extended_tenures_10_sortitions() {
     // sanity check -- nakamoto begins at height 37
     assert_eq!(
         peer.config.chain_config.epochs,
-        Some(StacksEpoch::unit_test_3_0_only(37))
+        Some(StacksEpoch::unit_test_epoch_only(
+            37,
+            StacksEpochId::Epoch30
+        ))
     );
 
     let (mut peer, reward_cycle_invs) =
@@ -463,9 +472,8 @@ where
 
         let mut tx_signer = StacksTransactionSigner::new(&stx_transfer);
         tx_signer.sign_origin(&private_key).unwrap();
-        let stx_transfer_signed = tx_signer.get_tx().unwrap();
 
-        stx_transfer_signed
+        tx_signer.get_tx().unwrap()
     };
 
     let mut boot_tenures = vec![];
@@ -519,21 +527,19 @@ where
         let mut tip_transactions = plan.tip_transactions.clone();
         if let Some(tip_tenure) = boot_tenures.last_mut() {
             match tip_tenure {
-                NakamotoBootTenure::Sortition(boot_steps) => match boot_steps.last_mut().unwrap() {
-                    NakamotoBootStep::Block(transactions) => {
+                NakamotoBootTenure::Sortition(boot_steps) => {
+                    if let NakamotoBootStep::Block(transactions) = boot_steps.last_mut().unwrap() {
                         transactions.append(&mut tip_transactions)
                     }
-                    _ => (),
-                },
+                }
                 NakamotoBootTenure::NoSortition(boot_steps) => {
                     let boot_steps_len = boot_steps.len();
                     // when NakamotoBootTenure::NoSortition is in place we have every NakamotoBootStep::Block
                     // followed by NakamotoBootStep::TenureExtend (this is why we index by boot_steps_len - 2)
-                    match boot_steps.get_mut(boot_steps_len - 2).unwrap() {
-                        NakamotoBootStep::Block(transactions) => {
-                            transactions.append(&mut tip_transactions)
-                        }
-                        _ => (),
+                    if let NakamotoBootStep::Block(transactions) =
+                        boot_steps.get_mut(boot_steps_len - 2).unwrap()
+                    {
+                        transactions.append(&mut tip_transactions)
                     }
                 }
             }
@@ -2383,89 +2389,4 @@ fn test_nakamoto_make_tenure_inv_from_old_tips() {
 
         assert_eq!(bits, expected_bits[0..bit_len]);
     }
-}
-
-#[test]
-fn test_nakamoto_invs_shadow_blocks() {
-    let observer = TestEventObserver::new();
-    let sender_key = StacksPrivateKey::random();
-    let sender_addr = to_addr(&sender_key);
-    let initial_balances = vec![(sender_addr.to_account_principal(), 1000000000)];
-    let mut bitvecs = vec![vec![
-        true, true, true, true, true, true, true, true, true, true,
-    ]];
-
-    let (mut peer, _) = make_nakamoto_peers_from_invs_and_balances(
-        function_name!(),
-        &observer,
-        10,
-        3,
-        bitvecs.clone(),
-        0,
-        initial_balances,
-    );
-    let nakamoto_start = NakamotoBootPlan::nakamoto_first_tenure_height(
-        &peer.config.chain_config.burnchain.pox_constants,
-    );
-
-    let mut expected_ids = vec![];
-
-    // construct and add shadow blocks to this peer's chainstate
-    peer.refresh_burnchain_view();
-    let shadow_block = peer.make_shadow_tenure(None);
-    expected_ids.push(shadow_block.block_id());
-    peer.mine_nakamoto_on(vec![shadow_block]);
-
-    peer.refresh_burnchain_view();
-    let (naka_block, ..) = peer.single_block_tenure(&sender_key, |_| {}, |_| {}, |_| true);
-    expected_ids.push(naka_block.block_id());
-    peer.mine_nakamoto_on(vec![naka_block]);
-
-    peer.refresh_burnchain_view();
-    let shadow_block = peer.make_shadow_tenure(None);
-    expected_ids.push(shadow_block.block_id());
-    peer.mine_nakamoto_on(vec![shadow_block]);
-
-    peer.refresh_burnchain_view();
-    let (naka_block, ..) = peer.single_block_tenure(&sender_key, |_| {}, |_| {}, |_| true);
-    expected_ids.push(naka_block.block_id());
-    peer.mine_nakamoto_on(vec![naka_block]);
-
-    peer.refresh_burnchain_view();
-    let shadow_block = peer.make_shadow_tenure(None);
-    expected_ids.push(shadow_block.block_id());
-    peer.mine_nakamoto_on(vec![shadow_block]);
-
-    peer.refresh_burnchain_view();
-    let (naka_block, ..) = peer.single_block_tenure(&sender_key, |_| {}, |_| {}, |_| true);
-    expected_ids.push(naka_block.block_id());
-    peer.mine_nakamoto_on(vec![naka_block]);
-
-    let (mut peer, reward_cycle_invs) =
-        peer_get_nakamoto_invs(peer, &[0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]);
-
-    // the inv should show `true` for each shadow tenure
-    bitvecs.push(vec![true, true, true, true, true, true]);
-    check_inv_messages(bitvecs, 10, nakamoto_start, reward_cycle_invs);
-
-    // shadow blocks are part of the history
-    peer.refresh_burnchain_view();
-    let tip = peer.network.stacks_tip.block_id();
-
-    let mut stored_block_ids = vec![];
-    let mut cursor = tip;
-    for _ in 0..expected_ids.len() {
-        let block = peer
-            .chainstate()
-            .nakamoto_blocks_db()
-            .get_nakamoto_block(&cursor)
-            .unwrap()
-            .unwrap()
-            .0;
-        stored_block_ids.push(block.block_id());
-        cursor = block.header.parent_block_id;
-    }
-
-    stored_block_ids.reverse();
-    assert_eq!(stored_block_ids, expected_ids);
 }

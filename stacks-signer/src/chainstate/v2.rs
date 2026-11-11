@@ -52,8 +52,15 @@ impl SortitionState {
         local_address: &StacksAddress,
         timeout: Duration,
     ) -> Result<bool, SignerChainstateError> {
-        // if we've already approved/signed a block in this tenure, the miner can't have timed out.
-        let has_block = signer_db.has_approved_block_in_tenure(sortition)?;
+        // If we've already signed a block in this tenure, the miner can't have timed out: we have
+        // committed a signature to this tenure and must not help abandon it.
+        //
+        // Importantly, a block we have only pre-committed to does not count! A pre-commit carries
+        // no signature, and if it never reaches the pre-commit threshold the tenure can stall
+        // indefinitely. Treating it as signed here would suppress the inactivity timeout for
+        // exactly the signers that pre-committed, so they could never fall back to the prior
+        // miner and the tenure could never recover.
+        let has_block = signer_db.has_signed_block_in_tenure(sortition)?;
         if has_block {
             return Ok(false);
         }
@@ -170,6 +177,7 @@ impl GlobalStateView {
             Self::validate_tenure_change_payload(
                 tenure_change,
                 block,
+                parent_tenure_id,
                 signer_db,
                 client,
                 &self.config,
@@ -207,7 +215,6 @@ impl GlobalStateView {
             // in full tenure extends, we need to check:
             // (1) if this is the most recent sortition, an extend is allowed if it changes the burnchain view
             // (2) if this is the most recent sortition, an extend is allowed if enough time has passed to refresh the block limit
-            // (3) if we are in replay, an extend is allowed
             let tenure_tip = client.get_tenure_tip(tenure_id)
                 .map_err(|e| {
                     warn!("Could not load current tenure tip while evaluating a tenure-extend; cannot approve."; "err" => %e);
@@ -225,15 +232,13 @@ impl GlobalStateView {
             );
             let epoch_time = get_epoch_time_secs();
             let enough_time_passed = epoch_time >= extend_timestamp;
-            let is_in_replay = self.signer_state.tx_replay_set.is_some();
-            if !changed_burn_view && !enough_time_passed && !is_in_replay {
+            if !changed_burn_view && !enough_time_passed {
                 warn!(
                     "Miner block proposal contains a tenure extend, but the conditions for allowing a tenure extend are not met. Considering proposal invalid.";
                     "proposed_block_consensus_hash" => %block.header.consensus_hash,
                     "signer_signature_hash" => %block.header.signer_signature_hash(),
                     "extend_timestamp" => extend_timestamp,
                     "epoch_time" => epoch_time,
-                    "is_in_replay" => is_in_replay,
                     "changed_burn_view" => changed_burn_view,
                     "enough_time_passed" => enough_time_passed,
                 );
@@ -273,15 +278,13 @@ impl GlobalStateView {
             );
             let epoch_time = get_epoch_time_secs();
             let enough_time_passed = epoch_time >= extend_timestamp;
-            let is_in_replay = self.signer_state.tx_replay_set.is_some();
-            if !enough_time_passed && !is_in_replay {
+            if !enough_time_passed {
                 warn!(
                     "Miner block proposal contains a read-count extend, but the conditions for allowing a tenure extend are not met. Considering proposal invalid.";
                     "proposed_block_consensus_hash" => %block.header.consensus_hash,
                     "signer_signature_hash" => %block.header.signer_signature_hash(),
                     "extend_timestamp" => extend_timestamp,
                     "epoch_time" => epoch_time,
-                    "is_in_replay" => is_in_replay,
                     "changed_burn_view" => changed_burn_view,
                     "enough_time_passed" => enough_time_passed,
                 );
@@ -298,10 +301,24 @@ impl GlobalStateView {
     fn validate_tenure_change_payload(
         tenure_change: &TenureChangePayload,
         block: &NakamotoBlock,
+        parent_tenure_id: &ConsensusHash,
         signer_db: &mut SignerDb,
         client: &StacksClient,
         config: &ProposalEvalConfig,
     ) -> Result<(), RejectReason> {
+        // Check that the tenure change's prev_tenure matches the signer's known parent tenure.
+        // This catches block commits with bad parent_block_ptr (e.g., vtxindex=0 exploit).
+        if &tenure_change.prev_tenure_consensus_hash != parent_tenure_id {
+            warn!(
+                "Block commit parent tenure mismatch: the block commit's parent_block_ptr does not correspond to the actual parent tenure";
+                "committed_parent_tenure" => %parent_tenure_id,
+                "actual_parent_tenure" => %tenure_change.prev_tenure_consensus_hash,
+                "consensus_hash" => %block.header.consensus_hash,
+                "signer_signature_hash" => %block.header.signer_signature_hash(),
+            );
+            return Err(RejectReason::InvalidParentBlock);
+        }
+
         // Ensure that the tenure change block confirms the expected parent block
         let confirms_expected_parent = SortitionData::check_tenure_change_confirms_parent(
             tenure_change,
@@ -316,9 +333,11 @@ impl GlobalStateView {
             return Err(RejectReason::InvalidParentBlock);
         }
         // We already confirmed in check miner activity that the current tenure is valid. So check we are not
-        // reorging the tenure blocks
+        // reorging the tenure blocks. Only blocks we have signed (locally or globally accepted) count
+        // here: a block we have merely pre-committed to carries no signature from us, so it is safe to
+        // accept a competing tenure-start block in its place if it failed to reach consensus.
         let last_in_current_tenure = signer_db
-            .get_last_globally_accepted_block(&block.header.consensus_hash)
+            .get_last_signed_block(&block.header.consensus_hash, None)
             .map_err(|e| {
                 SignerChainstateError::from(ClientError::InvalidResponse(e.to_string()))
             })?;

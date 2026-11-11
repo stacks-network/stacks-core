@@ -1,5 +1,5 @@
 // Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
-// Copyright (C) 2020-2023 Stacks Open Internet Foundation
+// Copyright (C) 2020-2026 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -42,8 +42,6 @@ use crate::chainstate::stacks::*;
 use crate::core::*;
 use crate::net::test::{TestEventObserver, TestPeer};
 use crate::util_lib::boot::boot_code_id;
-
-const USTX_PER_HOLDER: u128 = 1_000_000;
 
 /// Return the BlockSnapshot for the latest sortition in the provided
 ///  SortitionDB option-reference. Panics on any errors.
@@ -185,7 +183,7 @@ fn simple_pox_lockup_transition_pox_2() {
 
     // our "tenure counter" is now at 0
     let tip = get_tip(peer.chain.sortdb.as_ref());
-    assert_eq!(tip.block_height, 0 + EMPTY_SORTITIONS as u64);
+    assert_eq!(tip.block_height, (EMPTY_SORTITIONS as u64));
 
     // first tenure is empty
     peer.tenure_with_txs(&[], &mut coinbase_nonce);
@@ -615,7 +613,7 @@ fn pox_auto_unlock(alice_first: bool) {
     let bob_lockup = make_pox_2_lockup(
         &bob,
         0,
-        1 * POX_THRESHOLD_STEPS_USTX,
+        POX_THRESHOLD_STEPS_USTX,
         PoxAddress::from_legacy(
             AddressHashMode::SerializeP2PKH,
             key_to_stacks_addr(&bob).destruct().1,
@@ -778,7 +776,7 @@ fn pox_auto_unlock(alice_first: bool) {
     let bob_lockup = make_pox_3_lockup(
         &bob,
         1,
-        1 * POX_THRESHOLD_STEPS_USTX,
+        POX_THRESHOLD_STEPS_USTX,
         PoxAddress::from_legacy(
             AddressHashMode::SerializeP2PKH,
             key_to_stacks_addr(&bob).destruct().1,
@@ -2602,7 +2600,7 @@ fn delegate_extend_pox_3() {
 
     // our "tenure counter" is now at 0
     let tip = get_tip(peer.chain.sortdb.as_ref());
-    assert_eq!(tip.block_height, 0 + EMPTY_SORTITIONS as u64);
+    assert_eq!(tip.block_height, (EMPTY_SORTITIONS as u64));
 
     // first tenure is empty
     let mut latest_block = peer.tenure_with_txs(&[], &mut coinbase_nonce);
@@ -3189,7 +3187,7 @@ fn pox_3_getters() {
     }}", &alice_address,
         &bob_address,
         &bob_address, &format!("{}.hello-world", &charlie_address), first_v3_cycle + 1,
-        charlie_address.bytes(), first_v3_cycle + 0, &charlie_address,
+        charlie_address.bytes(), first_v3_cycle, &charlie_address,
         charlie_address.bytes(), first_v3_cycle + 1, &charlie_address,
         charlie_address.bytes(), first_v3_cycle + 2, &charlie_address,
         charlie_address.bytes(), first_v3_cycle + 3, &charlie_address,
@@ -3330,8 +3328,9 @@ fn get_burn_pox_addr_info(peer: &mut TestPeer) -> (Vec<PoxAddress>, u128) {
                             PrincipalData::Standard(StandardPrincipalData::transient()),
                             None,
                             LimitedCostTracker::new_free(),
-                            |env| {
-                                env.eval_read_only(
+                            |exec_state, invoke_ctx| {
+                                exec_state.eval_read_only(
+                                    invoke_ctx,
                                     &boot_code_id("pox-2", false),
                                     &format!("(get-burn-block-info? pox-addrs u{})", &burn_height),
                                 )

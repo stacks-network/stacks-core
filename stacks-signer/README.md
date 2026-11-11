@@ -61,20 +61,16 @@ Periodically query the current reward cycle's signers' StackerDB slots to verify
 - `--interval`: The polling interval in seconds for querying stackerDB.
 - `--max-age`: The max age in seconds before a signer message is considered stale. 
 
-### `generate-stacking-signature`
+### `generate-staking-signature`
 
-Generate a signature for stacking.
+Generate a PoX-5 signer grant signature for staking.
 
 ```bash
-./stacks-signer generate-stacking-signature --config <config_file> --pox-address <address> --reward-cycle <cycle> --period <period> --max-amount <max_amount> --auth-id <auth_id>
+./stacks-signer generate-staking-signature --config <config_file> --signer-manager <signer_manager_principal> --auth-id <auth_id>
 
 ```
 - `--config`: The path to the signer configuration file.
-- `--pox-address`: The BTC address used to receive rewards
-- `--reward-cycle`: The reward cycle during which this signature is used
-- `--method`: Stacking metod that can be used
-- `--period`: Number of cycles used as a lock period. Use `1` for stack-aggregation-commit method
-- `--max-amount`: The max amount of uSTX that can be used in this unique transaction
+- `--signer-manager`: The signer-manager principal authorized to register this signer key
 - `--auth-id`: A unique identifier to prevent re-using this authorization
 - `--json`: Output information in JSON format
 

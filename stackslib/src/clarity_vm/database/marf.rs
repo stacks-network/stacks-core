@@ -26,21 +26,20 @@ use clarity::vm::database::sqlite::{
 use clarity::vm::database::{ClarityBackingStore, SpecialCaseHandler, SqliteConnection};
 use clarity::vm::errors::{IncomparableError, RuntimeError, VmExecutionError, VmInternalError};
 use clarity::vm::types::QualifiedContractIdentifier;
-use rusqlite;
 use rusqlite::Connection;
 use stacks_common::codec::StacksMessageCodec;
 use stacks_common::types::chainstate::{BlockHeaderHash, StacksBlockId, TrieHash};
-
-use crate::chainstate::stacks::index::marf::{
+use stacks_marf::marf::{
     test_override_marf_compression, MARFOpenOpts, MarfConnection, MarfTransaction, MARF,
 };
-use crate::chainstate::stacks::index::storage::{TrieFileStorage, TrieHashCalculationMode};
-use crate::chainstate::stacks::index::{ClarityMarfTrieId, Error, MARFValue};
+use stacks_marf::storage::{TrieFileStorage, TrieHashCalculationMode};
+use stacks_marf::{ClarityMarfTrieId, Error, MARFValue};
+
 use crate::clarity_vm::clarity::{
     ClarityMarfStore, ClarityMarfStoreTransaction, WritableMarfStore,
 };
 use crate::clarity_vm::database::ephemeral::EphemeralMarfStore;
-use crate::clarity_vm::special::handle_contract_call_special_cases;
+use crate::clarity_vm::special::special_cases_handler_for;
 use crate::core::{FIRST_BURNCHAIN_CONSENSUS_HASH, FIRST_STACKS_BLOCK_HASH};
 use crate::util_lib::db::{Error as DatabaseError, IndexDBConn};
 
@@ -293,7 +292,7 @@ impl MarfedKV {
         ephemeral_next: &StacksBlockId,
     ) -> Result<EphemeralMarfStore<'a>, VmExecutionError> {
         // sanity check -- `base_tip` must be mapped
-        self.marf.open_block(&base_tip).map_err(|e| {
+        self.marf.open_block(base_tip).map_err(|e| {
             debug!(
                 "Failed to open read only connection at {}: {:?}",
                 &base_tip, &e
@@ -304,7 +303,7 @@ impl MarfedKV {
         // set up ephemeral MARF
         let ephemeral_marf_storage = TrieFileStorage::open(
             ":memory:",
-            MARFOpenOpts::new(TrieHashCalculationMode::Deferred, "noop", false),
+            MARFOpenOpts::new(TrieHashCalculationMode::Deferred, false),
         )
         .map_err(|e| {
             VmInternalError::Expect(format!("Failed to instantiate ephemeral MARF: {:?}", &e))
@@ -332,7 +331,7 @@ impl MarfedKV {
         };
 
         // attach the disk-backed MARF to the ephemeral MARF
-        EphemeralMarfStore::attach_read_only_marf(&ephemeral_marf, &read_only_marf).map_err(
+        EphemeralMarfStore::attach_read_only_marf(ephemeral_marf, &read_only_marf).map_err(
             |e| {
                 VmInternalError::Expect(format!(
                     "Failed to attach read-only MARF to ephemeral MARF: {:?}",
@@ -464,26 +463,16 @@ impl ClarityMarfStoreTransaction for PersistentWritableMarfStore<'_> {
         Ok(())
     }
 
-    /// Commit the outstanding trie to the `mined_blocks` table in the underlying MARF.
-    /// The metadata will be dropped, since this won't be added to the chainstate.  This commits
-    /// the transaction and drops this MARF store.
-    ///
-    /// Returns Ok(()) on success
-    /// Returns Err(VmInternalError(..)) on sqlite failure
-    fn commit_to_mined_block(mut self, target: &StacksBlockId) -> Result<(), VmExecutionError> {
-        debug!("commit_mined_block: ({}->{})", &self.chain_tip, target);
-        // rollback the side_store
-        //    the side_store shouldn't commit data for blocks that won't be
-        //    included in the processed chainstate (like a block constructed during mining)
-        //    _if_ for some reason, we do want to be able to access that mined chain state in the future,
-        //    we should probably commit the data to a different table which does not have uniqueness constraints.
-        let chain_tip = self.chain_tip.clone();
-        self.drop_metadata_for_trie(&chain_tip)?;
-        let _ = self.marf.commit_mined(target).map_err(|e| {
-            error!("Failed to commit to mined MARF block {target}: {e:?}",);
-            VmInternalError::Expect("Failed to commit to MARF block".into())
-        })?;
-        Ok(())
+    /// Discard a speculative proposal trie while committing its side-store values.
+    fn finish_block_proposal(mut self) -> Result<(), VmExecutionError> {
+        if let Err(error) = self.drop_metadata_for_trie(&self.chain_tip.clone()) {
+            self.marf.drop_current();
+            return Err(error);
+        }
+
+        self.marf
+            .discard_trie_and_commit()
+            .map_err(|e| VmInternalError::MarfFailure(e.to_string()).into())
     }
 
     /// Commit the outstanding trie to unconfirmed state, so subsequent read I/O can be performed
@@ -536,8 +525,11 @@ impl ClarityBackingStore for ReadOnlyMarfStore<'_> {
         self.marf.sqlite_conn()
     }
 
-    fn get_cc_special_cases_handler(&self) -> Option<SpecialCaseHandler> {
-        Some(&handle_contract_call_special_cases)
+    fn get_cc_special_cases_handler(
+        &self,
+        contract: &QualifiedContractIdentifier,
+    ) -> Option<SpecialCaseHandler> {
+        special_cases_handler_for(contract)
     }
 
     /// Sets the chain tip at which queries will happen.  Used for `(at-block ..)`
@@ -826,8 +818,11 @@ impl ClarityBackingStore for PersistentWritableMarfStore<'_> {
         result
     }
 
-    fn get_cc_special_cases_handler(&self) -> Option<SpecialCaseHandler> {
-        Some(&handle_contract_call_special_cases)
+    fn get_cc_special_cases_handler(
+        &self,
+        contract: &QualifiedContractIdentifier,
+    ) -> Option<SpecialCaseHandler> {
+        special_cases_handler_for(contract)
     }
 
     fn get_data(&mut self, key: &str) -> Result<Option<String>, VmExecutionError> {
@@ -1077,10 +1072,8 @@ pub trait BoxedClarityMarfStoreTransaction {
         self: Box<Self>,
         target: &StacksBlockId,
     ) -> Result<(), VmExecutionError>;
-    fn boxed_commit_to_mined_block(
-        self: Box<Self>,
-        target: &StacksBlockId,
-    ) -> Result<(), VmExecutionError>;
+    /// Finish a proposal through the consuming store interface.
+    fn boxed_finish_block_proposal(self: Box<Self>) -> Result<(), VmExecutionError>;
     fn boxed_commit_unconfirmed(self: Box<Self>);
 
     #[cfg(test)]
@@ -1103,11 +1096,8 @@ impl<T: ClarityMarfStoreTransaction> BoxedClarityMarfStoreTransaction for T {
         <Self as ClarityMarfStoreTransaction>::commit_to_processed_block(*self, target)
     }
 
-    fn boxed_commit_to_mined_block(
-        self: Box<Self>,
-        target: &StacksBlockId,
-    ) -> Result<(), VmExecutionError> {
-        <Self as ClarityMarfStoreTransaction>::commit_to_mined_block(*self, target)
+    fn boxed_finish_block_proposal(self: Box<Self>) -> Result<(), VmExecutionError> {
+        <Self as ClarityMarfStoreTransaction>::finish_block_proposal(*self)
     }
 
     fn boxed_commit_unconfirmed(self: Box<Self>) {
@@ -1144,8 +1134,8 @@ impl<'a> ClarityMarfStoreTransaction for Box<dyn WritableMarfStore + 'a> {
         BoxedClarityMarfStoreTransaction::boxed_commit_to_processed_block(self, target)
     }
 
-    fn commit_to_mined_block(self, target: &StacksBlockId) -> Result<(), VmExecutionError> {
-        BoxedClarityMarfStoreTransaction::boxed_commit_to_mined_block(self, target)
+    fn finish_block_proposal(self) -> Result<(), VmExecutionError> {
+        BoxedClarityMarfStoreTransaction::boxed_finish_block_proposal(self)
     }
 
     fn commit_unconfirmed(self) {
@@ -1209,8 +1199,11 @@ impl<'a> ClarityBackingStore for Box<dyn WritableMarfStore + 'a> {
         ClarityBackingStore::get_side_store(self.deref_mut())
     }
 
-    fn get_cc_special_cases_handler(&self) -> Option<SpecialCaseHandler> {
-        ClarityBackingStore::get_cc_special_cases_handler(&**self)
+    fn get_cc_special_cases_handler(
+        &self,
+        contract: &QualifiedContractIdentifier,
+    ) -> Option<SpecialCaseHandler> {
+        ClarityBackingStore::get_cc_special_cases_handler(&**self, contract)
     }
 
     fn get_contract_hash(

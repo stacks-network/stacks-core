@@ -14,21 +14,24 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use std::assert_matches;
 use std::time::Duration;
 
+use clarity_types::ClarityName;
 use rstest::rstest;
 use rstest_reuse::{self, *};
 use stacks_common::address::{
     AddressHashMode, C32_ADDRESS_VERSION_MAINNET_SINGLESIG, C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
 };
+use stacks_common::bounded_format;
 use stacks_common::consts::{CHAIN_ID_MAINNET, CHAIN_ID_TESTNET};
-use stacks_common::types::StacksEpochId;
 use stacks_common::types::chainstate::{StacksAddress, StacksPrivateKey, StacksPublicKey};
+use stacks_common::types::{StacksEpochId, StacksEpochRangeTestExt as _};
 use stacks_common::util::hash::{hex_bytes, to_hex};
 
 use crate::vm::ast::parse;
-use crate::vm::callables::DefinedFunction;
-use crate::vm::contexts::OwnedEnvironment;
+use crate::vm::callables::{CallableType, DefinedFunction};
+use crate::vm::contexts::{ExecutionState, InvocationContext, OwnedEnvironment};
 use crate::vm::costs::LimitedCostTracker;
 use crate::vm::database::MemoryBackingStore;
 use crate::vm::errors::{
@@ -41,11 +44,60 @@ use crate::vm::types::{
     TypeSignature,
 };
 use crate::vm::{
-    CallStack, ClarityVersion, ContractContext, CostErrors, Environment, GlobalContext,
-    LocalContext, Value, eval, execute as vm_execute, execute_v2 as vm_execute_v2,
+    CallStack, ClarityVersion, ContractContext, GlobalContext, LocalContext, Value, ValueRef,
+    apply_evaluated, eval, eval_all, execute as vm_execute, execute_v2 as vm_execute_v2,
     execute_with_limited_execution_time as vm_execute_with_limited_execution_time,
-    execute_with_parameters,
+    execute_with_parameters, lookup_function,
 };
+
+/// Lookup must alias the stored definition, and the callable must stay usable after the
+/// execution state used to resolve it is dropped. Independent of Clarity version.
+#[test]
+fn test_function_lookup_borrows_contract() {
+    let version = ClarityVersion::latest();
+    let epoch = StacksEpochId::latest();
+    let contract_id = QualifiedContractIdentifier::transient();
+    let mut contract = ContractContext::new(contract_id.clone(), version);
+    let definitions = parse(
+        &contract_id,
+        "(define-private (identity (x uint)) x)",
+        version,
+        epoch,
+    )
+    .unwrap();
+    let mut store = MemoryBackingStore::new();
+    let mut env = OwnedEnvironment::new(store.as_clarity_db(), epoch);
+    env.context
+        .execute(|global| eval_all(&definitions, &mut contract, global, None))
+        .unwrap();
+
+    let callable = {
+        let (mut state, invocation) = env.get_exec_environment(None, None, &contract);
+        lookup_function("identity", &mut state, &invocation).unwrap()
+    };
+    let CallableType::UserFunction(function) = callable else {
+        panic!("expected a user-defined function");
+    };
+    assert!(std::ptr::eq(
+        contract.functions.get("identity").unwrap(),
+        function
+    ));
+
+    let (mut state, invocation) = env.get_exec_environment(None, None, &contract);
+    for value in [1, 2] {
+        assert_eq!(
+            apply_evaluated(
+                &callable,
+                vec![Value::UInt(value)],
+                &mut state,
+                &invocation,
+                &LocalContext::new(),
+            )
+            .unwrap(),
+            Value::UInt(value)
+        );
+    }
+}
 
 #[test]
 fn test_doubly_defined_persisted_vars() {
@@ -86,14 +138,11 @@ fn test_simple_let(#[case] version: ClarityVersion, #[case] epoch: StacksEpochId
         let context = LocalContext::new();
         let mut marf = MemoryBackingStore::new();
         let mut env = OwnedEnvironment::new(marf.as_clarity_db(), epoch);
-
+        let (mut exec_state, invoke_ctx) =
+            env.get_exec_environment(None, None, &placeholder_context);
         assert_eq!(
-            Ok(Value::Int(7)),
-            eval(
-                &parsed_program[0],
-                &mut env.get_exec_environment(None, None, &placeholder_context),
-                &context
-            )
+            Ok(ValueRef::Owned(Value::Int(7))),
+            eval(&parsed_program[0], &mut exec_state, &invoke_ctx, &context)
         );
     } else {
         panic!("Failed to parse program.");
@@ -307,7 +356,7 @@ fn test_from_consensus_buff_type_checks() {
         ),
         (
             "(from-consensus-buff? uint 1)",
-            "RuntimeCheck(TypeValueError(SequenceType(BufferType(BufferLength(1048576))), Int(1)))",
+            "RuntimeCheck(TypeValueError(SequenceType(BufferType(BufferLength(1048576))), \"Int(1)\"))",
         ),
         (
             "(from-consensus-buff? 2 0x10)",
@@ -464,7 +513,7 @@ fn test_secp256k1() {
     )
     .unwrap(); // need the "compressed extra 0x01 to match, as this changes the address"
     eprintln!("privk {privk:?}");
-    eprintln!("from_private {:?}", &StacksPublicKey::from_private(&privk));
+    eprintln!("from_private {:?}", StacksPublicKey::from_private(&privk));
     let addr = StacksAddress::from_public_keys(
         C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
         &AddressHashMode::SerializeP2PKH,
@@ -621,14 +670,14 @@ fn test_secp256k1_errors() {
     ];
 
     let expectations: &[ClarityEvalError] = &[
-        RuntimeCheckErrorKind::TypeValueError(Box::new(TypeSignature::BUFFER_32), Box::new(Value::Sequence(SequenceData::Buffer(BuffData { data: hex_bytes("de5b9eb9e7c5592930eb2e30a01369c36586d872082ed8181ee83d2a0ec20f").unwrap() })))).into(),
-        RuntimeCheckErrorKind::TypeValueError(Box::new(TypeSignature::BUFFER_65), Box::new(Value::Sequence(SequenceData::Buffer(BuffData { data: hex_bytes("8738487ebe69b93d8e51583be8eee50bb4213fc49c767d329632730cc193b873554428fc936ca3569afc15f1c9365f6591d6251a89fee9c9ac661116824d3a130100").unwrap() })))).into(),
+        RuntimeCheckErrorKind::TypeValueError(Box::new(TypeSignature::BUFFER_32), Value::Sequence(SequenceData::Buffer(BuffData { data: hex_bytes("de5b9eb9e7c5592930eb2e30a01369c36586d872082ed8181ee83d2a0ec20f").unwrap() })).to_error_string()).into(),
+        RuntimeCheckErrorKind::TypeValueError(Box::new(TypeSignature::BUFFER_65), Value::Sequence(SequenceData::Buffer(BuffData { data: hex_bytes("8738487ebe69b93d8e51583be8eee50bb4213fc49c767d329632730cc193b873554428fc936ca3569afc15f1c9365f6591d6251a89fee9c9ac661116824d3a130100").unwrap() })).to_error_string()).into(),
         RuntimeCheckErrorKind::IncorrectArgumentCount(2, 1).into(),
         RuntimeCheckErrorKind::IncorrectArgumentCount(2, 3).into(),
 
-        RuntimeCheckErrorKind::TypeValueError(Box::new(TypeSignature::BUFFER_32), Box::new(Value::Sequence(SequenceData::Buffer(BuffData { data: hex_bytes("de5b9eb9e7c5592930eb2e30a01369c36586d872082ed8181ee83d2a0ec20f").unwrap() })))).into(),
-        RuntimeCheckErrorKind::TypeValueError(Box::new(TypeSignature::BUFFER_65), Box::new(Value::Sequence(SequenceData::Buffer(BuffData { data: hex_bytes("8738487ebe69b93d8e51583be8eee50bb4213fc49c767d329632730cc193b873554428fc936ca3569afc15f1c9365f6591d6251a89fee9c9ac661116824d3a130111").unwrap() })))).into(),
-        RuntimeCheckErrorKind::TypeValueError(Box::new(TypeSignature::BUFFER_33), Box::new(Value::Sequence(SequenceData::Buffer(BuffData { data: hex_bytes("03adb8de4bfb65db2cfd6120d55c6526ae9c52e675db7e47308636534ba7").unwrap() })))).into(),
+        RuntimeCheckErrorKind::TypeValueError(Box::new(TypeSignature::BUFFER_32), Value::Sequence(SequenceData::Buffer(BuffData { data: hex_bytes("de5b9eb9e7c5592930eb2e30a01369c36586d872082ed8181ee83d2a0ec20f").unwrap() })).to_error_string()).into(),
+        RuntimeCheckErrorKind::TypeValueError(Box::new(TypeSignature::BUFFER_65), Value::Sequence(SequenceData::Buffer(BuffData { data: hex_bytes("8738487ebe69b93d8e51583be8eee50bb4213fc49c767d329632730cc193b873554428fc936ca3569afc15f1c9365f6591d6251a89fee9c9ac661116824d3a130111").unwrap() })).to_error_string()).into(),
+        RuntimeCheckErrorKind::TypeValueError(Box::new(TypeSignature::BUFFER_33), Value::Sequence(SequenceData::Buffer(BuffData { data: hex_bytes("03adb8de4bfb65db2cfd6120d55c6526ae9c52e675db7e47308636534ba7").unwrap() })).to_error_string()).into(),
         RuntimeCheckErrorKind::IncorrectArgumentCount(3, 2).into(),
 
         RuntimeCheckErrorKind::IncorrectArgumentCount(1, 2).into(),
@@ -706,13 +755,13 @@ fn test_simple_if_functions(#[case] version: ClarityVersion, #[case] epoch: Stac
     );
 
     if let Ok(parsed_bodies) = function_bodies {
-        let func_args1 = vec![("x".into(), TypeSignature::IntType)];
-        let func_args2 = vec![("x".into(), TypeSignature::IntType)];
+        let func_args1 = vec![(ClarityName::from_literal("x"), TypeSignature::IntType)];
+        let func_args2 = vec![(ClarityName::from_literal("x"), TypeSignature::IntType)];
         let user_function1 = DefinedFunction::new(
             func_args1,
             parsed_bodies[0].clone(),
             Private,
-            &"with_else".into(),
+            &ClarityName::from_literal("with_else"),
             "",
         );
 
@@ -720,7 +769,7 @@ fn test_simple_if_functions(#[case] version: ClarityVersion, #[case] epoch: Stac
             func_args2,
             parsed_bodies[1].clone(),
             Private,
-            &"without_else".into(),
+            &ClarityName::from_literal("without_else"),
             "",
         );
 
@@ -740,25 +789,36 @@ fn test_simple_if_functions(#[case] version: ClarityVersion, #[case] epoch: Stac
 
         contract_context
             .functions
-            .insert("with_else".into(), user_function1);
+            .insert(ClarityName::from_literal("with_else"), user_function1);
         contract_context
             .functions
-            .insert("without_else".into(), user_function2);
+            .insert(ClarityName::from_literal("without_else"), user_function2);
 
         let mut call_stack = CallStack::new();
-        let mut env = Environment::new(
-            &mut global_context,
-            &contract_context,
-            &mut call_stack,
-            None,
-            None,
-            None,
-        );
+        let mut exec_state = ExecutionState {
+            global_context: &mut global_context,
+            call_stack: &mut call_stack,
+        };
+        let invoke_ctx = InvocationContext {
+            contract_context: &contract_context,
+            sender: None,
+            caller: None,
+            sponsor: None,
+        };
 
         if let Ok(tests) = evals {
-            assert_eq!(Ok(Value::Int(1)), eval(&tests[0], &mut env, &context));
-            assert_eq!(Ok(Value::Int(3)), eval(&tests[1], &mut env, &context));
-            assert_eq!(Ok(Value::Int(0)), eval(&tests[2], &mut env, &context));
+            assert_eq!(
+                Ok(ValueRef::Owned(Value::Int(1))),
+                eval(&tests[0], &mut exec_state, &invoke_ctx, &context)
+            );
+            assert_eq!(
+                Ok(ValueRef::Owned(Value::Int(3))),
+                eval(&tests[1], &mut exec_state, &invoke_ctx, &context)
+            );
+            assert_eq!(
+                Ok(ValueRef::Owned(Value::Int(0))),
+                eval(&tests[2], &mut exec_state, &invoke_ctx, &context)
+            );
         } else {
             panic!("Failed to parse function bodies.");
         }
@@ -921,38 +981,34 @@ fn test_sequence_comparisons_clarity1() {
     let error_expectations: &[ClarityEvalError] = &[
         RuntimeCheckErrorKind::UnionTypeValueError(
             vec![TypeSignature::IntType, TypeSignature::UIntType],
-            Box::new(Value::Sequence(SequenceData::String(CharType::ASCII(
-                ASCIIData {
-                    data: "baa".as_bytes().to_vec(),
-                },
-            )))),
+            Value::Sequence(SequenceData::String(CharType::ASCII(ASCIIData {
+                data: "baa".as_bytes().to_vec(),
+            })))
+            .to_error_string(),
         )
         .into(),
         RuntimeCheckErrorKind::UnionTypeValueError(
             vec![TypeSignature::IntType, TypeSignature::UIntType],
-            Box::new(Value::Sequence(SequenceData::String(CharType::ASCII(
-                ASCIIData {
-                    data: "baa".as_bytes().to_vec(),
-                },
-            )))),
+            Value::Sequence(SequenceData::String(CharType::ASCII(ASCIIData {
+                data: "baa".as_bytes().to_vec(),
+            })))
+            .to_error_string(),
         )
         .into(),
         RuntimeCheckErrorKind::UnionTypeValueError(
             vec![TypeSignature::IntType, TypeSignature::UIntType],
-            Box::new(Value::Sequence(SequenceData::String(CharType::ASCII(
-                ASCIIData {
-                    data: "baa".as_bytes().to_vec(),
-                },
-            )))),
+            Value::Sequence(SequenceData::String(CharType::ASCII(ASCIIData {
+                data: "baa".as_bytes().to_vec(),
+            })))
+            .to_error_string(),
         )
         .into(),
         RuntimeCheckErrorKind::UnionTypeValueError(
             vec![TypeSignature::IntType, TypeSignature::UIntType],
-            Box::new(Value::Sequence(SequenceData::String(CharType::ASCII(
-                ASCIIData {
-                    data: "baa".as_bytes().to_vec(),
-                },
-            )))),
+            Value::Sequence(SequenceData::String(CharType::ASCII(ASCIIData {
+                data: "baa".as_bytes().to_vec(),
+            })))
+            .to_error_string(),
         )
         .into(),
     ];
@@ -1032,12 +1088,12 @@ fn test_sequence_comparisons_mismatched_types() {
     let v1_error_expectations: &[ClarityEvalError] = &[
         RuntimeCheckErrorKind::UnionTypeValueError(
             vec![TypeSignature::IntType, TypeSignature::UIntType],
-            Box::new(Value::Int(0)),
+            Value::Int(0).to_error_string(),
         )
         .into(),
         RuntimeCheckErrorKind::UnionTypeValueError(
             vec![TypeSignature::IntType, TypeSignature::UIntType],
-            Box::new(Value::Int(0)),
+            Value::Int(0).to_error_string(),
         )
         .into(),
     ];
@@ -1059,7 +1115,7 @@ fn test_sequence_comparisons_mismatched_types() {
                 TypeSignature::STRING_UTF8_MAX,
                 TypeSignature::BUFFER_MAX,
             ],
-            Box::new(Value::Int(0)),
+            Value::Int(0).to_error_string(),
         )
         .into(),
         RuntimeCheckErrorKind::UnionTypeValueError(
@@ -1070,7 +1126,7 @@ fn test_sequence_comparisons_mismatched_types() {
                 TypeSignature::STRING_UTF8_MAX,
                 TypeSignature::BUFFER_MAX,
             ],
-            Box::new(Value::Int(0)),
+            Value::Int(0).to_error_string(),
         )
         .into(),
     ];
@@ -1093,11 +1149,10 @@ fn test_sequence_comparisons_mismatched_types() {
                 TypeSignature::STRING_UTF8_MAX,
                 TypeSignature::BUFFER_MAX,
             ],
-            Box::new(Value::Sequence(SequenceData::String(CharType::ASCII(
-                ASCIIData {
-                    data: "baa".as_bytes().to_vec(),
-                },
-            )))),
+            Value::Sequence(SequenceData::String(CharType::ASCII(ASCIIData {
+                data: "baa".as_bytes().to_vec(),
+            })))
+            .to_error_string(),
         )
         .into(),
         RuntimeCheckErrorKind::UnionTypeValueError(
@@ -1108,11 +1163,10 @@ fn test_sequence_comparisons_mismatched_types() {
                 TypeSignature::STRING_UTF8_MAX,
                 TypeSignature::BUFFER_MAX,
             ],
-            Box::new(Value::Sequence(SequenceData::String(CharType::ASCII(
-                ASCIIData {
-                    data: "baa".as_bytes().to_vec(),
-                },
-            )))),
+            Value::Sequence(SequenceData::String(CharType::ASCII(ASCIIData {
+                data: "baa".as_bytes().to_vec(),
+            })))
+            .to_error_string(),
         )
         .into(),
     ];
@@ -1157,7 +1211,7 @@ fn test_simple_arithmetic_errors(#[case] version: ClarityVersion, #[case] epoch:
         RuntimeCheckErrorKind::IncorrectArgumentCount(2, 1).into(),
         RuntimeCheckErrorKind::TypeValueError(
             Box::new(TypeSignature::IntType),
-            Box::new(Value::Bool(true)),
+            Value::Bool(true).to_error_string(),
         )
         .into(),
         RuntimeError::DivisionByZero.into(),
@@ -1209,12 +1263,12 @@ fn test_unsigned_arithmetic() {
         RuntimeError::ArithmeticUnderflow.into(),
         RuntimeCheckErrorKind::UnionTypeValueError(
             vec![TypeSignature::IntType, TypeSignature::UIntType],
-            Box::new(Value::UInt(10)),
+            Value::UInt(10).to_error_string(),
         )
         .into(),
         RuntimeCheckErrorKind::TypeValueError(
             Box::new(TypeSignature::UIntType),
-            Box::new(Value::Int(80)),
+            Value::Int(80).to_error_string(),
         )
         .into(),
         RuntimeError::ArithmeticUnderflow.into(),
@@ -1248,33 +1302,48 @@ fn test_options_errors() {
 
     let expectations: &[ClarityEvalError] = &[
         RuntimeCheckErrorKind::IncorrectArgumentCount(1, 2).into(),
-        RuntimeCheckErrorKind::Unreachable(format!("Expected option value: {}", Value::Bool(true)))
-            .into(),
+        RuntimeCheckErrorKind::Unreachable(bounded_format!(
+            "Expected option value: {}",
+            Value::Bool(true)
+        ))
+        .into(),
         RuntimeCheckErrorKind::IncorrectArgumentCount(1, 2).into(),
-        RuntimeCheckErrorKind::Unreachable(format!(
+        RuntimeCheckErrorKind::Unreachable(bounded_format!(
             "Expected response value: {}",
             Value::Bool(true)
         ))
         .into(),
         RuntimeCheckErrorKind::IncorrectArgumentCount(1, 2).into(),
-        RuntimeCheckErrorKind::Unreachable(format!(
+        RuntimeCheckErrorKind::Unreachable(bounded_format!(
             "Expected response value: {}",
             Value::Bool(true)
         ))
         .into(),
         RuntimeCheckErrorKind::IncorrectArgumentCount(1, 2).into(),
-        RuntimeCheckErrorKind::Unreachable(format!("Expected option value: {}", Value::Bool(true)))
-            .into(),
+        RuntimeCheckErrorKind::Unreachable(bounded_format!(
+            "Expected option value: {}",
+            Value::Bool(true)
+        ))
+        .into(),
         RuntimeCheckErrorKind::IncorrectArgumentCount(1, 2).into(),
         RuntimeCheckErrorKind::IncorrectArgumentCount(1, 2).into(),
         RuntimeCheckErrorKind::IncorrectArgumentCount(1, 2).into(),
         RuntimeCheckErrorKind::IncorrectArgumentCount(2, 3).into(),
-        RuntimeCheckErrorKind::Unreachable(format!("Expected option value: {}", Value::Bool(true)))
-            .into(),
-        RuntimeCheckErrorKind::Unreachable(format!("Expected tuple: {}", TypeSignature::IntType))
-            .into(),
-        RuntimeCheckErrorKind::Unreachable(format!("Expected tuple: {}", TypeSignature::IntType))
-            .into(),
+        RuntimeCheckErrorKind::Unreachable(bounded_format!(
+            "Expected option value: {}",
+            Value::Bool(true)
+        ))
+        .into(),
+        RuntimeCheckErrorKind::Unreachable(bounded_format!(
+            "Expected tuple: {}",
+            TypeSignature::IntType
+        ))
+        .into(),
+        RuntimeCheckErrorKind::Unreachable(bounded_format!(
+            "Expected tuple: {}",
+            TypeSignature::IntType
+        ))
+        .into(),
     ];
 
     for (program, expectation) in tests.iter().zip(expectations.iter()) {
@@ -1299,15 +1368,15 @@ fn test_stx_ops_errors() {
 
     let expectations: &[ClarityEvalError] = &[
         RuntimeCheckErrorKind::IncorrectArgumentCount(3, 2).into(),
-        RuntimeCheckErrorKind::Unreachable("Bad transfer STX args".to_string()).into(),
-        RuntimeCheckErrorKind::Unreachable("Bad transfer STX args".to_string()).into(),
-        RuntimeCheckErrorKind::Unreachable("Bad transfer STX args".to_string()).into(),
+        RuntimeCheckErrorKind::Unreachable("Bad transfer STX args".into()).into(),
+        RuntimeCheckErrorKind::Unreachable("Bad transfer STX args".into()).into(),
+        RuntimeCheckErrorKind::Unreachable("Bad transfer STX args".into()).into(),
         RuntimeCheckErrorKind::IncorrectArgumentCount(4, 3).into(),
-        RuntimeCheckErrorKind::Unreachable("Bad transfer STX args".to_string()).into(),
-        RuntimeCheckErrorKind::Unreachable("Bad transfer STX args".to_string()).into(),
-        RuntimeCheckErrorKind::Unreachable("Bad transfer STX args".to_string()).into(),
+        RuntimeCheckErrorKind::Unreachable("Bad transfer STX args".into()).into(),
+        RuntimeCheckErrorKind::Unreachable("Bad transfer STX args".into()).into(),
+        RuntimeCheckErrorKind::Unreachable("Bad transfer STX args".into()).into(),
         RuntimeCheckErrorKind::IncorrectArgumentCount(2, 1).into(),
-        RuntimeCheckErrorKind::Unreachable("Bad transfer STX args".to_string()).into(),
+        RuntimeCheckErrorKind::Unreachable("Bad transfer STX args".into()).into(),
     ];
 
     for (program, expectation) in tests.iter().zip(expectations.iter()) {
@@ -1478,7 +1547,7 @@ fn test_option_destructs() {
     let expectations: &[Result<Value, ClarityEvalError>] = &[
         Ok(Value::Int(1)),
         Ok(Value::Int(1)),
-        Err(RuntimeCheckErrorKind::Unreachable(format!(
+        Err(RuntimeCheckErrorKind::Unreachable(bounded_format!(
             "Expected response value: {}",
             Value::some(Value::Int(2)).unwrap()
         ))
@@ -1498,12 +1567,12 @@ fn test_option_destructs() {
         Ok(Value::Int(9)),
         Ok(Value::Int(2)),
         Ok(Value::Int(8)),
-        Err(RuntimeCheckErrorKind::Unreachable(format!(
+        Err(RuntimeCheckErrorKind::Unreachable(bounded_format!(
             "Bad match input: {}",
             TypeSignature::IntType
         ))
         .into()),
-        Err(RuntimeCheckErrorKind::Unreachable(format!(
+        Err(RuntimeCheckErrorKind::Unreachable(bounded_format!(
             "Bad match input: {}",
             TypeSignature::IntType
         ))
@@ -1521,7 +1590,7 @@ fn test_option_destructs() {
         ),
         Ok(Value::Bool(true)),
         Err(RuntimeCheckErrorKind::IncorrectArgumentCount(1, 2).into()),
-        Err(RuntimeCheckErrorKind::Unreachable(format!(
+        Err(RuntimeCheckErrorKind::Unreachable(bounded_format!(
             "Expected optional or response value: {}",
             Value::Int(1)
         ))
@@ -1558,7 +1627,7 @@ fn test_hash_errors() {
                 TypeSignature::UIntType,
                 TypeSignature::BUFFER_MAX,
             ],
-            Box::new(Value::Bool(true)),
+            Value::Bool(true).to_error_string(),
         )
         .into(),
         RuntimeCheckErrorKind::UnionTypeValueError(
@@ -1567,7 +1636,7 @@ fn test_hash_errors() {
                 TypeSignature::UIntType,
                 TypeSignature::BUFFER_MAX,
             ],
-            Box::new(Value::Bool(true)),
+            Value::Bool(true).to_error_string(),
         )
         .into(),
         RuntimeCheckErrorKind::UnionTypeValueError(
@@ -1576,7 +1645,7 @@ fn test_hash_errors() {
                 TypeSignature::UIntType,
                 TypeSignature::BUFFER_MAX,
             ],
-            Box::new(Value::Bool(true)),
+            Value::Bool(true).to_error_string(),
         )
         .into(),
         RuntimeCheckErrorKind::UnionTypeValueError(
@@ -1585,7 +1654,7 @@ fn test_hash_errors() {
                 TypeSignature::UIntType,
                 TypeSignature::BUFFER_MAX,
             ],
-            Box::new(Value::Bool(true)),
+            Value::Bool(true).to_error_string(),
         )
         .into(),
         RuntimeCheckErrorKind::IncorrectArgumentCount(1, 2).into(),
@@ -1595,7 +1664,7 @@ fn test_hash_errors() {
                 TypeSignature::UIntType,
                 TypeSignature::BUFFER_MAX,
             ],
-            Box::new(Value::Bool(true)),
+            Value::Bool(true).to_error_string(),
         )
         .into(),
         RuntimeCheckErrorKind::IncorrectArgumentCount(1, 2).into(),
@@ -1653,7 +1722,7 @@ fn test_bad_lets() {
         RuntimeCheckErrorKind::NameAlreadyUsed("tx-sender".to_string()).into(),
         RuntimeCheckErrorKind::NameAlreadyUsed("*".to_string()).into(),
         RuntimeCheckErrorKind::NameAlreadyUsed("a".to_string()).into(),
-        RuntimeCheckErrorKind::Unreachable("No such data variable: cursor".to_string()).into(),
+        RuntimeCheckErrorKind::Unreachable("No such data variable: cursor".into()).into(),
         RuntimeCheckErrorKind::NameAlreadyUsed("true".to_string()).into(),
         RuntimeCheckErrorKind::NameAlreadyUsed("false".to_string()).into(),
     ];
@@ -1712,6 +1781,61 @@ fn merge_update_type_signature_2239() {
         .for_each(|(program, expectation)| {
             assert_eq!(expectation.to_string(), execute(program).to_string())
         });
+}
+
+/// Runtime rejection of an oversized tuple `merge`, in every epoch.
+///
+/// Builds two individually-valid ~512 KiB tuples whose combined size exceeds `MAX_VALUE_SIZE`
+/// and merges them at runtime. The merge result is bound in a `let` but never sized, so this
+/// isolates the merge itself: the rejection comes from `shallow_merge`, not from some later
+/// site that happens to size the value.
+///
+/// `merge` rejects the oversized result cleanly with `ValueTooLarge` and the error does not
+/// vary by epoch — the check lives in `shallow_merge`.
+#[test]
+fn tuple_merge_runtime_rejects_oversized() {
+    let program = r#"
+        (define-private (make-buff-256)
+            (let ((b16 0x00112233445566778899aabbccddeeff)
+                  (b32 (concat b16 b16))
+                  (b64 (concat b32 b32))
+                  (b128 (concat b64 b64))
+                  (b256 (concat b128 b128)))
+              b256))
+        (define-private (make-buff-4096)
+            (let ((b256 (make-buff-256))
+                  (b512 (concat b256 b256))
+                  (b1024 (concat b512 b512))
+                  (b2048 (concat b1024 b1024))
+                  (b4096 (concat b2048 b2048)))
+              b4096))
+        (define-private (make-buff-65536)
+            (let ((b4096 (make-buff-4096))
+                  (b8192 (concat b4096 b4096))
+                  (b16384 (concat b8192 b8192))
+                  (b32768 (concat b16384 b16384))
+                  (b65536 (concat b32768 b32768)))
+              b65536))
+        (define-private (make-buff-524288)
+            (let ((b65536 (make-buff-65536))
+                  (b131072 (concat b65536 b65536))
+                  (b262144 (concat b131072 b131072))
+                  (b524288 (concat b262144 b262144)))
+              b524288))
+        (let ((big (unwrap-panic (as-max-len? (make-buff-524288) u524288))))
+            (let ((m (merge (tuple (a big)) (tuple (b big)))))
+                true))
+    "#;
+
+    for &epoch in (StacksEpochId::Epoch20..).as_slice() {
+        let version = ClarityVersion::default_for_epoch(epoch);
+        let err = execute_with_parameters(program, version, epoch, false).unwrap_err();
+        assert_eq!(
+            err,
+            RuntimeCheckErrorKind::ValueTooLarge.into(),
+            "expected ValueTooLarge at {epoch} ({version})"
+        );
+    }
 }
 
 #[test]
@@ -1859,10 +1983,12 @@ fn test_chain_id() {
 
 #[test]
 fn test_execution_time_expiration() {
-    assert_eq!(
+    assert_matches!(
         vm_execute_with_limited_execution_time("(+ 1 1)", Duration::from_secs(0))
             .err()
             .unwrap(),
-        ClarityEvalError::Vm(CostErrors::ExecutionTimeExpired.into())
+        ClarityEvalError::Vm(VmExecutionError::RuntimeCheck(
+            RuntimeCheckErrorKind::ExecutionResourceBudgetExceeded(_)
+        ))
     );
 }

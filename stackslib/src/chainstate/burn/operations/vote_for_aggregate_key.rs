@@ -185,6 +185,15 @@ impl VoteForAggregateKeyOp {
         Secp256k1PublicKey::from_slice(signer_key_bytes)
             .map_err(|_| op_error::VoteForAggregateKeyInvalidKey)?;
 
+        if self.reward_cycle > i64::MAX as u64 {
+            warn!(
+                "Invalid vote-for-aggregate-key: reward_cycle exceeds i64::MAX";
+                "reward_cycle" => self.reward_cycle,
+                "txid" => %self.txid,
+            );
+            return Err(op_error::InvalidInput);
+        }
+
         Ok(())
     }
 }

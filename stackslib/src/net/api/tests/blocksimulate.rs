@@ -1,5 +1,5 @@
 // Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
-// Copyright (C) 2020-2025 Stacks Open Internet Foundation
+// Copyright (C) 2020-2026 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -15,10 +15,11 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
+use std::slice;
 
 use clarity::types::chainstate::StacksPrivateKey;
 use clarity::vm::types::PrincipalData;
-use clarity::vm::{ClarityName, ContractName, Value as ClarityValue};
+use clarity::vm::{ClarityName, ContractName};
 use stacks_common::consts::CHAIN_ID_TESTNET;
 use stacks_common::types::chainstate::StacksBlockId;
 
@@ -40,14 +41,10 @@ use crate::net::ProtocolFamily;
 #[test]
 fn test_try_parse_request() {
     let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 33333);
-    let mut http = StacksHttp::new(addr.clone(), &ConnectionOptions::default());
+    let mut http = StacksHttp::new(addr, &ConnectionOptions::default());
 
-    let mut request = StacksHttpRequest::new_block_simulate(
-        addr.into(),
-        &StacksBlockId([0x01; 32]),
-        &vec![],
-        &vec![],
-    );
+    let mut request =
+        StacksHttpRequest::new_block_simulate(addr.into(), &StacksBlockId([0x01; 32]), &[], &[]);
 
     // add the authorization header
     request.add_header("authorization".into(), "password".into());
@@ -77,20 +74,20 @@ fn test_try_parse_request() {
     let (preamble, contents) = parsed_request.destruct();
 
     assert_eq!(&preamble, request.preamble());
-    assert_eq!(handler.profiler, false);
+    assert!(!handler.profiler);
 }
 
 #[test]
 fn test_try_parse_request_with_profiler() {
     let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 33333);
-    let mut http = StacksHttp::new(addr.clone(), &ConnectionOptions::default());
+    let mut http = StacksHttp::new(addr, &ConnectionOptions::default());
 
     let mut request = StacksHttpRequest::new_block_simulate_with_profiler(
         addr.into(),
         &StacksBlockId([0x01; 32]),
         true,
-        &vec![],
-        &vec![],
+        &[],
+        &[],
     );
 
     // add the authorization header
@@ -115,7 +112,7 @@ fn test_try_parse_request_with_profiler() {
 
     let (preamble, contents) = parsed_request.destruct();
 
-    assert_eq!(handler.profiler, true);
+    assert!(handler.profiler);
 }
 
 #[test]
@@ -160,8 +157,8 @@ fn test_try_make_response() {
         0,
         1000,
         CHAIN_ID_TESTNET,
-        &"print-contract1",
-        &"(print u1)",
+        "print-contract1",
+        "(print u1)",
         Some(clarity::vm::ClarityVersion::Clarity1),
     );
 
@@ -170,17 +167,17 @@ fn test_try_make_response() {
         1,
         1000,
         CHAIN_ID_TESTNET,
-        &"print-contract2",
-        &"(print u2)",
+        "print-contract2",
+        "(print u2)",
         Some(clarity::vm::ClarityVersion::Clarity1),
     );
 
     // query existing, non-empty Nakamoto block
     let mut request = StacksHttpRequest::new_block_simulate(
-        addr.clone().into(),
+        addr.into(),
         &rpc_test.canonical_tip,
-        &vec![deploy_tx1.clone(), deploy_tx2.clone()],
-        &vec![blocksimulate::RPCNakamotoBlockSimulateMint {
+        &[deploy_tx1.clone(), deploy_tx2.clone()],
+        &[blocksimulate::RPCNakamotoBlockSimulateMint {
             principal: PrincipalData::from(&private_key),
             amount: 3000,
         }],
@@ -190,23 +187,15 @@ fn test_try_make_response() {
     requests.push(request);
 
     // query non-existent block
-    let mut request = StacksHttpRequest::new_block_simulate(
-        addr.clone().into(),
-        &StacksBlockId([0x01; 32]),
-        &vec![],
-        &vec![],
-    );
+    let mut request =
+        StacksHttpRequest::new_block_simulate(addr.into(), &StacksBlockId([0x01; 32]), &[], &[]);
     // add the authorization header
     request.add_header("authorization".into(), "password".into());
     requests.push(request);
 
     // unauthenticated request
-    let request = StacksHttpRequest::new_block_simulate(
-        addr.clone().into(),
-        &StacksBlockId([0x00; 32]),
-        &vec![],
-        &vec![],
-    );
+    let request =
+        StacksHttpRequest::new_block_simulate(addr.into(), &StacksBlockId([0x00; 32]), &[], &[]);
     requests.push(request);
 
     let mut responses = rpc_test.run(requests);
@@ -275,8 +264,7 @@ fn test_try_make_response() {
     assert_eq!(preamble.status_code, 401);
 }
 
-/// Test that events properly set the `committed` flag to `false`
-/// when the transaction is aborted by a post-condition.
+/// Test that post-condition aborted transactions are included in the response but with empty events.
 #[test]
 fn simulate_block_with_pc_failure() {
     let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 33333);
@@ -286,8 +274,8 @@ fn simulate_block_with_pc_failure() {
     let private_key = StacksPrivateKey::from_seed("blocksimulate".as_bytes());
     let address = to_addr(&private_key);
 
-    let contract_name = ContractName::from("test");
-    let function_name = ClarityName::from("test");
+    let contract_name = ContractName::from_literal("test");
+    let function_name = ClarityName::from_literal("test");
 
     // Set up the RPC test with a contract, so that we can test a post-condition failure
     let rpc_test =
@@ -300,8 +288,8 @@ fn simulate_block_with_pc_failure() {
                 0,
                 1000,
                 CHAIN_ID_TESTNET,
-                &"test",
-                &code_body,
+                "test",
+                code_body,
                 None,
             );
 
@@ -311,9 +299,9 @@ fn simulate_block_with_pc_failure() {
                 1000,
                 CHAIN_ID_TESTNET,
                 &address,
-                &contract_name,
-                &function_name,
-                &vec![],
+                contract_name.clone(),
+                function_name.clone(),
+                &[],
             );
 
             let boot_tenures = vec![NakamotoBootTenure::Sortition(vec![
@@ -352,15 +340,13 @@ fn simulate_block_with_pc_failure() {
         tx_signer.get_tx().unwrap()
     };
 
-    let nakamoto_consensus_hash = rpc_test.consensus_hash.clone();
-
     let mut requests = vec![];
 
     let mut request = StacksHttpRequest::new_block_simulate(
-        addr.clone().into(),
+        addr.into(),
         &rpc_test.canonical_tip,
-        &vec![contract_call],
-        &vec![],
+        &[contract_call],
+        &[],
     );
     request.add_header("authorization".into(), "password".into());
     requests.push(request);
@@ -374,43 +360,20 @@ fn simulate_block_with_pc_failure() {
         std::str::from_utf8(&response.try_serialize().unwrap()).unwrap()
     );
 
-    let contents = response.clone().get_http_payload_ok().unwrap();
-    let response_json: serde_json::Value = contents.try_into().unwrap();
-
-    let result_hex = response_json
-        .get("transactions")
-        .expect("Expected JSON to have a transactions field")
-        .as_array()
-        .expect("Expected transactions to be an array")
-        .get(0)
-        .expect("Expected transactions to have at least one element")
-        .as_object()
-        .expect("Expected transaction to be an object")
-        .get("result_hex")
-        .expect("Expected JSON to have a result_hex field")
-        .as_str()
-        .unwrap();
-    let result = ClarityValue::try_deserialize_hex_untyped(&result_hex).unwrap();
-    result.expect_result_ok().expect("FATAL: result is not ok");
-
     let resp = response.decode_simulated_block().unwrap();
 
-    let tip_block = test_observer.get_blocks().last().unwrap().clone();
+    // The post-condition aborted transaction should be present in the response (for fee
+    // reconciliation), but its events should be empty.
+    let aborted_tx = resp
+        .transactions
+        .iter()
+        .find(|tx| tx.post_condition_aborted)
+        .expect("Expected to find a post-condition aborted transaction in the response");
 
-    assert_eq!(resp.transactions.len(), tip_block.receipts.len());
-
-    assert_eq!(resp.transactions.len(), 1);
-
-    let resp_tx = &resp.transactions.get(0).unwrap();
-
-    assert!(resp_tx.vm_error.is_some());
-
-    for event in resp_tx.events.iter() {
-        let committed = event.get("committed").unwrap().as_bool().unwrap();
-        assert!(!committed);
-    }
-
-    assert!(resp_tx.post_condition_aborted);
+    assert!(
+        aborted_tx.events.is_empty(),
+        "Expected the post-condition aborted transaction to have empty events"
+    );
 }
 
 #[test]
@@ -431,8 +394,8 @@ fn test_try_make_response_with_unsuccessful_transaction() {
                 100,
                 1000,
                 CHAIN_ID_TESTNET,
-                &"dummy-contract",
-                &contract_code,
+                "dummy-contract",
+                contract_code,
                 Some(clarity::vm::ClarityVersion::Clarity1),
             );
 
@@ -452,18 +415,18 @@ fn test_try_make_response_with_unsuccessful_transaction() {
         0,
         1000,
         CHAIN_ID_TESTNET,
-        &"err-contract",
-        &contract_code,
+        "err-contract",
+        contract_code,
         Some(clarity::vm::ClarityVersion::Clarity1),
     );
 
     let mut requests = vec![];
 
     let mut request = StacksHttpRequest::new_block_simulate(
-        addr.clone().into(),
+        addr.into(),
         &rpc_test.canonical_tip,
-        &vec![deploy_tx.clone()],
-        &vec![blocksimulate::RPCNakamotoBlockSimulateMint {
+        slice::from_ref(&deploy_tx),
+        &[blocksimulate::RPCNakamotoBlockSimulateMint {
             principal: PrincipalData::from(&private_key),
             amount: 3000,
         }],
@@ -496,7 +459,7 @@ fn test_try_make_response_with_unsuccessful_transaction() {
     assert_eq!(resp.transactions[0].txid, deploy_tx.txid());
 
     assert_eq!(
-        resp.transactions.last().unwrap().vm_error.clone().unwrap(),
-        ":0:0: use of unresolved function 'broken'"
+        resp.transactions.last().unwrap().vm_error.as_deref(),
+        Some(":0:0: use of unresolved function 'broken'")
     );
 }

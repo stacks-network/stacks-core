@@ -1,236 +1,722 @@
-## The main Github Actions workflow
-name: CI
+############################################################################
+### Our primary CI/CD workflow
+############################################################################
+
+name: "CI"
+run-name: "CI: [${{ github.ref_name || github.event_name }}]"
 
 on:
   merge_group:
     types:
       - checks_requested
-  push:
-    branches:
-      - master
-      - develop
-    paths-ignore:
-      - "**.md"
-      - "**.yml"
-  workflow_dispatch:
-  pull_request:
+  workflow_dispatch: # Allows manual triggering
+    inputs:
+      btc-version:
+        description: 'The version of the bitcoin binary to use for tests'
+        required: false
+        type: string
+      btc-version-sha:
+        description: 'The SHA of the binary to verify before executing the tests. Find these in the official SHA256SUMS file for each release. Example: https://bitcoincore.org/bin/bitcoin-core-31.1/SHA256SUMS'
+        required: false
+        type: string
+  pull_request: # Trigger on pull requests
     types:
       - opened
       - reopened
       - synchronize
+  schedule: # For code coverage
+    # Run at 00:21 UTC daily
+    - cron: "21 0 * * *"
 
+# Set default permissions for all jobs
+permissions:
+  contents: read
+
+# Set default shell
 defaults:
   run:
     shell: bash
 
+# Configure concurrency
 concurrency:
   group: ci-${{ github.head_ref || github.ref || github.run_id }}
-  ## Always cancel duplicate jobs
+  # Always cancel duplicate jobs
   cancel-in-progress: true
 
-run-name: ${{ github.ref_name }}
+# Env vars
+env:
+  # The name of the test archive file that is generated
+  TEST_ARCHIVE_FILE: "./test_archive.tar.zst"
+  # The name of the CRON commit hash file stored to and retrieved from cache
+  CRON_COMMIT_HASH_FILE: "last_cron_commit_hash.txt"
+  # Whether or not to create the slow and failed tests summary
+  CREATE_SLOW_FAILED_TESTS_SUMMARY: ${{ (vars.ENABLE_CI_WORKFLOWS == 'true' || github.repository == 'stacks-network/stacks-core') && github.event_name != 'merge_group' }}
+  # Whether or not to create the code coverage report. We create the code coverage report daily on a CRON schedule, rather than on each PR or merge
+  CREATE_CODE_COVERAGE_REPORT: ${{ github.repository == 'stacks-network/stacks-core' && github.event_name == 'schedule' && github.ref == 'refs/heads/main' }}
 
 jobs:
-  ##
-  ## Jobs to execute everytime workflow runs
-  ##   do not run if the trigger is any of the following:
-  ##   - PR review submitted (not approved)
-  ##   and any of:
-  ##     - PR review comment
-  ##     - PR change is requested
-  rustfmt:
-    name: Rust Format
-    runs-on: ubuntu-latest
-    steps:
-      - name: Rustfmt
-        id: rustfmt
-        uses: stacks-network/actions/rustfmt@main
-        with:
-          alias: "fmt-stacks"
+  # Check if CI is enabled
+  check-ci:
+    name: "Check: CI Enabled"
+    uses: ./.github/workflows/__check-ci.yml
 
-  ######################################################################################
-  ## Check if the branch that this workflow is being run against is a release branch
-  ##
-  ## Outputs:
-  ##  - node_tag: Tag of the stacks-node if the branch is a release one (example: release/3.4.0.0.1), null otherwise
-  ##  - node_docker_tag: Version of the stacks-node if the branch is a release one (example: 3.4.0.0.1), null otherwise
-  ##  - signer_tag: Tag of the stacks-signer if the branch is a release one (example: release/3.4.0.0.1.0), null otherwise
-  ##  - signer_docker_tag: Version of the stacks-signer if the branch is a release one (example: 3.4.0.0.1.0), null otherwise
-  ##  - is_node_release: True if the branch represents a 'stacks-node' release, false otherwise.
-  ##                     If this is true, 'is_signer_release' will also be true, since a 'stacks-signer' binary
-  ##                     is always released alongside 'stacks-node'.
-  ##  - is_signer_release: True if the branch represents a 'stacks-signer' release, false otherwise.
-  check-release:
-    name: Check Release
-    needs:
-      - rustfmt
+  ############################################################################
+  ### Check Commit Hash (Scheduled Run / CRON Only)
+  ###
+  ### Skips the rest of the CI pipeline if the CRON schedule runs on the same
+  ### commit hash as the last scheduled run. We use the CRON run to report 
+  ### code coverage, and on the same commit we'll have the same coverage.
+  ############################################################################
+  check-cron-commit-hash:
+    name: "Check: Commit Hash (CRON Only)"
+    needs: check-ci
+    if: needs.check-ci.outputs.enabled == 'true'
     runs-on: ubuntu-latest
     outputs:
-      node_tag: ${{ steps.check_release.outputs.node_tag }}
-      node_docker_tag: ${{ steps.check_release.outputs.node_docker_tag }}
-      signer_tag: ${{ steps.check_release.outputs.signer_tag }}
-      signer_docker_tag: ${{ steps.check_release.outputs.signer_docker_tag }}
-      is_node_release: ${{ steps.check_release.outputs.is_node_release }}
-      is_signer_release: ${{ steps.check_release.outputs.is_signer_release }}
+      proceed: ${{ steps.check-last-commit-hash.outputs.proceed }}
     steps:
-      - name: Check Release
-        id: check_release
-        uses: stacks-network/actions/stacks-core/release/check-release@main
+      # Checkout the code
+      #   - only .github is required for this job
+      - name: Checkout the latest code
+        uses: $/.github/wrappers/checkout
         with:
-          tag: ${{ github.ref_name }}
+          ref: ${{ github.event.pull_request.head.sha || github.ref }}
+          sparse-checkout: |
+            .github
+            
+      # Attempt to fetch the last cached hash.
+      # Caches are immutable and cannot be overwritten, so we need a new key per entry.
+      # We use restore-keys to fall back to the most recent cache available for cron commits.
+      - name: Restore last commit hash from cache
+        if: github.event_name == 'schedule'
+        uses: ./.github/wrappers/cache/restore
+        with:
+          path: ${{ env.CRON_COMMIT_HASH_FILE }}
+          key: cron-commit-hash-main-${{ github.sha }}
+          restore-keys: cron-commit-hash-main-
 
-  ######################################################################################
-  ## Create a tagged github release
-  ##
-  ## Runs when:
-  ##  - it is either a node release or a signer release
+      - name: Check last commit hash
+        id: check-last-commit-hash
+        run: |
+          echo "## CRON Commit Hash Check" >> $GITHUB_STEP_SUMMARY
+          
+          # Always proceed for non-scheduled events
+          if [ "${{ github.event_name }}" != "schedule" ]; then
+            echo "proceed=true" >> $GITHUB_OUTPUT
+            
+            # Add bypass message to summary
+            echo "### ✅ Pipeline Proceeding" >> $GITHUB_STEP_SUMMARY
+            echo "Triggered by \`${{ github.event_name }}\`. The CI pipeline will run." >> $GITHUB_STEP_SUMMARY
+            exit 0
+          fi
 
-  ## create-release will call the reusable workflows to:
-  #   - build the binary artifacts
-  #   - create the release docker images
-  #   - create the github release.
-  create-release:
-    if: |
-      needs.check-release.outputs.is_node_release == 'true' ||
-      needs.check-release.outputs.is_signer_release == 'true'
-    name: Create Release
+          LAST_HASH=""
+          if [ -f "$CRON_COMMIT_HASH_FILE" ]; then
+            LAST_HASH=$(cat "$CRON_COMMIT_HASH_FILE")
+          fi
+          CURRENT_HASH="${{ github.sha }}"
+
+          # Prepare the base summary table
+          echo "| Metric | SHA |" >> $GITHUB_STEP_SUMMARY
+          echo "|--------|-----|" >> $GITHUB_STEP_SUMMARY
+          
+          if [ -z "$LAST_HASH" ]; then
+             echo "| **Last Run** | *(No cache found)* |" >> $GITHUB_STEP_SUMMARY
+          else
+             echo "| **Last Run** | \`$LAST_HASH\` |" >> $GITHUB_STEP_SUMMARY
+          fi
+          echo "| **Current** | \`$CURRENT_HASH\` |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY # Blank line for spacing
+
+          if [ "$LAST_HASH" == "$CURRENT_HASH" ]; then
+            echo "No new commits since last scheduled run. Skipping."
+            echo "proceed=false" >> $GITHUB_OUTPUT
+            
+            # Add Skipped message to summary
+            echo "### 🛑 Pipeline Skipped" >> $GITHUB_STEP_SUMMARY
+            echo "No new commits were found on the \`main\` branch since the last scheduled execution. The CI pipeline will not run." >> $GITHUB_STEP_SUMMARY
+          else
+            echo "New commits detected. Proceeding."
+            echo "proceed=true" >> $GITHUB_OUTPUT
+            echo "$CURRENT_HASH" > "$CRON_COMMIT_HASH_FILE"
+            
+            # Add Proceeding message to summary
+            echo "### ✅ Pipeline Proceeding" >> $GITHUB_STEP_SUMMARY
+            echo "New commits detected on the \`main\` branch since the last scheduled execution. The CI pipeline will run." >> $GITHUB_STEP_SUMMARY
+          fi
+
+      # Only save the new cache if it's a schedule and we detected a new hash
+      - name: Save new commit hash to cache
+        if: github.event_name == 'schedule' && steps.check-last-commit-hash.outputs.proceed == 'true'
+        uses: ./.github/wrappers/cache/save
+        with:
+          path: ${{ env.CRON_COMMIT_HASH_FILE }}
+          key: cron-commit-hash-main-${{ github.sha }}
+
+  ############################################################################
+  ### Global Variables Setup
+  ###
+  ### Bridges global env variables to the jobs context so they are safely
+  ### accessible by downstream reusable workflows.
+  ### Also defines default runs-on anchor.
+  ############################################################################
+  setup-env:
+    name: "Setup: Global Variables"
     needs:
-      - rustfmt
-      - check-release
-    secrets: inherit
-    uses: ./.github/workflows/release-github.yml
+      - check-ci
+      - check-cron-commit-hash
+    if: needs.check-ci.outputs.enabled == 'true' && needs.check-cron-commit-hash.outputs.proceed == 'true'
+    runs-on: &shared_config ubuntu-latest
+    outputs:
+      btc-version: ${{ steps.btc-version.outputs.version }}
+      btc-version-sha: ${{ steps.btc-version.outputs.sha }}
+      test-archive-file: ${{ steps.set-env.outputs.test_archive_file }}
+      create-slow-failed-tests-summary: ${{ steps.set-env.outputs.create_slow_failed_tests_summary }}
+      create-code-coverage-report: ${{ steps.set-env.outputs.create_code_coverage_report }}
+    steps:
+      # Checkout the code
+      #   - only .github is required for this job
+      - name: Checkout the latest code
+        uses: $/.github/wrappers/checkout
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.ref }}
+          sparse-checkout: |
+            .github
+
+      # Resolve target bitcoin version
+      - name: Resolve Target Bitcoin Version
+        id: btc-version
+        uses: ./.github/actions/bitcoin-version
+        with:
+          btc-version: ${{ inputs.btc-version }}
+          btc-version-sha: ${{ inputs.btc-version-sha }}
+          
+      - name: Export Env Variables
+        id: set-env
+        run: |
+          # Capture the archive file input, then expand the leading ~ to $HOME
+          INPUT_FILE="${{ env.TEST_ARCHIVE_FILE }}"
+          ARCHIVE_FILE="${INPUT_FILE/#\~/$HOME}"
+
+          echo "test_archive_file=$ARCHIVE_FILE" >> $GITHUB_OUTPUT
+          echo "create_slow_failed_tests_summary=$CREATE_SLOW_FAILED_TESTS_SUMMARY" >> $GITHUB_OUTPUT
+          echo "create_code_coverage_report=$CREATE_CODE_COVERAGE_REPORT" >> $GITHUB_OUTPUT
+
+  ############################################################################
+  ### Changelog Check
+  ###
+  ### Checks for changelog updates (or the 'No Changelog' label) on a PR
+  ### Required to pass for all subsequent jobs
+  ############################################################################
+  check-changelog:
+    name: "Check: Changelog"
+    needs:
+      - setup-env
+    runs-on: *shared_config
+    permissions:
+      contents: read
+      pull-requests: read
+    steps:
+      # Checkout the code
+      #   - only .github is required for this job
+      - name: Checkout the latest code
+        uses: $/.github/wrappers/checkout
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.ref }}
+          sparse-checkout: |
+            .github
+
+      # Run script to detect changelog entries
+      - name: Check for changelog fragments
+        uses: ./.github/wrappers/github-script
+        with:
+          script: |
+            const changelog = require('./.github/scripts/changelog.js');
+            await changelog({ github, context, core });
+
+  ############################################################################
+  ### Rust Formatting Check
+  ###
+  ### Checks for correct formatting
+  ### Required to pass for all subsequent jobs
+  ############################################################################
+  check-rustfmt:
+    name: "Check: Rust Formatting"
+    needs:
+      - setup-env
+    runs-on: *shared_config
+    steps:
+      - name: Checkout the latest code
+        uses: $/.github/wrappers/checkout
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.ref }}
+
+      # Setup the rust toolchain with specified rustfmt
+      - name: Setup Rust Toolchain
+        uses: ./.github/actions/setup-rust-toolchain
+        with:
+          components: rustfmt
+
+      # Check Rust formatting
+      - name: Rustfmt
+        run: bash ./.github/scripts/rustfmt.sh
+
+  ############################################################################
+  ### Check Reusable Test Caches
+  ###
+  ### Caches can only be created from `main`. The workflow will fail
+  ### if caches are missing, with instructions on how to manually seed them.
+  ############################################################################
+  check-test-caches:
+    name: "Check: Test Caches"
+    needs:
+      - setup-env
+    uses: ./.github/workflows/_check-test-caches.yml
     with:
-      node_tag: ${{ needs.check-release.outputs.node_docker_tag }} # 5 place version format like x.x.x.x.x
-      signer_tag: ${{ needs.check-release.outputs.signer_docker_tag }} # 6 place version format like x.x.x.x.x.x
-      is_node_release: ${{ needs.check-release.outputs.is_node_release }} # used in matrix conitional in release-github.yml
+      btc-version: ${{ needs.setup-env.outputs.btc-version }}
+      btc-version-sha: ${{ needs.setup-env.outputs.btc-version-sha }}
 
-  ## Create a reusable cache for tests
-  ##
-  ## Runs when:
-  ##   - it is a node release run
-  ##   or any of:
-  ##     - this workflow is called manually
-  ##     - PR is opened
-  ##     - PR added to merge queue
-  create-cache:
-    if: |
-      needs.check-release.outputs.is_node_release == 'true' ||
-      github.event_name == 'workflow_dispatch' ||
-      github.event_name == 'pull_request' ||
-      github.event_name == 'merge_group'
-    name: Create Test Cache
+  ############################################################################
+  ### Cargo Hack Check
+  ############################################################################
+  check-cargo-hack:
+    name: "Check: Cargo Hack"
     needs:
-      - rustfmt
-      - check-release
-    uses: ./.github/workflows/create-cache.yml
+      - check-changelog
+      - check-rustfmt
+      - check-test-caches
+      - setup-env
+    uses: ./.github/workflows/_check-cargo-hack.yml
 
-  ## Tests to run regularly
-  ##
-  ## Runs when:
-  ##   - it is a node or signer-only release run
-  ##   or any of:
-  ##     - this workflow is called manually
-  ##     - PR is opened
-  ##     - PR added to merge queue
-  stacks-core-tests:
-    if: |
-      needs.check-release.outputs.is_node_release == 'true' ||
-      needs.check-release.outputs.is_signer_release == 'true' ||
-      github.event_name == 'workflow_dispatch' ||
-      github.event_name == 'pull_request' ||
-      github.event_name == 'merge_group'
-    name: Stacks Core Tests
+  ############################################################################
+  ### Constant Check (stacks-inspect)
+  ############################################################################
+  check-constants:
+    name: "Check: Constants"
     needs:
-      - rustfmt
-      - create-cache
-      - check-release
-    uses: ./.github/workflows/stacks-core-tests.yml
+      - check-changelog
+      - check-rustfmt
+      - check-test-caches
+      - setup-env
+    uses: ./.github/workflows/_check-constants.yml
+    
+  ############################################################################
+  ### WASM Tests
+  ############################################################################
+  tests-wasm:
+    name: "Tests: WASM"
+    needs:
+      - check-changelog
+      - check-rustfmt
+      - check-test-caches
+      - setup-env
+    uses: ./.github/workflows/_tests-wasm.yml
 
-  ## Validate constants dumped by stacks-inspect
-  ##
-  ## Runs when:
-  ##   - it is a node or signer-only release run
-  ##   or any of:
-  ##     - this workflow is called manually
-  ##     - PR is opened
-  ##     - PR added to merge queue
-  constants-check:
-    if: |
-      needs.check-release.outputs.is_node_release == 'true' ||
-      needs.check-release.outputs.is_signer_release == 'true' ||
-      github.event_name == 'workflow_dispatch' ||
-      github.event_name == 'pull_request' ||
-      github.event_name == 'merge_group'
-    name: Constants Check
+  ############################################################################
+  ### Developer Mode Tests
+  ############################################################################
+  tests-developer-mode:
+    name: "Tests: Developer Mode"
     needs:
-      - rustfmt
-      - check-release
-    uses: ./.github/workflows/constants-check.yml
+      - check-changelog
+      - check-rustfmt
+      - check-test-caches
+      - setup-env
+    uses: ./.github/workflows/_tests-developer-mode.yml
 
-  ## Checks to run on built binaries
-  ##
-  ## Runs when:
-  ##   - it is a node or signer-only release run
-  ##   or any of:
-  ##     - this workflow is called manually
-  ##     - PR is opened
-  ##     - PR added to merge queue
-  cargo-hack-check:
-    if: |
-      needs.check-release.outputs.is_node_release == 'true' ||
-      needs.check-release.outputs.is_signer_release == 'true' ||
-      github.event_name == 'workflow_dispatch' ||
-      github.event_name == 'pull_request' ||
-      github.event_name == 'merge_group'
-    name: Cargo Hack Check
+  ############################################################################
+  ### Create Nextest Archive Artifact for Tests
+  ############################################################################
+  create-nextest-archive:
+    name: "Create: Nextest Archive Artifact"
+    runs-on: *shared_config
     needs:
-      - rustfmt
-      - check-release
-    uses: ./.github/workflows/cargo-hack-check.yml
+      - check-changelog
+      - check-rustfmt
+      - check-test-caches
+      - setup-env
+    steps:
+      # Checkout the code
+      #   - only .github is required for this job
+      - name: Checkout the latest code
+        uses: $/.github/wrappers/checkout
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.ref }}
+          sparse-checkout: |
+            .github
+            
+      # Create Nextest archive artifact
+      - name: Create Nextest Archive Artifact
+        uses: ./.github/actions/artifacts/nextest-archive
+        with:
+          action: create
+          archive-file: ${{ needs.setup-env.outputs.test-archive-file }}
 
-  ## Checks to run on built binaries
-  ##
-  ## Runs when:
-  ##   - it is a node release run
-  ##   or any of:
-  ##     - this workflow is called manually
-  ##     - PR is opened
-  ##     - PR added to merge queue
-  bitcoin-tests:
-    if: |
-      needs.check-release.outputs.is_node_release == 'true' ||
-      github.event_name == 'workflow_dispatch' ||
-      github.event_name == 'pull_request' ||
-      github.event_name == 'merge_group'
-    name: Bitcoin Tests
+  ############################################################################
+  ### Run Stacks Core Tests
+  ############################################################################
+  tests-stacks-core:
+    name: "Tests: Stacks Core"
     needs:
-      - rustfmt
-      - create-cache
-      - check-release
-    uses: ./.github/workflows/bitcoin-tests.yml
+      - check-changelog
+      - check-rustfmt
+      - check-test-caches
+      - create-nextest-archive
+      - setup-env
+    uses: ./.github/workflows/_tests-stacks-core.yml
+    with:
+      btc-version: ${{ needs.setup-env.outputs.btc-version }}
+      btc-version-sha: ${{ needs.setup-env.outputs.btc-version-sha }}
+      archive-file: ${{ needs.setup-env.outputs.test-archive-file }}
+      upload-junit-xml: ${{ needs.setup-env.outputs.create-slow-failed-tests-summary }}
+      upload-code-coverage: ${{ needs.setup-env.outputs.create-code-coverage-report }}
 
-  p2p-tests:
-    if: |
-      needs.check-release.outputs.is_node_release == 'true' ||
-      github.event_name == 'workflow_dispatch' ||
-      github.event_name == 'pull_request' ||
-      github.event_name == 'merge_group'
-    name: P2P Tests
+  ############################################################################
+  ### Run Bitcoin Tests
+  ############################################################################
+  tests-bitcoin:
+    name: "Tests: Bitcoin"
     needs:
-      - rustfmt
-      - create-cache
-      - check-release
-    uses: ./.github/workflows/p2p-tests.yml
+      - check-changelog
+      - check-rustfmt
+      - check-test-caches
+      - create-nextest-archive
+      - setup-env
+    uses: ./.github/workflows/_tests-bitcoin.yml
+    with:
+      btc-version: ${{ needs.setup-env.outputs.btc-version }}
+      btc-version-sha: ${{ needs.setup-env.outputs.btc-version-sha }}
+      archive-file: ${{ needs.setup-env.outputs.test-archive-file }}
+      upload-junit-xml: ${{ needs.setup-env.outputs.create-slow-failed-tests-summary }}
+      upload-code-coverage: ${{ needs.setup-env.outputs.create-code-coverage-report }}
 
-  ## Test to run on a tagged release
-  ##
-  ## Runs when:
-  ##   - it is a node release run
-  epoch-tests:
-    if: needs.check-release.outputs.is_node_release == 'true'
-    name: Epoch Tests
+  ############################################################################
+  ### Run Bitcoin RPC Tests
+  ############################################################################
+  tests-bitcoin-rpc:
+    name: "Tests: Bitcoin RPC"
     needs:
-      - rustfmt
-      - create-cache
-      - check-release
-    uses: ./.github/workflows/epoch-tests.yml
+      - check-changelog
+      - check-rustfmt
+      - check-test-caches
+      - create-nextest-archive
+      - setup-env
+    uses: ./.github/workflows/_tests-bitcoin-rpc.yml
+    with:
+      archive-file: ${{ needs.setup-env.outputs.test-archive-file }}
+
+  ############################################################################
+  ### Run P2P Tests
+  ############################################################################
+  tests-p2p:
+    name: "Tests: P2P"
+    needs:
+      - check-changelog
+      - check-rustfmt
+      - check-test-caches
+      - create-nextest-archive
+      - setup-env
+    uses: ./.github/workflows/_tests-p2p.yml
+    with:
+      btc-version: ${{ needs.setup-env.outputs.btc-version }}
+      btc-version-sha: ${{ needs.setup-env.outputs.btc-version-sha }}
+      archive-file: ${{ needs.setup-env.outputs.test-archive-file }}
+      upload-junit-xml: ${{ needs.setup-env.outputs.create-slow-failed-tests-summary }}
+      upload-code-coverage: ${{ needs.setup-env.outputs.create-code-coverage-report }}
+
+  ############################################################################
+  ### Create Job Summary: Slow & Failed Tests
+  ############################################################################
+  create-slow-failed-tests-summary:
+    name: "Create: Slow & Failed Tests Report"
+    runs-on: *shared_config
+    needs:
+      - check-changelog
+      - check-rustfmt
+      - check-test-caches
+      - setup-env
+      - tests-bitcoin
+      - tests-p2p
+      - tests-stacks-core
+    if: >-
+      always() && 
+      needs.setup-env.outputs.create-slow-failed-tests-summary == 'true'
+    env:
+      NEXTEST_FILES_DIR: "nextest_files"
+      NEXTEST_FILES_EXT: "xml"
+      # Should be kept in sync with contents of ./.github/nextest/ci-nextest.toml
+      SLOW_THRESHOLD_SECS: "300.0"
+      # Unique string used internally to separate fields during processing
+      INTERNAL_DELIM: "@@@"
+    steps:
+      # Download the nextest JUnit .xml files generated by tests from artifacts
+      - name: Download nextest JUnit artifacts
+        uses: $/.github/wrappers/download-artifact
+        with:
+          pattern: junit-*
+          path: ${{ env.NEXTEST_FILES_DIR }}
+          merge-multiple: true
+
+      # Check for at least 1 JUnit file
+      - name: Check for at least 1 JUnit file
+        shell: bash
+        run: |
+          EXT="${{ env.NEXTEST_FILES_EXT }}"
+          DIR="${{ env.NEXTEST_FILES_DIR }}"
+
+          file_count=$(find "$DIR" -type f -name "*.$EXT" | wc -l)
+          if [ "$file_count" -eq 0 ]; then
+            echo "ERROR: no nextest JUnit files of type .$EXT found to merge. Verify that they were correctly generated and uploaded in prior CI steps"
+            exit 1
+          fi
+
+      # Parse the nextest JUnit files and generate the summary
+      - name: Parse JUnit Reports and Generate Summary
+        shell: bash
+        run: |
+          EXT="${{ env.NEXTEST_FILES_EXT }}"
+          DIR="${{ env.NEXTEST_FILES_DIR }}"
+          SLOW_SECS=${{ env.SLOW_THRESHOLD_SECS }}
+          DELIM="${{ env.INTERNAL_DELIM }}"
+
+          # Feed all reports cleanly into a unified gawk processing loop
+          find "$DIR" -type f -name "*.$EXT" | sort | xargs gawk -v slow_thresh="$SLOW_SECS" -v d="$DELIM" '
+            BEGIN {
+                # Split the XML file by the testcase tag instead of newlines
+                RS = "<testcase "
+            }
+
+            FNR == 1 {
+                # Skip the first record of every file (contains metadata before the first testcase)
+                next
+            }
+
+            {
+                # Clear variables to prevent data bleeding between records
+                classname = ""
+                name = ""
+                time_val = 0
+                has_retry = 0
+
+                # Extract attributes safely from the beginning of this specific testcase record
+                if (match($0, /classname="([^"]+)"/, c)) classname = c[1]
+                if (match($0, /name="([^"]+)"/, n)) name = n[1]
+                if (match($0, /time="([^"]+)"/, t)) time_val = t[1] + 0
+
+                full_name = classname " :: " name
+
+                # Scan for Nextest-specific retry elements within this testcase context
+                if ($0 ~ /flakyFailure|flakyError|rerunFailure|rerunError/) {
+                    has_retry = 1
+                }
+
+                short_file = FILENAME
+                sub(/.*\//, "", short_file) # Strip path, preserve filename string
+
+                if (has_retry) {
+                    retried_list = retried_list full_name d short_file "\n"
+                }
+                if (time_val > slow_thresh) {
+                    # Store in an array, using dynamic delimiter and zero-padded duration for descending sort
+                    slow_tests[++slow_cnt] = sprintf("%010.3f%s%s%s%s", time_val, d, full_name, d, short_file)
+                }
+            }
+
+            END {
+                summary_file = ENVIRON["GITHUB_STEP_SUMMARY"]
+                if (!summary_file) summary_file = "/dev/stdout"
+
+                print "## `nextest` Summary\n" >> summary_file
+
+                if (retried_list == "" && slow_cnt == 0) {
+                    print "### ✅ Perfect!" >> summary_file
+                    print "All tests ran without a single retry or slow timeout alert." >> summary_file
+                    exit(0)
+                }
+
+                if (retried_list != "") {
+                    print "### ⚠️ Automatically Retried (Flaky/Rerun) Tests" >> summary_file
+                    print "| Test Name |" >> summary_file
+                    print "| --- |" >> summary_file
+
+                    # Split by newline (always safe as a single character)
+                    n_retried = split(retried_list, r_lines, "\n")
+                    for (i = 1; i < n_retried; i++) {
+                        # Literal string parsing instead of regex split
+                        pos = index(r_lines[i], d)
+                        test_name = substr(r_lines[i], 1, pos - 1)
+                        print "| `" test_name "` |" >> summary_file
+                    }
+                    print "" >> summary_file
+                }
+
+                if (slow_cnt > 0) {
+                    print "### ⏱️ Slow Tests (> " slow_thresh "s)" >> summary_file
+                    print "| Test Name | Duration |" >> summary_file
+                    print "| --- | --- |" >> summary_file
+
+                    # Sort the slow tests array descending (longest first)
+                    asort(slow_tests, slow_tests, "@val_str_desc")
+
+                    for (i = 1; i <= slow_cnt; i++) {
+                        # 1. The duration is always exactly the first 10 characters due to %010.3f
+                        duration = substr(slow_tests[i], 1, 10) + 0
+
+                        # 2. Slice off the duration and the first delimiter to get the rest of the string
+                        remainder = substr(slow_tests[i], 11 + length(d))
+
+                        # 3. Use literal index matching to find where the test name ends
+                        pos = index(remainder, d)
+                        test_name = substr(remainder, 1, pos - 1)
+
+                        mins = int(duration / 60)
+                        secs = int(duration % 60)
+                        printf("| `%s` | %dm %ds (`%.2fs`) |\n", test_name, mins, secs, duration) >> summary_file
+                    }
+                    print "" >> summary_file
+                }
+            }
+          '
+
+  ############################################################################
+  ### Create Code Coverage Report
+  ############################################################################
+  create-code-coverage-report:
+    name: "Create: Code Coverage Report"
+    runs-on: *shared_config
+    needs:
+      - check-changelog
+      - check-rustfmt
+      - check-test-caches
+      - setup-env
+      - tests-bitcoin
+      - tests-p2p
+      - tests-stacks-core
+    if: >-
+      always() && 
+      needs.setup-env.outputs.create-code-coverage-report == 'true'
+    env:
+      REPORT_FILES_DIR: "code_coverage_files"
+      REPORT_FILES_EXT: "info"
+      REPORT_MERGE_NUM_THREADS: 4
+    steps:
+      # Fail this job explicitly if any upstream job fails
+      - name: Check for upstream failures
+        if: contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled')
+        shell: bash
+        run: |
+          echo "ERROR: One or more required CI jobs failed or were cancelled. Failing coverage report."
+          exit 1
+
+      # Checkout the code (Coveralls requires source code to be available when action is called)
+      - name: Checkout the latest code
+        uses: $/.github/wrappers/checkout
+        with:
+           ref: ${{ github.event.pull_request.head.sha || github.ref }}
+
+      # Download the code coverage .info files generated by tests from artifacts
+      - name: Download code coverage artifacts
+        uses: ./.github/wrappers/download-artifact
+        with:
+          pattern: codecov-*
+          path: ${{ env.REPORT_FILES_DIR }}
+          merge-multiple: true
+
+      # Check for at least 1 code coverage files
+      - name: Check for at least 1 code coverage file
+        shell: bash
+        run: |
+          EXT="${{ env.REPORT_FILES_EXT }}"
+          DIR="${{ env.REPORT_FILES_DIR }}"
+
+          file_count=$(find "$DIR" -type f -name "*.$EXT" | wc -l)
+          if [ "$file_count" -eq 0 ]; then
+            echo "ERROR: no code coverage files of type .$EXT found to merge. Verify that they were correctly generated and uploaded in prior CI steps"
+            exit 1
+          fi
+
+      # Install lcov for merging the reports
+      - name: Install lcov
+        shell: bash
+        run: |
+          sudo apt-get install -y --no-install-recommends lcov
+
+      # Merge n coverage report files into 1 file using lcov
+      - name: Merge code coverage files
+        shell: bash
+        run: |
+          EXT="${{ env.REPORT_FILES_EXT }}"
+          DIR="${{ env.REPORT_FILES_DIR }}"
+          INTERMEDIATE_FILES=()
+          PIDS=() # Array to track background process IDs
+
+          cd "$DIR" || exit 1
+
+          # 1. Collect all files into an array
+          mapfile -d '' ALL_FILES < <(find . -type f -name "*.$EXT" -print0)
+
+          # 2. Process in chunks (Dynamically calculated for 4 threads)
+          TOTAL_FILES=${#ALL_FILES[@]}
+          CHUNK_SIZE=$(( (TOTAL_FILES + 3) / $REPORT_MERGE_NUM_THREADS ))
+
+          # Guardrail: Ensure CHUNK_SIZE is at least 1 to prevent infinite loops
+          if [ "$CHUNK_SIZE" -le 0 ]; then
+              CHUNK_SIZE=1
+          fi
+
+          echo "Total files to process: $TOTAL_FILES. Calculated chunk size for $REPORT_MERGE_NUM_THREADS threads: $CHUNK_SIZE"
+
+          for (( i=0; i<TOTAL_FILES; i+=CHUNK_SIZE )); do
+              # Slice the array for the current chunk
+              CHUNK=("${ALL_FILES[@]:i:CHUNK_SIZE}")
+
+              # Build the lcov arguments for this specific chunk
+              CHUNK_ARGS=()
+              for file in "${CHUNK[@]}"; do
+                  CHUNK_ARGS+=(-a "$file")
+              done
+
+              # Define a unique name for the intermediate report
+              PART_FILE="code_coverage_part_$((i / CHUNK_SIZE)).$EXT"
+              INTERMEDIATE_FILES+=("$PART_FILE")
+
+              # Run lcov in the background
+              echo "Processing chunk $((i / CHUNK_SIZE + 1))..."
+              lcov "${CHUNK_ARGS[@]}" -o "$PART_FILE" &
+              PIDS+=("$!") # Capture the PID of the process just put in the background
+          done
+
+          # 3. Wait for all background processes to finish and catch errors
+          echo "Waiting for ${#PIDS[@]} background jobs to complete..."
+          FAILED=0
+          for pid in "${PIDS[@]}"; do
+              if ! wait "$pid"; then
+                  echo "ERROR: Background process with PID $pid failed."
+                  FAILED=1
+              fi
+          done
+
+          if [ "$FAILED" -ne 0 ]; then
+              echo "ERROR: One or more lcov chunk operations failed. Aborting final merge."
+              exit 1
+          fi
+
+          # 4. Final Merge: Combine the intermediate files into the final report
+          FINAL_ARGS=()
+          for part in "${INTERMEDIATE_FILES[@]}"; do
+              FINAL_ARGS+=(-a "$part")
+          done
+
+          echo "Performing final merge of ${#INTERMEDIATE_FILES[@]} intermediate files..."
+          lcov "${FINAL_ARGS[@]}" -o "code-coverage-report.$EXT"
+
+          cd ..
+
+      # Upload the merged code coverage file to Coveralls, retrying transient failures
+      - name: Upload code coverage to Coveralls
+        timeout-minutes: 15
+        continue-on-error: true
+        uses: ./.github/actions/coveralls-upload
+        with:
+          files: ${{ env.REPORT_FILES_DIR }}/code-coverage-report.${{ env.REPORT_FILES_EXT }}
+          build-number: ${{ github.run_id }}-${{ github.run_attempt }} # include run attempt in build so that repeated CI job runs don't cause a "job already closed" error on upload

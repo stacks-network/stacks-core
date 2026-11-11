@@ -193,7 +193,7 @@ impl SignerSession for StackerDBSession {
             &[],
         )?;
         let metadata: Vec<SlotMetadata> = serde_json::from_slice(&bytes)
-            .map_err(|e| RPCError::Deserialize(format!("{:?}", &e)))?;
+            .map_err(|e| RPCError::Deserialize(format!("{:?}", e)))?;
         Ok(metadata)
     }
 

@@ -17,12 +17,15 @@ use std::collections::HashMap;
 
 use clarity_types::ClarityName;
 use clarity_types::types::{AssetIdentifier, PrincipalData, StandardPrincipalData};
+use stacks_common::bounded_format;
 use stacks_common::types::StacksEpochId;
 
 use crate::vm::analysis::type_checker::v2_1::natives::post_conditions::MAX_ALLOWANCES;
-use crate::vm::contexts::AssetMap;
+use crate::vm::contexts::{AssetMap, ExecutionState, InvocationContext};
 use crate::vm::costs::cost_functions::ClarityCostFunction;
-use crate::vm::costs::{CostTracker, MemoryConsumer, constants as cost_constants, runtime_cost};
+use crate::vm::costs::{
+    CostErrors, CostTracker, MemoryConsumer, constants as cost_constants, runtime_cost,
+};
 use crate::vm::errors::{
     RuntimeCheckErrorKind, RuntimeError, VmExecutionError, VmInternalError,
     check_arguments_at_least,
@@ -30,7 +33,7 @@ use crate::vm::errors::{
 use crate::vm::functions::NativeFunctions;
 use crate::vm::representations::SymbolicExpression;
 use crate::vm::types::Value;
-use crate::vm::{Environment, LocalContext, eval};
+use crate::vm::{LocalContext, eval};
 
 #[derive(Debug)]
 pub struct StxAllowance {
@@ -56,10 +59,24 @@ pub struct StackingAllowance {
 
 #[derive(Debug)]
 pub enum Allowance {
+    /// Permits the asset owner to move or burn up to the specified amount of
+    /// STX within the protected scope.
     Stx(StxAllowance),
+    /// Permits the asset owner to move or burn up to the specified amount of a
+    /// fungible token within the protected scope.
     Ft(FtAllowance),
+    /// Permits the asset owner to transfer or burn specific non-fungible
+    /// tokens within the protected scope.
     Nft(NftAllowance),
+    /// Permits the asset owner to stake up to the specified amount of STX
+    /// within the protected scope.
     Stacking(StackingAllowance),
+    /// Permits the asset owner to perform a position-altering PoX action
+    /// (`unstake`, `unstake-sbtc`, `update-bond-registration`,
+    /// `announce-l1-early-exit`) within the protected scope.
+    Pox,
+    /// Permits the asset owner to access all assets within the protected
+    /// scope.
     All,
 }
 
@@ -67,7 +84,7 @@ impl Allowance {
     /// Returns the size in bytes of the allowance when stored in memory.
     /// This is used to account for memory usage when evaluating `as-contract?`
     /// and `restrict-assets?` expressions.
-    pub fn size_in_bytes(&self) -> Result<usize, VmInternalError> {
+    pub fn size_in_bytes(&self, epoch: &StacksEpochId) -> Result<usize, VmInternalError> {
         match self {
             Allowance::Stx(_) => Ok(std::mem::size_of::<StxAllowance>()),
             Allowance::Ft(ft) => Ok(std::mem::size_of::<FtAllowance>()
@@ -81,7 +98,7 @@ impl Allowance {
                     + nft.asset.asset_name.len() as usize;
 
                 for id in &nft.asset_ids {
-                    let memory_use = id.get_memory_use().map_err(|e| {
+                    let memory_use = id.get_memory_use(epoch).map_err(|e| {
                         VmInternalError::Expect(format!("Failed to calculate memory use: {e}"))
                     })?;
                     total_size += memory_use as usize;
@@ -90,6 +107,7 @@ impl Allowance {
                 Ok(total_size)
             }
             Allowance::Stacking(_) => Ok(std::mem::size_of::<StackingAllowance>()),
+            Allowance::Pox => Ok(0),
             Allowance::All => Ok(0),
         }
     }
@@ -97,31 +115,33 @@ impl Allowance {
 
 fn eval_allowance(
     allowance_expr: &SymbolicExpression,
-    env: &mut Environment,
+    exec_state: &mut ExecutionState,
+    invoke_ctx: &InvocationContext,
     context: &LocalContext,
 ) -> Result<Allowance, VmExecutionError> {
     let list = allowance_expr
         .match_list()
         .ok_or(RuntimeCheckErrorKind::Unreachable(
-            "Non functional application".to_string(),
+            "Non functional application".into(),
         ))?;
     let (name_expr, rest) = list
         .split_first()
         .ok_or(RuntimeCheckErrorKind::Unreachable(
-            "Non functional application".to_string(),
+            "Non functional application".into(),
         ))?;
     let name = name_expr
         .match_atom()
         .ok_or(RuntimeCheckErrorKind::Unreachable(
-            "Bad function name".to_string(),
+            "Bad function name".into(),
         ))?;
     let Some(ref native_function) = NativeFunctions::lookup_by_name_at_version(
         name,
-        env.contract_context.get_clarity_version(),
+        invoke_ctx.contract_context.get_clarity_version(),
     ) else {
-        return Err(
-            RuntimeCheckErrorKind::Unreachable(format!("Expected allowance expr: {name}")).into(),
-        );
+        return Err(RuntimeCheckErrorKind::Unreachable(bounded_format!(
+            "Expected allowance expr: {name}"
+        ))
+        .into());
     };
 
     match native_function {
@@ -129,10 +149,13 @@ fn eval_allowance(
             if rest.len() != 1 {
                 return Err(RuntimeCheckErrorKind::IncorrectArgumentCount(1, rest.len()).into());
             }
-            let amount = eval(&rest[0], env, context)?;
-            let amount = amount
-                .expect_u128()
-                .map_err(|_| VmInternalError::Expect("Expected u128".into()))?;
+            let amount = eval(&rest[0], exec_state, invoke_ctx, context)?;
+            let amount = match amount.as_ref() {
+                Value::UInt(amount) => *amount,
+                _ => {
+                    return Err(VmInternalError::Expect("Expected u128".into()).into());
+                }
+            };
             Ok(Allowance::Stx(StxAllowance { amount }))
         }
         NativeFunctions::AllowanceWithFt => {
@@ -140,7 +163,8 @@ fn eval_allowance(
                 return Err(RuntimeCheckErrorKind::IncorrectArgumentCount(3, rest.len()).into());
             }
 
-            let contract_value = eval(&rest[0], env, context)?;
+            let contract_value =
+                eval(&rest[0], exec_state, invoke_ctx, context)?.clone_with_cost(exec_state)?;
             let contract = contract_value
                 .clone()
                 .expect_principal()
@@ -148,14 +172,15 @@ fn eval_allowance(
             let contract_identifier = match contract {
                 PrincipalData::Standard(_) => {
                     return Err(RuntimeCheckErrorKind::ExpectedContractPrincipalValue(
-                        contract_value.into(),
+                        contract_value.to_error_string(),
                     )
                     .into());
                 }
                 PrincipalData::Contract(c) => c,
             };
 
-            let asset_name = eval(&rest[1], env, context)?;
+            let asset_name =
+                eval(&rest[1], exec_state, invoke_ctx, context)?.clone_with_cost(exec_state)?;
             let asset_name = asset_name
                 .expect_string_ascii()
                 .map_err(|_| VmInternalError::Expect("Expected ASCII String.".into()))?;
@@ -171,7 +196,8 @@ fn eval_allowance(
                 asset_name,
             };
 
-            let amount = eval(&rest[2], env, context)?;
+            let amount =
+                eval(&rest[2], exec_state, invoke_ctx, context)?.clone_with_cost(exec_state)?;
             let amount = amount
                 .expect_u128()
                 .map_err(|_| VmInternalError::Expect("Expected u128".into()))?;
@@ -183,7 +209,8 @@ fn eval_allowance(
                 return Err(RuntimeCheckErrorKind::IncorrectArgumentCount(3, rest.len()).into());
             }
 
-            let contract_value = eval(&rest[0], env, context)?;
+            let contract_value =
+                eval(&rest[0], exec_state, invoke_ctx, context)?.clone_with_cost(exec_state)?;
             let contract = contract_value
                 .clone()
                 .expect_principal()
@@ -191,14 +218,15 @@ fn eval_allowance(
             let contract_identifier = match contract {
                 PrincipalData::Standard(_) => {
                     return Err(RuntimeCheckErrorKind::ExpectedContractPrincipalValue(
-                        contract_value.into(),
+                        contract_value.to_error_string(),
                     )
                     .into());
                 }
                 PrincipalData::Contract(c) => c,
             };
 
-            let asset_name = eval(&rest[1], env, context)?;
+            let asset_name =
+                eval(&rest[1], exec_state, invoke_ctx, context)?.clone_with_cost(exec_state)?;
             let asset_name = asset_name
                 .expect_string_ascii()
                 .map_err(|_| VmInternalError::Expect("Expected ASCII String.".into()))?;
@@ -214,22 +242,33 @@ fn eval_allowance(
                 asset_name,
             };
 
-            let asset_id_list = eval(&rest[2], env, context)?;
+            let asset_id_list =
+                eval(&rest[2], exec_state, invoke_ctx, context)?.clone_with_cost(exec_state)?;
             let asset_ids = asset_id_list
                 .expect_list()
                 .map_err(|_| VmInternalError::Expect("Expected list".into()))?;
 
             Ok(Allowance::Nft(NftAllowance { asset, asset_ids }))
         }
-        NativeFunctions::AllowanceWithStacking => {
+        // `with-stacking` (Clarity 4-5) and `with-staking` (Clarity 6+) are the
+        // same allowance under two spellings; the version gating is handled by
+        // `lookup_by_name_at_version`.
+        NativeFunctions::AllowanceWithStacking | NativeFunctions::AllowanceWithStaking => {
             if rest.len() != 1 {
                 return Err(RuntimeCheckErrorKind::IncorrectArgumentCount(1, rest.len()).into());
             }
-            let amount = eval(&rest[0], env, context)?;
+            let amount =
+                eval(&rest[0], exec_state, invoke_ctx, context)?.clone_with_cost(exec_state)?;
             let amount = amount
                 .expect_u128()
                 .map_err(|_| VmInternalError::Expect("Expected u128".into()))?;
             Ok(Allowance::Stacking(StackingAllowance { amount }))
+        }
+        NativeFunctions::AllowanceWithPox => {
+            if !rest.is_empty() {
+                return Err(RuntimeCheckErrorKind::IncorrectArgumentCount(0, rest.len()).into());
+            }
+            Ok(Allowance::Pox)
         }
         NativeFunctions::AllowanceAll => {
             if !rest.is_empty() {
@@ -237,16 +276,18 @@ fn eval_allowance(
             }
             Ok(Allowance::All)
         }
-        _ => Err(
-            RuntimeCheckErrorKind::Unreachable(format!("Expected allowance expr: {name}")).into(),
-        ),
+        _ => Err(RuntimeCheckErrorKind::Unreachable(bounded_format!(
+            "Expected allowance expr: {name}"
+        ))
+        .into()),
     }
 }
 
 /// Handles the function `restrict-assets?`
 pub fn special_restrict_assets(
     args: &[SymbolicExpression],
-    env: &mut Environment,
+    exec_state: &mut ExecutionState,
+    invoke_ctx: &InvocationContext,
     context: &LocalContext,
 ) -> Result<Value, VmExecutionError> {
     // (restrict-assets? asset-owner ((with-stx|with-ft|with-nft|with-stacking)*) expr-body1 expr-body2 ... expr-body-last)
@@ -259,64 +300,135 @@ pub fn special_restrict_assets(
     let allowance_list = args[1]
         .match_list()
         .ok_or(RuntimeCheckErrorKind::Unreachable(
-            "Expected list of allowances: for restrict-assets? as argument 2".to_string(),
+            "Expected list of allowances: for restrict-assets? as argument 2".into(),
         ))?;
     let body_exprs = &args[2..];
 
-    let asset_owner = eval(asset_owner_expr, env, context)?;
+    let asset_owner =
+        eval(asset_owner_expr, exec_state, invoke_ctx, context)?.clone_with_cost(exec_state)?;
     let asset_owner = asset_owner
         .expect_principal()
         .map_err(|_| VmInternalError::Expect("Expected principal".into()))?;
 
     let allowance_len = allowance_list.len();
-    runtime_cost(ClarityCostFunction::RestrictAssets, env, allowance_len)?;
+    runtime_cost(
+        ClarityCostFunction::RestrictAssets,
+        exec_state,
+        allowance_len,
+    )?;
 
     if allowance_len > MAX_ALLOWANCES {
-        return Err(RuntimeCheckErrorKind::Unreachable(format!(
+        return Err(RuntimeCheckErrorKind::Unreachable(bounded_format!(
             "Too many allowances: got {allowance_len}, allowed {MAX_ALLOWANCES}"
         ))
         .into());
     }
 
-    let mut allowances = Vec::with_capacity(allowance_len);
-    for allowance in allowance_list {
-        allowances.push(eval_allowance(allowance, env, context)?);
-    }
+    let starting_memory = exec_state.global_context.cost_track.get_memory();
+    let mut memory_use: u64 = 0;
+    let checks_with_all = exec_state
+        .epoch()
+        .checks_with_all_assets_in_restrict_assets();
 
-    // Create a new evaluation context, so that we can rollback if the
-    // post-conditions are violated
-    let epoch = *env.epoch();
-    env.global_context.begin();
+    finally_drop_memory!( exec_state, memory_use; {
+        let mut allowances = Vec::with_capacity(allowance_len);
+        for allowance in allowance_list {
+            let allowance = eval_allowance(allowance, exec_state, invoke_ctx, context)?;
+            if checks_with_all && matches!(allowance, Allowance::All) {
+                return Err(RuntimeCheckErrorKind::WithAllAllowanceNotAllowed.into());
+            }
+            let allowance_memory = u64::try_from(allowance.size_in_bytes(exec_state.epoch())?)
+                .map_err(|_| VmInternalError::Expect("Allowance size too large".into()))?;
+
+            match exec_state.add_memory(allowance_memory) {
+                Ok(()) => {
+                    memory_use = memory_use.checked_add(allowance_memory).ok_or_else(|| {
+                        VmInternalError::Expect(
+                            "restrict-assets allowance memory overflowed".into(),
+                        )
+                    })?;
+                }
+                Err(CostErrors::MemoryBalanceExceeded(used, limit)) => {
+                    memory_use = used.checked_sub(starting_memory).ok_or_else(|| {
+                        VmInternalError::Expect(
+                            "restrict-assets allowance memory cleanup underflowed".into(),
+                        )
+                    })?;
+                    return Err(
+                        RuntimeCheckErrorKind::RestrictAssetsMemoryExceeded(used, limit).into(),
+                    );
+                }
+                Err(e) => return Err(e.into()),
+            }
+
+            allowances.push(allowance);
+        }
+
+        evaluate_body_with_allowance_check(
+            &asset_owner,
+            allowances,
+            body_exprs,
+            invoke_ctx,
+            exec_state,
+            context,
+        )
+    })
+}
+
+/// Evaluate the body of a post-condition scope inside a rollback sub-context, then enforce
+/// the accumulated `allowances` against the resulting asset map.
+///
+/// On allowance violation the sub-context is rolled back and the caller gets back
+/// `(err <violation-index>)`. On an error from `check_allowances` the sub-context is rolled
+/// back and the error is propagated. Otherwise the sub-context is committed and the body
+/// result is wrapped in `(ok ...)`.
+fn evaluate_body_with_allowance_check(
+    asset_owner: &PrincipalData,
+    allowances: Vec<Allowance>,
+    body_exprs: &[SymbolicExpression],
+    invoke_ctx: &InvocationContext,
+    exec_state: &mut ExecutionState,
+    context: &LocalContext,
+) -> Result<Value, VmExecutionError> {
+    let epoch = *exec_state.epoch();
+    exec_state.global_context.begin();
 
     // Evaluate the body expressions inside a closure so `?` only exits the closure
     let eval_result: Result<Option<Value>, VmExecutionError> =
         (|| -> Result<Option<Value>, VmExecutionError> {
             let mut last_result = None;
             for expr in body_exprs {
-                let result = eval(expr, env, context)?;
+                let result =
+                    eval(expr, exec_state, invoke_ctx, context)?.clone_with_cost(exec_state)?;
                 last_result.replace(result);
             }
             Ok(last_result)
         })();
 
-    let asset_maps = env.global_context.get_readonly_asset_map()?;
+    // A block-rejecting error raised inside the body must abort the transaction.
+    if matches!(&eval_result, Err(err) if err.rejectable_in_epoch(epoch)) {
+        exec_state.global_context.roll_back()?;
+        return Err(eval_result.unwrap_err());
+    }
+
+    let asset_maps = exec_state.global_context.get_readonly_asset_map()?;
 
     // If the allowances are violated:
     // - Rollback the context
     // - Return an error with the index of the violated allowance
-    match check_allowances(&asset_owner, allowances, asset_maps, epoch) {
+    match check_allowances(asset_owner, allowances, asset_maps, epoch) {
         Ok(None) => {}
         Ok(Some(violation_index)) => {
-            env.global_context.roll_back()?;
+            exec_state.global_context.roll_back()?;
             return Ok(Value::error(Value::UInt(violation_index))?);
         }
         Err(e) => {
-            env.global_context.roll_back()?;
+            exec_state.global_context.roll_back()?;
             return Err(e);
         }
     }
 
-    env.global_context.commit()?;
+    exec_state.global_context.commit()?;
 
     // No allowance violation, so handle the result of the body evaluation
     match eval_result {
@@ -338,7 +450,8 @@ pub fn special_restrict_assets(
 /// Handles the function `as-contract?`
 pub fn special_as_contract(
     args: &[SymbolicExpression],
-    env: &mut Environment,
+    exec_state: &mut ExecutionState,
+    invoke_ctx: &InvocationContext,
     context: &LocalContext,
 ) -> Result<Value, VmExecutionError> {
     // (as-contract? ((with-stx|with-ft|with-nft|with-stacking)*) expr-body1 expr-body2 ... expr-body-last)
@@ -349,89 +462,44 @@ pub fn special_as_contract(
     let allowance_list = args[0]
         .match_list()
         .ok_or(RuntimeCheckErrorKind::Unreachable(
-            "Expected list of allowances: for as-contract? as argument 1".to_string(),
+            "Expected list of allowances: for as-contract? as argument 1".into(),
         ))?;
     let body_exprs = &args[1..];
 
     runtime_cost(
         ClarityCostFunction::AsContractSafe,
-        env,
+        exec_state,
         allowance_list.len(),
     )?;
 
     let mut memory_use = 0u64;
 
-    finally_drop_memory!( env, memory_use; {
+    finally_drop_memory!( exec_state, memory_use; {
         let mut allowances = Vec::with_capacity(allowance_list.len());
         for allowance_expr in allowance_list {
-            let allowance = eval_allowance(allowance_expr, env, context)?;
-            let allowance_memory = u64::try_from(allowance.size_in_bytes()?)
+            let allowance = eval_allowance(allowance_expr, exec_state, invoke_ctx, context)?;
+            let allowance_memory = u64::try_from(allowance.size_in_bytes(exec_state.epoch())?)
                 .map_err(|_| VmInternalError::Expect("Allowance size too large".into()))?;
-            env.add_memory(allowance_memory)?;
+            exec_state.add_memory(allowance_memory)?;
             memory_use += allowance_memory;
             allowances.push(allowance);
         }
 
-        env.add_memory(cost_constants::AS_CONTRACT_MEMORY)?;
+        exec_state.add_memory(cost_constants::AS_CONTRACT_MEMORY)?;
         memory_use += cost_constants::AS_CONTRACT_MEMORY;
 
-        let contract_principal: PrincipalData = env.contract_context.contract_identifier.clone().into();
-        let epoch = *env.epoch();
-        let mut nested_env = env.nest_as_principal(contract_principal.clone());
+        let contract_principal: PrincipalData =
+            invoke_ctx.contract_context.contract_identifier.clone().into();
+        let nested_view = invoke_ctx.with_principal(contract_principal.clone());
 
-        // Create a new evaluation context, so that we can rollback if the
-        // post-conditions are violated
-        nested_env.global_context.begin();
-
-        // Evaluate the body expressions inside a closure so `?` only exits the closure
-        let eval_result: Result<Option<Value>, VmExecutionError> = (|| -> Result<Option<Value>, VmExecutionError> {
-            let mut last_result = None;
-            for expr in body_exprs {
-                let result = eval(expr, &mut nested_env, context)?;
-                last_result.replace(result);
-            }
-            Ok(last_result)
-        })();
-
-        let asset_maps = nested_env.global_context.get_readonly_asset_map()?;
-
-        // If the allowances are violated:
-        // - Rollback the context
-        // - Return an error with the index of the violated allowance
-        match check_allowances(
+        evaluate_body_with_allowance_check(
             &contract_principal,
             allowances,
-            asset_maps,
-            epoch,
-        ) {
-            Ok(None) => {}
-            Ok(Some(violation_index)) => {
-                nested_env.global_context.roll_back()?;
-                return Ok(Value::error(Value::UInt(violation_index))?);
-            }
-            Err(e) => {
-                nested_env.global_context.roll_back()?;
-                return Err(e);
-            }
-        }
-
-        nested_env.global_context.commit()?;
-
-        // No allowance violation, so handle the result of the body evaluation
-        match eval_result {
-            Ok(Some(last)) => {
-                // body completed successfully — commit and return ok(last)
-                Ok(Value::okay(last)?)
-            }
-            Ok(None) => {
-                // Body had no expressions (shouldn't happen due to argument checks)
-                Err(VmInternalError::Expect("Failed to get body result".into()).into())
-            }
-            Err(e) => {
-                // Runtime error inside body, pass it up
-                Err(e)
-            }
-        }
+            body_exprs,
+            &nested_view,
+            exec_state,
+            context,
+        )
     })
 }
 
@@ -466,6 +534,8 @@ fn check_allowances(
     let mut nft_allowances: HashMap<AssetIdentifier, (usize, Vec<Value>)> = HashMap::new();
     // Elements are (index in allowances, amount)
     let mut stacking_allowances: Vec<(usize, u128)> = Vec::new();
+    // Index of the first `with-pox` allowance, if any.
+    let mut pox_allowance: Option<usize> = None;
 
     for (i, allowance) in allowances.into_iter().enumerate() {
         match allowance {
@@ -490,6 +560,11 @@ fn check_allowances(
             }
             Allowance::Stacking(stacking) => {
                 stacking_allowances.push((i, stacking.amount));
+            }
+            Allowance::Pox => {
+                if pox_allowance.is_none() {
+                    pox_allowance = Some(i);
+                }
             }
         }
     }
@@ -541,7 +616,7 @@ fn check_allowances(
 
             if let Some(wildcard_vec) = ft_allowances.get(&AssetIdentifier {
                 contract_identifier: asset.contract_identifier.clone(),
-                asset_name: "*".into(),
+                asset_name: ClarityName::from_literal("*"),
             }) {
                 merged.extend(wildcard_vec.iter().cloned());
             }
@@ -570,7 +645,7 @@ fn check_allowances(
 
             if let Some((index, allowance_vec)) = nft_allowances.get(&AssetIdentifier {
                 contract_identifier: asset.contract_identifier.clone(),
-                asset_name: "*".into(),
+                asset_name: ClarityName::from_literal("*"),
             }) {
                 merged.push((*index, allowance_vec));
             }
@@ -602,6 +677,11 @@ fn check_allowances(
                 }
             }
         }
+    }
+
+    // Check position-altering PoX actions.
+    if assets.did_pox_action(owner) && pox_allowance.is_none() {
+        record_violation(&mut earliest_violation, MAX_ALLOWANCES as u128);
     }
 
     // Check combined STX movements and burns. In epochs that don't support the combined check,
@@ -637,10 +717,11 @@ fn check_allowances(
 /// by the above `eval_allowance` function.
 pub fn special_allowance(
     _args: &[SymbolicExpression],
-    _env: &mut Environment,
+    _env: &mut ExecutionState,
+    _invoke_ctx: &InvocationContext,
     _context: &LocalContext,
 ) -> Result<Value, VmExecutionError> {
-    Err(RuntimeCheckErrorKind::Unreachable("Allowance expr not allowed".to_string()).into())
+    Err(RuntimeCheckErrorKind::Unreachable("Allowance expr not allowed".into()).into())
 }
 
 #[cfg(test)]
@@ -669,30 +750,31 @@ mod test {
             CHAIN_ID_TESTNET,
             marf.as_clarity_db(),
             LimitedCostTracker::new_free(),
-            StacksEpochId::latest(),
+            epoch,
         );
 
-        let contract_context = ContractContext::new(
-            QualifiedContractIdentifier::transient(),
-            ClarityVersion::Clarity3,
-        );
+        let contract_context =
+            ContractContext::new(QualifiedContractIdentifier::transient(), version);
 
         let context = LocalContext::new();
         let mut call_stack = CallStack::new();
-        let mut env = Environment::new(
-            &mut global_context,
-            &contract_context,
-            &mut call_stack,
-            None,
-            None,
-            None,
-        );
 
-        let err = eval_allowance(&allowance_expr, &mut env, &context).unwrap_err();
+        let mut exec_state = ExecutionState {
+            global_context: &mut global_context,
+            call_stack: &mut call_stack,
+        };
+        let invoke_ctx = InvocationContext {
+            contract_context: &contract_context,
+            sender: None,
+            caller: None,
+            sponsor: None,
+        };
+        let err =
+            eval_allowance(&allowance_expr, &mut exec_state, &invoke_ctx, &context).unwrap_err();
 
         assert_eq!(
             VmExecutionError::RuntimeCheck(RuntimeCheckErrorKind::Unreachable(
-                "Non functional application".to_string()
+                "Non functional application".into()
             )),
             err
         );

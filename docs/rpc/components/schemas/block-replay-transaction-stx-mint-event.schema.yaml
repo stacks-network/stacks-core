@@ -1,0 +1,28 @@
+type: object
+required:
+  - committed
+  - event_index
+  - stx_mint_event
+  - txid
+  - type
+properties:
+  committed:
+    type: boolean
+  event_index:
+    type: integer
+  stx_mint_event:
+    type: object
+    required:
+      - amount
+      - recipient
+    properties:
+      amount:
+        type: string
+      recipient:
+        type: string
+  txid:
+    type: string
+  type:
+    type: string
+    enum:
+      - stx_mint_event

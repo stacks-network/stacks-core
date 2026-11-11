@@ -14,11 +14,12 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use clarity_types::errors::analysis::CommonCheckErrorKind;
 use stacks_common::types::StacksEpochId;
 
 use crate::vm::Value::CallableContract;
+use crate::vm::analysis::errors::CommonCheckErrorKind;
 use crate::vm::callables::{CallableType, NativeHandle, cost_input_sized_vararg};
+use crate::vm::contexts::{ExecutionState, InvocationContext};
 use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::costs::{CostTracker, MemoryConsumer, constants as cost_constants, runtime_cost};
 use crate::vm::errors::{
@@ -27,42 +28,23 @@ use crate::vm::errors::{
 };
 pub use crate::vm::functions::assets::stx_transfer_consolidated;
 use crate::vm::representations::{ClarityName, SymbolicExpression, SymbolicExpressionType};
-use crate::vm::types::{PrincipalData, TypeSignature, Value};
-use crate::vm::{Environment, LocalContext, eval, is_reserved};
+use crate::vm::types::{BuffData, PrincipalData, SequenceData, TypeSignature, Value};
+use crate::vm::{LocalContext, eval, is_reserved};
 
 macro_rules! switch_on_global_epoch {
     ($Name:ident ($Epoch2Version:ident, $Epoch205Version:ident)) => {
         pub fn $Name(
             args: &[SymbolicExpression],
-            env: &mut Environment,
+            exec_state: &mut crate::vm::ExecutionState,
+            invoke_ctx: &crate::vm::InvocationContext,
             context: &LocalContext,
         ) -> std::result::Result<Value, VmExecutionError> {
-            match env.epoch() {
-                StacksEpochId::Epoch10 => {
-                    panic!("Executing Clarity method during Epoch 1.0, before Clarity")
-                }
-                StacksEpochId::Epoch20 => $Epoch2Version(args, env, context),
-                StacksEpochId::Epoch2_05 => $Epoch205Version(args, env, context),
-                // Note: We reuse 2.05 for 2.1.
-                StacksEpochId::Epoch21 => $Epoch205Version(args, env, context),
-                // Note: We reuse 2.05 for 2.2.
-                StacksEpochId::Epoch22 => $Epoch205Version(args, env, context),
-                // Note: We reuse 2.05 for 2.3.
-                StacksEpochId::Epoch23 => $Epoch205Version(args, env, context),
-                // Note: We reuse 2.05 for 2.4.
-                StacksEpochId::Epoch24 => $Epoch205Version(args, env, context),
-                // Note: We reuse 2.05 for 2.5.
-                StacksEpochId::Epoch25 => $Epoch205Version(args, env, context),
-                // Note: We reuse 2.05 for 3.0.
-                StacksEpochId::Epoch30 => $Epoch205Version(args, env, context),
-                // Note: We reuse 2.05 for 3.1.
-                StacksEpochId::Epoch31 => $Epoch205Version(args, env, context),
-                // Note: We reuse 2.05 for 3.2.
-                StacksEpochId::Epoch32 => $Epoch205Version(args, env, context),
-                // Note: We reuse 2.05 for 3.3.
-                StacksEpochId::Epoch33 => $Epoch205Version(args, env, context),
-                // Note: We reuse 2.05 for 3.4.
-                StacksEpochId::Epoch34 => $Epoch205Version(args, env, context),
+            if exec_state.epoch() == &StacksEpochId::Epoch10 {
+                panic!("Executing Clarity method during Epoch 1.0, before Clarity")
+            } else if exec_state.epoch() == &StacksEpochId::Epoch20 {
+                $Epoch2Version(args, exec_state, invoke_ctx, context)
+            } else {
+                $Epoch205Version(args, exec_state, invoke_ctx, context)
             }
         }
     };
@@ -73,6 +55,9 @@ use crate::vm::ClarityVersion;
 
 mod arithmetic;
 mod assets;
+pub(crate) mod bitcoin;
+#[cfg(test)]
+mod bitcoin_madhouse;
 mod boolean;
 mod conversions;
 mod crypto;
@@ -150,7 +135,7 @@ define_versioned_named_enum_with_max!(NativeFunctions(ClarityVersion) {
     AsContract("as-contract", ClarityVersion::Clarity1, Some(ClarityVersion::Clarity3)),
     ContractOf("contract-of", ClarityVersion::Clarity1, None),
     PrincipalOf("principal-of?", ClarityVersion::Clarity1, None),
-    AtBlock("at-block", ClarityVersion::Clarity1, None),
+    AtBlock("at-block", ClarityVersion::Clarity1, Some(ClarityVersion::Clarity4)),
     GetBlockInfo("get-block-info?", ClarityVersion::Clarity1, Some(ClarityVersion::Clarity2)),
     GetBurnBlockInfo("get-burn-block-info?", ClarityVersion::Clarity2, None),
     ConsError("err", ClarityVersion::Clarity1, None),
@@ -202,406 +187,432 @@ define_versioned_named_enum_with_max!(NativeFunctions(ClarityVersion) {
     AllowanceWithStx("with-stx", ClarityVersion::Clarity4, None),
     AllowanceWithFt("with-ft", ClarityVersion::Clarity4, None),
     AllowanceWithNft("with-nft", ClarityVersion::Clarity4, None),
-    AllowanceWithStacking("with-stacking", ClarityVersion::Clarity4, None),
+    AllowanceWithStacking("with-stacking", ClarityVersion::Clarity4, Some(ClarityVersion::Clarity5)),
+    AllowanceWithStaking("with-staking", ClarityVersion::Clarity6, None),
+    AllowanceWithPox("with-pox", ClarityVersion::Clarity6, None),
     AllowanceAll("with-all-assets-unsafe", ClarityVersion::Clarity4, None),
     Secp256r1Verify("secp256r1-verify", ClarityVersion::Clarity4, None),
+    VerifyMerkleProof("verify-merkle-proof", ClarityVersion::Clarity6, None),
+    GetBitcoinTxOutput("get-bitcoin-tx-output?", ClarityVersion::Clarity6, None),
+    Ed25519Verify("ed25519-verify", ClarityVersion::Clarity6, None),
+    Secp256k1Decompress("secp256k1-decompress?", ClarityVersion::Clarity6, None),
 });
 
 ///
 /// Returns a callable for the given native function if it exists in the provided
 ///   ClarityVersion
 ///
-pub fn lookup_reserved_functions(name: &str, version: &ClarityVersion) -> Option<CallableType> {
-    use crate::vm::callables::CallableType::{NativeFunction, NativeFunction205, SpecialFunction};
+pub fn lookup_reserved_functions(
+    name: &str,
+    version: &ClarityVersion,
+) -> Option<CallableType<'static>> {
+    use crate::vm::callables::BuiltinKind::{Native, Native205, Special};
     use crate::vm::functions::NativeFunctions::*;
     if let Some(native_function) = NativeFunctions::lookup_by_name_at_version(name, version) {
-        let callable = match native_function {
-            Add => NativeFunction(
+        // The Clarity source-level name (e.g. "+", "tuple", "fold") is uniform across all
+        // builtins, so it is derived once here and attached to the wrapping `Builtin` below
+        // rather than threaded through every match arm.
+        let clarity_name = native_function.get_name_str();
+        let kind = match native_function {
+            Add => Native(
                 "native_add",
                 NativeHandle::MoreArg(&arithmetic::native_add),
                 ClarityCostFunction::Add,
             ),
-            Subtract => NativeFunction(
+            Subtract => Native(
                 "native_sub",
                 NativeHandle::MoreArg(&arithmetic::native_sub),
                 ClarityCostFunction::Sub,
             ),
-            Multiply => NativeFunction(
+            Multiply => Native(
                 "native_mul",
                 NativeHandle::MoreArg(&arithmetic::native_mul),
                 ClarityCostFunction::Mul,
             ),
-            Divide => NativeFunction(
+            Divide => Native(
                 "native_div",
                 NativeHandle::MoreArg(&arithmetic::native_div),
                 ClarityCostFunction::Div,
             ),
-            CmpGeq => SpecialFunction("special_geq", &arithmetic::special_geq),
-            CmpLeq => SpecialFunction("special_leq", &arithmetic::special_leq),
-            CmpLess => SpecialFunction("special_le", &arithmetic::special_less),
-            CmpGreater => SpecialFunction("special_ge", &arithmetic::special_greater),
-            ToUInt => NativeFunction(
+            CmpGeq => Special("special_geq", &arithmetic::special_geq),
+            CmpLeq => Special("special_leq", &arithmetic::special_leq),
+            CmpLess => Special("special_le", &arithmetic::special_less),
+            CmpGreater => Special("special_ge", &arithmetic::special_greater),
+            ToUInt => Native(
                 "native_to_uint",
                 NativeHandle::SingleArg(&arithmetic::native_to_uint),
                 ClarityCostFunction::IntCast,
             ),
-            ToInt => NativeFunction(
+            ToInt => Native(
                 "native_to_int",
                 NativeHandle::SingleArg(&arithmetic::native_to_int),
                 ClarityCostFunction::IntCast,
             ),
-            Modulo => NativeFunction(
+            Modulo => Native(
                 "native_mod",
                 NativeHandle::DoubleArg(&arithmetic::native_mod),
                 ClarityCostFunction::Mod,
             ),
-            Power => NativeFunction(
+            Power => Native(
                 "native_pow",
                 NativeHandle::DoubleArg(&arithmetic::native_pow),
                 ClarityCostFunction::Pow,
             ),
-            Sqrti => NativeFunction(
+            Sqrti => Native(
                 "native_sqrti",
                 NativeHandle::SingleArg(&arithmetic::native_sqrti),
                 ClarityCostFunction::Sqrti,
             ),
-            Log2 => NativeFunction(
+            Log2 => Native(
                 "native_log2",
                 NativeHandle::SingleArg(&arithmetic::native_log2),
                 ClarityCostFunction::Log2,
             ),
-            BitwiseXor => NativeFunction(
+            BitwiseXor => Native(
                 "native_xor",
                 NativeHandle::DoubleArg(&arithmetic::native_xor),
                 ClarityCostFunction::Xor,
             ),
-            And => SpecialFunction("special_and", &boolean::special_and),
-            Or => SpecialFunction("special_or", &boolean::special_or),
-            Not => NativeFunction(
+            And => Special("special_and", &boolean::special_and),
+            Or => Special("special_or", &boolean::special_or),
+            Not => Native(
                 "native_not",
                 NativeHandle::SingleArg(&boolean::native_not),
                 ClarityCostFunction::Not,
             ),
-            Equals => NativeFunction205(
+            Equals => Native205(
                 "native_eq",
                 NativeHandle::MoreArgEnv(&native_eq),
                 ClarityCostFunction::Eq,
                 &cost_input_sized_vararg,
             ),
-            If => SpecialFunction("special_if", &special_if),
-            Let => SpecialFunction("special_let", &special_let),
-            FetchVar => SpecialFunction("special_var-get", &database::special_fetch_variable),
-            SetVar => SpecialFunction("special_set-var", &database::special_set_variable),
-            Map => SpecialFunction("special_map", &sequences::special_map),
-            Filter => SpecialFunction("special_filter", &sequences::special_filter),
-            BuffToIntLe => NativeFunction(
+            If => Special("special_if", &special_if),
+            Let => Special("special_let", &special_let),
+            FetchVar => Special("special_var-get", &database::special_fetch_variable),
+            SetVar => Special("special_set-var", &database::special_set_variable),
+            Map => Special("special_map", &sequences::special_map),
+            Filter => Special("special_filter", &sequences::special_filter),
+            BuffToIntLe => Native(
                 "native_buff_to_int_le",
                 NativeHandle::SingleArg(&conversions::native_buff_to_int_le),
                 ClarityCostFunction::BuffToIntLe,
             ),
-            BuffToUIntLe => NativeFunction(
+            BuffToUIntLe => Native(
                 "native_buff_to_uint_le",
                 NativeHandle::SingleArg(&conversions::native_buff_to_uint_le),
                 ClarityCostFunction::BuffToUIntLe,
             ),
-            BuffToIntBe => NativeFunction(
+            BuffToIntBe => Native(
                 "native_buff_to_int_be",
                 NativeHandle::SingleArg(&conversions::native_buff_to_int_be),
                 ClarityCostFunction::BuffToIntBe,
             ),
-            BuffToUIntBe => NativeFunction(
+            BuffToUIntBe => Native(
                 "native_buff_to_uint_be",
                 NativeHandle::SingleArg(&conversions::native_buff_to_uint_be),
                 ClarityCostFunction::BuffToUIntBe,
             ),
-            StringToInt => NativeFunction(
+            StringToInt => Native(
                 "native_string_to_int",
                 NativeHandle::SingleArg(&conversions::native_string_to_int),
                 ClarityCostFunction::StringToInt,
             ),
-            StringToUInt => NativeFunction(
+            StringToUInt => Native(
                 "native_string_to_uint",
                 NativeHandle::SingleArg(&conversions::native_string_to_uint),
                 ClarityCostFunction::StringToUInt,
             ),
-            IntToAscii => NativeFunction(
+            IntToAscii => Native(
                 "native_int_to_ascii",
                 NativeHandle::SingleArg(&conversions::native_int_to_ascii),
                 ClarityCostFunction::IntToAscii,
             ),
-            IntToUtf8 => NativeFunction(
+            IntToUtf8 => Native(
                 "native_int_to_utf8",
                 NativeHandle::SingleArg(&conversions::native_int_to_utf8),
                 ClarityCostFunction::IntToUtf8,
             ),
-            IsStandard => SpecialFunction("special_is_standard", &principals::special_is_standard),
-            PrincipalDestruct => SpecialFunction(
+            IsStandard => Special("special_is_standard", &principals::special_is_standard),
+            PrincipalDestruct => Special(
                 "special_principal_destruct",
                 &principals::special_principal_destruct,
             ),
-            PrincipalConstruct => SpecialFunction(
+            PrincipalConstruct => Special(
                 "special_principal_construct",
                 &principals::special_principal_construct,
             ),
-            Fold => SpecialFunction("special_fold", &sequences::special_fold),
-            Concat => SpecialFunction("special_concat", &sequences::special_concat),
-            AsMaxLen => SpecialFunction("special_as_max_len", &sequences::special_as_max_len),
-            Append => SpecialFunction("special_append", &sequences::special_append),
-            Len => NativeFunction(
+            Fold => Special("special_fold", &sequences::special_fold),
+            Concat => Special("special_concat", &sequences::special_concat),
+            AsMaxLen => Special("special_as_max_len", &sequences::special_as_max_len),
+            Append => Special("special_append", &sequences::special_append),
+            Len => Native(
                 "native_len",
                 NativeHandle::SingleArg(&sequences::native_len),
                 ClarityCostFunction::Len,
             ),
-            ElementAt | ElementAtAlias => NativeFunction(
+            ElementAt | ElementAtAlias => Native(
                 "native_element_at",
                 NativeHandle::DoubleArg(&sequences::native_element_at),
                 ClarityCostFunction::ElementAt,
             ),
-            IndexOf | IndexOfAlias => NativeFunction205(
+            IndexOf | IndexOfAlias => Native205(
                 "native_index_of",
                 NativeHandle::DoubleArg(&sequences::native_index_of),
                 ClarityCostFunction::IndexOf,
                 &cost_input_sized_vararg,
             ),
-            Slice => SpecialFunction("special_slice", &sequences::special_slice),
-            ListCons => SpecialFunction("special_list_cons", &sequences::list_cons),
-            FetchEntry => SpecialFunction("special_map-get?", &database::special_fetch_entry),
-            SetEntry => SpecialFunction("special_set-entry", &database::special_set_entry),
-            InsertEntry => SpecialFunction("special_insert-entry", &database::special_insert_entry),
-            DeleteEntry => SpecialFunction("special_delete-entry", &database::special_delete_entry),
-            TupleCons => SpecialFunction("special_tuple", &tuples::tuple_cons),
-            TupleGet => SpecialFunction("special_get-tuple", &tuples::tuple_get),
-            TupleMerge => NativeFunction205(
+            Slice => Special("special_slice", &sequences::special_slice),
+            ListCons => Special("special_list_cons", &sequences::list_cons),
+            FetchEntry => Special("special_map-get?", &database::special_fetch_entry),
+            SetEntry => Special("special_set-entry", &database::special_set_entry),
+            InsertEntry => Special("special_insert-entry", &database::special_insert_entry),
+            DeleteEntry => Special("special_delete-entry", &database::special_delete_entry),
+            TupleCons => Special("special_tuple", &tuples::tuple_cons),
+            TupleGet => Special("special_get-tuple", &tuples::tuple_get),
+            TupleMerge => Native205(
                 "native_merge-tuple",
                 NativeHandle::DoubleArg(&tuples::tuple_merge),
                 ClarityCostFunction::TupleMerge,
                 &cost_input_sized_vararg,
             ),
-            Begin => NativeFunction(
+            Begin => Native(
                 "native_begin",
                 NativeHandle::MoreArg(&native_begin),
                 ClarityCostFunction::Begin,
             ),
-            Hash160 => NativeFunction205(
+            Hash160 => Native205(
                 "native_hash160",
                 NativeHandle::SingleArg(&crypto::native_hash160),
                 ClarityCostFunction::Hash160,
                 &cost_input_sized_vararg,
             ),
-            Sha256 => NativeFunction205(
+            Sha256 => Native205(
                 "native_sha256",
                 NativeHandle::SingleArg(&crypto::native_sha256),
                 ClarityCostFunction::Sha256,
                 &cost_input_sized_vararg,
             ),
-            Sha512 => NativeFunction205(
+            Sha512 => Native205(
                 "native_sha512",
                 NativeHandle::SingleArg(&crypto::native_sha512),
                 ClarityCostFunction::Sha512,
                 &cost_input_sized_vararg,
             ),
-            Sha512Trunc256 => NativeFunction205(
+            Sha512Trunc256 => Native205(
                 "native_sha512trunc256",
                 NativeHandle::SingleArg(&crypto::native_sha512trunc256),
                 ClarityCostFunction::Sha512t256,
                 &cost_input_sized_vararg,
             ),
-            Keccak256 => NativeFunction205(
+            Keccak256 => Native205(
                 "native_keccak256",
                 NativeHandle::SingleArg(&crypto::native_keccak256),
                 ClarityCostFunction::Keccak256,
                 &cost_input_sized_vararg,
             ),
-            Secp256k1Recover => SpecialFunction(
+            Secp256k1Recover => Special(
                 "native_secp256k1-recover",
                 &crypto::special_secp256k1_recover,
             ),
             Secp256k1Verify => {
-                SpecialFunction("native_secp256k1-verify", &crypto::special_secp256k1_verify)
+                Special("native_secp256k1-verify", &crypto::special_secp256k1_verify)
             }
-            Print => SpecialFunction("special_print", &special_print),
-            ContractCall => {
-                SpecialFunction("special_contract-call", &database::special_contract_call)
-            }
-            AsContract => SpecialFunction("special_as-contract", &special_as_contract),
-            ContractOf => SpecialFunction("special_contract-of", &special_contract_of),
-            PrincipalOf => SpecialFunction("special_principal-of", &crypto::special_principal_of),
-            GetBlockInfo => {
-                SpecialFunction("special_get_block_info", &database::special_get_block_info)
-            }
-            GetBurnBlockInfo => SpecialFunction(
+            Print => Special("special_print", &special_print),
+            ContractCall => Special("special_contract-call", &database::special_contract_call),
+            AsContract => Special("special_as-contract", &special_as_contract),
+            ContractOf => Special("special_contract-of", &special_contract_of),
+            PrincipalOf => Special("special_principal-of", &crypto::special_principal_of),
+            GetBlockInfo => Special("special_get_block_info", &database::special_get_block_info),
+            GetBurnBlockInfo => Special(
                 "special_get_burn_block_info",
                 &database::special_get_burn_block_info,
             ),
-            GetStacksBlockInfo => SpecialFunction(
+            GetStacksBlockInfo => Special(
                 "special_get_stacks_block_info",
                 &database::special_get_stacks_block_info,
             ),
-            GetTenureInfo => SpecialFunction(
+            GetTenureInfo => Special(
                 "special_get_tenure_info",
                 &database::special_get_tenure_info,
             ),
-            ConsSome => NativeFunction(
+            ConsSome => Native(
                 "native_some",
                 NativeHandle::SingleArg(&options::native_some),
                 ClarityCostFunction::SomeCons,
             ),
-            ConsOkay => NativeFunction(
+            ConsOkay => Native(
                 "native_okay",
                 NativeHandle::SingleArg(&options::native_okay),
                 ClarityCostFunction::OkCons,
             ),
-            ConsError => NativeFunction(
+            ConsError => Native(
                 "native_error",
                 NativeHandle::SingleArg(&options::native_error),
                 ClarityCostFunction::ErrCons,
             ),
-            DefaultTo => NativeFunction(
+            DefaultTo => Native(
                 "native_default_to",
                 NativeHandle::DoubleArg(&options::native_default_to),
                 ClarityCostFunction::DefaultTo,
             ),
-            Asserts => SpecialFunction("special_asserts", &special_asserts),
-            UnwrapRet => NativeFunction(
+            Asserts => Special("special_asserts", &special_asserts),
+            UnwrapRet => Native(
                 "native_unwrap_ret",
                 NativeHandle::DoubleArg(&options::native_unwrap_or_ret),
                 ClarityCostFunction::UnwrapRet,
             ),
-            UnwrapErrRet => NativeFunction(
+            UnwrapErrRet => Native(
                 "native_unwrap_err_ret",
                 NativeHandle::DoubleArg(&options::native_unwrap_err_or_ret),
                 ClarityCostFunction::UnwrapErrOrRet,
             ),
-            IsOkay => NativeFunction(
+            IsOkay => Native(
                 "native_is_okay",
                 NativeHandle::SingleArg(&options::native_is_okay),
                 ClarityCostFunction::IsOkay,
             ),
-            IsNone => NativeFunction(
+            IsNone => Native(
                 "native_is_none",
                 NativeHandle::SingleArg(&options::native_is_none),
                 ClarityCostFunction::IsNone,
             ),
-            IsErr => NativeFunction(
+            IsErr => Native(
                 "native_is_err",
                 NativeHandle::SingleArg(&options::native_is_err),
                 ClarityCostFunction::IsErr,
             ),
-            IsSome => NativeFunction(
+            IsSome => Native(
                 "native_is_some",
                 NativeHandle::SingleArg(&options::native_is_some),
                 ClarityCostFunction::IsSome,
             ),
-            Unwrap => NativeFunction(
+            Unwrap => Native(
                 "native_unwrap",
                 NativeHandle::SingleArg(&options::native_unwrap),
                 ClarityCostFunction::Unwrap,
             ),
-            UnwrapErr => NativeFunction(
+            UnwrapErr => Native(
                 "native_unwrap_err",
                 NativeHandle::SingleArg(&options::native_unwrap_err),
                 ClarityCostFunction::UnwrapErr,
             ),
-            Match => SpecialFunction("special_match", &options::special_match),
-            TryRet => NativeFunction(
+            Match => Special("special_match", &options::special_match),
+            TryRet => Native(
                 "native_try_ret",
                 NativeHandle::SingleArg(&options::native_try_ret),
                 ClarityCostFunction::TryRet,
             ),
-            MintAsset => SpecialFunction("special_mint_asset", &assets::special_mint_asset),
-            MintToken => SpecialFunction("special_mint_token", &assets::special_mint_token),
-            TransferAsset => {
-                SpecialFunction("special_transfer_asset", &assets::special_transfer_asset)
-            }
-            TransferToken => {
-                SpecialFunction("special_transfer_token", &assets::special_transfer_token)
-            }
-            GetTokenBalance => SpecialFunction("special_get_balance", &assets::special_get_balance),
-            GetAssetOwner => SpecialFunction("special_get_owner", &assets::special_get_owner),
-            BurnAsset => SpecialFunction("special_burn_asset", &assets::special_burn_asset),
-            BurnToken => SpecialFunction("special_burn_token", &assets::special_burn_token),
-            GetTokenSupply => SpecialFunction(
+            MintAsset => Special("special_mint_asset", &assets::special_mint_asset),
+            MintToken => Special("special_mint_token", &assets::special_mint_token),
+            TransferAsset => Special("special_transfer_asset", &assets::special_transfer_asset),
+            TransferToken => Special("special_transfer_token", &assets::special_transfer_token),
+            GetTokenBalance => Special("special_get_balance", &assets::special_get_balance),
+            GetAssetOwner => Special("special_get_owner", &assets::special_get_owner),
+            BurnAsset => Special("special_burn_asset", &assets::special_burn_asset),
+            BurnToken => Special("special_burn_token", &assets::special_burn_token),
+            GetTokenSupply => Special(
                 "special_get_token_supply",
                 &assets::special_get_token_supply,
             ),
-            AtBlock => SpecialFunction("special_at_block", &database::special_at_block),
-            GetStxBalance => SpecialFunction("special_stx_balance", &assets::special_stx_balance),
-            StxTransfer => SpecialFunction("special_stx_transfer", &assets::special_stx_transfer),
-            StxTransferMemo => SpecialFunction(
+            AtBlock => Special("special_at_block", &database::special_at_block),
+            GetStxBalance => Special("special_stx_balance", &assets::special_stx_balance),
+            StxTransfer => Special("special_stx_transfer", &assets::special_stx_transfer),
+            StxTransferMemo => Special(
                 "special_stx_transfer_memo",
                 &assets::special_stx_transfer_memo,
             ),
-            StxBurn => SpecialFunction("special_stx_burn", &assets::special_stx_burn),
-            StxGetAccount => SpecialFunction("stx_get_account", &assets::special_stx_account),
-            ToConsensusBuff => NativeFunction205(
+            StxBurn => Special("special_stx_burn", &assets::special_stx_burn),
+            StxGetAccount => Special("stx_get_account", &assets::special_stx_account),
+            ToConsensusBuff => Native205(
                 "to_consensus_buff",
                 NativeHandle::SingleArg(&conversions::to_consensus_buff),
                 ClarityCostFunction::ToConsensusBuff,
                 &cost_input_sized_vararg,
             ),
-            FromConsensusBuff => {
-                SpecialFunction("from_consensus_buff", &conversions::from_consensus_buff)
-            }
-            ReplaceAt => SpecialFunction("replace_at", &sequences::special_replace_at),
-            BitwiseAnd => NativeFunction(
+            FromConsensusBuff => Special("from_consensus_buff", &conversions::from_consensus_buff),
+            ReplaceAt => Special("replace_at", &sequences::special_replace_at),
+            BitwiseAnd => Native(
                 "native_bitwise_and",
                 NativeHandle::MoreArg(&arithmetic::native_bitwise_and),
                 ClarityCostFunction::BitwiseAnd,
             ),
-            BitwiseOr => NativeFunction(
+            BitwiseOr => Native(
                 "native_bitwise_or",
                 NativeHandle::MoreArg(&arithmetic::native_bitwise_or),
                 ClarityCostFunction::BitwiseOr,
             ),
-            BitwiseNot => NativeFunction(
+            BitwiseNot => Native(
                 "native_bitwise_not",
                 NativeHandle::SingleArg(&arithmetic::native_bitwise_not),
                 ClarityCostFunction::BitwiseNot,
             ),
-            BitwiseLShift => NativeFunction(
+            BitwiseLShift => Native(
                 "native_bitwise_left_shift",
                 NativeHandle::DoubleArg(&arithmetic::native_bitwise_left_shift),
                 ClarityCostFunction::BitwiseLShift,
             ),
-            BitwiseRShift => NativeFunction(
+            BitwiseRShift => Native(
                 "native_bitwise_right_shift",
                 NativeHandle::DoubleArg(&arithmetic::native_bitwise_right_shift),
                 ClarityCostFunction::BitwiseRShift,
             ),
-            BitwiseXor2 => NativeFunction(
+            BitwiseXor2 => Native(
                 "native_bitwise_xor",
                 NativeHandle::MoreArg(&arithmetic::native_bitwise_xor),
                 ClarityCostFunction::Xor,
             ),
-            ContractHash => {
-                SpecialFunction("special_contract_hash", &database::special_contract_hash)
-            }
-            ToAscii => SpecialFunction("special_to_ascii", &conversions::special_to_ascii),
-            RestrictAssets => SpecialFunction(
+            ContractHash => Special("special_contract_hash", &database::special_contract_hash),
+            ToAscii => Special("special_to_ascii", &conversions::special_to_ascii),
+            RestrictAssets => Special(
                 "special_restrict_assets",
                 &post_conditions::special_restrict_assets,
             ),
-            AsContractSafe => {
-                SpecialFunction("special_as_contract", &post_conditions::special_as_contract)
-            }
+            AsContractSafe => Special("special_as_contract", &post_conditions::special_as_contract),
             AllowanceWithStx
             | AllowanceWithFt
             | AllowanceWithNft
             | AllowanceWithStacking
-            | AllowanceAll => {
-                SpecialFunction("special_allowance", &post_conditions::special_allowance)
-            }
+            | AllowanceWithStaking
+            | AllowanceWithPox
+            | AllowanceAll => Special("special_allowance", &post_conditions::special_allowance),
             Secp256r1Verify => {
-                SpecialFunction("native_secp256r1-verify", &crypto::special_secp256r1_verify)
+                Special("native_secp256r1-verify", &crypto::special_secp256r1_verify)
             }
+            VerifyMerkleProof => Native205(
+                "native_verify_merkle_proof",
+                NativeHandle::MoreArg(&bitcoin::native_verify_merkle_proof),
+                ClarityCostFunction::VerifyMerkleProof,
+                &bitcoin::cost_input_verify_merkle_proof,
+            ),
+            GetBitcoinTxOutput => Native205(
+                "native_get_bitcoin_tx_output",
+                NativeHandle::DoubleArg(&bitcoin::native_get_bitcoin_tx_output),
+                ClarityCostFunction::GetBitcoinTxOutput,
+                &bitcoin::cost_input_get_bitcoin_tx_output,
+            ),
+            Ed25519Verify => Native205(
+                "native_ed25519-verify",
+                NativeHandle::MoreArg(&crypto::native_ed25519_verify),
+                ClarityCostFunction::Ed25519verify,
+                &crypto::cost_input_ed25519_verify,
+            ),
+            Secp256k1Decompress => Native(
+                "native_secp256k1-decompress",
+                NativeHandle::SingleArg(&crypto::native_secp256k1_decompress),
+                ClarityCostFunction::Secp256k1decompress,
+            ),
         };
-        Some(callable)
+        Some(CallableType::Builtin { clarity_name, kind })
     } else {
         None
     }
 }
 
-fn native_eq(args: Vec<Value>, env: &mut Environment) -> Result<Value, VmExecutionError> {
+fn native_eq(
+    args: Vec<Value>,
+    exec_state: &mut ExecutionState,
+    _invoke_ctx: &InvocationContext,
+) -> Result<Value, VmExecutionError> {
     // TODO: this currently uses the derived equality checks of Value,
     //   however, that's probably not how we want to implement equality
     //   checks on the ::ListTypes
@@ -614,7 +625,7 @@ fn native_eq(args: Vec<Value>, env: &mut Environment) -> Result<Value, VmExecuti
         let mut arg_type = TypeSignature::type_of(first)?;
         for x in args.iter() {
             arg_type = TypeSignature::least_supertype(
-                env.epoch(),
+                exec_state.epoch(),
                 &TypeSignature::type_of(x)?,
                 &arg_type,
             )?;
@@ -629,54 +640,57 @@ fn native_eq(args: Vec<Value>, env: &mut Environment) -> Result<Value, VmExecuti
 fn native_begin(mut args: Vec<Value>) -> Result<Value, VmExecutionError> {
     match args.pop() {
         Some(v) => Ok(v),
-        None => Err(RuntimeCheckErrorKind::Unreachable(
-            "Requires at least args: 1 got 0".to_string(),
-        )
-        .into()),
+        None => {
+            Err(RuntimeCheckErrorKind::Unreachable("Requires at least args: 1 got 0".into()).into())
+        }
     }
 }
 
 fn special_print(
     args: &[SymbolicExpression],
-    env: &mut Environment,
+    exec_state: &mut ExecutionState,
+    invoke_ctx: &InvocationContext,
     context: &LocalContext,
 ) -> Result<Value, VmExecutionError> {
     let arg = args.first().ok_or_else(|| {
         VmInternalError::BadSymbolicRepresentation("Print should have an argument".into())
     })?;
-    let input = eval(arg, env, context)?;
+    let input = eval(arg, exec_state, invoke_ctx, context)?;
 
-    runtime_cost(ClarityCostFunction::Print, env, input.size()?)?;
+    let input_size = input.as_ref().charged_size(exec_state.epoch())?;
+    runtime_cost(ClarityCostFunction::Print, exec_state, input_size)?;
 
     if cfg!(feature = "developer-mode") {
-        debug!("{}", &input);
+        debug!("{}", input.as_ref());
     }
 
-    env.register_print_event(input.clone())?;
-    Ok(input)
+    let value = input.clone_with_cost(exec_state)?;
+    exec_state.register_print_event(invoke_ctx, value.clone())?;
+    Ok(value)
 }
 
 fn special_if(
     args: &[SymbolicExpression],
-    env: &mut Environment,
+    exec_state: &mut ExecutionState,
+    invoke_ctx: &InvocationContext,
     context: &LocalContext,
 ) -> Result<Value, VmExecutionError> {
     check_argument_count(3, args)?;
 
-    runtime_cost(ClarityCostFunction::If, env, 0)?;
+    runtime_cost(ClarityCostFunction::If, exec_state, 0)?;
     // handle the conditional clause.
-    let conditional = eval(&args[0], env, context)?;
-    match conditional {
+    let conditional = eval(&args[0], exec_state, invoke_ctx, context)?;
+    match conditional.as_ref() {
         Value::Bool(result) => {
-            if result {
-                eval(&args[1], env, context)
+            if *result {
+                eval(&args[1], exec_state, invoke_ctx, context)?.clone_with_cost(exec_state)
             } else {
-                eval(&args[2], env, context)
+                eval(&args[2], exec_state, invoke_ctx, context)?.clone_with_cost(exec_state)
             }
         }
         _ => Err(RuntimeCheckErrorKind::TypeValueError(
             Box::new(TypeSignature::BoolType),
-            Box::new(conditional),
+            conditional.as_ref().to_error_string(),
         )
         .into()),
     }
@@ -684,27 +698,29 @@ fn special_if(
 
 fn special_asserts(
     args: &[SymbolicExpression],
-    env: &mut Environment,
+    exec_state: &mut ExecutionState,
+    invoke_ctx: &InvocationContext,
     context: &LocalContext,
 ) -> Result<Value, VmExecutionError> {
     check_argument_count(2, args)?;
 
-    runtime_cost(ClarityCostFunction::Asserts, env, 0)?;
+    runtime_cost(ClarityCostFunction::Asserts, exec_state, 0)?;
     // handle the conditional clause.
-    let conditional = eval(&args[0], env, context)?;
+    let conditional = eval(&args[0], exec_state, invoke_ctx, context)?;
 
-    match conditional {
+    match conditional.as_ref() {
         Value::Bool(result) => {
-            if result {
-                Ok(conditional)
+            if *result {
+                conditional.clone_with_cost(exec_state)
             } else {
-                let thrown = eval(&args[1], env, context)?;
+                let thrown =
+                    eval(&args[1], exec_state, invoke_ctx, context)?.clone_with_cost(exec_state)?;
                 Err(EarlyReturnError::AssertionFailed(Box::new(thrown)).into())
             }
         }
         _ => Err(RuntimeCheckErrorKind::TypeValueError(
             Box::new(TypeSignature::BoolType),
-            Box::new(conditional),
+            conditional.as_ref().to_error_string(),
         )
         .into()),
     }
@@ -749,20 +765,30 @@ where
 pub fn parse_eval_bindings(
     bindings: &[SymbolicExpression],
     binding_error_type: SyntaxBindingErrorType,
-    env: &mut Environment,
+    exec_state: &mut ExecutionState,
+    invoke_ctx: &InvocationContext,
     context: &LocalContext,
 ) -> Result<Vec<(ClarityName, Value)>, VmExecutionError> {
     let mut result = Vec::with_capacity(bindings.len());
-    handle_binding_list(bindings, binding_error_type, |var_name, var_sexp| {
-        eval(var_sexp, env, context).map(|value| result.push((var_name.clone(), value)))
-    })?;
+
+    handle_binding_list(
+        bindings,
+        binding_error_type,
+        |var_name, var_sexp| -> Result<(), VmExecutionError> {
+            let value =
+                eval(var_sexp, exec_state, invoke_ctx, context)?.clone_with_cost(exec_state)?;
+            result.push((var_name.clone(), value));
+            Ok(())
+        },
+    )?;
 
     Ok(result)
 }
 
 fn special_let(
     args: &[SymbolicExpression],
-    env: &mut Environment,
+    exec_state: &mut ExecutionState,
+    invoke_ctx: &InvocationContext,
     context: &LocalContext,
 ) -> Result<Value, VmExecutionError> {
     // (let ((x 1) (y 2)) (+ x y)) -> 3
@@ -773,31 +799,30 @@ fn special_let(
     // parse and eval the bindings.
     let bindings = args[0]
         .match_list()
-        .ok_or(RuntimeCheckErrorKind::Unreachable(
-            "Bad let syntax".to_string(),
-        ))?;
+        .ok_or(RuntimeCheckErrorKind::Unreachable("Bad let syntax".into()))?;
 
-    runtime_cost(ClarityCostFunction::Let, env, bindings.len())?;
+    runtime_cost(ClarityCostFunction::Let, exec_state, bindings.len())?;
 
     // create a new context.
     let mut inner_context = context.extend()?;
 
     let mut memory_use = 0;
 
-    finally_drop_memory!( env, memory_use; {
+    finally_drop_memory!( exec_state, memory_use; {
         handle_binding_list::<_, VmExecutionError>(bindings, SyntaxBindingErrorType::Let, |binding_name, var_sexp| {
-            if is_reserved(binding_name, env.contract_context.get_clarity_version()) ||
-                env.contract_context.lookup_function(binding_name).is_some() ||
+            if is_reserved(binding_name, invoke_ctx.contract_context.get_clarity_version()) ||
+                invoke_ctx.contract_context.lookup_function(binding_name).is_some() ||
                 inner_context.lookup_variable(binding_name).is_some() {
                     return Err(RuntimeCheckErrorKind::NameAlreadyUsed(binding_name.clone().into()).into())
                 }
 
-            let binding_value = eval(var_sexp, env, &inner_context)?;
+            let binding_value = eval(var_sexp, exec_state, invoke_ctx, &inner_context)?;
 
-            let bind_mem_use = binding_value.get_memory_use()?;
-            env.add_memory(bind_mem_use)?;
+            let bind_mem_use = binding_value.as_ref().get_memory_use(exec_state.epoch())?;
+            exec_state.add_memory(bind_mem_use)?;
             memory_use += bind_mem_use; // no check needed, b/c it's done in add_memory.
-            if *env.contract_context.get_clarity_version() >= ClarityVersion::Clarity2 && let CallableContract(trait_data) = &binding_value {
+            let binding_value = binding_value.clone_with_cost(exec_state)?;
+            if *invoke_ctx.contract_context.get_clarity_version() >= ClarityVersion::Clarity2 && let CallableContract(trait_data) = &binding_value {
                 inner_context.callable_contracts.insert(binding_name.clone(), trait_data.clone());
             }
             inner_context.variables.insert(binding_name.clone(), binding_value);
@@ -807,17 +832,18 @@ fn special_let(
         // evaluate the let-bodies
         let mut last_result = None;
         for body in args[1..].iter() {
-            let body_result = eval(body, env, &inner_context)?;
+            let body_result = eval(body, exec_state, invoke_ctx, &inner_context)?;
             last_result.replace(body_result);
         }
         // last_result should always be Some(...), because of the arg len check above.
-        last_result.ok_or_else(|| VmInternalError::Expect("Failed to get let result".into()).into())
+        last_result.ok_or_else(|| VmExecutionError::from(VmInternalError::Expect("Failed to get let result".into())))?.clone_with_cost(exec_state)
     })
 }
 
 fn special_as_contract(
     args: &[SymbolicExpression],
-    env: &mut Environment,
+    exec_state: &mut ExecutionState,
+    invoke_ctx: &InvocationContext,
     context: &LocalContext,
 ) -> Result<Value, VmExecutionError> {
     // (as-contract (..))
@@ -825,62 +851,67 @@ fn special_as_contract(
     check_argument_count(1, args)?;
 
     // in epoch 2.1 and later, this has a cost
-    if *env.epoch() >= StacksEpochId::Epoch21 {
-        runtime_cost(ClarityCostFunction::AsContract, env, 0)?;
+    if *exec_state.epoch() >= StacksEpochId::Epoch21 {
+        runtime_cost(ClarityCostFunction::AsContract, exec_state, 0)?;
     }
 
     // nest an environment.
-    env.add_memory(cost_constants::AS_CONTRACT_MEMORY)?;
+    exec_state.add_memory(cost_constants::AS_CONTRACT_MEMORY)?;
 
-    let contract_principal = env.contract_context.contract_identifier.clone().into();
-    let mut nested_env = env.nest_as_principal(contract_principal);
+    let contract_principal = invoke_ctx
+        .contract_context
+        .contract_identifier
+        .clone()
+        .into();
+    let nested_view = invoke_ctx.with_principal(contract_principal);
 
-    let result = eval(&args[0], &mut nested_env, context);
+    let result = eval(&args[0], exec_state, &nested_view, context);
 
-    env.drop_memory(cost_constants::AS_CONTRACT_MEMORY)?;
+    exec_state.drop_memory(cost_constants::AS_CONTRACT_MEMORY)?;
 
-    result
+    result?.clone_with_cost(exec_state)
 }
 
 fn special_contract_of(
     args: &[SymbolicExpression],
-    env: &mut Environment,
+    exec_state: &mut ExecutionState,
+    _invoke_ctx: &InvocationContext,
     context: &LocalContext,
 ) -> Result<Value, VmExecutionError> {
     // (contract-of (..))
     // arg0 => trait
     check_argument_count(1, args)?;
 
-    runtime_cost(ClarityCostFunction::ContractOf, env, 0)?;
+    runtime_cost(ClarityCostFunction::ContractOf, exec_state, 0)?;
 
     let contract_ref = match &args[0].expr {
         SymbolicExpressionType::Atom(contract_ref) => contract_ref,
         _ => {
-            return Err(RuntimeCheckErrorKind::Unreachable(
-                "Contract of expects trait".to_string(),
-            )
-            .into());
+            return Err(
+                RuntimeCheckErrorKind::Unreachable("Contract of expects trait".into()).into(),
+            );
         }
     };
 
     let contract_identifier = match context.lookup_callable_contract(contract_ref) {
         Some(trait_data) => {
-            env.global_context
+            if !exec_state
+                .global_context
                 .database
-                .get_contract(&trait_data.contract_identifier)
-                .map_err(|_e| {
-                    RuntimeCheckErrorKind::NoSuchContract(
-                        trait_data.contract_identifier.to_string(),
-                    )
-                })?;
+                .has_contract(&trait_data.contract_identifier)
+            {
+                return Err(RuntimeCheckErrorKind::NoSuchContract(
+                    trait_data.contract_identifier.to_string(),
+                )
+                .into());
+            }
 
             &trait_data.contract_identifier
         }
         _ => {
-            return Err(RuntimeCheckErrorKind::Unreachable(
-                "Contract of expects trait".to_string(),
-            )
-            .into());
+            return Err(
+                RuntimeCheckErrorKind::Unreachable("Contract of expects trait".into()).into(),
+            );
         }
     };
 
@@ -888,13 +919,37 @@ fn special_contract_of(
     Ok(contract_principal)
 }
 
+/// Helper to coerce a Clarity buffer value into a fixed-size byte array.
+pub fn buff_to_array<const N: usize>(value: &Value) -> Option<[u8; N]> {
+    match value {
+        Value::Sequence(SequenceData::Buffer(BuffData { data })) if data.len() == N => {
+            let mut out = [0u8; N];
+            out.copy_from_slice(data);
+            Some(out)
+        }
+        _ => None,
+    }
+}
+
+/// Helper to coerce a Clarity buffer value into a Vec<u8> if-and-only-if buff.len() <= max_size
+pub fn buff_to_vec(value: &Value, max_size: usize) -> Option<Vec<u8>> {
+    match value {
+        Value::Sequence(SequenceData::Buffer(BuffData { data })) if data.len() <= max_size => {
+            Some(data.clone())
+        }
+        _ => None,
+    }
+}
+
 #[cfg(test)]
 mod test {
-    use clarity_types::errors::RuntimeCheckErrorKind;
+    use clarity_types::ClarityName;
     use stacks_common::consts::CHAIN_ID_TESTNET;
     use stacks_common::types::StacksEpochId;
 
     use super::ClarityVersion;
+    use crate::vm::analysis::errors::RuntimeCheckErrorKind;
+    use crate::vm::contexts::{ExecutionState, InvocationContext};
     use crate::vm::costs::LimitedCostTracker;
     use crate::vm::database::MemoryBackingStore;
     use crate::vm::errors::VmExecutionError;
@@ -906,8 +961,7 @@ mod test {
     use crate::vm::tests::test_clarity_versions;
     use crate::vm::types::QualifiedContractIdentifier;
     use crate::vm::{
-        CallStack, ContractContext, Environment, GlobalContext, LocalContext, SymbolicExpression,
-        Value,
+        CallStack, ContractContext, GlobalContext, LocalContext, SymbolicExpression, Value,
     };
 
     /// Tests that if somehow we bypass static analysis checks, contract_of will return
@@ -934,20 +988,23 @@ mod test {
         let context = LocalContext::new();
         let mut call_stack = CallStack::new();
 
-        let mut env = Environment::new(
-            &mut global_context,
-            &contract_context,
-            &mut call_stack,
-            None,
-            None,
-            None,
-        );
+        let mut exec_state = ExecutionState {
+            global_context: &mut global_context,
+            call_stack: &mut call_stack,
+        };
+        let invoke_ctx = InvocationContext {
+            contract_context: &contract_context,
+            sender: None,
+            caller: None,
+            sponsor: None,
+        };
 
-        let err = special_contract_of(&[non_atom], &mut env, &context).unwrap_err();
+        let err =
+            special_contract_of(&[non_atom], &mut exec_state, &invoke_ctx, &context).unwrap_err();
         assert_eq!(
             err,
             VmExecutionError::RuntimeCheck(RuntimeCheckErrorKind::Unreachable(
-                "Contract of expects trait".to_string()
+                "Contract of expects trait".into()
             ))
         );
     }
@@ -969,7 +1026,7 @@ mod test {
         );
 
         // --- Atom argument, but NOT registered as a callable trait ---
-        let atom = SymbolicExpression::atom("not_a_trait".into());
+        let atom = SymbolicExpression::atom(ClarityName::from_literal("not_a_trait"));
 
         let contract_context =
             ContractContext::new(QualifiedContractIdentifier::transient(), version);
@@ -978,21 +1035,23 @@ mod test {
         let context = LocalContext::new();
         let mut call_stack = CallStack::new();
 
-        let mut env = Environment::new(
-            &mut global_context,
-            &contract_context,
-            &mut call_stack,
-            None,
-            None,
-            None,
-        );
+        let mut exec_state = ExecutionState {
+            global_context: &mut global_context,
+            call_stack: &mut call_stack,
+        };
+        let invoke_ctx = InvocationContext {
+            contract_context: &contract_context,
+            sender: None,
+            caller: None,
+            sponsor: None,
+        };
 
-        let err = special_contract_of(&[atom], &mut env, &context).unwrap_err();
+        let err = special_contract_of(&[atom], &mut exec_state, &invoke_ctx, &context).unwrap_err();
 
         assert_eq!(
             err,
             VmExecutionError::RuntimeCheck(RuntimeCheckErrorKind::Unreachable(
-                "Contract of expects trait".to_string()
+                "Contract of expects trait".into()
             ))
         );
     }
@@ -1022,20 +1081,22 @@ mod test {
         let context = LocalContext::new();
         let mut call_stack = CallStack::new();
 
-        let mut env = Environment::new(
-            &mut global_context,
-            &contract_context,
-            &mut call_stack,
-            None,
-            None,
-            None,
-        );
+        let mut exec_state = ExecutionState {
+            global_context: &mut global_context,
+            call_stack: &mut call_stack,
+        };
+        let invoke_ctx = InvocationContext {
+            contract_context: &contract_context,
+            sender: None,
+            caller: None,
+            sponsor: None,
+        };
 
-        let err = special_let(&args, &mut env, &context).unwrap_err();
+        let err = special_let(&args, &mut exec_state, &invoke_ctx, &context).unwrap_err();
 
         assert_eq!(
             VmExecutionError::RuntimeCheck(RuntimeCheckErrorKind::Unreachable(
-                "Bad let syntax".to_string()
+                "Bad let syntax".into()
             )),
             err
         );
@@ -1046,7 +1107,7 @@ mod test {
         #[case] version: ClarityVersion,
         #[case] epoch: StacksEpochId,
     ) {
-        use clarity_types::errors::RuntimeCheckErrorKind;
+        use crate::vm::analysis::errors::RuntimeCheckErrorKind;
 
         let mut marf = MemoryBackingStore::new();
         let mut global_context = GlobalContext::new(
@@ -1069,21 +1130,24 @@ mod test {
         let context = LocalContext::new();
         let mut call_stack = CallStack::new();
 
-        let mut env = Environment::new(
-            &mut global_context,
-            &contract_context,
-            &mut call_stack,
-            None,
-            None,
-            None,
-        );
+        let mut exec_state = ExecutionState {
+            global_context: &mut global_context,
+            call_stack: &mut call_stack,
+        };
+        let invoke_ctx = InvocationContext {
+            contract_context: &contract_context,
+            sender: None,
+            caller: None,
+            sponsor: None,
+        };
 
-        let err = special_get_tenure_info(&args, &mut env, &context).unwrap_err();
+        let err =
+            special_get_tenure_info(&args, &mut exec_state, &invoke_ctx, &context).unwrap_err();
 
         assert_eq!(
             err,
             VmExecutionError::RuntimeCheck(RuntimeCheckErrorKind::Unreachable(
-                "Get tenure info expect property name".to_string()
+                "Get tenure info expect property name".into()
             ))
         );
     }
@@ -1118,21 +1182,24 @@ mod test {
         let context = LocalContext::new();
         let mut call_stack = CallStack::new();
 
-        let mut env = Environment::new(
-            &mut global_context,
-            &contract_context,
-            &mut call_stack,
-            None,
-            None,
-            None,
-        );
+        let mut exec_state = ExecutionState {
+            global_context: &mut global_context,
+            call_stack: &mut call_stack,
+        };
+        let invoke_ctx = InvocationContext {
+            contract_context: &contract_context,
+            sender: None,
+            caller: None,
+            sponsor: None,
+        };
 
-        let err = special_get_burn_block_info(&args, &mut env, &context).unwrap_err();
+        let err =
+            special_get_burn_block_info(&args, &mut exec_state, &invoke_ctx, &context).unwrap_err();
 
         assert_eq!(
             err,
             VmExecutionError::RuntimeCheck(RuntimeCheckErrorKind::Unreachable(
-                "Get block info expect property name".to_string()
+                "Get block info expect property name".into()
             ))
         );
     }
@@ -1165,21 +1232,24 @@ mod test {
         let context = LocalContext::new();
         let mut call_stack = CallStack::new();
 
-        let mut env = Environment::new(
-            &mut global_context,
-            &contract_context,
-            &mut call_stack,
-            None,
-            None,
-            None,
-        );
+        let mut exec_state = ExecutionState {
+            global_context: &mut global_context,
+            call_stack: &mut call_stack,
+        };
+        let invoke_ctx = InvocationContext {
+            contract_context: &contract_context,
+            sender: None,
+            caller: None,
+            sponsor: None,
+        };
 
-        let err = special_get_stacks_block_info(&args, &mut env, &context).unwrap_err();
+        let err = special_get_stacks_block_info(&args, &mut exec_state, &invoke_ctx, &context)
+            .unwrap_err();
 
         assert_eq!(
             err,
             VmExecutionError::RuntimeCheck(RuntimeCheckErrorKind::Unreachable(
-                "Get stacks block info expect property name".to_string()
+                "Get stacks block info expect property name".into()
             ))
         );
     }
@@ -1201,7 +1271,8 @@ mod test {
         );
 
         // Pass an Atom but NOT a valid stacks block info property
-        let bad_property = SymbolicExpression::atom("not-a-valid-stacks-prop".into());
+        let bad_property =
+            SymbolicExpression::atom(ClarityName::from_literal("not-a-valid-stacks-prop"));
 
         let height = SymbolicExpression::atom_value(Value::UInt(0));
 
@@ -1213,21 +1284,24 @@ mod test {
         let context = LocalContext::new();
         let mut call_stack = CallStack::new();
 
-        let mut env = Environment::new(
-            &mut global_context,
-            &contract_context,
-            &mut call_stack,
-            None,
-            None,
-            None,
-        );
+        let mut exec_state = ExecutionState {
+            global_context: &mut global_context,
+            call_stack: &mut call_stack,
+        };
+        let invoke_ctx = InvocationContext {
+            contract_context: &contract_context,
+            sender: None,
+            caller: None,
+            sponsor: None,
+        };
 
-        let err = special_get_stacks_block_info(&args, &mut env, &context).unwrap_err();
+        let err = special_get_stacks_block_info(&args, &mut exec_state, &invoke_ctx, &context)
+            .unwrap_err();
 
         assert_eq!(
             err,
             VmExecutionError::RuntimeCheck(RuntimeCheckErrorKind::Unreachable(
-                "No such stacks block info property: not-a-valid-stacks-prop".to_string()
+                "No such stacks block info property: not-a-valid-stacks-prop".into()
             ))
         );
     }
@@ -1249,7 +1323,8 @@ mod test {
         );
 
         // Atom But NOT a valid burn block info property
-        let bad_property = SymbolicExpression::atom("not-a-valid-burn-prop".into());
+        let bad_property =
+            SymbolicExpression::atom(ClarityName::from_literal("not-a-valid-burn-prop"));
 
         // Valid uint height to avoid TypeValueError
         let height = SymbolicExpression::atom_value(Value::UInt(0));
@@ -1262,21 +1337,24 @@ mod test {
         let context = LocalContext::new();
         let mut call_stack = CallStack::new();
 
-        let mut env = Environment::new(
-            &mut global_context,
-            &contract_context,
-            &mut call_stack,
-            None,
-            None,
-            None,
-        );
+        let mut exec_state = ExecutionState {
+            global_context: &mut global_context,
+            call_stack: &mut call_stack,
+        };
+        let invoke_ctx = InvocationContext {
+            contract_context: &contract_context,
+            sender: None,
+            caller: None,
+            sponsor: None,
+        };
 
-        let err = special_get_burn_block_info(&args, &mut env, &context).unwrap_err();
+        let err =
+            special_get_burn_block_info(&args, &mut exec_state, &invoke_ctx, &context).unwrap_err();
 
         assert_eq!(
             err,
             VmExecutionError::RuntimeCheck(RuntimeCheckErrorKind::Unreachable(
-                "No such burn block info property: not-a-valid-burn-prop".to_string()
+                "No such burn block info property: not-a-valid-burn-prop".into()
             ))
         );
     }
@@ -1301,22 +1379,23 @@ mod test {
         let context = LocalContext::new(); // EMPTY — no callable_contracts
         let mut call_stack = CallStack::new();
 
-        let mut env = Environment::new(
-            &mut global_context,
-            &contract_context,
-            &mut call_stack,
-            None,
-            None,
-            None,
-        );
-
+        let mut exec_state = ExecutionState {
+            global_context: &mut global_context,
+            call_stack: &mut call_stack,
+        };
+        let invoke_ctx = InvocationContext {
+            contract_context: &contract_context,
+            sender: None,
+            caller: None,
+            sponsor: None,
+        };
         // (contract-call? unknown-contract foo)
         let args = vec![
-            SymbolicExpression::atom("unknown-contract".into()), // Atom, NOT registered
-            SymbolicExpression::atom("foo".into()),              // Valid function name atom
+            SymbolicExpression::atom(ClarityName::from_literal("unknown-contract")), // Atom, NOT registered
+            SymbolicExpression::atom(ClarityName::from_literal("foo")), // Valid function name atom
         ];
 
-        let err = special_contract_call(&args, &mut env, &context).unwrap_err();
+        let err = special_contract_call(&args, &mut exec_state, &invoke_ctx, &context).unwrap_err();
 
         assert_eq!(
             err,

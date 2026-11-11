@@ -84,9 +84,9 @@ impl Sha256dEncoder {
     pub fn into_hash(self) -> Sha256dHash {
         let mut second_sha = Sha256::new();
         let mut tmp = [0; 32];
-        tmp.copy_from_slice(self.0.finalize().as_slice());
+        tmp.copy_from_slice(&self.0.finalize());
         second_sha.update(tmp);
-        tmp.copy_from_slice(second_sha.finalize().as_slice());
+        tmp.copy_from_slice(&second_sha.finalize());
         Sha256dHash(tmp)
     }
 }
@@ -156,7 +156,7 @@ impl Ripemd160Hash {
         let mut ret = [0; 20];
         let mut rmd = Ripemd160::new();
         rmd.update(data);
-        ret.copy_from_slice(rmd.finalize().as_slice());
+        ret.copy_from_slice(&rmd.finalize());
         Ripemd160Hash(ret)
     }
 }
@@ -169,9 +169,9 @@ impl Hash160 {
         let mut sha2 = Sha256::new();
         let mut rmd = Ripemd160::new();
         sha2.update(data);
-        tmp.copy_from_slice(sha2.finalize().as_slice());
+        tmp.copy_from_slice(&sha2.finalize());
         rmd.update(tmp);
-        ret.copy_from_slice(rmd.finalize().as_slice());
+        ret.copy_from_slice(&rmd.finalize());
         Hash160(ret)
     }
 }
@@ -185,9 +185,9 @@ impl Sha256dHash {
         let mut sha2 = Sha256::new();
         let mut sha2_2 = Sha256::new();
         sha2.update(data);
-        ret.copy_from_slice(sha2.finalize().as_slice());
+        ret.copy_from_slice(&sha2.finalize());
         sha2_2.update(ret);
-        ret.copy_from_slice(sha2_2.finalize().as_slice());
+        ret.copy_from_slice(&sha2_2.finalize());
         Sha256dHash(ret)
     }
 

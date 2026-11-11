@@ -74,14 +74,6 @@ fn make_func_ref(func_name: &str, func_type: &FunctionType, description: &str) -
     }
 }
 
-#[allow(clippy::expect_used)]
-fn get_constant_value(var_name: &str, contract_content: &str) -> Value {
-    let to_eval = format!("{contract_content}\n{var_name}");
-    doc_execute(&to_eval)
-        .expect("BUG: failed to evaluate contract for constant value")
-        .expect("BUG: failed to return constant value")
-}
-
 fn doc_execute(program: &str) -> Result<Option<Value>, ClarityEvalError> {
     let contract_id = QualifiedContractIdentifier::transient();
     let mut contract_context = ContractContext::new(contract_id.clone(), ClarityVersion::Clarity2);
@@ -147,8 +139,8 @@ pub fn make_docs(
         .collect();
 
     let ecode_names = variable_types
-        .iter()
-        .filter_map(|(var_name, _)| {
+        .keys()
+        .filter_map(|var_name| {
             if var_name.starts_with("ERR_") {
                 Some(format!("{}: {}", var_name.as_str(), var_name.as_str()))
             } else {

@@ -1,0 +1,1 @@
+The burnchains, config, core, net and util_lib modules now imports the MARF from `stacks_marf` directly instead of through the `stackslib::chainstate::stacks::index` re-export. No behaviour change.

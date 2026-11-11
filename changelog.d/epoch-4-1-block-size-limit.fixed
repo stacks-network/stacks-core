@@ -1,0 +1,1 @@
+Allow Nakamoto blocks with exactly 2 MiB of transaction data in mining and signer proposal validation starting in Epoch 4.1, preserving the exclusive size limit in earlier epochs.

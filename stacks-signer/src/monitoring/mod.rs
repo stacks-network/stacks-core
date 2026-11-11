@@ -62,6 +62,11 @@ pub mod actions {
     use crate::monitoring::{SignerAgreementStateChangeReason, SignerAgreementStateConflict};
     use crate::v0::signer_state::LocalStateMachine;
 
+    /// Record the process build information. Repeated calls keep the same series at 1.
+    pub fn record_build_info() {
+        BUILD_INFO.set(1);
+    }
+
     /// Update stacks tip height gauge
     pub fn update_stacks_tip_height(height: i64) {
         STACKS_TIP_HEIGHT_GAUGE.set(height);
@@ -125,14 +130,14 @@ pub mod actions {
         let diff =
             get_epoch_time_ms().saturating_sub(block.header.timestamp.saturating_mul(1000).into());
         SIGNER_BLOCK_RESPONSE_LATENCIES_HISTOGRAM
-            .with_label_values(&[])
+            .with_label_values::<&str>(&[])
             .observe(diff as f64 / 1000.0);
     }
 
     /// Record the time taken to validate a block, as reported by the Stacks node.
     pub fn record_block_validation_latency(latency_ms: u64) {
         SIGNER_BLOCK_VALIDATION_LATENCIES_HISTOGRAM
-            .with_label_values(&[])
+            .with_label_values::<&str>(&[])
             .observe(latency_ms as f64 / 1000.0);
     }
 
@@ -165,7 +170,7 @@ pub mod actions {
     /// Record the time (seconds) taken for a signer to agree with the signer set
     pub fn record_signer_agreement_capitulation_latency(latency_s: u64) {
         SIGNER_AGREEMENT_CAPITULATION_LATENCIES_HISTOGRAM
-            .with_label_values(&[])
+            .with_label_values::<&str>(&[])
             .observe(latency_s as f64);
     }
 
@@ -175,6 +180,7 @@ pub mod actions {
         if config.metrics_endpoint.is_none() {
             return Ok(());
         }
+        record_build_info();
         let _ = std::thread::Builder::new()
             .name("signer_metrics".to_string())
             .spawn(move || {
@@ -195,6 +201,9 @@ pub mod actions {
     use crate::monitoring::{SignerAgreementStateChangeReason, SignerAgreementStateConflict};
     use crate::v0::signer_state::LocalStateMachine;
     use crate::GlobalConfig;
+
+    /// No-op when Prometheus monitoring is disabled.
+    pub fn record_build_info() {}
 
     /// Update stacks tip height gauge
     pub fn update_stacks_tip_height(_height: i64) {}

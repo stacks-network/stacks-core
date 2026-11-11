@@ -1,5 +1,5 @@
 // Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
-// Copyright (C) 2020-2025 Stacks Open Internet Foundation
+// Copyright (C) 2020-2026 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -16,14 +16,12 @@
 
 use std::collections::hash_map::Entry;
 use std::collections::{HashMap, HashSet};
-use std::fmt;
 use std::path::PathBuf;
 #[cfg(test)]
 use std::sync::mpsc::channel;
 #[cfg(test)]
 use std::sync::LazyLock;
 use std::sync::{Arc, Mutex};
-use std::thread::sleep;
 use std::time::{Duration, SystemTime};
 
 use clarity::vm::costs::ExecutionCost;
@@ -31,7 +29,6 @@ use clarity::vm::events::{FTEventType, NFTEventType, STXEventType};
 use clarity::vm::types::{AssetIdentifier, QualifiedContractIdentifier};
 #[cfg(any(test, feature = "testing"))]
 use lazy_static::lazy_static;
-use rand::Rng;
 use serde_json::json;
 use stacks::burnchains::{PoxConstants, Txid};
 use stacks::chainstate::burn::ConsensusHash;
@@ -47,26 +44,24 @@ use stacks::chainstate::stacks::events::{
 };
 use stacks::chainstate::stacks::miner::TransactionEvent;
 use stacks::chainstate::stacks::{StacksBlock, StacksMicroblock, StacksTransaction};
-use stacks::config::{EventKeyType, EventObserverConfig};
+use stacks::config::{Config, EventKeyType, EventObserverConfig};
 use stacks::core::mempool::{MemPoolDropReason, MemPoolEventDispatcher, ProposalCallbackReceiver};
 use stacks::libstackerdb::StackerDBChunkData;
 use stacks::net::api::postblock_proposal::{
     BlockValidateOk, BlockValidateReject, BlockValidateResponse,
 };
 use stacks::net::atlas::{Attachment, AttachmentInstance};
-use stacks::net::http::HttpRequestContents;
-use stacks::net::httpcore::{send_http_request, StacksHttpRequest};
 use stacks::net::stackerdb::StackerDBEventDispatcher;
 #[cfg(any(test, feature = "testing"))]
 use stacks::util::tests::TestFlag;
 use stacks_common::bitvec::BitVec;
 use stacks_common::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash, StacksBlockId};
-use stacks_common::types::net::PeerHost;
 use url::Url;
 
 mod db;
 mod payloads;
 mod stacker_db;
+mod worker;
 
 use db::EventDispatcherDbConnection;
 use payloads::*;
@@ -77,6 +72,7 @@ pub use payloads::{
 pub use stacker_db::StackerDBChannel;
 
 use crate::event_dispatcher::db::PendingPayload;
+use crate::event_dispatcher::worker::{EventDispatcherResult, EventDispatcherWorker};
 
 #[cfg(test)]
 mod tests;
@@ -87,48 +83,23 @@ lazy_static! {
     pub static ref TEST_SKIP_BLOCK_ANNOUNCEMENT: TestFlag<bool> = TestFlag::default();
 }
 
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 enum EventDispatcherError {
-    SerializationError(serde_json::Error),
-    HttpError(std::io::Error),
-    DbError(stacks::util_lib::db::Error),
+    #[error("Serialization error: {0}")]
+    Serialization(#[from] serde_json::Error),
+    #[error("HTTP error: {0}")]
+    Http(#[from] std::io::Error),
+    #[error("Database error: {0}")]
+    Db(#[from] stacks::util_lib::db::Error),
+    #[error("Channel receive error: {0}")]
+    Recv(#[from] std::sync::mpsc::RecvError),
+    #[error("Channel send error: {0}")]
+    Send(String), // not capturing the underlying because it's a generic type
 }
 
-impl fmt::Display for EventDispatcherError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match *self {
-            EventDispatcherError::SerializationError(ref e) => fmt::Display::fmt(e, f),
-            EventDispatcherError::HttpError(ref e) => fmt::Display::fmt(e, f),
-            EventDispatcherError::DbError(ref e) => fmt::Display::fmt(e, f),
-        }
-    }
-}
-
-impl core::error::Error for EventDispatcherError {
-    fn cause(&self) -> Option<&dyn core::error::Error> {
-        match *self {
-            EventDispatcherError::SerializationError(ref e) => Some(e),
-            EventDispatcherError::HttpError(ref e) => Some(e),
-            EventDispatcherError::DbError(ref e) => Some(e),
-        }
-    }
-}
-
-impl From<serde_json::Error> for EventDispatcherError {
-    fn from(value: serde_json::Error) -> Self {
-        EventDispatcherError::SerializationError(value)
-    }
-}
-
-impl From<stacks::util_lib::db::Error> for EventDispatcherError {
-    fn from(value: stacks::util_lib::db::Error) -> Self {
-        EventDispatcherError::DbError(value)
-    }
-}
-
-impl From<std::io::Error> for EventDispatcherError {
-    fn from(value: std::io::Error) -> Self {
-        EventDispatcherError::HttpError(value)
+impl<T> From<std::sync::mpsc::SendError<T>> for EventDispatcherError {
+    fn from(value: std::sync::mpsc::SendError<T>) -> Self {
+        EventDispatcherError::Send(format!("{value}"))
     }
 }
 
@@ -141,6 +112,10 @@ struct EventObserver {
     /// If true, the stacks-node will not retry if event delivery fails for any reason.
     /// WARNING: This should not be set on observers that require successful delivery of all events.
     disable_retries: bool,
+    /// If true, the `contract_interface` (ABI) field of transaction payloads in
+    /// `new_block` / `new_microblocks` events sent to this observer is always
+    /// emitted as `None`, regardless of whether the transaction deployed a contract.
+    disable_contract_interface: bool,
 }
 
 /// Update `serve()` in `neon_integrations.rs` with any new paths that need to be tested
@@ -160,11 +135,17 @@ pub const PATH_PROPOSAL_RESPONSE: &str = "proposal_response";
 static TEST_EVENT_OBSERVER_SKIP_RETRY: LazyLock<TestFlag<bool>> = LazyLock::new(TestFlag::default);
 
 impl EventObserver {
-    fn new(endpoint: String, timeout: Duration, disable_retries: bool) -> Self {
+    fn new(
+        endpoint: String,
+        timeout: Duration,
+        disable_retries: bool,
+        disable_contract_interface: bool,
+    ) -> Self {
         EventObserver {
             endpoint,
             timeout,
             disable_retries,
+            disable_contract_interface,
         }
     }
 }
@@ -213,6 +194,9 @@ pub struct EventDispatcher {
     pub stackerdb_channel: Arc<Mutex<StackerDBChannel>>,
     /// Path to the database where pending payloads are stored.
     db_path: PathBuf,
+    /// The worker thread that performs the actual HTTP requests so that they don't block
+    /// the main operation of the node.
+    worker: EventDispatcherWorker,
 }
 
 /// This struct is used specifically for receiving proposal responses.
@@ -237,7 +221,9 @@ impl ProposalCallbackReceiver for ProposalCallbackHandler {
 
         for observer in self.observers.iter() {
             self.dispatcher
-                .dispatch_to_observer(observer, &response, PATH_PROPOSAL_RESPONSE);
+                .dispatch_to_observer(observer, &response, PATH_PROPOSAL_RESPONSE)
+                .unwrap()
+                .wait_until_complete();
         }
     }
 }
@@ -412,10 +398,38 @@ impl BlockEventDispatcher for EventDispatcher {
 }
 
 impl EventDispatcher {
+    /// The default behavior is to create a non-blocking dispatcher with a
+    /// queue size of 1,000. Note however that the default *node* configuration
+    /// is to always block (i.e. an effective queue size of 0).
+    ///
+    /// See the `event_dispatcher_blocking` and `event_dispatcher_queue_size`
+    /// config values.
     pub fn new(working_dir: PathBuf) -> EventDispatcher {
+        Self::new_with_custom_queue_size(working_dir, 1_000)
+    }
+    /// Build a dispatcher wired up from the node config: queue size,
+    /// registered observers, and event payload options.
+    pub fn from_config(config: &Config) -> EventDispatcher {
+        let mut dispatcher = Self::new_with_custom_queue_size(
+            config.get_working_dir(),
+            config.node.effective_event_dispatcher_queue_size(),
+        );
+        for observer in &config.events_observers {
+            dispatcher.register_observer(observer);
+        }
+        dispatcher
+    }
+
+    /// The queue size specifies how many events may be in-flight without
+    /// blocking the calling thread when sending additional events. A value
+    /// of 0 means they always block.
+    pub fn new_with_custom_queue_size(working_dir: PathBuf, queue_size: usize) -> EventDispatcher {
         let mut db_path = working_dir;
         db_path.push("event_observers.sqlite");
         EventDispatcherDbConnection::new(&db_path).expect("Failed to initialize database");
+
+        let worker = EventDispatcherWorker::new(db_path.clone(), queue_size)
+            .expect("Failed to start worker thread");
 
         EventDispatcher {
             stackerdb_channel: Arc::new(Mutex::new(StackerDBChannel::new())),
@@ -432,7 +446,17 @@ impl EventDispatcher {
             stackerdb_observers_lookup: HashSet::new(),
             block_proposal_observers_lookup: HashSet::new(),
             db_path,
+            worker,
         }
+    }
+
+    /// Sends a noop task to the worker and waits until its completion is acknowledged.
+    /// This has the effect that all payloads that have been submitted before this point
+    /// are also done, which is a useful thing to wait for in some tests where you want
+    /// to assert on certain event deliveries.
+    #[cfg(test)]
+    pub fn catch_up(&self) {
+        self.worker.noop().unwrap().wait_until_complete();
     }
 
     pub fn process_burn_block(
@@ -464,7 +488,7 @@ impl EventDispatcher {
         );
 
         for observer in interested_observers.iter() {
-            self.send_new_burn_block(&observer, &payload);
+            self.send_new_burn_block(observer, &payload);
         }
     }
 
@@ -473,26 +497,26 @@ impl EventDispatcher {
     ///
     /// # Returns
     /// - dispatch_matrix: a vector where each index corresponds to the hashset of event indexes
-    ///     that each respective event observer is subscribed to
+    ///   that each respective event observer is subscribed to
     /// - events: a vector of all events from all the tx receipts
-    #[allow(clippy::type_complexity)]
     fn create_dispatch_matrix_and_event_vector<'a>(
         &self,
         receipts: &'a [StacksTransactionReceipt],
-    ) -> (
-        Vec<HashSet<usize>>,
-        Vec<(bool, Txid, &'a StacksTransactionEvent)>,
-    ) {
+    ) -> (Vec<HashSet<usize>>, Vec<(Txid, &'a StacksTransactionEvent)>) {
         let mut dispatch_matrix: Vec<HashSet<usize>> = self
             .registered_observers
             .iter()
             .map(|_| HashSet::new())
             .collect();
-        let mut events: Vec<(bool, Txid, &StacksTransactionEvent)> = vec![];
+        let mut events: Vec<(Txid, &StacksTransactionEvent)> = vec![];
         let mut i: usize = 0;
 
         for receipt in receipts {
             let tx_hash = receipt.transaction.txid();
+            if receipt.post_condition_aborted {
+                debug!("Transaction {tx_hash} aborted by post-condition, skipping events");
+                continue;
+            }
             for event in receipt.events.iter() {
                 match event {
                     StacksTransactionEvent::SmartContractEvent(event_data) => {
@@ -557,7 +581,7 @@ impl EventDispatcher {
                         );
                     }
                 }
-                events.push((!receipt.post_condition_aborted, tx_hash.clone(), event));
+                events.push((tx_hash.clone(), event));
                 for o_i in &self.any_event_observers_lookup {
                     dispatch_matrix[*o_i as usize].insert(i);
                 }
@@ -632,7 +656,7 @@ impl EventDispatcher {
                     metadata,
                     receipts,
                     parent_index_hash,
-                    &winner_txid,
+                    winner_txid,
                     &mature_rewards,
                     parent_burn_block_hash,
                     parent_burn_block_height,
@@ -644,10 +668,11 @@ impl EventDispatcher {
                     signer_bitvec,
                     block_timestamp,
                     coinbase_height,
+                    !self.registered_observers[observer_id].disable_contract_interface,
                 );
 
                 // Send payload
-                self.dispatch_to_observer(
+                self.dispatch_to_observer_or_log_error(
                     &self.registered_observers[observer_id],
                     &payload,
                     PATH_BLOCK_PROCESSED,
@@ -688,20 +713,21 @@ impl EventDispatcher {
         let (dispatch_matrix, events) =
             self.create_dispatch_matrix_and_event_vector(&flattened_receipts);
 
-        // Serialize receipts
-        let mut tx_index;
-        let mut serialized_txs = Vec::new();
-
-        for (_, _, receipts) in processed_unconfirmed_state.receipts.iter() {
-            tx_index = 0;
-            for receipt in receipts.iter() {
-                let payload = make_new_block_txs_payload(receipt, tx_index);
-                serialized_txs.push(payload);
-                tx_index += 1;
-            }
-        }
-
         for (obs_id, observer) in interested_observers.iter() {
+            // Serialize receipts. The payloads are built per observer because
+            // `disable_contract_interface` may differ between observers.
+            let mut serialized_txs = Vec::new();
+            for (_, _, receipts) in processed_unconfirmed_state.receipts.iter() {
+                for (tx_index, receipt) in receipts.iter().enumerate() {
+                    let payload = make_new_block_txs_payload(
+                        receipt,
+                        tx_index as u32,
+                        !observer.disable_contract_interface,
+                    );
+                    serialized_txs.push(payload);
+                }
+            }
+
             let filtered_events_ids = &dispatch_matrix[*obs_id];
             let filtered_events: Vec<_> = filtered_events_ids
                 .iter()
@@ -710,7 +736,7 @@ impl EventDispatcher {
 
             self.send_new_microblocks(
                 observer,
-                &parent_index_block_hash,
+                parent_index_block_hash,
                 &filtered_events,
                 &serialized_txs,
                 &processed_unconfirmed_state.burn_block_hash,
@@ -974,6 +1000,7 @@ impl EventDispatcher {
             conf.endpoint.clone(),
             Duration::from_millis(conf.timeout_ms),
             conf.disable_retries,
+            conf.disable_contract_interface,
         );
 
         if conf.disable_retries {
@@ -1050,8 +1077,9 @@ impl EventDispatcher {
         event_observer
     }
 
-    /// Process any pending payloads in the database.
-    /// This is called when the event dispatcher is first instantiated.
+    /// Process any pending payloads in the database. This is meant to be called at startup, in order to
+    /// handle anything that was enqueued but not sent before shutdown. This method blocks until all
+    /// requests are made (or, if the observer is no longer registered, removed from the DB).
     pub fn process_pending_payloads(&self) {
         let conn =
             EventDispatcherDbConnection::new(&self.db_path).expect("Failed to initialize database");
@@ -1072,9 +1100,7 @@ impl EventDispatcher {
         );
 
         for PendingPayload {
-            id,
-            mut request_data,
-            ..
+            id, request_data, ..
         } in pending_payloads
         {
             info!(
@@ -1116,18 +1142,22 @@ impl EventDispatcher {
 
             // If the timeout configuration for this observer is different from what it was
             // originally, the updated config wins.
-            request_data.timeout = observer.timeout;
-
-            self.make_http_request_and_delete_from_db(&request_data, observer.disable_retries, id);
+            self.worker
+                .initiate_send(id, observer.disable_retries, Some(observer.timeout))
+                .expect("failed to dispatch pending event payload to worker thread")
+                .wait_until_complete();
         }
     }
 
+    /// A successful result from this method only indicates that that payload was successfully
+    /// enqueued, not that the HTTP request was actually made. If you need to wait until that's
+    /// the case, call `wait_until_complete()` on the `EventDispatcherResult`.
     fn dispatch_to_observer(
         &self,
         event_observer: &EventObserver,
         payload: &serde_json::Value,
         path: &str,
-    ) {
+    ) -> Result<EventDispatcherResult, EventDispatcherError> {
         let full_url = Self::get_full_url(event_observer, path);
         let bytes = match Self::get_payload_bytes(payload) {
             Ok(bytes) => bytes,
@@ -1135,7 +1165,7 @@ impl EventDispatcher {
                 error!(
                     "Event dispatcher: failed to serialize payload"; "path" => path, "error" => ?err
                 );
-                return;
+                return Err(err);
             }
         };
 
@@ -1147,83 +1177,25 @@ impl EventDispatcher {
 
         let id = self.save_to_db(&data);
 
-        self.make_http_request_and_delete_from_db(&data, event_observer.disable_retries, id);
+        self.worker
+            .initiate_send(id, event_observer.disable_retries, None)
     }
 
-    fn make_http_request(
-        data: &EventRequestData,
-        disable_retries: bool,
-    ) -> Result<(), EventDispatcherError> {
-        debug!(
-            "Event dispatcher: Sending payload"; "url" => &data.url, "bytes" => data.payload_bytes.len()
-        );
-
-        let url = Url::parse(&data.url)
-            .unwrap_or_else(|_| panic!("Event dispatcher: unable to parse {} as a URL", data.url));
-
-        let host = url.host_str().expect("Invalid URL: missing host");
-        let port = url.port_or_known_default().unwrap_or(80);
-        let peerhost: PeerHost = format!("{host}:{port}")
-            .parse()
-            .unwrap_or(PeerHost::DNS(host.to_string(), port));
-
-        let mut backoff = Duration::from_millis(100);
-        let mut attempts: i32 = 0;
-        // Cap the backoff at 3x the timeout
-        let max_backoff = data.timeout.saturating_mul(3);
-
-        loop {
-            let mut request = StacksHttpRequest::new_for_peer(
-                peerhost.clone(),
-                "POST".into(),
-                url.path().into(),
-                HttpRequestContents::new().payload_json_bytes(Arc::clone(&data.payload_bytes)),
-            )
-            .unwrap_or_else(|_| panic!("FATAL: failed to encode infallible data as HTTP request"));
-            request.add_header("Connection".into(), "close".into());
-            match send_http_request(host, port, request, data.timeout) {
-                Ok(response) => {
-                    if response.preamble().status_code == 200 {
-                        debug!(
-                            "Event dispatcher: Successful POST"; "url" => %url
-                        );
-                        break;
-                    } else {
-                        error!(
-                            "Event dispatcher: Failed POST"; "url" => %url, "response" => ?response.preamble()
-                        );
-                    }
-                }
-                Err(err) => {
-                    warn!(
-                        "Event dispatcher: connection or request failed to {host}:{port} - {err:?}";
-                        "backoff" => ?backoff,
-                        "attempts" => attempts
-                    );
-                    if disable_retries {
-                        warn!(
-                            "Observer is configured in disable_retries mode: skipping retry of payload"
-                        );
-                        return Err(err.into());
-                    }
-                    #[cfg(test)]
-                    if TEST_EVENT_OBSERVER_SKIP_RETRY.get() {
-                        warn!("Fault injection: skipping retry of payload");
-                        return Err(err.into());
-                    }
-                }
-            }
-
-            sleep(backoff);
-            let jitter: u64 = rand::thread_rng().gen_range(0..100);
-            backoff = std::cmp::min(
-                backoff.saturating_mul(2) + Duration::from_millis(jitter),
-                max_backoff,
-            );
-            attempts = attempts.saturating_add(1);
+    /// This fire-and-forget version of `dispatch_to_observer` logs any error from enqueueing the
+    /// request, and does not give you a way to wait for blocking until it's sent. If you need
+    /// more control, use `dispatch_to_observer()` directly and handle the result yourself.
+    ///
+    /// This method exists because we generally don't want the event dispatcher to interrupt the node's
+    /// processing.
+    fn dispatch_to_observer_or_log_error(
+        &self,
+        event_observer: &EventObserver,
+        payload: &serde_json::Value,
+        path: &str,
+    ) {
+        if let Err(err) = self.dispatch_to_observer(event_observer, payload, path) {
+            error!("Event dispatcher: Failed to enqueue payload for sending to observer: {err:?}");
         }
-
-        Ok(())
     }
 
     fn get_payload_bytes(payload: &serde_json::Value) -> Result<Arc<[u8]>, EventDispatcherError> {
@@ -1251,53 +1223,12 @@ impl EventDispatcher {
         conn.insert_payload_with_retry(data, SystemTime::now())
     }
 
-    fn make_http_request_and_delete_from_db(
-        &self,
-        data: &EventRequestData,
-        disable_retries: bool,
-        id: i64,
-    ) {
-        let http_result = Self::make_http_request(data, disable_retries);
-
-        if let Err(err) = http_result {
-            // log but continue
-            error!("EventDispatcher: dispatching failed"; "url" => data.url.clone(), "error" => ?err);
-        }
-
-        #[cfg(test)]
-        if TEST_EVENT_OBSERVER_SKIP_RETRY.get() {
-            warn!("Fault injection: skipping deletion of payload");
-            return;
-        }
-
-        // We're deleting regardless of result -- if retries are disabled, that means
-        // we're supposed to forget about it in case of failure. If they're not disabled,
-        // then we wouldn't be here in case of failue, because `make_http_request` retries
-        // until it's successful (with the exception of the above fault injection which
-        // simulates a shutdown).
-        let deletion_result = self.delete_from_db(id);
-
-        if let Err(e) = deletion_result {
-            error!(
-                "Event observer: failed to delete pending payload from database";
-                "error" => ?e
-            );
-        }
-    }
-
-    fn delete_from_db(&self, id: i64) -> Result<(), EventDispatcherError> {
-        let conn = EventDispatcherDbConnection::new_without_init(&self.db_path)
-            .expect("Failed to open database for event observer");
-        conn.delete_payload(id)?;
-        Ok(())
-    }
-
     fn send_new_attachments(&self, event_observer: &EventObserver, payload: &serde_json::Value) {
-        self.dispatch_to_observer(event_observer, payload, PATH_ATTACHMENT_PROCESSED);
+        self.dispatch_to_observer_or_log_error(event_observer, payload, PATH_ATTACHMENT_PROCESSED);
     }
 
     fn send_new_mempool_txs(&self, event_observer: &EventObserver, payload: &serde_json::Value) {
-        self.dispatch_to_observer(event_observer, payload, PATH_MEMPOOL_TX_SUBMIT);
+        self.dispatch_to_observer_or_log_error(event_observer, payload, PATH_MEMPOOL_TX_SUBMIT);
     }
 
     /// Serializes new microblocks data into a JSON payload and sends it off to the correct path
@@ -1305,7 +1236,7 @@ impl EventDispatcher {
         &self,
         event_observer: &EventObserver,
         parent_index_block_hash: &StacksBlockId,
-        filtered_events: &[(usize, &(bool, Txid, &StacksTransactionEvent))],
+        filtered_events: &[(usize, &(Txid, &StacksTransactionEvent))],
         serialized_txs: &[TransactionEventPayload],
         burn_block_hash: &BurnchainHeaderHash,
         burn_block_height: u32,
@@ -1314,10 +1245,10 @@ impl EventDispatcher {
         // Serialize events to JSON
         let serialized_events: Vec<serde_json::Value> = filtered_events
             .iter()
-            .map(|(event_index, (committed, txid, event))| {
-                event
-                    .json_serialize(*event_index, txid, *committed)
-                    .unwrap()
+            .map(|(event_index, (txid, event))| {
+                // Since we no longer send events for post condition aborted transactions,
+                // all events we serialize here are committed events, so we can set the `committed` field to `true`.
+                event.json_serialize(*event_index, txid, true).unwrap()
             })
             .collect();
 
@@ -1330,7 +1261,7 @@ impl EventDispatcher {
             "burn_block_timestamp": burn_block_timestamp,
         });
 
-        self.dispatch_to_observer(event_observer, &payload, PATH_MICROBLOCK_SUBMIT);
+        self.dispatch_to_observer_or_log_error(event_observer, &payload, PATH_MICROBLOCK_SUBMIT);
     }
 
     fn send_dropped_mempool_txs(
@@ -1338,15 +1269,15 @@ impl EventDispatcher {
         event_observer: &EventObserver,
         payload: &serde_json::Value,
     ) {
-        self.dispatch_to_observer(event_observer, payload, PATH_MEMPOOL_TX_DROP);
+        self.dispatch_to_observer_or_log_error(event_observer, payload, PATH_MEMPOOL_TX_DROP);
     }
 
     fn send_mined_block(&self, event_observer: &EventObserver, payload: &serde_json::Value) {
-        self.dispatch_to_observer(event_observer, payload, PATH_MINED_BLOCK);
+        self.dispatch_to_observer_or_log_error(event_observer, payload, PATH_MINED_BLOCK);
     }
 
     fn send_mined_microblock(&self, event_observer: &EventObserver, payload: &serde_json::Value) {
-        self.dispatch_to_observer(event_observer, payload, PATH_MINED_MICROBLOCK);
+        self.dispatch_to_observer_or_log_error(event_observer, payload, PATH_MINED_MICROBLOCK);
     }
 
     fn send_mined_nakamoto_block(
@@ -1354,15 +1285,15 @@ impl EventDispatcher {
         event_observer: &EventObserver,
         payload: &serde_json::Value,
     ) {
-        self.dispatch_to_observer(event_observer, payload, PATH_MINED_NAKAMOTO_BLOCK);
+        self.dispatch_to_observer_or_log_error(event_observer, payload, PATH_MINED_NAKAMOTO_BLOCK);
     }
 
     fn send_stackerdb_chunks(&self, event_observer: &EventObserver, payload: &serde_json::Value) {
-        self.dispatch_to_observer(event_observer, payload, PATH_STACKERDB_CHUNKS);
+        self.dispatch_to_observer_or_log_error(event_observer, payload, PATH_STACKERDB_CHUNKS);
     }
 
     fn send_new_burn_block(&self, event_observer: &EventObserver, payload: &serde_json::Value) {
-        self.dispatch_to_observer(event_observer, payload, PATH_BURN_BLOCK_SUBMIT);
+        self.dispatch_to_observer_or_log_error(event_observer, payload, PATH_BURN_BLOCK_SUBMIT);
     }
 }
 

@@ -1,5 +1,5 @@
 // Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
-// Copyright (C) 2020 Stacks Open Internet Foundation
+// Copyright (C) 2020-2026 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -14,6 +14,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use clarity::vm::clarity::ClarityError;
 use clarity::vm::costs::ExecutionCost;
 use stacks_common::types::chainstate::{
     BlockHeaderHash, BurnchainHeaderHash, ConsensusHash, StacksBlockId,
@@ -29,13 +30,15 @@ use crate::chainstate::nakamoto::{
 };
 use crate::chainstate::stacks::address::StacksAddressExtensions;
 use crate::chainstate::stacks::db::blocks::{DummyEventDispatcher, MAX_RECEIPT_SIZES};
+use crate::chainstate::stacks::db::transactions::TransactionProcessor;
 use crate::chainstate::stacks::db::{
     ChainstateTx, ClarityTx, StacksBlockHeaderTypes, StacksChainState, StacksHeaderInfo,
 };
 use crate::chainstate::stacks::miner::{
-    BlockBuilder, BlockBuilderSettings, BlockLimitFunction, TransactionEvent, TransactionResult,
+    BlockBuilder, BlockBuilderSettings, BlockLimitFunction, TransactionEvent,
+    TransactionResourceBudgets, TransactionResult,
 };
-use crate::chainstate::stacks::{Error, StacksBlockHeader, *};
+use crate::chainstate::stacks::{Error, *};
 use crate::clarity_vm::clarity::ClarityInstance;
 use crate::config::{DEFAULT_CONTRACT_COST_LIMIT_PERCENTAGE, DEFAULT_MAX_TENURE_BYTES};
 use crate::core::mempool::*;
@@ -45,7 +48,7 @@ use crate::monitoring::{
 };
 use crate::net::relay::Relayer;
 
-/// Nakamaoto tenure information
+/// Nakamoto tenure information
 #[derive(Debug, Default)]
 pub struct NakamotoTenureInfo {
     /// Coinbase tx, if this is a new tenure
@@ -79,10 +82,6 @@ pub struct NakamotoBlockBuilder {
     parent_header: Option<StacksHeaderInfo>,
     /// Signed coinbase tx, if starting a new tenure
     coinbase_tx: Option<StacksTransaction>,
-    /// Tenure change tx, if starting or extending a tenure
-    tenure_tx: Option<StacksTransaction>,
-    /// Total burn this block represents
-    total_burn: u64,
     /// Matured miner rewards to process, if any.
     pub(crate) matured_miner_rewards_opt: Option<MaturedMinerRewards>,
     /// bytes of space consumed so far
@@ -137,10 +136,7 @@ impl From<TenureChangeCause> for MinerTenureInfoCause {
 impl MinerTenureInfoCause {
     /// Is this the start of a new tenure?
     pub fn is_new_tenure(&self) -> bool {
-        match self {
-            MinerTenureInfoCause::BlockFound => true,
-            _ => false,
-        }
+        matches!(self, MinerTenureInfoCause::BlockFound)
     }
 
     /// Is this a tenure extension of any kind?
@@ -201,7 +197,7 @@ pub struct MinerTenureInfo<'a> {
     pub coinbase_height: u64,
     pub cause: MinerTenureInfoCause,
     pub active_reward_set: boot::RewardSet,
-    pub tenure_block_commit_opt: Option<LeaderBlockCommitOp>,
+    pub tenure_block_commit: LeaderBlockCommitOp,
     pub ephemeral: bool,
 }
 
@@ -222,22 +218,17 @@ pub struct BlockMetadata {
 
 impl NakamotoBlockBuilder {
     /// Make a block builder from genesis (testing only)
-    pub fn new_first_block(
-        tenure_change: &StacksTransaction,
-        coinbase: &StacksTransaction,
-    ) -> NakamotoBlockBuilder {
+    pub fn new_first_block(coinbase: &StacksTransaction) -> NakamotoBlockBuilder {
         NakamotoBlockBuilder {
             parent_header: None,
-            total_burn: 0,
             coinbase_tx: Some(coinbase.clone()),
-            tenure_tx: Some(tenure_change.clone()),
             matured_miner_rewards_opt: None,
             bytes_so_far: 0,
             txs: vec![],
             header: NakamotoBlockHeader::genesis(),
             soft_limit: None,
             contract_limit_percentage: None,
-            max_tenure_bytes: u64::from(DEFAULT_MAX_TENURE_BYTES),
+            max_tenure_bytes: DEFAULT_MAX_TENURE_BYTES,
         }
     }
 
@@ -246,12 +237,12 @@ impl NakamotoBlockBuilder {
     /// * `parent_stacker_header` - the stacks header this builder's block will build off
     ///
     /// * `tenure_id_consensus_hash` - consensus hash of this tenure's burnchain block.
-    ///    This is the consensus hash that goes into the block header.
+    ///   This is the consensus hash that goes into the block header.
     ///
     /// * `total_burn` - total BTC burnt so far in this fork.
     ///
     /// * `tenure_change` - the TenureChange tx if this is going to start or
-    ///    extend a tenure
+    ///   extend a tenure
     ///
     /// * `coinbase` - the coinbase tx if this is going to start a new tenure
     ///
@@ -291,9 +282,7 @@ impl NakamotoBlockBuilder {
 
         Ok(NakamotoBlockBuilder {
             parent_header: Some(parent_stacks_header.clone()),
-            total_burn,
             coinbase_tx: coinbase.cloned(),
-            tenure_tx: tenure_change.cloned(),
             matured_miner_rewards_opt: None,
             bytes_so_far: 0,
             txs: vec![],
@@ -326,7 +315,7 @@ impl NakamotoBlockBuilder {
         burn_dbconn: &'a SortitionHandleConn,
         cause: MinerTenureInfoCause,
     ) -> Result<MinerTenureInfo<'a>, Error> {
-        self.inner_load_tenure_info(chainstate, burn_dbconn, cause, false, false)
+        self.inner_load_tenure_info(chainstate, burn_dbconn, cause, false)
     }
 
     /// This function should be called before `tenure_begin`.
@@ -339,7 +328,7 @@ impl NakamotoBlockBuilder {
         burn_dbconn: &'a SortitionHandleConn,
         cause: MinerTenureInfoCause,
     ) -> Result<MinerTenureInfo<'a>, Error> {
-        self.inner_load_tenure_info(chainstate, burn_dbconn, cause, false, true)
+        self.inner_load_tenure_info(chainstate, burn_dbconn, cause, true)
     }
 
     /// This function should be called before `tenure_begin`.
@@ -351,10 +340,9 @@ impl NakamotoBlockBuilder {
         chainstate: &'a mut StacksChainState,
         burn_dbconn: &'a SortitionHandleConn,
         cause: MinerTenureInfoCause,
-        shadow_block: bool,
         ephemeral: bool,
     ) -> Result<MinerTenureInfo<'a>, Error> {
-        debug!("Nakamoto miner tenure begin"; "shadow" => shadow_block, "tenure_change" => ?cause, "ephemeral" => ephemeral);
+        debug!("Nakamoto miner tenure begin"; "tenure_change" => ?cause, "ephemeral" => ephemeral);
 
         let Some(tenure_election_sn) =
             SortitionDB::get_block_snapshot_consensus(burn_dbconn, &self.header.consensus_hash)?
@@ -367,24 +355,19 @@ impl NakamotoBlockBuilder {
             return Err(Error::NoSuchBlockError);
         };
 
-        let tenure_block_commit_opt = if shadow_block {
-            None
-        } else {
-            let Some(tenure_block_commit) = SortitionDB::get_block_commit(
-                burn_dbconn,
-                &tenure_election_sn.winning_block_txid,
-                &tenure_election_sn.sortition_id,
-            )?
-            else {
-                warn!("Could not find winning block commit for burn block that elected the miner";
-                    "consensus_hash" => %self.header.consensus_hash,
-                    "stacks_block_hash" => %self.header.block_hash(),
-                    "stacks_block_id" => %self.header.block_id(),
-                    "winning_txid" => %tenure_election_sn.winning_block_txid
-                );
-                return Err(Error::NoSuchBlockError);
-            };
-            Some(tenure_block_commit)
+        let Some(tenure_block_commit) = SortitionDB::get_block_commit(
+            burn_dbconn,
+            &tenure_election_sn.winning_block_txid,
+            &tenure_election_sn.sortition_id,
+        )?
+        else {
+            warn!("Could not find winning block commit for burn block that elected the miner";
+                "consensus_hash" => %self.header.consensus_hash,
+                "stacks_block_hash" => %self.header.block_hash(),
+                "stacks_block_id" => %self.header.block_id(),
+                "winning_txid" => %tenure_election_sn.winning_block_txid
+            );
+            return Err(Error::NoSuchBlockError);
         };
 
         let elected_height = tenure_election_sn.block_height;
@@ -457,11 +440,13 @@ impl NakamotoBlockBuilder {
         };
 
         let parent_block_id = StacksBlockId::new(&parent_consensus_hash, &parent_header_hash);
-        let parent_coinbase_height =
-            NakamotoChainState::get_coinbase_height(&mut chainstate.index_conn(), &parent_block_id)
-                .ok()
-                .flatten()
-                .unwrap_or(0);
+        let parent_coinbase_height = NakamotoChainState::get_coinbase_height_at(
+            &mut chainstate.index_conn(),
+            &parent_block_id,
+        )
+        .ok()
+        .flatten()
+        .unwrap_or(0);
 
         let is_new_tenure = cause.is_new_tenure();
         let coinbase_height = if is_new_tenure {
@@ -488,7 +473,7 @@ impl NakamotoBlockBuilder {
             cause,
             coinbase_height,
             active_reward_set,
-            tenure_block_commit_opt,
+            tenure_block_commit,
             ephemeral,
         })
     }
@@ -503,11 +488,7 @@ impl NakamotoBlockBuilder {
         burn_dbconn: &'a SortitionHandleConn,
         info: &'b mut MinerTenureInfo<'a>,
     ) -> Result<ClarityTx<'b, 'b>, Error> {
-        let Some(block_commit) = info.tenure_block_commit_opt.as_ref() else {
-            return Err(Error::InvalidStacksBlock(
-                "Block-commit is required; cannot mine a shadow block".into(),
-            ));
-        };
+        let block_commit = &info.tenure_block_commit;
 
         let SetupBlockResult {
             clarity_tx,
@@ -556,21 +537,9 @@ impl NakamotoBlockBuilder {
         Ok(clarity_tx)
     }
 
-    /// Finish up mining an epoch's transactions.
-    /// Return the ExecutionCost consumed so far.
+    /// Finish mining an epoch's transactions and return the [`ExecutionCost`] consumed so far.
     pub fn tenure_finish(self, tx: ClarityTx) -> Result<ExecutionCost, Error> {
-        let new_consensus_hash = MINER_BLOCK_CONSENSUS_HASH.clone();
-        let new_block_hash = MINER_BLOCK_HEADER_HASH.clone();
-
-        let index_block_hash =
-            StacksBlockHeader::make_index_block_hash(&new_consensus_hash, &new_block_hash);
-
-        // write out the trie...
-        let consumed = tx.commit_mined_block(&index_block_hash)?;
-
-        test_debug!("\n\nFinished mining. Trie is in mined_blocks table.\n",);
-
-        Ok(consumed)
+        Ok(tx.finish_block_proposal()?)
     }
 
     /// Finish constructing a Nakamoto block.
@@ -590,6 +559,8 @@ impl NakamotoBlockBuilder {
 
         self.header.tx_merkle_root = tx_merkle_root;
         self.header.state_index_root = state_root_hash;
+        self.header.version =
+            NakamotoBlockHeader::expected_version_for_epoch(clarity_tx.get_epoch());
 
         let block = NakamotoBlock {
             header: self.header.clone(),
@@ -651,7 +622,6 @@ impl NakamotoBlockBuilder {
         settings: BlockBuilderSettings,
         event_observer: Option<&dyn MemPoolEventDispatcher>,
         signer_bitvec_len: u16,
-        replay_transactions: &[StacksTransaction],
     ) -> Result<BlockMetadata, Error> {
         let (tip_consensus_hash, tip_block_hash, tip_height) = (
             parent_stacks_header.consensus_hash.clone(),
@@ -736,7 +706,6 @@ impl NakamotoBlockBuilder {
             &initial_txs,
             settings,
             event_observer,
-            replay_transactions,
         ) {
             Ok(x) => x,
             Err(e) => {
@@ -806,16 +775,22 @@ impl BlockBuilder for NakamotoBlockBuilder {
         tx: &StacksTransaction,
         tx_len: u64,
         limit_behavior: &BlockLimitFunction,
-        max_execution_time: Option<std::time::Duration>,
+        resource_budgets: &TransactionResourceBudgets,
         total_receipts_size: &mut u64,
     ) -> TransactionResult {
-        if self.bytes_so_far + tx_len >= u64::from(MAX_EPOCH_SIZE) {
+        let block_size = self.bytes_so_far + tx_len;
+        let exceeds_size_limit = if clarity_tx.get_epoch().fixes_block_size_off_by_one() {
+            block_size > u64::from(MAX_EPOCH_SIZE)
+        } else {
+            block_size >= u64::from(MAX_EPOCH_SIZE)
+        };
+        if exceeds_size_limit {
             debug!("Transaction {} would be too big to include", tx.txid());
             return TransactionResult::skipped_due_to_error(tx, Error::TxWouldNotFitError);
         }
 
         if let Some(parent_header) = &self.parent_header {
-            let mut total_tenure_size = self.bytes_so_far + tx_len;
+            let mut total_tenure_size = block_size;
 
             // if we are in the same tenure of the parent, accumulate the parent total_tenure_size
             // note that total_tenure_size is reset whenever a new tenure extend happens
@@ -853,13 +828,12 @@ impl BlockBuilder for NakamotoBlockBuilder {
         };
 
         let quiet = !cfg!(test);
+        let is_mainnet = clarity_tx.config.mainnet;
         let result = {
             // preemptively skip problematic transactions
-            if let Err(e) = Relayer::static_check_problematic_relayed_tx(
-                clarity_tx.config.mainnet,
-                clarity_tx.get_epoch(),
-                tx,
-            ) {
+            if let Err(e) =
+                Relayer::static_check_problematic_relayed_tx(is_mainnet, clarity_tx.get_epoch(), tx)
+            {
                 info!(
                     "Detected problematic tx {} while mining; dropping from mempool",
                     tx.txid()
@@ -868,12 +842,26 @@ impl BlockBuilder for NakamotoBlockBuilder {
             }
 
             let cost_before = clarity_tx.cost_so_far();
-            let (_fee, receipt) = match StacksChainState::process_transaction_with_check(
-                clarity_tx,
-                tx,
-                quiet,
-                max_execution_time,
-                |receipt| {
+
+            let tx_processor = TransactionProcessor::from(tx)
+                .for_execution()
+                .using_clarity_tx(clarity_tx)
+                .with_resource_policy(*resource_budgets)
+                .quiet(quiet)
+                .with_check(|receipt| {
+                    if !receipt.post_condition_aborted {
+                        let all_events_valid = receipt.events.iter().all(|event| {
+                            crate::net::api::postblock_proposal::is_event_pox_addr_valid(
+                                is_mainnet, event,
+                            )
+                        });
+                        if !all_events_valid {
+                            return Err(Error::ClarityError(ClarityError::BadTransaction(
+                                "All PoX events were not valid".into(),
+                            )));
+                        }
+                    };
+
                     let size = receipt.size().ok_or_else(|| {
                         Error::InvalidStacksBlock("Could not calculate receipt size".into())
                     })?;
@@ -884,8 +872,9 @@ impl BlockBuilder for NakamotoBlockBuilder {
                         *total_receipts_size = next_size;
                         Ok(())
                     }
-                },
-            ) {
+                });
+
+            let (_fee, receipt) = match tx_processor.process() {
                 Ok(x) => x,
                 Err(e) => {
                     return parse_process_transaction_error(
@@ -937,18 +926,19 @@ fn parse_process_transaction_error(
         TransactionResult::problematic(tx, e)
     } else {
         match e {
-            Error::CostOverflowError(cost_before, cost_after, total_budget) => {
-                clarity_tx.reset_cost(cost_before.clone());
+            Error::CostOverflowError(context) => {
+                clarity_tx.reset_cost(context.before.clone());
                 let cost_so_far_percentage =
-                    total_budget.proportion_largest_dimension(&cost_before);
+                    context.budget.proportion_largest_dimension(&context.before);
                 if cost_so_far_percentage < TX_BLOCK_LIMIT_PROPORTION_HEURISTIC {
                     warn!(
-                            "Transaction {} consumed over {}% of block budget, marking as invalid; budget was {total_budget}",
+                            "Transaction {} consumed over {}% of block budget, marking as invalid; budget was {}",
                             tx.txid(),
-                            100 - TX_BLOCK_LIMIT_PROPORTION_HEURISTIC
+                            100 - TX_BLOCK_LIMIT_PROPORTION_HEURISTIC,
+                            context.budget,
                     );
-                    let mut measured_cost = cost_after;
-                    let measured_cost = if measured_cost.sub(&cost_before).is_ok() {
+                    let mut measured_cost = context.after;
+                    let measured_cost = if measured_cost.sub(&context.before).is_ok() {
                         Some(measured_cost)
                     } else {
                         warn!("Failed to compute measured cost of a too big transaction");
@@ -959,13 +949,15 @@ fn parse_process_transaction_error(
                     warn!(
                         "Transaction {} would exceed the tenure budget, but only {cost_so_far_percentage}% of total budget currently consumed. Skipping tx for this block.", tx.txid();
                         "contract_limit_percentage" => contract_limit_percentage,
-                        "total_budget" => %total_budget
+                        "total_budget" => %context.budget
                     );
                     TransactionResult::skipped_due_to_error(tx, Error::BlockCostLimitError)
                 } else {
                     warn!(
-                        "Transaction {} reached block cost {cost_after}; budget was {total_budget}",
+                        "Transaction {} reached block cost {}; budget was {}",
                         tx.txid(),
+                        context.after,
+                        context.budget,
                     );
                     TransactionResult::skipped_due_to_error(tx, Error::BlockTooBigError)
                 }

@@ -1,4 +1,4 @@
-use std::ops::Deref;
+use std::ops::{Deref, DerefMut};
 
 use clarity::types::chainstate::TrieHash;
 use clarity::util::hash::Sha512Trunc256Sum;
@@ -20,6 +20,8 @@ use stacks_common::types::chainstate::{
 };
 use stacks_common::types::Address;
 use stacks_common::util::vrf::VRFProof;
+use stacks_marf::marf::{MarfConnection, MARF};
+use stacks_marf::ClarityMarfTrieId;
 
 use crate::chainstate::burn::db::sortdb::{
     get_ancestor_sort_id, SortitionDB, SortitionHandle, SortitionHandleConn, SortitionHandleTx,
@@ -28,10 +30,8 @@ use crate::chainstate::nakamoto::{keys as nakamoto_keys, StacksDBIndexed};
 use crate::chainstate::stacks::boot::PoxStartCycleInfo;
 use crate::chainstate::stacks::db::accounts::MinerReward;
 use crate::chainstate::stacks::db::{ChainstateTx, StacksChainState, StacksDBConn, StacksDBTx};
-use crate::chainstate::stacks::index::marf::{MarfConnection, MARF};
-use crate::chainstate::stacks::index::ClarityMarfTrieId;
 use crate::chainstate::stacks::Error as ChainstateError;
-use crate::clarity_vm::special::handle_contract_call_special_cases;
+use crate::clarity_vm::special::special_cases_handler_for;
 use crate::core::{StacksEpoch, StacksEpochId};
 use crate::util_lib::db::{DBConn, Error as DBError, FromColumn, FromRow};
 
@@ -75,13 +75,12 @@ impl GetTenureStartId for StacksDBConn<'_> {
         tip: &StacksBlockId,
         coinbase_height: u64,
     ) -> Result<Option<StacksBlockId>, DBError> {
-        let opt_out = self
+        Ok(self
             .get_indexed(
                 tip,
                 &nakamoto_keys::ongoing_tenure_coinbase_height(coinbase_height),
             )?
-            .and_then(|hex_inp| nakamoto_keys::parse_block_id(&hex_inp));
-        Ok(opt_out)
+            .and_then(|hex_inp| nakamoto_keys::parse_block_id(&hex_inp)))
     }
 
     fn conn(&self) -> &Connection {
@@ -109,13 +108,12 @@ impl GetTenureStartId for StacksDBTx<'_> {
         tip: &StacksBlockId,
         coinbase_height: u64,
     ) -> Result<Option<StacksBlockId>, DBError> {
-        let opt_out = self
+        Ok(self
             .get_indexed_ref(
                 tip,
                 &nakamoto_keys::ongoing_tenure_coinbase_height(coinbase_height),
             )?
-            .and_then(|hex_inp| nakamoto_keys::parse_block_id(&hex_inp));
-        Ok(opt_out)
+            .and_then(|hex_inp| nakamoto_keys::parse_block_id(&hex_inp)))
     }
 
     fn conn(&self) -> &Connection {
@@ -247,9 +245,10 @@ impl HeadersDB for HeadersDBConn<'_> {
     fn get_vrf_seed_for_block(
         &self,
         id_bhh: &StacksBlockId,
+        tip: &StacksBlockId,
         epoch: &StacksEpochId,
     ) -> Option<VRFSeed> {
-        let tenure_id_bhh = get_first_block_in_tenure(&self.0, id_bhh, Some(epoch));
+        let tenure_id_bhh = get_first_block_in_tenure(&self.0, id_bhh, tip, Some(epoch));
         let (column_name, nakamoto) = if epoch.uses_nakamoto_blocks() {
             ("vrf_proof", true)
         } else {
@@ -270,22 +269,24 @@ impl HeadersDB for HeadersDBConn<'_> {
     fn get_miner_address(
         &self,
         id_bhh: &StacksBlockId,
+        tip: &StacksBlockId,
         epoch: &StacksEpochId,
     ) -> Option<StacksAddress> {
-        let tenure_id_bhh = get_first_block_in_tenure(&self.0, id_bhh, Some(epoch));
+        let tenure_id_bhh = get_first_block_in_tenure(&self.0, id_bhh, tip, Some(epoch));
         get_miner_column(self.0.conn(), &tenure_id_bhh, "address", |r| {
             let s: String = r.get_unwrap("address");
-            let addr = StacksAddress::from_string(&s).expect("FATAL: malformed address");
-            addr
+
+            StacksAddress::from_string(&s).expect("FATAL: malformed address")
         })
     }
 
     fn get_burnchain_tokens_spent_for_block(
         &self,
         id_bhh: &StacksBlockId,
+        tip: &StacksBlockId,
         epoch: &StacksEpochId,
     ) -> Option<u128> {
-        let tenure_id_bhh = get_first_block_in_tenure(&self.0, id_bhh, Some(epoch));
+        let tenure_id_bhh = get_first_block_in_tenure(&self.0, id_bhh, tip, Some(epoch));
         get_miner_column(
             self.0.conn(),
             &tenure_id_bhh,
@@ -298,9 +299,10 @@ impl HeadersDB for HeadersDBConn<'_> {
     fn get_burnchain_tokens_spent_for_winning_block(
         &self,
         id_bhh: &StacksBlockId,
+        tip: &StacksBlockId,
         epoch: &StacksEpochId,
     ) -> Option<u128> {
-        let tenure_id_bhh = get_first_block_in_tenure(&self.0, id_bhh, Some(epoch));
+        let tenure_id_bhh = get_first_block_in_tenure(&self.0, id_bhh, tip, Some(epoch));
         get_miner_column(
             self.0.conn(),
             &tenure_id_bhh,
@@ -313,10 +315,11 @@ impl HeadersDB for HeadersDBConn<'_> {
     fn get_tokens_earned_for_block(
         &self,
         id_bhh: &StacksBlockId,
+        tip: &StacksBlockId,
         epoch: &StacksEpochId,
     ) -> Option<u128> {
-        let tenure_id_bhh = get_first_block_in_tenure(&self.0, id_bhh, Some(epoch));
-        get_matured_reward(&self.0, &tenure_id_bhh, epoch).map(|x| x.total())
+        let tenure_id_bhh = get_first_block_in_tenure(&self.0, id_bhh, tip, Some(epoch));
+        get_matured_reward(&self.0, &tenure_id_bhh, tip, epoch).map(|x| x.total())
     }
 }
 
@@ -402,9 +405,10 @@ impl HeadersDB for ChainstateTx<'_> {
     fn get_vrf_seed_for_block(
         &self,
         id_bhh: &StacksBlockId,
+        tip: &StacksBlockId,
         epoch: &StacksEpochId,
     ) -> Option<VRFSeed> {
-        let tenure_id_bhh = get_first_block_in_tenure(self.deref(), id_bhh, Some(epoch));
+        let tenure_id_bhh = get_first_block_in_tenure(self.deref(), id_bhh, tip, Some(epoch));
         let (column_name, nakamoto) = if epoch.uses_nakamoto_blocks() {
             ("vrf_proof", true)
         } else {
@@ -425,22 +429,24 @@ impl HeadersDB for ChainstateTx<'_> {
     fn get_miner_address(
         &self,
         id_bhh: &StacksBlockId,
+        tip: &StacksBlockId,
         epoch: &StacksEpochId,
     ) -> Option<StacksAddress> {
-        let tenure_id_bhh = get_first_block_in_tenure(self.deref(), id_bhh, Some(epoch));
+        let tenure_id_bhh = get_first_block_in_tenure(self.deref(), id_bhh, tip, Some(epoch));
         get_miner_column(self.deref().deref(), &tenure_id_bhh, "address", |r| {
             let s: String = r.get_unwrap("address");
-            let addr = StacksAddress::from_string(&s).expect("FATAL: malformed address");
-            addr
+
+            StacksAddress::from_string(&s).expect("FATAL: malformed address")
         })
     }
 
     fn get_burnchain_tokens_spent_for_block(
         &self,
         id_bhh: &StacksBlockId,
+        tip: &StacksBlockId,
         epoch: &StacksEpochId,
     ) -> Option<u128> {
-        let tenure_id_bhh = get_first_block_in_tenure(self.deref(), id_bhh, Some(epoch));
+        let tenure_id_bhh = get_first_block_in_tenure(self.deref(), id_bhh, tip, Some(epoch));
         get_miner_column(
             self.deref().deref(),
             &tenure_id_bhh,
@@ -453,9 +459,10 @@ impl HeadersDB for ChainstateTx<'_> {
     fn get_burnchain_tokens_spent_for_winning_block(
         &self,
         id_bhh: &StacksBlockId,
+        tip: &StacksBlockId,
         epoch: &StacksEpochId,
     ) -> Option<u128> {
-        let tenure_id_bhh = get_first_block_in_tenure(self.deref(), id_bhh, Some(epoch));
+        let tenure_id_bhh = get_first_block_in_tenure(self.deref(), id_bhh, tip, Some(epoch));
         get_miner_column(
             self.deref().deref(),
             &tenure_id_bhh,
@@ -468,10 +475,11 @@ impl HeadersDB for ChainstateTx<'_> {
     fn get_tokens_earned_for_block(
         &self,
         id_bhh: &StacksBlockId,
+        tip: &StacksBlockId,
         epoch: &StacksEpochId,
     ) -> Option<u128> {
-        let tenure_id_bhh = get_first_block_in_tenure(self.deref(), id_bhh, Some(epoch));
-        get_matured_reward(self.deref(), &tenure_id_bhh, epoch).map(|x| x.total())
+        let tenure_id_bhh = get_first_block_in_tenure(self.deref(), id_bhh, tip, Some(epoch));
+        get_matured_reward(self.deref(), &tenure_id_bhh, tip, epoch).map(|x| x.total())
     }
 
     fn get_stacks_height_for_tenure_height(
@@ -494,7 +502,37 @@ impl HeadersDB for ChainstateTx<'_> {
     }
 }
 
-impl HeadersDB for MARF<StacksBlockId> {
+/// Newtype wrapper owning the chainstate headers [`MARF`] so that `stackslib` can
+/// implement [`HeadersDB`] for it.
+///
+/// `HeadersDB` comes from `clarity` and `MARF` is moving to its own crate, so once
+/// both are foreign to `stackslib` the orphan rule forbids
+/// `impl HeadersDB for MARF<StacksBlockId>`. Owning the MARF in a local type keeps
+/// the impl legal. `Deref`/`DerefMut` mean every existing `state_index.<marf method>`
+/// call site is unaffected.
+pub struct MarfHeadersDB(MARF<StacksBlockId>);
+
+impl MarfHeadersDB {
+    pub fn new(marf: MARF<StacksBlockId>) -> Self {
+        Self(marf)
+    }
+}
+
+impl Deref for MarfHeadersDB {
+    type Target = MARF<StacksBlockId>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl DerefMut for MarfHeadersDB {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
+    }
+}
+
+impl HeadersDB for MarfHeadersDB {
     fn get_stacks_block_header_hash_for_block(
         &self,
         id_bhh: &StacksBlockId,
@@ -576,9 +614,10 @@ impl HeadersDB for MARF<StacksBlockId> {
     fn get_vrf_seed_for_block(
         &self,
         id_bhh: &StacksBlockId,
+        tip: &StacksBlockId,
         epoch: &StacksEpochId,
     ) -> Option<VRFSeed> {
-        let tenure_id_bhh = get_first_block_in_tenure(self, id_bhh, Some(epoch));
+        let tenure_id_bhh = get_first_block_in_tenure(&self.0, id_bhh, tip, Some(epoch));
         let (column_name, nakamoto) = if epoch.uses_nakamoto_blocks() {
             ("vrf_proof", true)
         } else {
@@ -599,22 +638,24 @@ impl HeadersDB for MARF<StacksBlockId> {
     fn get_miner_address(
         &self,
         id_bhh: &StacksBlockId,
+        tip: &StacksBlockId,
         epoch: &StacksEpochId,
     ) -> Option<StacksAddress> {
-        let tenure_id_bhh = get_first_block_in_tenure(self, id_bhh, Some(epoch));
+        let tenure_id_bhh = get_first_block_in_tenure(&self.0, id_bhh, tip, Some(epoch));
         get_miner_column(self.sqlite_conn(), &tenure_id_bhh, "address", |r| {
             let s: String = r.get_unwrap("address");
-            let addr = StacksAddress::from_string(&s).expect("FATAL: malformed address");
-            addr
+
+            StacksAddress::from_string(&s).expect("FATAL: malformed address")
         })
     }
 
     fn get_burnchain_tokens_spent_for_block(
         &self,
         id_bhh: &StacksBlockId,
+        tip: &StacksBlockId,
         epoch: &StacksEpochId,
     ) -> Option<u128> {
-        let tenure_id_bhh = get_first_block_in_tenure(self, id_bhh, Some(epoch));
+        let tenure_id_bhh = get_first_block_in_tenure(&self.0, id_bhh, tip, Some(epoch));
         get_miner_column(
             self.sqlite_conn(),
             &tenure_id_bhh,
@@ -627,9 +668,10 @@ impl HeadersDB for MARF<StacksBlockId> {
     fn get_burnchain_tokens_spent_for_winning_block(
         &self,
         id_bhh: &StacksBlockId,
+        tip: &StacksBlockId,
         epoch: &StacksEpochId,
     ) -> Option<u128> {
-        let tenure_id_bhh = get_first_block_in_tenure(self, id_bhh, Some(epoch));
+        let tenure_id_bhh = get_first_block_in_tenure(&self.0, id_bhh, tip, Some(epoch));
         get_miner_column(
             self.sqlite_conn(),
             &tenure_id_bhh,
@@ -642,10 +684,11 @@ impl HeadersDB for MARF<StacksBlockId> {
     fn get_tokens_earned_for_block(
         &self,
         id_bhh: &StacksBlockId,
+        tip: &StacksBlockId,
         epoch: &StacksEpochId,
     ) -> Option<u128> {
-        let tenure_id_bhh = get_first_block_in_tenure(self, id_bhh, Some(epoch));
-        get_matured_reward(self, &tenure_id_bhh, epoch).map(|x| x.total())
+        let tenure_id_bhh = get_first_block_in_tenure(&self.0, id_bhh, tip, Some(epoch));
+        get_matured_reward(&self.0, &tenure_id_bhh, tip, epoch).map(|x| x.total())
     }
 
     fn get_stacks_height_for_tenure_height(
@@ -654,7 +697,7 @@ impl HeadersDB for MARF<StacksBlockId> {
         tenure_height: u32,
     ) -> Option<u32> {
         let tenure_block_id =
-            GetTenureStartId::get_tenure_block_id_at_cb_height(self, tip, tenure_height.into())
+            GetTenureStartId::get_tenure_block_id_at_cb_height(&self.0, tip, tenure_height.into())
                 .expect("FATAL: bad DB data for tenure height lookups")?;
         get_stacks_header_column(self.sqlite_conn(), &tenure_block_id, "block_height", |r| {
             u64::from_row(r)
@@ -684,11 +727,12 @@ where
         "block_headers"
     };
 
-    conn.query_row(
-        &format!("SELECT {column_name} FROM {table_name} WHERE index_block_hash = ?",),
-        args,
-        |x| Ok(loader(x)),
-    )
+    // The distinct statements here are bounded (caller-passed column names ×
+    // two header tables), so they cannot crowd out the statement cache.
+    conn.prepare_cached(&format!(
+        "SELECT {column_name} FROM {table_name} WHERE index_block_hash = ?"
+    ))
+    .and_then(|mut stmt| stmt.query_row(args, |x| Ok(loader(x))))
     .optional()
     .unwrap_or_else(|_| {
         panic!(
@@ -716,6 +760,7 @@ where
 fn get_first_block_in_tenure<GTS: GetTenureStartId>(
     conn: &GTS,
     id_bhh: &StacksBlockId,
+    tip: &StacksBlockId,
     epoch_opt: Option<&StacksEpochId>,
 ) -> TenureBlockId {
     let consensus_hash = match epoch_opt {
@@ -761,7 +806,7 @@ fn get_first_block_in_tenure<GTS: GetTenureStartId>(
         .expect("Unexpected SQL failure querying block header table for 'consensus_hash'");
 
     let tenure_start_id: TenureBlockId = conn
-        .get_tenure_block_id(id_bhh, &ch)
+        .get_tenure_block_id(tip, &ch)
         .expect("FATAL: failed to query DB for tenure-start block")
         .expect("FATAL: no tenure start block for Nakamoto block");
 
@@ -798,6 +843,7 @@ where
 fn get_matured_reward<GTS: GetTenureStartId>(
     conn: &GTS,
     child_id_bhh: &TenureBlockId,
+    tip: &StacksBlockId,
     epoch: &StacksEpochId,
 ) -> Option<MinerReward> {
     let table_name = if epoch.uses_nakamoto_blocks() {
@@ -807,19 +853,20 @@ fn get_matured_reward<GTS: GetTenureStartId>(
     };
     let parent_id_bhh = conn
         .conn()
-        .query_row(
-            &format!("SELECT parent_block_id FROM {table_name} WHERE index_block_hash = ?"),
-            params![child_id_bhh.0],
-            |x| {
+        .prepare_cached(&format!(
+            "SELECT parent_block_id FROM {table_name} WHERE index_block_hash = ?"
+        ))
+        .and_then(|mut stmt| {
+            stmt.query_row(params![child_id_bhh.0], |x| {
                 Ok(StacksBlockId::from_column(x, "parent_block_id")
                     .expect("Bad parent_block_id in database"))
-            },
-        )
+            })
+        })
         .optional()
         .expect("Unexpected SQL failure querying parent block ID");
 
     if let Some(parent_id_bhh) = parent_id_bhh {
-        let parent_tenure_id = get_first_block_in_tenure(conn, &parent_id_bhh, None);
+        let parent_tenure_id = get_first_block_in_tenure(conn, &parent_id_bhh, tip, None);
         StacksChainState::get_matured_miner_payment(conn.conn(), &parent_tenure_id, child_id_bhh)
             .expect("Unexpected SQL failure querying miner reward table")
     } else {
@@ -932,7 +979,7 @@ impl BurnStateDB for SortitionHandleTx<'_> {
     fn get_burn_block_height(&self, sortition_id: &SortitionId) -> Option<u32> {
         match SortitionDB::get_block_snapshot(self.tx(), sortition_id) {
             Ok(Some(x)) => Some(x.block_height as u32),
-            _ => return None,
+            _ => None,
         }
     }
 
@@ -951,7 +998,7 @@ impl BurnStateDB for SortitionHandleTx<'_> {
         let db_handle = SortitionHandleConn::new(&readonly_marf, context);
         match db_handle.get_block_snapshot_by_height(height as u64) {
             Ok(Some(x)) => Some(x.burn_header_hash),
-            _ => return None,
+            _ => None,
         }
     }
 
@@ -961,7 +1008,7 @@ impl BurnStateDB for SortitionHandleTx<'_> {
     ) -> Option<SortitionId> {
         match SortitionDB::get_block_snapshot_consensus(self.tx(), consensus_hash) {
             Ok(Some(x)) => Some(x.sortition_id),
-            _ => return None,
+            _ => None,
         }
     }
 
@@ -992,6 +1039,10 @@ impl BurnStateDB for SortitionHandleTx<'_> {
 
     fn get_pox_4_activation_height(&self) -> u32 {
         self.context.pox_constants.pox_4_activation_height
+    }
+
+    fn get_pox_5_activation_height(&self) -> u32 {
+        self.context.pox_constants.pox_5_activation_height
     }
 
     fn get_pox_prepare_length(&self) -> u32 {
@@ -1067,7 +1118,7 @@ impl BurnStateDB for SortitionHandleConn<'_> {
     fn get_burn_block_height(&self, sortition_id: &SortitionId) -> Option<u32> {
         match SortitionDB::get_block_snapshot(self.conn(), sortition_id) {
             Ok(Some(x)) => Some(x.block_height as u32),
-            _ => return None,
+            _ => None,
         }
     }
 
@@ -1089,7 +1140,7 @@ impl BurnStateDB for SortitionHandleConn<'_> {
 
         match self.get_block_snapshot_by_height(height as u64) {
             Ok(Some(x)) => Some(x.burn_header_hash),
-            _ => return None,
+            _ => None,
         }
     }
 
@@ -1099,7 +1150,7 @@ impl BurnStateDB for SortitionHandleConn<'_> {
     ) -> Option<SortitionId> {
         match SortitionDB::get_block_snapshot_consensus(self.conn(), consensus_hash) {
             Ok(Some(x)) => Some(x.sortition_id),
-            _ => return None,
+            _ => None,
         }
     }
 
@@ -1130,6 +1181,10 @@ impl BurnStateDB for SortitionHandleConn<'_> {
 
     fn get_pox_4_activation_height(&self) -> u32 {
         self.context.pox_constants.pox_4_activation_height
+    }
+
+    fn get_pox_5_activation_height(&self) -> u32 {
+        self.context.pox_constants.pox_5_activation_height
     }
 
     fn get_pox_prepare_length(&self) -> u32 {
@@ -1181,6 +1236,8 @@ pub struct MemoryBackingStore {
     side_store: Connection,
 }
 
+// A default would hide SQLite connection and schema initialization that can panic.
+#[allow(clippy::new_without_default)]
 impl MemoryBackingStore {
     pub fn new() -> MemoryBackingStore {
         let side_store = SqliteConnection::memory().unwrap();
@@ -1265,8 +1322,11 @@ impl ClarityBackingStore for MemoryBackingStore {
         0
     }
 
-    fn get_cc_special_cases_handler(&self) -> Option<SpecialCaseHandler> {
-        Some(&handle_contract_call_special_cases)
+    fn get_cc_special_cases_handler(
+        &self,
+        contract: &QualifiedContractIdentifier,
+    ) -> Option<SpecialCaseHandler> {
+        special_cases_handler_for(contract)
     }
 
     fn put_all_data(&mut self, items: Vec<(String, String)>) -> Result<(), VmExecutionError> {

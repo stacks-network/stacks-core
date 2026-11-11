@@ -188,6 +188,15 @@ where
 
 /// Deserialize an object from a vector, will error if said deserialization
 /// doesn't consume the entire vector.
+///
+/// # Consensus-critical
+///
+/// This function is consensus-critical: it is used to parse sortition-relevant
+/// Bitcoin transactions, and is reachable from Clarity contract execution. Any
+/// change that causes a given input to produce a different output — including
+/// making a previously-parseable transaction unparseable or vice versa (e.g.
+/// adopting a new BIP that alters transaction structure) is a consensus change
+/// and must be gated behind an epoch boundary.
 pub fn deserialize<'a, T>(data: &'a [u8]) -> Result<T, Error>
 where
     T: ConsensusDecodable<RawDecoder<Cursor<&'a [u8]>>>,

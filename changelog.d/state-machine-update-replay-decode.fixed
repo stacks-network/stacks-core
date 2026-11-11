@@ -1,0 +1,1 @@
+Signers and miners no longer decode the legacy `replay_transactions` field of inbound state machine updates, and only decode state machine update slots loaded at startup when they hold a state machine update.

@@ -1,6 +1,6 @@
 # Security Policy
 
-Please visit [https://stacks.org/security](https://stacks.org/security) for the most up-to-date information on our security policy.
+Please visit [https://stacks.co/build/security](https://stacks.co/build/security) for the most up-to-date information on our security policy.
 
 ## Supported Versions
 

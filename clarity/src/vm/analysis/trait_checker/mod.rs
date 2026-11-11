@@ -13,14 +13,19 @@
 //
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
+use std::collections::BTreeSet;
+
 use stacks_common::types::StacksEpochId;
 
-use crate::vm::analysis::AnalysisDatabase;
 use crate::vm::analysis::errors::{StaticCheckError, StaticCheckErrorKind};
 use crate::vm::analysis::types::{AnalysisPass, ContractAnalysis};
+use crate::vm::analysis::{AnalysisDatabase, check_analysis_resource_limits};
+use crate::vm::resource_limiter::ResourceLimiter;
+use crate::vm::{ClarityName, is_reserved, is_shadowable_reserved};
 
 pub struct TraitChecker {
     epoch: StacksEpochId,
+    resource_limiter: ResourceLimiter,
 }
 
 impl AnalysisPass for TraitChecker {
@@ -28,16 +33,20 @@ impl AnalysisPass for TraitChecker {
         epoch: &StacksEpochId,
         contract_analysis: &mut ContractAnalysis,
         analysis_db: &mut AnalysisDatabase,
+        resource_limiter: ResourceLimiter,
     ) -> Result<(), StaticCheckError> {
-        let mut command = TraitChecker::new(epoch);
+        let mut command = TraitChecker::new(epoch, resource_limiter);
         command.run(contract_analysis, analysis_db)?;
         Ok(())
     }
 }
 
 impl TraitChecker {
-    fn new(epoch: &StacksEpochId) -> Self {
-        Self { epoch: *epoch }
+    fn new(epoch: &StacksEpochId, resource_limiter: ResourceLimiter) -> Self {
+        Self {
+            epoch: *epoch,
+            resource_limiter,
+        }
     }
 
     pub fn run(
@@ -45,7 +54,12 @@ impl TraitChecker {
         contract_analysis: &ContractAnalysis,
         analysis_db: &mut AnalysisDatabase,
     ) -> Result<(), StaticCheckError> {
+        let mut unmatched_shadowable = self.shadowable_function_names(contract_analysis)?;
+
         for trait_identifier in &contract_analysis.implemented_traits {
+            // per-trait analysis deadline check
+            check_analysis_resource_limits(&self.resource_limiter)?;
+
             let trait_name = trait_identifier.name.to_string();
             let contract_defining_trait = analysis_db
                 .load_contract(&trait_identifier.contract_identifier, &self.epoch)?
@@ -64,8 +78,51 @@ impl TraitChecker {
                 trait_identifier,
                 trait_definition,
             )?;
+
+            // A method still free at the defining contract's version unlocks
+            // the same-named function.
+            if !unmatched_shadowable.is_empty() {
+                let trait_version = &contract_defining_trait.clarity_version;
+                for method_name in trait_definition.keys() {
+                    if !is_reserved(method_name, trait_version) {
+                        unmatched_shadowable.remove(method_name);
+                    }
+                }
+            }
+        }
+
+        if let Some(name) = unmatched_shadowable.first() {
+            return Err(StaticCheckErrorKind::NameAlreadyUsed(name.to_string()).into());
         }
         Ok(())
+    }
+
+    /// Shadowable-named public/read-only functions (see
+    /// [`is_shadowable_reserved`]) that [`Self::run`] must match to a legacy
+    /// trait method. Private ones are rejected outright: trait methods are
+    /// never private.
+    fn shadowable_function_names(
+        &self,
+        contract_analysis: &ContractAnalysis,
+    ) -> Result<BTreeSet<ClarityName>, StaticCheckError> {
+        if !self.epoch.allows_shadowable_reserved_names() {
+            return Ok(BTreeSet::new());
+        }
+        let version = &contract_analysis.clarity_version;
+        if let Some(name) = contract_analysis
+            .private_function_types
+            .keys()
+            .find(|name| is_shadowable_reserved(name, version))
+        {
+            return Err(StaticCheckErrorKind::NameAlreadyUsed(name.to_string()).into());
+        }
+        Ok(contract_analysis
+            .public_function_types
+            .keys()
+            .chain(contract_analysis.read_only_function_types.keys())
+            .filter(|name| is_shadowable_reserved(name, version))
+            .cloned()
+            .collect())
     }
 }
 

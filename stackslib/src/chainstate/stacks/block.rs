@@ -17,7 +17,7 @@
 use std::collections::HashMap;
 use std::io::{Read, Write};
 
-use sha2::{Digest, Sha512_256};
+use clarity::vm::contexts::TRANSIENT_CONTRACT_NAME;
 use stacks_common::codec::{
     read_next, read_next_at_most, write_next, Error as codec_error, StacksMessageCodec,
     MAX_MESSAGE_LEN,
@@ -27,10 +27,8 @@ use stacks_common::types::chainstate::{
 };
 use stacks_common::util::hash::{MerkleTree, Sha512Trunc256Sum};
 use stacks_common::util::retry::BoundReader;
-use stacks_common::util::secp256k1::MessageSignature;
 use stacks_common::util::vrf::*;
 
-use crate::burnchains::PrivateKey;
 use crate::chainstate::burn::operations::*;
 use crate::chainstate::burn::{ConsensusHash, *};
 use crate::chainstate::stacks::db::StacksBlockHeaderTypes;
@@ -182,9 +180,9 @@ impl StacksBlockHeader {
     /// Validate this block header against the burnchain.
     /// Used to determine whether or not we'll keep a block around (even if we don't yet have its parent).
     /// * burn_chain_tip is the BlockSnapshot encoding the sortition that selected this block for
-    /// inclusion in the Stacks blockchain chain state.
+    ///   inclusion in the Stacks blockchain chain state.
     /// * parent_stacks_chain_tip is the BlockSnapshot for the parent Stacks block this header builds on
-    /// (i.e. this is the BlockSnapshot that corresponds to the parent of the given block_commit).
+    ///   (i.e. this is the BlockSnapshot that corresponds to the parent of the given block_commit).
     pub fn validate_burnchain(
         &self,
         burn_chain_tip: &BlockSnapshot,
@@ -273,7 +271,12 @@ impl StacksBlockHeader {
         };
 
         if !valid {
-            let msg = format!("Invalid Stacks block header {}: leader VRF key {} did not produce a valid proof over {}", self.block_hash(), leader_key.public_key.to_hex(), burn_chain_tip.sortition_hash);
+            let msg = format!(
+                "Invalid Stacks block header {}: leader VRF key {} did not produce a valid proof over {}",
+                self.block_hash(),
+                leader_key.public_key.to_hex(),
+                burn_chain_tip.sortition_hash
+            );
             warn!("{}", msg);
             return Err(Error::InvalidStacksBlock(msg));
         }
@@ -445,7 +448,7 @@ impl StacksBlock {
             }
             txids.insert(txid, i);
         }
-        return true;
+        true
     }
 
     /// verify all txs are same mainnet/testnet
@@ -459,7 +462,7 @@ impl StacksBlock {
                 return false;
             }
         }
-        return true;
+        true
     }
 
     /// verify all txs are same chain ID
@@ -475,7 +478,7 @@ impl StacksBlock {
                 return false;
             }
         }
-        return true;
+        true
     }
 
     /// verify anchor modes
@@ -499,7 +502,7 @@ impl StacksBlock {
                 (_, _) => {}
             }
         }
-        return true;
+        true
     }
 
     /// verify that a coinbase is present and is on-chain only, or is absent
@@ -533,19 +536,15 @@ impl StacksBlock {
         }
 
         match (check_present, found_coinbase) {
-            (true, true) => {
-                return true;
-            }
-            (false, false) => {
-                return true;
-            }
+            (true, true) => true,
+            (false, false) => true,
             (true, false) => {
                 error!("Expected coinbase, but not found");
-                return false;
+                false
             }
             (false, true) => {
                 error!("Found coinbase, but it was unexpected");
-                return false;
+                false
             }
         }
     }
@@ -560,14 +559,32 @@ impl StacksBlock {
                 return false;
             }
         }
-        return true;
+        true
     }
 
+    // FIXME (#7817): There's too much duplication between this and
+    // [`validation::precheck_transaction`].
     /// Verify that one transaction is supported in the given epoch, as indicated by `epoch_id`
     pub fn validate_transaction_static_epoch(
         tx: &StacksTransaction,
         epoch_id: StacksEpochId,
     ) -> bool {
+        if let Err(reason) = stacks_transactions::check_post_conditions_supported_in_epoch(
+            &tx.post_conditions,
+            &tx.post_condition_mode,
+            epoch_id,
+        ) {
+            error!("{reason}"; "txid" => %tx.txid(), "epoch_id" => %epoch_id);
+            return false;
+        }
+        if let Err(reason) = stacks_transactions::check_contract_names_supported_in_epoch(
+            &tx.payload,
+            &tx.post_conditions,
+            epoch_id,
+        ) {
+            error!("{reason}"; "txid" => %tx.txid(), "epoch_id" => %epoch_id);
+            return false;
+        }
         if let TransactionPayload::Coinbase(_, ref recipient_opt, ref proof_opt) = &tx.payload {
             if proof_opt.is_some() && epoch_id < StacksEpochId::Epoch30 {
                 // not supported
@@ -585,18 +602,17 @@ impl StacksBlock {
                 return false;
             }
         }
-        if let TransactionPayload::SmartContract(_, ref version_opt) = &tx.payload {
-            if let Some(version) = version_opt {
-                if epoch_id < StacksEpochId::Epoch21 {
-                    // not supported
-                    error!("Versioned smart contracts not supported before Stacks 2.1"; "txid" => %tx.txid());
-                    return false;
-                }
-                if *version > ClarityVersion::default_for_epoch(epoch_id) {
-                    // not supported
-                    error!("Smart contract version {version} not supported in Epoch {epoch_id}"; "txid" => %tx.txid());
-                    return false;
-                }
+        if let TransactionPayload::SmartContract(_, Some(version)) = &tx.payload {
+            if epoch_id < StacksEpochId::Epoch21 {
+                // not supported
+                error!("Versioned smart contracts not supported before Stacks 2.1"; "txid" => %tx.txid());
+                return false;
+            }
+            if let Err(reason) =
+                stacks_transactions::check_versioned_deploy_supported_in_epoch(*version, epoch_id)
+            {
+                error!("Smart contract deploy {reason}"; "txid" => %tx.txid());
+                return false;
             }
         }
         if let TransactionPayload::TenureChange(..) = &tx.payload {
@@ -609,7 +625,14 @@ impl StacksBlock {
             error!("Authentication mode not supported in Epoch {epoch_id}");
             return false;
         }
-        return true;
+        if let TransactionPayload::SmartContract(contract, _) = &tx.payload {
+            if epoch_id.rejects_transient_contracts() && *contract.name == *TRANSIENT_CONTRACT_NAME
+            {
+                error!("Transient contract not supported in Epoch {epoch_id}"; "txid" => %tx.txid());
+                return false;
+            }
+        }
+        true
     }
 
     /// static sanity checks on transactions.
@@ -637,7 +660,7 @@ impl StacksBlock {
         if !StacksBlock::validate_transactions_static_epoch(&self.txs, epoch_id) {
             return false;
         }
-        return true;
+        true
     }
 
     /// Does this block have a microblock parent?
@@ -651,163 +674,6 @@ impl StacksBlock {
         let mut buf = vec![];
         self.consensus_serialize(&mut buf)?;
         Ok(buf.len())
-    }
-}
-
-impl StacksMessageCodec for StacksMicroblockHeader {
-    fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), codec_error> {
-        self.serialize(fd, false)
-    }
-
-    fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<StacksMicroblockHeader, codec_error> {
-        let version: u8 = read_next(fd)?;
-        let sequence: u16 = read_next(fd)?;
-        let prev_block: BlockHeaderHash = read_next(fd)?;
-        let tx_merkle_root: Sha512Trunc256Sum = read_next(fd)?;
-        let signature: MessageSignature = read_next(fd)?;
-
-        // signature must be well-formed
-        // in tests, we sometimes use invalid signatures
-        #[cfg(not(any(test, feature = "testing")))]
-        let _ = signature
-            .to_secp256k1_recoverable()
-            .ok_or(codec_error::DeserializeError(
-                "Failed to parse signature".to_string(),
-            ))?;
-
-        Ok(StacksMicroblockHeader {
-            version,
-            sequence,
-            prev_block,
-            tx_merkle_root,
-            signature,
-        })
-    }
-}
-
-impl StacksMicroblockHeader {
-    pub fn sign(&mut self, privk: &StacksPrivateKey) -> Result<(), net_error> {
-        self.signature = MessageSignature::empty();
-        let mut bytes = vec![];
-        self.consensus_serialize(&mut bytes)
-            .expect("BUG: failed to serialize to a vec");
-
-        let mut digest_bits = [0u8; 32];
-        let mut sha2 = Sha512_256::new();
-
-        sha2.update(&bytes[..]);
-        digest_bits.copy_from_slice(sha2.finalize().as_slice());
-
-        let sig = privk
-            .sign(&digest_bits)
-            .map_err(|se| net_error::SigningError(se.to_string()))?;
-
-        self.signature = sig;
-        Ok(())
-    }
-
-    fn serialize<W: Write>(&self, fd: &mut W, empty_sig: bool) -> Result<(), codec_error> {
-        write_next(fd, &self.version)?;
-        write_next(fd, &self.sequence)?;
-        write_next(fd, &self.prev_block)?;
-        write_next(fd, &self.tx_merkle_root)?;
-        if empty_sig {
-            write_next(fd, &MessageSignature::empty())?;
-        } else {
-            write_next(fd, &self.signature)?;
-        }
-        Ok(())
-    }
-
-    pub fn check_recover_pubkey(&self) -> Result<Hash160, net_error> {
-        let mut digest_bits = [0u8; 32];
-        let mut sha2 = Sha512_256::new();
-
-        self.serialize(&mut sha2, true)
-            .expect("BUG: failed to serialize to a vec");
-        digest_bits.copy_from_slice(sha2.finalize().as_slice());
-
-        let mut pubk =
-            StacksPublicKey::recover_to_pubkey(&digest_bits, &self.signature).map_err(|_ve| {
-                test_debug!(
-                    "Failed to verify signature: failed to recover public key from {:?}: {:?}",
-                    &self.signature,
-                    &_ve
-                );
-                net_error::VerifyingError(
-                    "Failed to verify signature: failed to recover public key".to_string(),
-                )
-            })?;
-
-        pubk.set_compressed(true);
-        Ok(StacksBlockHeader::pubkey_hash(&pubk))
-    }
-
-    pub fn verify(&self, pubk_hash: &Hash160) -> Result<(), net_error> {
-        let pubkh = self.check_recover_pubkey()?;
-
-        if pubkh != *pubk_hash {
-            test_debug!(
-                "Failed to verify signature: public key did not recover to hash {}",
-                &pubkh.to_hex()
-            );
-            return Err(net_error::VerifyingError(format!(
-                "Failed to verify signature: public key did not recover to expected hash {}",
-                pubkh.to_hex()
-            )));
-        }
-
-        Ok(())
-    }
-
-    pub fn block_hash(&self) -> BlockHeaderHash {
-        let mut bytes = vec![];
-        self.consensus_serialize(&mut bytes)
-            .expect("BUG: failed to serialize to a vec");
-        BlockHeaderHash::from_serialized_header(&bytes[..])
-    }
-
-    /// Create the first microblock header in a microblock stream.
-    /// The header will not be signed
-    pub fn first_unsigned(
-        parent_block_hash: &BlockHeaderHash,
-        tx_merkle_root: &Sha512Trunc256Sum,
-    ) -> StacksMicroblockHeader {
-        StacksMicroblockHeader {
-            version: 0,
-            sequence: 0,
-            prev_block: parent_block_hash.clone(),
-            tx_merkle_root: tx_merkle_root.clone(),
-            signature: MessageSignature::empty(),
-        }
-    }
-
-    /// Create the first microblock header in a microblock stream for an empty microblock stream.
-    /// The header will not be signed
-    pub fn first_empty_unsigned(parent_block_hash: &BlockHeaderHash) -> StacksMicroblockHeader {
-        StacksMicroblockHeader::first_unsigned(parent_block_hash, &Sha512Trunc256Sum([0u8; 32]))
-    }
-
-    /// Create an unsigned microblock header from its parent
-    /// Return an error on overflow
-    pub fn from_parent_unsigned(
-        parent_header: &StacksMicroblockHeader,
-        tx_merkle_root: &Sha512Trunc256Sum,
-    ) -> Option<StacksMicroblockHeader> {
-        let next_sequence = match parent_header.sequence.checked_add(1) {
-            Some(next) => next,
-            None => {
-                return None;
-            }
-        };
-
-        Some(StacksMicroblockHeader {
-            version: 0,
-            sequence: next_sequence,
-            prev_block: parent_header.block_hash(),
-            tx_merkle_root: tx_merkle_root.clone(),
-            signature: MessageSignature::empty(),
-        })
     }
 }
 
@@ -901,11 +767,11 @@ impl StacksMicroblock {
     }
 
     pub fn sign(&mut self, privk: &StacksPrivateKey) -> Result<(), net_error> {
-        self.header.sign(privk)
+        self.header.sign(privk).map_err(Into::into)
     }
 
     pub fn verify(&mut self, pubk_hash: &Hash160) -> Result<(), net_error> {
-        self.header.verify(pubk_hash)
+        self.header.verify(pubk_hash).map_err(Into::into)
     }
 
     pub fn block_hash(&self) -> BlockHeaderHash {
@@ -929,14 +795,14 @@ impl StacksMicroblock {
         if !StacksBlock::validate_coinbase(&self.txs, false) {
             return false;
         }
-        return true;
+        true
     }
 }
 
 #[cfg(test)]
 mod test {
     use clarity::types::PublicKey;
-    use stacks_common::address::*;
+    use rstest::rstest;
     use stacks_common::types::chainstate::StacksAddress;
     use stacks_common::util::hash::*;
 
@@ -1460,8 +1326,8 @@ mod test {
             let txid_vecs: Vec<_> = txs.iter().map(|tx| tx.txid().as_bytes().to_vec()).collect();
 
             let merkle_tree = MerkleTree::<Sha512Trunc256Sum>::new(&txid_vecs);
-            let tx_merkle_root = merkle_tree.root();
-            tx_merkle_root
+
+            merkle_tree.root()
         };
 
         let mut block_header_no_coinbase = header.clone();
@@ -1482,7 +1348,7 @@ mod test {
         let mut block_header_empty = header;
         block_header_empty.tx_merkle_root = get_tx_root(&[]);
 
-        let invalid_blocks = vec![
+        let invalid_blocks = [
             (
                 StacksBlock {
                     header: block_header_no_coinbase,
@@ -1584,8 +1450,8 @@ mod test {
             let txid_vecs: Vec<_> = txs.iter().map(|tx| tx.txid().as_bytes().to_vec()).collect();
 
             let merkle_tree = MerkleTree::<Sha512Trunc256Sum>::new(&txid_vecs);
-            let tx_merkle_root = merkle_tree.root();
-            tx_merkle_root
+
+            merkle_tree.root()
         };
 
         let mut block_header_coinbase = header.clone();
@@ -1603,7 +1469,7 @@ mod test {
         let mut block_header_empty = header;
         block_header_empty.tx_merkle_root = get_tx_root(&[]);
 
-        let invalid_blocks = vec![
+        let invalid_blocks = [
             (
                 StacksMicroblock {
                     header: block_header_offchain_coinbase,
@@ -1674,8 +1540,8 @@ mod test {
             let txid_vecs: Vec<_> = txs.iter().map(|tx| tx.txid().as_bytes().to_vec()).collect();
 
             let merkle_tree = MerkleTree::<Sha512Trunc256Sum>::new(&txid_vecs);
-            let tx_merkle_root = merkle_tree.root();
-            tx_merkle_root
+
+            merkle_tree.root()
         };
         let mut block_header_dup_tx = header.clone();
         block_header_dup_tx.tx_merkle_root = get_tx_root(txs);
@@ -2112,6 +1978,127 @@ mod test {
             &tx_future_clarity,
             StacksEpochId::Epoch34
         ));
+    }
+
+    #[rstest]
+    // Through epoch 4.0 a deploy may pin any version up to the epoch default.
+    #[case(StacksEpochId::Epoch40, Some(ClarityVersion::Clarity5), true)]
+    #[case(StacksEpochId::Epoch40, Some(ClarityVersion::Clarity6), true)]
+    // From epoch 4.1 no pin is accepted, so the block is rejected before it
+    // is staged; unversioned deploys get the epoch default.
+    #[case(StacksEpochId::Epoch41, Some(ClarityVersion::Clarity6), false)]
+    #[case(StacksEpochId::Epoch41, Some(ClarityVersion::Clarity7), false)]
+    #[case(StacksEpochId::Epoch41, None, true)]
+    fn test_validate_transaction_static_epoch_rejects_versioned_deploys_from_epoch41(
+        #[case] epoch_id: StacksEpochId,
+        #[case] version_opt: Option<ClarityVersion>,
+        #[case] expected: bool,
+    ) {
+        let privk = StacksPrivateKey::random();
+        let origin_auth = TransactionAuth::Standard(
+            TransactionSpendingCondition::new_singlesig_p2pkh(StacksPublicKey::from_private(
+                &privk,
+            ))
+            .unwrap(),
+        );
+
+        let tx = StacksTransaction::new(
+            TransactionVersion::Testnet,
+            origin_auth,
+            TransactionPayload::SmartContract(
+                TransactionSmartContract {
+                    name: ContractName::try_from("pinned-clarity").unwrap(),
+                    code_body: StacksString::from_str("(print \"hi\")").unwrap(),
+                },
+                version_opt,
+            ),
+        );
+
+        assert_eq!(
+            StacksBlock::validate_transaction_static_epoch(&tx, epoch_id),
+            expected
+        );
+    }
+
+    #[rstest]
+    #[case(StacksEpochId::Epoch30, false)]
+    #[case(StacksEpochId::Epoch31, false)]
+    #[case(StacksEpochId::Epoch32, false)]
+    #[case(StacksEpochId::Epoch33, false)]
+    #[case(StacksEpochId::Epoch34, true)]
+    fn test_validate_transaction_static_epoch_originator_mode_gated_to_epoch34(
+        #[case] epoch_id: StacksEpochId,
+        #[case] expected: bool,
+    ) {
+        let privk = StacksPrivateKey::random();
+        let origin_auth = TransactionAuth::Standard(
+            TransactionSpendingCondition::new_singlesig_p2pkh(StacksPublicKey::from_private(
+                &privk,
+            ))
+            .unwrap(),
+        );
+
+        let mut tx = StacksTransaction::new(
+            TransactionVersion::Testnet,
+            origin_auth,
+            TransactionPayload::TokenTransfer(
+                PrincipalData::from(StacksAddress::new(1, Hash160([0x11; 20])).unwrap()),
+                123,
+                TokenTransferMemo([0u8; 34]),
+            ),
+        );
+        tx.post_condition_mode = TransactionPostConditionMode::Originator;
+
+        assert_eq!(
+            StacksBlock::validate_transaction_static_epoch(&tx, epoch_id),
+            expected
+        );
+    }
+
+    #[rstest]
+    #[case(StacksEpochId::Epoch30, false)]
+    #[case(StacksEpochId::Epoch31, false)]
+    #[case(StacksEpochId::Epoch32, false)]
+    #[case(StacksEpochId::Epoch33, false)]
+    #[case(StacksEpochId::Epoch34, true)]
+    fn test_validate_transaction_static_epoch_nft_maybesent_gated_to_epoch34(
+        #[case] epoch_id: StacksEpochId,
+        #[case] expected: bool,
+    ) {
+        let privk = StacksPrivateKey::random();
+        let origin_auth = TransactionAuth::Standard(
+            TransactionSpendingCondition::new_singlesig_p2pkh(StacksPublicKey::from_private(
+                &privk,
+            ))
+            .unwrap(),
+        );
+
+        let mut tx = StacksTransaction::new(
+            TransactionVersion::Testnet,
+            origin_auth,
+            TransactionPayload::TokenTransfer(
+                PrincipalData::from(StacksAddress::new(1, Hash160([0x11; 20])).unwrap()),
+                123,
+                TokenTransferMemo([0u8; 34]),
+            ),
+        );
+
+        tx.post_conditions
+            .push(TransactionPostCondition::Nonfungible(
+                PostConditionPrincipal::Origin,
+                AssetInfo {
+                    contract_address: StacksAddress::new(1, Hash160([0x22; 20])).unwrap(),
+                    contract_name: ContractName::try_from("hello-world").unwrap(),
+                    asset_name: ClarityName::try_from("asset").unwrap(),
+                },
+                Value::Int(1),
+                NonfungibleConditionCode::MaybeSent,
+            ));
+
+        assert_eq!(
+            StacksBlock::validate_transaction_static_epoch(&tx, epoch_id),
+            expected
+        );
     }
 
     // TODO:
