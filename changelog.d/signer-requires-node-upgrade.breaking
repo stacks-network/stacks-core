@@ -1,0 +1,1 @@
+Signers in this release rely on the node's new `GET /v3/blocks/:block_id/view` endpoint and the `canonical` field on `/v3/sortitions` to release a signed block that a Bitcoin fork has orphaned. Against an older node a signer stays safe but never releases such a block, which can stall a tenure after a reorg. Upgrade the stacks-node before, or together with, its signer.
