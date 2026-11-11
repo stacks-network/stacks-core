@@ -20,6 +20,7 @@ use std::net::{SocketAddr, ToSocketAddrs};
 use std::path::PathBuf;
 use std::time::Duration;
 
+use blockstack_lib::chainstate::stacks::boot::RewardSet;
 use blockstack_lib::chainstate::stacks::TransactionVersion;
 use blockstack_lib::net::connection::DEFAULT_BLOCK_PROPOSAL_MAX_AGE_SECS;
 use clarity::util::hash::to_hex;
@@ -160,6 +161,8 @@ impl std::fmt::Display for SignerConfigMode {
 pub struct SignerConfig {
     /// The reward cycle of the configuration
     pub reward_cycle: u64,
+    /// The reward set for this reward cycle, as computed by the stacks node
+    pub reward_set: RewardSet,
     /// The registered signers for this reward cycle
     pub signer_entries: SignerEntries,
     /// The signer slot ids of all signers registered for this reward cycle

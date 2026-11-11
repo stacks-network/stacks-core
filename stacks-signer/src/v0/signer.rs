@@ -20,6 +20,8 @@ use std::sync::LazyLock;
 use std::time::{Duration, Instant, SystemTime};
 
 use blockstack_lib::chainstate::nakamoto::{NakamotoBlock, NakamotoBlockHeader};
+use blockstack_lib::chainstate::stacks::boot::RewardSet;
+use blockstack_lib::chainstate::stacks::Error as ChainstateError;
 use blockstack_lib::net::api::postblock_proposal::{
     BlockValidateOk, BlockValidateReject, BlockValidateResponse, ValidateRejectCode,
     TOO_MANY_REQUESTS_STATUS,
@@ -121,6 +123,8 @@ pub struct Signer {
     pub reward_cycle: u64,
     /// Reward set signer addresses and their weights
     pub signer_weights: HashMap<StacksAddress, u32>,
+    /// The reward set of this signer's reward cycle, as computed by the stacks node
+    reward_set: RewardSet,
     /// SignerDB for state management
     pub signer_db: SignerDb,
     /// Configuration for proposal evaluation
@@ -335,6 +339,7 @@ impl SignerTrait<SignerMessage> for Signer {
             mode,
             signer_addresses: signer_config.signer_entries.signer_addresses.clone(),
             signer_weights: signer_config.signer_entries.signer_addr_to_weight.clone(),
+            reward_set: signer_config.reward_set,
             signer_slot_ids: signer_config.signer_slot_ids.clone(),
             reward_cycle: signer_config.reward_cycle,
             signer_db,
@@ -657,16 +662,7 @@ impl Signer {
                                 block_proposal,
                             );
                         }
-                        SignerMessage::BlockPushed(b) => {
-                            // This will infinitely loop until the block is acknowledged by the node
-                            info!(
-                                "{self}: Got block pushed message";
-                                "block_id" => %b.block_id(),
-                                "block_height" => b.header.chain_length,
-                                "signer_signature_hash" => %b.header.signer_signature_hash(),
-                            );
-                            self.handle_post_block(stacks_client, b);
-                        }
+                        SignerMessage::BlockPushed(b) => self.handle_block_pushed(stacks_client, b),
                         SignerMessage::MockProposal(mock_proposal) => {
                             let epoch = match stacks_client.get_node_epoch() {
                                 Ok(epoch) => epoch,
@@ -3402,6 +3398,30 @@ impl Signer {
         self.handle_post_block(stacks_client, &block);
     }
 
+    /// Handle a block pushed by a miner over `.miners`. Any `.miners` slot owner controls
+    /// this payload, so the block is only posted to the node if its signer signatures
+    /// are valid for this signer's reward set.
+    fn handle_block_pushed(&mut self, stacks_client: &StacksClient, block: &NakamotoBlock) {
+        let block_hash = block.header.signer_signature_hash();
+        if let Err(e) = verify_pushed_block_signatures(&block.header, &self.reward_set) {
+            info!(
+                "{self}: Ignoring pushed block: invalid signer signatures";
+                "block_id" => %block.block_id(),
+                "block_height" => block.header.chain_length,
+                "signer_signature_hash" => %block_hash,
+                "err" => %e,
+            );
+            return;
+        }
+        info!(
+            "{self}: Got block pushed message";
+            "block_id" => %block.block_id(),
+            "block_height" => block.header.chain_length,
+            "signer_signature_hash" => %block_hash,
+        );
+        self.handle_post_block(stacks_client, block);
+    }
+
     /// Attempt to post a block to the stacks-node and handle the result
     pub fn handle_post_block(&mut self, stacks_client: &StacksClient, block: &NakamotoBlock) {
         #[cfg(any(test, feature = "testing"))]
@@ -3626,6 +3646,21 @@ fn should_reevaluate_reason(reject_reason: &RejectReason) -> bool {
         )
 }
 
+/// Verify the signer signatures of a pushed block with the node's own check, so a block
+/// that passes here is not rejected by the node for its signatures.
+///
+/// The node verifies against the epoch of the block's sortition, which the signer cannot
+/// learn without querying the node. The newest rules this build knows are used instead:
+/// signature verification has only tightened across epochs (strict ordering from Epoch 4.0),
+/// so they accept no more than the rules of any earlier epoch. Revisit if an epoch ever
+/// relaxes `NakamotoBlockHeader::verify_signer_signatures`.
+fn verify_pushed_block_signatures(
+    header: &NakamotoBlockHeader,
+    reward_set: &RewardSet,
+) -> Result<u32, ChainstateError> {
+    header.verify_signer_signatures(reward_set, StacksEpochId::latest())
+}
+
 #[cfg(test)]
 mod reject_reason_tests {
     use clarity::types::chainstate::ConsensusHash;
@@ -3677,5 +3712,139 @@ mod reject_reason_tests {
             // transient rejection must be re-evaluated.
             assert!(!reason.is_transient(), "{reason:?}");
         }
+    }
+}
+
+#[cfg(test)]
+mod pushed_block_signatures_tests {
+    use blockstack_lib::chainstate::stacks::boot::NakamotoSignerEntry;
+
+    use super::*;
+
+    /// Build a reward set with the given signer weights, in signer index order, returning
+    /// each signer's key alongside it.
+    fn signer_set(weights: &[u32]) -> (Vec<StacksPrivateKey>, RewardSet) {
+        let keys: Vec<_> = weights.iter().map(|_| StacksPrivateKey::random()).collect();
+        let signers = keys
+            .iter()
+            .zip(weights)
+            .map(|(key, weight)| {
+                let mut signing_key = [0u8; 33];
+                signing_key
+                    .copy_from_slice(&StacksPublicKey::from_private(key).to_bytes_compressed());
+                NakamotoSignerEntry {
+                    signing_key,
+                    stacked_amt: 0,
+                    weight: *weight,
+                }
+            })
+            .collect();
+        let mut reward_set = RewardSet::empty();
+        reward_set
+            .as_v0_mut()
+            .expect("empty reward set is V0")
+            .signers = Some(signers);
+        (keys, reward_set)
+    }
+
+    /// Build a block header signed by `signers`, in the given order.
+    fn signed_header(signers: &[&StacksPrivateKey]) -> NakamotoBlockHeader {
+        let mut header = NakamotoBlockHeader::empty();
+        let hash = header.signer_signature_hash();
+        header.signer_signature = signers
+            .iter()
+            .map(|key| key.sign(hash.bits()).expect("Failed to sign"))
+            .collect();
+        header
+    }
+
+    #[test]
+    fn latest_epoch_enforces_strict_signature_order() {
+        assert!(StacksEpochId::latest().enforces_strict_signature_order());
+    }
+
+    #[test]
+    fn threshold_reached_by_enough_signers() {
+        let (keys, reward_set) = signer_set(&[10; 10]);
+        let keys: Vec<_> = keys.iter().collect();
+
+        assert!(verify_pushed_block_signatures(&signed_header(&keys[..7]), &reward_set).is_ok());
+        assert!(verify_pushed_block_signatures(&signed_header(&keys), &reward_set).is_ok());
+    }
+
+    #[test]
+    fn below_threshold_is_rejected() {
+        let (keys, reward_set) = signer_set(&[10; 10]);
+        let keys: Vec<_> = keys.iter().collect();
+
+        assert!(verify_pushed_block_signatures(&signed_header(&[]), &reward_set).is_err());
+        assert!(verify_pushed_block_signatures(&signed_header(&keys[..6]), &reward_set).is_err());
+    }
+
+    #[test]
+    fn threshold_uses_weights_not_signer_count() {
+        let (keys, reward_set) = signer_set(&[70, 10, 10, 10]);
+        let keys: Vec<_> = keys.iter().collect();
+
+        assert!(verify_pushed_block_signatures(&signed_header(&keys[..1]), &reward_set).is_ok());
+        assert!(verify_pushed_block_signatures(&signed_header(&keys[1..]), &reward_set).is_err());
+    }
+
+    #[test]
+    fn out_of_order_signatures_are_rejected() {
+        let (keys, reward_set) = signer_set(&[10; 10]);
+        let reversed: Vec<_> = keys.iter().rev().collect();
+        // Only out of order relative to its predecessor, not to the first signature:
+        // accepted by the relaxed pre-Epoch 4.0 ordering, rejected by strict ordering.
+        let swapped: Vec<_> = [0, 2, 1, 3, 4, 5, 6].iter().map(|i| &keys[*i]).collect();
+
+        assert!(verify_pushed_block_signatures(&signed_header(&reversed), &reward_set).is_err());
+        assert!(verify_pushed_block_signatures(&signed_header(&swapped), &reward_set).is_err());
+    }
+
+    #[test]
+    fn repeated_signature_is_rejected() {
+        let (keys, reward_set) = signer_set(&[10; 10]);
+        let repeated = vec![&keys[0]; 7];
+
+        assert!(verify_pushed_block_signatures(&signed_header(&repeated), &reward_set).is_err());
+    }
+
+    #[test]
+    fn signatures_from_outside_the_signer_set_are_rejected() {
+        let (_, reward_set) = signer_set(&[10; 10]);
+        let (outsiders, _) = signer_set(&[10; 10]);
+        let outsiders: Vec<_> = outsiders.iter().collect();
+
+        assert!(verify_pushed_block_signatures(&signed_header(&outsiders), &reward_set).is_err());
+    }
+
+    #[test]
+    fn invalid_signature_after_threshold_is_rejected() {
+        let (keys, reward_set) = signer_set(&[10; 10]);
+        let (outsiders, _) = signer_set(&[10]);
+        let keys: Vec<_> = keys.iter().collect();
+
+        let mut with_outsider = signed_header(&keys[..7]);
+        with_outsider
+            .signer_signature
+            .push(signed_header(&[&outsiders[0]]).signer_signature.remove(0));
+        let mut with_garbage = signed_header(&keys[..7]);
+        with_garbage
+            .signer_signature
+            .push(MessageSignature::empty());
+
+        assert!(verify_pushed_block_signatures(&with_outsider, &reward_set).is_err());
+        assert!(verify_pushed_block_signatures(&with_garbage, &reward_set).is_err());
+    }
+
+    #[test]
+    fn signatures_over_another_block_are_rejected() {
+        let (keys, reward_set) = signer_set(&[10; 10]);
+        let keys: Vec<_> = keys.iter().collect();
+        let mut header = signed_header(&keys);
+        header.chain_length += 1;
+
+        assert!(verify_pushed_block_signatures(&header, &reward_set).is_err());
     }
 }
