@@ -292,11 +292,14 @@ flowchart TB
     OK -- "Reject" --> HVR["handle_block_validate_reject:<br/>record reject_reason,<br/>mark_locally_rejected,<br/>broadcast rejection"]:::bad
     HVO --> RECHECK{"still consistent with our DB?<br/>check_block_against_signer_db_state<br/>→ section 7"}
     RECHECK -- no --> REJ["record reject_reason,<br/>mark_locally_rejected,<br/>handle_block_rejection,<br/>broadcast rejection"]:::bad
-    RECHECK -- yes --> PC["mark_pre_committed<br/>(stamps valid and approved_time)"]
+    RECHECK -- yes --> BAR{"already committed to a sibling at this<br/>height in this tenure, and not released?<br/>sibling_commitment_bars_pre_commit → section 5"}
+    BAR -- yes --> HOLD["record valid = true only (a verdict,<br/>not a commitment); answer with transient<br/>NoSignerConsensus: reject_until_sibling_hold_lapses"]:::hold
+    BAR -- no --> PC["mark_pre_committed<br/>(stamps valid and approved_time)"]
     PC --> SEND["send_block_pre_commit<br/>(broadcast over StackerDB)"]
     SEND --> SELF["count our own pre-commit:<br/>handle_block_pre_commit → section 5"]
     TIMEOUT["no answer in time:<br/>check_submitted_block_proposal rejects<br/>(ConnectivityIssues, reconsiderable)<br/>and frees the slot; next queued proposal<br/>submitted by check_pending_block_validations"]
     classDef bad fill:#d84a3f22,stroke:#c9473d,stroke-width:1.5px;
+    classDef hold fill:#8a95a51f,stroke:#8a95a5,stroke-dasharray:4 3;
 ```
 
 > Anchors: `handle_block_validate_response`, `handle_block_validate_ok`,
@@ -324,20 +327,20 @@ flowchart TB
     TH -- no --> N3(["wait for more pre-commits"])
     TH -- yes --> RECHECK{"chainstate checks still pass?<br/>check_block_against_signer_db_state<br/>→ section 7"}
     RECHECK -- no --> REJ["mark_locally_rejected,<br/>handle_block_rejection,<br/>broadcast rejection"]:::bad
-    RECHECK -- yes --> CONF["signed conflicts at height ≥ h,<br/>in ANY tenure<br/>get_signed_conflicts"]
+    RECHECK -- yes --> SAME{"our own signature, or an unexpired<br/>pre-commit, on a sibling in the SAME tenure?<br/>signed_self conflict / sibling_commitment_bars_pre_commit"}
+    SAME -- "yes, and conflict_still_blocks<br/>cannot prove it dead" --> HOLDS["refuse to sign<br/>(a signed sibling: until a burnchain fork kills it;<br/>a pre-committed one: until the window lapses<br/>or the set abandons it)"]:::hold
+    SAME -- "no, or it is dead" --> CONF["signed conflicts at height ≥ h,<br/>in ANY tenure<br/>get_signed_conflicts"]
     CONF --> FRESH{"for each conflict:<br/>still fresh?<br/>last_endorsed > cutoff"}
     FRESH -- yes --> PERM{"covered by a reorg permit for the branch<br/>THIS block is on, whose permitting<br/>sortition is still canonical?<br/>reorg_permit_stands"}
     PERM -- yes --> EXCL(["excluded — our signature must not<br/>block a replacement we sanctioned"]):::good
     EXCL --> OWN
-    PERM -- no --> SORT{"conflict_still_blocks, question 1:<br/>is its tenure's sortition still on the<br/>canonical burn chain?<br/>get_sortition_by_burn_hash"}
-    SORT -- "404, with the node's burnchain tip<br/>at or past the burn block — a fork<br/>orphaned the tenure" --> OWN
-    SORT -- "canonical, or we never<br/>saved its burn block" --> LIVE{"question 2: does the node's chain<br/>reach that height in its tenure?<br/>get_tenure_tip(its tenure)"}
-    SORT -- "could not ask, or 404 with the<br/>node's tip still below the burn block" --> HOLD1
-    LIVE -- "yes — real chain state" --> HOLD1["refuse to sign for now<br/>(may sign once conflict is stale)"]:::hold
-    LIVE -- "no, and it was<br/>globally accepted" --> OWN
-    LIVE -- "no, only locally accepted<br/>— but above this height" --> OWN
-    LIVE -- "no, only locally accepted<br/>and a sibling at this height" --> HOLD1
-    LIVE -- "could not ask" --> HOLD1
+    PERM -- no --> SORT{"conflict_still_blocks, question 1:<br/>is its tenure's sortition still on the<br/>canonical burn chain?<br/>get_sortition_by_consensus_hash → canonical"}
+    SORT -- "canonical: false — a fork<br/>orphaned the tenure" --> OWN
+    SORT -- "canonical: true" --> BV{"question 2: is the burn view the block<br/>was built against still canonical?<br/>tenure tx → its payload; otherwise its<br/>parent's, via get_block_view(parent)"}
+    SORT -- "could not ask, or a node too<br/>old to say (canonical absent)" --> HOLD1
+    BV -- "orphaned — the block can<br/>never be in the chain" --> OWN
+    BV -- "canonical — not proven dead" --> HOLD1["refuse to sign for now<br/>(may sign once conflict is stale)"]:::hold
+    BV -- "could not resolve" --> HOLD1
     FRESH -- "no — stale" --> OWN{"a conflict in this block's<br/>OWN tenure?"}
     OWN -- yes --> TIP{"own tenure confirmed<br/>at ≥ this height?<br/>get_tenure_tip(own tenure)"}
     TIP -- yes --> HOLD2["refuse to sign"]:::hold
@@ -374,39 +377,86 @@ wipe the local state machine), so a fact recorded once at observation time can b
 silently wrong, while a question asked per evaluation self-corrects on the next
 pre-commit or re-proposal. Two questions, in order:
 
-1. **Is the conflict's tenure still on the canonical burn chain?** The signer
-   saved the tenure's burn block when it arrived (section 8), and
-   `/v3/sortitions/burn/:hash` resolves it against the node's canonical fork. A
-   404 means a burnchain fork orphaned the tenure: everything it built is void,
-   and the conflict is dead no matter what state its block is in. But a 404
-   alone is not proof — the same endpoint 404s a perfectly canonical burn block
-   when the node is still catching up (and on internal data misses), so it is
-   only trusted once the node's burnchain tip (`get_peer_info`) is at or past
-   the stored burn block's height; below that, the conflict keeps blocking and
-   the next evaluation retries. If the burn block was never saved (a restart,
-   or the tenure predates us), the question is skipped rather than guessed.
-2. **Does the node's canonical Stacks chain still reach the block itself?**
-   - **it does** — real chain state; keep blocking;
-   - **it does not, and the block was globally accepted** — the node once _did_
-     have it, so a reorg moved past it. That is proof it is dead;
-   - **it does not, and the block was never globally accepted** — a block is
-     not handed to the node until the whole signer set has signed it, so this
-     may mean "not yet seen" rather than "dead". A sibling at the same height
-     therefore keeps blocking, since signing both would be the double-sign this
-     guard exists for; a block _above_ the proposal does not, because it is no
-     sibling and abandoning an unconfirmed block to restart beneath it is a
-     reorg, not an equivocation.
+1. **Is the conflict's tenure still on the canonical burn chain?**
+   `/v3/sortitions/consensus/:ch` returns the sortition with a `canonical` flag,
+   computed by the node's own `processed_block` test -- the one it applies to a
+   tenure's candidate blocks. `false` means a burnchain fork orphaned the
+   tenure: everything it built is void, and the conflict is dead whatever state
+   its block is in. A 404 is "the node does not hold this sortition", which a
+   node still catching up answers for canonical burn blocks too, so it is
+   unknown rather than orphaned and the conflict keeps blocking; an absent
+   `canonical`, from a node too old to report it, is treated the same way. No
+   tip-height guard is needed: a node that answers at all holds the sortition
+   and has placed it on a fork.
+2. **Is the burn view the block was built against still canonical?** A tenure
+   survives a Bitcoin reorg by extending across it, and that is exactly when one
+   tenure holds two blocks at one height differing by burn view alone -- the one
+   place a height comparison cannot tell them apart. The burn view is derived
+   while the node processes a block and is not in the header. A tenure-change
+   or tenure-extend transaction names it outright (either kind: an extend is
+   where a surviving tenure picks up the burn view a reorg then kills); any
+   other block inherits its parent's, which the node reports through
+   `/v3/blocks/:parent_id/view`. It is the parent that is asked about, not the
+   conflict: a conflict that was never globally accepted was never handed to
+   the node, but validating it required the node to hold its parent. An
+   orphaned burn view is proof the block is dead; a canonical one, or one that
+   cannot be resolved, is not, and the conflict keeps blocking. Releasing on
+   this is safe only because the chainstate checks (section 7) refuse any
+   _proposal_ whose own burn view is orphaned before a conflict is consulted:
+   two blocks sharing a dead burn view would otherwise come back together if
+   that fork were ever restored, each carrying our signature.
+
+Both questions need node support added in the same release as these rules (a
+new field and a new route), so a signer running them requires an upgraded
+node. Against an older node every answer comes back unknown (no `canonical`
+field, a 404 from the block-view route), so no conflict is ever released on a
+burnchain fork: the signer stays safe but loses this liveness path, and there
+is deliberately no fallback to the earlier burn-hash and tenure-tip checks.
+
+Nothing else releases a conflict here: there is no height comparison and no
+"globally accepted but no longer reached" arm. Whether a _reorg_ may replace
+what the conflict's tenure built is a different question, settled before this
+one by the reorg-timing rules and the permit they record.
 
 A conflict is any block a signature was ever put over — ours, or a group
 threshold we observed — whatever its state now. In particular rejection, even
 _global_ rejection, does not clear one: a rejection is a revocable opinion,
 while a signature is a bearer instrument that can still be aggregated toward
-the 70% threshold if rejecting signers change their minds. Only staleness or
-node-derived death (the two questions above) clears a conflict.
+the 70% threshold if rejecting signers change their minds. Staleness, a reorg
+permit, and node-derived death (the two questions above) are what clear a
+conflict -- with one conflict that only the last of those clears, checked
+before the others.
+
+**A signature of our own over a sibling in the same tenure never goes stale.**
+If we signed a different block at the same height under the same consensus
+hash, the proposal is refused: not re-checked for freshness, not excused by a
+reorg permit. The one thing that clears it is `conflict_still_blocks` -- a
+burnchain fork orphaning the tenure's sortition or the block's burn view --
+and both sibling guards ask it: this signed-sibling rule, and
+`sibling_commitment_bars_pre_commit`, which holds a pre-commit back while we
+are committed to a sibling. The reasoning is the bullet above, taken to its
+conclusion. A half-signed block is never handed to a node, so no question
+about the node's _Stacks_ chain can see it -- and a stalled, half-signed
+sibling is exactly the state an equivocation attempt manufactures. Letting the
+freshness window alone release the signature would hand that attempt a second
+certificate at one height after a 30-second wait. The burnchain questions are
+different: they ask about the tenure's sortition and the block's parent, both
+of which the node holds, so a fork that kills the sibling is visible even
+though the sibling itself never was. A conflict in another tenure can also be
+retired by a sanctioned reorg; a sibling inside our own tenure can only ever be
+a second block alongside the one we already endorsed, so a permit never
+reaches it. The rule is keyed on `signed_self`: a group acceptance we merely
+observed is not our equivocation, and a globally accepted sibling is in the
+node anyway, where the tenure-tip check catches it. A height whose signatures
+split this way does not recover inside the tenure unless a burnchain fork
+kills the sibling; otherwise it recovers at the next tenure boundary, where the
+next miner's tenure-start block carries a different consensus hash and so is
+not a sibling.
 
 Whenever the node cannot be asked, the conflict keeps blocking: that only delays
-the replacement until the signature goes stale, whereas wrongly signing cannot be
-taken back. The one recorded exception is a tenure whose reorg we sanctioned
+the replacement until the signature goes stale -- or, for a same-tenure sibling,
+until a later evaluation can ask -- whereas wrongly signing cannot be taken
+back. The one recorded exception is a tenure whose reorg we sanctioned
 under the reorg-timing rules (section 8): there the node still serves the
 conflict as fully live — replacing it is only legitimate because we permitted it
 — so no question asked of the node about the _conflict_ could clear it. Instead
@@ -447,11 +497,72 @@ then cleared on re-proposal: `mark_locally_accepted` records `signed_self` even
 though the state move fails, which is why the conflict queries key on the
 signature columns rather than on state.
 
+### Pre-commit exclusivity and the sibling hold
+
+A pre-commit promises a signature once the block reaches the threshold, which
+makes the pre-commit threshold a prediction of the signature threshold. Two
+siblings both crossing it is what lets the set split its signatures and stall,
+so a pre-commit is exclusive: while we are committed to one block at a height
+in a tenure, we do not pre-commit to another. A sibling we _signed_ bars this
+permanently (the rule above); one we only pre-committed to bars it for
+`pre_commit_exclusivity_timeout_secs` (default 30s), which bounds sibling
+pre-commit weight to at most the total weight for the window.
+`sibling_commitment_bars_pre_commit` enforces it in three places: at
+validate-ok (section 4), on every cached re-proposal, and at signing time in
+`handle_block_pre_commit` -- the last so that the rest of the set converging on
+the sibling cannot release us while our own commitment is still inside its
+window.
+
+The hold answers rather than staying silent. A miner that hears nothing waits
+out its full rejection timeout (180s by default) before re-sending, so the
+held block draws a _transient_ `NoSignerConsensus` instead, and the miner
+re-sends the same block after `transient_rejection_retry_timeout` (5s). The
+cost of a hold is therefore the window plus one retry, not the window plus
+the rejection timeout. (On the wire the rejection's legacy `reason_code`
+reads `SortitionViewMismatch`, since newer reasons are mapped onto it for
+older consumers; peers tally the true reason from `response_data`.) The held
+block keeps `valid = true` so each retry is answered from the cached verdict
+rather than sent back to the node -- and each retry is credited as miner
+activity, since a rebroadcast is the miner working, not idling -- but gets no
+`approved_time`: that column
+is what `get_sibling_commitments` reads as a commitment, and holding is not
+committing. When the hold lapses on a re-proposal, the commitment is recorded
+_before_ the pre-commit is broadcast, so a sibling arriving a moment later
+sees it.
+
+**The escape.** A pre-commit-only hold also lifts early once the set has
+given up on the sibling: `sibling_was_abandoned` tallies the weight behind
+rejections of it whose reason is _final_, and if that passes the rejection
+threshold the sibling can never be signed, so there is nothing left for the
+commitment to protect. Finality is decided by `reject_prefix_is_final` from
+the stored reason prefix, and it has to be conservative in two ways. First,
+the hold's own `NoSignerConsensus` must not count, or in exactly the split the
+window exists for, the barred signers' hold messages would release the bar
+that produced them. Second, a rejection raised at proposal intake
+(`check_proposal`) is sent and never stored, so a re-proposal is judged afresh
+against the signer's view at that moment -- `InvalidMiner` passes once the
+signer has an active miner, and the same goes for every other view-dependent
+intake check. Only reasons intrinsic to the block, or stored by a path that
+will not reconsider them, count: `RejectedInPriorRound`,
+`IrrecoverablePubkeyHash`, `InvalidBitvec`, `ProblematicTransactions`,
+`ProposalTooOld`. `ValidationFailed` is excluded
+because its prefix spans both transient and permanent codes. A signed sibling
+is never released this way. Getting this wrong in the strict direction holds
+a bar longer than needed; in the loose direction it costs a possible split --
+not a double-sign, since the signature rule is independent of all of this.
+
+The practical consequence: a block the set rejects for a non-final reason and
+the miner then rebuilds waits out the full window before the signers that
+pre-committed it will accept the replacement. That is a bounded cost on a
+rare event, and it is the ambiguous case, where being slower is the point.
+
 > Anchors: `handle_block_pre_commit`, `conflict_still_blocks`,
 > `reorg_permit_stands`, `check_block_against_signer_db_state` (signer.rs);
-> `get_signed_conflicts`, `SignedConflictInfo`, `get_burn_block_by_ch`
-> (signerdb.rs); `get_tenure_tip`, `get_sortition_by_burn_hash`, `get_peer_info`
-> (client/stacks_client.rs)
+> `sibling_commitment_bars_pre_commit`, `reject_until_sibling_hold_lapses`,
+> `sibling_was_abandoned`, `reject_prefix_is_final` (signer.rs);
+> `get_signed_conflicts`, `get_sibling_commitments`, `SignedConflictInfo`
+> (signerdb.rs); `get_tenure_tip`, `get_sortition_by_consensus_hash`,
+> `get_sortition_by_burn_hash`, `get_block_view` (client/stacks_client.rs)
 
 ## 6. Responses from other signers
 
@@ -464,7 +575,7 @@ finalizes the block as globally rejected.
 ```mermaid
 flowchart TB
     IN["BlockResponse from a peer<br/>handle_block_response"] --> KIND{"kind?"}
-    KIND -- "Accepted" --> HBS["handle_block_signature:<br/>verify signature, store via<br/>add_block_signature"]
+    KIND -- "Accepted" --> HBS["handle_block_signature:<br/>recover + is_valid_signer, then<br/>recovered key == chunk writer?<br/>store via add_block_signature"]
     HBS --> OLD{"a peer's acceptance with no<br/>pre-commit seen from them?<br/>(outdated peer; never our own)"}
     OLD -- yes --> ASPC["treat as their pre-commit:<br/>handle_block_pre_commit → section 5<br/>(returns; not tallied this pass)"]
     OLD -- no --> GRP{"signed_group already set?"}
@@ -472,7 +583,7 @@ flowchart TB
     GRP -- no --> TALLY{"signature weight ≥ 70%?"}
     TALLY -- no --> N2(["wait for more"])
     TALLY -- yes --> BCAST["mark_locally_accepted(group),<br/>broadcast_signed_block →<br/>handle_post_block (push to node)"]:::good
-    KIND -- "Rejected" --> HBR["handle_block_rejection:<br/>verify, store via<br/>add_block_rejection_signer_addr"]
+    KIND -- "Rejected" --> HBR["handle_block_rejection:<br/>recover + is_valid_signer, then<br/>recovered key == chunk writer?<br/>store via add_block_rejection_signer_addr"]
     HBR --> DONE{"already reached a<br/>global state?"}
     DONE -- yes --> N4(["done"])
     DONE -- no --> RT{"rejection weight makes<br/>70% approval impossible?"}
@@ -482,6 +593,21 @@ flowchart TB
     classDef good fill:#17a45c22,stroke:#1d9d5f,stroke-width:1.5px;
     classDef bad fill:#d84a3f22,stroke:#c9473d,stroke-width:1.5px;
 ```
+
+Every response is bound to the signer that published it. Both handlers keep
+their existing checks -- recover the key from the embedded signature, derive
+the address, `is_valid_signer` -- and then additionally require that recovered
+key to equal the StackerDB chunk writer the message arrived from, before
+anything is stored, pending buffer included. The signature proves _someone_
+holding that key produced the response; it does not prove the slot it arrived
+in belongs to them. A rejection's signature covers only the block hash, not
+the reason, so without the binding a registered signer could republish another
+signer's rejection under a reason of its own choosing and have the original
+signer's weight credited to it -- enough of which releases the sibling hold
+above, or marks a miner invalid on `ReorgNotAllowed`. With it, a signer can
+relabel only its own rejection, which is its own weight. Our own responses are
+bound to our own key, which is what signed them, so for every pre-existing
+path the gate is a tautology: it can only subtract.
 
 The outdated-peer fallback keeps mixed-version fleets live: an acceptance from a
 peer that never sent a pre-commit is routed into the pre-commit path instead, so
@@ -497,7 +623,8 @@ it is, the `NewBlock` event moves it to `GloballyAccepted`.
 
 > Anchors: `handle_block_response`, `handle_block_signature`,
 > `store_and_process_block_signature`, `broadcast_signed_block`,
-> `handle_block_rejection`, `store_and_process_block_rejection` (signer.rs)
+> `handle_block_rejection`, `store_and_process_block_rejection`,
+> `own_public_key` (signer.rs)
 
 ## 7. The chainstate checks (shared)
 
@@ -522,14 +649,16 @@ flowchart TB
     RET -- yes --> RCR["fails the check<br/>RewardCycleRetired"]:::bad
     RET -- no --> FROZEN{"block's tenure superseded by<br/>the ACTIVE miner's tenure?<br/>check_block_not_in_superseded_tenure"}
     FROZEN -- yes --> FRZ["fails the check<br/>(ConsensusHashMismatch)"]:::bad
-    FROZEN -- no --> TC{"tenure-change block?"}
+    FROZEN -- no --> BURNVIEW{"burn view the block was built<br/>against still canonical?<br/>check_block_burn_view_is_live"}
+    BURNVIEW -- "orphaned" --> BVR["fails the check<br/>(SortitionViewMismatch, non-transient:<br/>the miner must rebuild on the live fork)"]:::bad
+    BURNVIEW -- "canonical, or cannot be resolved" --> TC{"tenure-change block?"}
     TC -- yes --> PARENT["check_tenure_change_confirms_parent =<br/>check_latest_block_in_tenure(PARENT tenure, SelfAsTip::Counts)"]
     TC -- no --> SAME["check_latest_block_in_tenure(OWN tenure,<br/>SelfAsTip::Ignored)"]
     PARENT --> CLB
     SAME --> CLB["check_latest_block_in_tenure(tenure_id)"]
     CLB --> LSB{"fresh SIGNED tip in that tenure?<br/>get_tenure_last_block_info =<br/>get_last_signed_block + freshness from<br/>the last signature time<br/>(tenure_last_block_proposal_timeout)"}
     LSB -- "yes, and proposal not higher" --> RA["fails the check<br/>(a reorg attempt within<br/>reorg_attempts_activity_timeout still<br/>counts as miner activity:<br/>update_last_activity_time)"]:::bad
-    LSB -- "no signed tip, or proposal higher" --> CARVE{"fresh PRE-COMMITTED block<br/>at ≥ this height?<br/>get_last_accepted_block"}
+    LSB -- "no signed tip, or proposal higher" --> CARVE{"fresh PRE-COMMITTED block<br/>at ≥ this height, other than<br/>the block under check?<br/>get_last_accepted_block"}
     CARVE -- yes --> ACT["count miner activity only —<br/>a pre-commit never vetoes<br/>update_last_activity_time"]
     CARVE -- no --> NODE
     ACT --> NODE{"node view: proposal higher<br/>than that tenure's tip?<br/>get_tenure_tip"}
@@ -539,6 +668,25 @@ flowchart TB
     classDef good fill:#17a45c22,stroke:#1d9d5f,stroke-width:1.5px;
     classDef bad fill:#d84a3f22,stroke:#c9473d,stroke-width:1.5px;
 ```
+
+One check in that diagram is newer than the rest and answers a question the
+others cannot: `check_block_burn_view_is_live`, between the superseded-tenure
+gate and the tenure-change branch. A cached `valid` says the block was valid,
+not that its fork is still live: the node validates a block against whichever
+fork its burn view is on, canonical or not, so re-validating after a Bitcoin
+reorg returns the same answer. The burn view is resolved exactly as in section
+5 (`burn_view_of`: the tenure transaction's payload, or the parent's via
+`/v3/blocks/:parent_id/view`). An orphaned burn view fails the check with
+`SortitionViewMismatch` -- non-transient, because re-sending a dead-fork block
+can never succeed and the miner has to rebuild on the live fork. A burn view
+that cannot be resolved changes nothing: that is what every proposal looks like
+against a node too old to serve block views, and it is safe, since a node that
+cannot resolve this block's burn view cannot resolve a conflicting sibling's
+either, so no held signature is released on the strength of it. The same check
+also runs on the cached re-proposal path (section 3), which otherwise never
+reaches these checks. It is this refusal that makes releasing a conflict on an
+orphaned burn view (section 5, question 2) safe: a proposal sharing that dead
+burn view never gets as far as the conflict guards.
 
 The retirement gate leads because it is the one question whose answer can change
 between proposal arrival and signing without anything about the block changing: a
@@ -591,7 +739,8 @@ consensus-visible.
 > `check_tenure_change_confirms_parent`, `confirms_latest_block_in_same_tenure`,
 > `get_tenure_last_block_info` (chainstate/mod.rs); `check_proposal`,
 > `validate_tenure_change_payload` (chainstate/v1.rs, v2.rs);
-> `check_block_against_signer_db_state`, `is_reward_cycle_retired` (signer.rs);
+> `check_block_against_signer_db_state`, `check_block_burn_view_is_live`,
+> `burn_view_of`, `is_reward_cycle_retired` (signer.rs);
 > `get_last_signed_block`, `get_last_globally_accepted_block`,
 > `get_last_accepted_block` (signerdb.rs)
 

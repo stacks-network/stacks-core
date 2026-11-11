@@ -141,6 +141,19 @@ db_path = "/var/lib/stacks-signer/signerdb.sqlite"
 # Units: seconds
 # tenure_last_block_proposal_timeout_secs = 30
 
+# How long a pre-commit to one block bars a pre-commit to a sibling: another
+# block at the same height in the same tenure. A sibling this signer has
+# already SIGNED is barred permanently and is not governed by this setting;
+# the window covers only the weaker case where it has merely pre-committed.
+# Raising it widens the gap in which two siblings cannot both cross the
+# pre-commit threshold. The cost is latency on a legitimate replacement, but
+# only for a sibling whose fate is still open: once enough weight has rejected
+# the committed block for reasons that will not be reconsidered, the bar lifts
+# at once without waiting out the window.
+# Default: 30
+# Units: seconds
+# pre_commit_exclusivity_timeout_secs = 30
+
 
 # ============================================================
 # Miner Coordination Settings

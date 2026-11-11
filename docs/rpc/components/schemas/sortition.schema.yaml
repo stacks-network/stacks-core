@@ -33,6 +33,16 @@ properties:
     type: boolean
     description: Boolean indicating whether or not there was a successful sortition
       (i.e. a winning block or miner was chosen).
+  canonical:
+    type:
+      - boolean
+      - "null"
+    description: Whether this sortition is on the node's canonical burnchain fork. False
+      means a burnchain fork orphaned it, which voids everything the tenure it elected
+      produced. Unlike a 404, that is never merely not-yet-seen - the node answered, so it
+      holds the sortition and has placed it on a fork. Absent from nodes older than the
+      release that added it, which clients must read as unknown rather than as either
+      answer.
   miner_pk_hash160:
     type: [string, "null"]
     description: If sortition occurred, and the miner's VRF key registration associated

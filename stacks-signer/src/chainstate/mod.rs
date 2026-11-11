@@ -82,6 +82,9 @@ pub struct ProposalEvalConfig {
     /// Time to wait for the last block of a tenure to be globally accepted or rejected before considering
     /// a new miner's block at the same height as valid.
     pub tenure_last_block_proposal_timeout: Duration,
+    /// How long our pre-commit to a block bars a pre-commit to a sibling at the same height in
+    /// the same tenure
+    pub pre_commit_exclusivity_timeout: Duration,
     /// How much idle time must pass before allowing a tenure extend
     pub tenure_idle_timeout: Duration,
     /// How much idle time must pass before allowing a read-count tenure extend
@@ -101,6 +104,7 @@ impl From<&SignerConfig> for ProposalEvalConfig {
             first_proposal_burn_block_timing: value.first_proposal_burn_block_timing,
             block_proposal_timeout: value.block_proposal_timeout,
             tenure_last_block_proposal_timeout: value.tenure_last_block_proposal_timeout,
+            pre_commit_exclusivity_timeout: value.pre_commit_exclusivity_timeout,
             tenure_idle_timeout: value.tenure_idle_timeout,
             reorg_attempts_activity_timeout: value.reorg_attempts_activity_timeout,
             tenure_idle_timeout_buffer: value.tenure_idle_timeout_buffer,
@@ -463,9 +467,14 @@ impl SortitionData {
         }
 
         // A block we have only pre-committed to must NOT veto this proposal, but, similar to above
-        // this should still count as activity for the miner.
+        // this should still count as activity for the miner. Leave out the block under check on
+        // the same terms as the signed-tip query: at validate-ok and at signing time the block
+        // being re-checked is often the very block we pre-committed, and it is no conflict with
+        // itself -- reporting one would log a phantom conflict and credit our own re-evaluation
+        // as miner activity. A genuine rebroadcast of that block is credited where it arrives,
+        // in `reevaluate_validated_unsigned_block`, not here.
         let last_accepted_block = signer_db
-            .get_last_accepted_block(tenure_id)
+            .get_last_accepted_block(tenure_id, excluded)
             .map_err(|e| ClientError::InvalidResponse(e.to_string()))?;
         if let Some(info) = last_accepted_block {
             let is_fresh_pre_commit = info.state == BlockState::PreCommitted
