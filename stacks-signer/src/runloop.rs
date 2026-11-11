@@ -17,6 +17,7 @@ use std::fmt::Debug;
 use std::sync::mpsc::Sender;
 use std::time::{Duration, Instant};
 
+use blockstack_lib::chainstate::stacks::boot::RewardSet;
 use blockstack_lib::net::api::getsortition::SortitionInfo;
 use clarity::codec::StacksMessageCodec;
 use hashbrown::HashMap;
@@ -423,14 +424,15 @@ impl<Signer: SignerTrait<T>, T: StacksMessageCodec + Clone + Send + Debug> RunLo
         }
     }
 
-    /// Get the registered signers for a specific reward cycle
+    /// Get the reward set and its parsed registered signers for a specific reward cycle
     /// Returns None if no signers are registered or its not Nakamoto cycle
     pub fn get_parsed_reward_set(
         &self,
         reward_cycle: u64,
-    ) -> Result<Option<SignerEntries>, ClientError> {
+    ) -> Result<Option<(RewardSet, SignerEntries)>, ClientError> {
         debug!("Getting registered signers for reward cycle {reward_cycle}...");
-        let Some(signers) = self.stacks_client.get_reward_set_signers(reward_cycle)? else {
+        let reward_set = self.stacks_client.get_reward_set(reward_cycle)?.stacker_set;
+        let Some(signers) = reward_set.signers() else {
             warn!("No reward set signers found for reward cycle {reward_cycle}.");
             return Ok(None);
         };
@@ -438,8 +440,8 @@ impl<Signer: SignerTrait<T>, T: StacksMessageCodec + Clone + Send + Debug> RunLo
             warn!("No registered signers found for reward cycle {reward_cycle}.");
             return Ok(None);
         }
-        let entries = SignerEntries::parse(self.config.network.is_mainnet(), &signers).unwrap();
-        Ok(Some(entries))
+        let entries = SignerEntries::parse(self.config.network.is_mainnet(), signers).unwrap();
+        Ok(Some((reward_set, entries)))
     }
 
     /// Get a signer configuration for a specific reward cycle from the stacks node
@@ -448,7 +450,7 @@ impl<Signer: SignerTrait<T>, T: StacksMessageCodec + Clone + Send + Debug> RunLo
         reward_cycle: u64,
     ) -> Result<Option<SignerConfig>, ConfigurationError> {
         // We can only register for a reward cycle if a reward set exists.
-        let signer_entries = match self.get_parsed_reward_set(reward_cycle) {
+        let (reward_set, signer_entries) = match self.get_parsed_reward_set(reward_cycle) {
             Ok(Some(x)) => x,
             Ok(None) => return Ok(None),
             Err(e) => {
@@ -528,6 +530,7 @@ impl<Signer: SignerTrait<T>, T: StacksMessageCodec + Clone + Send + Debug> RunLo
         Ok(Some(SignerConfig {
             reward_cycle,
             pox_geometry,
+            reward_set,
             signer_mode: signer_config_mode,
             signer_entries,
             signer_slot_ids: signer_slot_ids.into_values().collect(),
@@ -538,6 +541,7 @@ impl<Signer: SignerTrait<T>, T: StacksMessageCodec + Clone + Send + Debug> RunLo
             db_path: self.config.db_path.clone(),
             block_proposal_timeout: self.config.block_proposal_timeout,
             tenure_last_block_proposal_timeout: self.config.tenure_last_block_proposal_timeout,
+            pre_commit_exclusivity_timeout: self.config.pre_commit_exclusivity_timeout,
             block_proposal_validation_timeout: self.config.block_proposal_validation_timeout,
             tenure_idle_timeout: self.config.tenure_idle_timeout,
             tenure_idle_timeout_buffer: self.config.tenure_idle_timeout_buffer,

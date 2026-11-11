@@ -1592,6 +1592,12 @@ static SCHEMA_21: &[&str] = &[
     "INSERT INTO db_config (version) VALUES (21);",
 ];
 
+static SCHEMA_22: &[&str] = &[
+    // `get_sibling_commitments` asks for our commitments to one height in one tenure
+    "CREATE INDEX IF NOT EXISTS blocks_consensus_hash_height ON blocks (consensus_hash, stacks_height);",
+    "INSERT INTO db_config (version) VALUES (22);",
+];
+
 struct Migration {
     version: SchemaVersion,
     statements: &'static [&'static str],
@@ -1625,6 +1631,7 @@ enum SchemaVersion {
     V19 = 19,
     V20 = 20,
     V21 = 21,
+    V22 = 22,
 }
 
 impl SchemaVersion {
@@ -1718,11 +1725,15 @@ static MIGRATIONS: &[Migration] = &[
         version: SchemaVersion::V21,
         statements: SCHEMA_21,
     },
+    Migration {
+        version: SchemaVersion::V22,
+        statements: SCHEMA_22,
+    },
 ];
 
 impl SignerDb {
     /// The current schema version used in this build of the signer binary.
-    pub const SCHEMA_VERSION: u32 = SchemaVersion::V21.as_u32();
+    pub const SCHEMA_VERSION: u32 = SchemaVersion::V22.as_u32();
 
     /// Create a new `SignerState` instance.
     /// This will create a new SQLite database at the given path
@@ -2021,16 +2032,28 @@ impl SignerDb {
     pub fn get_last_accepted_block(
         &self,
         tenure: &ConsensusHash,
+        excluded_signer_signature_hash: Option<&Sha512Trunc256Sum>,
     ) -> Result<Option<BlockInfo>, DBError> {
-        let query = "SELECT block_info FROM blocks WHERE consensus_hash = ?1 AND state IN (?2, ?3, ?4) ORDER BY stacks_height DESC LIMIT 1";
-        let args = params![
-            tenure,
-            &BlockState::GloballyAccepted.to_string(),
-            &BlockState::LocallyAccepted.to_string(),
-            &BlockState::PreCommitted.to_string(),
+        let accepted = [
+            BlockState::GloballyAccepted.to_string(),
+            BlockState::LocallyAccepted.to_string(),
+            BlockState::PreCommitted.to_string(),
         ];
-        let result: Option<String> = query_row(&self.db, query, args)?;
-
+        // The block under evaluation may itself be the highest accepted block in its tenure,
+        // and a block is no conflict with itself: leave it out when asked to, as
+        // `get_last_signed_block` does.
+        let result: Option<String> = match excluded_signer_signature_hash {
+            None => query_row(
+                &self.db,
+                "SELECT block_info FROM blocks WHERE consensus_hash = ?1 AND state IN (?2, ?3, ?4) ORDER BY stacks_height DESC LIMIT 1",
+                params![tenure, &accepted[0], &accepted[1], &accepted[2]],
+            )?,
+            Some(excluded) => query_row(
+                &self.db,
+                "SELECT block_info FROM blocks WHERE consensus_hash = ?1 AND state IN (?2, ?3, ?4) AND signer_signature_hash != ?5 ORDER BY stacks_height DESC LIMIT 1",
+                params![tenure, &accepted[0], &accepted[1], &accepted[2], excluded.to_string()],
+            )?,
+        };
         try_deserialize(result)
     }
 
@@ -2097,7 +2120,8 @@ impl SignerDb {
         height: u64,
         excluded_signer_signature_hash: &Sha512Trunc256Sum,
     ) -> Result<Vec<SignedConflictInfo>, DBError> {
-        let query = "SELECT b.consensus_hash, b.signer_signature_hash, b.stacks_height, b.state,
+        let query = "SELECT b.consensus_hash, b.signer_signature_hash, b.stacks_height,
+                b.signed_self,
                 MAX(COALESCE(b.signed_self, 0), COALESCE(b.signed_group, 0)) AS last_endorsed,
                 st.superseded_by_consensus_hash, st.superseded_by_burn_block_hash
             FROM blocks b
@@ -2107,6 +2131,40 @@ impl SignerDb {
                 AND b.signer_signature_hash != ?2
             ORDER BY b.stacks_height DESC";
         let args = params![
+            u64_to_sql(height)?,
+            excluded_signer_signature_hash.to_string(),
+        ];
+        query_rows(&self.db, query, args)
+    }
+
+    /// Our own commitments to siblings of a proposal: blocks at the same height in the same
+    /// tenure that we have either pre-committed to or signed, excluding the proposal itself.
+    ///
+    /// Used to decide whether we may pre-commit to the proposal at all. A pre-commit is a
+    /// declaration that we will sign the block once it reaches the threshold, so it is only
+    /// honest while we are free to sign: see
+    /// [`Signer::sibling_commitment_bars_pre_commit`](crate::v0::signer::Signer).
+    pub fn get_sibling_commitments(
+        &self,
+        consensus_hash: &ConsensusHash,
+        height: u64,
+        excluded_signer_signature_hash: &Sha512Trunc256Sum,
+    ) -> Result<Vec<SiblingCommitment>, DBError> {
+        // `approved_time` is stamped by both `mark_pre_committed` and
+        // `mark_locally_accepted`, so it is set for every block we
+        // committed to in either form, and null for one we merely
+        // validated or observed. Today `signed_self` is only ever set
+        // in the same branch of `mark_locally_accepted` that sets
+        // `approved_time`, so the second clause is redundant -- but
+        // it is named anyway to make the OR explicit.
+        let query = "SELECT signer_signature_hash, signed_self, approved_time AS committed_at
+            FROM blocks
+            WHERE consensus_hash = ?1
+                AND stacks_height = ?2
+                AND signer_signature_hash != ?3
+                AND (approved_time IS NOT NULL OR signed_self IS NOT NULL)";
+        let args = params![
+            consensus_hash,
             u64_to_sql(height)?,
             excluded_signer_signature_hash.to_string(),
         ];
@@ -3143,15 +3201,41 @@ pub struct SignedConflictInfo {
     /// The most recent time (epoch seconds) at which we signed the block or observed the
     /// signer set accept it (0 if neither was recorded)
     pub last_endorsed: u64,
-    /// Whether the block reached global acceptance, which is what decides if the node ever had
-    /// it: a locally accepted block is not handed to the node until the whole signer set has
-    /// signed it, so the node not having one says nothing about whether it is still live.
-    pub globally_accepted: bool,
+    /// The time (epoch seconds) at which we placed our own signature on the block, if we ever
+    /// did. Distinct from `last_endorsed`, which also counts a group acceptance we merely
+    /// observed: only our own signature makes a second signature at the same height in the
+    /// same tenure an equivocation by this signer.
+    pub signed_self: Option<u64>,
     /// The sortition of the tenure we permitted to reorg this block's tenure, if we recorded
     /// such a permit (see [`SignerDb::mark_tenure_superseded`]). The permit excludes this
     /// conflict only for a proposal on the branch it sanctioned, and only while that sortition
     /// is still canonical, both of which the caller must derive.
     pub superseded_by: Option<SupersededBy>,
+}
+
+/// Our own commitment to a block that is a sibling of some proposal: the same height in the
+/// same tenure. Returned by [`SignerDb::get_sibling_commitments`].
+#[derive(Debug)]
+pub struct SiblingCommitment {
+    /// The signer signature hash of the sibling we committed to
+    pub signer_signature_hash: Sha512Trunc256Sum,
+    /// The time (epoch seconds) at which we placed our own signature on it, if we ever did.
+    /// A signed sibling bars a pre-commit permanently; one we only pre-committed to bars it
+    /// for a window.
+    pub signed_self: Option<u64>,
+    /// The time (epoch seconds) at which we first committed to it, by pre-commit or by
+    /// signature (`approved_time`)
+    pub committed_at: Option<u64>,
+}
+
+impl FromRow<SiblingCommitment> for SiblingCommitment {
+    fn from_row(row: &rusqlite::Row) -> Result<Self, DBError> {
+        Ok(SiblingCommitment {
+            signer_signature_hash: Sha512Trunc256Sum::from_column(row, "signer_signature_hash")?,
+            signed_self: row.get("signed_self")?,
+            committed_at: row.get("committed_at")?,
+        })
+    }
 }
 
 /// The two tenures of a reorg permit, as queried by [`SignerDb::has_reorg_permit`]. The two
@@ -3183,7 +3267,7 @@ impl FromRow<SignedConflictInfo> for SignedConflictInfo {
         let signer_signature_hash = Sha512Trunc256Sum::from_column(row, "signer_signature_hash")?;
         let stacks_height = u64::from_column(row, "stacks_height")?;
         let last_endorsed = u64::from_column(row, "last_endorsed")?;
-        let state: String = row.get("state")?;
+        let signed_self: Option<u64> = row.get("signed_self")?;
         let superseded_by_ch: Option<ConsensusHash> = row.get("superseded_by_consensus_hash")?;
         let superseded_by_bbh: Option<BurnchainHeaderHash> =
             row.get("superseded_by_burn_block_hash")?;
@@ -3199,7 +3283,7 @@ impl FromRow<SignedConflictInfo> for SignedConflictInfo {
             signer_signature_hash,
             stacks_height,
             last_endorsed,
-            globally_accepted: state == BlockState::GloballyAccepted.to_string(),
+            signed_self,
             superseded_by,
         })
     }
@@ -4464,6 +4548,53 @@ pub mod tests {
         );
     }
 
+    /// `get_last_accepted_block` may be asked to leave out the block under evaluation, which
+    /// is often the tenure's highest accepted block at validate-ok and signing time.
+    #[test]
+    fn last_accepted_block_can_exclude_the_block_under_check() {
+        fn height_at(
+            db: &SignerDb,
+            tenure: &ConsensusHash,
+            excluded: Option<&Sha512Trunc256Sum>,
+        ) -> Option<u64> {
+            db.get_last_accepted_block(tenure, excluded)
+                .unwrap()
+                .map(|info| info.block.header.chain_length)
+        }
+        let mut db = SignerDb::new(tmp_db_path()).unwrap();
+        let tenure = ConsensusHash([0x0c; 20]);
+        let (mut lower, _) = create_block_override(|b| {
+            b.block.header.consensus_hash = tenure.clone();
+            b.block.header.chain_length = 9;
+            b.block.header.miner_signature = MessageSignature([0x01; 65]);
+        });
+        let (mut higher, _) = create_block_override(|b| {
+            b.block.header.consensus_hash = tenure.clone();
+            b.block.header.chain_length = 10;
+            b.block.header.miner_signature = MessageSignature([0x02; 65]);
+        });
+        lower.mark_pre_committed().unwrap();
+        higher.mark_pre_committed().unwrap();
+        db.insert_block(&lower).unwrap();
+        db.insert_block(&higher).unwrap();
+        let lower_hash = lower.signer_signature_hash();
+        let higher_hash = higher.signer_signature_hash();
+
+        assert_eq!(height_at(&db, &tenure, None), Some(10));
+        assert_eq!(
+            height_at(&db, &tenure, Some(&higher_hash)),
+            Some(9),
+            "leaving out the top block yields the next"
+        );
+        assert_eq!(height_at(&db, &tenure, Some(&lower_hash)), Some(10));
+
+        // Alone in its tenure, the block under check has nothing to conflict with.
+        let mut gone = lower.clone();
+        gone.mark_locally_rejected().unwrap();
+        db.insert_block(&gone).unwrap();
+        assert_eq!(height_at(&db, &tenure, Some(&higher_hash)), None);
+    }
+
     #[test]
     fn duplicate_block_rejections() {
         let db_path = tmp_db_path();
@@ -4914,7 +5045,7 @@ pub mod tests {
 
         // Verify tenure consensus_hash_1
         let block_info = db
-            .get_last_accepted_block(&consensus_hash_1)
+            .get_last_accepted_block(&consensus_hash_1, None)
             .unwrap()
             .unwrap();
         assert_eq!(block_info, block_info_5);
@@ -4931,7 +5062,7 @@ pub mod tests {
 
         // Verify tenure consensus_hash_2
         let block_info = db
-            .get_last_accepted_block(&consensus_hash_2)
+            .get_last_accepted_block(&consensus_hash_2, None)
             .unwrap()
             .unwrap();
         assert_eq!(block_info, block_info_4);
@@ -4948,7 +5079,7 @@ pub mod tests {
 
         // Verify tenure consensus_hash_3
         assert!(db
-            .get_last_accepted_block(&consensus_hash_3)
+            .get_last_accepted_block(&consensus_hash_3, None)
             .unwrap()
             .is_none());
         assert!(db
@@ -5116,7 +5247,6 @@ pub mod tests {
         assert_eq!(conflicts.len(), 3);
         assert!(conflicts.iter().any(|c| {
             c.signer_signature_hash == block_info_3.block.header.signer_signature_hash()
-                && !c.globally_accepted
         }));
         let tip = db
             .get_last_signed_block(&consensus_hash_1, None)
@@ -6584,6 +6714,40 @@ pub mod tests {
                         .optional()
                         .unwrap();
                     assert_eq!(index.as_deref(), Some("burn_blocks_height"));
+                }
+                SchemaVersion::V22 => {
+                    let indexes: Vec<String> = signer_db
+                        .db
+                        .prepare("SELECT name FROM sqlite_master WHERE type = 'index' AND tbl_name = 'blocks'")
+                        .unwrap()
+                        .query_map([], |row| row.get(0))
+                        .unwrap()
+                        .collect::<Result<_, _>>()
+                        .unwrap();
+                    assert!(
+                        indexes.contains(&"blocks_consensus_hash_height".to_string()),
+                        "Missing index: blocks_consensus_hash_height"
+                    );
+                    // The index has to actually be reachable from the query it exists for:
+                    // the `OR` in `get_sibling_commitments` is exactly what stops SQLite
+                    // using the V19 partial indexes on the same two columns.
+                    let plan: Vec<String> = signer_db
+                        .db
+                        .prepare(
+                            "EXPLAIN QUERY PLAN SELECT signer_signature_hash, signed_self, approved_time
+                             FROM blocks WHERE consensus_hash = ?1 AND stacks_height = ?2
+                               AND signer_signature_hash != ?3
+                               AND (approved_time IS NOT NULL OR signed_self IS NOT NULL)",
+                        )
+                        .unwrap()
+                        .query_map(params!["ch", 1i64, "hash"], |row| row.get(3))
+                        .unwrap()
+                        .collect::<Result<_, _>>()
+                        .unwrap();
+                    assert!(
+                        plan.iter().any(|step| step.contains("blocks_consensus_hash_height")),
+                        "get_sibling_commitments should use blocks_consensus_hash_height, got: {plan:?}"
+                    );
                 }
             }
         }

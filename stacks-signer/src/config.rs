@@ -20,6 +20,7 @@ use std::net::{SocketAddr, ToSocketAddrs};
 use std::path::PathBuf;
 use std::time::Duration;
 
+use blockstack_lib::chainstate::stacks::boot::RewardSet;
 use blockstack_lib::chainstate::stacks::TransactionVersion;
 use blockstack_lib::net::connection::DEFAULT_BLOCK_PROPOSAL_MAX_AGE_SECS;
 use clarity::util::hash::to_hex;
@@ -42,6 +43,8 @@ const BLOCK_PROPOSAL_TIMEOUT_MS: u64 = 120_000;
 const BLOCK_PROPOSAL_VALIDATION_TIMEOUT_MS: u64 = 120_000;
 const DEFAULT_FIRST_PROPOSAL_BURN_BLOCK_TIMING_SECS: u64 = 60;
 const DEFAULT_TENURE_LAST_BLOCK_PROPOSAL_TIMEOUT_SECS: u64 = 30;
+/// Default number of seconds a pre-commit holds a signer to one block at a height.
+const DEFAULT_PRE_COMMIT_EXCLUSIVITY_TIMEOUT_SECS: u64 = 30;
 const DEFAULT_DRY_RUN: bool = false;
 const DEFAULT_DB_PRUNING: bool = true;
 const DEFAULT_DB_SHRINK: bool = true;
@@ -161,6 +164,8 @@ pub struct SignerConfig {
     pub reward_cycle: u64,
     /// The PoX reward cycle geometry, used to place a block proposal in its reward cycle
     pub pox_geometry: PoxGeometry,
+    /// The reward set for this reward cycle, as computed by the stacks node
+    pub reward_set: RewardSet,
     /// The registered signers for this reward cycle
     pub signer_entries: SignerEntries,
     /// The signer slot ids of all signers registered for this reward cycle
@@ -181,6 +186,11 @@ pub struct SignerConfig {
     /// Time to wait for the last block of a tenure to be globally accepted or rejected
     /// before considering a new miner's block at the same height as potentially valid.
     pub tenure_last_block_proposal_timeout: Duration,
+    /// How long our pre-commit to a block holds us to it, barring a pre-commit to a sibling
+    /// at the same height in the same tenure. A pre-commit declares that we will sign the
+    /// block once it reaches the threshold, so pre-committing to both siblings would let each
+    /// cross a threshold that only one of them can ever convert into signatures.
+    pub pre_commit_exclusivity_timeout: Duration,
     /// How much time to wait for a block proposal validation response before marking the block invalid
     pub block_proposal_validation_timeout: Duration,
     /// How much idle time must pass before allowing a tenure extend
@@ -244,6 +254,11 @@ pub struct GlobalConfig {
     /// Time to wait for the last block of a tenure to be globally accepted or rejected
     /// before considering a new miner's block at the same height as potentially valid.
     pub tenure_last_block_proposal_timeout: Duration,
+    /// How long our pre-commit to a block holds us to it, barring a pre-commit to a sibling
+    /// at the same height in the same tenure. A pre-commit declares that we will sign the
+    /// block once it reaches the threshold, so pre-committing to both siblings would let each
+    /// cross a threshold that only one of them can ever convert into signatures.
+    pub pre_commit_exclusivity_timeout: Duration,
     /// How long to wait for a response from a block proposal validation response from the node
     /// before marking that block as invalid and rejecting it
     pub block_proposal_validation_timeout: Duration,
@@ -405,6 +420,11 @@ struct RawConfigFile {
     /// @default: `30`
     /// @units: seconds
     pub tenure_last_block_proposal_timeout_secs: Option<u64>,
+    /// How long a pre-commit bars a pre-commit to a sibling, in seconds.
+    /// ---
+    /// @default: `30`
+    /// @units: seconds
+    pub pre_commit_exclusivity_timeout_secs: Option<u64>,
     /// How long to wait for a response from a block proposal validation response from
     /// the node before marking that block as invalid and rejecting it.
     /// ---
@@ -575,6 +595,12 @@ impl TryFrom<RawConfigFile> for GlobalConfig {
                 .unwrap_or(DEFAULT_TENURE_LAST_BLOCK_PROPOSAL_TIMEOUT_SECS),
         );
 
+        let pre_commit_exclusivity_timeout = Duration::from_secs(
+            raw_data
+                .pre_commit_exclusivity_timeout_secs
+                .unwrap_or(DEFAULT_PRE_COMMIT_EXCLUSIVITY_TIMEOUT_SECS),
+        );
+
         let block_proposal_validation_timeout = Duration::from_millis(
             raw_data
                 .block_proposal_validation_timeout_ms
@@ -649,6 +675,7 @@ impl TryFrom<RawConfigFile> for GlobalConfig {
             block_proposal_timeout,
             chain_id: raw_data.chain_id,
             tenure_last_block_proposal_timeout,
+            pre_commit_exclusivity_timeout,
             block_proposal_validation_timeout,
             tenure_idle_timeout,
             block_proposal_max_age_secs,
