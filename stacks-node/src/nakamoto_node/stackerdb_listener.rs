@@ -849,6 +849,7 @@ mod tests {
 
     use libsigner::v0::messages::RejectReason;
     use stacks::chainstate::nakamoto::signer_set::NakamotoSigners;
+    use stacks::codec::StacksMessageCodec;
     use stacks::libstackerdb::StackerDBChunkData;
     use stacks::types::chainstate::StacksPrivateKey;
 
