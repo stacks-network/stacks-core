@@ -174,6 +174,7 @@ pub(crate) mod tests {
     use crate::config::{
         GlobalConfig, SignerConfig, SignerConfigMode, DEFAULT_STACKERDB_TIMEOUT_SECS,
     };
+    use crate::runloop::PoxGeometry;
     #[cfg(any(test, feature = "testing"))]
     use crate::v0::signer_state::SUPPORTED_SIGNER_PROTOCOL_VERSION;
 
@@ -481,6 +482,11 @@ pub(crate) mod tests {
             .signers = Some(reward_set_signers);
         SignerConfig {
             reward_cycle,
+            pox_geometry: PoxGeometry {
+                reward_cycle_length: 20,
+                prepare_phase_block_length: 5,
+                first_burnchain_block_height: 0,
+            },
             reward_set,
             signer_mode: SignerConfigMode::Normal {
                 signer_id: 0,

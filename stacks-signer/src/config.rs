@@ -34,6 +34,7 @@ use stacks_common::types::chainstate::{StacksAddress, StacksPrivateKey, StacksPu
 use stacks_common::util::hash::Hash160;
 
 use crate::client::SignerSlotID;
+use crate::runloop::PoxGeometry;
 #[cfg(any(test, feature = "testing"))]
 use crate::v0::signer_state::SUPPORTED_SIGNER_PROTOCOL_VERSION;
 
@@ -161,6 +162,8 @@ impl std::fmt::Display for SignerConfigMode {
 pub struct SignerConfig {
     /// The reward cycle of the configuration
     pub reward_cycle: u64,
+    /// The PoX reward cycle geometry, used to place a block proposal in its reward cycle
+    pub pox_geometry: PoxGeometry,
     /// The reward set for this reward cycle, as computed by the stacks node
     pub reward_set: RewardSet,
     /// The registered signers for this reward cycle
