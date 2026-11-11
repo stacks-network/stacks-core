@@ -544,6 +544,7 @@ mod async_sibling_validation {
     use std::time::{Duration, SystemTime};
 
     use blockstack_lib::chainstate::nakamoto::{NakamotoBlock, NakamotoBlockHeader};
+    use blockstack_lib::chainstate::stacks::boot::RewardSet;
     use blockstack_lib::chainstate::stacks::{
         CoinbasePayload, SinglesigHashMode, SinglesigSpendingCondition, StacksTransaction,
         TenureChangeCause, TenureChangePayload, TransactionAnchorMode, TransactionAuth,
@@ -800,6 +801,7 @@ mod async_sibling_validation {
 
             let signer_config = SignerConfig {
                 reward_cycle: 1,
+                reward_set: RewardSet::empty(),
                 supported_signer_protocol_version: 2,
                 signer_entries,
                 signer_slot_ids: vec![SignerSlotID(0)],
