@@ -36,7 +36,7 @@ impl FunctionType {
         clarity_version: ClarityVersion,
     ) -> Result<TypeSignature, StaticCheckError> {
         if epoch >= StacksEpochId::Epoch21 {
-            self.check_args_2_1(accounting, args, clarity_version)
+            self.check_args_2_1(accounting, epoch, args, clarity_version)
         } else {
             self.check_args_2_05(accounting, args)
         }

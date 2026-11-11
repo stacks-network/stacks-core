@@ -142,7 +142,7 @@ fn eval_with_new_binding(
         return Err(RuntimeCheckErrorKind::NameAlreadyUsed(bind_name.into()).into());
     }
 
-    let memory_use = bind_value.get_memory_use()?;
+    let memory_use = bind_value.get_memory_use(exec_state.epoch())?;
     exec_state.add_memory(memory_use)?;
 
     if *invoke_ctx.contract_context.get_clarity_version() >= ClarityVersion::Clarity2

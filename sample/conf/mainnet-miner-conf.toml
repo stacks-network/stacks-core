@@ -48,7 +48,7 @@ p2p_bind = "0.0.0.0:20444"
 # working_dir = "/var/lib/stacks-node"
 
 # Prometheus metrics endpoint. Uncomment to enable metrics.
-# prometheus_bind = "0.0.0.0:9153"
+# prometheus_bind = "127.0.0.1:9153"
 
 # Bootstrap peer(s) for initial sync. Format: "PUBKEY@HOST:PORT"
 # For mainnet, the node will use built-in seed nodes if omitted.

@@ -888,9 +888,23 @@ impl StacksEpochId {
         self >= &StacksEpochId::Epoch41
     }
 
+    /// Whether cost and memory charges, in analysis and at runtime, count the
+    /// contract and trait identifiers that callable types hold. Size limits
+    /// keep the old sizes.
+    pub fn charges_callable_type_size(&self) -> bool {
+        self >= &StacksEpochId::Epoch41
+    }
+
     /// Whether a trait-based `contract-call?` reads a trait defined by the calling
     /// contract from its own context, so the call works while that contract deploys.
     pub fn supports_local_trait_lookup(&self) -> bool {
+        self >= &StacksEpochId::Epoch41
+    }
+
+    /// Whether sortition samples the winning block-commit and the null miner's challenge from
+    /// separate, domain-separated digests of the sortition hash and VRF seed, rather than both
+    /// from the same digest.
+    pub fn uses_sortition_scopes(&self) -> bool {
         self >= &StacksEpochId::Epoch41
     }
 
@@ -976,6 +990,12 @@ impl StacksEpochId {
     /// a constant `true`. Chances are that this was never triggered; in that case, we
     /// can remove this check and keep the fixed behavior.
     pub fn clarity_runtime_checks_global_constants_before_local_vars(&self) -> bool {
+        self >= &StacksEpochId::Epoch41
+    }
+
+    /// Disallow the deployment of contracts called `__transient`, a legacy mechanism that's
+    /// no longer useful.
+    pub fn rejects_transient_contracts(&self) -> bool {
         self >= &StacksEpochId::Epoch41
     }
 

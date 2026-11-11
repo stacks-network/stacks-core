@@ -43,17 +43,19 @@ pinny = { git = "https://github.com/stx-labs/pinny-rs.git", rev = "0e888bce54c82
 rand_core = "0.6.4"
 rand = "0.8"
 rand_chacha = "0.3.1"
+reqwest = { version = "0.13", default-features = false, features = ["blocking", "json"] }
 serde = "1"
 serde_derive = "1"
 serde_json = { version = "1.0", features = ["arbitrary_precision", "unbounded_depth"] }
 slog = { version = "2.5.2", features = [ "max_level_trace" ] }
-rusqlite = { version = "0.31.0", features = ["blob", "serde_json", "i128_blob", "bundled", "trace"] }
+rusqlite = { version = "0.41.1", features = ["blob", "serde_json", "i128_blob", "bundled", "trace", "fallible_uint"] }
 thiserror = "1.0.65"
 tikv-jemallocator = "0.5.4"
 toml = "0.5.6"
 variant_count = "1.1"
 
 # Other dependencies
+assert-json-diff = "2.0.2"
 libc = { version = "0.2.182", default-features = false }
 rapidhash = { version = "4.3.0", default-features = false, features = ["std"] }
 trybuild = { version = "1.0.116", default-features = false }
@@ -62,10 +64,10 @@ trybuild = { version = "1.0.116", default-features = false }
 criterion = { version = "0.8.2", default-features = false, features = ["html_reports"] }
 
 # Procedural macro dependencies
-syn = { version = "2.0.115", default-features = false, features = ["full", "extra-traits"] }
+syn = { version = "3.0.9", default-features = false, features = ["full", "extra-traits", "parsing", "printing", "proc-macro"] }
 quote = { version = "1.0.44", default-features = false, features = ["proc-macro"] }
 proc-macro2 = { version = "1.0.106", default-features = false, features = ["proc-macro", "span-locations"] }
-darling = { version = "0.23.0", default-features = false, features = ["suggestions"] }
+darling = { version = "0.24.1", default-features = false, features = ["suggestions"] }
 
 # Use a bit more than default optimization for
 # dev builds to speed up test execution
