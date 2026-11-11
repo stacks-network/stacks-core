@@ -85,7 +85,7 @@ fn assert_absent(marf: &MARF<BlockHeaderHash>, target: &BlockHeaderHash) {
     );
 }
 
-/// Both sealing paths return the same header and bytes, consume the extension and register nothing.
+/// Both sealing paths return the same bytes, clear the extension and ancestor cache, and register nothing.
 #[rstest]
 #[case::immediate(&opts::OPTS_IMM)]
 #[case::deferred(&opts::OPTS_DEF)]
@@ -99,7 +99,20 @@ fn serialized_extension_contract(#[case] marf_opts: &MARFOpenOpts) {
             .unwrap();
         let root = sealed.then(|| marf.seal().unwrap());
         let mut tx = marf.begin_tx().unwrap();
+        tx.with_conn(|conn| {
+            conn.open_block(&PLACEHOLDER).unwrap();
+            Trie::get_trie_ancestor_hashes_bytes(conn).unwrap();
+            assert!(conn
+                .check_cached_ancestor_hashes_bytes(&PLACEHOLDER)
+                .is_some());
+        });
         let bytes = tx.serialize_and_discard().unwrap();
+        // Check before commit or another extension can clear the cache.
+        tx.with_conn(|conn| {
+            assert!(conn
+                .check_cached_ancestor_hashes_bytes(&PLACEHOLDER)
+                .is_none());
+        });
         let header =
             BlobHeader::<BlockHeaderHash>::parse(bytes[..READER_PREFIX_LEN].try_into().unwrap());
         assert_eq!(header.parent_hash, PARENT);

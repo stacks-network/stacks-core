@@ -2196,6 +2196,7 @@ impl<'a, T: MarfTrieId> TrieStorageTransaction<'a, T> {
 
         // Serialize the trie to obtain its sealed bytes.
         let result = self.serialize_trie(bhh.clone(), trie, self.compress);
+        self.clear_cached_ancestor_hashes_bytes();
 
         // Retain the lock identity for savepoint recovery and reset the read cursor,
         // even if serialization failed.
