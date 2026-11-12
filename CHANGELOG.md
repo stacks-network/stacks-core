@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to the versioning scheme outlined in the [README.md](README.md).
 
+## [4.0.7]
+
+### Fixed
+
+* Fixed nodes being unable to download a large Nakamoto tenure. A `/v3/tenures` response could hold up to 16 MiB of blocks, but the receiving node counts the response's chunk framing against the same limit and dropped the connection before the end, so a node that missed blocks in a tenure larger than about 16 MiB could never fetch them. `/v3/tenures` now leaves room for chunk framing so that nodes can read its responses.
+
 ## [4.0.6]
 
 ### ⚠️ Breaking Changes
