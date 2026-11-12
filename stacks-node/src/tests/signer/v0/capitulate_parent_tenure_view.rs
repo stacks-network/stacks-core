@@ -559,8 +559,12 @@ fn deadlock_50_50_split_capitulates_to_node_tip() {
     );
     TEST_REJECT_ALL_BLOCK_PROPOSAL.set(Vec::new());
     TEST_SIGNERS_IGNORE_BLOCK_RESPONSES.set(vec![]);
+    // The miner's first proposal for N+1' can be evaluated while half the set still rejects
+    // it, leaving the other half pre-committed to it. The miner then rebuilds a sibling, which
+    // the pre-committed half holds off until `pre_commit_exclusivity_timeout` (30s by default)
+    // lapses, so allow for that window plus the miner's re-send.
     let block_n_1_prime =
-        wait_for_block_pushed_by_miner_key(30, info_before.stacks_tip_height + 1, &miner_pk)
+        wait_for_block_pushed_by_miner_key(60, info_before.stacks_tip_height + 1, &miner_pk)
             .expect("Failed to mine block N+1' after signers capitulated");
     assert_ne!(
         block_n_1_prime, block_n_1,

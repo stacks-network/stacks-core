@@ -439,29 +439,29 @@ fn log_unreachable_error(error: &ClarityError, txid: &Txid) {
     }
 }
 
-/// Classify a failed transaction into a `TransactionResult`. For failures that
-/// charged execution cost before bailing (problematic txs and cost overflows),
-/// roll back the cost so the failure does not shrink the remaining block
-/// budget for subsequent honest txs.
+/// Classify a failed transaction into a `TransactionResult`. Whatever the
+/// error, the cost the transaction consumed is first rolled back to
+/// `cost_before`, so the failure does not shrink the remaining block budget
+/// for subsequent honest txs.
 pub fn finalize_failed_transaction(
     clarity_tx: &mut ClarityTx,
     tx: &StacksTransaction,
     cost_before: &ExecutionCost,
     error: Error,
 ) -> TransactionResult {
+    // The transaction is not going into the block, whatever the error was, so none of the cost
+    // it consumed may remain charged to the block. Leaving it charged would shrink the budget
+    // available to every subsequent (honest) transaction.
+    clarity_tx.reset_cost(cost_before.clone());
     let (is_problematic, error) =
         TransactionResult::is_problematic(tx, error, clarity_tx.get_epoch());
     if is_problematic {
-        // Roll back the cost accumulated by this transaction so it does not
-        // shrink the remaining block budget for subsequent honest txs.
-        clarity_tx.reset_cost(cost_before.clone());
         TransactionResult::problematic(tx, error)
     } else {
         match &error {
             Error::CostOverflowError(context) => {
                 // note: this path _does_ not perform the tx block budget % heuristic,
                 //  because this code path is not directly called with a mempool handle.
-                clarity_tx.reset_cost(cost_before.clone());
                 if context.budget.proportion_largest_dimension(&context.before)
                     < TX_BLOCK_LIMIT_PROPORTION_HEURISTIC
                 {
@@ -8238,6 +8238,27 @@ pub mod test {
             cost_before_call,
             conn.cost_so_far(),
             "Expected transaction cost to be reverted on execution time expiry"
+        );
+
+        // A failure that is neither problematic nor a cost overflow must also leave no cost
+        // charged. Let the call run (so it charges the block), then hand the wrapper an ordinary
+        // rejection as if the miner had refused the transaction after execution.
+        process_transaction_for_test(&mut conn, &signed_call_tx, false, None).unwrap();
+        assert!(conn.cost_so_far().exceeds(&cost_before_call));
+        let result = finalize_failed_transaction(
+            &mut conn,
+            &signed_call_tx,
+            &cost_before_call,
+            Error::InvalidStacksTransaction("rejected by miner".into(), false),
+        );
+        assert!(
+            matches!(result, TransactionResult::ProcessingError(_)),
+            "expected ProcessingError verdict, got {result:?}",
+        );
+        assert_eq!(
+            cost_before_call,
+            conn.cost_so_far(),
+            "Expected transaction cost to be reverted on any rejection"
         );
     }
 }

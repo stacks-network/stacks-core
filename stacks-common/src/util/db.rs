@@ -300,7 +300,14 @@ fn inner_connection_open<P: AsRef<Path>>(
     vfs: SqliteVfs,
 ) -> Result<Connection, SqliteError> {
     let mut db = open_connection(path, flags, vfs)?;
-    db.profile(Some(trace_profile));
+    db.trace_v2(
+        rusqlite::trace::TraceEventCodes::SQLITE_TRACE_PROFILE,
+        Some(|evt: rusqlite::trace::TraceEvent<'_>| {
+            if let rusqlite::trace::TraceEvent::Profile(stmt, duration) = evt {
+                trace_profile(&stmt.sql(), duration);
+            }
+        }),
+    )?;
     Ok(db)
 }
 
@@ -350,7 +357,7 @@ fn sqlite_open_with_vfs<P: AsRef<Path>>(
         flags.insert(OpenFlags::SQLITE_OPEN_READ_WRITE);
     }
     flags.insert(OpenFlags::SQLITE_OPEN_NO_MUTEX);
-    let db = inner_connection_open(path, flags, vfs)?;
+    let mut db = inner_connection_open(path, flags, vfs)?;
     if emulate_read_only {
         sql_pragma(&db, "query_only", &true)?;
     }
@@ -707,7 +714,7 @@ mod tests {
             SqliteVfs::Default,
         )
         .expect("open reader");
-        assert!(reader.is_readonly(rusqlite::DatabaseName::Main).unwrap());
+        assert!(reader.is_readonly(rusqlite::MAIN_DB).unwrap());
         assert_eq!(value(&reader, 1).as_deref(), Some("one"));
         assert_read_only_error(insert(&reader, 2, "two"));
     }

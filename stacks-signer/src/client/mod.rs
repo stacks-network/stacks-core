@@ -151,7 +151,7 @@ pub(crate) mod tests {
     use std::sync::atomic::{AtomicBool, Ordering};
     use std::sync::Arc;
 
-    use blockstack_lib::chainstate::stacks::boot::POX_4_NAME;
+    use blockstack_lib::chainstate::stacks::boot::{NakamotoSignerEntry, RewardSet, POX_4_NAME};
     use blockstack_lib::net::api::get_tenure_tip_meta::BlockHeaderWithMetadata;
     use blockstack_lib::net::api::getinfo::RPCPeerInfoData;
     use blockstack_lib::net::api::getpoxinfo::{
@@ -174,6 +174,7 @@ pub(crate) mod tests {
     use crate::config::{
         GlobalConfig, SignerConfig, SignerConfigMode, DEFAULT_STACKERDB_TIMEOUT_SECS,
     };
+    use crate::runloop::PoxGeometry;
     #[cfg(any(test, feature = "testing"))]
     use crate::v0::signer_state::SUPPORTED_SIGNER_PROTOCOL_VERSION;
 
@@ -446,6 +447,7 @@ pub(crate) mod tests {
         let mut signer_id_to_addr = BTreeMap::new();
         let mut signer_addr_to_weight = HashMap::new();
         let mut signer_addresses = Vec::new();
+        let mut reward_set_signers = Vec::new();
 
         for signer_id in 0..num_signers {
             let private_key = if signer_id == 0 {
@@ -459,15 +461,33 @@ pub(crate) mod tests {
             signer_pk_to_id.insert(public_key.clone(), signer_id);
             let address = StacksAddress::p2pkh(false, &public_key);
             signer_addr_to_id.insert(address.clone(), signer_id);
+            let mut signing_key = [0u8; 33];
+            signing_key.copy_from_slice(&public_key.to_bytes_compressed());
             signer_pks.push(public_key);
             signer_slot_ids.push(SignerSlotID(signer_id));
             signer_id_to_addr.insert(signer_id, address.clone());
             signer_addr_to_weight.insert(address.clone(), weight_per_signer + remaining_weight);
             signer_addresses.push(address);
+            reward_set_signers.push(NakamotoSignerEntry {
+                signing_key,
+                stacked_amt: 0,
+                weight: weight_per_signer + remaining_weight,
+            });
             remaining_weight = 0; // The first signer gets the extra weight if there is any. All other signers only get the weight_per_signer
         }
+        let mut reward_set = RewardSet::empty();
+        reward_set
+            .as_v0_mut()
+            .expect("empty reward set is V0")
+            .signers = Some(reward_set_signers);
         SignerConfig {
             reward_cycle,
+            pox_geometry: PoxGeometry {
+                reward_cycle_length: 20,
+                prepare_phase_block_length: 5,
+                first_burnchain_block_height: 0,
+            },
+            reward_set,
             signer_mode: SignerConfigMode::Normal {
                 signer_id: 0,
                 signer_slot_id: SignerSlotID(rand::thread_rng().gen_range(0..num_signers)), // Give a random signer slot id between 0 and num_signers
@@ -489,6 +509,7 @@ pub(crate) mod tests {
             first_proposal_burn_block_timing: config.first_proposal_burn_block_timing,
             block_proposal_timeout: config.block_proposal_timeout,
             tenure_last_block_proposal_timeout: config.tenure_last_block_proposal_timeout,
+            pre_commit_exclusivity_timeout: Duration::ZERO,
             block_proposal_validation_timeout: config.block_proposal_validation_timeout,
             tenure_idle_timeout: config.tenure_idle_timeout,
             tenure_idle_timeout_buffer: config.tenure_idle_timeout_buffer,

@@ -84,6 +84,7 @@ fn node_responses(height: u64, id: u8) -> Vec<(String, String)> {
         sortition_id: SortitionId([id; 32]),
         parent_sortition_id: SortitionId([id - 1; 32]),
         consensus_hash: ConsensusHash([id; 20]),
+        canonical: Some(true),
         was_sortition: true,
         miner_pk_hash160: Some(Hash160([0xab; 20])),
         last_sortition_ch: Some(ConsensusHash([id - 1; 20])),
