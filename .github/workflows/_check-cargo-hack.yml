@@ -150,3 +150,11 @@ jobs:
             --manifest-path stackslib/fuzz/Cargo.toml \
             --bins \
             --locked
+
+      # Fuzz check libsigner targets
+      - name: Check fuzz targets (libsigner)
+        run: |
+          cargo check \
+            --manifest-path libsigner/fuzz/Cargo.toml \
+            --bins \
+            --locked
