@@ -141,8 +141,10 @@ pub struct RPCPoxInfoData {
 
     // Epoch 4.0 / PoX-5 scaffolding: the sBTC registry contract from which the
     // node derives the per-cycle sBTC waterfall recipient (epoch 4+) via a
-    // call to `get-current-aggregate-pubkey` (Epoch 4.0) or
-    // `get-current-signer-data` (Epoch 4.1+). Same mainnet-fixed /
+    // call to `get-current-aggregate-pubkey` for reward sets computed in
+    // Epoch 4.0, or `get-current-signer-data` for reward sets computed in
+    // Epoch 4.1+; the cycle in progress when Epoch 4.1 activates keeps the
+    // v1 recipient. Same mainnet-fixed /
     // non-mainnet-configurable semantics as `pox_5_sbtc_contract`.
     pub pox_5_sbtc_registry_contract: String,
 }

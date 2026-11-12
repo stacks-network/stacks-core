@@ -376,7 +376,6 @@ fn epoch_4_1_block_commit_switches_to_sbtc_v2_output() {
         .and_then(|epochs| epochs.get(StacksEpochId::Epoch41))
         .map(|epoch| epoch.start_height)
         .expect("Epoch 4.1 configured");
-    let reward_cycle_length = u64::from(conf.get_burnchain().pox_constants.reward_cycle_length);
 
     signer_test.boot_to_epoch_4_with_pox5_lockups(
         &spender_sk,
@@ -433,28 +432,46 @@ fn epoch_4_1_block_commit_switches_to_sbtc_v2_output() {
          this test to exercise the switch; burn_height={burn_height}"
     );
 
-    // Phase 2: mine bitcoin blocks through the Epoch 4.1 boundary and record
-    // which recipient each block commit pays.
+    // The reward set for cycle N is computed in the prepare phase that ends
+    // cycle N-1, and the epoch of that computation selects the deposit
+    // format. So the first v2 commit lands on the first block of the first
+    // cycle whose preceding prepare phase starts in Epoch 4.1. Like the
+    // waterfall start itself, that is the Nakamoto (mod 0) cycle start.
+    let burnchain = conf.get_burnchain();
+    let pox_constants = &burnchain.pox_constants;
+    let first_burn_height = burnchain.first_block_height;
+    let mut switch_cycle = pox_constants
+        .block_height_to_reward_cycle(first_burn_height, epoch_41_start)
+        .expect("Epoch 4.1 starts after the first burn block");
+    while pox_constants.prepare_phase_start(first_burn_height, switch_cycle - 1) < epoch_41_start {
+        switch_cycle += 1;
+    }
+    let expected_switch_height =
+        pox_constants.nakamoto_first_block_of_cycle(first_burn_height, switch_cycle);
+    assert!(
+        expected_switch_height > epoch_41_start,
+        "test geometry must place Epoch 4.1 ({epoch_41_start}) strictly before the v2 switch \
+         ({expected_switch_height}) so the v1 recipient is still paid inside Epoch 4.1"
+    );
+    // Each block mined below is followed by the commit for the next block, so
+    // the first commit observed in this phase targets `burn_height + 2`.
+    assert!(
+        burn_height + 2 <= epoch_41_start,
+        "phase 2 must observe the commit for every block from Epoch 4.1 ({epoch_41_start}) \
+         onward; burn_height={burn_height}"
+    );
+    info!(
+        "------------------------- Expecting v2 switch at burn height {expected_switch_height} (cycle {switch_cycle}) -------------------------"
+    );
+
+    // Phase 2: mine bitcoin blocks through the Epoch 4.1 boundary and check the
+    // recipient of the block commit for every block.
     let blocks_processed = signer_test.running_nodes.counters.blocks_processed.clone();
     let target_v2_commits = 10;
     let mut v2_commits = 0;
-    let mut v1_commits_after_epoch_41 = 0;
-    let mut first_v2_height: Option<u64> = None;
+    let mut v1_commits_in_epoch_41 = 0;
     let mut last_stacks_tip = get_chain_info(&conf).stacks_tip_height;
-    // Enough blocks to reach the boundary, cross two reward cycles, and then
-    // collect the target number of v2 commits, with slack for skipped commits.
-    let max_blocks =
-        (epoch_41_start - burn_height) + 3 * reward_cycle_length + 2 * target_v2_commits;
-    for i in 0..max_blocks {
-        if v2_commits >= target_v2_commits {
-            break;
-        }
-        info!(
-            "Bitcoin block {} (v2 commits observed {}/{})",
-            i + 1,
-            v2_commits,
-            target_v2_commits
-        );
+    while v2_commits < target_v2_commits {
         next_block_and_wait(
             &signer_test.running_nodes.btc_regtest_controller,
             &blocks_processed,
@@ -473,60 +490,58 @@ fn epoch_4_1_block_commit_switches_to_sbtc_v2_output() {
         });
         last_stacks_tip = get_chain_info(&conf).stacks_tip_height;
         let burn_height = get_chain_info(&conf).burn_block_height;
-        let Some(tx) =
-            get_unconfirmed_commit_tx(&signer_test.running_nodes.btc_regtest_controller, &miner_pk)
-        else {
-            continue;
+        // The unconfirmed commit at tip `burn_height` targets the next block.
+        let target_height = burn_height + 1;
+        let mut commit = None;
+        wait_for(30, || {
+            commit = get_unconfirmed_commit_tx(
+                &signer_test.running_nodes.btc_regtest_controller,
+                &miner_pk,
+            );
+            Ok(commit.is_some())
+        })
+        .unwrap_or_else(|e| {
+            panic!("no block commit submitted for burn height {target_height}: {e}")
+        });
+        let tx = commit.expect("wait_for returned once a commit was found");
+        let output = classify(&tx).unwrap_or_else(|| {
+            panic!(
+                "block commit for burn height {target_height} pays neither the v1 nor the v2 \
+                 sBTC recipient: {tx:?}"
+            )
+        });
+        assert_eq!(
+            tx.output.len(),
+            3,
+            "waterfall commit must have exactly 3 outputs (op_return + sbtc + change), got {}",
+            tx.output.len()
+        );
+        let expected_output = if target_height < expected_switch_height {
+            SbtcCommitOutput::V1
+        } else {
+            SbtcCommitOutput::V2
         };
-        match classify(&tx) {
-            Some(SbtcCommitOutput::V1) => {
-                if let Some(first_v2_height) = first_v2_height {
-                    panic!(
-                        "v1 sBTC output at burn_height={burn_height} after the v2 switch at \
-                         burn_height={first_v2_height}"
-                    );
-                }
-                if burn_height >= epoch_41_start {
-                    v1_commits_after_epoch_41 += 1;
-                }
-            }
-            Some(SbtcCommitOutput::V2) => {
-                assert_eq!(
-                    tx.output.len(),
-                    3,
-                    "waterfall commit must have exactly 3 outputs (op_return + sbtc + change), got {}",
-                    tx.output.len()
-                );
-                if first_v2_height.is_none() {
-                    assert!(
-                        burn_height >= epoch_41_start,
-                        "v2 sBTC output at burn_height={burn_height}, before Epoch 4.1 ({epoch_41_start})"
-                    );
-                    first_v2_height = Some(burn_height);
-                    info!(
-                        "------------------------- Observed first v2 waterfall block commit at burn_height={burn_height} -------------------------"
-                    );
-                }
-                v2_commits += 1;
-            }
-            None => {}
+        assert_eq!(
+            output, expected_output,
+            "wrong sBTC recipient for the commit targeting burn height {target_height} (Epoch 4.1 \
+             starts at {epoch_41_start}, v2 switch expected at {expected_switch_height})"
+        );
+        info!(
+            "Block commit targeting burn height {target_height} pays {output:?}";
+            "v2_commits" => v2_commits,
+            "target_v2_commits" => target_v2_commits,
+        );
+        match output {
+            SbtcCommitOutput::V1 if target_height >= epoch_41_start => v1_commits_in_epoch_41 += 1,
+            SbtcCommitOutput::V1 => {}
+            SbtcCommitOutput::V2 => v2_commits += 1,
         }
     }
 
-    let first_v2_height = first_v2_height.expect("no v2 waterfall block commit observed");
-    assert!(
-        first_v2_height <= epoch_41_start + 2 * reward_cycle_length,
-        "the v2 switch must land within two reward cycles of Epoch 4.1 activation \
-         ({epoch_41_start}); first v2 commit at burn_height={first_v2_height}"
-    );
-    assert!(
-        v1_commits_after_epoch_41 > 0,
-        "Epoch 4.1 activates mid-cycle, so the v1 recipient must still be paid until the next \
-         reward set is computed"
-    );
-    assert!(
-        v2_commits >= target_v2_commits,
-        "expected {target_v2_commits} v2 waterfall block commits, only observed {v2_commits}"
+    assert_eq!(
+        v1_commits_in_epoch_41,
+        expected_switch_height - epoch_41_start,
+        "every block from Epoch 4.1 activation up to the v2 switch must pay the v1 recipient"
     );
 
     signer_test.shutdown();
