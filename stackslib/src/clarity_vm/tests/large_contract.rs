@@ -22,7 +22,7 @@ use clarity::vm::ast::stack_depth_checker::StackDepthLimits;
 use clarity::vm::clarity::{ClarityConnection, TransactionConnection};
 use clarity::vm::contexts::OwnedEnvironment;
 use clarity::vm::database::HeadersDB;
-use clarity::vm::errors::{StaticCheckErrorKind, VmExecutionError};
+use clarity::vm::errors::{RuntimeCheckErrorKind, StaticCheckErrorKind, VmExecutionError};
 use clarity::vm::resource_limiter::ResourceBudget;
 use clarity::vm::test_util::*;
 use clarity::vm::tests::{test_clarity_versions, BurnStateDB};
@@ -458,21 +458,31 @@ fn test_simple_token_system(#[case] version: ClarityVersion, #[case] epoch: Stac
                 .unwrap(),
             Value::UInt(1004)
         );
-        assert_eq!(
-            block
-                .as_transaction(|tx| tx.run_contract_call(
-                    p1.clone(),
-                    None,
-                    contract_identifier,
-                    "my-get-token-balance",
-                    vec![p1.clone().into()],
-                    |_, _| None,
-                    &ResourceBudget::unlimited()
-                ))
-                .unwrap()
-                .0,
-            Value::UInt(1004)
-        );
+        let top_level_read_only_call = block.as_transaction(|tx| {
+            tx.run_contract_call(
+                p1.clone(),
+                None,
+                contract_identifier,
+                "my-get-token-balance",
+                vec![p1.clone().into()],
+                |_, _| None,
+                &ResourceBudget::unlimited(),
+            )
+        });
+        if epoch.forbids_top_level_read_only_calls() {
+            let error = top_level_read_only_call.unwrap_err();
+            assert!(
+                matches!(
+                    error,
+                    ClarityError::Interpreter(VmExecutionError::RuntimeCheck(
+                        RuntimeCheckErrorKind::NoSuchPublicFunction(..)
+                    ))
+                ),
+                "Top-level call to read-only function should fail with NoSuchPublicFunction in {epoch}, got {error:?}"
+            );
+        } else {
+            assert_eq!(top_level_read_only_call.unwrap().0, Value::UInt(1004));
+        }
     }
 }
 

@@ -515,7 +515,18 @@ impl<'a, 'hooks> OwnedEnvironment<'a, 'hooks> {
         args: Vec<Value>,
     ) -> Result<(Value, AssetMap, Vec<StacksTransactionEvent>), VmExecutionError> {
         self.execute_in_env(sender, sponsor, None, |exec_state, invoke_ctx| {
-            exec_state.execute_contract(invoke_ctx, &contract_identifier, tx_name, args, false)
+            let allow_read_only = !exec_state.epoch().forbids_top_level_read_only_calls();
+            let enforce_read_only = false;
+            let allow_private = false;
+            exec_state.inner_execute_contract(
+                invoke_ctx,
+                &contract_identifier,
+                tx_name,
+                args,
+                allow_read_only,
+                enforce_read_only,
+                allow_private,
+            )
         })
     }
 
@@ -772,9 +783,19 @@ impl<'a, 'b, 'hooks> ExecutionState<'a, 'b, 'hooks> {
         contract: &QualifiedContractIdentifier,
         tx_name: &str,
         args: Vec<Value>,
-        read_only: bool,
+        enforce_read_only: bool,
     ) -> Result<Value, VmExecutionError> {
-        self.inner_execute_contract(invoke_ctx, contract, tx_name, args, read_only, false)
+        let allow_read_only = true;
+        let allow_private = false;
+        self.inner_execute_contract(
+            invoke_ctx,
+            contract,
+            tx_name,
+            args,
+            allow_read_only,
+            enforce_read_only,
+            allow_private,
+        )
     }
 
     /// This method is exposed for callers that need to invoke a private method directly.
@@ -786,24 +807,39 @@ impl<'a, 'b, 'hooks> ExecutionState<'a, 'b, 'hooks> {
         contract: &QualifiedContractIdentifier,
         tx_name: &str,
         args: Vec<Value>,
-        read_only: bool,
+        enforce_read_only: bool,
     ) -> Result<Value, VmExecutionError> {
-        self.inner_execute_contract(invoke_ctx, contract, tx_name, args, read_only, true)
+        let allow_read_only = true;
+        let allow_private = true;
+        self.inner_execute_contract(
+            invoke_ctx,
+            contract,
+            tx_name,
+            args,
+            allow_read_only,
+            enforce_read_only,
+            allow_private,
+        )
     }
 
     /// This method handles actual execution of contract-calls on a contract.
     ///
-    /// `allow_private` should always be set to `false` for user transactions:
-    ///  this ensures that only `define-public` and `define-read-only` methods can
-    ///  be invoked. The `allow_private` mode should only be used by
-    ///  `Environment::execute_contract_allow_private`.
+    /// * `allow_read_only`: whether `define-read-only` functions may be invoked. Top-level
+    ///   contract-call transactions set it to `false` from Epoch 4.1 on.
+    /// * `enforce_read_only`: if `true`, only `define-read-only` functions may be invoked.
+    /// * `allow_private`: whether `define-private` functions may be invoked. It should always be
+    ///   `false` for user transactions: this ensures that only `define-public` and
+    ///   `define-read-only` methods can be invoked. The `allow_private` mode should only be used
+    ///   by [`Self::execute_contract_allow_private`].
+    #[allow(clippy::too_many_arguments)]
     fn inner_execute_contract(
         &mut self,
         invoke_ctx: &InvocationContext,
         contract_identifier: &QualifiedContractIdentifier,
         tx_name: &str,
         args: Vec<Value>,
-        read_only: bool,
+        allow_read_only: bool,
+        enforce_read_only: bool,
         allow_private: bool,
     ) -> Result<Value, VmExecutionError> {
         let contract_size = self
@@ -822,9 +858,9 @@ impl<'a, 'b, 'hooks> ExecutionState<'a, 'b, 'hooks> {
 
             let func = contract.lookup_function(tx_name)
                 .ok_or_else(|| { RuntimeCheckErrorKind::UndefinedFunction(tx_name.to_string()) })?;
-            if !allow_private && !func.is_public() {
+            if (!allow_private && !func.is_public()) || (!allow_read_only && func.is_read_only()) {
                 return Err(RuntimeCheckErrorKind::NoSuchPublicFunction(contract_identifier.to_string(), tx_name.to_string()).into());
-            } else if read_only && !func.is_read_only() {
+            } else if enforce_read_only && !func.is_read_only() {
                 return Err(RuntimeCheckErrorKind::Unreachable(bounded_format!("Public function not read-only: {contract_identifier} {tx_name}")).into());
             }
 

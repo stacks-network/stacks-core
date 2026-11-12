@@ -2354,6 +2354,8 @@ perform such modifications. This is enforced both during type checks and during
 the execution of the function. Public read-only functions may
 be invoked by other contracts via `contract-call?`.
 
+Beginning in Epoch 4.1, a contract-call transaction that targets a read-only function fails with an error.
+
 Beginning in Epoch 4.1, the reserved-name exception described under `define-public` applies to read-only functions as well.",
     example: "
 (define-read-only (just-return-one-hundred)
