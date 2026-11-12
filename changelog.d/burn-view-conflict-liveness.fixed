@@ -1,0 +1,1 @@
+Signers now release a signed conflict whose burn view a Bitcoin reorg has orphaned. A tenure that extends across a reorged burn block holds two blocks at the same height differing by burn view alone; without this a signer could be barred from that height for the rest of the tenure.

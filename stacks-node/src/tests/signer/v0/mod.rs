@@ -124,9 +124,11 @@ pub mod epoch_4_0_waterfall;
 pub mod failed_txs;
 pub mod late_block_proposal;
 pub mod missing_burn_block_proposal;
+pub mod pre_commit_exclusivity_liveness;
 pub mod problematic_txs;
 pub mod proposal_replication_void;
 pub mod reorg;
+pub mod sibling_commitment_exclusivity;
 pub mod signers_consider_consensus_blocks;
 pub mod signers_consider_late_proposals;
 pub mod signers_wait_for_validation;
@@ -931,13 +933,25 @@ impl SignerTest<SpawnedSigner> {
         self.running_nodes.conf.miner.mining_key.as_ref().unwrap()
     }
 
-    /// Propose a block to the signers
+    /// Propose a block to the signers, placed (as a miner does) at the burn height and reward
+    /// cycle of the sortition that elected its tenure. A block whose tenure the node does not
+    /// know is placed at the burnchain tip; signers ignore such a proposal.
     fn propose_block(&self, block: NakamotoBlock, timeout: Duration) {
         let burn_height = self
+            .stacks_client
+            .get_sortition_by_consensus_hash(&block.header.consensus_hash)
+            .map(|sortition| sortition.burn_block_height)
+            .unwrap_or_else(|_| {
+                self.running_nodes
+                    .btc_regtest_controller
+                    .get_headers_height()
+            });
+        let reward_cycle = self
             .running_nodes
             .btc_regtest_controller
-            .get_headers_height();
-        let reward_cycle = self.get_current_reward_cycle();
+            .get_burnchain()
+            .block_height_to_reward_cycle(burn_height)
+            .unwrap();
         let block_proposal = BlockProposal {
             block,
             burn_height,
@@ -2723,6 +2737,7 @@ fn block_proposal_rejection() {
         first_proposal_burn_block_timing: Duration::from_secs(0),
         block_proposal_timeout: Duration::from_secs(100),
         tenure_last_block_proposal_timeout: Duration::from_secs(30),
+        pre_commit_exclusivity_timeout: Duration::ZERO,
         tenure_idle_timeout: Duration::from_secs(300),
         tenure_idle_timeout_buffer: Duration::from_secs(2),
         reorg_attempts_activity_timeout: Duration::from_secs(30),
@@ -2730,10 +2745,11 @@ fn block_proposal_rejection() {
     };
     let mut block = NakamotoBlock::new(NakamotoBlockHeader::empty(), vec![]);
     block.header.timestamp = get_epoch_time_secs();
-    let block_1_consensus_hash = block.header.consensus_hash.clone();
 
-    // First propose a block to the signers that does not have the correct consensus hash or BitVec. This should be rejected BEFORE
-    // the block is submitted to the node for validation.
+    // First propose a block to the signers whose consensus hash names a tenure the node has
+    // no sortition for. Signers cannot place it in a reward cycle, so they reject it as
+    // transient BEFORE the block is submitted to the node for validation.
+    block.header.consensus_hash = ConsensusHash(thread_rng().gen());
     block
         .header
         .sign_miner(signer_test.get_miner_key())
@@ -2746,7 +2762,6 @@ fn block_proposal_rejection() {
     block.header.pox_treatment = BitVec::ones(1).unwrap();
     block.header.consensus_hash = view.cur_sortition.data.consensus_hash;
     block.header.chain_length = 35; // We have mined 35 blocks so far.
-    let block_2_consensus_hash = block.header.consensus_hash.clone();
 
     block
         .header
@@ -2755,7 +2770,18 @@ fn block_proposal_rejection() {
     let block_signer_signature_hash_2 = block.header.signer_signature_hash();
     signer_test.propose_block(block, short_timeout);
 
-    info!("------------------------- Test Block Proposal Rejected -------------------------");
+    info!("------------------------- Test Block Proposals Rejected -------------------------");
+    let all_signers = signer_test.signer_test_pks();
+    let rejections = wait_for_block_rejections_from_signers(
+        short_timeout.as_secs(),
+        &block_signer_signature_hash_1,
+        &all_signers,
+    )
+    .expect("Timed out waiting for every signer to reject the block outside any known tenure");
+    for rejection in rejections {
+        assert_eq!(rejection.reason_code, RejectCode::NoSortitionView);
+    }
+
     // Verify the signers rejected the second block via the endpoint
     let reject = signer_test
         .wait_for_validate_reject_response(short_timeout.as_secs(), &block_signer_signature_hash_2);
@@ -2763,46 +2789,17 @@ fn block_proposal_rejection() {
         reject.reason_code,
         ValidateRejectCode::UnknownParent
     ));
-
-    let start_polling = Instant::now();
-    let mut found_signer_signature_hash_1 = false;
-    let mut found_signer_signature_hash_2 = false;
-    let block_1_rejection_reason = RejectReason::ConsensusHashMismatch {
-        expected: block_2_consensus_hash,
-        actual: block_1_consensus_hash,
-    };
-    while !found_signer_signature_hash_1 && !found_signer_signature_hash_2 {
-        std::thread::sleep(Duration::from_secs(1));
-        for (_chunk, message) in get_stackerdb_signer_messages() {
-            if let SignerMessage::BlockResponse(BlockResponse::Rejected(BlockRejection {
-                reason: _reason,
-                reason_code,
-                signer_signature_hash,
-                response_data,
-                ..
-            })) = message
-            {
-                if signer_signature_hash == block_signer_signature_hash_1 {
-                    found_signer_signature_hash_1 = true;
-                    assert_eq!(reason_code, RejectCode::SortitionViewMismatch,);
-                    assert_eq!(response_data.reject_reason, block_1_rejection_reason);
-                } else if signer_signature_hash == block_signer_signature_hash_2 {
-                    found_signer_signature_hash_2 = true;
-                    assert!(matches!(
-                        reason_code,
-                        RejectCode::ValidationFailed(ValidateRejectCode::UnknownParent)
-                    ));
-                } else {
-                    continue;
-                }
-            } else {
-                continue;
-            }
-        }
-        assert!(
-            start_polling.elapsed() <= short_timeout,
-            "Timed out after waiting for response from signer"
-        );
+    let rejections = wait_for_block_rejections_from_signers(
+        short_timeout.as_secs(),
+        &block_signer_signature_hash_2,
+        &all_signers,
+    )
+    .expect("Timed out waiting for every signer to reject the block with an unknown parent");
+    for rejection in rejections {
+        assert!(matches!(
+            rejection.reason_code,
+            RejectCode::ValidationFailed(ValidateRejectCode::UnknownParent)
+        ));
     }
     signer_test.shutdown();
 }
@@ -5628,6 +5625,7 @@ fn block_validation_response_timeout() {
         proposal_wait_for_parent_time: Duration::from_secs(0),
         first_proposal_burn_block_timing: Duration::from_secs(0),
         tenure_last_block_proposal_timeout: Duration::from_secs(30),
+        pre_commit_exclusivity_timeout: Duration::ZERO,
         block_proposal_timeout: Duration::from_secs(100),
         tenure_idle_timeout: Duration::from_secs(300),
         tenure_idle_timeout_buffer: Duration::from_secs(2),
@@ -5917,6 +5915,7 @@ fn block_validation_pending_table() {
         first_proposal_burn_block_timing: Duration::from_secs(0),
         block_proposal_timeout: Duration::from_secs(100),
         tenure_last_block_proposal_timeout: Duration::from_secs(30),
+        pre_commit_exclusivity_timeout: Duration::ZERO,
         tenure_idle_timeout: Duration::from_secs(300),
         tenure_idle_timeout_buffer: Duration::from_secs(2),
         reorg_attempts_activity_timeout: Duration::from_secs(30),
@@ -6045,8 +6044,9 @@ fn block_proposal_max_age_rejections() {
     let short_timeout = Duration::from_secs(30);
 
     info!("------------------------- Send Block Proposal To Signers -------------------------");
-    let _ = get_chain_info(&signer_test.running_nodes.conf);
     let mut block = NakamotoBlock::new(NakamotoBlockHeader::empty(), vec![]);
+    // Both blocks belong to the current tenure, so signers place them in its reward cycle.
+    block.header.consensus_hash = get_chain_info(&signer_test.running_nodes.conf).pox_consensus;
     // First propose a stale block that is older than the block_proposal_max_age_secs
     block.header.timestamp = get_epoch_time_secs().saturating_sub(
         signer_test.signer_configs[0]
@@ -6253,6 +6253,7 @@ fn incoming_signers_ignore_block_proposals() {
         first_proposal_burn_block_timing: Duration::from_secs(0),
         block_proposal_timeout: Duration::from_secs(100),
         tenure_last_block_proposal_timeout: Duration::from_secs(30),
+        pre_commit_exclusivity_timeout: Duration::ZERO,
         tenure_idle_timeout: Duration::from_secs(300),
         tenure_idle_timeout_buffer: Duration::from_secs(2),
         reorg_attempts_activity_timeout: Duration::from_secs(30),
@@ -6428,6 +6429,7 @@ fn outgoing_signers_ignore_block_proposals() {
         first_proposal_burn_block_timing: Duration::from_secs(0),
         block_proposal_timeout: Duration::from_secs(100),
         tenure_last_block_proposal_timeout: Duration::from_secs(30),
+        pre_commit_exclusivity_timeout: Duration::ZERO,
         tenure_idle_timeout: Duration::from_secs(300),
         tenure_idle_timeout_buffer: Duration::from_secs(2),
         reorg_attempts_activity_timeout: Duration::from_secs(30),

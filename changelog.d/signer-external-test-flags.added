@@ -1,0 +1,1 @@
+With the `testing` feature, the signer binary reads its test flags from the JSON file named by `STACKS_SIGNER_TEST_FLAGS_FILE`, so a harness running the signer as a separate process can inject faults.

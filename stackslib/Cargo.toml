@@ -31,7 +31,7 @@ lazy_static = "1.4.0"
 url = "2.1.0"
 percent-encoding = "2.1.0"
 prometheus = { version = "0.14", default-features = false, optional = true }
-slog = { version = "2.5.2", features = [ "max_level_trace" ] }
+slog = { workspace = true }
 chrono = { version = "0.4.19", optional = true }
 clarity = { path = "../clarity" }
 stacks-common = { path = "../stacks-common" }
@@ -72,7 +72,7 @@ stacks-codec = { features = ["default", "testing"], path = "../stacks-codec" }
 rstest = "0.17.0"
 rstest_reuse = "0.5.0"
 mutants = "0.0.3"
-rlimit = "0.10.2"
+rlimit = "0.11.0"
 chrono = "0.4.19"
 tempfile = "3.3"
 pinny = { workspace = true }
