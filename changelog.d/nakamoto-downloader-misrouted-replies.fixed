@@ -1,0 +1,1 @@
+Fixed the Nakamoto block downloader handing a reply meant for its unconfirmed-tenure downloader to its confirmed-tenure downloader. A node that missed a block in a finished tenure could reject every peer's reply as the wrong block, disconnect from those peers, and never fetch the missing block.
