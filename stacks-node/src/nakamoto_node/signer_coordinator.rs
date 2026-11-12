@@ -390,6 +390,17 @@ impl SignerCoordinator {
 
             match res {
                 Err(NakamotoNodeError::SignatureTimeout) => {
+                    #[cfg(test)]
+                    if crate::nakamoto_node::miner::TEST_MINER_FORCE_REMINE.get() {
+                        crate::nakamoto_node::miner::TEST_MINER_FORCE_REMINE.set(false);
+                        info!("Abandoning the block proposal and re-mining due to testing directive";
+                            "signer_signature_hash" => %block.header.signer_signature_hash(),
+                        );
+                        return Err(NakamotoNodeError::SignersRejected {
+                            temporarily_excluded_txids: HashSet::new(),
+                            permanently_excluded_txids: HashSet::new(),
+                        });
+                    }
                     info!("Block proposal signing process timed out, resending the same proposal");
                     continue;
                 }

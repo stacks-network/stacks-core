@@ -2831,10 +2831,12 @@ fn partial_tenure_fork() {
 ///
 /// Test Execution:
 /// The node mines 1 stacks block N (all signers sign it). The subsequent block N+1 is proposed, but rejected by >30% of the signers.
-/// The miner then attempts to mine N+1', and all signers accept the block.
+/// The miner then attempts to mine N+1'. The signers that pre-committed N+1 hold that
+/// commitment for the pre-commit exclusivity window before accepting its replacement; once it
+/// lapses, all signers accept the block.
 ///
 /// Test Assertion:
-/// Stacks tip advances to N+1'
+/// Stacks tip advances to N+1', within the exclusivity window plus a transient re-send.
 fn locally_accepted_blocks_overriden_by_global_rejection() {
     if env::var("BITCOIND_TEST") != Ok("1".into()) {
         return;
@@ -2944,8 +2946,24 @@ fn locally_accepted_blocks_overriden_by_global_rejection() {
     let tx = submit_tx(&http_origin, &transfer_tx);
     info!("Submitted tx {tx} to mine block N+1'");
 
+    // The two signers that pre-committed N+1 keep that commitment for the exclusivity window
+    // before they will pre-commit its replacement, and nothing here gives up on N+1 early: the
+    // rejections are `TestingDirective`, which signers reconsider, so they are no evidence
+    // the set has abandoned it. N+1' therefore cannot land before the window lapses, plus one
+    // transient re-send for the miner to carry it across, plus slack. A bounded hold on a
+    // rare sibling proposal is the accepted cost of the window.
+    let exclusivity_window_secs = signer_test.signer_configs[0]
+        .pre_commit_exclusivity_timeout
+        .as_secs();
+    let transient_retry_secs = signer_test
+        .running_nodes
+        .conf
+        .miner
+        .transient_rejection_retry_timeout
+        .as_secs();
+    let n_1_prime_timeout_secs = exclusivity_window_secs + transient_retry_secs + 15;
     let block_n_1_prime = wait_for_block_pushed_and_tip(
-        short_timeout_secs,
+        n_1_prime_timeout_secs,
         info_before.stacks_tip_height + 1,
         &miner_pk,
         || signer_test.get_peer_info().stacks_tip,

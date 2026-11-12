@@ -30,7 +30,7 @@ prometheus = { version = "0.14", default-features = false, optional = true }
 rand_core = "0.6"
 reqwest = { workspace = true }
 serde = "1"
-slog = { version = "2.5.2", features = [ "max_level_trace" ] }
+slog = { workspace = true }
 stacks-common = { path = "../stacks-common", features = ["rusqlite"] }
 stackslib = { path = "../stackslib" }
 thiserror = { workspace = true }
