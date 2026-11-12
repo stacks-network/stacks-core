@@ -1,0 +1,1 @@
+Outbound p2p connection attempts that exceed `connect_timeout` are now dropped and their sockets closed. Previously they were left pending until the operating system gave up on the connection, and the node would not retry that neighbor in the meantime.
