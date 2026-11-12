@@ -3846,7 +3846,7 @@ dependencies = [
 
 [[package]]
 name = "stacks-common"
-version = "4.0.5"
+version = "4.0.6"
 dependencies = [
  "chrono",
  "curve25519-dalek",
@@ -3877,7 +3877,7 @@ dependencies = [
 
 [[package]]
 name = "stacks-inspect"
-version = "4.0.5"
+version = "4.0.6"
 dependencies = [
  "clap",
  "clarity",
@@ -3896,7 +3896,7 @@ dependencies = [
 
 [[package]]
 name = "stacks-marf"
-version = "4.0.5"
+version = "4.0.6"
 dependencies = [
  "nix",
  "rstest",
@@ -3913,7 +3913,7 @@ dependencies = [
 
 [[package]]
 name = "stacks-node"
-version = "4.0.5"
+version = "4.0.6"
 dependencies = [
  "backtrace",
  "base64 0.12.3",
@@ -3981,7 +3981,7 @@ dependencies = [
 
 [[package]]
 name = "stacks-signer"
-version = "4.0.5"
+version = "4.0.6"
 dependencies = [
  "backoff",
  "clap",
