@@ -1554,7 +1554,7 @@ dependencies = [
 
 [[package]]
 name = "stacks-common"
-version = "4.0.6"
+version = "4.0.7"
 dependencies = [
  "chrono",
  "curve25519-dalek",
@@ -1581,7 +1581,7 @@ dependencies = [
 
 [[package]]
 name = "stacks-marf"
-version = "4.0.6"
+version = "4.0.7"
 dependencies = [
  "nix",
  "rusqlite",
