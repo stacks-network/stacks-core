@@ -3023,7 +3023,7 @@ mod async_sibling_validation {
     fn run_peer_rejection_case(mainnet: bool) -> (usize, BlockState) {
         use libsigner::v0::messages::{BlockRejection, BlockResponse};
 
-        let mut node = MockNode::new(vec![], Duration::from_secs(100_000));
+        let mut node = MockNode::new(vec![], Duration::from_secs(100_000), Duration::ZERO);
         let block = plain_block(
             &ConsensusHash([1; 20]),
             &StacksBlockId([9; 32]),
