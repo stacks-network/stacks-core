@@ -31,7 +31,8 @@ use crate::chainstate::stacks::db::StacksChainState;
 use crate::core::{StacksEpochId, INITIAL_MINING_BONUS_WINDOW};
 
 impl SortitionHandleTx<'_> {
-    /// Run a blockstack operation's "check()" method and return the result.
+    /// Check a blockstack operation: reject it if `epoch_id` does not accept its opcode, and
+    /// otherwise run its "check()" method.
     fn check_transaction(
         &mut self,
         burnchain: &Burnchain,
