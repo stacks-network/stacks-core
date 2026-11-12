@@ -75,6 +75,14 @@ pub const BURNCHAIN_TX_SEARCH_WINDOW: u8 = 6;
 //  them again.
 pub const TX_BLOCK_LIMIT_PROPORTION_HEURISTIC: u64 = 20;
 
+// This controls a miner heuristic for dropping a transaction whose receipt (its result plus its
+//  smart-contract events) is so large that it could only ever fit into a nearly empty block.
+//  A transaction whose receipt alone is at least `TX_RECEIPT_SIZE_PROPORTION_HEURISTIC`% of the
+//  per-block receipt limit is treated as problematic and dropped from the mempool rather than
+//  being re-executed (and rejected) on every block attempt. This is mining policy only; block
+//  validation keeps the consensus limit.
+pub const TX_RECEIPT_SIZE_PROPORTION_HEURISTIC: u64 = 75;
+
 pub const GENESIS_EPOCH: StacksEpochId = StacksEpochId::Epoch20;
 
 /// The x-coordinate public key with no known discrete logarithm.

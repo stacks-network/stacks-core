@@ -24,6 +24,7 @@ use blockstack_lib::net::api::get_tenures_fork_info::{
     TenureForkingInfo, RPC_TENURE_FORKING_INFO_PATH,
 };
 use blockstack_lib::net::api::getaccount::AccountEntryResponse;
+use blockstack_lib::net::api::getblockview::BlockViewInfo;
 use blockstack_lib::net::api::getpoxinfo::RPCPoxInfoData;
 use blockstack_lib::net::api::getsortition::{SortitionInfo, RPC_SORTITION_INFO_PATH};
 use blockstack_lib::net::api::getstackers::GetStackersResponse;
@@ -40,7 +41,8 @@ use serde_json::json;
 use stacks_common::codec::StacksMessageCodec;
 use stacks_common::consts::CHAIN_ID_MAINNET;
 use stacks_common::types::chainstate::{
-    BurnchainHeaderHash, ConsensusHash, StacksAddress, StacksPrivateKey, StacksPublicKey,
+    BurnchainHeaderHash, ConsensusHash, StacksAddress, StacksBlockId, StacksPrivateKey,
+    StacksPublicKey,
 };
 use stacks_common::types::StacksEpochId;
 use stacks_common::{debug, warn};
@@ -155,6 +157,27 @@ impl StacksClient {
     /// Get our signer address
     pub const fn get_signer_address(&self) -> &StacksAddress {
         &self.stacks_address
+    }
+
+    /// Get the burnchain views `block_id` hangs from, and whether a burnchain fork has since
+    /// orphaned either of them.
+    ///
+    /// The burn view is derived while the node processes a block and is not carried in the
+    /// header, so this is the only way to learn it for a block we did not build ourselves. A
+    /// [`ClientError::RequestFailure`] with [`reqwest::StatusCode::NOT_FOUND`] means the node
+    /// has no record of the block, which is no evidence either way.
+    pub fn get_block_view(&self, block_id: &StacksBlockId) -> Result<BlockViewInfo, ClientError> {
+        debug!("StacksClient: Getting block view";
+            "block_id" => %block_id,
+        );
+        let response = self
+            .stacks_node_client
+            .get(self.block_view_path(block_id))
+            .send()?;
+        if !response.status().is_success() {
+            return Err(ClientError::RequestFailure(response.status()));
+        }
+        Ok(response.json()?)
     }
 
     /// Get the header of the highest known block in the given tenure
@@ -763,6 +786,10 @@ impl StacksClient {
 
     fn reward_set_path(&self, reward_cycle: u64) -> String {
         format!("{}/v3/stacker_set/{reward_cycle}", self.http_origin)
+    }
+
+    fn block_view_path(&self, block_id: &StacksBlockId) -> String {
+        format!("{}/v3/blocks/{block_id}/view", self.http_origin)
     }
 
     fn tenure_tip_path(&self, consensus_hash: &ConsensusHash) -> String {
