@@ -40,11 +40,11 @@ impl RPCGetStxTransferCostRequestHandler {
 
 /// Decode the HTTP request
 impl HttpRequest for RPCGetStxTransferCostRequestHandler {
-    fn verb(&self) -> &'static str {
+    fn verb() -> &'static str {
         "GET"
     }
 
-    fn path_regex(&self) -> Regex {
+    fn path_regex() -> Regex {
         Regex::new(r#"^/v2/fees/transfer$"#).unwrap()
     }
 

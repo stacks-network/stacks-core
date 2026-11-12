@@ -94,11 +94,11 @@ impl StacksIndexedMicroblockStream {
 
 /// Decode the HTTP request
 impl HttpRequest for RPCMicroblocksIndexedRequestHandler {
-    fn verb(&self) -> &'static str {
+    fn verb() -> &'static str {
         "GET"
     }
 
-    fn path_regex(&self) -> Regex {
+    fn path_regex() -> Regex {
         Regex::new(r#"^/v2/microblocks/(?P<tail_microblock_id>[0-9a-f]{64})$"#).unwrap()
     }
 

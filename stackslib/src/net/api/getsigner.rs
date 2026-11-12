@@ -46,11 +46,11 @@ pub struct GetSignerResponse {
 
 /// Decode the HTTP request
 impl HttpRequest for GetSignerRequestHandler {
-    fn verb(&self) -> &'static str {
+    fn verb() -> &'static str {
         "GET"
     }
 
-    fn path_regex(&self) -> Regex {
+    fn path_regex() -> Regex {
         Regex::new(
             r#"^/v3/signer/(?P<signer_pubkey>0[23][0-9a-f]{64})/(?P<cycle_num>[0-9]{1,10})$"#,
         )

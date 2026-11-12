@@ -48,11 +48,11 @@ impl RPCGetContractAbiRequestHandler {
 
 /// Decode the HTTP request
 impl HttpRequest for RPCGetContractAbiRequestHandler {
-    fn verb(&self) -> &'static str {
+    fn verb() -> &'static str {
         "GET"
     }
 
-    fn path_regex(&self) -> Regex {
+    fn path_regex() -> Regex {
         Regex::new(&format!(
             "^/v2/contracts/interface/(?P<address>{})/(?P<contract>{})$",
             *STANDARD_PRINCIPAL_REGEX_STRING, *CONTRACT_NAME_REGEX_STRING

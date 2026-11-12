@@ -50,7 +50,7 @@ use crate::chainstate::stacks::{
 use crate::core::MemPoolDB;
 use crate::net::db::PeerDB;
 use crate::net::httpcore::{
-    HttpPreambleExtensions as _, StacksHttpRequest, StacksHttpResponse, TipRequest,
+    HttpPreambleExtensions as _, RPCRouteTable, StacksHttpRequest, StacksHttpResponse, TipRequest,
 };
 use crate::net::relay::Relayer;
 use crate::net::rpc::ConversationHttp;
@@ -897,6 +897,7 @@ impl<'a> TestRPC<'a> {
             Some(UrlString::try_from("http://peer1.com".to_string()).unwrap()),
             peer_1.to_peer_host(),
             &peer_1.config.connection_opts,
+            &RPCRouteTable::new(&peer_1.config.connection_opts),
             0,
             32,
         );
@@ -908,6 +909,7 @@ impl<'a> TestRPC<'a> {
             Some(UrlString::try_from("http://peer2.com".to_string()).unwrap()),
             peer_2.to_peer_host(),
             &peer_2.config.connection_opts,
+            &RPCRouteTable::new(&peer_2.config.connection_opts),
             1,
             32,
         );
@@ -963,6 +965,7 @@ impl<'a> TestRPC<'a> {
             Some(UrlString::try_from("http://peer1.com".to_string()).unwrap()),
             peer.to_peer_host(),
             &peer.config.connection_opts,
+            &RPCRouteTable::new(&peer.config.connection_opts),
             0,
             32,
         );
@@ -974,6 +977,7 @@ impl<'a> TestRPC<'a> {
             Some(UrlString::try_from("http://peer2.com".to_string()).unwrap()),
             other_peer.to_peer_host(),
             &other_peer.config.connection_opts,
+            &RPCRouteTable::new(&other_peer.config.connection_opts),
             1,
             32,
         );
@@ -1065,6 +1069,7 @@ impl<'a> TestRPC<'a> {
             Some(UrlString::try_from("http://peer1.com".to_string()).unwrap()),
             peer.to_peer_host(),
             &peer.config.connection_opts,
+            &RPCRouteTable::new(&peer.config.connection_opts),
             0,
             32,
         );
@@ -1076,6 +1081,7 @@ impl<'a> TestRPC<'a> {
             Some(UrlString::try_from("http://peer2.com".to_string()).unwrap()),
             other_peer.to_peer_host(),
             &other_peer.config.connection_opts,
+            &RPCRouteTable::new(&other_peer.config.connection_opts),
             1,
             32,
         );
