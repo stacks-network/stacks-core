@@ -1,0 +1,50 @@
+[package]
+name = "libsigner-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2021"
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+serde = "1"
+serde_json = "1.0"
+
+[dependencies.libsigner]
+path = ".."
+
+[dependencies.stackslib]
+path = "../../stackslib"
+
+[dependencies.stacks-common]
+path = "../../stacks-common"
+
+# Prevent this from interfering with workspaces
+[workspace]
+members = ["."]
+
+[profile.release]
+debug = 1
+
+[[bin]]
+name = "signer_message"
+path = "fuzz_targets/signer_message.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "signer_event"
+path = "fuzz_targets/signer_event.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "global_state"
+path = "fuzz_targets/global_state.rs"
+test = false
+doc = false
+bench = false
