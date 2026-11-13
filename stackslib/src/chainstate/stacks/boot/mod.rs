@@ -35,8 +35,6 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use stacks_common::codec::StacksMessageCodec;
 use stacks_common::types::chainstate::{StacksAddress, StacksBlockId};
 use stacks_common::util::hash::{hex_bytes, to_hex};
-#[cfg(test)]
-use stacks_common::util::tests::TestFlag;
 
 use crate::burnchains::{Burnchain, PoxConstants};
 use crate::chainstate::burn::db::sortdb::SortitionDB;
@@ -169,10 +167,6 @@ pub const SIP_031_TESTNET_ADDR: LazyLock<StacksAddress> = LazyLock::new(|| {
     StacksAddress::from_string("ST1QCN9YMXMJPJ0Y5EMR627FCWDXQWT1CRK9CWN23").unwrap()
 });
 
-#[cfg(test)]
-pub static TEST_SIP_031_ADDR: LazyLock<TestFlag<Option<StacksAddress>>> =
-    LazyLock::new(TestFlag::default);
-
 pub mod docs;
 
 lazy_static! {
@@ -222,18 +216,6 @@ fn make_testnet_cost_voting() -> String {
         )
 }
 
-#[cfg(test)]
-pub fn get_sip_031_recipient_addr(is_mainnet: bool) -> StacksAddress {
-    if is_mainnet {
-        SIP_031_MAINNET_ADDR.clone()
-    } else {
-        TEST_SIP_031_ADDR
-            .get()
-            .unwrap_or(SIP_031_TESTNET_ADDR.clone())
-    }
-}
-
-#[cfg(not(test))]
 pub fn get_sip_031_recipient_addr(is_mainnet: bool) -> StacksAddress {
     if is_mainnet {
         SIP_031_MAINNET_ADDR.clone()
@@ -6272,14 +6254,6 @@ pub mod test {
         assert_eq!(
             get_sip_031_recipient_addr(false),
             SIP_031_TESTNET_ADDR.clone()
-        );
-
-        let transient = StacksAddress::from(StandardPrincipalData::transient().clone());
-        TEST_SIP_031_ADDR.set(Some(transient.clone()));
-        assert_eq!(get_sip_031_recipient_addr(false), transient.clone());
-        assert_eq!(
-            get_sip_031_recipient_addr(true),
-            SIP_031_MAINNET_ADDR.clone()
         );
     }
 
