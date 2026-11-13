@@ -566,6 +566,13 @@ impl StacksEpochId {
         self >= &StacksEpochId::Epoch41
     }
 
+    /// Whether a contract-call transaction may only call `define-public` functions.
+    ///
+    /// Before this epoch, it could also call `define-read-only` functions.
+    pub fn forbids_top_level_read_only_calls(&self) -> bool {
+        self >= &StacksEpochId::Epoch41
+    }
+
     /// Whether `concat` fails the transaction with `ValueTooLarge` when it would
     /// build a buffer or string larger than `MAX_VALUE_SIZE`.
     pub fn checks_concat_result_size(&self) -> bool {

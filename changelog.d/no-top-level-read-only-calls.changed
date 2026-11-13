@@ -1,0 +1,1 @@
+Beginning in Epoch 4.1, a contract-call transaction can only call `define-public` functions. A transaction that targets a `define-read-only` function now fails with a `NoSuchPublicFunction` runtime error, like one that targets a `define-private` function. Mempool admission already rejected such transactions.

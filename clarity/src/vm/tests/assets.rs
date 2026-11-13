@@ -143,6 +143,21 @@ fn execute_transaction(
     env.execute_transaction(issuer, None, contract_identifier.clone(), tx, args)
 }
 
+/// Like [`execute_transaction`], but `function` must be a `define-read-only` function.
+/// `execute_transaction` rejects such functions from Epoch 4.1 on, while this works in every
+/// epoch.
+fn call_read_only(
+    env: &mut OwnedEnvironment,
+    issuer: PrincipalData,
+    contract_identifier: &QualifiedContractIdentifier,
+    function: &str,
+    args: Vec<Value>,
+) -> Result<(Value, AssetMap, Vec<StacksTransactionEvent>), VmExecutionError> {
+    env.execute_in_env(issuer, None, None, |exec_state, invoke_ctx| {
+        exec_state.execute_contract(invoke_ctx, contract_identifier, function, args, true)
+    })
+}
+
 #[apply(test_epochs)]
 fn test_native_stx_ops(epoch: StacksEpochId, mut env_factory: TopLevelMemoryEnvironmentGenerator) {
     use clarity_types::ContractName;
@@ -310,7 +325,7 @@ fn test_native_stx_ops(epoch: StacksEpochId, mut env_factory: TopLevelMemoryEnvi
 
     // test 6: check balance
 
-    let (result, _asset_map, _events) = execute_transaction(
+    let (result, _asset_map, _events) = call_read_only(
         &mut owned_env,
         p2_principal.clone(),
         &token_contract_id,
@@ -328,7 +343,7 @@ fn test_native_stx_ops(epoch: StacksEpochId, mut env_factory: TopLevelMemoryEnvi
             .unwrap();
     let nonexistent_principal = Value::Principal(PrincipalData::Standard(sp_data));
 
-    let (result, _asset_map, _events) = execute_transaction(
+    let (result, _asset_map, _events) = call_read_only(
         &mut owned_env,
         p2_principal.clone(),
         &token_contract_id,
@@ -415,7 +430,7 @@ fn test_native_stx_ops(epoch: StacksEpochId, mut env_factory: TopLevelMemoryEnvi
     .unwrap();
     let contract_principal = Value::Principal(cp_data);
 
-    let (result, _asset_map, _events) = execute_transaction(
+    let (result, _asset_map, _events) = call_read_only(
         &mut owned_env,
         p2_principal.clone(),
         &token_contract_id,
@@ -622,7 +637,7 @@ fn test_simple_token_system(
         VmExecutionError::RuntimeCheck(RuntimeCheckErrorKind::TypeValueError(_, _))
     ));
 
-    let (result, asset_map, _events) = execute_transaction(
+    let (result, asset_map, _events) = call_read_only(
         &mut owned_env,
         p1_principal.clone(),
         &token_contract_id,
@@ -634,7 +649,7 @@ fn test_simple_token_system(
     assert_eq!(result, Value::UInt(1000));
     assert!(asset_map.to_table().is_empty());
 
-    let (result, asset_map, _events) = execute_transaction(
+    let (result, asset_map, _events) = call_read_only(
         &mut owned_env,
         p1_principal.clone(),
         &token_contract_id,
@@ -695,7 +710,7 @@ fn test_simple_token_system(
         AssetMapEntry::Token(1)
     );
 
-    let (result, _asset_map, _events) = execute_transaction(
+    let (result, _asset_map, _events) = call_read_only(
         &mut owned_env,
         p1_principal.clone(),
         &token_contract_id,
@@ -707,7 +722,7 @@ fn test_simple_token_system(
     assert_eq!(result, Value::UInt(1003));
 
     // Get the total supply - Total minted so far = 10204
-    let (result, _asset_map, _events) = execute_transaction(
+    let (result, _asset_map, _events) = call_read_only(
         &mut owned_env,
         p1_principal.clone(),
         &token_contract_id,
@@ -735,7 +750,7 @@ fn test_simple_token_system(
     );
 
     // Get p2's balance we should get 9200 - 100 = 9100
-    let (result, _asset_map, _events) = execute_transaction(
+    let (result, _asset_map, _events) = call_read_only(
         &mut owned_env,
         p1_principal.clone(),
         &token_contract_id,
@@ -747,7 +762,7 @@ fn test_simple_token_system(
     assert_eq!(result, Value::UInt(9100));
 
     // Get the new total supply
-    let (result, _asset_map, _events) = execute_transaction(
+    let (result, _asset_map, _events) = call_read_only(
         &mut owned_env,
         p1_principal.clone(),
         &token_contract_id,
