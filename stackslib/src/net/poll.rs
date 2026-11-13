@@ -57,6 +57,8 @@ pub struct NetworkState {
     servers: Vec<NetworkServerState>,
     count: usize,
     event_map: HashMap<usize, usize>, // map socket events to their registered server socket (including server sockets)
+    /// readiness sources that aren't sockets, by event ID (see `register_waker()`)
+    wakers: HashMap<usize, mio::Registration>,
 }
 
 impl NetworkState {
@@ -75,6 +77,7 @@ impl NetworkState {
             servers: vec![],
             count: 1,
             event_map: HashMap::new(),
+            wakers: HashMap::new(),
         })
     }
 
@@ -267,6 +270,55 @@ impl NetworkState {
         Ok(())
     }
 
+    /// Register a readiness source that isn't a socket, for something that does its I/O
+    /// elsewhere (e.g. on its own thread).  Setting the returned `SetReadiness` to readable wakes
+    /// up `poll()`; reset it to empty before checking for work, so the next change wakes it up
+    /// again.
+    /// Returns the waker's event ID, which also keys its (always empty) state in `poll()`'s
+    /// results, and can be passed to `reserve_event_id()`.
+    pub fn register_waker(&mut self) -> Result<(usize, mio::SetReadiness), net_error> {
+        let event_id = self.next_event_id()?;
+        let (registration, set_readiness) = mio::Registration::new2();
+        self.poll
+            .register(
+                &registration,
+                mio::Token(event_id),
+                Ready::readable(),
+                PollOpt::edge(),
+            )
+            .map_err(|e| {
+                error!("Failed to register waker on event ID {event_id}: {e:?}");
+                net_error::RegisterError
+            })?;
+
+        // like server events, wakers are always mapped to 0
+        self.event_map.insert(event_id, 0);
+        self.wakers.insert(event_id, registration);
+        Ok((event_id, set_readiness))
+    }
+
+    /// Reserve an event ID for a connection that isn't a socket registered with this poller,
+    /// so it can't be handed out to anything else.  `owner_event_id` is the waker that reports
+    /// the connection's readiness.  Release it with `release_event_id()`.
+    pub fn reserve_event_id(&mut self, owner_event_id: usize) -> Result<usize, net_error> {
+        assert!(
+            self.wakers.contains_key(&owner_event_id),
+            "BUG: not a waker event ID: {owner_event_id}"
+        );
+        let event_id = self.next_event_id()?;
+        self.event_map.insert(event_id, owner_event_id);
+        Ok(event_id)
+    }
+
+    /// Release an event ID reserved with `reserve_event_id()`.
+    pub fn release_event_id(&mut self, event_id: usize) {
+        if let Some(owner_event_id) = self.event_map.get(&event_id) {
+            if self.wakers.contains_key(owner_event_id) {
+                self.event_map.remove(&event_id);
+            }
+        }
+    }
+
     fn make_next_event_id(&self, cur_count: usize, in_use: &HashSet<usize>) -> Option<usize> {
         let mut ret = cur_count;
 
@@ -389,11 +441,18 @@ impl NetworkState {
             let server_event_id = usize::from(server.server_event);
             poll_states.insert(server_event_id, NetworkPollState::new());
         }
+        for waker_event_id in self.wakers.keys() {
+            poll_states.insert(*waker_event_id, NetworkPollState::new());
+        }
 
         let mut new_events = HashSet::new();
 
         for event in &self.events {
             let token = event.token();
+            if self.wakers.contains_key(&usize::from(token)) {
+                // the waker's owner checks for its own work
+                continue;
+            }
             let mut is_server_event = false;
 
             for server in self.servers.iter() {
@@ -628,5 +687,76 @@ mod test {
         for _ in 0..20 {
             assert!(ns.make_next_event_id(count, &in_use).is_none());
         }
+    }
+
+    /// Whether the last `poll()` saw an event for `event_id`
+    fn polled_event(ns: &NetworkState, event_id: usize) -> bool {
+        ns.events
+            .iter()
+            .any(|event| usize::from(event.token()) == event_id)
+    }
+
+    #[test]
+    fn test_waker() {
+        let mut ns = NetworkState::new(100).unwrap();
+        let (waker_event_id, readiness) = ns.register_waker().unwrap();
+        assert_eq!(ns.num_events(), 1);
+
+        // nothing to do: the waker's state is there, but empty
+        let poll_states = ns.poll(0).unwrap();
+        assert!(!polled_event(&ns, waker_event_id));
+        assert!(poll_states.get(&waker_event_id).unwrap().ready.is_empty());
+
+        // it can be woken up from another thread
+        let readiness = std::thread::spawn(move || {
+            readiness.set_readiness(Ready::readable()).unwrap();
+            readiness
+        })
+        .join()
+        .unwrap();
+        let poll_states = ns.poll(0).unwrap();
+        assert!(polled_event(&ns, waker_event_id));
+
+        // the event wakes up `poll()`, but isn't reported as socket readiness
+        let state = poll_states.get(&waker_event_id).unwrap();
+        assert!(state.ready.is_empty());
+        assert!(state.new.is_empty());
+
+        // once reset, it doesn't fire again until it's woken up again
+        readiness.set_readiness(Ready::empty()).unwrap();
+        ns.poll(0).unwrap();
+        assert!(!polled_event(&ns, waker_event_id));
+
+        readiness.set_readiness(Ready::readable()).unwrap();
+        ns.poll(0).unwrap();
+        assert!(polled_event(&ns, waker_event_id));
+    }
+
+    #[test]
+    fn test_reserve_release_event_id() {
+        let mut ns = NetworkState::new(100).unwrap();
+        let (waker_event_id, _readiness) = ns.register_waker().unwrap();
+
+        let mut reserved = HashSet::new();
+        for _ in 0..10 {
+            let event_id = ns.reserve_event_id(waker_event_id).unwrap();
+            assert_ne!(event_id, waker_event_id);
+            assert!(reserved.insert(event_id));
+        }
+        assert_eq!(ns.num_events(), 11);
+
+        // reserved IDs aren't handed out again
+        let next = ns.next_event_id().unwrap();
+        assert!(!reserved.contains(&next));
+        assert_ne!(next, waker_event_id);
+
+        for event_id in reserved {
+            ns.release_event_id(event_id);
+        }
+        assert_eq!(ns.num_events(), 1);
+
+        // the waker itself can't be released this way
+        ns.release_event_id(waker_event_id);
+        assert_eq!(ns.num_events(), 1);
     }
 }
