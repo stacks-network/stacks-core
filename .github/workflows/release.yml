@@ -66,7 +66,6 @@ jobs:
       - name: Checkout the latest code
         uses: $/.github/wrappers/checkout
         with:
-          ref: ${{ github.event.pull_request.head.sha || github.ref }}
           sparse-checkout: |
             .github
 
@@ -109,7 +108,6 @@ jobs:
       - name: Checkout the latest code
         uses: $/.github/wrappers/checkout
         with:
-          ref: ${{ github.event.pull_request.head.sha || github.ref }}
           sparse-checkout: |
             .github
             Cargo.toml
@@ -134,8 +132,6 @@ jobs:
       # Checkout the code
       - name: Checkout the latest code
         uses: $/.github/wrappers/checkout
-        with:
-          ref: ${{ github.event.pull_request.head.sha || github.ref }}
            
       - name: 'Check for "DO NOT RELEASE" in codebase'
         shell: bash
@@ -264,7 +260,6 @@ jobs:
       - name: Checkout the latest code
         uses: $/.github/wrappers/checkout
         with:
-          ref: ${{ github.event.pull_request.head.sha || github.ref }}
           sparse-checkout: |
             .github
 
