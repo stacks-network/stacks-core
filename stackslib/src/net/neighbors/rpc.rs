@@ -27,11 +27,38 @@ use crate::net::{
     StacksHttpRequest, StacksHttpResponse,
 };
 
+/// Which state machine sent an in-flight request.
+///
+/// Several state machines can share one `NeighborRPC`, which allows one in-flight request per
+/// neighbor. A reply is only meaningful to the state machine that sent the request it answers, so
+/// `collect_replies()` only returns replies to requests sent by the given owner.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum NeighborRPCOwner {
+    /// The Nakamoto downloader for confirmed tenures (`NakamotoTenureDownloaderSet`)
+    NakamotoConfirmedTenures,
+    /// The Nakamoto downloader for unconfirmed tenures
+    /// (`NakamotoUnconfirmedTenureDownloader`)
+    NakamotoUnconfirmedTenures,
+    #[cfg(test)]
+    Test(u8),
+}
+
+/// An in-flight request to a neighbor
+#[derive(Debug)]
+struct InflightRequest {
+    /// HTTP event ID of the connection to the neighbor
+    event_id: usize,
+    /// The request, until it has been handed to the connection
+    request: Option<StacksHttpRequest>,
+    /// The state machine that sent the request
+    owner: NeighborRPCOwner,
+}
+
 /// This struct represents a batch of in-flight RPCs to a set of peers, identified by a
 /// neighbor key (or something that converts to it)
 #[derive(Debug, Default)]
 pub struct NeighborRPC {
-    state: HashMap<NeighborAddress, (usize, Option<StacksHttpRequest>)>,
+    state: HashMap<NeighborAddress, InflightRequest>,
     dead: HashSet<DropNeighbor>,
     broken: HashSet<DropNeighbor>,
 }
@@ -96,51 +123,68 @@ impl NeighborRPC {
         mem::take(&mut self.broken)
     }
 
-    /// Collect all in-flight replies into a vec.
-    /// This also pushes data into each connection's socket write buffer,
-    /// so the client of this module should eagerly call this over and over again.
+    /// Collect the replies to `owner`'s in-flight requests into a vec.
+    /// This drives I/O for every in-flight request, whoever sent it, so the client of this module
+    /// should eagerly call this over and over again.
+    ///
+    /// A reply to a request sent by a different owner is dropped. Handing it to `owner` would
+    /// pair it with the wrong request, and its sender will send the request again once it sees
+    /// that nothing is in flight to the neighbor.
     pub fn collect_replies(
         &mut self,
         network: &mut PeerNetwork,
+        owner: NeighborRPCOwner,
     ) -> Vec<(NeighborAddress, StacksHttpResponse)> {
         let mut inflight = HashMap::new();
         let mut dead = vec![];
         let mut ret = vec![];
-        for (naddr, (event_id, mut request_opt)) in self.state.drain() {
-            let response =
-                match NeighborRPC::poll_next_reply(network, &naddr, event_id, &mut request_opt) {
-                    Ok(Some(response)) => response,
-                    Ok(None) => {
-                        // keep trying
-                        debug!("Still waiting for next reply from {naddr}");
-                        inflight.insert(naddr, (event_id, request_opt));
-                        continue;
-                    }
-                    Err(NetError::WaitingForDNS) => {
-                        // keep trying
-                        debug!("Could not yet poll next reply from {naddr}: waiting for DNS",);
-                        inflight.insert(naddr, (event_id, request_opt));
-                        continue;
-                    }
-                    Err(NetError::InProgress) => {
-                        // keep trying
-                        debug!(
+        for (naddr, mut inflight_request) in self.state.drain() {
+            let event_id = inflight_request.event_id;
+            let response = match NeighborRPC::poll_next_reply(
+                network,
+                &naddr,
+                event_id,
+                &mut inflight_request.request,
+            ) {
+                Ok(Some(response)) => response,
+                Ok(None) => {
+                    // keep trying
+                    debug!("Still waiting for next reply from {naddr}");
+                    inflight.insert(naddr, inflight_request);
+                    continue;
+                }
+                Err(NetError::WaitingForDNS) => {
+                    // keep trying
+                    debug!("Could not yet poll next reply from {naddr}: waiting for DNS",);
+                    inflight.insert(naddr, inflight_request);
+                    continue;
+                }
+                Err(NetError::InProgress) => {
+                    // keep trying
+                    debug!(
                         "Could not yet poll next reply from {naddr}: request already in progress",
                     );
-                        inflight.insert(naddr, (event_id, request_opt));
-                        continue;
-                    }
-                    Err(e) => {
-                        // declare this neighbor as dead by default
-                        debug!("Failed to poll next reply from {naddr}: {e}");
-                        dead.push((
-                            naddr,
-                            DropReason::DeadConnection(format!("Failed to poll next reply: {e}")),
-                        ));
-                        continue;
-                    }
-                };
+                    inflight.insert(naddr, inflight_request);
+                    continue;
+                }
+                Err(e) => {
+                    // declare this neighbor as dead by default
+                    debug!("Failed to poll next reply from {naddr}: {e}");
+                    dead.push((
+                        naddr,
+                        DropReason::DeadConnection(format!("Failed to poll next reply: {e}")),
+                    ));
+                    continue;
+                }
+            };
 
+            if inflight_request.owner != owner {
+                debug!(
+                    "Drop reply from {naddr} to a request sent by {:?}, collected by {owner:?}",
+                    inflight_request.owner
+                );
+                continue;
+            }
             ret.push((naddr, response));
         }
         for (naddr, reason) in dead.into_iter() {
@@ -178,6 +222,7 @@ impl NeighborRPC {
         network: &mut PeerNetwork,
         naddr: NeighborAddress,
         request: StacksHttpRequest,
+        owner: NeighborRPCOwner,
     ) -> Result<(), NetError> {
         let nk = naddr.to_neighbor_key(network);
         let convo = network
@@ -223,7 +268,14 @@ impl NeighborRPC {
             "Send request to {} on event {}: {:?}",
             &naddr, event_id, &request
         );
-        self.state.insert(naddr, (event_id, Some(request)));
+        self.state.insert(
+            naddr,
+            InflightRequest {
+                event_id,
+                request: Some(request),
+                owner,
+            },
+        );
         Ok(())
     }
 

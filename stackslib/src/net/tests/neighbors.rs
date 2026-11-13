@@ -27,7 +27,7 @@ use crate::core::{
 };
 use crate::net::connection::ReplyHandleP2P;
 use crate::net::db::*;
-use crate::net::neighbors::rpc::NeighborRPC;
+use crate::net::neighbors::rpc::{NeighborRPC, NeighborRPCOwner};
 use crate::net::neighbors::*;
 use crate::net::test::*;
 use crate::net::*;
@@ -1618,6 +1618,7 @@ fn test_issue_concurrent_requests_in_different_state_machines() {
                 &mut peer_client.network,
                 peer_addr.clone(),
                 StacksHttpRequest::new_getinfo(peer_host.clone(), None),
+                NeighborRPCOwner::Test(1),
             )
             .unwrap();
         rpc_comms_2
@@ -1628,6 +1629,7 @@ fn test_issue_concurrent_requests_in_different_state_machines() {
                     peer_host.clone(),
                     TipRequest::UseLatestAnchoredTip,
                 ),
+                NeighborRPCOwner::Test(2),
             )
             .unwrap();
 
@@ -1639,12 +1641,16 @@ fn test_issue_concurrent_requests_in_different_state_machines() {
             && (rpc_comms_1_reply.is_none() || rpc_comms_2_reply.is_none())
         {
             let _ = peer_client.step();
-            for (_, reply) in rpc_comms_1.collect_replies(&mut peer_client.network) {
+            for (_, reply) in
+                rpc_comms_1.collect_replies(&mut peer_client.network, NeighborRPCOwner::Test(1))
+            {
                 if rpc_comms_1_reply.is_none() {
                     rpc_comms_1_reply = Some(reply);
                 }
             }
-            for (_, reply) in rpc_comms_2.collect_replies(&mut peer_client.network) {
+            for (_, reply) in
+                rpc_comms_2.collect_replies(&mut peer_client.network, NeighborRPCOwner::Test(2))
+            {
                 if rpc_comms_2_reply.is_none() {
                     rpc_comms_2_reply = Some(reply);
                 }
@@ -1666,6 +1672,123 @@ fn test_issue_concurrent_requests_in_different_state_machines() {
             .unwrap()
             .decode_rpc_get_pox_info()
             .unwrap();
+
+        run.store(false, Ordering::SeqCst);
+        t.join().unwrap();
+    })
+}
+
+/// Verify that when two state machines share one `NeighborRPC`, a reply to a request sent by one
+/// of them is never handed to the other. The Nakamoto downloader's confirmed-tenure and
+/// unconfirmed-tenure state machines share one `NeighborRPC`, and handing one a reply meant for
+/// the other made it reject valid peers.
+#[test]
+fn test_neighbor_rpc_reply_only_goes_to_request_owner() {
+    with_timeout(600, || {
+        let peer_config = TestPeerConfig::new(function_name!(), 0, 0);
+        let mut peer = TestPeer::new(peer_config);
+
+        let peer_addr = NeighborAddress::from_neighbor(&peer.to_neighbor());
+        let peer_host = peer.to_peer_host();
+
+        let peer_client_config = TestPeerConfig::new(function_name!(), 0, 0);
+        let mut peer_client = TestPeer::new(peer_client_config);
+
+        let run = Arc::new(AtomicBool::new(true));
+        let run_thread = run.clone();
+
+        let t = thread::spawn(move || {
+            while run_thread.load(Ordering::SeqCst) {
+                let _ = peer.step();
+            }
+        });
+
+        // handshake with remote peer
+        let mut comms = PeerNetworkComms::new();
+        let mut connected = false;
+        let now = get_epoch_time_secs();
+        while !connected && get_epoch_time_secs() < now + 60 {
+            if !comms.is_neighbor_connecting(&peer_client.network, &peer_addr)
+                || !comms.has_neighbor_session(&peer_client.network, &peer_addr)
+            {
+                let _ = comms
+                    .neighbor_session_begin(&mut peer_client.network, &peer_addr)
+                    .unwrap();
+            }
+            let _ = peer_client.step();
+            if let Some((_, reply)) = comms
+                .collect_replies(&mut peer_client.network)
+                .into_iter()
+                .next()
+            {
+                match reply.payload {
+                    StacksMessageType::HandshakeAccept(..)
+                    | StacksMessageType::StackerDBHandshakeAccept(..) => {
+                        connected = true;
+                    }
+                    _ => {
+                        panic!("Did not get handshake accept, but got {:?}", &reply);
+                    }
+                }
+            }
+        }
+        assert!(connected, "Failed to connect -- timed out");
+
+        let owner_1 = NeighborRPCOwner::Test(1);
+        let owner_2 = NeighborRPCOwner::Test(2);
+        let mut rpc_comms = NeighborRPC::new();
+
+        // owner 1 sends a request, but only owner 2 collects replies. The reply must be dropped,
+        // not handed to owner 2.
+        rpc_comms
+            .send_request(
+                &mut peer_client.network,
+                peer_addr.clone(),
+                StacksHttpRequest::new_getinfo(peer_host.clone(), None),
+                owner_1,
+            )
+            .unwrap();
+
+        let now = get_epoch_time_secs();
+        while get_epoch_time_secs() < now + 60 && rpc_comms.has_inflight(&peer_addr) {
+            let _ = peer_client.step();
+            let replies = rpc_comms.collect_replies(&mut peer_client.network, owner_2);
+            assert!(
+                replies.is_empty(),
+                "owner 2 got a reply to owner 1's request: {replies:?}"
+            );
+        }
+        assert!(
+            !rpc_comms.has_inflight(&peer_addr),
+            "timed out waiting for the reply to owner 1's request"
+        );
+        assert!(!rpc_comms.is_dead_or_broken(&peer_client.network, &peer_addr));
+
+        // owner 2's own request still gets its reply
+        rpc_comms
+            .send_request(
+                &mut peer_client.network,
+                peer_addr.clone(),
+                StacksHttpRequest::new_getpoxinfo(
+                    peer_host.clone(),
+                    TipRequest::UseLatestAnchoredTip,
+                ),
+                owner_2,
+            )
+            .unwrap();
+
+        let mut reply = None;
+        let now = get_epoch_time_secs();
+        while get_epoch_time_secs() < now + 60 && reply.is_none() {
+            let _ = peer_client.step();
+            reply = rpc_comms
+                .collect_replies(&mut peer_client.network, owner_2)
+                .into_iter()
+                .next();
+        }
+        let (naddr, reply) = reply.expect("timed out waiting for the reply to owner 2's request");
+        assert_eq!(naddr, peer_addr);
+        let _ = reply.decode_rpc_get_pox_info().unwrap();
 
         run.store(false, Ordering::SeqCst);
         t.join().unwrap();

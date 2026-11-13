@@ -24,7 +24,7 @@ use crate::chainstate::nakamoto::NakamotoBlock;
 use crate::chainstate::stacks::boot::RewardSet;
 use crate::chainstate::stacks::db::StacksChainState;
 use crate::net::httpcore::{StacksHttpRequest, StacksHttpResponse};
-use crate::net::neighbors::rpc::NeighborRPC;
+use crate::net::neighbors::rpc::{NeighborRPC, NeighborRPCOwner};
 use crate::net::p2p::{DropReason, DropSource, PeerNetwork};
 use crate::net::{Error as NetError, NeighborAddress};
 
@@ -605,7 +605,12 @@ impl NakamotoTenureDownloader {
             }
         };
 
-        neighbor_rpc.send_request(network, self.naddr.clone(), request)?;
+        neighbor_rpc.send_request(
+            network,
+            self.naddr.clone(),
+            request,
+            NeighborRPCOwner::NakamotoConfirmedTenures,
+        )?;
         self.idle = false;
         Ok(true)
     }
