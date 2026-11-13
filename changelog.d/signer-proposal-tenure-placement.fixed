@@ -1,2 +1,0 @@
-Signers now take a block proposal's burn height and reward cycle from the sortition that elected the block's tenure, and ignore proposals that misstate them, rather than trusting the values the miner sends alongside the block.
-A block proposal for a tenure that the signer's node has not yet processed is rejected with the transient `NoSortitionView` reason, so the miner re-proposes it once the signer has caught up.

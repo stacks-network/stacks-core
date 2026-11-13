@@ -5,6 +5,75 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to the versioning scheme outlined in the [README.md](README.md).
 
+## [4.0.7]
+
+### Fixed
+
+* Fixed nodes being unable to download a large Nakamoto tenure. A `/v3/tenures` response could hold up to 16 MiB of blocks, but the receiving node counts the response's chunk framing against the same limit and dropped the connection before the end, so a node that missed blocks in a tenure larger than about 16 MiB could never fetch them. `/v3/tenures` now leaves room for chunk framing so that nodes can read its responses.
+
+## [4.0.6]
+
+### ⚠️ Breaking Changes
+
+* Unused speculative tries from mining and block-proposal validation are no longer persisted. MARF databases automatically migrate to schema 4 on writable open, removing the legacy `mined_blocks` table and its stored tries. Older binaries cannot open upgraded databases, including in read-only mode; upgrade chainstate inspection and snapshot tooling alongside the node.
+* Signers in this release rely on the node's new `GET /v3/blocks/:block_id/view` endpoint and the `canonical` field on `/v3/sortitions` to release a signed block that a Bitcoin fork has orphaned. Against an older node a signer stays safe but never releases such a block, which can stall a tenure after a reorg. Upgrade the stacks-node before, or together with, its signer.
+* Removed the `stackslib::chainstate::stacks::index` module; the MARF now lives in the `stacks-marf` crate. Downstream library consumers should import from `stacks_marf` instead. There is no functional change.
+
+### Added
+
+* Adds the build-time environment variable `CUSTOM_VERSION_STRING` and exposes `stacks_build_info` through node and signer Prometheus metrics, with standard version, `STACKS_NODE_VERSION`, Git commit, and custom version labels. Custom metadata remains excluded from public version strings.
+* Added `GET /v3/blocks/:block_id/view`, reporting the tenure and burn view a block hangs from and whether a burnchain fork has orphaned either, and a `canonical` field on the sortition info returned by `/v3/sortitions`. Signers use both to tell whether a conflicting block is dead.
+* Consensus tests can start a tenure with a block of chosen transactions through `ConsensusChain::append_tenure_start_block`, which keeps invalid transactions and returns the block's result like other test blocks. Test-only change.
+* The core MARF types (`MARF`, `MARFOpenOpts`, `MarfConnection`, `MarfTransaction`) are now re-exported from the root of the `stacks-marf` crate, so they can be imported as `stacks_marf::MARF`. The existing `stacks_marf::marf::` paths keep working.
+* New `[connection_options]` settings bound how much inbound p2p work a node does in one network pass: `max_inbound_messages_per_pass` (default `64`) caps the messages handled from any one peer, and `max_inbound_processing_ms` (default `500`) caps the time spent handling inbound messages before the node moves on to inventory sync, block downloads and StackerDB sync. Work that doesn't fit is carried over to the next pass, which starts immediately unless the node is still processing previously downloaded blocks. While a peer's leftover messages are queued, the node stops reading from that peer's socket, so a burst of messages can't overflow the inbox and drop the connection.
+* With the `testing` feature, the signer binary reads its test flags from the JSON file named by `STACKS_SIGNER_TEST_FLAGS_FILE`, so a harness running the signer as a separate process can inject faults.
+* Add a single-contract `signer-manager-v2.clar` reference with accumulated staker payouts, rejected withdrawal retry, per-cycle reward reserves, payout configuration, allowlisting, and signer metadata. The original `signer-manager.clar` remains available.
+* The signer now shrinks its database file at startup when at least 256 MiB of it is free space (e.g. after pruning) and its live data is at most 1 GiB, so the space goes back to the OS. Set `db_shrink = false` in the signer config to disable it.
+* Added `node.sqlite_vfs` configuration option to select the SQLite VFS used for node databases. `"unix-excl"` holds one exclusive lock per database for the life of the process and keeps the WAL index in memory, removing per-transaction file locking on network and clustered filesystems. The default (`"default"`) keeps current behavior.
+
+### Changed
+
+* A globally defined constant now wins over a local variable or parameter of the same name. Such a case should not actually exist (it would be prevented earlier). This change merely makes the behavior consistent for the unlikely case that it *does* happen.
+* Prevent deployment of transient contracts from Epoch 4.1 on. This is a legacy construct that is no longer necessary and that only serves to confuse.
+* From Epoch 4.1, Clarity cost and memory charges, in analysis and at runtime, size callable types, and unions of them, by the contract and trait identifiers they hold. Size limits are unchanged.
+* Clarity docs: the `define-read-only` description now states that the reserved-name exception applies from Epoch 4.1.
+* Calling a user-defined function, whether directly, through `contract-call?` or from a transaction, copies its arguments less often and holds fewer copies of them while the call runs.
+* `ClarityBackingStore::get_cc_special_cases_handler` now takes the called contract, and the node only supplies the contract-call special-case handler for calls into PoX contracts.
+* Once a node's Stacks tip is a Nakamoto block and the first Nakamoto reward cycle has ended, it caches the epoch 2.x block inventory data it uses to answer `GetBlocksInv` requests, instead of querying the chainstate for every request.
+* The burnchains, config, core, net and util_lib modules now imports the MARF from `stacks_marf` directly instead of through the `stackslib::chainstate::stacks::index` re-export. No behaviour change.
+* The chainstate code now imports the MARF from `stacks_marf` directly instead of through the `stackslib::chainstate::stacks::index` re-export. No behaviour change.
+* `stacks-node`, `clarity-cli`, `stacks-inspect` and `marf-squash` now depend on `stacks-marf` directly instead of reaching the MARF through `stackslib`'s re-export, and `stacks-node`'s `testing` feature enables `stacks-marf/testing` explicitly. No behaviour change.
+* The last `assert!(matches!(..))` in the MARF's tests now uses `assert_matches!`, and redundant custom failure messages were dropped since `assert_matches!` already prints the value. Test-only change.
+* The node's Prometheus metrics endpoint is now served by `tiny_http` instead of `async-std`/`async-h1`, removing those dependencies and `http-types`. The endpoint's responses are unchanged. The configuration docs for the node's `prometheus_bind` and the signer's `endpoint` and `metrics_endpoint` now warn that these servers do not limit request sizes and should only be reachable from trusted hosts.
+* The Clarity v2 parser now reads tokens by reference instead of copying each token every time it is peeked or consumed, making `parser::v2::parse` about 10% faster on pox-4. Parse results and diagnostics are unchanged.
+* `PoxVersions` moved to pox-locking and is now the one list of PoX contracts.
+* Upgraded `prometheus` from 0.9 to 0.14 with its `protobuf` feature disabled, removing unused `protobuf` from `monitoring_prom` builds of the node and signer. Exported metrics are unchanged.
+* Documented PoX-5 lock semantics for `locked` and `unlock_height` in the `/v2/accounts` RPC spec.
+* Upgraded `rusqlite` from 0.31 to 0.41 for `libsqlite3-sys` (now 0.39.1). The bundled SQLite version moves from 3.45.0 to 3.54.1.
+* From Epoch 4.1, sortition draws the winning block-commit and the null miner's challenge from separate, domain-separated digests of the sortition hash and VRF seed, instead of reusing one digest for both.
+* The Clarity sugar expander and definition sorter no longer deep-clone nested expressions once per enclosing list or tuple, so both passes are linear rather than quadratic in nesting depth (the sugar expander pass is about 7x faster on pox-4). The definition sorter also no longer copies the whole contract before sorting. The expanded AST is unchanged.
+* Retain contract deployment interfaces in transaction receipts without retaining the full contract analysis graph.
+* `TupleTypeSignature` and `ListTypeData` now cache their value size at construction instead of recomputing it on every call, and `TypeSignature::size()` reads that cache for tuples and lists rather than walking the type. The cached field is not serialized: it is recomputed on deserialization, so the wire format is unchanged.
+
+### Fixed
+
+* In Clarity 7, variable shadowing (i.e. a local binding with the same name as a top-level definition) is prevented during contract analysis in all cases. Previously, some cases would have been missed, only breaking (or leading to unexpected behavior) at runtime.
+* Signers now release a signed conflict whose burn view a Bitcoin reorg has orphaned. A tenure that extends across a reorged burn block holds two blocks at the same height differing by burn view alone; without this a signer could be barred from that height for the rest of the tenure.
+* Allow Nakamoto blocks with exactly 2 MiB of transaction data in mining and signer proposal validation starting in Epoch 4.1, preserving the exclusive size limit in earlier epochs.
+* Fixed a node syncing from genesis stalling at the Epoch 3.0 handoff: blocks downloaded just before the switch were dropped, and the Nakamoto tenures among them were never fetched again.
+* From Epoch 4.1, a contract can call `contract-call?` through a trait it defines while it deploys, at the top level. Before, the deploy failed with `NoSuchContract` ([#6831](https://github.com/stacks-network/stacks-core/issues/6831)).
+* Fixed the miner's handling of a transaction whose receipt (its result plus its `print` events) is too large to fit into a block. The execution cost of a transaction the miner rejects is no longer left charged to the block being assembled; the Nakamoto miner drops a transaction whose receipt alone reaches 75% of the per-block receipt limit from the mempool as problematic instead of retrying it on every block; and a transaction whose receipt no longer fits in the room left in the current block is skipped and retried in a later block.
+* Signers no longer pre-commit to a block at a height in a tenure where they have already committed to a different block. A sibling the signer has signed bars the pre-commit permanently; one it has only pre-committed to bars it for `pre_commit_exclusivity_timeout_secs` (default 30 seconds), or until enough weight rejects that sibling for reasons that will not be reconsidered, whichever comes first. Added signer database schema version 22, which creates the `blocks_consensus_hash_height` index on `blocks (consensus_hash, stacks_height)`.
+* A signer's own signature over a block never goes stale against a sibling: another block at the same height in the same tenure is refused however much time has passed. Only a burnchain fork releases it, by orphaning the tenure's sortition or the block's burn view. Signatures at other heights or in other tenures are released by staleness, a reorg permit, or (on a node running this release) the same burnchain-fork checks; a signed conflict is no longer released merely because the node's Stacks chain does not reach it.
+* Signers now post a block received in a miner's `BlockPushed` message to their node only if the block's signer signatures are valid for the signer's reward set.
+* Signers now reload the signer set's state machine updates from StackerDB when their reward cycle starts, so a signer whose node reaches the cycle's first burn block after its peers' nodes no longer rejects every proposal with `NoSignerConsensus` until the next burn block.
+* The signer now exits with an error naming the problem when it cannot open its database, for example one written by a newer release, instead of panicking.
+* Signers will now attempt to defer proposals received before the global state machine has reached consensus amongst the signer set, rather than immediately rejecting with `NoSignerConsensus`. This should improve block production at Bitcoin block boundaries.
+* Signers now take a block proposal's burn height and reward cycle from the sortition that elected the block's tenure, and ignore proposals that misstate them, rather than trusting the values the miner sends alongside the block.
+* A block proposal for a tenure that the signer's node has not yet processed is rejected with the transient `NoSortitionView` reason, so the miner re-proposes it once the signer has caught up.
+* Update signer response processing and database lookups.
+* Signers and miners no longer decode the legacy `replay_transactions` field of inbound state machine updates, and only decode state machine update slots loaded at startup when they hold a state machine update.
+
 ## [4.0.5]
 
 ### ⚠️ Breaking Changes
