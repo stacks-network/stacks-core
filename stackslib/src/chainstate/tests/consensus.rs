@@ -28,6 +28,7 @@ use clarity::vm::types::{
 use clarity::vm::{ClarityName, ClarityVersion, ContractName, Value as ClarityValue};
 use serde::{Deserialize, Serialize, Serializer};
 use stacks_common::types::chainstate::StacksBlockId;
+use stacks_common::util::hash::{hex_bytes, to_hex};
 use stacks_common::util::vrf::VRFProof;
 
 use super::compute_tx_merkle_root;
@@ -40,9 +41,14 @@ use crate::chainstate::nakamoto::coordinator::load_nakamoto_reward_set;
 use crate::chainstate::nakamoto::test_signers::TestSigners;
 use crate::chainstate::nakamoto::tests::node::TestStacker;
 use crate::chainstate::nakamoto::NakamotoChainState;
+use crate::chainstate::stacks::address::{PoxAddress, PoxAddressType32};
+use crate::chainstate::stacks::boot::{WaterfallCycleSet, POX_5_NAME};
 use crate::chainstate::stacks::db::{StacksChainState, StacksEpochReceipt, StacksHeaderInfo};
 use crate::chainstate::stacks::events::{BoundedErrorString, TransactionOrigin};
 use crate::chainstate::stacks::miner::{BlockBuilder, TransactionResourceBudgets};
+use crate::chainstate::stacks::sbtc::{
+    sbtc_pox5_deposit_taproot_output_key, sbtc_pox5_v2_deposit_taproot_output_key, SbtcSignerKeySet,
+};
 use crate::chainstate::stacks::tests::{make_coinbase, TestStacksNode};
 use crate::chainstate::stacks::{
     Error as ChainstateError, StacksBlock, StacksBlockBuilder, StacksTransaction,
@@ -50,13 +56,19 @@ use crate::chainstate::stacks::{
     TransactionPostCondition, TransactionPostConditionMode, TransactionSmartContract,
     TransactionVersion,
 };
-use crate::chainstate::tests::TestChainstate;
+use crate::chainstate::tests::{
+    TestChainstate, POX_5_SBTC_REGISTRY_STUB_AGGREGATE_PUBKEY,
+    POX_5_SBTC_REGISTRY_STUB_SIGNATURE_THRESHOLD, POX_5_SBTC_REGISTRY_STUB_SIGNER_KEYS,
+};
 use crate::core::test_util::{
     make_contract_call, make_contract_call_tx, make_contract_publish_versioned,
     make_stacks_transfer_tx, make_unsigned_tx, to_addr,
 };
-use crate::core::{BLOCK_LIMIT_MAINNET_21, BLOCK_LIMIT_MAINNET_40};
+use crate::core::{
+    BLOCK_LIMIT_MAINNET_21, BLOCK_LIMIT_MAINNET_40, POX_5_SBTC_DEPOSIT_MAX_FEE_SATS,
+};
 use crate::net::tests::NakamotoBootPlan;
+use crate::util_lib::boot::boot_code_id;
 
 /// The epochs to test for consensus are the current and upcoming epochs.
 /// This constant must be changed when new epochs are introduced.
@@ -2462,6 +2474,215 @@ fn assert_first_pox_5_waterfall_signer_set(
         burnchain.pox_constants.reward_slots(),
         "PoX-5 signer weights must allocate every reward slot"
     );
+
+    // The first Waterfall reward set is computed in Epoch 4.0, so its sBTC
+    // recipient is the v1 deposit locked by the registry stub's aggregate key.
+    assert_eq!(
+        waterfall.sbtc_address,
+        expected_stub_sbtc_recipient_v1(),
+        "First PoX-5 reward set must pay the v1 (aggregate-key) sBTC recipient"
+    );
+}
+
+/// The Waterfall reward set of `reward_cycle`, loaded at the canonical tip.
+fn load_waterfall_reward_set(chain: &mut ConsensusChain, reward_cycle: u64) -> WaterfallCycleSet {
+    let burnchain = chain.test_chainstate.config.burnchain.clone();
+    let sortdb = chain.test_chainstate.sortdb.as_ref().unwrap();
+    let sort_tip = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn()).unwrap();
+    let (stacks_tip_ch, stacks_tip_bh) =
+        SortitionDB::get_canonical_stacks_chain_tip_hash(sortdb.conn()).unwrap();
+    let stacks_tip = StacksBlockId::new(&stacks_tip_ch, &stacks_tip_bh);
+    let stacks_node = chain.test_chainstate.stacks_node.as_mut().unwrap();
+    load_nakamoto_reward_set(
+        reward_cycle,
+        &sort_tip.sortition_id,
+        &burnchain,
+        &mut stacks_node.chainstate,
+        &stacks_tip,
+        sortdb,
+        &OnChainRewardSetProvider::new(),
+    )
+    .unwrap_or_else(|e| {
+        panic!("Failed to load the PoX-5 reward set for cycle {reward_cycle}: {e:?}")
+    })
+    .unwrap_or_else(|| panic!("PoX-5 reward cycle {reward_cycle} must have a reward set"))
+    .0
+    .known_selected_anchor_block()
+    .unwrap_or_else(|| panic!("PoX-5 reward cycle {reward_cycle} must have a known reward set"))
+    .as_waterfall()
+    .unwrap_or_else(|| panic!("PoX-5 reward cycle {reward_cycle} must use a Waterfall reward set"))
+    .clone()
+}
+
+/// The sBTC recipient that Epoch 4.0 signer-set computation derives from the
+/// chainstate test harness's registry stub: a v1 deposit locked by
+/// `get-current-aggregate-pubkey`.
+fn expected_stub_sbtc_recipient_v1() -> PoxAddress {
+    let aggregate_pubkey: [u8; 33] = hex_bytes(POX_5_SBTC_REGISTRY_STUB_AGGREGATE_PUBKEY)
+        .expect("stub aggregate pubkey is hex")
+        .try_into()
+        .expect("stub aggregate pubkey is 33 bytes");
+    let recipient = PrincipalData::Contract(boot_code_id(POX_5_NAME, false));
+    let output_key = sbtc_pox5_deposit_taproot_output_key(
+        &aggregate_pubkey,
+        &recipient,
+        POX_5_SBTC_DEPOSIT_MAX_FEE_SATS,
+    )
+    .expect("v1 sBTC derivation succeeds for the stub key");
+    PoxAddress::Addr32(false, PoxAddressType32::P2TR, output_key)
+}
+
+/// The sBTC recipient that Epoch 4.1+ signer-set computation derives from the
+/// chainstate test harness's registry stub: a v2 Taproot multisig deposit
+/// locked by the `get-current-signer-data` signer set.
+fn expected_stub_sbtc_recipient_v2() -> PoxAddress {
+    let signer_keys: Vec<[u8; 33]> = POX_5_SBTC_REGISTRY_STUB_SIGNER_KEYS
+        .iter()
+        .map(|key| {
+            hex_bytes(key)
+                .expect("stub signer key is hex")
+                .try_into()
+                .expect("stub signer key is 33 bytes")
+        })
+        .collect();
+    let key_set =
+        SbtcSignerKeySet::from_registry(&signer_keys, POX_5_SBTC_REGISTRY_STUB_SIGNATURE_THRESHOLD)
+            .expect("stub signer set is a valid v2 key set");
+    let recipient = PrincipalData::Contract(boot_code_id(POX_5_NAME, false));
+    let output_key = sbtc_pox5_v2_deposit_taproot_output_key(
+        &key_set,
+        &recipient,
+        POX_5_SBTC_DEPOSIT_MAX_FEE_SATS,
+    )
+    .expect("v2 sBTC derivation succeeds for the stub signer set");
+    // Pinned from the `pox5_testnet_devenv_2of3` fixture in
+    // `chainstate::stacks::sbtc`: the stub serves the sBTC devenv signer set
+    // and the harness is non-mainnet.
+    assert_eq!(
+        to_hex(&output_key),
+        "76b6c4b0119919c817d1b414e28b7e64033ae88a3d9e62795ff86086981f34bc",
+        "stub v2 recipient drifted from the sbtc reference fixture"
+    );
+    PoxAddress::Addr32(false, PoxAddressType32::P2TR, output_key)
+}
+
+/// The PoX-5 sBTC recipient is derived from the registry's aggregate pubkey
+/// (v1) while the reward set is computed in Epoch 4.0 and from the registry's
+/// signer set as a Taproot multisig (v2) once it is computed in Epoch 4.1.
+///
+/// Each cycle's reward set is computed by the first block of the previous
+/// cycle's prepare phase, so the switch lands on the first cycle whose prepare
+/// phase starts at or after the Epoch 4.1 boundary. This walks every Waterfall
+/// cycle from the first one through two full cycles past the boundary and
+/// checks each recipient against the epoch of its computing block; both
+/// formats must be observed.
+#[rstest::rstest]
+#[case::default_boundary(false)]
+#[case::prepare_phase_boundary(true)]
+fn test_pox_5_sbtc_recipient_switches_to_taproot_multisig_in_epoch_4_1(
+    #[case] activate_at_prepare_start: bool,
+) {
+    let mut num_blocks_per_epoch = HashMap::new();
+    num_blocks_per_epoch.insert(StacksEpochId::Epoch40, 1);
+    num_blocks_per_epoch.insert(StacksEpochId::Epoch41, 1);
+    let test_name = format!("{}-{activate_at_prepare_start}", function_name!());
+    let boot_plan = ConsensusChain::new_boot_plan(&test_name, vec![]);
+    let (epochs, first_burnchain_height) =
+        ConsensusChain::calculate_epochs(&boot_plan.pox_constants, num_blocks_per_epoch);
+    let mut epochs: Vec<_> = epochs.iter().cloned().collect();
+    if activate_at_prepare_start {
+        let start = epochs
+            .iter()
+            .find(|epoch| epoch.epoch_id == StacksEpochId::Epoch41)
+            .unwrap()
+            .start_height;
+        let cycle = start / u64::from(boot_plan.pox_constants.reward_cycle_length) + 1;
+        let prepare_start = boot_plan.pox_constants.prepare_phase_start(0, cycle);
+        for epoch in &mut epochs {
+            match epoch.epoch_id {
+                StacksEpochId::Epoch40 => epoch.end_height = prepare_start,
+                StacksEpochId::Epoch41 => epoch.start_height = prepare_start,
+                _ => {}
+            }
+        }
+    }
+    let mut chain = ConsensusChain {
+        test_chainstate: boot_plan
+            .with_epochs(EpochList::new(&epochs))
+            .to_chainstate(None, Some(first_burnchain_height)),
+    };
+    let miner_key = chain.test_chainstate.miner.nakamoto_miner_key();
+    chain
+        .test_chainstate
+        .advance_into_epoch(&miner_key, StacksEpochId::Epoch40);
+    let first_waterfall_height = chain.test_chainstate.advance_to_first_pox_5_waterfall();
+    chain
+        .test_chainstate
+        .advance_into_epoch(&miner_key, StacksEpochId::Epoch41);
+
+    let burnchain = chain.test_chainstate.config.burnchain.clone();
+    let pox_constants = &burnchain.pox_constants;
+    let first_block_height = burnchain.first_block_height;
+    let epoch_41_start = chain
+        .test_chainstate
+        .config
+        .epochs
+        .as_ref()
+        .expect("epochs configured")
+        .get(StacksEpochId::Epoch41)
+        .expect("Epoch 4.1 configured")
+        .start_height;
+    assert!(
+        first_waterfall_height < epoch_41_start,
+        "Waterfall must begin before Epoch 4.1 so the v1 recipient is exercised"
+    );
+
+    let first_waterfall_cycle = burnchain
+        .block_height_to_reward_cycle(first_waterfall_height)
+        .expect("waterfall height maps to a reward cycle");
+    let epoch_41_cycle = burnchain
+        .block_height_to_reward_cycle(epoch_41_start)
+        .expect("Epoch 4.1 start maps to a reward cycle");
+    // Two cycles past the boundary: the last one's prepare phase lies entirely
+    // in Epoch 4.1 whatever the boundary's offset within its cycle.
+    let last_cycle = epoch_41_cycle + 2;
+    let last_cycle_start = burnchain.reward_cycle_to_block_height(last_cycle);
+    while chain.test_chainstate.get_burn_block_height() < last_cycle_start {
+        chain.test_chainstate.mine_nakamoto_tenure();
+    }
+
+    let expected_v1 = expected_stub_sbtc_recipient_v1();
+    let expected_v2 = expected_stub_sbtc_recipient_v2();
+    assert_ne!(expected_v1, expected_v2);
+
+    let mut observed_v1 = 0;
+    let mut observed_v2 = 0;
+    for cycle in first_waterfall_cycle..=last_cycle {
+        // The harness mines one tenure per burn block, so the block that
+        // computed `cycle`'s reward set sits at the start of the previous
+        // cycle's prepare phase.
+        let computing_height = pox_constants.prepare_phase_start(first_block_height, cycle - 1);
+        let computing_epoch =
+            SortitionDB::get_stacks_epoch(chain.test_chainstate.sortdb().conn(), computing_height)
+                .unwrap()
+                .expect("epoch configured at the computing height")
+                .epoch_id;
+        let expected = if computing_epoch >= StacksEpochId::Epoch41 {
+            observed_v2 += 1;
+            &expected_v2
+        } else {
+            observed_v1 += 1;
+            &expected_v1
+        };
+        let waterfall = load_waterfall_reward_set(&mut chain, cycle);
+        assert_eq!(
+            &waterfall.sbtc_address, expected,
+            "cycle {cycle}: reward set computed at burn height {computing_height} \
+             ({computing_epoch}) must pay the matching sBTC recipient"
+        );
+    }
+    assert!(observed_v1 > 0, "no reward set computed in Epoch 4.0");
+    assert!(observed_v2 > 0, "no reward set computed in Epoch 4.1");
 }
 
 #[test]

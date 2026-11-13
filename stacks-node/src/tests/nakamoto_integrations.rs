@@ -761,6 +761,31 @@ pub fn enable_epoch_4_0(conf: &mut Config) {
         .start_height = 262;
 }
 
+/// Activate Epoch 4.1 (inactive by default in `NAKAMOTO_INTEGRATION_EPOCHS`)
+/// two reward cycles after the [`enable_epoch_4_0`] boundary, at `302`.
+/// Must be applied together with `enable_epoch_4_0`, and to every node's
+/// config so peers agree on the boundary.
+pub fn enable_epoch_4_1(conf: &mut Config) {
+    let epochs = conf
+        .burnchain
+        .epochs
+        .as_mut()
+        .expect("Missing burnchain epochs in config");
+    let epoch_40 = epochs
+        .get_mut(StacksEpochId::Epoch40)
+        .expect("Missing epoch 4.0 in config");
+    assert_eq!(
+        epoch_40.start_height, 262,
+        "enable_epoch_4_1 expects enable_epoch_4_0 to have been applied first"
+    );
+    epoch_40.end_height = 302;
+    let epoch_41 = epochs
+        .get_mut(StacksEpochId::Epoch41)
+        .expect("Missing epoch 4.1 in config");
+    epoch_41.start_height = 302;
+    epoch_41.end_height = STACKS_EPOCH_MAX;
+}
+
 pub fn next_block_and<F>(
     btc_controller: &BitcoinRegtestController,
     timeout_secs: u64,
