@@ -3017,6 +3017,82 @@ mod async_sibling_validation {
             "the reorg permit was granted to a tenure the proposal neither belongs to nor builds on",
         );
     }
+
+    /// Deliver a rejection of a known block from the registered signer, signed for mainnet or
+    /// testnet, to the (testnet) signer and report the stored rejections and resulting state.
+    fn run_peer_rejection_case(mainnet: bool) -> (usize, BlockState) {
+        use libsigner::v0::messages::{BlockRejection, BlockResponse};
+
+        let mut node = MockNode::new(vec![], Duration::from_secs(100_000), Duration::ZERO);
+        let block = plain_block(
+            &ConsensusHash([1; 20]),
+            &StacksBlockId([9; 32]),
+            get_epoch_time_secs(),
+        );
+        let hash = block.header.signer_signature_hash();
+        node.signer
+            .signer_db
+            .insert_block(&BlockInfo::from(proposal_of(&block)))
+            .unwrap();
+
+        // MockNode's only registered signer (weight 1).
+        let signer_key = StacksPrivateKey::from_seed(&[9, 1]);
+        let rejection = BlockRejection::new(
+            hash.clone(),
+            RejectReason::TestingDirective,
+            &signer_key,
+            mainnet,
+            u64::MAX,
+            u64::MAX,
+        );
+        let event = SignerEvent::SignerMessages {
+            // Odd, so that a reward-cycle-1 signer treats the message as its own set's.
+            signer_set: 1,
+            messages: vec![(
+                0,
+                StacksPublicKey::from_private(&signer_key),
+                SignerMessage::BlockResponse(BlockResponse::Rejected(rejection)),
+            )],
+            received_time: SystemTime::now(),
+        };
+        let (result_tx, _result_rx) = mpsc::channel();
+        node.signer.process_event(
+            &node.client,
+            &mut None,
+            Some(&event),
+            &result_tx,
+            1,
+            Some(1),
+        );
+        let stored = node
+            .signer
+            .signer_db
+            .get_block_rejection_signer_addrs(&hash)
+            .unwrap()
+            .len();
+        let state = node
+            .signer
+            .signer_db
+            .block_lookup(&hash)
+            .unwrap()
+            .unwrap()
+            .state;
+        node.shutdown();
+        (stored, state)
+    }
+
+    #[test]
+    fn rejection_for_this_network_is_counted() {
+        assert_eq!(
+            run_peer_rejection_case(false),
+            (1, BlockState::GloballyRejected)
+        );
+    }
+
+    #[test]
+    fn rejection_for_another_network_is_ignored() {
+        assert_eq!(run_peer_rejection_case(true), (0, BlockState::Unprocessed));
+    }
 }
 
 /// `reject_prefix_is_final` decides whether weight behind a rejection can ever turn back into
