@@ -1975,6 +1975,28 @@ pub fn send_http_request(
     request: StacksHttpRequest,
     timeout: Duration,
 ) -> Result<StacksHttpResponse, io::Error> {
+    send_http_request_inner(host, port, request, timeout, false)
+}
+
+/// Like `send_http_request`, but retain well-formed HTTP error responses for
+/// protocols (such as Bitcoin JSON-RPC) that encode typed errors in their body.
+/// Callers must validate the status and payload; transport failures still fail.
+pub fn send_http_request_with_error_response(
+    host: &str,
+    port: u16,
+    request: StacksHttpRequest,
+    timeout: Duration,
+) -> Result<StacksHttpResponse, io::Error> {
+    send_http_request_inner(host, port, request, timeout, true)
+}
+
+fn send_http_request_inner(
+    host: &str,
+    port: u16,
+    request: StacksHttpRequest,
+    timeout: Duration,
+    retain_http_errors: bool,
+) -> Result<StacksHttpResponse, io::Error> {
     // Find the host:port that works.
     // This is sometimes necessary because `localhost` can resolve to both its ipv4 and ipv6
     // addresses, but usually, Stacks services like event observers are only bound to ipv4
@@ -2152,6 +2174,7 @@ pub fn send_http_request(
     // Step 5: decode the HTTP message and return it if it's not an error.
     let response_data = match response {
         StacksHttpMessage::Response(response_data) => response_data,
+        StacksHttpMessage::Error(_path, response) if retain_http_errors => response,
         StacksHttpMessage::Error(_path, response) => {
             let verb = &request.preamble().verb;
             let path = &request.preamble().path_and_query_str;
