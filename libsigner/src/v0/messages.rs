@@ -333,7 +333,15 @@ impl StacksMessageCodec for PeerInfo {
         let len_byte: u8 = read_next(fd)?;
         let mut bytes = vec![0u8; len_byte as usize];
         fd.read_exact(&mut bytes).map_err(CodecError::ReadError)?;
-        // must encode a valid string
+        // Must be a valid Clarity ASCII string: the mock signature hashes embed
+        // it as a `string-ascii` value, which would otherwise fail to construct.
+        if let Some(b) = bytes.iter().find(|b| {
+            !b.is_ascii_alphanumeric() && !b.is_ascii_punctuation() && !b.is_ascii_whitespace()
+        }) {
+            return Err(CodecError::DeserializeError(format!(
+                "Failed to parse server version name: invalid ASCII character {b:#04x}"
+            )));
+        }
         let server_version = String::from_utf8(bytes).map_err(|_e| {
             CodecError::DeserializeError(
                 "Failed to parse server version name: could not construct from utf8".to_string(),
@@ -1808,11 +1816,7 @@ impl BlockRejection {
         full_extend_ts: u64,
         read_count_extend_ts: u64,
     ) -> Self {
-        let chain_id = if mainnet {
-            CHAIN_ID_MAINNET
-        } else {
-            CHAIN_ID_TESTNET
-        };
+        let chain_id = Self::chain_id_for_network(mainnet);
         let mut rejection = Self {
             reason: BoundedErrorString::from_display(&reject_reason),
             reason_code: (&reject_reason).into(),
@@ -1833,6 +1837,16 @@ impl BlockRejection {
         rejection
     }
 
+    /// The chain id signers put in (and sign over in) rejections on a network. Rejections only
+    /// distinguish mainnet from testnet: a configured custom chain id is not used.
+    pub fn chain_id_for_network(mainnet: bool) -> u32 {
+        if mainnet {
+            CHAIN_ID_MAINNET
+        } else {
+            CHAIN_ID_TESTNET
+        }
+    }
+
     /// Create a new BlockRejection from a BlockValidateRejection
     pub fn from_validate_rejection(
         reject: BlockValidateReject,
@@ -1841,11 +1855,7 @@ impl BlockRejection {
         full_extend_ts: u64,
         read_count_extend_ts: u64,
     ) -> Self {
-        let chain_id = if mainnet {
-            CHAIN_ID_MAINNET
-        } else {
-            CHAIN_ID_TESTNET
-        };
+        let chain_id = Self::chain_id_for_network(mainnet);
         let reject_code = RejectCode::ValidationFailed(reject.reason_code);
         let response_data = BlockResponseData::new(
             full_extend_ts,
@@ -2452,6 +2462,24 @@ mod test {
         let deserialized_data = read_next::<PeerInfo, _>(&mut &serialized_data[..])
             .expect("Failed to deserialize PeerInfo");
         assert_eq!(peer_data, deserialized_data);
+    }
+
+    #[test]
+    fn mock_proposal_rejects_non_ascii_server_version() {
+        let mut mock_proposal = random_mock_proposal();
+        mock_proposal.peer_info.server_version = "0.0.0".to_string();
+        let mut bytes = mock_proposal.serialize_to_vec();
+        // Replace one byte of the server version with a control character,
+        // which is valid UTF-8 but not a Clarity `string-ascii` character.
+        let version_offset = 8 + 20 + 32 + 8 + 1;
+        assert_eq!(bytes[version_offset], b'0');
+        bytes[version_offset] = 0x0e;
+        let err = read_next::<MockProposal, _>(&mut &bytes[..])
+            .expect_err("a non-ASCII server version must not decode");
+        assert!(
+            matches!(err, CodecError::DeserializeError(ref msg) if msg.contains("invalid ASCII")),
+            "unexpected error: {err:?}"
+        );
     }
 
     #[test]

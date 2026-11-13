@@ -3175,6 +3175,18 @@ impl Signer {
         let block_hash = &rejection.signer_signature_hash;
         let signature = &rejection.signature;
 
+        // The signature covers the chain id in the message, so a rejection from another network
+        // still recovers to a valid signer's key; it must not count here.
+        let expected_chain_id = BlockRejection::chain_id_for_network(self.mainnet);
+        if rejection.chain_id != expected_chain_id {
+            debug!("{self}: Received block rejection for another network. Will not store.";
+                "signer_signature_hash" => %block_hash,
+                "chain_id" => rejection.chain_id,
+                "expected_chain_id" => expected_chain_id,
+            );
+            return;
+        }
+
         // recover public key
         let Ok(public_key) = rejection.recover_public_key() else {
             debug!("{self}: Received block rejection with an unrecovarable signature. Will not store.";
