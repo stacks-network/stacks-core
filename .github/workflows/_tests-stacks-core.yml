@@ -78,7 +78,6 @@ jobs:
       - name: Checkout the latest code
         uses: $/.github/wrappers/checkout
         with:
-          ref: ${{ github.event.pull_request.head.sha || github.ref }}
           sparse-checkout: |
             .github
 
@@ -104,8 +103,6 @@ jobs:
     # Checkout the code
       - name: Checkout the latest code
         uses: $/.github/wrappers/checkout
-        with:
-          ref: ${{ github.event.pull_request.head.sha || github.ref }}
 
       - name: Generate OpenAPI documentation
         uses: ./.github/actions/openapi
@@ -124,8 +121,6 @@ jobs:
       # Checkout the code
       - name: Checkout the latest code
         uses: $/.github/wrappers/checkout
-        with:
-          ref: ${{ github.event.pull_request.head.sha || github.ref }}
 
       - name: Generate Node Configuration Documentation
         uses: ./.github/actions/config-docsgen
@@ -141,8 +136,6 @@ jobs:
       # Checkout the code
       - name: Checkout the latest code
         uses: $/.github/wrappers/checkout
-        with:
-          ref: ${{ github.event.pull_request.head.sha || github.ref }}
 
       - name: Execute core contract unit tests with clarinet-sdk
         uses: ./.github/wrappers/setup-node
@@ -171,7 +164,6 @@ jobs:
       - name: Checkout the latest code
         uses: $/.github/wrappers/checkout
         with:
-          ref: ${{ github.event.pull_request.head.sha || github.ref }}
           sparse-checkout: |
             .github
 
