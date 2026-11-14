@@ -1,0 +1,1 @@
+Fixes the runtime check for `let` binding name conflicts to not only look at global functions, but all global definitions. This is only a defense-in-depth measure; the type checker should already prevent this much earlier.
