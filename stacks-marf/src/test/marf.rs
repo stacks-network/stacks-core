@@ -21,6 +21,7 @@ use std::collections::HashMap;
 use stacks_common::types::chainstate::{BlockHeaderHash, StacksBlockId, TrieHash};
 use stacks_common::util::hash::to_hex;
 
+use crate::blob_layout::READER_PREFIX_LEN;
 use crate::marf::{
     MARFOpenOpts, MarfConnection, BLOCK_HASH_TO_HEIGHT_MAPPING_KEY,
     BLOCK_HEIGHT_TO_HASH_MAPPING_KEY, MARF, OWN_BLOCK_HEIGHT_KEY,
@@ -1843,12 +1844,15 @@ fn marf_insert_flush_to_different_block() {
 #[test]
 fn test_marf_discard_trie_and_commit() {
     let mut marf = MARF::from_path(":memory:", opts::OPTS_IMM.clone()).unwrap();
+    let parent = BlockHeaderHash([2; 32]);
+    marf.begin(&BlockHeaderHash::sentinel(), &parent).unwrap();
+    marf.commit().unwrap();
+    let parent_root = marf.get_root_hash_at(&parent).unwrap();
     let placeholder = BlockHeaderHash([1; 32]);
     marf.sqlite_conn()
         .execute_batch("CREATE TABLE test_writes(value INTEGER)")
         .unwrap();
-    marf.begin(&BlockHeaderHash::sentinel(), &placeholder)
-        .unwrap();
+    marf.begin(&parent, &placeholder).unwrap();
     marf.insert("key", MARFValue::from_value("discarded"))
         .unwrap();
     let tx = marf.begin_tx().unwrap();
@@ -1856,6 +1860,7 @@ fn test_marf_discard_trie_and_commit() {
         .execute("INSERT INTO test_writes VALUES(42)", [])
         .unwrap();
     tx.discard_trie_and_commit().unwrap();
+    assert_eq!(marf.get_root_hash_at(&parent).unwrap(), parent_root);
     assert_matches!(
         trie_sql::get_block_identifier(marf.sqlite_conn(), &placeholder),
         Err(Error::NotFoundError)
@@ -1867,8 +1872,7 @@ fn test_marf_discard_trie_and_commit() {
             .unwrap(),
         42
     );
-    marf.begin(&BlockHeaderHash::sentinel(), &placeholder)
-        .unwrap();
+    marf.begin(&parent, &placeholder).unwrap();
     marf.drop_current();
 }
 
@@ -2053,7 +2057,18 @@ fn test_marf_unconfirmed() {
 
     let unconfirmed_tip = marf.begin_unconfirmed(&block_header).unwrap();
     marf.insert_raw(triepath_1, value_1).unwrap();
-    marf.commit().unwrap();
+    let mut tx = marf.begin_tx().unwrap();
+    // Rejected serialized-trie operations leave the unconfirmed extension usable.
+    assert_matches!(tx.serialize_and_discard(), Err(Error::UnconfirmedError));
+    assert_matches!(
+        tx.promote_from(
+            &StacksBlockId([0x44; 32]),
+            READER_PREFIX_LEN as u64,
+            |_, _| panic!("unconfirmed promotion must not copy")
+        ),
+        Err(Error::UnconfirmedError)
+    );
+    tx.commit().unwrap();
 
     // read succeeds
     let read_value_1 = MARF::get_path(
@@ -2063,6 +2078,7 @@ fn test_marf_unconfirmed() {
     )
     .unwrap()
     .unwrap();
+    assert_eq!(read_value_1.data, MARFValue([1; 40]));
     test_debug!("read_value_1 from {unconfirmed_tip:?} is {read_value_1:?}");
 
     marf.begin_unconfirmed(&block_header).unwrap();
