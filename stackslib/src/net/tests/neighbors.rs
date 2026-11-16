@@ -2554,9 +2554,10 @@ fn test_neighbor_rpc_does_not_take_other_http_users_reply() {
                 });
             }
         }
-        if let Some(other_reply) = other_reply {
-            other_reply.decode_rpc_get_pox_info().unwrap();
-        }
+        other_reply
+            .expect("other HTTP user never got its reply")
+            .decode_rpc_get_pox_info()
+            .unwrap();
         let (_, reply) = reply.expect("timed out waiting for NeighborRPC reply");
         assert!(
             reply.clone().decode_peer_info().is_ok(),
