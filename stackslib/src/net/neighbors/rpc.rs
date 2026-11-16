@@ -313,13 +313,15 @@ impl NeighborRPC {
             };
 
             // drive socket I/O
+            if request_opt.is_some() && convo.is_request_inflight() {
+                // Another state machine (e.g. mempool sync) has a request on this conversation.
+                // Don't read from it until ours is sent, or we'd take their reply as ours.
+                HttpPeer::saturate_http_socket(socket, convo)?;
+                return Ok(None);
+            }
             if let Some(request) = request_opt.take() {
-                let res = convo.send_request(request.clone());
-                if let Err(NetError::InProgress) = res {
-                    // try again -- another state machine is using this conversation
-                    request_opt.replace(request);
-                }
-            };
+                convo.send_request(request)?;
+            }
             HttpPeer::saturate_http_socket(socket, convo)?;
 
             // see if we got any data

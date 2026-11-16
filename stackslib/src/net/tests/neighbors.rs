@@ -2419,3 +2419,151 @@ fn run_drain_inbox_on_disconnect(test_name: &'static str, hang_up_with_backlog: 
         assert!(reply_handles.is_empty());
     })
 }
+
+/// Another HTTP user (e.g. mempool sync) claims the conversation that
+/// `NeighborRPC::send_request` picked before our request is put on it. `NeighborRPC` must not
+/// take that user's reply as its own.
+#[test]
+fn test_neighbor_rpc_does_not_take_other_http_users_reply() {
+    with_timeout(600, || {
+        let peer_config = TestPeerConfig::new(function_name!(), 0, 0);
+        let mut peer = TestPeer::new(peer_config);
+
+        let peer_addr = NeighborAddress::from_neighbor(&peer.to_neighbor());
+        let peer_host = peer.to_peer_host();
+
+        let peer_client_config = TestPeerConfig::new(function_name!(), 0, 0);
+        let mut peer_client = TestPeer::new(peer_client_config);
+
+        let run = Arc::new(AtomicBool::new(true));
+        let run_thread = run.clone();
+
+        let t = thread::spawn(move || {
+            while run_thread.load(Ordering::SeqCst) {
+                let _ = peer.step();
+            }
+        });
+
+        let mut comms = PeerNetworkComms::new();
+        let mut connected = false;
+        let now = get_epoch_time_secs();
+        while !connected && get_epoch_time_secs() < now + 60 {
+            if !comms.is_neighbor_connecting(&peer_client.network, &peer_addr)
+                || !comms.has_neighbor_session(&peer_client.network, &peer_addr)
+            {
+                let _ = comms
+                    .neighbor_session_begin(&mut peer_client.network, &peer_addr)
+                    .unwrap();
+            }
+            let _ = peer_client.step();
+            if let Some((_, reply)) = comms
+                .collect_replies(&mut peer_client.network)
+                .into_iter()
+                .next()
+            {
+                match reply.payload {
+                    StacksMessageType::HandshakeAccept(..)
+                    | StacksMessageType::StackerDBHandshakeAccept(..) => {
+                        connected = true;
+                    }
+                    _ => panic!("Did not get handshake accept, but got {:?}", &reply),
+                }
+            }
+        }
+        assert!(connected, "Failed to connect -- timed out");
+
+        let owner = NeighborRPCOwner::Test(1);
+        let mut rpc = NeighborRPC::new();
+
+        // warm up: open an HTTP conversation and complete one request on it
+        rpc.send_request(
+            &mut peer_client.network,
+            peer_addr.clone(),
+            StacksHttpRequest::new_getinfo(peer_host.clone(), None),
+            owner,
+        )
+        .unwrap();
+        let mut warm = None;
+        let now = get_epoch_time_secs();
+        while get_epoch_time_secs() < now + 60 && warm.is_none() {
+            let _ = peer_client.step();
+            warm = rpc
+                .collect_replies(&mut peer_client.network, owner)
+                .into_iter()
+                .next();
+        }
+        warm.expect("warm-up timed out")
+            .1
+            .decode_peer_info()
+            .unwrap();
+
+        let nk = peer_addr.to_neighbor_key(&peer_client.network);
+        let (data_url, data_ip) = {
+            let convo = peer_client.network.get_neighbor_convo(&nk).unwrap();
+            (convo.data_url.clone(), convo.data_ip.unwrap())
+        };
+        let free_before = peer_client
+            .network
+            .http
+            .as_ref()
+            .unwrap()
+            .find_free_conversation(&data_url);
+        assert!(free_before.is_some(), "no reusable HTTP conversation");
+
+        // NeighborRPC picks the free conversation but defers the send
+        rpc.send_request(
+            &mut peer_client.network,
+            peer_addr.clone(),
+            StacksHttpRequest::new_getinfo(peer_host.clone(), None),
+            owner,
+        )
+        .unwrap();
+
+        // another HTTP user (as mempool sync does) claims the same conversation first
+        let other_event = peer_client
+            .network
+            .connect_or_send_http_request(
+                data_url,
+                data_ip,
+                StacksHttpRequest::new_getpoxinfo(
+                    peer_host.clone(),
+                    TipRequest::UseLatestAnchoredTip,
+                ),
+            )
+            .unwrap();
+        assert_eq!(
+            Some(other_event),
+            free_before,
+            "conversation was not shared"
+        );
+
+        let mut reply = None;
+        let mut other_reply = None;
+        let now = get_epoch_time_secs();
+        while get_epoch_time_secs() < now + 60 && reply.is_none() {
+            let _ = peer_client.step();
+            reply = rpc
+                .collect_replies(&mut peer_client.network, owner)
+                .into_iter()
+                .next();
+            // the other user polls its own event, as mempool sync does
+            if other_reply.is_none() {
+                other_reply = PeerNetwork::with_http(&mut peer_client.network, |_, http| {
+                    http.get_conversation(other_event)
+                        .and_then(|convo| convo.try_get_response())
+                });
+            }
+        }
+        if let Some(other_reply) = other_reply {
+            other_reply.decode_rpc_get_pox_info().unwrap();
+        }
+        let (_, reply) = reply.expect("timed out waiting for NeighborRPC reply");
+        assert!(
+            reply.clone().decode_peer_info().is_ok(),
+            "NeighborRPC took the other HTTP user's reply: {reply:?}"
+        );
+
+        run.store(false, Ordering::SeqCst);
+        t.join().unwrap();
+    })
+}
