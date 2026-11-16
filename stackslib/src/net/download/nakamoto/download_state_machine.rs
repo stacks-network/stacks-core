@@ -1532,7 +1532,10 @@ impl NakamotoDownloadStateMachine {
                 );
 
                 if !self.tenure_downloads.is_empty() {
-                    // need to go get this scheduled tenure
+                    // need to go get this scheduled tenure.
+                    // Unconfirmed requests still in flight stay in `neighbor_rpc`. The confirmed
+                    // downloaders drop their replies, and they are re-sent when we return to
+                    // Unconfirmed.
                     debug!(
                         "Transition from {} to {} -- need confirmed tenure still",
                         &self.state,

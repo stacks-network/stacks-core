@@ -179,7 +179,7 @@ impl NeighborRPC {
             };
 
             if inflight_request.owner != owner {
-                debug!(
+                info!(
                     "Drop reply from {naddr} to a request sent by {:?}, collected by {owner:?}",
                     inflight_request.owner
                 );
@@ -267,6 +267,12 @@ impl NeighborRPC {
         debug!(
             "Send request to {} on event {}: {:?}",
             &naddr, event_id, &request
+        );
+        // Callers check `has_inflight` first. Replacing an entry would orphan its request, and its
+        // reply would then be handed to the new entry's owner.
+        debug_assert!(
+            !self.state.contains_key(&naddr),
+            "BUG: request to {naddr} already in flight"
         );
         self.state.insert(
             naddr,
