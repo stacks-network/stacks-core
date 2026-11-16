@@ -226,8 +226,8 @@ pub fn get_sip_031_recipient_addr(is_mainnet: bool) -> StacksAddress {
 
 /// Generate the contract body for the SIP-031 contract.
 ///
-/// When on mainnet, only the constant [SIP_031_MAINNET_ADDR] is used.
-/// Otherwise, on testnet, you can provide a configurable address.
+/// Uses [`SIP_031_MAINNET_ADDR``] or [`SIP_031_TESTNET_ADDR`] as
+/// the recipient, depending on `is_mainnet`.
 pub fn make_sip_031_body(is_mainnet: bool) -> String {
     let addr = get_sip_031_recipient_addr(is_mainnet).to_string();
 
