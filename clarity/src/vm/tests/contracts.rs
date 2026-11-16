@@ -1655,7 +1655,7 @@ fn test_runtime_name_resolution_order(
             assert!(err.to_string().contains("NameAlreadyUsed(\"duplicate\")"));
             // From Clarity 7 on, this issue is caught during analysis, *and* prevented
             // at runtime. We can't test that behavior here, so return.
-            // See [`test_let_binding_name_duplication_runtime_error`] for a test specific
+            // See [`test_binding_name_duplication_runtime_error`] for a test specific
             // to that.
             return;
         } else {
@@ -1683,22 +1683,32 @@ fn test_runtime_name_resolution_order(
     }
 }
 
-/// This tests the runtime check that raises an error when trying to create a let
-/// binding with a name that already exists as a global.
+/// This tests the runtime checks that raise an error when trying to create a let
+/// or match binding with a name that already exists as a global.
 ///
 /// Before Clarity 7, this check was incomplete; this tests asserts that the legacy
 /// behavior is preserved.
 ///
-/// See [`ClarityVersion::fully_prevents_let_binding_name_duplication_at_runtime`].
-#[test]
-fn test_let_binding_name_duplication_runtime_error() {
-    let code = "
+/// See [`ClarityVersion::fully_prevents_binding_name_duplication_at_runtime`].
+#[rstest]
+fn test_binding_name_duplication_runtime_error(
+    #[values(
+        "(let ((duplicate 7)) (ok duplicate))",
+        "(match (some 7) duplicate (ok duplicate) 0)",
+        "(match (ok 7) duplicate (ok duplicate) x 0)",
+        "(match (err 7) x 0 duplicate (ok duplicate))"
+    )]
+    snippet: &str,
+) {
+    let code = format!(
+        "
         (define-constant duplicate 42)
         (define-public (some-function)
-            (let ((duplicate 7)) (ok duplicate))
+            {snippet}
         )
         (some-function)
-        ";
+        "
+    );
 
     // The functionality under test is a back stop. It is meant to handle a situation
     // where a bug during analysis doesn't prevent binding name duplication
@@ -1722,7 +1732,7 @@ fn test_let_binding_name_duplication_runtime_error() {
 
     let parsed = ast::build_ast(
         &contract_id,
-        code,
+        &code,
         &mut global_context.cost_track,
         parser_clarity_version,
         StacksEpochId::latest(),

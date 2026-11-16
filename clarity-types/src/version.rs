@@ -147,10 +147,10 @@ impl ClarityVersion {
         self >= &ClarityVersion::Clarity7
     }
 
-    /// Before Clarity 7, the runtime check that prevents let bindings with names that
-    /// duplicate existing global definitions was incomplete: It only looked at global
-    /// function names.
-    pub fn fully_prevents_let_binding_name_duplication_at_runtime(&self) -> bool {
+    /// Before Clarity 7, the runtime check that prevents let and match bindings with
+    /// names that duplicate existing global definitions was incomplete: It only looked
+    /// at global function names.
+    pub fn fully_prevents_binding_name_duplication_at_runtime(&self) -> bool {
         self >= &ClarityVersion::Clarity7
     }
 }

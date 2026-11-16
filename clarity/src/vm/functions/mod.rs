@@ -811,7 +811,7 @@ fn special_let(
     finally_drop_memory!( exec_state, memory_use; {
         handle_binding_list::<_, VmExecutionError>(bindings, SyntaxBindingErrorType::Let, |binding_name, var_sexp| {
             let version = invoke_ctx.contract_context.get_clarity_version();
-            let name_conflicts_with_global = if version.fully_prevents_let_binding_name_duplication_at_runtime() {
+            let name_conflicts_with_global = if version.fully_prevents_binding_name_duplication_at_runtime() {
                 invoke_ctx.contract_context.is_name_used(binding_name)
             } else {
                 is_reserved(binding_name, version) ||
