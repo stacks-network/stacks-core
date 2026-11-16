@@ -33,7 +33,6 @@ jobs:
       - name: Checkout the latest code
         uses: $/.github/wrappers/checkout
         with:
-          ref: ${{ github.event.pull_request.head.sha || github.ref }}
           persist-credentials: false
 
       # Set up the Rust toolchain for the Wasm target.

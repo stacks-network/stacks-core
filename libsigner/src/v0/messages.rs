@@ -1816,11 +1816,7 @@ impl BlockRejection {
         full_extend_ts: u64,
         read_count_extend_ts: u64,
     ) -> Self {
-        let chain_id = if mainnet {
-            CHAIN_ID_MAINNET
-        } else {
-            CHAIN_ID_TESTNET
-        };
+        let chain_id = Self::chain_id_for_network(mainnet);
         let mut rejection = Self {
             reason: BoundedErrorString::from_display(&reject_reason),
             reason_code: (&reject_reason).into(),
@@ -1841,6 +1837,16 @@ impl BlockRejection {
         rejection
     }
 
+    /// The chain id signers put in (and sign over in) rejections on a network. Rejections only
+    /// distinguish mainnet from testnet: a configured custom chain id is not used.
+    pub fn chain_id_for_network(mainnet: bool) -> u32 {
+        if mainnet {
+            CHAIN_ID_MAINNET
+        } else {
+            CHAIN_ID_TESTNET
+        }
+    }
+
     /// Create a new BlockRejection from a BlockValidateRejection
     pub fn from_validate_rejection(
         reject: BlockValidateReject,
@@ -1849,11 +1855,7 @@ impl BlockRejection {
         full_extend_ts: u64,
         read_count_extend_ts: u64,
     ) -> Self {
-        let chain_id = if mainnet {
-            CHAIN_ID_MAINNET
-        } else {
-            CHAIN_ID_TESTNET
-        };
+        let chain_id = Self::chain_id_for_network(mainnet);
         let reject_code = RejectCode::ValidationFailed(reject.reason_code);
         let response_data = BlockResponseData::new(
             full_extend_ts,

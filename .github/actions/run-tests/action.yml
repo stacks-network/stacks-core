@@ -59,8 +59,6 @@ runs:
     - name: Checkout the latest code
       id: git_checkout
       uses: ./.github/wrappers/checkout
-      with:
-        ref: ${{ github.event.pull_request.head.sha || github.ref }}
 
     # Setup rust toolchain with llvm-tools-preview
     # Installs cargo nextest
