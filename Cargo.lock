@@ -3999,8 +3999,6 @@ dependencies = [
  "serde",
  "serde_json",
  "slog",
- "slog-json",
- "slog-term",
  "stacks-common",
  "stackslib",
  "stdext",
