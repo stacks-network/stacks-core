@@ -1618,7 +1618,7 @@ fn test_contract_call_with_constant(
     }
 }
 
-/// Tests the for Clairty versions 6 and older, where binding name duplication was not
+/// Tests the for Clarity versions 6 and older, where binding name duplication was not
 /// completely prevented, it depends on the epoch whether the global or the local version
 /// is returned. Before Epoch 4.1, the local variable version would be returned;
 /// from 4.1 on, the global always wins.
@@ -1686,7 +1686,7 @@ fn test_runtime_name_resolution_order(
 /// This tests the runtime checks that raise an error when trying to create a let
 /// or match binding with a name that already exists as a global.
 ///
-/// Before Clarity 7, this check was incomplete; this tests asserts that the legacy
+/// Before Clarity 7, this check was incomplete; this test asserts that the legacy
 /// behavior is preserved.
 ///
 /// See [`ClarityVersion::fully_prevents_binding_name_duplication_at_runtime`].
