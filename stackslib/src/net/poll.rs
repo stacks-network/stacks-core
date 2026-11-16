@@ -59,6 +59,8 @@ pub struct NetworkState {
     event_map: HashMap<usize, usize>, // map socket events to their registered server socket (including server sockets)
     /// readiness sources that aren't sockets, by event ID (see `register_waker()`)
     wakers: HashMap<usize, mio::Registration>,
+    /// event IDs reserved with `reserve_event_id()`
+    reserved: HashSet<usize>,
 }
 
 impl NetworkState {
@@ -78,6 +80,7 @@ impl NetworkState {
             count: 1,
             event_map: HashMap::new(),
             wakers: HashMap::new(),
+            reserved: HashSet::new(),
         })
     }
 
@@ -186,7 +189,7 @@ impl NetworkState {
     ) -> Result<usize, net_error> {
         let hint_event_id = hint_event_id % (self.event_capacity + self.servers.len());
         if let Some(x) = self.event_map.get(&server_event_id) {
-            if x != &0 {
+            if !self.is_server_event_id(server_event_id) {
                 // not a server event
                 error!(
                     "Server event ID {} not mapped to a server token, but to {}",
@@ -291,8 +294,8 @@ impl NetworkState {
                 net_error::RegisterError
             })?;
 
-        // like server events, wakers are always mapped to 0
-        self.event_map.insert(event_id, 0);
+        // wakers are mapped to themselves
+        self.event_map.insert(event_id, event_id);
         self.wakers.insert(event_id, registration);
         Ok((event_id, set_readiness))
     }
@@ -307,16 +310,22 @@ impl NetworkState {
         );
         let event_id = self.next_event_id()?;
         self.event_map.insert(event_id, owner_event_id);
+        self.reserved.insert(event_id);
         Ok(event_id)
     }
 
-    /// Release an event ID reserved with `reserve_event_id()`.
+    /// Release an event ID reserved with `reserve_event_id()`.  Any other event ID is left alone.
     pub fn release_event_id(&mut self, event_id: usize) {
-        if let Some(owner_event_id) = self.event_map.get(&event_id) {
-            if self.wakers.contains_key(owner_event_id) {
-                self.event_map.remove(&event_id);
-            }
+        if self.reserved.remove(&event_id) {
+            self.event_map.remove(&event_id);
         }
+    }
+
+    /// Is this the event ID of one of our server sockets?
+    fn is_server_event_id(&self, event_id: usize) -> bool {
+        self.servers
+            .iter()
+            .any(|server| usize::from(server.server_event) == event_id)
     }
 
     fn make_next_event_id(&self, cur_count: usize, in_use: &HashSet<usize>) -> Option<usize> {
@@ -758,5 +767,36 @@ mod test {
         // the waker itself can't be released this way
         ns.release_event_id(waker_event_id);
         assert_eq!(ns.num_events(), 1);
+    }
+
+    #[test]
+    fn test_release_event_id_with_waker_on_event_id_0() {
+        // with a capacity of 2, the second waker wraps around to event ID 0
+        let mut ns = NetworkState::new(2).unwrap();
+        let (waker_1, _readiness_1) = ns.register_waker().unwrap();
+        let (waker_0, _readiness_0) = ns.register_waker().unwrap();
+        assert_eq!((waker_1, waker_0), (1, 0));
+
+        // neither waker can be released
+        ns.release_event_id(waker_1);
+        ns.release_event_id(waker_0);
+        assert_eq!(ns.num_events(), 2);
+        assert!(ns.next_event_id().is_err());
+    }
+
+    #[test]
+    fn test_register_on_waker_event_id() {
+        let mut ns = NetworkState::new(100).unwrap();
+        let (server_event_id, server_addr) = ns
+            .bind(&"127.0.0.1:0".parse::<SocketAddr>().unwrap())
+            .unwrap();
+        let (waker_event_id, _readiness) = ns.register_waker().unwrap();
+        let reserved_event_id = ns.reserve_event_id(waker_event_id).unwrap();
+
+        // sockets can only be registered on a server
+        let sock = mio_net::TcpStream::connect(&server_addr).unwrap();
+        assert!(ns.register(waker_event_id, 10, &sock).is_err());
+        assert!(ns.register(reserved_event_id, 10, &sock).is_err());
+        assert!(ns.register(server_event_id, 10, &sock).is_ok());
     }
 }
