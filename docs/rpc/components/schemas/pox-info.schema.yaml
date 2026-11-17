@@ -211,7 +211,9 @@ properties:
       reward sets computed in epoch 4.0, and via `get-current-signer-data` (v2
       Taproot multisig deposit) for reward sets computed in epoch 4.1 or later.
       The reward cycle in progress when epoch 4.1 activates keeps the v1
-      recipient. On mainnet this is the canonical sBTC registry; on non-mainnet
+      recipient. From epoch 4.1, if the registry does not return a usable
+      signer set, the reward set pays the standard burn address instead.
+      On mainnet this is the canonical sBTC registry; on non-mainnet
       it reflects this node's configuration.
   epochs:
     type: array

@@ -889,6 +889,10 @@ impl StacksEpochId {
     /// reads the registry's aggregate pubkey, so sBTC may rotate to a v2 key
     /// set (which stores a non-pubkey tag in that field) at any time after
     /// activation.
+    ///
+    /// If the Taproot multisig recipient cannot be derived from the registry,
+    /// the reward set pays the standard burn address instead. The
+    /// aggregate-key format has no such fallback.
     pub fn sbtc_deposit_format(&self) -> SbtcDepositFormat {
         // Enumerate epochs so a new epoch requires an explicit format choice.
         match self {

@@ -16,6 +16,8 @@
 use std::collections::HashMap;
 use std::sync::{LazyLock, RwLock};
 
+use clarity::vm::clarity::ClarityError;
+use clarity::vm::errors::VmExecutionError;
 use clarity::vm::events::StacksTransactionEvent;
 use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier, TupleData};
 use clarity::vm::{ClarityName, Value};
@@ -778,8 +780,29 @@ impl NakamotoSigners {
             SbtcDepositFormat::V1 => {
                 Self::pox_5_sbtc_recipient_v1(clarity, &sbtc_recipient, is_mainnet)?
             }
+            // The registry is a contract outside of the node's control. If it
+            // cannot produce a usable v2 key set, burn the cycle's commits
+            // rather than fail the block.
             SbtcDepositFormat::V2 => {
-                Self::pox_5_sbtc_recipient_v2(clarity, &sbtc_recipient, is_mainnet)?
+                match Self::pox_5_sbtc_recipient_v2(clarity, &sbtc_recipient, is_mainnet) {
+                    Ok(sbtc_address) => sbtc_address,
+                    // An internal VM error is a fault of this node, not a
+                    // property of the registry, so it must not select the
+                    // recipient.
+                    Err(
+                        e @ ChainstateError::ClarityError(ClarityError::Interpreter(
+                            VmExecutionError::Internal(_),
+                        )),
+                    ) => return Err(e),
+                    Err(e) => {
+                        warn!(
+                            "Failed to derive the PoX-5 sBTC recipient; falling back to the burn address";
+                            "reward_cycle" => reward_cycle,
+                            "error" => ?e,
+                        );
+                        PoxAddress::standard_burn_address(is_mainnet)
+                    }
+                }
             }
         };
 
@@ -846,6 +869,10 @@ impl NakamotoSigners {
     ///
     /// The registry's aggregate-pubkey field is deliberately not read: after
     /// sBTC's v2 key rotation it holds a tagged block hash, not a public key.
+    ///
+    /// Any error returned here, other than an internal VM error, makes the
+    /// caller fall back to the standard burn address for the cycle, so which
+    /// inputs fail is consensus-critical.
     fn pox_5_sbtc_recipient_v2(
         clarity: &mut ClarityTransactionConnection,
         sbtc_recipient: &PrincipalData,

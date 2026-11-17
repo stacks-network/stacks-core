@@ -233,6 +233,10 @@ pub struct TestChainstateConfig {
     /// (NOTE: will be used post-Nakamoto)
     pub aggregate_public_key: Option<Vec<u8>>,
     pub txindex: bool,
+    /// Replaces [`POX_5_SBTC_REGISTRY_V2_STUB_BODY`] in the genesis registry
+    /// stub of chains that enable Epoch 4.1, so tests can serve a missing or
+    /// malformed `get-current-signer-data`.
+    pub sbtc_registry_v2_stub_override: Option<String>,
 }
 
 impl Default for TestChainstateConfig {
@@ -265,6 +269,7 @@ impl Default for TestChainstateConfig {
             test_stackers: None,
             test_signers: None,
             txindex: false,
+            sbtc_registry_v2_stub_override: None,
         }
     }
 }
@@ -594,7 +599,11 @@ impl<'a> TestChainstate<'a> {
                 POX_5_SBTC_TOKEN_STUB_BODY,
             ));
             let registry_body = if conf.is_epoch_enabled(StacksEpochId::Epoch41) {
-                format!("{POX_5_SBTC_REGISTRY_STUB_BODY}{POX_5_SBTC_REGISTRY_V2_STUB_BODY}")
+                let v2_body = conf
+                    .sbtc_registry_v2_stub_override
+                    .as_deref()
+                    .unwrap_or(POX_5_SBTC_REGISTRY_V2_STUB_BODY);
+                format!("{POX_5_SBTC_REGISTRY_STUB_BODY}{v2_body}")
             } else {
                 POX_5_SBTC_REGISTRY_STUB_BODY.to_string()
             };

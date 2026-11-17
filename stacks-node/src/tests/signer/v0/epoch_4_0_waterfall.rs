@@ -16,7 +16,8 @@
 //! Integration tests covering the Epoch 4.0 transition to PoX-5 / sBTC
 //! "waterfall" leader block commits, and the Epoch 4.1 switch of the
 //! waterfall recipient from the sBTC v1 (aggregate-key) deposit to the v2
-//! (Taproot multisig) deposit.
+//! (Taproot multisig) deposit, or to the standard burn address when the sBTC
+//! registry cannot produce a v2 signer set.
 //!
 //! Signer registration is driven through real pox-5 stake calls via
 //! `SignerTest::boot_to_epoch_4_with_pox5_lockups`; no test-only signer-set
@@ -30,6 +31,7 @@ use std::time::Duration;
 use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier};
 use clarity::vm::ContractName;
 use stacks::burnchains::Txid;
+use stacks::chainstate::burn::db::sortdb::SortitionDB;
 use stacks::chainstate::stacks::address::{PoxAddress, PoxAddressType32};
 use stacks::chainstate::stacks::boot::POX_5_NAME;
 use stacks::chainstate::stacks::sbtc::{
@@ -44,7 +46,10 @@ use stacks_common::deps_common::bitcoin::blockdata::transaction::Transaction as 
 use stacks_common::util::hash::hex_bytes;
 use stacks_signer::v0::SpawnedSigner;
 
-use super::{SignerTest, SBTC_REGISTRY_STUB_SIGNATURE_THRESHOLD, SBTC_REGISTRY_STUB_SIGNER_KEYS};
+use super::{
+    SbtcRegistryStub, SignerTest, SBTC_REGISTRY_STUB_SIGNATURE_THRESHOLD,
+    SBTC_REGISTRY_STUB_SIGNER_KEYS,
+};
 use crate::tests::nakamoto_integrations::{enable_epoch_4_0, enable_epoch_4_1, wait_for};
 use crate::tests::neon_integrations::{get_chain_info, next_block_and_wait};
 use crate::tests::to_addr;
@@ -91,8 +96,10 @@ fn make_sbtc_v2_recipient_fixture(is_mainnet: bool) -> PoxAddress {
 enum SbtcCommitOutput {
     /// Epoch 4.0 aggregate-key deposit.
     V1,
-    /// Epoch 4.1+ Taproot multisig deposit.
-    V2,
+    /// The recipient of reward sets computed in Epoch 4.1+: the Taproot
+    /// multisig deposit, or the burn address if the registry cannot produce a
+    /// v2 signer set.
+    Epoch41,
 }
 
 /// Get the most recent unconfirmed block-commit bitcoin transaction, if one
@@ -189,6 +196,7 @@ fn epoch_4_0_block_commit_uses_single_sbtc_output() {
         token_contract_name,
         registry_contract_name,
         &agg_pubkey,
+        SbtcRegistryStub::DevenvSignerSet,
         stake_amount,
         lock_cycles,
     );
@@ -302,7 +310,31 @@ fn epoch_4_1_block_commit_switches_to_sbtc_v2_output() {
     if env::var("BITCOIND_TEST") != Ok("1".into()) {
         return;
     }
+    epoch_4_1_block_commits_across_switch(function_name!(), SbtcRegistryStub::DevenvSignerSet);
+}
 
+/// As [`epoch_4_1_block_commit_switches_to_sbtc_v2_output`], but the sBTC
+/// registry has no `get-current-signer-data`, so reward sets computed in Epoch
+/// 4.1 fall back to the standard burn address. The miner's commits to the burn
+/// address are parsed back from bitcoin, so this checks that waterfall commit
+/// validation accepts them (by burnchain representation) and that every burn
+/// block keeps a sortition winner while the cycle burns.
+#[test]
+#[ignore]
+fn epoch_4_1_block_commit_falls_back_to_burn_output() {
+    if env::var("BITCOIND_TEST") != Ok("1".into()) {
+        return;
+    }
+    epoch_4_1_block_commits_across_switch(function_name!(), SbtcRegistryStub::WithoutSignerData);
+}
+
+/// Boot through Epoch 4.0 into Epoch 4.1 with the given sBTC registry stub and
+/// check the recipient of the block commit for every burn block across the
+/// switch: the v1 recipient before it, and from it the recipient that
+/// `registry_stub` makes Epoch 4.1 reward sets pay. Every burn block after
+/// the first v1 commit must have a sortition winner and advance the Stacks
+/// tip.
+fn epoch_4_1_block_commits_across_switch(test_name: &str, registry_stub: SbtcRegistryStub) {
     let num_signers = 5;
     let stake_amount: u128 = 100_000_000_000;
     let lock_cycles: u128 = 12;
@@ -342,7 +374,7 @@ fn epoch_4_1_block_commit_switches_to_sbtc_v2_output() {
             },
             None,
             None,
-            Some(function_name!()),
+            Some(test_name),
         );
     if signer_test.bootstrap_snapshot() {
         signer_test.shutdown_and_snapshot();
@@ -354,20 +386,26 @@ fn epoch_4_1_block_commit_switches_to_sbtc_v2_output() {
     let v1_script_pubkey = make_sbtc_recipient_fixture(&agg_pubkey, conf.is_mainnet())
         .to_bitcoin_tx_out(0)
         .script_pubkey;
-    let v2_script_pubkey = make_sbtc_v2_recipient_fixture(conf.is_mainnet())
-        .to_bitcoin_tx_out(0)
-        .script_pubkey;
-    assert_ne!(v1_script_pubkey, v2_script_pubkey);
+    let epoch_41_recipient = match registry_stub {
+        SbtcRegistryStub::DevenvSignerSet => make_sbtc_v2_recipient_fixture(conf.is_mainnet()),
+        SbtcRegistryStub::WithoutSignerData => PoxAddress::standard_burn_address(conf.is_mainnet()),
+    };
+    let epoch_41_script_pubkey = epoch_41_recipient.to_bitcoin_tx_out(0).script_pubkey;
+    assert_ne!(v1_script_pubkey, epoch_41_script_pubkey);
     let classify = |tx: &BitcoinTransaction| -> Option<SbtcCommitOutput> {
         let output = tx.output.get(1)?;
         if output.script_pubkey == v1_script_pubkey {
             Some(SbtcCommitOutput::V1)
-        } else if output.script_pubkey == v2_script_pubkey {
-            Some(SbtcCommitOutput::V2)
+        } else if output.script_pubkey == epoch_41_script_pubkey {
+            Some(SbtcCommitOutput::Epoch41)
         } else {
             None
         }
     };
+    let sortdb = conf
+        .get_burnchain()
+        .open_sortition_db(true)
+        .expect("open sortition db");
 
     let epoch_41_start = conf
         .burnchain
@@ -383,6 +421,7 @@ fn epoch_4_1_block_commit_switches_to_sbtc_v2_output() {
         token_contract_name,
         registry_contract_name,
         &agg_pubkey,
+        registry_stub,
         stake_amount,
         lock_cycles,
     );
@@ -415,8 +454,13 @@ fn epoch_4_1_block_commit_switches_to_sbtc_v2_output() {
                 );
                 break;
             }
-            Some(SbtcCommitOutput::V2) => {
-                panic!("v2 sBTC output at burn_height={burn_height}, before Epoch 4.1 ({epoch_41_start})")
+            // Before the first waterfall cycle, classic PoX prepare-phase
+            // commits pay the burn address, which is also the fallback
+            // recipient. Phase 2 checks every commit by height instead.
+            Some(SbtcCommitOutput::Epoch41)
+                if registry_stub == SbtcRegistryStub::WithoutSignerData => {}
+            Some(SbtcCommitOutput::Epoch41) => {
+                panic!("Epoch 4.1 sBTC output at burn_height={burn_height}, before Epoch 4.1 ({epoch_41_start})")
             }
             None => {}
         }
@@ -434,7 +478,7 @@ fn epoch_4_1_block_commit_switches_to_sbtc_v2_output() {
 
     // The reward set for cycle N is computed in the prepare phase that ends
     // cycle N-1, and the epoch of that computation selects the deposit
-    // format. So the first v2 commit lands on the first block of the first
+    // format. So the first Epoch 4.1 commit lands on the first block of the first
     // cycle whose preceding prepare phase starts in Epoch 4.1. Like the
     // waterfall start itself, that is the Nakamoto (mod 0) cycle start.
     let burnchain = conf.get_burnchain();
@@ -450,7 +494,7 @@ fn epoch_4_1_block_commit_switches_to_sbtc_v2_output() {
         pox_constants.nakamoto_first_block_of_cycle(first_burn_height, switch_cycle);
     assert!(
         expected_switch_height > epoch_41_start,
-        "test geometry must place Epoch 4.1 ({epoch_41_start}) strictly before the v2 switch \
+        "test geometry must place Epoch 4.1 ({epoch_41_start}) strictly before the switch \
          ({expected_switch_height}) so the v1 recipient is still paid inside Epoch 4.1"
     );
     // Each block mined below is followed by the commit for the next block, so
@@ -461,20 +505,36 @@ fn epoch_4_1_block_commit_switches_to_sbtc_v2_output() {
          onward; burn_height={burn_height}"
     );
     info!(
-        "------------------------- Expecting v2 switch at burn height {expected_switch_height} (cycle {switch_cycle}) -------------------------"
+        "------------------------- Expecting {registry_stub:?} switch at burn height {expected_switch_height} (cycle {switch_cycle}) -------------------------"
     );
 
     // Phase 2: mine bitcoin blocks through the Epoch 4.1 boundary and check the
     // recipient of the block commit for every block.
     let blocks_processed = signer_test.running_nodes.counters.blocks_processed.clone();
-    let target_v2_commits = 10;
-    let mut v2_commits = 0;
+    let target_epoch_41_commits = 10;
+    let mut epoch_41_commits = 0;
     let mut v1_commits_in_epoch_41 = 0;
     let mut last_stacks_tip = get_chain_info(&conf).stacks_tip_height;
-    while v2_commits < target_v2_commits {
+    while epoch_41_commits < target_epoch_41_commits {
         next_block_and_wait(
             &signer_test.running_nodes.btc_regtest_controller,
             &blocks_processed,
+        );
+        // The commit observed in the previous iteration targeted this block:
+        // require that a commit won its sortition, i.e. that the node
+        // accepted the commit it parsed back from bitcoin.
+        let mined_height = get_chain_info(&conf).burn_block_height;
+        wait_for(30, || {
+            let tip = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn()).unwrap();
+            Ok(tip.block_height >= mined_height)
+        })
+        .unwrap_or_else(|e| panic!("sortition db did not reach burn height {mined_height}: {e}"));
+        let tip = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn()).unwrap();
+        assert!(
+            tip.sortition,
+            "no sortition winner at burn height {} (Epoch 4.1 starts at {epoch_41_start}, switch \
+             at {expected_switch_height}): the block commit was rejected",
+            tip.block_height,
         );
         // Require Stacks tip advancement so the counters below only tick
         // while the chain is live (see the Epoch 4.0 test).
@@ -506,8 +566,8 @@ fn epoch_4_1_block_commit_switches_to_sbtc_v2_output() {
         let tx = commit.expect("wait_for returned once a commit was found");
         let output = classify(&tx).unwrap_or_else(|| {
             panic!(
-                "block commit for burn height {target_height} pays neither the v1 nor the v2 \
-                 sBTC recipient: {tx:?}"
+                "block commit for burn height {target_height} pays neither the v1 nor the \
+                 Epoch 4.1 sBTC recipient: {tx:?}"
             )
         });
         assert_eq!(
@@ -519,22 +579,22 @@ fn epoch_4_1_block_commit_switches_to_sbtc_v2_output() {
         let expected_output = if target_height < expected_switch_height {
             SbtcCommitOutput::V1
         } else {
-            SbtcCommitOutput::V2
+            SbtcCommitOutput::Epoch41
         };
         assert_eq!(
             output, expected_output,
             "wrong sBTC recipient for the commit targeting burn height {target_height} (Epoch 4.1 \
-             starts at {epoch_41_start}, v2 switch expected at {expected_switch_height})"
+             starts at {epoch_41_start}, switch expected at {expected_switch_height})"
         );
         info!(
             "Block commit targeting burn height {target_height} pays {output:?}";
-            "v2_commits" => v2_commits,
-            "target_v2_commits" => target_v2_commits,
+            "epoch_41_commits" => epoch_41_commits,
+            "target_epoch_41_commits" => target_epoch_41_commits,
         );
         match output {
             SbtcCommitOutput::V1 if target_height >= epoch_41_start => v1_commits_in_epoch_41 += 1,
             SbtcCommitOutput::V1 => {}
-            SbtcCommitOutput::V2 => v2_commits += 1,
+            SbtcCommitOutput::Epoch41 => epoch_41_commits += 1,
         }
     }
 

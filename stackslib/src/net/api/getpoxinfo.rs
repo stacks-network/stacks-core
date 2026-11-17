@@ -144,7 +144,9 @@ pub struct RPCPoxInfoData {
     // call to `get-current-aggregate-pubkey` for reward sets computed in
     // Epoch 4.0, or `get-current-signer-data` for reward sets computed in
     // Epoch 4.1+; the cycle in progress when Epoch 4.1 activates keeps the
-    // v1 recipient. Same mainnet-fixed /
+    // v1 recipient. From Epoch 4.1, a registry that does not return a usable
+    // signer set makes the reward set pay the standard burn address.
+    // Same mainnet-fixed /
     // non-mainnet-configurable semantics as `pox_5_sbtc_contract`.
     pub pox_5_sbtc_registry_contract: String,
 }

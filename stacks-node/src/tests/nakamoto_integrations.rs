@@ -129,7 +129,9 @@ use crate::tests::neon_integrations::{
     get_sortition_info, next_block_and_wait, run_until_burnchain_height, submit_tx,
     submit_tx_fallible, test_observer, wait_for_runloop, wait_for_tenure_change_tx,
 };
-use crate::tests::signer::v0::{sbtc_registry_stub_source, sbtc_token_stub_source};
+use crate::tests::signer::v0::{
+    sbtc_registry_stub_source, sbtc_token_stub_source, SbtcRegistryStub,
+};
 use crate::tests::signer::SignerTest;
 use crate::tests::{gen_random_port, get_chain_info, make_contract_publish, to_addr};
 use crate::{tests, BitcoinRegtestController, Config, ConfigFile, Keychain};
@@ -1196,7 +1198,8 @@ pub fn boot_to_epoch_4_0(
     submit_tx(&http_origin, &sbtc_deploy_tx);
 
     let expected_deployer_nonce: u64 = if let Some(pubkey) = sbtc_registry_pubkey {
-        let sbtc_registry_contract = sbtc_registry_stub_source(pubkey);
+        let sbtc_registry_contract =
+            sbtc_registry_stub_source(pubkey, SbtcRegistryStub::DevenvSignerSet);
         let sbtc_registry_deploy_tx = make_contract_publish(
             sbtc_deployer_sk,
             1,

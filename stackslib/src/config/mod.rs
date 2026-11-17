@@ -2278,7 +2278,8 @@ pub struct NodeConfig {
     /// signer-set computation reads to derive the per-cycle sBTC waterfall
     /// recipient: `get-current-aggregate-pubkey` in Epoch 4.0 (v1 deposit),
     /// `get-current-signer-data` from Epoch 4.1 (v2 Taproot multisig
-    /// deposit). Devnet/test only; different operators configuring different
+    /// deposit, or the standard burn address if the registry does not return
+    /// a usable signer set). Devnet/test only; different operators configuring different
     /// contracts will fork the chain.
     /// ---
     /// @default: `None`
