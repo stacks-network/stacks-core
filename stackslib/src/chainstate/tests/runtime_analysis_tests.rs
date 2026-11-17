@@ -304,8 +304,20 @@ fn runtime_check_error_kind_no_such_public_function_read_only_ccall() {
         call_epochs: &[
             StacksEpochId::Epoch34,
             StacksEpochId::Epoch40,
-            StacksEpochId::Epoch41,
         ],
+    );
+}
+
+/// Epoch 4.1 coverage uses a separate chain with the signer-data registry stub.
+#[test]
+fn runtime_check_error_kind_no_such_public_function_read_only_ccall_epoch_41() {
+    contract_call_consensus_snap_test!(
+        contract_name: "target-contract",
+        contract_code: "(define-read-only (get-one) u1)",
+        function_name: "get-one",
+        function_args: &[],
+        deploy_epochs: EPOCHS_TO_TEST,
+        call_epochs: &[StacksEpochId::Epoch41],
     );
 }
 
