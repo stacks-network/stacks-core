@@ -27,7 +27,7 @@ use stacks_common::types::chainstate::ConsensusHash;
 use stacks_common::{debug, error, info, warn};
 
 use crate::chainstate::v1::SortitionsView;
-use crate::client::{retry_with_exponential_backoff, ClientError, StacksClient};
+use crate::client::{retry_with_exponential_backoff, ClientError, RetryError, StacksClient};
 use crate::config::{GlobalConfig, SignerConfig, SignerConfigMode};
 use crate::signerdb::BlockInfo;
 use crate::signerdb_pruner::SignerDbPruner;
@@ -582,15 +582,15 @@ impl<Signer: SignerTrait<T>, T: StacksMessageCodec + Clone + Send + Debug> RunLo
     fn initialize_runloop(&mut self) -> Result<(), ClientError> {
         debug!("Initializing signer runloop...");
         let burnchain_view =
-            retry_with_exponential_backoff(|| -> Result<_, backoff::Error<ClientError>> {
+            retry_with_exponential_backoff(|| -> Result<_, RetryError<ClientError>> {
                 let geometry = self
                     .stacks_client
                     .get_pox_geometry()
-                    .map_err(backoff::Error::transient)?;
+                    .map_err(RetryError::transient)?;
                 let peer_info = self
                     .stacks_client
                     .get_peer_info()
-                    .map_err(backoff::Error::transient)?;
+                    .map_err(RetryError::transient)?;
                 Ok(SignerBurnView::new(
                     geometry,
                     BurnBlock {

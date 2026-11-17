@@ -19,7 +19,9 @@ pub(crate) mod stackerdb;
 /// The stacks node client module for communicating with the stacks node
 pub(crate) mod stacks_client;
 
-use std::time::Duration;
+use std::time::{Duration, Instant};
+
+use backon::{BackoffBuilder, BlockingRetryable, ExponentialBuilder};
 
 use clarity::vm::errors::ClarityTypeError;
 use clarity::vm::types::serialization::SerializationError;
@@ -113,34 +115,69 @@ fn display_with_sources(err: &dyn std::error::Error) -> String {
     msg
 }
 
-/// Retry a function F with an exponential backoff and notification on transient failure
+/// Classifies a failed attempt passed to [`retry_with_exponential_backoff`]
+#[derive(Debug)]
+pub enum RetryError<E> {
+    /// The attempt may succeed if retried
+    Transient(E),
+    /// The attempt will not succeed if retried, so stop immediately
+    Permanent(E),
+}
+
+impl<E> RetryError<E> {
+    /// Wrap an error that should be retried
+    pub fn transient(err: E) -> Self {
+        Self::Transient(err)
+    }
+
+    /// Wrap an error that should not be retried
+    pub fn permanent(err: E) -> Self {
+        Self::Permanent(err)
+    }
+}
+
+/// Retry a function F with an exponential backoff and notification on transient failure.
+///
+/// Retries stop once `BACKOFF_MAX_ELAPSED` of wall-clock time (including time spent in
+/// requests) would be exceeded by the next sleep. Delays use backon's jitter, which adds a
+/// random 0-100% on top of each delay (rather than the +/-50% spread of the `backoff` crate
+/// this replaced), so slightly fewer attempts fit in the window.
 pub fn retry_with_exponential_backoff<F, E, T>(request_fn: F) -> Result<T, ClientError>
 where
-    F: FnMut() -> Result<T, backoff::Error<E>>,
+    F: FnMut() -> Result<T, RetryError<E>>,
     E: std::fmt::Debug + Into<ClientError>,
 {
-    let notify = |err, dur| {
-        debug!(
-            "Failed to connect to stacks node and/or deserialize its response: {err:?}. Next attempt in {dur:?}"
-        );
-    };
+    let start = Instant::now();
+    let max_elapsed = Duration::from_secs(BACKOFF_MAX_ELAPSED);
+    // backon's `with_total_delay` only counts sleep time, so bound on wall-clock time instead.
+    let schedule = ExponentialBuilder::default()
+        .with_min_delay(Duration::from_millis(BACKOFF_INITIAL_INTERVAL))
+        .with_max_delay(Duration::from_millis(BACKOFF_MAX_INTERVAL))
+        .with_factor(1.5)
+        .with_jitter()
+        .without_max_times()
+        .build()
+        .take_while(move |delay| start.elapsed() + *delay <= max_elapsed);
 
-    let backoff_timer = backoff::ExponentialBackoffBuilder::new()
-        .with_initial_interval(Duration::from_millis(BACKOFF_INITIAL_INTERVAL))
-        .with_max_interval(Duration::from_millis(BACKOFF_MAX_INTERVAL))
-        .with_max_elapsed_time(Some(Duration::from_secs(BACKOFF_MAX_ELAPSED)))
-        .build();
-
-    backoff::retry_notify(backoff_timer, request_fn, notify).map_err(|e| match e {
-        backoff::Error::Permanent(err) => {
-            warn!("Non-retry error during request: {err:?}");
-            err.into()
-        }
-        backoff::Error::Transient { err, .. } => {
-            warn!("Exceeded max retries during request: {err:?}");
-            err.into()
-        }
-    })
+    request_fn
+        .retry(schedule)
+        .when(|e| matches!(e, RetryError::Transient(_)))
+        .notify(|err, dur| {
+            debug!(
+                "Failed to connect to stacks node and/or deserialize its response: {err:?}. Next attempt in {dur:?}"
+            );
+        })
+        .call()
+        .map_err(|e| match e {
+            RetryError::Permanent(err) => {
+                warn!("Non-retry error during request: {err:?}");
+                err.into()
+            }
+            RetryError::Transient(err) => {
+                warn!("Exceeded max retries during request: {err:?}");
+                err.into()
+            }
+        })
 }
 
 #[cfg(test)]
