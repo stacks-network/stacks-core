@@ -1,1 +1,0 @@
-From Epoch 4.1, sortition draws the winning block-commit and the null miner's challenge from separate, domain-separated digests of the sortition hash and VRF seed, instead of reusing one digest for both.

@@ -95,8 +95,6 @@ jobs:
       # Checkout the code
       - name: Checkout the latest code
         uses: $/.github/wrappers/checkout
-        with:
-          ref: ${{ github.event.pull_request.head.sha || github.ref }}
 
       # Configure target platform, install Rust toolchain, and build binaries
       - name: Build Binaries

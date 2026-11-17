@@ -1,1 +1,0 @@
-The signer now exits with an error naming the problem when it cannot open its database, for example one written by a newer release, instead of panicking.
