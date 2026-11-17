@@ -1612,8 +1612,10 @@ fn connect_to_running_peer(
     (peer_client, peer_addr, peer_host, stop_peer)
 }
 
-/// Verify that two state machines can use the same HTTP conversation without clobbering each
-/// other's requests.
+/// Verify that two state machines, each with its own `NeighborRPC`, can have requests in flight to
+/// the same neighbor at once and each get its own reply. Each request opens its own HTTP
+/// conversation here; `test_neighbor_rpc_does_not_take_other_http_users_reply` covers two users
+/// sharing one conversation.
 #[test]
 fn test_issue_concurrent_requests_in_different_state_machines() {
     with_timeout(600, || {
