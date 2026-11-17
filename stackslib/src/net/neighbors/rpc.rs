@@ -159,14 +159,6 @@ impl NeighborRPC {
                     inflight.insert(naddr, inflight_request);
                     continue;
                 }
-                Err(NetError::InProgress) => {
-                    // keep trying
-                    debug!(
-                        "Could not yet poll next reply from {naddr}: request already in progress",
-                    );
-                    inflight.insert(naddr, inflight_request);
-                    continue;
-                }
                 Err(e) => {
                     // declare this neighbor as dead by default
                     debug!("Failed to poll next reply from {naddr}: {e}");
