@@ -192,7 +192,7 @@ impl NetworkState {
             if !self.is_server_event_id(server_event_id) {
                 // not a server event
                 error!(
-                    "Server event ID {} not mapped to a server token, but to {}",
+                    "Event ID {} is not a server event ID (mapped to {})",
                     &server_event_id, x
                 );
                 return Err(net_error::RegisterError);
