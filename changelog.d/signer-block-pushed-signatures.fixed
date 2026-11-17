@@ -1,1 +1,0 @@
-Signers now post a block received in a miner's `BlockPushed` message to their node only if the block's signer signatures are valid for the signer's reward set.

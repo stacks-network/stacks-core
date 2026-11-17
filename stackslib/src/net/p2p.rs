@@ -2132,6 +2132,21 @@ impl PeerNetwork {
             peer.port,
         );
 
+        // connections still being opened are not in `self.events` yet
+        let connecting = self.connecting.extract_if(|_, connecting| {
+            connecting.nk.addrbytes == peer.address && connecting.nk.port == peer.port
+        });
+        for (event_id, ConnectingPeer { socket, .. }) in connecting {
+            debug!("Dropping connecting neighbor!";
+                "event id" => event_id,
+                "public addr" => peer.address.pretty_print(),
+                "reason" => %reason
+            );
+            if let Some(ref mut network) = self.network {
+                let _ = network.deregister(event_id, &socket);
+            }
+        }
+
         let mut nk_remove = vec![];
         for (neighbor_key, event_id) in self.events.iter() {
             if neighbor_key.addrbytes == peer.address && neighbor_key.port == peer.port {
@@ -2155,17 +2170,13 @@ impl PeerNetwork {
                 self.pending_messages.remove(&(event_id, nk.clone()));
                 self.pending_stacks_messages.remove(&(event_id, nk.clone()));
 
+                // connecting peers were removed above, and are never in `self.events`
+                debug_assert!(!self.connecting.contains_key(&event_id));
                 match self.network {
                     None => {}
                     Some(ref mut network) => {
                         // deregister socket if connected and registered already
                         if let Some(socket) = self.sockets.remove(&event_id) {
-                            let _ = network.deregister(event_id, &socket);
-                        }
-                        // deregister socket if still connecting
-                        if let Some(ConnectingPeer { socket, .. }) =
-                            self.connecting.remove(&event_id)
-                        {
                             let _ = network.deregister(event_id, &socket);
                         }
                     }
@@ -2799,15 +2810,15 @@ impl PeerNetwork {
                     &peer.socket,
                     event_id,
                     &peer.nk,
-                    self.connection_opts.timeout,
-                    peer.timestamp + self.connection_opts.timeout,
+                    self.connection_opts.connect_timeout,
+                    peer.timestamp + self.connection_opts.connect_timeout,
                     now
                 );
                 to_remove.push(DropPeer {
                     address: peer.nk.addrbytes.clone(),
                     port: peer.nk.port,
                     reason: DropReason::Unresponsive {
-                        timeout: self.connection_opts.timeout,
+                        timeout: self.connection_opts.connect_timeout,
                         last_seen: peer.timestamp,
                         status: PeerStatus::Connecting,
                     },
@@ -6176,5 +6187,47 @@ mod test {
         assert!(peer_1.network.is_connecting(1));
         assert!(peer_1.network.is_connecting_neighbor(&nk));
         assert!(comms.is_neighbor_connecting(&peer_1.network, &nk));
+    }
+
+    #[test]
+    fn test_disconnect_unresponsive_connecting_peer() {
+        let peer_1_config = TestPeerConfig::new(function_name!(), 0, 0);
+        let peer_2_config = TestPeerConfig::new(function_name!(), 0, 0);
+        let mut peer_1 = TestPeer::new(peer_1_config);
+        let peer_2 = TestPeer::new(peer_2_config);
+        let nk = peer_2.to_neighbor().addr;
+        let comms = PeerNetworkComms::new();
+
+        let num_events = peer_1.network.network.as_ref().unwrap().num_events();
+        let event_id = peer_1.network.connect_peer(&nk).unwrap();
+        assert!(peer_1.network.is_connecting(event_id));
+        assert!(comms.is_neighbor_connecting(&peer_1.network, &nk));
+        assert_eq!(
+            peer_1.network.network.as_ref().unwrap().num_events(),
+            num_events + 1
+        );
+
+        // not timed out yet
+        assert_eq!(peer_1.network.disconnect_unresponsive(), 0);
+        assert!(peer_1.network.is_connecting(event_id));
+
+        // pretend the connection attempt started long ago
+        peer_1
+            .network
+            .connecting
+            .get_mut(&event_id)
+            .unwrap()
+            .timestamp = 0;
+        assert_eq!(peer_1.network.disconnect_unresponsive(), 1);
+
+        // the attempt is gone, so callers like `PeerNetworkComms` and StackerDB sync will retry
+        // it, and its socket is no longer registered
+        assert!(!peer_1.network.is_connecting(event_id));
+        assert!(!peer_1.network.is_connecting_neighbor(&nk));
+        assert!(!comms.is_neighbor_connecting(&peer_1.network, &nk));
+        assert_eq!(
+            peer_1.network.network.as_ref().unwrap().num_events(),
+            num_events
+        );
     }
 }

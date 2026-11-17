@@ -77,8 +77,6 @@ jobs:
       # Checkout the code
       - name: Checkout the latest code
         uses: $/.github/wrappers/checkout
-        with:
-          ref: ${{ github.event.pull_request.head.sha || github.ref }}
 
       # Restore Nextest archive artifact
       #   - also provides the nextest binary bundled in the artifact
@@ -108,7 +106,6 @@ jobs:
       - name: Checkout the latest code
         uses: $/.github/wrappers/checkout
         with:
-          ref: ${{ github.event.pull_request.head.sha || github.ref }}
           sparse-checkout: .github
       
       # Setup, run tests, generate and upload code coverage artifact
@@ -139,7 +136,6 @@ jobs:
       - name: Checkout the latest code
         uses: $/.github/wrappers/checkout
         with:
-          ref: ${{ github.event.pull_request.head.sha || github.ref }}
           sparse-checkout: .github
           
       # Setup, run tests, generate and upload code coverage artifact
@@ -170,7 +166,6 @@ jobs:
       - name: Checkout the latest code
         uses: $/.github/wrappers/checkout
         with:
-          ref: ${{ github.event.pull_request.head.sha || github.ref }}
           sparse-checkout: .github
           
       # Setup, run tests, generate and upload code coverage artifact
@@ -201,7 +196,6 @@ jobs:
       - name: Checkout the latest code
         uses: $/.github/wrappers/checkout
         with:
-          ref: ${{ github.event.pull_request.head.sha || github.ref }}
           sparse-checkout: .github
           
       # Setup, run tests, generate and upload code coverage artifact
@@ -244,7 +238,6 @@ jobs:
       - name: Checkout the latest code
         uses: $/.github/wrappers/checkout
         with:
-          ref: ${{ github.event.pull_request.head.sha || github.ref }}
           sparse-checkout: .github
           
       # Check if all jobs succeeded
