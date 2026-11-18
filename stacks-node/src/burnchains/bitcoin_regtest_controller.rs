@@ -142,6 +142,8 @@ enum CommitBroadcast {
     /// rejected the transaction, so these exact bytes are resent.
     Unacknowledged(Transaction),
     Acknowledged,
+    /// Bitcoin refused these exact bytes, so reprice instead of resending.
+    Rejected,
     /// Some attempt in the chain has confirmed; no further fee raises.
     Confirmed,
 }
@@ -1283,7 +1285,10 @@ impl BitcoinRegtestController {
             );
         }
 
-        if identical_payload && !ongoing_op.needs_fee_raise(&self.config.get_burnchain_config()) {
+        if identical_payload
+            && !matches!(ongoing_op.broadcast, CommitBroadcast::Rejected)
+            && !ongoing_op.needs_fee_raise(&self.config.get_burnchain_config())
+        {
             if let CommitBroadcast::Unacknowledged(tx) = &ongoing_op.broadcast {
                 return Ok(tx.clone());
             }
@@ -1380,7 +1385,7 @@ impl BitcoinRegtestController {
             && self.ongoing_block_commit.as_ref().is_some_and(|op| {
                 Instant::now() >= op.retry_after
                     && match op.broadcast {
-                        CommitBroadcast::Unacknowledged(_) => true,
+                        CommitBroadcast::Unacknowledged(_) | CommitBroadcast::Rejected => true,
                         CommitBroadcast::Acknowledged => op.needs_fee_raise(&settings),
                         CommitBroadcast::Confirmed => false,
                     }
@@ -2467,6 +2472,9 @@ impl BitcoinRegtestController {
                     "txid" => %txid, "rpc_code" => error.code(),
                     "restoring_previous_attempt" => previous.is_some());
                 self.ongoing_block_commit = previous.map(|mut prior| {
+                    if Txid::from_bitcoin_tx_hash(&prior.signed_tx.txid()) == *txid {
+                        prior.broadcast = CommitBroadcast::Rejected;
+                    }
                     prior.retry_after = Instant::now() + BLOCK_COMMIT_RETRY_INTERVAL;
                     prior
                 });
@@ -3758,6 +3766,28 @@ mod tests {
             !controller.pending_commit_needs_retry(true),
             "lost acknowledgement must also respect a new burn view"
         );
+    }
+
+    #[test]
+    fn test_rejected_resend_is_repriced() {
+        let mut config = utils::create_miner_config();
+        config.burnchain.rbf_fee_increment = 0;
+        config.burnchain.block_commit_replacement_fee_max_sats = Some(10_000);
+        let mut ongoing = dummy_ongoing_commit(&config, u64::MAX);
+        ongoing.broadcast = CommitBroadcast::Unacknowledged(ongoing.signed_tx.clone());
+        let txid = Txid::from_bitcoin_tx_hash(&ongoing.signed_tx.txid());
+        let mut controller =
+            BitcoinRegtestController::new_ongoing_dummy(config, Some(ongoing.clone()));
+        let error = BitcoinRpcClientError::Rpc(RpcError::Service(
+            serde_json::from_value(serde_json::json!({"code": -26, "message": "rejected"}))
+                .unwrap(),
+        ));
+
+        assert!(!controller.handle_managed_commit_failure(&txid, &error, Some(ongoing)));
+        let op = controller.ongoing_block_commit.as_mut().unwrap();
+        assert!(matches!(op.broadcast, CommitBroadcast::Rejected));
+        op.retry_after = Instant::now() - Duration::from_secs(1);
+        assert!(controller.pending_commit_needs_retry(false));
     }
 
     #[test]
