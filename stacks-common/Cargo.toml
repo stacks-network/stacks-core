@@ -44,6 +44,8 @@ thiserror = { workspace = true }
 
 # RustCrypto elliptic curve crates
 p256 = { version = "0.14", default-features = false, features = ["alloc", "ecdsa"] }
+k256 = { version = "0.14", default-features = false, features = ["alloc", "ecdsa"] }
+ecdsa = { version = "0.17", default-features = false, features = ["algorithm"] }
 
 # Optional dependencies
 getrandom = { version = "0.2", default-features = false, optional = true }
@@ -62,11 +64,9 @@ winapi = { version = "0.3", features = [
 ], optional = true }
 
 [target.'cfg(not(target_family = "wasm"))'.dependencies]
-secp256k1 = { version = "0.24.3", default-features = false, features = ["std","serde", "recovery"] }
+# The lazily-computed basepoint table speeds up signing and key derivation, but needs `std`
+k256 = { version = "0.14", default-features = false, features = ["std", "precomputed-tables"] }
 rusqlite = { workspace = true, optional = true }
-
-[target.'cfg(target_family = "wasm")'.dependencies]
-libsecp256k1 = { version = "0.7.2", default-features = false, features = ["hmac", "lazy-static-context"] }
 
 [target.'cfg(all(any(target_arch = "x86_64", target_arch = "x86", target_arch = "aarch64"), not(any(target_os="windows"))))'.dependencies]
 sha2 = { version = "0.10", features = ["asm"] }
@@ -100,7 +100,7 @@ bech32_std = []
 bech32_strict = []
 
 # Wasm-specific features for easier configuration
-wasm-web = ["rand", "getrandom/js", "libsecp256k1/static-context", "chrono/wasmbind"]
+wasm-web = ["rand", "getrandom/js", "chrono/wasmbind"]
 wasm-deterministic = ["getrandom/custom"]
 
 [package.metadata.pinny]

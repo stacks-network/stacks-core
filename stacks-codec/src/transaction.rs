@@ -2570,11 +2570,11 @@ impl StacksMessageCodec for StacksMicroblockHeader {
         // signature must be well-formed
         // in tests, we sometimes use invalid signatures
         #[cfg(not(any(test, feature = "testing")))]
-        let _ = signature
-            .to_secp256k1_recoverable()
-            .ok_or(codec_error::DeserializeError(
+        if !signature.is_well_formed() {
+            return Err(codec_error::DeserializeError(
                 "Failed to parse signature".to_string(),
-            ))?;
+            ));
+        }
 
         Ok(StacksMicroblockHeader {
             version,
