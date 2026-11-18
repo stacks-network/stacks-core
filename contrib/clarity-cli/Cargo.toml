@@ -11,8 +11,8 @@ stacks-marf = { path = "../../stacks-marf" }
 stacks-common = { path = "../../stacks-common", default-features = false }
 slog = { workspace = true }
 lazy_static = { version = "1.4.0", default-features = false }
-serde = { version = "1" }
-serde_derive = "1"
+serde = { workspace = true }
+serde_derive = { workspace = true }
 serde_json = { workspace = true }
 rand = { workspace = true }
 rusqlite = { workspace = true }
