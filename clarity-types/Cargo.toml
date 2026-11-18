@@ -14,7 +14,7 @@ lazy_static = { workspace = true }
 regex = { version = "1", default-features = false }
 rusqlite = { workspace = true, optional = true }
 serde = { workspace = true }
-serde_json = { version = "1.0", default-features = false, optional = true }
+serde_json = { workspace = true, optional = true }
 serde_derive = { workspace = true }
 slog = { workspace = true }
 stacks_common = { package = "stacks-common", path = "../stacks-common", default-features = false }
@@ -23,7 +23,7 @@ variant_count = { workspace = true }
 [dev-dependencies]
 mutants = "0.0.3"
 rstest = "0.17.0"
-serde_json = "1.0"
+serde_json = { workspace = true }
 
 [features]
 default = []
