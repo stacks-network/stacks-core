@@ -16,7 +16,7 @@ stx-genesis = { path = "../stx-genesis"}
 base64 = "0.12.0"
 backtrace = "0.3.77"
 libc = "0.2.151"
-slog = { version = "2.5.2", features = [ "max_level_trace" ] }
+slog = { workspace = true }
 clarity = { path = "../clarity" }
 stacks-common = { path = "../stacks-common" }
 chrono = "0.4.19"

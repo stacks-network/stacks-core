@@ -233,7 +233,7 @@ fn inner_open_nakamoto_block(
     readwrite: bool,
 ) -> Result<Blob<'_>, ChainstateError> {
     let blob = conn.blob_open(
-        rusqlite::DatabaseName::Main,
+        rusqlite::MAIN_DB,
         "nakamoto_staging_blocks",
         "data",
         rowid,

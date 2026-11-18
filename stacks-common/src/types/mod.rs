@@ -566,6 +566,13 @@ impl StacksEpochId {
         self >= &StacksEpochId::Epoch41
     }
 
+    /// Whether a contract-call transaction may only call `define-public` functions.
+    ///
+    /// Before this epoch, it could also call `define-read-only` functions.
+    pub fn forbids_top_level_read_only_calls(&self) -> bool {
+        self >= &StacksEpochId::Epoch41
+    }
+
     /// Whether `concat` fails the transaction with `ValueTooLarge` when it would
     /// build a buffer or string larger than `MAX_VALUE_SIZE`.
     pub fn checks_concat_result_size(&self) -> bool {
@@ -917,6 +924,13 @@ impl StacksEpochId {
         self >= &StacksEpochId::Epoch41
     }
 
+    /// Whether sortition samples the winning block-commit and the null miner's challenge from
+    /// separate, domain-separated digests of the sortition hash and VRF seed, rather than both
+    /// from the same digest.
+    pub fn uses_sortition_scopes(&self) -> bool {
+        self >= &StacksEpochId::Epoch41
+    }
+
     pub fn supports_call_with_constant(&self) -> bool {
         self >= &StacksEpochId::Epoch34
     }
@@ -999,6 +1013,12 @@ impl StacksEpochId {
     /// a constant `true`. Chances are that this was never triggered; in that case, we
     /// can remove this check and keep the fixed behavior.
     pub fn clarity_runtime_checks_global_constants_before_local_vars(&self) -> bool {
+        self >= &StacksEpochId::Epoch41
+    }
+
+    /// Disallow the deployment of contracts called `__transient`, a legacy mechanism that's
+    /// no longer useful.
+    pub fn rejects_transient_contracts(&self) -> bool {
         self >= &StacksEpochId::Epoch41
     }
 

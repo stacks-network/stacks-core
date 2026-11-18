@@ -123,9 +123,10 @@ fn variant_coverage_report(variant: RuntimeCheckErrorKind) {
         }
         CircularReference(_) => Tested(vec![runtime_check_error_kind_circular_reference_ccall]), // Possible only during contract call. On contract deploy checked during parsing.
         NoSuchContract(_) => Tested(vec![runtime_check_error_kind_no_such_contract_ccall]),
-        NoSuchPublicFunction(_, _) => {
-            Tested(vec![runtime_check_error_kind_no_such_public_function_ccall])
-        }
+        NoSuchPublicFunction(_, _) => Tested(vec![
+            runtime_check_error_kind_no_such_public_function_ccall,
+            runtime_check_error_kind_no_such_public_function_read_only_ccall,
+        ]),
         ContractCallExpectName => Tested(vec![
             runtime_check_error_kind_contract_call_expect_name_cdeploy,
             runtime_check_error_kind_contract_call_expect_name_ccall,
@@ -285,6 +286,26 @@ fn runtime_check_error_kind_no_such_public_function_ccall() {
         contract_code: "(define-private (get-one) (ok u1))",
         function_name: "get-one",
         function_args: &[],
+    );
+}
+
+/// RuntimeCheckErrorKind: [`RuntimeCheckErrorKind::NoSuchPublicFunction`]
+/// Caused by: a contract-call transaction targets a read-only function.
+/// Outcome: block accepted. Before epoch 4.1, the call succeeds and its result is the
+///     function's return value (here `u1`, not a response); from 4.1, it fails.
+#[test]
+fn runtime_check_error_kind_no_such_public_function_read_only_ccall() {
+    contract_call_consensus_snap_test!(
+        contract_name: "target-contract",
+        contract_code: "(define-read-only (get-one) u1)",
+        function_name: "get-one",
+        function_args: &[],
+        deploy_epochs: EPOCHS_TO_TEST,
+        call_epochs: &[
+            StacksEpochId::Epoch34,
+            StacksEpochId::Epoch40,
+            StacksEpochId::Epoch41,
+        ],
     );
 }
 

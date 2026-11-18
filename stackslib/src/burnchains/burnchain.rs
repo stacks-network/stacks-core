@@ -78,7 +78,6 @@ impl BurnchainStateTransition {
         BurnchainStateTransition {
             burn_dist: vec![],
             accepted_ops: vec![],
-            consumed_leader_keys: vec![],
             windowed_block_commits: vec![],
             windowed_missed_commits: vec![],
         }
@@ -181,10 +180,6 @@ impl BurnchainStateTransition {
                 }
             };
         }
-
-        // find all VRF leader keys that were consumed by the block commits of this block
-        let consumed_leader_keys =
-            sort_tx.get_consumed_leader_keys(parent_snapshot, &block_commits)?;
 
         // assemble the commit windows
         let mut windowed_block_commits = vec![block_commits];
@@ -355,7 +350,6 @@ impl BurnchainStateTransition {
         Ok(BurnchainStateTransition {
             burn_dist,
             accepted_ops,
-            consumed_leader_keys,
             windowed_block_commits,
             windowed_missed_commits,
         })

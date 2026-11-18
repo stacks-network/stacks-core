@@ -109,6 +109,10 @@ pub static TEST_BLOCK_PUSH_SKIP: LazyLock<TestFlag<bool>> = LazyLock::new(TestFl
 pub static TEST_MINER_BROADCASTING_BLOCK: LazyLock<TestFlag<NakamotoBlock>> =
     LazyLock::new(TestFlag::default);
 #[cfg(test)]
+/// Test flag to make the miner abandon the block it is currently waiting on and mine a
+/// replacement at the same height in the same tenure, producing a sibling.
+pub static TEST_MINER_FORCE_REMINE: LazyLock<TestFlag<bool>> = LazyLock::new(TestFlag::default);
+#[cfg(test)]
 #[derive(Clone, Copy, Debug, PartialEq)]
 /// Kinds of transient errors that tests can inject into `mine_block()` via
 /// `TEST_MINE_TRANSIENT_ERRORS` to exercise the miner thread's retry paths.

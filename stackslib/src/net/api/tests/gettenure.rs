@@ -14,15 +14,19 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use std::io::Write;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 
-use stacks_common::codec::StacksMessageCodec;
+use stacks_common::codec::{StacksMessageCodec, MAX_MESSAGE_LEN, MAX_PAYLOAD_LEN};
 use stacks_common::types::chainstate::{ConsensusHash, StacksBlockId};
+use stacks_common::util::chunked_encoding::{
+    HttpChunkedTransferWriter, HttpChunkedTransferWriterState,
+};
 
 use super::TestRPC;
 use crate::chainstate::burn::db::sortdb::{SortitionDB, SortitionHandle};
 use crate::chainstate::nakamoto::{NakamotoBlock, NakamotoChainState};
-use crate::net::api::gettenure::NakamotoTenureStream;
+use crate::net::api::gettenure::{max_tenure_response_bytes, NakamotoTenureStream};
 use crate::net::api::*;
 use crate::net::connection::ConnectionOptions;
 use crate::net::http::HttpChunkGenerator;
@@ -186,4 +190,33 @@ fn test_stream_nakamoto_tenure() {
         blocks.first().unwrap().header.block_id(),
         nakamoto_tip_block_id
     );
+}
+
+/// A `/v3/tenures` response of `max_tenure_response_bytes()` block bytes, chunk-encoded, fits in
+/// the `MAX_MESSAGE_LEN` bytes that a client buffers.
+#[test]
+fn test_max_tenure_response_bytes_fits_encoded() {
+    for chunk_size in [1u64, 32, 4096, 65536] {
+        let max_bytes = max_tenure_response_bytes(chunk_size);
+        assert!(max_bytes <= u64::from(MAX_PAYLOAD_LEN));
+
+        let body = vec![0u8; max_bytes as usize];
+        let mut encoded = vec![];
+        let mut encoder_state = HttpChunkedTransferWriterState::new(chunk_size as usize);
+        let mut encoder =
+            HttpChunkedTransferWriter::from_writer_state(&mut encoded, &mut encoder_state);
+        encoder.write_all(&body).unwrap();
+        encoder.flush().unwrap();
+        assert!(
+            encoded.len() <= MAX_MESSAGE_LEN as usize,
+            "chunk size {chunk_size}: {max_bytes} block bytes encode to {} bytes",
+            encoded.len()
+        );
+    }
+
+    // The 16,775,088-byte page that no node could read on mainnet on 2026-11-12 is now split,
+    // while pages stay close to the old size.
+    let max_bytes = max_tenure_response_bytes(4096);
+    assert!(max_bytes < 16_775_088);
+    assert!(max_bytes > 16_700_000);
 }

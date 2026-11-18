@@ -38,7 +38,6 @@ jobs:
       - name: Checkout the latest code
         uses: $/.github/wrappers/checkout
         with:
-          ref: ${{ github.event.pull_request.head.sha || github.ref }}
           sparse-checkout: |
             .github
 
@@ -68,8 +67,6 @@ jobs:
       - name: Checkout the latest code
         id: git_checkout
         uses: $/.github/wrappers/checkout
-        with:
-          ref: ${{ github.event.pull_request.head.sha || github.ref }}
      
       # Setup rust toolchain with llvm-tools-preview
       - name: Setup Rust Toolchain
@@ -127,7 +124,6 @@ jobs:
       - name: Checkout the latest code
         uses: $/.github/wrappers/checkout
         with:
-          ref: ${{ github.event.pull_request.head.sha || github.ref }}
           sparse-checkout: |
             .github
 

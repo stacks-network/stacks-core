@@ -9,7 +9,7 @@ clarity = { path = "../../clarity", default-features = false, features = ["asset
 stackslib = { package = "stackslib", path = "../../stackslib", default-features = false }
 stacks-marf = { path = "../../stacks-marf" }
 stacks-common = { path = "../../stacks-common", default-features = false }
-slog = { version = "2.5.2", features = [ "max_level_trace" ] }
+slog = { workspace = true }
 lazy_static = { version = "1.4.0", default-features = false }
 serde = { version = "1" }
 serde_derive = "1"

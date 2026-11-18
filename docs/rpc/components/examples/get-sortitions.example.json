@@ -9,6 +9,7 @@
             "parent_sortition_id": "0x04d40e2ee2a9ee79c59c2e85b2f742c57bdeed5a2c32bb3bf659a77e892d8234",
             "consensus_hash": "0xe4a00a6c88722c7812ba0a2f780c42247c1d2d4c",
             "was_sortition": true,
+            "canonical": true,
             "miner_pk_hash160": "0x37e79a837b4071a1fc6c1b49208e7d2141a25905",
             "stacks_parent_ch": "0x7d3094294fabc1948d15fca4566ee2175a1e9808",
             "last_sortition_ch": "0x7d3094294fabc1948d15fca4566ee2175a1e9808",
