@@ -1105,6 +1105,13 @@ impl BitcoinRegtestController {
             None if !managed => 0,
             None => return Err(BurnchainControllerError::BurnchainError),
         };
+        if let Some(max_fee) = settings.block_commit_replacement_fee_max_sats {
+            if miner_fee > max_fee {
+                warn!("Block commit miner fee exceeds block_commit_replacement_fee_max_sats, not submitting";
+                    "miner_fee_sats" => miner_fee, "max_fee_sats" => max_fee);
+                return Err(BurnchainControllerError::MaxFeeRateExceeded);
+            }
+        }
 
         let txid = Txid::from_bitcoin_tx_hash(&tx.txid());
         let mut txids = previous_txids.to_vec();
@@ -4653,7 +4660,7 @@ mod tests {
 
         #[test]
         #[ignore]
-        fn test_build_leader_block_commit_tx_managed_resends_unacknowledged_bytes() {
+        fn test_build_leader_block_commit_tx_managed_caps_fresh_commit_fee() {
             if env::var("BITCOIND_TEST") != Ok("1".into()) {
                 return;
             }
@@ -4667,6 +4674,70 @@ mod tests {
             config.burnchain.pox_reward_length = Some(11);
             config.burnchain.rbf_fee_increment = 0;
             config.burnchain.block_commit_replacement_fee_max_sats = Some(10_000);
+
+            let mut btcd_controller = BitcoinCoreController::from_stx_config(&config);
+            btcd_controller
+                .start_bitcoind()
+                .expect("bitcoind should be started!");
+
+            let mut btc_controller = BitcoinRegtestController::new(config, None);
+            btc_controller
+                .connect_dbs()
+                .expect("Dbs initialization required!");
+            btc_controller.bootstrap_chain(101); // now, one utxo exists
+
+            let mut commit_op = utils::create_templated_commit_op();
+            commit_op.sunset_burn = 5_500;
+            commit_op.burn_fee = 110_000;
+
+            let capped = btc_controller.build_leader_block_commit_tx(
+                StacksEpochId::Epoch31,
+                commit_op.clone(),
+                &mut op_signer,
+            );
+            assert_eq!(
+                BurnchainControllerError::MaxFeeRateExceeded,
+                capped.unwrap_err()
+            );
+            assert!(btc_controller.ongoing_block_commit.is_none());
+
+            btc_controller
+                .config
+                .burnchain
+                .block_commit_replacement_fee_max_sats = Some(19_200);
+            btc_controller
+                .build_leader_block_commit_tx(
+                    StacksEpochId::Epoch31,
+                    commit_op,
+                    &mut keychain.generate_op_signer(),
+                )
+                .expect("A fee at the cap should be allowed");
+            assert_eq!(
+                19_200,
+                btc_controller
+                    .ongoing_block_commit
+                    .as_ref()
+                    .unwrap()
+                    .miner_fee
+            );
+        }
+
+        #[test]
+        #[ignore]
+        fn test_build_leader_block_commit_tx_managed_resends_unacknowledged_bytes() {
+            if env::var("BITCOIND_TEST") != Ok("1".into()) {
+                return;
+            }
+
+            let keychain = utils::create_keychain();
+            let miner_pubkey = keychain.get_pub_key();
+            let mut op_signer = keychain.generate_op_signer();
+
+            let mut config = utils::create_miner_config();
+            config.burnchain.local_mining_public_key = Some(miner_pubkey.to_hex());
+            config.burnchain.pox_reward_length = Some(11);
+            config.burnchain.rbf_fee_increment = 0;
+            config.burnchain.block_commit_replacement_fee_max_sats = Some(50_000);
 
             let mut btcd_controller = BitcoinCoreController::from_stx_config(&config);
             btcd_controller
