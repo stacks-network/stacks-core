@@ -4861,40 +4861,68 @@ fn empty_sortition_while_block_in_flight() {
     );
     assert_eq!(info_b.stacks_tip_height, stacks_height_before);
 
-    let proposals_at_n_height = || -> HashSet<Sha512Trunc256Sum> {
-        get_stackerdb_signer_messages()
-            .into_iter()
-            .filter_map(|(_chunk, message)| {
-                let SignerMessage::BlockProposal(proposal) = message else {
-                    return None;
-                };
-                let header = proposal.block.header;
-                (header.consensus_hash == tenure_a_ch
-                    && header.chain_length == stacks_height_before + 1)
-                    .then(|| header.signer_signature_hash())
-            })
-            .collect()
-    };
-    // Give the relayer time to react to the empty sortition while N is still
-    // unsigned. A miner with the bug proposes a sibling of N within a few seconds,
-    // which the assertion below catches. Either way the wait is bounded, so its result
-    // is deliberately ignored.
-    let _ = wait_for(10, || Ok(proposals_at_n_height().len() > 1));
+    wait_for_sibling_of_in_flight_block(&block_n);
 
     info!("------------------------- Unstall Signers -------------------------");
     TEST_STALL_BLOCK_VALIDATION_SUBMISSION.set(false);
     skip_commit_op.set(false);
 
+    wait_for_extend_on_in_flight_block(&block_n, &burn_view_b);
+
+    signer_test.check_signer_states_normal_missed_sortition();
+
+    info!("------------------------- Mine Tenure C -------------------------");
+    next_block_and_process_new_stacks_block(
+        &signer_test.running_nodes.btc_regtest_controller,
+        60,
+        &signer_test.running_nodes.coord_channel,
+    )
+    .expect("Failed to mine a normal tenure after the tenure extend");
+    signer_test.check_signer_states_normal();
+
+    info!("------------------------- Shutdown -------------------------");
+    signer_test.shutdown();
+}
+
+/// Signature hashes of every block proposed in `block`'s tenure at `block`'s height
+fn proposals_at_height_of(block: &NakamotoBlock) -> HashSet<Sha512Trunc256Sum> {
+    get_stackerdb_signer_messages()
+        .into_iter()
+        .filter_map(|(_chunk, message)| {
+            let SignerMessage::BlockProposal(proposal) = message else {
+                return None;
+            };
+            let header = proposal.block.header;
+            (header.consensus_hash == block.header.consensus_hash
+                && header.chain_length == block.header.chain_length)
+                .then(|| header.signer_signature_hash())
+        })
+        .collect()
+}
+
+/// Give the relayer time to react to a new burn block while `block_n` is still unsigned.
+/// A miner that does not wait for it proposes a sibling within a few seconds, which
+/// `wait_for_extend_on_in_flight_block` catches. Either way the wait is bounded, so its
+/// result is deliberately ignored.
+fn wait_for_sibling_of_in_flight_block(block_n: &NakamotoBlock) {
+    let _ = wait_for(10, || Ok(proposals_at_height_of(block_n).len() > 1));
+}
+
+/// Check that the in-flight block `block_n` is the only block proposed and landed at its
+/// height, and that the miner then extends its tenure into `burn_view` on top of it.
+fn wait_for_extend_on_in_flight_block(block_n: &NakamotoBlock, burn_view: &ConsensusHash) {
+    let height_n = block_n.header.chain_length;
+
     info!("------------------------- Block N Lands -------------------------");
     wait_for(60, || {
         Ok(test_observer::get_blocks()
             .iter()
-            .any(|block| block["block_height"].as_u64() == Some(stacks_height_before + 1)))
+            .any(|block| block["block_height"].as_u64() == Some(height_n)))
     })
     .expect("Timed out waiting for a block to land at N's height");
     let landed_at_n_height: Vec<_> = test_observer::get_blocks()
         .into_iter()
-        .filter(|block| block["block_height"].as_u64() == Some(stacks_height_before + 1))
+        .filter(|block| block["block_height"].as_u64() == Some(height_n))
         .collect();
     assert_eq!(
         landed_at_n_height.len(),
@@ -4907,38 +4935,272 @@ fn empty_sortition_while_block_in_flight() {
         "Block N must be the block that lands at its height"
     );
 
-    info!("------------------------- Miner Extends Into Burn View B -------------------------");
-    let extend_block =
-        wait_for_tenure_change_tx(60, TenureChangeCause::Extended, stacks_height_before + 2)
-            .expect(
-                "Timed out waiting for the miner to extend its tenure into the empty sortition",
-            );
+    info!(
+        "------------------------- Miner Extends Into The New Burn View -------------------------"
+    );
+    let extend_block = wait_for_tenure_change_tx(60, TenureChangeCause::Extended, height_n + 1)
+        .expect("Timed out waiting for the miner to extend its tenure into the new burn view");
     let extend_payload = tenure_change_payload_in_block(&extend_block)
         .expect("The extend block should contain a tenure change tx");
     assert!(extend_payload.cause.is_eq(&TenureChangeCause::Extended));
-    assert_eq!(extend_payload.tenure_consensus_hash, tenure_a_ch);
-    assert_eq!(extend_payload.burn_view_consensus_hash, burn_view_b);
+    assert_eq!(
+        extend_payload.tenure_consensus_hash,
+        block_n.header.consensus_hash
+    );
+    assert_eq!(&extend_payload.burn_view_consensus_hash, burn_view);
     assert_eq!(
         extend_payload.previous_tenure_end,
         block_n.header.block_id()
     );
 
     assert_eq!(
-        proposals_at_n_height(),
+        proposals_at_height_of(block_n),
         HashSet::from([block_n.header.signer_signature_hash()]),
         "The miner must not propose a sibling of the in-flight block N"
     );
+}
 
-    signer_test.check_signer_states_normal_missed_sortition();
+#[test]
+#[ignore]
+/// Like `empty_sortition_while_block_in_flight`, but the burn block that arrives
+/// while block N is in flight has a winner whose block-commit does not build on
+/// the ongoing tenure, so the ongoing miner extends its tenure right away
+/// (`BadSortitionWinner`). That extend must also wait for N.
+///
+/// Scenario:
+/// - Miner 1 wins tenures A and B. Miner 2's block-commit is sent before any
+///   block of tenure B exists, so it builds on tenure A.
+/// - The signers are stalled before submitting blocks for validation, and a
+///   transfer makes miner 1 propose N, an ordinary block in tenure B.
+/// - Miner 2 wins Bitcoin block C with that block-commit.
+/// - The signers are unstalled. They sign N and push it to the node.
+///
+/// Asserts:
+/// - N is the only block proposed at its height, and the one that lands.
+/// - Miner 1 then extends tenure B into burn view C on top of N.
+fn bad_sortition_winner_while_block_in_flight() {
+    if env::var("BITCOIND_TEST") != Ok("1".into()) {
+        return;
+    }
 
-    info!("------------------------- Mine Tenure C -------------------------");
-    next_block_and_process_new_stacks_block(
-        &signer_test.running_nodes.btc_regtest_controller,
-        60,
-        &signer_test.running_nodes.coord_channel,
-    )
-    .expect("Failed to mine a normal tenure after the tenure extend");
-    signer_test.check_signer_states_normal();
+    let num_signers = 5;
+    let num_txs = 2;
+
+    let first_proposal_burn_block_timing = Duration::from_secs(1);
+    let mut miners = MultipleMinerTest::new_with_config_modifications(
+        num_signers,
+        num_txs,
+        |signer_config| {
+            signer_config.block_proposal_timeout = Duration::from_secs(30);
+            signer_config.first_proposal_burn_block_timing = first_proposal_burn_block_timing;
+        },
+        |config| {
+            config.miner.block_commit_delay = Duration::from_secs(0);
+            // Everything between C and N being processed has to fit inside this wait,
+            // because once it elapses an extend on N's parent is expected.
+            config.miner.block_found_in_flight_wait = Duration::from_secs(120);
+        },
+        |config| {
+            config.miner.block_commit_delay = Duration::from_secs(0);
+        },
+    );
+    let (conf_1, _) = miners.get_node_configs();
+    let (miner_pk_1, _) = miners.get_miner_public_keys();
+    let (miner_pkh_1, miner_pkh_2) = miners.get_miner_public_key_hashes();
+
+    miners.pause_commits_miner_2();
+    miners.boot_to_epoch_3();
+
+    let sortdb = conf_1.get_burnchain().open_sortition_db(true).unwrap();
+    miners.ensure_commit_miner_1(&sortdb);
+    miners.pause_commits_miner_1();
+
+    info!("------------------------- Miner 1 Wins Tenure A -------------------------");
+    miners
+        .mine_bitcoin_block_and_tenure_change_tx(&sortdb, TenureChangeCause::BlockFound, 30)
+        .expect("Failed to mine BTC block followed by tenure change tx");
+    verify_sortition_winner(&sortdb, &miner_pkh_1);
+
+    info!("------------------------- Miner 1 Wins Tenure B -------------------------");
+    fault_injection_stall_miner();
+    miners.ensure_commit_miner_1(&sortdb);
+    miners
+        .mine_bitcoin_blocks_and_confirm(&sortdb, 1, 30)
+        .expect("Failed to mine BTC block");
+    verify_sortition_winner(&sortdb, &miner_pkh_1);
+
+    info!("----------------- Miner 2 Submits Block Commit Before Any Blocks ------------------");
+    miners.ensure_commit_miner_2(&sortdb);
+
+    let stacks_height_before = miners.get_peer_stacks_tip_height();
+    fault_injection_unstall_miner();
+    wait_for_tenure_change_tx(30, TenureChangeCause::BlockFound, stacks_height_before + 1)
+        .expect("Failed to mine tenure change tx");
+    // Let tenure B's first block become too old for miner 2 to reorg it
+    thread::sleep(first_proposal_burn_block_timing.saturating_add(Duration::from_secs(2)));
+
+    info!("------------------------- Miner 1 Proposes Block N -------------------------");
+    let tenure_b_ch = miners.get_peer_stacks_tip_ch();
+    let stacks_height_before = miners.get_peer_stacks_tip_height();
+    TEST_STALL_BLOCK_VALIDATION_SUBMISSION.set(true);
+    miners.send_transfer_tx();
+    let block_n = wait_for_block_proposal_block(30, stacks_height_before + 1, &miner_pk_1)
+        .expect("Failed to find the proposal for block N");
+    assert_eq!(block_n.header.consensus_hash, tenure_b_ch);
+    assert!(
+        block_n.get_tenure_change_tx_payload().is_none(),
+        "Block N should be an ordinary block"
+    );
+
+    info!("------------------------- Miner 2 Wins Tenure C -------------------------");
+    // The stalled signers cannot report their view of C, so only wait for the node.
+    let burn_height_before = miners.get_peer_info().burn_block_height;
+    miners.btc_regtest_controller_mut().build_next_block(1);
+    wait_for(30, || {
+        Ok(miners.get_peer_info().burn_block_height > burn_height_before)
+    })
+    .expect("Failed to mine BTC block C");
+    verify_sortition_winner(&sortdb, &miner_pkh_2);
+    let burn_view_c = miners.get_peer_info().pox_consensus;
+    assert_eq!(miners.get_peer_stacks_tip_height(), stacks_height_before);
+
+    wait_for_sibling_of_in_flight_block(&block_n);
+
+    info!("------------------------- Unstall Signers -------------------------");
+    TEST_STALL_BLOCK_VALIDATION_SUBMISSION.set(false);
+
+    wait_for_extend_on_in_flight_block(&block_n, &burn_view_c);
+
+    info!("------------------------- Shutdown -------------------------");
+    miners.shutdown();
+}
+
+#[test]
+#[ignore]
+/// Like `empty_sortition_while_block_in_flight`, but the burn block that arrives
+/// while block N is in flight is won by the ongoing miner itself with a stale
+/// block-commit (one that does not build on the ongoing tenure), so the miner
+/// extends its tenure instead of starting a new one. That extend must also wait
+/// for N.
+///
+/// Scenario:
+/// - The miner wins tenure T with a block-commit, then its block-commits are
+///   pinned to tenure T-1.
+/// - It mines a block in tenure T, and submits a block-commit for T+1 that
+///   still builds on T-1.
+/// - The signers are stalled before submitting blocks for validation, and a
+///   transfer makes the miner propose N, an ordinary block in tenure T.
+/// - The miner wins Bitcoin block B with the stale block-commit.
+/// - The signers are unstalled. They sign N and push it to the node.
+///
+/// Asserts:
+/// - N is the only block proposed at its height, and the one that lands.
+/// - The miner then extends tenure T into burn view B on top of N.
+fn stale_commit_same_miner_while_block_in_flight() {
+    if env::var("BITCOIND_TEST") != Ok("1".into()) {
+        return;
+    }
+
+    tracing_subscriber::registry()
+        .with(fmt::layer())
+        .with(EnvFilter::from_default_env())
+        .init();
+
+    let num_signers = 5;
+    let sender_sk = Secp256k1PrivateKey::random();
+    let sender_addr = tests::to_addr(&sender_sk);
+    let send_amt = 1000;
+    let send_fee = 180;
+
+    let signer_test: SignerTest<SpawnedSigner> = SignerTest::new_with_config_modifications(
+        num_signers,
+        vec![(sender_addr.clone(), (send_amt + send_fee) * 10)],
+        |signer_cfg| {
+            signer_cfg.block_proposal_timeout = Duration::from_minutes(60);
+        },
+        |node_cfg| {
+            node_cfg.miner.block_commit_delay = Duration::from_secs(0);
+            // Everything between B and N being processed has to fit inside this wait,
+            // because once it elapses an extend on N's parent is expected.
+            node_cfg.miner.block_found_in_flight_wait = Duration::from_secs(120);
+        },
+        None,
+        None,
+    );
+    let conf = &signer_test.running_nodes.conf;
+    let miner_pk =
+        StacksPublicKey::from_private(&conf.miner.mining_key.clone().expect("Missing mining key"));
+    let miner_pkh = Hash160::from_node_public_key(&miner_pk);
+    let sortdb = conf.get_burnchain().open_sortition_db(true).unwrap();
+
+    signer_test.boot_to_epoch_3();
+    signer_test.mine_nakamoto_block(Duration::from_secs(30), true);
+    // We are now in T-1
+    let prev_tip = get_chain_info(conf);
+
+    let Counters {
+        skip_commit_op,
+        naka_submitted_commits: commits_submitted,
+        naka_submitted_commit_last_burn_height: last_commit_burn_height,
+        naka_submitted_commit_last_stacks_tip: last_commit_stacks_tip,
+        ..
+    } = signer_test.running_nodes.counters.clone();
+
+    wait_for(30, || {
+        Ok(last_commit_burn_height.get() == prev_tip.burn_block_height)
+    })
+    .expect("Timed out waiting for block-commit to T-1");
+    skip_commit_op.set(true);
+
+    info!("------------------------- Mine Tenure T -------------------------");
+    let prev_tip = get_chain_info(conf);
+    signer_test.mine_nakamoto_block_without_commit(Duration::from_secs(30), true);
+    TEST_MINER_COMMIT_TIP.set(Some((prev_tip.pox_consensus, prev_tip.stacks_tip)));
+
+    // Mine a second block in tenure T so that signers reject a reorg of it
+    let (_, transfer_nonce) = signer_test
+        .submit_transfer_tx(&sender_sk, send_fee, send_amt)
+        .unwrap();
+    signer_test
+        .wait_for_nonce_increase(&sender_addr, transfer_nonce)
+        .unwrap();
+
+    let commits_before = commits_submitted.get();
+    skip_commit_op.set(false);
+    wait_for(30, || {
+        Ok(commits_submitted.get() > commits_before
+            && last_commit_stacks_tip.get() == prev_tip.stacks_tip_height)
+    })
+    .expect("Timed out waiting for the stale block-commit to T-1");
+
+    info!("------------------------- Propose Block N -------------------------");
+    let info_t = get_chain_info(conf);
+    let stacks_height_before = info_t.stacks_tip_height;
+    TEST_STALL_BLOCK_VALIDATION_SUBMISSION.set(true);
+    signer_test
+        .submit_transfer_tx(&sender_sk, send_fee, send_amt)
+        .unwrap();
+    let block_n = wait_for_block_proposal_block(30, stacks_height_before + 1, &miner_pk)
+        .expect("Failed to find the proposal for block N");
+    assert_eq!(block_n.header.consensus_hash, info_t.pox_consensus);
+    assert!(
+        block_n.get_tenure_change_tx_payload().is_none(),
+        "Block N should be an ordinary block"
+    );
+
+    info!("------------------------- Win Burn Block B With The Stale Commit -------------------------");
+    // The stalled signers cannot report their view of B, so only wait for the node.
+    signer_test.mine_bitcoin_block();
+    verify_sortition_winner(&sortdb, &miner_pkh);
+    let info_b = get_chain_info(conf);
+    assert_eq!(info_b.stacks_tip_height, stacks_height_before);
+
+    wait_for_sibling_of_in_flight_block(&block_n);
+
+    info!("------------------------- Unstall Signers -------------------------");
+    TEST_STALL_BLOCK_VALIDATION_SUBMISSION.set(false);
+
+    wait_for_extend_on_in_flight_block(&block_n, &info_b.pox_consensus);
 
     info!("------------------------- Shutdown -------------------------");
     signer_test.shutdown();
