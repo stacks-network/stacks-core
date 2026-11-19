@@ -28,7 +28,8 @@ libsigner = { path = "../libsigner" }
 libstackerdb = { path = "../libstackerdb" }
 prometheus = { version = "0.14", default-features = false, optional = true }
 reqwest = { workspace = true }
-serde = "1"
+serde = { workspace = true }
+serde_json = { workspace = true }
 slog = { workspace = true }
 stacks-common = { path = "../stacks-common", features = ["rusqlite"] }
 stackslib = { path = "../stackslib" }
@@ -48,10 +49,6 @@ stackslib = { path = "../stackslib", features = ["testing"] }
 num-traits = "0.2.18"
 stdext = { workspace = true }
 rand_core = { workspace = true }
-
-[dependencies.serde_json]
-version = "1.0"
-features = ["arbitrary_precision", "unbounded_depth"]
 
 [features]
 default = []
