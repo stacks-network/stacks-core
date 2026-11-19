@@ -724,10 +724,12 @@ impl RelayerThread {
                         "ongoing_tenure" => %canonical_stacks_snapshot.consensus_hash,
                         "commits_to_tip_tenure?" => commits_to_tip_tenure
                     );
-                    // Extend tenure to the new burn view instead of attempting BlockFound
-                    return MinerDirective::ContinueTenure {
-                        new_burn_view: sn.consensus_hash,
-                    };
+                    // Extend tenure to the new burn view instead of attempting BlockFound.
+                    // If a block we proposed is still in flight, the extend is deferred
+                    // to `check_tenure_timers`; stop the miner thread meanwhile.
+                    return self
+                        .continue_tenure_directive(sn.consensus_hash)
+                        .unwrap_or(MinerDirective::StopTenure);
                 }
             }
         }
@@ -2225,6 +2227,23 @@ impl RelayerThread {
                 "mining_pk" => %mining_pkh
             );
             self.tenure_extend_time = None;
+            return;
+        }
+        // Do not extend on the parent of a block we proposed that may still be signed (see
+        // `continue_tenure_directive`). The `InFlightBlock` timer extends once that block
+        // lands or is rejected, or once the wait expires, so this defers an extend only once.
+        if *tenure_extend_time.reason() != TenureExtendReason::InFlightBlock
+            && self.proposed_block_in_flight()
+        {
+            info!(
+                "Relayer: a block we proposed on the Stacks tip is still in flight. Will wait for it before extending.";
+                "burn_view" => %burn_tip.consensus_hash,
+                "reason" => ?tenure_extend_time.reason(),
+                "in_flight_wait_ms" => self.config.miner.block_found_in_flight_wait.as_millis(),
+            );
+            self.tenure_extend_time = Some(TenureExtendTime::in_flight_block(
+                self.config.miner.block_found_in_flight_wait,
+            ));
             return;
         }
         // If we reach this code, we have either won the last winning snapshot and have already issued a block found for it and should extend.

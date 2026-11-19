@@ -3126,10 +3126,11 @@ pub struct MinerConfig {
     /// extend it. Once it elapses the proposal is presumed lost and the relayer issues a
     /// late `BlockFound`.
     ///
-    /// The same wait applies when a burn block without a new winner arrives while a
-    /// block this node proposed on the Stacks tip is still in flight: the relayer waits
-    /// for it to land or be rejected before extending the tenure, rather than extending
-    /// on the same parent. That wait is measured from the burn block.
+    /// The same wait applies when the relayer is about to extend the tenure into a new
+    /// burn view while a block this node proposed on the Stacks tip is still in flight:
+    /// it waits for that block to land or be rejected before extending, rather than
+    /// extending on the same parent. That wait is measured from the moment the relayer
+    /// would otherwise have extended.
     ///
     /// This only has to cover the signers aggregating signatures over a block this node
     /// has already proposed and pushing it back, which takes seconds.
