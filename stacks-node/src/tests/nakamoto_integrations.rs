@@ -18,7 +18,7 @@ use std::fs::File;
 use std::ops::RangeBounds;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc::{channel, Receiver, Sender};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, LazyLock, Mutex};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 use std::{env, slice, thread};
@@ -28,7 +28,6 @@ use clarity::vm::costs::{ExecutionCost, LimitedCostTracker};
 use clarity::vm::representations::ContractName;
 use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier, StandardPrincipalData};
 use clarity::vm::{ClarityName, ClarityVersion, Value};
-use lazy_static::lazy_static;
 use libsigner::v0::messages::{RejectReason, SignerMessage as SignerMessageV0};
 use libsigner::{SignerSession, StackerDBSession, StacksBlockEvent};
 use rand::{thread_rng, Rng};
@@ -144,98 +143,98 @@ use stacks::config::DEFAULT_MAX_TENURE_BYTES;
 
 use crate::clarity::vm::clarity::ClarityConnection;
 
-lazy_static! {
-    pub static ref NAKAMOTO_INTEGRATION_EPOCHS: [StacksEpoch; 15] = [
+pub static NAKAMOTO_INTEGRATION_EPOCHS: LazyLock<[StacksEpoch; 15]> = LazyLock::new(|| {
+    [
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch10,
             start_height: 0,
             end_height: 0,
             block_limit: BLOCK_LIMIT_MAINNET_10,
-            network_epoch: PEER_VERSION_EPOCH_1_0
+            network_epoch: PEER_VERSION_EPOCH_1_0,
         },
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch20,
             start_height: 0,
             end_height: 1,
             block_limit: BLOCK_LIMIT_REGTEST_20,
-            network_epoch: PEER_VERSION_EPOCH_2_0
+            network_epoch: PEER_VERSION_EPOCH_2_0,
         },
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch2_05,
             start_height: 1,
             end_height: 2,
             block_limit: BLOCK_LIMIT_REGTEST_20,
-            network_epoch: PEER_VERSION_EPOCH_2_05
+            network_epoch: PEER_VERSION_EPOCH_2_05,
         },
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch21,
             start_height: 2,
             end_height: 3,
             block_limit: BLOCK_LIMIT_REGTEST_20,
-            network_epoch: PEER_VERSION_EPOCH_2_1
+            network_epoch: PEER_VERSION_EPOCH_2_1,
         },
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch22,
             start_height: 3,
             end_height: 4,
             block_limit: BLOCK_LIMIT_REGTEST_20,
-            network_epoch: PEER_VERSION_EPOCH_2_2
+            network_epoch: PEER_VERSION_EPOCH_2_2,
         },
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch23,
             start_height: 4,
             end_height: 5,
             block_limit: BLOCK_LIMIT_REGTEST_20,
-            network_epoch: PEER_VERSION_EPOCH_2_3
+            network_epoch: PEER_VERSION_EPOCH_2_3,
         },
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch24,
             start_height: 5,
             end_height: 201,
             block_limit: BLOCK_LIMIT_REGTEST_20,
-            network_epoch: PEER_VERSION_EPOCH_2_4
+            network_epoch: PEER_VERSION_EPOCH_2_4,
         },
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch25,
             start_height: 201,
             end_height: 231,
             block_limit: BLOCK_LIMIT_REGTEST_20,
-            network_epoch: PEER_VERSION_EPOCH_2_5
+            network_epoch: PEER_VERSION_EPOCH_2_5,
         },
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch30,
             start_height: 231,
             end_height: 241,
             block_limit: BLOCK_LIMIT_REGTEST_20,
-            network_epoch: PEER_VERSION_EPOCH_3_0
+            network_epoch: PEER_VERSION_EPOCH_3_0,
         },
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch31,
             start_height: 241,
             end_height: 251,
             block_limit: BLOCK_LIMIT_REGTEST_20,
-            network_epoch: PEER_VERSION_EPOCH_3_1
+            network_epoch: PEER_VERSION_EPOCH_3_1,
         },
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch32,
             start_height: 251,
             end_height: 252,
             block_limit: BLOCK_LIMIT_REGTEST_20,
-            network_epoch: PEER_VERSION_EPOCH_3_2
+            network_epoch: PEER_VERSION_EPOCH_3_2,
         },
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch33,
             start_height: 252,
             end_height: 253,
             block_limit: BLOCK_LIMIT_REGTEST_20,
-            network_epoch: PEER_VERSION_EPOCH_3_3
+            network_epoch: PEER_VERSION_EPOCH_3_3,
         },
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch34,
             start_height: 253,
             end_height: 1_002,
             block_limit: BLOCK_LIMIT_REGTEST_20,
-            network_epoch: PEER_VERSION_EPOCH_3_4
+            network_epoch: PEER_VERSION_EPOCH_3_4,
         },
         // Epoch 4.0 is pushed out by default so the typical signer integration
         // test (which boots through Epoch 3.0 and mines a handful of reward
@@ -252,7 +251,7 @@ lazy_static! {
             start_height: 1_002,
             end_height: STACKS_EPOCH_MAX,
             block_limit: BLOCK_LIMIT_REGTEST_20,
-            network_epoch: PEER_VERSION_EPOCH_4_0
+            network_epoch: PEER_VERSION_EPOCH_4_0,
         },
         // Epoch 4.1 is present but disabled: zero-width at STACKS_EPOCH_MAX, so
         // `find_epoch` never resolves to it and Epoch 4.0 stays open-ended.
@@ -261,10 +260,10 @@ lazy_static! {
             start_height: STACKS_EPOCH_MAX,
             end_height: STACKS_EPOCH_MAX,
             block_limit: BLOCK_LIMIT_REGTEST_20,
-            network_epoch: PEER_VERSION_EPOCH_4_1
+            network_epoch: PEER_VERSION_EPOCH_4_1,
         },
-    ];
-}
+    ]
+});
 
 pub static TEST_SIGNING: Mutex<Option<TestSigningChannel>> = Mutex::new(None);
 

@@ -1,18 +1,19 @@
-use lazy_static::lazy_static;
+use std::sync::LazyLock;
+
 use stacks::prometheus::{gather, opts, register_int_gauge, Encoder, IntGauge, TextEncoder};
 use stacks_common::monitoring::build_info_labels;
 use tiny_http::{Header, Request, Response, Server};
 
 use super::MonitoringError;
 
-lazy_static! {
-    static ref BUILD_INFO: IntGauge = register_int_gauge!(opts!(
+static BUILD_INFO: LazyLock<IntGauge> = LazyLock::new(|| {
+    register_int_gauge!(opts!(
         "stacks_build_info",
         "Build information for the Stacks process."
     )
     .const_labels(build_info_labels(crate::version())))
-    .unwrap();
-}
+    .unwrap()
+});
 
 /// Record the process build information. Repeated calls keep the same series at 1.
 fn record_build_info() {
