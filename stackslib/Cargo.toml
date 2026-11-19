@@ -28,9 +28,9 @@ ripemd = "0.1.1"
 regex = "1"
 mio = "0.6"
 lazy_static = "1.4.0"
-url = "2.1.0"
+url = { workspace = true }
 percent-encoding = "2.1.0"
-prometheus = { version = "0.14", default-features = false, optional = true }
+prometheus = { workspace = true, optional = true }
 slog = { workspace = true }
 chrono = { version = "0.4.19", optional = true }
 clarity = { path = "../clarity" }

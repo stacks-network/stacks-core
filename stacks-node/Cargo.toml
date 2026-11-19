@@ -22,11 +22,11 @@ stacks-common = { path = "../stacks-common" }
 chrono = "0.4.19"
 regex = "1"
 libsigner = { path = "../libsigner" }
-url = "2.1.0"
+url = { workspace = true }
 rand = { workspace = true }
 hashbrown = { workspace = true }
 rusqlite = { workspace = true }
-tiny_http = { version = "0.12.0", optional = true }
+tiny_http = { workspace = true, optional = true }
 thiserror = { workspace = true }
 
 [target.'cfg(not(any(target_os = "macos", target_os="windows", target_arch = "arm")))'.dependencies]
@@ -42,10 +42,10 @@ stacks-codec = { path = "../stacks-codec", features = ["testing"] }
 stacks = { package = "stackslib", path = "../stackslib", features = ["default", "testing"] }
 stacks-signer = { path = "../stacks-signer", features = ["testing"] }
 stacks-inspect = { path = "../contrib/stacks-inspect", default-features = false }
-tracing = "0.1.37"
-tracing-subscriber = { version = "0.3.17", features = ["env-filter"] }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
 mutants = "0.0.3"
-tiny_http = "0.12.0"
+tiny_http = { workspace = true }
 tempfile = "3.3"
 mockito = "1.5"
 serial_test = "4.0.1"

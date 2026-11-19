@@ -24,7 +24,7 @@ slog = { workspace = true }
 stacks-common = { path = "../stacks-common" }
 stackslib = { path = "../stackslib"}
 thiserror = { workspace = true }
-tiny_http = "0.12"
+tiny_http = { workspace = true }
 
 [dev-dependencies]
 mutants = "0.0.3"
