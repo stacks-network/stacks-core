@@ -21,7 +21,7 @@ path = "src/main.rs"
 [dependencies]
 backoff = "0.4"
 clarity = { path = "../clarity" }
-clap = { version = "4.1.1", features = ["derive", "env"] }
+clap = { workspace = true, features = ["env"] }
 hashbrown = { workspace = true }
 lazy_static = "1.4.0"
 libsigner = { path = "../libsigner" }

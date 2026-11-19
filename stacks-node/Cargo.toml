@@ -15,12 +15,12 @@ stacks-marf = { path = "../stacks-marf" }
 stx-genesis = { path = "../stx-genesis"}
 base64 = "0.12.0"
 backtrace = "0.3.77"
-libc = "0.2.151"
+libc = { workspace = true, features = ["default"] }
 slog = { workspace = true }
 clarity = { path = "../clarity" }
 stacks-common = { path = "../stacks-common" }
-chrono = "0.4.19"
-regex = "1"
+chrono = { workspace = true, features = ["default"] }
+regex = { workspace = true, features = ["default"] }
 libsigner = { path = "../libsigner" }
 url = "2.1.0"
 rand = { workspace = true }
