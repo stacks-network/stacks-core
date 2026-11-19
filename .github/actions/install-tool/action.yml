@@ -13,6 +13,6 @@ runs:
   steps:
     # Install the defined input.tool
     - name: Install Tool(s)
-      uses: taiki-e/install-action@65851e10cd6c377f11a60e600abc07cb08643468 # v2.79.3
+      uses: taiki-e/install-action@8cca0918f8471c33515202b73f56ab27f2bed283 # v2.87.29
       with:
         tool: ${{ inputs.tools }}
