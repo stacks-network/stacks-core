@@ -442,8 +442,8 @@ impl<H: BloomHash + Clone + StacksMessageCodec> BloomCounter<H> {
         readwrite: bool,
     ) -> Result<Blob<'a>, db_error> {
         let blob = conn.blob_open(
-            rusqlite::DatabaseName::Main,
-            &self.table_name,
+            rusqlite::MAIN_DB,
+            self.table_name.as_str(),
             "counts",
             self.counts_rowid.into(),
             !readwrite,
@@ -630,7 +630,7 @@ pub mod test {
         }
         let open_flags = OpenFlags::SQLITE_OPEN_READ_WRITE | OpenFlags::SQLITE_OPEN_CREATE;
 
-        let conn = DBConn::open_with_flags(&db_path, open_flags).unwrap();
+        let mut conn = DBConn::open_with_flags(&db_path, open_flags).unwrap();
 
         conn.busy_handler(Some(tx_busy_handler)).unwrap();
         sql_pragma(&conn, "journal_mode", &"WAL".to_string()).unwrap();

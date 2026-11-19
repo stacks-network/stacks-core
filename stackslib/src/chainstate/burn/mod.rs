@@ -21,10 +21,10 @@ use rand_chacha::rand_core::SeedableRng;
 use rand_chacha::ChaCha20Rng;
 use ripemd::Ripemd160;
 use sha2::{Digest, Sha256};
-pub use stacks_common::types::chainstate::ConsensusHash;
 use stacks_common::types::chainstate::{
     BlockHeaderHash, BurnchainHeaderHash, PoxId, SortitionId, TrieHash, VRFSeed,
 };
+pub use stacks_common::types::chainstate::{ConsensusHash, Opcodes};
 use stacks_common::util::hash::Hash160;
 use stacks_common::util::uint::Uint256;
 
@@ -53,18 +53,6 @@ pub struct SortitionHash(pub [u8; 32]);
 impl_array_newtype!(SortitionHash, u8, 32);
 impl_array_hexstring_fmt!(SortitionHash);
 impl_byte_array_newtype!(SortitionHash, u8, 32);
-
-#[derive(Debug, Clone, PartialEq)]
-#[repr(u8)]
-pub enum Opcodes {
-    LeaderBlockCommit = b'[',
-    LeaderKeyRegister = b'^',
-    StackStx = b'x',
-    PreStx = b'p',
-    TransferStx = b'$',
-    DelegateStx = b'#',
-    VoteForAggregateKey = b'v',
-}
 
 // a burnchain block snapshot
 #[derive(Debug, Clone, PartialEq)]
@@ -112,6 +100,30 @@ pub struct BlockSnapshot {
     pub miner_pk_hash: Option<Hash160>,
 }
 
+/// Domain separator for a sample taken from a sortition hash and VRF seed, so that samples
+/// taken for different purposes in the same sortition are independent of each other.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SampleScope {
+    /// No domain separation.  Used before Epoch 4.1, where the winning block-commit and the
+    /// null miner's challenge were drawn from the same digest.
+    Unscoped,
+    /// Sampling the winning block-commit (Epoch 4.1 and later).
+    Winner,
+    /// Sampling the null miner's challenge (Epoch 4.1 and later).
+    NullMiner,
+}
+
+impl SampleScope {
+    /// The bytes hashed ahead of the sortition hash and VRF seed for this scope.
+    pub const fn tag(self) -> &'static [u8] {
+        match self {
+            Self::Unscoped => b"",
+            Self::Winner => b"SORTITION",
+            Self::NullMiner => b"NULL_MINER",
+        }
+    }
+}
+
 impl SortitionHash {
     /// Calculate a new sortition hash from the given burn header hash
     pub fn initial() -> SortitionHash {
@@ -128,9 +140,12 @@ impl SortitionHash {
         SortitionHash(ret)
     }
 
-    /// Mix in a new VRF seed to make a new sortition hash.
-    pub fn mix_VRF_seed(&self, VRF_seed: &VRFSeed) -> SortitionHash {
+    /// Mix in a new VRF seed in the given scope to make a new sortition hash.  The scope's tag
+    /// is hashed first, so that each scope yields an independent digest.
+    /// `SampleScope::Unscoped` has an empty tag, so it yields HASH(self ++ VRF_seed).
+    pub fn mix_VRF_seed(&self, scope: SampleScope, VRF_seed: &VRFSeed) -> SortitionHash {
         let mut sha2 = Sha256::new();
+        sha2.update(scope.tag());
         sha2.update(self.as_bytes());
         sha2.update(VRF_seed.as_bytes());
         let mut ret = [0u8; 32];
@@ -170,43 +185,6 @@ impl SortitionHash {
             tmp.try_into()
                 .expect("SortitionHash should have 4 chunks of 8 bytes"),
         )
-    }
-}
-
-impl Opcodes {
-    const HTTP_BLOCK_COMMIT: &str = "block_commit";
-    const HTTP_KEY_REGISTER: &str = "key_register";
-    const HTTP_STACK_STX: &str = "stack_stx";
-    const HTTP_PRE_STX: &str = "pre_stx";
-    const HTTP_TRANSFER_STX: &str = "transfer_stx";
-    const HTTP_DELEGATE_STX: &str = "delegate_stx";
-    const HTTP_VOTE_FOR_AGGREGATE_KEY: &str = "vote_for_aggregate_key";
-
-    pub fn to_http_str(&self) -> &'static str {
-        match self {
-            Opcodes::LeaderBlockCommit => Self::HTTP_BLOCK_COMMIT,
-            Opcodes::LeaderKeyRegister => Self::HTTP_KEY_REGISTER,
-            Opcodes::StackStx => Self::HTTP_STACK_STX,
-            Opcodes::PreStx => Self::HTTP_PRE_STX,
-            Opcodes::TransferStx => Self::HTTP_TRANSFER_STX,
-            Opcodes::DelegateStx => Self::HTTP_DELEGATE_STX,
-            Opcodes::VoteForAggregateKey => Self::HTTP_VOTE_FOR_AGGREGATE_KEY,
-        }
-    }
-
-    pub fn from_http_str(input: &str) -> Option<Opcodes> {
-        let opcode = match input {
-            Self::HTTP_BLOCK_COMMIT => Opcodes::LeaderBlockCommit,
-            Self::HTTP_KEY_REGISTER => Opcodes::LeaderKeyRegister,
-            Self::HTTP_STACK_STX => Opcodes::StackStx,
-            Self::HTTP_PRE_STX => Opcodes::PreStx,
-            Self::HTTP_TRANSFER_STX => Opcodes::TransferStx,
-            Self::HTTP_DELEGATE_STX => Opcodes::DelegateStx,
-            Self::HTTP_VOTE_FOR_AGGREGATE_KEY => Opcodes::VoteForAggregateKey,
-            _ => return None,
-        };
-
-        Some(opcode)
     }
 }
 

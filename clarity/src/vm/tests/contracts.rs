@@ -2563,7 +2563,7 @@ fn test_legacy_tuple_supertype_execution_after_epoch41(
          (define-public (bad-equality)
            (let ((hidden (if false {{a: u1}} {{a: u1, b: true}})))
              (begin (var-set counter u1) (ok (is-eq {{a: u1}} hidden)))))
-         (define-read-only (count) (ok (var-get counter)))"
+         (define-public (count) (ok (var-get counter)))"
     );
     let version = ClarityVersion::Clarity2;
     mem_type_check(&source, version, StacksEpochId::Epoch40).unwrap();

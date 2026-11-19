@@ -28,11 +28,11 @@ use clarity::vm::costs::{ExecutionCost, LimitedCostTracker};
 use clarity::vm::representations::ContractName;
 use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier, StandardPrincipalData};
 use clarity::vm::{ClarityName, ClarityVersion, Value};
-use http_types::headers::AUTHORIZATION;
 use lazy_static::lazy_static;
 use libsigner::v0::messages::{RejectReason, SignerMessage as SignerMessageV0};
 use libsigner::{SignerSession, StackerDBSession, StacksBlockEvent};
 use rand::{thread_rng, Rng};
+use reqwest::header::AUTHORIZATION;
 use rusqlite::{Connection, OptionalExtension};
 use serial_test::serial;
 use stacks::burnchains::{MagicBytes, Txid};
@@ -6875,6 +6875,7 @@ fn signer_chainstate() {
             first_proposal_burn_block_timing: Duration::from_secs(0),
             block_proposal_timeout: Duration::from_secs(100),
             tenure_last_block_proposal_timeout: Duration::from_secs(30),
+            pre_commit_exclusivity_timeout: Duration::ZERO,
             tenure_idle_timeout: Duration::from_secs(300),
             tenure_idle_timeout_buffer: Duration::from_secs(2),
             reorg_attempts_activity_timeout: Duration::from_secs(30),
@@ -6986,6 +6987,7 @@ fn signer_chainstate() {
             first_proposal_burn_block_timing: Duration::from_secs(0),
             block_proposal_timeout: Duration::from_secs(100),
             tenure_last_block_proposal_timeout: Duration::from_secs(30),
+            pre_commit_exclusivity_timeout: Duration::ZERO,
             tenure_idle_timeout: Duration::from_secs(300),
             tenure_idle_timeout_buffer: Duration::from_secs(2),
             reorg_attempts_activity_timeout: Duration::from_secs(30),
@@ -7057,6 +7059,7 @@ fn signer_chainstate() {
         first_proposal_burn_block_timing: Duration::from_secs(0),
         block_proposal_timeout: Duration::from_secs(100),
         tenure_last_block_proposal_timeout: Duration::from_secs(30),
+        pre_commit_exclusivity_timeout: Duration::ZERO,
         tenure_idle_timeout: Duration::from_secs(300),
         tenure_idle_timeout_buffer: Duration::from_secs(2),
         reorg_attempts_activity_timeout: Duration::from_secs(30),

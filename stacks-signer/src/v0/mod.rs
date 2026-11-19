@@ -14,6 +14,8 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+/// Pre-commit processing helpers and types.
+mod pre_commit;
 /// The signer module for processing events
 pub mod signer;
 /// The state machine for the signer view

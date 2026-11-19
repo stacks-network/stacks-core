@@ -153,7 +153,6 @@ jobs:
       - name: Checkout
         uses: $/.github/wrappers/checkout
         with:
-          ref: ${{ github.event.pull_request.head.sha || github.ref }}
           fetch-depth: 0
 
       # Quick diff scan: detect whether the PR introduces any new proptest test
@@ -206,7 +205,6 @@ jobs:
       - name: Checkout the latest code
         uses: $/.github/wrappers/checkout
         with:
-          ref: ${{ github.event.pull_request.head.sha || github.ref }}
           sparse-checkout: |
             .github
 
@@ -272,8 +270,6 @@ jobs:
       - name: Checkout the latest code
         id: git_checkout
         uses: $/.github/wrappers/checkout
-        with:
-          ref: ${{ github.event.pull_request.head.sha || github.ref }}
      
      # Create Nextest archive artifact
       - name: Create Nextest Archive Artifact

@@ -326,7 +326,7 @@ macro_rules! fatal {
     ($($arg:tt)*) => ({
         let cur_level = $crate::util::log::get_loglevel();
         if slog::Level::Critical.is_at_least(cur_level) {
-            slog::slog_crit!($crate::util::log::LOGGER, $($arg)*)
+            slog::crit!($crate::util::log::LOGGER, $($arg)*)
         }
     })
 }
@@ -348,8 +348,8 @@ mod tests {
     fn test_log_pretty_print() {
         env::set_var("STACKS_LOG_PP", "1");
         let logger: Logger = make_logger();
-        slog::slog_info!(logger, "Info test"); //equivalent to info!(..)
-        slog::slog_warn!(logger, "Warn test"); //equivalent to warn!(..)
-        slog::slog_error!(logger, "Erro test"); //equivalent to erro!(..)
+        slog::info!(logger, "Info test"); // equivalent to info!(..)
+        slog::warn!(logger, "Warn test"); // equivalent to warn!(..)
+        slog::error!(logger, "Erro test"); // equivalent to erro!(..)
     }
 }

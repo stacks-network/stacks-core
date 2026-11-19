@@ -2471,9 +2471,8 @@ impl ClarityTransactionConnection<'_, '_> {
         Ok(())
     }
 
-    /// Evaluate a method of a clarity contract in a read-only environment.
-    /// This does not check if the method itself attempted to write,
-    ///  but will always rollback any changes.
+    /// Evaluate a `define-read-only` method of a clarity contract. Calling any other kind of
+    /// function fails.
     ///
     /// The method is invoked as if the contract itself is the tx-sender.
     ///
@@ -2490,12 +2489,13 @@ impl ClarityTransactionConnection<'_, '_> {
         let (result, _, _, _) = self.with_abort_callback(
             |vm_env| {
                 vm_env
-                    .execute_transaction(
+                    .execute_in_env(
                         PrincipalData::Contract(contract.clone()),
                         None,
-                        contract.clone(),
-                        method,
-                        args,
+                        None,
+                        |exec_state, invoke_ctx| {
+                            exec_state.execute_contract(invoke_ctx, contract, method, args, true)
+                        },
                     )
                     .map_err(ClarityError::from)
             },

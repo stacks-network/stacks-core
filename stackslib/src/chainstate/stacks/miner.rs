@@ -683,6 +683,17 @@ impl TransactionResult {
                 );
                 return (true, Error::ExecutionResourceBudgetExceeded(s));
             }
+            Error::TransactionReceiptTooBig => {
+                // The transaction's receipt is too large to fit into any block the miner would
+                // build, so re-executing it on every block attempt would only waste time and
+                // (without a cost reset) budget. Drop and blacklist it.
+                info!("Problematic transaction caused TransactionReceiptTooBig";
+                      "txid" => %tx.txid(),
+                      "origin" => %tx.get_origin().get_address(false),
+                      "payload" => ?tx.payload,
+                );
+                return (true, Error::TransactionReceiptTooBig);
+            }
             Error::AnalysisResourceBudgetExceeded(s) => {
                 // The transaction's contract analysis took too long or used too much memory. Consider it problematic
                 // so the contract-publish is dropped and blacklisted instead of being re-mined.
