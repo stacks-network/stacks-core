@@ -13,10 +13,10 @@ serde = { workspace = true, features = ["derive"] }
 toml = { workspace = true }
 
 [target.'cfg(all(any(target_arch = "x86_64", target_arch = "x86", target_arch = "aarch64"), not(any(target_os="windows"))))'.dependencies]
-sha2 = { version = "0.10", features = ["asm"] }
+sha2 = { workspace = true, features = ["asm"] }
 
 [target.'cfg(any(not(any(target_arch = "x86_64", target_arch = "x86", target_arch = "aarch64")), any(target_os = "windows")))'.dependencies]
-sha2 = { version = "0.10" }
+sha2 = { workspace = true }
 
 [dev-dependencies]
 tempfile = "3"
