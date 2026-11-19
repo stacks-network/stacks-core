@@ -24,6 +24,7 @@ serde_derive = { workspace = true }
 serde_json = { workspace = true }
 secp256k1 = "0.24.3"
 sha2 = "0.10"
+hmac = "0.12"
 ripemd = "0.1.1"
 regex = "1"
 mio = "0.6"

@@ -249,7 +249,8 @@ impl<Z: SpawnedSignerTrait> SignerTest<Z> {
     ///       the substituted token contract on Epoch 4.0 initialization.
     ///     - `<registry_contract_name>`: the sBTC registry stub (see
     ///       [`sbtc_registry_stub_source`]) exposing
-    ///       `get-current-aggregate-pubkey` for signer-set computation.
+    ///       `get-current-aggregate-pubkey` (Epoch 4.0) and
+    ///       `get-current-signer-data` (Epoch 4.1+) for signer-set computation.
     ///  3. Mines one Nakamoto tenure to include the publishes, then waits for
     ///     the `/v2/contracts/source` RPC to confirm both are on-chain.
     ///  4. Mines additional tenures until burn height reaches the configured
@@ -277,6 +278,7 @@ impl<Z: SpawnedSignerTrait> SignerTest<Z> {
         token_contract_name: &str,
         registry_contract_name: &str,
         pubkey: &[u8; 33],
+        registry_stub: SbtcRegistryStub,
     ) {
         let conf = &self.running_nodes.conf;
         let epoch_3 = conf
@@ -336,7 +338,7 @@ impl<Z: SpawnedSignerTrait> SignerTest<Z> {
             token_source,
         );
         submit_tx(&http_origin, &token_tx);
-        let registry_source = sbtc_registry_stub_source(pubkey);
+        let registry_source = sbtc_registry_stub_source(pubkey, registry_stub);
         let registry_tx = make_contract_publish(
             sender_sk,
             sender_nonce + 1,
@@ -433,6 +435,7 @@ impl<Z: SpawnedSignerTrait> SignerTest<Z> {
         token_contract_name: &str,
         registry_contract_name: &str,
         pubkey: &[u8; 33],
+        registry_stub: SbtcRegistryStub,
         stake_amount: u128,
         lock_cycles: u128,
     ) {
@@ -449,6 +452,7 @@ impl<Z: SpawnedSignerTrait> SignerTest<Z> {
             token_contract_name,
             registry_contract_name,
             pubkey,
+            registry_stub,
         );
 
         let conf = &self.running_nodes.conf;
@@ -639,17 +643,65 @@ pub(crate) fn sbtc_token_stub_source() -> &'static str {
 "#
 }
 
+/// The compressed signer keys the sBTC registry stub serves from
+/// `get-current-signer-data` (the sBTC devenv 2-of-3 signer set). From Epoch
+/// 4.1, signer-set computation derives the per-cycle sBTC waterfall recipient
+/// from these keys and [`SBTC_REGISTRY_STUB_SIGNATURE_THRESHOLD`].
+pub(crate) const SBTC_REGISTRY_STUB_SIGNER_KEYS: [&str; 3] = [
+    "035249137286c077ccee65ecc43e724b9b9e5a588e3d7f51e3b62f9624c2a49e46",
+    "031a4d9f4903da97498945a4e01a5023a1d53bc96ad670bfe03adf8a06c52e6380",
+    "02007311430123d4cad97f4f7e86e023b28143130a18099ecf094d36fef0f6135c",
+];
+
+/// The signature threshold the sBTC registry stub serves from
+/// `get-current-signer-data`.
+pub(crate) const SBTC_REGISTRY_STUB_SIGNATURE_THRESHOLD: u128 = 2;
+
+/// Which `get-current-signer-data` the sBTC registry stub serves.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum SbtcRegistryStub {
+    /// The [`SBTC_REGISTRY_STUB_SIGNER_KEYS`] /
+    /// [`SBTC_REGISTRY_STUB_SIGNATURE_THRESHOLD`] signer set, so reward sets
+    /// computed in Epoch 4.1+ pay the v2 (Taproot multisig) recipient.
+    DevenvSignerSet,
+    /// No `get-current-signer-data`, as in a registry that was not upgraded
+    /// for v2 signing, so reward sets computed in Epoch 4.1+ fall back to the
+    /// standard burn address.
+    WithoutSignerData,
+}
+
 /// Source for the sBTC registry stub that `boot_to_epoch_4` publishes.
+///
 /// Exposes `get-current-aggregate-pubkey`, returning the supplied compressed
-/// secp256k1 pubkey. Signer-set computation reads this to derive the
-/// per-cycle sBTC waterfall recipient.
-pub(crate) fn sbtc_registry_stub_source(pubkey: &[u8; 33]) -> String {
-    format!(
-        r#"
-(define-read-only (get-current-aggregate-pubkey) 0x{})
-"#,
-        stacks_common::util::hash::to_hex(pubkey),
-    )
+/// secp256k1 pubkey (read by Epoch 4.0 signer-set computation for the v1
+/// recipient), and, depending on `stub`, `get-current-signer-data` (read by
+/// Epoch 4.1+ signer-set computation for the v2 recipient).
+pub(crate) fn sbtc_registry_stub_source(pubkey: &[u8; 33], stub: SbtcRegistryStub) -> String {
+    let pubkey_hex = stacks_common::util::hash::to_hex(pubkey);
+    let aggregate_pubkey =
+        format!("(define-read-only (get-current-aggregate-pubkey) 0x{pubkey_hex})\n");
+    match stub {
+        SbtcRegistryStub::DevenvSignerSet => {
+            let signer_set = SBTC_REGISTRY_STUB_SIGNER_KEYS
+                .iter()
+                .map(|key| format!("0x{key}"))
+                .collect::<Vec<_>>()
+                .join(" ");
+            format!(
+                r#"
+{aggregate_pubkey}(define-read-only (get-current-signer-data)
+    {{
+        current-signer-set: (list {signer_set}),
+        current-aggregate-pubkey: 0x{pubkey_hex},
+        current-signer-principal: 'ST000000000000000000002AMW42H,
+        current-signature-threshold: u{SBTC_REGISTRY_STUB_SIGNATURE_THRESHOLD},
+    }}
+)
+"#
+            )
+        }
+        SbtcRegistryStub::WithoutSignerData => format!("\n{aggregate_pubkey}"),
+    }
 }
 
 impl SignerTest<SpawnedSigner> {
@@ -1231,7 +1283,8 @@ impl MultipleMinerTest {
     ///       the substituted token contract on Epoch 4.0 initialization.
     ///     - `<registry_contract_name>`: the sBTC registry stub (see
     ///       [`sbtc_registry_stub_source`]) exposing
-    ///       `get-current-aggregate-pubkey` for signer-set computation.
+    ///       `get-current-aggregate-pubkey` (Epoch 4.0) and
+    ///       `get-current-signer-data` (Epoch 4.1+) for signer-set computation.
     ///  3. Mines one Nakamoto tenure to include the publishes, then waits for
     ///     both nodes to reflect them.
     ///  4. Mines additional tenures until burn height reaches the configured
@@ -1259,6 +1312,7 @@ impl MultipleMinerTest {
         token_contract_name: &str,
         registry_contract_name: &str,
         pubkey: &[u8; 33],
+        registry_stub: SbtcRegistryStub,
     ) {
         self.boot_to_epoch_3();
 
@@ -1313,7 +1367,7 @@ impl MultipleMinerTest {
             token_source,
         );
         submit_tx(&http_origin_1, &token_tx);
-        let registry_source = sbtc_registry_stub_source(pubkey);
+        let registry_source = sbtc_registry_stub_source(pubkey, registry_stub);
         let registry_tx = make_contract_publish(
             sender_sk,
             sender_nonce + 1,
@@ -1413,6 +1467,7 @@ impl MultipleMinerTest {
         token_contract_name: &str,
         registry_contract_name: &str,
         pubkey: &[u8; 33],
+        registry_stub: SbtcRegistryStub,
         stake_amount: u128,
         lock_cycles: u128,
     ) {
@@ -1424,6 +1479,7 @@ impl MultipleMinerTest {
             token_contract_name,
             registry_contract_name,
             pubkey,
+            registry_stub,
         );
 
         let (conf_1, conf_2) = self.get_node_configs();
