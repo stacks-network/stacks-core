@@ -22,7 +22,7 @@ use serde_json::json;
 use stacks_common::types::chainstate::{
     BlockHeaderHash, BurnchainHeaderHash, StacksAddress, VRFSeed,
 };
-use stacks_common::types::StacksPublicKeyBuffer;
+use stacks_common::types::{StacksEpochId, StacksPublicKeyBuffer};
 use stacks_common::util::hash::{hex_bytes, to_hex};
 use stacks_common::util::vrf::VRFPublicKey;
 
@@ -87,6 +87,9 @@ pub enum Error {
 
     // vote-for-aggregate-public-key errors
     VoteForAggregateKeyInvalidKey,
+
+    /// The operation is not accepted in this epoch
+    RejectedInEpoch(StacksEpochId),
 }
 
 impl fmt::Display for Error {
@@ -144,6 +147,9 @@ impl fmt::Display for Error {
                 write!(f, "Aggregate key is invalid")
             }
             Self::AmountMustBePositive => write!(f, "Peg in amount must be positive"),
+            Error::RejectedInEpoch(epoch_id) => {
+                write!(f, "Operation is not accepted in epoch {epoch_id}")
+            }
         }
     }
 }
