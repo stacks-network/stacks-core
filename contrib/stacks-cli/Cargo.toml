@@ -14,4 +14,4 @@ thiserror = { workspace = true }
 
 [dev-dependencies]
 stacks-common = { path = "../../stacks-common", default-features = false, features = ["testing"] }
-tempfile = { version = "3.3", default-features = false }
+tempfile = { workspace = true }
