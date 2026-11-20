@@ -673,4 +673,8 @@ contributor license agreement.
 
 ## Use of AI-code Generation
 
-The Stacks Foundation has a very strict policy of not accepting AI-generated code PRs due to uncertainly about licensing issues.
+Contributors may use AI tools to help write code. Every PR must be opened by a
+human author who is accountable for it: they have reviewed and understand every
+line, can explain and defend it in review, and affirm under the contributor
+license agreement that they have the right to submit it. PRs opened or driven
+by autonomous agents without an accountable human author will be closed.
