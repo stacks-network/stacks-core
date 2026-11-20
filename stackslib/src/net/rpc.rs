@@ -28,7 +28,7 @@ use crate::monitoring;
 use crate::net::connection::{ConnectionHttp, ConnectionOptions, ReplyHandleHttp};
 use crate::net::http::HttpResponseContents;
 use crate::net::httpcore::{
-    HttpPreambleExtensions as _, StacksHttp, StacksHttpMessage, StacksHttpRequest,
+    HttpPreambleExtensions as _, RPCRouteTable, StacksHttp, StacksHttpMessage, StacksHttpRequest,
     StacksHttpResponse, HTTP_REQUEST_ID_RESERVED,
 };
 use crate::net::{Error as net_error, StacksMessageType, StacksNodeState};
@@ -101,10 +101,11 @@ impl ConversationHttp {
         outbound_url: Option<UrlString>,
         peer_host: PeerHost,
         conn_opts: &ConnectionOptions,
+        rpc_routes: &RPCRouteTable,
         conn_id: usize,
         socket_send_buffer_size: u32,
     ) -> ConversationHttp {
-        let stacks_http = StacksHttp::new(peer_addr, conn_opts);
+        let stacks_http = StacksHttp::with_routes(peer_addr, rpc_routes);
         ConversationHttp {
             connection: ConnectionHttp::new(stacks_http, conn_opts, None),
             conn_id,
