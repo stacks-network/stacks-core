@@ -363,21 +363,28 @@ pub fn command_validate_block(args: &ValidateBlockArgs, conf: Option<&Config>) {
     let mut reward_set_cache: HashMap<u64, CachedRewardSet> = HashMap::new();
 
     for entry in work_items {
-        if let Err(e) = validate_entry(
+        let block_start = Instant::now();
+        let result = validate_entry(
             &mut chainstate,
             &mut sortdb,
             &mut reward_set_cache,
             &entry,
             opts,
-        ) {
+        );
+        let block_elapsed = block_start.elapsed();
+        // `\x1b[2K` clears the progress line before printing the timing
+        print!("\r\x1b[2K");
+        println!(
+            "Block {}: {} in {block_elapsed:.2?}",
+            entry.index_block_hash,
+            if result.is_ok() { "ok" } else { "failed" }
+        );
+        io::stdout().flush().ok();
+        if let Err(e) = result {
             if early_exit {
-                print!("\r");
-                io::stdout().flush().ok();
                 println!("Block {}: {e}", entry.index_block_hash);
                 process::exit(1);
             }
-            print!("\r");
-            io::stdout().flush().ok();
             errors.push((entry.index_block_hash.clone(), e));
 
             // not every append_block error path rolls back the Clarity trie
