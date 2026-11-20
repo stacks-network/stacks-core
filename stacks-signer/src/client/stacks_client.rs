@@ -48,7 +48,7 @@ use stacks_common::types::StacksEpochId;
 use stacks_common::{debug, warn};
 
 use super::SignerSlotID;
-use crate::client::{retry_with_exponential_backoff, ClientError};
+use crate::client::{retry_with_exponential_backoff, ClientError, RetryError};
 use crate::config::GlobalConfig;
 use crate::runloop::{PoxGeometry, RewardCycleInfo};
 
@@ -325,7 +325,7 @@ impl StacksClient {
                 .header(AUTHORIZATION, self.auth_password.clone())
                 .json(&block_proposal)
                 .send()
-                .map_err(backoff::Error::transient)
+                .map_err(RetryError::transient)
         };
 
         let response = retry_with_exponential_backoff(send_request)?;
@@ -398,7 +398,7 @@ impl StacksClient {
             self.stacks_node_client
                 .get(&path)
                 .send()
-                .map_err(backoff::Error::transient)
+                .map_err(RetryError::transient)
         };
         let response = retry_with_exponential_backoff(send_request)?;
         timer.stop_and_record();
@@ -501,7 +501,7 @@ impl StacksClient {
             self.stacks_node_client
                 .get(self.core_info_path())
                 .send()
-                .map_err(backoff::Error::transient)
+                .map_err(RetryError::transient)
         };
         let response = retry_with_exponential_backoff(send_request)?;
         timer.stop_and_record();
@@ -538,21 +538,21 @@ impl StacksClient {
                 .stacks_node_client
                 .get(self.reward_set_path(reward_cycle))
                 .send()
-                .map_err(|e| backoff::Error::transient(e.into()))?;
+                .map_err(|e| RetryError::transient(e.into()))?;
             let status = response.status();
             if status.is_success() {
                 return response.json().map_err(|e| {
                     warn!("Failed to parse the GetStackers response: {e}");
-                    backoff::Error::permanent(e.into())
+                    RetryError::permanent(e.into())
                 });
             }
             let error_data = response.json::<GetStackersErrorResp>().map_err(|e| {
                 warn!("Failed to parse the GetStackers error response: {e}");
-                backoff::Error::permanent(e.into())
+                RetryError::permanent(e.into())
             })?;
 
             warn!("Got error response ({status}): {}", error_data.err_msg);
-            Err(backoff::Error::permanent(ClientError::RequestFailure(
+            Err(RetryError::permanent(ClientError::RequestFailure(
                 status,
             )))
         };
@@ -571,7 +571,7 @@ impl StacksClient {
             self.stacks_node_client
                 .get(self.pox_path())
                 .send()
-                .map_err(backoff::Error::transient)
+                .map_err(RetryError::transient)
         };
         let response = retry_with_exponential_backoff(send_request)?;
         timer.stop_and_record();
@@ -622,7 +622,7 @@ impl StacksClient {
             self.stacks_node_client
                 .get(self.accounts_path(address))
                 .send()
-                .map_err(backoff::Error::transient)
+                .map_err(RetryError::transient)
         };
         let response = retry_with_exponential_backoff(send_request)?;
         timer.stop_and_record();
@@ -654,14 +654,14 @@ impl StacksClient {
                 .send()
                 .map_err(|e| {
                     debug!("Failed to submit block to the Stacks node: {e:?}");
-                    backoff::Error::transient(ClientError::from(e))
+                    RetryError::transient(ClientError::from(e))
                 })?;
             if !response.status().is_success() {
                 warn!(
                     "Failed to post block to stacks-node, will retry until limit reached";
                     "http_status" => %response.status(),
                 );
-                return Err(backoff::Error::transient(ClientError::RequestFailure(
+                return Err(RetryError::transient(ClientError::RequestFailure(
                     response.status(),
                 )));
             }
