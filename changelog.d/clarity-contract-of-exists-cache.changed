@@ -1,0 +1,1 @@
+`contract-of` no longer re-reads the whole contract from storage to check that it exists: `ClarityDatabase::has_contract` answers from the per-transaction contract cache, and remembers contracts it has already found. Charged costs are unchanged.
