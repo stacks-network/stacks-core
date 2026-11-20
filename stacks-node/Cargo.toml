@@ -61,6 +61,8 @@ slog_json = ["stacks/slog_json", "stacks-common/slog_json", "clarity/slog_json"]
 prod-genesis-chainstate = []
 default = []
 testing = ["stacks-common/testing", "stacks/testing", "stacks-marf/testing", "clarity/testing"]
+# Runtime benchmark controls (e.g. `/bench` RPCs)
+bench-hooks = ["stacks/bench-hooks"]
 
 [package.metadata.pinny]
 allowed = ["ci_skip"]

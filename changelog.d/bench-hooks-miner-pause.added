@@ -1,0 +1,2 @@
+Added the `bench-hooks` build feature (off by default) for benchmarking builds. It adds `GET` and `POST /bench/v1/miner`, authenticated with `connection_options.auth_token`, to pause and resume Nakamoto block mining at runtime (`{"command": "pause-mining"}` / `{"command": "resume-mining"}`) while RPC and the mempool keep accepting transactions.
+The root `Dockerfile` accepts a `CARGO_FEATURES` build argument (default `monitoring_prom,slog_json`) to build images with extra features such as `bench-hooks`.

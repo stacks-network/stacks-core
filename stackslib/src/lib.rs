@@ -60,6 +60,9 @@ pub extern crate libstackerdb;
 #[macro_use]
 pub mod chainstate;
 
+/// Runtime controls for benchmarking builds.
+#[cfg(feature = "bench-hooks")]
+pub mod bench_hooks;
 pub mod burnchains;
 /// A high level library for interacting with the Clarity vm
 pub mod clarity_vm;
