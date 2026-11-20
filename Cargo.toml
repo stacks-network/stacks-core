@@ -5,6 +5,7 @@ members = [
     "stacks-common",
     "stacks-marf",
     "stacks-codec",
+    "crates/stacks-abi",
     "crates/stacks-transactions",
     "pox-locking",
     "clarity-types",
