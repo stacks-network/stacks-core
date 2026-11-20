@@ -67,6 +67,7 @@ pub mod test;
 
 // The core MARF types, re-exported so callers can write `stacks_marf::MARF`
 // rather than `stacks_marf::marf::MARF`.
+pub use crate::blob_layout::BlobHeader;
 pub use crate::marf::{MARFOpenOpts, MarfConnection, MarfTransaction, MARF};
 use crate::node::TrieNodePatch;
 

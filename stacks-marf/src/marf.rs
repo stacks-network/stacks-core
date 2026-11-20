@@ -13,6 +13,8 @@
 //
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
+
+use std::io::Write;
 use std::ops::DerefMut;
 #[cfg(any(test, feature = "testing"))]
 use std::sync::LazyLock;
@@ -27,6 +29,7 @@ use stacks_common::util::tests::TestFlag;
 pub use super::squash::SquashStats;
 use super::storage::ReopenedTrieStorageConnection;
 use crate::bits::{get_leaf_hash, get_node_hash};
+use crate::blob_layout::READER_PREFIX_LEN;
 use crate::node::{
     clear_backptr, is_backptr, node_copy_update_ptrs, set_backptr, CursorError, TrieCowPtr,
     TrieCursor, TrieNode256, TrieNodeID, TrieNodeType, TriePtr,
@@ -355,6 +358,69 @@ impl<'a, T: MarfTrieId> MarfTransaction<'a, T> {
         self.storage.commit_tx();
 
         Ok(())
+    }
+
+    /// Return the current extension's sealed bytes, discarding the extension without registering a
+    /// block or committing the transaction. Already sealed extensions are supported.
+    ///
+    /// The bytes depend on this database's ancestor layout and are not portable state.
+    ///
+    /// Reads remain available after serialization. If savepoint rollback restores the extension's
+    /// lock, [`Self::discard_trie_and_commit`] releases it without requiring an open extension.
+    ///
+    /// Returns [`Error::NotOpenedError`] if no extension is open. The caller must roll back on
+    /// serialization failure.
+    pub fn serialize_and_discard(&mut self) -> Result<Vec<u8>, Error> {
+        if self.storage.readonly() {
+            return Err(Error::ReadOnlyError);
+        }
+        if self.storage.unconfirmed() {
+            return Err(Error::UnconfirmedError);
+        }
+        if self.open_chain_tip.take().is_none() {
+            return Err(Error::NotOpenedError);
+        }
+
+        self.storage.serialize_and_discard()
+    }
+
+    /// Promote exactly `len` bytes of a serialized trie without committing.
+    ///
+    /// Header-length and target-existence checks leave the transaction unchanged on failure. An
+    /// existing target returns [`Error::ExistsError`]. Failures after these checks require
+    /// rollback.
+    ///
+    /// The caller must verify the serialized parent and root hashes against expected values within
+    /// this transaction. The originating database's ancestor layout must remain valid through
+    /// commit. The copy callback must close its source before returning.
+    ///
+    /// Do not read the promoted trie before commit: reads can cache provisional block IDs that
+    /// become invalid after rollback.
+    pub fn promote_from(
+        &mut self,
+        target: &T,
+        len: u64,
+        copy: impl FnOnce(&Connection, &mut dyn Write) -> Result<(), Error>,
+    ) -> Result<(), Error> {
+        if self.storage.readonly() {
+            return Err(Error::ReadOnlyError);
+        }
+        if self.storage.unconfirmed() {
+            return Err(Error::UnconfirmedError);
+        }
+        if len < READER_PREFIX_LEN as u64 {
+            return Err(Error::CorruptionError(
+                "serialized trie is shorter than its header".into(),
+            ));
+        }
+        if self.storage.has_block(target)? {
+            return Err(Error::ExistsError);
+        }
+
+        // Prevent commit from attempting to flush the extension being replaced.
+        self.open_chain_tip.take();
+
+        self.storage.promote_from(target, len, copy)
     }
 
     pub fn get_open_chain_tip(&self) -> Option<&T> {

@@ -53,17 +53,20 @@ const _: () = {
     assert!(READER_PREFIX_LEN == 68);
 };
 
-/// The parsed fixed-layout prefix of a trie blob (see the module doc):
-/// the parent block hash and the trie root hash.
+/// Parent and root hashes from a serialized trie's fixed-layout prefix.
+///
+/// Serialized tries are tied to the originating database's ancestor layout, not portable state.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(super) struct BlobHeader<T> {
+pub struct BlobHeader<T> {
+    /// Parent block recorded when the trie was serialized.
     pub parent_hash: T,
+    /// Root hash stored at the start of the serialized root node.
     pub root_hash: TrieHash,
 }
 
 impl<T: MarfTrieId> BlobHeader<T> {
     /// Parse the first [`READER_PREFIX_LEN`] bytes of a trie blob.
-    pub(super) fn parse(buf: &[u8; READER_PREFIX_LEN]) -> BlobHeader<T> {
+    pub fn parse(buf: &[u8; READER_PREFIX_LEN]) -> BlobHeader<T> {
         let mut parent_bytes = [0u8; BLOCK_HEADER_HASH_ENCODED_SIZE];
         parent_bytes.copy_from_slice(&buf[..BLOCK_HEADER_HASH_ENCODED_SIZE]);
         let mut root_bytes = [0u8; TRIEHASH_ENCODED_SIZE];
