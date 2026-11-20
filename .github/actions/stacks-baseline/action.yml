@@ -1,0 +1,78 @@
+name: Stacks Baseline Binaries
+description: Install the attested release signer and resolve the release's source commit.
+inputs:
+  version:
+    description: Published release tag
+    required: true
+  repository:
+    description: Release repository
+    default: stacks-network/stacks-core
+outputs:
+  commit:
+    description: Source commit the release archive was built from, taken from its verified attestation
+    value: ${{ steps.verify.outputs.commit }}
+runs:
+  using: composite
+  steps:
+    - name: Resolve archive path
+      id: archive
+      shell: bash
+      env:
+        VERSION: ${{ inputs.version }}
+      run: |
+        set -euo pipefail
+        [[ "$VERSION" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]]
+        DEST="$RUNNER_TEMP/stacks-baseline/$VERSION"
+        mkdir -p "$DEST"
+        echo "dest=$DEST" >> "$GITHUB_OUTPUT"
+    # The cache key is not trusted: every restored or downloaded archive is
+    # verified against its build-provenance attestation before use.
+    - name: Restore release archive
+      id: cache
+      uses: ./.github/wrappers/cache/restore
+      with:
+        path: ${{ steps.archive.outputs.dest }}/linux-glibc-x64.zip
+        key: stacks-baseline-linux-x64-${{ inputs.version }}
+    - name: Download release archive
+      if: steps.cache.outputs.cache-hit != 'true'
+      shell: bash
+      env:
+        DEST: ${{ steps.archive.outputs.dest }}
+        VERSION: ${{ inputs.version }}
+        REPOSITORY: ${{ inputs.repository }}
+      run: curl --retry 3 -LSf -o "$DEST/linux-glibc-x64.zip" "https://github.com/$REPOSITORY/releases/download/$VERSION/linux-glibc-x64.zip"
+    # Pinning the signer workflow and release branch rejects archives built
+    # elsewhere and correctly attested archives from a different release.
+    # The attested source commit identifies the code the baseline node is
+    # built from, so a moved tag cannot substitute different source.
+    - name: Verify archive and extract signer
+      id: verify
+      shell: bash
+      env:
+        DEST: ${{ steps.archive.outputs.dest }}
+        VERSION: ${{ inputs.version }}
+        REPOSITORY: ${{ inputs.repository }}
+        GH_TOKEN: ${{ github.token }}
+      run: |
+        set -euo pipefail
+        cd "$DEST"
+        gh attestation verify linux-glibc-x64.zip \
+          --repo "$REPOSITORY" \
+          --signer-workflow "$REPOSITORY/.github/workflows/_release-build.yml" \
+          --source-ref "refs/heads/release/$VERSION" \
+          --format json > attestation.json
+        COMMIT=$(jq -r '[.[].verificationResult.signature.certificate.sourceRepositoryDigest] | unique | if length == 1 then .[0] else error("expected one source commit") end' attestation.json)
+        [[ "$COMMIT" =~ ^[0-9a-f]{40}$ ]]
+        echo "commit=$COMMIT" >> "$GITHUB_OUTPUT"
+        # Release signers depend on no test-only constants, so scenarios run
+        # the shipped signer binary itself.
+        unzip -o -q linux-glibc-x64.zip stacks-signer
+        chmod +x stacks-signer
+        echo "STACKS_SIGNER_BASELINE_BIN=$DEST/stacks-signer" >> "$GITHUB_ENV"
+        echo "STACKS_BASELINE_VERSION=$VERSION" >> "$GITHUB_ENV"
+    - name: Save verified release archive
+      if: steps.cache.outputs.cache-hit != 'true'
+      uses: ./.github/wrappers/cache/save
+      with:
+        path: ${{ steps.archive.outputs.dest }}/linux-glibc-x64.zip
+        key: stacks-baseline-linux-x64-${{ inputs.version }}

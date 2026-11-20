@@ -38,7 +38,7 @@ use clarity::vm::costs::ExecutionCost;
 use clarity::vm::representations::CONTRACT_MAX_NAME_LENGTH;
 use clarity::vm::types::{AssetIdentifier, PrincipalData, QualifiedContractIdentifier};
 use rand::RngCore;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use stacks_common::consts::SIGNER_SLOTS_PER_USER;
 use stacks_common::types::chainstate::StacksAddress;
 use stacks_common::types::net::PeerAddress;
@@ -212,7 +212,7 @@ pub static DEFAULT_MAINNET_CONFIG: LazyLock<Config> = LazyLock::new(|| {
         .expect("Failed to create default mainnet config")
 });
 
-#[derive(Clone, Deserialize, Default, Debug)]
+#[derive(Clone, Deserialize, Default, Debug, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct ConfigFile {
     pub __path: Option<String>, // Only used for config file reloads
@@ -251,6 +251,15 @@ pub struct ConfigFile {
 }
 
 impl ConfigFile {
+    /// Serialize the explicitly configured fields, preserving omitted defaults.
+    pub fn to_toml(&self) -> Result<String, toml::ser::Error> {
+        // TOML requires a table's plain values before its sub-tables, but
+        // field order here does not follow that (e.g. `burnchain.epochs`
+        // precedes plain burnchain keys). `toml::Value` serializes values
+        // first, so convert through it instead of serializing directly.
+        toml::to_string(&toml::Value::try_from(self)?)
+    }
+
     pub fn from_path(path: &str) -> Result<ConfigFile, String> {
         let content = fs::read_to_string(path).map_err(|e| format!("Invalid path: {e}"))?;
         let mut f = Self::from_str(&content)?;
@@ -1716,7 +1725,7 @@ impl BurnchainConfig {
     }
 }
 
-#[derive(Clone, Deserialize, Default, Debug)]
+#[derive(Clone, Deserialize, Default, Debug, Serialize)]
 pub struct StacksEpochConfigFile {
     epoch_name: String,
     start_height: i64,
@@ -1738,7 +1747,7 @@ pub const EPOCH_CONFIG_3_4_0: &str = "3.4";
 pub const EPOCH_CONFIG_4_0_0: &str = "4.0";
 pub const EPOCH_CONFIG_4_1_0: &str = "4.1";
 
-#[derive(Clone, Deserialize, Default, Debug)]
+#[derive(Clone, Deserialize, Default, Debug, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct BurnchainConfigFile {
     pub chain: Option<String>,
@@ -3351,7 +3360,7 @@ impl Default for MinerConfig {
     }
 }
 
-#[derive(Clone, Default, Deserialize, Debug)]
+#[derive(Clone, Default, Deserialize, Debug, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct ConnectionOptionsFile {
     /// Maximum number of messages allowed in the per-connection incoming buffer.
@@ -4084,7 +4093,7 @@ impl ConnectionOptionsFile {
     }
 }
 
-#[derive(Clone, Deserialize, Default, Debug)]
+#[derive(Clone, Deserialize, Default, Debug, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct NodeConfigFile {
     pub seed: Option<String>,
@@ -4275,7 +4284,7 @@ impl NodeConfigFile {
     }
 }
 
-#[derive(Clone, Deserialize, Default, Debug)]
+#[derive(Clone, Deserialize, Default, Debug, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct FeeEstimationConfigFile {
     /// Specifies the name of the cost estimator to use.
@@ -4377,7 +4386,7 @@ pub struct FeeEstimationConfigFile {
     pub fee_rate_window_size: Option<u64>,
 }
 
-#[derive(Clone, Deserialize, Default, Debug)]
+#[derive(Clone, Deserialize, Default, Debug, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct MinerConfigFile {
     pub first_attempt_time_ms: Option<u64>,
@@ -4641,7 +4650,7 @@ impl MinerConfigFile {
     }
 }
 
-#[derive(Clone, Deserialize, Default, Debug)]
+#[derive(Clone, Deserialize, Default, Debug, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct AtlasConfigFile {
     pub attachments_max_size: Option<u32>,
@@ -4671,7 +4680,7 @@ impl AtlasConfigFile {
     }
 }
 
-#[derive(Clone, Deserialize, Default, Debug, Hash, PartialEq, Eq, PartialOrd)]
+#[derive(Clone, Deserialize, Default, Debug, Hash, PartialEq, Eq, PartialOrd, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct EventObserverConfigFile {
     /// URL endpoint (hostname and port) where event notifications will be sent via
@@ -4906,7 +4915,7 @@ pub struct InitialBalance {
     pub amount: u64,
 }
 
-#[derive(Clone, Deserialize, Default, Debug)]
+#[derive(Clone, Deserialize, Default, Debug, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct InitialBalanceFile {
     /// The Stacks address to receive the initial STX balance.
