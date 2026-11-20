@@ -26,14 +26,14 @@ secp256k1 = "0.24.3"
 sha2 = "0.10"
 hmac = "0.12"
 ripemd = "0.1.1"
-regex = "1"
+regex = { workspace = true, features = ["default"] }
 mio = "0.6"
 lazy_static = "1.4.0"
 url = "2.1.0"
 percent-encoding = "2.1.0"
 prometheus = { version = "0.14", default-features = false, optional = true }
 slog = { workspace = true }
-chrono = { version = "0.4.19", optional = true }
+chrono = { workspace = true, features = ["default"], optional = true }
 clarity = { path = "../clarity" }
 stacks-common = { path = "../stacks-common" }
 stacks-marf = { path = "../stacks-marf" }
@@ -47,13 +47,13 @@ time = "0.3.41"
 toml = { workspace = true }
 
 [target.'cfg(unix)'.dependencies]
-nix = "0.23"
+nix = { workspace = true }
 
 [target.'cfg(windows)'.dependencies]
-winapi = { version = "0.3", features = ["consoleapi", "handleapi", "synchapi", "winbase"] }
+winapi = { workspace = true, features = ["consoleapi", "handleapi", "synchapi", "winbase"] }
 
 [target.'cfg(windows)'.dev-dependencies]
-winapi = { version = "0.3", features = ["fileapi", "processenv", "winnt"] }
+winapi = { workspace = true, features = ["fileapi", "processenv", "winnt"] }
 
 [dependencies.ed25519-dalek]
 workspace = true
@@ -70,7 +70,7 @@ rstest = "0.17.0"
 rstest_reuse = "0.5.0"
 mutants = "0.0.3"
 rlimit = "0.11.0"
-chrono = "0.4.19"
+chrono = { workspace = true, features = ["default"] }
 tempfile = "3.3"
 pinny = { workspace = true }
 proptest = { version = "1.6.0", default-features = false, features = ["std"] }

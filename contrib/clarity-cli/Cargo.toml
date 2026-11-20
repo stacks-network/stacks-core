@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-clap = { version = "4.5.44", features = ["derive"] }
+clap = { workspace = true }
 clarity = { path = "../../clarity", default-features = false, features = ["asset-map-json"] }
 stackslib = { package = "stackslib", path = "../../stackslib", default-features = false }
 stacks-marf = { path = "../../stacks-marf" }

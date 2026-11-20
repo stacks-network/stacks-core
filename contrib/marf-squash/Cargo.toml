@@ -7,7 +7,7 @@ edition = "2024"
 stackslib = { package = "stackslib", path = "../../stackslib", default-features = false }
 stacks-marf = { path = "../../stacks-marf" }
 stacks-common = { path = "../../stacks-common" }
-clap = { version = "4.5.44", features = ["derive"] }
+clap = { workspace = true }
 rusqlite = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 toml = { workspace = true }

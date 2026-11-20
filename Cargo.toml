@@ -35,14 +35,18 @@ stacks-profiler = { path = "stacks-profiler" }
 stacks-profiler-macros = { path = "stacks-profiler-macros" }
 
 # Dependencies we want to keep the same between workspace members
+chrono = { version = "0.4.45", default-features = false, features = ["clock"] }
+clap = { version = "4.6.7", features = ["derive"] }
 ed25519-dalek = { version = "2.1.1", default-features = false }
 hashbrown = { version = "0.15.2", features = ["serde"] }
 lazy_static = "1.4.0"
 madhouse = { git = "https://github.com/stacks-network/madhouse-rs.git", rev = "f83f8ea649182c40b9dbd1b90f8de86261b91fe7" } #v0.2.1
+nix = "0.23.2"
 pinny = { git = "https://github.com/stx-labs/pinny-rs.git", rev = "0e888bce54c822f050befaadc07709a7abbf6838" }
 rand_core = "0.6.4"
 rand = "0.8"
 rand_chacha = "0.3.1"
+regex = { version = "1.13.1", default-features = false }
 reqwest = { version = "0.13", default-features = false, features = ["blocking", "json"] }
 serde = "1.0.229"
 serde_derive = "1.0.229"
@@ -53,6 +57,7 @@ thiserror = "1.0.65"
 tikv-jemallocator = "0.5.4"
 toml = "0.5.6"
 variant_count = "1.1"
+winapi = "0.3.9"
 
 # Other dependencies
 assert-json-diff = "2.0.2"
