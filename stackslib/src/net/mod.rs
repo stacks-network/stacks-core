@@ -104,6 +104,9 @@ pub mod relay;
 pub mod rpc;
 pub mod server;
 pub mod stackerdb;
+/// Abstracts the transport under the p2p network (accepting, opening, and moving bytes over
+/// connections to remote peers), so that it can be swapped out.
+pub mod transport;
 pub mod unsolicited;
 
 pub use crate::net::neighbors::{NeighborComms, PeerNetworkComms};

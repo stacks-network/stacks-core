@@ -1,0 +1,1 @@
+Added a `PeerTransport` trait in `stackslib::net::transport` for the transport underneath the p2p network, with `TcpTransport` as its plain TCP implementation, so that alternative transports can be added without touching the p2p protocol logic. The node doesn't use it yet.
