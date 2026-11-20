@@ -16,6 +16,7 @@
 
 use std::io::{Read as _, Write};
 use std::path::PathBuf;
+use std::sync::LazyLock;
 use std::{fs, io};
 
 use clarity::vm::analysis::contract_interface_builder::build_contract_interface;
@@ -35,7 +36,6 @@ use clarity::vm::{
     ClarityVersion, ContractContext, ContractName, SymbolicExpression, Value, analysis, ast,
     eval_all,
 };
-use lazy_static::lazy_static;
 use rand::Rng;
 use rusqlite::{Connection, OpenFlags};
 use serde::Deserialize;
@@ -63,32 +63,36 @@ use stackslib::core::{BLOCK_LIMIT_MAINNET_205, BLOCK_LIMIT_REGTEST_20, StacksEpo
 use stackslib::util_lib::boot::{boot_code_addr, boot_code_id};
 use stackslib::util_lib::db::{FromColumn, sqlite_open};
 
-lazy_static! {
-    pub static ref STACKS_BOOT_CODE_MAINNET_2_1: [(&'static str, &'static str); 10] = [
-        ("pox", &BOOT_CODE_POX_MAINNET),
-        ("lockup", BOOT_CODE_LOCKUP),
-        ("costs", BOOT_CODE_COSTS),
-        ("cost-voting", BOOT_CODE_COST_VOTING_MAINNET),
-        ("bns", BOOT_CODE_BNS),
-        ("genesis", BOOT_CODE_GENESIS),
-        ("costs-2", BOOT_CODE_COSTS_2),
-        ("pox-2", &POX_2_MAINNET_CODE),
-        ("costs-3", BOOT_CODE_COSTS_3),
-        ("costs-4", BOOT_CODE_COSTS_4),
-    ];
-    pub static ref STACKS_BOOT_CODE_TESTNET_2_1: [(&'static str, &'static str); 10] = [
-        ("pox", &BOOT_CODE_POX_TESTNET),
-        ("lockup", BOOT_CODE_LOCKUP),
-        ("costs", BOOT_CODE_COSTS),
-        ("cost-voting", &BOOT_CODE_COST_VOTING_TESTNET),
-        ("bns", BOOT_CODE_BNS),
-        ("genesis", BOOT_CODE_GENESIS),
-        ("costs-2", BOOT_CODE_COSTS_2_TESTNET),
-        ("pox-2", &POX_2_TESTNET_CODE),
-        ("costs-3", BOOT_CODE_COSTS_3),
-        ("costs-4", BOOT_CODE_COSTS_4),
-    ];
-}
+pub static STACKS_BOOT_CODE_MAINNET_2_1: LazyLock<[(&'static str, &'static str); 10]> =
+    LazyLock::new(|| {
+        [
+            ("pox", &BOOT_CODE_POX_MAINNET),
+            ("lockup", BOOT_CODE_LOCKUP),
+            ("costs", BOOT_CODE_COSTS),
+            ("cost-voting", BOOT_CODE_COST_VOTING_MAINNET),
+            ("bns", BOOT_CODE_BNS),
+            ("genesis", BOOT_CODE_GENESIS),
+            ("costs-2", BOOT_CODE_COSTS_2),
+            ("pox-2", &POX_2_MAINNET_CODE),
+            ("costs-3", BOOT_CODE_COSTS_3),
+            ("costs-4", BOOT_CODE_COSTS_4),
+        ]
+    });
+pub static STACKS_BOOT_CODE_TESTNET_2_1: LazyLock<[(&'static str, &'static str); 10]> =
+    LazyLock::new(|| {
+        [
+            ("pox", &BOOT_CODE_POX_TESTNET),
+            ("lockup", BOOT_CODE_LOCKUP),
+            ("costs", BOOT_CODE_COSTS),
+            ("cost-voting", &BOOT_CODE_COST_VOTING_TESTNET),
+            ("bns", BOOT_CODE_BNS),
+            ("genesis", BOOT_CODE_GENESIS),
+            ("costs-2", BOOT_CODE_COSTS_2_TESTNET),
+            ("pox-2", &POX_2_TESTNET_CODE),
+            ("costs-3", BOOT_CODE_COSTS_3),
+            ("costs-4", BOOT_CODE_COSTS_4),
+        ]
+    });
 
 #[cfg(test)]
 macro_rules! panic_test {

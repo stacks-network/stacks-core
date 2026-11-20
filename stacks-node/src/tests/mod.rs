@@ -15,9 +15,8 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 use std::collections::{HashMap, HashSet};
 use std::sync::atomic::AtomicU64;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, LazyLock, Mutex};
 
-use lazy_static::lazy_static;
 use neon_integrations::test_observer::EVENT_OBSERVER_PORT;
 use rand::Rng;
 use stacks::chainstate::burn::ConsensusHash;
@@ -59,13 +58,13 @@ pub const SK_3: &str = "cb95ddd0fe18ec57f4f3533b95ae564b3f1ae063dbf75b46334bd862
 
 pub const ADDR_4: &str = "ST31DA6FTSJX2WGTZ69SFY11BH51NZMB0ZZ239N96";
 
-lazy_static! {
-    static ref USED_PORTS: Mutex<HashSet<u16>> = Mutex::new({
+static USED_PORTS: LazyLock<Mutex<HashSet<u16>>> = LazyLock::new(|| {
+    Mutex::new({
         let mut set = HashSet::new();
         set.insert(EVENT_OBSERVER_PORT);
         set
-    });
-}
+    })
+});
 
 /// Generate a random port number between 1024 and 65534 (inclusive) and insert it into the USED_PORTS set.
 /// Returns the generated port number.
