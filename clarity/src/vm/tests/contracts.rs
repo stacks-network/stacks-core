@@ -15,6 +15,7 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #[cfg(any(test, feature = "testing"))]
 use rstest::rstest;
+use stacks_common::consts::CHAIN_ID_TESTNET;
 #[cfg(test)]
 use stacks_common::types::{StacksEpochId, chainstate::BlockHeaderHash};
 #[cfg(test)]
@@ -22,9 +23,12 @@ use stacks_common::util::hash::Sha512Trunc256Sum;
 
 #[cfg(test)]
 use crate::vm::contexts::OwnedEnvironment;
-use crate::vm::contexts::{ExecutionState, InvocationContext};
+use crate::vm::contexts::{ExecutionState, GlobalContext, InvocationContext};
+use crate::vm::costs::LimitedCostTracker;
+use crate::vm::database::MemoryBackingStore;
 use crate::vm::tests::{test_clarity_versions, test_epochs};
 use crate::vm::types::{PrincipalData, QualifiedContractIdentifier, StandardPrincipalData, Value};
+use crate::vm::{ast, eval_all};
 #[cfg(test)]
 use crate::vm::{
     ast::errors::ParseErrorKind,
@@ -1614,6 +1618,10 @@ fn test_contract_call_with_constant(
     }
 }
 
+/// Tests the for Clarity versions 6 and older, where binding name duplication was not
+/// completely prevented, it depends on the epoch whether the global or the local version
+/// is returned. Before Epoch 4.1, the local variable version would be returned;
+/// from 4.1 on, the global always wins.
 #[apply(test_clarity_versions)]
 fn test_runtime_name_resolution_order(
     version: ClarityVersion,
@@ -1645,6 +1653,10 @@ fn test_runtime_name_resolution_order(
             let err =
                 init_result.expect_err("shadowing should be fully prevented from Clarity 7 on");
             assert!(err.to_string().contains("NameAlreadyUsed(\"duplicate\")"));
+            // From Clarity 7 on, this issue is caught during analysis, *and* prevented
+            // at runtime. We can't test that behavior here, so return.
+            // See [`test_binding_name_duplication_runtime_error`] for a test specific
+            // to that.
             return;
         } else {
             init_result.expect("before Clarity 7 this should have passed analysis");
@@ -1669,6 +1681,86 @@ fn test_runtime_name_resolution_order(
     } else {
         assert_eq!(call_result.unwrap(), Value::okay(Value::Int(7)).unwrap());
     }
+}
+
+/// This tests the runtime checks that raise an error when trying to create a let
+/// or match binding with a name that already exists as a global.
+///
+/// Before Clarity 7, this check was incomplete; this test asserts that the legacy
+/// behavior is preserved.
+///
+/// See [`ClarityVersion::fully_prevents_binding_name_duplication_at_runtime`].
+#[rstest]
+fn test_binding_name_duplication_runtime_error(
+    #[values(
+        "(let ((duplicate 7)) (ok duplicate))",
+        "(match (some 7) duplicate (ok duplicate) 0)",
+        "(match (ok 7) duplicate (ok duplicate) x 0)",
+        "(match (err 7) x 0 duplicate (ok duplicate))"
+    )]
+    snippet: &str,
+) {
+    let code = format!(
+        "
+        (define-constant duplicate 42)
+        (define-public (some-function)
+            {snippet}
+        )
+        (some-function)
+        "
+    );
+
+    // The functionality under test is a back stop. It is meant to handle a situation
+    // where a bug during analysis doesn't prevent binding name duplication
+    // correctly. We can't test this with "proper" behavior because no such bug is
+    // known anymore; it was fixed in Clarity 7 as well (via #7781). In order
+    // to be able to test, we parse the contract under Clarity 6 rules (before
+    // the analysis fix), but then execute it with both Clarity 6 (where it still
+    // works) and latest Clarity (where it doesn't).
+    let parser_clarity_version = ClarityVersion::Clarity6;
+
+    let contract_id = QualifiedContractIdentifier::transient();
+    let mut marf = MemoryBackingStore::new();
+    let conn = marf.as_clarity_db();
+    let mut global_context = GlobalContext::new(
+        false,
+        CHAIN_ID_TESTNET,
+        conn,
+        LimitedCostTracker::new_free(),
+        StacksEpochId::latest(),
+    );
+
+    let parsed = ast::build_ast(
+        &contract_id,
+        &code,
+        &mut global_context.cost_track,
+        parser_clarity_version,
+        StacksEpochId::latest(),
+    )
+    .unwrap()
+    .expressions;
+
+    let mut contract_context_6 =
+        ContractContext::new(contract_id.clone(), ClarityVersion::Clarity6);
+    let result_6 = global_context.execute(|g| eval_all(&parsed, &mut contract_context_6, g, None));
+
+    let mut contract_context_7 =
+        ContractContext::new(contract_id.clone(), ClarityVersion::Clarity7);
+    let result_7 = global_context.execute(|g| eval_all(&parsed, &mut contract_context_7, g, None));
+
+    assert_eq!(
+        result_6.as_ref().unwrap().as_ref().unwrap(),
+        &Value::okay(Value::Int(42)).unwrap(),
+        "should execute without error in Clarity 6 and return 42 but got {result_6:#?}",
+    );
+
+    assert_eq!(
+        result_7,
+        Err(VmExecutionError::RuntimeCheck(
+            RuntimeCheckErrorKind::NameAlreadyUsed("duplicate".into())
+        )),
+        "should error with `NameAlreadyUsed(\"duplicate\") in Clarity 7 but got {result_7:#?}"
+    );
 }
 
 /// Calling from a deploying contract into a contract via define-constant
