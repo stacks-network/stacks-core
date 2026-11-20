@@ -22,7 +22,7 @@ use stacks_common::types::StacksEpochId;
 use stacks_common::types::chainstate::StacksBlockId;
 
 use crate::vm::callables::DefineType;
-use crate::vm::contexts::{ExecutionState, InvocationContext};
+use crate::vm::contexts::{CalleeFilter, ExecutionState, InvocationContext};
 use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::costs::{
     CostOverflowingMath, CostTracker, MemoryConsumer, constants as cost_constants, runtime_cost,
@@ -241,7 +241,7 @@ pub fn special_contract_call(
         &contract_identifier,
         function_name,
         rest_args,
-        false,
+        CalleeFilter::PublicOrReadOnly,
     )?;
 
     // sanitize contract-call outputs in epochs >= 2.4

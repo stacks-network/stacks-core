@@ -28,7 +28,7 @@ use super::hooks::{
 };
 use crate::vm::ast::ContractAST;
 use crate::vm::ast::errors::{ParseError, ParseErrorKind};
-use crate::vm::callables::{DefinedFunction, FunctionIdentifier, sanitize_argument};
+use crate::vm::callables::{DefineType, DefinedFunction, FunctionIdentifier, sanitize_argument};
 use crate::vm::contracts::Contract;
 use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::costs::execution_cost::ExecutionCost;
@@ -124,6 +124,48 @@ impl InvocationContext<'_> {
             sender: self.sender.clone(),
             caller: self.caller.clone(),
             sponsor: self.sponsor.clone(),
+        }
+    }
+}
+
+/// Restricts which kinds of defined functions a call into a contract may invoke. A call to a
+/// function that doesn't pass the filter fails.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CalleeFilter {
+    /// `define-public` functions only
+    Public,
+    /// `define-public` or `define-read-only` functions
+    PublicOrReadOnly,
+    /// `define-read-only` functions only
+    ReadOnly,
+}
+
+impl CalleeFilter {
+    /// Checks that `function` passes the filter.
+    /// The `contract_identifier` (where the function is defined) is only needed for error messages.
+    fn check(
+        self,
+        function: &DefinedFunction,
+        contract_identifier: &QualifiedContractIdentifier,
+    ) -> Result<(), VmExecutionError> {
+        match (self, &function.define_type) {
+            (CalleeFilter::Public, DefineType::Public)
+            | (CalleeFilter::PublicOrReadOnly, DefineType::Public | DefineType::ReadOnly)
+            | (CalleeFilter::ReadOnly, DefineType::ReadOnly) => Ok(()),
+
+            (CalleeFilter::ReadOnly, DefineType::Public) => {
+                Err(RuntimeCheckErrorKind::Unreachable(bounded_format!(
+                    "Public function not read-only: {contract_identifier} {}",
+                    function.name()
+                ))
+                .into())
+            }
+
+            _ => Err(RuntimeCheckErrorKind::NoSuchPublicFunction(
+                contract_identifier.to_string(),
+                function.name().into(),
+            )
+            .into()),
         }
     }
 }
@@ -515,17 +557,17 @@ impl<'a, 'hooks> OwnedEnvironment<'a, 'hooks> {
         args: Vec<Value>,
     ) -> Result<(Value, AssetMap, Vec<StacksTransactionEvent>), VmExecutionError> {
         self.execute_in_env(sender, sponsor, None, |exec_state, invoke_ctx| {
-            let allow_read_only = !exec_state.epoch().forbids_top_level_read_only_calls();
-            let enforce_read_only = false;
-            let allow_private = false;
-            exec_state.inner_execute_contract(
+            let callee_filter = if exec_state.epoch().forbids_top_level_read_only_calls() {
+                CalleeFilter::Public
+            } else {
+                CalleeFilter::PublicOrReadOnly
+            };
+            exec_state.execute_contract(
                 invoke_ctx,
                 &contract_identifier,
                 tx_name,
                 args,
-                allow_read_only,
-                enforce_read_only,
-                allow_private,
+                callee_filter,
             )
         })
     }
@@ -775,27 +817,18 @@ impl<'a, 'b, 'hooks> ExecutionState<'a, 'b, 'hooks> {
         &self.global_context.epoch_id
     }
 
-    /// Calls `tx_name` on `contract`. The arguments are taken by value so the caller
-    /// does not hold them for the duration of the call.
+    /// Calls `tx_name` on `contract`, which must pass `callee_filter`.
+    /// The arguments are taken by value so the caller does not hold them for the duration of
+    /// the call.
     pub fn execute_contract(
         &mut self,
         invoke_ctx: &InvocationContext,
         contract: &QualifiedContractIdentifier,
         tx_name: &str,
         args: Vec<Value>,
-        enforce_read_only: bool,
+        callee_filter: CalleeFilter,
     ) -> Result<Value, VmExecutionError> {
-        let allow_read_only = true;
-        let allow_private = false;
-        self.inner_execute_contract(
-            invoke_ctx,
-            contract,
-            tx_name,
-            args,
-            allow_read_only,
-            enforce_read_only,
-            allow_private,
-        )
+        self.inner_execute_contract(invoke_ctx, contract, tx_name, args, Some(callee_filter))
     }
 
     /// This method is exposed for callers that need to invoke a private method directly.
@@ -807,40 +840,21 @@ impl<'a, 'b, 'hooks> ExecutionState<'a, 'b, 'hooks> {
         contract: &QualifiedContractIdentifier,
         tx_name: &str,
         args: Vec<Value>,
-        enforce_read_only: bool,
     ) -> Result<Value, VmExecutionError> {
-        let allow_read_only = true;
-        let allow_private = true;
-        self.inner_execute_contract(
-            invoke_ctx,
-            contract,
-            tx_name,
-            args,
-            allow_read_only,
-            enforce_read_only,
-            allow_private,
-        )
+        self.inner_execute_contract(invoke_ctx, contract, tx_name, args, None)
     }
 
     /// This method handles actual execution of contract-calls on a contract.
     ///
-    /// * `allow_read_only`: whether `define-read-only` functions may be invoked. Top-level
-    ///   contract-call transactions set it to `false` from Epoch 4.1 on.
-    /// * `enforce_read_only`: if `true`, only `define-read-only` functions may be invoked.
-    /// * `allow_private`: whether `define-private` functions may be invoked. It should always be
-    ///   `false` for user transactions: this ensures that only `define-public` and
-    ///   `define-read-only` methods can be invoked. The `allow_private` mode should only be used
-    ///   by [`Self::execute_contract_allow_private`].
-    #[allow(clippy::too_many_arguments)]
+    /// With `callee_filter` set to `None`, any defined function may be called, including
+    /// `define-private` ones. Only [`Self::execute_contract_allow_private`] passes `None`.
     fn inner_execute_contract(
         &mut self,
         invoke_ctx: &InvocationContext,
         contract_identifier: &QualifiedContractIdentifier,
         tx_name: &str,
         args: Vec<Value>,
-        allow_read_only: bool,
-        enforce_read_only: bool,
-        allow_private: bool,
+        callee_filter: Option<CalleeFilter>,
     ) -> Result<Value, VmExecutionError> {
         let contract_size = self
             .global_context
@@ -858,10 +872,8 @@ impl<'a, 'b, 'hooks> ExecutionState<'a, 'b, 'hooks> {
 
             let func = contract.lookup_function(tx_name)
                 .ok_or_else(|| { RuntimeCheckErrorKind::UndefinedFunction(tx_name.to_string()) })?;
-            if (!allow_private && !func.is_public()) || (!allow_read_only && func.is_read_only()) {
-                return Err(RuntimeCheckErrorKind::NoSuchPublicFunction(contract_identifier.to_string(), tx_name.to_string()).into());
-            } else if enforce_read_only && !func.is_read_only() {
-                return Err(RuntimeCheckErrorKind::Unreachable(bounded_format!("Public function not read-only: {contract_identifier} {tx_name}")).into());
+            if let Some(callee_filter) = callee_filter {
+                callee_filter.check(func, contract_identifier)?;
             }
 
             // sanitize contract-call inputs in epochs >= 2.4
@@ -880,7 +892,7 @@ impl<'a, 'b, 'hooks> ExecutionState<'a, 'b, 'hooks> {
             self.call_stack.insert(&func_identifier, true);
             let options = FunctionExecutionOptions::default()
                 .with_next_contract(&*contract)
-                .allow_private(allow_private);
+                .allow_private(callee_filter.is_none());
 
             // This entry/contract-call route is not wrapped by `apply`, so it owns the
             // user-function call frame itself. (The `apply` path emits its own frame.)
@@ -2174,5 +2186,66 @@ mod test {
                 "Contract already exists: S1G2081040G2081040G2081040G208105NK8PE5.dup".into()
             ))
         );
+    }
+
+    /// Each filter accepts exactly the kinds of functions it names. A function the filter
+    /// rejects fails with `NoSuchPublicFunction`, except for a `define-public` function under
+    /// [`CalleeFilter::ReadOnly`], which fails with `Unreachable`.
+    #[test]
+    fn callee_filter_check() {
+        let contract = QualifiedContractIdentifier::local("callee").unwrap();
+        let name = "f";
+        let no_such_public_function =
+            || RuntimeCheckErrorKind::NoSuchPublicFunction(contract.to_string(), name.to_string());
+        let not_read_only = RuntimeCheckErrorKind::Unreachable(bounded_format!(
+            "Public function not read-only: {contract} {name}"
+        ));
+        let cases = [
+            (CalleeFilter::Public, DefineType::Public, Ok(())),
+            (
+                CalleeFilter::Public,
+                DefineType::ReadOnly,
+                Err(no_such_public_function()),
+            ),
+            (
+                CalleeFilter::Public,
+                DefineType::Private,
+                Err(no_such_public_function()),
+            ),
+            (CalleeFilter::PublicOrReadOnly, DefineType::Public, Ok(())),
+            (CalleeFilter::PublicOrReadOnly, DefineType::ReadOnly, Ok(())),
+            (
+                CalleeFilter::PublicOrReadOnly,
+                DefineType::Private,
+                Err(no_such_public_function()),
+            ),
+            (
+                CalleeFilter::ReadOnly,
+                DefineType::Public,
+                Err(not_read_only),
+            ),
+            (CalleeFilter::ReadOnly, DefineType::ReadOnly, Ok(())),
+            (
+                CalleeFilter::ReadOnly,
+                DefineType::Private,
+                Err(no_such_public_function()),
+            ),
+        ];
+        for (filter, define_type, expected) in cases {
+            let function = DefinedFunction::new(
+                vec![],
+                SymbolicExpression::atom_value(Value::Int(1)),
+                define_type.clone(),
+                &ClarityName::from_literal(name),
+                &contract.to_string(),
+            );
+            let result = filter
+                .check(&function, &contract)
+                .map_err(|error| match error {
+                    VmExecutionError::RuntimeCheck(kind) => kind,
+                    other => panic!("{filter:?} on {define_type:?}: unexpected error {other:?}"),
+                });
+            assert_eq!(result, expected, "{filter:?} on {define_type:?}");
+        }
     }
 }

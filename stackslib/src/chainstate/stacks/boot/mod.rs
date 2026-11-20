@@ -21,7 +21,7 @@ use std::sync::LazyLock;
 use clarity::types::Address;
 use clarity::vm::analysis::RuntimeCheckErrorKind;
 use clarity::vm::clarity::{ClarityError, TransactionConnection};
-use clarity::vm::contexts::ExecutionState;
+use clarity::vm::contexts::{CalleeFilter, ExecutionState};
 use clarity::vm::costs::LimitedCostTracker;
 use clarity::vm::database::{ClarityDatabase, NULL_BURN_STATE_DB, NULL_HEADER_DB};
 use clarity::vm::errors::{ClarityEvalError, VmExecutionError};
@@ -811,7 +811,6 @@ impl StacksChainState {
                                         Value::UInt(*amount_locked),
                                         Value::UInt(cycle_number.into()),
                                     ],
-                                    false,
                                 )
                             },
                         )
@@ -920,7 +919,7 @@ impl StacksChainState {
                                     &contract_identifier,
                                     function,
                                     vec![Value::UInt(reward_cycle)],
-                                    true,
+                                    CalleeFilter::ReadOnly,
                                 )
                                 .map_err(ClarityEvalError::from)
                         },

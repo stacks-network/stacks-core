@@ -20,7 +20,7 @@ use clarity_types::ContractName;
 #[cfg(test)]
 use stacks_common::types::StacksEpochId;
 
-use crate::vm::contexts::{AssetMap, OwnedEnvironment};
+use crate::vm::contexts::{AssetMap, CalleeFilter, OwnedEnvironment};
 use crate::vm::errors::VmExecutionError;
 use crate::vm::events::StacksTransactionEvent;
 use crate::vm::tests::{test_clarity_versions, test_epochs};
@@ -154,7 +154,13 @@ fn call_read_only(
     args: Vec<Value>,
 ) -> Result<(Value, AssetMap, Vec<StacksTransactionEvent>), VmExecutionError> {
     env.execute_in_env(issuer, None, None, |exec_state, invoke_ctx| {
-        exec_state.execute_contract(invoke_ctx, contract_identifier, function, args, true)
+        exec_state.execute_contract(
+            invoke_ctx,
+            contract_identifier,
+            function,
+            args,
+            CalleeFilter::ReadOnly,
+        )
     })
 }
 

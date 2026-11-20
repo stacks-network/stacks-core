@@ -17,6 +17,7 @@
 use std::collections::BTreeMap;
 
 use clarity::vm::clarity::ClarityConnection;
+use clarity::vm::contexts::CalleeFilter;
 use clarity::vm::costs::{ExecutionCost, LimitedCostTracker};
 use clarity::vm::errors::ClarityEvalError;
 use clarity::vm::types::{PrincipalData, StandardPrincipalData};
@@ -237,7 +238,7 @@ impl RPCPoxInfoData {
                                     &contract_identifier,
                                     function,
                                     vec![],
-                                    true,
+                                    CalleeFilter::ReadOnly,
                                 )
                                 .map_err(ClarityEvalError::from)
                         },

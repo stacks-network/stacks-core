@@ -1,0 +1,1 @@
+Refactored the code that chooses which kind of Clarity function may be called. No functional change, just a readability improvement.
