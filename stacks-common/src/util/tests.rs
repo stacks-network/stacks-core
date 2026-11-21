@@ -72,6 +72,12 @@ impl<T: Clone> TestFlag<T> {
         *self.0.lock().unwrap() = Some(value);
     }
 
+    /// Sets the value of the test flag, or unsets it with `None` so `get` returns the default
+    /// and `get_opt` returns `None` again.
+    pub fn set_opt(&self, value: Option<T>) {
+        *self.0.lock().unwrap() = value;
+    }
+
     /// Retrieves the current value of the test flag or None
     pub fn get_opt(&self) -> Option<T> {
         self.0.lock().unwrap().clone()

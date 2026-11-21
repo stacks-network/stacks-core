@@ -13,7 +13,9 @@ use stacks::chainstate::stacks::db::StacksChainState;
 use stacks::chainstate::stacks::miner::MinerStatus;
 use stacks::config::{BurnchainConfig, MinerConfig};
 use stacks::net::NetworkResult;
-use stacks_common::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash, ConsensusHash};
+use stacks_common::types::chainstate::{
+    BlockHeaderHash, BurnchainHeaderHash, ConsensusHash, StacksBlockId,
+};
 
 use crate::neon::Counters;
 use crate::neon_node::LeaderKeyRegistrationState;
@@ -81,6 +83,11 @@ pub struct Globals<T> {
     /// is never cleared, so without it a proposal that silently died would suppress the
     /// relayer's late `BlockFound` forever.
     last_proposed_tenure_start: Arc<Mutex<Option<(ConsensusHash, Instant)>>>,
+    /// Parent of the last block this miner proposed to the signers, or `None` if the
+    /// signers rejected it. While it is still the canonical Stacks tip, that proposal
+    /// has not landed and may still be signed, so the relayer must not extend on the
+    /// same parent.
+    last_proposed_block_parent: Arc<Mutex<Option<StacksBlockId>>>,
 }
 
 // Need to manually implement Clone, because [derive(Clone)] requires
@@ -105,6 +112,7 @@ impl<T> Clone for Globals<T> {
             previous_best_tips: self.previous_best_tips.clone(),
             initiative: self.initiative.clone(),
             last_proposed_tenure_start: self.last_proposed_tenure_start.clone(),
+            last_proposed_block_parent: self.last_proposed_block_parent.clone(),
         }
     }
 }
@@ -138,6 +146,7 @@ impl<T> Globals<T> {
             previous_best_tips: Arc::new(Mutex::new(BTreeMap::new())),
             initiative: Arc::new(Mutex::new(None)),
             last_proposed_tenure_start: Arc::new(Mutex::new(None)),
+            last_proposed_block_parent: Arc::new(Mutex::new(None)),
         }
     }
 
@@ -186,6 +195,27 @@ impl<T> Globals<T> {
             panic!();
         });
         last_proposed.replace((tenure_id, Instant::now()));
+    }
+
+    /// Get the parent of the last block this node proposed to the signers, unless the
+    /// signers rejected it
+    pub fn get_last_proposed_block_parent(&self) -> Option<StacksBlockId> {
+        self.last_proposed_block_parent
+            .lock()
+            .unwrap_or_else(|_| {
+                error!("Last proposed block parent mutex poisoned!");
+                panic!();
+            })
+            .clone()
+    }
+
+    /// Record the parent of the block this node just proposed to the signers, or `None`
+    /// once the signers have rejected it
+    pub fn set_last_proposed_block_parent(&self, parent: Option<StacksBlockId>) {
+        *self.last_proposed_block_parent.lock().unwrap_or_else(|_| {
+            error!("Last proposed block parent mutex poisoned!");
+            panic!();
+        }) = parent;
     }
 
     /// Get the status of the miner (blocked or ready)

@@ -582,8 +582,24 @@ impl<T: SignerEventTrait> TryFrom<StackerDBChunksEvent> for SignerEvent<T> {
                 .iter()
                 .filter_map(|chunk| {
                     // Accept only payloads whose type is valid for this contract's message id.
-                    let &type_byte = chunk.data.first()?;
-                    let payload_kind = SignerMessageTypePrefix::from_u8(type_byte)?;
+                    let Some(&type_byte) = chunk.data.first() else {
+                        // An empty chunk is how a slot is cleared; there is no message to read.
+                        debug!(
+                            "Skipping empty signer chunk";
+                            "contract" => %event.contract_id,
+                            "slot_id" => chunk.slot_id,
+                        );
+                        return None;
+                    };
+                    let Some(payload_kind) = SignerMessageTypePrefix::from_u8(type_byte) else {
+                        warn!(
+                            "Skipping signer chunk with unknown payload type";
+                            "contract" => %event.contract_id,
+                            "slot_id" => chunk.slot_id,
+                            "payload_type_prefix" => type_byte,
+                        );
+                        return None;
+                    };
                     if !signer_message_payload_matches_lane(payload_kind, message_id) {
                         warn!(
                             "Skipping signer chunk with unexpected payload type for contract";

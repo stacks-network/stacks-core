@@ -2275,10 +2275,12 @@ pub struct NodeConfig {
     /// @default: `None`
     pub pox_5_sbtc_contract: Option<QualifiedContractIdentifier>,
     /// Epoch 4.0 / PoX-5 scaffolding: the sBTC registry contract that
-    /// signer-set computation reads `get-current-aggregate-pubkey` from to
-    /// derive the per-cycle sBTC waterfall recipient. Devnet/test only;
-    /// different operators configuring different contracts will fork the
-    /// chain.
+    /// signer-set computation reads to derive the per-cycle sBTC waterfall
+    /// recipient: `get-current-aggregate-pubkey` in Epoch 4.0 (v1 deposit),
+    /// `get-current-signer-data` from Epoch 4.1 (v2 Taproot multisig
+    /// deposit, or the standard burn address if the registry does not return
+    /// a usable signer set). Devnet/test only; different operators configuring different
+    /// contracts will fork the chain.
     /// ---
     /// @default: `None`
     pub pox_5_sbtc_registry_contract: Option<QualifiedContractIdentifier>,
@@ -3126,6 +3128,12 @@ pub struct MinerConfig {
     /// extend it. Once it elapses the proposal is presumed lost and the relayer issues a
     /// late `BlockFound`.
     ///
+    /// The same wait applies when the relayer is about to extend the tenure into a new
+    /// burn view while a block this node proposed on the Stacks tip is still in flight:
+    /// it waits for that block to land or be rejected before extending, rather than
+    /// extending on the same parent. That wait is measured from the moment the relayer
+    /// would otherwise have extended.
+    ///
     /// This only has to cover the signers aggregating signatures over a block this node
     /// has already proposed and pushing it back, which takes seconds.
     ///
@@ -3890,6 +3898,22 @@ pub struct ConnectionOptionsFile {
     /// @default: `0` (disabled)
     /// @units: bytes/second
     pub max_nakamoto_block_push_bandwidth: Option<u64>,
+
+    /// Maximum number of inbound p2p messages handled from a single peer in one
+    /// network pass. Messages beyond this stay queued and are handled in the next
+    /// pass. Zero disables the cap.
+    /// ---
+    /// @default: `64`
+    pub max_inbound_messages_per_pass: Option<usize>,
+
+    /// Maximum time spent handling inbound p2p messages in one network pass,
+    /// before the node moves on to the rest of the pass (inventory sync, block
+    /// downloads, StackerDB sync, ...). Peers not handled in time are handled
+    /// first in the next pass. Zero disables the limit.
+    /// ---
+    /// @default: `500`
+    /// @units: milliseconds
+    pub max_inbound_processing_ms: Option<u64>,
 }
 
 impl ConnectionOptionsFile {
@@ -4057,6 +4081,12 @@ impl ConnectionOptionsFile {
             max_nakamoto_block_push_bandwidth: self
                 .max_nakamoto_block_push_bandwidth
                 .unwrap_or(default.max_nakamoto_block_push_bandwidth),
+            max_inbound_messages_per_pass: self
+                .max_inbound_messages_per_pass
+                .unwrap_or(default.max_inbound_messages_per_pass),
+            max_inbound_processing_ms: self
+                .max_inbound_processing_ms
+                .unwrap_or(default.max_inbound_processing_ms),
             ..default
         })
     }
@@ -4107,8 +4137,8 @@ pub struct NodeConfigFile {
     pub pox_5_sbtc_contract: Option<String>,
     /// Epoch 4.0 / PoX-5 scaffolding: contract id (as `principal.contract-name`)
     /// of the sBTC registry contract from which signer-set computation reads
-    /// `get-current-aggregate-pubkey` to derive the per-cycle sBTC waterfall
-    /// recipient.
+    /// `get-current-aggregate-pubkey` (Epoch 4.0) or `get-current-signer-data`
+    /// (Epoch 4.1+) to derive the per-cycle sBTC waterfall recipient.
     pub pox_5_sbtc_registry_contract: Option<String>,
     /// Epoch 4.0 / PoX-5 scaffolding: principal (standard or contract) that
     /// pox-5 initializes the `bond-admin` data var to. Used to override the
@@ -6055,6 +6085,45 @@ mod tests {
             30,
             config.connection_options.max_nakamoto_block_push_bandwidth,
         );
+    }
+
+    #[test]
+    fn test_load_inbound_limit_fields_config() {
+        // check defaults for omitted fields
+        let config = utils::config_from_valid_string(
+            r#"
+            [burnchain]
+            mode = "krypton"
+            "#,
+        );
+        assert_eq!(64, config.connection_options.max_inbound_messages_per_pass);
+        assert_eq!(500, config.connection_options.max_inbound_processing_ms);
+
+        // check values for configured fields
+        let config = utils::config_from_valid_string(
+            r#"
+            [burnchain]
+            mode = "krypton"
+            [connection_options]
+            max_inbound_messages_per_pass = 10
+            max_inbound_processing_ms = 20
+            "#,
+        );
+        assert_eq!(10, config.connection_options.max_inbound_messages_per_pass);
+        assert_eq!(20, config.connection_options.max_inbound_processing_ms);
+
+        // zero disables the limits
+        let config = utils::config_from_valid_string(
+            r#"
+            [burnchain]
+            mode = "krypton"
+            [connection_options]
+            max_inbound_messages_per_pass = 0
+            max_inbound_processing_ms = 0
+            "#,
+        );
+        assert_eq!(0, config.connection_options.max_inbound_messages_per_pass);
+        assert_eq!(0, config.connection_options.max_inbound_processing_ms);
     }
 
     /// There are three different ways to start a node with a default config:

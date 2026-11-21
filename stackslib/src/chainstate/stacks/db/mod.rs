@@ -3219,7 +3219,7 @@ pub mod test {
         let chainstate = TestChainstateBuilder::new_testnet(function_name!()).build();
         assert_eq!(
             query_row(chainstate.db(), "SELECT sqlite_version()", NO_PARAMS).unwrap(),
-            Some("3.45.0".to_string())
+            Some("3.54.1".to_string())
         );
     }
 

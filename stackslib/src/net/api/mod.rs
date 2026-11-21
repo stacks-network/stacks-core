@@ -29,6 +29,7 @@ pub mod getattachmentsinv;
 pub mod getblock;
 pub mod getblock_v3;
 pub mod getblockbyheight;
+pub mod getblockview;
 pub mod getclaritymarfvalue;
 pub mod getclaritymetadata;
 pub mod getconstantval;
@@ -137,6 +138,7 @@ impl StacksHttp {
             getstackerdbmetadata::RPCGetStackerDBMetadataRequestHandler::new(),
         );
         self.register_rpc_endpoint(getstackers::GetStackersRequestHandler::default());
+        self.register_rpc_endpoint(getblockview::GetBlockViewRequestHandler::new());
         self.register_rpc_endpoint(getsortition::GetSortitionHandler::new());
         self.register_rpc_endpoint(gettenure::RPCNakamotoTenureRequestHandler::new());
         self.register_rpc_endpoint(gettenureinfo::RPCNakamotoTenureInfoRequestHandler::new());

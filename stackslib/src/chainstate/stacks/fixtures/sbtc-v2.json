@@ -1,0 +1,292 @@
+{
+  "fixtures": [
+    {
+      "description": "PoX-5 shape (mainnet .pox-5 recipient, max_fee 80000, lock_time 65535, [OP_RETURN]) with the sBTC devenv 2-of-3 signer set.",
+      "expected": {
+        "script_pubkey_hex": "5120f90468b57eeb09111550653ba82e11803a60c03dd0683186eaf02bce5d27ffa8"
+      },
+      "inputs": {
+        "lock_time": 65535,
+        "max_fee": 80000,
+        "recipient_principal": "SP000000000000000000002Q6VF78.pox-5",
+        "reclaim_user_script_hex": "6a",
+        "signatures_required": 2,
+        "signer_keys_compressed_hex": [
+          "035249137286c077ccee65ecc43e724b9b9e5a588e3d7f51e3b62f9624c2a49e46",
+          "031a4d9f4903da97498945a4e01a5023a1d53bc96ad670bfe03adf8a06c52e6380",
+          "02007311430123d4cad97f4f7e86e023b28143130a18099ecf094d36fef0f6135c"
+        ]
+      },
+      "intermediate": {
+        "deposit_script_hex": "82012088a820c351e98b683592808b1d041963f0a68d19b29cc3e91cc2634408f3b372e6c1cf882034797b01603a5ac1b06ab32c95b736793254d79340e7e846651906417572b767ac204bca274074efe78938d3c58eb76980fa76059a7237287922a68134b132dffe8fba20679003b9289b2f2db7b9557cb835a9d3b44e325ea5bf8cfb19330755f1a55f6aba529c",
+        "deposit_tapleaf_hash_hex": "367b2c8102136d5a748434686d8be6c1a90d5444bacc72b1f350c265cf447ae3",
+        "derived_xonly_keys_sorted_hex": [
+          "34797b01603a5ac1b06ab32c95b736793254d79340e7e846651906417572b767",
+          "4bca274074efe78938d3c58eb76980fa76059a7237287922a68134b132dffe8f",
+          "679003b9289b2f2db7b9557cb835a9d3b44e325ea5bf8cfb19330755f1a55f6a"
+        ],
+        "key_set_script_pubkey_hex": "512044d42c5fdc191818e50ec6591d2103f17ec2771c1a0ea5dc1db95ca56dd377b5",
+        "merkle_root_hex": "0dbc6654eea727f228825bf72b4b45b6f631f6d51157d17d7aaec6485ccd6e0f",
+        "reclaim_script_hex": "03ffff00b26a",
+        "reclaim_tapleaf_hash_hex": "a43373806cf7c76f82968115a55c47f37665808522e789db8d80f07eb3953614",
+        "signing_script_hex": "2034797b01603a5ac1b06ab32c95b736793254d79340e7e846651906417572b767ac204bca274074efe78938d3c58eb76980fa76059a7237287922a68134b132dffe8fba20679003b9289b2f2db7b9557cb835a9d3b44e325ea5bf8cfb19330755f1a55f6aba529c",
+        "taproot_output_key_xonly_hex": "f90468b57eeb09111550653ba82e11803a60c03dd0683186eaf02bce5d27ffa8"
+      },
+      "name": "pox5_mainnet_devenv_2of3"
+    },
+    {
+      "description": "PoX-5 shape with the testnet .pox-5 recipient and the devenv 2-of-3 signer set.",
+      "expected": {
+        "script_pubkey_hex": "512076b6c4b0119919c817d1b414e28b7e64033ae88a3d9e62795ff86086981f34bc"
+      },
+      "inputs": {
+        "lock_time": 65535,
+        "max_fee": 80000,
+        "recipient_principal": "ST000000000000000000002AMW42H.pox-5",
+        "reclaim_user_script_hex": "6a",
+        "signatures_required": 2,
+        "signer_keys_compressed_hex": [
+          "035249137286c077ccee65ecc43e724b9b9e5a588e3d7f51e3b62f9624c2a49e46",
+          "031a4d9f4903da97498945a4e01a5023a1d53bc96ad670bfe03adf8a06c52e6380",
+          "02007311430123d4cad97f4f7e86e023b28143130a18099ecf094d36fef0f6135c"
+        ]
+      },
+      "intermediate": {
+        "deposit_script_hex": "82012088a820c27413cdc58104164bc70af6ca9dae01924e743de67eb6b4299e8fd8f80dd0ff882034797b01603a5ac1b06ab32c95b736793254d79340e7e846651906417572b767ac204bca274074efe78938d3c58eb76980fa76059a7237287922a68134b132dffe8fba20679003b9289b2f2db7b9557cb835a9d3b44e325ea5bf8cfb19330755f1a55f6aba529c",
+        "deposit_tapleaf_hash_hex": "ea1a724b54fe18d7f58834e0251e7e60e8934e710195c1a34551c6f7f2d53a62",
+        "derived_xonly_keys_sorted_hex": [
+          "34797b01603a5ac1b06ab32c95b736793254d79340e7e846651906417572b767",
+          "4bca274074efe78938d3c58eb76980fa76059a7237287922a68134b132dffe8f",
+          "679003b9289b2f2db7b9557cb835a9d3b44e325ea5bf8cfb19330755f1a55f6a"
+        ],
+        "key_set_script_pubkey_hex": "512044d42c5fdc191818e50ec6591d2103f17ec2771c1a0ea5dc1db95ca56dd377b5",
+        "merkle_root_hex": "835b93e43572693fec0c5220c503e31f708377724493ca6c22c5fc69580d3286",
+        "reclaim_script_hex": "03ffff00b26a",
+        "reclaim_tapleaf_hash_hex": "a43373806cf7c76f82968115a55c47f37665808522e789db8d80f07eb3953614",
+        "signing_script_hex": "2034797b01603a5ac1b06ab32c95b736793254d79340e7e846651906417572b767ac204bca274074efe78938d3c58eb76980fa76059a7237287922a68134b132dffe8fba20679003b9289b2f2db7b9557cb835a9d3b44e325ea5bf8cfb19330755f1a55f6aba529c",
+        "taproot_output_key_xonly_hex": "76b6c4b0119919c817d1b414e28b7e64033ae88a3d9e62795ff86086981f34bc"
+      },
+      "name": "pox5_testnet_devenv_2of3"
+    },
+    {
+      "description": "PoX-5 shape with the sample testnet 11-of-15 signer set.",
+      "expected": {
+        "script_pubkey_hex": "512050169513f0a65e01157c067e19abef11805cd5026da31e90e0e10f87515e9392"
+      },
+      "inputs": {
+        "lock_time": 65535,
+        "max_fee": 80000,
+        "recipient_principal": "SP000000000000000000002Q6VF78.pox-5",
+        "reclaim_user_script_hex": "6a",
+        "signatures_required": 11,
+        "signer_keys_compressed_hex": [
+          "03fc6197a1396680f7acc4241ac3935ba4af560deac0224abec45c47c5e73ea638",
+          "0390d76b21867e9c5aa25a903423d3ddb0da65604f0470390ed903f2056c5adb4b",
+          "03fb16c76ae6773951b2ea957f723dc0f5f4ccd795313793308a38a37a3c4aa582",
+          "024681893c76fb2d52bdbcd6341c66f15f14698aed638d6c1a2fc9440948b5f11a",
+          "0341a8f3562d805ab240c2ce2dd220313329ef75459f115bd818b250a2ad2df6aa",
+          "02a963be44cd7efd07e59e28f02f5d2bafdf28b5b13b3b13b5c2a9e3f4c1b1e5bf",
+          "03c4382afb075bf577acbb13196e6130c386a3d8261326402f587fb7c42d0dbd5e",
+          "02c2b53974a2b1a05103a7c42a4861c859c9b999ed196c065bcec952438ae8ec9b",
+          "034646af6402dab3a265688b2ea67a7aa88d9fc6eca663385a6e92336f7f081c59",
+          "02629d043197e659ac45f0332b219760b9542d22499ff6431c113ec64d60e86628",
+          "033f3dd6b1e8e4cfff219054dce240d312b6deda10386c3a815459224a2ba0f411",
+          "031c7e1267b272d5a11257f46c61e0e5005337ebcebb6f2b71798addfd04e5a38a",
+          "02ae3a560f4f67ce8c0f4b2e46d24f51232a768cfc69cf08a02ea02426d77bd64c",
+          "026fb0b3c3ea60a3197e94f2dcd37d7f302e6d33c75351f4f5024e9c31ac327c11",
+          "0374e256948a14799c2a788960ab6657dc5d322b070abae4ce83b2a0df4df2c727"
+        ]
+      },
+      "intermediate": {
+        "deposit_script_hex": "82012088a820c351e98b683592808b1d041963f0a68d19b29cc3e91cc2634408f3b372e6c1cf882000c489b0498b2e10fb67dde9974e4de613dffdf85a4b702e0bc91d04f01399acac201a050620e061f8752663d88d11f170ab6b1de07d139542c86ea7b40a101ba780ba202a591520687b41bf02fd52ef6b45b78a53d5d839ab06ace5457560836c1f0acbba203514ce0e1b39d70c9d2bdba1841c9b7ea21b248681c0854411a8cadaa069729cba2040a059bc9ac9b8d7b6c25917751612a6da14033e1aa63be2a4f9750e83152741ba20464c1a474a74b8d4ba5c00ea8c4ca83b8f6eeed5846c31744dd1fe63f4349806ba204e380c2c093ae86786d6fb1c4f4a6278e15be8b649c9ac7bb112c42c69f6613aba2094c0fc51718acc9d2758467d1b37675280232847e8170be856862601f911ccb6ba20ae823aad4b730de6e5b8a589e2670796d06d7251e9895177d2e07cd0686f9ef4ba20b583765e5aa24c7d6adf2d5b135d3cf4f9ed213e34d81f8e540882fb0d6c34c1ba20b5897038e63e900049fcdceb6d6f8997ff74dabf378f15b76e9202710f64d0cfba20b927fed6833f3d61fdc6d56c776a3913aa69d5ee24851b058782487e7fb4bfc9ba20cfac56c24e2aeb346c24ff5a2b4e0ef122d6aba694dbf9bdf802721799866081ba20e21d2896421ec79a9e04e0145958590cb95503987d0886c577457b9f52dabe8aba20e4ecf3327daaaa0ccc130298b108dc88e4cb26ec7202f48de50788d0fff35723ba5b9c",
+        "deposit_tapleaf_hash_hex": "46f18774c61f6fe944d4443408c30faff394d3988a706e40b86607b7904572fb",
+        "derived_xonly_keys_sorted_hex": [
+          "00c489b0498b2e10fb67dde9974e4de613dffdf85a4b702e0bc91d04f01399ac",
+          "1a050620e061f8752663d88d11f170ab6b1de07d139542c86ea7b40a101ba780",
+          "2a591520687b41bf02fd52ef6b45b78a53d5d839ab06ace5457560836c1f0acb",
+          "3514ce0e1b39d70c9d2bdba1841c9b7ea21b248681c0854411a8cadaa069729c",
+          "40a059bc9ac9b8d7b6c25917751612a6da14033e1aa63be2a4f9750e83152741",
+          "464c1a474a74b8d4ba5c00ea8c4ca83b8f6eeed5846c31744dd1fe63f4349806",
+          "4e380c2c093ae86786d6fb1c4f4a6278e15be8b649c9ac7bb112c42c69f6613a",
+          "94c0fc51718acc9d2758467d1b37675280232847e8170be856862601f911ccb6",
+          "ae823aad4b730de6e5b8a589e2670796d06d7251e9895177d2e07cd0686f9ef4",
+          "b583765e5aa24c7d6adf2d5b135d3cf4f9ed213e34d81f8e540882fb0d6c34c1",
+          "b5897038e63e900049fcdceb6d6f8997ff74dabf378f15b76e9202710f64d0cf",
+          "b927fed6833f3d61fdc6d56c776a3913aa69d5ee24851b058782487e7fb4bfc9",
+          "cfac56c24e2aeb346c24ff5a2b4e0ef122d6aba694dbf9bdf802721799866081",
+          "e21d2896421ec79a9e04e0145958590cb95503987d0886c577457b9f52dabe8a",
+          "e4ecf3327daaaa0ccc130298b108dc88e4cb26ec7202f48de50788d0fff35723"
+        ],
+        "key_set_script_pubkey_hex": "512036beeeb78d2eff65baa60f8da199b5ecd06ee833dd3c8f6340f8b6d4102a595c",
+        "merkle_root_hex": "24af9555c077ba22f4cf4c407dc260efcdc6acc97b11e297a8211fad89c6b1cd",
+        "reclaim_script_hex": "03ffff00b26a",
+        "reclaim_tapleaf_hash_hex": "a43373806cf7c76f82968115a55c47f37665808522e789db8d80f07eb3953614",
+        "signing_script_hex": "2000c489b0498b2e10fb67dde9974e4de613dffdf85a4b702e0bc91d04f01399acac201a050620e061f8752663d88d11f170ab6b1de07d139542c86ea7b40a101ba780ba202a591520687b41bf02fd52ef6b45b78a53d5d839ab06ace5457560836c1f0acbba203514ce0e1b39d70c9d2bdba1841c9b7ea21b248681c0854411a8cadaa069729cba2040a059bc9ac9b8d7b6c25917751612a6da14033e1aa63be2a4f9750e83152741ba20464c1a474a74b8d4ba5c00ea8c4ca83b8f6eeed5846c31744dd1fe63f4349806ba204e380c2c093ae86786d6fb1c4f4a6278e15be8b649c9ac7bb112c42c69f6613aba2094c0fc51718acc9d2758467d1b37675280232847e8170be856862601f911ccb6ba20ae823aad4b730de6e5b8a589e2670796d06d7251e9895177d2e07cd0686f9ef4ba20b583765e5aa24c7d6adf2d5b135d3cf4f9ed213e34d81f8e540882fb0d6c34c1ba20b5897038e63e900049fcdceb6d6f8997ff74dabf378f15b76e9202710f64d0cfba20b927fed6833f3d61fdc6d56c776a3913aa69d5ee24851b058782487e7fb4bfc9ba20cfac56c24e2aeb346c24ff5a2b4e0ef122d6aba694dbf9bdf802721799866081ba20e21d2896421ec79a9e04e0145958590cb95503987d0886c577457b9f52dabe8aba20e4ecf3327daaaa0ccc130298b108dc88e4cb26ec7202f48de50788d0fff35723ba5b9c",
+        "taproot_output_key_xonly_hex": "50169513f0a65e01157c067e19abef11805cd5026da31e90e0e10f87515e9392"
+      },
+      "name": "pox5_mainnet_testnet_11of15"
+    },
+    {
+      "description": "PoX-5 shape with a single-signer 1-of-1 key set.",
+      "expected": {
+        "script_pubkey_hex": "5120ed96cfe786dc5b52469e8b16a1d54bc6564e6a080eadd84e80f82805f2d1d3b9"
+      },
+      "inputs": {
+        "lock_time": 65535,
+        "max_fee": 80000,
+        "recipient_principal": "SP000000000000000000002Q6VF78.pox-5",
+        "reclaim_user_script_hex": "6a",
+        "signatures_required": 1,
+        "signer_keys_compressed_hex": [
+          "027212421e4a9c34e251a7cd523146c4434451e42c230d576b07fe8874f97a694d"
+        ]
+      },
+      "intermediate": {
+        "deposit_script_hex": "82012088a820c351e98b683592808b1d041963f0a68d19b29cc3e91cc2634408f3b372e6c1cf882089ced837bc1becd6161db932c657b40157adf7f76f9bb52b328b38adc9f05577ac519c",
+        "deposit_tapleaf_hash_hex": "03a578e0876a66cdb6d150df5cd03b3d5ecfb061fc7bfab27f1bb6ebef01cce1",
+        "derived_xonly_keys_sorted_hex": [
+          "89ced837bc1becd6161db932c657b40157adf7f76f9bb52b328b38adc9f05577"
+        ],
+        "key_set_script_pubkey_hex": "5120a014d46c5ec41d7d059755296e1d12566ca7416d3707a7789d2a3c88ee1eeca2",
+        "merkle_root_hex": "f4128a0cceb1fc10b8fb05cefc4b5c146a967d963251f2af0a1c628c130bc19f",
+        "reclaim_script_hex": "03ffff00b26a",
+        "reclaim_tapleaf_hash_hex": "a43373806cf7c76f82968115a55c47f37665808522e789db8d80f07eb3953614",
+        "signing_script_hex": "2089ced837bc1becd6161db932c657b40157adf7f76f9bb52b328b38adc9f05577ac519c",
+        "taproot_output_key_xonly_hex": "ed96cfe786dc5b52469e8b16a1d54bc6564e6a080eadd84e80f82805f2d1d3b9"
+      },
+      "name": "pox5_mainnet_random_1of1"
+    },
+    {
+      "description": "Standard principal recipient; 3-of-3 devenv set; small lock_time using OP_PUSHNUM; empty user reclaim script.",
+      "expected": {
+        "script_pubkey_hex": "5120215f975c3048dcea7e21f597955f14d84c995cac642b083e733a33e83b976f63"
+      },
+      "inputs": {
+        "lock_time": 6,
+        "max_fee": 15000,
+        "recipient_principal": "SP000000000000000000002Q6VF78",
+        "reclaim_user_script_hex": "",
+        "signatures_required": 3,
+        "signer_keys_compressed_hex": [
+          "035249137286c077ccee65ecc43e724b9b9e5a588e3d7f51e3b62f9624c2a49e46",
+          "031a4d9f4903da97498945a4e01a5023a1d53bc96ad670bfe03adf8a06c52e6380",
+          "02007311430123d4cad97f4f7e86e023b28143130a18099ecf094d36fef0f6135c"
+        ]
+      },
+      "intermediate": {
+        "deposit_script_hex": "82012088a820939a3c09f05ff8289df9158d65b3caee7ca330fa372414d598e0746f5eddf3bb882034797b01603a5ac1b06ab32c95b736793254d79340e7e846651906417572b767ac204bca274074efe78938d3c58eb76980fa76059a7237287922a68134b132dffe8fba20679003b9289b2f2db7b9557cb835a9d3b44e325ea5bf8cfb19330755f1a55f6aba539c",
+        "deposit_tapleaf_hash_hex": "e1e296b404d9736735fae9627bd22aefa24aaf32d4379a3a1646ce6d53ae870c",
+        "derived_xonly_keys_sorted_hex": [
+          "34797b01603a5ac1b06ab32c95b736793254d79340e7e846651906417572b767",
+          "4bca274074efe78938d3c58eb76980fa76059a7237287922a68134b132dffe8f",
+          "679003b9289b2f2db7b9557cb835a9d3b44e325ea5bf8cfb19330755f1a55f6a"
+        ],
+        "key_set_script_pubkey_hex": "5120090c2e3be642bf0bee248f55c17607e28ba0f45d246dc86e9d3e15d0eae5a638",
+        "merkle_root_hex": "76d6ff4b15ba41da1b4572692fb8b968b804d0fd6daf267b307587c2679bbaa5",
+        "reclaim_script_hex": "56b2",
+        "reclaim_tapleaf_hash_hex": "4b49f80fd3b1a30785b34bc7f0aa362a5a22aa4cc1ef0570489efec975526d28",
+        "signing_script_hex": "2034797b01603a5ac1b06ab32c95b736793254d79340e7e846651906417572b767ac204bca274074efe78938d3c58eb76980fa76059a7237287922a68134b132dffe8fba20679003b9289b2f2db7b9557cb835a9d3b44e325ea5bf8cfb19330755f1a55f6aba539c",
+        "taproot_output_key_xonly_hex": "215f975c3048dcea7e21f597955f14d84c995cac642b083e733a33e83b976f63"
+      },
+      "name": "standard_recipient_devenv_3of3"
+    },
+    {
+      "description": "Maximum 16-key set (keys from secret scalars 1..=16), 9-of-16, contract recipient, zero max fee, lock_time 1024, OP_DROP user script.",
+      "expected": {
+        "script_pubkey_hex": "5120caf7152c7e836087fe513ce9c281d1bae77790d35b4878bc145e03e965844f8d"
+      },
+      "inputs": {
+        "lock_time": 1024,
+        "max_fee": 0,
+        "recipient_principal": "ST000000000000000000002AMW42H.my-contract",
+        "reclaim_user_script_hex": "75",
+        "signatures_required": 9,
+        "signer_keys_compressed_hex": [
+          "0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798",
+          "02c6047f9441ed7d6d3045406e95c07cd85c778e4b8cef3ca7abac09b95c709ee5",
+          "02f9308a019258c31049344f85f89d5229b531c845836f99b08601f113bce036f9",
+          "02e493dbf1c10d80f3581e4904930b1404cc6c13900ee0758474fa94abe8c4cd13",
+          "022f8bde4d1a07209355b4a7250a5c5128e88b84bddc619ab7cba8d569b240efe4",
+          "03fff97bd5755eeea420453a14355235d382f6472f8568a18b2f057a1460297556",
+          "025cbdf0646e5db4eaa398f365f2ea7a0e3d419b7e0330e39ce92bddedcac4f9bc",
+          "022f01e5e15cca351daff3843fb70f3c2f0a1bdd05e5af888a67784ef3e10a2a01",
+          "03acd484e2f0c7f65309ad178a9f559abde09796974c57e714c35f110dfc27ccbe",
+          "03a0434d9e47f3c86235477c7b1ae6ae5d3442d49b1943c2b752a68e2a47e247c7",
+          "03774ae7f858a9411e5ef4246b70c65aac5649980be5c17891bbec17895da008cb",
+          "03d01115d548e7561b15c38f004d734633687cf4419620095bc5b0f47070afe85a",
+          "03f28773c2d975288bc7d1d205c3748651b075fbc6610e58cddeeddf8f19405aa8",
+          "03499fdf9e895e719cfd64e67f07d38e3226aa7b63678949e6e49b241a60e823e4",
+          "02d7924d4f7d43ea965a465ae3095ff41131e5946f3c85f79e44adbcf8e27e080e",
+          "03e60fce93b59e9ec53011aabc21c23e97b2a31369b87a5ae9c44ee89e2a6dec0a"
+        ]
+      },
+      "intermediate": {
+        "deposit_script_hex": "82012088a8204714317b08d286299c6f48114b472e049aa38b197c98116b2f7e83cc214c1c3d88200901836abb73a506877efeca039cc3044ac9e0e95e88ab9796275195dca555ecac200a4a754acf893df2420e3d03d52c591f8ccfad13cbc44f04a8a25c35077ff70bba204729b106ed36f45da4668bdc23ad63b1e5cd4f4d5c664a24d66ff7176bc4bf68ba205dc101c99f39a66c9a92cb074495dc103be6ed65b53544a5cfa7c02763d0951fba2073d83d8002dcb13824dca5055f3c35811d09582d4e08c75777fd56070303ba6dba207babcfe424ef1107d85290790a513a803b2aef2b8bd28ac0d0dd12f86766f5b9ba208cc216dbacc6fca1332bf8466e849f986c06b6a60d54acacf02d77be53a65610ba209cbbf66ff6f9f98af5c733d19ce7dc21c2070ee4069f8c609b6bed56765b2255ba20ad897811c095ef76aed5dfa0ae1e01f6064539d328cffef610dda640a72e5f29ba20bd6701e92f18ecccd73ae0da67143887f9b904de5359c09a73adaffd7e03a111ba20c74cca866265b973de41906da76163476c79c0439f1c728bea46f87b9454c199ba20c84c02a2962a861185cea10d815f1950ebb39557dac664bc4ba7f5a014adf582ba20d5aba3b122c692a59218b5b0cba5759a583ff34bdcc2a5ef30921367f65576f6ba20e6aff4196c51aff53c7b2da7c37f7eb9b02d224f9ac3351e7e085fdafa37fe84ba20eb24810ca3609e4e5ff32af57c66d8de29f1dc3c94515b1b2e499f9e1d252e5cba20f0dab3a639a86ee6c91cad7f4dc7417381b1df5a4884f67965d57247b67634c9ba599c",
+        "deposit_tapleaf_hash_hex": "c05d1f32f0f6a5b7cae13c0fcf9c7de2c5e0031690b6f4c68c8a6820e784cccf",
+        "derived_xonly_keys_sorted_hex": [
+          "0901836abb73a506877efeca039cc3044ac9e0e95e88ab9796275195dca555ec",
+          "0a4a754acf893df2420e3d03d52c591f8ccfad13cbc44f04a8a25c35077ff70b",
+          "4729b106ed36f45da4668bdc23ad63b1e5cd4f4d5c664a24d66ff7176bc4bf68",
+          "5dc101c99f39a66c9a92cb074495dc103be6ed65b53544a5cfa7c02763d0951f",
+          "73d83d8002dcb13824dca5055f3c35811d09582d4e08c75777fd56070303ba6d",
+          "7babcfe424ef1107d85290790a513a803b2aef2b8bd28ac0d0dd12f86766f5b9",
+          "8cc216dbacc6fca1332bf8466e849f986c06b6a60d54acacf02d77be53a65610",
+          "9cbbf66ff6f9f98af5c733d19ce7dc21c2070ee4069f8c609b6bed56765b2255",
+          "ad897811c095ef76aed5dfa0ae1e01f6064539d328cffef610dda640a72e5f29",
+          "bd6701e92f18ecccd73ae0da67143887f9b904de5359c09a73adaffd7e03a111",
+          "c74cca866265b973de41906da76163476c79c0439f1c728bea46f87b9454c199",
+          "c84c02a2962a861185cea10d815f1950ebb39557dac664bc4ba7f5a014adf582",
+          "d5aba3b122c692a59218b5b0cba5759a583ff34bdcc2a5ef30921367f65576f6",
+          "e6aff4196c51aff53c7b2da7c37f7eb9b02d224f9ac3351e7e085fdafa37fe84",
+          "eb24810ca3609e4e5ff32af57c66d8de29f1dc3c94515b1b2e499f9e1d252e5c",
+          "f0dab3a639a86ee6c91cad7f4dc7417381b1df5a4884f67965d57247b67634c9"
+        ],
+        "key_set_script_pubkey_hex": "51207cf71a1c24b61b60ff6b5e280e81ac8ac3777ea0c56fc3be8f6bd2a08b944d5f",
+        "merkle_root_hex": "a0a9c7efa6b34597ac0e5fb15088cd8d4c787e47a134cf04738b61fb05fc4460",
+        "reclaim_script_hex": "020004b275",
+        "reclaim_tapleaf_hash_hex": "6e72448b2a47baf78970c0d5a3b57f414f0d7498572da1cc4bbd56de44335822",
+        "signing_script_hex": "200901836abb73a506877efeca039cc3044ac9e0e95e88ab9796275195dca555ecac200a4a754acf893df2420e3d03d52c591f8ccfad13cbc44f04a8a25c35077ff70bba204729b106ed36f45da4668bdc23ad63b1e5cd4f4d5c664a24d66ff7176bc4bf68ba205dc101c99f39a66c9a92cb074495dc103be6ed65b53544a5cfa7c02763d0951fba2073d83d8002dcb13824dca5055f3c35811d09582d4e08c75777fd56070303ba6dba207babcfe424ef1107d85290790a513a803b2aef2b8bd28ac0d0dd12f86766f5b9ba208cc216dbacc6fca1332bf8466e849f986c06b6a60d54acacf02d77be53a65610ba209cbbf66ff6f9f98af5c733d19ce7dc21c2070ee4069f8c609b6bed56765b2255ba20ad897811c095ef76aed5dfa0ae1e01f6064539d328cffef610dda640a72e5f29ba20bd6701e92f18ecccd73ae0da67143887f9b904de5359c09a73adaffd7e03a111ba20c74cca866265b973de41906da76163476c79c0439f1c728bea46f87b9454c199ba20c84c02a2962a861185cea10d815f1950ebb39557dac664bc4ba7f5a014adf582ba20d5aba3b122c692a59218b5b0cba5759a583ff34bdcc2a5ef30921367f65576f6ba20e6aff4196c51aff53c7b2da7c37f7eb9b02d224f9ac3351e7e085fdafa37fe84ba20eb24810ca3609e4e5ff32af57c66d8de29f1dc3c94515b1b2e499f9e1d252e5cba20f0dab3a639a86ee6c91cad7f4dc7417381b1df5a4884f67965d57247b67634c9ba599c",
+        "taproot_output_key_xonly_hex": "caf7152c7e836087fe513ce9c281d1bae77790d35b4878bc145e03e965844f8d"
+      },
+      "name": "sixteen_signers_9of16"
+    },
+    {
+      "description": "Devenv keys supplied reversed with one duplicate; must match the canonical 2-of-3 set. u64::MAX max fee.",
+      "expected": {
+        "script_pubkey_hex": "512005e97ff80683e65e08cf78a18b20a74d8edaf845c281d950dd9eaf2fca0e1a52"
+      },
+      "inputs": {
+        "lock_time": 65535,
+        "max_fee": 18446744073709551615,
+        "recipient_principal": "SP000000000000000000002Q6VF78.pox-5",
+        "reclaim_user_script_hex": "6a",
+        "signatures_required": 2,
+        "signer_keys_compressed_hex": [
+          "02007311430123d4cad97f4f7e86e023b28143130a18099ecf094d36fef0f6135c",
+          "031a4d9f4903da97498945a4e01a5023a1d53bc96ad670bfe03adf8a06c52e6380",
+          "035249137286c077ccee65ecc43e724b9b9e5a588e3d7f51e3b62f9624c2a49e46",
+          "035249137286c077ccee65ecc43e724b9b9e5a588e3d7f51e3b62f9624c2a49e46"
+        ]
+      },
+      "intermediate": {
+        "deposit_script_hex": "82012088a820a079dc64bd2503ccac255bc05981e0d34c5df871df6acf1dd90b37f721b8c894882034797b01603a5ac1b06ab32c95b736793254d79340e7e846651906417572b767ac204bca274074efe78938d3c58eb76980fa76059a7237287922a68134b132dffe8fba20679003b9289b2f2db7b9557cb835a9d3b44e325ea5bf8cfb19330755f1a55f6aba529c",
+        "deposit_tapleaf_hash_hex": "d7643c72daf3fda3ab039145161c0365d49c048788fca34be37212880c648b8d",
+        "derived_xonly_keys_sorted_hex": [
+          "34797b01603a5ac1b06ab32c95b736793254d79340e7e846651906417572b767",
+          "4bca274074efe78938d3c58eb76980fa76059a7237287922a68134b132dffe8f",
+          "679003b9289b2f2db7b9557cb835a9d3b44e325ea5bf8cfb19330755f1a55f6a"
+        ],
+        "key_set_script_pubkey_hex": "512044d42c5fdc191818e50ec6591d2103f17ec2771c1a0ea5dc1db95ca56dd377b5",
+        "merkle_root_hex": "1612d9b6e4b7f371c4139a805aae1a3a2c0d5c66f5982b5d23599f004955e7f3",
+        "reclaim_script_hex": "03ffff00b26a",
+        "reclaim_tapleaf_hash_hex": "a43373806cf7c76f82968115a55c47f37665808522e789db8d80f07eb3953614",
+        "signing_script_hex": "2034797b01603a5ac1b06ab32c95b736793254d79340e7e846651906417572b767ac204bca274074efe78938d3c58eb76980fa76059a7237287922a68134b132dffe8fba20679003b9289b2f2db7b9557cb835a9d3b44e325ea5bf8cfb19330755f1a55f6aba529c",
+        "taproot_output_key_xonly_hex": "05e97ff80683e65e08cf78a18b20a74d8edaf845c281d950dd9eaf2fca0e1a52"
+      },
+      "name": "duplicate_and_reversed_input_order"
+    }
+  ],
+  "sbtc_reference_commit": "6ec5dbeecb606fc2e921661ec9b43a6ad3545e6e",
+  "source": "sbtc crate: SignerKeySet::derive, DepositScriptInputsV2::deposit_script, ReclaimScriptInputs::reclaim_script, to_v2_taproot, to_v2_script_pubkey (https://github.com/stacks-sbtc/sbtc)",
+  "v2_nums_x_coordinate_hex": "4a30b2e461b280c0b13a03799096ab1256589153fc4b9c8cead16dc0b6420697"
+}

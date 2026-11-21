@@ -224,11 +224,6 @@ where
         Err(e) => return Err(ChainError::InvalidStacksBlock(e)),
     };
 
-    let burn_dbconn = match sortdb.index_handle_at_block(chainstate, &parent_block_id) {
-        Ok(burn_dbconn) => burn_dbconn,
-        Err(_) => return Err(ChainError::NoSuchBlockError),
-    };
-
     let tenure_change = block
         .txs
         .iter()
@@ -252,6 +247,11 @@ where
             "Invalid Parent Block".into(),
         ));
     };
+
+    let burn_view = NakamotoChainState::get_block_burn_view(sortdb, &block, &parent_stacks_header)?;
+    let burn_view_sn = SortitionDB::get_block_snapshot_consensus(sortdb.conn(), &burn_view)?
+        .ok_or(ChainError::NoSuchBlockError)?;
+    let burn_dbconn = sortdb.index_handle(&burn_view_sn.sortition_id);
 
     let mut builder = NakamotoBlockBuilder::new(
         &parent_stacks_header,

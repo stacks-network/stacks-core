@@ -7,16 +7,16 @@ edition = "2021"
 [dependencies]
 lazy_static = "1.4.0"
 pico-args = "0.5.0"
-serde = "1"
-serde_derive = "1"
-serde_json = { version = "1.0", features = ["arbitrary_precision", "raw_value"] }
+serde = { workspace = true }
+serde_derive = { workspace = true }
+serde_json = { workspace = true, features = ["raw_value"] }
 stacks = { package = "stackslib", path = "../stackslib" }
 stacks-marf = { path = "../stacks-marf" }
 stx-genesis = { path = "../stx-genesis"}
 base64 = "0.12.0"
 backtrace = "0.3.77"
 libc = "0.2.151"
-slog = { version = "2.5.2", features = [ "max_level_trace" ] }
+slog = { workspace = true }
 clarity = { path = "../clarity" }
 stacks-common = { path = "../stacks-common" }
 chrono = "0.4.19"

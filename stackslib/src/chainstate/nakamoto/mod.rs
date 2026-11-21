@@ -725,6 +725,10 @@ pub struct NakamotoBlockHeader {
     /// epochs. Validation rules: strictly increasing `tx_index`, every index
     /// `< txs.len()`, count `<= MAX_PROBLEMATIC_TX_MARKERS`, and no marker may
     /// point at a Coinbase or TenureChange transaction.
+    ///
+    /// Defaults to empty when absent from JSON, so headers serialized before
+    /// this field existed (e.g., in a signer's database) still deserialize.
+    #[serde(default)]
     pub problematic_txs: Vec<ProblematicTxMarker>,
 }
 
