@@ -1731,7 +1731,7 @@ mod async_sibling_validation {
             format!("/v3/tenures/tip_metadata/{tenure}"),
             serde_json::to_string(&tip).unwrap(),
         )];
-        let mut node = MockNode::new(tips, Duration::from_secs(100_000));
+        let mut node = MockNode::new(tips, Duration::from_secs(100_000), Duration::ZERO);
         let plain = SortitionData::check_latest_block_in_tenure(
             &tenure,
             &block_c,
