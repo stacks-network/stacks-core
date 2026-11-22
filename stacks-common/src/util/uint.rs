@@ -509,6 +509,15 @@ impl Uint512 {
     }
 }
 
+#[cfg(any(test, kani))]
+mod reference;
+
+#[cfg(kani)]
+mod kani_proofs;
+
+#[cfg(test)]
+mod proptests;
+
 #[cfg(test)]
 mod tests {
     use crate::util::uint::{BitArray, Uint256};

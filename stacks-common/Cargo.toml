@@ -105,3 +105,6 @@ wasm-deterministic = ["getrandom/custom"]
 
 [package.metadata.pinny]
 allowed = ["t_prop"]
+
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(kani)'] }
