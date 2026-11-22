@@ -45,8 +45,7 @@ macro_rules! uint_proptests {
 
             use super::words_strategy;
             use crate::util::hash::to_hex;
-            use crate::util::uint::reference;
-            use crate::util::uint::{$name, BitArray};
+            use crate::util::uint::{reference, $name, BitArray};
 
             const N: usize = $n_words;
 

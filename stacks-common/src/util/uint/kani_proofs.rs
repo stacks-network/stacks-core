@@ -23,8 +23,7 @@
 macro_rules! uint_proofs {
     ($module:ident, $name:ident, $n_words:expr, $unwind:tt) => {
         mod $module {
-            use crate::util::uint::reference;
-            use crate::util::uint::{$name, BitArray};
+            use crate::util::uint::{reference, $name, BitArray};
 
             const BITS: usize = 64 * $n_words;
 
@@ -195,8 +194,7 @@ uint_proofs!(uint256, Uint256, 4, 33);
 uint_proofs!(uint512, Uint512, 8, 65);
 
 mod conversions {
-    use crate::util::uint::reference;
-    use crate::util::uint::{Uint256, Uint512};
+    use crate::util::uint::{reference, Uint256, Uint512};
 
     #[kani::proof]
     #[kani::unwind(33)]
