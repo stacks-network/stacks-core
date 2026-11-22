@@ -15,14 +15,13 @@
 
 //! Clarity values.
 
-use clarity_types::types::{
-    PrincipalData, QualifiedContractIdentifier, StandardPrincipalData, TypeSignature,
-};
-use clarity_types::{ContractName, Value};
-use proptest::array::uniform20;
+use clarity_types::Value;
+use clarity_types::types::TypeSignature;
 use proptest::collection::vec;
 use proptest::prelude::*;
 use proptest::string::string_regex;
+
+use super::principals::writable_principal_strategy;
 
 /// A strategy that generates Clarity values.
 pub fn clarity_value_strategy() -> BoxedStrategy<Value> {
@@ -52,39 +51,7 @@ fn clarity_values_inner(include_responses: bool) -> BoxedStrategy<Value> {
                     .expect("UTF-8 literal within allowed character set")
             });
 
-    let standard_principal_data = (any::<u8>(), uniform20(any::<u8>()))
-        .prop_filter_map("Invalid standard principal", |(version, bytes)| {
-            let version = version % 32;
-            StandardPrincipalData::new(version, bytes).ok()
-        })
-        .boxed();
-
-    let standard_principals = standard_principal_data
-        .clone()
-        .prop_map(|principal| Value::Principal(PrincipalData::Standard(principal)))
-        .boxed();
-
-    let contract_name_strings = prop_oneof![
-        string_regex("[a-tv-z][a-z0-9-?!]{0,39}").unwrap(),
-        string_regex("u[a-z-?!][a-z0-9-?!]{0,38}").unwrap(),
-    ]
-    .boxed();
-
-    let contract_names = contract_name_strings
-        .prop_filter_map("Invalid contract name", |name| {
-            ContractName::try_from(name).ok()
-        })
-        .boxed();
-
-    let contract_principals = (standard_principal_data, contract_names)
-        .prop_map(|(issuer, name)| {
-            Value::Principal(PrincipalData::Contract(QualifiedContractIdentifier::new(
-                issuer, name,
-            )))
-        })
-        .boxed();
-
-    let principal_values = prop_oneof![standard_principals, contract_principals];
+    let principal_values = writable_principal_strategy().prop_map(Value::Principal);
 
     let buffer_values = vec(any::<u8>(), 0..1024).prop_map(|bytes| {
         Value::buff_from(bytes).expect("Buffer construction should succeed with any byte data")

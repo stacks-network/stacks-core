@@ -20,10 +20,15 @@ use rstest::rstest;
 use rstest_reuse::{self, *};
 use stacks_common::bounded_format;
 use stacks_common::types::StacksEpochId;
-use stacks_common::util::hash::to_hex;
 
 use crate::vm::analysis::type_checker::v2_1::MAX_FUNCTION_PARAMETERS;
 use crate::vm::errors::{ClarityEvalError, RuntimeCheckErrorKind, VmExecutionError};
+use crate::vm::tests::proptesting::literals::{
+    ascii_string_literal, buff_literal, list_literal, utf8_chars_literal,
+};
+use crate::vm::tests::proptesting::strategies::chars::{
+    printable_ascii_byte_strategy, utf8_char_strategy,
+};
 use crate::vm::tests::test_clarity_versions;
 use crate::vm::types::TypeSignature::{self, BoolType, IntType, SequenceType, UIntType};
 use crate::vm::types::signatures::SequenceSubtype::{self, BufferType, StringType};
@@ -1883,87 +1888,19 @@ fn buff_chunk_strategy() -> impl Strategy<Value = Vec<u8>> {
     prop::collection::vec(any::<u8>(), 0..=32)
 }
 
-/// Printable-ASCII bytes (`0x20..=0x7E`) excluding `"` and `\`, which need
-/// escaping in a Clarity string literal.
-///
-/// Callers sample from this set directly rather than `prop_filter`-ing the full
-/// range: a per-byte filter rejects `"`/`\` ~2% of the time, and with many
-/// bytes per case the cumulative local rejects blow past proptest's cap under
-/// high case counts (aborting the run).
-fn allowed_ascii_bytes() -> Vec<u8> {
-    (0x20u8..=0x7Eu8)
-        .filter(|b| *b != b'"' && *b != b'\\')
-        .collect()
-}
-
-/// Random printable-ASCII bytes (no `"` or `\`) for a string-ascii arg.
+/// Printable-ASCII bytes for a string-ascii arg.
 fn ascii_chunk_strategy() -> impl Strategy<Value = Vec<u8>> {
-    prop::collection::vec(prop::sample::select(allowed_ascii_bytes()), 0..=32)
+    prop::collection::vec(printable_ascii_byte_strategy(), 0..=32)
 }
 
-/// Random Unicode chars (printable ASCII + BMP + emoji) for a string-utf8 arg.
+/// Unicode chars (printable ASCII, BMP, emoji) for a string-utf8 arg.
 fn utf8_chunk_strategy() -> impl Strategy<Value = Vec<char>> {
-    prop::collection::vec(
-        prop_oneof![
-            // Printable ASCII excluding `"` and `\`
-            prop::sample::select(allowed_ascii_bytes()).prop_map(|b| b as char),
-            // BMP non-control non-surrogate codepoints
-            (0xA1u32..=0xD7FF).prop_filter_map("valid bmp char", |n| {
-                char::from_u32(n).filter(|c| !c.is_control())
-            }),
-            // Emoji range
-            (0x1F300u32..=0x1F6FFu32).prop_filter_map("valid emoji", char::from_u32),
-        ],
-        0..=16,
-    )
+    prop::collection::vec(utf8_char_strategy(), 0..=16)
 }
 
 /// Random uints for a `(list uint)` arg.
 fn uint_list_chunk_strategy() -> impl Strategy<Value = Vec<u128>> {
     prop::collection::vec(any::<u128>(), 0..=8)
-}
-
-/// Format raw bytes as a Clarity ASCII string literal.
-fn ascii_to_clarity_literal(bytes: &[u8]) -> String {
-    let mut s = String::with_capacity(bytes.len() + 2);
-    s.push('"');
-    for &b in bytes {
-        // Strategy already filters out `"` and `\`, so every byte is a
-        // printable ASCII char that needs no escaping.
-        s.push(b as char);
-    }
-    s.push('"');
-    s
-}
-
-/// Format a sequence of chars as a Clarity UTF-8 string literal.
-fn utf8_chars_to_clarity_literal(chars: &[char]) -> String {
-    let mut s = String::from("u\"");
-    for &c in chars {
-        if c.is_ascii() && c != '"' && c != '\\' && !c.is_control() {
-            s.push(c);
-        } else {
-            s.push_str(&format!("\\u{{{:X}}}", c as u32));
-        }
-    }
-    s.push('"');
-    s
-}
-
-/// Format a uint list as a Clarity list literal. Empty lists use `(list)`
-/// which is valid syntax and combines correctly via the type checker's
-/// supertype path.
-fn uint_list_to_clarity_literal(items: &[u128]) -> String {
-    if items.is_empty() {
-        "(list)".to_string()
-    } else {
-        let body = items
-            .iter()
-            .map(|u| format!("u{u}"))
-            .collect::<Vec<_>>()
-            .join(" ");
-        format!("(list {body})")
-    }
 }
 
 proptest! {
@@ -1975,7 +1912,7 @@ proptest! {
     ) {
         let snippets: Vec<String> = chunks
             .iter()
-            .map(|bytes| format!("0x{}", to_hex(bytes)))
+            .map(|bytes| buff_literal(bytes))
             .collect();
         let snippet = format!("(concat {})", snippets.join(" "));
 
@@ -1994,7 +1931,7 @@ proptest! {
     fn prop_variadic_concat_string_ascii(
         chunks in prop::collection::vec(ascii_chunk_strategy(), 2..=MAX_FUNCTION_PARAMETERS),
     ) {
-        let snippets: Vec<String> = chunks.iter().map(|b| ascii_to_clarity_literal(b)).collect();
+        let snippets: Vec<String> = chunks.iter().map(|b| ascii_string_literal(b)).collect();
         let snippet = format!("(concat {})", snippets.join(" "));
 
         let result = execute_v6(&snippet)
@@ -2013,7 +1950,7 @@ proptest! {
     fn prop_variadic_concat_string_utf8(
         chunks in prop::collection::vec(utf8_chunk_strategy(), 2..=MAX_FUNCTION_PARAMETERS),
     ) {
-        let snippets: Vec<String> = chunks.iter().map(|cs| utf8_chars_to_clarity_literal(cs)).collect();
+        let snippets: Vec<String> = chunks.iter().map(|cs| utf8_chars_literal(cs.iter().copied())).collect();
         let snippet = format!("(concat {})", snippets.join(" "));
 
         let result = execute_v6(&snippet)
@@ -2033,7 +1970,10 @@ proptest! {
     fn prop_variadic_concat_list_uint(
         chunks in prop::collection::vec(uint_list_chunk_strategy(), 2..=MAX_FUNCTION_PARAMETERS),
     ) {
-        let snippets: Vec<String> = chunks.iter().map(|l| uint_list_to_clarity_literal(l)).collect();
+        let snippets: Vec<String> = chunks
+            .iter()
+            .map(|l| list_literal(l.iter().map(|u| format!("u{u}"))))
+            .collect();
         let snippet = format!("(concat {})", snippets.join(" "));
 
         let result = execute_v6(&snippet)

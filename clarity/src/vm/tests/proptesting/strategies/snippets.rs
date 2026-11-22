@@ -15,16 +15,13 @@
 
 //! Clarity source snippets for simple values.
 
-use clarity_types::types::{
-    MAX_TO_ASCII_BUFFER_LEN, MAX_UTF8_VALUE_SIZE, MAX_VALUE_SIZE, QualifiedContractIdentifier,
-};
 use proptest::collection::vec;
 use proptest::prelude::*;
 use proptest::string::string_regex;
 use stacks_common::util::hash::to_hex;
 
-use super::names::contract_name_strategy;
-use super::principals::standard_principal_strategy;
+use super::principals::{standard_principal_strategy, writable_contract_principal_strategy};
+use clarity_types::types::{MAX_TO_ASCII_BUFFER_LEN, MAX_UTF8_VALUE_SIZE, MAX_VALUE_SIZE};
 
 const UTF8_SIMPLE_ESCAPES: [&str; 6] = ["\\\"", "\\\\", "\\n", "\\t", "\\r", "\\0"];
 
@@ -50,10 +47,7 @@ pub fn standard_principal_snippet_strategy() -> impl Strategy<Value = String> {
 
 /// A strategy that generates contract `principal` snippets
 pub fn contract_principal_snippet_strategy() -> impl Strategy<Value = String> {
-    (standard_principal_strategy(), contract_name_strategy()).prop_map(|(issuer, name)| {
-        let contract_id = QualifiedContractIdentifier::new(issuer, name);
-        format!("'{contract_id}")
-    })
+    writable_contract_principal_strategy().prop_map(|contract_id| format!("'{contract_id}"))
 }
 
 /// A strategy that generates `principal` snippets, either standard or contract

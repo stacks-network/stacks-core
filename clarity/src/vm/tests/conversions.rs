@@ -22,7 +22,7 @@ use stacks_common::util::hash::to_hex;
 
 pub use crate::vm::analysis::errors::RuntimeCheckErrorKind;
 use crate::vm::tests::proptesting::run::execute_versioned;
-use crate::vm::tests::proptesting::strategies::names::contract_name_strategy;
+use crate::vm::tests::proptesting::strategies::names::writable_contract_name_strategy;
 use crate::vm::tests::proptesting::strategies::principals::standard_principal_strategy;
 use crate::vm::tests::proptesting::strategies::snippets::{
     to_ascii_buffer_snippet_strategy, utf8_string_ascii_only_snippet_strategy,
@@ -745,7 +745,7 @@ proptest! {
     #[test]
     fn prop_to_ascii_from_contract_principals(
         issuer in standard_principal_strategy(),
-        contract_name in contract_name_strategy(),
+        contract_name in writable_contract_name_strategy(),
     ) {
         let contract_name_str = contract_name.to_string();
         let literal = format!("'{}.{}", issuer, contract_name_str);

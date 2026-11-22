@@ -26,6 +26,7 @@ use stacks_common::util::secp256k1::{
 use stacks_common::util::secp256r1::{Secp256r1PrivateKey, Secp256r1PublicKey};
 
 use crate::vm::errors::{ClarityEvalError, RuntimeCheckErrorKind, VmExecutionError};
+use crate::vm::tests::proptesting::literals::buff_literal;
 use crate::vm::types::{BuffData, ResponseData, SequenceData, TypeSignature, Value};
 use crate::vm::{ClarityVersion, execute_with_parameters};
 
@@ -247,10 +248,6 @@ fn secp256k1_vectors() -> (Vec<u8>, Vec<u8>, Vec<u8>) {
         signature_bytes,
         pubk.to_bytes_compressed(),
     )
-}
-
-fn buff_literal(bytes: &[u8]) -> String {
-    format!("0x{}", to_hex(bytes))
 }
 
 fn zeroed_buff_literal(len: usize) -> String {

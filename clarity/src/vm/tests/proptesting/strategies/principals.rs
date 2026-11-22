@@ -13,20 +13,56 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-//! Standard principals.
+//! Standard and contract principals.
 
-use clarity_types::types::StandardPrincipalData;
-use proptest::array::uniform20;
+use clarity_types::types::{PrincipalData, QualifiedContractIdentifier, StandardPrincipalData};
 use proptest::prelude::*;
 
-/// A strategy that generates standard `principal`s
-/// The version is restricted to those currently valid: 20, 21, 22, and 26
+use clarity_types::ContractName;
+
+use super::names::{contract_name_strategy, writable_contract_name_strategy};
+
+/// Standard principals with any valid address version (`0..32`) and a random hash.
 pub fn standard_principal_strategy() -> impl Strategy<Value = StandardPrincipalData> {
-    (
-        prop::sample::select(&[20u8, 21u8, 22u8, 26u8]),
-        uniform20(any::<u8>()),
-    )
-        .prop_filter_map("Invalid standard principal", |(version, bytes)| {
-            StandardPrincipalData::new(version, bytes).ok()
-        })
+    (0u8..32, any::<[u8; 20]>()).prop_map(|(version, bytes)| {
+        StandardPrincipalData::new(version, bytes).expect("version is below 32")
+    })
+}
+
+/// Contract principals: a standard issuer and any valid contract name.
+pub fn contract_principal_strategy() -> impl Strategy<Value = QualifiedContractIdentifier> {
+    contract_principal_with(contract_name_strategy())
+}
+
+/// Contract principals that can be written in Clarity source; see
+/// [`writable_contract_name_strategy`].
+pub fn writable_contract_principal_strategy() -> impl Strategy<Value = QualifiedContractIdentifier>
+{
+    contract_principal_with(writable_contract_name_strategy())
+}
+
+/// Standard or contract principals, equally weighted.
+pub fn principal_strategy() -> impl Strategy<Value = PrincipalData> {
+    principal_with(contract_principal_strategy())
+}
+
+/// Standard or contract principals that can be written in Clarity source, equally weighted.
+pub fn writable_principal_strategy() -> impl Strategy<Value = PrincipalData> {
+    principal_with(writable_contract_principal_strategy())
+}
+
+fn contract_principal_with(
+    names: impl Strategy<Value = ContractName>,
+) -> impl Strategy<Value = QualifiedContractIdentifier> {
+    (standard_principal_strategy(), names)
+        .prop_map(|(issuer, name)| QualifiedContractIdentifier::new(issuer, name))
+}
+
+fn principal_with(
+    contracts: impl Strategy<Value = QualifiedContractIdentifier>,
+) -> impl Strategy<Value = PrincipalData> {
+    prop_oneof![
+        standard_principal_strategy().prop_map(PrincipalData::Standard),
+        contracts.prop_map(PrincipalData::Contract),
+    ]
 }

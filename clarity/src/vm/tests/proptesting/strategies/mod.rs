@@ -17,6 +17,7 @@
 //! test stay in that test.
 
 pub mod bitcoin;
+pub mod chars;
 pub mod names;
 pub mod principals;
 pub mod snippets;
