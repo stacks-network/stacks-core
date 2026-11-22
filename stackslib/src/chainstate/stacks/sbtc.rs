@@ -1724,8 +1724,32 @@ mod tests {
     fn arb_v2_registry_signer_set() -> impl Strategy<Value = (Vec<[u8; 33]>, u16)> {
         prop::collection::vec(arb_valid_compressed_pubkey_33(), 1..=SBTC_V2_MAX_SIGNERS)
             .prop_flat_map(|keys| {
-                let distinct = keys.iter().collect::<BTreeSet<_>>().len() as u16;
+                let distinct = distinct_key_count(&keys);
                 (Just(keys), 1..=distinct)
+            })
+    }
+
+    fn distinct_key_count(keys: &[[u8; 33]]) -> u16 {
+        keys.iter().collect::<BTreeSet<_>>().len() as u16
+    }
+
+    /// A registry signer set with two different valid thresholds.
+    fn arb_v2_registry_signer_set_two_thresholds(
+    ) -> impl Strategy<Value = (Vec<[u8; 33]>, u16, u16)> {
+        arb_v2_registry_signer_set()
+            .prop_filter("two thresholds need two distinct keys", |(keys, _)| {
+                distinct_key_count(keys) >= 2
+            })
+            .prop_flat_map(|(keys, threshold_a)| {
+                // Draw from the `distinct - 1` thresholds other than `threshold_a`.
+                let threshold_b = (1..distinct_key_count(&keys)).prop_map(move |b| {
+                    if b >= threshold_a {
+                        b + 1
+                    } else {
+                        b
+                    }
+                });
+                (Just(keys), Just(threshold_a), threshold_b)
             })
     }
 
@@ -1784,13 +1808,10 @@ mod tests {
         #[tag(t_prop)]
         #[test]
         fn prop_v2_key_distinct_by_threshold(
-            (keys, threshold_a) in arb_v2_registry_signer_set(),
-            threshold_b in 1..=SBTC_V2_MAX_SIGNERS as u16,
+            (keys, threshold_a, threshold_b) in arb_v2_registry_signer_set_two_thresholds(),
             recipient in arb_principal_data(),
             max_fee in any::<u64>(),
         ) {
-            let distinct = keys.iter().collect::<BTreeSet<_>>().len() as u16;
-            prop_assume!(threshold_b <= distinct && threshold_a != threshold_b);
             prop_assert_ne!(
                 v2_pox5_key(&keys, threshold_a, &recipient, max_fee),
                 v2_pox5_key(&keys, threshold_b, &recipient, max_fee),
