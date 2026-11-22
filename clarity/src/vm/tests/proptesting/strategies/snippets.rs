@@ -15,13 +15,13 @@
 
 //! Clarity source snippets for simple values.
 
+use clarity_types::types::{MAX_TO_ASCII_BUFFER_LEN, MAX_UTF8_VALUE_SIZE, MAX_VALUE_SIZE};
 use proptest::collection::vec;
 use proptest::prelude::*;
 use proptest::string::string_regex;
 use stacks_common::util::hash::to_hex;
 
 use super::principals::{standard_principal_strategy, writable_contract_principal_strategy};
-use clarity_types::types::{MAX_TO_ASCII_BUFFER_LEN, MAX_UTF8_VALUE_SIZE, MAX_VALUE_SIZE};
 
 const UTF8_SIMPLE_ESCAPES: [&str; 6] = ["\\\"", "\\\\", "\\n", "\\t", "\\r", "\\0"];
 

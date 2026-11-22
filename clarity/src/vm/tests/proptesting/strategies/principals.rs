@@ -15,10 +15,9 @@
 
 //! Standard and contract principals.
 
+use clarity_types::ContractName;
 use clarity_types::types::{PrincipalData, QualifiedContractIdentifier, StandardPrincipalData};
 use proptest::prelude::*;
-
-use clarity_types::ContractName;
 
 use super::names::{contract_name_strategy, writable_contract_name_strategy};
 
