@@ -42,7 +42,7 @@ use crate::vm::functions::bitcoin::GET_BITCOIN_TX_OUTPUT_MAX_SCRIPT_LEN;
 /// rejection paths. The independent ground truth for the hashing itself is the
 /// real-mainnet fixtures (`real_genesis_coinbase_tx`, `real_pizza_tx`,
 /// `real_mainnet_segwit_tx`) in `vm::functions::bitcoin::tests`.
-pub(crate) fn synth_canonical_proof(
+pub fn synth_canonical_proof(
     leaf: [u8; 32],
     tx_index: u128,
     tx_count: u128,
@@ -73,7 +73,7 @@ pub(crate) fn synth_canonical_proof(
 /// Empty witness (non-segwit serialization) or 1..=4 witness items of
 /// 0..=128 bytes (segwit marker/flag/witness encoding). On a single-input
 /// tx this toggles the whole tx between the two encodings.
-pub(crate) fn arb_witness() -> impl Strategy<Value = Vec<Vec<u8>>> {
+pub fn witness_strategy() -> impl Strategy<Value = Vec<Vec<u8>>> {
     prop_oneof![
         Just(Vec::new()),
         prop::collection::vec(prop::collection::vec(any::<u8>(), 0..=128), 1..=4),
@@ -85,8 +85,8 @@ prop_compose! {
     /// allowed range. Randomized witness exercises both segwit and
     /// non-segwit encodings; `get-bitcoin-tx-output?` returns the canonical
     /// (witness-stripped) txid in both cases.
-    pub(crate) fn arb_simple_tx()(
-        witness in arb_witness(),
+    pub fn simple_tx_strategy()(
+        witness in witness_strategy(),
         outputs in prop::collection::vec(
             (
                 any::<u64>(),
