@@ -18,11 +18,11 @@
 use proptest::prelude::*;
 use proptest::string::string_regex;
 
-use crate::vm::ContractName;
 use crate::vm::representations::{
     CLARITY_NAME_REGEX_STRING, CONTRACT_MAX_NAME_LENGTH, CONTRACT_MIN_NAME_LENGTH,
     CONTRACT_NAME_REGEX_STRING, MAX_STRING_LEN,
 };
+use crate::vm::{ClarityName, ContractName};
 
 /// Fails when a validator regex no longer matches the grammar a strategy was written for.
 pub fn assert_regex_unchanged(actual: &str, expected: &str) {
@@ -53,6 +53,17 @@ pub fn clarity_name_string_strategy() -> impl Strategy<Value = String> {
 fn reads_as_uint_literal(name: &str) -> bool {
     let mut chars = name.chars();
     chars.next() == Some('u') && chars.next().is_some_and(|c| c.is_ascii_digit())
+}
+
+/// Short letter-led Clarity names of letters, digits and hyphens, which can be written as tuple
+/// fields anywhere in Clarity source, including type signatures.
+pub fn field_name_strategy() -> impl Strategy<Value = ClarityName> {
+    string_regex("[a-zA-Z][a-zA-Z0-9-]{0,15}")
+        .unwrap()
+        .prop_filter("must not read as a uint literal", |name| {
+            !reads_as_uint_literal(name)
+        })
+        .prop_map(|name| ClarityName::try_from(name).expect("generated from the name grammar"))
 }
 
 /// Contract names of up to `CONTRACT_MAX_NAME_LENGTH` characters: a letter followed by letters,

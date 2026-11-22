@@ -61,6 +61,8 @@ mod special_case_handler;
 #[cfg(test)]
 mod traits;
 #[cfg(test)]
+mod typed_values;
+#[cfg(test)]
 mod variables;
 
 #[cfg(any(test, feature = "testing"))]
