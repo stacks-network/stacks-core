@@ -839,10 +839,13 @@ where
     Ok(())
 }
 
-/// Mine a bitcoin block, and wait until the node at `conf` has processed it and a Stacks block
-/// built after it. If the bitcoin block has a sortition, that is the first block of its tenure;
-/// otherwise it is any new block, such as the ongoing tenure's extension. Times out if the
-/// sortition's winner never produces a block that this node accepts.
+/// Mine a bitcoin block, and wait until the node at `conf` has processed it and a new Stacks
+/// block. If the bitcoin block has a sortition, that is the first block of its tenure; otherwise
+/// it is any block newer than the Stacks tip at call time, which may still belong to the previous
+/// tenure. Times out if the sortition's winner never produces a block that this node accepts.
+///
+/// The node must already have processed the current burn tip when this is called: the baseline
+/// is read from its `/v2/info` before the bitcoin block is mined.
 ///
 /// This does not watch the coordinator's processed-blocks count: the coordinator bumps it only
 /// after announcing a block to the event observers, so a block of the previous tenure can bump
@@ -3081,7 +3084,7 @@ fn multiple_miners() {
     // agreeing on the chain they already built, and no further sortition
     // should move it underneath them.
     //
-    // Phase 2's last tenure only waited on node 1's coordinator, so give node
+    // Phase 2's last tenure only waited on node 1's `/v2/info`, so give node
     // 2 a chance to reach the same tip before comparing the two views.
     wait_for(60, || {
         let (Ok(info_1), Ok(info_2)) = (
@@ -11584,7 +11587,7 @@ fn miner_stop_reason_reported_to_prometheus() {
     blind_signer(&conf, &signers, &counters);
     wait_for_first_naka_block_commit(60, &commits_submitted);
 
-    next_block_and_process_new_stacks_block(&btc_regtest_controller, 60, &naka_conf)
+    next_block_and_process_new_stacks_block(&btc_regtest_controller, 60, &conf)
         .expect("failed to mine block");
 
     // --- Wait for prometheus to report no_transactions ---
