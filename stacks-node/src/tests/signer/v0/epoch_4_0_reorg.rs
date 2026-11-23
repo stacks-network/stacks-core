@@ -34,7 +34,7 @@ use stacks::util::secp256k1::Secp256k1PublicKey;
 use stacks::util_lib::boot::boot_code_id;
 use stacks_signer::v0::SpawnedSigner;
 
-use super::{contract_source_exists, SignerTest};
+use super::{contract_source_exists, SbtcRegistryStub, SignerTest};
 use crate::nakamoto_node::miner::{fault_injection_stall_miner, fault_injection_unstall_miner};
 use crate::tests::nakamoto_integrations::{enable_epoch_4_0, wait_for};
 use crate::tests::neon_integrations::{
@@ -188,6 +188,7 @@ fn bitcoin_reorg_of_epoch_4_0_activation_block() {
         token_contract_name,
         registry_contract_name,
         &agg_pubkey,
+        SbtcRegistryStub::DevenvSignerSet,
     );
     info!("------------------------- Reached Epoch 4.0 -------------------------");
 

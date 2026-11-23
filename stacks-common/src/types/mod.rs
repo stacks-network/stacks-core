@@ -40,7 +40,7 @@ use crate::consts::{
     PEER_VERSION_EPOCH_3_1, PEER_VERSION_EPOCH_3_2, PEER_VERSION_EPOCH_3_3, PEER_VERSION_EPOCH_3_4,
     PEER_VERSION_EPOCH_4_0, PEER_VERSION_EPOCH_4_1, STACKS_EPOCH_MAX,
 };
-use crate::types::chainstate::{StacksAddress, StacksPublicKey};
+use crate::types::chainstate::{Opcodes, StacksAddress, StacksPublicKey};
 use crate::util::hash::Hash160;
 use crate::util::secp256k1::{MessageSignature, Secp256k1PublicKey};
 
@@ -168,6 +168,15 @@ define_stacks_epochs! {
     Epoch34 = 0x03004 => "3.4",
     Epoch40 = 0x04000 => "4.0",
     Epoch41 = 0x04001 => "4.1",
+}
+
+/// Deposit format used for the PoX-5 per-cycle sBTC recipient.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SbtcDepositFormat {
+    /// Deposit locked by the registry's aggregate public key.
+    V1,
+    /// Taproot multisig deposit locked by derived per-signer keys.
+    V2,
 }
 
 #[derive(Debug)]
@@ -612,6 +621,22 @@ impl StacksEpochId {
         self >= &StacksEpochId::Epoch30 && self < &StacksEpochId::Epoch41
     }
 
+    /// Whether the sortition DB rejects burnchain operations with `opcode` in this epoch.
+    ///
+    /// From Epoch 4.1, `stack-stx`, `delegate-stx`, and `vote-for-aggregate-key` are rejected:
+    /// they call into PoX-4 and `.signers-voting`, which PoX-5 superseded.
+    pub fn rejects_burn_op(&self, opcode: Opcodes) -> bool {
+        match opcode {
+            Opcodes::StackStx | Opcodes::DelegateStx | Opcodes::VoteForAggregateKey => {
+                self >= &StacksEpochId::Epoch41
+            }
+            Opcodes::LeaderBlockCommit
+            | Opcodes::LeaderKeyRegister
+            | Opcodes::PreStx
+            | Opcodes::TransferStx => false,
+        }
+    }
+
     /// Does this epoch support unlocking PoX contributors that miss a slot?
     ///
     /// Epoch 2.0 - 2.05 didn't support this feature, but they weren't epoch-guarded on it. Instead,
@@ -874,6 +899,42 @@ impl StacksEpochId {
     /// supertype. Runtime inference is never gated; deployed contracts depend on it.
     pub fn requires_matching_tuple_fields_in_analysis(&self) -> bool {
         self >= &StacksEpochId::Epoch41
+    }
+
+    /// The deposit format used to derive the PoX-5 per-cycle sBTC recipient.
+    /// Epochs before 4.1 use the aggregate-key format; 4.1 uses Taproot multisig.
+    ///
+    /// The reward set for cycle `N+1` is computed at the first Stacks block of
+    /// cycle `N`'s prepare phase, and it is that block's epoch which selects
+    /// the derivation. The block-commit output therefore switches at the first
+    /// reward cycle whose prepare phase begins in Epoch 4.1, at most one
+    /// reward cycle after activation. Once this epoch is active the node never
+    /// reads the registry's aggregate pubkey, so sBTC may rotate to a v2 key
+    /// set (which stores a non-pubkey tag in that field) at any time after
+    /// activation.
+    ///
+    /// If the Taproot multisig recipient cannot be derived from the registry,
+    /// the reward set pays the standard burn address instead. The
+    /// aggregate-key format has no such fallback.
+    pub fn sbtc_deposit_format(&self) -> SbtcDepositFormat {
+        // Enumerate epochs so a new epoch requires an explicit format choice.
+        match self {
+            Self::Epoch10
+            | Self::Epoch20
+            | Self::Epoch2_05
+            | Self::Epoch21
+            | Self::Epoch22
+            | Self::Epoch23
+            | Self::Epoch24
+            | Self::Epoch25
+            | Self::Epoch30
+            | Self::Epoch31
+            | Self::Epoch32
+            | Self::Epoch33
+            | Self::Epoch34
+            | Self::Epoch40 => SbtcDepositFormat::V1,
+            Self::Epoch41 => SbtcDepositFormat::V2,
+        }
     }
 
     /// Whether analysis types a `fold` result to admit its initial value, which an

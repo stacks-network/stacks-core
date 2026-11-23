@@ -16,17 +16,34 @@
 //! sBTC P2TR (taproot) deposit-script derivation.
 //!
 //! The per-cycle sBTC recipient is a witness-v1 P2TR output committing to a
-//! 2-leaf script tree:
+//! 2-leaf script tree. Two deposit formats exist; the epoch of the block that
+//! computes the reward set selects between them
+//! (`StacksEpochId::sbtc_deposit_format`).
+//!
+//! v1 (Epoch 4.0; sBTC WSTS/FROST aggregate key):
 //!
 //! - deposit: `<deposit-data> OP_DROP OP_PUSHBYTES_32 <x-only-pubkey> OP_CHECKSIG`
-//!   where `<deposit-data> = <max-fee:u64-be> || <consensus-encoded recipient principal>`.
-//! - reclaim: `<lock_time push> OP_CSV <user-supplied-bytes>`. PoX-5 scaffolding
-//!   uses `lock_time = u16::MAX` and `[OP_RETURN]` for user bytes, disabling
-//!   the reclaim path.
+//!   where `<deposit-data> = <max-fee:u64-be> || <consensus-encoded recipient principal>`
+//!   and `<x-only-pubkey>` is the registry's `current-aggregate-pubkey`.
+//! - internal key: the BIP-0341 NUMS x-coordinate (`core::NUMS_X_COORDINATE`).
 //!
-//! The taproot internal key is the BIP-0341 NUMS x-coordinate (no known
-//! discrete log), so neither leaf is reachable via key-path; only script-path
-//! through the two leaves.
+//! v2 (Epoch 4.1+; sBTC Taproot script-path multisig, stacks-sbtc/sbtc#2138):
+//!
+//! - deposit: `OP_SIZE <32> OP_EQUALVERIFY OP_SHA256 <commitment> OP_EQUALVERIFY`
+//!   followed by the signers' `multi_a` script
+//!   `<k_1> OP_CHECKSIG <k_2> OP_CHECKSIGADD ... <k_n> OP_CHECKSIGADD <threshold> OP_NUMEQUAL`,
+//!   where `<commitment> = SHA256(SHA256(<deposit-data>))` and each `k_i` is the
+//!   signer's BIP-32 `/0/0` signing key derived from its registry key
+//!   ([`derive_sbtc_signing_xonly`]), deduplicated and sorted.
+//! - internal key: the v2 NUMS x-coordinate (`core::SBTC_V2_NUMS_X_COORDINATE`).
+//!
+//! Both formats share the reclaim leaf
+//! `<lock_time push> OP_CSV <user-supplied-bytes>`. PoX-5 scaffolding uses
+//! `lock_time = u16::MAX` and `[OP_RETURN]` for user bytes, disabling the
+//! reclaim path.
+//!
+//! The internal keys have no known discrete log, so neither leaf is reachable
+//! via key-path; only script-path through the two leaves.
 //!
 //! Taproot primitives (tagged hashes, leaf/branch hashing, key tweak) are
 //! implemented inline against `sha2::Sha256` and `secp256k1`'s
@@ -39,18 +56,33 @@
 //! because the project wrapper does not expose `XOnlyPublicKey` /
 //! `add_tweak`, and widening it for one consumer is not worth it.
 
+use std::collections::BTreeSet;
+
 use clarity::vm::types::PrincipalData;
-use secp256k1::{Scalar, Secp256k1, XOnlyPublicKey};
-use sha2::{Digest, Sha256};
+use hmac::{Hmac, Mac};
+use secp256k1::{PublicKey, Scalar, Secp256k1, XOnlyPublicKey};
+use sha2::{Digest, Sha256, Sha512};
 use stacks_common::codec::StacksMessageCodec;
 use stacks_common::deps_common::bitcoin::blockdata::opcodes::{All as Opcode, OP_CSV};
 use stacks_common::deps_common::bitcoin::blockdata::script::{Builder, Script};
 
 use crate::chainstate::stacks::Error as ChainstateError;
-use crate::core::NUMS_X_COORDINATE;
+use crate::core::{NUMS_X_COORDINATE, SBTC_V2_MAX_SIGNERS, SBTC_V2_NUMS_X_COORDINATE};
 
 /// Default tapscript leaf version (BIP-342).
 const TAPSCRIPT_LEAF_VERSION: u8 = 0xc0;
+
+/// BIP-342 `OP_CHECKSIGADD`. The vendored opcode table predates tapscript and
+/// has no named entry for it.
+const OP_CHECKSIGADD: u8 = 0xba;
+
+/// Domain-separation prefix of the BIP-32 chain code of an sBTC signer's
+/// extended public key (sBTC's `signer_keys::CHAIN_CODE_DOMAIN`).
+const SBTC_SIGNER_CHAIN_CODE_DOMAIN: &[u8] = b"sbtc/signer/chain-code/v1";
+
+/// Number of unhardened BIP-32 steps (`/0/0`) from a signer's extended public
+/// key to its Bitcoin signing key (sBTC's `signer_keys::SIGNING_PATH`).
+const SBTC_SIGNING_PATH_DEPTH: usize = 2;
 
 /// Compute the 32-byte witness-v1 P2TR output key for an sBTC deposit
 /// recipient, given:
@@ -77,12 +109,7 @@ pub fn sbtc_deposit_taproot_output_key(
 
     let deposit_script = build_deposit_script(aggregate_pubkey_xonly, recipient, max_fee_sats);
     let reclaim_script = build_reclaim_script(lock_time, user_reclaim_script);
-
-    let deposit_leaf = tap_leaf_hash(deposit_script.as_bytes());
-    let reclaim_leaf = tap_leaf_hash(reclaim_script.as_bytes());
-    let merkle_root = tap_branch_hash(deposit_leaf, reclaim_leaf);
-    let tweak = tap_tweak(&NUMS_X_COORDINATE, &merkle_root);
-    apply_tweak(&NUMS_X_COORDINATE, &tweak)
+    deposit_tree_output_key(&NUMS_X_COORDINATE, &deposit_script, &reclaim_script)
 }
 
 /// PoX-5 wrapper around `sbtc_deposit_taproot_output_key`.
@@ -109,21 +136,275 @@ pub fn sbtc_pox5_deposit_taproot_output_key(
     )
 }
 
+/// Derive the x-only Bitcoin signing key of an sBTC signer from its registry
+/// (33-byte compressed secp256k1) public key.
+///
+/// Mirrors sBTC's `signer_keys::derive_signing_public_key`: the registry key
+/// is the root of a BIP-32 extended public key whose chain code is
+/// `SHA256("sbtc/signer/chain-code/v1" || compressed_pubkey)`, and the signing
+/// key is its unhardened `/0/0` child, i.e. CKDpub applied twice with index 0:
+///
+/// ```text
+/// I   = HMAC-SHA512(key = c_par, data = ser_P(K_par) || ser32(0))
+/// K_i = K_par + parse256(I_L) * G
+/// c_i = I_R
+/// ```
+///
+/// The result's parity is dropped (x-only), as in a `multi_a` tapscript.
+pub fn derive_sbtc_signing_xonly(
+    signer_pubkey_compressed: &[u8; 33],
+) -> Result<[u8; 32], ChainstateError> {
+    let key = PublicKey::from_slice(signer_pubkey_compressed)
+        .map_err(|_| ChainstateError::Expects("sBTC signer pubkey not on curve".into()))?;
+    let chain_code: [u8; 32] = {
+        let mut hasher = Sha256::new();
+        hasher.update(SBTC_SIGNER_CHAIN_CODE_DOMAIN);
+        hasher.update(signer_pubkey_compressed);
+        hasher.finalize().into()
+    };
+    let signing_key = bip32_unhardened_zero_path(key, chain_code, SBTC_SIGNING_PATH_DEPTH)?;
+    Ok(signing_key.x_only_public_key().0.serialize())
+}
+
+/// Apply BIP-32 public child derivation (CKDpub) `depth` times with the
+/// unhardened index 0, i.e. derive the `/0/…/0` descendant of the extended
+/// public key (`key`, `chain_code`).
+fn bip32_unhardened_zero_path(
+    mut key: PublicKey,
+    mut chain_code: [u8; 32],
+    depth: usize,
+) -> Result<PublicKey, ChainstateError> {
+    let secp = Secp256k1::verification_only();
+    for _ in 0..depth {
+        let mut mac =
+            Hmac::<Sha512>::new_from_slice(&chain_code).expect("HMAC accepts any key length");
+        mac.update(&key.serialize());
+        mac.update(&0u32.to_be_bytes());
+        let hmac_output = mac.finalize().into_bytes();
+        let (i_left, i_right) = hmac_output.split_at(32);
+        let tweak = Scalar::from_be_bytes(i_left.try_into().expect("constant slice length"))
+            .map_err(|_| {
+                ChainstateError::Expects(
+                    "sBTC signer key derivation: child tweak is not a valid scalar".into(),
+                )
+            })?;
+        key = key.add_exp_tweak(&secp, &tweak).map_err(|_| {
+            ChainstateError::Expects(
+                "sBTC signer key derivation: child key is the point at infinity".into(),
+            )
+        })?;
+        chain_code.copy_from_slice(i_right);
+    }
+    Ok(key)
+}
+
+/// A validated sBTC v2 signer key set: the distinct x-only signing keys in
+/// sorted order, and the number of signatures required to spend.
+///
+/// Mirrors sBTC's `signer_keys::SignerKeySet`. Duplicate keys collapse and
+/// keys are sorted bytewise, so the input order does not affect the set, its
+/// `multi_a` script, or any address derived from it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SbtcSignerKeySet {
+    xonly_keys: Vec<[u8; 32]>,
+    signatures_required: u16,
+}
+
+impl SbtcSignerKeySet {
+    /// Build a key set from already-derived x-only signing keys.
+    ///
+    /// Rejects an empty set, more than `SBTC_V2_MAX_SIGNERS` distinct keys, a
+    /// zero threshold, a threshold above the distinct key count, and any key
+    /// that is not an x-only secp256k1 point.
+    pub fn new(
+        xonly_keys: impl IntoIterator<Item = [u8; 32]>,
+        signatures_required: u16,
+    ) -> Result<Self, ChainstateError> {
+        let keys: BTreeSet<[u8; 32]> = xonly_keys.into_iter().collect();
+        let signer_count = keys.len();
+        if signer_count == 0 || signer_count > SBTC_V2_MAX_SIGNERS {
+            return Err(ChainstateError::Expects(format!(
+                "sBTC v2 key set has {signer_count} distinct signer keys; expected 1..={SBTC_V2_MAX_SIGNERS}"
+            )));
+        }
+        if signatures_required == 0 || usize::from(signatures_required) > signer_count {
+            return Err(ChainstateError::Expects(format!(
+                "sBTC v2 key set threshold {signatures_required} is not in 1..={signer_count}"
+            )));
+        }
+        for key in &keys {
+            XOnlyPublicKey::from_slice(key)
+                .map_err(|_| ChainstateError::Expects("sBTC v2 signer key not on curve".into()))?;
+        }
+        Ok(Self {
+            xonly_keys: keys.into_iter().collect(),
+            signatures_required,
+        })
+    }
+
+    /// Build the key set that the sBTC signers derive from the registry's
+    /// `current-signer-set` (33-byte compressed keys) and
+    /// `current-signature-threshold`.
+    pub fn from_registry(
+        signer_keys: &[[u8; 33]],
+        signature_threshold: u128,
+    ) -> Result<Self, ChainstateError> {
+        let signatures_required = u16::try_from(signature_threshold).map_err(|_| {
+            ChainstateError::Expects(format!(
+                "sBTC registry signature threshold {signature_threshold} does not fit in u16"
+            ))
+        })?;
+        let xonly_keys = signer_keys
+            .iter()
+            .map(derive_sbtc_signing_xonly)
+            .collect::<Result<Vec<_>, _>>()?;
+        Self::new(xonly_keys, signatures_required)
+    }
+
+    /// The distinct x-only signing keys, sorted bytewise.
+    pub fn xonly_keys(&self) -> &[[u8; 32]] {
+        &self.xonly_keys
+    }
+
+    /// The number of signatures required to spend.
+    pub fn signatures_required(&self) -> u16 {
+        self.signatures_required
+    }
+
+    /// The descriptor-compatible `multi_a` tapscript:
+    /// `<k_1> OP_CHECKSIG <k_2> OP_CHECKSIGADD ... <k_n> OP_CHECKSIGADD <threshold> OP_NUMEQUAL`
+    pub fn signing_script(&self) -> Script {
+        let mut bytes = Vec::with_capacity(self.xonly_keys.len() * 34 + 2);
+        for (index, key) in self.xonly_keys.iter().enumerate() {
+            bytes.extend_from_slice(Builder::new().push_slice(key).into_script().as_bytes());
+            bytes.push(if index == 0 {
+                Opcode::OP_CHECKSIG as u8
+            } else {
+                OP_CHECKSIGADD
+            });
+        }
+        bytes.extend_from_slice(
+            Builder::new()
+                .push_int(i64::from(self.signatures_required))
+                .push_opcode(Opcode::OP_NUMEQUAL)
+                .into_script()
+                .as_bytes(),
+        );
+        Script::from(bytes)
+    }
+
+    /// The 32-byte P2TR output key of the signers' own UTXO: the `multi_a`
+    /// script as the sole leaf under the v2 NUMS internal key.
+    ///
+    /// PoX does not pay to this output. It is exposed so the key derivation,
+    /// script encoding, and tweak can be pinned against the scriptPubKeys sBTC
+    /// publishes (and checks against Bitcoin Core) for known signer sets.
+    pub fn signer_utxo_output_key(&self) -> Result<[u8; 32], ChainstateError> {
+        let leaf = tap_leaf_hash(self.signing_script().as_bytes());
+        let tweak = tap_tweak(&SBTC_V2_NUMS_X_COORDINATE, &leaf);
+        apply_tweak(&SBTC_V2_NUMS_X_COORDINATE, &tweak)
+    }
+}
+
+/// Compute the 32-byte witness-v1 P2TR output key for an sBTC v2 deposit
+/// recipient, given:
+/// * the signers' v2 key set,
+/// * the recipient principal,
+/// * the deposit-data max-fee value,
+/// * the reclaim script's CSV lock_time,
+/// * and the user reclaim bytes (appended after `OP_CSV` in the reclaim script).
+///
+/// The internal taproot key is the v2 NUMS coordinate; the script tree has
+/// two leaves at depth 1 (`deposit`, `reclaim`).
+pub fn sbtc_v2_deposit_taproot_output_key(
+    key_set: &SbtcSignerKeySet,
+    recipient: &PrincipalData,
+    max_fee_sats: u64,
+    lock_time: u16,
+    user_reclaim_script: &[u8],
+) -> Result<[u8; 32], ChainstateError> {
+    let deposit_script = build_v2_deposit_script(key_set, recipient, max_fee_sats);
+    let reclaim_script = build_reclaim_script(lock_time, user_reclaim_script);
+    deposit_tree_output_key(&SBTC_V2_NUMS_X_COORDINATE, &deposit_script, &reclaim_script)
+}
+
+/// PoX-5 wrapper around `sbtc_v2_deposit_taproot_output_key`.
+///
+/// Bakes in the values PoX-5 uses (`lock_time = u16::MAX`, user-script
+/// `[OP_RETURN]`), the same as the v1 wrapper.
+pub fn sbtc_pox5_v2_deposit_taproot_output_key(
+    key_set: &SbtcSignerKeySet,
+    recipient: &PrincipalData,
+    max_fee_sats: u64,
+) -> Result<[u8; 32], ChainstateError> {
+    sbtc_v2_deposit_taproot_output_key(
+        key_set,
+        recipient,
+        max_fee_sats,
+        u16::MAX,
+        &[Opcode::OP_RETURN as u8],
+    )
+}
+
+/// Two-leaf taproot output key: `deposit` and `reclaim` leaves at depth 1
+/// under `internal_xonly`.
+fn deposit_tree_output_key(
+    internal_xonly: &[u8; 32],
+    deposit_script: &Script,
+    reclaim_script: &Script,
+) -> Result<[u8; 32], ChainstateError> {
+    let deposit_leaf = tap_leaf_hash(deposit_script.as_bytes());
+    let reclaim_leaf = tap_leaf_hash(reclaim_script.as_bytes());
+    let merkle_root = tap_branch_hash(deposit_leaf, reclaim_leaf);
+    let tweak = tap_tweak(internal_xonly, &merkle_root);
+    apply_tweak(internal_xonly, &tweak)
+}
+
+/// `<max-fee:u64-be> || <consensus-encoded recipient principal>`
+fn deposit_data(recipient: &PrincipalData, max_fee_sats: u64) -> Vec<u8> {
+    let mut deposit_data = max_fee_sats.to_be_bytes().to_vec();
+    recipient
+        .consensus_serialize(&mut deposit_data)
+        .expect("PrincipalData consensus_serialize is infallible to in-memory writer");
+    deposit_data
+}
+
+/// The hash a v2 deposit script commits to: `SHA256(SHA256(<deposit-data>))`.
+/// The signers reveal the inner hash (the preimage) when spending.
+fn v2_deposit_data_commitment(recipient: &PrincipalData, max_fee_sats: u64) -> [u8; 32] {
+    let preimage: [u8; 32] = Sha256::digest(deposit_data(recipient, max_fee_sats)).into();
+    Sha256::digest(preimage).into()
+}
+
+/// `OP_SIZE <32> OP_EQUALVERIFY OP_SHA256 <commitment> OP_EQUALVERIFY` followed
+/// by the key set's `multi_a` script.
+fn build_v2_deposit_script(
+    key_set: &SbtcSignerKeySet,
+    recipient: &PrincipalData,
+    max_fee_sats: u64,
+) -> Script {
+    let commitment = v2_deposit_data_commitment(recipient, max_fee_sats);
+    let mut bytes = Builder::new()
+        .push_opcode(Opcode::OP_SIZE)
+        .push_int(32)
+        .push_opcode(Opcode::OP_EQUALVERIFY)
+        .push_opcode(Opcode::OP_SHA256)
+        .push_slice(&commitment)
+        .push_opcode(Opcode::OP_EQUALVERIFY)
+        .into_script()
+        .into_bytes();
+    bytes.extend_from_slice(key_set.signing_script().as_bytes());
+    Script::from(bytes)
+}
+
 /// `<deposit-data> OP_DROP OP_PUSHBYTES_32 <x-only-pubkey> OP_CHECKSIG`
 fn build_deposit_script(
     aggregate_pubkey_xonly: &[u8; 32],
     recipient: &PrincipalData,
     max_fee_sats: u64,
 ) -> Script {
-    let mut deposit_data = max_fee_sats.to_be_bytes().to_vec();
-    let mut principal_bytes = vec![];
-    recipient
-        .consensus_serialize(&mut principal_bytes)
-        .expect("PrincipalData consensus_serialize is infallible to in-memory writer");
-    deposit_data.extend_from_slice(&principal_bytes);
-
     Builder::new()
-        .push_slice(&deposit_data)
+        .push_slice(&deposit_data(recipient, max_fee_sats))
         .push_opcode(Opcode::OP_DROP)
         .push_slice(aggregate_pubkey_xonly)
         .push_opcode(Opcode::OP_CHECKSIG)
@@ -691,6 +972,440 @@ mod tests {
         }
     }
 
+    // ---- sBTC v2: Taproot script-path multisig ----
+
+    /// The sBTC devenv signer set (compressed registry keys), as pinned in
+    /// sBTC's `signer_keys` tests.
+    const SBTC_DEVENV_SIGNER_KEYS: [&str; 3] = [
+        "035249137286c077ccee65ecc43e724b9b9e5a588e3d7f51e3b62f9624c2a49e46",
+        "031a4d9f4903da97498945a4e01a5023a1d53bc96ad670bfe03adf8a06c52e6380",
+        "02007311430123d4cad97f4f7e86e023b28143130a18099ecf094d36fef0f6135c",
+    ];
+
+    /// The bootstrap signing set in sBTC's sample testnet signer config.
+    const SBTC_TESTNET_SIGNER_KEYS: [&str; 15] = [
+        "03fc6197a1396680f7acc4241ac3935ba4af560deac0224abec45c47c5e73ea638",
+        "0390d76b21867e9c5aa25a903423d3ddb0da65604f0470390ed903f2056c5adb4b",
+        "03fb16c76ae6773951b2ea957f723dc0f5f4ccd795313793308a38a37a3c4aa582",
+        "024681893c76fb2d52bdbcd6341c66f15f14698aed638d6c1a2fc9440948b5f11a",
+        "0341a8f3562d805ab240c2ce2dd220313329ef75459f115bd818b250a2ad2df6aa",
+        "02a963be44cd7efd07e59e28f02f5d2bafdf28b5b13b3b13b5c2a9e3f4c1b1e5bf",
+        "03c4382afb075bf577acbb13196e6130c386a3d8261326402f587fb7c42d0dbd5e",
+        "02c2b53974a2b1a05103a7c42a4861c859c9b999ed196c065bcec952438ae8ec9b",
+        "034646af6402dab3a265688b2ea67a7aa88d9fc6eca663385a6e92336f7f081c59",
+        "02629d043197e659ac45f0332b219760b9542d22499ff6431c113ec64d60e86628",
+        "033f3dd6b1e8e4cfff219054dce240d312b6deda10386c3a815459224a2ba0f411",
+        "031c7e1267b272d5a11257f46c61e0e5005337ebcebb6f2b71798addfd04e5a38a",
+        "02ae3a560f4f67ce8c0f4b2e46d24f51232a768cfc69cf08a02ea02426d77bd64c",
+        "026fb0b3c3ea60a3197e94f2dcd37d7f302e6d33c75351f4f5024e9c31ac327c11",
+        "0374e256948a14799c2a788960ab6657dc5d322b070abae4ce83b2a0df4df2c727",
+    ];
+
+    /// A single-signer set from sBTC's `signer_keys` tests.
+    const SBTC_RANDOM_SIGNER_KEYS: [&str; 1] =
+        ["027212421e4a9c34e251a7cd523146c4434451e42c230d576b07fe8874f97a694d"];
+
+    fn compressed_array(hex_str: &str) -> [u8; 33] {
+        hex_bytes(hex_str)
+            .expect("fixture pubkey is valid hex")
+            .try_into()
+            .expect("fixture pubkey is 33 bytes")
+    }
+
+    fn key_set_from_hex(keys: &[&str], threshold: u128) -> SbtcSignerKeySet {
+        let keys: Vec<[u8; 33]> = keys.iter().map(|key| compressed_array(key)).collect();
+        SbtcSignerKeySet::from_registry(&keys, threshold).expect("valid key set")
+    }
+
+    /// x-only keys with secret scalars `1..=count`, for bounds tests.
+    fn xonly_keys_from_small_scalars(count: u8) -> Vec<[u8; 32]> {
+        SECP_CTX.with(|secp| {
+            (1..=count)
+                .map(|scalar| {
+                    let mut secret = [0u8; 32];
+                    secret[31] = scalar;
+                    let sk = secp256k1::SecretKey::from_slice(&secret).expect("small scalar");
+                    secp256k1::PublicKey::from_secret_key(secp, &sk)
+                        .x_only_public_key()
+                        .0
+                        .serialize()
+                })
+                .collect()
+        })
+    }
+
+    /// sBTC pins the signer-UTXO scriptPubKey of these key sets in
+    /// `signer_keys::tests::key_set_script_pubkey_is_stable`, each checked
+    /// against Bitcoin Core's derivation of the equivalent `tr(NUMS,multi_a(...))`
+    /// descriptor. Matching them pins our BIP-32 child derivation, key
+    /// ordering, `multi_a` encoding, leaf hashing, and v2-NUMS tweak against
+    /// the upstream implementation, independently of the deposit-tree
+    /// fixtures below.
+    #[test]
+    fn signer_utxo_output_key_matches_sbtc_pinned_script_pubkeys() {
+        let cases: [(&[&str], u128, &str); 3] = [
+            (
+                &SBTC_DEVENV_SIGNER_KEYS,
+                2,
+                "44d42c5fdc191818e50ec6591d2103f17ec2771c1a0ea5dc1db95ca56dd377b5",
+            ),
+            (
+                &SBTC_TESTNET_SIGNER_KEYS,
+                11,
+                "36beeeb78d2eff65baa60f8da199b5ecd06ee833dd3c8f6340f8b6d4102a595c",
+            ),
+            (
+                &SBTC_RANDOM_SIGNER_KEYS,
+                1,
+                "a014d46c5ec41d7d059755296e1d12566ca7416d3707a7789d2a3c88ee1eeca2",
+            ),
+        ];
+        for (keys, threshold, expected_output_key) in cases {
+            let key_set = key_set_from_hex(keys, threshold);
+            let output_key = key_set
+                .signer_utxo_output_key()
+                .expect("signer UTXO derivation");
+            assert_eq!(
+                to_hex(&output_key),
+                expected_output_key,
+                "{}-of-{} signer UTXO output key",
+                threshold,
+                keys.len()
+            );
+        }
+    }
+
+    /// sBTC documents the v2 NUMS point as the `/0/0` child of the BIP-341
+    /// NUMS point treated as an xpub with an all-zero chain code. Reproducing
+    /// it checks the CKDpub implementation against a value that does not
+    /// depend on the signer chain-code domain.
+    #[test]
+    fn v2_nums_is_zero_chain_code_child_of_nums() {
+        let nums = XOnlyPublicKey::from_slice(&NUMS_X_COORDINATE)
+            .expect("NUMS on curve")
+            .public_key(secp256k1::Parity::Even);
+        let child = bip32_unhardened_zero_path(nums, [0u8; 32], SBTC_SIGNING_PATH_DEPTH)
+            .expect("derivation succeeds");
+        assert_eq!(
+            child.x_only_public_key().0.serialize(),
+            SBTC_V2_NUMS_X_COORDINATE
+        );
+    }
+
+    /// Reference fixtures for the v2 deposit tree.
+    ///
+    /// Generated directly from the pinned sBTC crate by
+    /// `contrib/tools/sbtc-fixtures`. See its README for regeneration steps.
+    const V2_FIXTURES_JSON: &str = include_str!("fixtures/sbtc-v2.json");
+
+    #[derive(Deserialize)]
+    struct V2FixturesFile {
+        fixtures: Vec<V2Fixture>,
+        v2_nums_x_coordinate_hex: String,
+    }
+
+    #[derive(Deserialize)]
+    struct V2Fixture {
+        name: String,
+        inputs: V2Inputs,
+        intermediate: V2Intermediate,
+        expected: V2Expected,
+    }
+
+    #[derive(Deserialize)]
+    struct V2Inputs {
+        signer_keys_compressed_hex: Vec<String>,
+        signatures_required: u16,
+        recipient_principal: String,
+        max_fee: u64,
+        lock_time: u32,
+        reclaim_user_script_hex: String,
+    }
+
+    #[derive(Deserialize)]
+    struct V2Intermediate {
+        derived_xonly_keys_sorted_hex: Vec<String>,
+        signing_script_hex: String,
+        key_set_script_pubkey_hex: String,
+        deposit_script_hex: String,
+        reclaim_script_hex: String,
+        deposit_tapleaf_hash_hex: String,
+        reclaim_tapleaf_hash_hex: String,
+        merkle_root_hex: String,
+        taproot_output_key_xonly_hex: String,
+    }
+
+    #[derive(Deserialize)]
+    struct V2Expected {
+        script_pubkey_hex: String,
+    }
+
+    #[test]
+    fn matches_sbtc_v2_reference_fixtures() {
+        let parsed: V2FixturesFile =
+            serde_json::from_str(V2_FIXTURES_JSON).expect("embedded fixtures parse");
+
+        assert_eq!(
+            to_hex(&SBTC_V2_NUMS_X_COORDINATE),
+            parsed.v2_nums_x_coordinate_hex,
+            "v2 NUMS x-coordinate drift between fixtures and core::SBTC_V2_NUMS_X_COORDINATE",
+        );
+        assert!(!parsed.fixtures.is_empty());
+
+        for fixture in &parsed.fixtures {
+            let name = &fixture.name;
+            let signer_keys: Vec<[u8; 33]> = fixture
+                .inputs
+                .signer_keys_compressed_hex
+                .iter()
+                .map(|key| compressed_array(key))
+                .collect();
+            let key_set = SbtcSignerKeySet::from_registry(
+                &signer_keys,
+                u128::from(fixture.inputs.signatures_required),
+            )
+            .unwrap_or_else(|e| panic!("{name}: key set rejected: {e:?}"));
+
+            let actual_keys: Vec<String> =
+                key_set.xonly_keys().iter().map(|key| to_hex(key)).collect();
+            assert_eq!(
+                actual_keys, fixture.intermediate.derived_xonly_keys_sorted_hex,
+                "{name}: derived signing keys"
+            );
+            assert_eq!(
+                to_hex(key_set.signing_script().as_bytes()),
+                fixture.intermediate.signing_script_hex,
+                "{name}: signing_script"
+            );
+            assert_eq!(
+                format!("5120{}", to_hex(&key_set.signer_utxo_output_key().unwrap())),
+                fixture.intermediate.key_set_script_pubkey_hex,
+                "{name}: signer UTXO scriptPubKey"
+            );
+
+            let recipient = PrincipalData::parse(&fixture.inputs.recipient_principal)
+                .unwrap_or_else(|e| panic!("{name}: bad recipient principal: {e:?}"));
+            let user_reclaim = hex_bytes(&fixture.inputs.reclaim_user_script_hex)
+                .expect("fixture reclaim_user_script is valid hex");
+            let lock_time =
+                u16::try_from(fixture.inputs.lock_time).expect("fixture lock_time fits u16");
+
+            let actual_deposit_script =
+                build_v2_deposit_script(&key_set, &recipient, fixture.inputs.max_fee);
+            let actual_reclaim_script = build_reclaim_script(lock_time, &user_reclaim);
+            assert_eq!(
+                to_hex(actual_deposit_script.as_bytes()),
+                fixture.intermediate.deposit_script_hex,
+                "{name}: deposit_script"
+            );
+            assert_eq!(
+                to_hex(actual_reclaim_script.as_bytes()),
+                fixture.intermediate.reclaim_script_hex,
+                "{name}: reclaim_script"
+            );
+
+            let actual_deposit_leaf = tap_leaf_hash(actual_deposit_script.as_bytes());
+            let actual_reclaim_leaf = tap_leaf_hash(actual_reclaim_script.as_bytes());
+            assert_eq!(
+                to_hex(&actual_deposit_leaf),
+                fixture.intermediate.deposit_tapleaf_hash_hex,
+                "{name}: deposit_tapleaf_hash"
+            );
+            assert_eq!(
+                to_hex(&actual_reclaim_leaf),
+                fixture.intermediate.reclaim_tapleaf_hash_hex,
+                "{name}: reclaim_tapleaf_hash"
+            );
+            assert_eq!(
+                to_hex(&tap_branch_hash(actual_deposit_leaf, actual_reclaim_leaf)),
+                fixture.intermediate.merkle_root_hex,
+                "{name}: merkle_root"
+            );
+
+            let actual_output_key = sbtc_v2_deposit_taproot_output_key(
+                &key_set,
+                &recipient,
+                fixture.inputs.max_fee,
+                lock_time,
+                &user_reclaim,
+            )
+            .unwrap_or_else(|e| panic!("{name}: derivation failed: {e:?}"));
+            assert_eq!(
+                to_hex(&actual_output_key),
+                fixture.intermediate.taproot_output_key_xonly_hex,
+                "{name}: taproot_output_key"
+            );
+            assert_eq!(
+                format!("5120{}", to_hex(&actual_output_key)),
+                fixture.expected.script_pubkey_hex,
+                "{name}: script_pubkey"
+            );
+
+            // Fixtures in the PoX-5 shape must also match the PoX-5 wrapper.
+            if lock_time == u16::MAX && user_reclaim == [Opcode::OP_RETURN as u8] {
+                let wrapper_output_key = sbtc_pox5_v2_deposit_taproot_output_key(
+                    &key_set,
+                    &recipient,
+                    fixture.inputs.max_fee,
+                )
+                .unwrap_or_else(|e| panic!("{name}: PoX-5 wrapper failed: {e:?}"));
+                assert_eq!(
+                    wrapper_output_key, actual_output_key,
+                    "{name}: PoX-5 wrapper"
+                );
+            }
+        }
+    }
+
+    /// `OP_SIZE <32> OP_EQUALVERIFY OP_SHA256 <commitment> OP_EQUALVERIFY`
+    /// is 39 bytes; `<32>` is a one-byte data push (`01 20`), not
+    /// `OP_PUSHNUM`. The commitment is a double SHA-256 of the deposit data,
+    /// so the signers reveal a 32-byte preimage that `OP_SIZE` checks.
+    #[test]
+    fn v2_deposit_prefix_has_expected_wire_encoding() {
+        let key_set = key_set_from_hex(&SBTC_RANDOM_SIGNER_KEYS, 1);
+        let recipient = PrincipalData::parse("SP000000000000000000002Q6VF78").unwrap();
+        let max_fee = 15_000;
+
+        let data = deposit_data(&recipient, max_fee);
+        assert_eq!(&data[..8], &max_fee.to_be_bytes());
+        let preimage: [u8; 32] = Sha256::digest(&data).into();
+        let commitment = v2_deposit_data_commitment(&recipient, max_fee);
+        assert_eq!(commitment, <[u8; 32]>::from(Sha256::digest(preimage)));
+
+        let mut expected_prefix = vec![0x82, 0x01, 0x20, 0x88, 0xa8, 0x20];
+        expected_prefix.extend_from_slice(&commitment);
+        expected_prefix.push(0x88);
+        assert_eq!(expected_prefix.len(), 39);
+
+        let script = build_v2_deposit_script(&key_set, &recipient, max_fee);
+        assert_eq!(&script.as_bytes()[..39], &expected_prefix[..]);
+        assert_eq!(
+            &script.as_bytes()[39..],
+            key_set.signing_script().as_bytes(),
+            "the signing script follows the prefix unchanged"
+        );
+    }
+
+    /// `<k_1> OP_CHECKSIG <k_2> OP_CHECKSIGADD ... <threshold> OP_NUMEQUAL`,
+    /// with each key as a 32-byte push and the threshold as `OP_PUSHNUM_k`.
+    #[test]
+    fn signing_script_encodes_multi_a() {
+        let key_set = key_set_from_hex(&SBTC_DEVENV_SIGNER_KEYS, 2);
+        let keys = key_set.xonly_keys();
+        assert_eq!(keys.len(), 3);
+
+        let mut expected = vec![0x20];
+        expected.extend_from_slice(&keys[0]);
+        expected.push(Opcode::OP_CHECKSIG as u8);
+        for key in &keys[1..] {
+            expected.push(0x20);
+            expected.extend_from_slice(key);
+            expected.push(OP_CHECKSIGADD);
+        }
+        expected.push(Opcode::OP_PUSHNUM_2 as u8);
+        expected.push(Opcode::OP_NUMEQUAL as u8);
+        assert_eq!(key_set.signing_script().as_bytes(), &expected[..]);
+    }
+
+    /// Input order and duplicates do not affect the key set: keys are
+    /// deduplicated and sorted bytewise (sBTC's `BTreeSet<XOnlyPublicKey>`).
+    #[test]
+    fn key_set_is_order_and_duplicate_independent() {
+        let canonical = key_set_from_hex(&SBTC_DEVENV_SIGNER_KEYS, 2);
+        let mut reversed = SBTC_DEVENV_SIGNER_KEYS.to_vec();
+        reversed.reverse();
+        reversed.push(SBTC_DEVENV_SIGNER_KEYS[0]);
+        let shuffled = key_set_from_hex(&reversed, 2);
+        assert_eq!(canonical, shuffled);
+        assert_eq!(canonical.xonly_keys().len(), 3);
+        assert!(
+            canonical
+                .xonly_keys()
+                .windows(2)
+                .all(|pair| pair[0] < pair[1]),
+            "keys are strictly ascending"
+        );
+        assert_eq!(canonical.signatures_required(), 2);
+    }
+
+    /// `1 <= distinct keys <= 16` and `1 <= threshold <= distinct keys`.
+    #[test]
+    fn key_set_bounds() {
+        let seventeen = xonly_keys_from_small_scalars(17);
+
+        assert!(SbtcSignerKeySet::new(vec![], 1).is_err(), "empty set");
+        assert!(
+            SbtcSignerKeySet::new(seventeen[..1].to_vec(), 0).is_err(),
+            "zero threshold"
+        );
+        assert!(
+            SbtcSignerKeySet::new(seventeen[..1].to_vec(), 2).is_err(),
+            "threshold > n"
+        );
+        assert!(
+            SbtcSignerKeySet::new(seventeen[..1].to_vec(), 1).is_ok(),
+            "1-of-1"
+        );
+        assert!(
+            SbtcSignerKeySet::new(seventeen[..16].to_vec(), 16).is_ok(),
+            "16-of-16"
+        );
+        assert!(
+            SbtcSignerKeySet::new(seventeen[..16].to_vec(), 17).is_err(),
+            "17-of-16"
+        );
+        assert!(
+            SbtcSignerKeySet::new(seventeen.clone(), 1).is_err(),
+            "17 keys"
+        );
+
+        // Duplicates are collapsed before the bounds apply.
+        let mut sixteen_plus_dup = seventeen[..16].to_vec();
+        sixteen_plus_dup.push(seventeen[0]);
+        let key_set = SbtcSignerKeySet::new(sixteen_plus_dup, 16).expect("16 distinct keys");
+        assert_eq!(key_set.xonly_keys().len(), SBTC_V2_MAX_SIGNERS);
+
+        // A 32-byte value that is not an x coordinate on the curve.
+        assert!(
+            SbtcSignerKeySet::new(vec![[0xff; 32]], 1).is_err(),
+            "off-curve key"
+        );
+    }
+
+    #[test]
+    fn from_registry_rejects_malformed_inputs() {
+        let devenv: Vec<[u8; 33]> = SBTC_DEVENV_SIGNER_KEYS
+            .iter()
+            .map(|key| compressed_array(key))
+            .collect();
+        assert!(
+            SbtcSignerKeySet::from_registry(&[], 1).is_err(),
+            "empty signer set"
+        );
+        assert!(
+            SbtcSignerKeySet::from_registry(&devenv, 0).is_err(),
+            "zero threshold"
+        );
+        assert!(
+            SbtcSignerKeySet::from_registry(&devenv, 4).is_err(),
+            "threshold > n"
+        );
+        assert!(
+            SbtcSignerKeySet::from_registry(&devenv, u128::from(u16::MAX) + 1).is_err(),
+            "threshold overflows u16"
+        );
+        let mut off_curve = [0xff; 33];
+        off_curve[0] = 0x02;
+        assert!(
+            SbtcSignerKeySet::from_registry(&[off_curve], 1).is_err(),
+            "off-curve registry key"
+        );
+        // A v2-rotated registry stores `0xFF || block-hash` in the aggregate
+        // pubkey field; that value is never a valid signer key either.
+        assert!(derive_sbtc_signing_xonly(&[0xff; 33]).is_err());
+    }
+
     // Property tests covering derivation invariants: determinism, per-input
     // sensitivity, rejection of malformed pubkeys, and wrapper/generic
     // agreement across a randomized search space the reference fixtures above
@@ -1000,6 +1715,178 @@ mod tests {
                 &[Opcode::OP_RETURN as u8],
             ).expect("valid pubkey");
             prop_assert_eq!(wrapper, generic);
+        }
+    }
+
+    /// A registry signer set: 1..=16 distinct compressed keys and a threshold
+    /// in `1..=n`. Random keys collide with probability ~2^-256, so the
+    /// threshold is still clamped to the distinct count for total correctness.
+    fn arb_v2_registry_signer_set() -> impl Strategy<Value = (Vec<[u8; 33]>, u16)> {
+        prop::collection::vec(arb_valid_compressed_pubkey_33(), 1..=SBTC_V2_MAX_SIGNERS)
+            .prop_flat_map(|keys| {
+                let distinct = keys.iter().collect::<BTreeSet<_>>().len() as u16;
+                (Just(keys), 1..=distinct)
+            })
+    }
+
+    fn v2_pox5_key(
+        keys: &[[u8; 33]],
+        threshold: u16,
+        recipient: &PrincipalData,
+        max_fee: u64,
+    ) -> [u8; 32] {
+        let key_set = SbtcSignerKeySet::from_registry(keys, u128::from(threshold))
+            .expect("valid registry signer set");
+        sbtc_pox5_v2_deposit_taproot_output_key(&key_set, recipient, max_fee)
+            .expect("valid key set derives")
+    }
+
+    proptest! {
+        /// Registry key order does not affect the recipient: the key set is
+        /// sorted and deduplicated, as in sBTC.
+        #[tag(t_prop)]
+        #[test]
+        fn prop_v2_key_independent_of_registry_order(
+            (keys, shuffled, threshold) in arb_v2_registry_signer_set().prop_flat_map(
+                |(keys, threshold)| (Just(keys.clone()), Just(keys).prop_shuffle(), Just(threshold))
+            ),
+            recipient in arb_principal_data(),
+            max_fee in any::<u64>(),
+        ) {
+            prop_assert_eq!(
+                v2_pox5_key(&keys, threshold, &recipient, max_fee),
+                v2_pox5_key(&shuffled, threshold, &recipient, max_fee),
+            );
+        }
+
+        /// Derivation is a pure function of its inputs.
+        #[tag(t_prop)]
+        #[test]
+        fn prop_v2_key_deterministic(
+            (keys, threshold) in arb_v2_registry_signer_set(),
+            recipient in arb_principal_data(),
+            max_fee in any::<u64>(),
+            lock_time in any::<u16>(),
+            user_reclaim in prop::collection::vec(any::<u8>(), 0..=MAX_USER_RECLAIM_SCRIPT_LEN),
+        ) {
+            let key_set = SbtcSignerKeySet::from_registry(&keys, u128::from(threshold))
+                .expect("valid registry signer set");
+            let key1 = sbtc_v2_deposit_taproot_output_key(
+                &key_set, &recipient, max_fee, lock_time, &user_reclaim,
+            ).expect("derives");
+            let key2 = sbtc_v2_deposit_taproot_output_key(
+                &key_set, &recipient, max_fee, lock_time, &user_reclaim,
+            ).expect("derives");
+            prop_assert_eq!(key1, key2);
+        }
+
+        /// Different thresholds over the same keys lock different outputs.
+        #[tag(t_prop)]
+        #[test]
+        fn prop_v2_key_distinct_by_threshold(
+            (keys, threshold_a) in arb_v2_registry_signer_set(),
+            threshold_b in 1..=SBTC_V2_MAX_SIGNERS as u16,
+            recipient in arb_principal_data(),
+            max_fee in any::<u64>(),
+        ) {
+            let distinct = keys.iter().collect::<BTreeSet<_>>().len() as u16;
+            prop_assume!(threshold_b <= distinct && threshold_a != threshold_b);
+            prop_assert_ne!(
+                v2_pox5_key(&keys, threshold_a, &recipient, max_fee),
+                v2_pox5_key(&keys, threshold_b, &recipient, max_fee),
+            );
+        }
+
+        /// Different recipients lock different outputs: the commitment binds
+        /// the recipient principal.
+        #[tag(t_prop)]
+        #[test]
+        fn prop_v2_key_distinct_by_recipient(
+            (keys, threshold) in arb_v2_registry_signer_set(),
+            recipient_a in arb_principal_data(),
+            recipient_b in arb_principal_data(),
+            max_fee in any::<u64>(),
+        ) {
+            prop_assume!(recipient_a != recipient_b);
+            prop_assert_ne!(
+                v2_pox5_key(&keys, threshold, &recipient_a, max_fee),
+                v2_pox5_key(&keys, threshold, &recipient_b, max_fee),
+            );
+        }
+
+        /// Different max fees lock different outputs: the commitment binds
+        /// the max fee.
+        #[tag(t_prop)]
+        #[test]
+        fn prop_v2_key_distinct_by_max_fee(
+            (keys, threshold) in arb_v2_registry_signer_set(),
+            recipient in arb_principal_data(),
+            max_fee_a in any::<u64>(),
+            max_fee_b in any::<u64>(),
+        ) {
+            prop_assume!(max_fee_a != max_fee_b);
+            prop_assert_ne!(
+                v2_pox5_key(&keys, threshold, &recipient, max_fee_a),
+                v2_pox5_key(&keys, threshold, &recipient, max_fee_b),
+            );
+        }
+
+        /// A key set with one extra signer locks a different output.
+        #[tag(t_prop)]
+        #[test]
+        fn prop_v2_key_distinct_by_signer_set(
+            (keys, threshold) in arb_v2_registry_signer_set(),
+            extra in arb_valid_compressed_pubkey_33(),
+            recipient in arb_principal_data(),
+            max_fee in any::<u64>(),
+        ) {
+            prop_assume!(keys.len() < SBTC_V2_MAX_SIGNERS && !keys.contains(&extra));
+            let mut extended = keys.clone();
+            extended.push(extra);
+            prop_assert_ne!(
+                v2_pox5_key(&keys, threshold, &recipient, max_fee),
+                v2_pox5_key(&extended, threshold, &recipient, max_fee),
+            );
+        }
+
+        /// The v2 PoX-5 wrapper is an exact specialization of the generic
+        /// derivation with `lock_time = u16::MAX` and `[OP_RETURN]`.
+        #[tag(t_prop)]
+        #[test]
+        fn prop_v2_pox5_wrapper_matches_generic(
+            (keys, threshold) in arb_v2_registry_signer_set(),
+            recipient in arb_principal_data(),
+            max_fee in any::<u64>(),
+        ) {
+            let key_set = SbtcSignerKeySet::from_registry(&keys, u128::from(threshold))
+                .expect("valid registry signer set");
+            let wrapper = sbtc_pox5_v2_deposit_taproot_output_key(&key_set, &recipient, max_fee)
+                .expect("derives");
+            let generic = sbtc_v2_deposit_taproot_output_key(
+                &key_set,
+                &recipient,
+                max_fee,
+                u16::MAX,
+                &[Opcode::OP_RETURN as u8],
+            ).expect("derives");
+            prop_assert_eq!(wrapper, generic);
+        }
+
+        /// Even a single-signer v2 deposit never collides with the v1 deposit
+        /// for the same signer, recipient and fee: the leaf format and the
+        /// internal key both differ, so the epoch switch always moves funds
+        /// to a new address.
+        #[tag(t_prop)]
+        #[test]
+        fn prop_v2_key_differs_from_v1(
+            key in arb_valid_compressed_pubkey_33(),
+            recipient in arb_principal_data(),
+            max_fee in any::<u64>(),
+        ) {
+            let v1 = sbtc_pox5_deposit_taproot_output_key(&key, &recipient, max_fee)
+                .expect("valid pubkey");
+            let v2 = v2_pox5_key(&[key], 1, &recipient, max_fee);
+            prop_assert_ne!(v1, v2);
         }
     }
 }

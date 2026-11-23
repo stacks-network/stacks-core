@@ -19,10 +19,12 @@ path = "src/lib.rs"
 rand = { workspace = true }
 rand_core = { workspace = true }
 rand_chacha = { workspace = true }
-serde = "1"
-serde_derive = "1"
+serde = { workspace = true }
+serde_derive = { workspace = true }
+serde_json = { workspace = true }
 secp256k1 = "0.24.3"
 sha2 = "0.10"
+hmac = "0.12"
 ripemd = "0.1.1"
 regex = "1"
 mio = "0.6"
@@ -52,10 +54,6 @@ winapi = { version = "0.3", features = ["consoleapi", "handleapi", "synchapi", "
 
 [target.'cfg(windows)'.dev-dependencies]
 winapi = { version = "0.3", features = ["fileapi", "processenv", "winnt"] }
-
-[dependencies.serde_json]
-version = "1.0"
-features = ["arbitrary_precision", "unbounded_depth"]
 
 [dependencies.ed25519-dalek]
 workspace = true

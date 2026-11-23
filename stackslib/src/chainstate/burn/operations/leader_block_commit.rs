@@ -818,7 +818,11 @@ impl LeaderBlockCommitOp {
             return Err(op_error::BlockCommitBadOutputs);
         }
 
-        if self.commit_outs.first() != Some(&wf_info.sbtc_address) {
+        // Compare burnchain representations: a commit output parsed from the
+        // burnchain does not carry the hash mode of a standard address, which
+        // the reward set's recipient may have.
+        let expected_repr = wf_info.sbtc_address.to_burnchain_repr();
+        if self.commit_outs.first().map(PoxAddress::to_burnchain_repr) != Some(expected_repr) {
             warn!("Invalid waterfall block commit: unexpected output"; "expected" => %wf_info.sbtc_address, "found" => ?self.commit_outs.first());
             return Err(op_error::BlockCommitBadOutputs);
         }
@@ -1528,6 +1532,81 @@ mod tests {
         let calc = LeaderBlockCommitOp::parse_pox_waterfall_commits(&outputs, &output_0)
             .expect("positive-amount waterfall commit should parse");
         assert_eq!(calc.burn_fee, 10);
+    }
+
+    /// A waterfall commit is matched to the cycle's recipient by burnchain
+    /// representation, so a burn output parsed from the burnchain (which has
+    /// no hash mode) satisfies a reward set whose recipient is the standard
+    /// burn address. Any other output, or a second output, is rejected.
+    #[test]
+    fn test_check_pox_waterfall_matches_parsed_burn_output() {
+        fn parsed_p2pkh(network_id: BitcoinNetworkType, bytes: Hash160) -> PoxAddress {
+            PoxAddress::try_from_bitcoin_output(&BitcoinTxOutput {
+                units: 10,
+                address: BitcoinAddress::Legacy(LegacyBitcoinAddress {
+                    addrtype: LegacyBitcoinAddressType::PublicKeyHash,
+                    network_id,
+                    bytes,
+                }),
+            })
+            .expect("legacy outputs parse into a PoX address")
+        }
+        fn commit_with_outs(commit_outs: Vec<PoxAddress>) -> LeaderBlockCommitOp {
+            LeaderBlockCommitOp {
+                sunset_burn: 0,
+                block_header_hash: BlockHeaderHash([0x22; 32]),
+                new_seed: VRFSeed([0x33; 32]),
+                parent_block_ptr: 0,
+                parent_vtxindex: 0,
+                key_block_ptr: 1,
+                key_vtxindex: 1,
+                memo: vec![0x80],
+                commit_outs,
+                burn_fee: 10,
+                treatment: vec![],
+                input: (Txid([0; 32]), 0),
+                apparent_sender: BurnchainSigner("sender".to_string()),
+                txid: Txid([0x01; 32]),
+                vtxindex: 1,
+                block_height: 10,
+                burn_parent_modulus: 4,
+                burn_header_hash: BurnchainHeaderHash([0x02; 32]),
+            }
+        }
+
+        for (mainnet, network_id) in [
+            (false, BitcoinNetworkType::Testnet),
+            (true, BitcoinNetworkType::Mainnet),
+        ] {
+            let burn_recipient = PoxAddress::standard_burn_address(mainnet);
+            let reward_set_info = RewardSetInfo::Waterfall(RewardSetInfoWaterfall {
+                anchor_block: BlockHeaderHash([0xaa; 32]),
+                sbtc_address: burn_recipient.clone(),
+            });
+
+            let parsed_burn = parsed_p2pkh(network_id, Hash160([0; 20]));
+            assert_ne!(
+                parsed_burn, burn_recipient,
+                "a parsed output has no hash mode, so it is not equal to the reward set's recipient"
+            );
+            assert_eq!(
+                commit_with_outs(vec![parsed_burn.clone()])
+                    .check_pox_waterfall(Some(&reward_set_info))
+                    .expect("a parsed burn output matches the burn recipient"),
+                vec![Treatment::Reward(burn_recipient.clone())]
+            );
+
+            let parsed_other = parsed_p2pkh(network_id, Hash160([1; 20]));
+            assert!(matches!(
+                commit_with_outs(vec![parsed_other]).check_pox_waterfall(Some(&reward_set_info)),
+                Err(op_error::BlockCommitBadOutputs)
+            ));
+            assert!(matches!(
+                commit_with_outs(vec![parsed_burn.clone(), parsed_burn])
+                    .check_pox_waterfall(Some(&reward_set_info)),
+                Err(op_error::BlockCommitBadOutputs)
+            ));
+        }
     }
 
     #[test]

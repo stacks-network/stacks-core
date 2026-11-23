@@ -1,0 +1,138 @@
+[
+  {
+    "name": "pox5_mainnet_devenv_2of3",
+    "description": "PoX-5 shape (mainnet .pox-5 recipient, max_fee 80000, lock_time 65535, [OP_RETURN]) with the sBTC devenv 2-of-3 signer set.",
+    "inputs": {
+      "lock_time": 65535,
+      "max_fee": 80000,
+      "recipient_principal": "SP000000000000000000002Q6VF78.pox-5",
+      "reclaim_user_script_hex": "6a",
+      "signatures_required": 2,
+      "signer_keys_compressed_hex": [
+        "035249137286c077ccee65ecc43e724b9b9e5a588e3d7f51e3b62f9624c2a49e46",
+        "031a4d9f4903da97498945a4e01a5023a1d53bc96ad670bfe03adf8a06c52e6380",
+        "02007311430123d4cad97f4f7e86e023b28143130a18099ecf094d36fef0f6135c"
+      ]
+    }
+  },
+  {
+    "name": "pox5_testnet_devenv_2of3",
+    "description": "PoX-5 shape with the testnet .pox-5 recipient and the devenv 2-of-3 signer set.",
+    "inputs": {
+      "lock_time": 65535,
+      "max_fee": 80000,
+      "recipient_principal": "ST000000000000000000002AMW42H.pox-5",
+      "reclaim_user_script_hex": "6a",
+      "signatures_required": 2,
+      "signer_keys_compressed_hex": [
+        "035249137286c077ccee65ecc43e724b9b9e5a588e3d7f51e3b62f9624c2a49e46",
+        "031a4d9f4903da97498945a4e01a5023a1d53bc96ad670bfe03adf8a06c52e6380",
+        "02007311430123d4cad97f4f7e86e023b28143130a18099ecf094d36fef0f6135c"
+      ]
+    }
+  },
+  {
+    "name": "pox5_mainnet_testnet_11of15",
+    "description": "PoX-5 shape with the sample testnet 11-of-15 signer set.",
+    "inputs": {
+      "lock_time": 65535,
+      "max_fee": 80000,
+      "recipient_principal": "SP000000000000000000002Q6VF78.pox-5",
+      "reclaim_user_script_hex": "6a",
+      "signatures_required": 11,
+      "signer_keys_compressed_hex": [
+        "03fc6197a1396680f7acc4241ac3935ba4af560deac0224abec45c47c5e73ea638",
+        "0390d76b21867e9c5aa25a903423d3ddb0da65604f0470390ed903f2056c5adb4b",
+        "03fb16c76ae6773951b2ea957f723dc0f5f4ccd795313793308a38a37a3c4aa582",
+        "024681893c76fb2d52bdbcd6341c66f15f14698aed638d6c1a2fc9440948b5f11a",
+        "0341a8f3562d805ab240c2ce2dd220313329ef75459f115bd818b250a2ad2df6aa",
+        "02a963be44cd7efd07e59e28f02f5d2bafdf28b5b13b3b13b5c2a9e3f4c1b1e5bf",
+        "03c4382afb075bf577acbb13196e6130c386a3d8261326402f587fb7c42d0dbd5e",
+        "02c2b53974a2b1a05103a7c42a4861c859c9b999ed196c065bcec952438ae8ec9b",
+        "034646af6402dab3a265688b2ea67a7aa88d9fc6eca663385a6e92336f7f081c59",
+        "02629d043197e659ac45f0332b219760b9542d22499ff6431c113ec64d60e86628",
+        "033f3dd6b1e8e4cfff219054dce240d312b6deda10386c3a815459224a2ba0f411",
+        "031c7e1267b272d5a11257f46c61e0e5005337ebcebb6f2b71798addfd04e5a38a",
+        "02ae3a560f4f67ce8c0f4b2e46d24f51232a768cfc69cf08a02ea02426d77bd64c",
+        "026fb0b3c3ea60a3197e94f2dcd37d7f302e6d33c75351f4f5024e9c31ac327c11",
+        "0374e256948a14799c2a788960ab6657dc5d322b070abae4ce83b2a0df4df2c727"
+      ]
+    }
+  },
+  {
+    "name": "pox5_mainnet_random_1of1",
+    "description": "PoX-5 shape with a single-signer 1-of-1 key set.",
+    "inputs": {
+      "lock_time": 65535,
+      "max_fee": 80000,
+      "recipient_principal": "SP000000000000000000002Q6VF78.pox-5",
+      "reclaim_user_script_hex": "6a",
+      "signatures_required": 1,
+      "signer_keys_compressed_hex": [
+        "027212421e4a9c34e251a7cd523146c4434451e42c230d576b07fe8874f97a694d"
+      ]
+    }
+  },
+  {
+    "name": "standard_recipient_devenv_3of3",
+    "description": "Standard principal recipient; 3-of-3 devenv set; small lock_time using OP_PUSHNUM; empty user reclaim script.",
+    "inputs": {
+      "lock_time": 6,
+      "max_fee": 15000,
+      "recipient_principal": "SP000000000000000000002Q6VF78",
+      "reclaim_user_script_hex": "",
+      "signatures_required": 3,
+      "signer_keys_compressed_hex": [
+        "035249137286c077ccee65ecc43e724b9b9e5a588e3d7f51e3b62f9624c2a49e46",
+        "031a4d9f4903da97498945a4e01a5023a1d53bc96ad670bfe03adf8a06c52e6380",
+        "02007311430123d4cad97f4f7e86e023b28143130a18099ecf094d36fef0f6135c"
+      ]
+    }
+  },
+  {
+    "name": "sixteen_signers_9of16",
+    "description": "Maximum 16-key set (keys from secret scalars 1..=16), 9-of-16, contract recipient, zero max fee, lock_time 1024, OP_DROP user script.",
+    "inputs": {
+      "lock_time": 1024,
+      "max_fee": 0,
+      "recipient_principal": "ST000000000000000000002AMW42H.my-contract",
+      "reclaim_user_script_hex": "75",
+      "signatures_required": 9,
+      "signer_keys_compressed_hex": [
+        "0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798",
+        "02c6047f9441ed7d6d3045406e95c07cd85c778e4b8cef3ca7abac09b95c709ee5",
+        "02f9308a019258c31049344f85f89d5229b531c845836f99b08601f113bce036f9",
+        "02e493dbf1c10d80f3581e4904930b1404cc6c13900ee0758474fa94abe8c4cd13",
+        "022f8bde4d1a07209355b4a7250a5c5128e88b84bddc619ab7cba8d569b240efe4",
+        "03fff97bd5755eeea420453a14355235d382f6472f8568a18b2f057a1460297556",
+        "025cbdf0646e5db4eaa398f365f2ea7a0e3d419b7e0330e39ce92bddedcac4f9bc",
+        "022f01e5e15cca351daff3843fb70f3c2f0a1bdd05e5af888a67784ef3e10a2a01",
+        "03acd484e2f0c7f65309ad178a9f559abde09796974c57e714c35f110dfc27ccbe",
+        "03a0434d9e47f3c86235477c7b1ae6ae5d3442d49b1943c2b752a68e2a47e247c7",
+        "03774ae7f858a9411e5ef4246b70c65aac5649980be5c17891bbec17895da008cb",
+        "03d01115d548e7561b15c38f004d734633687cf4419620095bc5b0f47070afe85a",
+        "03f28773c2d975288bc7d1d205c3748651b075fbc6610e58cddeeddf8f19405aa8",
+        "03499fdf9e895e719cfd64e67f07d38e3226aa7b63678949e6e49b241a60e823e4",
+        "02d7924d4f7d43ea965a465ae3095ff41131e5946f3c85f79e44adbcf8e27e080e",
+        "03e60fce93b59e9ec53011aabc21c23e97b2a31369b87a5ae9c44ee89e2a6dec0a"
+      ]
+    }
+  },
+  {
+    "name": "duplicate_and_reversed_input_order",
+    "description": "Devenv keys supplied reversed with one duplicate; must match the canonical 2-of-3 set. u64::MAX max fee.",
+    "inputs": {
+      "lock_time": 65535,
+      "max_fee": 18446744073709551615,
+      "recipient_principal": "SP000000000000000000002Q6VF78.pox-5",
+      "reclaim_user_script_hex": "6a",
+      "signatures_required": 2,
+      "signer_keys_compressed_hex": [
+        "02007311430123d4cad97f4f7e86e023b28143130a18099ecf094d36fef0f6135c",
+        "031a4d9f4903da97498945a4e01a5023a1d53bc96ad670bfe03adf8a06c52e6380",
+        "035249137286c077ccee65ecc43e724b9b9e5a588e3d7f51e3b62f9624c2a49e46",
+        "035249137286c077ccee65ecc43e724b9b9e5a588e3d7f51e3b62f9624c2a49e46"
+      ]
+    }
+  }
+]

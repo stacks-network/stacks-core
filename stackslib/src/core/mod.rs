@@ -108,6 +108,24 @@ pub const NUMS_X_COORDINATE: [u8; 32] = [
 /// `<deposit-data>` payload. Chosen high enough that real-world bitcoin fees never exceed it.
 pub const POX_5_SBTC_DEPOSIT_MAX_FEE_SATS: u64 = 80_000;
 
+/// The x-only internal key used by sBTC v2 (Taproot script-path multisig)
+/// outputs. This is the `/0/0` BIP-32 child of the BIP-0341 NUMS point
+/// (`NUMS_X_COORDINATE`) treated as an extended public key with an all-zero
+/// chain code, so hardware wallets can express it as `@0/**` in a BIP-0388
+/// wallet policy. No private key is known: one would also reveal the NUMS
+/// private key. Mirrors `sbtc::V2_NUMS_X_COORDINATE`.
+#[rustfmt::skip]
+pub const SBTC_V2_NUMS_X_COORDINATE: [u8; 32] = [
+    0x4a, 0x30, 0xb2, 0xe4, 0x61, 0xb2, 0x80, 0xc0,
+    0xb1, 0x3a, 0x03, 0x79, 0x90, 0x96, 0xab, 0x12,
+    0x56, 0x58, 0x91, 0x53, 0xfc, 0x4b, 0x9c, 0x8c,
+    0xea, 0xd1, 0x6d, 0xc0, 0xb6, 0x42, 0x06, 0x97,
+];
+
+/// Maximum number of distinct signer keys in an sBTC v2 key set, following
+/// the 16-key `multi_a` tapscript limit. Mirrors `sbtc::MAX_SIGNERS`.
+pub const SBTC_V2_MAX_SIGNERS: usize = 16;
+
 /// The number of blocks which will share the block bonus
 ///   from burn blocks that occurred without a sortition.
 ///   (See: https://forum.stacks.org/t/pox-consensus-and-stx-future-supply)

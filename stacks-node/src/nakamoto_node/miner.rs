@@ -921,6 +921,9 @@ impl BlockMinerThread {
             self.globals
                 .set_last_proposed_tenure_start(new_block.header.consensus_hash.clone());
         }
+        // Tell the relayer that a child of this parent is in flight
+        self.globals
+            .set_last_proposed_block_parent(Some(new_block.header.parent_block_id.clone()));
 
         let signer_signature = match self.propose_block(
             coordinator,
@@ -1001,6 +1004,8 @@ impl BlockMinerThread {
                     // mempool when mine_block opens the mempool connection.
                     self.permanently_excluded_txids
                         .extend(permanently_excluded_txids.iter().cloned());
+                    // The signers rejected it, so it is no longer in flight
+                    self.globals.set_last_proposed_block_parent(None);
                     self.pause_and_retry(&new_block, last_block_rejected, &e);
                     return Ok(false);
                 }
