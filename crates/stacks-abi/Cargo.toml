@@ -4,7 +4,7 @@ version = "0.1.0"
 license = "GPL-3.0"
 homepage = "https://github.com/stacks-network/stacks-core"
 repository = "https://github.com/stacks-network/stacks-core"
-description = "Definition of the Stacks chain ABI for Wasm contracts: codecs, limits, error classes and status codes"
+description = "Definition of the Stacks chain ABI for Wasm contracts: codecs, limits, error classes, status codes and the host interface"
 keywords = ["stacks", "stx", "blockchain", "wasm", "abi"]
 edition = "2024"
 

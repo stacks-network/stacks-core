@@ -20,6 +20,9 @@
 //! same codes, has its own type here, because a code's meaning belongs to the
 //! function: `1` is "amount is zero" from `ft_mint` and "insufficient
 //! balance" from `ft_transfer`.
+//!
+//! The table of host functions ([`crate::host`]) gives each function the
+//! codes of its type.
 
 /// The status every function returns for success.
 pub const SUCCESS: i32 = 0;
@@ -37,6 +40,9 @@ macro_rules! status_codes {
             impl $name {
                 /// Every code of the function.
                 pub const ALL: &[$name] = &[$($name::$variant,)+];
+
+                /// Every code of the function, in increasing order.
+                pub const CODES: &[i32] = &[$($code,)+];
 
                 /// The code, as the host function returns it.
                 pub const fn code(self) -> i32 {

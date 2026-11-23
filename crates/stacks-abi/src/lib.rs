@@ -31,8 +31,10 @@
 //! - [`limits`]: the limits fixed by an ABI version (ABI 9.3).
 //! - [`classes`]: the classes of runtime error a receipt names (ABI 10.2).
 //! - [`status`]: the status codes host functions return (ABI 6.2).
+//! - [`host`]: the host interface (ABI 6), as a table of its functions.
 
 pub mod classes;
+pub mod host;
 pub mod limits;
 pub mod names;
 pub mod principals;
