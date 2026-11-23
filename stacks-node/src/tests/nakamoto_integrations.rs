@@ -862,6 +862,26 @@ pub fn next_block_and_process_new_stacks_block(
     })
 }
 
+/// Mine a bitcoin block with a sortition, and wait until the node at `conf` has processed it
+/// and its Stacks tip is in the new tenure.
+///
+/// Use this rather than `next_block_and_process_new_stacks_block` when the test goes on to
+/// read the new tenure's state: the coordinator counts a block as processed only after
+/// announcing it to the event observers, so a block of the previous tenure can still bump
+/// that count after the bitcoin block is mined.
+pub fn next_block_and_wait_for_tenure_start(
+    btc_controller: &BitcoinRegtestController,
+    timeout_secs: u64,
+    conf: &Config,
+) -> Result<(), String> {
+    let burn_height_before = get_chain_info(conf).burn_block_height;
+    next_block_and(btc_controller, timeout_secs, || {
+        let info = get_chain_info(conf);
+        Ok(info.burn_block_height > burn_height_before
+            && info.stacks_tip_consensus_hash == info.pox_consensus)
+    })
+}
+
 /// Mine a bitcoin block, and wait until:
 ///  number_of_blocks has been processed by the coordinator
 pub fn next_block_and_process_new_stacks_blocks<F>(
@@ -8429,7 +8449,7 @@ fn check_block_info() {
     let last_tenure_start_block_ht = last_tenure_start_block_header.stacks_block_height.into();
 
     // lets issue the next bitcoin block
-    next_block_and_process_new_stacks_block(&btc_regtest_controller, 60, &coord_channel).unwrap();
+    next_block_and_wait_for_tenure_start(&btc_regtest_controller, 60, &naka_conf).unwrap();
 
     let info = get_chain_info(&naka_conf);
     info!("Chain info: {info:?}");
@@ -9537,7 +9557,7 @@ fn run_mock_mining_ongoing_tenure_boot_test(check_empty_sortition_recovery: bool
     follower_run_loop_stopper.store(false, Ordering::SeqCst);
     follower_thread.join().unwrap();
 
-    next_block_and_process_new_stacks_block(&btc_regtest_controller, 60, &coord_channel)
+    next_block_and_wait_for_tenure_start(&btc_regtest_controller, 60, &naka_conf)
         .expect("Failed to mine a tenure-start block while follower was offline");
 
     // Mine an interim block in the same tenure while follower is still offline.
