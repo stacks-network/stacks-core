@@ -56,9 +56,7 @@ use crate::nakamoto_node::miner::{
 use crate::nakamoto_node::relayer::TEST_MINER_COMMIT_TIP;
 use crate::nakamoto_node::stackerdb_listener::TEST_IGNORE_SIGNERS;
 use crate::neon::Counters;
-use crate::tests::nakamoto_integrations::{
-    next_block_and, next_block_and_wait_for_tenure_start, wait_for,
-};
+use crate::tests::nakamoto_integrations::{next_block_and, wait_for};
 use crate::tests::neon_integrations::{
     get_account, get_chain_info, submit_tx, submit_tx_fallible, test_observer,
     wait_for_tenure_change_tx,
@@ -3967,7 +3965,7 @@ fn empty_sortition_before_approval() {
     next_block_and_process_new_stacks_block(
         &signer_test.running_nodes.btc_regtest_controller,
         60,
-        &signer_test.running_nodes.coord_channel,
+        &signer_test.running_nodes.conf,
     )
     .unwrap();
 
@@ -4048,7 +4046,7 @@ fn empty_sortition_before_approval() {
     next_block_and_process_new_stacks_block(
         &signer_test.running_nodes.btc_regtest_controller,
         60,
-        &signer_test.running_nodes.coord_channel,
+        &signer_test.running_nodes.conf,
     )
     .expect("Failed to mine a normal tenure after the tenure extend");
 
@@ -4091,7 +4089,7 @@ fn empty_sortition_before_proposal() {
     next_block_and_process_new_stacks_block(
         &signer_test.running_nodes.btc_regtest_controller,
         60,
-        &signer_test.running_nodes.coord_channel,
+        &signer_test.running_nodes.conf,
     )
     .unwrap();
 
@@ -4193,7 +4191,7 @@ fn empty_sortition_before_proposal() {
     next_block_and_process_new_stacks_block(
         &signer_test.running_nodes.btc_regtest_controller,
         60,
-        &signer_test.running_nodes.coord_channel,
+        &signer_test.running_nodes.conf,
     )
     .expect("Failed to mine a normal tenure after the tenure extend");
     signer_test.check_signer_states_normal();
@@ -4479,7 +4477,7 @@ fn empty_sortition_before_tenure_start_signed() {
     next_block_and_process_new_stacks_block(
         &signer_test.running_nodes.btc_regtest_controller,
         60,
-        &signer_test.running_nodes.coord_channel,
+        &signer_test.running_nodes.conf,
     )
     .expect("Failed to mine a normal tenure after the tenure extend");
     signer_test.check_signer_states_normal();
@@ -4697,7 +4695,7 @@ fn empty_sortition_with_lost_tenure_start_proposal() {
     next_block_and_process_new_stacks_block(
         &signer_test.running_nodes.btc_regtest_controller,
         60,
-        &signer_test.running_nodes.coord_channel,
+        &signer_test.running_nodes.conf,
     )
     .expect("Failed to mine a normal tenure after the tenure extend");
     signer_test.check_signer_states_normal();
@@ -4783,7 +4781,7 @@ fn empty_sortition_while_block_in_flight() {
     skip_commit_op.set(true);
 
     info!("------------------------- Mine Tenure A -------------------------");
-    next_block_and_wait_for_tenure_start(
+    next_block_and_process_new_stacks_block(
         &signer_test.running_nodes.btc_regtest_controller,
         60,
         &signer_test.running_nodes.conf,
@@ -4841,7 +4839,7 @@ fn empty_sortition_while_block_in_flight() {
     next_block_and_process_new_stacks_block(
         &signer_test.running_nodes.btc_regtest_controller,
         60,
-        &signer_test.running_nodes.coord_channel,
+        &signer_test.running_nodes.conf,
     )
     .expect("Failed to mine a normal tenure after the tenure extend");
     signer_test.check_signer_states_normal();
@@ -4920,7 +4918,7 @@ fn empty_sortition_while_block_in_flight_never_lands() {
     skip_commit_op.set(true);
 
     info!("------------------------- Mine Tenure A -------------------------");
-    next_block_and_wait_for_tenure_start(
+    next_block_and_process_new_stacks_block(
         &signer_test.running_nodes.btc_regtest_controller,
         60,
         &signer_test.running_nodes.conf,
@@ -4999,7 +4997,7 @@ fn empty_sortition_while_block_in_flight_never_lands() {
     next_block_and_process_new_stacks_block(
         &signer_test.running_nodes.btc_regtest_controller,
         60,
-        &signer_test.running_nodes.coord_channel,
+        &signer_test.running_nodes.conf,
     )
     .expect("Failed to mine a normal tenure after the tenure extend");
     signer_test.check_signer_states_normal();
@@ -5642,7 +5640,7 @@ fn fast_sortition() {
     next_block_and_process_new_stacks_block(
         &signer_test.running_nodes.btc_regtest_controller,
         60,
-        &signer_test.running_nodes.coord_channel,
+        &signer_test.running_nodes.conf,
     )
     .expect("Failed to mine a block");
 
@@ -6179,7 +6177,7 @@ fn tenure_extend_across_reward_cycle_boundary() {
     next_block_and_process_new_stacks_block(
         &signer_test.running_nodes.btc_regtest_controller,
         60,
-        &signer_test.running_nodes.coord_channel,
+        &signer_test.running_nodes.conf,
     )
     .expect("Failed to mine the last tenure of cycle N");
 
@@ -6283,7 +6281,7 @@ fn tenure_extend_across_reward_cycle_boundary() {
     next_block_and_process_new_stacks_block(
         &signer_test.running_nodes.btc_regtest_controller,
         60,
-        &signer_test.running_nodes.coord_channel,
+        &signer_test.running_nodes.conf,
     )
     .expect("Failed to mine a normal tenure after the tenure extend");
     let new_tenure_block =

@@ -147,7 +147,6 @@ fn check_pox_5_stake_lifecycle() {
         &naka_conf,
         &blocks_processed,
         &counters,
-        &coord_channel,
         slice::from_ref(&stacker_sk),
         &[sender_signer_sk],
         slice::from_ref(&signer_sk),
@@ -252,7 +251,7 @@ fn check_pox_5_stake_lifecycle() {
     );
 
     // 2) `stake-update` — extend by 1 cycle and increase by `extra`.
-    next_block_and_process_new_stacks_block(&btc_regtest_controller, 30, &coord_channel).unwrap();
+    next_block_and_process_new_stacks_block(&btc_regtest_controller, 30, &naka_conf).unwrap();
     let extra = 1_000_000u128;
     let update_tx = make_contract_call(
         &staker_sk,
@@ -297,8 +296,7 @@ fn check_pox_5_stake_lifecycle() {
     let mut unstake_succeeded = false;
     let mut unstake_unlock_height: Option<u64> = None;
     for attempt in 0..6 {
-        next_block_and_process_new_stacks_block(&btc_regtest_controller, 30, &coord_channel)
-            .unwrap();
+        next_block_and_process_new_stacks_block(&btc_regtest_controller, 30, &naka_conf).unwrap();
 
         test_observer::clear();
         let unstake_tx = make_contract_call(
@@ -495,7 +493,6 @@ fn check_pox_5_register_for_bond_lifecycle() {
         &naka_conf,
         &blocks_processed,
         &counters,
-        &coord_channel,
         slice::from_ref(&stacker_sk),
         &[sender_signer_sk],
         slice::from_ref(&signer_sk),
@@ -895,7 +892,6 @@ fn check_pox_5_register_for_second_bond_no_downtime() {
         &naka_conf,
         &blocks_processed,
         &counters,
-        &coord_channel,
         slice::from_ref(&stacker_sk),
         &[sender_signer_sk],
         slice::from_ref(&signer_sk),
@@ -1141,8 +1137,7 @@ fn check_pox_5_register_for_second_bond_no_downtime() {
     );
     loop {
         let blocks_before = test_observer::get_blocks().len();
-        next_block_and_process_new_stacks_block(&btc_regtest_controller, 60, &coord_channel)
-            .unwrap();
+        next_block_and_process_new_stacks_block(&btc_regtest_controller, 60, &naka_conf).unwrap();
         wait_for(30, || Ok(test_observer::get_blocks().len() > blocks_before))
             .expect("Timed out waiting for observer to process new block");
         let mid_account = get_account(&http_origin, &staker_addr);
@@ -1550,7 +1545,6 @@ fn check_pox_5_register_for_bond_l1_lockup_lifecycle() {
         &naka_conf,
         &blocks_processed,
         &counters,
-        &coord_channel,
         slice::from_ref(&stacker_sk),
         &[sender_signer_sk],
         slice::from_ref(&signer_sk),
@@ -2544,7 +2538,6 @@ fn check_pox_5_register_for_bond_l1_early_unlock_lifecycle() {
         &naka_conf,
         &blocks_processed,
         &counters,
-        &coord_channel,
         slice::from_ref(&stacker_sk),
         &[sender_signer_sk],
         slice::from_ref(&signer_sk),
@@ -2989,8 +2982,7 @@ fn check_pox_5_register_for_bond_l1_early_unlock_lifecycle() {
     while u128::from(get_chain_info_result(&naka_conf).unwrap().burn_block_height)
         < reward_calculation_burn_height
     {
-        next_block_and_process_new_stacks_block(&btc_regtest_controller, 30, &coord_channel)
-            .unwrap();
+        next_block_and_process_new_stacks_block(&btc_regtest_controller, 30, &naka_conf).unwrap();
     }
 
     test_observer::clear();
@@ -3693,7 +3685,6 @@ fn check_with_stacking_allowances_stake() {
         &naka_conf,
         &blocks_processed,
         &counters,
-        &coord_channel,
         slice::from_ref(&stacker_sk),
         &[sender_signer_sk],
         &[],
@@ -3795,7 +3786,7 @@ fn check_with_stacking_allowances_stake() {
     })
     .expect("Timed out waiting for contracts to publish");
 
-    next_block_and_process_new_stacks_block(&btc_regtest_controller, 30, &coord_channel).unwrap();
+    next_block_and_process_new_stacks_block(&btc_regtest_controller, 30, &naka_conf).unwrap();
 
     // pox-5's `stake` requires the signer-manager contract to have been
     // registered in advance via `register-signer`, which itself requires
@@ -4178,7 +4169,6 @@ fn check_with_stacking_allowances_register_for_bond() {
         &naka_conf,
         &blocks_processed,
         &counters,
-        &coord_channel,
         slice::from_ref(&stacker_sk),
         &[sender_signer_sk],
         &[],
@@ -4299,7 +4289,7 @@ fn check_with_stacking_allowances_register_for_bond() {
     })
     .expect("Timed out waiting for contracts to publish");
 
-    next_block_and_process_new_stacks_block(&btc_regtest_controller, 30, &coord_channel).unwrap();
+    next_block_and_process_new_stacks_block(&btc_regtest_controller, 30, &naka_conf).unwrap();
 
     // Register the signer (same flow as the stake test).
     let test_signer_principal = PrincipalData::Contract(QualifiedContractIdentifier::new(
@@ -4748,7 +4738,6 @@ fn check_with_pox_allowances() {
         &naka_conf,
         &blocks_processed,
         &counters,
-        &coord_channel,
         slice::from_ref(&stacker_sk),
         &[sender_signer_sk],
         &[],
@@ -4832,7 +4821,7 @@ fn check_with_pox_allowances() {
     })
     .expect("Timed out waiting for contracts to publish");
 
-    next_block_and_process_new_stacks_block(&btc_regtest_controller, 30, &coord_channel).unwrap();
+    next_block_and_process_new_stacks_block(&btc_regtest_controller, 30, &naka_conf).unwrap();
 
     // Register the signer so pox-5 `stake` can find a signer record.
     let test_signer_principal = PrincipalData::Contract(QualifiedContractIdentifier::new(
@@ -4940,7 +4929,7 @@ fn check_with_pox_allowances() {
         let mut stacker_nonce = 1;
         let mut observed: Option<Value> = None;
         for attempt in 0..10 {
-            next_block_and_process_new_stacks_block(&btc_regtest_controller, 30, &coord_channel)
+            next_block_and_process_new_stacks_block(&btc_regtest_controller, 30, &naka_conf)
                 .unwrap();
             test_observer::clear();
             let tx = make_contract_call(
@@ -5080,7 +5069,6 @@ fn check_transaction_post_conditions() {
         &naka_conf,
         &blocks_processed,
         &counters,
-        &coord_channel,
         slice::from_ref(&stacker_sk),
         &[sender_signer_sk],
         &[],
@@ -5309,8 +5297,7 @@ fn check_transaction_post_conditions() {
     let mut nonce = 1;
     let mut observed: Option<String> = None;
     for attempt in 0..10 {
-        next_block_and_process_new_stacks_block(&btc_regtest_controller, 30, &coord_channel)
-            .unwrap();
+        next_block_and_process_new_stacks_block(&btc_regtest_controller, 30, &naka_conf).unwrap();
         test_observer::clear();
         let tx = make_contract_call_with_post_conditions(
             &stackers[3],
