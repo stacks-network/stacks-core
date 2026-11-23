@@ -20,7 +20,7 @@ use mio::net as mio_net;
 
 use crate::net::connection::ConnectionOptions;
 use crate::net::poll::{NetworkPollState, NetworkState};
-use crate::net::transport::{PeerStream, PeerTransport, TransportEvents};
+use crate::net::transport::{LentStream, PeerTransport, TransportEvents};
 use crate::net::Error as net_error;
 
 /// Plain TCP sockets, registered with the node's `mio` poller.
@@ -31,6 +31,10 @@ pub struct TcpTransport {
     /// Open sockets, both connecting and connected, by connection ID.
     /// Boxed so that lending one out with `take_stream()` doesn't allocate.
     sockets: HashMap<usize, Box<mio_net::TcpStream>>,
+    /// Connections whose socket is lent out, and whether `close()` was called on them since.
+    lent: HashMap<usize, bool>,
+    /// Sockets closed while they were lent out, to deregister on the next `process_poll()`.
+    closing: Vec<(usize, Box<mio_net::TcpStream>)>,
     socket_send_buffer_size: u32,
     socket_recv_buffer_size: u32,
 }
@@ -40,6 +44,8 @@ impl TcpTransport {
         Self {
             server_handle: None,
             sockets: HashMap::new(),
+            lent: HashMap::new(),
+            closing: vec![],
             socket_send_buffer_size: connection_opts.socket_send_buffer_size,
             socket_recv_buffer_size: connection_opts.socket_recv_buffer_size,
         }
@@ -86,6 +92,12 @@ impl PeerTransport for TcpTransport {
         let server_handle = self
             .server_handle
             .expect("BUG: polled the p2p transport before binding it");
+
+        // finish closing the sockets that were closed while lent out
+        for (event_id, sock) in self.closing.drain(..) {
+            let _ = poller.deregister(event_id, &sock);
+        }
+
         let mut poll_state = poll_states
             .remove(&server_handle)
             .expect("BUG: no poll state for p2p network handle");
@@ -102,7 +114,7 @@ impl PeerTransport for TcpTransport {
             };
 
             // event ID already used?
-            if self.sockets.contains_key(&event_id) {
+            if self.sockets.contains_key(&event_id) || self.lent.contains_key(&event_id) {
                 warn!("Already have an event {event_id}");
                 let _ = poller.deregister(event_id, &client_sock);
                 continue;
@@ -129,23 +141,34 @@ impl PeerTransport for TcpTransport {
         })
     }
 
-    fn take_stream(&mut self, id: usize) -> Option<Box<dyn PeerStream>> {
-        self.sockets
-            .remove(&id)
-            .map(|sock| sock as Box<dyn PeerStream>)
+    fn take_stream(&mut self, id: usize) -> Option<LentStream> {
+        let sock = self.sockets.remove(&id)?;
+        self.lent.insert(id, false);
+        Some(LentStream::new(id, sock))
     }
 
-    fn restore_stream(&mut self, id: usize, stream: Box<dyn PeerStream>) {
+    fn restore_stream(&mut self, stream: LentStream) {
+        let (id, stream) = stream.into_parts();
+        let closed = self
+            .lent
+            .remove(&id)
+            .expect("BUG: restored a stream that the TCP transport did not lend out");
         let sock = stream
             .into_any()
             .downcast::<mio_net::TcpStream>()
             .expect("BUG: restored a stream that the TCP transport did not create");
-        self.sockets.insert(id, sock);
+        if closed {
+            self.closing.push((id, sock));
+        } else {
+            self.sockets.insert(id, sock);
+        }
     }
 
     fn close(&mut self, poller: &mut NetworkState, id: usize) {
         if let Some(sock) = self.sockets.remove(&id) {
             let _ = poller.deregister(id, &sock);
+        } else if let Some(closed) = self.lent.get_mut(&id) {
+            *closed = true;
         }
     }
 }
@@ -225,8 +248,8 @@ mod test {
         }
         assert_eq!(received, msg);
 
-        transport.restore_stream(outbound, sender);
-        transport.restore_stream(inbound, receiver);
+        transport.restore_stream(sender);
+        transport.restore_stream(receiver);
 
         transport.close(&mut poller, outbound);
         transport.close(&mut poller, inbound);
@@ -238,5 +261,37 @@ mod test {
 
         // closing an unknown connection is a no-op
         transport.close(&mut poller, outbound);
+    }
+
+    #[test]
+    fn test_close_while_lent() {
+        let mut poller = NetworkState::new(10).unwrap();
+        let mut transport = TcpTransport::new(&ConnectionOptions::default());
+        let addr = transport
+            .bind(&mut poller, &"127.0.0.1:0".parse().unwrap())
+            .unwrap();
+        let outbound = transport.connect(&mut poller, &addr).unwrap();
+        let inbound = poll_until_accepted(&mut poller, &mut transport);
+        assert_eq!(poller.num_events(), 3);
+
+        // closing a connection whose stream is lent out doesn't close it yet
+        let stream = transport.take_stream(outbound).unwrap();
+        assert_eq!(stream.id(), outbound);
+        transport.close(&mut poller, outbound);
+        assert_eq!(poller.num_events(), 3);
+
+        // once the stream is handed back, the connection is gone, and its ID is released by the
+        // next poll
+        transport.restore_stream(stream);
+        assert!(transport.take_stream(outbound).is_none());
+        assert!(transport.peer_addr(outbound).is_err());
+        let mut poll_states = poller.poll(0).unwrap();
+        transport.process_poll(&mut poller, &mut poll_states);
+        assert_eq!(poller.num_events(), 2);
+
+        // the other connection is unaffected
+        let stream = transport.take_stream(inbound).unwrap();
+        transport.restore_stream(stream);
+        assert!(transport.peer_addr(inbound).is_ok());
     }
 }

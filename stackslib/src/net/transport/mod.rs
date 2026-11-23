@@ -31,7 +31,7 @@
 use std::any::Any;
 use std::collections::HashMap;
 use std::fmt;
-use std::io::{Read, Write};
+use std::io::{self, Read, Write};
 use std::net::SocketAddr;
 
 use crate::net::poll::{NetworkPollState, NetworkState};
@@ -56,6 +56,51 @@ pub trait PeerStream: Read + Write + fmt::Debug + Send {
 impl<T: Read + Write + fmt::Debug + Send + 'static> PeerStream for T {
     fn into_any(self: Box<Self>) -> Box<dyn Any + Send> {
         self
+    }
+}
+
+/// A connection's stream, lent out by [`PeerTransport::take_stream`].  It reads and writes like
+/// the stream itself, and must be handed back with [`PeerTransport::restore_stream`].
+///
+/// Only transports can create one or unwrap it, so the stream a transport gets back is always
+/// the one it lent out, for the connection it lent it out for.
+#[must_use = "a lent stream must be handed back with `PeerTransport::restore_stream`"]
+#[derive(Debug)]
+pub struct LentStream {
+    id: usize,
+    stream: Box<dyn PeerStream>,
+}
+
+impl LentStream {
+    /// Lend out connection `id`'s stream.
+    fn new(id: usize, stream: Box<dyn PeerStream>) -> Self {
+        Self { id, stream }
+    }
+
+    /// Take back the connection ID and the stream.
+    fn into_parts(self) -> (usize, Box<dyn PeerStream>) {
+        (self.id, self.stream)
+    }
+
+    /// The ID of the connection this stream belongs to.
+    pub fn id(&self) -> usize {
+        self.id
+    }
+}
+
+impl Read for LentStream {
+    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+        self.stream.read(buf)
+    }
+}
+
+impl Write for LentStream {
+    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+        self.stream.write(buf)
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        self.stream.flush()
     }
 }
 
@@ -102,14 +147,16 @@ pub trait PeerTransport: Send {
     /// The remote address of an open connection.
     fn peer_addr(&self, id: usize) -> Result<SocketAddr, net_error>;
 
-    /// Remove a connection's stream so it can be used while the transport is borrowed elsewhere.
-    /// The caller must hand it back with [`PeerTransport::restore_stream`].
-    /// Returns `None` if there is no such connection, or its stream is already taken.
-    fn take_stream(&mut self, id: usize) -> Option<Box<dyn PeerStream>>;
+    /// Lend out a connection's stream, so it can be used while the transport is borrowed
+    /// elsewhere.  The caller must hand it back with [`PeerTransport::restore_stream`].
+    /// Returns `None` if there is no such connection, or its stream is already lent out.
+    fn take_stream(&mut self, id: usize) -> Option<LentStream>;
 
-    /// Hand back a stream that [`PeerTransport::take_stream`] returned for `id`.
-    fn restore_stream(&mut self, id: usize, stream: Box<dyn PeerStream>);
+    /// Hand back a stream that [`PeerTransport::take_stream`] lent out.
+    fn restore_stream(&mut self, stream: LentStream);
 
     /// Close a connection and release its ID.  Does nothing if there is no such connection.
+    /// If the connection's stream is lent out, it is closed once the stream is handed back,
+    /// and its ID is released by the next [`PeerTransport::process_poll`].
     fn close(&mut self, poller: &mut NetworkState, id: usize);
 }
