@@ -74,7 +74,7 @@
 /// their smart contracts' addresses).  Upon receipt of a `StackerDBHandshakeAccept`, the node
 /// stores the list of smart contracts in its `PeerDB` as part of the network frontier state.  In
 /// doing so, nodes eventually learn of all of the StackerDBSet replicated by all other nodes.  To
-/// bound the size of this state, the protocol mandates that a node can only replicate up to 256
+/// bound the size of this state, the protocol mandates that a node can only replicate up to 255
 /// StackerDBSet.  The handshake-handling code happens in net::chat::handle_handshake().
 ///
 /// When a node begins to replicate a StackerDB, it first queries the `PeerDB` for the set of nodes
@@ -146,6 +146,8 @@ pub const STACKERDB_INV_MAX: u32 = 4096;
 pub const STACKERDB_PAGE_LIST_MAX: u32 = 4096;
 /// maximum number of pages that can be used in a StackerDB contract
 pub const STACKERDB_MAX_PAGE_COUNT: u32 = 2;
+/// maximum number of StackerDBs a node can replicate (the handshake encodes the count as a u8)
+pub const STACKERDB_MAX_REPLICATED_DBS: usize = u8::MAX as usize;
 
 pub const STACKERDB_SLOTS_FUNCTION: &str = "stackerdb-get-signer-slots";
 pub const STACKERDB_CONFIG_FUNCTION: &str = "stackerdb-get-config";

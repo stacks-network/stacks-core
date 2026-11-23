@@ -793,11 +793,9 @@ fn contract_id_consensus_deserialize<R: Read>(
 
 impl StacksMessageCodec for StackerDBHandshakeData {
     fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), codec_error> {
-        if self.smart_contracts.len() > 256 {
-            return Err(codec_error::ArrayTooLong);
-        }
-        // force no more than 256 names in the protocol
-        let len_u8: u8 = self.smart_contracts.len().try_into().expect("Unreachable");
+        // the protocol encodes the count as a u8, so at most 255 names fit
+        let len_u8 =
+            u8::try_from(self.smart_contracts.len()).map_err(|_| codec_error::ArrayTooLong)?;
         write_next(fd, &self.rc_consensus_hash)?;
         write_next(fd, &len_u8)?;
         for cid in self.smart_contracts.iter() {
@@ -1586,6 +1584,8 @@ impl ProtocolFamily for StacksP2P {
 
 #[cfg(test)]
 pub mod test {
+    use std::assert_matches;
+
     use clarity::consts::PEER_VERSION_TESTNET;
     use stacks_common::bitvec::BitVec;
     use stacks_common::codec::NEIGHBOR_ADDRESS_ENCODED_SIZE;
@@ -2171,6 +2171,31 @@ pub mod test {
         ];
 
         check_codec_and_corruption::<StackerDBHandshakeData>(&data, &bytes);
+    }
+
+    #[test]
+    fn codec_StackerDBHandshakeAccept_contract_count_limit() {
+        let handshake = |count: usize| StackerDBHandshakeData {
+            rc_consensus_hash: ConsensusHash([0x01; 20]),
+            smart_contracts: (0..count)
+                .map(|i| {
+                    QualifiedContractIdentifier::parse(&format!(
+                        "SP8QPP8TVXYAXS1VFSERG978A6WKBF59NSYJQEMN.db-{i}"
+                    ))
+                    .unwrap()
+                })
+                .collect(),
+        };
+
+        let max = handshake(255);
+        let bytes = max.serialize_to_vec();
+        let decoded = StackerDBHandshakeData::consensus_deserialize(&mut &bytes[..]).unwrap();
+        assert_eq!(decoded, max);
+
+        assert_matches!(
+            handshake(256).consensus_serialize(&mut vec![]),
+            Err(codec_error::ArrayTooLong)
+        );
     }
 
     #[test]

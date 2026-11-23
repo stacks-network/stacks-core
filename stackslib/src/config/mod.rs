@@ -36,7 +36,9 @@ use std::{cmp, fs, thread};
 
 use clarity::vm::costs::ExecutionCost;
 use clarity::vm::representations::CONTRACT_MAX_NAME_LENGTH;
-use clarity::vm::types::{AssetIdentifier, PrincipalData, QualifiedContractIdentifier};
+use clarity::vm::types::{
+    AssetIdentifier, PrincipalData, QualifiedContractIdentifier, StandardPrincipalData,
+};
 use rand::RngCore;
 use serde::Deserialize;
 use stacks_common::consts::SIGNER_SLOTS_PER_USER;
@@ -78,12 +80,12 @@ use crate::net::connection::{
     DEFAULT_BLOCK_PROPOSAL_MAX_TX_EXECUTION_TIME_SECS,
     DEFAULT_BLOCK_PROPOSAL_VALIDATION_TIMEOUT_SECS,
 };
-use crate::net::stackerdb::set_log_stackerdb_chunk_sources;
+use crate::net::stackerdb::{set_log_stackerdb_chunk_sources, STACKERDB_MAX_REPLICATED_DBS};
 use crate::net::{Neighbor, NeighborAddress, NeighborKey};
 use crate::types::chainstate::BurnchainHeaderHash;
 use crate::types::EpochList;
 use crate::util::hash::to_hex;
-use crate::util_lib::boot::boot_code_id;
+use crate::util_lib::boot::{boot_code_addr, boot_code_id};
 use crate::util_lib::db::Error as DBError;
 
 pub const DEFAULT_SATS_PER_VB: u64 = 50;
@@ -931,6 +933,7 @@ impl Config {
             node.add_miner_stackerdb(is_mainnet);
             node.add_signers_stackerdbs(is_mainnet);
         }
+        node.validate_stacker_dbs(is_mainnet)?;
 
         let miner = match config_file.miner {
             Some(mut miner) => {
@@ -2608,6 +2611,28 @@ impl NodeConfig {
         if !self.stacker_dbs.contains(&miners_contract_id) {
             self.stacker_dbs.push(miners_contract_id);
         }
+    }
+
+    /// Reject a `stacker_dbs` list longer than [`STACKERDB_MAX_REPLICATED_DBS`], counting the
+    /// boot-code StackerDBs (signers, miners) added for stackers and miners.
+    pub fn validate_stacker_dbs(&self, is_mainnet: bool) -> Result<(), String> {
+        let total = self.stacker_dbs.len();
+        if total <= STACKERDB_MAX_REPLICATED_DBS {
+            return Ok(());
+        }
+
+        let boot_issuer = StandardPrincipalData::from(boot_code_addr(is_mainnet));
+        let boot_dbs = self
+            .stacker_dbs
+            .iter()
+            .filter(|contract_id| contract_id.issuer == boot_issuer)
+            .count();
+        Err(format!(
+            "node.stacker_dbs: a node can replicate at most {STACKERDB_MAX_REPLICATED_DBS} \
+             StackerDBs, but {total} are configured ({boot_dbs} of them built-in signer and \
+             miner StackerDBs). Remove at least {} from node.stacker_dbs.",
+            total - STACKERDB_MAX_REPLICATED_DBS
+        ))
     }
 
     fn default_neighbor(
@@ -4948,6 +4973,45 @@ mod tests {
         pub fn config_from_valid_string(valid_config: &str) -> Config {
             Config::from_config_file(ConfigFile::from_str(valid_config).unwrap(), false).unwrap()
         }
+    }
+
+    #[test]
+    fn too_many_stacker_dbs_is_a_config_error() {
+        let stacker_config = |configured: usize| {
+            Config::from_config_file(
+                ConfigFile {
+                    burnchain: Some(BurnchainConfigFile {
+                        mode: Some("nakamoto-neon".into()),
+                        ..Default::default()
+                    }),
+                    node: Some(NodeConfigFile {
+                        stacker: Some(true),
+                        stacker_dbs: Some(
+                            (0..configured)
+                                .map(|i| format!("SP8QPP8TVXYAXS1VFSERG978A6WKBF59NSYJQEMN.db-{i}"))
+                                .collect(),
+                        ),
+                        ..Default::default()
+                    }),
+                    ..Default::default()
+                },
+                false,
+            )
+        };
+
+        let mut boot_dbs = NodeConfig::default();
+        boot_dbs.add_miner_stackerdb(false);
+        boot_dbs.add_signers_stackerdbs(false);
+        let room = STACKERDB_MAX_REPLICATED_DBS - boot_dbs.stacker_dbs.len();
+
+        let config = stacker_config(room).unwrap();
+        assert_eq!(config.node.stacker_dbs.len(), STACKERDB_MAX_REPLICATED_DBS);
+
+        let err = stacker_config(room + 1).unwrap_err();
+        assert!(
+            err.contains("Remove at least 1 from node.stacker_dbs"),
+            "{err}"
+        );
     }
 
     /// Resolve signet defaults and overrides without parsing TOML or resolving bootstrap peers.

@@ -1,0 +1,1 @@
+Fixed a node panic when replying to a StackerDB handshake while configured with exactly 256 StackerDBs. The handshake encoding holds at most 255, so a node now refuses to start when `node.stacker_dbs` plus the built-in signer and miner StackerDBs exceed 255.
