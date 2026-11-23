@@ -3955,24 +3955,12 @@ fn empty_sortition_before_approval() {
     signer_test.boot_to_epoch_3();
 
     let Counters {
-        naka_submitted_commits: commits_submitted,
         naka_proposed_blocks: proposed_blocks,
         skip_commit_op,
         ..
     } = signer_test.running_nodes.counters.clone();
 
-    let commits_before = commits_submitted.load(Ordering::SeqCst);
-    next_block_and_process_new_stacks_block(
-        &signer_test.running_nodes.btc_regtest_controller,
-        60,
-        &signer_test.running_nodes.conf,
-    )
-    .unwrap();
-
-    wait_for(30, || {
-        Ok(commits_submitted.load(Ordering::SeqCst) > commits_before)
-    })
-    .expect("Timed out waiting for commit to be submitted for Tenure A");
+    signer_test.mine_nakamoto_block(Duration::from_secs(30), true);
 
     let info = get_chain_info(&signer_test.running_nodes.conf);
     let stacks_height_before = info.stacks_tip_height;
