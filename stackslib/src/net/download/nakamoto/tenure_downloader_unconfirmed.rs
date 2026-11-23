@@ -30,7 +30,7 @@ use crate::chainstate::stacks::db::StacksChainState;
 use crate::net::api::gettenureinfo::RPCGetTenureInfo;
 use crate::net::download::nakamoto::NakamotoTenureDownloader;
 use crate::net::httpcore::{StacksHttpRequest, StacksHttpResponse};
-use crate::net::neighbors::rpc::NeighborRPC;
+use crate::net::neighbors::rpc::{NeighborRPC, NeighborRPCOwner};
 use crate::net::p2p::{CurrentRewardSet, DropReason, DropSource, PeerNetwork};
 use crate::net::{Error as NetError, NeighborAddress};
 use crate::util_lib::db::Error as DBError;
@@ -864,7 +864,12 @@ impl NakamotoUnconfirmedTenureDownloader {
             return Ok(());
         };
 
-        neighbor_rpc.send_request(network, self.naddr.clone(), request)?;
+        neighbor_rpc.send_request(
+            network,
+            self.naddr.clone(),
+            request,
+            NeighborRPCOwner::NakamotoUnconfirmedTenures,
+        )?;
         Ok(())
     }
 

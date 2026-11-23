@@ -129,7 +129,9 @@ use crate::tests::neon_integrations::{
     get_sortition_info, next_block_and_wait, run_until_burnchain_height, submit_tx,
     submit_tx_fallible, test_observer, wait_for_runloop, wait_for_tenure_change_tx,
 };
-use crate::tests::signer::v0::{sbtc_registry_stub_source, sbtc_token_stub_source};
+use crate::tests::signer::v0::{
+    sbtc_registry_stub_source, sbtc_token_stub_source, SbtcRegistryStub,
+};
 use crate::tests::signer::SignerTest;
 use crate::tests::{gen_random_port, get_chain_info, make_contract_publish, to_addr};
 use crate::{tests, BitcoinRegtestController, Config, ConfigFile, Keychain};
@@ -761,6 +763,31 @@ pub fn enable_epoch_4_0(conf: &mut Config) {
         .start_height = 262;
 }
 
+/// Activate Epoch 4.1 (inactive by default in `NAKAMOTO_INTEGRATION_EPOCHS`)
+/// two reward cycles after the [`enable_epoch_4_0`] boundary, at `302`.
+/// Must be applied together with `enable_epoch_4_0`, and to every node's
+/// config so peers agree on the boundary.
+pub fn enable_epoch_4_1(conf: &mut Config) {
+    let epochs = conf
+        .burnchain
+        .epochs
+        .as_mut()
+        .expect("Missing burnchain epochs in config");
+    let epoch_40 = epochs
+        .get_mut(StacksEpochId::Epoch40)
+        .expect("Missing epoch 4.0 in config");
+    assert_eq!(
+        epoch_40.start_height, 262,
+        "enable_epoch_4_1 expects enable_epoch_4_0 to have been applied first"
+    );
+    epoch_40.end_height = 302;
+    let epoch_41 = epochs
+        .get_mut(StacksEpochId::Epoch41)
+        .expect("Missing epoch 4.1 in config");
+    epoch_41.start_height = 302;
+    epoch_41.end_height = STACKS_EPOCH_MAX;
+}
+
 pub fn next_block_and<F>(
     btc_controller: &BitcoinRegtestController,
     timeout_secs: u64,
@@ -1171,7 +1198,8 @@ pub fn boot_to_epoch_4_0(
     submit_tx(&http_origin, &sbtc_deploy_tx);
 
     let expected_deployer_nonce: u64 = if let Some(pubkey) = sbtc_registry_pubkey {
-        let sbtc_registry_contract = sbtc_registry_stub_source(pubkey);
+        let sbtc_registry_contract =
+            sbtc_registry_stub_source(pubkey, SbtcRegistryStub::DevenvSignerSet);
         let sbtc_registry_deploy_tx = make_contract_publish(
             sbtc_deployer_sk,
             1,

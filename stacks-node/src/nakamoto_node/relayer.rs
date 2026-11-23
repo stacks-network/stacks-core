@@ -346,6 +346,8 @@ pub enum TenureExtendReason {
     BadSortitionWinner,
     /// We are waiting for the current winner to produce a block.
     UnresponsiveWinner,
+    /// We are waiting for a block we proposed on the Stacks tip to land.
+    InFlightBlock,
 }
 
 /// Information necessary to determine when to extend a tenure
@@ -381,6 +383,17 @@ impl TenureExtendTime {
             time: Instant::now(),
             timeout: Duration::from_millis(0),
             reason,
+            deferred_block_found: false,
+        }
+    }
+
+    /// Create a new `TenureExtendTime` that waits up to `timeout` for a block this miner
+    /// proposed on the Stacks tip to land before extending on top of it.
+    pub fn in_flight_block(timeout: Duration) -> Self {
+        Self {
+            time: Instant::now(),
+            timeout,
+            reason: TenureExtendReason::InFlightBlock,
             deferred_block_found: false,
         }
     }
@@ -711,10 +724,12 @@ impl RelayerThread {
                         "ongoing_tenure" => %canonical_stacks_snapshot.consensus_hash,
                         "commits_to_tip_tenure?" => commits_to_tip_tenure
                     );
-                    // Extend tenure to the new burn view instead of attempting BlockFound
-                    return MinerDirective::ContinueTenure {
-                        new_burn_view: sn.consensus_hash,
-                    };
+                    // Extend tenure to the new burn view instead of attempting BlockFound.
+                    // If a block we proposed is still in flight, the extend is deferred
+                    // to `check_tenure_timers`; stop the miner thread meanwhile.
+                    return self
+                        .continue_tenure_directive(sn.consensus_hash)
+                        .unwrap_or(MinerDirective::StopTenure);
                 }
             }
         }
@@ -903,9 +918,7 @@ impl RelayerThread {
                 // this is the ongoing tenure snapshot. A BlockFound has already been issued. We
                 // can instead opt to Extend immediately
                 info!("Relayer: BlockFound already issued for the last winning sortition. Will extend tenure.");
-                return Some(MinerDirective::ContinueTenure {
-                    new_burn_view: sn.consensus_hash,
-                });
+                return self.continue_tenure_directive(sn.consensus_hash);
             }
         }
 
@@ -923,13 +936,50 @@ impl RelayerThread {
                 ));
                 return None;
             }
-            return Some(MinerDirective::ContinueTenure {
-                new_burn_view: sn.consensus_hash,
-            });
+            return self.continue_tenure_directive(sn.consensus_hash);
         }
 
         info!("Relayer: No sortition, and we did not produce the last Stacks tip. Will not mine.");
         None
+    }
+
+    /// Extend the ongoing tenure into `new_burn_view`, unless a block this node proposed on
+    /// the Stacks tip is still in flight. The signers may still sign and push that block,
+    /// and an extend on the same parent would only be a sibling of it: signers that signed
+    /// one refuse to sign the other, so a split stalls the tenure at that height until the
+    /// next sortition. In that case wait for the block to land or be rejected, for at most
+    /// [`MinerConfig::block_found_in_flight_wait`], and extend from `check_tenure_timers`.
+    fn continue_tenure_directive(
+        &mut self,
+        new_burn_view: ConsensusHash,
+    ) -> Option<MinerDirective> {
+        if self.proposed_block_in_flight() {
+            info!(
+                "Relayer: a block we proposed on the Stacks tip is still in flight. Will wait for it before extending.";
+                "burn_view" => %new_burn_view,
+                "in_flight_wait_ms" => self.config.miner.block_found_in_flight_wait.as_millis(),
+            );
+            self.tenure_extend_time = Some(TenureExtendTime::in_flight_block(
+                self.config.miner.block_found_in_flight_wait,
+            ));
+            return None;
+        }
+        Some(MinerDirective::ContinueTenure { new_burn_view })
+    }
+
+    /// Is the last block this node proposed a child of the canonical Stacks tip that the
+    /// signers have not rejected? If so, it has not landed and may still be signed.
+    ///
+    /// Mock miners' proposals never land, so they never report one.
+    fn proposed_block_in_flight(&self) -> bool {
+        if self.config.get_node_config(false).mock_mining {
+            return false;
+        }
+        let Some(parent) = self.globals.get_last_proposed_block_parent() else {
+            return false;
+        };
+        SortitionDB::get_canonical_stacks_chain_tip_hash(self.sortdb.conn())
+            .is_ok_and(|(ch, bh)| StacksBlockId::new(&ch, &bh) == parent)
     }
 
     /// If this node has already proposed a tenure-start block for
@@ -2046,7 +2096,10 @@ impl RelayerThread {
             // No tenure extend time set, so nothing to do.
             return;
         };
-        if !tenure_extend_time.should_extend() {
+        // A wait for an in-flight block ends early once the block lands or is rejected.
+        let in_flight_resolved = *tenure_extend_time.reason() == TenureExtendReason::InFlightBlock
+            && !self.proposed_block_in_flight();
+        if !tenure_extend_time.should_extend() && !in_flight_resolved {
             test_debug!(
                 "Relayer: will not try to tenure-extend yet ({} <= {})",
                 tenure_extend_time.elapsed().as_secs(),
@@ -2161,7 +2214,7 @@ impl RelayerThread {
                     return;
                 }
             }
-            TenureExtendReason::UnresponsiveWinner => {}
+            TenureExtendReason::UnresponsiveWinner | TenureExtendReason::InFlightBlock => {}
         }
 
         let won_ongoing_tenure_sortition =
@@ -2174,6 +2227,23 @@ impl RelayerThread {
                 "mining_pk" => %mining_pkh
             );
             self.tenure_extend_time = None;
+            return;
+        }
+        // Do not extend on the parent of a block we proposed that may still be signed (see
+        // `continue_tenure_directive`). The `InFlightBlock` timer extends once that block
+        // lands or is rejected, or once the wait expires, so this defers an extend only once.
+        if *tenure_extend_time.reason() != TenureExtendReason::InFlightBlock
+            && self.proposed_block_in_flight()
+        {
+            info!(
+                "Relayer: a block we proposed on the Stacks tip is still in flight. Will wait for it before extending.";
+                "burn_view" => %burn_tip.consensus_hash,
+                "reason" => ?tenure_extend_time.reason(),
+                "in_flight_wait_ms" => self.config.miner.block_found_in_flight_wait.as_millis(),
+            );
+            self.tenure_extend_time = Some(TenureExtendTime::in_flight_block(
+                self.config.miner.block_found_in_flight_wait,
+            ));
             return;
         }
         // If we reach this code, we have either won the last winning snapshot and have already issued a block found for it and should extend.

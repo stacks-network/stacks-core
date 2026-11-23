@@ -10,6 +10,11 @@ on:
         required: true
         type: boolean
         default: true
+      custom_version_string:
+        description: "Optional custom version string to embed in the binaries"
+        required: false
+        type: string
+        default: ""
   schedule:
     # Run at 05:00 UTC daily
     - cron: "0 5 * * *"
@@ -104,9 +109,12 @@ jobs:
           } >> "$GITHUB_ENV"
 
       # Configure target platform, install Rust toolchain, and build binaries
+      #   - option_env!("CUSTOM_VERSION_STRING") is read at compile time. Scheduled
+      #     runs have no input, so it is empty and treated as unset.
       - name: Build Binaries
         id: build-binaries
         env:
+          CUSTOM_VERSION_STRING: ${{ inputs.custom_version_string }}
           CARGO_BUILD_JOBS: ${{ vars.CARGO_BUILD_JOBS || '1' }}
           MATRIX_CPU: ${{ matrix.cpu }}
           # Set the build target statically, since we only need to build for linux-glibc
@@ -203,7 +211,7 @@ jobs:
       # Set docker metadata
       - name: Docker Metadata
         id: docker-metadata
-        uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 #v6.2.0
+        uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
         env:
           DOCKER_METADATA_ANNOTATIONS_LEVELS: manifest,index
         with:
@@ -249,7 +257,7 @@ jobs:
       # Sign the images with GitHub OIDC Token
       #   - https://github.blog/security/supply-chain-security/safeguard-container-signing-capability-actions/
       - name: Install Cosign
-        uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+        uses: sigstore/cosign-installer@756fe2d284c7292c4e9b62c8a28f1e5629c59532 # v4.1.3
 
       # Sign the images with Github OIDC token
       - name: Sign the images OIDC Token
