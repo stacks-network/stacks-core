@@ -862,8 +862,10 @@ pub fn next_block_and_process_new_stacks_block(
     })
 }
 
-/// Mine a bitcoin block with a sortition, and wait until the node at `conf` has processed it
-/// and its Stacks tip is in the new tenure.
+/// Mine a bitcoin block, and wait until the node at `conf` has processed it and its Stacks tip
+/// is in the new tenure. The block must have a sortition that this node's miner wins and
+/// builds on; otherwise this times out, since a tenure-extend block keeps the old consensus
+/// hash.
 ///
 /// Use this rather than `next_block_and_process_new_stacks_block` when the test goes on to
 /// read the new tenure's state: the coordinator counts a block as processed only after
