@@ -19,6 +19,10 @@ on:
         description: 'The SHA of the binary to verify before executing the tests. Find these in the official SHA256SUMS file for each release. Example: https://bitcoincore.org/bin/bitcoin-core-31.1/SHA256SUMS'
         required: false
         type: string
+      baseline-version:
+        description: 'Release tag whose published binaries the cross-version signer tests run against (for example 4.0.5). Empty uses the latest two stable releases.'
+        required: false
+        type: string
   pull_request: # Trigger on pull requests
     types:
       - opened
@@ -400,6 +404,26 @@ jobs:
       archive-file: ${{ needs.setup-env.outputs.test-archive-file }}
 
   ############################################################################
+  ### Run Cross-Version Tests
+  ############################################################################
+  tests-cross-version:
+    name: "Tests: Cross Version"
+    needs:
+      - check-changelog
+      - check-rustfmt
+      - check-test-caches
+      - create-nextest-archive
+      - setup-env
+    uses: ./.github/workflows/_tests-cross-version.yml
+    with:
+      btc-version: ${{ needs.setup-env.outputs.btc-version }}
+      btc-version-sha: ${{ needs.setup-env.outputs.btc-version-sha }}
+      archive-file: ${{ needs.setup-env.outputs.test-archive-file }}
+      baseline-version: ${{ inputs.baseline-version }}
+      upload-junit-xml: ${{ needs.setup-env.outputs.create-slow-failed-tests-summary }}
+      upload-code-coverage: ${{ needs.setup-env.outputs.create-code-coverage-report }}
+
+  ############################################################################
   ### Run P2P Tests
   ############################################################################
   tests-p2p:
@@ -430,6 +454,7 @@ jobs:
       - check-test-caches
       - setup-env
       - tests-bitcoin
+      - tests-cross-version
       - tests-p2p
       - tests-stacks-core
     if: >-
@@ -584,6 +609,7 @@ jobs:
       - check-test-caches
       - setup-env
       - tests-bitcoin
+      - tests-cross-version
       - tests-p2p
       - tests-stacks-core
     if: >-

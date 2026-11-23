@@ -106,6 +106,27 @@ runs:
           --features monitoring_prom \
           --archive-file "$ARCHIVE_FILE"
 
+    - name: Build current cross-version binaries
+      if: inputs.action == 'create'
+      shell: bash
+      env:
+        RUSTFLAGS: "-C linker=clang -C link-arg=-fuse-ld=mold"
+        CARGO_INCREMENTAL: 0
+      run: |
+        cargo build --locked -p stacks-node -p stacks-signer --features testing
+        mkdir -p cross-version-bins
+        cp target/debug/stacks-node target/debug/stacks-signer cross-version-bins/
+        tar -czf cross-version-bins.tar.gz -C cross-version-bins stacks-node stacks-signer
+
+    - name: Upload current cross-version binaries
+      if: inputs.action == 'create'
+      uses: ./.github/wrappers/upload-artifact
+      with:
+        name: cross-version-bins
+        path: cross-version-bins.tar.gz
+        if-no-files-found: error
+        retention-days: 1
+
     - name: Create Nextest Archive Artifact
       if: |
         inputs.action == 'create'

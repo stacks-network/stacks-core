@@ -1,0 +1,18 @@
+{
+  "min_release": "4.0",
+  "baselines": [
+    {"rank": 0, "required": true},
+    {"rank": 1, "required": false}
+  ],
+  "scenarios": [
+    "current_miner_baseline_signers",
+    "mixed_signer_set_current_minority",
+    "mixed_signer_set_baseline_minority",
+    "rolling_signer_upgrade",
+    "baseline_miner_current_signers",
+    "baseline_follower_current_signers",
+    "node_upgrade_in_place",
+    "baseline_sanity",
+    "current_sanity"
+  ]
+}
