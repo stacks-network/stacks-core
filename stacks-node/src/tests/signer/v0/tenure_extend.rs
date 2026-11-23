@@ -4817,12 +4817,7 @@ fn empty_sortition_while_block_in_flight() {
     skip_commit_op.set(true);
 
     info!("------------------------- Mine Tenure A -------------------------");
-    next_block_and_process_new_stacks_block(
-        &signer_test.running_nodes.btc_regtest_controller,
-        60,
-        &signer_test.running_nodes.coord_channel,
-    )
-    .expect("Failed to mine tenure A");
+    mine_tenure_start_block(&signer_test);
     let info_a = get_chain_info(&signer_test.running_nodes.conf);
     let tenure_a_ch = info_a.pox_consensus;
     let stacks_height_before = info_a.stacks_tip_height;
@@ -4964,12 +4959,7 @@ fn empty_sortition_while_block_in_flight_never_lands() {
     skip_commit_op.set(true);
 
     info!("------------------------- Mine Tenure A -------------------------");
-    next_block_and_process_new_stacks_block(
-        &signer_test.running_nodes.btc_regtest_controller,
-        60,
-        &signer_test.running_nodes.coord_channel,
-    )
-    .expect("Failed to mine tenure A");
+    mine_tenure_start_block(&signer_test);
     let info_a = get_chain_info(&signer_test.running_nodes.conf);
     let tenure_a_ch = info_a.pox_consensus;
     let stacks_height_before = info_a.stacks_tip_height;
@@ -5050,6 +5040,25 @@ fn empty_sortition_while_block_in_flight_never_lands() {
 
     info!("------------------------- Shutdown -------------------------");
     signer_test.shutdown();
+}
+
+/// Mine a burn block with a sortition and wait until its tenure's first block is the Stacks
+/// tip. `next_block_and_process_new_stacks_block` is not enough here: the coordinator counts a
+/// block as processed only after announcing it to the event observers, so a block of the
+/// previous tenure can still bump that count after the burn block is mined.
+fn mine_tenure_start_block(signer_test: &SignerTest<SpawnedSigner>) {
+    let conf = &signer_test.running_nodes.conf;
+    let burn_height_before = get_chain_info(conf).burn_block_height;
+    next_block_and(
+        &signer_test.running_nodes.btc_regtest_controller,
+        60,
+        || {
+            let info = get_chain_info(conf);
+            Ok(info.burn_block_height > burn_height_before
+                && info.stacks_tip_consensus_hash == info.pox_consensus)
+        },
+    )
+    .expect("Failed to mine the tenure's first block");
 }
 
 /// Signature hashes of every block proposed in `block`'s tenure at `block`'s height
