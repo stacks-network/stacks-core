@@ -14,7 +14,7 @@ name = "libstackerdb"
 path = "./src/libstackerdb.rs"
 
 [dependencies]
-serde = "1"
+serde = { workspace = true }
 stacks-common = { path = "../stacks-common" }
 clarity = { path = "../clarity" }
 

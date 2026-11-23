@@ -48,6 +48,7 @@ use stacks_common::types::chainstate::{
 };
 use stacks_common::types::sqlite::NO_PARAMS;
 use stacks_common::util::hash::{Hash160, Sha512Trunc256Sum, bytes_to_hex};
+use stacks_marf::ClarityMarfTrieId;
 use stackslib::burnchains::{PoxConstants, Txid};
 use stackslib::chainstate::stacks::boot::{
     BOOT_CODE_BNS, BOOT_CODE_COST_VOTING_MAINNET, BOOT_CODE_COST_VOTING_TESTNET, BOOT_CODE_COSTS,
@@ -55,7 +56,6 @@ use stackslib::chainstate::stacks::boot::{
     BOOT_CODE_GENESIS, BOOT_CODE_LOCKUP, BOOT_CODE_POX_MAINNET, BOOT_CODE_POX_TESTNET,
     POX_2_MAINNET_CODE, POX_2_TESTNET_CODE,
 };
-use stackslib::chainstate::stacks::index::ClarityMarfTrieId;
 use stackslib::clarity_vm::clarity::{ClarityMarfStore, ClarityMarfStoreTransaction};
 use stackslib::clarity_vm::database::MemoryBackingStore;
 use stackslib::clarity_vm::database::marf::{MarfedKV, PersistentWritableMarfStore};
@@ -879,10 +879,10 @@ fn install_boot_code<C: ClarityStorage>(
     };
 
     let params = vec![
-        SymbolicExpression::atom_value(Value::UInt(0)), // first burnchain block height
-        SymbolicExpression::atom_value(Value::UInt(pox_params.prepare_length as u128)),
-        SymbolicExpression::atom_value(Value::UInt(pox_params.reward_cycle_length as u128)),
-        SymbolicExpression::atom_value(Value::UInt(pox_params.pox_rejection_fraction as u128)),
+        Value::UInt(0), // first burnchain block height
+        Value::UInt(pox_params.prepare_length as u128),
+        Value::UInt(pox_params.reward_cycle_length as u128),
+        Value::UInt(pox_params.pox_rejection_fraction as u128),
     ];
 
     let db = marf.get_clarity_db(header_db, &NULL_BURN_STATE_DB);
@@ -893,7 +893,7 @@ fn install_boot_code<C: ClarityStorage>(
             None,
             pox_contract,
             "set-burnchain-parameters",
-            params.as_slice(),
+            params,
         )
         .unwrap();
 }
@@ -1532,7 +1532,7 @@ pub fn execute_execute(
     contract_identifier: &QualifiedContractIdentifier,
     tx_name: &str,
     sender: PrincipalData,
-    arguments: &[SymbolicExpression],
+    arguments: Vec<Value>,
     costs: bool,
     assets: bool,
     epoch: StacksEpochId,
@@ -1905,13 +1905,13 @@ mod test {
         )
         .expect("Failed to parse argument")
         .expect("Failed to get value from argument");
-        let arguments = vec![SymbolicExpression::atom_value(arg_parsed)];
+        let arguments = vec![arg_parsed];
         let (exit, result) = execute_execute(
             &db_name,
             &contract_id,
             "mint!",
             sender,
-            &arguments,
+            arguments,
             false,
             false,
             DEFAULT_CLI_EPOCH,

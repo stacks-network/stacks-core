@@ -16,7 +16,7 @@
 rpc_bind = "0.0.0.0:20443"
 p2p_bind = "0.0.0.0:20444"
 bootstrap_node = "0348af7ce1b224476e8f042727af3f84dcf49a69bb3c9dd2a1afaa783acfffb729@seed.testnet.hiro.so:20444"
-prometheus_bind = "0.0.0.0:9153"
+prometheus_bind = "127.0.0.1:9153"
 
 # Explicitly not a miner or signer.
 miner = false

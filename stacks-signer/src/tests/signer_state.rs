@@ -51,6 +51,8 @@ use crate::v0::signer_state::{
     LocalStateMachine, NewBurnBlock, PendingRetryBackoff, StateMachineUpdate,
 };
 
+mod delayed_burn_block_events;
+
 #[test]
 fn check_capitulate_miner_view() {
     let MockServerClient {
@@ -1015,6 +1017,21 @@ fn check_capitulate_viewpoint_time_guards() {
     );
 }
 
+/// Proposal evaluation settings shared by signer-state tests.
+fn test_proposal_eval_config() -> ProposalEvalConfig {
+    ProposalEvalConfig {
+        first_proposal_burn_block_timing: Duration::from_secs(30),
+        block_proposal_timeout: Duration::from_secs(5),
+        tenure_last_block_proposal_timeout: Duration::from_secs(30),
+        pre_commit_exclusivity_timeout: Duration::ZERO,
+        tenure_idle_timeout: Duration::from_secs(300),
+        tenure_idle_timeout_buffer: Duration::from_secs(2),
+        reorg_attempts_activity_timeout: Duration::from_secs(3),
+        proposal_wait_for_parent_time: Duration::from_secs(0),
+        read_count_idle_timeout: Duration::from_secs(12000),
+    }
+}
+
 #[test]
 fn check_miner_inactivity_timeout() {
     let config = GlobalConfig::load_from_file("./src/tests/conf/signer-0.toml").unwrap();
@@ -1026,16 +1043,7 @@ fn check_miner_inactivity_timeout() {
     fs::create_dir_all(signer_db_dir).unwrap();
     let mut signer_db = SignerDb::new(signer_db_path).unwrap();
 
-    let mut proposal_config = ProposalEvalConfig {
-        first_proposal_burn_block_timing: Duration::from_secs(30),
-        block_proposal_timeout: Duration::from_secs(5),
-        tenure_last_block_proposal_timeout: Duration::from_secs(30),
-        tenure_idle_timeout: Duration::from_secs(300),
-        tenure_idle_timeout_buffer: Duration::from_secs(2),
-        reorg_attempts_activity_timeout: Duration::from_secs(3),
-        proposal_wait_for_parent_time: Duration::from_secs(0),
-        read_count_idle_timeout: Duration::from_secs(12000),
-    };
+    let mut proposal_config = test_proposal_eval_config();
 
     let block_sk = StacksPrivateKey::from_seed(&[0, 1]);
     let block_pk = StacksPublicKey::from_private(&block_sk);
@@ -1076,6 +1084,7 @@ fn check_miner_inactivity_timeout() {
         .unwrap();
 
     let cur = SortitionInfo {
+        canonical: Some(true),
         burn_block_hash: cur_sortition.burn_block_hash.clone(),
         burn_block_height: burn_height,
         burn_header_timestamp: cur_sortition.burn_header_timestamp,
@@ -1090,6 +1099,7 @@ fn check_miner_inactivity_timeout() {
         stacks_parent_ch: Some(last_sortition.parent_tenure_id.clone()),
     };
     let last = SortitionInfo {
+        canonical: Some(true),
         burn_block_hash: last_sortition.burn_block_hash.clone(),
         burn_block_height: 0,
         burn_header_timestamp: last_sortition.burn_header_timestamp,
@@ -1460,6 +1470,7 @@ fn bitcoin_block_arrival_error_parks_pending_and_retries() {
         first_proposal_burn_block_timing: Duration::from_secs(30),
         block_proposal_timeout: Duration::from_secs(5),
         tenure_last_block_proposal_timeout: Duration::from_secs(30),
+        pre_commit_exclusivity_timeout: Duration::ZERO,
         tenure_idle_timeout: Duration::from_secs(300),
         tenure_idle_timeout_buffer: Duration::from_secs(2),
         reorg_attempts_activity_timeout: Duration::from_secs(3),
@@ -1485,6 +1496,7 @@ fn bitcoin_block_arrival_error_parks_pending_and_retries() {
     };
     let burn_height = 6;
     let cur = SortitionInfo {
+        canonical: Some(true),
         burn_block_hash: cur_sortition.burn_block_hash.clone(),
         burn_block_height: burn_height,
         burn_header_timestamp: cur_sortition.burn_header_timestamp,
@@ -1499,6 +1511,7 @@ fn bitcoin_block_arrival_error_parks_pending_and_retries() {
         stacks_parent_ch: Some(cur_sortition.parent_tenure_id.clone()),
     };
     let last = SortitionInfo {
+        canonical: Some(true),
         burn_block_hash: BurnchainHeaderHash([0; 32]),
         burn_block_height: 5,
         burn_header_timestamp: 1,
@@ -1672,6 +1685,7 @@ fn handle_pending_update_skips_retry_during_backoff() {
         first_proposal_burn_block_timing: Duration::from_secs(30),
         block_proposal_timeout: Duration::from_secs(5),
         tenure_last_block_proposal_timeout: Duration::from_secs(30),
+        pre_commit_exclusivity_timeout: Duration::ZERO,
         tenure_idle_timeout: Duration::from_secs(300),
         tenure_idle_timeout_buffer: Duration::from_secs(2),
         reorg_attempts_activity_timeout: Duration::from_secs(3),
@@ -1723,6 +1737,7 @@ fn pending_burn_block_not_replaced_by_lower_event() {
         first_proposal_burn_block_timing: Duration::from_secs(30),
         block_proposal_timeout: Duration::from_secs(5),
         tenure_last_block_proposal_timeout: Duration::from_secs(30),
+        pre_commit_exclusivity_timeout: Duration::ZERO,
         tenure_idle_timeout: Duration::from_secs(300),
         tenure_idle_timeout_buffer: Duration::from_secs(2),
         reorg_attempts_activity_timeout: Duration::from_secs(3),
@@ -1811,6 +1826,7 @@ fn pending_burn_block_not_replaced_by_lower_event() {
     //    fork-info round trip.
     let genesis_block = NakamotoBlockHeader::genesis();
     let cur = SortitionInfo {
+        canonical: Some(true),
         burn_block_hash: BurnchainHeaderHash([0xb7; 32]),
         burn_block_height: event_7b.burn_block_height,
         burn_header_timestamp: 2,
@@ -1825,6 +1841,7 @@ fn pending_burn_block_not_replaced_by_lower_event() {
         stacks_parent_ch: Some(event_6b.consensus_hash.clone()),
     };
     let last = SortitionInfo {
+        canonical: Some(true),
         burn_block_hash: BurnchainHeaderHash([0xb6; 32]),
         burn_block_height: event_6b.burn_block_height,
         burn_header_timestamp: 1,

@@ -28,11 +28,11 @@ use clarity::vm::costs::{ExecutionCost, LimitedCostTracker};
 use clarity::vm::representations::ContractName;
 use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier, StandardPrincipalData};
 use clarity::vm::{ClarityName, ClarityVersion, Value};
-use http_types::headers::AUTHORIZATION;
 use lazy_static::lazy_static;
 use libsigner::v0::messages::{RejectReason, SignerMessage as SignerMessageV0};
 use libsigner::{SignerSession, StackerDBSession, StacksBlockEvent};
 use rand::{thread_rng, Rng};
+use reqwest::header::AUTHORIZATION;
 use rusqlite::{Connection, OptionalExtension};
 use serial_test::serial;
 use stacks::burnchains::{MagicBytes, Txid};
@@ -129,7 +129,9 @@ use crate::tests::neon_integrations::{
     get_sortition_info, next_block_and_wait, run_until_burnchain_height, submit_tx,
     submit_tx_fallible, test_observer, wait_for_runloop, wait_for_tenure_change_tx,
 };
-use crate::tests::signer::v0::{sbtc_registry_stub_source, sbtc_token_stub_source};
+use crate::tests::signer::v0::{
+    sbtc_registry_stub_source, sbtc_token_stub_source, SbtcRegistryStub,
+};
 use crate::tests::signer::SignerTest;
 use crate::tests::{gen_random_port, get_chain_info, make_contract_publish, to_addr};
 use crate::{tests, BitcoinRegtestController, Config, ConfigFile, Keychain};
@@ -761,6 +763,31 @@ pub fn enable_epoch_4_0(conf: &mut Config) {
         .start_height = 262;
 }
 
+/// Activate Epoch 4.1 (inactive by default in `NAKAMOTO_INTEGRATION_EPOCHS`)
+/// two reward cycles after the [`enable_epoch_4_0`] boundary, at `302`.
+/// Must be applied together with `enable_epoch_4_0`, and to every node's
+/// config so peers agree on the boundary.
+pub fn enable_epoch_4_1(conf: &mut Config) {
+    let epochs = conf
+        .burnchain
+        .epochs
+        .as_mut()
+        .expect("Missing burnchain epochs in config");
+    let epoch_40 = epochs
+        .get_mut(StacksEpochId::Epoch40)
+        .expect("Missing epoch 4.0 in config");
+    assert_eq!(
+        epoch_40.start_height, 262,
+        "enable_epoch_4_1 expects enable_epoch_4_0 to have been applied first"
+    );
+    epoch_40.end_height = 302;
+    let epoch_41 = epochs
+        .get_mut(StacksEpochId::Epoch41)
+        .expect("Missing epoch 4.1 in config");
+    epoch_41.start_height = 302;
+    epoch_41.end_height = STACKS_EPOCH_MAX;
+}
+
 pub fn next_block_and<F>(
     btc_controller: &BitcoinRegtestController,
     timeout_secs: u64,
@@ -1200,7 +1227,8 @@ pub fn boot_to_epoch_4_0(
     submit_tx(&http_origin, &sbtc_deploy_tx);
 
     let expected_deployer_nonce: u64 = if let Some(pubkey) = sbtc_registry_pubkey {
-        let sbtc_registry_contract = sbtc_registry_stub_source(pubkey);
+        let sbtc_registry_contract =
+            sbtc_registry_stub_source(pubkey, SbtcRegistryStub::DevenvSignerSet);
         let sbtc_registry_deploy_tx = make_contract_publish(
             sbtc_deployer_sk,
             1,
@@ -4540,25 +4568,14 @@ fn follower_bootup_across_multiple_cycles() {
         return;
     }
 
+    // Keep the default `pox_sync_sample_secs = 0` for both nodes: a non-zero
+    // sample time throttles every burnchain sync pass.
     let (mut naka_conf, _miner_account) = naka_neon_integration_conf(None);
-    naka_conf.node.pox_sync_sample_secs = 180;
     naka_conf.burnchain.max_rbf = 10_000_000;
 
-    let sender_sk = Secp256k1PrivateKey::random();
     let sender_signer_sk = Secp256k1PrivateKey::random();
     let sender_signer_addr = tests::to_addr(&sender_signer_sk);
     let mut signers = TestSigners::new(vec![sender_signer_sk.clone()]);
-    let tenure_count = 5;
-    let inter_blocks_per_tenure = 9;
-    // setup sender + recipient for some test stx transfers
-    // these are necessary for the interim blocks to get mined at all
-    let sender_addr = tests::to_addr(&sender_sk);
-    let send_amt = 100;
-    let send_fee = 180;
-    naka_conf.add_initial_balance(
-        PrincipalData::from(sender_addr.clone()).to_string(),
-        (send_amt + send_fee) * tenure_count * inter_blocks_per_tenure,
-    );
     naka_conf.add_initial_balance(
         PrincipalData::from(sender_signer_addr.clone()).to_string(),
         100000,
@@ -4622,25 +4639,30 @@ fn follower_bootup_across_multiple_cycles() {
 
     wait_for_first_naka_block_commit(60, &commits_submitted);
 
-    // mine two reward cycles
-    for _ in 0..btc_regtest_controller
-        .get_burnchain()
-        .pox_constants
-        .reward_cycle_length
-        * 2
-    {
+    // Mine until the chain has crossed two reward-cycle boundaries, so the
+    // follower has to sync across multiple Nakamoto reward cycles.
+    let burn_height = || {
+        SortitionDB::get_canonical_burn_chain_tip(sortdb.conn())
+            .unwrap()
+            .block_height
+    };
+    let start_cycle = burnchain
+        .block_height_to_reward_cycle(burn_height())
+        .unwrap();
+    let target_burn_height = burnchain.reward_cycle_to_block_height(start_cycle + 2);
+    while burn_height() < target_burn_height {
         let commits_before = commits_submitted.load(Ordering::SeqCst);
         next_block_and_process_new_stacks_block(&btc_regtest_controller, 60, &coord_channel)
-            .unwrap();
+            .expect("Timed out waiting for the miner to process a new stacks block");
         wait_for(20, || {
             Ok(commits_submitted.load(Ordering::SeqCst) > commits_before)
         })
-        .unwrap();
+        .expect("Timed out waiting for the miner to submit a block commit");
     }
 
     info!("Nakamoto miner has advanced two reward cycles");
 
-    // load the chain tip, and assert that it is a nakamoto block and at least 30 blocks have advanced in epoch 3
+    // load the chain tip, and assert that it is a nakamoto block
     let tip = NakamotoChainState::get_canonical_block_header(chainstate.db(), &sortdb)
         .unwrap()
         .unwrap();
@@ -4704,7 +4726,7 @@ fn follower_bootup_across_multiple_cycles() {
 
     // Wait some time for the follower to at least get some nakamoto blocks
     wait_for(120, || {
-        thread::sleep(Duration::from_secs(5));
+        thread::sleep(Duration::from_secs(1));
         let Ok(follower_node_info) = get_chain_info_result(&follower_conf) else {
             return Ok(false);
         };
@@ -4724,7 +4746,7 @@ fn follower_bootup_across_multiple_cycles() {
 
         Ok(tip.anchored_header.as_stacks_nakamoto().is_some())
     })
-    .unwrap();
+    .expect("Timed out waiting for the follower to reach a nakamoto block");
 
     wait_for(480, || {
         sleep_ms(1000);
@@ -4741,7 +4763,7 @@ fn follower_bootup_across_multiple_cycles() {
                 && follower_node_info.stacks_tip == tip.anchored_header.block_hash(),
         )
     })
-    .unwrap();
+    .expect("Timed out waiting for the follower to reach the miner's chain tip");
 
     coord_channel
         .lock()
@@ -6910,6 +6932,7 @@ fn signer_chainstate() {
             first_proposal_burn_block_timing: Duration::from_secs(0),
             block_proposal_timeout: Duration::from_secs(100),
             tenure_last_block_proposal_timeout: Duration::from_secs(30),
+            pre_commit_exclusivity_timeout: Duration::ZERO,
             tenure_idle_timeout: Duration::from_secs(300),
             tenure_idle_timeout_buffer: Duration::from_secs(2),
             reorg_attempts_activity_timeout: Duration::from_secs(30),
@@ -7021,6 +7044,7 @@ fn signer_chainstate() {
             first_proposal_burn_block_timing: Duration::from_secs(0),
             block_proposal_timeout: Duration::from_secs(100),
             tenure_last_block_proposal_timeout: Duration::from_secs(30),
+            pre_commit_exclusivity_timeout: Duration::ZERO,
             tenure_idle_timeout: Duration::from_secs(300),
             tenure_idle_timeout_buffer: Duration::from_secs(2),
             reorg_attempts_activity_timeout: Duration::from_secs(30),
@@ -7092,6 +7116,7 @@ fn signer_chainstate() {
         first_proposal_burn_block_timing: Duration::from_secs(0),
         block_proposal_timeout: Duration::from_secs(100),
         tenure_last_block_proposal_timeout: Duration::from_secs(30),
+        pre_commit_exclusivity_timeout: Duration::ZERO,
         tenure_idle_timeout: Duration::from_secs(300),
         tenure_idle_timeout_buffer: Duration::from_secs(2),
         reorg_attempts_activity_timeout: Duration::from_secs(30),

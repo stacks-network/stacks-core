@@ -17,15 +17,24 @@
 use std::sync::Mutex;
 
 use lazy_static::lazy_static;
+use libsigner::VERSION_STRING;
 use prometheus::{
     gather, histogram_opts, opts, register_histogram_vec, register_int_counter,
     register_int_counter_vec, register_int_gauge, Encoder, HistogramVec, IntCounter, IntCounterVec,
     IntGauge, TextEncoder,
 };
+use stacks_common::monitoring::build_info_labels;
 
 use crate::v0::signer_state::LocalStateMachine;
 
 lazy_static! {
+    pub static ref BUILD_INFO: IntGauge = register_int_gauge!(opts!(
+        "stacks_build_info",
+        "Build information for the Stacks process."
+    )
+    .const_labels(build_info_labels(VERSION_STRING.to_string())))
+    .unwrap();
+
     pub static ref STACKS_TIP_HEIGHT_GAUGE: IntGauge = register_int_gauge!(opts!(
         "stacks_signer_stacks_node_height",
         "The current height of the Stacks node"

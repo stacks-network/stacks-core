@@ -226,8 +226,11 @@ impl<'a> RollbackWrapper<'a> {
         }
     }
 
-    pub fn get_cc_special_cases_handler(&self) -> Option<SpecialCaseHandler> {
-        self.store.get_cc_special_cases_handler()
+    pub fn get_cc_special_cases_handler(
+        &self,
+        contract: &QualifiedContractIdentifier,
+    ) -> Option<SpecialCaseHandler> {
+        self.store.get_cc_special_cases_handler(contract)
     }
 
     pub fn nest(&mut self) {

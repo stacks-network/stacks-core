@@ -45,12 +45,12 @@ use stacks_common::types::chainstate::{
 use stacks_common::util::hash::{Hash160, Sha512Trunc256Sum};
 use stacks_common::util::secp256k1::MessageSignature;
 use stacks_common::util::vrf::VRFProof;
+use stacks_marf::Error as marf_error;
 
 use crate::burnchains::Txid;
 use crate::chainstate::burn::ConsensusHash;
 use crate::chainstate::stacks::db::accounts::MaturedMinerPayouts;
 use crate::chainstate::stacks::db::StacksHeaderInfo;
-use crate::chainstate::stacks::index::Error as marf_error;
 use crate::clarity_vm::clarity::ClarityError;
 use crate::net::Error as net_error;
 use crate::util_lib::db::Error as db_error;
@@ -62,10 +62,6 @@ pub mod block;
 pub mod boot;
 pub mod db;
 pub mod events;
-/// The MARF now lives in the `stacks-marf` crate. Re-exported under its historical
-/// path so that existing `crate::chainstate::stacks::index::...` call sites keep
-/// resolving; they move to `stacks_marf::...` in follow-up patches.
-pub use stacks_marf as index;
 pub mod miner;
 pub mod sbtc;
 pub mod transaction;
@@ -116,6 +112,9 @@ pub enum Error {
     BlockTooBigError,
     BlockCostLimitError,
     TransactionTooBigError(Option<ExecutionCost>),
+    /// The transaction's receipt alone reaches the block builder's per-transaction receipt size
+    /// limit, so it cannot be mined into a block and should not be re-attempted.
+    TransactionReceiptTooBig,
     BlockCostExceeded,
     NoTransactionsToMine,
     MicroblockStreamTooLongError,
@@ -204,6 +203,7 @@ impl fmt::Display for Error {
             Error::TransactionTooBigError(ref c) => {
                 write!(f, "Too much data in transaction: measured_cost={c:?}")
             }
+            Error::TransactionReceiptTooBig => write!(f, "Transaction receipt is too big"),
             Error::BlockCostExceeded => write!(f, "Block execution budget exceeded"),
             Error::MicroblockStreamTooLongError => write!(f, "Too many microblocks in stream"),
             Error::IncompatibleSpendingConditionError => {
@@ -292,6 +292,7 @@ impl error::Error for Error {
             Error::BlockTooBigError => None,
             Error::BlockCostLimitError => None,
             Error::TransactionTooBigError(..) => None,
+            Error::TransactionReceiptTooBig => None,
             Error::BlockCostExceeded => None,
             Error::MicroblockStreamTooLongError => None,
             Error::IncompatibleSpendingConditionError => None,
@@ -343,6 +344,7 @@ impl Error {
             Error::BlockTooBigError => "BlockTooBigError",
             Error::BlockCostLimitError => "BlockCostLimitError",
             Error::TransactionTooBigError(..) => "TransactionTooBigError",
+            Error::TransactionReceiptTooBig => "TransactionReceiptTooBig",
             Error::BlockCostExceeded => "BlockCostExceeded",
             Error::MicroblockStreamTooLongError => "MicroblockStreamTooLongError",
             Error::IncompatibleSpendingConditionError => "IncompatibleSpendingConditionError",

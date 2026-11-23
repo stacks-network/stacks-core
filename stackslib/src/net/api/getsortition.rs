@@ -76,6 +76,16 @@ pub struct SortitionInfo {
     /// Boolean indicating whether or not there was a succesful sortition (i.e. a winning
     ///  block or miner was chosen).
     pub was_sortition: bool,
+    /// Whether this sortition is on the node's canonical burnchain fork. `Some(false)` means a
+    /// burnchain fork orphaned it, which voids everything the tenure it elected produced.
+    /// Unlike a 404, that is never merely "not seen yet": the node answered, so it holds the
+    /// sortition and placed it on a fork.
+    ///
+    /// `None` only from a node too old to report it, which `Option` alone makes deserialize
+    /// to `None` rather than fail. Deliberately not a defaulted `bool`: neither default is
+    /// honest, since `false` would claim an orphan nobody observed and `true` would vouch for
+    /// a fork the node never placed. Callers have to treat it as the unanswered question it is.
+    pub canonical: Option<bool>,
     /// If sortition occurred, and the miner's VRF key registration
     ///  associated a nakamoto mining pubkey with their commit, this
     ///  will contain the Hash160 of that mining key.
@@ -204,6 +214,15 @@ impl GetSortitionHandler {
                 )
             };
 
+        // Whether the canonical fork reaches this very sortition, rather than a competing one
+        // at the same burn height. The same test the node applies to a tenure's candidate
+        // blocks.
+        let canonical = Some(
+            sortdb
+                .index_handle_at_tip()
+                .processed_block(&sortition_sn.consensus_hash)?,
+        );
+
         Ok(SortitionInfo {
             burn_block_hash: sortition_sn.burn_header_hash,
             burn_block_height: sortition_sn.block_height,
@@ -212,6 +231,7 @@ impl GetSortitionHandler {
             parent_sortition_id: sortition_sn.parent_sortition_id,
             consensus_hash: sortition_sn.consensus_hash,
             was_sortition: sortition_sn.sortition,
+            canonical,
             miner_pk_hash160,
             stacks_parent_ch,
             last_sortition_ch,

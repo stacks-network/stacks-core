@@ -43,9 +43,12 @@ use stacks_common::consts::SIGNER_SLOTS_PER_USER;
 use stacks_common::types::chainstate::StacksAddress;
 use stacks_common::types::net::PeerAddress;
 use stacks_common::types::Address;
+use stacks_common::util::db::SqliteVfs;
 use stacks_common::util::get_epoch_time_ms;
 use stacks_common::util::hash::hex_bytes;
 use stacks_common::util::secp256k1::{Secp256k1PrivateKey, Secp256k1PublicKey};
+use stacks_marf::marf::MARFOpenOpts;
+use stacks_marf::storage::TrieHashCalculationMode;
 
 use crate::burnchains::bitcoin::{signet, BitcoinNetworkType};
 use crate::burnchains::{Burnchain, MagicBytes, BLOCKSTACK_MAGIC_MAINNET};
@@ -54,8 +57,6 @@ use crate::chainstate::nakamoto::signer_set::{
     set_pox_5_sbtc_registry_contract, NakamotoSigners,
 };
 use crate::chainstate::stacks::boot::MINERS_NAME;
-use crate::chainstate::stacks::index::marf::MARFOpenOpts;
-use crate::chainstate::stacks::index::storage::TrieHashCalculationMode;
 use crate::chainstate::stacks::miner::{BlockBuilderSettings, MinerStatus};
 use crate::chainstate::stacks::MAX_BLOCK_LEN;
 use crate::config::chain_data::MinerStats;
@@ -2131,6 +2132,11 @@ pub struct NodeConfig {
     /// address to expose internal metrics for scraping by a Prometheus instance.
     /// ---
     /// @default: `None` (Prometheus server disabled)
+    /// @notes:
+    ///   - WARNING: The metrics server does not limit the size of request headers,
+    ///     so a client that can reach it can make the node use unbounded memory.
+    ///     Bind it to a loopback or private interface, or restrict access with a
+    ///     firewall, so that only trusted scrapers can connect.
     pub prometheus_bind: Option<String>,
     /// Controls the timing of hash calculations for MARF trie nodes.
     /// - If `true`, hashes are calculated only when the MARF is flushed to disk
@@ -2153,6 +2159,28 @@ pub struct NodeConfig {
     ///   - Compression affects only the on-disk MARF representation; in-memory behavior
     ///     remains unchanged.
     pub marf_compress: bool,
+    /// SQLite VFS (OS interface layer) used to open every node database.
+    ///
+    /// Possible values:
+    /// - `"default"`: SQLite's platform default. Databases can be opened by several
+    ///   processes at once, and every WAL-mode transaction takes and releases file
+    ///   locks on the database and its `-shm` file.
+    /// - `"unix-excl"`: each database is locked exclusively by the node process for as
+    ///   long as it is open, and the WAL index lives in memory instead of a `-shm`
+    ///   file. Removes the per-transaction lock calls, which are expensive on network
+    ///   and clustered filesystems where each lock is a round trip to the storage.
+    /// ---
+    /// @default: `"default"`
+    /// @notes:
+    ///   - With `"unix-excl"`, no other process can open the node's databases while
+    ///     the node runs; offline tools such as `stacks-inspect` must run with the
+    ///     node stopped.
+    ///   - `"unix-excl"` is only available on unix platforms.
+    ///   - Does not change the on-disk format. Switching between values takes effect
+    ///     on restart and needs no migration.
+    /// @toml_example: |
+    ///   sqlite_vfs = "unix-excl"
+    pub sqlite_vfs: SqliteVfs,
     /// Sampling interval in seconds for the PoX synchronization watchdog thread
     /// (pre-Nakamoto). Determines how often the watchdog checked PoX state
     /// consistency in the Neon run loop.
@@ -2247,10 +2275,12 @@ pub struct NodeConfig {
     /// @default: `None`
     pub pox_5_sbtc_contract: Option<QualifiedContractIdentifier>,
     /// Epoch 4.0 / PoX-5 scaffolding: the sBTC registry contract that
-    /// signer-set computation reads `get-current-aggregate-pubkey` from to
-    /// derive the per-cycle sBTC waterfall recipient. Devnet/test only;
-    /// different operators configuring different contracts will fork the
-    /// chain.
+    /// signer-set computation reads to derive the per-cycle sBTC waterfall
+    /// recipient: `get-current-aggregate-pubkey` in Epoch 4.0 (v1 deposit),
+    /// `get-current-signer-data` from Epoch 4.1 (v2 Taproot multisig
+    /// deposit, or the standard burn address if the registry does not return
+    /// a usable signer set). Devnet/test only; different operators configuring different
+    /// contracts will fork the chain.
     /// ---
     /// @default: `None`
     pub pox_5_sbtc_registry_contract: Option<QualifiedContractIdentifier>,
@@ -2517,6 +2547,7 @@ impl Default for NodeConfig {
             prometheus_bind: None,
             marf_defer_hashing: true,
             marf_compress: true,
+            sqlite_vfs: SqliteVfs::default(),
             pox_sync_sample_secs: 30,
             use_test_genesis_chainstate: None,
             fault_injection_block_push_fail_probability: None,
@@ -3096,6 +3127,12 @@ pub struct MinerConfig {
     /// proposed, not from the empty sortition, so a run of empty sortitions cannot
     /// extend it. Once it elapses the proposal is presumed lost and the relayer issues a
     /// late `BlockFound`.
+    ///
+    /// The same wait applies when the relayer is about to extend the tenure into a new
+    /// burn view while a block this node proposed on the Stacks tip is still in flight:
+    /// it waits for that block to land or be rejected before extending, rather than
+    /// extending on the same parent. That wait is measured from the moment the relayer
+    /// would otherwise have extended.
     ///
     /// This only has to cover the signers aggregating signatures over a block this node
     /// has already proposed and pushing it back, which takes seconds.
@@ -3861,6 +3898,22 @@ pub struct ConnectionOptionsFile {
     /// @default: `0` (disabled)
     /// @units: bytes/second
     pub max_nakamoto_block_push_bandwidth: Option<u64>,
+
+    /// Maximum number of inbound p2p messages handled from a single peer in one
+    /// network pass. Messages beyond this stay queued and are handled in the next
+    /// pass. Zero disables the cap.
+    /// ---
+    /// @default: `64`
+    pub max_inbound_messages_per_pass: Option<usize>,
+
+    /// Maximum time spent handling inbound p2p messages in one network pass,
+    /// before the node moves on to the rest of the pass (inventory sync, block
+    /// downloads, StackerDB sync, ...). Peers not handled in time are handled
+    /// first in the next pass. Zero disables the limit.
+    /// ---
+    /// @default: `500`
+    /// @units: milliseconds
+    pub max_inbound_processing_ms: Option<u64>,
 }
 
 impl ConnectionOptionsFile {
@@ -4028,6 +4081,12 @@ impl ConnectionOptionsFile {
             max_nakamoto_block_push_bandwidth: self
                 .max_nakamoto_block_push_bandwidth
                 .unwrap_or(default.max_nakamoto_block_push_bandwidth),
+            max_inbound_messages_per_pass: self
+                .max_inbound_messages_per_pass
+                .unwrap_or(default.max_inbound_messages_per_pass),
+            max_inbound_processing_ms: self
+                .max_inbound_processing_ms
+                .unwrap_or(default.max_inbound_processing_ms),
             ..default
         })
     }
@@ -4059,6 +4118,7 @@ pub struct NodeConfigFile {
     pub marf_cache_strategy: Option<String>,
     pub marf_defer_hashing: Option<bool>,
     pub marf_compress: Option<bool>,
+    pub sqlite_vfs: Option<String>,
     pub pox_sync_sample_secs: Option<u64>,
     pub use_test_genesis_chainstate: Option<bool>,
     pub event_dispatcher_blocking: Option<bool>,
@@ -4077,8 +4137,8 @@ pub struct NodeConfigFile {
     pub pox_5_sbtc_contract: Option<String>,
     /// Epoch 4.0 / PoX-5 scaffolding: contract id (as `principal.contract-name`)
     /// of the sBTC registry contract from which signer-set computation reads
-    /// `get-current-aggregate-pubkey` to derive the per-cycle sBTC waterfall
-    /// recipient.
+    /// `get-current-aggregate-pubkey` (Epoch 4.0) or `get-current-signer-data`
+    /// (Epoch 4.1+) to derive the per-cycle sBTC waterfall recipient.
     pub pox_5_sbtc_registry_contract: Option<String>,
     /// Epoch 4.0 / PoX-5 scaffolding: principal (standard or contract) that
     /// pox-5 initializes the `bond-admin` data var to. Used to override the
@@ -4155,6 +4215,13 @@ impl NodeConfigFile {
             marf_compress: self
                 .marf_compress
                 .unwrap_or(default_node_config.marf_compress),
+            sqlite_vfs: match self.sqlite_vfs {
+                Some(vfs) => vfs
+                    .parse::<SqliteVfs>()
+                    .and_then(SqliteVfs::ensure_supported)
+                    .map_err(|e| format!("node.sqlite_vfs: {e}"))?,
+                None => default_node_config.sqlite_vfs,
+            },
             pox_sync_sample_secs: self
                 .pox_sync_sample_secs
                 .unwrap_or(default_node_config.pox_sync_sample_secs),
@@ -5836,6 +5903,84 @@ mod tests {
     }
 
     #[test]
+    fn test_load_node_sqlite_vfs_config() {
+        let config = utils::config_from_valid_string(
+            r#"
+                [burnchain]
+                mode = "krypton"
+                [node]
+                "#,
+        );
+        assert_eq!(config.node.sqlite_vfs, SqliteVfs::Default, "default VFS");
+
+        let config = utils::config_from_valid_string(
+            r#"
+                [burnchain]
+                mode = "krypton"
+                [node]
+                sqlite_vfs = "default"
+                "#,
+        );
+        assert_eq!(
+            config.node.sqlite_vfs,
+            SqliteVfs::Default,
+            "explicit default"
+        );
+
+        #[cfg(unix)]
+        {
+            let config = utils::config_from_valid_string(
+                r#"
+                    [burnchain]
+                    mode = "krypton"
+                    [node]
+                    sqlite_vfs = "unix-excl"
+                    "#,
+            );
+            assert_eq!(config.node.sqlite_vfs, SqliteVfs::UnixExcl, "unix-excl");
+        }
+
+        #[cfg(not(unix))]
+        {
+            let err = Config::from_config_file(
+                ConfigFile::from_str(
+                    r#"
+                    [burnchain]
+                    mode = "krypton"
+                    [node]
+                    sqlite_vfs = "unix-excl"
+                    "#,
+                )
+                .unwrap(),
+                false,
+            )
+            .unwrap_err();
+            assert_eq!(
+                err, "node.sqlite_vfs: SQLite VFS 'unix-excl' is only available on unix platforms",
+                "unix-excl rejected off unix"
+            );
+        }
+
+        let err = Config::from_config_file(
+            ConfigFile::from_str(
+                r#"
+                [burnchain]
+                mode = "krypton"
+                [node]
+                sqlite_vfs = "unix-shared"
+                "#,
+            )
+            .unwrap(),
+            false,
+        )
+        .unwrap_err();
+        assert!(
+            err.starts_with("node.sqlite_vfs: unknown SQLite VFS 'unix-shared'"),
+            "unexpected error: {err}"
+        );
+    }
+
+    #[test]
     fn test_burnchain_mode_required() {
         // No `[burnchain]` section at all is rejected.
         let err = Config::from_config_file(
@@ -5940,6 +6085,45 @@ mod tests {
             30,
             config.connection_options.max_nakamoto_block_push_bandwidth,
         );
+    }
+
+    #[test]
+    fn test_load_inbound_limit_fields_config() {
+        // check defaults for omitted fields
+        let config = utils::config_from_valid_string(
+            r#"
+            [burnchain]
+            mode = "krypton"
+            "#,
+        );
+        assert_eq!(64, config.connection_options.max_inbound_messages_per_pass);
+        assert_eq!(500, config.connection_options.max_inbound_processing_ms);
+
+        // check values for configured fields
+        let config = utils::config_from_valid_string(
+            r#"
+            [burnchain]
+            mode = "krypton"
+            [connection_options]
+            max_inbound_messages_per_pass = 10
+            max_inbound_processing_ms = 20
+            "#,
+        );
+        assert_eq!(10, config.connection_options.max_inbound_messages_per_pass);
+        assert_eq!(20, config.connection_options.max_inbound_processing_ms);
+
+        // zero disables the limits
+        let config = utils::config_from_valid_string(
+            r#"
+            [burnchain]
+            mode = "krypton"
+            [connection_options]
+            max_inbound_messages_per_pass = 0
+            max_inbound_processing_ms = 0
+            "#,
+        );
+        assert_eq!(0, config.connection_options.max_inbound_messages_per_pass);
+        assert_eq!(0, config.connection_options.max_inbound_processing_ms);
     }
 
     /// There are three different ways to start a node with a default config:

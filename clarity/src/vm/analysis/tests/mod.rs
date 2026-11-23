@@ -21,6 +21,9 @@ use std::time::Duration;
 use stacks_common::types::StacksEpochId;
 
 use crate::vm::ClarityVersion;
+use crate::vm::analysis::contract_interface_builder::{
+    ContractInterface, build_contract_interface,
+};
 use crate::vm::analysis::read_only_checker::ReadOnlyChecker;
 use crate::vm::analysis::type_checker::v2_1::TypeChecker as TypeChecker2_1;
 use crate::vm::analysis::type_checker::v2_1::tests::mem_type_check;
@@ -614,16 +617,25 @@ fn test_order_of_readonly_check_and_type_check() {
 }
 
 /// Checks that the analysis succeeds in 4.0 but fails in 4.1 with an error that
-/// contains the given substring. Helper for [`test_definition_sorting_of_contract_call`]`.
+/// contains the given substring. Helper for [`test_definition_sorting_of_contract_call`]
+/// and [`test_definition_sorting_of_binding_names`].
 fn assert_contract_starts_failing_in_epoch_41(snippet: &str, expected_error_41: &str) {
-    let result = mem_run_analysis(snippet, ClarityVersion::latest(), StacksEpochId::Epoch40);
+    let result = mem_run_analysis(
+        snippet,
+        ClarityVersion::default_for_epoch(StacksEpochId::Epoch40),
+        StacksEpochId::Epoch40,
+    );
     assert!(
         result.is_ok(),
         "expected to pass in Epoch 4.0 but got {}; contract: {snippet}",
         result.unwrap_err()
     );
 
-    let result = mem_run_analysis(snippet, ClarityVersion::latest(), StacksEpochId::Epoch41);
+    let result = mem_run_analysis(
+        snippet,
+        ClarityVersion::default_for_epoch(StacksEpochId::Epoch41),
+        StacksEpochId::Epoch41,
+    );
     match result {
         Err(e) => assert!(
             e.to_string().contains(expected_error_41),
@@ -636,7 +648,11 @@ fn assert_contract_starts_failing_in_epoch_41(snippet: &str, expected_error_41: 
 /// Checks that the analysis fails in both 4.0 and 4.1 with an error that
 /// contains the given substring. Helper for [`test_definition_sorting_of_contract_call`]`.
 fn assert_contract_fails_even_before_epoch_41(snippet: &str, expected_error: &str) {
-    let result = mem_run_analysis(snippet, ClarityVersion::latest(), StacksEpochId::Epoch40);
+    let result = mem_run_analysis(
+        snippet,
+        ClarityVersion::default_for_epoch(StacksEpochId::Epoch40),
+        StacksEpochId::Epoch40,
+    );
     match result {
         Err(e) => assert!(
             e.to_string().contains(expected_error),
@@ -645,7 +661,11 @@ fn assert_contract_fails_even_before_epoch_41(snippet: &str, expected_error: &st
         Ok(_) => panic!("should not succeed in Epoch 4.0"),
     };
 
-    let result = mem_run_analysis(snippet, ClarityVersion::latest(), StacksEpochId::Epoch41);
+    let result = mem_run_analysis(
+        snippet,
+        ClarityVersion::default_for_epoch(StacksEpochId::Epoch41),
+        StacksEpochId::Epoch41,
+    );
     match result {
         Err(e) => assert!(
             e.to_string().contains(expected_error),
@@ -671,7 +691,7 @@ fn test_definition_sorting_of_contract_call() {
     assert_contract_starts_failing_in_epoch_41(
         "(define-trait my-trait ((trait-func () (response uint uint))))
          (define-public (stuff (stuff <my-trait>)) (contract-call? stuff trait-func))",
-        "CircularReference",
+        "NameAlreadyUsed",
     );
 
     // These contracts define a global `thing` *after* a function with a parameter
@@ -736,6 +756,22 @@ fn test_definition_sorting_of_contract_call() {
         "(define-trait my-trait ((trait-func () (response uint uint))))
          (define-private (thing) 42)
          (define-public (stuff (target <my-trait>)) (let ((thing target)) (contract-call? thing trait-func)))",
+        "NameAlreadyUsed",
+    );
+}
+
+#[test]
+/// Asserts that name shadowing is detected even if, in source order, the global
+/// comes after the local. Before the fix, this passed analysis (and, usually,
+/// failed at runtime).
+///
+/// Technically, this fix applies to Clarity 7, not Epoch 4.1, but for
+/// analysis purposes, that's equivalent.
+fn test_definition_sorting_of_binding_names() {
+    assert_contract_starts_failing_in_epoch_41(
+        "(define-read-only (g) (let ((c u7)) u1))
+         (define-constant c u42)
+         (define-constant d (g))",
         "NameAlreadyUsed",
     );
 }
@@ -964,4 +1000,50 @@ fn epoch41_keyword_named_function_callable_regardless_of_definition_order() {
         TypeSignature::ResponseType(_)
     ));
     assert_eq!(returns("read-keyword"), TypeSignature::UIntType);
+}
+
+/// Conversion moves the cached ABI even when its analysis could no longer rebuild it.
+#[test]
+fn test_contract_interface_try_from_moves_cached_interface() {
+    let (_, mut analysis) = mem_type_check("(define-read-only (get-value) u1)").unwrap();
+    let cached = analysis.contract_interface.as_ref().unwrap();
+    assert!(!cached.functions.is_empty());
+    let functions = cached.functions.as_ptr();
+    analysis.public_function_types.insert(
+        "invalid".try_into().unwrap(),
+        FunctionType::ArithmeticVariadic,
+    );
+    assert!(build_contract_interface(&analysis).is_err());
+
+    let interface = ContractInterface::try_from(analysis).unwrap();
+    assert_eq!(interface.functions.as_ptr(), functions);
+    assert_eq!(interface.functions.len(), 1);
+}
+
+/// Missing cached output is reconstructed with the same ABI as the analysis pipeline.
+#[test]
+fn test_contract_interface_try_from_builds_missing_interface() {
+    let (_, mut analysis) = mem_type_check(
+        "(define-data-var counter uint u0)
+         (define-read-only (get-counter) (var-get counter))",
+    )
+    .unwrap();
+    let expected = analysis.contract_interface.take().unwrap();
+
+    assert_eq!(ContractInterface::try_from(analysis).unwrap(), expected);
+}
+
+/// Malformed fallback input preserves the builder's complete error.
+#[test]
+fn test_contract_interface_try_from_propagates_builder_error() {
+    let (_, mut analysis) = mem_type_check("(define-read-only (get-value) u1)").unwrap();
+    analysis.contract_interface = None;
+    analysis.public_function_types.insert(
+        "invalid".try_into().unwrap(),
+        FunctionType::ArithmeticVariadic,
+    );
+    let expected = build_contract_interface(&analysis).unwrap_err();
+    std::assert_matches!(expected.err.as_ref(), StaticCheckErrorKind::Unreachable(_));
+
+    assert_eq!(ContractInterface::try_from(analysis), Err(expected));
 }

@@ -27,12 +27,11 @@ use clarity::vm::costs::{ExecutionCost, LimitedCostTracker};
 use clarity::vm::database::{
     BurnStateDB, ClarityDatabase, HeadersDB, STXBalance, NULL_BURN_STATE_DB,
 };
-use clarity::vm::errors::ClarityEvalError;
 use clarity::vm::events::*;
 use clarity::vm::representations::ContractName;
 use clarity::vm::resource_limiter::ResourceBudget;
 use clarity::vm::types::TupleData;
-use clarity::vm::{SymbolicExpression, Value};
+use clarity::vm::Value;
 use rusqlite::{params, Connection, OptionalExtension, Row};
 use serde::de::Error as de_Error;
 use serde::Deserialize;
@@ -40,6 +39,8 @@ use stacks_common::codec::{read_next, write_next, StacksMessageCodec};
 use stacks_common::types::chainstate::{StacksAddress, StacksBlockId, TrieHash};
 use stacks_common::types::sqlite::NO_PARAMS;
 use stacks_common::util::hash::{hex_bytes, to_hex};
+use stacks_marf::marf::{test_override_marf_compression, MARFOpenOpts, MarfConnection, MARF};
+use stacks_marf::ClarityMarfTrieId;
 
 use crate::burnchains::bitcoin::address::LegacyBitcoinAddress;
 use crate::burnchains::{Address, Burnchain, BurnchainParameters, PoxConstants};
@@ -61,10 +62,6 @@ use crate::chainstate::stacks::db::blocks::*;
 use crate::chainstate::stacks::db::transactions::TransactionProcessor;
 use crate::chainstate::stacks::db::unconfirmed::UnconfirmedState;
 use crate::chainstate::stacks::events::*;
-use crate::chainstate::stacks::index::marf::{
-    test_override_marf_compression, MARFOpenOpts, MarfConnection, MARF,
-};
-use crate::chainstate::stacks::index::ClarityMarfTrieId;
 use crate::chainstate::stacks::{
     Error, StacksBlockHeader, StacksMicroblockHeader, C32_ADDRESS_VERSION_MAINNET_MULTISIG,
     C32_ADDRESS_VERSION_MAINNET_SINGLESIG, C32_ADDRESS_VERSION_TESTNET_MULTISIG,
@@ -578,11 +575,9 @@ impl<'a, 'b> ClarityTx<'a, 'b> {
         self.block.commit_block();
     }
 
-    pub fn commit_mined_block(
-        self,
-        block_hash: &StacksBlockId,
-    ) -> Result<ExecutionCost, ClarityError> {
-        Ok(self.block.commit_mined_block(block_hash)?.get_total())
+    /// Complete proposal execution and return its cost, discarding speculative state.
+    pub fn finish_block_proposal(self) -> Result<ExecutionCost, ClarityError> {
+        Ok(self.block.finish_block_proposal()?.get_total())
     }
 
     pub fn commit_to_block(self, consensus_hash: &ConsensusHash, block_hash: &BlockHeaderHash) {
@@ -1767,11 +1762,11 @@ impl StacksChainState {
         ];
         clarity_tx.connection().as_transaction(|conn| {
             conn.run_contract_call(
-                &sender,
+                sender,
                 None,
-                &contract,
+                contract,
                 "set-burnchain-parameters",
-                &params,
+                params,
                 |_, _| None,
                 &ResourceBudget::unlimited(),
             )
@@ -2116,50 +2111,6 @@ impl StacksChainState {
             contract,
             code,
         )
-    }
-
-    /// Execute a public function in `contract` from a read-only DB context
-    ///  Any mutations that occur will be rolled-back before returning, regardless of
-    ///  an okay or error result.
-    pub fn eval_fn_read_only(
-        &mut self,
-        burn_dbconn: &dyn BurnStateDB,
-        parent_id_bhh: &StacksBlockId,
-        contract: &QualifiedContractIdentifier,
-        function: &str,
-        args: &[Value],
-    ) -> Result<Value, ClarityError> {
-        let headers_db = HeadersDBConn(StacksDBConn::new(&self.state_index, ()));
-        let mut conn = self.clarity_state.read_only_connection_checked(
-            parent_id_bhh,
-            &headers_db,
-            burn_dbconn,
-        )?;
-
-        let args: Vec<_> = args
-            .iter()
-            .map(|x| SymbolicExpression::atom_value(x.clone()))
-            .collect();
-
-        let result = conn.with_readonly_clarity_env(
-            self.mainnet,
-            self.chain_id,
-            contract.clone().into(),
-            None,
-            LimitedCostTracker::Free,
-            |exec_state, invoke_ctx| {
-                exec_state
-                    .execute_contract(
-                        invoke_ctx, contract, function, &args,
-                        // read-only is set to `false` so that non-read-only functions
-                        //  can be executed. any transformation is rolled back.
-                        false,
-                    )
-                    .map_err(ClarityEvalError::from)
-            },
-        )?;
-
-        Ok(result)
     }
 
     pub fn db(&self) -> &DBConn {
@@ -3268,7 +3219,7 @@ pub mod test {
         let chainstate = TestChainstateBuilder::new_testnet(function_name!()).build();
         assert_eq!(
             query_row(chainstate.db(), "SELECT sqlite_version()", NO_PARAMS).unwrap(),
-            Some("3.45.0".to_string())
+            Some("3.54.1".to_string())
         );
     }
 

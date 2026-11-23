@@ -26,7 +26,7 @@ runs:
     steps:
         # Checkout the code
         - name: Checkout the latest code
-          uses: $/.github/wrappers/checkout
+          uses: ./.github/wrappers/checkout
           with:
             ref: ${{ github.sha }}
 

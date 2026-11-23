@@ -31,6 +31,7 @@ use stacks_common::types::chainstate::BurnchainHeaderHash;
 use stacks_common::util::hash::to_hex;
 use stacks_common::util::vrf::VRFPublicKey;
 use stacks_common::util::{get_epoch_time_ms, sleep_ms};
+use stacks_marf::marf::MARFOpenOpts;
 
 use super::EpochList;
 use crate::burnchains::bitcoin::BitcoinTxOutput;
@@ -53,7 +54,6 @@ use crate::chainstate::burn::operations::{
 use crate::chainstate::burn::{BlockSnapshot, Opcodes};
 use crate::chainstate::coordinator::comm::CoordinatorChannels;
 use crate::chainstate::stacks::address::PoxAddress;
-use crate::chainstate::stacks::index::marf::MARFOpenOpts;
 #[cfg(any(test, feature = "testing"))]
 use crate::chainstate::stacks::StacksPublicKey;
 use crate::core::{StacksEpochId, NETWORK_ID_MAINNET, PEER_VERSION_MAINNET, PEER_VERSION_TESTNET};
@@ -78,7 +78,6 @@ impl BurnchainStateTransition {
         BurnchainStateTransition {
             burn_dist: vec![],
             accepted_ops: vec![],
-            consumed_leader_keys: vec![],
             windowed_block_commits: vec![],
             windowed_missed_commits: vec![],
         }
@@ -181,10 +180,6 @@ impl BurnchainStateTransition {
                 }
             };
         }
-
-        // find all VRF leader keys that were consumed by the block commits of this block
-        let consumed_leader_keys =
-            sort_tx.get_consumed_leader_keys(parent_snapshot, &block_commits)?;
 
         // assemble the commit windows
         let mut windowed_block_commits = vec![block_commits];
@@ -355,7 +350,6 @@ impl BurnchainStateTransition {
         Ok(BurnchainStateTransition {
             burn_dist,
             accepted_ops,
-            consumed_leader_keys,
             windowed_block_commits,
             windowed_missed_commits,
         })

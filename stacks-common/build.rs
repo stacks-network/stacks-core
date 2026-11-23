@@ -47,7 +47,12 @@ fn is_working_tree_clean() -> bool {
 }
 
 fn main() {
-    let mut rust_code = String::from("// Auto-generated Git metadata.\n\n");
+    let mut rust_code = String::from("// Auto-generated build metadata.\n\n");
+
+    let custom_version = option_env!("CUSTOM_VERSION_STRING").filter(|s| !s.is_empty());
+    rust_code.push_str(&format!(
+        "pub const CUSTOM_VERSION_STRING: Option<&'static str> = {custom_version:?};\n",
+    ));
 
     let git_commit = current_git_hash();
     rust_code.push_str(&format!(

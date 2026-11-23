@@ -42,7 +42,7 @@ Key settings:
 ```toml
 stacks_private_key = "<YOUR_SIGNER_PRIVATE_KEY_HEX>"
 node_host = "127.0.0.1:20443"
-endpoint = "0.0.0.0:30000"
+endpoint = "127.0.0.1:30000"
 network = "mainnet"
 auth_password = "your-secret-token"
 db_path = "/var/lib/stacks-signer/signerdb.sqlite"

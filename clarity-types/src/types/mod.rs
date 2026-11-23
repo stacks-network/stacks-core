@@ -461,6 +461,17 @@ impl SequenceData {
         Ok(out)
     }
 
+    /// [`Self::element_size`] to charge for in `epoch`; see
+    /// [`TypeSignature::charged_size`].
+    pub fn charged_element_size(&self, epoch: &StacksEpochId) -> Result<u32, ClarityTypeError> {
+        match self {
+            SequenceData::List(data) => {
+                data.type_signature.get_list_item_type().charged_size(epoch)
+            }
+            _ => self.element_size(),
+        }
+    }
+
     pub fn len(&self) -> usize {
         match &self {
             SequenceData::Buffer(data) => data.items().len(),
@@ -1087,6 +1098,11 @@ impl Value {
 
     pub fn size(&self) -> Result<u32, ClarityTypeError> {
         TypeSignature::type_of(self)?.size()
+    }
+
+    /// Size to charge for this value in `epoch`; see [`TypeSignature::charged_size`].
+    pub fn charged_size(&self, epoch: &StacksEpochId) -> Result<u32, ClarityTypeError> {
+        TypeSignature::type_of(self)?.charged_size(epoch)
     }
 
     pub fn depth(&self) -> Result<u8, ClarityTypeError> {

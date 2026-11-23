@@ -28,7 +28,7 @@ use super::hooks::{
 };
 use crate::vm::ast::ContractAST;
 use crate::vm::ast::errors::{ParseError, ParseErrorKind};
-use crate::vm::callables::{DefinedFunction, FunctionIdentifier};
+use crate::vm::callables::{DefinedFunction, FunctionIdentifier, sanitize_argument};
 use crate::vm::contracts::Contract;
 use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::costs::execution_cost::ExecutionCost;
@@ -512,10 +512,21 @@ impl<'a, 'hooks> OwnedEnvironment<'a, 'hooks> {
         sponsor: Option<PrincipalData>,
         contract_identifier: QualifiedContractIdentifier,
         tx_name: &str,
-        args: &[SymbolicExpression],
+        args: Vec<Value>,
     ) -> Result<(Value, AssetMap, Vec<StacksTransactionEvent>), VmExecutionError> {
         self.execute_in_env(sender, sponsor, None, |exec_state, invoke_ctx| {
-            exec_state.execute_contract(invoke_ctx, &contract_identifier, tx_name, args, false)
+            let allow_read_only = !exec_state.epoch().forbids_top_level_read_only_calls();
+            let enforce_read_only = false;
+            let allow_private = false;
+            exec_state.inner_execute_contract(
+                invoke_ctx,
+                &contract_identifier,
+                tx_name,
+                args,
+                allow_read_only,
+                enforce_read_only,
+                allow_private,
+            )
         })
     }
 
@@ -764,15 +775,27 @@ impl<'a, 'b, 'hooks> ExecutionState<'a, 'b, 'hooks> {
         &self.global_context.epoch_id
     }
 
+    /// Calls `tx_name` on `contract`. The arguments are taken by value so the caller
+    /// does not hold them for the duration of the call.
     pub fn execute_contract(
         &mut self,
         invoke_ctx: &InvocationContext,
         contract: &QualifiedContractIdentifier,
         tx_name: &str,
-        args: &[SymbolicExpression],
-        read_only: bool,
+        args: Vec<Value>,
+        enforce_read_only: bool,
     ) -> Result<Value, VmExecutionError> {
-        self.inner_execute_contract(invoke_ctx, contract, tx_name, args, read_only, false)
+        let allow_read_only = true;
+        let allow_private = false;
+        self.inner_execute_contract(
+            invoke_ctx,
+            contract,
+            tx_name,
+            args,
+            allow_read_only,
+            enforce_read_only,
+            allow_private,
+        )
     }
 
     /// This method is exposed for callers that need to invoke a private method directly.
@@ -783,25 +806,40 @@ impl<'a, 'b, 'hooks> ExecutionState<'a, 'b, 'hooks> {
         invoke_ctx: &InvocationContext,
         contract: &QualifiedContractIdentifier,
         tx_name: &str,
-        args: &[SymbolicExpression],
-        read_only: bool,
+        args: Vec<Value>,
+        enforce_read_only: bool,
     ) -> Result<Value, VmExecutionError> {
-        self.inner_execute_contract(invoke_ctx, contract, tx_name, args, read_only, true)
+        let allow_read_only = true;
+        let allow_private = true;
+        self.inner_execute_contract(
+            invoke_ctx,
+            contract,
+            tx_name,
+            args,
+            allow_read_only,
+            enforce_read_only,
+            allow_private,
+        )
     }
 
     /// This method handles actual execution of contract-calls on a contract.
     ///
-    /// `allow_private` should always be set to `false` for user transactions:
-    ///  this ensures that only `define-public` and `define-read-only` methods can
-    ///  be invoked. The `allow_private` mode should only be used by
-    ///  `Environment::execute_contract_allow_private`.
+    /// * `allow_read_only`: whether `define-read-only` functions may be invoked. Top-level
+    ///   contract-call transactions set it to `false` from Epoch 4.1 on.
+    /// * `enforce_read_only`: if `true`, only `define-read-only` functions may be invoked.
+    /// * `allow_private`: whether `define-private` functions may be invoked. It should always be
+    ///   `false` for user transactions: this ensures that only `define-public` and
+    ///   `define-read-only` methods can be invoked. The `allow_private` mode should only be used
+    ///   by [`Self::execute_contract_allow_private`].
+    #[allow(clippy::too_many_arguments)]
     fn inner_execute_contract(
         &mut self,
         invoke_ctx: &InvocationContext,
         contract_identifier: &QualifiedContractIdentifier,
         tx_name: &str,
-        args: &[SymbolicExpression],
-        read_only: bool,
+        args: Vec<Value>,
+        allow_read_only: bool,
+        enforce_read_only: bool,
         allow_private: bool,
     ) -> Result<Value, VmExecutionError> {
         let contract_size = self
@@ -820,34 +858,20 @@ impl<'a, 'b, 'hooks> ExecutionState<'a, 'b, 'hooks> {
 
             let func = contract.lookup_function(tx_name)
                 .ok_or_else(|| { RuntimeCheckErrorKind::UndefinedFunction(tx_name.to_string()) })?;
-            if !allow_private && !func.is_public() {
+            if (!allow_private && !func.is_public()) || (!allow_read_only && func.is_read_only()) {
                 return Err(RuntimeCheckErrorKind::NoSuchPublicFunction(contract_identifier.to_string(), tx_name.to_string()).into());
-            } else if read_only && !func.is_read_only() {
+            } else if enforce_read_only && !func.is_read_only() {
                 return Err(RuntimeCheckErrorKind::Unreachable(bounded_format!("Public function not read-only: {contract_identifier} {tx_name}")).into());
             }
 
-            let args: Result<Vec<Value>, VmExecutionError> = args.iter()
-                .map(|arg| {
-                    let value = arg.match_atom_value()
-                        .ok_or_else(|| VmInternalError::InvariantViolation(format!("Passed non-value expression to exec_tx on {tx_name}!")))?;
-                    // sanitize contract-call inputs in epochs >= 2.4
-                    // testing todo: ensure sanitize_value() preserves trait callability!
-                    let expected_type = TypeSignature::type_of(value)?;
-                    let (sanitized_value, _) = Value::sanitize_value(
-                        self.epoch(),
-                        &expected_type,
-                        value.clone(),
-                    ).ok_or_else(|| RuntimeCheckErrorKind::TypeValueError(
-                            Box::new(expected_type),
-                            value.to_error_string(),
-                        )
-                    )?;
-
-                    Ok(sanitized_value)
+            // sanitize contract-call inputs in epochs >= 2.4
+            // testing todo: ensure sanitize_value() preserves trait callability!
+            let args = args.into_iter()
+                .map(|value| {
+                    let expected_type = TypeSignature::type_of(&value)?;
+                    sanitize_argument(self.epoch(), &expected_type, value)
                 })
-                .collect();
-
-            let args = args?;
+                .collect::<Result<Vec<_>, _>>()?;
 
             let func_identifier = func.get_identifier();
             if self.call_stack.contains(&func_identifier) {
@@ -868,14 +892,20 @@ impl<'a, 'b, 'hooks> ExecutionState<'a, 'b, 'hooks> {
             call.begin(self, &callee_view, CallArguments::Values(&args));
             call.did_evaluate_arguments(self, &callee_view, &args);
 
-            let res = self.execute_function_as_transaction(invoke_ctx, func, &args, options);
+            // The arguments are kept only if the store has a special-case handler for this
+            // contract; otherwise they move into the call.
+            let special_case = self.global_context.database
+                .get_cc_special_cases_handler(contract_identifier)
+                .map(|handler| (handler, args.clone()));
+
+            let res = self.execute_function_as_transaction(invoke_ctx, func, args, options);
 
             call.finish(self, &callee_view, &res);
             self.call_stack.remove(&func_identifier, true)?;
 
             match res {
                 Ok(value) => {
-                    if let Some(handler) = self.global_context.database.get_cc_special_cases_handler() {
+                    if let Some((handler, args)) = special_case {
                         handler(
                             self.global_context,
                             invoke_ctx.sender.as_ref(),
@@ -903,7 +933,7 @@ impl<'a, 'b, 'hooks> ExecutionState<'a, 'b, 'hooks> {
         &mut self,
         invoke_ctx: &InvocationContext,
         function: &DefinedFunction,
-        args: &[Value],
+        args: Vec<Value>,
         options: FunctionExecutionOptions<'_>,
     ) -> Result<Value, VmExecutionError> {
         let make_read_only = function.is_read_only();

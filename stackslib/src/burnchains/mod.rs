@@ -21,6 +21,7 @@ use std::{error, fmt, io};
 use rusqlite::Error as sqlite_error;
 use stacks_common::types::chainstate::{BurnchainHeaderHash, ConsensusHash, PoxId};
 pub use stacks_common::types::{Address, PrivateKey, PublicKey};
+use stacks_marf::marf::MARFOpenOpts;
 
 use self::bitcoin::indexer::{
     BITCOIN_MAINNET as BITCOIN_NETWORK_ID_MAINNET, BITCOIN_MAINNET_NAME,
@@ -34,11 +35,10 @@ use crate::chainstate::burn::operations::leader_block_commit::{
     MissedBlockCommit, OUTPUTS_PER_COMMIT,
 };
 use crate::chainstate::burn::operations::{
-    BlockstackOperationType, Error as op_error, LeaderBlockCommitOp, LeaderKeyRegisterOp,
+    BlockstackOperationType, Error as op_error, LeaderBlockCommitOp,
 };
 use crate::chainstate::stacks::address::PoxAddress;
 use crate::chainstate::stacks::boot::{POX_1_NAME, POX_2_NAME, POX_3_NAME, POX_4_NAME, POX_5_NAME};
-use crate::chainstate::stacks::index::marf::MARFOpenOpts;
 use crate::core::*;
 #[cfg(test)]
 use crate::net::neighbors::MAX_NEIGHBOR_BLOCK_DELAY;
@@ -857,12 +857,10 @@ pub struct BurnchainView {
 /// The burnchain block's encoded state transition:
 /// -- the new burn distribution
 /// -- the sequence of valid blockstack operations that went into it
-/// -- the set of previously-accepted leader VRF keys consumed
 #[derive(Debug, Clone)]
 pub struct BurnchainStateTransition {
     pub burn_dist: Vec<BurnSamplePoint>,
     pub accepted_ops: Vec<BlockstackOperationType>,
-    pub consumed_leader_keys: Vec<LeaderKeyRegisterOp>,
     pub windowed_block_commits: Vec<Vec<LeaderBlockCommitOp>>,
     pub windowed_missed_commits: Vec<Vec<MissedBlockCommit>>,
 }
@@ -875,7 +873,7 @@ pub struct BurnchainStateTransition {
 #[derive(Debug, Clone)]
 pub struct BurnchainStateTransitionOps {
     pub accepted_ops: Vec<BlockstackOperationType>,
-    pub consumed_leader_keys: Vec<LeaderKeyRegisterOp>,
+    pub consumed_leader_keys: Vec<crate::chainstate::burn::operations::LeaderKeyRegisterOp>,
 }
 
 #[derive(Debug)]

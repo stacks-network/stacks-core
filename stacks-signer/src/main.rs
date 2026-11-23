@@ -44,6 +44,7 @@ use stacks_signer::cli::{
 };
 use stacks_signer::config::GlobalConfig;
 use stacks_signer::monitor_signers::SignerMonitor;
+use stacks_signer::signerdb::SignerDb;
 use stacks_signer::utils::stackerdb_session;
 use stacks_signer::v0::SpawnedSigner;
 use tracing_subscriber::prelude::*;
@@ -115,6 +116,15 @@ fn handle_put_chunk(args: PutChunkArgs) {
 fn handle_run(args: RunSignerArgs) {
     debug!("Running signer...");
     let config = GlobalConfig::try_from(&args.config).unwrap();
+    // Open (and migrate) the signer db before starting, so a db this release cannot use stops
+    // the signer with an error instead of a panic, possibly in a signer thread.
+    if let Err(e) = SignerDb::new(&config.db_path) {
+        error!(
+            "Failed to open the signer db at {}: {e}",
+            config.db_path.display()
+        );
+        std::process::exit(1);
+    }
     let spawned_signer = SpawnedSigner::new(config);
     println!("Signer spawned successfully. Waiting for messages to process...");
     // Wait for the spawned signer to stop (will only occur if an error occurs)

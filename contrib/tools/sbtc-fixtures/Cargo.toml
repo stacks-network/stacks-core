@@ -1,0 +1,14 @@
+[package]
+name = "sbtc-fixtures"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+# Keep fixture generation and its upstream dependencies outside the node workspace.
+[workspace]
+
+[dependencies]
+sbtc = { git = "https://github.com/stacks-sbtc/sbtc", rev = "6ec5dbeecb606fc2e921661ec9b43a6ad3545e6e" }
+bitcoin = "0.32.5"
+clarity-types = { git = "https://github.com/stacks-network/stacks-core", rev = "1cba695b09690790b1220b0f5d149f70f78ddea5", default-features = false }
+serde_json = "1.0"

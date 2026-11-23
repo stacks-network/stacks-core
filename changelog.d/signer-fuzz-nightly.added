@@ -1,0 +1,1 @@
+Added fuzz targets for the signer's handling of StackerDB messages, event-observer payloads and global state evaluation (`libsigner/fuzz`).

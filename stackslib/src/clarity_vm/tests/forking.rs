@@ -17,7 +17,7 @@ use clarity::vm::analysis::errors::RuntimeCheckErrorKind;
 use clarity::vm::contexts::OwnedEnvironment;
 use clarity::vm::errors::{ClarityEvalError, RuntimeError, VmExecutionError};
 use clarity::vm::test_util::{
-    execute, is_committed, is_err_code, symbols_from_values, TEST_BURN_STATE_DB, TEST_HEADER_DB,
+    execute, is_committed, is_err_code, TEST_BURN_STATE_DB, TEST_HEADER_DB,
 };
 use clarity::vm::tests::test_clarity_versions;
 use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier, Value};
@@ -90,7 +90,7 @@ fn test_at_block_mutations(#[case] version: ClarityVersion, #[case] epoch: Stack
         }
 
         owned_env
-            .execute_transaction(p1, None, c, to_exec, &[])
+            .execute_transaction(p1, None, c, to_exec, vec![])
             .map(|(x, _, _)| x)
     }
 
@@ -187,7 +187,7 @@ fn test_at_block_good(#[case] version: ClarityVersion, #[case] epoch: StacksEpoc
         }
 
         owned_env
-            .execute_transaction(p1, None, c, to_exec, &[])
+            .execute_transaction(p1, None, c, to_exec, vec![])
             .map(|(x, _, _)| x)
     }
 
@@ -421,7 +421,7 @@ fn branched_execution(
             None,
             contract_identifier,
             "destroy",
-            &symbols_from_values(vec![Value::UInt(10)]),
+            vec![Value::UInt(10)],
         )
         .unwrap();
 

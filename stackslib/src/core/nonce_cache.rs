@@ -226,10 +226,10 @@ mod tests {
     use clarity::types::chainstate::StacksBlockId;
     use clarity::types::Address;
     use clarity::vm::tests::{TEST_BURN_STATE_DB, TEST_HEADER_DB};
+    use stacks_marf::ClarityMarfTrieId;
 
     use super::*;
     use crate::chainstate::stacks::db::testing::{chainstate_path, TestChainstateBuilder};
-    use crate::chainstate::stacks::index::ClarityMarfTrieId;
     use crate::clarity_vm::clarity::ClarityInstance;
     use crate::clarity_vm::database::marf::MarfedKV;
     use crate::core::MemPoolDB;

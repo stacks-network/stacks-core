@@ -139,6 +139,20 @@ impl ClarityVersion {
     pub fn supports_variadic_concat(&self) -> bool {
         self >= &ClarityVersion::Clarity6
     }
+
+    /// Starting with Clarity 7, the definition sorter also analyzes the names
+    /// of bindings to ensure variable shadowing is prevented regardless of
+    /// source order.
+    pub fn definition_sorter_probes_binding_names(&self) -> bool {
+        self >= &ClarityVersion::Clarity7
+    }
+
+    /// Before Clarity 7, the runtime check that prevents let and match bindings with
+    /// names that duplicate existing global definitions was incomplete: It only looked
+    /// at global function names.
+    pub fn fully_prevents_binding_name_duplication_at_runtime(&self) -> bool {
+        self >= &ClarityVersion::Clarity7
+    }
 }
 
 impl FromStr for ClarityVersion {

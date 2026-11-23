@@ -657,11 +657,8 @@ fn special_print(
     })?;
     let input = eval(arg, exec_state, invoke_ctx, context)?;
 
-    runtime_cost(
-        ClarityCostFunction::Print,
-        exec_state,
-        input.as_ref().size()?,
-    )?;
+    let input_size = input.as_ref().charged_size(exec_state.epoch())?;
+    runtime_cost(ClarityCostFunction::Print, exec_state, input_size)?;
 
     if cfg!(feature = "developer-mode") {
         debug!("{}", input.as_ref());
@@ -813,15 +810,22 @@ fn special_let(
 
     finally_drop_memory!( exec_state, memory_use; {
         handle_binding_list::<_, VmExecutionError>(bindings, SyntaxBindingErrorType::Let, |binding_name, var_sexp| {
-            if is_reserved(binding_name, invoke_ctx.contract_context.get_clarity_version()) ||
-                invoke_ctx.contract_context.lookup_function(binding_name).is_some() ||
+            let version = invoke_ctx.contract_context.get_clarity_version();
+            let name_conflicts_with_global = if version.fully_prevents_binding_name_duplication_at_runtime() {
+                invoke_ctx.contract_context.is_name_used(binding_name)
+            } else {
+                is_reserved(binding_name, version) ||
+                invoke_ctx.contract_context.lookup_function(binding_name).is_some()
+            };
+
+            if name_conflicts_with_global ||
                 inner_context.lookup_variable(binding_name).is_some() {
                     return Err(RuntimeCheckErrorKind::NameAlreadyUsed(binding_name.clone().into()).into())
                 }
 
             let binding_value = eval(var_sexp, exec_state, invoke_ctx, &inner_context)?;
 
-            let bind_mem_use = binding_value.as_ref().get_memory_use()?;
+            let bind_mem_use = binding_value.as_ref().get_memory_use(exec_state.epoch())?;
             exec_state.add_memory(bind_mem_use)?;
             memory_use += bind_mem_use; // no check needed, b/c it's done in add_memory.
             let binding_value = binding_value.clone_with_cost(exec_state)?;

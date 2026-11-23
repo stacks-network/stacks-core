@@ -23,7 +23,7 @@ use clarity::vm::errors::ClarityEvalError;
 use clarity::vm::errors::VmExecutionError::RuntimeCheck;
 use clarity::vm::representations::{CONTRACT_NAME_REGEX_STRING, STANDARD_PRINCIPAL_REGEX_STRING};
 use clarity::vm::types::{BoundedErrorString, PrincipalData};
-use clarity::vm::{ClarityName, ContractName, SymbolicExpression, Value};
+use clarity::vm::{ClarityName, ContractName, Value};
 use regex::{Captures, Regex};
 use stacks_common::types::chainstate::StacksAddress;
 use stacks_common::types::net::PeerHost;
@@ -186,17 +186,11 @@ impl RPCRequestHandler for RPCFastCallReadOnlyRequestHandler {
             .take()
             .ok_or(NetError::SendError("Missing `arguments`".into()))?;
 
-        // Started before the argument conversion so it counts against execution.
         let resource_limiter = self.call_read_only_handler.execution_resource_limiter();
 
         // run the read-only call
         let data_resp =
             node.with_node_state(|_network, sortdb, chainstate, _mempool, _rpc_args| {
-                let args: Vec<_> = arguments
-                    .into_iter()
-                    .map(SymbolicExpression::atom_value)
-                    .collect();
-
                 let mainnet = chainstate.mainnet;
                 let chain_id = chainstate.chain_id;
 
@@ -229,7 +223,7 @@ impl RPCRequestHandler for RPCFastCallReadOnlyRequestHandler {
                                         invoke_ctx,
                                         &contract_identifier,
                                         function.as_str(),
-                                        &args,
+                                        arguments,
                                         false,
                                     )
                                     .map_err(ClarityEvalError::from)

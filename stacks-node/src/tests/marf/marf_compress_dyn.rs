@@ -23,10 +23,10 @@ pub mod utils {
     use clarity::vm::types::PrincipalData;
     use rusqlite::Connection;
     use stacks::chainstate::burn::db::sortdb::SortitionDB;
-    use stacks::chainstate::stacks::index::marf::fault_injection_marf_compression;
     use stacks::core::mempool::MemPoolWalkStrategy;
     use stacks::core::test_util::{insert_tx_in_mempool, make_stacks_transfer_serialized};
     use stacks::types::chainstate::{StacksAddress, StacksPrivateKey};
+    use stacks_marf::marf::fault_injection_marf_compression;
     use stacks_signer::v0::SpawnedSigner;
 
     use crate::nakamoto_node::miner::{fault_injection_stall_miner, fault_injection_unstall_miner};

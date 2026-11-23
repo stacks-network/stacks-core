@@ -873,6 +873,45 @@ impl<'a> Lexer<'a> {
     }
 }
 
+/// Fields are `pub(super)`: outside `parser::v2` only `new` can build one, which
+/// guarantees `tokens` ends with `Token::Eof`.
+pub struct LexedSource {
+    pub(super) tokens: Vec<PlacedToken>,
+    pub(super) diagnostics: Vec<PlacedError>,
+    pub(super) success: bool,
+    pub(super) fail_fast: bool,
+}
+
+impl LexedSource {
+    pub fn new(input: &str, fail_fast: bool) -> LexResult<Self> {
+        let mut lexer = Lexer::new(input, fail_fast)?;
+        let mut tokens = vec![];
+        loop {
+            let token = match lexer.read_token() {
+                Ok(token) => token,
+                Err(e) => {
+                    assert!(
+                        fail_fast,
+                        "Lexer::read_token should not return an error when not in fail_fast mode"
+                    );
+                    return Err(e);
+                }
+            };
+            let is_eof = token.token == Token::Eof;
+            tokens.push(token);
+            if is_eof {
+                break;
+            }
+        }
+        Ok(Self {
+            tokens,
+            diagnostics: lexer.diagnostics,
+            success: lexer.success,
+            fail_fast,
+        })
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

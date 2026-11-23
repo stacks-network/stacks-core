@@ -30,6 +30,8 @@ use crate::vm::types::{PrincipalData, QualifiedContractIdentifier};
 
 pub struct NullBackingStore {}
 
+/// Called after a contract call returns a value, including an `err` response, when
+/// [`ClarityBackingStore::get_cc_special_cases_handler`] supplied it for the callee.
 pub type SpecialCaseHandler = &'static dyn Fn(
     // the current Clarity global context
     &mut GlobalContext,
@@ -90,7 +92,15 @@ pub trait ClarityBackingStore {
     #[cfg(feature = "rusqlite")]
     fn get_side_store(&mut self) -> &Connection;
 
-    fn get_cc_special_cases_handler(&self) -> Option<SpecialCaseHandler> {
+    /// The handler to call after a contract call into `contract` returns a value, if
+    /// any. The VM keeps a copy of the call's arguments only when this returns a
+    /// handler, so return `None` for contracts the handler would ignore. It is looked
+    /// up before the call runs, including calls that then fail, so the answer must
+    /// depend on `contract` alone.
+    fn get_cc_special_cases_handler(
+        &self,
+        _contract: &QualifiedContractIdentifier,
+    ) -> Option<SpecialCaseHandler> {
         None
     }
 

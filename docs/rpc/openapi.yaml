@@ -201,6 +201,8 @@ components:
       $ref: ./components/schemas/tenure-tip.schema.yaml
     TenureTipMetadata:
       $ref: ./components/schemas/tenure-tip-metadata.schema.yaml
+    BlockView:
+      $ref: ./components/schemas/block-view.schema.yaml
     GetStackerSet:
       $ref: ./components/schemas/get-stacker-set.schema.yaml
     TenureBlocks:
@@ -528,6 +530,8 @@ paths:
         Where balance is the hex encoding of a unsigned 128-bit integer (big-endian), nonce is a unsigned 64-bit integer, and the proofs are provided as hex strings.
 
         For non-existent accounts, this does not 404, rather it returns an object with balance and nonce of 0.
+
+        Under PoX-5, `unstake` keeps the amount locked and moves `unlock_height` to the first Bitcoin block of the next reward cycle. STX paired with a protocol bond stays locked until the bond ends. When the burn block height of the queried tip reaches `unlock_height`, the amount moves into `balance` with no transaction.
       parameters:
         - $ref: ./components/parameters/principal.yaml
         - $ref: ./components/parameters/proof.yaml
@@ -2221,6 +2225,42 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/TenureTipMetadata"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  /v3/blocks/{block_id}/view:
+    get:
+      summary: Get a block's burnchain views
+      tags:
+        - Blocks
+      security: []
+      operationId: getBlockView
+      description: |
+        Get the burnchain views which a Stacks block depends on, and whether a burnchain fork
+        has since orphaned either of them.
+
+        A block is tied to the burnchain twice: by the sortition that elected its tenure, and
+        by the burn view its miner was building against. The two diverge whenever a tenure is
+        extended across a burn block.
+      parameters:
+        - name: block_id
+          in: path
+          required: true
+          description: The block's index block hash (64 hexadecimal characters)
+          schema:
+            type: string
+            pattern: "^[0-9a-f]{64}$"
+      responses:
+        "200":
+          description: The block's burnchain views
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BlockView"
         "400":
           $ref: "#/components/responses/BadRequest"
         "404":

@@ -433,16 +433,14 @@ pub fn assert_source_schema(
     Ok(())
 }
 
-/// MARF / Clarity-store infrastructure tables. They live in every MARF-backed
-/// source DB and are created by the squash engine (`MARF::squash_to_path`) or
-/// store init — not by a side-table copy — so the drift guards treat them as
-/// already handled.
+/// MARF / Clarity-store infrastructure tables handled by squash or store init
+/// instead of side-table copying.
 pub const MARF_INFRA_TABLES: &[&str] = &[
     "marf_data",
     "__fork_storage",
     "marf_squash_info",
     "marf_squashed_blocks",
-    "mined_blocks",
+    "mined_blocks", // legacy table removed by MARF schema 4, but may exist in older source DBs
     "block_extension_locks",
     "schema_version",
     "migrated_version",

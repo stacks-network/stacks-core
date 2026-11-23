@@ -105,6 +105,7 @@ fn variant_coverage_report(variant: RuntimeCheckErrorKind) {
         TypeValueError(_, _) => Tested(vec![
             runtime_check_error_kind_type_value_error_cdeploy,
             runtime_check_error_kind_type_value_error_ccall,
+            runtime_check_error_kind_type_value_error_list_too_long_ccall,
         ]),
         UnionTypeValueError(_, _) => Tested(vec![
             runtime_check_error_kind_union_type_value_error_cdeploy,
@@ -122,9 +123,10 @@ fn variant_coverage_report(variant: RuntimeCheckErrorKind) {
         }
         CircularReference(_) => Tested(vec![runtime_check_error_kind_circular_reference_ccall]), // Possible only during contract call. On contract deploy checked during parsing.
         NoSuchContract(_) => Tested(vec![runtime_check_error_kind_no_such_contract_ccall]),
-        NoSuchPublicFunction(_, _) => {
-            Tested(vec![runtime_check_error_kind_no_such_public_function_ccall])
-        }
+        NoSuchPublicFunction(_, _) => Tested(vec![
+            runtime_check_error_kind_no_such_public_function_ccall,
+            runtime_check_error_kind_no_such_public_function_read_only_ccall,
+        ]),
         ContractCallExpectName => Tested(vec![
             runtime_check_error_kind_contract_call_expect_name_cdeploy,
             runtime_check_error_kind_contract_call_expect_name_ccall,
@@ -284,6 +286,38 @@ fn runtime_check_error_kind_no_such_public_function_ccall() {
         contract_code: "(define-private (get-one) (ok u1))",
         function_name: "get-one",
         function_args: &[],
+    );
+}
+
+/// RuntimeCheckErrorKind: [`RuntimeCheckErrorKind::NoSuchPublicFunction`]
+/// Caused by: a contract-call transaction targets a read-only function.
+/// Outcome: block accepted. Before epoch 4.1, the call succeeds and its result is the
+///     function's return value (here `u1`, not a response); from 4.1, it fails.
+#[test]
+fn runtime_check_error_kind_no_such_public_function_read_only_ccall() {
+    contract_call_consensus_snap_test!(
+        contract_name: "target-contract",
+        contract_code: "(define-read-only (get-one) u1)",
+        function_name: "get-one",
+        function_args: &[],
+        deploy_epochs: EPOCHS_TO_TEST,
+        call_epochs: &[
+            StacksEpochId::Epoch34,
+            StacksEpochId::Epoch40,
+        ],
+    );
+}
+
+/// Epoch 4.1 coverage uses a separate chain with the signer-data registry stub.
+#[test]
+fn runtime_check_error_kind_no_such_public_function_read_only_ccall_epoch_41() {
+    contract_call_consensus_snap_test!(
+        contract_name: "target-contract",
+        contract_code: "(define-read-only (get-one) u1)",
+        function_name: "get-one",
+        function_args: &[],
+        deploy_epochs: EPOCHS_TO_TEST,
+        call_epochs: &[StacksEpochId::Epoch41],
     );
 }
 
@@ -651,6 +685,25 @@ fn runtime_check_error_kind_type_value_error_ccall() {
     );
 }
 
+/// RuntimeCheckErrorKind: [`RuntimeCheckErrorKind::TypeValueError`]
+/// Caused by: passing a list longer than the parameter allows. Unlike a wrong
+/// non-list value, the argument is rebuilt by the implicit cast before it is rejected.
+/// Outcome: block accepted.
+#[test]
+fn runtime_check_error_kind_type_value_error_list_too_long_ccall() {
+    contract_call_consensus_snap_test!(
+        contract_name: "check-error-kind",
+        contract_code: "(define-public (trigger-error (x (list 2 uint))) (ok true))",
+        function_name: "trigger-error",
+        function_args: &[ClarityValue::cons_list_unsanitized(vec![
+            ClarityValue::UInt(1),
+            ClarityValue::UInt(2),
+            ClarityValue::UInt(3),
+        ])
+        .unwrap()],
+    );
+}
+
 /// RuntimeCheckErrorKind: [`RuntimeCheckErrorKind::SequenceElementArityMismatch`]
 /// Caused by: a `replace-at?` buff/string element whose length is not exactly 1.
 /// Outcome: block rejected before epoch 4.1; block accepted (failure receipt) from 4.1.
@@ -664,8 +717,20 @@ fn runtime_check_error_kind_sequence_element_arity_mismatch_cdeploy() {
         deploy_epochs: &[
             StacksEpochId::Epoch34,
             StacksEpochId::Epoch40,
-            StacksEpochId::Epoch41,
         ],
+        clarity_versions: ClarityVersion::since(ClarityVersion::Clarity2),
+    );
+}
+
+/// Epoch 4.1 coverage uses a separate chain with the signer-data registry stub.
+#[test]
+fn runtime_check_error_kind_sequence_element_arity_mismatch_cdeploy_epoch_41() {
+    contract_deploy_consensus_snap_test!(
+        contract_name: "check-error-kind",
+        // `as-max-len?` widens `0x` to type `(buff 1)` while it still holds 0 bytes,
+        // so analysis passes in every epoch and the runtime arity check fires.
+        contract_code: "(replace-at? 0x0102 u0 (unwrap-panic (as-max-len? 0x u1)))",
+        deploy_epochs: &[StacksEpochId::Epoch41],
         clarity_versions: ClarityVersion::since(ClarityVersion::Clarity2),
     );
 }
@@ -685,8 +750,22 @@ fn runtime_check_error_kind_sequence_element_arity_mismatch_ccall() {
         call_epochs: &[
             StacksEpochId::Epoch34,
             StacksEpochId::Epoch40,
-            StacksEpochId::Epoch41,
         ],
+        clarity_versions: ClarityVersion::since(ClarityVersion::Clarity2),
+    );
+}
+
+/// Epoch 4.1 coverage uses a separate chain with the signer-data registry stub.
+#[test]
+fn runtime_check_error_kind_sequence_element_arity_mismatch_ccall_epoch_41() {
+    contract_call_consensus_snap_test!(
+        contract_name: "check-error-kind",
+        contract_code: "(define-public (trigger-error)
+            (ok (replace-at? 0x0102 u0 (unwrap-panic (as-max-len? 0x u1)))))",
+        function_name: "trigger-error",
+        function_args: &[],
+        deploy_epochs: EPOCHS_TO_TEST,
+        call_epochs: &[StacksEpochId::Epoch41],
         clarity_versions: ClarityVersion::since(ClarityVersion::Clarity2),
     );
 }
@@ -1023,8 +1102,25 @@ fn runtime_check_error_kind_with_all_allowance_not_allowed_ccall() {
         call_epochs: &[
             StacksEpochId::Epoch34,
             StacksEpochId::Epoch40,
-            StacksEpochId::Epoch41,
         ],
+        clarity_versions: ClarityVersion::since(ClarityVersion::Clarity4),
+    );
+}
+
+/// Epoch 4.1 coverage uses a separate chain with the signer-data registry stub.
+#[test]
+fn runtime_check_error_kind_with_all_allowance_not_allowed_ccall_epoch_41() {
+    contract_call_consensus_snap_test!(
+        contract_name: "check-error-kind",
+        contract_code: "(define-private (ignore) true)
+            (define-public (trigger-error)
+              (begin
+                (ignore (restrict-assets? tx-sender ((with-all-assets-unsafe)) true))
+                (ok true)))",
+        function_name: "trigger-error",
+        function_args: &[],
+        deploy_epochs: EPOCHS_TO_TEST,
+        call_epochs: &[StacksEpochId::Epoch41],
         clarity_versions: ClarityVersion::since(ClarityVersion::Clarity4),
     );
 }

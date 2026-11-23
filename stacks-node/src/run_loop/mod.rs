@@ -9,9 +9,9 @@ use stacks::chainstate::stacks::events::StacksTransactionReceipt;
 use stacks::chainstate::stacks::StacksBlock;
 use stacks_common::types::chainstate::StacksBlockId;
 use stacks_common::util::vrf::VRFPublicKey;
+use stacks_marf::ClarityMarfTrieId;
 
 use crate::stacks::chainstate::coordinator::BlockEventDispatcher;
-use crate::stacks::chainstate::stacks::index::ClarityMarfTrieId;
 use crate::EventDispatcher;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]

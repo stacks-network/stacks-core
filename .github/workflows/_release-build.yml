@@ -36,7 +36,7 @@ run-name: Build Release Binaries ${{ inputs.tag }}
 # Set default env vars
 env:
   # Set a default command to build. we'll define specific build config options later per arch.
-  CMD: "cargo build --features monitoring_prom,slog_json --profile release --workspace"
+  CMD: "cargo build --locked --features monitoring_prom,slog_json --profile release --workspace"
 
 jobs:
   build-binaries:
@@ -95,8 +95,6 @@ jobs:
       # Checkout the code
       - name: Checkout the latest code
         uses: $/.github/wrappers/checkout
-        with:
-          ref: ${{ github.event.pull_request.head.sha || github.ref }}
 
       # Configure target platform, install Rust toolchain, and build binaries
       - name: Build Binaries

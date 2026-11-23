@@ -17,7 +17,7 @@
 use std::io::Write;
 
 use rusqlite::blob::Blob;
-use rusqlite::{params, Connection, DatabaseName, OptionalExtension, Transaction};
+use rusqlite::{params, Connection, OptionalExtension, Transaction};
 use stacks_common::types::chainstate::{TrieHash, TRIEHASH_ENCODED_SIZE};
 use stacks_common::types::sqlite::NO_PARAMS;
 use stacks_common::util::db::{table_exists, tx_begin_immediate};
@@ -96,6 +96,7 @@ CREATE TABLE IF NOT EXISTS marf_data (
 CREATE INDEX IF NOT EXISTS block_hash_marf_data ON marf_data(block_hash);
 CREATE INDEX IF NOT EXISTS unconfirmed_marf_data ON marf_data(unconfirmed);
 ";
+
 static SQL_MARF_MINED_TABLE: &str = "
 CREATE TABLE IF NOT EXISTS mined_blocks (
    block_id INTEGER PRIMARY KEY,
@@ -152,8 +153,14 @@ CREATE TABLE IF NOT EXISTS marf_squashed_blocks (
 UPDATE schema_version SET version = 3;
 ";
 
+/// Schema 4 removes unused speculative tries.
+static SQL_MARF_DATA_TABLE_SCHEMA_4: &str = "
+DROP TABLE IF EXISTS mined_blocks;
+UPDATE schema_version SET version = 4;
+";
+
 pub static SQL_MARF_EXTERNAL_BLOBS_SCHEMA_VERSION: u64 = 2;
-pub static SQL_MARF_SCHEMA_VERSION: u64 = 3;
+pub static SQL_MARF_SCHEMA_VERSION: u64 = 4;
 
 pub fn create_tables_if_needed(conn: &mut Connection) -> Result<(), Error> {
     let tx = tx_begin_immediate(conn)?;
@@ -538,6 +545,13 @@ pub fn migrate_tables_if_needed<T: MarfTrieId>(conn: &mut Connection) -> Result<
                 tx.execute_batch(SQL_MARF_DATA_TABLE_SCHEMA_3)?;
                 tx.commit()?;
             }
+            3 => {
+                debug!("Migrate MARF data from schema 3 to schema 4");
+
+                let tx = tx_begin_immediate(conn)?;
+                tx.execute_batch(SQL_MARF_DATA_TABLE_SCHEMA_4)?;
+                tx.commit()?;
+            }
             x if x == SQL_MARF_SCHEMA_VERSION => {
                 // done
                 debug!("Migrated MARF data to schema {}", &SQL_MARF_SCHEMA_VERSION);
@@ -584,15 +598,6 @@ pub fn get_block_identifier<T: MarfTrieId>(conn: &Connection, bhh: &T) -> Result
     conn.prepare_cached("SELECT block_id FROM marf_data WHERE block_hash = ?")?
         .query_row([bhh], |row| row.get("block_id"))
         .map_err(|e| e.into())
-}
-
-pub fn get_mined_block_identifier<T: MarfTrieId>(conn: &Connection, bhh: &T) -> Result<u32, Error> {
-    conn.query_row(
-        "SELECT block_id FROM mined_blocks WHERE block_hash = ?",
-        [bhh],
-        |row| row.get("block_id"),
-    )
-    .map_err(|e| e.into())
 }
 
 pub fn get_confirmed_block_identifier<T: MarfTrieId>(
@@ -736,35 +741,6 @@ pub fn write_external_trie_blob<T: MarfTrieId>(
     inner_write_external_trie_blob(conn, block_hash, offset, length, None)
 }
 
-/// Write a serialized trie blob for a trie that was mined
-pub fn write_trie_blob_to_mined<T: MarfTrieId>(
-    conn: &Connection,
-    block_hash: &T,
-    data: &[u8],
-) -> Result<u32, Error> {
-    if let Ok(block_id) = get_mined_block_identifier(conn, block_hash) {
-        // already exists; update
-        let args = params![data, block_id];
-        let mut s = conn.prepare("UPDATE mined_blocks SET data = ? WHERE block_id = ?")?;
-        s.execute(args)
-            .expect("EXHAUSTION: MARF cannot track more than 2**31 - 1 blocks");
-    } else {
-        // doesn't exist yet; insert
-        let args = params![block_hash, data];
-        let mut s = conn.prepare("INSERT INTO mined_blocks (block_hash, data) VALUES (?, ?)")?;
-        s.execute(args)
-            .expect("EXHAUSTION: MARF cannot track more than 2**31 - 1 blocks");
-    };
-
-    let block_id = get_mined_block_identifier(conn, block_hash)?;
-
-    debug!(
-        "Wrote mined block trie {} to rowid {}",
-        block_hash, block_id
-    );
-    Ok(block_id)
-}
-
 /// Write a serialized unconfirmed trie blob
 pub fn write_trie_blob_to_unconfirmed<T: MarfTrieId>(
     conn: &Connection,
@@ -803,7 +779,7 @@ pub fn write_trie_blob_to_unconfirmed<T: MarfTrieId>(
 /// Open a trie blob. Returns a Blob<'a> readable/writeable handle to it.
 pub fn open_trie_blob(conn: &Connection, block_id: u32) -> Result<Blob<'_>, Error> {
     let blob = conn.blob_open(
-        DatabaseName::Main,
+        rusqlite::MAIN_DB,
         "marf_data",
         "data",
         block_id.into(),
@@ -815,7 +791,7 @@ pub fn open_trie_blob(conn: &Connection, block_id: u32) -> Result<Blob<'_>, Erro
 /// Open a trie blob. Returns a Blob<'a> readable handle to it.
 pub fn open_trie_blob_readonly(conn: &Connection, block_id: u32) -> Result<Blob<'_>, Error> {
     let blob = conn.blob_open(
-        DatabaseName::Main,
+        rusqlite::MAIN_DB,
         "marf_data",
         "data",
         block_id.into(),
@@ -852,7 +828,7 @@ pub fn read_node_hash_bytes<W: Write>(
     ptr: &TriePtr,
 ) -> Result<(), Error> {
     let mut blob = conn.blob_open(
-        DatabaseName::Main,
+        rusqlite::MAIN_DB,
         "marf_data",
         "data",
         block_id.into(),
@@ -874,7 +850,7 @@ pub fn read_node_hash_bytes_by_bhh<W: Write, T: MarfTrieId>(
         [bhh],
         |r| r.get("block_id"),
     )?;
-    let mut blob = conn.blob_open(DatabaseName::Main, "marf_data", "data", row_id, true)?;
+    let mut blob = conn.blob_open(rusqlite::MAIN_DB, "marf_data", "data", row_id, true)?;
     let hash_buff = bits_read_node_hash_bytes(&mut blob, ptr)?;
     w.write_all(&hash_buff).map_err(|e| e.into())
 }
@@ -886,7 +862,7 @@ pub fn read_node_type(
     ptr: &TriePtr,
 ) -> Result<(TrieNodeType, TrieHash), Error> {
     let mut blob = conn.blob_open(
-        DatabaseName::Main,
+        rusqlite::MAIN_DB,
         "marf_data",
         "data",
         block_id.into(),
@@ -902,7 +878,7 @@ pub fn read_node_type_nohash(
     ptr: &TriePtr,
 ) -> Result<TrieNodeType, Error> {
     let mut blob = conn.blob_open(
-        DatabaseName::Main,
+        rusqlite::MAIN_DB,
         "marf_data",
         "data",
         block_id.into(),
@@ -980,7 +956,7 @@ pub fn get_node_hash_bytes(
     ptr: &TriePtr,
 ) -> Result<TrieHash, Error> {
     let mut blob = conn.blob_open(
-        DatabaseName::Main,
+        rusqlite::MAIN_DB,
         "marf_data",
         "data",
         block_id.into(),
@@ -1000,7 +976,7 @@ pub fn get_node_hash_bytes_by_bhh<T: MarfTrieId>(
         [bhh],
         |r| r.get("block_id"),
     )?;
-    let mut blob = conn.blob_open(DatabaseName::Main, "marf_data", "data", row_id, true)?;
+    let mut blob = conn.blob_open(rusqlite::MAIN_DB, "marf_data", "data", row_id, true)?;
     let hash_buff = bits_read_node_hash_bytes(&mut blob, ptr)?;
     Ok(TrieHash(hash_buff))
 }
@@ -1098,6 +1074,5 @@ pub fn clear_lock_data(conn: &Connection) -> Result<(), Error> {
 pub fn clear_tables(tx: &Transaction) -> Result<(), Error> {
     tx.execute("DELETE FROM block_extension_locks", NO_PARAMS)?;
     tx.execute("DELETE FROM marf_data", NO_PARAMS)?;
-    tx.execute("DELETE FROM mined_blocks", NO_PARAMS)?;
     Ok(())
 }

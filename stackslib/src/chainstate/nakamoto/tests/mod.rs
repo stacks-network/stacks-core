@@ -20,7 +20,7 @@ use clarity::types::chainstate::{SortitionId, StacksBlockId};
 use clarity::util::secp256k1::Secp256k1PrivateKey;
 use clarity::vm::costs::ExecutionCost;
 use clarity::vm::types::StacksAddressExtensions;
-use clarity::vm::{ClarityName, ContractName, Value};
+use clarity::vm::{ClarityName, ClarityVersion, ContractName, Value};
 use libstackerdb::{StackerDBChunkData, STACKERDB_MAX_CHUNK_SIZE};
 use rand::distributions::Standard;
 use rand::{thread_rng, Rng, RngCore};
@@ -49,7 +49,10 @@ use crate::chainstate::burn::{BlockSnapshot, OpsHash, SortitionHash};
 use crate::chainstate::coordinator::tests::{
     get_burnchain, get_chainstate, setup_states_with_epochs,
 };
-use crate::chainstate::nakamoto::coordinator::tests::boot_nakamoto;
+use crate::chainstate::nakamoto::coordinator::tests::{boot_nakamoto, make_contract};
+use crate::chainstate::nakamoto::miner::{
+    MinerTenureInfoCause, NakamotoBlockBuilder, NakamotoTenureInfo, MINER_MAX_TX_RECEIPT_SIZE,
+};
 use crate::chainstate::nakamoto::signer_set::NakamotoSigners;
 use crate::chainstate::nakamoto::staging_blocks::{
     NakamotoBlockObtainMethod, NakamotoStagingBlocksConnRef,
@@ -63,16 +66,23 @@ use crate::chainstate::nakamoto::{
 use crate::chainstate::stacks::boot::{
     NakamotoSignerEntry, RewardSet, MINERS_NAME, SIGNERS_VOTING_FUNCTION_NAME, SIGNERS_VOTING_NAME,
 };
+use crate::chainstate::stacks::db::blocks::MAX_RECEIPT_SIZES;
 use crate::chainstate::stacks::db::{
     StacksAccount, StacksBlockHeaderTypes, StacksChainState, StacksHeaderInfo,
 };
-use crate::chainstate::stacks::{
-    CoinbasePayload, Error as ChainstateError, StacksBlock, StacksBlockHeader, StacksTransaction,
-    TenureChangeCause, TenureChangePayload, TokenTransferMemo, TransactionAnchorMode,
-    TransactionAuth, TransactionContractCall, TransactionPayload, TransactionPostConditionMode,
-    TransactionSmartContract, TransactionVersion,
+use crate::chainstate::stacks::miner::{
+    BlockBuilder, BlockBuilderSettings, BlockLimitFunction, TransactionEvent,
+    TransactionProblematic, TransactionResourceBudgets, TransactionResult, TransactionSkipped,
 };
-use crate::core::{StacksEpochExtension, STACKS_EPOCH_3_0_MARKER};
+use crate::chainstate::stacks::{
+    CoinbasePayload, Error as ChainstateError, StacksBlock, StacksBlockBuilder, StacksBlockHeader,
+    StacksTransaction, StacksTransactionSigner, TenureChangeCause, TenureChangePayload,
+    TokenTransferMemo, TransactionAnchorMode, TransactionAuth, TransactionContractCall,
+    TransactionPayload, TransactionPostConditionMode, TransactionSmartContract, TransactionVersion,
+};
+use crate::config::DEFAULT_MAX_TENURE_BYTES;
+use crate::core::mempool::MemPoolWalkStrategy;
+use crate::core::{MemPoolDB, StacksEpochExtension, STACKS_EPOCH_3_0_MARKER};
 use crate::net::codec::test::check_codec_and_corruption;
 use crate::net::stackerdb::MINER_SLOT_COUNT;
 use crate::util_lib::boot::boot_code_id;
@@ -3980,4 +3990,315 @@ pub mod nakamoto_block_signatures {
             358_u32,
         );
     }
+}
+
+/// Source for a contract whose public functions each emit a number of `print` events of a
+/// 1 KiB buffer, so a call's receipt size is a chosen multiple of that buffer's size.
+fn print_contract(functions: &[(&str, u64)]) -> String {
+    let mut code = format!("(define-constant b 0x{})\n", "00".repeat(1024));
+    for (name, count) in functions {
+        code.push_str(&format!(
+            "(define-public ({name}) (begin {}(ok true)))\n",
+            "(print b) ".repeat(usize::try_from(*count).unwrap()),
+        ));
+    }
+    code
+}
+
+/// The block builder's handling of its receipt size limits, run against lowered limits so that
+/// a few 1 KiB print events are enough to reach them. A receipt at or over the per-transaction
+/// limit makes the transaction problematic (dropped from the mempool) rather than skipped. A
+/// receipt that fits a block but not the room left in this one is skipped, to be retried in a
+/// later block. Whatever the receipt check decides, the block's cost and size are left as they
+/// were before the transaction ran. With the per-transaction limit at its default (equal to
+/// the block limit, as block validation uses it) only a receipt that is a whole block's worth
+/// on its own is problematic.
+#[test]
+fn test_block_builder_rejects_oversized_receipts_without_charging_the_block() {
+    let private_key = StacksPrivateKey::from_seed(&[0x51]);
+    let addr = StacksAddress::p2pkh(false, &StacksPublicKey::from_private(&private_key));
+    let other_key = StacksPrivateKey::from_seed(&[0x52]);
+    let other_addr = StacksAddress::p2pkh(false, &StacksPublicKey::from_private(&other_key));
+    let (mut test_signers, test_stackers) = TestStacker::common_signing_set();
+    let mut peer = boot_nakamoto(
+        function_name!(),
+        vec![
+            (addr.clone().into(), 1_000_000_000),
+            (other_addr.into(), 1_000_000_000),
+        ],
+        &mut test_signers,
+        &test_stackers,
+        None,
+    );
+    peer.chain.mine_malleablized_blocks = false;
+
+    // One print event's contribution to the receipt size; the limits are multiples of it.
+    let per_print = u64::from(Value::buff_from(vec![0u8; 1024]).unwrap().size().unwrap());
+    let block_limit = 16 * per_print;
+    let miner_tx_limit = 12 * per_print;
+
+    let code = print_contract(&[
+        ("twelve-prints", 12),
+        ("sixteen-prints", 16),
+        ("nine-prints", 9),
+        ("two-prints", 2),
+    ]);
+    let contract_name = ContractName::try_from("printer").unwrap();
+    let deploy_tx = make_contract(
+        &mut peer.chain.stacks_node.as_mut().unwrap().chainstate,
+        contract_name.clone(),
+        &code,
+        &private_key,
+        ClarityVersion::Clarity2,
+        0,
+        1_000,
+    );
+    peer.chain.mine_nakamoto_tenure();
+    peer.chain
+        .append_nakamoto_block_with_txs(&[deploy_tx])
+        .execution
+        .expect("Failed to deploy the printer contract");
+
+    let make_call = |key: &StacksPrivateKey, nonce: u64, function: &str| -> StacksTransaction {
+        let mut tx = StacksTransaction::new(
+            TransactionVersion::Testnet,
+            TransactionAuth::from_p2pkh(key).unwrap(),
+            TransactionPayload::ContractCall(TransactionContractCall {
+                address: addr.clone(),
+                contract_name: contract_name.clone(),
+                function_name: ClarityName::try_from(function.to_string()).unwrap(),
+                function_args: vec![],
+            }),
+        );
+        tx.chain_id = CHAIN_ID_TESTNET;
+        tx.anchor_mode = TransactionAnchorMode::OnChainOnly;
+        tx.post_condition_mode = TransactionPostConditionMode::Allow;
+        tx.set_tx_fee(1_000);
+        tx.auth.set_origin_nonce(nonce);
+        let mut signer = StacksTransactionSigner::new(&tx);
+        signer.sign_origin(key).unwrap();
+        signer.get_tx().unwrap()
+    };
+
+    let sortdb = peer.chain.sortdb.as_ref().unwrap();
+    let (mut chainstate, _) = peer
+        .chain
+        .stacks_node
+        .as_ref()
+        .unwrap()
+        .chainstate
+        .reopen()
+        .unwrap();
+    let tip = NakamotoChainState::get_canonical_block_header(chainstate.db(), sortdb)
+        .unwrap()
+        .unwrap();
+    let burn_dbconn = sortdb.index_handle_at_tip();
+
+    // The builder the miner actually uses tightens only the per-transaction receipt limit, while
+    // the builder block validation uses keeps the consensus limit for both. The scenarios below
+    // start from the miner's builder and scale both limits down so they are cheap to reach.
+    let new_miner_builder = || {
+        NakamotoBlockBuilder::new_for_mining(
+            &tip,
+            &tip.consensus_hash,
+            tip.anchored_header.total_burns(),
+            &NakamotoTenureInfo {
+                coinbase_tx: None,
+                tenure_change_tx: None,
+            },
+            1,
+            &BlockBuilderSettings::max_value(),
+        )
+        .unwrap()
+    };
+    let miner_builder = new_miner_builder();
+    assert_eq!(miner_builder.max_tx_receipt_size, MINER_MAX_TX_RECEIPT_SIZE);
+    assert_eq!(miner_builder.max_block_receipt_size, MAX_RECEIPT_SIZES);
+    assert_eq!(MINER_MAX_TX_RECEIPT_SIZE, MAX_RECEIPT_SIZES / 4 * 3);
+    let validation_builder = NakamotoBlockBuilder::new(
+        &tip,
+        &tip.consensus_hash,
+        tip.anchored_header.total_burns(),
+        None,
+        None,
+        1,
+        None,
+        None,
+        None,
+        DEFAULT_MAX_TENURE_BYTES,
+    )
+    .unwrap();
+    assert_eq!(validation_builder.max_tx_receipt_size, MAX_RECEIPT_SIZES);
+    assert_eq!(validation_builder.max_block_receipt_size, MAX_RECEIPT_SIZES);
+
+    // Start assembling an extension block in the current tenure, as the miner would, and feed
+    // it transactions one at a time. Each scenario gets a fresh builder with the given
+    // per-transaction limit; nothing is committed.
+    let run = |max_tx_receipt_size: u64,
+               steps: &[(&str, u64, &str)],
+               chainstate: &mut StacksChainState| {
+        let mut builder = new_miner_builder();
+        builder.max_block_receipt_size = block_limit;
+        builder.max_tx_receipt_size = max_tx_receipt_size;
+        let mut tenure_info = builder
+            .load_tenure_info(
+                chainstate,
+                &burn_dbconn,
+                MinerTenureInfoCause::NoTenureChange,
+            )
+            .unwrap();
+        let mut tenure_tx = builder
+            .tenure_begin(&burn_dbconn, &mut tenure_info)
+            .unwrap();
+
+        let mut receipts_total = 0;
+        for (function, nonce, expected) in steps {
+            let tx = make_call(&private_key, *nonce, function);
+            let cost_before = tenure_tx.cost_so_far();
+            let bytes_before = builder.bytes_so_far;
+            let receipts_before = receipts_total;
+            let result = builder.try_mine_tx_with_len(
+                &mut tenure_tx,
+                &tx,
+                tx.tx_len(),
+                &BlockLimitFunction::NO_LIMIT_HIT,
+                &TransactionResourceBudgets::unlimited(),
+                &mut receipts_total,
+            );
+            let cost_after = tenure_tx.cost_so_far();
+            match *expected {
+                "success" => {
+                    let (_, receipt) = result.unwrap();
+                    assert_eq!(receipts_total, receipts_before + receipt.size().unwrap());
+                    assert!(
+                        cost_after.exceeds(&cost_before),
+                        "{function}: a mined contract call must consume budget"
+                    );
+                }
+                "problematic" => {
+                    assert!(
+                        matches!(
+                            result,
+                            TransactionResult::Problematic(TransactionProblematic {
+                                error: ChainstateError::TransactionReceiptTooBig,
+                                ..
+                            })
+                        ),
+                        "{function}: expected TransactionReceiptTooBig, got {result:?}"
+                    );
+                }
+                "skipped" => {
+                    assert!(
+                        matches!(
+                            result,
+                            TransactionResult::Skipped(TransactionSkipped {
+                                error: ChainstateError::TxWouldNotFitError,
+                                ..
+                            })
+                        ),
+                        "{function}: expected TxWouldNotFitError, got {result:?}"
+                    );
+                }
+                _ => unreachable!(),
+            }
+            if *expected != "success" {
+                assert_eq!(
+                    cost_after, cost_before,
+                    "{function}: a rejected transaction must not stay charged to the block"
+                );
+                assert_eq!(builder.bytes_so_far, bytes_before);
+                assert_eq!(receipts_total, receipts_before);
+            }
+        }
+        tenure_tx.rollback_block();
+    };
+
+    // The miner's per-transaction limit: twelve prints reach it and are problematic, leaving no
+    // trace. Nine prints fit; a second nine no longer fit in the block and are skipped; two
+    // more still get in.
+    run(
+        miner_tx_limit,
+        &[
+            ("twelve-prints", 1, "problematic"),
+            ("nine-prints", 1, "success"),
+            ("nine-prints", 2, "skipped"),
+            ("two-prints", 2, "success"),
+        ],
+        &mut chainstate,
+    );
+
+    // The default per-transaction limit (the block limit, as used by block validation) accepts
+    // what only the miner's limit rejected, and still refuses a receipt that is a whole block's
+    // worth on its own.
+    run(
+        block_limit,
+        &[
+            ("twelve-prints", 1, "success"),
+            ("sixteen-prints", 2, "problematic"),
+            ("two-prints", 2, "success"),
+        ],
+        &mut chainstate,
+    );
+
+    // Fixed fee rates make the mempool consider the non-fitting receipt before the smaller
+    // receipt. A separate sender lets the smaller call proceed without a nonce dependency.
+    let first = make_call(&private_key, 1, "nine-prints");
+    let skipped = make_call(&private_key, 2, "nine-prints");
+    let smaller = make_call(&other_key, 0, "two-prints");
+    let mut mempool = MemPoolDB::open_test(false, CHAIN_ID_TESTNET, &chainstate.root_path).unwrap();
+    for (tx, fee_rate) in [(&first, 3.0), (&skipped, 2.0), (&smaller, 1.0)] {
+        mempool
+            .submit_raw(
+                &mut chainstate,
+                sortdb,
+                &tip.consensus_hash,
+                &tip.anchored_header.block_hash(),
+                tx.serialize_to_vec(),
+                &ExecutionCost::max_value(),
+                &StacksEpochId::Epoch30,
+            )
+            .unwrap();
+        mempool
+            .db
+            .execute(
+                "UPDATE mempool SET fee_rate = ?1 WHERE txid = ?2",
+                params![fee_rate, tx.txid()],
+            )
+            .unwrap();
+    }
+    let mut builder = new_miner_builder();
+    builder.max_block_receipt_size = block_limit;
+    builder.max_tx_receipt_size = miner_tx_limit;
+    let mut tenure_info = builder
+        .load_tenure_info(
+            &mut chainstate,
+            &burn_dbconn,
+            MinerTenureInfoCause::NoTenureChange,
+        )
+        .unwrap();
+    let mut tenure_tx = builder
+        .tenure_begin(&burn_dbconn, &mut tenure_info)
+        .unwrap();
+    let mut settings = BlockBuilderSettings::max_value();
+    settings.mempool_settings.strategy = MemPoolWalkStrategy::GlobalFeeRate;
+    settings.mempool_settings.log_skipped_transactions = true;
+    let (blocked, events) = StacksBlockBuilder::select_and_apply_transactions(
+        &mut tenure_tx,
+        &mut builder,
+        &mut mempool,
+        tip.stacks_block_height,
+        &[],
+        settings,
+        None,
+    )
+    .unwrap();
+    assert!(!blocked);
+    assert_eq!(events.len(), 3);
+    assert_eq!(events[0].txid(), &first.txid());
+    assert_eq!(events[1].txid(), &skipped.txid());
+    assert_eq!(events[2].txid(), &smaller.txid());
+    assert!(matches!(&events[0], TransactionEvent::Success(_)));
+    assert!(matches!(&events[1], TransactionEvent::Skipped(_)));
+    assert!(matches!(&events[2], TransactionEvent::Success(_)));
+    tenure_tx.rollback_block();
 }

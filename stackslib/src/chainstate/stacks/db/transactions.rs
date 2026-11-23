@@ -17,6 +17,7 @@
 #[cfg(test)]
 use std::time::Duration;
 
+use clarity::vm::analysis::contract_interface_builder::ContractInterface;
 use clarity::vm::analysis::types::ContractAnalysis;
 // Re-exported to keep the old import paths working.
 pub use clarity::vm::clarity::{
@@ -48,6 +49,22 @@ pub mod processing;
 pub use self::processing::{TransactionProcessor, TxToProcess};
 
 impl StacksTransactionReceipt {
+    /// Report interface-conversion invariant failures without changing transaction acceptance.
+    fn interface_from_analysis(
+        analysis: ContractAnalysis,
+        tx: &StacksTransaction,
+    ) -> Option<ContractInterface> {
+        match ContractInterface::try_from(analysis) {
+            Ok(interface) => Some(interface),
+            Err(error) => {
+                // The interface builder currently returns only Unreachable errors, which the shared
+                // reporter logs and counts.
+                log_unreachable_error(&ClarityError::StaticCheck(Box::new(error)), &tx.txid());
+                None
+            }
+        }
+    }
+
     pub fn from_stx_transfer(
         tx: StacksTransaction,
         events: Vec<StacksTransactionEvent>,
@@ -59,7 +76,7 @@ impl StacksTransactionReceipt {
             result,
             stx_burned: 0,
             post_condition_aborted: false,
-            contract_analysis: None,
+            contract_interface: None,
             transaction: tx.into(),
             execution_cost: cost,
             microblock_header: None,
@@ -83,7 +100,7 @@ impl StacksTransactionReceipt {
             events,
             result,
             stx_burned: burned,
-            contract_analysis: None,
+            contract_interface: None,
             execution_cost: cost,
             microblock_header: None,
             tx_index: 0,
@@ -106,7 +123,7 @@ impl StacksTransactionReceipt {
             events,
             result,
             stx_burned: burned,
-            contract_analysis: None,
+            contract_interface: None,
             execution_cost: cost,
             microblock_header: None,
             tx_index: 0,
@@ -122,13 +139,14 @@ impl StacksTransactionReceipt {
         analysis: ContractAnalysis,
         cost: ExecutionCost,
     ) -> StacksTransactionReceipt {
+        let contract_interface = Self::interface_from_analysis(analysis, &tx);
         StacksTransactionReceipt {
             transaction: tx.into(),
             events,
             post_condition_aborted: false,
             result: Value::okay_true(),
             stx_burned: burned,
-            contract_analysis: Some(analysis),
+            contract_interface,
             execution_cost: cost,
             microblock_header: None,
             tx_index: 0,
@@ -145,13 +163,14 @@ impl StacksTransactionReceipt {
         cost: ExecutionCost,
         reason: BoundedErrorString,
     ) -> StacksTransactionReceipt {
+        let contract_interface = Self::interface_from_analysis(analysis, &tx);
         StacksTransactionReceipt {
             transaction: tx.into(),
             events,
             post_condition_aborted: true,
             result: Value::okay_true(),
             stx_burned: burned,
-            contract_analysis: Some(analysis),
+            contract_interface,
             execution_cost: cost,
             microblock_header: None,
             tx_index: 0,
@@ -167,7 +186,7 @@ impl StacksTransactionReceipt {
             post_condition_aborted: false,
             result: Value::okay_true(),
             stx_burned: 0,
-            contract_analysis: None,
+            contract_interface: None,
             execution_cost: ExecutionCost::ZERO,
             microblock_header: None,
             tx_index: 0,
@@ -214,7 +233,7 @@ impl StacksTransactionReceipt {
             post_condition_aborted: false,
             result: Value::err_none(),
             stx_burned: 0,
-            contract_analysis: None,
+            contract_interface: None,
             execution_cost: analysis_cost,
             microblock_header: None,
             tx_index: 0,
@@ -234,7 +253,7 @@ impl StacksTransactionReceipt {
             post_condition_aborted: false,
             result,
             stx_burned: 0,
-            contract_analysis: None,
+            contract_interface: None,
             execution_cost: cost,
             microblock_header: None,
             tx_index: 0,
@@ -249,13 +268,14 @@ impl StacksTransactionReceipt {
         contract_analysis: ContractAnalysis,
         error: RuntimeCheckErrorKind,
     ) -> StacksTransactionReceipt {
+        let contract_interface = Self::interface_from_analysis(contract_analysis, &tx);
         StacksTransactionReceipt {
             transaction: tx.into(),
             post_condition_aborted: false,
             result: Value::err_none(),
             events: vec![],
             stx_burned: 0,
-            contract_analysis: Some(contract_analysis),
+            contract_interface,
             execution_cost: cost,
             microblock_header: None,
             tx_index: 0,
@@ -275,7 +295,7 @@ impl StacksTransactionReceipt {
             result: Value::err_none(),
             events: vec![],
             stx_burned: 0,
-            contract_analysis: None,
+            contract_interface: None,
             execution_cost: cost,
             microblock_header: None,
             tx_index: 0,
@@ -291,7 +311,7 @@ impl StacksTransactionReceipt {
             post_condition_aborted: false,
             result: Value::okay_true(),
             stx_burned: 0,
-            contract_analysis: None,
+            contract_interface: None,
             execution_cost: ExecutionCost::ZERO,
             microblock_header: None,
             tx_index: 0,
@@ -316,7 +336,7 @@ impl StacksTransactionReceipt {
             post_condition_aborted: false,
             result: Value::err_none(),
             stx_burned: 0,
-            contract_analysis: None,
+            contract_interface: None,
             execution_cost: ExecutionCost::ZERO,
             microblock_header: None,
             tx_index: 0,
@@ -419,29 +439,29 @@ fn log_unreachable_error(error: &ClarityError, txid: &Txid) {
     }
 }
 
-/// Classify a failed transaction into a `TransactionResult`. For failures that
-/// charged execution cost before bailing (problematic txs and cost overflows),
-/// roll back the cost so the failure does not shrink the remaining block
-/// budget for subsequent honest txs.
+/// Classify a failed transaction into a `TransactionResult`. Whatever the
+/// error, the cost the transaction consumed is first rolled back to
+/// `cost_before`, so the failure does not shrink the remaining block budget
+/// for subsequent honest txs.
 pub fn finalize_failed_transaction(
     clarity_tx: &mut ClarityTx,
     tx: &StacksTransaction,
     cost_before: &ExecutionCost,
     error: Error,
 ) -> TransactionResult {
+    // The transaction is not going into the block, whatever the error was, so none of the cost
+    // it consumed may remain charged to the block. Leaving it charged would shrink the budget
+    // available to every subsequent (honest) transaction.
+    clarity_tx.reset_cost(cost_before.clone());
     let (is_problematic, error) =
         TransactionResult::is_problematic(tx, error, clarity_tx.get_epoch());
     if is_problematic {
-        // Roll back the cost accumulated by this transaction so it does not
-        // shrink the remaining block budget for subsequent honest txs.
-        clarity_tx.reset_cost(cost_before.clone());
         TransactionResult::problematic(tx, error)
     } else {
         match &error {
             Error::CostOverflowError(context) => {
                 // note: this path _does_ not perform the tx block budget % heuristic,
                 //  because this code path is not directly called with a mempool handle.
-                clarity_tx.reset_cost(cost_before.clone());
                 if context.budget.proportion_largest_dimension(&context.before)
                     < TX_BLOCK_LIMIT_PROPORTION_HEURISTIC
                 {
@@ -479,11 +499,12 @@ pub mod test {
     use std::slice;
 
     use clarity::util::secp256k1::Secp256k1PrivateKey;
+    use clarity::vm::analysis;
     use clarity::vm::hooks::trace::CallTraceHook;
     use clarity::vm::representations::{ClarityName, ContractName};
     use clarity::vm::test_util::{UnitTestBurnStateDB, TEST_BURN_STATE_DB};
     use clarity::vm::tests::TEST_HEADER_DB;
-    use clarity::vm::types::{ResponseData, StandardPrincipalData};
+    use clarity::vm::types::{FunctionType, ResponseData, StandardPrincipalData};
     use rand::Rng;
     use rstest::rstest;
     use stacks_common::types::chainstate::SortitionId;
@@ -492,6 +513,38 @@ pub mod test {
     use super::*;
     use crate::chainstate::stacks::db::testing::*;
     use crate::chainstate::stacks::{Error, *};
+
+    /// An ABI-builder invariant failure omits the interface without failing the receipt.
+    #[test]
+    fn receipt_interface_failure_preserves_success() {
+        let source = "(define-read-only (get-value) u1)";
+        let (_, mut analysis) =
+            analysis::mem_type_check(source, ClarityVersion::Clarity1, StacksEpochId::Epoch21)
+                .unwrap();
+        // Force the uncached builder down its unreachable non-fixed-signature path.
+        analysis.contract_interface = None;
+        analysis.public_function_types.insert(
+            "invalid".try_into().unwrap(),
+            FunctionType::ArithmeticVariadic,
+        );
+        let tx = StacksTransaction::new(
+            TransactionVersion::Testnet,
+            TransactionAuth::from_p2pkh(&Secp256k1PrivateKey::from_seed(b"receipt-interface"))
+                .unwrap(),
+            TransactionPayload::new_smart_contract("interface-test", source, None).unwrap(),
+        );
+        let receipt = StacksTransactionReceipt::from_smart_contract(
+            tx,
+            vec![],
+            0,
+            analysis,
+            ExecutionCost::ZERO,
+        );
+        assert!(receipt.contract_interface.is_none());
+        assert_eq!(receipt.result, Value::okay_true());
+        assert!(!receipt.post_condition_aborted);
+        assert!(receipt.vm_error.is_none());
+    }
 
     /// Exercises the complete processor lifecycle in legacy transaction tests.
     fn process_transaction_for_test(
@@ -911,6 +964,66 @@ pub mod test {
             match result.unwrap_err() {
                 Error::InvalidStacksTransaction(msg, false) => {
                     assert!(msg.contains("not supported since Stacks 4.1"), "{msg}");
+                }
+                e => panic!("Expected InvalidStacksTransaction for epoch {epoch_id:?}, got {e:?}"),
+            }
+        };
+    }
+
+    #[rstest]
+    #[case(StacksEpochId::Epoch40, None, true)]
+    #[case(StacksEpochId::Epoch40, Some(ClarityVersion::Clarity1), true)]
+    #[case(StacksEpochId::Epoch40, Some(ClarityVersion::Clarity2), true)]
+    #[case(StacksEpochId::Epoch40, Some(ClarityVersion::Clarity3), true)]
+    #[case(StacksEpochId::Epoch40, Some(ClarityVersion::Clarity4), true)]
+    #[case(StacksEpochId::Epoch40, Some(ClarityVersion::Clarity5), true)]
+    #[case(StacksEpochId::Epoch40, Some(ClarityVersion::Clarity6), true)]
+    #[case(StacksEpochId::Epoch41, None, false)]
+    fn precheck_rejects_transient_contract_names_from_epoch41(
+        #[case] epoch_id: StacksEpochId,
+        #[case] explicit_clarity_version: Option<ClarityVersion>,
+        #[case] should_succeed: bool,
+    ) {
+        let sk = Secp256k1PrivateKey::random();
+        let auth = TransactionAuth::from_p2pkh(&sk).unwrap();
+        let chain_id = 0x80000000;
+
+        let tx = StacksTransaction {
+            version: TransactionVersion::Testnet,
+            chain_id,
+            auth,
+            anchor_mode: TransactionAnchorMode::Any,
+            post_condition_mode: TransactionPostConditionMode::Allow,
+            post_conditions: vec![],
+            payload: TransactionPayload::SmartContract(
+                TransactionSmartContract {
+                    name: ContractName::from_literal("__transient"),
+                    code_body: StacksString::from_str("(define-constant zero 0)").unwrap(),
+                },
+                explicit_clarity_version,
+            ),
+        };
+        let mut signer = StacksTransactionSigner::new(&tx);
+        signer.sign_origin(&sk).unwrap();
+        let tx = signer.get_tx().unwrap();
+
+        let config = DBConfig {
+            version: CHAINSTATE_VERSION.to_string(),
+            mainnet: false,
+            chain_id,
+        };
+        let result = TransactionProcessor::from(&tx).precheck(&config, epoch_id);
+        // The precheck and static block validation must agree.
+        assert_eq!(
+            should_succeed,
+            StacksBlock::validate_transaction_static_epoch(&tx, epoch_id)
+        );
+        if should_succeed {
+            result.unwrap();
+        } else {
+            match result.unwrap_err() {
+                Error::InvalidStacksTransaction(msg, false) => {
+                    assert!(msg.contains("Transient contract not supported"), "{msg}");
                 }
                 e => panic!("Expected InvalidStacksTransaction for epoch {epoch_id:?}, got {e:?}"),
             }
@@ -8125,6 +8238,27 @@ pub mod test {
             cost_before_call,
             conn.cost_so_far(),
             "Expected transaction cost to be reverted on execution time expiry"
+        );
+
+        // A failure that is neither problematic nor a cost overflow must also leave no cost
+        // charged. Let the call run (so it charges the block), then hand the wrapper an ordinary
+        // rejection as if the miner had refused the transaction after execution.
+        process_transaction_for_test(&mut conn, &signed_call_tx, false, None).unwrap();
+        assert!(conn.cost_so_far().exceeds(&cost_before_call));
+        let result = finalize_failed_transaction(
+            &mut conn,
+            &signed_call_tx,
+            &cost_before_call,
+            Error::InvalidStacksTransaction("rejected by miner".into(), false),
+        );
+        assert!(
+            matches!(result, TransactionResult::ProcessingError(_)),
+            "expected ProcessingError verdict, got {result:?}",
+        );
+        assert_eq!(
+            cost_before_call,
+            conn.cost_so_far(),
+            "Expected transaction cost to be reverted on any rejection"
         );
     }
 }

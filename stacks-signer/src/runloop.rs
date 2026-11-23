@@ -17,6 +17,7 @@ use std::fmt::Debug;
 use std::sync::mpsc::Sender;
 use std::time::{Duration, Instant};
 
+use blockstack_lib::chainstate::stacks::boot::RewardSet;
 use blockstack_lib::net::api::getsortition::SortitionInfo;
 use clarity::codec::StacksMessageCodec;
 use hashbrown::HashMap;
@@ -30,6 +31,7 @@ use crate::client::{retry_with_exponential_backoff, ClientError, StacksClient};
 use crate::config::{GlobalConfig, SignerConfig, SignerConfigMode};
 use crate::signerdb::BlockInfo;
 use crate::signerdb_pruner::SignerDbPruner;
+use crate::signerdb_shrink::maybe_shrink;
 use crate::v0::signer_state::LocalStateMachine;
 #[cfg(any(test, feature = "testing"))]
 use crate::v0::tests::TEST_SKIP_SIGNER_CLEANUP;
@@ -391,6 +393,12 @@ impl<Signer: SignerTrait<T>, T: StacksMessageCodec + Clone + Send + Debug> RunLo
     /// Create a new signer runloop from the provided configuration
     pub fn new(config: GlobalConfig) -> Self {
         let stacks_client = StacksClient::from(&config);
+        // Before the pruner below opens the first connection of this process
+        if config.db_shrink {
+            maybe_shrink(&config.db_path);
+        } else {
+            info!("Signer db shrinking is disabled in the config");
+        }
         let pruner = config.db_pruning.then(|| {
             SignerDbPruner::new(&config.db_path, Instant::now())
                 .expect("Failed to connect to the signer db for pruning")
@@ -416,14 +424,15 @@ impl<Signer: SignerTrait<T>, T: StacksMessageCodec + Clone + Send + Debug> RunLo
         }
     }
 
-    /// Get the registered signers for a specific reward cycle
+    /// Get the reward set and its parsed registered signers for a specific reward cycle
     /// Returns None if no signers are registered or its not Nakamoto cycle
     pub fn get_parsed_reward_set(
         &self,
         reward_cycle: u64,
-    ) -> Result<Option<SignerEntries>, ClientError> {
+    ) -> Result<Option<(RewardSet, SignerEntries)>, ClientError> {
         debug!("Getting registered signers for reward cycle {reward_cycle}...");
-        let Some(signers) = self.stacks_client.get_reward_set_signers(reward_cycle)? else {
+        let reward_set = self.stacks_client.get_reward_set(reward_cycle)?.stacker_set;
+        let Some(signers) = reward_set.signers() else {
             warn!("No reward set signers found for reward cycle {reward_cycle}.");
             return Ok(None);
         };
@@ -431,8 +440,8 @@ impl<Signer: SignerTrait<T>, T: StacksMessageCodec + Clone + Send + Debug> RunLo
             warn!("No registered signers found for reward cycle {reward_cycle}.");
             return Ok(None);
         }
-        let entries = SignerEntries::parse(self.config.network.is_mainnet(), &signers).unwrap();
-        Ok(Some(entries))
+        let entries = SignerEntries::parse(self.config.network.is_mainnet(), signers).unwrap();
+        Ok(Some((reward_set, entries)))
     }
 
     /// Get a signer configuration for a specific reward cycle from the stacks node
@@ -441,7 +450,7 @@ impl<Signer: SignerTrait<T>, T: StacksMessageCodec + Clone + Send + Debug> RunLo
         reward_cycle: u64,
     ) -> Result<Option<SignerConfig>, ConfigurationError> {
         // We can only register for a reward cycle if a reward set exists.
-        let signer_entries = match self.get_parsed_reward_set(reward_cycle) {
+        let (reward_set, signer_entries) = match self.get_parsed_reward_set(reward_cycle) {
             Ok(Some(x)) => x,
             Ok(None) => return Ok(None),
             Err(e) => {
@@ -513,8 +522,15 @@ impl<Signer: SignerTrait<T>, T: StacksMessageCodec + Clone + Send + Debug> RunLo
             };
             SignerConfigMode::DryRun
         };
+        let pox_geometry = self
+            .burnchain_view
+            .as_ref()
+            .expect("FATAL: cannot configure a signer with no burnchain view.")
+            .geometry;
         Ok(Some(SignerConfig {
             reward_cycle,
+            pox_geometry,
+            reward_set,
             signer_mode: signer_config_mode,
             signer_entries,
             signer_slot_ids: signer_slot_ids.into_values().collect(),
@@ -525,6 +541,7 @@ impl<Signer: SignerTrait<T>, T: StacksMessageCodec + Clone + Send + Debug> RunLo
             db_path: self.config.db_path.clone(),
             block_proposal_timeout: self.config.block_proposal_timeout,
             tenure_last_block_proposal_timeout: self.config.tenure_last_block_proposal_timeout,
+            pre_commit_exclusivity_timeout: self.config.pre_commit_exclusivity_timeout,
             block_proposal_validation_timeout: self.config.block_proposal_validation_timeout,
             tenure_idle_timeout: self.config.tenure_idle_timeout,
             tenure_idle_timeout_buffer: self.config.tenure_idle_timeout_buffer,
@@ -583,12 +600,14 @@ impl<Signer: SignerTrait<T>, T: StacksMessageCodec + Clone + Send + Debug> RunLo
                 ))
             })?;
         let current_reward_cycle = burnchain_view.current_reward_cycle();
+        let is_in_next_prepare_phase = burnchain_view.is_in_next_prepare_phase();
+        // Set before configuring any signer: a signer takes its PoX geometry from the view.
+        self.burnchain_view = Some(burnchain_view);
         self.refresh_signer_config(current_reward_cycle);
         // We should only attempt to initialize the next reward cycle signer if we are in the prepare phase of the next reward cycle
-        if burnchain_view.is_in_next_prepare_phase() {
+        if is_in_next_prepare_phase {
             self.refresh_signer_config(current_reward_cycle.saturating_add(1));
         }
-        self.burnchain_view = Some(burnchain_view);
         self.refresh_signer_retention();
         Ok(())
     }
@@ -858,6 +877,8 @@ impl<Signer: SignerTrait<T>, T: StacksMessageCodec + Clone + Send + Debug>
             "Running one pass for the signer. state={:?}, event={event:?}",
             self.state
         );
+        #[cfg(any(test, feature = "testing"))]
+        crate::v0::tests::apply_external_test_flags(&self.config.stacks_private_key);
 
         // This is the only event that we respond to from the outer signer runloop
         if let Some(SignerEvent::StatusCheck) = event {

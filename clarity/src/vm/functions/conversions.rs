@@ -253,11 +253,8 @@ pub fn special_to_ascii(
 
     let value = eval(&args[0], exec_state, invoke_ctx, context)?;
 
-    runtime_cost(
-        ClarityCostFunction::ToAscii,
-        exec_state,
-        value.as_ref().size()?,
-    )?;
+    let value_size = value.as_ref().charged_size(exec_state.epoch())?;
+    runtime_cost(ClarityCostFunction::ToAscii, exec_state, value_size)?;
 
     match value.as_ref() {
         Value::Int(num) => convert_string_to_ascii_ok(num.to_string()),

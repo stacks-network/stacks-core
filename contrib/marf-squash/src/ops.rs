@@ -16,13 +16,13 @@
 use std::fs;
 use std::path::Path;
 
+use stacks_marf::MarfTrieId;
+use stacks_marf::marf::{MARF, MARFOpenOpts};
 use stackslib::chainstate::burn::db::sortdb::SortitionTipCopyBoundary;
 use stackslib::chainstate::stacks::db::snapshot::{
     copy_burnchain_db, copy_clarity_side_tables, copy_index_side_tables,
     copy_sortition_side_tables_with_boundary, copy_spv_headers,
 };
-use stackslib::chainstate::stacks::index::MarfTrieId;
-use stackslib::chainstate::stacks::index::marf::{MARF, MARFOpenOpts};
 
 use crate::layout::TargetPaths;
 

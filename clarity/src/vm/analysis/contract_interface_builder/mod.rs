@@ -386,6 +386,19 @@ pub struct ContractInterface {
     pub clarity_version: ClarityVersion,
 }
 
+/// Consume the cached interface when present; otherwise build one from the analysis.
+/// The cached interface is moved without cloning; builder errors are propagated.
+impl TryFrom<ContractAnalysis> for ContractInterface {
+    type Error = StaticCheckError;
+
+    fn try_from(mut analysis: ContractAnalysis) -> Result<Self, Self::Error> {
+        match analysis.contract_interface.take() {
+            Some(interface) => Ok(interface),
+            None => build_contract_interface(&analysis),
+        }
+    }
+}
+
 impl ContractInterface {
     pub fn new(epoch: StacksEpochId, clarity_version: ClarityVersion) -> Self {
         Self {

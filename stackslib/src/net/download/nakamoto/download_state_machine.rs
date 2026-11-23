@@ -33,7 +33,7 @@ use crate::net::download::nakamoto::{
     NakamotoUnconfirmedTenureDownloader, TenureStartEnd, WantedTenure,
 };
 use crate::net::inv::nakamoto::NakamotoTenureInv;
-use crate::net::neighbors::rpc::NeighborRPC;
+use crate::net::neighbors::rpc::{NeighborRPC, NeighborRPCOwner};
 use crate::net::p2p::{CurrentRewardSet, DropReason, DropSource, PeerNetwork};
 use crate::net::{Error as NetError, NeighborAddress};
 use crate::util_lib::db::Error as DBError;
@@ -1232,7 +1232,9 @@ impl NakamotoDownloadStateMachine {
         }
 
         // handle responses
-        for (naddr, response) in neighbor_rpc.collect_replies(network) {
+        for (naddr, response) in
+            neighbor_rpc.collect_replies(network, NeighborRPCOwner::NakamotoUnconfirmedTenures)
+        {
             let Some(downloader) = downloaders.get_mut(&naddr) else {
                 debug!("Got rogue response from {}", &naddr);
                 continue;
@@ -1530,7 +1532,10 @@ impl NakamotoDownloadStateMachine {
                 );
 
                 if !self.tenure_downloads.is_empty() {
-                    // need to go get this scheduled tenure
+                    // need to go get this scheduled tenure.
+                    // Unconfirmed requests still in flight stay in `neighbor_rpc`. The confirmed
+                    // downloaders drop their replies, and they are re-sent when we return to
+                    // Unconfirmed.
                     debug!(
                         "Transition from {} to {} -- need confirmed tenure still",
                         &self.state,

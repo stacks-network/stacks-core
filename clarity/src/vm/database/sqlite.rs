@@ -23,8 +23,7 @@ use stacks_common::util::hash::Sha512Trunc256Sum;
 
 use super::clarity_store::{ContractCommitment, make_contract_hash_key};
 use super::{
-    ClarityBackingStore, ClarityDatabase, ClarityDeserializable, NULL_BURN_STATE_DB,
-    NULL_HEADER_DB, SpecialCaseHandler,
+    ClarityBackingStore, ClarityDatabase, ClarityDeserializable, NULL_BURN_STATE_DB, NULL_HEADER_DB,
 };
 use crate::vm::analysis::{AnalysisDatabase, RuntimeCheckErrorKind};
 use crate::vm::errors::{RuntimeError, VmExecutionError, VmInternalError};
@@ -350,7 +349,7 @@ impl SqliteConnection {
     }
 
     fn inner_open(filename: &str) -> Result<Connection, VmExecutionError> {
-        let conn = Connection::open(filename)
+        let mut conn = Connection::open(filename)
             .map_err(|x| VmInternalError::SqliteError(IncomparableError { err: x }))?;
 
         conn.busy_handler(Some(tx_busy_handler))
@@ -440,10 +439,6 @@ impl ClarityBackingStore for MemoryBackingStore {
 
     fn get_current_block_height(&mut self) -> u32 {
         1
-    }
-
-    fn get_cc_special_cases_handler(&self) -> Option<SpecialCaseHandler> {
-        None
     }
 
     fn put_all_data(&mut self, items: Vec<(String, String)>) -> Result<(), VmExecutionError> {

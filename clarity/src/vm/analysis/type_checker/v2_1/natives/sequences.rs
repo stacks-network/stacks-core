@@ -22,7 +22,7 @@ use crate::vm::analysis::type_checker::v2_1::{
     check_argument_count, check_arguments_at_least,
 };
 use crate::vm::costs::cost_functions::ClarityCostFunction;
-use crate::vm::costs::{CostTracker, analysis_typecheck_cost, runtime_cost};
+use crate::vm::costs::{CostTracker, analysis_typecheck_cost_for_epoch, runtime_cost};
 use crate::vm::diagnostic::Diagnostic;
 use crate::vm::functions::NativeFunctions;
 use crate::vm::representations::{SymbolicExpression, SymbolicExpressionType};
@@ -118,6 +118,7 @@ pub fn check_special_map(
                 result,
             } = function_type.check_args_visitor_2_1(
                 checker,
+                checker.epoch,
                 &entry_type,
                 arg_ix,
                 accumulated_type.as_ref(),
@@ -161,7 +162,7 @@ pub fn check_special_map(
     let mapped_type = function_type.check_args(
         checker,
         &accumulated_types,
-        context.epoch,
+        checker.epoch,
         context.clarity_version,
     )?;
     TypeSignature::list_of(mapped_type, min_args)
@@ -196,7 +197,7 @@ pub fn check_special_filter(
         let filter_type = function_type.check_args(
             checker,
             &[input_type],
-            context.epoch,
+            checker.epoch,
             context.clarity_version,
         )?;
 
@@ -243,7 +244,7 @@ pub fn check_special_fold(
     let return_type = function_type.check_args(
         checker,
         &initial_args,
-        context.epoch,
+        checker.epoch,
         context.clarity_version,
     )?;
 
@@ -251,7 +252,7 @@ pub fn check_special_fold(
     let return_type = function_type.check_args(
         checker,
         &[input_type, return_type],
-        context.epoch,
+        checker.epoch,
         context.clarity_version,
     )?;
 
@@ -262,7 +263,7 @@ pub fn check_special_fold(
         return Ok(return_type);
     }
     let [_, initial_value_type] = initial_args;
-    analysis_typecheck_cost(checker, &initial_value_type, &return_type)?;
+    analysis_typecheck_cost_for_epoch(checker, checker.epoch, &initial_value_type, &return_type)?;
     TypeSignature::least_supertype_for_analysis(&checker.epoch, &initial_value_type, &return_type)
         .map_err(|_| {
             StaticCheckErrorKind::TypeError(Box::new(initial_value_type), Box::new(return_type))
@@ -284,28 +285,25 @@ pub fn check_special_concat(
 
     // The first two args follow the exact ordering of the original 2-arg
     // implementation: type-check both, then charge `AnalysisIterableFunc`,
-    // then `analysis_typecheck_cost`. This keeps cost-charging byte-identical
-    // for Clarity 1-5 contracts.
+    // then `analysis_typecheck_cost_for_epoch`. This keeps cost-charging
+    // byte-identical for Clarity 1-5 contracts.
     let lhs_type = checker.type_check(&args[0], context)?;
     let rhs_type = checker.type_check(&args[1], context)?;
 
     runtime_cost(ClarityCostFunction::AnalysisIterableFunc, checker, 0)?;
-    analysis_typecheck_cost(checker, &lhs_type, &rhs_type)?;
+    analysis_typecheck_cost_for_epoch(checker, checker.epoch, &lhs_type, &rhs_type)?;
 
     let mut acc_type = combine_concat_types(&checker.epoch, &lhs_type, &rhs_type)?;
 
     // Any additional args (Clarity 6+ only — the arity check above rejects
     // them otherwise) are folded into the accumulator. We charge
-    // `analysis_typecheck_cost` per pair to cover the `least_supertype` work
-    // that `combine_concat_types` performs on each fold step. This is NOT
-    // quadratic in N: `analysis_typecheck_cost` is charged on `type_size`,
-    // which measures element-type complexity (K) and is independent of the
-    // accumulator's `max_len` — so even though the accumulated list length
-    // grows with each arg, the per-pair charge stays ~K, for K * N total
-    // (linear in N).
+    // `analysis_typecheck_cost_for_epoch` per pair to cover the
+    // `least_supertype` work that `combine_concat_types` performs on each fold
+    // step. The charge depends on the element types, not on the
+    // accumulator's `max_len`.
     for arg in &args[2..] {
         let rhs_type = checker.type_check(arg, context)?;
-        analysis_typecheck_cost(checker, &acc_type, &rhs_type)?;
+        analysis_typecheck_cost_for_epoch(checker, checker.epoch, &acc_type, &rhs_type)?;
         acc_type = combine_concat_types(&checker.epoch, &acc_type, &rhs_type)?;
     }
 
@@ -384,7 +382,7 @@ pub fn check_special_append(
             let rhs_type = checker.type_check(&args[1], context)?;
             let (lhs_entry_type, lhs_max_len) = lhs_list.destruct();
 
-            analysis_typecheck_cost(checker, &lhs_entry_type, &rhs_type)?;
+            analysis_typecheck_cost_for_epoch(checker, checker.epoch, &lhs_entry_type, &rhs_type)?;
 
             let list_entry_type = TypeSignature::least_supertype_for_analysis(
                 &checker.epoch,
@@ -422,7 +420,7 @@ pub fn check_special_as_max_len(
     runtime_cost(
         ClarityCostFunction::AnalysisTypeAnnotate,
         checker,
-        TypeSignature::UIntType.type_size()?,
+        TypeSignature::UIntType.charged_type_size(&checker.epoch)?,
     )?;
     checker
         .type_map
@@ -586,7 +584,7 @@ pub fn check_special_replace_at(
         // length, so it would accept a statically empty element (e.g. `0x`) that
         // fails the runtime arity check. Lists are exempt, as at runtime.
         let elem_type = checker.type_check(&args[2], context)?;
-        analysis_typecheck_cost(checker, &unit_seq, &elem_type)?;
+        analysis_typecheck_cost_for_epoch(checker, checker.epoch, &unit_seq, &elem_type)?;
         if elem_type != TypeSignature::NoType && elem_type != unit_seq {
             let mut err: StaticCheckError =
                 StaticCheckErrorKind::TypeError(Box::new(unit_seq), Box::new(elem_type)).into();

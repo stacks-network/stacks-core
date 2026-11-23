@@ -130,19 +130,22 @@ fn eval_with_new_binding(
     context: &LocalContext,
 ) -> Result<Value, VmExecutionError> {
     let mut inner_context = context.extend()?;
-    if vm::is_reserved(
-        &bind_name,
-        invoke_ctx.contract_context.get_clarity_version(),
-    ) || invoke_ctx
-        .contract_context
-        .lookup_function(&bind_name)
-        .is_some()
-        || inner_context.lookup_variable(&bind_name).is_some()
+    let version = invoke_ctx.contract_context.get_clarity_version();
+    let name_conflicts_with_global = if version.fully_prevents_binding_name_duplication_at_runtime()
     {
+        invoke_ctx.contract_context.is_name_used(&bind_name)
+    } else {
+        vm::is_reserved(&bind_name, version)
+            || invoke_ctx
+                .contract_context
+                .lookup_function(&bind_name)
+                .is_some()
+    };
+    if name_conflicts_with_global || inner_context.lookup_variable(&bind_name).is_some() {
         return Err(RuntimeCheckErrorKind::NameAlreadyUsed(bind_name.into()).into());
     }
 
-    let memory_use = bind_value.get_memory_use()?;
+    let memory_use = bind_value.get_memory_use(exec_state.epoch())?;
     exec_state.add_memory(memory_use)?;
 
     if *invoke_ctx.contract_context.get_clarity_version() >= ClarityVersion::Clarity2

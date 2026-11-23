@@ -1,0 +1,38 @@
+title: BlockView
+type: object
+additionalProperties: false
+description: |
+  The burnchain views a Stacks block hangs from, each with its current fate on the node's
+  canonical burnchain fork.
+required:
+  - consensus_hash
+  - consensus_hash_canonical
+  - burn_view
+  - burn_view_canonical
+properties:
+  consensus_hash:
+    type: string
+    pattern: "^[0-9a-f]{40}$"
+    description: |
+      The consensus hash of the tenure this block belongs to, i.e. the sortition that elected
+      its miner. Unchanged when the tenure is extended.
+  consensus_hash_canonical:
+    type: boolean
+    description: |
+      Whether that sortition is still on the node's canonical burnchain fork. False means a
+      burnchain fork orphaned the tenure, which voids every block it produced.
+  burn_view:
+    type:
+      - string
+      - "null"
+    pattern: "^[0-9a-f]{40}$"
+    description: |
+      The burn view the block was built against: set by a tenure-change or tenure-extend
+      transaction, and inherited from the parent otherwise. Null for an epoch 2.x block, which
+      predates the concept.
+  burn_view_canonical:
+    type: boolean
+    description: |
+      Whether that burn view is still on the node's canonical burnchain fork. False means a
+      burnchain fork orphaned the burn view, which this block cannot outlive even if its tenure
+      survived. Always false when burn_view is null, which carries no claim.

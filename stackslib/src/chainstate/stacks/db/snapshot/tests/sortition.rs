@@ -24,6 +24,8 @@ use stacks_common::types::chainstate::{
     BlockHeaderHash, BurnchainHeaderHash, ConsensusHash, SortitionId, TrieHash,
 };
 use stacks_common::types::StacksEpochId;
+use stacks_marf::marf::{MARFOpenOpts, MARF};
+use stacks_marf::{trie_sql, ClarityMarfTrieId, Error, MARFValue};
 use tempfile::tempdir;
 
 use super::super::common::TableCopySource;
@@ -43,8 +45,6 @@ use crate::chainstate::burn::db::sortdb::tests::{
     test_set_snapshot_consensus_hash,
 };
 use crate::chainstate::burn::db::sortdb::{SortitionDB, SortitionTipCopyBoundary};
-use crate::chainstate::stacks::index::marf::{MARFOpenOpts, MARF};
-use crate::chainstate::stacks::index::{trie_sql, ClarityMarfTrieId, Error, MARFValue};
 use crate::core::{StacksEpoch, StacksEpochExtension};
 
 /// Create a sortition source DB. `connect` also seeds the genesis

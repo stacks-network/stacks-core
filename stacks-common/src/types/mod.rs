@@ -40,7 +40,7 @@ use crate::consts::{
     PEER_VERSION_EPOCH_3_1, PEER_VERSION_EPOCH_3_2, PEER_VERSION_EPOCH_3_3, PEER_VERSION_EPOCH_3_4,
     PEER_VERSION_EPOCH_4_0, PEER_VERSION_EPOCH_4_1, STACKS_EPOCH_MAX,
 };
-use crate::types::chainstate::{StacksAddress, StacksPublicKey};
+use crate::types::chainstate::{Opcodes, StacksAddress, StacksPublicKey};
 use crate::util::hash::Hash160;
 use crate::util::secp256k1::{MessageSignature, Secp256k1PublicKey};
 
@@ -168,6 +168,15 @@ define_stacks_epochs! {
     Epoch34 = 0x03004 => "3.4",
     Epoch40 = 0x04000 => "4.0",
     Epoch41 = 0x04001 => "4.1",
+}
+
+/// Deposit format used for the PoX-5 per-cycle sBTC recipient.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SbtcDepositFormat {
+    /// Deposit locked by the registry's aggregate public key.
+    V1,
+    /// Taproot multisig deposit locked by derived per-signer keys.
+    V2,
 }
 
 #[derive(Debug)]
@@ -566,6 +575,13 @@ impl StacksEpochId {
         self >= &StacksEpochId::Epoch41
     }
 
+    /// Whether a contract-call transaction may only call `define-public` functions.
+    ///
+    /// Before this epoch, it could also call `define-read-only` functions.
+    pub fn forbids_top_level_read_only_calls(&self) -> bool {
+        self >= &StacksEpochId::Epoch41
+    }
+
     /// Whether `concat` fails the transaction with `ValueTooLarge` when it would
     /// build a buffer or string larger than `MAX_VALUE_SIZE`.
     pub fn checks_concat_result_size(&self) -> bool {
@@ -603,6 +619,22 @@ impl StacksEpochId {
     /// exist.  Building off of genesis (`(0, 0)`) is unaffected.
     pub fn allows_missing_vtxindex_zero_commit_parent(&self) -> bool {
         self >= &StacksEpochId::Epoch30 && self < &StacksEpochId::Epoch41
+    }
+
+    /// Whether the sortition DB rejects burnchain operations with `opcode` in this epoch.
+    ///
+    /// From Epoch 4.1, `stack-stx`, `delegate-stx`, and `vote-for-aggregate-key` are rejected:
+    /// they call into PoX-4 and `.signers-voting`, which PoX-5 superseded.
+    pub fn rejects_burn_op(&self, opcode: Opcodes) -> bool {
+        match opcode {
+            Opcodes::StackStx | Opcodes::DelegateStx | Opcodes::VoteForAggregateKey => {
+                self >= &StacksEpochId::Epoch41
+            }
+            Opcodes::LeaderBlockCommit
+            | Opcodes::LeaderKeyRegister
+            | Opcodes::PreStx
+            | Opcodes::TransferStx => false,
+        }
     }
 
     /// Does this epoch support unlocking PoX contributors that miss a slot?
@@ -869,6 +901,42 @@ impl StacksEpochId {
         self >= &StacksEpochId::Epoch41
     }
 
+    /// The deposit format used to derive the PoX-5 per-cycle sBTC recipient.
+    /// Epochs before 4.1 use the aggregate-key format; 4.1 uses Taproot multisig.
+    ///
+    /// The reward set for cycle `N+1` is computed at the first Stacks block of
+    /// cycle `N`'s prepare phase, and it is that block's epoch which selects
+    /// the derivation. The block-commit output therefore switches at the first
+    /// reward cycle whose prepare phase begins in Epoch 4.1, at most one
+    /// reward cycle after activation. Once this epoch is active the node never
+    /// reads the registry's aggregate pubkey, so sBTC may rotate to a v2 key
+    /// set (which stores a non-pubkey tag in that field) at any time after
+    /// activation.
+    ///
+    /// If the Taproot multisig recipient cannot be derived from the registry,
+    /// the reward set pays the standard burn address instead. The
+    /// aggregate-key format has no such fallback.
+    pub fn sbtc_deposit_format(&self) -> SbtcDepositFormat {
+        // Enumerate epochs so a new epoch requires an explicit format choice.
+        match self {
+            Self::Epoch10
+            | Self::Epoch20
+            | Self::Epoch2_05
+            | Self::Epoch21
+            | Self::Epoch22
+            | Self::Epoch23
+            | Self::Epoch24
+            | Self::Epoch25
+            | Self::Epoch30
+            | Self::Epoch31
+            | Self::Epoch32
+            | Self::Epoch33
+            | Self::Epoch34
+            | Self::Epoch40 => SbtcDepositFormat::V1,
+            Self::Epoch41 => SbtcDepositFormat::V2,
+        }
+    }
+
     /// Whether analysis types a `fold` result to admit its initial value, which an
     /// empty sequence returns unchanged.
     pub fn requires_fold_result_to_admit_initial_value(&self) -> bool {
@@ -885,6 +953,26 @@ impl StacksEpochId {
     /// Whether `restrict-assets?` fails at runtime on `with-all-assets-unsafe`,
     /// which analysis already rejects.
     pub fn checks_with_all_assets_in_restrict_assets(&self) -> bool {
+        self >= &StacksEpochId::Epoch41
+    }
+
+    /// Whether cost and memory charges, in analysis and at runtime, count the
+    /// contract and trait identifiers that callable types hold. Size limits
+    /// keep the old sizes.
+    pub fn charges_callable_type_size(&self) -> bool {
+        self >= &StacksEpochId::Epoch41
+    }
+
+    /// Whether a trait-based `contract-call?` reads a trait defined by the calling
+    /// contract from its own context, so the call works while that contract deploys.
+    pub fn supports_local_trait_lookup(&self) -> bool {
+        self >= &StacksEpochId::Epoch41
+    }
+
+    /// Whether sortition samples the winning block-commit and the null miner's challenge from
+    /// separate, domain-separated digests of the sortition hash and VRF seed, rather than both
+    /// from the same digest.
+    pub fn uses_sortition_scopes(&self) -> bool {
         self >= &StacksEpochId::Epoch41
     }
 
@@ -955,6 +1043,27 @@ impl StacksEpochId {
     /// because the change is consensus-breaking (even for non-broken contracts, because
     /// it can change cost), we have to preserve the legacy behavior.
     pub fn checks_dependency_of_contract_call_target(&self) -> bool {
+        self >= &StacksEpochId::Epoch41
+    }
+
+    /// The type checker prevents name conflicts between globals and locals. Function
+    /// application and let binding also raise runtime errors when creating duplicate
+    /// names (although in the case of let bindings, that check is currently incomplete).
+    ///
+    /// This epoch gate here is only for the case where both of those checks failed and,
+    /// for some reason, we do have two conflicting names. In that case, the global should
+    /// win when looking up that name.
+    ///
+    /// Once Epoch 4.1 is reached, we should run a block replay with this function returning
+    /// a constant `true`. Chances are that this was never triggered; in that case, we
+    /// can remove this check and keep the fixed behavior.
+    pub fn clarity_runtime_checks_global_constants_before_local_vars(&self) -> bool {
+        self >= &StacksEpochId::Epoch41
+    }
+
+    /// Disallow the deployment of contracts called `__transient`, a legacy mechanism that's
+    /// no longer useful.
+    pub fn rejects_transient_contracts(&self) -> bool {
         self >= &StacksEpochId::Epoch41
     }
 

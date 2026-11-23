@@ -22,13 +22,13 @@ use rusqlite::{params, Connection, OpenFlags, Row, Transaction};
 use serde_json;
 use stacks_common::types::chainstate::BurnchainHeaderHash;
 use stacks_common::types::sqlite::NO_PARAMS;
+use stacks_marf::ClarityMarfTrieId;
 
 use crate::burnchains::{
     Burnchain, BurnchainBlock, BurnchainBlockHeader, Error as BurnchainError, Txid,
 };
 use crate::chainstate::burn::operations::{BlockstackOperationType, LeaderBlockCommitOp};
 use crate::chainstate::burn::BlockSnapshot;
-use crate::chainstate::stacks::index::ClarityMarfTrieId;
 use crate::core::StacksEpochId;
 use crate::util_lib::db::{
     opt_u64_to_sql, query_row, query_rows, sqlite_open, table_exists, tx_begin_immediate,
