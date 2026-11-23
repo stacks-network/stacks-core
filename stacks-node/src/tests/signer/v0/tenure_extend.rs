@@ -4303,7 +4303,6 @@ fn empty_sortition_before_tenure_start_signed() {
     signer_test.boot_to_epoch_3();
 
     let Counters {
-        naka_submitted_commits: commits_submitted,
         naka_proposed_blocks: proposed_blocks,
         skip_commit_op,
         ..
@@ -4312,17 +4311,7 @@ fn empty_sortition_before_tenure_start_signed() {
     // Mine a normal tenure first and wait for the block-commit for the next
     // tenure to be submitted, so that tenure A has a sortition even though
     // block-commits are paused right afterwards.
-    let commits_before = commits_submitted.load(Ordering::SeqCst);
-    next_block_and_process_new_stacks_block(
-        &signer_test.running_nodes.btc_regtest_controller,
-        60,
-        &signer_test.running_nodes.coord_channel,
-    )
-    .unwrap();
-    wait_for(30, || {
-        Ok(commits_submitted.load(Ordering::SeqCst) > commits_before)
-    })
-    .expect("Timed out waiting for the block-commit for tenure A to be submitted");
+    signer_test.mine_nakamoto_block(Duration::from_secs(30), true);
 
     let stacks_height_before = get_chain_info(&signer_test.running_nodes.conf).stacks_tip_height;
 
@@ -4567,23 +4556,12 @@ fn empty_sortition_with_lost_tenure_start_proposal() {
     signer_test.boot_to_epoch_3();
 
     let Counters {
-        naka_submitted_commits: commits_submitted,
         naka_proposed_blocks: proposed_blocks,
         skip_commit_op,
         ..
     } = signer_test.running_nodes.counters.clone();
 
-    let commits_before = commits_submitted.load(Ordering::SeqCst);
-    next_block_and_process_new_stacks_block(
-        &signer_test.running_nodes.btc_regtest_controller,
-        60,
-        &signer_test.running_nodes.coord_channel,
-    )
-    .unwrap();
-    wait_for(30, || {
-        Ok(commits_submitted.load(Ordering::SeqCst) > commits_before)
-    })
-    .expect("Timed out waiting for the block-commit for tenure A to be submitted");
+    signer_test.mine_nakamoto_block(Duration::from_secs(30), true);
 
     let stacks_height_before = get_chain_info(&signer_test.running_nodes.conf).stacks_tip_height;
 
@@ -4795,25 +4773,11 @@ fn empty_sortition_while_block_in_flight() {
 
     signer_test.boot_to_epoch_3();
 
-    let Counters {
-        naka_submitted_commits: commits_submitted,
-        skip_commit_op,
-        ..
-    } = signer_test.running_nodes.counters.clone();
+    let Counters { skip_commit_op, .. } = signer_test.running_nodes.counters.clone();
 
     // Wait for the block-commit for tenure A, so that tenure A has a sortition even
     // though block-commits are paused right afterwards.
-    let commits_before = commits_submitted.load(Ordering::SeqCst);
-    next_block_and_process_new_stacks_block(
-        &signer_test.running_nodes.btc_regtest_controller,
-        60,
-        &signer_test.running_nodes.coord_channel,
-    )
-    .unwrap();
-    wait_for(30, || {
-        Ok(commits_submitted.load(Ordering::SeqCst) > commits_before)
-    })
-    .expect("Timed out waiting for the block-commit for tenure A to be submitted");
+    signer_test.mine_nakamoto_block(Duration::from_secs(30), true);
 
     info!("Pausing block commits so that the burn block after tenure A has no sortition");
     skip_commit_op.set(true);
@@ -4950,17 +4914,7 @@ fn empty_sortition_while_block_in_flight_never_lands() {
 
     // Wait for the block-commit for tenure A, so that tenure A has a sortition even
     // though block-commits are paused right afterwards.
-    let commits_before = commits_submitted.load(Ordering::SeqCst);
-    next_block_and_process_new_stacks_block(
-        &signer_test.running_nodes.btc_regtest_controller,
-        60,
-        &signer_test.running_nodes.coord_channel,
-    )
-    .unwrap();
-    wait_for(30, || {
-        Ok(commits_submitted.load(Ordering::SeqCst) > commits_before)
-    })
-    .expect("Timed out waiting for the block-commit for tenure A to be submitted");
+    signer_test.mine_nakamoto_block(Duration::from_secs(30), true);
 
     info!("Pausing block commits so that the burn block after tenure A has no sortition");
     skip_commit_op.set(true);
