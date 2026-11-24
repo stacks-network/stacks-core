@@ -400,7 +400,7 @@ dependencies = [
  "serde_derive",
  "serde_json",
  "serde_urlencoded",
- "thiserror 2.0.21",
+ "thiserror",
  "time",
  "tokio",
  "tokio-stream",
@@ -2121,7 +2121,7 @@ dependencies = [
  "slog",
  "stacks-common",
  "stackslib",
- "thiserror 1.0.65",
+ "thiserror",
  "tiny_http",
 ]
 
@@ -2201,7 +2201,7 @@ dependencies = [
  "stacks-marf",
  "stackslib",
  "tempfile",
- "toml 0.5.11",
+ "toml",
 ]
 
 [[package]]
@@ -2665,14 +2665,14 @@ checksum = "8b870d8c151b6f2fb93e84a13146138f05d02ed11c7e7c54f8826aaaf7c9f184"
 [[package]]
 name = "pinny"
 version = "0.0.2"
-source = "git+https://github.com/stx-labs/pinny-rs.git?rev=0e888bce54c822f050befaadc07709a7abbf6838#0e888bce54c822f050befaadc07709a7abbf6838"
+source = "git+https://github.com/stx-labs/pinny-rs.git?rev=3bea6ff21de328abbfd17b0c0104dfc2aba6be49#3bea6ff21de328abbfd17b0c0104dfc2aba6be49"
 dependencies = [
  "proc-macro2",
  "quote",
  "regex",
- "syn 2.0.117",
- "thiserror 1.0.65",
- "toml 0.5.11",
+ "syn 3.0.9",
+ "thiserror",
+ "toml",
 ]
 
 [[package]]
@@ -2816,7 +2816,7 @@ dependencies = [
  "lazy_static",
  "memchr",
  "parking_lot",
- "thiserror 2.0.21",
+ "thiserror",
 ]
 
 [[package]]
@@ -3177,7 +3177,7 @@ version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "353b74f9810d5b085b6c42c9d86a5f0fdb795553235cdd48753b32e3809d18a7"
 dependencies = [
- "thiserror 2.0.21",
+ "thiserror",
 ]
 
 [[package]]
@@ -3840,7 +3840,7 @@ dependencies = [
  "stacks-common",
  "stackslib",
  "tempfile",
- "thiserror 1.0.65",
+ "thiserror",
 ]
 
 [[package]]
@@ -3881,7 +3881,7 @@ dependencies = [
  "slog",
  "slog-json",
  "slog-term",
- "thiserror 1.0.65",
+ "thiserror",
  "winapi 0.3.9",
 ]
 
@@ -3958,7 +3958,7 @@ dependencies = [
  "stx-genesis",
  "tempfile",
  "testcontainers",
- "thiserror 1.0.65",
+ "thiserror",
  "tikv-jemallocator",
  "tiny_http",
  "tokio",
@@ -4012,9 +4012,9 @@ dependencies = [
  "stacks-common",
  "stackslib",
  "stdext",
- "thiserror 1.0.65",
+ "thiserror",
  "tiny_http",
- "toml 0.5.11",
+ "toml",
  "tracing",
  "tracing-subscriber",
  "url",
@@ -4077,7 +4077,7 @@ dependencies = [
  "stx-genesis",
  "tempfile",
  "time",
- "toml 0.5.11",
+ "toml",
  "url",
  "winapi 0.3.9",
 ]
@@ -4245,7 +4245,7 @@ dependencies = [
  "serde",
  "serde_json",
  "serde_with",
- "thiserror 2.0.21",
+ "thiserror",
  "tokio",
  "tokio-stream",
  "tokio-util",
@@ -4254,31 +4254,11 @@ dependencies = [
 
 [[package]]
 name = "thiserror"
-version = "1.0.65"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5d11abd9594d9b38965ef50805c5e469ca9cc6f197f883f717e0269a3057b3d5"
-dependencies = [
- "thiserror-impl 1.0.65",
-]
-
-[[package]]
-name = "thiserror"
 version = "2.0.21"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "09e52cb86a36cede5cb101bf8908837b3e4c6e5e59fe7fd85c23fb56200d189e"
 dependencies = [
- "thiserror-impl 2.0.21",
-]
-
-[[package]]
-name = "thiserror-impl"
-version = "1.0.65"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ae71770322cbd277e69d762a16c444af02aa0575ac0d174f0b9562d3b37f8602"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn 2.0.117",
+ "thiserror-impl",
 ]
 
 [[package]]
@@ -4451,15 +4431,6 @@ dependencies = [
  "pin-project-lite",
  "tokio",
  "tracing",
-]
-
-[[package]]
-name = "toml"
-version = "0.5.11"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f4f7f0dd8d50a853a531c426359045b1998f04219d88799810762cd4ad314234"
-dependencies = [
- "serde",
 ]
 
 [[package]]
@@ -4670,7 +4641,7 @@ dependencies = [
  "serde_json",
  "target-tuple",
  "termcolor",
- "toml 1.1.2+spec-1.1.0",
+ "toml",
 ]
 
 [[package]]

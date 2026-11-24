@@ -5174,10 +5174,9 @@ mod tests {
             "Invalid path: No such file or directory (os error 2)".to_string(),
             ConfigFile::from_path("some_path").unwrap_err()
         );
-        assert_eq!(
-            "Invalid toml: unexpected character found: `/` at line 1 column 1".to_string(),
-            ConfigFile::from_str("//[node]").unwrap_err()
-        );
+        assert!(ConfigFile::from_str("//[node]")
+            .unwrap_err()
+            .starts_with("Invalid toml: "));
         assert!(ConfigFile::from_str("").is_ok());
     }
 
@@ -5565,7 +5564,7 @@ mod tests {
             "#,
             )
             .unwrap_err();
-            assert!(err.starts_with("Invalid toml: unknown field `unknown_field`"));
+            assert!(err.contains("unknown field `unknown_field`"));
         }
 
         {
@@ -5578,7 +5577,7 @@ mod tests {
             "#,
             )
             .unwrap_err();
-            assert!(err.starts_with("Invalid toml: unknown field `unknown_field`"));
+            assert!(err.contains("unknown field `unknown_field`"));
         }
 
         {
@@ -5591,7 +5590,7 @@ mod tests {
             "#,
             )
             .unwrap_err();
-            assert!(err.starts_with("Invalid toml: unknown field `unknown_field`"));
+            assert!(err.contains("unknown field `unknown_field`"));
         }
 
         {
@@ -5604,7 +5603,7 @@ mod tests {
             "#,
             )
             .unwrap_err();
-            assert!(err.starts_with("Invalid toml: unknown field `unknown_field`"));
+            assert!(err.contains("unknown field `unknown_field`"));
         }
 
         {
@@ -5617,7 +5616,7 @@ mod tests {
             "#,
             )
             .unwrap_err();
-            assert!(err.starts_with("Invalid toml: unknown field `unknown_field`"));
+            assert!(err.contains("unknown field `unknown_field`"));
         }
 
         {
@@ -5630,7 +5629,7 @@ mod tests {
             "#,
             )
             .unwrap_err();
-            assert!(err.starts_with("Invalid toml: unknown field `unknown_field`"));
+            assert!(err.contains("unknown field `unknown_field`"));
         }
 
         {
@@ -5642,7 +5641,7 @@ mod tests {
             "#,
             )
             .unwrap_err();
-            assert!(err.starts_with("Invalid toml: unknown field `unknown_field`"));
+            assert!(err.contains("unknown field `unknown_field`"));
         }
 
         {
@@ -5656,7 +5655,7 @@ mod tests {
             )
             .unwrap_err();
             println!("{err}");
-            assert!(err.starts_with("Invalid toml: unknown field `unknown_field`"));
+            assert!(err.contains("unknown field `unknown_field`"));
         }
 
         {
@@ -5668,7 +5667,7 @@ mod tests {
                 "#,
             )
             .unwrap_err();
-            assert!(err.starts_with("Invalid toml: unknown field `unknown_field`"));
+            assert!(err.contains("unknown field `unknown_field`"));
         }
     }
 

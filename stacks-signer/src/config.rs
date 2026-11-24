@@ -514,7 +514,7 @@ impl RawConfigFile {
     /// load the config from a string
     pub fn load_from_str(data: &str) -> Result<Self, ConfigError> {
         let config: Self =
-            toml::from_str(data).map_err(|e| ConfigError::ParseError(format!("{e:?}")))?;
+            toml::from_str(data).map_err(|e| ConfigError::ParseError(e.to_string()))?;
         Ok(config)
     }
     /// load the config from a file and parse it
