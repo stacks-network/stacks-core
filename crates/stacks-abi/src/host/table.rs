@@ -239,7 +239,7 @@ pub const HOST_FUNCTIONS: [HostFunction; 66] = [
         group: Storage,
         params: &[p("key", Bytes), p("out", Buf)],
         result: ResultKind::Len,
-        charges: &[Base, Input("key"), Read(1), Stored("out"), Output("out")],
+        charges: &[Base, Input("key"), Read(1), ReadBytes("out"), Output("out")],
     },
     HostFunction {
         name: "kv_has",
@@ -258,7 +258,7 @@ pub const HOST_FUNCTIONS: [HostFunction; 66] = [
             Input("key"),
             Input("value"),
             Write(1),
-            Stored("value"),
+            WrittenBytes("value"),
         ],
     },
     HostFunction {

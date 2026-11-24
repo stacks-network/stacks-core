@@ -129,13 +129,20 @@ pub struct Param {
 /// times a quantity. A function is charged the sum of its terms.
 ///
 /// The schedule has the prices of `Base`, `Input` and `Output` per function,
-/// and those of `Read`, `Write` and `Stored` once. A formula names every
-/// `bytes` and `principal` parameter in an `Input` term and every `buf` in
-/// an `Output` term; parameters of a fixed size are part of `Base`. `Read`
-/// and `Write` count accesses to contract and account state; looking up a
-/// block, a tenure, a burn block or a contract's module is part of `Base`.
-/// An access to a value of bounded size (a balance, a supply, an owner) has
-/// no `Stored` term: its bytes are part of the price of the access.
+/// and those of the storage terms once. `Read` and `Write` price an access,
+/// whatever the size of its value: finding the entry in the chain's state
+/// and, for a write, the state the chain adds to hold the entry. `ReadBytes`
+/// and `WrittenBytes` price the value's bytes. Reading and writing have
+/// separate prices, so the schedule can price growth of the chain's state
+/// apart from access to it.
+///
+/// A formula names every `bytes` and `principal` parameter in an `Input`
+/// term and every `buf` in an `Output` term; parameters of a fixed size are
+/// part of `Base`. `Read` and `Write` count accesses to contract and account
+/// state; looking up a block, a tenure, a burn block or a contract's module
+/// is part of `Base`. An access to a value of bounded size (a balance, a
+/// supply, an owner) has no per-byte storage term: its bytes are part of the
+/// price of the access.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Charge {
     /// The function's base charge, which covers all work that does not
@@ -152,10 +159,13 @@ pub enum Charge {
     Read(u32),
     /// The price of a storage write, times this number.
     Write(u32),
-    /// The price per stored byte, times the length of the value read into
-    /// the named `buf` or written from the named `bytes`. Only next to a
-    /// `Read` or `Write`.
-    Stored(&'static str),
+    /// The price per byte read from storage, times the length of the value
+    /// read into the named `buf`, whether or not it fits. Only next to a
+    /// `Read`.
+    ReadBytes(&'static str),
+    /// The price per byte written to storage, times the length of the value
+    /// written from the named `bytes`. Only next to a `Write`.
+    WrittenBytes(&'static str),
 }
 
 /// A host function.

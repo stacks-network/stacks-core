@@ -126,6 +126,8 @@ fn charges_are_well_formed() {
         let kind = |param: &str| function.param(param).map(|param| param.kind);
 
         assert_eq!(charges.first(), Some(&Base), "{name}");
+        let reads = charges.iter().any(|c| matches!(c, Read(_)));
+        let writes = charges.iter().any(|c| matches!(c, Write(_)));
         let mut terms = HashSet::new();
         for charge in charges {
             // A storage access has one term; no other term repeats.
@@ -142,10 +144,8 @@ fn charges_are_well_formed() {
                 }
                 Output(param) => matches!(kind(param), Some(ParamKind::Buf | ParamKind::I32)),
                 Read(count) | Write(count) => count > 0,
-                Stored(param) => {
-                    let accessed = charges.iter().any(|c| matches!(c, Read(_) | Write(_)));
-                    accessed && matches!(kind(param), Some(ParamKind::Bytes | ParamKind::Buf))
-                }
+                ReadBytes(param) => reads && kind(param) == Some(ParamKind::Buf),
+                WrittenBytes(param) => writes && kind(param) == Some(ParamKind::Bytes),
             };
             assert!(valid, "{name}: {charge:?}");
         }
@@ -160,4 +160,20 @@ fn charges_are_well_formed() {
             assert!(charges.contains(&term), "{name}: {}", param.name);
         }
     }
+}
+
+/// Storage is charged per byte read and per byte written at separate
+/// prices.
+#[test]
+fn storage_charges_separate_reads_and_writes() {
+    let charges = |name: &str| host_function(name).unwrap().charges;
+
+    let get = charges("kv_get");
+    assert!(get.contains(&ReadBytes("out")));
+    assert!(!get.contains(&WrittenBytes("out")));
+
+    let set = charges("kv_set");
+    assert!(set.contains(&WrittenBytes("value")));
+    assert!(!set.contains(&ReadBytes("value")));
+    assert!(!set.iter().any(|c| matches!(c, Read(_))));
 }
