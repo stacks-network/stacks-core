@@ -2634,10 +2634,7 @@ fn mine_multiple_per_tenure_integration() {
 
         // mine the interim blocks
         for interim_block_ix in 0..inter_blocks_per_tenure {
-            let blocks_processed_before = coord_channel
-                .lock()
-                .expect("Mutex poisoned")
-                .get_stacks_blocks_processed();
+            let height_before = get_chain_info(&naka_conf).stacks_tip_height;
             // submit a tx so that the miner will mine an extra block
             let sender_nonce = tenure_ix * inter_blocks_per_tenure + interim_block_ix;
             let transfer_tx = make_stacks_transfer_serialized(
@@ -2650,14 +2647,7 @@ fn mine_multiple_per_tenure_integration() {
             );
             submit_tx(&http_origin, &transfer_tx);
 
-            loop {
-                let blocks_processed = coord_channel
-                    .lock()
-                    .expect("Mutex poisoned")
-                    .get_stacks_blocks_processed();
-                if blocks_processed > blocks_processed_before {
-                    break;
-                }
+            while get_chain_info(&naka_conf).stacks_tip_height <= height_before {
                 thread::sleep(Duration::from_millis(100));
             }
 
@@ -2925,10 +2915,7 @@ fn multiple_miners() {
 
         // mine the interim blocks
         for interim_block_ix in 0..inter_blocks_per_tenure {
-            let blocks_processed_before = coord_channel
-                .lock()
-                .expect("Mutex poisoned")
-                .get_stacks_blocks_processed();
+            let height_before = get_chain_info(&naka_conf).stacks_tip_height;
             // submit a tx so that the miner will mine an extra block
             let sender_nonce = tenure_ix * inter_blocks_per_tenure + interim_block_ix;
             let transfer_tx = make_stacks_transfer_serialized(
@@ -2942,11 +2929,7 @@ fn multiple_miners() {
             submit_tx(&http_origin, &transfer_tx);
 
             wait_for(20, || {
-                let blocks_processed = coord_channel
-                    .lock()
-                    .expect("Mutex poisoned")
-                    .get_stacks_blocks_processed();
-                Ok(blocks_processed > blocks_processed_before)
+                Ok(get_chain_info(&naka_conf).stacks_tip_height > height_before)
             })
             .unwrap();
 
@@ -4370,11 +4353,6 @@ fn follower_bootup(chain_id: Option<u32>, tenure_count: u64, inter_blocks_per_te
 
         // mine the interim blocks
         for _ in 0..inter_blocks_per_tenure {
-            let blocks_processed_before = coord_channel
-                .lock()
-                .expect("Mutex poisoned")
-                .get_stacks_blocks_processed();
-
             let account = loop {
                 // submit a tx so that the miner will mine an extra block
                 let Ok(account) = get_account_result(&http_origin, &sender_addr) else {
@@ -4429,16 +4407,6 @@ fn follower_bootup(chain_id: Option<u32>, tenure_count: u64, inter_blocks_per_te
                         "follower_bootup: Miner stacks tip hasn't changed ({})",
                         &info.stacks_tip
                     );
-                    return Ok(false);
-                }
-
-                let blocks_processed = coord_channel
-                    .lock()
-                    .expect("Mutex poisoned")
-                    .get_stacks_blocks_processed();
-
-                if blocks_processed <= blocks_processed_before {
-                    debug!("follower_bootup: No blocks processed yet");
                     return Ok(false);
                 }
 
@@ -6294,10 +6262,7 @@ fn nakamoto_attempt_time() {
         for tenure_count in 0..inter_blocks_per_tenure {
             debug!("nakamoto_attempt_time: begin tenure {tenure_count}");
 
-            let blocks_processed_before = coord_channel
-                .lock()
-                .expect("Mutex poisoned")
-                .get_stacks_blocks_processed();
+            let height_before = get_chain_info(&naka_conf).stacks_tip_height;
 
             let txs_per_block = 3;
             let tx_fee = 500;
@@ -6334,11 +6299,7 @@ fn nakamoto_attempt_time() {
             // Miner should have made a new block by now
             let wait_start = Instant::now();
             loop {
-                let blocks_processed = coord_channel
-                    .lock()
-                    .expect("Mutex poisoned")
-                    .get_stacks_blocks_processed();
-                if blocks_processed > blocks_processed_before {
+                if get_chain_info(&naka_conf).stacks_tip_height > height_before {
                     break;
                 }
                 // wait a little longer than what the max block time should be
@@ -6372,25 +6333,14 @@ fn nakamoto_attempt_time() {
     // Subtest 2
     // Confirm that no blocks are mined if there are no transactions
     for _ in 0..2 {
-        let blocks_processed_before = coord_channel
-            .lock()
-            .expect("Mutex poisoned")
-            .get_stacks_blocks_processed();
-
         let info_before = get_chain_info_result(&naka_conf).unwrap();
 
         // Wait long enough for a block to be mined
         thread::sleep(Duration::from_millis(nakamoto_attempt_time_ms * 2));
 
-        let blocks_processed = coord_channel
-            .lock()
-            .expect("Mutex poisoned")
-            .get_stacks_blocks_processed();
-
         let info = get_chain_info_result(&naka_conf).unwrap();
 
         // Assert that no block was mined while waiting
-        assert_eq!(blocks_processed, blocks_processed_before);
         assert_eq!(info.stacks_tip, info_before.stacks_tip);
         assert_eq!(info.stacks_tip_height, info_before.stacks_tip_height);
     }
