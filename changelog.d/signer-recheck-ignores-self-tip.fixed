@@ -1,0 +1,1 @@
+Signers no longer reject a block with `SortitionViewMismatch` when the rest of the signer set signed it, and the node processed it, before their own validation of it returned.
