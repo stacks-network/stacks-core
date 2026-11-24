@@ -4,157 +4,7 @@ expression: result.get_expected_results()
 ---
 [
   Success(ExpectedBlockOutput(
-    marf_hash: "3be1331d5103160fa3ef91b3d8b267bd91e5332dc42d400b1f9e9834f344825e",
-    evaluated_epoch: Epoch34,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "SmartContract(name: my-contract-Epoch3_4-Clarity1, code_body: [..], clarity_version: Some(Clarity1))",
-        vm_error: "Some(invalid principal literal) [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: false,
-          data: Optional(OptionalData(
-            data: None,
-          )),
-        )),
-        cost: ExecutionCost(
-          write_length: 0,
-          write_count: 0,
-          read_length: 0,
-          read_count: 0,
-          runtime: 2133,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 0,
-      write_count: 0,
-      read_length: 0,
-      read_count: 0,
-      runtime: 2133,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "d88c27ff408099dfa5702ab6c5606cce6f194dbd906c527cc201c79fbd4b7a73",
-    evaluated_epoch: Epoch34,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "SmartContract(name: my-contract-Epoch3_4-Clarity2, code_body: [..], clarity_version: Some(Clarity2))",
-        vm_error: "Some(invalid principal literal) [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: false,
-          data: Optional(OptionalData(
-            data: None,
-          )),
-        )),
-        cost: ExecutionCost(
-          write_length: 0,
-          write_count: 0,
-          read_length: 0,
-          read_count: 0,
-          runtime: 2133,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 0,
-      write_count: 0,
-      read_length: 0,
-      read_count: 0,
-      runtime: 2133,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "c8d42afd95541c4bd5aad09ac0731b7e17958c6b183a8df8bd3b9eed6bed3b84",
-    evaluated_epoch: Epoch34,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "SmartContract(name: my-contract-Epoch3_4-Clarity3, code_body: [..], clarity_version: Some(Clarity3))",
-        vm_error: "Some(invalid principal literal) [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: false,
-          data: Optional(OptionalData(
-            data: None,
-          )),
-        )),
-        cost: ExecutionCost(
-          write_length: 0,
-          write_count: 0,
-          read_length: 0,
-          read_count: 0,
-          runtime: 2133,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 0,
-      write_count: 0,
-      read_length: 0,
-      read_count: 0,
-      runtime: 2133,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "918b1236424de7bc75542eb5b5b070f866c98d8f6c7bfde1b783c673b322a080",
-    evaluated_epoch: Epoch34,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "SmartContract(name: my-contract-Epoch3_4-Clarity4, code_body: [..], clarity_version: Some(Clarity4))",
-        vm_error: "Some(invalid principal literal) [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: false,
-          data: Optional(OptionalData(
-            data: None,
-          )),
-        )),
-        cost: ExecutionCost(
-          write_length: 0,
-          write_count: 0,
-          read_length: 0,
-          read_count: 0,
-          runtime: 2133,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 0,
-      write_count: 0,
-      read_length: 0,
-      read_count: 0,
-      runtime: 2133,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "a701abb362da66493b7c5b6cc5127175b42ca473ecba2159a1acab0f64de9499",
-    evaluated_epoch: Epoch34,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "SmartContract(name: my-contract-Epoch3_4-Clarity5, code_body: [..], clarity_version: Some(Clarity5))",
-        vm_error: "Some(invalid principal literal) [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: false,
-          data: Optional(OptionalData(
-            data: None,
-          )),
-        )),
-        cost: ExecutionCost(
-          write_length: 0,
-          write_count: 0,
-          read_length: 0,
-          read_count: 0,
-          runtime: 2133,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 0,
-      write_count: 0,
-      read_length: 0,
-      read_count: 0,
-      runtime: 2133,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "909a475c9e36774bdbe5a2246a547cf04489e7f050f810edbee26e1ab3d6fd0b",
+    marf_hash: "a1a1a32c4eb4aa073c6342bd2c08ffab705d5f97050a757e7b8e68d893a23866",
     evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
@@ -184,7 +34,7 @@ expression: result.get_expected_results()
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "d8a782eca9ba1cf52dc3220be5fd99541c698226115c4b3ef68ce3c5b982163e",
+    marf_hash: "e69b5e8d40b5f80841f49d4394459cdc1e14afa8c7fef6fdefe4beafac8f4be2",
     evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
@@ -214,7 +64,7 @@ expression: result.get_expected_results()
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "fb7305b38926f5e9de217e0a1263f6787a3c3eb9ae278754b8ccf6116f379d55",
+    marf_hash: "4f458ebf879b559f0b303635dac592487bca4feb069cc606b172c15ac197dc6b",
     evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
@@ -244,7 +94,7 @@ expression: result.get_expected_results()
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "5d07aa56f5a4f4c5d2326d60a42d65ea8b2f0669a05ef01425f2d4d0932149a1",
+    marf_hash: "6c3b794901f9c33d0c50dacabc2e0648a15ca64f31852282a57fbe6315c9e2b5",
     evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
@@ -274,7 +124,7 @@ expression: result.get_expected_results()
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "487d881aa773ffbdbbbec94f333bcce04dc531c80d198d4695882bc131de08b4",
+    marf_hash: "5ed7439307221326de0204ca5fe195edb92d5400fd823a28314b685d2ba6228c",
     evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
@@ -304,11 +154,41 @@ expression: result.get_expected_results()
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "95688230c7641803a95446c17f8f9deb6684caaa096f55cb4376908d1d56dd20",
+    marf_hash: "e014f111de27b5e777a895b10784ac47e17012f3fd6d234c85a54fb2a7c57a87",
     evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
         tx: "SmartContract(name: my-contract-Epoch4_0-Clarity6, code_body: [..], clarity_version: Some(Clarity6))",
+        vm_error: "Some(invalid principal literal) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 0,
+          write_count: 0,
+          read_length: 0,
+          read_count: 0,
+          runtime: 2133,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 0,
+      write_count: 0,
+      read_length: 0,
+      read_count: 0,
+      runtime: 2133,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "9518a221f8d9145490311b5fcdc937231aa538b0607197468fb2e5a1a2f405eb",
+    evaluated_epoch: Epoch41,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: my-contract-Epoch4_1-Clarity7, code_body: [..], clarity_version: None)",
         vm_error: "Some(invalid principal literal) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,

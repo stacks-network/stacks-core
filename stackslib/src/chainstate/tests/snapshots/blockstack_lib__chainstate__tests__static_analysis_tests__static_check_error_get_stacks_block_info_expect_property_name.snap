@@ -4,97 +4,7 @@ expression: result.get_expected_results()
 ---
 [
   Success(ExpectedBlockOutput(
-    marf_hash: "d7c15cf734712cfe2e796af9de932cc1c437284c79d3b3969741cbc0d2199629",
-    evaluated_epoch: Epoch34,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "SmartContract(name: stacks-exp-prop-name-Epoch3_4-Clarity3, code_body: [..], clarity_version: Some(Clarity3))",
-        vm_error: "Some(:0:0: missing property name for stacks block info introspection) [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: false,
-          data: Optional(OptionalData(
-            data: None,
-          )),
-        )),
-        cost: ExecutionCost(
-          write_length: 5,
-          write_count: 1,
-          read_length: 1,
-          read_count: 1,
-          runtime: 1066,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 5,
-      write_count: 1,
-      read_length: 1,
-      read_count: 1,
-      runtime: 1066,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "2e6cf745d1bab4af58a9d84667158fa5f2aaea3e533ca13258c64b34083430ff",
-    evaluated_epoch: Epoch34,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "SmartContract(name: stacks-exp-prop-name-Epoch3_4-Clarity4, code_body: [..], clarity_version: Some(Clarity4))",
-        vm_error: "Some(:0:0: missing property name for stacks block info introspection) [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: false,
-          data: Optional(OptionalData(
-            data: None,
-          )),
-        )),
-        cost: ExecutionCost(
-          write_length: 5,
-          write_count: 1,
-          read_length: 1,
-          read_count: 1,
-          runtime: 1066,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 5,
-      write_count: 1,
-      read_length: 1,
-      read_count: 1,
-      runtime: 1066,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "9358fddaeef69b3c191a4fc04da7f17680700e88406bfa2a2f6abe18a90d32d8",
-    evaluated_epoch: Epoch34,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "SmartContract(name: stacks-exp-prop-name-Epoch3_4-Clarity5, code_body: [..], clarity_version: Some(Clarity5))",
-        vm_error: "Some(:0:0: missing property name for stacks block info introspection) [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: false,
-          data: Optional(OptionalData(
-            data: None,
-          )),
-        )),
-        cost: ExecutionCost(
-          write_length: 5,
-          write_count: 1,
-          read_length: 1,
-          read_count: 1,
-          runtime: 1066,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 5,
-      write_count: 1,
-      read_length: 1,
-      read_count: 1,
-      runtime: 1066,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "e971514fff870ab32e7f5b0da6a03792ca93fddd06f692709fd8596a914ef99f",
+    marf_hash: "78278f922b8ed40f12cb7cb173b2a6c77b2156a105aff6d0dc556d907e65cc1b",
     evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
@@ -124,7 +34,7 @@ expression: result.get_expected_results()
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "5eef3aa2658ac49072018b93bd61bae99ee85ea8f7fb1452a40ee5bcc34807b5",
+    marf_hash: "c0456d265ffaabc0ee32791f9197cb7e7f46a542a011bb17cf013960593a04dc",
     evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
@@ -154,7 +64,7 @@ expression: result.get_expected_results()
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "82a58c55135729741944865fd59176d41ccb4c705c7baa96df0652f2ec55d7d0",
+    marf_hash: "ce461809b4c9afef4e9959a19322ec595034a5c9632bf68b47620a37bf55f2af",
     evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
@@ -184,11 +94,41 @@ expression: result.get_expected_results()
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "b564d9ac665b78b7b0027a037c41f31db3e5167f5b4c3daa4e21ef346ef294bf",
+    marf_hash: "572054db3c283803a8b3d12a6cf71098444745ec2eaa51344691b83ac572618e",
     evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
         tx: "SmartContract(name: stacks-exp-prop-name-Epoch4_0-Clarity6, code_body: [..], clarity_version: Some(Clarity6))",
+        vm_error: "Some(:0:0: missing property name for stacks block info introspection) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 5,
+          write_count: 1,
+          read_length: 1,
+          read_count: 1,
+          runtime: 1066,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 5,
+      write_count: 1,
+      read_length: 1,
+      read_count: 1,
+      runtime: 1066,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "05d8d655607e625afd49b9d4fe27d52acb7fb49fa6c44025a1d7e8e0eebb0adb",
+    evaluated_epoch: Epoch41,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: stacks-exp-prop-name-Epoch4_1-Clarity7, code_body: [..], clarity_version: None)",
         vm_error: "Some(:0:0: missing property name for stacks block info introspection) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,

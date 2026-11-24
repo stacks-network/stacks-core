@@ -4,156 +4,6 @@ expression: result
 ---
 [
   Success(ExpectedBlockOutput(
-    marf_hash: "0e1a76e29eaef51c5637d6d5b6aa63a864d99d0ecbf004d780b0e7a6142ffef8",
-    evaluated_epoch: Epoch34,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "SmartContract(name: max-stack-depth-Epoch3_4-Clarity1, code_body: [..], clarity_version: Some(Clarity1))",
-        vm_error: "Some(MaxStackDepthReached) [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: false,
-          data: Optional(OptionalData(
-            data: None,
-          )),
-        )),
-        cost: ExecutionCost(
-          write_length: 8232,
-          write_count: 2,
-          read_length: 1,
-          read_count: 1,
-          runtime: 402625,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 8232,
-      write_count: 2,
-      read_length: 1,
-      read_count: 1,
-      runtime: 402625,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "b8ccac180610f217c57fa7b9251ed38d9b38f97fa79ce06c561bfb2669549eab",
-    evaluated_epoch: Epoch34,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "SmartContract(name: max-stack-depth-Epoch3_4-Clarity2, code_body: [..], clarity_version: Some(Clarity2))",
-        vm_error: "Some(MaxStackDepthReached) [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: false,
-          data: Optional(OptionalData(
-            data: None,
-          )),
-        )),
-        cost: ExecutionCost(
-          write_length: 8232,
-          write_count: 2,
-          read_length: 1,
-          read_count: 1,
-          runtime: 402497,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 8232,
-      write_count: 2,
-      read_length: 1,
-      read_count: 1,
-      runtime: 402497,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "4b64839b50073c71f04cf31c0201b3a9fbbf8db2a97a54429551721b22fb9685",
-    evaluated_epoch: Epoch34,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "SmartContract(name: max-stack-depth-Epoch3_4-Clarity3, code_body: [..], clarity_version: Some(Clarity3))",
-        vm_error: "Some(MaxStackDepthReached) [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: false,
-          data: Optional(OptionalData(
-            data: None,
-          )),
-        )),
-        cost: ExecutionCost(
-          write_length: 8232,
-          write_count: 2,
-          read_length: 1,
-          read_count: 1,
-          runtime: 402497,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 8232,
-      write_count: 2,
-      read_length: 1,
-      read_count: 1,
-      runtime: 402497,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "d940f80c30ed6f55f7281e28e972237f4d6bf81affd66e26a0db05ff20569d97",
-    evaluated_epoch: Epoch34,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "SmartContract(name: max-stack-depth-Epoch3_4-Clarity4, code_body: [..], clarity_version: Some(Clarity4))",
-        vm_error: "Some(MaxStackDepthReached) [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: false,
-          data: Optional(OptionalData(
-            data: None,
-          )),
-        )),
-        cost: ExecutionCost(
-          write_length: 8232,
-          write_count: 2,
-          read_length: 1,
-          read_count: 1,
-          runtime: 402497,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 8232,
-      write_count: 2,
-      read_length: 1,
-      read_count: 1,
-      runtime: 402497,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "851ba6f88f8b97e1e7aa6b44439c9b1e37e32d54acc3951329c07d49443b307d",
-    evaluated_epoch: Epoch34,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "SmartContract(name: max-stack-depth-Epoch3_4-Clarity5, code_body: [..], clarity_version: Some(Clarity5))",
-        vm_error: "Some(MaxStackDepthReached) [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: false,
-          data: Optional(OptionalData(
-            data: None,
-          )),
-        )),
-        cost: ExecutionCost(
-          write_length: 8232,
-          write_count: 2,
-          read_length: 1,
-          read_count: 1,
-          runtime: 402497,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 8232,
-      write_count: 2,
-      read_length: 1,
-      read_count: 1,
-      runtime: 402497,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
     marf_hash: "e2c8164f584af2c35900d9e630a5ec1c5e97679ecbad017d9077e6a81f2f304e",
     evaluated_epoch: Epoch40,
     transactions: [
@@ -309,6 +159,36 @@ expression: result
     transactions: [
       ExpectedTransactionOutput(
         tx: "SmartContract(name: max-stack-depth-Epoch4_0-Clarity6, code_body: [..], clarity_version: Some(Clarity6))",
+        vm_error: "Some(MaxStackDepthReached) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 8232,
+          write_count: 2,
+          read_length: 1,
+          read_count: 1,
+          runtime: 387881,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 8232,
+      write_count: 2,
+      read_length: 1,
+      read_count: 1,
+      runtime: 387881,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "45f23eaceb4054917df1d06dd0cea9b6dd67e967e5dfbf69f123c25cfc89db49",
+    evaluated_epoch: Epoch41,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: max-stack-depth-Epoch4_1-Clarity7, code_body: [..], clarity_version: None)",
         vm_error: "Some(MaxStackDepthReached) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,

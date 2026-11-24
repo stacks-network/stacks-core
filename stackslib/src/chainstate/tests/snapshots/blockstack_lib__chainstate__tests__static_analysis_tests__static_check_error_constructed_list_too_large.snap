@@ -4,157 +4,7 @@ expression: result.get_expected_results()
 ---
 [
   Success(ExpectedBlockOutput(
-    marf_hash: "949c0b8f8973c7a245e82d3b148944d0a98916ecf51a7eeae0f4607af04e0904",
-    evaluated_epoch: Epoch34,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "SmartContract(name: constructed-list-large-Epoch3_4-Clarity1, code_body: [..], clarity_version: Some(Clarity1))",
-        vm_error: "Some(:0:0: reached limit of elements in a sequence) [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: false,
-          data: Optional(OptionalData(
-            data: None,
-          )),
-        )),
-        cost: ExecutionCost(
-          write_length: 29,
-          write_count: 1,
-          read_length: 1,
-          read_count: 1,
-          runtime: 7437,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 29,
-      write_count: 1,
-      read_length: 1,
-      read_count: 1,
-      runtime: 7437,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "2aca772fbb9a6739393134387c6d21da39e50b63852fe5ab0fafbc64a52ae767",
-    evaluated_epoch: Epoch34,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "SmartContract(name: constructed-list-large-Epoch3_4-Clarity2, code_body: [..], clarity_version: Some(Clarity2))",
-        vm_error: "Some(:0:0: reached limit of elements in a sequence) [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: false,
-          data: Optional(OptionalData(
-            data: None,
-          )),
-        )),
-        cost: ExecutionCost(
-          write_length: 29,
-          write_count: 1,
-          read_length: 1,
-          read_count: 1,
-          runtime: 7436,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 29,
-      write_count: 1,
-      read_length: 1,
-      read_count: 1,
-      runtime: 7436,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "7cbd454b1edbf36e301474aa350f1c65ae46e99fe00cbb6feafd69129356d32a",
-    evaluated_epoch: Epoch34,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "SmartContract(name: constructed-list-large-Epoch3_4-Clarity3, code_body: [..], clarity_version: Some(Clarity3))",
-        vm_error: "Some(:0:0: reached limit of elements in a sequence) [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: false,
-          data: Optional(OptionalData(
-            data: None,
-          )),
-        )),
-        cost: ExecutionCost(
-          write_length: 29,
-          write_count: 1,
-          read_length: 1,
-          read_count: 1,
-          runtime: 7436,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 29,
-      write_count: 1,
-      read_length: 1,
-      read_count: 1,
-      runtime: 7436,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "51a077edf034574484e2a0ca66069cb0bcc2efb761c51c1c5cb2c39446dba357",
-    evaluated_epoch: Epoch34,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "SmartContract(name: constructed-list-large-Epoch3_4-Clarity4, code_body: [..], clarity_version: Some(Clarity4))",
-        vm_error: "Some(:0:0: reached limit of elements in a sequence) [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: false,
-          data: Optional(OptionalData(
-            data: None,
-          )),
-        )),
-        cost: ExecutionCost(
-          write_length: 29,
-          write_count: 1,
-          read_length: 1,
-          read_count: 1,
-          runtime: 7436,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 29,
-      write_count: 1,
-      read_length: 1,
-      read_count: 1,
-      runtime: 7436,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "9dea9fd58fce3526d017e9ca0aefa4c383036a8ddb4f941c4ee1491aaa121dd0",
-    evaluated_epoch: Epoch34,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "SmartContract(name: constructed-list-large-Epoch3_4-Clarity5, code_body: [..], clarity_version: Some(Clarity5))",
-        vm_error: "Some(:0:0: reached limit of elements in a sequence) [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: false,
-          data: Optional(OptionalData(
-            data: None,
-          )),
-        )),
-        cost: ExecutionCost(
-          write_length: 29,
-          write_count: 1,
-          read_length: 1,
-          read_count: 1,
-          runtime: 7436,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 29,
-      write_count: 1,
-      read_length: 1,
-      read_count: 1,
-      runtime: 7436,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "8aed8e3fa009ff60cab2cf07d00290960b613d40f24c09888f64853ac3e36dca",
+    marf_hash: "1ad33eb3677df3ab6cc97b8190d5f880ee5ec67e0ddcfe8f7157e4dad5e46875",
     evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
@@ -184,7 +34,7 @@ expression: result.get_expected_results()
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "41a4b3e131e76e59e3bd6bc5929c77f6568fd0a0f3f4d0a5cafbd2dd3f07fd35",
+    marf_hash: "122d75fee425aa67ed7cf5885fe5dbdd904493cef38805ed6ed55d6fcad62e82",
     evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
@@ -214,7 +64,7 @@ expression: result.get_expected_results()
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "deca88b1e22195f5dac2cb5b43ca399ca7d16da206a1dda3cbff903df1889c56",
+    marf_hash: "fe59e91d59c61f0f8012230ea0760339b03acce57930c36c9ff903052f36e376",
     evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
@@ -244,7 +94,7 @@ expression: result.get_expected_results()
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "b3f0e90deb030f2884055b2c9ac7ebf707654fe9dc413a6a3dc4193e3f243fe4",
+    marf_hash: "ffb6a1463f93b69209454bd7fbcf4aa129d1c0d0a7d05f716c554d3b5e27fee6",
     evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
@@ -274,7 +124,7 @@ expression: result.get_expected_results()
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "be530a71f722617196ea7c09d682ab2365e700fa64f0d7f8489edc1e936d6637",
+    marf_hash: "0976c211cb6520608b4068d7d8b880e2f9d13405c08f181769a1a2440de897f3",
     evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
@@ -304,11 +154,41 @@ expression: result.get_expected_results()
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "bb60a4921752242d9293758f0c82a58d70e06b422626f3877006a10c4a4dc061",
+    marf_hash: "280d72736ce41db629aeae1f2e2ce4a0c08f40133322501cf9ae74b16f12e23e",
     evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
         tx: "SmartContract(name: constructed-list-large-Epoch4_0-Clarity6, code_body: [..], clarity_version: Some(Clarity6))",
+        vm_error: "Some(:0:0: reached limit of elements in a sequence) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 29,
+          write_count: 1,
+          read_length: 1,
+          read_count: 1,
+          runtime: 7436,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 29,
+      write_count: 1,
+      read_length: 1,
+      read_count: 1,
+      runtime: 7436,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "0e3eabd48b79b876c942849bc46d8fc300f5cdebadb48b7b3337d923dda73847",
+    evaluated_epoch: Epoch41,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: constructed-list-large-Epoch4_1-Clarity7, code_body: [..], clarity_version: None)",
         vm_error: "Some(:0:0: reached limit of elements in a sequence) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
