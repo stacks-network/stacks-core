@@ -14,6 +14,8 @@ path = "src/lib.rs"
 
 [dependencies]
 clarity-types = { package = "clarity-types", path = "../../clarity-types", default-features = false }
+serde = { workspace = true, features = ["derive"] }
+stacks_common = { package = "stacks-common", path = "../../stacks-common", default-features = false }
 
 [dev-dependencies]
 rand = { workspace = true }
@@ -24,4 +26,4 @@ wasm-bindgen-test = "0.3"
 
 [features]
 default = []
-wasm-web = ["clarity-types/wasm-web"]
+wasm-web = ["clarity-types/wasm-web", "stacks_common/wasm-web"]

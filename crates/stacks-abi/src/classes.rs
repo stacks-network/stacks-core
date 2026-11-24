@@ -17,75 +17,43 @@
 //!
 //! The receipt of an aborted transaction names one class.
 
-use std::fmt;
-
-macro_rules! error_classes {
-    ($($(#[$doc:meta])* $variant:ident => $name:literal,)*) => {
-        /// The class of a runtime error.
-        #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-        pub enum ErrorClass {
-            $($(#[$doc])* $variant,)*
-        }
-
-        impl ErrorClass {
-            /// Every class.
-            pub const ALL: &[ErrorClass] = &[$(ErrorClass::$variant,)*];
-
-            /// The class's name, as a receipt carries it.
-            pub const fn as_str(self) -> &'static str {
-                match self {
-                    $(ErrorClass::$variant => $name,)*
-                }
-            }
-
-            /// The class with the given name.
-            pub fn from_name(name: &str) -> Option<ErrorClass> {
-                match name {
-                    $($name => Some(ErrorClass::$variant),)*
-                    _ => None,
-                }
-            }
-        }
-    };
-}
-
-error_classes! {
-    /// The transaction consumed its `fuel-limit` (ABI 9.1).
-    BudgetExceeded => "budget-exceeded",
-    /// Instance or transaction memory.
-    MemoryExceeded => "memory-exceeded",
-    /// The Wasm stack limit.
-    StackExceeded => "stack-exceeded",
-    /// Contract-call depth.
-    DepthExceeded => "depth-exceeded",
-    /// The transaction's event bytes (ABI 8.3).
-    EventsExceeded => "events-exceeded",
-    /// A call into a contract that already has an active frame (ABI 7.3).
-    Reentrancy => "reentrancy",
-    /// A mutation, or a call to a public function, in a read-only frame
-    /// (ABI 7.4).
-    ReadOnlyViolation => "read-only-violation",
-    /// A call that names a missing function or contract (ABI 5.1, 5.3).
-    NoSuchFunction => "no-such-function",
-    /// An entry point returned without calling `result_set` (ABI 5.2).
-    NoResult => "no-result",
-    /// An argument a host function rejects (ABI 6.1).
-    BadHostArgument => "bad-host-argument",
-    /// A frame closed that the module did not open, or left open when an
-    /// export ends (ABI 7.1).
-    UnbalancedFrame => "unbalanced-frame",
-    /// Any Wasm trap.
-    Trap => "trap",
-    /// `abort(code, msg)`; the receipt also carries the code and message.
-    ModuleAbort => "module-abort",
-    /// An `ft_mint` past the token's supply cap, or a supply past `u128`.
-    SupplyExceeded => "supply-exceeded",
-    /// An argument or runtime error of a legacy callee in a Wasm transaction.
-    LegacyError => "legacy-error",
-}
-
-impl fmt::Display for ErrorClass {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(self.as_str())
+stacks_common::define_named_enum!(
+    /// The class of a runtime error. Its name is the one a receipt carries.
+    /// The serde form is the Rust variant name, not that name: a receipt
+    /// carries `get_name_str()`.
+    #[derive(Copy)]
+    ErrorClass {
+        /// The transaction consumed its `fuel-limit` (ABI 9.1).
+        BudgetExceeded("budget-exceeded"),
+        /// Instance or transaction memory.
+        MemoryExceeded("memory-exceeded"),
+        /// The Wasm stack limit.
+        StackExceeded("stack-exceeded"),
+        /// Contract-call depth.
+        DepthExceeded("depth-exceeded"),
+        /// The transaction's event bytes (ABI 8.3).
+        EventsExceeded("events-exceeded"),
+        /// A call into a contract that already has an active frame (ABI 7.3).
+        Reentrancy("reentrancy"),
+        /// A mutation, or a call to a public function, in a read-only frame
+        /// (ABI 7.4).
+        ReadOnlyViolation("read-only-violation"),
+        /// A call that names a missing function or contract (ABI 5.1, 5.3).
+        NoSuchFunction("no-such-function"),
+        /// An entry point returned without calling `result_set` (ABI 5.2).
+        NoResult("no-result"),
+        /// An argument a host function rejects (ABI 6.1).
+        BadHostArgument("bad-host-argument"),
+        /// A frame closed that the module did not open, or left open when an
+        /// export ends (ABI 7.1).
+        UnbalancedFrame("unbalanced-frame"),
+        /// Any Wasm trap.
+        Trap("trap"),
+        /// `abort(code, msg)`; the receipt also carries the code and message.
+        ModuleAbort("module-abort"),
+        /// An `ft_mint` past the token's supply cap, or a supply past `u128`.
+        SupplyExceeded("supply-exceeded"),
+        /// An argument or runtime error of a legacy callee in a Wasm transaction.
+        LegacyError("legacy-error"),
     }
-}
+);

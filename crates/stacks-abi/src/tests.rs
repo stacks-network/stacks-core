@@ -449,14 +449,17 @@ fn error_class_names() {
         "supply-exceeded",
         "legacy-error",
     ];
-    let all: Vec<&str> = ErrorClass::ALL.iter().map(|c| c.as_str()).collect();
+    let all: Vec<&str> = ErrorClass::ALL.iter().map(|c| c.get_name_str()).collect();
     assert_eq!(all, names);
     for class in ErrorClass::ALL {
-        assert_eq!(ErrorClass::from_name(class.as_str()), Some(*class));
-        assert_eq!(class.to_string(), class.as_str());
+        assert_eq!(
+            ErrorClass::lookup_by_name(class.get_name_str()),
+            Some(*class)
+        );
+        assert_eq!(class.to_string(), class.get_name_str());
     }
-    assert_eq!(ErrorClass::from_name("Trap"), None);
-    assert_eq!(ErrorClass::from_name(""), None);
+    assert_eq!(ErrorClass::lookup_by_name("Trap"), None);
+    assert_eq!(ErrorClass::lookup_by_name(""), None);
 }
 
 /// Pins every status code to the lists of ABI 6.2.
