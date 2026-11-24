@@ -23,6 +23,9 @@ use rand::{Rng, SeedableRng};
 use wasm_bindgen_test::wasm_bindgen_test as test;
 
 use crate::classes::ErrorClass;
+use crate::deploy::{CustomSectionError, DeployRejection, check_custom_sections};
+use crate::host::IMPORT_MODULE;
+use crate::interface::{ABI_VERSION, Function, FunctionKind, Interface, InterfaceError};
 use crate::limits::Limits;
 use crate::names::{
     CONTRACT_NAME_MAX_LEN, NAME_MAX_LEN, Name, NameError, check_contract_name, check_name,
@@ -35,6 +38,7 @@ use crate::status::*;
 
 const NAME_VECTORS: &str = include_str!("../vectors/names.txt");
 const PRINCIPAL_VECTORS: &str = include_str!("../vectors/principals.txt");
+const INTERFACE_VECTORS: &str = include_str!("../vectors/interfaces.txt");
 
 /// One line of a vector file: `<kind> <expected> 0x<hex> [# note]`.
 struct Vector<'a> {
@@ -502,4 +506,210 @@ fn status_codes() {
     assert_eq!(StxBurnStatus::from_code(2), None);
     assert_eq!(StxBurnStatus::from_code(SUCCESS), None);
     assert_eq!(StxBurnStatus::from_code(-1), None);
+}
+
+/// The custom-section names of a vector: each a u8 length and its bytes.
+fn section_names(mut input: &[u8]) -> Vec<&str> {
+    let mut names = Vec::new();
+    while let Some((len, rest)) = input.split_first() {
+        let (name, rest) = rest.split_at(usize::from(*len));
+        names.push(std::str::from_utf8(name).unwrap());
+        input = rest;
+    }
+    names
+}
+
+#[test]
+fn interface_vectors() {
+    let vectors = parse_vectors(INTERFACE_VECTORS);
+    for v in &vectors {
+        let got = match v.kind {
+            "interface" => match Interface::decode(&v.input) {
+                Ok(interface) => {
+                    assert_eq!(interface.encode(), v.input);
+                    "ok"
+                }
+                Err(e) => e.as_str(),
+            },
+            "custom-sections" => check_custom_sections(section_names(&v.input))
+                .map_or_else(CustomSectionError::as_str, |()| "ok"),
+            kind => panic!("unknown kind {kind}"),
+        };
+        assert_eq!(got, v.expected, "{} {:02x?}", v.kind, v.input);
+    }
+    let reasons = InterfaceError::ALL.map(InterfaceError::as_str);
+    assert_covered(&vectors, "interface", &reasons);
+    let reasons = CustomSectionError::ALL.map(CustomSectionError::as_str);
+    assert_covered(&vectors, "custom-sections", &reasons);
+}
+
+fn name(name: &str) -> Name {
+    Name::try_from(name.as_bytes()).unwrap()
+}
+
+fn names<const N: usize>(list: [&str; N]) -> Vec<Name> {
+    list.map(name).to_vec()
+}
+
+fn function(function: &str, kind: FunctionKind) -> Function {
+    Function {
+        name: name(function),
+        kind,
+    }
+}
+
+/// A built interface has the encoding and the hash of ABI 4.1, field by
+/// field.
+#[test]
+fn interface_encoding_and_hash() {
+    use FunctionKind::{Public, ReadOnly};
+    let functions = vec![
+        function("get-balance", ReadOnly),
+        function("mint!", Public),
+        function("transfer", Public),
+    ];
+    let interface = Interface::new(
+        ABI_VERSION,
+        functions.clone(),
+        names(["stx-wrapped", "token"]),
+        names(["deed"]),
+        names(["burn", "mint", "transfer"]),
+    )
+    .unwrap();
+    assert_eq!(interface.abi_version(), 1);
+    assert_eq!(interface.functions(), functions);
+    assert_eq!(interface.fts(), names(["stx-wrapped", "token"]));
+    assert_eq!(interface.nfts(), names(["deed"]));
+    assert_eq!(interface.events(), names(["burn", "mint", "transfer"]));
+
+    let mut expected = vec![0, 0, 0, 1];
+    expected.extend(b"\x00\x00\x00\x03\x0bget-balance\x01\x05mint!\x00\x08transfer\x00");
+    expected.extend(b"\x00\x00\x00\x02\x0bstx-wrapped\x05token");
+    expected.extend(b"\x00\x00\x00\x01\x04deed");
+    expected.extend(b"\x00\x00\x00\x03\x04burn\x04mint\x08transfer");
+    assert_eq!(interface.encode(), expected);
+    assert_eq!(Interface::decode(&expected), Ok(interface.clone()));
+
+    // `sha512/256` of the bytes above, computed independently.
+    assert_eq!(
+        interface.hash().to_hex(),
+        "03d05cd5b2abc2af05aa9e291bcb5313eda014d3db5a98823fc1b75a804e41b0"
+    );
+    let empty = Interface::new(ABI_VERSION, vec![], vec![], vec![], vec![]).unwrap();
+    assert_eq!(
+        empty.encode(),
+        [0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+    );
+    assert_eq!(
+        empty.hash().to_hex(),
+        "d114b7163ce5ea5e147ac5c664bca82afc61c832734a61da3eb4529d24ee67ac"
+    );
+
+    assert_eq!(FunctionKind::from_byte(Public.byte()), Some(Public));
+    assert_eq!(FunctionKind::from_byte(ReadOnly.byte()), Some(ReadOnly));
+    assert_eq!(FunctionKind::from_byte(2), None);
+}
+
+/// A list that is not in strictly ascending order makes no interface,
+/// whichever list it is.
+#[test]
+fn interface_lists_must_ascend() {
+    use FunctionKind::Public;
+    let build = |functions: &[&str], fts: &[&str], nfts: &[&str], events: &[&str]| {
+        let list = |list: &[&str]| list.iter().map(|n| name(n)).collect::<Vec<_>>();
+        let functions = functions.iter().map(|f| function(f, Public)).collect();
+        Interface::new(ABI_VERSION, functions, list(fts), list(nfts), list(events)).map(|_| ())
+    };
+    assert_eq!(
+        build(&["a", "b"], &["a", "b"], &["a", "b"], &["a", "b"]),
+        Ok(())
+    );
+    for (bad, reason) in [
+        (["b", "a"], InterfaceError::Unsorted),
+        (["a", "a"], InterfaceError::Duplicate),
+    ] {
+        assert_eq!(build(&bad, &[], &[], &[]), Err(reason));
+        assert_eq!(build(&[], &bad, &[], &[]), Err(reason));
+        assert_eq!(build(&[], &[], &bad, &[]), Err(reason));
+        assert_eq!(build(&[], &[], &[], &bad), Err(reason));
+    }
+}
+
+/// An interface has exactly one encoding: every generated interface decodes
+/// from its encoding, and whatever bytes decode are the encoding of what
+/// they decode to.
+#[test]
+fn interface_encoding_is_unique() {
+    let mut rng = StdRng::seed_from_u64(0x1f);
+    let pool: Vec<Name> = ["a", "a-b", "aa", "b", "burn", "mint", "transfer", "z!"]
+        .map(name)
+        .to_vec();
+    let mut accepted = 0;
+    for _ in 0..2_000 {
+        let mut list = || -> Vec<Name> {
+            let mut list: Vec<Name> = pool.iter().filter(|_| rng.gen_bool(0.4)).cloned().collect();
+            list.sort();
+            list
+        };
+        let (fts, nfts, events) = (list(), list(), list());
+        let functions = list()
+            .into_iter()
+            .map(|name| {
+                let kind = FunctionKind::from_byte(rng.gen_range(0..2)).unwrap();
+                Function { name, kind }
+            })
+            .collect();
+        let interface = Interface::new(rng.r#gen(), functions, fts, nfts, events).unwrap();
+        let bytes = interface.encode();
+        assert_eq!(Interface::decode(&bytes), Ok(interface));
+
+        // Mutations of a valid encoding: change, remove or add bytes.
+        for _ in 0..10 {
+            let mut mutated = bytes.clone();
+            let at = rng.gen_range(0..mutated.len());
+            match rng.gen_range(0..4) {
+                0 => mutated[at] = rng.r#gen(),
+                1 => mutated[at] ^= 1 << rng.gen_range(0..8),
+                2 => {
+                    mutated.remove(at);
+                }
+                _ => mutated.insert(at, rng.r#gen()),
+            }
+            if let Ok(interface) = Interface::decode(&mutated) {
+                assert_eq!(interface.encode(), mutated);
+                accepted += 1;
+            }
+        }
+    }
+    // Some mutations are other valid interfaces, so the check above ran.
+    assert!(accepted > 100, "{accepted}");
+}
+
+/// Pins every rejection reason: these strings are in receipts.
+#[test]
+fn deploy_rejection_names() {
+    let names = [
+        "module-size",
+        "invalid-wasm",
+        "profile",
+        "imports",
+        "custom-sections",
+        "interface",
+        "abi-version",
+        "exports",
+        "engine",
+    ];
+    assert_eq!(DeployRejection::ALL_NAMES, names);
+    for (reason, name) in DeployRejection::ALL.iter().zip(names) {
+        assert_eq!(reason.get_name_str(), name);
+        assert_eq!(reason.to_string(), name);
+        assert_eq!(DeployRejection::lookup_by_name(name), Some(*reason));
+    }
+    assert_eq!(DeployRejection::lookup_by_name("Engine"), None);
+}
+
+/// The import module's name carries the ABI version (ABI 11).
+#[test]
+fn import_module_names_the_abi_version() {
+    assert_eq!(IMPORT_MODULE, format!("stacks-abi-v{ABI_VERSION}"));
 }
