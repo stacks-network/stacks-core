@@ -9,6 +9,7 @@ MANIFESTS=(
     "${REPO_ROOT}/Cargo.toml"
     "${REPO_ROOT}/clarity/fuzz/Cargo.toml"
     "${REPO_ROOT}/stackslib/fuzz/Cargo.toml"
+    "${REPO_ROOT}/libsigner/fuzz/Cargo.toml"
 )
 
 # Each fuzz crate is its own workspace. Cargo still reconciles changes to its
