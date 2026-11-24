@@ -157,13 +157,11 @@ jobs:
     outputs:
       tests: ${{ steps.list.outputs.tests }}
     steps:
-      # Checkout the code
+      # Nextest runs archived test binaries from their crate directories.
       - name: Checkout the latest code
         uses: $/.github/wrappers/checkout
         with:
           ref: ${{ github.event.pull_request.head.sha || github.ref }}
-          sparse-checkout: |
-            .github
 
       # Restore Nextest archive artifact
       #   - also provides the nextest binary bundled in the artifact
