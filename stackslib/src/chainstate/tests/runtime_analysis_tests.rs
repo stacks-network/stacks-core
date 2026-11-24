@@ -300,7 +300,10 @@ fn runtime_check_error_kind_no_such_public_function_read_only_ccall() {
         contract_code: "(define-read-only (get-one) u1)",
         function_name: "get-one",
         function_args: &[],
-        deploy_epochs: EPOCHS_TO_TEST,
+        deploy_epochs: &[
+            StacksEpochId::Epoch34,
+            StacksEpochId::Epoch40,
+        ],
         call_epochs: &[
             StacksEpochId::Epoch34,
             StacksEpochId::Epoch40,
@@ -746,7 +749,10 @@ fn runtime_check_error_kind_sequence_element_arity_mismatch_ccall() {
             (ok (replace-at? 0x0102 u0 (unwrap-panic (as-max-len? 0x u1)))))",
         function_name: "trigger-error",
         function_args: &[],
-        deploy_epochs: EPOCHS_TO_TEST,
+        deploy_epochs: &[
+            StacksEpochId::Epoch34,
+            StacksEpochId::Epoch40,
+        ],
         call_epochs: &[
             StacksEpochId::Epoch34,
             StacksEpochId::Epoch40,
@@ -1098,7 +1104,10 @@ fn runtime_check_error_kind_with_all_allowance_not_allowed_ccall() {
                 (ok true)))",
         function_name: "trigger-error",
         function_args: &[],
-        deploy_epochs: EPOCHS_TO_TEST,
+        deploy_epochs: &[
+            StacksEpochId::Epoch34,
+            StacksEpochId::Epoch40,
+        ],
         call_epochs: &[
             StacksEpochId::Epoch34,
             StacksEpochId::Epoch40,

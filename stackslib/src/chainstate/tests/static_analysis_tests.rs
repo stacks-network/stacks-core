@@ -25,8 +25,8 @@ use clarity::vm::types::MAX_TYPE_DEPTH;
 use clarity::vm::ClarityVersion;
 
 use crate::chainstate::tests::consensus::{
-    clarity_versions_for_epoch, contract_deploy_consensus_snap_test, tested_epochs_since,
-    ConsensusTest, ConsensusUtils, SetupContract, TestBlock, EPOCHS_TO_TEST,
+    clarity_versions_for_epoch, contract_deploy_consensus_snap_test, ConsensusTest, ConsensusUtils,
+    SetupContract, TestBlock, EPOCHS_TO_TEST,
 };
 use crate::core::BLOCK_LIMIT_MAINNET_21;
 use crate::util_lib::boot::boot_code_test_addr;
@@ -1112,6 +1112,10 @@ fn static_check_error_get_block_info_expect_property_name() {
     contract_deploy_consensus_snap_test!(
         contract_name: "info-exp-prop-name",
         contract_code: "(get-block-info? u1 u0)",
+        deploy_epochs: &[
+            StacksEpochId::Epoch34,
+            StacksEpochId::Epoch40,
+        ],
         clarity_versions: ClarityVersion::up_to(ClarityVersion::Clarity2),
     );
 }
@@ -1237,6 +1241,10 @@ fn static_check_error_at_block_closure_must_be_read_only() {
         (define-private (foo-bar)
             (at-block (sha256 0)
                (var-set foo 0)))",
+        deploy_epochs: &[
+            StacksEpochId::Epoch34,
+            StacksEpochId::Epoch40,
+        ],
         clarity_versions: ClarityVersion::up_to(ClarityVersion::Clarity4),
     );
 }
@@ -1254,7 +1262,10 @@ fn static_check_error_at_block_unavailable() {
         (define-public (trigger-error)
             (ok (at-block 0x0101010101010101010101010101010101010101010101010101010101010101
                     u1)))",
-        deploy_epochs: &tested_epochs_since(StacksEpochId::Epoch34),
+        deploy_epochs: &[
+            StacksEpochId::Epoch34,
+            StacksEpochId::Epoch40,
+        ],
         clarity_versions: ClarityVersion::up_to(ClarityVersion::Clarity4),
     );
 }
