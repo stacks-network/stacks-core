@@ -73,12 +73,7 @@ use crate::util_lib::boot::boot_code_id;
 /// The epochs to test for consensus are the current and upcoming epochs.
 /// This constant must be changed when new epochs are introduced.
 /// Note that contract deploys MUST be done in each epoch >= 2.0.
-///
-/// TODO: Epoch 4.1 is defined but deliberately excluded. It is a placeholder for
-/// future consensus-breaking changes with no activation height -- so today it
-/// would only duplicate Epoch 4.0's results across every snapshot. Add it
-/// when 4.1 stabilizes.
-pub const EPOCHS_TO_TEST: &[StacksEpochId] = &[StacksEpochId::Epoch34, StacksEpochId::Epoch40];
+pub const EPOCHS_TO_TEST: &[StacksEpochId] = &[StacksEpochId::Epoch40, StacksEpochId::Epoch41];
 
 /// The latest epoch exercised by the consensus snapshot tests, i.e. the maximum
 /// of [`EPOCHS_TO_TEST`]. Epochs beyond this are intentionally excluded.
