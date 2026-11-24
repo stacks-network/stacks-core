@@ -27,6 +27,7 @@ extern crate serde_json;
 extern crate toml;
 
 use std::io::{self, Write};
+use std::path::PathBuf;
 use std::time::Duration;
 
 use blockstack_lib::util_lib::signed_structured_data::pox5::make_pox_5_signer_grant_signature;
@@ -113,9 +114,17 @@ fn handle_put_chunk(args: PutChunkArgs) {
     println!("{}", serde_json::to_string(&chunk_ack).unwrap());
 }
 
+/// Load the signer config from `path`, or log the error and exit.
+fn load_config(path: &PathBuf) -> GlobalConfig {
+    GlobalConfig::try_from(path).unwrap_or_else(|e| {
+        error!("Failed to load config file {}: {e}", path.display());
+        std::process::exit(1);
+    })
+}
+
 fn handle_run(args: RunSignerArgs) {
     debug!("Running signer...");
-    let config = GlobalConfig::try_from(&args.config).unwrap();
+    let config = load_config(&args.config);
     // Open (and migrate) the signer db before starting, so a db this release cannot use stops
     // the signer with an error instead of a panic, possibly in a signer thread.
     if let Err(e) = SignerDb::new(&config.db_path) {
@@ -135,7 +144,7 @@ fn handle_generate_staking_signature(
     args: GenerateStakingSignatureArgs,
     do_print: bool,
 ) -> MessageSignature {
-    let config = GlobalConfig::try_from(&args.config).unwrap();
+    let config = load_config(&args.config);
 
     let private_key = config.stacks_private_key.clone();
     let public_key = StacksPublicKey::from_private(&private_key);
@@ -173,12 +182,12 @@ fn handle_generate_staking_signature(
 }
 
 fn handle_check_config(args: RunSignerArgs) {
-    let config = GlobalConfig::try_from(&args.config).unwrap();
+    let config = load_config(&args.config);
     println!("Signer version: {}\nConfig: \n{config}", *VERSION_STRING);
 }
 
 fn handle_generate_vote(args: GenerateVoteArgs, do_print: bool) -> MessageSignature {
-    let config = GlobalConfig::try_from(&args.config).unwrap();
+    let config = load_config(&args.config);
     let message_signature = args.vote_info.sign(&config.stacks_private_key).unwrap();
     if do_print {
         println!("{}", to_hex(message_signature.as_bytes()));

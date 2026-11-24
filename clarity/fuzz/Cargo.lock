@@ -1490,7 +1490,7 @@ dependencies = [
  "sha3",
  "slog",
  "slog-term",
- "thiserror 1.0.69",
+ "thiserror 2.0.21",
  "winapi",
 ]
 
