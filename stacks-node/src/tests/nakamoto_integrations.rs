@@ -4346,7 +4346,9 @@ fn follower_bootup(chain_id: Option<u32>, tenure_count: u64, inter_blocks_per_te
         let commits_before = commits_submitted.load(Ordering::SeqCst);
         next_block_and_process_new_stacks_block(&btc_regtest_controller, 60, &naka_conf).unwrap();
 
-        let mut last_tip = BlockHeaderHash([0x00; 32]);
+        // The helper returned on the tenure-start block, so each interim wait
+        // below must see the tip move past it.
+        let mut last_tip = get_chain_info(&naka_conf).stacks_tip;
         let mut last_nonce = None;
 
         debug!("follower_bootup: Miner mines interum blocks for tenure {tenure_ix}");
