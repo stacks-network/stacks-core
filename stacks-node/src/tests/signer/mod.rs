@@ -1478,7 +1478,8 @@ impl<Z: SpawnedSignerTrait> SignerTest<Z> {
     /// Get the signer addresses and corresponding majority versions
     pub fn signer_addresses_versions_majority(&self) -> Vec<(StacksAddress, u64)> {
         let mut signer_address_versions = self.signer_addresses_versions();
-        let majority = (signer_address_versions.len() * 7 / 10) as u64;
+        // Round up so a fractional threshold cannot count fewer than 70% of signers.
+        let majority = (signer_address_versions.len() * 7).div_ceil(10) as u64;
         let mut protocol_versions = HashMap::new();
         for (_, version) in &self.signer_addresses_versions() {
             let entry = protocol_versions.entry(*version).or_insert_with(|| 0);

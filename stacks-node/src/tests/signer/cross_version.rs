@@ -653,7 +653,7 @@ fn expected_active_version(local_versions: &[u64]) -> u64 {
         .into_iter()
         .find(|candidate| {
             let support = local_versions.iter().filter(|v| *v >= candidate).count() as u64;
-            support >= total * 7 / 10
+            support >= (total * 7).div_ceil(10)
         })
         .expect("at least one version is supported by everyone")
 }
@@ -939,7 +939,8 @@ fn expected_active_version_follows_the_agreement_threshold() {
     assert_eq!(expected_active_version(&[3, 3, 3, 3, 3, 3, 2, 2, 2, 2]), 2);
     assert_eq!(expected_active_version(&[2, 2, 2, 2, 5]), 2);
     assert_eq!(expected_active_version(&[2, 2, 2]), 2);
-    assert_eq!(expected_active_version(&[3, 3, 3, 2, 2]), 3);
+    assert_eq!(expected_active_version(&[3, 3, 3, 2, 2]), 2);
+    assert_eq!(expected_active_version(&[3, 3, 3, 3, 2]), 3);
 }
 
 /// Name of the sBTC token stub contract that pox-5 reads balances from.
