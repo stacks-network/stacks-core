@@ -1,1 +1,0 @@
-The p2p network poller can now be woken up by readiness sources that are not sockets, and can reserve event IDs for their connections.
