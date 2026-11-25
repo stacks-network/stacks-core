@@ -39,9 +39,7 @@ use stacks_common::codec::{read_next, write_next, StacksMessageCodec};
 use stacks_common::types::chainstate::{StacksAddress, StacksBlockId, TrieHash};
 use stacks_common::types::sqlite::NO_PARAMS;
 use stacks_common::util::hash::{hex_bytes, to_hex};
-use stacks_marf::{
-    test_override_marf_compression, ClarityMarfTrieId, MARFOpenOpts, MarfConnection, MARF,
-};
+use stacks_marf::{ClarityMarfTrieId, MARFOpenOpts, MarfConnection, MARF};
 
 use crate::burnchains::bitcoin::address::LegacyBitcoinAddress;
 use crate::burnchains::{Address, Burnchain, BurnchainParameters, PoxConstants};
@@ -1309,7 +1307,8 @@ impl StacksChainState {
         test_debug!("Open MARF index at {}", marf_path);
         let mut open_opts = marf_opts.unwrap_or(MARFOpenOpts::default());
         open_opts.external_blobs = true;
-        test_override_marf_compression(&mut open_opts);
+        #[cfg(any(test, feature = "testing"))]
+        stacks_marf::testing::test_override_marf_compression(&mut open_opts);
         let marf = MARF::from_path(marf_path, open_opts).map_err(db_error::IndexError)?;
         Ok(marf)
     }

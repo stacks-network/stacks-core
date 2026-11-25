@@ -69,21 +69,18 @@ mod test;
 
 // The crate's public API. All modules are private; what other crates may use
 // is re-exported here or defined in this file.
-pub use crate::marf::{
-    test_override_marf_compression, MARFOpenOpts, MarfConnection, MarfTransaction, MARF,
-};
+pub use crate::marf::{MARFOpenOpts, MarfConnection, MarfTransaction, MARF};
 pub use crate::squash::{SquashStats, SquashStepDurations};
 pub use crate::storage::TrieHashCalculationMode;
-// Readers for the bookkeeping tables of a MARF's SQLite database, used by
-// tools that inspect squashed MARFs.
-pub use crate::trie_sql::{
-    bulk_read_squashed_blocks, get_latest_confirmed_block_hash, read_squash_info, SqlSquashInfo,
-};
+// Reads the list of squashed blocks from a squashed MARF's SQLite database,
+// given a plain connection to it.
+pub use crate::trie_sql::bulk_read_squashed_blocks;
+pub use crate::trie_sql::SqlSquashInfo;
 
 /// Helpers for other crates' test suites.
 #[cfg(any(test, feature = "testing"))]
 pub mod testing {
-    pub use crate::marf::fault_injection_marf_compression;
+    pub use crate::marf::{fault_injection_marf_compression, test_override_marf_compression};
     pub use crate::trie_sql::{test_append_squashed_block, test_insert_squashed_block};
 }
 

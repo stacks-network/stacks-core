@@ -35,6 +35,7 @@ use crate::storage::{
     TrieStorageTransaction,
 };
 use crate::trie::Trie;
+use crate::trie_sql::SqlSquashInfo;
 use crate::{trie_sql, Error, MARFValue, MarfTrieId, TrieLeaf, TrieMerkleProof};
 
 pub const BLOCK_HASH_TO_HEIGHT_MAPPING_KEY: &str = "__MARF_BLOCK_HASH_TO_HEIGHT";
@@ -75,8 +76,6 @@ pub fn fault_injection_marf_compression(enabled: bool) {
 /// 1. Runtime test override via [`TEST_MARF_COMPRESSION_FLAG`]
 /// 2. Global test default via [`TEST_MARF_COMPRESSION_DEFAULT`]
 /// 3. The original value in [`MARFOpenOpts`] (no override)
-///
-/// In non-test builds, this function is compiled to a no-op.
 pub fn test_override_marf_compression(marf_opts: &mut MARFOpenOpts) {
     if let Some(enabled) = TEST_MARF_COMPRESSION_FLAG.get() {
         marf_opts.compress = enabled;
@@ -89,10 +88,6 @@ pub fn test_override_marf_compression(marf_opts: &mut MARFOpenOpts) {
         info!("Test default used. MARF Compression overridden to {enabled}");
     }
 }
-
-#[cfg(not(any(test, feature = "testing")))]
-/// No-op stub for non-test builds.
-pub fn test_override_marf_compression(_marf_opts: &mut MARFOpenOpts) {}
 
 /// Merklized Adaptive-Radix Forest -- a collection of Merklized Adaptive-Radix Tries.
 pub struct MARF<T: MarfTrieId> {
@@ -167,7 +162,19 @@ pub trait StorageConnectionAccess<T: MarfTrieId> {
 ///  MARF structs and MarfTransactions
 ///
 pub trait MarfConnection<T: MarfTrieId>: StorageConnectionAccess<T> {
+    /// The SQLite database this MARF keeps its tables in. Users of the MARF may
+    /// keep their own tables in the same database.
     fn sqlite_conn(&self) -> &Connection;
+
+    /// The confirmed block added to this MARF most recently.
+    fn get_latest_confirmed_block_hash(&self) -> Result<T, Error> {
+        trie_sql::get_latest_confirmed_block_hash(self.sqlite_conn())
+    }
+
+    /// The metadata recorded when this MARF was squashed, or `None` if it wasn't.
+    fn get_squash_info(&self) -> Result<Option<SqlSquashInfo>, Error> {
+        trie_sql::read_squash_info(self.sqlite_conn())
+    }
 
     /// Whether this MARF has a trie for block `bhh`, confirmed or unconfirmed.
     fn has_block(&mut self, bhh: &T) -> Result<bool, Error> {
@@ -543,7 +550,7 @@ impl<'a, T: MarfTrieId> MarfTransaction<'a, T> {
         Ok(())
     }
 
-    pub(crate) fn set_block_heights(
+    fn set_block_heights(
         &mut self,
         block_hash: &T,
         next_block_hash: &T,
@@ -1195,7 +1202,7 @@ impl<T: MarfTrieId> MARF<T> {
         Ok(())
     }
 
-    pub(crate) fn insert_leaf(
+    fn insert_leaf(
         storage: &mut TrieStorageTransaction<T>,
         block_hash: &T,
         path: &TrieHash,
@@ -1208,7 +1215,7 @@ impl<T: MarfTrieId> MARF<T> {
     }
 
     // like insert_leaf, but don't update the merkle skiplist
-    pub(crate) fn insert_leaf_in_batch(
+    fn insert_leaf_in_batch(
         storage: &mut TrieStorageTransaction<T>,
         block_hash: &T,
         path: &TrieHash,

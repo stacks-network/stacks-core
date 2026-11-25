@@ -30,10 +30,7 @@ use std::path::Path;
 
 use serde::{Deserialize, Serialize};
 use stacks_common::types::chainstate::{SortitionId, StacksBlockId};
-use stacks_marf::{
-    MARF, MARFOpenOpts, MarfConnection, MarfTrieId, get_latest_confirmed_block_hash,
-    read_squash_info,
-};
+use stacks_marf::{MARF, MARFOpenOpts, MarfConnection, MarfTrieId};
 use stackslib::util_lib::db::sqlite_open;
 
 use crate::checksums::{compute_aggregate_checksum, compute_checksums};
@@ -140,11 +137,12 @@ pub fn read_squash_metadata<T: MarfTrieId + std::fmt::Display>(
         eprintln!("Failed to open squashed MARF for manifest: {e:?}");
         std::process::exit(1);
     });
-    let tip = get_latest_confirmed_block_hash(marf.sqlite_conn()).unwrap_or_else(|e| {
+    let tip = marf.get_latest_confirmed_block_hash().unwrap_or_else(|e| {
         eprintln!("Failed to read latest block hash: {e:?}");
         std::process::exit(1);
     });
-    let info = read_squash_info(marf.sqlite_conn())
+    let info = marf
+        .get_squash_info()
         .unwrap_or_else(|e| {
             eprintln!("Failed to read squash info: {e:?}");
             std::process::exit(1);

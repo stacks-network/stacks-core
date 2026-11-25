@@ -30,8 +30,8 @@ use rusqlite::Connection;
 use stacks_common::codec::StacksMessageCodec;
 use stacks_common::types::chainstate::{BlockHeaderHash, StacksBlockId, TrieHash};
 use stacks_marf::{
-    test_override_marf_compression, ClarityMarfTrieId, Error, MARFOpenOpts, MARFValue,
-    MarfConnection, MarfTransaction, TrieHashCalculationMode, MARF,
+    ClarityMarfTrieId, Error, MARFOpenOpts, MARFValue, MarfConnection, MarfTransaction,
+    TrieHashCalculationMode, MARF,
 };
 
 use crate::clarity_vm::clarity::{
@@ -79,7 +79,8 @@ impl MarfedKV {
         let mut marf_opts = marf_opts.unwrap_or(MARFOpenOpts::default());
         marf_opts.external_blobs = true;
 
-        test_override_marf_compression(&mut marf_opts);
+        #[cfg(any(test, feature = "testing"))]
+        stacks_marf::testing::test_override_marf_compression(&mut marf_opts);
 
         let mut marf: MARF<StacksBlockId> = if unconfirmed {
             MARF::from_path_unconfirmed(&marf_path, marf_opts)
