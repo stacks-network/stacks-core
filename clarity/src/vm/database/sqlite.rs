@@ -349,7 +349,7 @@ impl SqliteConnection {
     }
 
     fn inner_open(filename: &str) -> Result<Connection, VmExecutionError> {
-        let conn = Connection::open(filename)
+        let mut conn = Connection::open(filename)
             .map_err(|x| VmInternalError::SqliteError(IncomparableError { err: x }))?;
 
         conn.busy_handler(Some(tx_busy_handler))

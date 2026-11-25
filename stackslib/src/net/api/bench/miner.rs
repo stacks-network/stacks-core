@@ -61,11 +61,11 @@ impl RPCBenchMinerCommandRequestHandler {
 }
 
 impl HttpRequest for RPCBenchMinerStatusRequestHandler {
-    fn verb(&self) -> &'static str {
+    fn verb() -> &'static str {
         "GET"
     }
 
-    fn path_regex(&self) -> Regex {
+    fn path_regex() -> Regex {
         Regex::new(&format!("^{BENCH_MINER_PATH}$")).unwrap()
     }
 
@@ -91,11 +91,11 @@ impl HttpRequest for RPCBenchMinerStatusRequestHandler {
 }
 
 impl HttpRequest for RPCBenchMinerCommandRequestHandler {
-    fn verb(&self) -> &'static str {
+    fn verb() -> &'static str {
         "POST"
     }
 
-    fn path_regex(&self) -> Regex {
+    fn path_regex() -> Regex {
         Regex::new(&format!("^{BENCH_MINER_PATH}$")).unwrap()
     }
 

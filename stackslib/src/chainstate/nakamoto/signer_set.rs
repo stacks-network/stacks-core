@@ -16,11 +16,13 @@
 use std::collections::HashMap;
 use std::sync::{LazyLock, RwLock};
 
+use clarity::vm::clarity::ClarityError;
+use clarity::vm::errors::VmExecutionError;
 use clarity::vm::events::StacksTransactionEvent;
 use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier, TupleData};
 use clarity::vm::{ClarityName, Value};
 use stacks_common::types::chainstate::{StacksAddress, StacksBlockId};
-use stacks_common::types::StacksEpochId;
+use stacks_common::types::{SbtcDepositFormat, StacksEpochId};
 use stacks_common::util::hash::{to_hex, Hash160};
 
 use crate::burnchains::PoxConstants;
@@ -32,7 +34,9 @@ use crate::chainstate::stacks::boot::{
     SIGNERS_VOTING_FUNCTION_NAME, SIGNERS_VOTING_NAME,
 };
 use crate::chainstate::stacks::db::{ClarityTx, StacksChainState};
-use crate::chainstate::stacks::sbtc::sbtc_pox5_deposit_taproot_output_key;
+use crate::chainstate::stacks::sbtc::{
+    sbtc_pox5_deposit_taproot_output_key, sbtc_pox5_v2_deposit_taproot_output_key, SbtcSignerKeySet,
+};
 use crate::chainstate::stacks::{Error as ChainstateError, StacksTransaction, TransactionPayload};
 use crate::clarity::vm::clarity::{ClarityConnection, TransactionConnection};
 use crate::clarity_vm::clarity::ClarityTransactionConnection;
@@ -740,7 +744,7 @@ impl NakamotoSigners {
         pox_contract: &str,
         coinbase_height: u64,
         _current_calculation_btc_height: u32,
-        _current_epoch: &StacksEpochId,
+        current_epoch: &StacksEpochId,
     ) -> Result<SignerCalculation, ChainstateError> {
         let is_mainnet = clarity.is_mainnet();
         let signers_contract = &boot_code_id(SIGNERS_NAME, is_mainnet);
@@ -767,6 +771,63 @@ impl NakamotoSigners {
             is_mainnet,
         )?;
 
+        // The epoch of the block computing the reward set selects the sBTC
+        // deposit format. Reward sets are computed once per prepare phase, so
+        // the recipient switches at the first cycle whose prepare phase begins
+        // in Epoch 4.1.
+        let sbtc_recipient = PrincipalData::Contract(boot_code_id(POX_5_NAME, is_mainnet));
+        let sbtc_address = match current_epoch.sbtc_deposit_format() {
+            SbtcDepositFormat::V1 => {
+                Self::pox_5_sbtc_recipient_v1(clarity, &sbtc_recipient, is_mainnet)?
+            }
+            // The registry is a contract outside of the node's control. If it
+            // cannot produce a usable v2 key set, burn the cycle's commits
+            // rather than fail the block.
+            SbtcDepositFormat::V2 => {
+                match Self::pox_5_sbtc_recipient_v2(clarity, &sbtc_recipient, is_mainnet) {
+                    Ok(sbtc_address) => sbtc_address,
+                    // An internal VM error is a fault of this node, not a
+                    // property of the registry, so it must not select the
+                    // recipient.
+                    Err(
+                        e @ ChainstateError::ClarityError(ClarityError::Interpreter(
+                            VmExecutionError::Internal(_),
+                        )),
+                    ) => return Err(e),
+                    Err(e) => {
+                        warn!(
+                            "Failed to derive the PoX-5 sBTC recipient; falling back to the burn address";
+                            "reward_cycle" => reward_cycle,
+                            "error" => ?e,
+                        );
+                        PoxAddress::standard_burn_address(is_mainnet)
+                    }
+                }
+            }
+        };
+
+        // if we want to "write-back" any state to PoX-5 (e.g., computed weights)
+        //  we should do it here
+
+        Ok(SignerCalculation {
+            reward_set: RewardSet::Waterfall(WaterfallCycleSet {
+                sbtc_address,
+                signers: signer_set,
+                pox_ustx_threshold,
+            }),
+            events,
+        })
+    }
+
+    /// Epoch 4.0: the per-cycle sBTC recipient is a v1 deposit locked by the
+    /// registry's `current-aggregate-pubkey` (sBTC's WSTS/FROST key).
+    ///
+    /// Consensus-critical for Epoch 4.0 history; must not change.
+    fn pox_5_sbtc_recipient_v1(
+        clarity: &mut ClarityTransactionConnection,
+        sbtc_recipient: &PrincipalData,
+        is_mainnet: bool,
+    ) -> Result<PoxAddress, ChainstateError> {
         let sbtc_registry_contract_id = pox_5_sbtc_registry_contract(is_mainnet);
 
         let pubkey_buff = clarity
@@ -789,26 +850,97 @@ impl NakamotoSigners {
         }
         let pubkey_array: [u8; 33] = pubkey_buff.try_into().expect("length checked above");
 
-        let sbtc_recipient = PrincipalData::Contract(boot_code_id(POX_5_NAME, is_mainnet));
         let output_key = sbtc_pox5_deposit_taproot_output_key(
             &pubkey_array,
-            &sbtc_recipient,
+            sbtc_recipient,
             POX_5_SBTC_DEPOSIT_MAX_FEE_SATS,
         )?;
 
-        let sbtc_address = PoxAddress::Addr32(is_mainnet, PoxAddressType32::P2TR, output_key);
+        Ok(PoxAddress::Addr32(
+            is_mainnet,
+            PoxAddressType32::P2TR,
+            output_key,
+        ))
+    }
 
-        // if we want to "write-back" any state to PoX-5 (e.g., computed weights)
-        //  we should do it here
+    /// Epoch 4.1+: the per-cycle sBTC recipient is a v2 deposit locked by the
+    /// Taproot script-path multisig that the sBTC signers derive from the
+    /// registry's `current-signer-set` and `current-signature-threshold`.
+    ///
+    /// The registry's aggregate-pubkey field is deliberately not read: after
+    /// sBTC's v2 key rotation it holds a tagged block hash, not a public key.
+    ///
+    /// Any error returned here, other than an internal VM error, makes the
+    /// caller fall back to the standard burn address for the cycle, so which
+    /// inputs fail is consensus-critical.
+    fn pox_5_sbtc_recipient_v2(
+        clarity: &mut ClarityTransactionConnection,
+        sbtc_recipient: &PrincipalData,
+        is_mainnet: bool,
+    ) -> Result<PoxAddress, ChainstateError> {
+        let sbtc_registry_contract_id = pox_5_sbtc_registry_contract(is_mainnet);
 
-        Ok(SignerCalculation {
-            reward_set: RewardSet::Waterfall(WaterfallCycleSet {
-                sbtc_address,
-                signers: signer_set,
-                pox_ustx_threshold,
-            }),
-            events,
-        })
+        let signer_data = clarity
+            .eval_method_read_only(
+                &sbtc_registry_contract_id,
+                "get-current-signer-data",
+                vec![],
+            )?
+            .expect_tuple()
+            .map_err(|_| {
+                ChainstateError::Expects("get-current-signer-data did not return a tuple".into())
+            })?;
+
+        let signature_threshold = signer_data
+            .get("current-signature-threshold")
+            .map_err(|_| {
+                ChainstateError::Expects(
+                    "get-current-signer-data tuple is missing current-signature-threshold".into(),
+                )
+            })?
+            .clone()
+            .expect_u128()
+            .map_err(|_| {
+                ChainstateError::Expects("current-signature-threshold is not a uint".into())
+            })?;
+
+        let signer_keys = signer_data
+            .get_owned("current-signer-set")
+            .map_err(|_| {
+                ChainstateError::Expects(
+                    "get-current-signer-data tuple is missing current-signer-set".into(),
+                )
+            })?
+            .expect_list()
+            .map_err(|_| ChainstateError::Expects("current-signer-set is not a list".into()))?
+            .into_iter()
+            .map(|key| {
+                let key = key.expect_buff(33).map_err(|_| {
+                    ChainstateError::Expects(
+                        "current-signer-set entry is not a buffer of <= 33 bytes".into(),
+                    )
+                })?;
+                <[u8; 33]>::try_from(key).map_err(|key| {
+                    ChainstateError::Expects(format!(
+                        "current-signer-set entry is {} bytes; expected exactly 33 (compressed secp256k1)",
+                        key.len()
+                    ))
+                })
+            })
+            .collect::<Result<Vec<_>, ChainstateError>>()?;
+
+        let key_set = SbtcSignerKeySet::from_registry(&signer_keys, signature_threshold)?;
+        let output_key = sbtc_pox5_v2_deposit_taproot_output_key(
+            &key_set,
+            sbtc_recipient,
+            POX_5_SBTC_DEPOSIT_MAX_FEE_SATS,
+        )?;
+
+        Ok(PoxAddress::Addr32(
+            is_mainnet,
+            PoxAddressType32::P2TR,
+            output_key,
+        ))
     }
 
     pub(crate) fn pox_5_make_signer_set<I>(

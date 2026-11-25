@@ -20,6 +20,7 @@ use std::net::{SocketAddr, ToSocketAddrs};
 use std::path::PathBuf;
 use std::time::Duration;
 
+use blockstack_lib::chainstate::stacks::boot::RewardSet;
 use blockstack_lib::chainstate::stacks::TransactionVersion;
 use blockstack_lib::net::connection::DEFAULT_BLOCK_PROPOSAL_MAX_AGE_SECS;
 use clarity::util::hash::to_hex;
@@ -33,6 +34,7 @@ use stacks_common::types::chainstate::{StacksAddress, StacksPrivateKey, StacksPu
 use stacks_common::util::hash::Hash160;
 
 use crate::client::SignerSlotID;
+use crate::runloop::PoxGeometry;
 #[cfg(any(test, feature = "testing"))]
 use crate::v0::signer_state::SUPPORTED_SIGNER_PROTOCOL_VERSION;
 
@@ -41,8 +43,11 @@ const BLOCK_PROPOSAL_TIMEOUT_MS: u64 = 120_000;
 const BLOCK_PROPOSAL_VALIDATION_TIMEOUT_MS: u64 = 120_000;
 const DEFAULT_FIRST_PROPOSAL_BURN_BLOCK_TIMING_SECS: u64 = 60;
 const DEFAULT_TENURE_LAST_BLOCK_PROPOSAL_TIMEOUT_SECS: u64 = 30;
+/// Default number of seconds a pre-commit holds a signer to one block at a height.
+const DEFAULT_PRE_COMMIT_EXCLUSIVITY_TIMEOUT_SECS: u64 = 30;
 const DEFAULT_DRY_RUN: bool = false;
 const DEFAULT_DB_PRUNING: bool = true;
+const DEFAULT_DB_SHRINK: bool = true;
 /// Default number of idle seconds before the signer will accept a
 ///  tenure extend from the miner
 const TENURE_IDLE_TIMEOUT_SECS: u64 = 30;
@@ -157,6 +162,10 @@ impl std::fmt::Display for SignerConfigMode {
 pub struct SignerConfig {
     /// The reward cycle of the configuration
     pub reward_cycle: u64,
+    /// The PoX reward cycle geometry, used to place a block proposal in its reward cycle
+    pub pox_geometry: PoxGeometry,
+    /// The reward set for this reward cycle, as computed by the stacks node
+    pub reward_set: RewardSet,
     /// The registered signers for this reward cycle
     pub signer_entries: SignerEntries,
     /// The signer slot ids of all signers registered for this reward cycle
@@ -177,6 +186,11 @@ pub struct SignerConfig {
     /// Time to wait for the last block of a tenure to be globally accepted or rejected
     /// before considering a new miner's block at the same height as potentially valid.
     pub tenure_last_block_proposal_timeout: Duration,
+    /// How long our pre-commit to a block holds us to it, barring a pre-commit to a sibling
+    /// at the same height in the same tenure. A pre-commit declares that we will sign the
+    /// block once it reaches the threshold, so pre-committing to both siblings would let each
+    /// cross a threshold that only one of them can ever convert into signatures.
+    pub pre_commit_exclusivity_timeout: Duration,
     /// How much time to wait for a block proposal validation response before marking the block invalid
     pub block_proposal_validation_timeout: Duration,
     /// How much idle time must pass before allowing a tenure extend
@@ -226,6 +240,8 @@ pub struct GlobalConfig {
     pub db_path: PathBuf,
     /// Whether the signer db is pruned online
     pub db_pruning: bool,
+    /// Whether the signer db file is shrunk at startup, when enough of it is free space
+    pub db_shrink: bool,
     /// Metrics endpoint
     pub metrics_endpoint: Option<SocketAddr>,
     /// How much time between the first block proposal in a tenure and the next bitcoin block
@@ -238,6 +254,11 @@ pub struct GlobalConfig {
     /// Time to wait for the last block of a tenure to be globally accepted or rejected
     /// before considering a new miner's block at the same height as potentially valid.
     pub tenure_last_block_proposal_timeout: Duration,
+    /// How long our pre-commit to a block holds us to it, barring a pre-commit to a sibling
+    /// at the same height in the same tenure. A pre-commit declares that we will sign the
+    /// block once it reaches the threshold, so pre-committing to both siblings would let each
+    /// cross a threshold that only one of them can ever convert into signatures.
+    pub pre_commit_exclusivity_timeout: Duration,
     /// How long to wait for a response from a block proposal validation response from the node
     /// before marking that block as invalid and rejecting it
     pub block_proposal_validation_timeout: Duration,
@@ -333,9 +354,22 @@ struct RawConfigFile {
     /// ---
     /// @default: `true`
     /// @notes:
-    ///   - Freed space is reused but not returned to the OS: an existing large database file
-    ///     keeps its size until it is compacted offline.
+    ///   - Freed space is reused but not returned to the OS: the database file keeps its size
+    ///     until it is shrunk at startup (see `db_shrink`).
     pub db_pruning: Option<bool>,
+    /// Shrink the signer database file when the signer starts, if enough of it is free space
+    /// (e.g. space freed by pruning): the file is rebuilt with only its live data, and the space
+    /// goes back to the OS. Otherwise the file is left as it is.
+    /// ---
+    /// @default: `true`
+    /// @notes:
+    ///   - Only runs at startup, before the signer opens the database, and only when at least
+    ///     256 MiB of the file is free and its live data is at most 1 GiB.
+    ///   - Needs about twice the size of the live data in free disk space next to the database
+    ///     (a temporary copy and a WAL), for a few seconds. If it fails, e.g. for lack of space,
+    ///     the database is unchanged and the signer starts as usual.
+    ///   - Independent of `db_pruning`: it reclaims free space whatever freed it.
+    pub db_shrink: Option<bool>,
     /// Optional Prometheus metrics endpoint.
     /// ---
     /// @default: `None` (disabled)
@@ -386,6 +420,11 @@ struct RawConfigFile {
     /// @default: `30`
     /// @units: seconds
     pub tenure_last_block_proposal_timeout_secs: Option<u64>,
+    /// How long a pre-commit bars a pre-commit to a sibling, in seconds.
+    /// ---
+    /// @default: `30`
+    /// @units: seconds
+    pub pre_commit_exclusivity_timeout_secs: Option<u64>,
     /// How long to wait for a response from a block proposal validation response from
     /// the node before marking that block as invalid and rejecting it.
     /// ---
@@ -529,6 +568,7 @@ impl TryFrom<RawConfigFile> for GlobalConfig {
         );
         let db_path = raw_data.db_path.into();
         let db_pruning = raw_data.db_pruning.unwrap_or(DEFAULT_DB_PRUNING);
+        let db_shrink = raw_data.db_shrink.unwrap_or(DEFAULT_DB_SHRINK);
 
         let metrics_endpoint = match raw_data.metrics_endpoint {
             Some(endpoint) => Some(
@@ -553,6 +593,12 @@ impl TryFrom<RawConfigFile> for GlobalConfig {
             raw_data
                 .tenure_last_block_proposal_timeout_secs
                 .unwrap_or(DEFAULT_TENURE_LAST_BLOCK_PROPOSAL_TIMEOUT_SECS),
+        );
+
+        let pre_commit_exclusivity_timeout = Duration::from_secs(
+            raw_data
+                .pre_commit_exclusivity_timeout_secs
+                .unwrap_or(DEFAULT_PRE_COMMIT_EXCLUSIVITY_TIMEOUT_SECS),
         );
 
         let block_proposal_validation_timeout = Duration::from_millis(
@@ -623,11 +669,13 @@ impl TryFrom<RawConfigFile> for GlobalConfig {
             auth_password: raw_data.auth_password,
             db_path,
             db_pruning,
+            db_shrink,
             metrics_endpoint,
             first_proposal_burn_block_timing,
             block_proposal_timeout,
             chain_id: raw_data.chain_id,
             tenure_last_block_proposal_timeout,
+            pre_commit_exclusivity_timeout,
             block_proposal_validation_timeout,
             tenure_idle_timeout,
             block_proposal_max_age_secs,
@@ -681,6 +729,7 @@ Network: {network}
 Chain ID: 0x{chain_id}
 Database path: {db_path}
 DB pruning: {db_pruning}
+DB shrink: {db_shrink}
 Metrics endpoint: {metrics_endpoint}
 Dry run: {dry_run}
 "#,
@@ -693,6 +742,7 @@ Dry run: {dry_run}
             network = self.network,
             db_path = self.db_path.to_str().unwrap_or_default(),
             db_pruning = self.db_pruning,
+            db_shrink = self.db_shrink,
             metrics_endpoint = metrics_endpoint,
             dry_run = self.dry_run,
         )
@@ -885,6 +935,7 @@ Network: testnet
 Chain ID: 0x80000000
 Database path: :memory:
 DB pruning: true
+DB shrink: true
 Metrics endpoint: 0.0.0.0:9090
 Dry run: false
 "#;
@@ -898,6 +949,7 @@ Network: testnet
 Chain ID: 0x80000000
 Database path: :memory:
 DB pruning: true
+DB shrink: true
 Metrics endpoint: 0.0.0.0:9090
 Dry run: false
 "#;
@@ -1043,5 +1095,35 @@ capitulate_miner_view_timeout_secs = 1000
         let config =
             GlobalConfig::load_from_str(&format!("{config_toml}\ndb_pruning = false\n")).unwrap();
         assert!(!config.db_pruning);
+    }
+
+    #[test]
+    fn test_db_shrink_defaults_to_enabled_and_can_be_disabled() {
+        let pk = StacksPrivateKey::from_hex(
+            "eb05c83546fdd2c79f10f5ad5434a90dd28f7e3acb7c092157aa1bc3656b012c01",
+        )
+        .unwrap();
+        let config_toml = build_signer_config_tomls(
+            &[pk],
+            "localhost",
+            None,
+            &Network::Testnet,
+            "melon",
+            rand::random(),
+            3000,
+            Some(4000),
+            None,
+        )
+        .remove(0);
+
+        // Default to `true` when the field is missing
+        let config = GlobalConfig::load_from_str(&config_toml).unwrap();
+        assert!(config.db_shrink);
+
+        // Use the configured value when the field is present, independently of `db_pruning`
+        let config =
+            GlobalConfig::load_from_str(&format!("{config_toml}\ndb_shrink = false\n")).unwrap();
+        assert!(!config.db_shrink);
+        assert!(config.db_pruning);
     }
 }

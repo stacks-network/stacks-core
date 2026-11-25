@@ -92,6 +92,7 @@ fn setup_test_environment(
         first_proposal_burn_block_timing: Duration::from_secs(30),
         block_proposal_timeout: Duration::from_secs(5),
         tenure_last_block_proposal_timeout: Duration::from_secs(30),
+        pre_commit_exclusivity_timeout: Duration::ZERO,
         tenure_idle_timeout: Duration::from_secs(300),
         tenure_idle_timeout_buffer: Duration::from_secs(2),
         reorg_attempts_activity_timeout: Duration::from_secs(3),
@@ -1084,4 +1085,51 @@ fn pre_committed_block_does_not_veto_replacement() {
         SelfAsTip::Counts,
     )
     .unwrap());
+}
+
+/// The validate-ok and signing-time re-checks run on the very block we pre-committed, and a
+/// block is no conflict with itself. Before the carve-out honoured `SelfAsTip::Ignored`, this
+/// re-check found the block under check as the tenure's highest pre-committed block, logged a
+/// phantom conflict, and credited our own re-evaluation as miner activity.
+#[test]
+fn pre_committed_block_is_no_conflict_with_itself() {
+    let (stacks_client, mut signer_db, _block_sk, mut block, cur_sortition, _, _) =
+        setup_test_environment(function_name!());
+
+    let tenure_id = cur_sortition.data.consensus_hash.clone();
+    block.header.consensus_hash = tenure_id.clone();
+
+    let mut existing_block_info = BlockInfo::from(BlockProposal {
+        block: block.clone(),
+        burn_height: 2,
+        reward_cycle: 1,
+        block_proposal_data: BlockProposalData::empty(),
+    });
+    existing_block_info.mark_pre_committed().unwrap();
+    signer_db.insert_block(&existing_block_info).unwrap();
+    assert!(signer_db
+        .get_last_activity_time(&tenure_id)
+        .unwrap()
+        .is_none());
+
+    // Re-check the pre-committed block itself, as validate-ok and signing time do.
+    assert!(SortitionData::check_latest_block_in_tenure(
+        &tenure_id,
+        &block,
+        &mut signer_db,
+        &stacks_client,
+        Duration::from_secs(30),
+        Duration::from_secs(3),
+        SelfAsTip::Ignored,
+    )
+    .unwrap());
+
+    // Nothing else is in the tenure, so there was no conflict and no miner activity to count.
+    assert!(
+        signer_db
+            .get_last_activity_time(&tenure_id)
+            .unwrap()
+            .is_none(),
+        "re-checking our own pre-committed block must not be counted as miner activity"
+    );
 }

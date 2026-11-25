@@ -1,0 +1,1 @@
+The RPC server now builds its route table once per HTTP peer instead of on every inbound connection, cutting roughly 7 ms of regex compilation from each new HTTP connection ([#7673](https://github.com/stacks-network/stacks-core/pull/7673)).

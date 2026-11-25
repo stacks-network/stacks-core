@@ -14,7 +14,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 use crate::net::http::Error;
-use crate::net::httpcore::StacksHttp;
+use crate::net::httpcore::RPCRoutesBuilder;
 use crate::net::Error as NetError;
 
 #[cfg(feature = "bench-hooks")]
@@ -31,6 +31,7 @@ pub mod getattachmentsinv;
 pub mod getblock;
 pub mod getblock_v3;
 pub mod getblockbyheight;
+pub mod getblockview;
 pub mod getclaritymarfvalue;
 pub mod getclaritymetadata;
 pub mod getconstantval;
@@ -77,10 +78,10 @@ pub mod txsimulate;
 #[cfg(test)]
 mod tests;
 
-impl StacksHttp {
+impl RPCRoutesBuilder {
     /// Register all RPC methods.
     /// Put your new RPC method handlers here.
-    pub fn register_rpc_methods(&mut self) {
+    pub(crate) fn register_rpc_methods(&mut self) {
         #[cfg(feature = "bench-hooks")]
         {
             self.register_rpc_endpoint(bench::miner::RPCBenchMinerStatusRequestHandler::new(
@@ -148,6 +149,7 @@ impl StacksHttp {
             getstackerdbmetadata::RPCGetStackerDBMetadataRequestHandler::new(),
         );
         self.register_rpc_endpoint(getstackers::GetStackersRequestHandler::default());
+        self.register_rpc_endpoint(getblockview::GetBlockViewRequestHandler::new());
         self.register_rpc_endpoint(getsortition::GetSortitionHandler::new());
         self.register_rpc_endpoint(gettenure::RPCNakamotoTenureRequestHandler::new());
         self.register_rpc_endpoint(gettenureinfo::RPCNakamotoTenureInfoRequestHandler::new());

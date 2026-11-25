@@ -50,7 +50,7 @@ use crate::chainstate::stacks::{
 use crate::core::MemPoolDB;
 use crate::net::db::PeerDB;
 use crate::net::httpcore::{
-    HttpPreambleExtensions as _, StacksHttpRequest, StacksHttpResponse, TipRequest,
+    HttpPreambleExtensions as _, RPCRouteTable, StacksHttpRequest, StacksHttpResponse, TipRequest,
 };
 use crate::net::relay::Relayer;
 use crate::net::rpc::ConversationHttp;
@@ -75,6 +75,7 @@ mod getattachmentsinv;
 mod getblock;
 mod getblock_v3;
 mod getblockbyheight;
+mod getblockview;
 mod getclaritymarfvalue;
 mod getclaritymetadata;
 mod getconstantval;
@@ -898,6 +899,7 @@ impl<'a> TestRPC<'a> {
             Some(UrlString::try_from("http://peer1.com".to_string()).unwrap()),
             peer_1.to_peer_host(),
             &peer_1.config.connection_opts,
+            &RPCRouteTable::new(&peer_1.config.connection_opts),
             0,
             32,
         );
@@ -909,6 +911,7 @@ impl<'a> TestRPC<'a> {
             Some(UrlString::try_from("http://peer2.com".to_string()).unwrap()),
             peer_2.to_peer_host(),
             &peer_2.config.connection_opts,
+            &RPCRouteTable::new(&peer_2.config.connection_opts),
             1,
             32,
         );
@@ -964,6 +967,7 @@ impl<'a> TestRPC<'a> {
             Some(UrlString::try_from("http://peer1.com".to_string()).unwrap()),
             peer.to_peer_host(),
             &peer.config.connection_opts,
+            &RPCRouteTable::new(&peer.config.connection_opts),
             0,
             32,
         );
@@ -975,6 +979,7 @@ impl<'a> TestRPC<'a> {
             Some(UrlString::try_from("http://peer2.com".to_string()).unwrap()),
             other_peer.to_peer_host(),
             &other_peer.config.connection_opts,
+            &RPCRouteTable::new(&other_peer.config.connection_opts),
             1,
             32,
         );
@@ -1066,6 +1071,7 @@ impl<'a> TestRPC<'a> {
             Some(UrlString::try_from("http://peer1.com".to_string()).unwrap()),
             peer.to_peer_host(),
             &peer.config.connection_opts,
+            &RPCRouteTable::new(&peer.config.connection_opts),
             0,
             32,
         );
@@ -1077,6 +1083,7 @@ impl<'a> TestRPC<'a> {
             Some(UrlString::try_from("http://peer2.com".to_string()).unwrap()),
             other_peer.to_peer_host(),
             &other_peer.config.connection_opts,
+            &RPCRouteTable::new(&other_peer.config.connection_opts),
             1,
             32,
         );
@@ -1129,6 +1136,35 @@ impl<'a> TestRPC<'a> {
             sendable_txs: vec![],
             unconfirmed_state: false,
         }
+    }
+
+    /// Orphan the sortition `consensus_hash` on the responding peer by giving its sortition DB a
+    /// competing burnchain fork, forked off that sortition's parent and one block longer than
+    /// the current canonical tip, so that it becomes the new canonical tip. Every sortition from
+    /// `consensus_hash` onward is then off the canonical fork, while the Stacks blocks built on
+    /// them stay in chainstate.
+    pub fn orphan_sortition(&mut self, consensus_hash: &ConsensusHash) {
+        let sortdb = self.peer_2.sortdb();
+        let orphaned = SortitionDB::get_block_snapshot_consensus(sortdb.conn(), consensus_hash)
+            .unwrap()
+            .expect("FATAL: no sortition to orphan");
+        let fork_base =
+            SortitionDB::get_block_snapshot(sortdb.conn(), &orphaned.parent_sortition_id)
+                .unwrap()
+                .unwrap();
+        let tip = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn()).unwrap();
+        let fork = crate::chainstate::burn::db::sortdb::tests::make_fork_run(
+            sortdb,
+            &fork_base,
+            tip.block_height - fork_base.block_height + 1,
+            0x80,
+        );
+        let new_tip = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn()).unwrap();
+        assert_eq!(
+            Some(&new_tip.sortition_id),
+            fork.last().map(|sn| &sn.sortition_id),
+            "the competing fork must become the canonical tip"
+        );
     }
 
     pub fn run(self, requests: Vec<StacksHttpRequest>) -> Vec<StacksHttpResponse> {

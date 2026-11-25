@@ -18,7 +18,7 @@ use std::ops::Bound;
 use std::str::FromStr;
 
 use super::{
-    set_test_coinbase_schedule, CoinbaseInterval, StacksEpochId,
+    set_test_coinbase_schedule, CoinbaseInterval, SbtcDepositFormat, StacksEpochId,
     BITCOIN_MAINNET_GENESIS_BURN_HEIGHT, BITCOIN_MAINNET_STACKS_40_BURN_HEIGHT,
     BITCOIN_TESTNET_GENESIS_BURN_HEIGHT, BITCOIN_TESTNET_STACKS_40_BURN_HEIGHT,
     COINBASE_INTERVALS_MAINNET, COINBASE_INTERVALS_TESTNET,
@@ -396,5 +396,17 @@ fn test_set_coinbase_intervals() {
     assert_eq!(
         StacksEpochId::get_coinbase_intervals(false),
         *COINBASE_INTERVALS_TESTNET
+    );
+}
+
+/// Preserve the historical format for every epoch preceding the 4.1 switch.
+#[test]
+fn test_sbtc_deposit_format_activation() {
+    for epoch in (..StacksEpochId::Epoch41).as_slice() {
+        assert_eq!(epoch.sbtc_deposit_format(), SbtcDepositFormat::V1);
+    }
+    assert_eq!(
+        StacksEpochId::Epoch41.sbtc_deposit_format(),
+        SbtcDepositFormat::V2
     );
 }

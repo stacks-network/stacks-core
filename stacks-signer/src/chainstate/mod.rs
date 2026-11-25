@@ -82,6 +82,9 @@ pub struct ProposalEvalConfig {
     /// Time to wait for the last block of a tenure to be globally accepted or rejected before considering
     /// a new miner's block at the same height as valid.
     pub tenure_last_block_proposal_timeout: Duration,
+    /// How long our pre-commit to a block bars a pre-commit to a sibling at the same height in
+    /// the same tenure
+    pub pre_commit_exclusivity_timeout: Duration,
     /// How much idle time must pass before allowing a tenure extend
     pub tenure_idle_timeout: Duration,
     /// How much idle time must pass before allowing a read-count tenure extend
@@ -101,6 +104,7 @@ impl From<&SignerConfig> for ProposalEvalConfig {
             first_proposal_burn_block_timing: value.first_proposal_burn_block_timing,
             block_proposal_timeout: value.block_proposal_timeout,
             tenure_last_block_proposal_timeout: value.tenure_last_block_proposal_timeout,
+            pre_commit_exclusivity_timeout: value.pre_commit_exclusivity_timeout,
             tenure_idle_timeout: value.tenure_idle_timeout,
             reorg_attempts_activity_timeout: value.reorg_attempts_activity_timeout,
             tenure_idle_timeout_buffer: value.tenure_idle_timeout_buffer,
@@ -165,8 +169,9 @@ pub enum SelfAsTip {
     /// evaluated, which would overwrite that row.
     Counts,
     /// The block is left out of the tip query, so another accepted sibling at the same height,
-    /// if there is one, is the block compared against. Used by the checks that run after our own
-    /// validation, when the group may already have signed this very block.
+    /// if there is one, is the block compared against. If the node's tenure tip is the block
+    /// itself, it is accepted rather than compared against itself. Used by the checks that run
+    /// after our own validation, when the group may already have signed this very block.
     Ignored,
 }
 
@@ -399,7 +404,9 @@ impl SortitionData {
     }
 
     /// Check whether or not `block` is higher than the highest block in `tenure_id`.
-    ///  returns `Ok(true)` if `block` is higher, `Ok(false)` if not.
+    ///  returns `Ok(true)` if `block` is higher, `Ok(false)` if not. With
+    ///  [`SelfAsTip::Ignored`], it also returns `Ok(true)` if `block` is already the node's
+    ///  tenure tip.
     ///
     /// If we can't look up `tenure_id`, assume `block` is higher.
     /// This assumption is safe because this proposal ultimately must be passed
@@ -463,9 +470,14 @@ impl SortitionData {
         }
 
         // A block we have only pre-committed to must NOT veto this proposal, but, similar to above
-        // this should still count as activity for the miner.
+        // this should still count as activity for the miner. Leave out the block under check on
+        // the same terms as the signed-tip query: at validate-ok and at signing time the block
+        // being re-checked is often the very block we pre-committed, and it is no conflict with
+        // itself -- reporting one would log a phantom conflict and credit our own re-evaluation
+        // as miner activity. A genuine rebroadcast of that block is credited where it arrives,
+        // in `reevaluate_validated_unsigned_block`, not here.
         let last_accepted_block = signer_db
-            .get_last_accepted_block(tenure_id)
+            .get_last_accepted_block(tenure_id, excluded)
             .map_err(|e| ClientError::InvalidResponse(e.to_string()))?;
         if let Some(info) = last_accepted_block {
             let is_fresh_pre_commit = info.state == BlockState::PreCommitted
@@ -516,6 +528,15 @@ impl SortitionData {
                     }
                 }
             }
+        }
+        // The node may already have processed this very block if the group signed it before
+        // our validation returned; it is then the tip rather than a block it must exceed.
+        if self_as_tip == SelfAsTip::Ignored
+            && tip
+                .as_stacks_nakamoto()
+                .is_some_and(|tip| tip.signer_signature_hash() == own_hash)
+        {
+            return Ok(true);
         }
         Ok(tip.height() < block.header.chain_length)
     }
