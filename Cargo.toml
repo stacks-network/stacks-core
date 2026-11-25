@@ -49,9 +49,9 @@ serde_derive = "1.0.229"
 serde_json = { version = "1.0.154", features = ["arbitrary_precision", "unbounded_depth"] }
 slog = { version = "2.5.2", features = [ "max_level_trace" ] }
 rusqlite = { version = "0.41.1", features = ["blob", "serde_json", "i128_blob", "bundled", "trace", "fallible_uint"] }
-thiserror = "2"
+thiserror = "2.0.21"
 tikv-jemallocator = "0.5.4"
-toml = "1"
+toml = "1.1.2"
 variant_count = "1.1"
 
 # Other dependencies
