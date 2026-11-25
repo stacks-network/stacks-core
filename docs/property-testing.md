@@ -209,7 +209,7 @@ This technique allows to be sure that proptest generates a lot of cases where th
 
 Writing new input strategies may be the most tedious part of writing property tests, so it is worthwhile figuring out if the input you are looking for (or maybe a component of the input you're looking for) already has a strategy in the codebase. If you search for functions that return `impl Strategy<Value = ?>` in the codebase, you should find the set of functions that have already been written.
 
-Except in cases where input strategies are highly tailored to a particular test, strategy functions should be placed in common `proptest_utils` modules for the crate you are working in. For the examples discussed in this PR, those are in `stackslib::proptest_utils`. This makes discovery a bit easier for later consumers of those input strategies.
+Except in cases where input strategies are highly tailored to a particular test, strategy functions should be placed in the shared property-testing module for the crate you are working in: `stackslib::proptest_utils` in stackslib, and `clarity::vm::tests::proptesting` in clarity. The clarity module is also available to dependent crates through clarity's `testing` feature. In clarity, strategies live in `proptesting::strategies`, grouped by domain (names, principals, types, values, snippets, bitcoin), next to `proptesting::literals` for rendering values as Clarity source and `proptesting::run` for executing snippets. Strategies tailored to a single test stay in that test. This makes discovery a bit easier for later consumers of those input strategies.
 
 ## Continuous Integration
 

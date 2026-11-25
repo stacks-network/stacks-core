@@ -823,13 +823,13 @@ mod unit_tests {
 
     use super::*;
     use crate::vm::ClarityName;
-    use crate::vm::tests::proptest_utils::clarity_values;
+    use crate::vm::tests::proptesting::strategies::values::clarity_value_strategy;
     use crate::vm::types::{QualifiedContractIdentifier, TypeSignature};
 
-    /// [`clarity_values`], plus the tuples and lists of tuples it does not
+    /// [`clarity_value_strategy`], plus the tuples and lists of tuples it does not
     /// generate.
     fn values_with_tuples() -> BoxedStrategy<Value> {
-        let tuples = vec(clarity_values(), 1..4)
+        let tuples = vec(clarity_value_strategy(), 1..4)
             .prop_filter_map("tuple construction failed", |fields| {
                 let fields = fields
                     .into_iter()
@@ -844,7 +844,7 @@ mod unit_tests {
             .prop_filter_map("list construction failed", |tuple| {
                 Value::list_from(vec![tuple.clone(), tuple]).ok()
             });
-        prop_oneof![clarity_values(), tuples, tuple_lists].boxed()
+        prop_oneof![clarity_value_strategy(), tuples, tuple_lists].boxed()
     }
 
     proptest! {

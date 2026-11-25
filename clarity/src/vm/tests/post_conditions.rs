@@ -17,6 +17,7 @@
 //! `restrict-assets?` expressions. The `with-stacking` allowances are tested
 //! in integration tests, since they require changes made outside of the VM.
 
+use std::collections::BTreeSet;
 use std::convert::TryFrom;
 
 use clarity_types::types::{
@@ -24,6 +25,7 @@ use clarity_types::types::{
 };
 use clarity_types::{ClarityName, ContractName, Value};
 use pinny::tag;
+use proptest::collection::vec;
 use proptest::prelude::*;
 use proptest::test_runner::{TestCaseError, TestCaseResult};
 use stacks_common::bounded_format;
@@ -31,18 +33,20 @@ use stacks_common::types::StacksEpochId;
 
 use crate::vm::ClarityVersion;
 use crate::vm::analysis::errors::RuntimeCheckErrorKind;
-use crate::vm::analysis::type_checker::v2_1::natives::post_conditions::MAX_ALLOWANCES;
+use crate::vm::analysis::type_checker::v2_1::natives::post_conditions::{
+    MAX_ALLOWANCES, MAX_NFT_IDENTIFIERS,
+};
 use crate::vm::contexts::AssetMap;
 use crate::vm::errors::{
     ClarityEvalError, EarlyReturnError, RuntimeError, VmExecutionError, VmInternalError,
 };
-use crate::vm::tests::proptest_utils::{
-    allowance_list_snippets, begin_block, body_with_allowances_snippets,
-    clarity_values_no_response, execute, execute_and_check, execute_and_check_versioned,
-    execute_with_epoch, execute_with_version_and_epoch, ft_mint_snippets, ft_transfer_snippets,
-    match_response_snippets, nft_mint_snippets, nft_transfer_snippets, standard_principal_strategy,
-    try_response_snippets, value_to_clarity_literal,
+use crate::vm::tests::proptesting::literals::value_to_clarity_literal;
+use crate::vm::tests::proptesting::run::{
+    execute, execute_and_check, execute_and_check_versioned, execute_with_epoch,
+    execute_with_version_and_epoch,
 };
+use crate::vm::tests::proptesting::strategies::principals::standard_principal_strategy;
+use crate::vm::tests::proptesting::strategies::values::clarity_value_no_response_strategy;
 use crate::vm::tests::test_clarity_versions;
 
 // ---------- Tests for as-contract? ----------
@@ -1993,7 +1997,7 @@ proptest! {
     #[tag(t_prop)]
     #[test]
     fn prop_restrict_assets_returns_body_value_when_pure(
-        body_value in clarity_values_no_response(),
+        body_value in clarity_value_no_response_strategy(),
     ) {
         let body_literal = value_to_clarity_literal(&body_value);
         let snippet = format!("(restrict-assets? tx-sender () {body_literal})");
@@ -2012,7 +2016,7 @@ proptest! {
     #[test]
     fn prop_restrict_assets_returns_value_with_allowances(
         allowances in allowance_list_snippets(),
-        body_value in clarity_values_no_response(),
+        body_value in clarity_value_no_response_strategy(),
     ) {
         let body_literal = value_to_clarity_literal(&body_value);
         let snippet = format!("{TOKEN_DEFINITIONS}(restrict-assets? tx-sender {allowances} {body_literal})");
@@ -2146,7 +2150,7 @@ proptest! {
     #[tag(t_prop)]
     #[test]
     fn prop_as_contract_returns_body_value_when_pure(
-        body_value in clarity_values_no_response(),
+        body_value in clarity_value_no_response_strategy(),
     ) {
         let body_literal = value_to_clarity_literal(&body_value);
         let snippet = format!("(as-contract? () {body_literal})");
@@ -2165,7 +2169,7 @@ proptest! {
     #[test]
     fn prop_as_contract_returns_value_with_allowances(
         allowances in allowance_list_snippets(),
-        body_value in clarity_values_no_response(),
+        body_value in clarity_value_no_response_strategy(),
     ) {
         let body_literal = value_to_clarity_literal(&body_value);
         let snippet = format!("{TOKEN_DEFINITIONS}(as-contract? {allowances} {body_literal})");
@@ -2279,4 +2283,244 @@ proptest! {
         )
         .unwrap();
     }
+}
+
+// ---------- Strategies for post-condition snippets ----------
+
+/// A strategy that generates STX transfer snippets with amounts between
+/// 1 and 1,000,000 micro-STX.
+fn stx_transfer_snippets() -> impl Strategy<Value = String> {
+    (1u64..1_000_000u64).prop_map(|amount| {
+        format!("(stx-transfer? u{amount} tx-sender 'SP000000000000000000002Q6VF78)")
+    })
+}
+
+/// A strategy that generates FT mint snippets with amounts between
+/// 1 and 1,000,000 units of the token. The FT contract is always
+/// `current-contract` and the token name is always `stackos`.
+fn ft_mint_snippets(recipient: String) -> impl Strategy<Value = String> {
+    (1u64..1_000_000u64).prop_map(move |amount| format!("(ft-mint? stackos u{amount} {recipient})"))
+}
+
+/// A strategy that generates FT transfer snippets with amounts between
+/// 1 and 1,000,000 units of the token. The FT contract is always
+/// `current-contract` and the token name is always `stackos`.
+fn ft_transfer_snippets() -> impl Strategy<Value = String> {
+    (1u64..1_000_000u64).prop_map(|amount| {
+        format!("(ft-transfer? stackos u{amount} tx-sender 'SP000000000000000000002Q6VF78)")
+    })
+}
+
+/// A strategy that generates NFT mint snippets. The NFT contract is always
+/// `current-contract` and the token name is always `stackaroo`. A random
+/// `uint` identifier is generated for each snippet.
+fn nft_mint_snippets(recipient: String) -> impl Strategy<Value = String> {
+    any::<u128>().prop_map(move |id| format!("(nft-mint? stackaroo u{id} {recipient})"))
+}
+
+/// A strategy that generates NFT transfer snippets. The NFT contract is always
+/// `current-contract` and the token name is always `stackaroo`. A random
+/// `uint` identifier is generated for each snippet.
+fn nft_transfer_snippets() -> impl Strategy<Value = String> {
+    any::<u128>().prop_map(|id| {
+        format!("(nft-transfer? stackaroo u{id} tx-sender 'SP000000000000000000002Q6VF78)")
+    })
+}
+
+/// A strategy that generates a `try!`-wrapped version of the given
+/// Clarity code snippet generator. This is useful for wrapping expressions
+/// that return a `Response` type, so that they can be used in contexts
+/// that expect a non-`Response` value.
+fn try_response_snippets<S>(response: S) -> impl Strategy<Value = String>
+where
+    S: Strategy<Value = String>,
+{
+    response.prop_map(|snippet| format!("(try! {snippet})"))
+}
+
+/// A strategy that generates a `match`-wrapped version of the given
+/// Clarity code snippet generator. This is useful for wrapping expressions
+/// that return a `Response` type, so that they can be used in contexts
+/// that expect a non-`Response` value and will not cause an error.
+fn match_response_snippets<S>(response: S) -> impl Strategy<Value = String>
+where
+    S: Strategy<Value = String>,
+{
+    response.prop_map(|snippet| format!("(match {snippet} v true e false)"))
+}
+
+/// A strategy that generates Clarity code snippets for STX allowances.
+fn stx_allowance_snippets() -> impl Strategy<Value = String> {
+    any::<u128>().prop_map(|amount| format!("(with-stx u{amount})"))
+}
+
+/// A stategy that generates Clarity code snippets for FT allowances.
+/// The FT contract is always `current-contract` and the token name is always
+/// `stackos`.
+fn ft_allowance_snippets() -> impl Strategy<Value = String> {
+    any::<u128>().prop_map(|amount| format!("(with-ft current-contract \"stackos\" u{amount})"))
+}
+
+/// A strategy that generates Clarity code snippets for NFT allowances.
+/// The NFT contract is always `current-contract` and the token name is always
+/// `stackaroo`, and a random list of u128 IDs is generated.
+fn nft_allowance_snippets() -> impl Strategy<Value = String> {
+    let nft_ids = prop::collection::vec(any::<u128>(), 0..=MAX_NFT_IDENTIFIERS as usize);
+    nft_ids.prop_map(|ids| {
+        format!(
+            "(with-nft current-contract \"stackaroo\" (list {}))",
+            ids.iter()
+                .map(|id| format!("u{id}"))
+                .collect::<Vec<_>>()
+                .join(" ")
+        )
+    })
+}
+
+/// A strategy that generates Clarity code snippets for staking allowances.
+/// Emits the Clarity 6+ spelling (`with-staking`); these proptests run at
+/// `ClarityVersion::latest()`.
+fn stacking_allowance_snippets() -> impl Strategy<Value = String> {
+    any::<u128>().prop_map(|amount| format!("(with-staking u{amount})"))
+}
+
+/// A strategy that generates Clarity code snippets for PoX-action allowances.
+/// `with-pox` takes no amount; its presence simply permits position-altering
+/// PoX actions (`unstake`, `unstake-sbtc`, `update-bond-registration`,
+/// `announce-l1-early-exit`).
+fn pox_allowance_snippets() -> impl Strategy<Value = String> {
+    Just("(with-pox)".to_string())
+}
+
+/// A strategy that generates Clarity code snippets for allowances.
+fn allowance_snippets() -> impl Strategy<Value = String> {
+    let stx_allowance = stx_allowance_snippets();
+    let ft_allowance = ft_allowance_snippets();
+    let nft_allowance = nft_allowance_snippets();
+    let stacking_allowance = stacking_allowance_snippets();
+    let pox_allowance = pox_allowance_snippets();
+    prop_oneof![
+        stx_allowance,
+        ft_allowance,
+        nft_allowance,
+        stacking_allowance,
+        pox_allowance
+    ]
+}
+
+/// A strategy that generates Clarity code snippets for allowances lists.
+fn allowance_list_snippets() -> impl Strategy<Value = String> {
+    prop::collection::vec(allowance_snippets(), 0..MAX_ALLOWANCES).prop_map(|allowances| {
+        if allowances.is_empty() {
+            "()".to_string()
+        } else {
+            format!("({})", allowances.join(" "))
+        }
+    })
+}
+
+/// A strategy that generates a list of expressions, including STX, FT, and NFT
+/// transfers along with allowances that cover any of those transfers.
+fn body_with_allowances_snippets() -> impl Strategy<Value = (String, String)> {
+    #[derive(Clone, Debug)]
+    enum TransferSpec {
+        Stx(u128),
+        Ft(u128),
+        Nft(u128),
+    }
+
+    let transfer_spec = prop_oneof![
+        (1u64..1_000_000u64)
+            .prop_map(|amount| TransferSpec::Stx(amount as u128))
+            .boxed(),
+        (1u64..1_000_000u64)
+            .prop_map(|amount| TransferSpec::Ft(amount as u128))
+            .boxed(),
+        any::<u128>().prop_map(TransferSpec::Nft).boxed(),
+    ];
+
+    prop::collection::vec(transfer_spec, 1..8).prop_flat_map(|transfer_specs| {
+        let mut stx_allowance: Option<u128> = None;
+        let mut ft_allowance: Option<u128> = None;
+        let mut nft_ids = BTreeSet::new();
+        let mut transfer_exprs = Vec::new();
+
+        for spec in transfer_specs.iter() {
+            match spec {
+                TransferSpec::Stx(amount) => {
+                    stx_allowance = Some(stx_allowance.map_or(*amount, |m| m + *amount));
+                    transfer_exprs.push(format!(
+                        "(match (stx-transfer? u{amount} tx-sender 'SP000000000000000000002Q6VF78) v true e false)"
+                    ));
+                }
+                TransferSpec::Ft(amount) => {
+                    ft_allowance = Some(ft_allowance.map_or(*amount, |m| m + *amount));
+                    transfer_exprs.push(format!(
+                        "(match (ft-transfer? stackos u{amount} tx-sender 'SP000000000000000000002Q6VF78) v true e false)"
+                    ));
+                }
+                TransferSpec::Nft(token_id) => {
+                    nft_ids.insert(*token_id);
+                    transfer_exprs.push(format!(
+                        "(match (nft-transfer? stackaroo u{token_id} tx-sender 'SP000000000000000000002Q6VF78) v true e false)"
+                    ));
+                }
+            }
+        }
+
+        let mut allowances: Vec<String> = Vec::new();
+        if let Some(amount) = stx_allowance {
+            allowances.push(format!("(with-stx u{amount})"));
+        }
+        if let Some(amount) = ft_allowance {
+            allowances.push(format!("(with-ft current-contract \"stackos\" u{amount})"));
+        }
+        if !nft_ids.is_empty() {
+            let ids = nft_ids
+                .iter()
+                .map(|id| format!("u{id}"))
+                .collect::<Vec<_>>()
+                .join(" ");
+            allowances.push(format!(
+                "(with-nft current-contract \"stackaroo\" (list {}))",
+                ids
+            ));
+        }
+
+        let allowances_snippet = format!("({})", allowances.join(" "));
+
+        prop::collection::vec(
+            clarity_value_no_response_strategy().prop_map(|v| value_to_clarity_literal(&v)),
+            0..=8,
+        )
+        .prop_flat_map(move |extra_exprs| {
+            let mut all = transfer_exprs.clone();
+            all.extend(extra_exprs);
+            Just(all).prop_shuffle().prop_map({
+                let allowances_snippet = allowances_snippet.clone();
+                move |shuffled| {
+                    let body = shuffled.join(" ");
+                    (allowances_snippet.clone(), body)
+                }
+            })
+        })
+    })
+}
+
+/// A strategy that generates `(begin ...)` expressions containing between
+/// 1 and 8 expressions, each of which is either a Clarity value literal or
+/// an STX transfer expression.
+fn begin_block() -> impl Strategy<Value = String> {
+    vec(
+        prop_oneof![
+            clarity_value_no_response_strategy().prop_map(|value| value_to_clarity_literal(&value)),
+            try_response_snippets(stx_transfer_snippets()),
+        ],
+        1..8,
+    )
+    .prop_shuffle()
+    .prop_map(|expressions| {
+        let body = expressions.join(" ");
+        format!("(begin {body})")
+    })
 }
