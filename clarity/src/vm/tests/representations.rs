@@ -23,55 +23,15 @@ use crate::vm::representations::{
     CLARITY_NAME_REGEX_STRING, CONTRACT_MAX_NAME_LENGTH, CONTRACT_MIN_NAME_LENGTH,
     CONTRACT_NAME_REGEX_STRING, MAX_STRING_LEN,
 };
+use crate::vm::tests::proptesting::strategies::names::{
+    assert_regex_unchanged, clarity_name_string_strategy, contract_name_string_strategy,
+};
 use crate::vm::{ClarityName, ContractName};
-
-fn assert_regex_unchanged(actual: &str, expected: &str) {
-    assert_eq!(actual, expected, "Regex has changed");
-}
-
-/// Generates a proptest strategy for valid Clarity names.
-///
-/// This function creates a branched strategy based on the `CLARITY_NAME_REGEX_STRING` pattern.
-///
-/// The strategy covers three categories of valid names:
-/// - Letter-based names starting with a letter followed by alphanumeric or symbol characters
-/// - Single arithmetic operators (`-`, `+`, `=`, `/`, `*`)
-/// - Comparison operators (`<`, `>`, `<=`, `>=`)
-fn any_valid_clarity_name() -> impl Strategy<Value = String> {
-    // Ensure the regex branches match the actual validator.
-    assert_regex_unchanged(
-        CLARITY_NAME_REGEX_STRING.as_str(),
-        "^[a-zA-Z]([a-zA-Z0-9]|[-_!?+<>=/*])*$|^[-+=/*]$|^[<>]=?$",
-    );
-
-    let letter_names = string_regex(&format!(
-        "[a-zA-Z][a-zA-Z0-9_!?+<>=/*-]{{0,{}}}",
-        (MAX_STRING_LEN as usize).saturating_sub(1)
-    ))
-    .unwrap();
-
-    let single_ops = prop_oneof![
-        Just("-".to_string()),
-        Just("+".to_string()),
-        Just("=".to_string()),
-        Just("/".to_string()),
-        Just("*".to_string()),
-    ];
-
-    let comparison_ops = prop_oneof![
-        Just("<".to_string()),
-        Just(">".to_string()),
-        Just("<=".to_string()),
-        Just(">=".to_string()),
-    ];
-
-    prop_oneof![letter_names, single_ops, comparison_ops]
-}
 
 #[tag(t_prop)]
 #[test]
 fn prop_clarity_name_valid_patterns() {
-    proptest!(|(name in any_valid_clarity_name())| {
+    proptest!(|(name in clarity_name_string_strategy())| {
         prop_assume!(!name.is_empty());
         prop_assume!(name.len() <= MAX_STRING_LEN as usize);
 
@@ -175,7 +135,7 @@ fn prop_clarity_name_invalid_patterns() {
 #[tag(t_prop)]
 #[test]
 fn prop_clarity_name_roundtrip() {
-    proptest!(|(s in any_valid_clarity_name())| {
+    proptest!(|(s in clarity_name_string_strategy())| {
         let name = ClarityName::try_from(s.clone()).unwrap();
         prop_assert_eq!(name.as_str(), s);
 
@@ -189,34 +149,10 @@ fn prop_clarity_name_roundtrip() {
     });
 }
 
-/// Generates a proptest strategy for valid contract names.
-///
-/// This function creates a strategy based on the `CONTRACT_NAME_REGEX_STRING` pattern
-/// and includes the special `"__transient"` contract name.
-///
-/// The strategy generates:
-/// - 90% regular contract names (letter followed by letters, digits, hyphens, or underscores)
-/// - 10% the special `"__transient"` contract name
+/// Valid contract names, plus the special `__transient` name 10% of the time.
 fn any_valid_contract_name() -> impl Strategy<Value = String> {
-    // Ensure the regex branches match the actual validator.
-    let expected_regex = format!(
-        r#"([a-zA-Z](([a-zA-Z0-9]|[-_])){{{},{}}})"#,
-        CONTRACT_MIN_NAME_LENGTH - 1,
-        MAX_STRING_LEN - 1
-    );
-    assert_regex_unchanged(CONTRACT_NAME_REGEX_STRING.as_str(), &expected_regex);
-
-    let regular_names = string_regex(&format!(
-        "[a-zA-Z][a-zA-Z0-9_-]{{0,{}}}",
-        CONTRACT_MAX_NAME_LENGTH
-            .saturating_sub(1)
-            .min((MAX_STRING_LEN as usize).saturating_sub(1))
-    ))
-    .unwrap();
-
-    // 90% regular names, 10% the special "__transient" contract name.
     prop_oneof![
-        9 => regular_names,
+        9 => contract_name_string_strategy(),
         1 => Just("__transient".to_string()),
     ]
 }

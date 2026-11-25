@@ -28,6 +28,7 @@ stacks_common = { package = "stacks-common", path = "../stacks-common", default-
 rstest = { workspace = true, optional = true }
 rstest_reuse = { workspace = true, optional = true }
 rusqlite = { workspace = true, optional = true }
+proptest = { version = "1.6.0", default-features = false, features = ["std"], optional = true }
 
 [dev-dependencies]
 assert-json-diff = { workspace = true }
@@ -75,7 +76,7 @@ asset-map-json = ["clarity-types/asset-map-json"]
 developer-mode = ["stacks_common/developer-mode", "clarity-types/developer-mode"]
 slog_json = ["stacks_common/slog_json"]
 rusqlite = ["stacks_common/rusqlite", "clarity-types/rusqlite", "dep:rusqlite"]
-testing = ["rusqlite", "rstest", "rstest_reuse", "clarity-types/testing", "stacks_common/testing"]
+testing = ["rusqlite", "rstest", "rstest_reuse", "proptest", "clarity-types/testing", "stacks_common/testing"]
 devtools = []
 rollback_value_check = []
 disable-costs = []

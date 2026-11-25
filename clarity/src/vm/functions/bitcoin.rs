@@ -903,7 +903,9 @@ mod tests {
     use stacks_common::deps_common::bitcoin::blockdata::transaction::{OutPoint, TxIn, TxOut};
     use stacks_common::deps_common::bitcoin::network::serialize::serialize as btc_serialize;
 
-    use crate::vm::tests::proptest_strategies::{arb_simple_tx, synth_canonical_proof};
+    use crate::vm::tests::proptesting::strategies::bitcoin::{
+        simple_tx_strategy, synth_canonical_proof,
+    };
 
     prop_compose! {
         /// Synthesize a valid merkle proof spanning the full supported range:
@@ -1132,7 +1134,7 @@ mod tests {
         #[tag(t_prop)]
         #[test]
         fn prop_parse_tx_roundtrips_outputs(
-            (tx, outputs) in arb_simple_tx(),
+            (tx, outputs) in simple_tx_strategy(),
         ) {
             let bytes = btc_serialize(&tx).expect("serialize tx");
             let expected_txid = tx.txid().0;
@@ -1150,7 +1152,7 @@ mod tests {
         #[tag(t_prop)]
         #[test]
         fn prop_parse_tx_vout_out_of_range(
-            (tx, outputs) in arb_simple_tx(),
+            (tx, outputs) in simple_tx_strategy(),
             slop in 0u64..16,
         ) {
             let bytes = btc_serialize(&tx).expect("serialize tx");

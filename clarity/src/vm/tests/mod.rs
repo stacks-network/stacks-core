@@ -48,10 +48,8 @@ mod hooks;
 mod post_conditions;
 #[cfg(test)]
 mod principals;
-#[cfg(test)]
-pub(crate) mod proptest_strategies;
-#[cfg(test)]
-pub mod proptest_utils;
+#[cfg(any(test, feature = "testing"))]
+pub mod proptesting;
 #[cfg(test)]
 mod representations;
 #[cfg(test)]
@@ -62,6 +60,8 @@ mod simple_apply_eval;
 mod special_case_handler;
 #[cfg(test)]
 mod traits;
+#[cfg(test)]
+mod typed_values;
 #[cfg(test)]
 mod variables;
 

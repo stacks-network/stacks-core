@@ -21,10 +21,16 @@ use stacks_common::types::StacksEpochId;
 use stacks_common::util::hash::to_hex;
 
 pub use crate::vm::analysis::errors::RuntimeCheckErrorKind;
-use crate::vm::tests::proptest_utils::{
-    clarity_values_no_response, consensus_buff_type_strategy, contract_name_strategy,
-    execute_versioned, standard_principal_strategy, to_ascii_buffer_snippet_strategy,
-    utf8_string_ascii_only_snippet_strategy, utf8_string_snippet_strategy,
+use crate::vm::tests::proptesting::run::execute_versioned;
+use crate::vm::tests::proptesting::strategies::names::writable_contract_name_strategy;
+use crate::vm::tests::proptesting::strategies::principals::standard_principal_strategy;
+use crate::vm::tests::proptesting::strategies::snippets::{
+    to_ascii_buffer_snippet_strategy, utf8_string_ascii_only_snippet_strategy,
+    utf8_string_snippet_strategy,
+};
+use crate::vm::tests::proptesting::strategies::types::writable_type_signature_strategy;
+use crate::vm::tests::proptesting::strategies::values::{
+    clarity_value_no_response_strategy, value_of_type_strategy,
 };
 use crate::vm::tests::test_clarity_versions;
 use crate::vm::types::SequenceSubtype::BufferType;
@@ -682,6 +688,11 @@ fn evaluate_to_ascii(snippet: &str) -> Value {
         .unwrap_or_else(|| panic!("Execution returned no value for snippet `{snippet}`"))
 }
 
+/// Clarity source for generated types that can be written as types.
+fn type_name_strategy() -> impl Strategy<Value = String> {
+    writable_type_signature_strategy().prop_map(|ty| ty.to_string())
+}
+
 proptest! {
     #[tag(t_prop)]
     #[test]
@@ -741,7 +752,7 @@ proptest! {
     #[test]
     fn prop_to_ascii_from_contract_principals(
         issuer in standard_principal_strategy(),
-        contract_name in contract_name_strategy(),
+        contract_name in writable_contract_name_strategy(),
     ) {
         let contract_name_str = contract_name.to_string();
         let literal = format!("'{}.{}", issuer, contract_name_str);
@@ -828,7 +839,7 @@ proptest! {
     #[tag(t_prop)]
     #[test]
     fn prop_from_consensus_buff_empty_buffer_returns_none(
-        type_name in consensus_buff_type_strategy()
+        type_name in type_name_strategy()
     ) {
         let program = format!("(from-consensus-buff? {type_name} 0x)");
         let result = execute_with_parameters(
@@ -853,7 +864,7 @@ proptest! {
     #[test]
     fn prop_from_consensus_buff_random_bytes_never_crash(
         garbage in proptest::collection::vec(any::<u8>(), 0..1024),
-        type_name in consensus_buff_type_strategy()
+        type_name in type_name_strategy()
     ) {
         let hex = to_hex(&garbage);
         let program = format!("(from-consensus-buff? {type_name} 0x{hex})");
@@ -970,17 +981,16 @@ proptest! {
     }
 
     // Consensus serialization round-trip: Rust-level encoding fed back through
-    // from-consensus-buff? must recover the original value.
+    // from-consensus-buff? must recover the original value. The generated type is
+    // written as source, so values such as `none`, empty lists and responses (whose
+    // own inferred types contain `UnknownType`) are covered too.
     #[tag(t_prop)]
     #[test]
     fn prop_from_consensus_buff_roundtrip(
-        value in clarity_values_no_response()
+        (type_sig, value) in writable_type_signature_strategy()
+            .prop_flat_map(|ty| (Just(ty.clone()), value_of_type_strategy(ty)))
     ) {
-        let type_sig = TypeSignature::type_of(&value)
-            .expect("generated value must have a type");
         let type_str = type_sig.to_string();
-        // Bare none yields NoType which has no Clarity syntax.
-        prop_assume!(!type_str.contains("UnknownType"));
 
         let bytes = value
             .serialize_to_vec()
@@ -1014,7 +1024,7 @@ proptest! {
     #[test]
     fn prop_from_consensus_buff_type_mismatch_returns_none(
         (type_str, bytes, wrong_type) in
-            clarity_values_no_response()
+            clarity_value_no_response_strategy()
                 .prop_filter_map(
                     "serializable with concrete type",
                     |value| {
@@ -1033,7 +1043,7 @@ proptest! {
                         .next()
                         .unwrap_or(&type_str)
                         .to_owned();
-                    let wrong = consensus_buff_type_strategy()
+                    let wrong = type_name_strategy()
                         .prop_filter(
                             "different constructor",
                             move |wrong_type| {
@@ -1074,7 +1084,7 @@ proptest! {
     #[test]
     fn prop_from_consensus_buff_truncated_returns_none(
         (type_str, bytes, cut_point) in
-            clarity_values_no_response()
+            clarity_value_no_response_strategy()
                 .prop_filter_map(
                     "serializable with concrete type",
                     |value| {
