@@ -150,11 +150,11 @@ impl RPCPeerInfoData {
 
 /// Decode the HTTP request
 impl HttpRequest for RPCPeerInfoRequestHandler {
-    fn verb(&self) -> &'static str {
+    fn verb() -> &'static str {
         "GET"
     }
 
-    fn path_regex(&self) -> Regex {
+    fn path_regex() -> Regex {
         Regex::new(r#"^/v2/info$"#).unwrap()
     }
 

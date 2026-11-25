@@ -49,11 +49,11 @@ impl RPCGetAttachmentsInvRequestHandler {
 
 /// Decode the HTTP request
 impl HttpRequest for RPCGetAttachmentsInvRequestHandler {
-    fn verb(&self) -> &'static str {
+    fn verb() -> &'static str {
         "GET"
     }
 
-    fn path_regex(&self) -> Regex {
+    fn path_regex() -> Regex {
         Regex::new("^/v2/attachments/inv$").unwrap()
     }
 

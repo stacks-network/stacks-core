@@ -169,8 +169,9 @@ pub enum SelfAsTip {
     /// evaluated, which would overwrite that row.
     Counts,
     /// The block is left out of the tip query, so another accepted sibling at the same height,
-    /// if there is one, is the block compared against. Used by the checks that run after our own
-    /// validation, when the group may already have signed this very block.
+    /// if there is one, is the block compared against. If the node's tenure tip is the block
+    /// itself, it is accepted rather than compared against itself. Used by the checks that run
+    /// after our own validation, when the group may already have signed this very block.
     Ignored,
 }
 
@@ -403,7 +404,9 @@ impl SortitionData {
     }
 
     /// Check whether or not `block` is higher than the highest block in `tenure_id`.
-    ///  returns `Ok(true)` if `block` is higher, `Ok(false)` if not.
+    ///  returns `Ok(true)` if `block` is higher, `Ok(false)` if not. With
+    ///  [`SelfAsTip::Ignored`], it also returns `Ok(true)` if `block` is already the node's
+    ///  tenure tip.
     ///
     /// If we can't look up `tenure_id`, assume `block` is higher.
     /// This assumption is safe because this proposal ultimately must be passed
@@ -525,6 +528,15 @@ impl SortitionData {
                     }
                 }
             }
+        }
+        // The node may already have processed this very block if the group signed it before
+        // our validation returned; it is then the tip rather than a block it must exceed.
+        if self_as_tip == SelfAsTip::Ignored
+            && tip
+                .as_stacks_nakamoto()
+                .is_some_and(|tip| tip.signer_signature_hash() == own_hash)
+        {
+            return Ok(true);
         }
         Ok(tip.height() < block.header.chain_length)
     }

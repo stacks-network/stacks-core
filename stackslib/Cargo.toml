@@ -60,20 +60,20 @@ workspace = true
 
 [dev-dependencies]
 assert-json-diff = { workspace = true }
-stdext = "0.3.1"
+stdext = { workspace = true }
 stx-genesis = { path = "../stx-genesis"}
 clarity = { features = ["default", "testing"], path = "../clarity" }
 stacks-common = { features = ["default", "testing"], path = "../stacks-common" }
 stacks-marf = { features = ["testing"], path = "../stacks-marf" }
 stacks-codec = { features = ["default", "testing"], path = "../stacks-codec" }
-rstest = "0.17.0"
-rstest_reuse = "0.5.0"
-mutants = "0.0.3"
+rstest = { workspace = true }
+rstest_reuse = { workspace = true }
+mutants = { workspace = true }
 rlimit = "0.11.0"
 chrono = "0.4.19"
-tempfile = "3.3"
+tempfile = { workspace = true, features = ["default"] }
 pinny = { workspace = true }
-proptest = { version = "1.6.0", default-features = false, features = ["std"] }
+proptest = { workspace = true }
 madhouse = { workspace = true }
 insta = { version = "1.37.0", features = ["ron"] }
 

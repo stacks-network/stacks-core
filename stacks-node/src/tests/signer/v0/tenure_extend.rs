@@ -3374,6 +3374,7 @@ fn new_tenure_no_winner_while_proposing_block_then_ignored() {
     info!("---- Mining burn block N+1 with no sortition winner ----");
 
     signer_test.mine_bitcoin_block();
+    signer_test.get_burn_updated_states();
 
     info!("---- Unpausing block validation and block response ----");
     TEST_VALIDATE_STALL.set(vec![]);
@@ -4626,6 +4627,7 @@ fn empty_sortition_with_lost_tenure_start_proposal() {
         "Burn block B should have no sortition"
     );
     assert_eq!(info_b.stacks_tip_height, stacks_height_before);
+    signer_test.get_burn_updated_states();
 
     info!("Letting the signers consider new proposals again; N itself stays lost");
     TEST_IGNORE_ALL_BLOCK_PROPOSALS.set(vec![]);
@@ -4660,11 +4662,8 @@ fn empty_sortition_with_lost_tenure_start_proposal() {
         "The late BlockFound was issued before the in-flight wait expired"
     );
 
-    let block_n_late =
-        wait_for_block_pushed_and_tip(60, stacks_height_before + 1, &miner_pk, || {
-            get_chain_info(&signer_test.running_nodes.conf).stacks_tip
-        })
-        .expect("Timed out waiting for the late tenure-start block to land");
+    let block_n_late = wait_for_block_pushed_by_miner_key(60, stacks_height_before + 1, &miner_pk)
+        .expect("Timed out waiting for the late tenure-start block to be signed");
     assert_ne!(
         block_n_late.header.signer_signature_hash(),
         block_n.header.signer_signature_hash(),
@@ -5001,6 +5000,7 @@ fn empty_sortition_while_block_in_flight_never_lands() {
         !get_sortition_info_ch(&signer_test.running_nodes.conf, &burn_view_b).was_sortition,
         "Burn block B should have no sortition"
     );
+    signer_test.get_burn_updated_states();
     TEST_IGNORE_ALL_BLOCK_PROPOSALS.set(vec![]);
     let commits_before = commits_submitted.load(Ordering::SeqCst);
     skip_commit_op.set(false);
