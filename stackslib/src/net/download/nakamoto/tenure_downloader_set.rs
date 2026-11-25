@@ -24,7 +24,7 @@ use crate::chainstate::nakamoto::NakamotoBlock;
 use crate::chainstate::stacks::db::StacksChainState;
 use crate::core::EpochList;
 use crate::net::download::nakamoto::{AvailableTenures, NakamotoTenureDownloader, TenureStartEnd};
-use crate::net::neighbors::rpc::NeighborRPC;
+use crate::net::neighbors::rpc::{NeighborRPC, NeighborRPCOwner};
 use crate::net::p2p::{CurrentRewardSet, DropReason, DropSource, PeerNetwork};
 use crate::net::NeighborAddress;
 
@@ -599,7 +599,9 @@ impl NakamotoTenureDownloaderSet {
         }
 
         // handle responses
-        for (naddr, response) in neighbor_rpc.collect_replies(network) {
+        for (naddr, response) in
+            neighbor_rpc.collect_replies(network, NeighborRPCOwner::NakamotoConfirmedTenures)
+        {
             let Some(index) = self.peers.get(&naddr) else {
                 debug!("No downloader for {naddr}");
                 continue;

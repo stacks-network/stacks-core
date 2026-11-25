@@ -68,6 +68,14 @@ sha2 = "0.10.8"
 # Benchmarking dependencies
 criterion = { version = "0.8.2", default-features = false, features = ["html_reports"] }
 
+# Test-only dependencies
+mutants = "0.0.3"
+proptest = { version = "1.6.0", default-features = false, features = ["std"] }
+rstest = "0.17.0"
+rstest_reuse = "0.5.0"
+stdext = "0.3.3"
+tempfile = { version = "3.25.0", default-features = false }
+
 # Procedural macro dependencies
 syn = { version = "3.0.9", default-features = false, features = ["full", "extra-traits", "parsing", "printing", "proc-macro"] }
 quote = { version = "1.0.44", default-features = false, features = ["proc-macro"] }

@@ -75,7 +75,7 @@ sha2 = { workspace = true, features = ["asm"] }
 sha2 = { workspace = true }
 
 [dev-dependencies]
-proptest = "1.6.0"
+proptest = { workspace = true, features = ["default"] }
 pinny = { workspace = true }
 
 [target.'cfg(windows)'.dev-dependencies]

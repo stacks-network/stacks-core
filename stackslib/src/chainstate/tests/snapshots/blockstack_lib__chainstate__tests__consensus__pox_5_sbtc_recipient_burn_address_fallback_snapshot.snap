@@ -1,0 +1,52 @@
+---
+source: stackslib/src/chainstate/tests/consensus.rs
+expression: snapshot
+snapshot_kind: text
+---
+SbtcFallbackSnapshot(
+  cycles: [
+    SbtcRecipientCycle(
+      reward_cycle: 9,
+      computed_in: Epoch40,
+      sbtc_recipient: "tb1pun4830cmlqz7jlav9uh4xrx8lm4rfnrgd3lku5n3cgxtz8pdyjxs489wyf",
+    ),
+    SbtcRecipientCycle(
+      reward_cycle: 10,
+      computed_in: Epoch41,
+      sbtc_recipient: "mfWxJ45yp2SFn7UciZyNpvDKrzbhyfKrY8",
+    ),
+    SbtcRecipientCycle(
+      reward_cycle: 11,
+      computed_in: Epoch41,
+      sbtc_recipient: "mfWxJ45yp2SFn7UciZyNpvDKrzbhyfKrY8",
+    ),
+  ],
+  fallback_cycle_block: Success(ExpectedBlockOutput(
+    marf_hash: "df4c18ea31b2619d7ee76b25a8ae648a5f211d66e24d8a572762747f6c256660",
+    evaluated_epoch: Epoch41,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "TokenTransfer(from: ST000000000000000000002AMW42H, amount: 1000, memo: 00000000000000000000000000000000000000000000000000000000000000000000)",
+        vm_error: "None [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: true,
+          data: Bool(true),
+        )),
+        cost: ExecutionCost(
+          write_length: 0,
+          write_count: 0,
+          read_length: 0,
+          read_count: 0,
+          runtime: 0,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 0,
+      write_count: 0,
+      read_length: 0,
+      read_count: 0,
+      runtime: 0,
+    ),
+  )),
+)
