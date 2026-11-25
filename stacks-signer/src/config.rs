@@ -528,9 +528,11 @@ impl TryFrom<&PathBuf> for RawConfigFile {
     type Error = ConfigError;
 
     fn try_from(path: &PathBuf) -> Result<Self, Self::Error> {
-        Self::load_from_str(&fs::read_to_string(path).map_err(|e| {
-            ConfigError::InvalidConfig(format!("failed to read config file: {e:?}"))
-        })?)
+        Self::load_from_str(
+            &fs::read_to_string(path).map_err(|e| {
+                ConfigError::InvalidConfig(format!("failed to read config file: {e}"))
+            })?,
+        )
     }
 }
 

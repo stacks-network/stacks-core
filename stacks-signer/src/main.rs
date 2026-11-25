@@ -116,7 +116,7 @@ fn handle_put_chunk(args: PutChunkArgs) {
 
 /// Load the signer config from `path`, or print the error to stderr and exit.
 /// The message bypasses the logger so it is shown at every log level.
-fn load_config(path: &PathBuf) -> GlobalConfig {
+fn load_config_or_exit(path: &PathBuf) -> GlobalConfig {
     GlobalConfig::try_from(path).unwrap_or_else(|e| {
         eprintln!("Failed to load config file {}: {e}", path.display());
         std::process::exit(1);
@@ -125,7 +125,7 @@ fn load_config(path: &PathBuf) -> GlobalConfig {
 
 fn handle_run(args: RunSignerArgs) {
     debug!("Running signer...");
-    let config = load_config(&args.config);
+    let config = load_config_or_exit(&args.config);
     // Open (and migrate) the signer db before starting, so a db this release cannot use stops
     // the signer with an error instead of a panic, possibly in a signer thread.
     if let Err(e) = SignerDb::new(&config.db_path) {
@@ -145,7 +145,7 @@ fn handle_generate_staking_signature(
     args: GenerateStakingSignatureArgs,
     do_print: bool,
 ) -> MessageSignature {
-    let config = load_config(&args.config);
+    let config = load_config_or_exit(&args.config);
 
     let private_key = config.stacks_private_key.clone();
     let public_key = StacksPublicKey::from_private(&private_key);
@@ -183,12 +183,12 @@ fn handle_generate_staking_signature(
 }
 
 fn handle_check_config(args: RunSignerArgs) {
-    let config = load_config(&args.config);
+    let config = load_config_or_exit(&args.config);
     println!("Signer version: {}\nConfig: \n{config}", *VERSION_STRING);
 }
 
 fn handle_generate_vote(args: GenerateVoteArgs, do_print: bool) -> MessageSignature {
-    let config = load_config(&args.config);
+    let config = load_config_or_exit(&args.config);
     let message_signature = args.vote_info.sign(&config.stacks_private_key).unwrap();
     if do_print {
         println!("{}", to_hex(message_signature.as_bytes()));
