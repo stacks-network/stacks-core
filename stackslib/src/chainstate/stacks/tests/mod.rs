@@ -799,8 +799,7 @@ pub fn check_block_state_index_root(
     let mut state_root_index =
         StacksChainState::open_index(&chainstate.clarity_state_index_path, None).unwrap();
     let state_root = state_root_index
-        .borrow_storage_backend()
-        .read_block_root_hash(&index_block_hash)
+        .get_root_hash_at(&index_block_hash)
         .unwrap();
     test_debug!(
         "checking {consensus_hash}/{} state root: expecting {}, got {state_root}",

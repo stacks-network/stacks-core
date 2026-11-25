@@ -29,11 +29,10 @@ use clarity::vm::types::QualifiedContractIdentifier;
 use rusqlite::Connection;
 use stacks_common::codec::StacksMessageCodec;
 use stacks_common::types::chainstate::{BlockHeaderHash, StacksBlockId, TrieHash};
-use stacks_marf::marf::{
-    test_override_marf_compression, MARFOpenOpts, MarfConnection, MarfTransaction, MARF,
+use stacks_marf::{
+    test_override_marf_compression, ClarityMarfTrieId, Error, MARFOpenOpts, MARFValue,
+    MarfConnection, MarfTransaction, TrieHashCalculationMode, MARF,
 };
-use stacks_marf::storage::{TrieFileStorage, TrieHashCalculationMode};
-use stacks_marf::{ClarityMarfTrieId, Error, MARFValue};
 
 use crate::clarity_vm::clarity::{
     ClarityMarfStore, ClarityMarfStoreTransaction, WritableMarfStore,
@@ -301,15 +300,13 @@ impl MarfedKV {
         })?;
 
         // set up ephemeral MARF
-        let ephemeral_marf_storage = TrieFileStorage::open(
+        let mut ephemeral_marf = MARF::from_path(
             ":memory:",
             MARFOpenOpts::new(TrieHashCalculationMode::Deferred, false),
         )
         .map_err(|e| {
             VmInternalError::Expect(format!("Failed to instantiate ephemeral MARF: {:?}", &e))
         })?;
-
-        let mut ephemeral_marf = MARF::from_storage(ephemeral_marf_storage);
         let tx = ephemeral_marf
             .storage_tx()
             .map_err(|err| VmInternalError::DBError(err.to_string()))?;

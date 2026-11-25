@@ -47,8 +47,7 @@ use stacks_common::util::db::SqliteVfs;
 use stacks_common::util::get_epoch_time_ms;
 use stacks_common::util::hash::hex_bytes;
 use stacks_common::util::secp256k1::{Secp256k1PrivateKey, Secp256k1PublicKey};
-use stacks_marf::marf::MARFOpenOpts;
-use stacks_marf::storage::TrieHashCalculationMode;
+use stacks_marf::{MARFOpenOpts, TrieHashCalculationMode};
 
 use crate::burnchains::bitcoin::{signet, BitcoinNetworkType};
 use crate::burnchains::{Burnchain, MagicBytes, BLOCKSTACK_MAGIC_MAINNET};

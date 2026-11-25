@@ -21,9 +21,7 @@ use clarity::vm::database::{SqliteConnection, DATA_TABLE_NAME, METADATA_TABLE_NA
 use clarity::vm::types::QualifiedContractIdentifier;
 use rusqlite::{Connection, OpenFlags};
 use stacks_common::types::chainstate::StacksBlockId;
-use stacks_marf::marf::{MARFOpenOpts, MarfConnection as _, MARF};
-use stacks_marf::storage::{TrieFileStorage, TrieHashCalculationMode};
-use stacks_marf::Error;
+use stacks_marf::{Error, MARFOpenOpts, MarfConnection as _, TrieHashCalculationMode, MARF};
 
 use super::common::{
     assert_source_schema, clone_schemas_from_source, with_indexes_dropped,
@@ -144,8 +142,7 @@ fn open_readonly_clarity_db(path: &str) -> Result<Connection, Error> {
 fn open_readonly_marf(db_path: &str) -> Result<MARF<StacksBlockId>, Error> {
     // Clarity MARF always stores external blobs, whether archival or squashed.
     let open_opts = MARFOpenOpts::new(TrieHashCalculationMode::Deferred, true);
-    let storage = TrieFileStorage::open_readonly(db_path, open_opts)?;
-    Ok(MARF::from_storage(storage))
+    MARF::from_path_readonly(db_path, open_opts)
 }
 
 /// Stream the source `metadata_table` into the destination, keeping only rows

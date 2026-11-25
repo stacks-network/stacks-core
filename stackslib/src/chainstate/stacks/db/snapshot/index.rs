@@ -19,7 +19,7 @@ use std::time::Instant;
 use rusqlite::types::Value;
 use rusqlite::{params, Connection, OpenFlags, OptionalExtension};
 use stacks_common::types::chainstate::StacksBlockId;
-use stacks_marf::{trie_sql, Error, MARFValue};
+use stacks_marf::{bulk_read_squashed_blocks, Error, MARFValue};
 
 use super::common::{
     classify_hint, clone_schemas_from_source, copied_rows, marf_err, with_offline_write_session,
@@ -101,7 +101,7 @@ pub struct IndexSideTableStats {
 /// hex TEXT, so each id is inserted as its hex form to keep the joins
 /// compatible. Returns the canonical tip (the highest squashed block).
 fn populate_canonical_blocks(conn: &Connection) -> Result<StacksBlockId, Error> {
-    let canonical = trie_sql::bulk_read_squashed_blocks::<StacksBlockId>(conn)?;
+    let canonical = bulk_read_squashed_blocks::<StacksBlockId>(conn)?;
     let Some((_, tip, _)) = canonical.last() else {
         return Err(Error::CorruptionError(
             "marf_squashed_blocks is empty; post-squash dst must have at least one canonical block"

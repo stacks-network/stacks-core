@@ -26,9 +26,7 @@ use stacks_common::types::chainstate::{
     StacksAddress, StacksBlockId, StacksPrivateKey, StacksPublicKey,
 };
 use stacks_common::types::Address;
-use stacks_marf::marf::MARFOpenOpts;
-use stacks_marf::storage::TrieHashCalculationMode;
-use stacks_marf::ClarityMarfTrieId;
+use stacks_marf::{ClarityMarfTrieId, MARFOpenOpts, TrieHashCalculationMode};
 
 use crate::chainstate::burn::db::sortdb::{SortitionDB, SortitionHandleConn};
 use crate::chainstate::nakamoto::miner::{MinerTenureInfoCause, NakamotoBlockBuilder};

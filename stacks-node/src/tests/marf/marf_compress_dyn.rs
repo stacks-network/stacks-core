@@ -26,7 +26,7 @@ pub mod utils {
     use stacks::core::mempool::MemPoolWalkStrategy;
     use stacks::core::test_util::{insert_tx_in_mempool, make_stacks_transfer_serialized};
     use stacks::types::chainstate::{StacksAddress, StacksPrivateKey};
-    use stacks_marf::marf::fault_injection_marf_compression;
+    use stacks_marf::testing::fault_injection_marf_compression;
     use stacks_signer::v0::SpawnedSigner;
 
     use crate::nakamoto_node::miner::{fault_injection_stall_miner, fault_injection_unstall_miner};

@@ -20,8 +20,7 @@ use stacks_common::types::chainstate::{
 };
 use stacks_common::types::Address;
 use stacks_common::util::vrf::VRFProof;
-use stacks_marf::marf::{MarfConnection, MARF};
-use stacks_marf::ClarityMarfTrieId;
+use stacks_marf::{ClarityMarfTrieId, MarfConnection, MARF};
 
 use crate::chainstate::burn::db::sortdb::{
     get_ancestor_sort_id, SortitionDB, SortitionHandle, SortitionHandleConn, SortitionHandleTx,

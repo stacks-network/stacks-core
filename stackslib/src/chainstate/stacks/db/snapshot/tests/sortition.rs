@@ -24,8 +24,8 @@ use stacks_common::types::chainstate::{
     BlockHeaderHash, BurnchainHeaderHash, ConsensusHash, SortitionId, TrieHash,
 };
 use stacks_common::types::StacksEpochId;
-use stacks_marf::marf::{MARFOpenOpts, MARF};
-use stacks_marf::{trie_sql, ClarityMarfTrieId, Error, MARFValue};
+use stacks_marf::testing::test_insert_squashed_block;
+use stacks_marf::{ClarityMarfTrieId, Error, MARFOpenOpts, MARFValue, MARF};
 use tempfile::tempdir;
 
 use super::super::common::TableCopySource;
@@ -73,7 +73,7 @@ fn create_sortition_source_db(dir: &Path) -> (Connection, PathBuf) {
 ///
 /// `sortition_id` is stored as its [`hex_id`] form so it joins against the
 /// canonical-sortitions temp table, which `populate_canonical_sortitions`
-/// fills with the lowercase-hex ids read via `trie_sql::bulk_read_squashed_blocks`.
+/// fills with the lowercase-hex ids read via `stacks_marf::bulk_read_squashed_blocks`.
 fn insert_snapshot(
     conn: &Connection,
     sortition_id_label: &str,
@@ -143,7 +143,7 @@ fn create_sortition_dest_db_with_ids(path: &Path, canonical_ids: &[SortitionId])
 
     let conn = Connection::open(path).unwrap();
     for (h, sid) in canonical_ids.iter().enumerate() {
-        trie_sql::test_insert_squashed_block(&conn, h as u32, sid, &TrieHash([0u8; 32])).unwrap();
+        test_insert_squashed_block(&conn, h as u32, sid, &TrieHash([0u8; 32])).unwrap();
     }
 }
 

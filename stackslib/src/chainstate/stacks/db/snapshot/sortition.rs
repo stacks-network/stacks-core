@@ -19,7 +19,7 @@ use rusqlite::types::Value;
 use rusqlite::{params, Connection, OpenFlags, OptionalExtension};
 use stacks_common::types::chainstate::{BurnchainHeaderHash, SortitionId};
 use stacks_common::types::sqlite::NO_PARAMS;
-use stacks_marf::{trie_sql, Error, MARFValue};
+use stacks_marf::{bulk_read_squashed_blocks, Error, MARFValue};
 
 use super::common::{
     classify_hint, clone_schemas_from_source, copied_rows, marf_err, with_offline_write_session,
@@ -253,7 +253,7 @@ fn populate_canonical_sortitions(
     src_conn: &Connection,
     session_conn: &Connection,
 ) -> Result<(), Error> {
-    let canonical = trie_sql::bulk_read_squashed_blocks::<SortitionId>(session_conn)?;
+    let canonical = bulk_read_squashed_blocks::<SortitionId>(session_conn)?;
     if canonical.is_empty() {
         return Err(Error::CorruptionError(
             "marf_squashed_blocks is empty; post-squash dst must have at least one canonical sortition"

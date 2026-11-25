@@ -39,8 +39,9 @@ use stacks_common::codec::{read_next, write_next, StacksMessageCodec};
 use stacks_common::types::chainstate::{StacksAddress, StacksBlockId, TrieHash};
 use stacks_common::types::sqlite::NO_PARAMS;
 use stacks_common::util::hash::{hex_bytes, to_hex};
-use stacks_marf::marf::{test_override_marf_compression, MARFOpenOpts, MarfConnection, MARF};
-use stacks_marf::ClarityMarfTrieId;
+use stacks_marf::{
+    test_override_marf_compression, ClarityMarfTrieId, MARFOpenOpts, MarfConnection, MARF,
+};
 
 use crate::burnchains::bitcoin::address::LegacyBitcoinAddress;
 use crate::burnchains::{Address, Burnchain, BurnchainParameters, PoxConstants};

@@ -18,7 +18,7 @@
 use std::path::{Path, PathBuf};
 
 use stacks_common::types::chainstate::StacksBlockId;
-use stacks_marf::marf::MARFOpenOpts;
+use stacks_marf::MARFOpenOpts;
 use stackslib::util_lib::db::sqlite_open;
 
 use crate::layout::epoch2_block_rel_path;
