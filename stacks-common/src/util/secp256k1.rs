@@ -554,9 +554,10 @@ fn secp256k1_privkey_deserialize<'de, D: serde::Deserializer<'de>>(
     K256SecretKey::from_slice(&key_bytes).map_err(de_Error::custom)
 }
 
-/// Recover a public key from a 32-byte message hash and a 65-byte RSV signature.
-/// High-S signatures are accepted.
-pub fn secp256k1_recover(
+/// Recover a compressed public key from a 32-byte message hash and a 65-byte signature in
+/// RSV order (the layout Clarity's `secp256k1-recover?` uses; see
+/// [`MessageSignature::from_rsv`]). High-S signatures are accepted.
+pub fn secp256k1_recover_rsv(
     message_arr: &[u8],
     serialized_signature_arr: &[u8],
 ) -> Result<[u8; 33], Error> {
@@ -1100,8 +1101,8 @@ mod tests {
         let msg = Sha256Sum::from_data(b"hello world");
         let high_s_sig = privk.sign(msg.as_bytes()).unwrap().with_negated_s();
 
-        let recovered = secp256k1_recover(msg.as_bytes(), &high_s_sig.to_rsv())
-            .expect("secp256k1_recover must accept high-S signatures");
+        let recovered = secp256k1_recover_rsv(msg.as_bytes(), &high_s_sig.to_rsv())
+            .expect("secp256k1_recover_rsv must accept high-S signatures");
         assert_eq!(recovered.to_vec(), pubk.to_bytes_compressed());
     }
 
@@ -1111,22 +1112,22 @@ mod tests {
         let msg = [0x66u8; 32];
         let rsv = privk.sign(&msg).unwrap().to_rsv();
 
-        assert!(secp256k1_recover(&msg, &rsv).is_ok());
+        assert!(secp256k1_recover_rsv(&msg, &rsv).is_ok());
         assert_eq!(
-            secp256k1_recover(&msg[..31], &rsv),
+            secp256k1_recover_rsv(&msg[..31], &rsv),
             Err(Error::InvalidMessage)
         );
         assert_eq!(
-            secp256k1_recover(&msg, &rsv[..64]),
+            secp256k1_recover_rsv(&msg, &rsv[..64]),
             Err(Error::InvalidInputLength)
         );
         let mut bad_recid = rsv.clone();
         bad_recid[64] = 4;
         assert_eq!(
-            secp256k1_recover(&msg, &bad_recid),
+            secp256k1_recover_rsv(&msg, &bad_recid),
             Err(Error::InvalidRecoveryId)
         );
-        assert!(secp256k1_recover(&msg, &[0u8; 65]).is_err());
+        assert!(secp256k1_recover_rsv(&msg, &[0u8; 65]).is_err());
     }
 
     #[test]

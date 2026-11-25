@@ -33,7 +33,7 @@ use stacks_common::types::chainstate::{
 };
 use stacks_common::types::{PrivateKey, PublicKey};
 use stacks_common::util::hash::{hex_bytes, Hash160, Sha512Trunc256Sum};
-use stacks_common::util::secp256k1::{secp256k1_recover, secp256k1_verify, MessageSignature};
+use stacks_common::util::secp256k1::{secp256k1_recover_rsv, secp256k1_verify, MessageSignature};
 #[cfg(target_family = "wasm")]
 use wasm_bindgen_test::wasm_bindgen_test as test;
 
@@ -455,7 +455,7 @@ fn secp256k1_recover_accepts_low_and_high_s() {
 
         // Negating s also flips the recovery ID, preserving the recovered key.
         for signature in [&sig, &sig.with_negated_s()] {
-            let recovered = secp256k1_recover(&hash, &signature.to_rsv())
+            let recovered = secp256k1_recover_rsv(&hash, &signature.to_rsv())
                 .unwrap_or_else(|e| panic!("reference {i}: {e}"));
             assert_eq!(recovered.as_slice(), expected, "reference {i}");
         }
@@ -473,7 +473,7 @@ fn secp256k1_recover_rejects_malformed_input() {
 
     for len in [0usize, 31, 33, 64] {
         assert!(
-            secp256k1_recover(&vec![0u8; len], &sig).is_err(),
+            secp256k1_recover_rsv(&vec![0u8; len], &sig).is_err(),
             "accepted a {len}-byte message hash"
         );
     }
@@ -482,7 +482,7 @@ fn secp256k1_recover_rejects_malformed_input() {
         let mut invalid = sig.clone();
         invalid[64] = recovery_id;
         assert!(
-            secp256k1_recover(&hash, &invalid).is_err(),
+            secp256k1_recover_rsv(&hash, &invalid).is_err(),
             "accepted recovery ID {recovery_id}"
         );
     }
@@ -496,7 +496,7 @@ fn secp256k1_recover_rejects_malformed_input() {
             let mut invalid = sig.clone();
             invalid[offset..offset + 32].copy_from_slice(scalar);
             assert!(
-                secp256k1_recover(&hash, &invalid).is_err(),
+                secp256k1_recover_rsv(&hash, &invalid).is_err(),
                 "accepted invalid scalar at offset {offset}: {scalar:02x?}"
             );
         }
@@ -508,7 +508,7 @@ fn secp256k1_recover_rejects_malformed_input() {
         let mut unrecoverable = sig.clone();
         unrecoverable[64] = recovery_id;
         assert!(
-            secp256k1_recover(&hash, &unrecoverable).is_err(),
+            secp256k1_recover_rsv(&hash, &unrecoverable).is_err(),
             "recovered an impossible nonce point for ID {recovery_id}"
         );
     }
@@ -552,7 +552,7 @@ fn boundary_s_value_is_not_treated_as_high_s() {
     let high_s = boundary.with_negated_s();
     for signature in [&boundary, &high_s] {
         assert_eq!(
-            secp256k1_recover(sighash.as_bytes(), &signature.to_rsv())
+            secp256k1_recover_rsv(sighash.as_bytes(), &signature.to_rsv())
                 .unwrap()
                 .as_slice(),
             pubkey.to_bytes_compressed(),
