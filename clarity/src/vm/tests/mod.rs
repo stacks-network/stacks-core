@@ -48,10 +48,8 @@ mod hooks;
 mod post_conditions;
 #[cfg(test)]
 mod principals;
-#[cfg(test)]
-pub(crate) mod proptest_strategies;
-#[cfg(test)]
-pub mod proptest_utils;
+#[cfg(any(test, feature = "testing"))]
+pub mod proptesting;
 #[cfg(test)]
 mod representations;
 #[cfg(test)]

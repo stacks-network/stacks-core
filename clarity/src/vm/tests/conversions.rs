@@ -21,11 +21,15 @@ use stacks_common::types::StacksEpochId;
 use stacks_common::util::hash::to_hex;
 
 pub use crate::vm::analysis::errors::RuntimeCheckErrorKind;
-use crate::vm::tests::proptest_utils::{
-    clarity_values_no_response, consensus_buff_type_strategy, contract_name_strategy,
-    execute_versioned, standard_principal_strategy, to_ascii_buffer_snippet_strategy,
-    utf8_string_ascii_only_snippet_strategy, utf8_string_snippet_strategy,
+use crate::vm::tests::proptesting::run::execute_versioned;
+use crate::vm::tests::proptesting::strategies::names::writable_contract_name_strategy;
+use crate::vm::tests::proptesting::strategies::principals::standard_principal_strategy;
+use crate::vm::tests::proptesting::strategies::snippets::{
+    to_ascii_buffer_snippet_strategy, utf8_string_ascii_only_snippet_strategy,
+    utf8_string_snippet_strategy,
 };
+use crate::vm::tests::proptesting::strategies::types::consensus_buff_type_strategy;
+use crate::vm::tests::proptesting::strategies::values::clarity_value_no_response_strategy;
 use crate::vm::tests::test_clarity_versions;
 use crate::vm::types::SequenceSubtype::BufferType;
 use crate::vm::types::TypeSignature::SequenceType;
@@ -741,7 +745,7 @@ proptest! {
     #[test]
     fn prop_to_ascii_from_contract_principals(
         issuer in standard_principal_strategy(),
-        contract_name in contract_name_strategy(),
+        contract_name in writable_contract_name_strategy(),
     ) {
         let contract_name_str = contract_name.to_string();
         let literal = format!("'{}.{}", issuer, contract_name_str);
@@ -974,7 +978,7 @@ proptest! {
     #[tag(t_prop)]
     #[test]
     fn prop_from_consensus_buff_roundtrip(
-        value in clarity_values_no_response()
+        value in clarity_value_no_response_strategy()
     ) {
         let type_sig = TypeSignature::type_of(&value)
             .expect("generated value must have a type");
@@ -1014,7 +1018,7 @@ proptest! {
     #[test]
     fn prop_from_consensus_buff_type_mismatch_returns_none(
         (type_str, bytes, wrong_type) in
-            clarity_values_no_response()
+            clarity_value_no_response_strategy()
                 .prop_filter_map(
                     "serializable with concrete type",
                     |value| {
@@ -1074,7 +1078,7 @@ proptest! {
     #[test]
     fn prop_from_consensus_buff_truncated_returns_none(
         (type_str, bytes, cut_point) in
-            clarity_values_no_response()
+            clarity_value_no_response_strategy()
                 .prop_filter_map(
                     "serializable with concrete type",
                     |value| {

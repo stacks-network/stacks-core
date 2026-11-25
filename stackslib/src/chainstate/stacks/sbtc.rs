@@ -502,9 +502,7 @@ fn write_compact_size(buf: &mut Vec<u8>, n: u64) {
 
 #[cfg(test)]
 mod tests {
-    use clarity::vm::representations::CONTRACT_MAX_NAME_LENGTH;
-    use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier, StandardPrincipalData};
-    use clarity::vm::ContractName;
+    use clarity::vm::types::PrincipalData;
     use serde::Deserialize;
     use stacks_common::util::hash::{hex_bytes, to_hex};
 
@@ -1411,6 +1409,7 @@ mod tests {
     // agreement across a randomized search space the reference fixtures above
     // cannot exhaustively cover.
 
+    use clarity::vm::tests::proptesting::strategies::principals::principal_strategy;
     use pinny::tag;
     use proptest::prelude::*;
 
@@ -1457,51 +1456,6 @@ mod tests {
             })
     }
 
-    /// Standard principal (version < 32, arbitrary 20-byte hash).
-    /// `version < 32` is enforced by the range, so construction is total.
-    fn arb_standard_principal() -> impl Strategy<Value = StandardPrincipalData> {
-        (0u8..32u8, any::<[u8; 20]>()).prop_map(|(version, bytes)| {
-            StandardPrincipalData::new(version, bytes).expect("version < 32 by construction")
-        })
-    }
-
-    /// Valid Clarity contract name spanning the full structural domain: a
-    /// leading `[a-zA-Z]` followed by `0..CONTRACT_MAX_NAME_LENGTH` body chars
-    /// from `[a-zA-Z0-9-_]`, for a total length of
-    /// `1..=CONTRACT_MAX_NAME_LENGTH`.
-    fn arb_contract_name() -> impl Strategy<Value = ContractName> {
-        let lead = prop_oneof![b'a'..=b'z', b'A'..=b'Z'];
-        let body = prop::collection::vec(
-            prop_oneof![
-                b'a'..=b'z',
-                b'A'..=b'Z',
-                b'0'..=b'9',
-                Just(b'-'),
-                Just(b'_')
-            ],
-            0..CONTRACT_MAX_NAME_LENGTH,
-        );
-        (lead, body).prop_map(|(lead, body)| {
-            let mut s = String::with_capacity(1 + body.len());
-            s.push(lead as char);
-            for c in body {
-                s.push(c as char);
-            }
-            ContractName::try_from(s).expect("structurally valid contract name")
-        })
-    }
-
-    /// Standard- or Contract-variant principal, uniformly weighted. The
-    /// recipient sensitivity tests below assume both shapes are exercised.
-    fn arb_principal_data() -> impl Strategy<Value = PrincipalData> {
-        prop_oneof![
-            arb_standard_principal().prop_map(PrincipalData::Standard),
-            (arb_standard_principal(), arb_contract_name()).prop_map(|(issuer, name)| {
-                PrincipalData::Contract(QualifiedContractIdentifier::new(issuer, name))
-            }),
-        ]
-    }
-
     /// sBTC's `MAX_RECLAIM_SCRIPT_LENGTH` (2048). Larger inputs are rejected
     /// upstream by the validator.
     const MAX_USER_RECLAIM_SCRIPT_LEN: usize = 2048;
@@ -1529,7 +1483,7 @@ mod tests {
         #[test]
         fn prop_sbtc_key_deterministic(
             pubkey_xonly in arb_valid_xonly_pubkey(),
-            recipient in arb_principal_data(),
+            recipient in principal_strategy(),
             max_fee in any::<u64>(),
             lock_time in any::<u16>(),
             user_reclaim in prop::collection::vec(any::<u8>(), 0..=MAX_USER_RECLAIM_SCRIPT_LEN),
@@ -1551,8 +1505,8 @@ mod tests {
         #[test]
         fn prop_sbtc_key_distinct_by_recipient(
             pubkey_xonly in arb_valid_xonly_pubkey(),
-            recipient_a in arb_principal_data(),
-            recipient_b in arb_principal_data(),
+            recipient_a in principal_strategy(),
+            recipient_b in principal_strategy(),
             max_fee in any::<u64>(),
             lock_time in any::<u16>(),
             user_reclaim in prop::collection::vec(any::<u8>(), 0..=MAX_USER_RECLAIM_SCRIPT_LEN),
@@ -1576,7 +1530,7 @@ mod tests {
         #[test]
         fn prop_sbtc_key_distinct_by_max_fee(
             pubkey_xonly in arb_valid_xonly_pubkey(),
-            recipient in arb_principal_data(),
+            recipient in principal_strategy(),
             max_fee_a in any::<u64>(),
             max_fee_b in any::<u64>(),
             lock_time in any::<u16>(),
@@ -1602,7 +1556,7 @@ mod tests {
         fn prop_sbtc_key_distinct_by_pubkey(
             pubkey_a in arb_valid_xonly_pubkey(),
             pubkey_b in arb_valid_xonly_pubkey(),
-            recipient in arb_principal_data(),
+            recipient in principal_strategy(),
             max_fee in any::<u64>(),
             lock_time in any::<u16>(),
             user_reclaim in prop::collection::vec(any::<u8>(), 0..=MAX_USER_RECLAIM_SCRIPT_LEN),
@@ -1626,7 +1580,7 @@ mod tests {
         #[test]
         fn prop_sbtc_key_distinct_by_lock_time(
             pubkey_xonly in arb_valid_xonly_pubkey(),
-            recipient in arb_principal_data(),
+            recipient in principal_strategy(),
             max_fee in any::<u64>(),
             lock_time_a in any::<u16>(),
             lock_time_b in any::<u16>(),
@@ -1651,7 +1605,7 @@ mod tests {
         #[test]
         fn prop_sbtc_key_distinct_by_user_reclaim_script(
             pubkey_xonly in arb_valid_xonly_pubkey(),
-            recipient in arb_principal_data(),
+            recipient in principal_strategy(),
             max_fee in any::<u64>(),
             lock_time in any::<u16>(),
             user_reclaim_a in prop::collection::vec(any::<u8>(), 0..=MAX_USER_RECLAIM_SCRIPT_LEN),
@@ -1680,7 +1634,7 @@ mod tests {
                 "off-curve x-only only",
                 |b| XOnlyPublicKey::from_slice(b).is_err(),
             ),
-            recipient in arb_principal_data(),
+            recipient in principal_strategy(),
             max_fee in any::<u64>(),
             lock_time in any::<u16>(),
             user_reclaim in prop::collection::vec(any::<u8>(), 0..=MAX_USER_RECLAIM_SCRIPT_LEN),
@@ -1700,7 +1654,7 @@ mod tests {
         #[test]
         fn prop_sbtc_pox5_wrapper_matches_generic(
             pubkey_compressed in arb_valid_compressed_pubkey_33(),
-            recipient in arb_principal_data(),
+            recipient in principal_strategy(),
             max_fee in any::<u64>(),
         ) {
             let xonly: [u8; 32] = pubkey_compressed[1..].try_into().expect("33 - 1 = 32");
@@ -1750,7 +1704,7 @@ mod tests {
             (keys, shuffled, threshold) in arb_v2_registry_signer_set().prop_flat_map(
                 |(keys, threshold)| (Just(keys.clone()), Just(keys).prop_shuffle(), Just(threshold))
             ),
-            recipient in arb_principal_data(),
+            recipient in principal_strategy(),
             max_fee in any::<u64>(),
         ) {
             prop_assert_eq!(
@@ -1764,7 +1718,7 @@ mod tests {
         #[test]
         fn prop_v2_key_deterministic(
             (keys, threshold) in arb_v2_registry_signer_set(),
-            recipient in arb_principal_data(),
+            recipient in principal_strategy(),
             max_fee in any::<u64>(),
             lock_time in any::<u16>(),
             user_reclaim in prop::collection::vec(any::<u8>(), 0..=MAX_USER_RECLAIM_SCRIPT_LEN),
@@ -1786,7 +1740,7 @@ mod tests {
         fn prop_v2_key_distinct_by_threshold(
             (keys, threshold_a) in arb_v2_registry_signer_set(),
             threshold_b in 1..=SBTC_V2_MAX_SIGNERS as u16,
-            recipient in arb_principal_data(),
+            recipient in principal_strategy(),
             max_fee in any::<u64>(),
         ) {
             let distinct = keys.iter().collect::<BTreeSet<_>>().len() as u16;
@@ -1803,8 +1757,8 @@ mod tests {
         #[test]
         fn prop_v2_key_distinct_by_recipient(
             (keys, threshold) in arb_v2_registry_signer_set(),
-            recipient_a in arb_principal_data(),
-            recipient_b in arb_principal_data(),
+            recipient_a in principal_strategy(),
+            recipient_b in principal_strategy(),
             max_fee in any::<u64>(),
         ) {
             prop_assume!(recipient_a != recipient_b);
@@ -1820,7 +1774,7 @@ mod tests {
         #[test]
         fn prop_v2_key_distinct_by_max_fee(
             (keys, threshold) in arb_v2_registry_signer_set(),
-            recipient in arb_principal_data(),
+            recipient in principal_strategy(),
             max_fee_a in any::<u64>(),
             max_fee_b in any::<u64>(),
         ) {
@@ -1837,7 +1791,7 @@ mod tests {
         fn prop_v2_key_distinct_by_signer_set(
             (keys, threshold) in arb_v2_registry_signer_set(),
             extra in arb_valid_compressed_pubkey_33(),
-            recipient in arb_principal_data(),
+            recipient in principal_strategy(),
             max_fee in any::<u64>(),
         ) {
             prop_assume!(keys.len() < SBTC_V2_MAX_SIGNERS && !keys.contains(&extra));
@@ -1855,7 +1809,7 @@ mod tests {
         #[test]
         fn prop_v2_pox5_wrapper_matches_generic(
             (keys, threshold) in arb_v2_registry_signer_set(),
-            recipient in arb_principal_data(),
+            recipient in principal_strategy(),
             max_fee in any::<u64>(),
         ) {
             let key_set = SbtcSignerKeySet::from_registry(&keys, u128::from(threshold))
@@ -1880,7 +1834,7 @@ mod tests {
         #[test]
         fn prop_v2_key_differs_from_v1(
             key in arb_valid_compressed_pubkey_33(),
-            recipient in arb_principal_data(),
+            recipient in principal_strategy(),
             max_fee in any::<u64>(),
         ) {
             let v1 = sbtc_pox5_deposit_taproot_output_key(&key, &recipient, max_fee)

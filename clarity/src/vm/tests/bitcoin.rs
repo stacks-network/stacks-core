@@ -32,34 +32,20 @@ use stacks_common::deps_common::bitcoin::network::serialize::{
 };
 use stacks_common::deps_common::bitcoin::util::hash::Sha256dHash;
 use stacks_common::types::StacksEpochId;
-use stacks_common::util::hash::to_hex;
 
 use crate::vm::functions::bitcoin::{
     GET_BITCOIN_TX_OUTPUT_MAX_SCRIPT_LEN, VERIFY_MERKLE_PROOF_MAX_DEPTH,
 };
-use crate::vm::tests::proptest_strategies::{arb_simple_tx, synth_canonical_proof};
+use crate::vm::tests::proptesting::literals::{buff_literal, list_literal};
+use crate::vm::tests::proptesting::strategies::bitcoin::{
+    simple_tx_strategy, synth_canonical_proof,
+};
 use crate::vm::types::{TupleData, Value};
 use crate::vm::{ClarityVersion, execute_with_parameters};
 
 /// The bitcoin builtins are gated on Clarity 6 / Epoch 4.0.
 const TEST_CLARITY: ClarityVersion = ClarityVersion::Clarity6;
 const TEST_EPOCH: StacksEpochId = StacksEpochId::Epoch40;
-
-fn buff_literal(bytes: &[u8]) -> String {
-    format!("0x{}", to_hex(bytes))
-}
-
-/// Render a list of 32-byte buffers as a Clarity `(list ...)` source literal.
-fn buff_list_literal(items: &[[u8; 32]]) -> String {
-    if items.is_empty() {
-        // Empty literal — the runtime accepts an empty `(list)` for the
-        // single-leaf "depth 0" case.
-        "(list)".to_string()
-    } else {
-        let inner: Vec<String> = items.iter().map(|b| buff_literal(b)).collect();
-        format!("(list {})", inner.join(" "))
-    }
-}
 
 fn execute(snippet: &str) -> Value {
     execute_with_parameters(snippet, TEST_CLARITY, TEST_EPOCH, false)
@@ -114,7 +100,7 @@ fn merkle_proof_snippet(
         root = buff_literal(root),
         idx = tx_index,
         count = tx_count,
-        sibs = buff_list_literal(siblings),
+        sibs = list_literal(siblings.iter().map(|sibling| buff_literal(sibling))),
     )
 }
 
@@ -159,7 +145,7 @@ proptest! {
     #[tag(t_prop)]
     #[test]
     fn prop_clarity_get_bitcoin_tx_output_roundtrip(
-        (tx, outputs) in arb_simple_tx(),
+        (tx, outputs) in simple_tx_strategy(),
     ) {
         let bytes = btc_serialize(&tx).expect("serialize tx");
         let expected_txid = tx.txid().0;
@@ -197,7 +183,7 @@ proptest! {
     #[tag(t_prop)]
     #[test]
     fn prop_clarity_get_bitcoin_tx_output_vout_oob_returns_err_u2(
-        (tx, outputs) in arb_simple_tx(),
+        (tx, outputs) in simple_tx_strategy(),
         slop in 0u64..8,
     ) {
         let bytes = btc_serialize(&tx).expect("serialize tx");
@@ -217,7 +203,7 @@ proptest! {
     #[tag(t_prop)]
     #[test]
     fn prop_clarity_get_bitcoin_tx_output_vout_exceeds_u64_returns_err_u2(
-        (tx, _outputs) in arb_simple_tx(),
+        (tx, _outputs) in simple_tx_strategy(),
         vout in (u64::MAX as u128 + 1)..=u128::MAX,
     ) {
         let bytes = btc_serialize(&tx).expect("serialize tx");
