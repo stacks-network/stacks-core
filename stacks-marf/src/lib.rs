@@ -50,6 +50,8 @@ use stacks_common::types::chainstate::{
     BurnchainHeaderHash, SortitionId, StacksBlockId, TrieHash, TRIEHASH_ENCODED_SIZE,
 };
 
+use crate::node::TrieNodePatch;
+
 pub mod bits;
 pub mod blob_layout;
 pub mod cache;
@@ -67,8 +69,28 @@ pub mod test;
 
 // The core MARF types, re-exported so callers can write `stacks_marf::MARF`
 // rather than `stacks_marf::marf::MARF`.
-pub use crate::marf::{MARFOpenOpts, MarfConnection, MarfTransaction, MARF};
-use crate::node::TrieNodePatch;
+pub use crate::marf::{
+    test_override_marf_compression, MARFOpenOpts, MarfConnection, MarfTransaction, MARF,
+};
+pub use crate::storage::TrieHashCalculationMode;
+// Readers for the bookkeeping tables of a MARF's SQLite database, used by
+// tools that inspect squashed MARFs.
+pub use crate::trie_sql::{
+    bulk_read_squashed_blocks, get_latest_confirmed_block_hash, read_squash_info,
+};
+
+/// Helpers for other crates' test suites.
+#[cfg(any(test, feature = "testing"))]
+pub mod testing {
+    pub use crate::marf::fault_injection_marf_compression;
+    pub use crate::trie_sql::{test_append_squashed_block, test_insert_squashed_block};
+}
+
+/// Whether the MARF database at `db_path` keeps its trie blobs in an external
+/// `.blobs` file next to it.
+pub fn has_external_blobs(db_path: &str) -> Result<bool, Error> {
+    file::TrieFile::exists(db_path)
+}
 
 #[derive(Debug)]
 pub struct TrieMerkleProof<T: MarfTrieId>(pub Vec<TrieMerkleProofType<T>>);
