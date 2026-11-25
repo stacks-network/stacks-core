@@ -16,7 +16,7 @@ use std::ops::Deref;
 
 use clarity::util::get_epoch_time_secs;
 use clarity::vm::clarity::TransactionConnection;
-use clarity::vm::contexts::OwnedEnvironment;
+use clarity::vm::contexts::{CalleeFilter, OwnedEnvironment};
 use clarity::vm::database::*;
 use clarity::vm::errors::{RuntimeCheckErrorKind, StaticCheckErrorKind, VmExecutionError};
 use clarity::vm::resource_limiter::ResourceBudget;
@@ -903,7 +903,7 @@ fn pox_2_lock_extend_units() {
                         Value::UInt(25),
                         Value::UInt(0),
                     ],
-                    false,
+                    CalleeFilter::PublicOrReadOnly,
                 )
             },
         )

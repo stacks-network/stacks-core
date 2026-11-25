@@ -21,7 +21,7 @@ use clarity::consts::CHAIN_ID_TESTNET;
 use clarity::vm::analysis::AnalysisDatabase;
 pub use clarity::vm::clarity::{ClarityConnection, ClarityError};
 use clarity::vm::clarity::{TransactionConfig, TransactionConnection, TransactionOutput};
-use clarity::vm::contexts::{AssetMap, OwnedEnvironment};
+use clarity::vm::contexts::{AssetMap, CalleeFilter, OwnedEnvironment};
 use clarity::vm::costs::{CostTracker, ExecutionCost, LimitedCostTracker};
 use clarity::vm::database::{
     BurnStateDB, ClarityBackingStore, ClarityDatabase, ClarityExecutionCache, HeadersDB,
@@ -2494,7 +2494,13 @@ impl ClarityTransactionConnection<'_, '_> {
                         None,
                         None,
                         |exec_state, invoke_ctx| {
-                            exec_state.execute_contract(invoke_ctx, contract, method, args, true)
+                            exec_state.execute_contract(
+                                invoke_ctx,
+                                contract,
+                                method,
+                                args,
+                                CalleeFilter::ReadOnly,
+                            )
                         },
                     )
                     .map_err(ClarityError::from)

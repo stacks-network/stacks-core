@@ -20,7 +20,7 @@ use clarity::util::get_epoch_time_secs;
 use clarity::vm::ast::errors::ParseErrorKind;
 use clarity::vm::ast::stack_depth_checker::StackDepthLimits;
 use clarity::vm::clarity::{ClarityConnection, TransactionConnection};
-use clarity::vm::contexts::OwnedEnvironment;
+use clarity::vm::contexts::{CalleeFilter, OwnedEnvironment};
 use clarity::vm::database::HeadersDB;
 use clarity::vm::errors::{RuntimeCheckErrorKind, StaticCheckErrorKind, VmExecutionError};
 use clarity::vm::resource_limiter::ResourceBudget;
@@ -603,7 +603,7 @@ fn inner_test_simple_naming_system(owned_env: &mut OwnedEnvironment, version: Cl
                     &QualifiedContractIdentifier::local("names").unwrap(),
                     "preorder",
                     vec![name_hash_expensive_0.clone(), Value::UInt(1000)],
-                    false
+                    CalleeFilter::PublicOrReadOnly
                 )
                 .unwrap(),
             1
@@ -623,7 +623,7 @@ fn inner_test_simple_naming_system(owned_env: &mut OwnedEnvironment, version: Cl
                     &QualifiedContractIdentifier::local("names").unwrap(),
                     "preorder",
                     vec![name_hash_expensive_0.clone(), Value::UInt(1000)],
-                    false
+                    CalleeFilter::PublicOrReadOnly
                 )
                 .unwrap()
         ));
@@ -634,7 +634,7 @@ fn inner_test_simple_naming_system(owned_env: &mut OwnedEnvironment, version: Cl
                     &QualifiedContractIdentifier::local("names").unwrap(),
                     "preorder",
                     vec![name_hash_expensive_0, Value::UInt(1000)],
-                    false
+                    CalleeFilter::PublicOrReadOnly
                 )
                 .unwrap(),
             2
@@ -655,7 +655,7 @@ fn inner_test_simple_naming_system(owned_env: &mut OwnedEnvironment, version: Cl
                     &QualifiedContractIdentifier::local("names").unwrap(),
                     "register",
                     vec![p2.clone(), Value::Int(1), Value::Int(0)],
-                    false
+                    CalleeFilter::PublicOrReadOnly
                 )
                 .unwrap(),
             4
@@ -676,7 +676,7 @@ fn inner_test_simple_naming_system(owned_env: &mut OwnedEnvironment, version: Cl
                     &QualifiedContractIdentifier::local("names").unwrap(),
                     "register",
                     vec![p2.clone(), Value::Int(1), Value::Int(0)],
-                    false
+                    CalleeFilter::PublicOrReadOnly
                 )
                 .unwrap()
         ));
@@ -696,7 +696,7 @@ fn inner_test_simple_naming_system(owned_env: &mut OwnedEnvironment, version: Cl
                     &QualifiedContractIdentifier::local("names").unwrap(),
                     "preorder",
                     vec![name_hash_expensive_1, Value::UInt(100)],
-                    false
+                    CalleeFilter::PublicOrReadOnly
                 )
                 .unwrap()
         ));
@@ -707,7 +707,7 @@ fn inner_test_simple_naming_system(owned_env: &mut OwnedEnvironment, version: Cl
                     &QualifiedContractIdentifier::local("names").unwrap(),
                     "register",
                     vec![p2.clone(), Value::Int(2), Value::Int(0)],
-                    false
+                    CalleeFilter::PublicOrReadOnly
                 )
                 .unwrap(),
             4
@@ -721,7 +721,7 @@ fn inner_test_simple_naming_system(owned_env: &mut OwnedEnvironment, version: Cl
                     &QualifiedContractIdentifier::local("names").unwrap(),
                     "preorder",
                     vec![name_hash_cheap_0, Value::UInt(100)],
-                    false
+                    CalleeFilter::PublicOrReadOnly
                 )
                 .unwrap()
         ));
@@ -732,7 +732,7 @@ fn inner_test_simple_naming_system(owned_env: &mut OwnedEnvironment, version: Cl
                     &QualifiedContractIdentifier::local("names").unwrap(),
                     "register",
                     vec![p2.clone(), Value::Int(100001), Value::Int(0)],
-                    false
+                    CalleeFilter::PublicOrReadOnly
                 )
                 .unwrap()
         ));
@@ -745,7 +745,7 @@ fn inner_test_simple_naming_system(owned_env: &mut OwnedEnvironment, version: Cl
                     &QualifiedContractIdentifier::local("names").unwrap(),
                     "register",
                     vec![p2, Value::Int(100001), Value::Int(0)],
-                    false
+                    CalleeFilter::PublicOrReadOnly
                 )
                 .unwrap(),
             5

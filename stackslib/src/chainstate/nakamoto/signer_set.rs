@@ -662,14 +662,12 @@ impl NakamotoSigners {
                         signers_contract,
                         "stackerdb-set-signer-slots",
                         set_stackerdb_args,
-                        false,
                     )?;
                     exec_state.execute_contract_allow_private(
                         invoke_ctx,
                         signers_contract,
                         "set-signers",
                         set_signers_args,
-                        false,
                     )
                 })
             },
