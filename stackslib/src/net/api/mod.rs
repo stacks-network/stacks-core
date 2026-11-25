@@ -82,15 +82,6 @@ impl RPCRoutesBuilder {
     /// Register all RPC methods.
     /// Put your new RPC method handlers here.
     pub(crate) fn register_rpc_methods(&mut self) {
-        #[cfg(feature = "bench-hooks")]
-        {
-            self.register_rpc_endpoint(bench::miner::RPCBenchMinerStatusRequestHandler::new(
-                self.auth_token.clone(),
-            ));
-            self.register_rpc_endpoint(bench::miner::RPCBenchMinerCommandRequestHandler::new(
-                self.auth_token.clone(),
-            ));
-        }
         self.register_rpc_endpoint(blockreplay::RPCNakamotoBlockReplayRequestHandler::new(
             self.auth_token.clone(),
         ));
@@ -186,6 +177,16 @@ impl RPCRoutesBuilder {
         self.register_rpc_endpoint(postmicroblock::RPCPostMicroblockRequestHandler::new());
         self.register_rpc_endpoint(poststackerdbchunk::RPCPostStackerDBChunkRequestHandler::new());
         self.register_rpc_endpoint(posttransaction::RPCPostTransactionRequestHandler::new());
+
+        #[cfg(feature = "bench-hooks")]
+        {
+            self.register_rpc_endpoint(bench::miner::RPCBenchMinerStatusRequestHandler::new(
+                self.auth_token.clone(),
+            ));
+            self.register_rpc_endpoint(bench::miner::RPCBenchMinerCommandRequestHandler::new(
+                self.auth_token.clone(),
+            ));
+        }
     }
 }
 
