@@ -190,6 +190,8 @@ pub struct EventDispatcher {
     /// Index into `registered_observers` that will receive block proposal events (Nakamoto and
     /// later)
     block_proposal_observers_lookup: HashSet<u16>,
+    /// Index into `registered_observers` that will receive AtlasDB attachment events
+    attachments_observers_lookup: HashSet<u16>,
     /// Channel for sending StackerDB events to the miner coordinator
     pub stackerdb_channel: Arc<Mutex<StackerDBChannel>>,
     /// Path to the database where pending payloads are stored.
@@ -445,6 +447,7 @@ impl EventDispatcher {
             mined_microblocks_observers_lookup: HashSet::new(),
             stackerdb_observers_lookup: HashSet::new(),
             block_proposal_observers_lookup: HashSet::new(),
+            attachments_observers_lookup: HashSet::new(),
             db_path,
             worker,
         }
@@ -961,7 +964,7 @@ impl EventDispatcher {
     }
 
     pub fn process_new_attachments(&self, attachments: &[(AttachmentInstance, Attachment)]) {
-        let interested_observers: Vec<_> = self.registered_observers.iter().enumerate().collect();
+        let interested_observers = self.filter_observers(&self.attachments_observers_lookup, true);
         if interested_observers.is_empty() {
             return;
         }
@@ -972,7 +975,7 @@ impl EventDispatcher {
             serialized_attachments.push(payload);
         }
 
-        for (_, observer) in interested_observers.iter() {
+        for observer in interested_observers.iter() {
             self.send_new_attachments(observer, &json!(serialized_attachments));
         }
     }
@@ -1068,6 +1071,9 @@ impl EventDispatcher {
                 }
                 EventKeyType::BlockProposal => {
                     self.block_proposal_observers_lookup.insert(observer_index);
+                }
+                EventKeyType::Attachments => {
+                    self.attachments_observers_lookup.insert(observer_index);
                 }
             }
         }

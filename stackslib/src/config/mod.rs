@@ -4706,9 +4706,6 @@ pub struct EventObserverConfigFile {
     /// any of the valid formats below will cause the node to panic on startup when
     /// parsing the configuration.
     ///
-    /// All observers, regardless of their `events_keys` configuration, implicitly
-    /// receive payloads on the `/attachments/new` endpoint.
-    ///
     /// Valid Event Keys:
     /// - `"*"`: Subscribes to a broad set of common events.
     ///   - Events delivered to:
@@ -4718,6 +4715,7 @@ pub struct EventObserverConfigFile {
     ///     - `/new_mempool_tx`: For new mempool transactions.
     ///     - `/drop_mempool_tx`: For dropped mempool transactions.
     ///     - `/new_burn_block`: For new burnchain blocks.
+    ///     - `/attachments/new`: For new AtlasDB attachments.
     ///   - Note: This key does NOT by itself subscribe to `/stackerdb_chunks` or `/proposal_response`.
     ///
     /// - `"stx"`: Subscribes to STX token operation events (transfer, mint, burn, lock).
@@ -4746,6 +4744,9 @@ pub struct EventObserverConfigFile {
     ///
     /// - `"block_proposal"`: Subscribes to block proposal response events (for Nakamoto consensus).
     ///   - Events delivered to: `/proposal_response`.
+    ///
+    /// - `"attachments"`: Subscribes to new AtlasDB attachment events.
+    ///   - Events delivered to: `/attachments/new`.
     ///
     /// - Smart Contract Event: Subscribes to a specific smart contract event.
     ///   - Format: `"{deployer_address}.{contract_name}::{event_name}"`
@@ -4839,6 +4840,7 @@ pub enum EventKeyType {
     MinedMicroblocks,
     StackerDBChunks,
     BlockProposal,
+    Attachments,
 }
 
 impl EventKeyType {
@@ -4869,6 +4871,10 @@ impl EventKeyType {
 
         if raw_key == "block_proposal" {
             return Some(EventKeyType::BlockProposal);
+        }
+
+        if raw_key == "attachments" {
+            return Some(EventKeyType::Attachments);
         }
 
         let comps: Vec<_> = raw_key.split("::").collect();
@@ -6028,6 +6034,15 @@ mod tests {
         )
         .expect("config with explicit burnchain.mode should parse");
         assert_eq!(config.burnchain.mode, "krypton");
+    }
+
+    /// `"attachments"` parses to its own event key.
+    #[test]
+    fn test_attachments_event_key() {
+        assert_eq!(
+            EventKeyType::from_string("attachments"),
+            Some(EventKeyType::Attachments)
+        );
     }
 
     /// Modes without a run loop fail config validation instead of panicking in
