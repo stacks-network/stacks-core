@@ -114,10 +114,11 @@ fn handle_put_chunk(args: PutChunkArgs) {
     println!("{}", serde_json::to_string(&chunk_ack).unwrap());
 }
 
-/// Load the signer config from `path`, or log the error and exit.
+/// Load the signer config from `path`, or print the error to stderr and exit.
+/// The message bypasses the logger so it is shown at every log level.
 fn load_config(path: &PathBuf) -> GlobalConfig {
     GlobalConfig::try_from(path).unwrap_or_else(|e| {
-        error!("Failed to load config file {}: {e}", path.display());
+        eprintln!("Failed to load config file {}: {e}", path.display());
         std::process::exit(1);
     })
 }
