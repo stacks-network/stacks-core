@@ -28,7 +28,7 @@ use rusqlite::params;
 use stacks_common::types::chainstate::TrieHash;
 
 use crate::blob_layout::BlobHeader;
-use crate::marf::{MARFOpenOpts, MarfConnection as _, MARF};
+use crate::marf::{MARFOpenOpts, MarfConnection as _, StorageConnectionAccess as _, MARF};
 use crate::node::{clear_backptr, is_backptr, TrieNodeID, TriePtr};
 use crate::storage::{SquashInfo, TrieFileStorage, TrieHashCalculationMode, TrieStorageConnection};
 use crate::trie::Trie;

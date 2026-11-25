@@ -152,16 +152,36 @@ impl MARFOpenOpts {
     }
 }
 
+/// Access to the storage connection behind a [`MarfConnection`].
+///
+/// The crate doesn't export this trait, so other crates can't call `with_conn`
+/// and reach the storage layer; they go through [`MarfConnection`]'s methods.
+pub trait StorageConnectionAccess<T: MarfTrieId> {
+    fn with_conn<F, R>(&mut self, exec: F) -> R
+    where
+        F: FnOnce(&mut TrieStorageConnection<T>) -> R;
+}
+
 ///
 /// This trait defines functions that are defined for both
 ///  MARF structs and MarfTransactions
 ///
-pub trait MarfConnection<T: MarfTrieId> {
-    fn with_conn<F, R>(&mut self, exec: F) -> R
-    where
-        F: FnOnce(&mut TrieStorageConnection<T>) -> R;
-
+pub trait MarfConnection<T: MarfTrieId>: StorageConnectionAccess<T> {
     fn sqlite_conn(&self) -> &Connection;
+
+    /// Whether this MARF has a trie for block `bhh`, confirmed or unconfirmed.
+    fn has_block(&mut self, bhh: &T) -> Result<bool, Error> {
+        self.with_conn(|c| c.has_block(bhh))
+    }
+
+    /// Walk all leaves in the trie at `block_hash`, yielding full paths and values,
+    /// including those living in earlier blocks' tries.
+    fn for_each_leaf<F>(&mut self, block_hash: &T, handle_leaf: F) -> Result<u64, Error>
+    where
+        F: FnMut(TrieHash, MARFValue) -> Result<(), Error>,
+    {
+        self.with_conn(|c| MARF::for_each_leaf(c, block_hash, handle_leaf))
+    }
 
     /// Resolve a key from the MARF to a MARFValue with respect to the given block height.
     fn get(&mut self, block_hash: &T, key: &str) -> Result<Option<MARFValue>, Error> {
@@ -265,19 +285,22 @@ pub trait MarfConnection<T: MarfTrieId> {
     }
 }
 
-impl<T: MarfTrieId> MarfConnection<T> for MarfTransaction<'_, T> {
+impl<T: MarfTrieId> StorageConnectionAccess<T> for MarfTransaction<'_, T> {
     fn with_conn<F, R>(&mut self, exec: F) -> R
     where
         F: FnOnce(&mut TrieStorageConnection<T>) -> R,
     {
         exec(&mut self.storage)
     }
+}
+
+impl<T: MarfTrieId> MarfConnection<T> for MarfTransaction<'_, T> {
     fn sqlite_conn(&self) -> &Connection {
         self.storage.sqlite_tx()
     }
 }
 
-impl<T: MarfTrieId> MarfConnection<T> for ReopenedTrieStorageConnection<'_, T> {
+impl<T: MarfTrieId> StorageConnectionAccess<T> for ReopenedTrieStorageConnection<'_, T> {
     fn with_conn<F, R>(&mut self, exec: F) -> R
     where
         F: FnOnce(&mut TrieStorageConnection<T>) -> R,
@@ -285,13 +308,15 @@ impl<T: MarfTrieId> MarfConnection<T> for ReopenedTrieStorageConnection<'_, T> {
         let mut conn = self.connection();
         exec(&mut conn)
     }
+}
 
+impl<T: MarfTrieId> MarfConnection<T> for ReopenedTrieStorageConnection<'_, T> {
     fn sqlite_conn(&self) -> &Connection {
         self.db_conn()
     }
 }
 
-impl<T: MarfTrieId> MarfConnection<T> for MARF<T> {
+impl<T: MarfTrieId> StorageConnectionAccess<T> for MARF<T> {
     fn with_conn<F, R>(&mut self, exec: F) -> R
     where
         F: FnOnce(&mut TrieStorageConnection<T>) -> R,
@@ -299,6 +324,9 @@ impl<T: MarfTrieId> MarfConnection<T> for MARF<T> {
         let mut conn = self.storage.connection();
         exec(&mut conn)
     }
+}
+
+impl<T: MarfTrieId> MarfConnection<T> for MARF<T> {
     fn sqlite_conn(&self) -> &Connection {
         self.storage.sqlite_conn()
     }

@@ -496,8 +496,7 @@ impl ReadOnlyMarfStore<'_> {
     /// Return Ok(false) if not
     /// Return Err(..) if we encounter a sqlite error
     pub fn trie_exists_for_block(&mut self, bhh: &StacksBlockId) -> Result<bool, DatabaseError> {
-        self.marf
-            .with_conn(|conn| conn.has_block(bhh).map_err(DatabaseError::IndexError))
+        self.marf.has_block(bhh).map_err(DatabaseError::IndexError)
     }
 
     /// Get the DB path on disk.

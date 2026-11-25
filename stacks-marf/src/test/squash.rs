@@ -23,7 +23,8 @@ use tempfile::tempdir;
 use super::marf::setup_marf;
 use crate::bits::{get_node_byte_len, get_node_hash, read_nodetype, resolve_inline_child_offsets};
 use crate::marf::{
-    MARFOpenOpts, MarfConnection, BLOCK_HEIGHT_TO_HASH_MAPPING_KEY, MARF, OWN_BLOCK_HEIGHT_KEY,
+    MARFOpenOpts, MarfConnection, StorageConnectionAccess as _, BLOCK_HEIGHT_TO_HASH_MAPPING_KEY,
+    MARF, OWN_BLOCK_HEIGHT_KEY,
 };
 use crate::node::{
     is_backptr, is_u64_ptr, set_backptr, TrieNode as _, TrieNode16, TrieNode256, TrieNode4,

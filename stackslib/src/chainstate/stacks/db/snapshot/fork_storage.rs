@@ -46,11 +46,9 @@ pub fn collect_leaf_value_hashes<T: MarfTrieId>(
     let tip = get_latest_confirmed_block_hash::<T>(marf.sqlite_conn())?;
 
     let mut hashes = HashSet::new();
-    marf.with_conn(|conn| {
-        MARF::for_each_leaf(conn, &tip, |_hash, value| {
-            hashes.insert(value);
-            Ok(())
-        })
+    marf.for_each_leaf(&tip, |_hash, value| {
+        hashes.insert(value);
+        Ok(())
     })?;
 
     Ok((tip, hashes))
