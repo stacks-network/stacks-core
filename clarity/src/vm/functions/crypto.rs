@@ -22,7 +22,7 @@ use stacks_common::types::chainstate::StacksAddress;
 use stacks_common::util::ed25519::ed25519_verify;
 use stacks_common::util::hash;
 use stacks_common::util::secp256k1::{
-    Secp256k1PublicKey, secp256k1_decompress, secp256k1_recover, secp256k1_verify,
+    Secp256k1PublicKey, secp256k1_decompress, secp256k1_recover_rsv, secp256k1_verify,
 };
 use stacks_common::util::secp256r1::{secp256r1_verify, secp256r1_verify_digest};
 
@@ -187,7 +187,7 @@ pub fn special_secp256k1_recover(
         }
     };
 
-    let Ok(pubkey) = secp256k1_recover(message, signature) else {
+    let Ok(pubkey) = secp256k1_recover_rsv(message, signature) else {
         // We do not return the runtime error. Immediately map this to an error code.
         return Ok(Value::err_uint(1));
     };

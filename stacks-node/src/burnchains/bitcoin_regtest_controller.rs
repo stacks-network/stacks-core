@@ -1390,16 +1390,11 @@ impl BitcoinRegtestController {
                 (tx.signature_hash(i, &script_pub_key, sig_hash_all), false)
             };
 
-            let sig1_der = {
-                let message = signer
-                    .sign_message(sig_hash.as_bytes())
-                    .expect("Unable to sign message");
-                message
-                    .to_secp256k1_recoverable()
-                    .expect("Unable to get recoverable signature")
-                    .to_standard()
-                    .serialize_der()
-            };
+            let sig1_der = signer
+                .sign_message(sig_hash.as_bytes())
+                .expect("Unable to sign message")
+                .to_der_signature()
+                .expect("Unable to DER-encode signature");
 
             if is_segwit {
                 // segwit
@@ -2751,16 +2746,11 @@ mod tests {
                     (tx.signature_hash(i, &script_pub_key, sig_hash_all), false)
                 };
 
-                let sig1_der = {
-                    let message = signer
-                        .sign_message(sig_hash.as_bytes())
-                        .expect("Unable to sign message");
-                    message
-                        .to_secp256k1_recoverable()
-                        .expect("Unable to get recoverable signature")
-                        .to_standard()
-                        .serialize_der()
-                };
+                let sig1_der = signer
+                    .sign_message(sig_hash.as_bytes())
+                    .expect("Unable to sign message")
+                    .to_der_signature()
+                    .expect("Unable to DER-encode signature");
 
                 if is_segwit {
                     // segwit
