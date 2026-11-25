@@ -68,11 +68,11 @@ impl RPCGetClarityMetadataRequestHandler {
 
 /// Decode the HTTP request
 impl HttpRequest for RPCGetClarityMetadataRequestHandler {
-    fn verb(&self) -> &'static str {
+    fn verb() -> &'static str {
         "GET"
     }
 
-    fn path_regex(&self) -> Regex {
+    fn path_regex() -> Regex {
         Regex::new(&format!(
             r"^/v2/clarity/metadata/(?P<address>{})/(?P<contract>{})/(?P<clarity_metadata_key>(analysis)|({}))$",
             *STANDARD_PRINCIPAL_REGEX_STRING,

@@ -22,12 +22,12 @@ slog = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 
 [dev-dependencies]
-mutants = "0.0.3"
+mutants = { workspace = true }
 clarity = { package = "clarity", path = "../clarity", features = ["rusqlite"]}
 pinny = { workspace = true }
-proptest = { version = "1.6.0", default-features = false, features = ["std"] }
+proptest = { workspace = true }
 madhouse = { workspace = true }
-rstest = "0.17.0"
+rstest = { workspace = true }
 
 [features]
 slog_json = ["stacks_common/slog_json", "clarity/slog_json"]

@@ -20,4 +20,4 @@ slog = { workspace = true }
 tikv-jemallocator = { workspace = true }
 
 [dev-dependencies]
-mutants = "0.0.3"
+mutants = { workspace = true }
