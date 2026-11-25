@@ -65,11 +65,11 @@ impl GetBlockViewRequestHandler {
 
 /// Decode the HTTP request
 impl HttpRequest for GetBlockViewRequestHandler {
-    fn verb(&self) -> &'static str {
+    fn verb() -> &'static str {
         "GET"
     }
 
-    fn path_regex(&self) -> Regex {
+    fn path_regex() -> Regex {
         Regex::new(r#"^/v3/blocks/(?P<block_id>[0-9a-f]{64})/view$"#).unwrap()
     }
 
