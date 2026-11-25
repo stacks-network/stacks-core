@@ -41,7 +41,7 @@ use stacks_common::util::secp256k1::MessageSignature;
 use stacks_common::{debug, error};
 use stacks_signer::cli::{
     Cli, Command, GenerateStakingSignatureArgs, GenerateVoteArgs, GetChunkArgs, GetLatestChunkArgs,
-    MonitorSignersArgs, PutChunkArgs, RunSignerArgs, StackerDBArgs, VerifyVoteArgs,
+    MonitorSignersArgs, PutChunkArgs, StackerDBArgs, VerifyVoteArgs,
 };
 use stacks_signer::config::GlobalConfig;
 use stacks_signer::monitor_signers::SignerMonitor;
@@ -123,9 +123,8 @@ fn load_config_or_exit(path: &PathBuf) -> GlobalConfig {
     })
 }
 
-fn handle_run(args: RunSignerArgs) {
+fn handle_run(config: GlobalConfig) {
     debug!("Running signer...");
-    let config = load_config_or_exit(&args.config);
     // Open (and migrate) the signer db before starting, so a db this release cannot use stops
     // the signer with an error instead of a panic, possibly in a signer thread.
     if let Err(e) = SignerDb::new(&config.db_path) {
@@ -142,11 +141,10 @@ fn handle_run(args: RunSignerArgs) {
 }
 
 fn handle_generate_staking_signature(
+    config: &GlobalConfig,
     args: GenerateStakingSignatureArgs,
     do_print: bool,
 ) -> MessageSignature {
-    let config = load_config_or_exit(&args.config);
-
     let private_key = config.stacks_private_key.clone();
     let public_key = StacksPublicKey::from_private(&private_key);
     let pk_hex = to_hex(&public_key.to_bytes_compressed());
@@ -182,13 +180,15 @@ fn handle_generate_staking_signature(
     signature
 }
 
-fn handle_check_config(args: RunSignerArgs) {
-    let config = load_config_or_exit(&args.config);
+fn handle_check_config(config: &GlobalConfig) {
     println!("Signer version: {}\nConfig: \n{config}", *VERSION_STRING);
 }
 
-fn handle_generate_vote(args: GenerateVoteArgs, do_print: bool) -> MessageSignature {
-    let config = load_config_or_exit(&args.config);
+fn handle_generate_vote(
+    config: &GlobalConfig,
+    args: GenerateVoteArgs,
+    do_print: bool,
+) -> MessageSignature {
     let message_signature = args.vote_info.sign(&config.stacks_private_key).unwrap();
     if do_print {
         println!("{}", to_hex(message_signature.as_bytes()));
@@ -256,16 +256,18 @@ fn main() {
             handle_put_chunk(args);
         }
         Command::Run(args) => {
-            handle_run(args);
+            handle_run(load_config_or_exit(&args.config));
         }
         Command::GenerateStakingSignature(args) => {
-            handle_generate_staking_signature(args, true);
+            let config = load_config_or_exit(&args.config);
+            handle_generate_staking_signature(&config, args, true);
         }
         Command::CheckConfig(args) => {
-            handle_check_config(args);
+            handle_check_config(&load_config_or_exit(&args.config));
         }
         Command::GenerateVote(args) => {
-            handle_generate_vote(args, true);
+            let config = load_config_or_exit(&args.config);
+            handle_generate_vote(&config, args, true);
         }
         Command::VerifyVote(args) => {
             handle_verify_vote(args, true);
@@ -303,7 +305,7 @@ pub mod tests {
             json: false,
         };
 
-        let signature = handle_generate_staking_signature(args.clone(), false);
+        let signature = handle_generate_staking_signature(&config, args.clone(), false);
 
         let public_key = Secp256k1PublicKey::from_private(&config.stacks_private_key);
 
@@ -325,6 +327,7 @@ pub mod tests {
         let message_hash =
             make_pox_5_signer_grant_message_hash(&signer_manager, 1, CHAIN_ID_TESTNET);
         let signature = handle_generate_staking_signature(
+            &config,
             GenerateStakingSignatureArgs {
                 config: "./src/tests/conf/signer-0.toml".into(),
                 signer_manager,
@@ -357,13 +360,12 @@ pub mod tests {
         };
         let config_file = "./src/tests/conf/signer-0.toml";
         let config = GlobalConfig::load_from_file(config_file).unwrap();
-        let private_key = config.stacks_private_key;
-        let public_key = StacksPublicKey::from_private(&private_key);
+        let public_key = StacksPublicKey::from_private(&config.stacks_private_key);
         let args = GenerateVoteArgs {
             config: config_file.into(),
             vote_info: vote_info.clone(),
         };
-        let message_signature = handle_generate_vote(args, false);
+        let message_signature = handle_generate_vote(&config, args, false);
         assert!(
             vote_info.verify(&public_key, &message_signature).unwrap(),
             "Vote should be valid"
