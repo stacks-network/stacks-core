@@ -24,7 +24,7 @@ stacks-common = { package = "stacks-common", path = "../../stacks-common", defau
 
 [dev-dependencies]
 pinny = { workspace = true }
-proptest = { version = "1.6.0", default-features = false, features = ["std"] }
+proptest = { workspace = true }
 
 [features]
 default = []

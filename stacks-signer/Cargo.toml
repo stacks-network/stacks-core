@@ -27,7 +27,6 @@ lazy_static = "1.4.0"
 libsigner = { path = "../libsigner" }
 libstackerdb = { path = "../libstackerdb" }
 prometheus = { version = "0.14", default-features = false, optional = true }
-rand_core = "0.6"
 reqwest = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
@@ -48,7 +47,8 @@ clarity = { path = "../clarity", features = ["testing"] }
 stacks-common = { path = "../stacks-common", features = ["testing"] }
 stackslib = { path = "../stackslib", features = ["testing"] }
 num-traits = "0.2.18"
-stdext = "0.3.1"
+stdext = { workspace = true }
+rand_core = { workspace = true }
 
 [features]
 default = []
