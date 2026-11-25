@@ -1067,6 +1067,7 @@ pub fn clear_lock_data(conn: &Connection) -> Result<(), Error> {
     Ok(())
 }
 
+#[cfg(test)]
 pub fn clear_tables(tx: &Transaction) -> Result<(), Error> {
     tx.execute("DELETE FROM block_extension_locks", NO_PARAMS)?;
     tx.execute("DELETE FROM marf_data", NO_PARAMS)?;

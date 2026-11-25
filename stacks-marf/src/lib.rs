@@ -67,8 +67,8 @@ mod trie_sql;
 #[cfg(test)]
 mod test;
 
-// The core MARF types, re-exported so callers can write `stacks_marf::MARF`
-// rather than `stacks_marf::marf::MARF`.
+// The crate's public API. All modules are private; what other crates may use
+// is re-exported here or defined in this file.
 pub use crate::marf::{
     test_override_marf_compression, MARFOpenOpts, MarfConnection, MarfTransaction, MARF,
 };

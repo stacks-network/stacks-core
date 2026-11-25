@@ -208,6 +208,7 @@ pub enum UncommittedState<T: MarfTrieId> {
 
 impl<T: MarfTrieId> UncommittedState<T> {
     /// Clear the contents
+    #[cfg(test)]
     pub fn format(&mut self) -> Result<(), Error> {
         match self {
             UncommittedState::RW(ref mut trie_ram) => trie_ram.format(),
@@ -1189,6 +1190,7 @@ impl<T: MarfTrieId> TrieRAM<T> {
     }
 
     /// Clear the TrieRAM contents
+    #[cfg(test)]
     pub fn format(&mut self) -> Result<(), Error> {
         if self.readonly {
             trace!("Read-only!");
@@ -1561,11 +1563,11 @@ pub struct ReopenedTrieStorageConnection<'a, T: MarfTrieId> {
 }
 
 impl<'a, T: MarfTrieId> ReopenedTrieStorageConnection<'a, T> {
-    pub fn db_conn(&self) -> &Connection {
+    pub(crate) fn db_conn(&self) -> &Connection {
         self.db
     }
 
-    pub fn connection(&mut self) -> TrieStorageConnection<'_, T> {
+    pub(crate) fn connection(&mut self) -> TrieStorageConnection<'_, T> {
         TrieStorageConnection {
             db: SqliteConnection::ConnRef(self.db),
             db_path: self.db_path,
@@ -1599,6 +1601,7 @@ impl<T: MarfTrieId> TrieFileStorage<T> {
     }
 
     /// Returns cached squashing metadata, if present.
+    #[cfg(test)]
     pub fn squash_info(&self) -> Option<&SquashInfo> {
         self.data.squash_info.as_ref()
     }
@@ -2241,6 +2244,7 @@ impl<'a, T: MarfTrieId> TrieStorageTransaction<'a, T> {
     }
 
     /// Clear out the underlying storage.
+    #[cfg(test)]
     pub fn format(&mut self) -> Result<(), Error> {
         if self.data.readonly {
             return Err(Error::ReadOnlyError);
