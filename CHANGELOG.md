@@ -5,6 +5,34 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to the versioning scheme outlined in the [README.md](README.md).
 
+## [4.1.0]
+
+### Added
+
+* The p2p network poller can now be woken up by readiness sources that are not sockets, and can reserve event IDs for their connections.
+* Added fuzz targets for the signer's handling of StackerDB messages, event-observer payloads and global state evaluation (`libsigner/fuzz`).
+
+### Changed
+
+* Set the mainnet Epoch 4.1 activation height to Bitcoin block 979,500, per SIP-046.
+* Starting in Epoch 4.1, the sortition DB rejects the defunct `stack-stx`, `delegate-stx`, and `vote-for-aggregate-key` burnchain operations. Operations mined in earlier epochs are still accepted so that sortition history replays unchanged; `transfer-stx` and `pre-stx` are unaffected.
+* Starting in Epoch 4.1, the PoX-5 per-cycle sBTC waterfall recipient is derived from the sBTC registry's signer set and signature threshold (`get-current-signer-data`) as an sBTC v2 Taproot script-path multisig deposit, instead of from the registry's WSTS aggregate public key (`get-current-aggregate-pubkey`). The recipient switches at the first reward cycle whose prepare phase begins in Epoch 4.1; after activation the node no longer reads the aggregate pubkey, so sBTC may rotate to v2 key sets.
+* If the registry does not return a usable signer set and threshold when an Epoch 4.1 reward set is computed, that cycle's block-commits pay the standard burn address instead of the node failing to process the block.
+* Beginning in Epoch 4.1, a contract-call transaction can only call `define-public` functions. A transaction that targets a `define-read-only` function now fails with a `NoSuchPublicFunction` runtime error, like one that targets a `define-private` function. Mempool admission already rejected such transactions.
+
+### Fixed
+
+* Fixes the runtime checks for `let` and `match` binding name conflicts to not only look at global functions, but all global definitions. This is only a defense-in-depth measure; the type checker should already prevent this much earlier. This applies starting in Clarity 7.
+* When the miner is about to extend its tenure into a new Bitcoin block (after an empty sortition, a sortition won with a block-commit that does not build on the ongoing tenure, or a new winner that does not produce a block in time) while a block it proposed is still waiting for signatures, it now waits for that block to land or be rejected (for at most `block_found_in_flight_wait`) before extending, instead of extending on the same parent. The extend was a sibling of the pending block, and a split between the two could stall the tenure until the next sortition.
+* Fixed the Nakamoto block downloader handing a reply meant for its unconfirmed-tenure downloader to its confirmed-tenure downloader, or taking a reply meant for another user of the same HTTP connection, such as mempool sync. A node that missed a block in a finished tenure could reject every peer's reply as the wrong block, disconnect from those peers, and never fetch the missing block.
+* Outbound p2p connection attempts that exceed `connect_timeout` are now dropped and their sockets closed. Previously they were left pending until the operating system gave up on the connection, and the node would not retry that neighbor in the meantime.
+* Signers no longer reject a block with `SortitionViewMismatch` when the rest of the signer set signed it, and the node processed it, before their own validation of it returned.
+* Signers and miners now ignore block rejections whose chain id is for another network (mainnet vs. testnet). Previously such a rejection was still counted, since its signature recovers to the same signer key.
+
+### Removed
+
+* Removed an unused test flag in SIP 031 support code.
+
 ## [4.0.7]
 
 ### Fixed

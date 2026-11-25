@@ -117,3 +117,9 @@ Consensus breaking releases shall follow the same overall process as a non-conse
 
 - The release must be timed so that sufficient time is given to perform a genesis sync.
 - The release must take into account the activation height at which the new consensus rules will take effect.
+- A testnet activation height for the new epoch must be chosen and added to the testnet sample configs, so that the new rules activate on testnet before they do on mainnet.
+
+  - Unlike mainnet, the public testnet does not use an epoch schedule compiled into the binary. Its schedule comes from the `[[burnchain.epochs]]` entries in each node's config, so every testnet node operator has to add the new entry before the chosen height.
+  - Pick a burn block height that falls outside of a prepare phase. Estimate when it will arrive from the current testnet burn block height and the recent average block time.
+  - Add a `[[burnchain.epochs]]` entry with the new `epoch_name` and `start_height` to each of [`testnet-follower-conf.toml`](../sample/conf/testnet-follower-conf.toml), [`testnet-miner-conf.toml`](../sample/conf/testnet-miner-conf.toml) and [`testnet-signer.toml`](../sample/conf/testnet-signer.toml) in the release branch.
+  - Announce the testnet activation height alongside the release candidate, so that testnet operators can update their configs in time.
