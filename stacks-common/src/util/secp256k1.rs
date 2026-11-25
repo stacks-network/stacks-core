@@ -143,7 +143,7 @@ fn parse_pubkey(data: &[u8]) -> Result<K256PublicKey, Error> {
     }
 
     let y_is_odd = data[UNCOMPRESSED_PUBLIC_KEY_SIZE - 1] & 1 == 1;
-    if y_is_odd != (data[0] == TAG_PUBKEY_HYBRID_ODD) {
+    if y_is_odd != (tag == TAG_PUBKEY_HYBRID_ODD) {
         return Err(Error::InvalidPublicKey);
     }
     let mut uncompressed = [0u8; UNCOMPRESSED_PUBLIC_KEY_SIZE];
@@ -242,7 +242,7 @@ impl MessageSignature {
     /// compact parser, this does *not* reject zero `r` or `s`; such signatures parse but
     /// never recover.
     pub fn is_well_formed(&self) -> bool {
-        self.decode_recoverable().is_some()
+        self.decode_recoverable().is_ok()
     }
 
     /// DER-encode the non-recoverable part of this signature (`r` and `s`).
@@ -254,11 +254,11 @@ impl MessageSignature {
 
     /// Decode the recovery ID, `r` and `s` with libsecp256k1's parsing rules (see
     /// [`Self::is_well_formed`]).
-    fn decode_recoverable(&self) -> Option<(K256RecoveryId, Scalar, Scalar)> {
-        let recovery_id = K256RecoveryId::from_byte(self.0[0])?;
-        let r = parse_scalar(&self.0[1..33])?;
-        let s = parse_scalar(&self.0[33..65])?;
-        Some((recovery_id, r, s))
+    fn decode_recoverable(&self) -> Result<(K256RecoveryId, Scalar, Scalar), Error> {
+        let recovery_id = K256RecoveryId::from_byte(self.0[0]).ok_or(Error::InvalidRecoveryId)?;
+        let r = parse_scalar(&self.0[1..33]).ok_or(Error::InvalidSignature)?;
+        let s = parse_scalar(&self.0[33..65]).ok_or(Error::InvalidSignature)?;
+        Ok((recovery_id, r, s))
     }
 }
 
@@ -340,7 +340,7 @@ impl Secp256k1PublicKey {
 
         let (recovery_id, r, s) = sig
             .decode_recoverable()
-            .ok_or("Invalid signature: failed to decode recoverable signature")?;
+            .map_err(|_e| "Invalid signature: failed to decode recoverable signature")?;
 
         if verify_low_s && bool::from(s.is_high()) {
             return Err("Invalid signature: high-S");
@@ -362,6 +362,10 @@ impl PublicKey for Secp256k1PublicKey {
     }
 
     fn verify(&self, data_hash: &[u8], sig: &MessageSignature) -> Result<bool, &'static str> {
+        // Recover without the low-S check so that a signature made by a different key is
+        // reported as `Ok(false)` even when it is also high-S. This matches the previous
+        // libsecp256k1 backend, and `stacks-codec`'s signature verification tests pin it
+        // ("key mismatch must take precedence over high-S").
         let recovered_pubkey = Self::recover_to_pubkey_without_validating_low_s(data_hash, sig)?;
 
         if recovered_pubkey.key != self.key {
@@ -369,10 +373,10 @@ impl PublicKey for Secp256k1PublicKey {
             return Ok(false);
         }
 
-        // recovery accepts high-S signatures, so we have to reject them ourselves
+        // the key matches, so now reject high-S signatures (skipped during recovery above)
         let (_, _, s) = sig
             .decode_recoverable()
-            .ok_or("Invalid signature: failed to decode recoverable signature")?;
+            .map_err(|_e| "Invalid signature: failed to decode recoverable signature")?;
         if bool::from(s.is_high()) {
             return Err("Invalid signature: high-S");
         }
@@ -469,6 +473,9 @@ impl Secp256k1PrivateKey {
     /// libsecp256k1, except when `data_hash >= n` (probability ~2^-128 for a hash):
     /// libsecp256k1 seeds RFC6979 with the unreduced hash, so the nonce (but not the
     /// validity of the signature) differs.
+    ///
+    /// Only the test-only `sign_with_noncedata()` passes a non-empty `extra_entropy`;
+    /// production signing (`sign()`) always passes an empty slice.
     fn sign_rfc6979(
         &self,
         data_hash: &[u8],
@@ -556,14 +563,9 @@ pub fn secp256k1_recover(
     if message_arr.len() != 32 {
         return Err(Error::InvalidMessage);
     }
-    if serialized_signature_arr.len() != 65 {
-        return Err(Error::InvalidInputLength);
-    }
-
-    let recovery_id =
-        K256RecoveryId::from_byte(serialized_signature_arr[64]).ok_or(Error::InvalidRecoveryId)?;
-    let r = parse_scalar(&serialized_signature_arr[..32]).ok_or(Error::InvalidSignature)?;
-    let s = parse_scalar(&serialized_signature_arr[32..64]).ok_or(Error::InvalidSignature)?;
+    let signature =
+        MessageSignature::from_rsv(serialized_signature_arr).ok_or(Error::InvalidInputLength)?;
+    let (recovery_id, r, s) = signature.decode_recoverable()?;
 
     let recovered = recover_pubkey(message_arr, r, s, recovery_id)?;
     Ok(recovered.to_compressed_point().into())
