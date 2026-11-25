@@ -25,8 +25,8 @@ use crate::bits::{
     get_leaf_hash, get_node_byte_len, is_inline_child_ptr, reserved_root_size,
     resolve_inline_child_offsets, write_nodetype_bytes,
 };
-use crate::node::{is_backptr, TrieNodeType};
-use crate::{blob_layout, BlockMap, Error, MarfTrieId, TrieHasher};
+use crate::node::{is_backptr, BlockMap, TrieNodeType};
+use crate::{blob_layout, Error, MarfTrieId, TrieHasher};
 
 /// Recompute content hashes in reverse NodeStore order.
 ///

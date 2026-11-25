@@ -32,7 +32,8 @@ use crate::marf::{MARFOpenOpts, MarfConnection as _, MARF};
 use crate::node::{clear_backptr, is_backptr, TrieNodeID, TriePtr};
 use crate::storage::{SquashInfo, TrieFileStorage, TrieHashCalculationMode, TrieStorageConnection};
 use crate::trie::Trie;
-use crate::{trie_sql, Error, MarfDataEntry, MarfTrieId};
+use crate::trie_sql::MarfDataEntry;
+use crate::{trie_sql, Error, MarfTrieId};
 
 mod node_store;
 mod stream;

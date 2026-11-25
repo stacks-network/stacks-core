@@ -24,7 +24,6 @@ use stacks_common::util::hash::Sha512Trunc256Sum;
 #[cfg(any(test, feature = "testing"))]
 use stacks_common::util::tests::TestFlag;
 
-pub use super::squash::SquashStats;
 use super::storage::ReopenedTrieStorageConnection;
 use crate::bits::{get_leaf_hash, get_node_hash};
 use crate::node::{
@@ -1656,7 +1655,7 @@ impl<T: MarfTrieId> MARF<T> {
     }
 
     /// Access internal storage
-    #[cfg(any(test, feature = "testing"))]
+    #[cfg(test)]
     pub fn borrow_storage_backend(&mut self) -> TrieStorageConnection<'_, T> {
         self.storage.connection()
     }

@@ -30,7 +30,7 @@ use crate::bits::{
 use crate::node::{TrieNodeType, TriePtr};
 #[cfg(test)]
 use crate::storage::TrieStorageConnection;
-use crate::{trie_sql, Error, MarfDataEntry, MarfTrieId};
+use crate::{trie_sql, Error, MarfTrieId};
 
 /// The MARF only ever reads a handful of row shapes, so it implements them directly against
 /// `rusqlite` rather than depending on the generic `FromRow`/`query_row` machinery that a larger
@@ -450,6 +450,17 @@ pub fn test_append_squashed_block<T: MarfTrieId>(
     Ok(())
 }
 
+/// One confirmed `marf_data` row, as loaded by
+/// [`bulk_read_block_entries`].
+#[derive(Debug, Clone)]
+pub struct MarfDataEntry<T> {
+    /// SQLite rowid of the block in `marf_data`.
+    pub block_id: u32,
+    pub block_hash: T,
+    /// Byte offset of the block's trie blob in external `.blobs` storage.
+    pub external_offset: u64,
+}
+
 /// Bulk-read all confirmed block entries from `marf_data`.
 ///
 /// Returns one [`MarfDataEntry`] for every confirmed row, ordered by
@@ -838,23 +849,6 @@ pub fn read_node_hash_bytes<W: Write>(
     w.write_all(&hash_buff).map_err(|e| e.into())
 }
 
-/// Read a node's hash from a sqlite-stored blob, given its block header hash
-pub fn read_node_hash_bytes_by_bhh<W: Write, T: MarfTrieId>(
-    conn: &Connection,
-    w: &mut W,
-    bhh: &T,
-    ptr: &TriePtr,
-) -> Result<(), Error> {
-    let row_id: i64 = conn.query_row(
-        "SELECT block_id FROM marf_data WHERE block_hash = ?",
-        [bhh],
-        |r| r.get("block_id"),
-    )?;
-    let mut blob = conn.blob_open(rusqlite::MAIN_DB, "marf_data", "data", row_id, true)?;
-    let hash_buff = bits_read_node_hash_bytes(&mut blob, ptr)?;
-    w.write_all(&hash_buff).map_err(|e| e.into())
-}
-
 /// Read a node and its hash from a sqlite-stored trie blob
 pub fn read_node_type(
     conn: &Connection,
@@ -899,6 +893,7 @@ pub fn get_external_trie_offset_length(
 }
 
 /// Get the offset of a trie blob in the blobs file, given its block header hash.
+#[cfg(test)]
 pub fn get_external_trie_offset_length_by_bhh<T: MarfTrieId>(
     conn: &Connection,
     bhh: &T,
@@ -966,6 +961,7 @@ pub fn get_node_hash_bytes(
     Ok(TrieHash(hash_buff))
 }
 
+#[cfg(test)]
 pub fn get_node_hash_bytes_by_bhh<T: MarfTrieId>(
     conn: &Connection,
     bhh: &T,

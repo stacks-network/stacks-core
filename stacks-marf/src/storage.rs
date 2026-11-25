@@ -39,13 +39,15 @@ use crate::cache::*;
 use crate::file::{TrieFile, TrieFileNodeHashReader};
 use crate::marf::MARFOpenOpts;
 use crate::node::{
-    is_backptr, set_backptr, TrieCowPtr, TrieNode, TrieNodeID, TrieNodePatch, TrieNodeType, TriePtr,
+    is_backptr, set_backptr, BlockMap, TrieCowPtr, TrieNode, TrieNodeID, TrieNodePatch,
+    TrieNodeType, TriePtr,
 };
 use crate::trie::Trie;
-use crate::{
-    trie_sql, BlockMap, ClarityMarfTrieId, Error, MarfDataEntry, MarfTrieId, TrieHasher,
-    MAX_PATCH_DEPTH,
-};
+use crate::trie_sql::MarfDataEntry;
+use crate::{trie_sql, ClarityMarfTrieId, Error, MarfTrieId, TrieHasher};
+
+/// Define the maximum node patching depth when MARF compression is enabled
+pub const MAX_PATCH_DEPTH: u32 = 4;
 
 /// A trait for reading the hash of a node into a given Write impl, given the pointer to a node in
 /// a trie.
@@ -409,13 +411,6 @@ impl DumpPtr {
         match self {
             Self::Normal(ptr) => *ptr,
             Self::Patch(ptr, ..) => *ptr,
-        }
-    }
-
-    pub fn hash_bytes(&self) -> Option<&[u8; 32]> {
-        match self {
-            Self::Normal(..) => None,
-            Self::Patch(_, bytes, _) => Some(bytes),
         }
     }
 
@@ -2552,7 +2547,7 @@ impl<T: MarfTrieId> TrieStorageConnection<'_, T> {
     }
 
     /// Read the Trie root node's hash from the block table.
-    #[cfg(any(test, feature = "testing"))]
+    #[cfg(test)]
     pub fn read_block_root_hash(&mut self, bhh: &T) -> Result<TrieHash, Error> {
         let root_hash_ptr = TriePtr::new(
             TrieNodeID::Node256 as u8,

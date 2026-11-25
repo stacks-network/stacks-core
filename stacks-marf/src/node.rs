@@ -18,6 +18,8 @@ use std::io::{Read, Seek, Write};
 use std::{error, fmt};
 
 use stacks_common::codec::{read_next, write_next, Error as codec_error, StacksMessageCodec};
+#[cfg(test)]
+use stacks_common::types::chainstate::BlockHeaderHash;
 use stacks_common::types::chainstate::{TrieHash, BLOCK_HEADER_HASH_ENCODED_SIZE};
 use stacks_common::util::hash::to_hex;
 
@@ -26,9 +28,36 @@ use crate::bits::{
     get_sparse_ptrs_bitmap_size, path_from_bytes, ptrs_from_bytes, write_path_to_bytes,
     SPARSE_PTR_BITMAP_MARKER,
 };
-use crate::{
-    BlockMap, ClarityMarfTrieId, Error, MARFValue, MarfTrieId, TrieLeaf, MARF_VALUE_ENCODED_SIZE,
-};
+use crate::{ClarityMarfTrieId, Error, MARFValue, MarfTrieId, TrieLeaf, MARF_VALUE_ENCODED_SIZE};
+
+pub trait BlockMap {
+    type TrieId: MarfTrieId;
+    fn get_block_hash(&self, id: u32) -> Result<Self::TrieId, Error>;
+    fn get_block_hash_caching(&mut self, id: u32) -> Result<&Self::TrieId, Error>;
+    fn is_block_hash_cached(&self, id: u32) -> bool;
+    fn get_block_id(&self, bhh: &Self::TrieId) -> Result<u32, Error>;
+    fn get_block_id_caching(&mut self, bhh: &Self::TrieId) -> Result<u32, Error>;
+}
+
+#[cfg(test)]
+impl BlockMap for () {
+    type TrieId = BlockHeaderHash;
+    fn get_block_hash(&self, _id: u32) -> Result<BlockHeaderHash, Error> {
+        Err(Error::NotFoundError)
+    }
+    fn get_block_hash_caching(&mut self, _id: u32) -> Result<&BlockHeaderHash, Error> {
+        Err(Error::NotFoundError)
+    }
+    fn is_block_hash_cached(&self, _id: u32) -> bool {
+        false
+    }
+    fn get_block_id(&self, _bhh: &BlockHeaderHash) -> Result<u32, Error> {
+        Err(Error::NotFoundError)
+    }
+    fn get_block_id_caching(&mut self, _bhh: &BlockHeaderHash) -> Result<u32, Error> {
+        Err(Error::NotFoundError)
+    }
+}
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum CursorError {

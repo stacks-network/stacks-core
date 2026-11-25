@@ -26,14 +26,14 @@ use stacks_common::util::hash::to_hex;
 use crate::bits::{get_leaf_hash, get_node_hash, read_root_hash, write_path_to_bytes};
 use crate::marf::MARF;
 use crate::node::{
-    is_backptr, ConsensusSerializable, CursorError, TrieCursor, TrieNode, TrieNodeID, TrieNodeType,
-    TriePtr,
+    is_backptr, BlockMap, ConsensusSerializable, CursorError, TrieCursor, TrieNode, TrieNodeID,
+    TrieNodeType, TriePtr,
 };
 use crate::storage::TrieStorageConnection;
 use crate::trie::Trie;
 use crate::{
-    BlockMap, ClarityMarfTrieId, Error, MARFValue, MarfTrieId, ProofTrieNode, ProofTriePtr,
-    TrieMerkleProof, TrieMerkleProofType,
+    ClarityMarfTrieId, Error, MARFValue, MarfTrieId, ProofTrieNode, ProofTriePtr, TrieMerkleProof,
+    TrieMerkleProofType,
 };
 
 impl<T: MarfTrieId> ConsensusSerializable<()> for ProofTrieNode<T> {

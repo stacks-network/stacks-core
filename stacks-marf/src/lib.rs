@@ -52,31 +52,32 @@ use stacks_common::types::chainstate::{
 
 use crate::node::TrieNodePatch;
 
-pub mod bits;
-pub mod blob_layout;
-pub mod cache;
-pub mod file;
-pub mod marf;
-pub mod node;
-pub mod proofs;
-pub mod squash;
-pub mod storage;
-pub mod trie;
-pub mod trie_sql;
+mod bits;
+mod blob_layout;
+mod cache;
+mod file;
+mod marf;
+mod node;
+mod proofs;
+mod squash;
+mod storage;
+mod trie;
+mod trie_sql;
 
 #[cfg(test)]
-pub mod test;
+mod test;
 
 // The core MARF types, re-exported so callers can write `stacks_marf::MARF`
 // rather than `stacks_marf::marf::MARF`.
 pub use crate::marf::{
     test_override_marf_compression, MARFOpenOpts, MarfConnection, MarfTransaction, MARF,
 };
+pub use crate::squash::{SquashStats, SquashStepDurations};
 pub use crate::storage::TrieHashCalculationMode;
 // Readers for the bookkeeping tables of a MARF's SQLite database, used by
 // tools that inspect squashed MARFs.
 pub use crate::trie_sql::{
-    bulk_read_squashed_blocks, get_latest_confirmed_block_hash, read_squash_info,
+    bulk_read_squashed_blocks, get_latest_confirmed_block_hash, read_squash_info, SqlSquashInfo,
 };
 
 /// Helpers for other crates' test suites.
@@ -150,18 +151,7 @@ pub trait MarfTrieId:
 {
 }
 
-/// One confirmed `marf_data` row, as loaded by
-/// [`trie_sql::bulk_read_block_entries`].
-#[derive(Debug, Clone)]
-pub struct MarfDataEntry<T> {
-    /// SQLite rowid of the block in `marf_data`.
-    pub block_id: u32,
-    pub block_hash: T,
-    /// Byte offset of the block's trie blob in external `.blobs` storage.
-    pub external_offset: u64,
-}
-
-pub const SENTINEL_ARRAY: [u8; 32] = [255u8; 32];
+const SENTINEL_ARRAY: [u8; 32] = [255u8; 32];
 
 macro_rules! impl_clarity_marf_trie_id {
     ($thing:ident) => {
@@ -209,9 +199,6 @@ impl MarfTrieId for StacksBlockId {}
 impl MarfTrieId for BurnchainHeaderHash {}
 #[cfg(test)]
 impl MarfTrieId for BlockHeaderHash {}
-
-/// Define the maximum node patching depth when MARF compression is enabled
-pub const MAX_PATCH_DEPTH: u32 = 4;
 
 /// Structure that holds the actual data in a MARF leaf node.
 /// It only stores the hash of some value string, but we add 8 extra bytes for future extensions.
@@ -434,34 +421,5 @@ impl error::Error for Error {
             Error::BlockHashMapCorruptionError(Some(ref e)) => Some(e),
             _ => None,
         }
-    }
-}
-
-pub trait BlockMap {
-    type TrieId: MarfTrieId;
-    fn get_block_hash(&self, id: u32) -> Result<Self::TrieId, Error>;
-    fn get_block_hash_caching(&mut self, id: u32) -> Result<&Self::TrieId, Error>;
-    fn is_block_hash_cached(&self, id: u32) -> bool;
-    fn get_block_id(&self, bhh: &Self::TrieId) -> Result<u32, Error>;
-    fn get_block_id_caching(&mut self, bhh: &Self::TrieId) -> Result<u32, Error>;
-}
-
-#[cfg(test)]
-impl BlockMap for () {
-    type TrieId = BlockHeaderHash;
-    fn get_block_hash(&self, _id: u32) -> Result<BlockHeaderHash, Error> {
-        Err(Error::NotFoundError)
-    }
-    fn get_block_hash_caching(&mut self, _id: u32) -> Result<&BlockHeaderHash, Error> {
-        Err(Error::NotFoundError)
-    }
-    fn is_block_hash_cached(&self, _id: u32) -> bool {
-        false
-    }
-    fn get_block_id(&self, _bhh: &BlockHeaderHash) -> Result<u32, Error> {
-        Err(Error::NotFoundError)
-    }
-    fn get_block_id_caching(&mut self, _bhh: &BlockHeaderHash) -> Result<u32, Error> {
-        Err(Error::NotFoundError)
     }
 }
