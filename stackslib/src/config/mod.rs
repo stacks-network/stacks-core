@@ -5174,9 +5174,9 @@ mod tests {
             "Invalid path: No such file or directory (os error 2)".to_string(),
             ConfigFile::from_path("some_path").unwrap_err()
         );
-        assert!(ConfigFile::from_str("//[node]")
-            .unwrap_err()
-            .starts_with("Invalid toml: TOML parse error at line 1, column 3"));
+        let err = ConfigFile::from_str("//[node]").unwrap_err();
+        assert!(err.starts_with("Invalid toml: TOML parse error at line 1, column 3"));
+        assert!(err.contains("key with no value, expected `=`"));
         assert!(ConfigFile::from_str("").is_ok());
     }
 
