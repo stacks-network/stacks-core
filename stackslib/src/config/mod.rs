@@ -2253,6 +2253,7 @@ pub struct NodeConfig {
     ///   - else: defaults to an empty list `[]`.
     /// @notes:
     ///   - Values are strings representing qualified contract identifiers.
+    ///   - The node accepts up to 255 distinct contracts, including automatically added signer and miner StackerDBs.
     /// @toml_example: |
     ///   stacker_dbs = [
     ///     "SP000000000000000000002Q6VF78.pox-3",
@@ -2613,24 +2614,23 @@ impl NodeConfig {
         }
     }
 
-    /// Reject a `stacker_dbs` list longer than [`STACKERDB_MAX_REPLICATED_DBS`], counting the
-    /// boot-code StackerDBs (signers, miners) added for stackers and miners.
+    /// Limit the number of distinct StackerDB contracts, including built-in signer and miner contracts.
     pub fn validate_stacker_dbs(&self, is_mainnet: bool) -> Result<(), String> {
-        let total = self.stacker_dbs.len();
+        let contracts: HashSet<_> = self.stacker_dbs.iter().collect();
+        let total = contracts.len();
         if total <= STACKERDB_MAX_REPLICATED_DBS {
             return Ok(());
         }
 
         let boot_issuer = StandardPrincipalData::from(boot_code_addr(is_mainnet));
-        let boot_dbs = self
-            .stacker_dbs
+        let boot_dbs = contracts
             .iter()
             .filter(|contract_id| contract_id.issuer == boot_issuer)
             .count();
         Err(format!(
             "node.stacker_dbs: a node can replicate at most {STACKERDB_MAX_REPLICATED_DBS} \
-             StackerDBs, but {total} are configured ({boot_dbs} of them built-in signer and \
-             miner StackerDBs). Remove at least {} from node.stacker_dbs.",
+             distinct StackerDBs, but {total} are configured ({boot_dbs} of them built-in signer and \
+             miner StackerDBs). Reduce the number of distinct contracts in node.stacker_dbs by at least {}.",
             total - STACKERDB_MAX_REPLICATED_DBS
         ))
     }
@@ -4975,8 +4975,11 @@ mod tests {
         }
     }
 
-    #[test]
-    fn too_many_stacker_dbs_is_a_config_error() {
+    /// Repeated entries count once toward both the handshake limit and the built-in total.
+    #[rstest]
+    #[case(0)]
+    #[case(2)]
+    fn too_many_stacker_dbs_is_a_config_error(#[case] miner_entries: usize) {
         let stacker_config = |configured: usize| {
             Config::from_config_file(
                 ConfigFile {
@@ -4989,6 +4992,10 @@ mod tests {
                         stacker_dbs: Some(
                             (0..configured)
                                 .map(|i| format!("SP8QPP8TVXYAXS1VFSERG978A6WKBF59NSYJQEMN.db-{i}"))
+                                .chain(
+                                    (0..miner_entries)
+                                        .map(|_| boot_code_id(MINERS_NAME, false).to_string()),
+                                )
                                 .collect(),
                         ),
                         ..Default::default()
@@ -5002,14 +5009,20 @@ mod tests {
         let mut boot_dbs = NodeConfig::default();
         boot_dbs.add_miner_stackerdb(false);
         boot_dbs.add_signers_stackerdbs(false);
-        let room = STACKERDB_MAX_REPLICATED_DBS - boot_dbs.stacker_dbs.len();
+        let built_in = boot_dbs.stacker_dbs.len();
+        let room = STACKERDB_MAX_REPLICATED_DBS - built_in;
 
-        let config = stacker_config(room).unwrap();
-        assert_eq!(config.node.stacker_dbs.len(), STACKERDB_MAX_REPLICATED_DBS);
+        stacker_config(room).unwrap();
 
         let err = stacker_config(room + 1).unwrap_err();
         assert!(
-            err.contains("Remove at least 1 from node.stacker_dbs"),
+            err.contains(&format!("256 are configured ({built_in} of them built-in")),
+            "{err}"
+        );
+        assert!(
+            err.contains(
+                "Reduce the number of distinct contracts in node.stacker_dbs by at least 1."
+            ),
             "{err}"
         );
     }
