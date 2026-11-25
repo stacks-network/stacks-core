@@ -2275,10 +2275,12 @@ pub struct NodeConfig {
     /// @default: `None`
     pub pox_5_sbtc_contract: Option<QualifiedContractIdentifier>,
     /// Epoch 4.0 / PoX-5 scaffolding: the sBTC registry contract that
-    /// signer-set computation reads `get-current-aggregate-pubkey` from to
-    /// derive the per-cycle sBTC waterfall recipient. Devnet/test only;
-    /// different operators configuring different contracts will fork the
-    /// chain.
+    /// signer-set computation reads to derive the per-cycle sBTC waterfall
+    /// recipient: `get-current-aggregate-pubkey` in Epoch 4.0 (v1 deposit),
+    /// `get-current-signer-data` from Epoch 4.1 (v2 Taproot multisig
+    /// deposit, or the standard burn address if the registry does not return
+    /// a usable signer set). Devnet/test only; different operators configuring different
+    /// contracts will fork the chain.
     /// ---
     /// @default: `None`
     pub pox_5_sbtc_registry_contract: Option<QualifiedContractIdentifier>,
@@ -3125,6 +3127,12 @@ pub struct MinerConfig {
     /// proposed, not from the empty sortition, so a run of empty sortitions cannot
     /// extend it. Once it elapses the proposal is presumed lost and the relayer issues a
     /// late `BlockFound`.
+    ///
+    /// The same wait applies when the relayer is about to extend the tenure into a new
+    /// burn view while a block this node proposed on the Stacks tip is still in flight:
+    /// it waits for that block to land or be rejected before extending, rather than
+    /// extending on the same parent. That wait is measured from the moment the relayer
+    /// would otherwise have extended.
     ///
     /// This only has to cover the signers aggregating signatures over a block this node
     /// has already proposed and pushing it back, which takes seconds.
@@ -4129,8 +4137,8 @@ pub struct NodeConfigFile {
     pub pox_5_sbtc_contract: Option<String>,
     /// Epoch 4.0 / PoX-5 scaffolding: contract id (as `principal.contract-name`)
     /// of the sBTC registry contract from which signer-set computation reads
-    /// `get-current-aggregate-pubkey` to derive the per-cycle sBTC waterfall
-    /// recipient.
+    /// `get-current-aggregate-pubkey` (Epoch 4.0) or `get-current-signer-data`
+    /// (Epoch 4.1+) to derive the per-cycle sBTC waterfall recipient.
     pub pox_5_sbtc_registry_contract: Option<String>,
     /// Epoch 4.0 / PoX-5 scaffolding: principal (standard or contract) that
     /// pox-5 initializes the `bond-admin` data var to. Used to override the

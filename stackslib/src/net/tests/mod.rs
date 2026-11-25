@@ -113,6 +113,9 @@ pub struct NakamotoBootPlan {
     pub extra_tenures: Vec<NakamotoBootTenure>,
     /// Do not fail if a transaction returns error (by default the BootPlan will stop on tx failure)
     pub ignore_transaction_errors: bool,
+    /// Replaces the Epoch 4.1 part of the genesis sBTC registry stub; see
+    /// `TestChainstateConfig::sbtc_registry_v2_stub_override`.
+    pub sbtc_registry_v2_stub_override: Option<String>,
 }
 
 /// Compact PoX constants shared by Nakamoto test harnesses.
@@ -161,6 +164,7 @@ impl NakamotoBootPlan {
             epochs: None,
             tip_transactions: vec![],
             ignore_transaction_errors: false,
+            sbtc_registry_v2_stub_override: None,
         }
     }
 
@@ -169,6 +173,8 @@ impl NakamotoBootPlan {
         let mut chainstate_config = TestChainstateConfig::new(&self.test_name);
         chainstate_config.network_id = self.network_id;
         chainstate_config.txindex = self.txindex;
+        chainstate_config.sbtc_registry_v2_stub_override =
+            self.sbtc_registry_v2_stub_override.clone();
 
         let addr = StacksAddress::from_public_keys(
             C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
@@ -252,6 +258,12 @@ impl NakamotoBootPlan {
 
     pub fn with_epochs(mut self, epochs: EpochList<ExecutionCost>) -> Self {
         self.epochs = Some(epochs);
+        self
+    }
+
+    /// Serve `body` instead of the default Epoch 4.1 sBTC registry stub.
+    pub fn with_sbtc_registry_v2_stub(mut self, body: &str) -> Self {
+        self.sbtc_registry_v2_stub_override = Some(body.to_string());
         self
     }
 

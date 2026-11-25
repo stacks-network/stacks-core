@@ -13,4 +13,4 @@ path = "src/lib.rs"
 
 [build-dependencies]
 libflate = "1.0.3"
-sha2 = { version = "0.10" }
+sha2 = { workspace = true }

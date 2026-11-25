@@ -27,7 +27,7 @@ thiserror = { workspace = true }
 tiny_http = "0.12"
 
 [dev-dependencies]
-mutants = "0.0.3"
+mutants = { workspace = true }
 rand_core = { workspace = true }
 rand = { workspace = true }
 stacks-common = { path = "../stacks-common", features = ["testing"] }
@@ -35,7 +35,7 @@ clarity = { path = "../clarity", features = ["testing"] }
 stackslib = { path = "../stackslib", features = ["testing"] }
 
 [target.'cfg(all(any(target_arch = "x86_64", target_arch = "x86", target_arch = "aarch64"), not(any(target_os="windows"))))'.dependencies]
-sha2 = { version = "0.10", features = ["asm"] }
+sha2 = { workspace = true, features = ["asm"] }
 
 [target.'cfg(any(not(any(target_arch = "x86_64", target_arch = "x86", target_arch = "aarch64")), any(target_os = "windows")))'.dependencies]
-sha2 = { version = "0.10" }
+sha2 = { workspace = true }

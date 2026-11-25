@@ -53,7 +53,7 @@ use stacks::core::{StacksEpochId, STACKS_EPOCH_MAX};
 use stacks::types::chainstate::StacksPrivateKey;
 use stacks::util::secp256k1::Secp256k1PublicKey;
 
-use super::MultipleMinerTest;
+use super::{MultipleMinerTest, SbtcRegistryStub};
 use crate::tests::nakamoto_integrations::enable_epoch_4_0;
 use crate::tests::neon_integrations::test_observer;
 use crate::tests::to_addr;
@@ -151,6 +151,7 @@ fn epoch_4_0_burn_distribution_chains_across_boundary() {
         token_contract_name,
         registry_contract_name,
         &agg_pubkey,
+        SbtcRegistryStub::DevenvSignerSet,
         stake_amount,
         lock_cycles,
     );

@@ -20,8 +20,8 @@ stacks_common = { package = "stacks-common", path = "../stacks-common", default-
 variant_count = { workspace = true }
 
 [dev-dependencies]
-mutants = "0.0.3"
-rstest = "0.17.0"
+mutants = { workspace = true }
+rstest = { workspace = true }
 serde_json = { workspace = true }
 
 [features]

@@ -32,7 +32,7 @@ use stacks::types::chainstate::{StacksAddress, StacksPrivateKey};
 use stacks::util::secp256k1::Secp256k1PublicKey;
 use stacks_signer::config::{GlobalConfig as SignerConfig, Network};
 
-use super::MultipleMinerTest;
+use super::{MultipleMinerTest, SbtcRegistryStub};
 use crate::run_loop::boot_nakamoto::BootRunLoop;
 use crate::tests::nakamoto_integrations::wait_for;
 use crate::tests::neon_integrations::{
@@ -236,6 +236,7 @@ fn signet_pox5_epoch40_stability_and_restart() {
         token_name,
         registry_name,
         &aggregate_key,
+        SbtcRegistryStub::DevenvSignerSet,
         100_000_000_000,
         12,
     );

@@ -128,7 +128,9 @@ use crate::tests::neon_integrations::{
     get_sortition_info, next_block_and_wait, run_until_burnchain_height, submit_tx,
     submit_tx_fallible, test_observer, wait_for_runloop, wait_for_tenure_change_tx,
 };
-use crate::tests::signer::v0::{sbtc_registry_stub_source, sbtc_token_stub_source};
+use crate::tests::signer::v0::{
+    sbtc_registry_stub_source, sbtc_token_stub_source, SbtcRegistryStub,
+};
 use crate::tests::signer::SignerTest;
 use crate::tests::{gen_random_port, get_chain_info, make_contract_publish, to_addr};
 use crate::{tests, BitcoinRegtestController, Config, ConfigFile, Keychain};
@@ -760,6 +762,31 @@ pub fn enable_epoch_4_0(conf: &mut Config) {
         .start_height = 262;
 }
 
+/// Activate Epoch 4.1 (inactive by default in `NAKAMOTO_INTEGRATION_EPOCHS`)
+/// two reward cycles after the [`enable_epoch_4_0`] boundary, at `302`.
+/// Must be applied together with `enable_epoch_4_0`, and to every node's
+/// config so peers agree on the boundary.
+pub fn enable_epoch_4_1(conf: &mut Config) {
+    let epochs = conf
+        .burnchain
+        .epochs
+        .as_mut()
+        .expect("Missing burnchain epochs in config");
+    let epoch_40 = epochs
+        .get_mut(StacksEpochId::Epoch40)
+        .expect("Missing epoch 4.0 in config");
+    assert_eq!(
+        epoch_40.start_height, 262,
+        "enable_epoch_4_1 expects enable_epoch_4_0 to have been applied first"
+    );
+    epoch_40.end_height = 302;
+    let epoch_41 = epochs
+        .get_mut(StacksEpochId::Epoch41)
+        .expect("Missing epoch 4.1 in config");
+    epoch_41.start_height = 302;
+    epoch_41.end_height = STACKS_EPOCH_MAX;
+}
+
 pub fn next_block_and<F>(
     btc_controller: &BitcoinRegtestController,
     timeout_secs: u64,
@@ -868,6 +895,21 @@ where
     })
 }
 
+/// Wait for the Nakamoto miner to submit a block-commit built on the node's
+/// current burn tip. Use this before mining the next burn block so that the
+/// commit lands in it. A commit that misses its target burn block is rejected
+/// as a missed commit, producing an empty sortition.
+pub fn wait_for_naka_tip_commit(
+    conf: &Config,
+    counters: &Counters,
+    timeout_secs: u64,
+) -> Result<(), String> {
+    let burn_height = get_chain_info(conf).burn_block_height;
+    wait_for(timeout_secs, || {
+        Ok(counters.naka_submitted_commit_last_burn_height.get() >= burn_height)
+    })
+}
+
 /// Mine a bitcoin block, and wait until:
 ///  (1) a new block has been processed by the coordinator
 ///  (2) 2 block commits have been issued ** or ** more than 10 seconds have
@@ -885,6 +927,20 @@ pub fn next_block_and_mine_commit(
         &[node_counters],
         true,
     )
+}
+
+/// like [`next_block_and_mine_commit`], but first waits for a block-commit on the current burn tip
+/// so the new burn block includes it instead of producing an empty sortition. use this after mining
+/// burn blocks without waiting for commits.
+pub fn next_block_and_mine_commit_on_tip(
+    btc_controller: &BitcoinRegtestController,
+    timeout_secs: u64,
+    node_conf: &Config,
+    node_counters: &Counters,
+) -> Result<(), String> {
+    wait_for_naka_tip_commit(node_conf, node_counters, timeout_secs)
+        .map_err(|e| format!("waiting for a block-commit on the current burn tip: {e}"))?;
+    next_block_and_mine_commit(btc_controller, timeout_secs, node_conf, node_counters)
 }
 
 /// Mine a bitcoin block, and wait until:
@@ -1170,7 +1226,8 @@ pub fn boot_to_epoch_4_0(
     submit_tx(&http_origin, &sbtc_deploy_tx);
 
     let expected_deployer_nonce: u64 = if let Some(pubkey) = sbtc_registry_pubkey {
-        let sbtc_registry_contract = sbtc_registry_stub_source(pubkey);
+        let sbtc_registry_contract =
+            sbtc_registry_stub_source(pubkey, SbtcRegistryStub::DevenvSignerSet);
         let sbtc_registry_deploy_tx = make_contract_publish(
             sbtc_deployer_sk,
             1,
@@ -15158,7 +15215,7 @@ fn check_block_time_keyword() {
     let info = get_chain_info_result(&naka_conf).unwrap();
     let last_stacks_block_height = info.stacks_tip_height as u128;
 
-    next_block_and_mine_commit(&btc_regtest_controller, 60, &naka_conf, &counters).unwrap();
+    next_block_and_mine_commit_on_tip(&btc_regtest_controller, 60, &naka_conf, &counters).unwrap();
 
     let mut sender_nonce = 0;
     let contract_name = "test-contract";
@@ -15939,7 +15996,7 @@ fn check_with_stacking_allowances_delegate_stx() {
     let info = get_chain_info_result(&naka_conf).unwrap();
     let last_stacks_block_height = info.stacks_tip_height as u128;
 
-    next_block_and_mine_commit(&btc_regtest_controller, 60, &naka_conf, &counters).unwrap();
+    next_block_and_mine_commit_on_tip(&btc_regtest_controller, 60, &naka_conf, &counters).unwrap();
 
     let mut sender_nonce = 0;
     let contract_name = "test-contract";
@@ -16348,7 +16405,7 @@ fn check_with_stacking_allowances_stack_stx() {
     let info = get_chain_info_result(&naka_conf).unwrap();
     let last_stacks_block_height = info.stacks_tip_height as u128;
 
-    next_block_and_mine_commit(&btc_regtest_controller, 60, &naka_conf, &counters).unwrap();
+    next_block_and_mine_commit_on_tip(&btc_regtest_controller, 60, &naka_conf, &counters).unwrap();
 
     let signer_key_hex = Value::buff_from(signer_pk.to_bytes_compressed()).unwrap();
     let mut sender_nonce = 0;
@@ -16946,7 +17003,7 @@ fn check_restrict_assets_rollback() {
     let info = get_chain_info_result(&naka_conf).unwrap();
     let last_stacks_block_height = info.stacks_tip_height as u128;
 
-    next_block_and_mine_commit(&btc_regtest_controller, 60, &naka_conf, &counters).unwrap();
+    next_block_and_mine_commit_on_tip(&btc_regtest_controller, 60, &naka_conf, &counters).unwrap();
 
     let mut sender_nonce = 0;
     let contract_name = "test-contract";
@@ -17665,7 +17722,7 @@ fn check_as_contract_rollback() {
     let info = get_chain_info_result(&naka_conf).unwrap();
     let last_stacks_block_height = info.stacks_tip_height as u128;
 
-    next_block_and_mine_commit(&btc_regtest_controller, 60, &naka_conf, &counters).unwrap();
+    next_block_and_mine_commit_on_tip(&btc_regtest_controller, 60, &naka_conf, &counters).unwrap();
 
     let mut sender_nonce = 0;
     let contract = r#"
