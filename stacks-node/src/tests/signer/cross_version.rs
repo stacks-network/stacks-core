@@ -1454,6 +1454,13 @@ fn process_node_scenario(miner: bool, upgrade: bool, baseline_signers: bool) {
         harness.restart_signer(ix, signer_config);
     }
     node.wait_for_tip(info.stacks_tip_height);
+    // A signer publishes a state machine update only when its view changes,
+    // not when it starts. One that starts after the next burn block is
+    // processed already holds that block's view, never publishes it, and the
+    // set keeps evaluating proposals against the updates reloaded from before
+    // handover. Let every signer finish starting on the handover burn block
+    // so the next one changes its view.
+    harness.wait_for_registered();
     if !miner {
         // Signers recompute the active miner on burn block events, and the
         // handover sortition happened while they were stopped, so on
