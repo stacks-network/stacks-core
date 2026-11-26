@@ -5174,10 +5174,9 @@ mod tests {
             "Invalid path: No such file or directory (os error 2)".to_string(),
             ConfigFile::from_path("some_path").unwrap_err()
         );
-        assert_eq!(
-            "Invalid toml: unexpected character found: `/` at line 1 column 1".to_string(),
-            ConfigFile::from_str("//[node]").unwrap_err()
-        );
+        let err = ConfigFile::from_str("//[node]").unwrap_err();
+        assert!(err.starts_with("Invalid toml: TOML parse error at line 1, column 3"));
+        assert!(err.contains("key with no value, expected `=`"));
         assert!(ConfigFile::from_str("").is_ok());
     }
 
@@ -5565,7 +5564,8 @@ mod tests {
             "#,
             )
             .unwrap_err();
-            assert!(err.starts_with("Invalid toml: unknown field `unknown_field`"));
+            assert!(err.starts_with("Invalid toml: TOML parse error at line 4, column 13"));
+            assert!(err.contains("unknown field `unknown_field`"));
         }
 
         {
@@ -5578,7 +5578,8 @@ mod tests {
             "#,
             )
             .unwrap_err();
-            assert!(err.starts_with("Invalid toml: unknown field `unknown_field`"));
+            assert!(err.starts_with("Invalid toml: TOML parse error at line 4, column 13"));
+            assert!(err.contains("unknown field `unknown_field`"));
         }
 
         {
@@ -5591,7 +5592,8 @@ mod tests {
             "#,
             )
             .unwrap_err();
-            assert!(err.starts_with("Invalid toml: unknown field `unknown_field`"));
+            assert!(err.starts_with("Invalid toml: TOML parse error at line 4, column 13"));
+            assert!(err.contains("unknown field `unknown_field`"));
         }
 
         {
@@ -5604,7 +5606,8 @@ mod tests {
             "#,
             )
             .unwrap_err();
-            assert!(err.starts_with("Invalid toml: unknown field `unknown_field`"));
+            assert!(err.starts_with("Invalid toml: TOML parse error at line 5, column 13"));
+            assert!(err.contains("unknown field `unknown_field`"));
         }
 
         {
@@ -5617,7 +5620,8 @@ mod tests {
             "#,
             )
             .unwrap_err();
-            assert!(err.starts_with("Invalid toml: unknown field `unknown_field`"));
+            assert!(err.starts_with("Invalid toml: TOML parse error at line 4, column 13"));
+            assert!(err.contains("unknown field `unknown_field`"));
         }
 
         {
@@ -5630,7 +5634,8 @@ mod tests {
             "#,
             )
             .unwrap_err();
-            assert!(err.starts_with("Invalid toml: unknown field `unknown_field`"));
+            assert!(err.starts_with("Invalid toml: TOML parse error at line 5, column 13"));
+            assert!(err.contains("unknown field `unknown_field`"));
         }
 
         {
@@ -5642,7 +5647,8 @@ mod tests {
             "#,
             )
             .unwrap_err();
-            assert!(err.starts_with("Invalid toml: unknown field `unknown_field`"));
+            assert!(err.starts_with("Invalid toml: TOML parse error at line 4, column 13"));
+            assert!(err.contains("unknown field `unknown_field`"));
         }
 
         {
@@ -5656,7 +5662,8 @@ mod tests {
             )
             .unwrap_err();
             println!("{err}");
-            assert!(err.starts_with("Invalid toml: unknown field `unknown_field`"));
+            assert!(err.starts_with("Invalid toml: TOML parse error at line 4, column 13"));
+            assert!(err.contains("unknown field `unknown_field`"));
         }
 
         {
@@ -5668,7 +5675,8 @@ mod tests {
                 "#,
             )
             .unwrap_err();
-            assert!(err.starts_with("Invalid toml: unknown field `unknown_field`"));
+            assert!(err.starts_with("Invalid toml: TOML parse error at line 4, column 17"));
+            assert!(err.contains("unknown field `unknown_field`"));
         }
     }
 
