@@ -20,6 +20,10 @@ inputs:
     description: "Enable the built-in Rust caching provided by the action."
     required: false
     default: "false"
+  build-warnings:
+    description: "The `build.warnings` configuration value. If `deny` (the default), warnings are errors."
+    required: false
+    default: "deny"
 
 outputs:
   rust-toolchain:
@@ -37,3 +41,4 @@ runs:
         components: ${{ inputs.components }}
         target: ${{ inputs.target }}
         cache: ${{ inputs.cache }}
+        build-warnings: ${{ inputs.build-warnings }}

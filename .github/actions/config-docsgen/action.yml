@@ -34,6 +34,7 @@ runs:
         toolchain: ${{ inputs.rust-nightly-version }}
         components: rust-docs-json
         cache: "false"
+        build-warnings: "warn"
 
     # Generate, validate, and summarise configuration documentation
     - name: Generate Configuration Documentation
