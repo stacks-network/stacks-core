@@ -7,13 +7,15 @@
 // notice may not be copied, modified, or distributed except
 // according to those terms.
 
-use std::os::fd::{BorrowedFd, IntoRawFd, RawFd};
+use std::os::fd::{BorrowedFd, IntoRawFd, OwnedFd, RawFd};
 
 use nix::unistd;
 
 use crate::deps_common::ctrlc::error::Error as CtrlcError;
 use crate::deps_common::ctrlc::SignalId;
 
+/// Read and write ends of the signal pipe. `init_os_handler` sets them before it
+/// installs any handler, and closes them again only if it then fails.
 static mut PIPE: (RawFd, RawFd) = (-1, -1);
 
 /// Platform specific error type
@@ -59,34 +61,29 @@ extern "C" fn os_handler(c_sig_id: nix::libc::c_int) {
 // pipe2(2) is not available on macOS or iOS, so we need to use pipe(2) and fcntl(2)
 #[inline]
 #[cfg(any(target_os = "ios", target_os = "macos"))]
-fn pipe2(flags: nix::fcntl::OFlag) -> nix::Result<(RawFd, RawFd)> {
+fn pipe2(flags: nix::fcntl::OFlag) -> nix::Result<(OwnedFd, OwnedFd)> {
     use nix::fcntl::{fcntl, FcntlArg, FdFlag, OFlag};
 
+    // If a `fcntl` fails, dropping the `OwnedFd`s closes both ends of the pipe.
     let pipe = unistd::pipe()?;
 
-    let mut res = Ok(0);
-
     if flags.contains(OFlag::O_CLOEXEC) {
-        res = res
-            .and_then(|_| fcntl(&pipe.0, FcntlArg::F_SETFD(FdFlag::FD_CLOEXEC)))
-            .and_then(|_| fcntl(&pipe.1, FcntlArg::F_SETFD(FdFlag::FD_CLOEXEC)));
+        fcntl(&pipe.0, FcntlArg::F_SETFD(FdFlag::FD_CLOEXEC))?;
+        fcntl(&pipe.1, FcntlArg::F_SETFD(FdFlag::FD_CLOEXEC))?;
     }
 
     if flags.contains(OFlag::O_NONBLOCK) {
-        res = res
-            .and_then(|_| fcntl(&pipe.0, FcntlArg::F_SETFL(OFlag::O_NONBLOCK)))
-            .and_then(|_| fcntl(&pipe.1, FcntlArg::F_SETFL(OFlag::O_NONBLOCK)));
+        fcntl(&pipe.0, FcntlArg::F_SETFL(OFlag::O_NONBLOCK))?;
+        fcntl(&pipe.1, FcntlArg::F_SETFL(OFlag::O_NONBLOCK))?;
     }
 
-    // On error, dropping the `OwnedFd`s closes both ends of the pipe.
-    res.map(|_| (pipe.0.into_raw_fd(), pipe.1.into_raw_fd()))
+    Ok(pipe)
 }
 
 #[inline]
 #[cfg(not(any(target_os = "ios", target_os = "macos")))]
-fn pipe2(flags: nix::fcntl::OFlag) -> nix::Result<(RawFd, RawFd)> {
-    let pipe = unistd::pipe2(flags)?;
-    Ok((pipe.0.into_raw_fd(), pipe.1.into_raw_fd()))
+fn pipe2(flags: nix::fcntl::OFlag) -> nix::Result<(OwnedFd, OwnedFd)> {
+    unistd::pipe2(flags)
 }
 
 /// Register os signal handler.
@@ -102,7 +99,8 @@ pub unsafe fn init_os_handler() -> Result<(), Error> {
     use nix::fcntl;
     use nix::sys::signal;
 
-    PIPE = pipe2(fcntl::OFlag::O_CLOEXEC)?;
+    let (read, write) = pipe2(fcntl::OFlag::O_CLOEXEC)?;
+    PIPE = (read.into_raw_fd(), write.into_raw_fd());
 
     let close_pipe = |e: nix::Error| -> Error {
         // Try to close the pipes. close() should not fail,

@@ -17,7 +17,7 @@ slog = { workspace = true }
 stacks-common = { path = "../stacks-common", default-features = false, features = ["rusqlite"] }
 
 # `prefetch_file_range` in `file.rs` calls `posix_fadvise` on Linux.
-[target.'cfg(unix)'.dependencies]
+[target.'cfg(target_os = "linux")'.dependencies]
 nix = { workspace = true, features = ["fs"] }
 
 [target.'cfg(all(any(target_arch = "x86_64", target_arch = "x86", target_arch = "aarch64"), not(any(target_os="windows"))))'.dependencies]
