@@ -49,8 +49,10 @@ impl SignalId {
 extern "C" fn os_handler(c_sig_id: nix::libc::c_int) {
     let sig_id = SignalId::from_c_signal(c_sig_id) as u8;
     // Assuming this always succeeds. Can't really handle errors in any meaningful way.
+    // The write goes through the raw fd: a `BorrowedFd` would promise that the pipe
+    // stays open, and a failed `init_os_handler` can close it while a handler runs.
     unsafe {
-        let _ = unistd::write(BorrowedFd::borrow_raw(PIPE.1), &[sig_id]);
+        let _ = nix::libc::write(PIPE.1, (&raw const sig_id).cast(), 1);
     }
 }
 
