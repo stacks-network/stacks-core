@@ -173,7 +173,7 @@ const TENURE_HEIGHT_KEYWORD: SimpleKeywordAPI = SimpleKeywordAPI {
     snippet: "tenure-height",
     output_type: "uint",
     description: "Returns the number of tenures that have passed.
-At the start of epoch 3.0, `tenure-height` will return the same value as `block-height`, then it will continue to increase as each tenures passes.",
+At the start of epoch 3.0, `tenure-height` will return the same value as `block-height`, then it will continue to increase as each tenure passes.",
     example:
         "(> tenure-height u140000) ;; returns true if the current tenure-height has passed 140,000 tenures.",
     notices: &[],
