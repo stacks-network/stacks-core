@@ -120,16 +120,17 @@ fn test_send_with_string_result_with_basic_auth_ok() {
         "error": null
     });
 
+    // `user:?x` encodes to a value with a `/` and `=` padding, so the header only
+    // matches the standard base64 alphabet with padding.
     let username = "user".to_string();
-    let password = "pass".to_string();
-    let credentials = STANDARD.encode(format!("{}:{}", username, password));
+    let password = "?x".to_string();
 
     let mut server = mockito::Server::new();
     let _m = server
         .mock("POST", "/")
         .match_header(
             "authorization",
-            mockito::Matcher::Exact(format!("Basic {credentials}")),
+            mockito::Matcher::Exact("Basic dXNlcjo/eA==".to_string()),
         )
         .match_body(mockito::Matcher::PartialJson(expected_request))
         .with_status(200)
