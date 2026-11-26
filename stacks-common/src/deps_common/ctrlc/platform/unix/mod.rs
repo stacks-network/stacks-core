@@ -7,7 +7,7 @@
 // notice may not be copied, modified, or distributed except
 // according to those terms.
 
-use std::os::unix::io::RawFd;
+use std::os::fd::{BorrowedFd, IntoRawFd, RawFd};
 
 use nix::unistd;
 
@@ -50,7 +50,7 @@ extern "C" fn os_handler(c_sig_id: nix::libc::c_int) {
     let sig_id = SignalId::from_c_signal(c_sig_id) as u8;
     // Assuming this always succeeds. Can't really handle errors in any meaningful way.
     unsafe {
-        let _ = unistd::write(PIPE.1, &[sig_id]);
+        let _ = unistd::write(BorrowedFd::borrow_raw(PIPE.1), &[sig_id]);
     }
 }
 
@@ -66,30 +66,25 @@ fn pipe2(flags: nix::fcntl::OFlag) -> nix::Result<(RawFd, RawFd)> {
 
     if flags.contains(OFlag::O_CLOEXEC) {
         res = res
-            .and_then(|_| fcntl(pipe.0, FcntlArg::F_SETFD(FdFlag::FD_CLOEXEC)))
-            .and_then(|_| fcntl(pipe.1, FcntlArg::F_SETFD(FdFlag::FD_CLOEXEC)));
+            .and_then(|_| fcntl(&pipe.0, FcntlArg::F_SETFD(FdFlag::FD_CLOEXEC)))
+            .and_then(|_| fcntl(&pipe.1, FcntlArg::F_SETFD(FdFlag::FD_CLOEXEC)));
     }
 
     if flags.contains(OFlag::O_NONBLOCK) {
         res = res
-            .and_then(|_| fcntl(pipe.0, FcntlArg::F_SETFL(OFlag::O_NONBLOCK)))
-            .and_then(|_| fcntl(pipe.1, FcntlArg::F_SETFL(OFlag::O_NONBLOCK)));
+            .and_then(|_| fcntl(&pipe.0, FcntlArg::F_SETFL(OFlag::O_NONBLOCK)))
+            .and_then(|_| fcntl(&pipe.1, FcntlArg::F_SETFL(OFlag::O_NONBLOCK)));
     }
 
-    match res {
-        Ok(_) => Ok(pipe),
-        Err(e) => {
-            let _ = unistd::close(pipe.0);
-            let _ = unistd::close(pipe.1);
-            Err(e)
-        }
-    }
+    // On error, dropping the `OwnedFd`s closes both ends of the pipe.
+    res.map(|_| (pipe.0.into_raw_fd(), pipe.1.into_raw_fd()))
 }
 
 #[inline]
 #[cfg(not(any(target_os = "ios", target_os = "macos")))]
 fn pipe2(flags: nix::fcntl::OFlag) -> nix::Result<(RawFd, RawFd)> {
-    unistd::pipe2(flags)
+    let pipe = unistd::pipe2(flags)?;
+    Ok((pipe.0.into_raw_fd(), pipe.1.into_raw_fd()))
 }
 
 /// Register os signal handler.
@@ -116,7 +111,10 @@ pub unsafe fn init_os_handler() -> Result<(), Error> {
     };
 
     // Make sure we never block on write in the os handler.
-    if let Err(e) = fcntl::fcntl(PIPE.1, fcntl::FcntlArg::F_SETFL(fcntl::OFlag::O_NONBLOCK)) {
+    if let Err(e) = fcntl::fcntl(
+        BorrowedFd::borrow_raw(PIPE.1),
+        fcntl::FcntlArg::F_SETFL(fcntl::OFlag::O_NONBLOCK),
+    ) {
         return Err(close_pipe(e));
     }
 
@@ -181,7 +179,7 @@ pub unsafe fn block_ctrl_c() -> Result<SignalId, CtrlcError> {
     // with std::os::unix::io::FromRawFd, this would handle EINTR
     // and everything for us.
     loop {
-        match unistd::read(PIPE.0, &mut buf[..]) {
+        match unistd::read(BorrowedFd::borrow_raw(PIPE.0), &mut buf[..]) {
             Ok(1) => break,
             Ok(_) => return Err(CtrlcError::System(io::ErrorKind::UnexpectedEof.into())),
             Err(nix::errno::Errno::EINTR) => {}

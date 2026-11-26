@@ -1,0 +1,1 @@
+Upgraded the `hashbrown` crate from 0.15 to 0.17, the `nix` crate from 0.23 to 0.31 and the `base64` crate (used by `stacks-node`) from 0.12 to 0.22, and removed the unused `nix` dependency from `stackslib`. No behavior change is expected.

@@ -122,7 +122,7 @@ fn test_send_with_string_result_with_basic_auth_ok() {
 
     let username = "user".to_string();
     let password = "pass".to_string();
-    let credentials = base64::encode(format!("{}:{}", username, password));
+    let credentials = STANDARD.encode(format!("{}:{}", username, password));
 
     let mut server = mockito::Server::new();
     let _m = server

@@ -22,7 +22,8 @@
 use std::io;
 use std::time::Duration;
 
-use base64::encode;
+use base64::engine::general_purpose::STANDARD;
+use base64::Engine;
 use serde::Deserialize;
 use serde_json::Value;
 use stacks::net::http::{HttpRequestContents, HttpResponsePayload};
@@ -247,7 +248,7 @@ impl RpcTransport {
             RpcAuth::None => None,
             RpcAuth::Basic { username, password } => {
                 let credentials = format!("{}:{}", username, password);
-                Some(format!("Basic {}", encode(credentials)))
+                Some(format!("Basic {}", STANDARD.encode(credentials)))
             }
         }
     }
