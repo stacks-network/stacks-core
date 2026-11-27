@@ -6185,7 +6185,21 @@ fn check_block_heights() {
     run_loop_thread.join().unwrap();
 }
 
-/// Test config parameter `nakamoto_attempt_time_ms`
+/// Test config parameter `nakamoto_attempt_time_ms`.
+///
+/// `nakamoto_attempt_time_ms` is the maximum time the miner may spend
+/// assembling a single block (it bounds both block building and the mempool
+/// walk). Once the deadline passes, the miner stops including transactions,
+/// proposes what it has, and leaves the rest of the mempool for the next block.
+///
+/// Subtests:
+/// 1. Blocks are produced within `nakamoto_attempt_time_ms` when there are
+///    pending transactions.
+/// 2. No blocks are produced when the mempool is empty: the attempt time
+///    bounds block assembly, it is not a block production heartbeat.
+/// 3. When the mempool holds more work than fits in `nakamoto_attempt_time_ms`,
+///    the block is cut at the deadline and the remaining transactions are
+///    mined in subsequent blocks.
 #[test]
 #[ignore]
 fn nakamoto_attempt_time() {
@@ -6309,8 +6323,9 @@ fn nakamoto_attempt_time() {
     info!("Begin subtest 1");
 
     // Subtest 1
-    // Mine nakamoto tenures with a few transactions
-    // Blocks should be produced at least every 20 seconds
+    // Blocks are produced within `nakamoto_attempt_time_ms` when there are
+    // pending transactions: for each interim block, submit a few transactions
+    // and expect a new block (and a new tip) within the attempt time.
     for _ in 0..tenure_count {
         let commits_before = commits_submitted.load(Ordering::SeqCst);
         next_block_and_process_new_stacks_block(&btc_regtest_controller, 60, &coord_channel)
@@ -6399,7 +6414,9 @@ fn nakamoto_attempt_time() {
     info!("Begin subtest 2");
 
     // Subtest 2
-    // Confirm that no blocks are mined if there are no transactions
+    // No blocks are produced when the mempool is empty: wait twice the attempt
+    // time and expect the tip to be unchanged. The attempt time bounds block
+    // assembly, it does not trigger block production.
     for _ in 0..2 {
         let blocks_processed_before = coord_channel
             .lock()
@@ -6427,9 +6444,11 @@ fn nakamoto_attempt_time() {
     info!("Begin subtest 3");
 
     // Subtest 3
-    // Add more than `nakamoto_attempt_time_ms` worth of transactions into mempool
-    // The miner must stop assembling the block at the deadline and mine the
-    // remaining transactions in subsequent blocks
+    // The block is cut at the deadline: when the mempool holds more work than
+    // fits in `nakamoto_attempt_time_ms`, the miner must stop assembling the
+    // block once the deadline passes and mine the remaining transactions in
+    // subsequent blocks. The transactions fit in a single block size-wise, so
+    // the attempt deadline is the only reason for splitting them.
     let info_before = get_chain_info_result(&naka_conf).unwrap();
 
     let blocks_processed_before = coord_channel
