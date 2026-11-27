@@ -36,7 +36,9 @@ use std::{cmp, fs, thread};
 
 use clarity::vm::costs::ExecutionCost;
 use clarity::vm::representations::CONTRACT_MAX_NAME_LENGTH;
-use clarity::vm::types::{AssetIdentifier, PrincipalData, QualifiedContractIdentifier};
+use clarity::vm::types::{
+    AssetIdentifier, PrincipalData, QualifiedContractIdentifier, StandardPrincipalData,
+};
 use rand::RngCore;
 use serde::Deserialize;
 use stacks_common::consts::SIGNER_SLOTS_PER_USER;
@@ -78,12 +80,12 @@ use crate::net::connection::{
     DEFAULT_BLOCK_PROPOSAL_MAX_TX_EXECUTION_TIME_SECS,
     DEFAULT_BLOCK_PROPOSAL_VALIDATION_TIMEOUT_SECS,
 };
-use crate::net::stackerdb::set_log_stackerdb_chunk_sources;
+use crate::net::stackerdb::{set_log_stackerdb_chunk_sources, STACKERDB_MAX_REPLICATED_DBS};
 use crate::net::{Neighbor, NeighborAddress, NeighborKey};
 use crate::types::chainstate::BurnchainHeaderHash;
 use crate::types::EpochList;
 use crate::util::hash::to_hex;
-use crate::util_lib::boot::boot_code_id;
+use crate::util_lib::boot::{boot_code_addr, boot_code_id};
 use crate::util_lib::db::Error as DBError;
 
 pub const DEFAULT_SATS_PER_VB: u64 = 50;
@@ -931,6 +933,7 @@ impl Config {
             node.add_miner_stackerdb(is_mainnet);
             node.add_signers_stackerdbs(is_mainnet);
         }
+        node.validate_stacker_dbs(is_mainnet)?;
 
         let miner = match config_file.miner {
             Some(mut miner) => {
@@ -2250,6 +2253,7 @@ pub struct NodeConfig {
     ///   - else: defaults to an empty list `[]`.
     /// @notes:
     ///   - Values are strings representing qualified contract identifiers.
+    ///   - The node accepts up to 255 distinct contracts, including automatically added signer and miner StackerDBs.
     /// @toml_example: |
     ///   stacker_dbs = [
     ///     "SP000000000000000000002Q6VF78.pox-3",
@@ -2608,6 +2612,27 @@ impl NodeConfig {
         if !self.stacker_dbs.contains(&miners_contract_id) {
             self.stacker_dbs.push(miners_contract_id);
         }
+    }
+
+    /// Limit the number of distinct StackerDB contracts, including built-in signer and miner contracts.
+    pub fn validate_stacker_dbs(&self, is_mainnet: bool) -> Result<(), String> {
+        let contracts: HashSet<_> = self.stacker_dbs.iter().collect();
+        let total = contracts.len();
+        if total <= STACKERDB_MAX_REPLICATED_DBS {
+            return Ok(());
+        }
+
+        let boot_issuer = StandardPrincipalData::from(boot_code_addr(is_mainnet));
+        let boot_dbs = contracts
+            .iter()
+            .filter(|contract_id| contract_id.issuer == boot_issuer)
+            .count();
+        Err(format!(
+            "node.stacker_dbs: a node can replicate at most {STACKERDB_MAX_REPLICATED_DBS} \
+             distinct StackerDBs, but {total} are configured ({boot_dbs} of them built-in signer and \
+             miner StackerDBs). Reduce the number of distinct contracts in node.stacker_dbs by at least {}.",
+            total - STACKERDB_MAX_REPLICATED_DBS
+        ))
     }
 
     fn default_neighbor(
@@ -4948,6 +4973,58 @@ mod tests {
         pub fn config_from_valid_string(valid_config: &str) -> Config {
             Config::from_config_file(ConfigFile::from_str(valid_config).unwrap(), false).unwrap()
         }
+    }
+
+    /// Repeated entries count once toward both the handshake limit and the built-in total.
+    #[rstest]
+    #[case(0)]
+    #[case(2)]
+    fn too_many_stacker_dbs_is_a_config_error(#[case] miner_entries: usize) {
+        let stacker_config = |configured: usize| {
+            Config::from_config_file(
+                ConfigFile {
+                    burnchain: Some(BurnchainConfigFile {
+                        mode: Some("nakamoto-neon".into()),
+                        ..Default::default()
+                    }),
+                    node: Some(NodeConfigFile {
+                        stacker: Some(true),
+                        stacker_dbs: Some(
+                            (0..configured)
+                                .map(|i| format!("SP8QPP8TVXYAXS1VFSERG978A6WKBF59NSYJQEMN.db-{i}"))
+                                .chain(
+                                    (0..miner_entries)
+                                        .map(|_| boot_code_id(MINERS_NAME, false).to_string()),
+                                )
+                                .collect(),
+                        ),
+                        ..Default::default()
+                    }),
+                    ..Default::default()
+                },
+                false,
+            )
+        };
+
+        let mut boot_dbs = NodeConfig::default();
+        boot_dbs.add_miner_stackerdb(false);
+        boot_dbs.add_signers_stackerdbs(false);
+        let built_in = boot_dbs.stacker_dbs.len();
+        let room = STACKERDB_MAX_REPLICATED_DBS - built_in;
+
+        stacker_config(room).unwrap();
+
+        let err = stacker_config(room + 1).unwrap_err();
+        assert!(
+            err.contains(&format!("256 are configured ({built_in} of them built-in")),
+            "{err}"
+        );
+        assert!(
+            err.contains(
+                "Reduce the number of distinct contracts in node.stacker_dbs by at least 1."
+            ),
+            "{err}"
+        );
     }
 
     /// Resolve signet defaults and overrides without parsing TOML or resolving bootstrap peers.
