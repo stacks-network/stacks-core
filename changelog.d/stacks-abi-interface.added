@@ -1,0 +1,1 @@
+Add the `abi.interface` codec to `stacks-abi` (encode, decode, validation and hash), the rules for the custom sections of a module, and the reasons a deploy is rejected.

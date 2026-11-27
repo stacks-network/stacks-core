@@ -3830,6 +3830,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "stacks-abi"
+version = "0.1.0"
+dependencies = [
+ "clarity-types",
+ "rand 0.8.8",
+ "serde",
+ "stacks-common",
+ "wasm-bindgen-test",
+]
+
+[[package]]
 name = "stacks-cli"
 version = "0.1.0"
 dependencies = [

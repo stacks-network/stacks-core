@@ -1,0 +1,180 @@
+# Name vectors (chain ABI 2.1).
+#
+# One vector per line: <kind> <expected> <input> [# note]
+#   kind      what the input is decoded as: "name" (a function, token, or event name) or "contract-name"
+#   expected  "ok", or the reason the input is rejected
+#   input     the bytes, in hex after "0x"
+
+# Function, token, and event names: accepted.
+name ok 0x61  # one letter
+name ok 0x5a
+name ok 0x2d  # a symbol may start a name: -
+name ok 0x5f  # a symbol may start a name: _
+name ok 0x21  # a symbol may start a name: !
+name ok 0x3f  # a symbol may start a name: ?
+name ok 0x2b  # a symbol may start a name: +
+name ok 0x3c  # a symbol may start a name: <
+name ok 0x3e  # a symbol may start a name: >
+name ok 0x3d  # a symbol may start a name: =
+name ok 0x2f  # a symbol may start a name: /
+name ok 0x2a  # a symbol may start a name: *
+name ok 0x5e  # a symbol may start a name: ^
+name ok 0x6130313233343536373839  # digits after the start
+name ok 0x7472616e73666572
+name ok 0x6765742d62616c616e6365
+name ok 0x69735f6f6b3f
+name ok 0x3c3d
+name ok 0x6162636465666768696a6b6c6d6e6f707172737475767778797a4142434445464748494a4b4c4d4e4f505152535455565758595a303132333435363738392d5f213f2b3c3e3d2f2a5e  # every allowed byte
+name ok 0x2d2d39  # a digit after two symbols
+name ok 0x75  # u alone
+name ok 0x2d75  # a sign, then u
+name ok 0x2b75
+name ok 0x2d78  # a sign, then a letter
+name ok 0x757831  # u, then a letter, then a digit
+name ok 0x752d31  # u, then a symbol, then a digit
+name ok 0x752b31
+name ok 0x2d752d31  # a sign, then u, then a symbol, then a digit
+name ok 0x5531  # an upper-case U does not start a number
+name ok 0x2d5531
+name ok 0x6161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161  # 128 bytes, the longest
+name ok 0x5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e  # 128 bytes of a symbol
+
+# Function, token, and event names: rejected.
+name empty 0x  # no bytes
+name too-long 0x616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161  # 129 bytes
+name too-long 0x616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161  # 255 bytes
+name too-long 0x616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616120  # too long is reported before a bad byte
+name too-long 0x303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030  # too long is reported before a bad start
+name bad-start 0x30  # a digit alone
+name bad-start 0x31  # a digit alone
+name bad-start 0x32  # a digit alone
+name bad-start 0x33  # a digit alone
+name bad-start 0x34  # a digit alone
+name bad-start 0x35  # a digit alone
+name bad-start 0x36  # a digit alone
+name bad-start 0x37  # a digit alone
+name bad-start 0x38  # a digit alone
+name bad-start 0x39  # a digit alone
+name bad-start 0x31616263  # starts with a digit
+name bad-start 0x2d39  # starts like a number: -9
+name bad-start 0x2b35  # starts like a number: +5
+name bad-start 0x7531  # starts like a number: u1
+name bad-start 0x75313233  # starts like a number: u123
+name bad-start 0x753178  # starts like a number: u1x
+name bad-start 0x2d7531  # starts like a number: -u1
+name bad-start 0x2b7531  # starts like a number: +u1
+name bad-start 0x2d753178  # starts like a number: -u1x
+name bad-start 0x2b30612d62  # starts like a number: +0a-b
+name bad-start 0x3961616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161  # 128 bytes, starts with a digit
+name bad-byte 0x20  # space
+name bad-byte 0x00  # NUL
+name bad-byte 0x09  # tab
+name bad-byte 0x0a  # newline
+name bad-byte 0x2e  # dot
+name bad-byte 0x2c
+name bad-byte 0x3a  # after '9'
+name bad-byte 0x3b
+name bad-byte 0x27
+name bad-byte 0x22
+name bad-byte 0x28
+name bad-byte 0x29
+name bad-byte 0x23
+name bad-byte 0x24
+name bad-byte 0x25
+name bad-byte 0x26
+name bad-byte 0x7c
+name bad-byte 0x5c
+name bad-byte 0x7e
+name bad-byte 0x40  # before 'A'
+name bad-byte 0x5b  # after 'Z'
+name bad-byte 0x5d
+name bad-byte 0x60  # before 'a'
+name bad-byte 0x7b  # after 'z'
+name bad-byte 0x7d
+name bad-byte 0x7f  # DEL
+name bad-byte 0x80  # first non-ASCII byte
+name bad-byte 0xff
+name bad-byte 0xc3a9  # UTF-8, two bytes
+name bad-byte 0x612062  # bad byte in the middle
+name bad-byte 0x61622e  # bad byte at the end
+name bad-byte 0x612e62  # the separator of a contract principal's text form
+name bad-byte 0x6161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616100  # 128 bytes, the last one bad
+name bad-byte 0x3120  # a bad byte is reported before a bad start
+name bad-byte 0x753120  # a bad byte is reported before a bad start
+
+# Contract names: accepted.
+contract-name ok 0x61  # one letter
+contract-name ok 0x5a
+contract-name ok 0x612d625f6339
+contract-name ok 0x612d
+contract-name ok 0x615f
+contract-name ok 0x6130
+contract-name ok 0x7531  # u1: the number rule of function names does not apply
+contract-name ok 0x706f782d34
+contract-name ok 0x736274632d746f6b656e
+contract-name ok 0x6162636465666768696a6b6c6d6e6f707172737475767778797a303132333435363738392d5f  # lower case, digits, both symbols
+contract-name ok 0x4142434445464748494a4b4c4d4e4f505152535455565758595a
+contract-name ok 0x61616161616161616161616161616161616161616161616161616161616161616161616161616161  # 40 bytes, the longest
+contract-name ok 0x612d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d  # 40 bytes
+
+# Contract names: rejected.
+contract-name empty 0x  # no bytes
+contract-name too-long 0x6161616161616161616161616161616161616161616161616161616161616161616161616161616161  # 41 bytes
+contract-name too-long 0x6161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161  # 128 bytes, which legacy values admit
+contract-name too-long 0x616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161
+contract-name too-long 0x616161616161616161616161616161616161616161616161616161616161616161616161616161612e  # too long is reported before a bad byte
+contract-name too-long 0x3131313131313131313131313131313131313131313131313131313131313131313131313131313131  # too long is reported before a bad start
+contract-name bad-start 0x30  # a digit alone
+contract-name bad-start 0x31  # a digit alone
+contract-name bad-start 0x32  # a digit alone
+contract-name bad-start 0x33  # a digit alone
+contract-name bad-start 0x34  # a digit alone
+contract-name bad-start 0x35  # a digit alone
+contract-name bad-start 0x36  # a digit alone
+contract-name bad-start 0x37  # a digit alone
+contract-name bad-start 0x38  # a digit alone
+contract-name bad-start 0x39  # a digit alone
+contract-name bad-start 0x31616263  # starts with a digit
+contract-name bad-start 0x2d61  # starts with '-'
+contract-name bad-start 0x5f61  # starts with '_'
+contract-name bad-start 0x2d
+contract-name bad-start 0x5f
+contract-name bad-start 0x5f5f7472616e7369656e74  # legacy's transient contract name
+contract-name bad-start 0x39616161616161616161616161616161616161616161616161616161616161616161616161616161  # 40 bytes, starts with a digit
+contract-name bad-byte 0x6121  # valid in a function name only: !
+contract-name bad-byte 0x613f  # valid in a function name only: ?
+contract-name bad-byte 0x612b  # valid in a function name only: +
+contract-name bad-byte 0x613c  # valid in a function name only: <
+contract-name bad-byte 0x613e  # valid in a function name only: >
+contract-name bad-byte 0x613d  # valid in a function name only: =
+contract-name bad-byte 0x612f  # valid in a function name only: /
+contract-name bad-byte 0x612a  # valid in a function name only: *
+contract-name bad-byte 0x615e  # valid in a function name only: ^
+contract-name bad-byte 0x21  # a function-name symbol alone
+contract-name bad-byte 0x20  # space
+contract-name bad-byte 0x6120
+contract-name bad-byte 0x00  # NUL
+contract-name bad-byte 0x6100
+contract-name bad-byte 0x2e  # dot
+contract-name bad-byte 0x612e
+contract-name bad-byte 0x3a  # after '9'
+contract-name bad-byte 0x613a
+contract-name bad-byte 0x40  # before 'A'
+contract-name bad-byte 0x6140
+contract-name bad-byte 0x5b  # after 'Z'
+contract-name bad-byte 0x615b
+contract-name bad-byte 0x60  # before 'a'
+contract-name bad-byte 0x6160
+contract-name bad-byte 0x7b  # after 'z'
+contract-name bad-byte 0x617b
+contract-name bad-byte 0x7f  # DEL
+contract-name bad-byte 0x617f
+contract-name bad-byte 0x80  # first non-ASCII byte
+contract-name bad-byte 0x6180
+contract-name bad-byte 0xff
+contract-name bad-byte 0x61ff
+contract-name bad-byte 0xc3a9  # UTF-8, two bytes
+contract-name bad-byte 0x61c3a9
+contract-name bad-byte 0x612e62
+contract-name bad-byte 0x61616161616161616161616161616161616161616161616161616161616161616161616161616120  # 40 bytes, the last one bad
+contract-name bad-byte 0x312e  # a bad byte is reported before a bad start
