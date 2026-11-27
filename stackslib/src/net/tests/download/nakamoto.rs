@@ -719,9 +719,9 @@ fn test_nakamoto_unconfirmed_tenure_downloader() {
             let res = utd
                 .try_accept_unconfirmed_tenure_blocks(vec![block.clone()])
                 .unwrap();
-            if i == 0 {
-                // res won't contain the first block because it stopped processing once it reached
-                // a block that the node knew
+            if i == 1 {
+                // done once the next block's parent is the highest processed block, which a peer
+                // honouring `stop=` never sends
                 assert_eq!(res.unwrap(), unconfirmed_tenure[1..].to_vec());
                 break;
             } else {
@@ -818,7 +818,7 @@ fn test_nakamoto_unconfirmed_tenure_downloader() {
             let res = utd
                 .try_accept_unconfirmed_tenure_blocks(vec![block.clone()])
                 .unwrap();
-            if i == unconfirmed_tenure.len() - 5 {
+            if i == unconfirmed_tenure.len() - 4 {
                 // got back only the blocks we were missing
                 assert_eq!(
                     res.unwrap(),
@@ -1047,7 +1047,7 @@ fn test_nakamoto_unconfirmed_tenure_downloader() {
                 unconfirmed_tenure.clone().into_iter().rev().collect(),
             )
             .unwrap();
-        assert_eq!(res.unwrap().as_slice(), &unconfirmed_tenure[1..]);
+        assert_eq!(res.unwrap().as_slice(), &unconfirmed_tenure[2..]);
 
         assert_eq!(utd.state, NakamotoUnconfirmedDownloadState::Done);
 

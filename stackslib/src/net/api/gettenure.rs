@@ -318,17 +318,17 @@ impl StacksHttpRequest {
         block_id: StacksBlockId,
         last_block_id: Option<StacksBlockId>,
     ) -> StacksHttpRequest {
+        let contents = match last_block_id {
+            Some(last_block_id) => {
+                HttpRequestContents::new().query_arg("stop".into(), last_block_id.to_string())
+            }
+            None => HttpRequestContents::new(),
+        };
         StacksHttpRequest::new_for_peer(
             host,
             "GET".into(),
-            format!(
-                "/v3/tenures/{}{}",
-                &block_id,
-                last_block_id
-                    .map(|block_id| format!("?stop={}", &block_id))
-                    .unwrap_or("".to_string())
-            ),
-            HttpRequestContents::new(),
+            format!("/v3/tenures/{block_id}"),
+            contents,
         )
         .expect("FATAL: failed to construct request from infallible data")
     }

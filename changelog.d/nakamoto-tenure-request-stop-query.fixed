@@ -1,0 +1,1 @@
+Nakamoto tenure download requests now send the `stop=` query parameter, and the unconfirmed tenure downloader finishes once it reaches the child of its highest processed block, so it no longer re-fetches blocks it already has back to the tenure start.
