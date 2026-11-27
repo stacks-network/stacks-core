@@ -2954,6 +2954,26 @@ value from `as-contract?` (nested responses are error-prone). Returns:
     (try! (stx-transfer? u50 tx-sender recipient))
   )
 ) ;; Returns (err u128)
+;; `with-ft` takes three arguments: the contract that defines the token,
+;; the token name used in `define-fungible-token`, and the maximum amount.
+(define-fungible-token stackaroo)
+(ft-mint? stackaroo u200 current-contract)
+(let ((recipient tx-sender))
+  (as-contract? ((with-ft current-contract "stackaroo" u100))
+    (try! (ft-transfer? stackaroo u100 tx-sender recipient))
+  )
+) ;; Returns (ok true)
+(let ((recipient tx-sender))
+  (as-contract? ((with-ft current-contract "stackaroo" u50))
+    (try! (ft-transfer? stackaroo u100 tx-sender recipient))
+  )
+) ;; Returns (err u0)
+;; Multiple allowances are listed together inside the outer parentheses.
+(let ((recipient tx-sender))
+  (as-contract? ((with-stx u100) (with-ft current-contract "stackaroo" u50))
+    (try! (ft-transfer? stackaroo u50 tx-sender recipient))
+  )
+) ;; Returns (ok true)
 "#,
     notices: &[DocNotice {
         level: "info",
