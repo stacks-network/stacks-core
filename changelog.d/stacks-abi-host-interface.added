@@ -1,0 +1,1 @@
+Add the host interface of the chain ABI to `stacks-abi`: a table of the 66 host functions with their group, parameters, result, status codes and charge formula.

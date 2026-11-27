@@ -1,0 +1,1 @@
+Add the `stacks-abi` crate, the definition of the chain ABI for Wasm contracts, with the name grammar, the canonical principal codec, the ABI limits, the runtime error classes and the host-function status codes.

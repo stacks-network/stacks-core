@@ -1,0 +1,29 @@
+[package]
+name = "stacks-abi"
+version = "0.1.0"
+license = "GPL-3.0"
+homepage = "https://github.com/stacks-network/stacks-core"
+repository = "https://github.com/stacks-network/stacks-core"
+description = "Definition of the Stacks chain ABI for Wasm contracts: codecs, limits, error classes, status codes and the host interface"
+keywords = ["stacks", "stx", "blockchain", "wasm", "abi"]
+edition = "2024"
+
+[lib]
+name = "stacks_abi"
+path = "src/lib.rs"
+
+[dependencies]
+clarity-types = { package = "clarity-types", path = "../../clarity-types", default-features = false }
+serde = { workspace = true, features = ["derive"] }
+stacks_common = { package = "stacks-common", path = "../../stacks-common", default-features = false }
+
+[dev-dependencies]
+rand = { workspace = true }
+
+# Run the tests against the Wasm build as well.
+[target.'cfg(target_family = "wasm")'.dev-dependencies]
+wasm-bindgen-test = "0.3"
+
+[features]
+default = []
+wasm-web = ["clarity-types/wasm-web", "stacks_common/wasm-web"]

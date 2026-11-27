@@ -60,3 +60,7 @@ jobs:
       - name: Run Wasm tests (stacks-codec)
         working-directory: stacks-codec
         run: wasm-pack test --node --features wasm-web
+
+      - name: Run Wasm tests (stacks-abi)
+        working-directory: crates/stacks-abi
+        run: wasm-pack test --node --features wasm-web
