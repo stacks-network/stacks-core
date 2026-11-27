@@ -150,7 +150,6 @@ version = "0.0.1"
 dependencies = [
  "clarity-types",
  "integer-sqrt",
- "lazy_static",
  "regex",
  "rusqlite",
  "serde",
@@ -165,7 +164,6 @@ dependencies = [
 name = "clarity-types"
 version = "0.0.1"
 dependencies = [
- "lazy_static",
  "regex",
  "rusqlite",
  "serde",
@@ -1555,7 +1553,6 @@ dependencies = [
  "curve25519-dalek",
  "ed25519-dalek",
  "hashbrown",
- "lazy_static",
  "libsecp256k1",
  "nix",
  "p256",

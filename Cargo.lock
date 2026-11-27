@@ -595,7 +595,6 @@ dependencies = [
  "criterion",
  "integer-sqrt",
  "itertools 0.15.0",
- "lazy_static",
  "madhouse",
  "mutants",
  "pinny",
@@ -618,7 +617,6 @@ version = "0.1.0"
 dependencies = [
  "clap",
  "clarity",
- "lazy_static",
  "rand 0.8.8",
  "rusqlite",
  "serde",
@@ -634,7 +632,6 @@ dependencies = [
 name = "clarity-types"
 version = "0.0.1"
 dependencies = [
- "lazy_static",
  "mutants",
  "regex",
  "rstest",
@@ -3828,7 +3825,6 @@ dependencies = [
  "ed25519-dalek",
  "getrandom 0.2.12",
  "hashbrown 0.17.1",
- "lazy_static",
  "libsecp256k1",
  "nix",
  "p256",
@@ -3894,7 +3890,6 @@ dependencies = [
  "base64 0.22.1",
  "chrono",
  "clarity",
- "lazy_static",
  "libc",
  "libsigner",
  "madhouse",
@@ -3961,7 +3956,6 @@ dependencies = [
  "clap",
  "clarity",
  "hashbrown 0.17.1",
- "lazy_static",
  "libsigner",
  "libstackerdb",
  "num-traits",
