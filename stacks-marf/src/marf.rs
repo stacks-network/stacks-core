@@ -1697,7 +1697,7 @@ impl<T: MarfTrieId> MARF<T> {
     ///  calling MARF struct (i.e., the tip pointer is only changed in the connection)
     ///  but reusing self's existing SQLite Connection (avoiding the overhead of
     ///   `reopen_readonly`).
-    pub fn reopen_connection(&self) -> Result<ReopenedTrieStorageConnection<'_, T>, Error> {
+    pub fn reopen_connection(&self) -> Result<impl MarfConnection<T> + '_, Error> {
         if self.open_chain_tip.is_some() {
             error!(
                 "MARF at {} is already in the process of writing",

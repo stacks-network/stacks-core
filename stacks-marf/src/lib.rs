@@ -88,7 +88,7 @@ pub fn has_external_blobs(db_path: &str) -> Result<bool, Error> {
 }
 
 #[derive(Debug)]
-pub struct TrieMerkleProof<T: MarfTrieId>(pub Vec<TrieMerkleProofType<T>>);
+pub struct TrieMerkleProof<T: MarfTrieId>(pub(crate) Vec<TrieMerkleProofType<T>>);
 
 pub trait ClarityMarfTrieId:
     PartialEq + Clone + std::fmt::Display + std::fmt::Debug + std::convert::From<[u8; 32]>
@@ -100,7 +100,7 @@ pub trait ClarityMarfTrieId:
 }
 
 #[derive(Clone)]
-pub enum TrieMerkleProofType<T> {
+pub(crate) enum TrieMerkleProofType<T> {
     Node4((u8, ProofTrieNode<T>, [TrieHash; 3])),
     Node16((u8, ProofTrieNode<T>, [TrieHash; 15])),
     Node48((u8, ProofTrieNode<T>, [TrieHash; 47])),
@@ -113,14 +113,14 @@ pub enum TrieMerkleProofType<T> {
 ///   than the runtime representation --- the proof includes
 ///   the block header hash for back pointers.
 #[derive(Debug, Clone, PartialEq)]
-pub struct ProofTrieNode<T> {
+pub(crate) struct ProofTrieNode<T> {
     pub id: u8,
     pub path: Vec<u8>,
     pub ptrs: Vec<ProofTriePtr<T>>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub struct ProofTriePtr<T> {
+pub(crate) struct ProofTriePtr<T> {
     pub id: u8,
     pub chr: u8,
     pub back_block: T,
@@ -202,7 +202,7 @@ impl_array_newtype!(MARFValue, u8, 40);
 impl_array_hexstring_fmt!(MARFValue);
 impl_byte_array_newtype!(MARFValue, u8, 40);
 impl_byte_array_message_codec!(MARFValue, 40);
-pub const MARF_VALUE_ENCODED_SIZE: u32 = 40;
+pub(crate) const MARF_VALUE_ENCODED_SIZE: u32 = 40;
 
 impl From<u32> for MARFValue {
     fn from(value: u32) -> MARFValue {
@@ -250,15 +250,10 @@ impl From<MARFValue> for u32 {
 
 impl MARFValue {
     /// Construct from a TRIEHASH_ENCODED_SIZE-length slice
-    pub fn from_value_hash_bytes(h: &[u8; TRIEHASH_ENCODED_SIZE]) -> MARFValue {
+    fn from_value_hash_bytes(h: &[u8; TRIEHASH_ENCODED_SIZE]) -> MARFValue {
         let mut d = [0u8; MARF_VALUE_ENCODED_SIZE as usize];
         d[..TRIEHASH_ENCODED_SIZE].copy_from_slice(&h[..TRIEHASH_ENCODED_SIZE]);
         MARFValue(d)
-    }
-
-    /// Construct from a TrieHash
-    pub fn from_value_hash(h: &TrieHash) -> MARFValue {
-        MARFValue::from_value_hash_bytes(h.as_bytes())
     }
 
     /// Construct from a String that encodes a value inserted into the underlying data store
@@ -276,7 +271,8 @@ impl MARFValue {
     }
 
     /// Extract the value hash from the MARF value
-    pub fn to_value_hash(&self) -> TrieHash {
+    #[cfg(any(test, feature = "testing"))]
+    pub(crate) fn to_value_hash(&self) -> TrieHash {
         let mut h = [0u8; TRIEHASH_ENCODED_SIZE];
         h.copy_from_slice(&self.0[0..TRIEHASH_ENCODED_SIZE]);
         TrieHash(h)

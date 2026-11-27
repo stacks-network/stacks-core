@@ -370,11 +370,6 @@ impl<T: MarfTrieId> UncommittedState<T> {
             }
         }
     }
-
-    #[cfg(test)]
-    pub fn print_to_stderr(&self) {
-        self.trie_ram_ref().print_to_stderr()
-    }
 }
 
 /// In-RAM trie storage.
@@ -1583,12 +1578,6 @@ impl<T: MarfTrieId> TrieFileStorage<T> {
         Ok(())
     }
 
-    /// Returns cached squashing metadata, if present.
-    #[cfg(test)]
-    pub fn squash_info(&self) -> Option<&SquashInfo> {
-        self.data.squash_info.as_ref()
-    }
-
     pub fn connection(&mut self) -> TrieStorageConnection<'_, T> {
         TrieStorageConnection {
             db: SqliteConnection::ConnRef(&self.db),
@@ -2524,13 +2513,6 @@ impl<T: MarfTrieId> TrieStorageConnection<'_, T> {
         self.data.write_leaf_count = 0;
 
         (lr, lw)
-    }
-
-    /// Recover from partially-written state -- i.e. blow it away.
-    /// Doesn't get called automatically.
-    pub fn recover(db_path: &String) -> Result<(), Error> {
-        let conn = marf_sqlite_open(db_path, OpenFlags::SQLITE_OPEN_READ_WRITE, false)?;
-        trie_sql::clear_lock_data(&conn)
     }
 
     #[cfg(test)]

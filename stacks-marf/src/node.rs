@@ -331,9 +331,6 @@ pub trait TrieNode {
     /// Node ID for encoding/decoding
     fn id(&self) -> u8;
 
-    /// Is the node devoid of children?
-    fn empty() -> Self;
-
     /// Follow a path character to a child pointer
     fn walk(&self, chr: u8) -> Option<TriePtr>;
 
@@ -1079,7 +1076,8 @@ impl PartialEq for TrieLeaf {
 }
 
 impl TrieLeaf {
-    pub fn new(path: &[u8], data: &[u8]) -> TrieLeaf {
+    #[cfg(test)]
+    pub(crate) fn new(path: &[u8], data: &[u8]) -> TrieLeaf {
         assert!(data.len() <= 40);
         let mut bytes = [0u8; 40];
         bytes.copy_from_slice(data);
@@ -1089,7 +1087,7 @@ impl TrieLeaf {
         }
     }
 
-    pub fn from_value(path: &[u8], value: MARFValue) -> TrieLeaf {
+    pub(crate) fn from_value(path: &[u8], value: MARFValue) -> TrieLeaf {
         TrieLeaf {
             path: path.to_owned(),
             data: value,
@@ -1783,15 +1781,6 @@ impl TrieNode for TrieNode4 {
         TrieNodeID::Node4 as u8
     }
 
-    fn empty() -> TrieNode4 {
-        TrieNode4 {
-            path: vec![],
-            ptrs: [TriePtr::default(); 4],
-            cowptr: None,
-            patches: vec![],
-        }
-    }
-
     fn walk(&self, chr: u8) -> Option<TriePtr> {
         for ptr in self.ptrs.iter() {
             if !ptr.is_empty() && ptr.chr() == chr {
@@ -1878,15 +1867,6 @@ impl TrieNode for TrieNode16 {
         TrieNodeID::Node16 as u8
     }
 
-    fn empty() -> TrieNode16 {
-        TrieNode16 {
-            path: vec![],
-            ptrs: [TriePtr::default(); 16],
-            cowptr: None,
-            patches: vec![],
-        }
-    }
-
     fn walk(&self, chr: u8) -> Option<TriePtr> {
         for ptr in self.ptrs.iter() {
             if !ptr.is_empty() && ptr.chr() == chr {
@@ -1971,16 +1951,6 @@ impl TrieNode for TrieNode16 {
 impl TrieNode for TrieNode48 {
     fn id(&self) -> u8 {
         TrieNodeID::Node48 as u8
-    }
-
-    fn empty() -> TrieNode48 {
-        TrieNode48 {
-            path: vec![],
-            indexes: [-1; 256],
-            ptrs: [TriePtr::default(); 48],
-            cowptr: None,
-            patches: vec![],
-        }
     }
 
     // allow indexing here because self.indexes is an array of
@@ -2146,15 +2116,6 @@ impl TrieNode for TrieNode256 {
         TrieNodeID::Node256 as u8
     }
 
-    fn empty() -> TrieNode256 {
-        TrieNode256 {
-            path: vec![],
-            ptrs: [TriePtr::default(); 256],
-            cowptr: None,
-            patches: vec![],
-        }
-    }
-
     #[allow(clippy::indexing_slicing)]
     fn walk(&self, chr: u8) -> Option<TriePtr> {
         let ptr = self.ptrs.get(chr as usize)?;
@@ -2237,10 +2198,6 @@ impl TrieNode for TrieNode256 {
 impl TrieNode for TrieLeaf {
     fn id(&self) -> u8 {
         TrieNodeID::Leaf as u8
-    }
-
-    fn empty() -> TrieLeaf {
-        TrieLeaf::new(&[], &[0u8; 40])
     }
 
     fn walk(&self, _chr: u8) -> Option<TriePtr> {

@@ -17,11 +17,9 @@
 use std::collections::HashMap;
 use std::fmt;
 use std::io::{Read, Write};
-use std::ops::Deref;
 
 use stacks_common::codec::{read_next, Error as codec_error, StacksMessageCodec};
 use stacks_common::types::chainstate::TrieHash;
-use stacks_common::util::hash::to_hex;
 
 use crate::bits::{get_leaf_hash, get_node_hash, read_root_hash, write_path_to_bytes};
 use crate::marf::MARF;
@@ -201,13 +199,6 @@ impl<T: MarfTrieId> fmt::Debug for TrieMerkleProofType<T> {
     }
 }
 
-impl<T: MarfTrieId> Deref for TrieMerkleProof<T> {
-    type Target = Vec<TrieMerkleProofType<T>>;
-    fn deref(&self) -> &Vec<TrieMerkleProofType<T>> {
-        &self.0
-    }
-}
-
 fn serialize_id_hash_node<W: Write, T: MarfTrieId>(
     fd: &mut W,
     id: &u8,
@@ -353,13 +344,6 @@ impl<T: MarfTrieId> StacksMessageCodec for TrieMerkleProof<T> {
 }
 
 impl<T: MarfTrieId> TrieMerkleProof<T> {
-    pub fn to_hex(&self) -> String {
-        let mut marf_proof = vec![];
-        self.consensus_serialize(&mut marf_proof)
-            .expect("Write error on memory buffer");
-        to_hex(&marf_proof)
-    }
-
     fn make_proof_hashes(
         node: &TrieNodeType,
         all_hashes: &[TrieHash],
@@ -1098,7 +1082,7 @@ impl<T: MarfTrieId> TrieMerkleProof<T> {
     /// which block headers.  This can be calculated and verified independently from the blockchain
     /// headers.
     /// NOTE: Trie root hashes are globally unique by design, even if they represent the same contents, so the root_to_block map is bijective with high probability.
-    pub fn verify_proof(
+    fn verify_proof(
         proof: &[TrieMerkleProofType<T>],
         path: &TrieHash,
         value: &MARFValue,
@@ -1393,7 +1377,7 @@ impl<T: MarfTrieId> TrieMerkleProof<T> {
 
     /// Make a merkle proof of inclusion from a path.
     /// If the path doesn't resolve, return an error (NotFoundError)
-    pub fn from_path(
+    pub(crate) fn from_path(
         storage: &mut TrieStorageConnection<T>,
         path: &TrieHash,
         expected_value: &MARFValue,
@@ -1519,7 +1503,8 @@ impl<T: MarfTrieId> TrieMerkleProof<T> {
 
     /// Make a merkle proof of inclusion from a key/value pair.
     /// If the path doesn't resolve, return an error (NotFoundError)
-    pub fn from_entry(
+    #[cfg(test)]
+    pub(crate) fn from_entry(
         storage: &mut TrieStorageConnection<T>,
         key: &str,
         value: &str,
@@ -1530,7 +1515,7 @@ impl<T: MarfTrieId> TrieMerkleProof<T> {
         TrieMerkleProof::from_path(storage, &path, &marf_value, root_block_header)
     }
 
-    pub fn from_raw_entry(
+    pub(crate) fn from_raw_entry(
         storage: &mut TrieStorageConnection<T>,
         key: &str,
         value: &MARFValue,
