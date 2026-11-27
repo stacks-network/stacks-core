@@ -19,7 +19,7 @@ use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 #[cfg(test)]
 use std::sync::mpsc::channel;
-#[cfg(test)]
+#[cfg(any(test, feature = "testing"))]
 use std::sync::LazyLock;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime};
@@ -27,8 +27,6 @@ use std::time::{Duration, SystemTime};
 use clarity::vm::costs::ExecutionCost;
 use clarity::vm::events::{FTEventType, NFTEventType, STXEventType};
 use clarity::vm::types::{AssetIdentifier, QualifiedContractIdentifier};
-#[cfg(any(test, feature = "testing"))]
-use lazy_static::lazy_static;
 use serde_json::json;
 use stacks::burnchains::{PoxConstants, Txid};
 use stacks::chainstate::burn::ConsensusHash;
@@ -77,11 +75,10 @@ use crate::event_dispatcher::worker::{EventDispatcherResult, EventDispatcherWork
 #[cfg(test)]
 mod tests;
 
+/// Do not announce a signed/mined block to the network when set to true.
 #[cfg(any(test, feature = "testing"))]
-lazy_static! {
-    /// Do not announce a signed/mined block to the network when set to true.
-    pub static ref TEST_SKIP_BLOCK_ANNOUNCEMENT: TestFlag<bool> = TestFlag::default();
-}
+pub static TEST_SKIP_BLOCK_ANNOUNCEMENT: LazyLock<TestFlag<bool>> =
+    LazyLock::new(TestFlag::default);
 
 #[derive(Debug, thiserror::Error)]
 enum EventDispatcherError {
