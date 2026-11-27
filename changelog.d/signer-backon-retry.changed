@@ -1,0 +1,1 @@
+The signer now uses the `backon` crate for exponential-backoff retries of requests to the stacks node and StackerDB, replacing the unmaintained `backoff` crate. Retries still stop after 5 seconds of wall-clock time, but jitter now adds a random 0-100% on top of each delay instead of spreading it ±50%, so slightly fewer retries fit in that window.

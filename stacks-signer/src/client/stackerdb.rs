@@ -26,7 +26,7 @@ use stacks_common::types::chainstate::StacksPrivateKey;
 use stacks_common::util::hash::to_hex;
 use stacks_common::{debug, info, warn};
 
-use crate::client::{retry_with_exponential_backoff, ClientError};
+use crate::client::{retry_with_exponential_backoff, ClientError, RetryError};
 use crate::config::{SignerConfig, SignerConfigMode};
 use crate::signerdb::SignerDb;
 
@@ -196,7 +196,7 @@ impl<M: MessageSlotID + 'static> StackerDB<M> {
                 &session.stackerdb_contract_id
             );
 
-            let send_request = || session.put_chunk(&chunk).map_err(backoff::Error::transient);
+            let send_request = || session.put_chunk(&chunk).map_err(RetryError::transient);
             let chunk_ack: StackerDBChunkAckData = retry_with_exponential_backoff(send_request)?;
 
             if chunk_ack.accepted {
@@ -261,7 +261,7 @@ impl<M: MessageSlotID + 'static> StackerDB<M> {
         let send_request = || {
             session
                 .get_latest_chunks(slot_ids)
-                .map_err(backoff::Error::transient)
+                .map_err(RetryError::transient)
         };
         let chunk_ack = retry_with_exponential_backoff(send_request)?;
         for (i, chunk) in chunk_ack.iter().enumerate() {
