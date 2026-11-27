@@ -28,7 +28,7 @@ use crate::node::{
     TrieNodeType, TriePtr,
 };
 use crate::storage::TrieStorageConnection;
-use crate::{BlockMap, Error, MarfTrieId, TrieLeaf, MARF_VALUE_ENCODED_SIZE};
+use crate::{Error, MarfTrieId, TrieLeaf, MARF_VALUE_ENCODED_SIZE};
 
 /// Magic byte value indicating a sparse compressed pointer list.
 /// This value cannot be a valid [`TrieNodeID`], making it safe to use as a marker.
@@ -527,22 +527,6 @@ pub fn get_leaf_hash(node: &TrieLeaf) -> TrieHash {
     ret
 }
 
-/// Given a `TrieNodeType`, a slice of `TrieHash`, and a `BlockMap` for converting back-block
-/// pointers to block hashes, compute the hash of the node.
-pub fn get_nodetype_hash_bytes<T: MarfTrieId, M: BlockMap>(
-    node: &TrieNodeType,
-    child_hash_bytes: &[TrieHash],
-    map: &mut M,
-) -> TrieHash {
-    match node {
-        TrieNodeType::Node4(ref data) => get_node_hash(data, child_hash_bytes, map),
-        TrieNodeType::Node16(ref data) => get_node_hash(data, child_hash_bytes, map),
-        TrieNodeType::Node48(ref data) => get_node_hash(data.as_ref(), child_hash_bytes, map),
-        TrieNodeType::Node256(ref data) => get_node_hash(data.as_ref(), child_hash_bytes, map),
-        TrieNodeType::Leaf(ref data) => get_node_hash(data, child_hash_bytes, map),
-    }
-}
-
 /// Low-level method for reading a TrieHash into a byte buffer from a Read-able and Seek-able struct.
 /// The byte buffer must have sufficient space to hold the hash, or this program panics.
 pub fn read_hash_bytes<F: Read>(f: &mut F) -> Result<[u8; TRIEHASH_ENCODED_SIZE], Error> {
@@ -560,29 +544,6 @@ pub fn read_hash_bytes<F: Read>(f: &mut F) -> Result<[u8; TRIEHASH_ENCODED_SIZE]
     })?;
 
     Ok(hashbytes)
-}
-
-/// Lowl-level method for reading a block ID from a Read+Seek object.  The block ID is
-/// little-endian.
-///
-/// Returns Ok(block-id) on success
-/// Returns Err(CorruptionError(..)) if we run out of bytes to read (EOF)
-/// Returns Err(IOError(..)) if we encounter a disk I/O error
-pub fn read_block_identifier<F: Read + Seek>(f: &mut F) -> Result<u32, Error> {
-    let mut bytes = [0u8; 4];
-    f.read_exact(&mut bytes).map_err(|e| {
-        if e.kind() == ErrorKind::UnexpectedEof {
-            Error::CorruptionError(format!(
-                "Failed to read hash in full from {}",
-                f.stream_position().unwrap()
-            ))
-        } else {
-            eprintln!("failed: {:?}", &e);
-            Error::IOError(e)
-        }
-    })?;
-
-    Ok(u32::from_le_bytes(bytes))
 }
 
 /// Low-level method for reading a node's hash bytes into a buffer from a Read-able and Seek-able struct.
@@ -610,6 +571,7 @@ pub fn read_root_hash<T: MarfTrieId>(s: &mut TrieStorageConnection<T>) -> Result
 }
 
 /// Count the number of allocated children in a list of a node's children pointers.
+#[cfg(test)]
 pub fn count_children(children: &[TriePtr]) -> usize {
     let mut cnt = 0;
     for child in children.iter() {

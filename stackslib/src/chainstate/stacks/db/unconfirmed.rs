@@ -23,7 +23,7 @@ use std::slice;
 use clarity::vm::costs::ExecutionCost;
 use clarity::vm::database::{BurnStateDB, HeadersDB};
 use stacks_common::types::chainstate::{BurnchainHeaderHash, StacksBlockId};
-use stacks_marf::marf::MARFOpenOpts;
+use stacks_marf::MARFOpenOpts;
 
 use crate::chainstate::stacks::db::*;
 use crate::chainstate::stacks::{Error, *};

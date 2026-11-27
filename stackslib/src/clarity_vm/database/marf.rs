@@ -29,11 +29,10 @@ use clarity::vm::types::QualifiedContractIdentifier;
 use rusqlite::Connection;
 use stacks_common::codec::StacksMessageCodec;
 use stacks_common::types::chainstate::{BlockHeaderHash, StacksBlockId, TrieHash};
-use stacks_marf::marf::{
-    test_override_marf_compression, MARFOpenOpts, MarfConnection, MarfTransaction, MARF,
+use stacks_marf::{
+    ClarityMarfTrieId, Error, MARFOpenOpts, MARFValue, MarfConnection, MarfTransaction,
+    TrieHashCalculationMode, MARF,
 };
-use stacks_marf::storage::{TrieFileStorage, TrieHashCalculationMode};
-use stacks_marf::{ClarityMarfTrieId, Error, MARFValue};
 
 use crate::clarity_vm::clarity::{
     ClarityMarfStore, ClarityMarfStoreTransaction, WritableMarfStore,
@@ -80,7 +79,8 @@ impl MarfedKV {
         let mut marf_opts = marf_opts.unwrap_or(MARFOpenOpts::default());
         marf_opts.external_blobs = true;
 
-        test_override_marf_compression(&mut marf_opts);
+        #[cfg(any(test, feature = "testing"))]
+        stacks_marf::testing::test_override_marf_compression(&mut marf_opts);
 
         let mut marf: MARF<StacksBlockId> = if unconfirmed {
             MARF::from_path_unconfirmed(&marf_path, marf_opts)
@@ -301,15 +301,13 @@ impl MarfedKV {
         })?;
 
         // set up ephemeral MARF
-        let ephemeral_marf_storage = TrieFileStorage::open(
+        let mut ephemeral_marf = MARF::from_path(
             ":memory:",
             MARFOpenOpts::new(TrieHashCalculationMode::Deferred, false),
         )
         .map_err(|e| {
             VmInternalError::Expect(format!("Failed to instantiate ephemeral MARF: {:?}", &e))
         })?;
-
-        let mut ephemeral_marf = MARF::from_storage(ephemeral_marf_storage);
         let tx = ephemeral_marf
             .storage_tx()
             .map_err(|err| VmInternalError::DBError(err.to_string()))?;
@@ -499,8 +497,7 @@ impl ReadOnlyMarfStore<'_> {
     /// Return Ok(false) if not
     /// Return Err(..) if we encounter a sqlite error
     pub fn trie_exists_for_block(&mut self, bhh: &StacksBlockId) -> Result<bool, DatabaseError> {
-        self.marf
-            .with_conn(|conn| conn.has_block(bhh).map_err(DatabaseError::IndexError))
+        self.marf.has_block(bhh).map_err(DatabaseError::IndexError)
     }
 
     /// Get the DB path on disk.

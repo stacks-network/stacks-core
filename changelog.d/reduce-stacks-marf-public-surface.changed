@@ -1,0 +1,1 @@
+Reduced the public API of the `stacks-marf` crate to what other crates use. No functional change.

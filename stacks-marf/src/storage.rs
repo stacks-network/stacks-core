@@ -39,13 +39,15 @@ use crate::cache::*;
 use crate::file::{TrieFile, TrieFileNodeHashReader};
 use crate::marf::MARFOpenOpts;
 use crate::node::{
-    is_backptr, set_backptr, TrieCowPtr, TrieNode, TrieNodeID, TrieNodePatch, TrieNodeType, TriePtr,
+    is_backptr, set_backptr, BlockMap, TrieCowPtr, TrieNode, TrieNodeID, TrieNodePatch,
+    TrieNodeType, TriePtr,
 };
 use crate::trie::Trie;
-use crate::{
-    trie_sql, BlockMap, ClarityMarfTrieId, Error, MarfDataEntry, MarfTrieId, TrieHasher,
-    MAX_PATCH_DEPTH,
-};
+use crate::trie_sql::{MarfDataEntry, SquashInfo};
+use crate::{trie_sql, ClarityMarfTrieId, Error, MarfTrieId, TrieHasher};
+
+/// Define the maximum node patching depth when MARF compression is enabled
+const MAX_PATCH_DEPTH: u32 = 4;
 
 /// A trait for reading the hash of a node into a given Write impl, given the pointer to a node in
 /// a trie.
@@ -206,6 +208,7 @@ pub enum UncommittedState<T: MarfTrieId> {
 
 impl<T: MarfTrieId> UncommittedState<T> {
     /// Clear the contents
+    #[cfg(test)]
     pub fn format(&mut self) -> Result<(), Error> {
         match self {
             UncommittedState::RW(ref mut trie_ram) => trie_ram.format(),
@@ -367,11 +370,6 @@ impl<T: MarfTrieId> UncommittedState<T> {
             }
         }
     }
-
-    #[cfg(test)]
-    pub fn print_to_stderr(&self) {
-        self.trie_ram_ref().print_to_stderr()
-    }
 }
 
 /// In-RAM trie storage.
@@ -409,13 +407,6 @@ impl DumpPtr {
         match self {
             Self::Normal(ptr) => *ptr,
             Self::Patch(ptr, ..) => *ptr,
-        }
-    }
-
-    pub fn hash_bytes(&self) -> Option<&[u8; 32]> {
-        match self {
-            Self::Normal(..) => None,
-            Self::Patch(_, bytes, _) => Some(bytes),
         }
     }
 
@@ -1194,6 +1185,7 @@ impl<T: MarfTrieId> TrieRAM<T> {
     }
 
     /// Clear the TrieRAM contents
+    #[cfg(test)]
     pub fn format(&mut self) -> Result<(), Error> {
         if self.readonly {
             trace!("Read-only!");
@@ -1490,18 +1482,6 @@ pub struct TrieStorageTransientData<T: MarfTrieId> {
     squash_info: Option<SquashInfo>,
 }
 
-/// Snapshot metadata cached at open time for squashed MARFs.
-#[derive(Clone, Debug)]
-pub struct SquashInfo {
-    /// Archival MARF root hash committed to the chain at the squash boundary.
-    pub archival_marf_root_hash: TrieHash,
-    /// Root node hash of the squash trie. i.e. `hash(consensus_bytes(root) || children_content_hashes)`
-    pub squash_root_node_hash: TrieHash,
-    /// Backing MARF's own height at the squash tip - Stacks block height for
-    /// the clarity/index MARFs, sortition block height for the sortition MARF.
-    pub squash_height: u32,
-}
-
 // disk-backed Trie.
 // Keeps the last-extended Trie in-RAM and flushes it to disk on either a call to flush() or a call
 // to extend_to_block() with a different block header hash.
@@ -1566,11 +1546,11 @@ pub struct ReopenedTrieStorageConnection<'a, T: MarfTrieId> {
 }
 
 impl<'a, T: MarfTrieId> ReopenedTrieStorageConnection<'a, T> {
-    pub fn db_conn(&self) -> &Connection {
+    pub(crate) fn db_conn(&self) -> &Connection {
         self.db
     }
 
-    pub fn connection(&mut self) -> TrieStorageConnection<'_, T> {
+    pub(crate) fn connection(&mut self) -> TrieStorageConnection<'_, T> {
         TrieStorageConnection {
             db: SqliteConnection::ConnRef(self.db),
             db_path: self.db_path,
@@ -1593,19 +1573,9 @@ impl<T: MarfTrieId> TrieFileStorage<T> {
     ///
     /// The metadata is read from the `marf_squash_info` SQL table.
     fn load_squash_info(&mut self) -> Result<(), Error> {
-        let squash_info = trie_sql::read_squash_info(&self.db)?.map(|sql_info| SquashInfo {
-            archival_marf_root_hash: sql_info.archival_marf_root_hash,
-            squash_root_node_hash: sql_info.squash_root_node_hash,
-            squash_height: sql_info.squash_height,
-        });
-
+        let squash_info = trie_sql::read_squash_info(&self.db)?;
         self.data.set_squash_info(squash_info);
         Ok(())
-    }
-
-    /// Returns cached squashing metadata, if present.
-    pub fn squash_info(&self) -> Option<&SquashInfo> {
-        self.data.squash_info.as_ref()
     }
 
     pub fn connection(&mut self) -> TrieStorageConnection<'_, T> {
@@ -2246,6 +2216,7 @@ impl<'a, T: MarfTrieId> TrieStorageTransaction<'a, T> {
     }
 
     /// Clear out the underlying storage.
+    #[cfg(test)]
     pub fn format(&mut self) -> Result<(), Error> {
         if self.data.readonly {
             return Err(Error::ReadOnlyError);
@@ -2542,30 +2513,6 @@ impl<T: MarfTrieId> TrieStorageConnection<'_, T> {
         self.data.write_leaf_count = 0;
 
         (lr, lw)
-    }
-
-    /// Recover from partially-written state -- i.e. blow it away.
-    /// Doesn't get called automatically.
-    pub fn recover(db_path: &String) -> Result<(), Error> {
-        let conn = marf_sqlite_open(db_path, OpenFlags::SQLITE_OPEN_READ_WRITE, false)?;
-        trie_sql::clear_lock_data(&conn)
-    }
-
-    /// Read the Trie root node's hash from the block table.
-    #[cfg(any(test, feature = "testing"))]
-    pub fn read_block_root_hash(&mut self, bhh: &T) -> Result<TrieHash, Error> {
-        let root_hash_ptr = TriePtr::new(
-            TrieNodeID::Node256 as u8,
-            0,
-            TrieStorageConnection::<T>::root_ptr_disk(),
-        );
-        if let Some(blobs) = self.blobs.as_mut() {
-            // stored in a blobs file
-            blobs.get_node_hash_bytes_by_bhh(&self.db, bhh, &root_hash_ptr)
-        } else {
-            // stored to DB
-            trie_sql::get_node_hash_bytes_by_bhh(&self.db, bhh, &root_hash_ptr)
-        }
     }
 
     #[cfg(test)]

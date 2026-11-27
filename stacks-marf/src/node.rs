@@ -18,6 +18,8 @@ use std::io::{Read, Seek, Write};
 use std::{error, fmt};
 
 use stacks_common::codec::{read_next, write_next, Error as codec_error, StacksMessageCodec};
+#[cfg(test)]
+use stacks_common::types::chainstate::BlockHeaderHash;
 use stacks_common::types::chainstate::{TrieHash, BLOCK_HEADER_HASH_ENCODED_SIZE};
 use stacks_common::util::hash::to_hex;
 
@@ -26,9 +28,39 @@ use crate::bits::{
     get_sparse_ptrs_bitmap_size, path_from_bytes, ptrs_from_bytes, write_path_to_bytes,
     SPARSE_PTR_BITMAP_MARKER,
 };
-use crate::{
-    BlockMap, ClarityMarfTrieId, Error, MARFValue, MarfTrieId, TrieLeaf, MARF_VALUE_ENCODED_SIZE,
-};
+use crate::{ClarityMarfTrieId, Error, MARFValue, MarfTrieId, TrieLeaf, MARF_VALUE_ENCODED_SIZE};
+
+/// Translates between the local block ids that back pointers store and the block
+/// hashes they stand for. Hashing a node needs this, because a back pointer's
+/// consensus bytes contain the block hash. The storage layer implements it.
+pub trait BlockMap {
+    type TrieId: MarfTrieId;
+    fn get_block_hash(&self, id: u32) -> Result<Self::TrieId, Error>;
+    fn get_block_hash_caching(&mut self, id: u32) -> Result<&Self::TrieId, Error>;
+    fn is_block_hash_cached(&self, id: u32) -> bool;
+    fn get_block_id(&self, bhh: &Self::TrieId) -> Result<u32, Error>;
+    fn get_block_id_caching(&mut self, bhh: &Self::TrieId) -> Result<u32, Error>;
+}
+
+#[cfg(test)]
+impl BlockMap for () {
+    type TrieId = BlockHeaderHash;
+    fn get_block_hash(&self, _id: u32) -> Result<BlockHeaderHash, Error> {
+        Err(Error::NotFoundError)
+    }
+    fn get_block_hash_caching(&mut self, _id: u32) -> Result<&BlockHeaderHash, Error> {
+        Err(Error::NotFoundError)
+    }
+    fn is_block_hash_cached(&self, _id: u32) -> bool {
+        false
+    }
+    fn get_block_id(&self, _bhh: &BlockHeaderHash) -> Result<u32, Error> {
+        Err(Error::NotFoundError)
+    }
+    fn get_block_id_caching(&mut self, _bhh: &BlockHeaderHash) -> Result<u32, Error> {
+        Err(Error::NotFoundError)
+    }
+}
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum CursorError {
@@ -298,9 +330,6 @@ impl fmt::Debug for TrieCowPtr {
 pub trait TrieNode {
     /// Node ID for encoding/decoding
     fn id(&self) -> u8;
-
-    /// Is the node devoid of children?
-    fn empty() -> Self;
 
     /// Follow a path character to a child pointer
     fn walk(&self, chr: u8) -> Option<TriePtr>;
@@ -1047,7 +1076,8 @@ impl PartialEq for TrieLeaf {
 }
 
 impl TrieLeaf {
-    pub fn new(path: &[u8], data: &[u8]) -> TrieLeaf {
+    #[cfg(test)]
+    pub(crate) fn new(path: &[u8], data: &[u8]) -> TrieLeaf {
         assert!(data.len() <= 40);
         let mut bytes = [0u8; 40];
         bytes.copy_from_slice(data);
@@ -1057,7 +1087,7 @@ impl TrieLeaf {
         }
     }
 
-    pub fn from_value(path: &[u8], value: MARFValue) -> TrieLeaf {
+    pub(crate) fn from_value(path: &[u8], value: MARFValue) -> TrieLeaf {
         TrieLeaf {
             path: path.to_owned(),
             data: value,
@@ -1751,15 +1781,6 @@ impl TrieNode for TrieNode4 {
         TrieNodeID::Node4 as u8
     }
 
-    fn empty() -> TrieNode4 {
-        TrieNode4 {
-            path: vec![],
-            ptrs: [TriePtr::default(); 4],
-            cowptr: None,
-            patches: vec![],
-        }
-    }
-
     fn walk(&self, chr: u8) -> Option<TriePtr> {
         for ptr in self.ptrs.iter() {
             if !ptr.is_empty() && ptr.chr() == chr {
@@ -1846,15 +1867,6 @@ impl TrieNode for TrieNode16 {
         TrieNodeID::Node16 as u8
     }
 
-    fn empty() -> TrieNode16 {
-        TrieNode16 {
-            path: vec![],
-            ptrs: [TriePtr::default(); 16],
-            cowptr: None,
-            patches: vec![],
-        }
-    }
-
     fn walk(&self, chr: u8) -> Option<TriePtr> {
         for ptr in self.ptrs.iter() {
             if !ptr.is_empty() && ptr.chr() == chr {
@@ -1939,16 +1951,6 @@ impl TrieNode for TrieNode16 {
 impl TrieNode for TrieNode48 {
     fn id(&self) -> u8 {
         TrieNodeID::Node48 as u8
-    }
-
-    fn empty() -> TrieNode48 {
-        TrieNode48 {
-            path: vec![],
-            indexes: [-1; 256],
-            ptrs: [TriePtr::default(); 48],
-            cowptr: None,
-            patches: vec![],
-        }
     }
 
     // allow indexing here because self.indexes is an array of
@@ -2114,15 +2116,6 @@ impl TrieNode for TrieNode256 {
         TrieNodeID::Node256 as u8
     }
 
-    fn empty() -> TrieNode256 {
-        TrieNode256 {
-            path: vec![],
-            ptrs: [TriePtr::default(); 256],
-            cowptr: None,
-            patches: vec![],
-        }
-    }
-
     #[allow(clippy::indexing_slicing)]
     fn walk(&self, chr: u8) -> Option<TriePtr> {
         let ptr = self.ptrs.get(chr as usize)?;
@@ -2205,10 +2198,6 @@ impl TrieNode for TrieNode256 {
 impl TrieNode for TrieLeaf {
     fn id(&self) -> u8 {
         TrieNodeID::Leaf as u8
-    }
-
-    fn empty() -> TrieLeaf {
-        TrieLeaf::new(&[], &[0u8; 40])
     }
 
     fn walk(&self, _chr: u8) -> Option<TriePtr> {

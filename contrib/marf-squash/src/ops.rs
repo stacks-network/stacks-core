@@ -16,8 +16,7 @@
 use std::fs;
 use std::path::Path;
 
-use stacks_marf::MarfTrieId;
-use stacks_marf::marf::{MARF, MARFOpenOpts};
+use stacks_marf::{MARF, MARFOpenOpts, MarfTrieId};
 use stackslib::chainstate::burn::db::sortdb::SortitionTipCopyBoundary;
 use stackslib::chainstate::stacks::db::snapshot::{
     copy_burnchain_db, copy_clarity_side_tables, copy_index_side_tables,

@@ -24,7 +24,6 @@ use stacks_common::util::hash::Sha512Trunc256Sum;
 #[cfg(any(test, feature = "testing"))]
 use stacks_common::util::tests::TestFlag;
 
-pub use super::squash::SquashStats;
 use super::storage::ReopenedTrieStorageConnection;
 use crate::bits::{get_leaf_hash, get_node_hash};
 use crate::node::{
@@ -32,10 +31,10 @@ use crate::node::{
     TrieCursor, TrieNode256, TrieNodeID, TrieNodeType, TriePtr,
 };
 use crate::storage::{
-    SquashInfo, TrieFileStorage, TrieHashCalculationMode, TrieStorageConnection,
-    TrieStorageTransaction,
+    TrieFileStorage, TrieHashCalculationMode, TrieStorageConnection, TrieStorageTransaction,
 };
 use crate::trie::Trie;
+use crate::trie_sql::SquashInfo;
 use crate::{trie_sql, Error, MARFValue, MarfTrieId, TrieLeaf, TrieMerkleProof};
 
 pub const BLOCK_HASH_TO_HEIGHT_MAPPING_KEY: &str = "__MARF_BLOCK_HASH_TO_HEIGHT";
@@ -76,8 +75,6 @@ pub fn fault_injection_marf_compression(enabled: bool) {
 /// 1. Runtime test override via [`TEST_MARF_COMPRESSION_FLAG`]
 /// 2. Global test default via [`TEST_MARF_COMPRESSION_DEFAULT`]
 /// 3. The original value in [`MARFOpenOpts`] (no override)
-///
-/// In non-test builds, this function is compiled to a no-op.
 pub fn test_override_marf_compression(marf_opts: &mut MARFOpenOpts) {
     if let Some(enabled) = TEST_MARF_COMPRESSION_FLAG.get() {
         marf_opts.compress = enabled;
@@ -90,10 +87,6 @@ pub fn test_override_marf_compression(marf_opts: &mut MARFOpenOpts) {
         info!("Test default used. MARF Compression overridden to {enabled}");
     }
 }
-
-#[cfg(not(any(test, feature = "testing")))]
-/// No-op stub for non-test builds.
-pub fn test_override_marf_compression(_marf_opts: &mut MARFOpenOpts) {}
 
 /// Merklized Adaptive-Radix Forest -- a collection of Merklized Adaptive-Radix Tries.
 pub struct MARF<T: MarfTrieId> {
@@ -153,16 +146,52 @@ impl MARFOpenOpts {
     }
 }
 
+/// Access to the storage connection behind a [`MarfConnection`].
+///
+/// The trait is crate-private, so other crates can't call `with_conn` and reach
+/// the storage layer, not even through a [`MarfConnection`] bound; they go
+/// through [`MarfConnection`]'s methods.
+pub(crate) trait StorageConnectionAccess<T: MarfTrieId> {
+    fn with_conn<F, R>(&mut self, exec: F) -> R
+    where
+        F: FnOnce(&mut TrieStorageConnection<T>) -> R;
+}
+
 ///
 /// This trait defines functions that are defined for both
 ///  MARF structs and MarfTransactions
 ///
-pub trait MarfConnection<T: MarfTrieId> {
-    fn with_conn<F, R>(&mut self, exec: F) -> R
-    where
-        F: FnOnce(&mut TrieStorageConnection<T>) -> R;
-
+// The supertrait is crate-private on purpose: it keeps `with_conn` out of other
+// crates' reach and seals this trait.
+#[allow(private_bounds)]
+pub trait MarfConnection<T: MarfTrieId>: StorageConnectionAccess<T> {
+    /// The SQLite database this MARF keeps its tables in. Users of the MARF may
+    /// keep their own tables in the same database.
     fn sqlite_conn(&self) -> &Connection;
+
+    /// The confirmed block added to this MARF most recently.
+    fn get_latest_confirmed_block_hash(&self) -> Result<T, Error> {
+        trie_sql::get_latest_confirmed_block_hash(self.sqlite_conn())
+    }
+
+    /// The metadata recorded when this MARF was squashed, or `None` if it wasn't.
+    fn get_squash_info(&self) -> Result<Option<SquashInfo>, Error> {
+        trie_sql::read_squash_info(self.sqlite_conn())
+    }
+
+    /// Whether this MARF has a trie for block `bhh`, confirmed or unconfirmed.
+    fn has_block(&mut self, bhh: &T) -> Result<bool, Error> {
+        self.with_conn(|c| c.has_block(bhh))
+    }
+
+    /// Walk all leaves in the MARF that are reachable from `block_hash`, passing each
+    /// leaf's path and value to `handle_leaf`. Returns the number of leaves walked.
+    fn for_each_leaf<F>(&mut self, block_hash: &T, handle_leaf: F) -> Result<u64, Error>
+    where
+        F: FnMut(TrieHash, MARFValue) -> Result<(), Error>,
+    {
+        self.with_conn(|c| MARF::for_each_leaf(c, block_hash, handle_leaf))
+    }
 
     /// Resolve a key from the MARF to a MARFValue with respect to the given block height.
     fn get(&mut self, block_hash: &T, key: &str) -> Result<Option<MARFValue>, Error> {
@@ -266,19 +295,22 @@ pub trait MarfConnection<T: MarfTrieId> {
     }
 }
 
-impl<T: MarfTrieId> MarfConnection<T> for MarfTransaction<'_, T> {
+impl<T: MarfTrieId> StorageConnectionAccess<T> for MarfTransaction<'_, T> {
     fn with_conn<F, R>(&mut self, exec: F) -> R
     where
         F: FnOnce(&mut TrieStorageConnection<T>) -> R,
     {
         exec(&mut self.storage)
     }
+}
+
+impl<T: MarfTrieId> MarfConnection<T> for MarfTransaction<'_, T> {
     fn sqlite_conn(&self) -> &Connection {
         self.storage.sqlite_tx()
     }
 }
 
-impl<T: MarfTrieId> MarfConnection<T> for ReopenedTrieStorageConnection<'_, T> {
+impl<T: MarfTrieId> StorageConnectionAccess<T> for ReopenedTrieStorageConnection<'_, T> {
     fn with_conn<F, R>(&mut self, exec: F) -> R
     where
         F: FnOnce(&mut TrieStorageConnection<T>) -> R,
@@ -286,13 +318,15 @@ impl<T: MarfTrieId> MarfConnection<T> for ReopenedTrieStorageConnection<'_, T> {
         let mut conn = self.connection();
         exec(&mut conn)
     }
+}
 
+impl<T: MarfTrieId> MarfConnection<T> for ReopenedTrieStorageConnection<'_, T> {
     fn sqlite_conn(&self) -> &Connection {
         self.db_conn()
     }
 }
 
-impl<T: MarfTrieId> MarfConnection<T> for MARF<T> {
+impl<T: MarfTrieId> StorageConnectionAccess<T> for MARF<T> {
     fn with_conn<F, R>(&mut self, exec: F) -> R
     where
         F: FnOnce(&mut TrieStorageConnection<T>) -> R,
@@ -300,6 +334,9 @@ impl<T: MarfTrieId> MarfConnection<T> for MARF<T> {
         let mut conn = self.storage.connection();
         exec(&mut conn)
     }
+}
+
+impl<T: MarfTrieId> MarfConnection<T> for MARF<T> {
     fn sqlite_conn(&self) -> &Connection {
         self.storage.sqlite_conn()
     }
@@ -516,7 +553,7 @@ impl<'a, T: MarfTrieId> MarfTransaction<'a, T> {
         Ok(())
     }
 
-    pub fn set_block_heights(
+    fn set_block_heights(
         &mut self,
         block_hash: &T,
         next_block_hash: &T,
@@ -678,17 +715,6 @@ impl<'a, T: MarfTrieId> MarfTransaction<'a, T> {
 
 // static methods
 impl<T: MarfTrieId> MARF<T> {
-    #[cfg(test)]
-    pub fn from_storage_opened(storage: TrieFileStorage<T>, opened_to: &T) -> MARF<T> {
-        MARF {
-            storage,
-            open_chain_tip: Some(WriteChainTip {
-                block_hash: opened_to.clone(),
-                height: 0,
-            }),
-        }
-    }
-
     #[cfg(any(test, feature = "testing"))]
     pub fn begin(&mut self, chain_tip: &T, next_chain_tip: &T) -> Result<(), Error> {
         let mut tx = self.begin_tx()?;
@@ -698,7 +724,7 @@ impl<T: MarfTrieId> MARF<T> {
     }
 
     #[cfg(test)]
-    pub fn begin_unconfirmed(&mut self, chain_tip: &T) -> Result<T, Error> {
+    pub(crate) fn begin_unconfirmed(&mut self, chain_tip: &T) -> Result<T, Error> {
         let mut tx = self.begin_tx()?;
         let result = tx.begin_unconfirmed(chain_tip)?;
         tx.commit_tx();
@@ -706,7 +732,7 @@ impl<T: MarfTrieId> MARF<T> {
     }
 
     #[cfg(test)]
-    pub fn seal(&mut self) -> Result<TrieHash, Error> {
+    pub(crate) fn seal(&mut self) -> Result<TrieHash, Error> {
         let mut tx = self.begin_tx()?;
         let h = tx.seal()?;
         Ok(h)
@@ -841,7 +867,10 @@ impl<T: MarfTrieId> MARF<T> {
     /// On Ok, s will point to new_bhh and will be open for reading.
     /// Returns true/false, based on whether or not the trie will be created (this can return false
     /// if we're resuming work on an unconfirmed trie)
-    pub fn extend_trie(storage: &mut TrieStorageTransaction<T>, new_bhh: &T) -> Result<(), Error> {
+    pub(crate) fn extend_trie(
+        storage: &mut TrieStorageTransaction<T>,
+        new_bhh: &T,
+    ) -> Result<(), Error> {
         if storage.readonly() {
             unreachable!("CORRUPTION: constructed read-only TrieStorageTransaction instance");
         }
@@ -1081,7 +1110,8 @@ impl<T: MarfTrieId> MARF<T> {
         Err(Error::CorruptionError("Trie has a cycle".to_string()))
     }
 
-    pub fn format(
+    #[cfg(test)]
+    pub(crate) fn format(
         storage: &mut TrieStorageTransaction<T>,
         first_block_hash: &T,
     ) -> Result<(), Error> {
@@ -1098,7 +1128,7 @@ impl<T: MarfTrieId> MARF<T> {
         storage.write_nodetype(root_ptr, &node_type, hash)
     }
 
-    pub fn get_path(
+    pub(crate) fn get_path(
         storage: &mut TrieStorageConnection<T>,
         block_hash: &T,
         path: &TrieHash,
@@ -1175,7 +1205,7 @@ impl<T: MarfTrieId> MARF<T> {
         Ok(())
     }
 
-    pub fn insert_leaf(
+    fn insert_leaf(
         storage: &mut TrieStorageTransaction<T>,
         block_hash: &T,
         path: &TrieHash,
@@ -1188,7 +1218,7 @@ impl<T: MarfTrieId> MARF<T> {
     }
 
     // like insert_leaf, but don't update the merkle skiplist
-    pub fn insert_leaf_in_batch(
+    fn insert_leaf_in_batch(
         storage: &mut TrieStorageTransaction<T>,
         block_hash: &T,
         path: &TrieHash,
@@ -1202,7 +1232,7 @@ impl<T: MarfTrieId> MARF<T> {
     }
 
     /// Instantiate the MARF from a TrieFileStorage instance
-    pub fn from_storage(storage: TrieFileStorage<T>) -> MARF<T> {
+    pub(crate) fn from_storage(storage: TrieFileStorage<T>) -> MARF<T> {
         MARF {
             storage,
             open_chain_tip: None,
@@ -1214,6 +1244,13 @@ impl<T: MarfTrieId> MARF<T> {
     /// disk. Performant code should call this method sparingly.
     pub fn from_path(path: &str, open_opts: MARFOpenOpts) -> Result<MARF<T>, Error> {
         let file_storage = TrieFileStorage::open(path, open_opts)?;
+        Ok(MARF::from_storage(file_storage))
+    }
+
+    /// Instantiate a read-only MARF using a TrieFileStorage instance, from the given path on disk.
+    /// The database must already exist and need no migration.
+    pub fn from_path_readonly(path: &str, open_opts: MARFOpenOpts) -> Result<MARF<T>, Error> {
+        let file_storage = TrieFileStorage::open_readonly(path, open_opts)?;
         Ok(MARF::from_storage(file_storage))
     }
 
@@ -1229,7 +1266,7 @@ impl<T: MarfTrieId> MARF<T> {
     /// to work off of.
     ///
     /// [`Self::get_by_key`] is the same lookup, hashing the key into a path first.
-    pub fn get_by_path(
+    pub(crate) fn get_by_path(
         storage: &mut TrieStorageConnection<T>,
         block_hash: &T,
         path: &TrieHash,
@@ -1254,7 +1291,7 @@ impl<T: MarfTrieId> MARF<T> {
 
     /// Load up a MARF value by key, given a handle to the storage connection and a tip to work off
     /// of.
-    pub fn get_by_key(
+    pub(crate) fn get_by_key(
         storage: &mut TrieStorageConnection<T>,
         block_hash: &T,
         key: &str,
@@ -1285,7 +1322,7 @@ impl<T: MarfTrieId> MARF<T> {
         }
     }
 
-    pub fn get_block_height_miner_tip(
+    pub(crate) fn get_block_height_miner_tip(
         storage: &mut TrieStorageConnection<T>,
         block_hash: &T,
         current_block_hash: &T,
@@ -1316,7 +1353,7 @@ impl<T: MarfTrieId> MARF<T> {
         }
     }
 
-    pub fn get_block_height(
+    pub(crate) fn get_block_height(
         storage: &mut TrieStorageConnection<T>,
         block_hash: &T,
         current_block_hash: &T,
@@ -1324,7 +1361,7 @@ impl<T: MarfTrieId> MARF<T> {
         MARF::get_block_height_miner_tip(storage, block_hash, current_block_hash)
     }
 
-    pub fn get_block_at_height(
+    pub(crate) fn get_block_at_height(
         storage: &mut TrieStorageConnection<T>,
         height: u32,
         current_block_hash: &T,
@@ -1462,49 +1499,18 @@ impl<T: MarfTrieId> MARF<T> {
         self.storage.connection().open_block(block_hash)
     }
 
-    pub fn get_with_proof(
-        &mut self,
-        block_hash: &T,
-        key: &str,
-    ) -> Result<Option<(MARFValue, TrieMerkleProof<T>)>, Error> {
-        let mut conn = self.storage.connection();
-        // Squash-aware proofs are not currently supported.
-        if conn.is_squashed() {
-            return Err(Error::UnsupportedOnSquashedMarf("get_with_proof"));
-        }
-        let marf_value = match MARF::get_by_key(&mut conn, block_hash, key)? {
-            None => return Ok(None),
-            Some(x) => x,
-        };
-        let proof = TrieMerkleProof::from_raw_entry(&mut conn, key, &marf_value, block_hash)?;
-        Ok(Some((marf_value, proof)))
-    }
-
-    pub fn get_with_proof_from_hash(
-        &mut self,
-        block_hash: &T,
-        path: &TrieHash,
-    ) -> Result<Option<(MARFValue, TrieMerkleProof<T>)>, Error> {
-        let mut conn = self.storage.connection();
-        // Squash-aware proofs are not currently supported.
-        if conn.is_squashed() {
-            return Err(Error::UnsupportedOnSquashedMarf("get_with_proof_from_hash"));
-        }
-        let marf_value = match MARF::get_by_path(&mut conn, block_hash, path)? {
-            None => return Ok(None),
-            Some(x) => x,
-        };
-        let proof = TrieMerkleProof::from_path(&mut conn, path, &marf_value, block_hash)?;
-        Ok(Some((marf_value, proof)))
-    }
-
     pub fn get_bhh_at_height(&mut self, block_hash: &T, height: u32) -> Result<Option<T>, Error> {
         MARF::get_block_at_height(&mut self.storage.connection(), height, block_hash)
     }
 
     /// Insert a batch of key/value pairs.  More efficient than inserting them individually, since
     /// the trie root hash will only be calculated once (which is an O(log B) operation).
-    pub fn insert_batch(&mut self, keys: &[String], values: Vec<MARFValue>) -> Result<(), Error> {
+    #[cfg(test)]
+    pub(crate) fn insert_batch(
+        &mut self,
+        keys: &[String],
+        values: Vec<MARFValue>,
+    ) -> Result<(), Error> {
         if self.storage.readonly() {
             return Err(Error::ReadOnlyError);
         }
@@ -1537,7 +1543,7 @@ impl<T: MarfTrieId> MARF<T> {
     /// Insert the given (key, value) pair into the MARF.  Inserting the same key twice silently
     /// overwrites the existing key.  Succeeds if there are no storage errors.
     /// Must be called after a call to .begin() (will fail otherwise)
-    pub fn insert_raw(&mut self, path: TrieHash, marf_leaf: TrieLeaf) -> Result<(), Error> {
+    pub(crate) fn insert_raw(&mut self, path: TrieHash, marf_leaf: TrieLeaf) -> Result<(), Error> {
         if self.storage.readonly() {
             return Err(Error::ReadOnlyError);
         }
@@ -1575,7 +1581,8 @@ impl<T: MarfTrieId> MARF<T> {
     }
 
     /// Drop the current trie from the MARF, and roll back all unconfirmed state
-    pub fn drop_unconfirmed(&mut self) {
+    #[cfg(test)]
+    pub(crate) fn drop_unconfirmed(&mut self) {
         if !self.storage.readonly() && self.storage.unconfirmed() {
             if let Some(tip) = self.open_chain_tip.take() {
                 let mut tx = self
@@ -1606,7 +1613,8 @@ impl<T: MarfTrieId> MARF<T> {
 
     /// Finish writing the next trie in the MARF, but change the hash of the current Trie's
     /// block hash to something other than what we opened it as.  This persists all changes.
-    pub fn commit_to(&mut self, real_bhh: &T) -> Result<(), Error> {
+    #[cfg(test)]
+    pub(crate) fn commit_to(&mut self, real_bhh: &T) -> Result<(), Error> {
         if self.storage.readonly() {
             return Err(Error::ReadOnlyError);
         }
@@ -1649,24 +1657,19 @@ impl<T: MarfTrieId> MARF<T> {
     }
 
     /// Access internal storage
-    #[cfg(any(test, feature = "testing"))]
-    pub fn borrow_storage_backend(&mut self) -> TrieStorageConnection<'_, T> {
+    #[cfg(test)]
+    pub(crate) fn borrow_storage_backend(&mut self) -> TrieStorageConnection<'_, T> {
         self.storage.connection()
     }
 
     #[cfg(test)]
-    pub fn borrow_storage_transaction(&mut self) -> TrieStorageTransaction<'_, T> {
+    pub(crate) fn borrow_storage_transaction(&mut self) -> TrieStorageTransaction<'_, T> {
         self.storage.transaction().unwrap()
     }
 
     /// Make a raw transaction to the underlying storage
     pub fn storage_tx(&mut self) -> Result<Transaction<'_>, rusqlite::Error> {
         self.storage.sqlite_tx()
-    }
-
-    /// Reopen storage read-only
-    pub fn reopen_storage_readonly(&self) -> Result<TrieFileStorage<T>, Error> {
-        self.storage.reopen_readonly()
     }
 
     /// Reopen this MARF with readonly storage.
@@ -1694,7 +1697,7 @@ impl<T: MarfTrieId> MARF<T> {
     ///  calling MARF struct (i.e., the tip pointer is only changed in the connection)
     ///  but reusing self's existing SQLite Connection (avoiding the overhead of
     ///   `reopen_readonly`).
-    pub fn reopen_connection(&self) -> Result<ReopenedTrieStorageConnection<'_, T>, Error> {
+    pub fn reopen_connection(&self) -> Result<impl MarfConnection<T> + '_, Error> {
         if self.open_chain_tip.is_some() {
             error!(
                 "MARF at {} is already in the process of writing",
@@ -1724,11 +1727,9 @@ impl<T: MarfTrieId> MARF<T> {
 // Leaf traversal
 
 impl<T: MarfTrieId> MARF<T> {
-    /// Walk all leaves in the trie at `block_hash`, yielding full paths and values.
-    ///
-    /// Follows backpointers to resolve nodes living in earlier blocks, so the
-    /// returned set represents the complete state visible at `block_hash`.
-    pub fn for_each_leaf<F>(
+    /// Walk all leaves in the MARF that are reachable from `block_hash`, passing each
+    /// leaf's path and value to `handle_leaf`. Returns the number of leaves walked.
+    pub(crate) fn for_each_leaf<F>(
         storage: &mut TrieStorageConnection<T>,
         block_hash: &T,
         mut handle_leaf: F,

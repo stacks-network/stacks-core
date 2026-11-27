@@ -21,7 +21,7 @@ use std::{error, fmt, io};
 use rusqlite::Error as sqlite_error;
 use stacks_common::types::chainstate::{BurnchainHeaderHash, ConsensusHash, PoxId};
 pub use stacks_common::types::{Address, PrivateKey, PublicKey};
-use stacks_marf::marf::MARFOpenOpts;
+use stacks_marf::MARFOpenOpts;
 
 use self::bitcoin::indexer::{
     BITCOIN_MAINNET as BITCOIN_NETWORK_ID_MAINNET, BITCOIN_MAINNET_NAME,

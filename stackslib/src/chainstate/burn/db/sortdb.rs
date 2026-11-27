@@ -30,9 +30,7 @@ use stacks_common::types::sqlite::NO_PARAMS;
 use stacks_common::types::StacksPublicKeyBuffer;
 use stacks_common::util::hash::{hex_bytes, to_hex, Sha512Trunc256Sum};
 use stacks_common::util::vrf::*;
-use stacks_marf::file::TrieFile;
-use stacks_marf::marf::{test_override_marf_compression, MARFOpenOpts, MarfConnection, MARF};
-use stacks_marf::ClarityMarfTrieId;
+use stacks_marf::{has_external_blobs, ClarityMarfTrieId, MARFOpenOpts, MarfConnection, MARF};
 
 #[cfg(test)]
 use crate::burnchains::BurnchainStateTransitionOps;
@@ -2757,8 +2755,11 @@ impl SortitionDB {
     ) -> Result<MARF<SortitionId>, db_error> {
         test_debug!("Open MARF index at {}", marf_path);
         let mut open_opts = marf_opts.unwrap_or(MARFOpenOpts::default());
-        open_opts.external_blobs = TrieFile::exists(marf_path)?;
-        test_override_marf_compression(&mut open_opts);
+        open_opts.external_blobs = has_external_blobs(marf_path)?;
+
+        #[cfg(any(test, feature = "testing"))]
+        stacks_marf::testing::test_override_marf_compression(&mut open_opts);
+
         let marf = MARF::from_path(marf_path, open_opts).map_err(|_e| db_error::Corruption)?;
         sql_pragma(marf.sqlite_conn(), "foreign_keys", &true)?;
         Ok(marf)

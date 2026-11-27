@@ -30,7 +30,7 @@ use crate::bits::{
 use crate::node::{TrieNodeType, TriePtr};
 #[cfg(test)]
 use crate::storage::TrieStorageConnection;
-use crate::{trie_sql, Error, MarfDataEntry, MarfTrieId};
+use crate::{trie_sql, Error, MarfTrieId};
 
 /// The MARF only ever reads a handful of row shapes, so it implements them directly against
 /// `rusqlite` rather than depending on the generic `FromRow`/`query_row` machinery that a larger
@@ -172,14 +172,15 @@ pub fn create_tables_if_needed(conn: &mut Connection) -> Result<(), Error> {
     tx.commit().map_err(|e| e.into())
 }
 
-/// Row read from the `marf_squash_info` table.
-#[derive(Debug)]
-pub struct SqlSquashInfo {
-    /// Root hash the archival MARF had at the squash tip.
+/// The metadata recorded when a MARF is squashed, kept in the `marf_squash_info` table.
+#[derive(Clone, Debug)]
+pub struct SquashInfo {
+    /// Archival MARF root hash committed to the chain at the squash boundary.
     pub archival_marf_root_hash: TrieHash,
-    /// Hash of the squashed trie's own root node.
+    /// Root node hash of the squash trie. i.e. `hash(consensus_bytes(root) || children_content_hashes)`
     pub squash_root_node_hash: TrieHash,
-    /// MARF height at the squash tip.
+    /// Backing MARF's own height at the squash tip - Stacks block height for
+    /// the clarity/index MARFs, sortition block height for the sortition MARF.
     pub squash_height: u32,
 }
 
@@ -202,7 +203,7 @@ pub fn write_squash_info(
 }
 
 /// Read the squash metadata row. Returns `None` for archival MARFs.
-pub fn read_squash_info(conn: &Connection) -> Result<Option<SqlSquashInfo>, Error> {
+pub fn read_squash_info(conn: &Connection) -> Result<Option<SquashInfo>, Error> {
     if !table_exists(conn, "marf_squash_info")? {
         return Ok(None);
     }
@@ -254,7 +255,7 @@ pub fn read_squash_info(conn: &Connection) -> Result<Option<SqlSquashInfo>, Erro
     let squash_height = u32::try_from(squash_height)
         .map_err(|_| Error::CorruptionError("Invalid squash height".to_string()))?;
 
-    Ok(Some(SqlSquashInfo {
+    Ok(Some(SquashInfo {
         archival_marf_root_hash,
         squash_root_node_hash,
         squash_height,
@@ -448,6 +449,17 @@ pub fn test_append_squashed_block<T: MarfTrieId>(
         params![block_hash.as_bytes(), marf_root_hash.as_bytes()],
     )?;
     Ok(())
+}
+
+/// One confirmed `marf_data` row, as loaded by
+/// [`bulk_read_block_entries`].
+#[derive(Debug, Clone)]
+pub struct MarfDataEntry<T> {
+    /// SQLite rowid of the block in `marf_data`.
+    pub block_id: u32,
+    pub block_hash: T,
+    /// Byte offset of the block's trie blob in external `.blobs` storage.
+    pub external_offset: u64,
 }
 
 /// Bulk-read all confirmed block entries from `marf_data`.
@@ -838,23 +850,6 @@ pub fn read_node_hash_bytes<W: Write>(
     w.write_all(&hash_buff).map_err(|e| e.into())
 }
 
-/// Read a node's hash from a sqlite-stored blob, given its block header hash
-pub fn read_node_hash_bytes_by_bhh<W: Write, T: MarfTrieId>(
-    conn: &Connection,
-    w: &mut W,
-    bhh: &T,
-    ptr: &TriePtr,
-) -> Result<(), Error> {
-    let row_id: i64 = conn.query_row(
-        "SELECT block_id FROM marf_data WHERE block_hash = ?",
-        [bhh],
-        |r| r.get("block_id"),
-    )?;
-    let mut blob = conn.blob_open(rusqlite::MAIN_DB, "marf_data", "data", row_id, true)?;
-    let hash_buff = bits_read_node_hash_bytes(&mut blob, ptr)?;
-    w.write_all(&hash_buff).map_err(|e| e.into())
-}
-
 /// Read a node and its hash from a sqlite-stored trie blob
 pub fn read_node_type(
     conn: &Connection,
@@ -894,17 +889,6 @@ pub fn get_external_trie_offset_length(
 ) -> Result<(u64, u64), Error> {
     let qry = "SELECT external_offset, external_length FROM marf_data WHERE block_id = ?1";
     let args = params![block_id];
-    let (offset, length) = query_offset_length(conn, qry, args)?.ok_or(Error::NotFoundError)?;
-    Ok((offset, length))
-}
-
-/// Get the offset of a trie blob in the blobs file, given its block header hash.
-pub fn get_external_trie_offset_length_by_bhh<T: MarfTrieId>(
-    conn: &Connection,
-    bhh: &T,
-) -> Result<(u64, u64), Error> {
-    let qry = "SELECT external_offset, external_length FROM marf_data WHERE block_hash = ?1";
-    let args = params![bhh];
     let (offset, length) = query_offset_length(conn, qry, args)?.ok_or(Error::NotFoundError)?;
     Ok((offset, length))
 }
@@ -962,21 +946,6 @@ pub fn get_node_hash_bytes(
         block_id.into(),
         true,
     )?;
-    let hash_buff = bits_read_node_hash_bytes(&mut blob, ptr)?;
-    Ok(TrieHash(hash_buff))
-}
-
-pub fn get_node_hash_bytes_by_bhh<T: MarfTrieId>(
-    conn: &Connection,
-    bhh: &T,
-    ptr: &TriePtr,
-) -> Result<TrieHash, Error> {
-    let row_id: i64 = conn.query_row(
-        "SELECT block_id FROM marf_data WHERE block_hash = ?",
-        [bhh],
-        |r| r.get("block_id"),
-    )?;
-    let mut blob = conn.blob_open(rusqlite::MAIN_DB, "marf_data", "data", row_id, true)?;
     let hash_buff = bits_read_node_hash_bytes(&mut blob, ptr)?;
     Ok(TrieHash(hash_buff))
 }
@@ -1066,11 +1035,7 @@ pub fn drop_unconfirmed_trie<T: MarfTrieId>(conn: &Connection, bhh: &T) -> Resul
     Ok(())
 }
 
-pub fn clear_lock_data(conn: &Connection) -> Result<(), Error> {
-    conn.execute("DELETE FROM block_extension_locks", NO_PARAMS)?;
-    Ok(())
-}
-
+#[cfg(test)]
 pub fn clear_tables(tx: &Transaction) -> Result<(), Error> {
     tx.execute("DELETE FROM block_extension_locks", NO_PARAMS)?;
     tx.execute("DELETE FROM marf_data", NO_PARAMS)?;

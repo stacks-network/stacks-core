@@ -35,7 +35,7 @@ use clarity::vm::types::{BoundedErrorString, PrincipalData, QualifiedContractIde
 use clarity::vm::{ClarityVersion, ContractName};
 use stacks_common::consts::SIGNER_SLOTS_PER_USER;
 use stacks_common::types::chainstate::{StacksBlockId, TrieHash};
-use stacks_marf::marf::MARF;
+use stacks_marf::MARF;
 
 use crate::burnchains::PoxConstants;
 use crate::chainstate::nakamoto::signer_set::NakamotoSigners;
@@ -2553,8 +2553,7 @@ mod tests {
     use stacks_common::consts::CHAIN_ID_TESTNET;
     use stacks_common::types::chainstate::ConsensusHash;
     use stacks_common::types::sqlite::NO_PARAMS;
-    use stacks_marf::marf::{MARFOpenOpts, MarfConnection as _};
-    use stacks_marf::ClarityMarfTrieId;
+    use stacks_marf::{ClarityMarfTrieId, MARFOpenOpts, MarfConnection as _};
 
     use super::*;
     use crate::clarity_vm::database::marf::MarfedKV;

@@ -27,8 +27,7 @@ use stacks_common::types::chainstate::{
 };
 use stacks_common::util::get_epoch_time_secs;
 use stacks_common::util::serde_serializers::prefix_hex;
-use stacks_marf::marf::MARFOpenOpts;
-use stacks_marf::Error as IndexError;
+use stacks_marf::{Error as IndexError, MARFOpenOpts};
 
 pub use self::comm::CoordinatorCommunication;
 use super::stacks::boot::{RewardSet, RewardSetData};

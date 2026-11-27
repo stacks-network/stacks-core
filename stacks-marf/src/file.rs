@@ -34,7 +34,8 @@ use crate::node::{TrieNodeType, TriePtr};
 use crate::storage::NodeHashReader;
 #[cfg(test)]
 use crate::storage::TrieStorageConnection;
-use crate::{trie_sql, Error, MarfDataEntry, MarfTrieId};
+use crate::trie_sql::MarfDataEntry;
+use crate::{trie_sql, Error, MarfTrieId};
 
 /// Reader-thread count for the bulk header fan-out.
 ///
@@ -554,20 +555,6 @@ impl TrieFile {
         let offset = self.get_trie_offset(db, block_id)?;
         self.seek(SeekFrom::Start(offset + ptr.ptr()))?;
         read_nodetype_at_head_nohash(self, ptr.id())
-    }
-
-    /// Obtain a TrieHash for a node, given the node's block's hash (used only in testing)
-    #[cfg(any(test, feature = "testing"))]
-    pub fn get_node_hash_bytes_by_bhh<T: MarfTrieId>(
-        &mut self,
-        db: &Connection,
-        bhh: &T,
-        ptr: &TriePtr,
-    ) -> Result<TrieHash, Error> {
-        let (offset, _length) = trie_sql::get_external_trie_offset_length_by_bhh(db, bhh)?;
-        self.seek(SeekFrom::Start(offset + ptr.ptr()))?;
-        let hash_buff = read_hash_bytes(self)?;
-        Ok(TrieHash(hash_buff))
     }
 
     /// Get all (root hash, trie hash) pairs for this TrieFile

@@ -22,7 +22,7 @@ use stacks_common::types::chainstate::{BlockHeaderHash, StacksBlockId, TrieHash}
 use stacks_common::util::hash::to_hex;
 
 use crate::marf::{
-    MARFOpenOpts, MarfConnection, BLOCK_HASH_TO_HEIGHT_MAPPING_KEY,
+    MARFOpenOpts, MarfConnection, StorageConnectionAccess as _, BLOCK_HASH_TO_HEIGHT_MAPPING_KEY,
     BLOCK_HEIGHT_TO_HASH_MAPPING_KEY, MARF, OWN_BLOCK_HEIGHT_KEY,
 };
 use crate::node::{TrieNodeID, TrieNodeType, TriePtr};

@@ -22,9 +22,9 @@ use clarity::vm::database::clarity_store::make_contract_hash_key;
 use clarity::vm::database::{ClarityBackingStore, MetadataRow, SqliteConnection};
 use stacks_common::types::chainstate::{StacksBlockId, TrieHash};
 use stacks_common::util::hash::Sha512Trunc256Sum;
-use stacks_marf::marf::{MARFOpenOpts, MARF};
-use stacks_marf::storage::TrieHashCalculationMode;
-use stacks_marf::{ClarityMarfTrieId as _, Error, MARFValue};
+use stacks_marf::{
+    ClarityMarfTrieId as _, Error, MARFOpenOpts, MARFValue, TrieHashCalculationMode, MARF,
+};
 use tempfile::tempdir;
 
 use super::super::clarity::assert_source_tables_classified;

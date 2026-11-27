@@ -22,8 +22,8 @@ use rusqlite::{params, Connection};
 use stacks_common::types::chainstate::{
     BurnchainHeaderHash, ConsensusHash, StacksBlockId, TrieHash,
 };
-use stacks_marf::marf::{MARFOpenOpts, MARF};
-use stacks_marf::{trie_sql, ClarityMarfTrieId, Error, MARFValue};
+use stacks_marf::testing::{test_append_squashed_block, test_insert_squashed_block};
+use stacks_marf::{ClarityMarfTrieId, Error, MARFOpenOpts, MARFValue, MARF};
 use tempfile::tempdir;
 
 use crate::chainstate::nakamoto::{NakamotoBlockHeader, NakamotoChainState};
@@ -158,13 +158,8 @@ fn create_dest_db_with_canonical_blocks(path: &std::path::Path, canonical: &[&st
 
     let conn = Connection::open(path).unwrap();
     for (h, bh) in canonical.iter().enumerate() {
-        trie_sql::test_insert_squashed_block(
-            &conn,
-            h as u32,
-            &label_block_id(bh),
-            &TrieHash([0u8; 32]),
-        )
-        .unwrap();
+        test_insert_squashed_block(&conn, h as u32, &label_block_id(bh), &TrieHash([0u8; 32]))
+            .unwrap();
     }
     conn
 }
@@ -172,7 +167,7 @@ fn create_dest_db_with_canonical_blocks(path: &std::path::Path, canonical: &[&st
 /// Append a canonical block above the existing ones. `block_hash` is a
 /// test label or a computed [`StacksBlockId`].
 fn append_canonical_block(conn: &Connection, block_hash: &StacksBlockId) {
-    trie_sql::test_append_squashed_block(conn, block_hash, &TrieHash([0u8; 32])).unwrap();
+    test_append_squashed_block(conn, block_hash, &TrieHash([0u8; 32])).unwrap();
 }
 
 /// Assert `err` is a [`Error::CorruptionError`] whose message contains

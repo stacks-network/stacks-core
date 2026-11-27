@@ -31,7 +31,7 @@ use stacks_common::types::chainstate::BurnchainHeaderHash;
 use stacks_common::util::hash::to_hex;
 use stacks_common::util::vrf::VRFPublicKey;
 use stacks_common::util::{get_epoch_time_ms, sleep_ms};
-use stacks_marf::marf::MARFOpenOpts;
+use stacks_marf::MARFOpenOpts;
 
 use super::EpochList;
 use crate::burnchains::bitcoin::BitcoinTxOutput;

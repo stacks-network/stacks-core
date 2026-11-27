@@ -70,7 +70,7 @@ use stacks_common::util::hash::{Hash160, hex_bytes, to_hex};
 use stacks_common::util::retry::LogReader;
 use stacks_common::util::secp256k1::{Secp256k1PrivateKey, Secp256k1PublicKey};
 use stacks_common::util::vrf::VRFProof;
-use stacks_marf::marf::{MARF, MARFOpenOpts, MarfConnection};
+use stacks_marf::{MARF, MARFOpenOpts, MarfConnection};
 use stackslib::burnchains::bitcoin::{BitcoinNetworkType, spv};
 use stackslib::burnchains::db::BurnchainDB;
 use stackslib::burnchains::{Address, Burnchain, PoxConstants};
