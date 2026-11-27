@@ -26,6 +26,8 @@ use crate::vm::types::{
 };
 use crate::vm::{ClarityName, ClarityVersion};
 
+pub mod size_estimate;
+
 pub fn build_contract_interface(
     contract_analysis: &ContractAnalysis,
 ) -> Result<ContractInterface, StaticCheckError> {
