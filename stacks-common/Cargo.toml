@@ -50,7 +50,7 @@ rand = { workspace = true, optional = true }
 slog-json = { version = "2.3.0", default-features = false, optional = true }
 
 [target.'cfg(unix)'.dependencies]
-nix = {version = "0.23", default-features = false, optional = true}
+nix = { workspace = true, features = ["fs", "signal"], optional = true }
 
 [target.'cfg(windows)'.dependencies]
 winapi = { version = "0.3", features = [

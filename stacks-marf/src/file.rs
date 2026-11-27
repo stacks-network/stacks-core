@@ -123,9 +123,8 @@ pub(super) fn read_exact_at(file: &fs::File, buf: &mut [u8], offset: u64) -> io:
 fn prefetch_file_range(file: &File, offset: u64, len: u64) -> io::Result<()> {
     #[cfg(target_os = "linux")]
     {
-        use std::os::unix::io::AsRawFd;
         nix::fcntl::posix_fadvise(
-            file.as_raw_fd(),
+            file,
             offset as i64,
             len as i64,
             nix::fcntl::PosixFadviseAdvice::POSIX_FADV_WILLNEED,

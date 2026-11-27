@@ -36,9 +36,10 @@ stacks-profiler-macros = { path = "stacks-profiler-macros" }
 
 # Dependencies we want to keep the same between workspace members
 ed25519-dalek = { version = "2.1.1", default-features = false }
-hashbrown = { version = "0.15.2", features = ["serde"] }
+hashbrown = { version = "0.17.1", default-features = false, features = ["default-hasher", "inline-more"] }
 lazy_static = "1.4.0"
 madhouse = { git = "https://github.com/stacks-network/madhouse-rs.git", rev = "f83f8ea649182c40b9dbd1b90f8de86261b91fe7" } #v0.2.1
+nix = { version = "0.31.4", default-features = false }
 pinny = { git = "https://github.com/stx-labs/pinny-rs.git", rev = "3bea6ff21de328abbfd17b0c0104dfc2aba6be49" }
 rand_core = "0.6.4"
 rand = "0.8"
@@ -56,6 +57,7 @@ variant_count = "1.1"
 
 # Other dependencies
 assert-json-diff = "2.0.2"
+base64 = { version = "0.22.1", default-features = false, features = ["alloc"] }
 libc = { version = "0.2.182", default-features = false }
 rapidhash = { version = "4.3.0", default-features = false, features = ["std"] }
 trybuild = { version = "1.0.116", default-features = false }
@@ -71,8 +73,8 @@ criterion = { version = "0.8.2", default-features = false, features = ["html_rep
 # Test-only dependencies
 mutants = "0.0.3"
 proptest = { version = "1.6.0", default-features = false, features = ["std"] }
-rstest = "0.17.0"
-rstest_reuse = "0.5.0"
+rstest = { version = "0.29.0", default-features = false }
+rstest_reuse = "0.7.2"
 stdext = "0.3.3"
 tempfile = { version = "3.25.0", default-features = false }
 
