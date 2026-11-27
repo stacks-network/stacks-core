@@ -892,18 +892,6 @@ pub fn get_external_trie_offset_length(
     Ok((offset, length))
 }
 
-/// Get the offset of a trie blob in the blobs file, given its block header hash.
-#[cfg(test)]
-pub fn get_external_trie_offset_length_by_bhh<T: MarfTrieId>(
-    conn: &Connection,
-    bhh: &T,
-) -> Result<(u64, u64), Error> {
-    let qry = "SELECT external_offset, external_length FROM marf_data WHERE block_hash = ?1";
-    let args = params![bhh];
-    let (offset, length) = query_offset_length(conn, qry, args)?.ok_or(Error::NotFoundError)?;
-    Ok((offset, length))
-}
-
 /// Determine the offset in the blobs file at which the last trie ends.  This is also the offset at
 /// which the next trie will be appended.
 pub fn get_external_blobs_length(conn: &Connection) -> Result<u64, Error> {
@@ -957,22 +945,6 @@ pub fn get_node_hash_bytes(
         block_id.into(),
         true,
     )?;
-    let hash_buff = bits_read_node_hash_bytes(&mut blob, ptr)?;
-    Ok(TrieHash(hash_buff))
-}
-
-#[cfg(test)]
-pub fn get_node_hash_bytes_by_bhh<T: MarfTrieId>(
-    conn: &Connection,
-    bhh: &T,
-    ptr: &TriePtr,
-) -> Result<TrieHash, Error> {
-    let row_id: i64 = conn.query_row(
-        "SELECT block_id FROM marf_data WHERE block_hash = ?",
-        [bhh],
-        |r| r.get("block_id"),
-    )?;
-    let mut blob = conn.blob_open(rusqlite::MAIN_DB, "marf_data", "data", row_id, true)?;
     let hash_buff = bits_read_node_hash_bytes(&mut blob, ptr)?;
     Ok(TrieHash(hash_buff))
 }

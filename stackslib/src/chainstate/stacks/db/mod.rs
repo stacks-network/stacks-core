@@ -1307,8 +1307,10 @@ impl StacksChainState {
         test_debug!("Open MARF index at {}", marf_path);
         let mut open_opts = marf_opts.unwrap_or(MARFOpenOpts::default());
         open_opts.external_blobs = true;
+
         #[cfg(any(test, feature = "testing"))]
         stacks_marf::testing::test_override_marf_compression(&mut open_opts);
+
         let marf = MARF::from_path(marf_path, open_opts).map_err(db_error::IndexError)?;
         Ok(marf)
     }

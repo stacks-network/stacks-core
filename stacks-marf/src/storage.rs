@@ -47,7 +47,7 @@ use crate::trie_sql::MarfDataEntry;
 use crate::{trie_sql, ClarityMarfTrieId, Error, MarfTrieId, TrieHasher};
 
 /// Define the maximum node patching depth when MARF compression is enabled
-pub const MAX_PATCH_DEPTH: u32 = 4;
+const MAX_PATCH_DEPTH: u32 = 4;
 
 /// A trait for reading the hash of a node into a given Write impl, given the pointer to a node in
 /// a trie.
@@ -2548,23 +2548,6 @@ impl<T: MarfTrieId> TrieStorageConnection<'_, T> {
     pub fn recover(db_path: &String) -> Result<(), Error> {
         let conn = marf_sqlite_open(db_path, OpenFlags::SQLITE_OPEN_READ_WRITE, false)?;
         trie_sql::clear_lock_data(&conn)
-    }
-
-    /// Read the Trie root node's hash from the block table.
-    #[cfg(test)]
-    pub fn read_block_root_hash(&mut self, bhh: &T) -> Result<TrieHash, Error> {
-        let root_hash_ptr = TriePtr::new(
-            TrieNodeID::Node256 as u8,
-            0,
-            TrieStorageConnection::<T>::root_ptr_disk(),
-        );
-        if let Some(blobs) = self.blobs.as_mut() {
-            // stored in a blobs file
-            blobs.get_node_hash_bytes_by_bhh(&self.db, bhh, &root_hash_ptr)
-        } else {
-            // stored to DB
-            trie_sql::get_node_hash_bytes_by_bhh(&self.db, bhh, &root_hash_ptr)
-        }
     }
 
     #[cfg(test)]

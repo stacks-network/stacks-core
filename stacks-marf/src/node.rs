@@ -30,6 +30,9 @@ use crate::bits::{
 };
 use crate::{ClarityMarfTrieId, Error, MARFValue, MarfTrieId, TrieLeaf, MARF_VALUE_ENCODED_SIZE};
 
+/// Translates between the local block ids that back pointers store and the block
+/// hashes they stand for. Hashing a node needs this, because a back pointer's
+/// consensus bytes contain the block hash. The storage layer implements it.
 pub trait BlockMap {
     type TrieId: MarfTrieId;
     fn get_block_hash(&self, id: u32) -> Result<Self::TrieId, Error>;

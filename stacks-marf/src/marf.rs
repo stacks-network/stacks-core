@@ -181,8 +181,8 @@ pub trait MarfConnection<T: MarfTrieId>: StorageConnectionAccess<T> {
         self.with_conn(|c| c.has_block(bhh))
     }
 
-    /// Walk all leaves in the trie at `block_hash`, yielding full paths and values,
-    /// including those living in earlier blocks' tries.
+    /// Walk all leaves in the MARF that are reachable from `block_hash`, passing each
+    /// leaf's path and value to `handle_leaf`. Returns the number of leaves walked.
     fn for_each_leaf<F>(&mut self, block_hash: &T, handle_leaf: F) -> Result<u64, Error>
     where
         F: FnMut(TrieHash, MARFValue) -> Result<(), Error>,
@@ -1724,10 +1724,8 @@ impl<T: MarfTrieId> MARF<T> {
 // Leaf traversal
 
 impl<T: MarfTrieId> MARF<T> {
-    /// Walk all leaves in the trie at `block_hash`, yielding full paths and values.
-    ///
-    /// Follows backpointers to resolve nodes living in earlier blocks, so the
-    /// returned set represents the complete state visible at `block_hash`.
+    /// Walk all leaves in the MARF that are reachable from `block_hash`, passing each
+    /// leaf's path and value to `handle_leaf`. Returns the number of leaves walked.
     pub(crate) fn for_each_leaf<F>(
         storage: &mut TrieStorageConnection<T>,
         block_hash: &T,

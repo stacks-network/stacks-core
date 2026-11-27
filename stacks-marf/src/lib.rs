@@ -72,10 +72,7 @@ mod test;
 pub use crate::marf::{MARFOpenOpts, MarfConnection, MarfTransaction, MARF};
 pub use crate::squash::{SquashStats, SquashStepDurations};
 pub use crate::storage::TrieHashCalculationMode;
-// Reads the list of squashed blocks from a squashed MARF's SQLite database,
-// given a plain connection to it.
-pub use crate::trie_sql::bulk_read_squashed_blocks;
-pub use crate::trie_sql::SqlSquashInfo;
+pub use crate::trie_sql::{bulk_read_squashed_blocks, SqlSquashInfo};
 
 /// Helpers for other crates' test suites.
 #[cfg(any(test, feature = "testing"))]

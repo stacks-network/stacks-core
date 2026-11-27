@@ -557,20 +557,6 @@ impl TrieFile {
         read_nodetype_at_head_nohash(self, ptr.id())
     }
 
-    /// Obtain a TrieHash for a node, given the node's block's hash (used only in testing)
-    #[cfg(test)]
-    pub fn get_node_hash_bytes_by_bhh<T: MarfTrieId>(
-        &mut self,
-        db: &Connection,
-        bhh: &T,
-        ptr: &TriePtr,
-    ) -> Result<TrieHash, Error> {
-        let (offset, _length) = trie_sql::get_external_trie_offset_length_by_bhh(db, bhh)?;
-        self.seek(SeekFrom::Start(offset + ptr.ptr()))?;
-        let hash_buff = read_hash_bytes(self)?;
-        Ok(TrieHash(hash_buff))
-    }
-
     /// Get all (root hash, trie hash) pairs for this TrieFile
     #[cfg(test)]
     pub fn read_all_block_hashes_and_roots<T: MarfTrieId>(
