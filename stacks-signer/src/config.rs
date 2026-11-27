@@ -514,7 +514,7 @@ impl RawConfigFile {
     /// load the config from a string
     pub fn load_from_str(data: &str) -> Result<Self, ConfigError> {
         let config: Self =
-            toml::from_str(data).map_err(|e| ConfigError::ParseError(format!("{e:?}")))?;
+            toml::from_str(data).map_err(|e| ConfigError::ParseError(e.to_string()))?;
         Ok(config)
     }
     /// load the config from a file and parse it
@@ -528,9 +528,11 @@ impl TryFrom<&PathBuf> for RawConfigFile {
     type Error = ConfigError;
 
     fn try_from(path: &PathBuf) -> Result<Self, Self::Error> {
-        Self::load_from_str(&fs::read_to_string(path).map_err(|e| {
-            ConfigError::InvalidConfig(format!("failed to read config file: {e:?}"))
-        })?)
+        Self::load_from_str(
+            &fs::read_to_string(path).map_err(|e| {
+                ConfigError::InvalidConfig(format!("failed to read config file: {e}"))
+            })?,
+        )
     }
 }
 
@@ -883,9 +885,14 @@ tenure_idle_timeout_sec = 30 # Error: missing trailing 's' in 'secs'
 "#;
         let result = RawConfigFile::load_from_str(config_toml);
         let err = result.expect_err("Config with a misspelled field should fail to parse");
+        let rendered = err.to_string();
         assert!(
-            format!("{err:?}").contains("tenure_idle_timeout_sec"),
-            "Error should name the unknown field: {err:?}"
+            rendered.starts_with("TOML parse error at line 8, column 1\n"),
+            "Error should start with the position on its own line: {rendered}"
+        );
+        assert!(
+            rendered.contains("unknown field `tenure_idle_timeout_sec`"),
+            "Error should name the unknown field: {rendered}"
         );
     }
 

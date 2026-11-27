@@ -23,7 +23,7 @@ use stacks_common::util::hash::Sha512Trunc256Sum;
 
 #[cfg(test)]
 use crate::vm::contexts::OwnedEnvironment;
-use crate::vm::contexts::{ExecutionState, GlobalContext, InvocationContext};
+use crate::vm::contexts::{CalleeFilter, ExecutionState, GlobalContext, InvocationContext};
 use crate::vm::costs::LimitedCostTracker;
 use crate::vm::database::MemoryBackingStore;
 use crate::vm::tests::{test_clarity_versions, test_epochs};
@@ -228,7 +228,7 @@ fn test_contract_caller(epoch: StacksEpochId, mut env_factory: MemoryEnvironment
                     &QualifiedContractIdentifier::local("contract-a").unwrap(),
                     "get-caller",
                     vec![],
-                    false
+                    CalleeFilter::PublicOrReadOnly
                 )
                 .unwrap(),
             Value::cons_list_unsanitized(vec![p1.clone(), p1.clone()]).unwrap()
@@ -240,7 +240,7 @@ fn test_contract_caller(epoch: StacksEpochId, mut env_factory: MemoryEnvironment
                     &QualifiedContractIdentifier::local("contract-b").unwrap(),
                     "as-contract-get-caller",
                     vec![],
-                    false
+                    CalleeFilter::PublicOrReadOnly
                 )
                 .unwrap(),
             Value::cons_list_unsanitized(vec![c_b.clone(), c_b.clone()]).unwrap()
@@ -252,7 +252,7 @@ fn test_contract_caller(epoch: StacksEpochId, mut env_factory: MemoryEnvironment
                     &QualifiedContractIdentifier::local("contract-b").unwrap(),
                     "cc-get-caller",
                     vec![],
-                    false
+                    CalleeFilter::PublicOrReadOnly
                 )
                 .unwrap(),
             Value::cons_list_unsanitized(vec![c_b.clone(), p1]).unwrap()
@@ -264,7 +264,7 @@ fn test_contract_caller(epoch: StacksEpochId, mut env_factory: MemoryEnvironment
                     &QualifiedContractIdentifier::local("contract-b").unwrap(),
                     "as-contract-cc-get-caller",
                     vec![],
-                    false
+                    CalleeFilter::PublicOrReadOnly
                 )
                 .unwrap(),
             Value::cons_list_unsanitized(vec![c_b.clone(), c_b]).unwrap()
@@ -288,7 +288,7 @@ fn tx_sponsor_contract_asserts(
                 &QualifiedContractIdentifier::local("contract-a").unwrap(),
                 "get-sponsor",
                 vec![],
-                false
+                CalleeFilter::PublicOrReadOnly
             )
             .unwrap(),
         Value::cons_list_unsanitized(vec![sponsor.clone()]).unwrap()
@@ -300,7 +300,7 @@ fn tx_sponsor_contract_asserts(
                 &QualifiedContractIdentifier::local("contract-b").unwrap(),
                 "as-contract-get-sponsor",
                 vec![],
-                false
+                CalleeFilter::PublicOrReadOnly
             )
             .unwrap(),
         Value::cons_list_unsanitized(vec![sponsor.clone()]).unwrap()
@@ -312,7 +312,7 @@ fn tx_sponsor_contract_asserts(
                 &QualifiedContractIdentifier::local("contract-b").unwrap(),
                 "cc-get-sponsor",
                 vec![],
-                false
+                CalleeFilter::PublicOrReadOnly
             )
             .unwrap(),
         Value::cons_list_unsanitized(vec![sponsor.clone()]).unwrap()
@@ -324,7 +324,7 @@ fn tx_sponsor_contract_asserts(
                 &QualifiedContractIdentifier::local("contract-b").unwrap(),
                 "as-contract-cc-get-sponsor",
                 vec![],
-                false
+                CalleeFilter::PublicOrReadOnly
             )
             .unwrap(),
         Value::cons_list_unsanitized(vec![sponsor]).unwrap()
@@ -456,7 +456,7 @@ fn test_fully_qualified_contract_call(
                     &QualifiedContractIdentifier::local("contract-a").unwrap(),
                     "get-caller",
                     vec![],
-                    false
+                    CalleeFilter::PublicOrReadOnly
                 )
                 .unwrap(),
             Value::cons_list_unsanitized(vec![p1.clone(), p1.clone()]).unwrap()
@@ -468,7 +468,7 @@ fn test_fully_qualified_contract_call(
                     &QualifiedContractIdentifier::local("contract-b").unwrap(),
                     "as-contract-get-caller",
                     vec![],
-                    false
+                    CalleeFilter::PublicOrReadOnly
                 )
                 .unwrap(),
             Value::cons_list_unsanitized(vec![c_b.clone(), c_b.clone()]).unwrap()
@@ -480,7 +480,7 @@ fn test_fully_qualified_contract_call(
                     &QualifiedContractIdentifier::local("contract-b").unwrap(),
                     "cc-get-caller",
                     vec![],
-                    false
+                    CalleeFilter::PublicOrReadOnly
                 )
                 .unwrap(),
             Value::cons_list_unsanitized(vec![c_b.clone(), p1]).unwrap()
@@ -492,7 +492,7 @@ fn test_fully_qualified_contract_call(
                     &QualifiedContractIdentifier::local("contract-b").unwrap(),
                     "as-contract-cc-get-caller",
                     vec![],
-                    false
+                    CalleeFilter::PublicOrReadOnly
                 )
                 .unwrap(),
             Value::cons_list_unsanitized(vec![c_b.clone(), c_b]).unwrap()
@@ -600,7 +600,7 @@ fn test_simple_naming_system(epoch: StacksEpochId, mut env_factory: MemoryEnviro
                     &QualifiedContractIdentifier::local("names").unwrap(),
                     "preorder",
                     vec![name_hash_expensive_0.clone(), Value::UInt(1000)],
-                    false
+                    CalleeFilter::PublicOrReadOnly
                 )
                 .unwrap(),
             1
@@ -620,7 +620,7 @@ fn test_simple_naming_system(epoch: StacksEpochId, mut env_factory: MemoryEnviro
                     &QualifiedContractIdentifier::local("names").unwrap(),
                     "preorder",
                     vec![name_hash_expensive_0.clone(), Value::UInt(1000)],
-                    false
+                    CalleeFilter::PublicOrReadOnly
                 )
                 .unwrap()
         ));
@@ -631,7 +631,7 @@ fn test_simple_naming_system(epoch: StacksEpochId, mut env_factory: MemoryEnviro
                     &QualifiedContractIdentifier::local("names").unwrap(),
                     "preorder",
                     vec![name_hash_expensive_0, Value::UInt(1000)],
-                    false
+                    CalleeFilter::PublicOrReadOnly
                 )
                 .unwrap(),
             2
@@ -652,7 +652,7 @@ fn test_simple_naming_system(epoch: StacksEpochId, mut env_factory: MemoryEnviro
                     &QualifiedContractIdentifier::local("names").unwrap(),
                     "register",
                     vec![p2.clone(), Value::Int(1), Value::Int(0)],
-                    false
+                    CalleeFilter::PublicOrReadOnly
                 )
                 .unwrap(),
             4
@@ -673,7 +673,7 @@ fn test_simple_naming_system(epoch: StacksEpochId, mut env_factory: MemoryEnviro
                     &QualifiedContractIdentifier::local("names").unwrap(),
                     "register",
                     vec![p2.clone(), Value::Int(1), Value::Int(0)],
-                    false
+                    CalleeFilter::PublicOrReadOnly
                 )
                 .unwrap()
         ));
@@ -693,7 +693,7 @@ fn test_simple_naming_system(epoch: StacksEpochId, mut env_factory: MemoryEnviro
                     &QualifiedContractIdentifier::local("names").unwrap(),
                     "preorder",
                     vec![name_hash_expensive_1, Value::UInt(100)],
-                    false
+                    CalleeFilter::PublicOrReadOnly
                 )
                 .unwrap()
         ));
@@ -704,7 +704,7 @@ fn test_simple_naming_system(epoch: StacksEpochId, mut env_factory: MemoryEnviro
                     &QualifiedContractIdentifier::local("names").unwrap(),
                     "register",
                     vec![p2.clone(), Value::Int(2), Value::Int(0)],
-                    false
+                    CalleeFilter::PublicOrReadOnly
                 )
                 .unwrap(),
             4
@@ -718,7 +718,7 @@ fn test_simple_naming_system(epoch: StacksEpochId, mut env_factory: MemoryEnviro
                     &QualifiedContractIdentifier::local("names").unwrap(),
                     "preorder",
                     vec![name_hash_cheap_0, Value::UInt(100)],
-                    false
+                    CalleeFilter::PublicOrReadOnly
                 )
                 .unwrap()
         ));
@@ -729,7 +729,7 @@ fn test_simple_naming_system(epoch: StacksEpochId, mut env_factory: MemoryEnviro
                     &QualifiedContractIdentifier::local("names").unwrap(),
                     "register",
                     vec![p2.clone(), Value::Int(100001), Value::Int(0)],
-                    false
+                    CalleeFilter::PublicOrReadOnly
                 )
                 .unwrap()
         ));
@@ -742,7 +742,7 @@ fn test_simple_naming_system(epoch: StacksEpochId, mut env_factory: MemoryEnviro
                     &QualifiedContractIdentifier::local("names").unwrap(),
                     "register",
                     vec![p2, Value::Int(100001), Value::Int(0)],
-                    false
+                    CalleeFilter::PublicOrReadOnly
                 )
                 .unwrap(),
             5
@@ -797,7 +797,7 @@ fn test_simple_contract_call(epoch: StacksEpochId, mut env_factory: MemoryEnviro
                 &QualifiedContractIdentifier::local("proxy-compute").unwrap(),
                 "proxy-compute",
                 args.clone(),
-                false,
+                CalleeFilter::PublicOrReadOnly,
             )
             .unwrap();
         assert_eq!(
@@ -878,7 +878,7 @@ fn test_aborts(epoch: StacksEpochId, mut env_factory: MemoryEnvironmentGenerator
                 &QualifiedContractIdentifier::local("contract-1").unwrap(),
                 "modify-data",
                 vec![Value::Int(10), Value::Int(10)],
-                false
+                CalleeFilter::PublicOrReadOnly
             )
             .unwrap(),
         Value::Response(ResponseData {
@@ -894,7 +894,7 @@ fn test_aborts(epoch: StacksEpochId, mut env_factory: MemoryEnvironmentGenerator
                 &QualifiedContractIdentifier::local("contract-1").unwrap(),
                 "modify-data",
                 vec![Value::Int(20), Value::Int(10)],
-                false
+                CalleeFilter::PublicOrReadOnly
             )
             .unwrap(),
         Value::Response(ResponseData {
@@ -932,7 +932,7 @@ fn test_aborts(epoch: StacksEpochId, mut env_factory: MemoryEnvironmentGenerator
                 &QualifiedContractIdentifier::local("contract-2").unwrap(),
                 "fail-in-other",
                 vec![],
-                false
+                CalleeFilter::PublicOrReadOnly
             )
             .unwrap(),
         Value::Response(ResponseData {
@@ -948,7 +948,7 @@ fn test_aborts(epoch: StacksEpochId, mut env_factory: MemoryEnvironmentGenerator
                 &QualifiedContractIdentifier::local("contract-2").unwrap(),
                 "fail-in-self",
                 vec![],
-                false
+                CalleeFilter::PublicOrReadOnly
             )
             .unwrap(),
         Value::Response(ResponseData {
@@ -1035,7 +1035,7 @@ fn test_factorial_contract(epoch: StacksEpochId, mut env_factory: MemoryEnvironm
                 &QualifiedContractIdentifier::local("factorial").unwrap(),
                 tx_name,
                 arguments.clone(),
-                false,
+                CalleeFilter::PublicOrReadOnly,
             )
             .unwrap();
 
@@ -1060,7 +1060,7 @@ fn test_factorial_contract(epoch: StacksEpochId, mut env_factory: MemoryEnvironm
             &QualifiedContractIdentifier::local("factorial").unwrap(),
             "init-factorial",
             vec![Value::Int(9000), Value::Int(15)],
-            false,
+            CalleeFilter::PublicOrReadOnly,
         )
         .unwrap_err();
     assert!(matches!(
@@ -1074,7 +1074,7 @@ fn test_factorial_contract(epoch: StacksEpochId, mut env_factory: MemoryEnvironm
             &QualifiedContractIdentifier::local("factorial").unwrap(),
             "compute",
             vec![Value::Bool(true)],
-            false,
+            CalleeFilter::PublicOrReadOnly,
         )
         .unwrap_err();
     assert!(matches!(
@@ -1350,7 +1350,7 @@ fn test_contract_hash_success(
             vec![Value::Principal(PrincipalData::Contract(
                 other_contract.clone(),
             ))],
-            true,
+            CalleeFilter::ReadOnly,
         )
         .unwrap();
 
@@ -1406,7 +1406,7 @@ fn test_contract_hash_nonexistent_contract(
             vec![Value::Principal(PrincipalData::Contract(
                 non_existent_contract.clone(),
             ))],
-            true,
+            CalleeFilter::ReadOnly,
         )
         .unwrap();
 
@@ -1456,7 +1456,7 @@ fn test_contract_hash_standard_principal(
             vec![Value::Principal(PrincipalData::Standard(
                 StandardPrincipalData::transient(),
             ))],
-            true,
+            CalleeFilter::ReadOnly,
         )
         .unwrap();
 
@@ -1491,7 +1491,13 @@ fn test_contract_hash_type_check(
 
     // Attempt to execute the contract, expecting a type-check error
     let err = exec_state
-        .execute_contract(&invoke_ctx, &test_contract, "get-hash", vec![], true)
+        .execute_contract(
+            &invoke_ctx,
+            &test_contract,
+            "get-hash",
+            vec![],
+            CalleeFilter::ReadOnly,
+        )
         .unwrap_err();
     assert_eq!(
         err,
@@ -1545,7 +1551,7 @@ fn test_contract_hash_pre_clarity4(
             vec![Value::Principal(PrincipalData::Contract(
                 other_contract.clone(),
             ))],
-            true,
+            CalleeFilter::ReadOnly,
         )
         .unwrap_err();
 
@@ -1605,7 +1611,7 @@ fn test_contract_call_with_constant(
         &QualifiedContractIdentifier::local("contract-b").unwrap(),
         "call-foo",
         vec![],
-        false,
+        CalleeFilter::PublicOrReadOnly,
     );
 
     if epoch.supports_call_with_constant() && version.supports_callables() {
@@ -1673,7 +1679,7 @@ fn test_runtime_name_resolution_order(
         &QualifiedContractIdentifier::local("contract").unwrap(),
         "some-function",
         vec![],
-        false,
+        CalleeFilter::PublicOrReadOnly,
     );
 
     if epoch.clarity_runtime_checks_global_constants_before_local_vars() {
@@ -1918,7 +1924,7 @@ fn test_constant_to_trait(
         &QualifiedContractIdentifier::local("contract-b").unwrap(),
         "call-foo",
         vec![],
-        false,
+        CalleeFilter::PublicOrReadOnly,
     );
 
     assert_eq!(call_result.unwrap(), Value::okay_true());
@@ -2001,7 +2007,13 @@ fn test_constant_contract_principal_in_principal_functions(
     // is-standard returns false because the local test principal uses a
     // non-standard version byte (0x01).
     let result = exec_env
-        .execute_contract(&invoke_ctx, &contract_b_id, "check-standard", vec![], false)
+        .execute_contract(
+            &invoke_ctx,
+            &contract_b_id,
+            "check-standard",
+            vec![],
+            CalleeFilter::PublicOrReadOnly,
+        )
         .unwrap();
     assert_eq!(result, Value::Bool(false));
 
@@ -2009,7 +2021,13 @@ fn test_constant_contract_principal_in_principal_functions(
     // a recognized network version. The tuple still contains the decomposed
     // principal fields.
     let result = exec_env
-        .execute_contract(&invoke_ctx, &contract_b_id, "check-destruct", vec![], false)
+        .execute_contract(
+            &invoke_ctx,
+            &contract_b_id,
+            "check-destruct",
+            vec![],
+            CalleeFilter::PublicOrReadOnly,
+        )
         .unwrap();
     assert_eq!(
         result,
@@ -2021,7 +2039,13 @@ fn test_constant_contract_principal_in_principal_functions(
     // to-ascii? returns (ok <string>) with the full principal representation.
     if has_to_ascii {
         let result = exec_env
-            .execute_contract(&invoke_ctx, &contract_b_id, "check-to-ascii", vec![], false)
+            .execute_contract(
+                &invoke_ctx,
+                &contract_b_id,
+                "check-to-ascii",
+                vec![],
+                CalleeFilter::PublicOrReadOnly,
+            )
             .unwrap();
         assert_eq!(
             result,
@@ -2095,8 +2119,13 @@ fn test_constant_contract_principal_dual_use(
     let contract_b_id = QualifiedContractIdentifier::local("contract-b").unwrap();
 
     // contract-call? via constant requires epoch + version support
-    let call_result =
-        exec_env.execute_contract(&invoke_ctx, &contract_b_id, "call-it", vec![], false);
+    let call_result = exec_env.execute_contract(
+        &invoke_ctx,
+        &contract_b_id,
+        "call-it",
+        vec![],
+        CalleeFilter::PublicOrReadOnly,
+    );
     if epoch.supports_call_with_constant() && version.supports_callables() {
         assert_eq!(call_result.unwrap(), Value::okay_true());
     } else {
@@ -2109,14 +2138,26 @@ fn test_constant_contract_principal_dual_use(
     // stx-get-balance and is-standard work in all epochs because the
     // constant is always `Value::Principal`.
     let result = exec_env
-        .execute_contract(&invoke_ctx, &contract_b_id, "get-bal", vec![], false)
+        .execute_contract(
+            &invoke_ctx,
+            &contract_b_id,
+            "get-bal",
+            vec![],
+            CalleeFilter::PublicOrReadOnly,
+        )
         .unwrap();
     assert_eq!(result, Value::UInt(0));
 
     // is-standard returns false because the local test principal uses a
     // non-standard version byte (0x01).
     let result = exec_env
-        .execute_contract(&invoke_ctx, &contract_b_id, "check-standard", vec![], false)
+        .execute_contract(
+            &invoke_ctx,
+            &contract_b_id,
+            "check-standard",
+            vec![],
+            CalleeFilter::PublicOrReadOnly,
+        )
         .unwrap();
     assert_eq!(result, Value::Bool(false));
 }
@@ -2278,7 +2319,7 @@ fn epoch41_external_call_reaches_shadowed_function_and_native_is_kept() {
                 &contract_id,
                 "slice?",
                 vec![Value::Int(4), Value::Int(5)],
-                false
+                CalleeFilter::PublicOrReadOnly
             )
             .unwrap(),
         Value::okay(Value::Int(9)).unwrap()
@@ -2322,7 +2363,7 @@ fn epoch41_read_only_implementation_of_legacy_trait_method() {
                 &contract_id,
                 "slice?",
                 vec![Value::Int(4), Value::Int(5)],
-                false
+                CalleeFilter::PublicOrReadOnly
             )
             .unwrap(),
         Value::okay(Value::Int(9)).unwrap()
@@ -2361,7 +2402,7 @@ fn clarity6_at_epoch41_implements_legacy_trait_method() {
                 &contract_id,
                 "slice?",
                 vec![Value::Int(4), Value::Int(5)],
-                false
+                CalleeFilter::PublicOrReadOnly
             )
             .unwrap(),
         Value::okay(Value::Int(9)).unwrap()
@@ -2415,7 +2456,7 @@ fn epoch41_keyword_name_implementation_splits_by_position() {
                 &contract_id,
                 "stacks-block-height",
                 vec![],
-                false
+                CalleeFilter::PublicOrReadOnly
             )
             .unwrap(),
         Value::okay(Value::UInt(12345)).unwrap()
@@ -2580,7 +2621,7 @@ fn epoch41_implements_legacy_trait_with_reserved_method_name() {
                 &legacy_id,
                 "call-slice",
                 vec![Value::from(PrincipalData::Contract(impl_id))],
-                false
+                CalleeFilter::PublicOrReadOnly
             )
             .unwrap(),
         Value::okay(Value::Int(9)).unwrap()
@@ -2619,7 +2660,13 @@ fn epoch41_cross_contract_call_resolves_shadowed_function() {
         owned_env.get_exec_environment(None, None, &placeholder_context);
     assert_eq!(
         exec_state
-            .execute_contract(&invoke_ctx, &id_b, "call-a", vec![], false)
+            .execute_contract(
+                &invoke_ctx,
+                &id_b,
+                "call-a",
+                vec![],
+                CalleeFilter::PublicOrReadOnly
+            )
             .unwrap(),
         Value::okay(Value::Int(9)).unwrap()
     );

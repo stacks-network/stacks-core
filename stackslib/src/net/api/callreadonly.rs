@@ -19,6 +19,7 @@ use std::time::Duration;
 use clarity::vm::analysis::RuntimeCheckErrorKind;
 use clarity::vm::ast::parser::v1::CLARITY_NAME_REGEX;
 use clarity::vm::clarity::ClarityConnection;
+use clarity::vm::contexts::CalleeFilter;
 use clarity::vm::costs::{ExecutionCost, LimitedCostTracker};
 use clarity::vm::errors::ClarityEvalError;
 use clarity::vm::errors::VmExecutionError::{self, RuntimeCheck};
@@ -254,7 +255,7 @@ impl RPCRequestHandler for RPCCallReadOnlyRequestHandler {
                                         &contract_identifier,
                                         function.as_str(),
                                         arguments,
-                                        false,
+                                        CalleeFilter::PublicOrReadOnly,
                                     )
                                     .map_err(ClarityEvalError::from)
                             },

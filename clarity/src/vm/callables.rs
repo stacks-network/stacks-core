@@ -442,14 +442,6 @@ impl DefinedFunction {
         }
     }
 
-    pub fn is_public(&self) -> bool {
-        match self.define_type {
-            DefineType::Public => true,
-            DefineType::Private => false,
-            DefineType::ReadOnly => true,
-        }
-    }
-
     pub fn get_identifier(&self) -> FunctionIdentifier {
         self.identifier.clone()
     }

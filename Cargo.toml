@@ -39,7 +39,7 @@ ed25519-dalek = { version = "2.1.1", default-features = false }
 hashbrown = { version = "0.15.2", features = ["serde"] }
 lazy_static = "1.4.0"
 madhouse = { git = "https://github.com/stacks-network/madhouse-rs.git", rev = "f83f8ea649182c40b9dbd1b90f8de86261b91fe7" } #v0.2.1
-pinny = { git = "https://github.com/stx-labs/pinny-rs.git", rev = "0e888bce54c822f050befaadc07709a7abbf6838" }
+pinny = { git = "https://github.com/stx-labs/pinny-rs.git", rev = "3bea6ff21de328abbfd17b0c0104dfc2aba6be49" }
 rand_core = "0.6.4"
 rand = "0.8"
 rand_chacha = "0.3.1"
@@ -49,9 +49,9 @@ serde_derive = "1.0.229"
 serde_json = { version = "1.0.154", features = ["arbitrary_precision", "unbounded_depth"] }
 slog = { version = "2.5.2", features = [ "max_level_trace" ] }
 rusqlite = { version = "0.41.1", features = ["blob", "serde_json", "i128_blob", "bundled", "trace", "fallible_uint"] }
-thiserror = "1.0.65"
+thiserror = "2.0.21"
 tikv-jemallocator = "0.5.4"
-toml = "0.5.6"
+toml = { version = "1.1.2", default-features = false, features = ["parse", "serde", "std"] }
 variant_count = "1.1"
 
 # Other dependencies
@@ -59,6 +59,11 @@ assert-json-diff = "2.0.2"
 libc = { version = "0.2.182", default-features = false }
 rapidhash = { version = "4.3.0", default-features = false, features = ["std"] }
 trybuild = { version = "1.0.116", default-features = false }
+
+# Cryptographic dependencies (hashing and signatures, used by consensus code)
+ripemd = { version = "0.1.3", default-features = false }
+secp256k1 = { version = "0.24.3", default-features = false }
+sha2 = "0.10.8"
 
 # Benchmarking dependencies
 criterion = { version = "0.8.2", default-features = false, features = ["html_reports"] }

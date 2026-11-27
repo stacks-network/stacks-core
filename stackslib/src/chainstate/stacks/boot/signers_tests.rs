@@ -15,6 +15,7 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use clarity::vm::clarity::ClarityConnection;
+use clarity::vm::contexts::CalleeFilter;
 use clarity::vm::costs::LimitedCostTracker;
 use clarity::vm::errors::ClarityEvalError;
 use clarity::vm::types::{PrincipalData, StacksAddressExtensions, TupleData};
@@ -442,12 +443,12 @@ pub fn readonly_call_with_sortdb(
                         LimitedCostTracker::new_free(),
                         |exec_state, invoke_ctx| {
                             exec_state
-                                .execute_contract_allow_private(
+                                .execute_contract(
                                     invoke_ctx,
                                     &boot_code_id(&boot_contract, false),
                                     &function_name,
                                     args,
-                                    true,
+                                    CalleeFilter::ReadOnly,
                                 )
                                 .map_err(ClarityEvalError::from)
                         },

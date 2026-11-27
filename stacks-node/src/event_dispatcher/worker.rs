@@ -406,6 +406,7 @@ mod test {
     use tempfile::tempdir;
 
     use crate::event_dispatcher::*;
+    use crate::tests::nakamoto_integrations::wait_for;
 
     #[test]
     #[serial]
@@ -452,10 +453,14 @@ mod test {
         };
 
         // An identical call to `initiate_send` should now be an error because the worker has died.
-        assert!(
-            dispatcher.worker.initiate_send(42, false, None).is_err(),
-            "second event dispatcher result should be an error"
-        );
+        // While unwinding, the worker drops the completion sender (which is what woke us up) just
+        // before it drops its own message receiver, so a send can still succeed for a moment.
+        // (In the node, the panic hook in main.rs exits the process before unwinding, so this
+        // window only exists in tests.)
+        wait_for(20, || {
+            Ok(dispatcher.worker.initiate_send(42, false, None).is_err())
+        })
+        .expect("sending to the dead worker should become an error");
 
         // The panic hook should have sent us the error message from the panic in the worker thread
         assert!(

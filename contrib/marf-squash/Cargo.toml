@@ -10,13 +10,13 @@ stacks-common = { path = "../../stacks-common" }
 clap = { version = "4.5.44", features = ["derive"] }
 rusqlite = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
-toml = { workspace = true }
+toml = { workspace = true, features = ["display"] }
 
 [target.'cfg(all(any(target_arch = "x86_64", target_arch = "x86", target_arch = "aarch64"), not(any(target_os="windows"))))'.dependencies]
-sha2 = { version = "0.10", features = ["asm"] }
+sha2 = { workspace = true, features = ["asm"] }
 
 [target.'cfg(any(not(any(target_arch = "x86_64", target_arch = "x86", target_arch = "aarch64")), any(target_os = "windows")))'.dependencies]
-sha2 = { version = "0.10" }
+sha2 = { workspace = true }
 
 [dev-dependencies]
 tempfile = { workspace = true, features = ["default"] }
