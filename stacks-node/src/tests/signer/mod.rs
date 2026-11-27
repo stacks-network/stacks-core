@@ -13,6 +13,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 mod commands;
+pub mod cross_version;
 pub mod v0;
 
 use std::collections::{HashMap, HashSet};
@@ -159,6 +160,15 @@ pub trait SpawnedSignerTrait {
     fn try_recv(&self) -> Self::ReceiveResult;
     fn stop(self) -> Option<Self::StopResult>;
     fn state_info_from_recv_result(result: Self::ReceiveResult) -> Option<StateInfo>;
+    /// Whether this signer answers `/status` requests with a `StateInfo` through
+    /// `try_recv`. Signers running as separate processes do not, and the harness
+    /// skips them wherever it waits on signer state.
+    fn reports_state(&self) -> bool {
+        true
+    }
+    /// The highest signer protocol version the harness should expect this signer
+    /// to advertise.
+    fn supported_protocol_version(&self) -> u64;
 }
 
 impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SpawnedSignerTrait
@@ -188,6 +198,10 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SpawnedSigner
         //  should return None and continue for non-StatusCheck variants
         let SignerResult::StatusCheck(state_info) = results;
         Some(state_info)
+    }
+
+    fn supported_protocol_version(&self) -> u64 {
+        self.config.supported_signer_protocol_version
     }
 }
 
@@ -502,8 +516,19 @@ impl<Z: SpawnedSignerTrait> SignerTest<Z> {
         }
     }
 
+    /// Indices of the spawned signers that never report state, so waits on
+    /// signer state treat them as already finished.
+    fn opaque_signers(&self) -> HashSet<usize> {
+        self.spawned_signers
+            .iter()
+            .enumerate()
+            .filter(|(_, signer)| !signer.reports_state())
+            .map(|(ix, _)| ix)
+            .collect()
+    }
+
     pub fn wait_for_registered(&self) {
-        let mut finished_signers = HashSet::new();
+        let mut finished_signers = self.opaque_signers();
         wait_for(240, || {
             self.send_status_request(&finished_signers);
             thread::sleep(Duration::from_secs(1));
@@ -523,7 +548,7 @@ impl<Z: SpawnedSignerTrait> SignerTest<Z> {
 
     /// Send a status request to the signers to ensure they are registered for both reward cycles.
     pub fn wait_for_registered_both_reward_cycles(&self) {
-        let mut finished_signers = HashSet::new();
+        let mut finished_signers = self.opaque_signers();
         wait_for(240, || {
             self.send_status_request(&finished_signers);
             thread::sleep(Duration::from_secs(1));
@@ -549,7 +574,7 @@ impl<Z: SpawnedSignerTrait> SignerTest<Z> {
     }
 
     pub fn wait_for_cycle(&self, timeout_secs: u64, reward_cycle: u64) {
-        let mut finished_signers = HashSet::new();
+        let mut finished_signers = self.opaque_signers();
         wait_for(timeout_secs, || {
             self.send_status_request(&finished_signers);
             thread::sleep(Duration::from_secs(1));
@@ -1074,9 +1099,10 @@ impl<Z: SpawnedSignerTrait> SignerTest<Z> {
     }
 
     /// Get status check results (if returned) from each signer (blocks on the receipt)
-    /// Returns Some() or None() for each signer, in order of `self.spawned_signers`
+    /// Returns the states in order of `self.spawned_signers`, leaving out signers
+    /// that do not report state.
     pub fn get_all_states(&self) -> Vec<StateInfo> {
-        let mut finished_signers = HashSet::new();
+        let mut finished_signers = self.opaque_signers();
         let mut output_states = Vec::new();
         let mut sent_request = false;
         wait_for(120, || {
@@ -1138,7 +1164,7 @@ impl<Z: SpawnedSignerTrait> SignerTest<Z> {
     pub fn get_states(&self, exclude: &HashSet<usize>) -> Vec<Option<StateInfo>> {
         let mut output = Vec::new();
         for (ix, signer) in self.spawned_signers.iter().enumerate() {
-            if exclude.contains(&ix) {
+            if exclude.contains(&ix) || !signer.reports_state() {
                 output.push(None);
                 continue;
             }
@@ -1435,14 +1461,14 @@ impl<Z: SpawnedSignerTrait> SignerTest<Z> {
     pub fn signer_addresses_versions(&self) -> Vec<(StacksAddress, u64)> {
         self.signer_stacks_private_keys
             .iter()
-            .zip(self.signer_configs.clone())
-            .map(|(privk, config)| {
+            .zip(self.spawned_signers.iter())
+            .map(|(privk, signer)| {
                 let public_key = StacksPublicKey::from_private(privk);
                 let pinned_versions = TEST_PIN_SUPPORTED_SIGNER_PROTOCOL_VERSION.get();
                 let version = if let Some(pinned_version) = pinned_versions.get(&public_key) {
                     *pinned_version
                 } else {
-                    config.supported_signer_protocol_version
+                    signer.supported_protocol_version()
                 };
                 (StacksAddress::p2pkh(false, &public_key), version)
             })
@@ -1452,7 +1478,8 @@ impl<Z: SpawnedSignerTrait> SignerTest<Z> {
     /// Get the signer addresses and corresponding majority versions
     pub fn signer_addresses_versions_majority(&self) -> Vec<(StacksAddress, u64)> {
         let mut signer_address_versions = self.signer_addresses_versions();
-        let majority = (signer_address_versions.len() * 7 / 10) as u64;
+        // Round up so a fractional threshold cannot count fewer than 70% of signers.
+        let majority = (signer_address_versions.len() * 7).div_ceil(10) as u64;
         let mut protocol_versions = HashMap::new();
         for (_, version) in &self.signer_addresses_versions() {
             let entry = protocol_versions.entry(*version).or_insert_with(|| 0);
@@ -1465,7 +1492,7 @@ impl<Z: SpawnedSignerTrait> SignerTest<Z> {
         let mut total_weight_support = 0;
         for (version, weight_support) in protocol_versions.into_iter().rev() {
             total_weight_support += weight_support;
-            if total_weight_support > majority {
+            if total_weight_support >= majority {
                 // We need to actually overwrite the versions passed in since the signers will go with the majority value if they can
                 signer_address_versions
                     .iter_mut()

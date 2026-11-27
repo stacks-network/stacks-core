@@ -62,4 +62,4 @@ default = []
 testing = ["stacks-common/testing", "stacks/testing", "stacks-marf/testing", "clarity/testing"]
 
 [package.metadata.pinny]
-allowed = ["ci_skip"]
+allowed = ["ci_skip", "bitcoind", "slow"]

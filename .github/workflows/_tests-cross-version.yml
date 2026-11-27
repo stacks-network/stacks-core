@@ -1,0 +1,300 @@
+# Github workflow to run the cross-version signer tests, which mix signers from
+# published release baselines with the code under test.
+
+name: "Tests: Cross Version"
+
+on:
+  workflow_call:
+    inputs:
+      btc-version:
+        description: "The bitcoin binary version to use for tests"
+        required: true
+        type: string
+      btc-version-sha:
+        description: "The SHA256 of the bitcoin binary to verify before executing tests"
+        required: true
+        type: string
+      archive-file:
+        description: "The test archive file"
+        required: true
+        type: string
+      baseline-version:
+        description: |
+          Release tag of stacks-core whose published binaries act as the baseline
+          (for example `4.0.5`). Empty (the default) selects the latest two
+          eligible stable releases: latest required, preceding advisory.
+          An explicit tag selects one required baseline.
+        required: false
+        default: ""
+        type: string
+      upload-junit-xml:
+        description: "Whether or not to upload the nextest JUnit XML artifact"
+        required: true
+        type: string
+      upload-code-coverage:
+        description: "Whether or not to upload the code coverage artifact"
+        required: true
+        type: string
+
+# Set default permissions
+permissions:
+  contents: read
+
+# Set default env vars
+#   - transferred to composite action steps
+env:
+  BITCOIND_TEST: 1
+  RUST_BACKTRACE: full
+  TEST_TIMEOUT: 30
+
+# Configure concurrency
+concurrency:
+  group: cross-version-tests-${{ github.head_ref || github.ref || github.run_id }}
+  cancel-in-progress: true
+
+jobs:
+  # Resolve both policy baselines unless a single release is explicitly selected.
+  resolve-baseline:
+    name: Resolve Baseline Release
+    runs-on: ubuntu-latest
+    outputs:
+      versions: ${{ steps.resolve.outputs.versions }}
+    steps:
+      - uses: $/.github/wrappers/checkout
+        with:
+          sparse-checkout: .github
+      - name: Resolve baseline release tag
+        id: resolve
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BASELINE_VERSION: ${{ inputs.baseline-version }}
+        run: |
+          set -euo pipefail
+          gh api 'repos/stacks-network/stacks-core/releases?per_page=100' > releases.json
+          python3 .github/scripts/cross_version_matrix.py releases.json "$BASELINE_VERSION" >> "$GITHUB_OUTPUT"
+
+
+  # Build each baseline's stacks-node from its attested source commit with
+  # the `testing` feature. The embedded test node is always a `testing`
+  # build, and `testing` changes consensus-visible constants (for example
+  # MINER_REWARD_MATURITY), so a node built like the release archive forks
+  # from it at the first matured miner reward.
+  build-baseline-node:
+    name: Build Baseline Node (${{ matrix.baseline.version }})
+    needs: resolve-baseline
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        baseline: ${{ fromJSON(needs.resolve-baseline.outputs.versions) }}
+    steps:
+      - name: Checkout the latest code
+        uses: $/.github/wrappers/checkout
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.ref }}
+          sparse-checkout: |
+            .github
+
+      # Verify the release archive and read its source commit
+      - name: Resolve Baseline Source Commit
+        id: baseline
+        uses: ./.github/actions/stacks-baseline
+        with:
+          version: ${{ matrix.baseline.version }}
+
+      # Build once per baseline in this run. The release attestation verifies
+      # the source commit, not a separately cached testing build.
+      - name: Checkout Baseline Source
+        uses: ./.github/wrappers/checkout
+        with:
+          repository: stacks-network/stacks-core
+          ref: ${{ steps.baseline.outputs.commit }}
+          path: baseline-src
+
+      # Build with the baseline's own pinned toolchain
+      - name: Resolve Baseline Toolchain
+        id: toolchain
+        shell: bash
+        run: |
+          set -euo pipefail
+          CHANNEL=$(sed -n 's/^channel = "\(.*\)"$/\1/p' baseline-src/rust-toolchain.toml)
+          [[ "$CHANNEL" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          echo "channel=$CHANNEL" >> "$GITHUB_OUTPUT"
+
+      - name: Setup Rust Toolchain
+        uses: ./.github/actions/setup-rust-toolchain
+        with:
+          toolchain: ${{ steps.toolchain.outputs.channel }}
+          cache: 'true'
+
+      - name: Build Baseline Node
+        shell: bash
+        env:
+          # Override the toolchain action's default `-D warnings`: an old
+          # release's source must build even if a newer rustc warns on it.
+          RUSTFLAGS: "-A warnings"
+          CARGO_INCREMENTAL: 0
+        run: |
+          set -euo pipefail
+          cargo +${{ steps.toolchain.outputs.channel }} build --locked \
+            --manifest-path baseline-src/Cargo.toml \
+            -p stacks-node --features testing
+          mkdir -p baseline-node
+          cp baseline-src/target/debug/stacks-node baseline-node/
+
+      # Share the fresh build only with scenario jobs in the same workflow run.
+      - name: Upload Baseline Node
+        uses: ./.github/wrappers/upload-artifact
+        with:
+          name: baseline-node-${{ matrix.baseline.version }}
+          path: baseline-node/stacks-node
+          retention-days: 1
+
+  # Every scenario uses fixed ports, so each one gets its own job
+  generate-tests:
+    name: Generate Test Matrix
+    runs-on: ubuntu-latest
+    outputs:
+      tests: ${{ steps.list.outputs.tests }}
+    steps:
+      # Nextest runs archived test binaries from their crate directories.
+      - name: Checkout the latest code
+        uses: $/.github/wrappers/checkout
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.ref }}
+
+      # Restore Nextest archive artifact
+      #   - also provides the nextest binary bundled in the artifact
+      - name: Restore Nextest Archive Artifact
+        uses: ./.github/actions/artifacts/nextest-archive
+        with:
+          action: restore
+          archive-file: ${{ inputs.archive-file }}
+
+      # List the ignored tests of the cross-version module
+      - name: List cross-version scenarios
+        id: list
+        env:
+          TEST_ARCHIVE_FILE: ${{ inputs.archive-file }}
+        run: |
+          # Safely replace a leading ~ with the actual absolute $HOME path
+          TEST_ARCHIVE_FILE="${TEST_ARCHIVE_FILE/#\~/$HOME}"
+
+          cargo nextest list \
+            --archive-file "$TEST_ARCHIVE_FILE" \
+            -T json \
+            -E 'binary_id(=stacks-node::bin/stacks-node) & test(/^tests::signer::cross_version::/)' \
+            > nextest_output.json
+
+          python3 .github/scripts/cross_version_matrix.py --scenarios nextest_output.json >> "$GITHUB_OUTPUT"
+
+  # Expand every scenario against every selected baseline.
+  cross-version-tests:
+    name: ${{ matrix.scenario.id }} (baseline ${{ matrix.baseline.version }})
+    needs:
+      - resolve-baseline
+      - build-baseline-node
+      - generate-tests
+    if: always() && !cancelled() && needs.resolve-baseline.result == 'success' && needs.generate-tests.result == 'success'
+    runs-on: ubuntu-latest
+    continue-on-error: ${{ !matrix.baseline.required }}
+    strategy:
+      fail-fast: false
+      matrix:
+        scenario: ${{ fromJSON(needs.generate-tests.outputs.tests) }}
+        baseline: ${{ fromJSON(needs.resolve-baseline.outputs.versions) }}
+    steps:
+      # Checkout the code
+      #   - only .github is required for this job
+      - name: Checkout the latest code
+        uses: $/.github/wrappers/checkout
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.ref }}
+          sparse-checkout: |
+            .github
+
+      # Install the baseline release's stacks-signer
+      #   - verifies the archive's build-provenance attestation
+      #   - exports STACKS_SIGNER_BASELINE_BIN
+      - name: Install Baseline Release Signer
+        uses: ./.github/actions/stacks-baseline
+        with:
+          version: ${{ matrix.baseline.version }}
+
+      # The baseline stacks-node built from the release's source commit
+      - name: Download Baseline Node
+        uses: ./.github/wrappers/download-artifact
+        with:
+          name: baseline-node-${{ matrix.baseline.version }}
+          path: ${{ runner.temp }}/baseline-node
+      - name: Install Baseline Node
+        shell: bash
+        run: |
+          chmod +x "$RUNNER_TEMP/baseline-node/stacks-node"
+          echo "STACKS_NODE_BASELINE_BIN=$RUNNER_TEMP/baseline-node/stacks-node" >> "$GITHUB_ENV"
+
+      - name: Download current binaries
+        uses: ./.github/wrappers/download-artifact
+        with:
+          name: cross-version-bins
+      - name: Install current binaries
+        shell: bash
+        run: |
+          mkdir -p "$RUNNER_TEMP/cross-version-bins"
+          tar -xzf cross-version-bins.tar.gz -C "$RUNNER_TEMP/cross-version-bins"
+          echo "STACKS_NODE_BIN=$RUNNER_TEMP/cross-version-bins/stacks-node" >> "$GITHUB_ENV"
+          echo "STACKS_SIGNER_BIN=$RUNNER_TEMP/cross-version-bins/stacks-signer" >> "$GITHUB_ENV"
+
+      # Setup, run tests, generate and upload code coverage artifact
+      - name: Setup + Run Tests + Codecov
+        timeout-minutes: ${{ fromJSON(env.TEST_TIMEOUT) }}
+        uses: ./.github/actions/run-tests
+        with:
+          btc-version: ${{ inputs.btc-version }}
+          btc-version-sha: ${{ inputs.btc-version-sha }}
+          test-names: ${{ matrix.scenario.name }}
+          binary-id: stacks-node::bin/stacks-node
+          archive-file: ${{ inputs.archive-file }}
+          codecov-test-name: cross-version-${{ matrix.baseline.version }}-${{ matrix.scenario.id }}
+          upload-junit-xml: ${{ inputs.upload-junit-xml }}
+          upload-code-coverage: ${{ inputs.upload-code-coverage }}
+
+      - name: Upload process logs
+        if: always()
+        uses: ./.github/wrappers/upload-artifact
+        with:
+          name: cross-version-logs-${{ matrix.baseline.version }}-${{ matrix.scenario.id }}
+          path: |
+            /tmp/stacks-node-tests/**/*.log
+          if-no-files-found: ignore
+          retention-days: 7
+
+  # Check that all jobs in this workflow have succeeded.
+  #   - will not run if the job is cancelled
+  check-tests:
+    name: Check Tests
+    needs:
+      - resolve-baseline
+      - generate-tests
+      - cross-version-tests
+    if: |
+      always() &&
+      !cancelled()
+    runs-on: ubuntu-latest
+    steps:
+      # Checkout the code
+      #   - only .github is required for this job
+      - name: Checkout the latest code
+        uses: $/.github/wrappers/checkout
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.ref }}
+          sparse-checkout: |
+            .github
+
+      # Check if all jobs succeeded
+      - name: Check Jobs Status
+        shell: bash
+        env:
+          JOBS: ${{ toJson(needs) }}
+          SUMMARY_PRINT: "true"
+        run: bash ./.github/scripts/check_jobs_status.sh

@@ -1,0 +1,2 @@
+Added a cross-version integration matrix that runs released stacks-signer binaries, and stacks-node built from each release's attested source commit, alongside this tree's binaries on the Epoch 4.0 schedule, checking that every signer accepts every block across mixed signer sets, miner and follower handovers, and persistent node and signer upgrades against a required latest release and an advisory previous release.
+Baseline nodes are built once per release per workflow run and shared with scenario jobs through artifacts from that run.
