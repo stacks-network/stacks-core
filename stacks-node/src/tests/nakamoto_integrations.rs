@@ -6237,9 +6237,9 @@ fn nakamoto_attempt_time() {
         })
         .collect::<Vec<_>>();
 
-    // only subscribe to the block proposal events
+    // only subscribe to the mined block events
     test_observer::spawn();
-    test_observer::register(&mut naka_conf, &[EventKeyType::BlockProposal]);
+    test_observer::register(&mut naka_conf, &[EventKeyType::MinedBlocks]);
 
     let mut btcd_controller = BitcoinCoreController::from_stx_config(&naka_conf);
     btcd_controller
@@ -6428,13 +6428,19 @@ fn nakamoto_attempt_time() {
 
     // Subtest 3
     // Add more than `nakamoto_attempt_time_ms` worth of transactions into mempool
-    // Multiple blocks should be mined
+    // The miner must stop assembling the block at the deadline and mine the
+    // remaining transactions in subsequent blocks
     let info_before = get_chain_info_result(&naka_conf).unwrap();
 
     let blocks_processed_before = coord_channel
         .lock()
         .expect("Mutex poisoned")
         .get_stacks_blocks_processed();
+
+    // Stall the miner so that the mempool is fully populated before it starts
+    // walking it. Otherwise the miner races the submission loop below.
+    fault_injection_stall_miner();
+    let mined_blocks_before = test_observer::get_mined_nakamoto_blocks().len();
 
     let tx_limit = 1000;
     let tx_fee = 500;
@@ -6471,20 +6477,53 @@ fn nakamoto_attempt_time() {
 
     info!("Subtest 3 sent all transactions");
 
-    // Make sure that these transactions *could* fit into a single block
+    // Make sure that these transactions *could* fit into a single block,
+    // so the only reason to split them across blocks is the attempt deadline
     assert!(tx_total_size < MAX_BLOCK_LEN as usize);
 
-    // Wait long enough for 2 blocks to be made
-    thread::sleep(Duration::from_millis(nakamoto_attempt_time_ms * 2 + 100));
+    // Processing a stx-transfer takes ~1ms, so 1000 of them would never reach
+    // the deadline. Hold the first transaction of the mempool walk past
+    // `nakamoto_attempt_time_ms` to make this block assembly exceed it.
+    TEST_TX_STALL.set(true);
+    fault_injection_unstall_miner();
+    thread::sleep(Duration::from_millis(nakamoto_attempt_time_ms + 5_000));
+    TEST_TX_STALL.set(false);
 
-    // Check that 2 blocks were made
-    let blocks_processed = coord_channel
-        .lock()
-        .expect("Mutex poisoned")
-        .get_stacks_blocks_processed();
+    // Mined block events of this subtest, deduplicated in case of re-mining
+    let get_subtest_mined_blocks = || {
+        let mut seen = HashSet::new();
+        test_observer::get_mined_nakamoto_blocks()
+            .into_iter()
+            .skip(mined_blocks_before)
+            .filter(|block| seen.insert(block.block_hash.clone()))
+            .collect::<Vec<_>>()
+    };
 
-    let blocks_mined = blocks_processed - blocks_processed_before;
-    assert!(blocks_mined > 2);
+    // Wait for all the transactions to be mined and the blocks processed
+    wait_for(60, || {
+        let mined_blocks = get_subtest_mined_blocks();
+        let mined_txs: usize = mined_blocks.iter().map(|b| b.tx_events.len()).sum();
+        let blocks_processed = coord_channel
+            .lock()
+            .expect("Mutex poisoned")
+            .get_stacks_blocks_processed();
+        Ok(mined_txs >= tx_limit
+            && blocks_processed - blocks_processed_before >= mined_blocks.len() as u64)
+    })
+    .expect("Timed out waiting for all the transactions to be mined");
+
+    let mined_blocks = get_subtest_mined_blocks();
+    let tx_counts: Vec<_> = mined_blocks.iter().map(|b| b.tx_events.len()).collect();
+    info!("Subtest 3 mined blocks"; "tx_counts" => ?tx_counts);
+
+    assert!(
+        mined_blocks.len() >= 2,
+        "Expected the transactions to be split across multiple blocks, got {tx_counts:?}"
+    );
+    assert!(
+        tx_counts[0] < tx_limit,
+        "First block should have been cut at the attempt deadline, got {tx_counts:?}"
+    );
 
     let info = get_chain_info_result(&naka_conf).unwrap();
     assert_ne!(info.stacks_tip, info_before.stacks_tip);
