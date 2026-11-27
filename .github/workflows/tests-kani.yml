@@ -1,0 +1,128 @@
+# Run the Kani proofs (`#[kani::proof]` harnesses, built only under `cfg(kani)`).
+#
+# Kani is too slow for PR CI, so this runs on a schedule and by hand.
+#
+# Triggers:
+#   schedule  - weekly at 04:00 UTC on Sunday, on KANI_BRANCH (`main`)
+#   dispatch  - manual, on any branch, optionally limited to matching harnesses
+
+name: "Tests: Kani"
+run-name: "Tests: Kani [${{ github.ref_name }}]"
+
+on:
+  schedule:
+    - cron: "0 4 * * 0" # 0400 UTC Sunday
+  workflow_dispatch:
+    inputs:
+      harness:
+        description: "Only run harnesses whose name contains this (empty runs all)"
+        required: false
+        default: ""
+        type: string
+
+defaults:
+  run:
+    shell: bash
+
+concurrency:
+  group: kani-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # Branch to check out on scheduled runs.
+  KANI_BRANCH: main
+  # Must match a release of https://github.com/model-checking/kani.
+  KANI_VERSION: 0.68.0
+  # Crates with Kani harnesses, space-separated.
+  KANI_PACKAGES: stacks-common
+  # Per-harness solver timeout.
+  KANI_HARNESS_TIMEOUT: 15m
+
+jobs:
+  check-ci:
+    name: "Check: CI Enabled"
+    uses: ./.github/workflows/__check-ci.yml
+    with:
+      extra-enable-var: ENABLE_CI_KANI
+
+  kani:
+    name: "Tests: Kani Proofs"
+    needs:
+      - check-ci
+    if: needs.check-ci.outputs.enabled == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - name: Prepare env
+        run: |
+          if [[ "${{ github.event_name }}" == "schedule" ]]; then
+            echo "CHECKOUT_REF=${KANI_BRANCH}" >> "$GITHUB_ENV"
+          else
+            echo "CHECKOUT_REF=${{ github.ref_name }}" >> "$GITHUB_ENV"
+          fi
+
+      - name: Checkout
+        uses: $/.github/wrappers/checkout
+        with:
+          ref: ${{ env.CHECKOUT_REF }}
+
+      # `setup` unpacks the Kani bundle (CBMC, kani-compiler) into ~/.kani and installs the
+      # pinned nightly it links to; the stable toolchain on the runner is never a `nightly-*`.
+      - name: Cache Kani
+        id: kani-cache
+        uses: ./.github/wrappers/cache
+        with:
+          path: |
+            ~/.cargo/bin/cargo-kani
+            ~/.cargo/bin/kani
+            ~/.kani/kani-${{ env.KANI_VERSION }}
+            ~/.rustup/toolchains/nightly-*
+          key: kani-${{ runner.os }}-${{ runner.arch }}-${{ env.KANI_VERSION }}
+
+      - name: Install Kani
+        if: steps.kani-cache.outputs.cache-hit != 'true'
+        timeout-minutes: 20
+        run: |
+          cargo install --locked kani-verifier --version "${KANI_VERSION}"
+          cargo kani setup
+
+      - name: Run Kani proofs
+        id: kani
+        env:
+          HARNESS: ${{ inputs.harness }}
+        run: |
+          # CBMC recurses deeply on the unrolled word loops and overflows the default stack.
+          ulimit -s "$(ulimit -Hs)"
+
+          args=(-Z unstable-options --harness-timeout "${KANI_HARNESS_TIMEOUT}")
+          if [[ -n "${HARNESS}" ]]; then
+            args+=(--harness "${HARNESS}")
+          fi
+
+          status=0
+          for package in ${KANI_PACKAGES}; do
+            cargo kani -p "${package}" "${args[@]}" 2>&1 | tee -a /tmp/kani.log \
+              || status=1
+          done
+          exit "${status}"
+
+      - name: Report results to Job Summary
+        if: always() && steps.kani.outcome != 'skipped'
+        run: |
+          {
+            echo "# Kani proofs"
+            echo
+            echo "| Harness | Result | Time |"
+            echo "| ---- | ---- | ---- |"
+            # A timed-out harness prints no time, so rows are flushed per harness.
+            awk '
+              function flush() { if (name != "") printf "| `%s` | %s | %s |\n", name, result, time }
+              /^Checking harness /  { flush(); name = $3; sub(/\.\.\.$/, "", name); result = "?"; time = "-" }
+              /^VERIFICATION:-/     { result = $2 }
+              /timed out/           { result = "TIMEOUT" }
+              /^Verification Time:/ { time = $3 }
+              END                   { flush() }
+            ' /tmp/kani.log
+            echo
+            grep '^Complete - ' /tmp/kani.log || echo "Kani did not complete; see the job log."
+          } >> "$GITHUB_STEP_SUMMARY"
