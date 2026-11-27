@@ -25,7 +25,8 @@ use std::time::Instant;
 
 use rusqlite::{params, Connection};
 use stacks_marf::{
-    Error, MARFOpenOpts, MARFValue, MarfConnection, MarfTrieId, TrieHashCalculationMode, MARF,
+    has_external_blobs, Error, MARFOpenOpts, MARFValue, MarfConnection, MarfTrieId,
+    TrieHashCalculationMode, MARF,
 };
 
 use super::common::clone_schemas_from_source;
@@ -39,7 +40,7 @@ use super::common::clone_schemas_from_source;
 pub fn collect_leaf_value_hashes<T: MarfTrieId>(
     db_path: &str,
 ) -> Result<(T, HashSet<MARFValue>), Error> {
-    let external_blobs = std::path::Path::new(&format!("{db_path}.blobs")).exists();
+    let external_blobs = has_external_blobs(db_path)?;
     let open_opts = MARFOpenOpts::new(TrieHashCalculationMode::Deferred, external_blobs);
     let mut marf = MARF::<T>::from_path_readonly(db_path, open_opts)?;
     let tip = marf.get_latest_confirmed_block_hash()?;

@@ -43,7 +43,7 @@ use crate::node::{
     TrieNodeType, TriePtr,
 };
 use crate::trie::Trie;
-use crate::trie_sql::MarfDataEntry;
+use crate::trie_sql::{MarfDataEntry, SquashInfo};
 use crate::{trie_sql, ClarityMarfTrieId, Error, MarfTrieId, TrieHasher};
 
 /// Define the maximum node patching depth when MARF compression is enabled
@@ -1487,18 +1487,6 @@ pub struct TrieStorageTransientData<T: MarfTrieId> {
     squash_info: Option<SquashInfo>,
 }
 
-/// Snapshot metadata cached at open time for squashed MARFs.
-#[derive(Clone, Debug)]
-pub struct SquashInfo {
-    /// Archival MARF root hash committed to the chain at the squash boundary.
-    pub archival_marf_root_hash: TrieHash,
-    /// Root node hash of the squash trie. i.e. `hash(consensus_bytes(root) || children_content_hashes)`
-    pub squash_root_node_hash: TrieHash,
-    /// Backing MARF's own height at the squash tip - Stacks block height for
-    /// the clarity/index MARFs, sortition block height for the sortition MARF.
-    pub squash_height: u32,
-}
-
 // disk-backed Trie.
 // Keeps the last-extended Trie in-RAM and flushes it to disk on either a call to flush() or a call
 // to extend_to_block() with a different block header hash.
@@ -1590,12 +1578,7 @@ impl<T: MarfTrieId> TrieFileStorage<T> {
     ///
     /// The metadata is read from the `marf_squash_info` SQL table.
     fn load_squash_info(&mut self) -> Result<(), Error> {
-        let squash_info = trie_sql::read_squash_info(&self.db)?.map(|sql_info| SquashInfo {
-            archival_marf_root_hash: sql_info.archival_marf_root_hash,
-            squash_root_node_hash: sql_info.squash_root_node_hash,
-            squash_height: sql_info.squash_height,
-        });
-
+        let squash_info = trie_sql::read_squash_info(&self.db)?;
         self.data.set_squash_info(squash_info);
         Ok(())
     }

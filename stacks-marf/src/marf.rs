@@ -31,11 +31,10 @@ use crate::node::{
     TrieCursor, TrieNode256, TrieNodeID, TrieNodeType, TriePtr,
 };
 use crate::storage::{
-    SquashInfo, TrieFileStorage, TrieHashCalculationMode, TrieStorageConnection,
-    TrieStorageTransaction,
+    TrieFileStorage, TrieHashCalculationMode, TrieStorageConnection, TrieStorageTransaction,
 };
 use crate::trie::Trie;
-use crate::trie_sql::SqlSquashInfo;
+use crate::trie_sql::SquashInfo;
 use crate::{trie_sql, Error, MARFValue, MarfTrieId, TrieLeaf, TrieMerkleProof};
 
 pub const BLOCK_HASH_TO_HEIGHT_MAPPING_KEY: &str = "__MARF_BLOCK_HASH_TO_HEIGHT";
@@ -149,9 +148,10 @@ impl MARFOpenOpts {
 
 /// Access to the storage connection behind a [`MarfConnection`].
 ///
-/// The crate doesn't export this trait, so other crates can't call `with_conn`
-/// and reach the storage layer; they go through [`MarfConnection`]'s methods.
-pub trait StorageConnectionAccess<T: MarfTrieId> {
+/// The trait is crate-private, so other crates can't call `with_conn` and reach
+/// the storage layer, not even through a [`MarfConnection`] bound; they go
+/// through [`MarfConnection`]'s methods.
+pub(crate) trait StorageConnectionAccess<T: MarfTrieId> {
     fn with_conn<F, R>(&mut self, exec: F) -> R
     where
         F: FnOnce(&mut TrieStorageConnection<T>) -> R;
@@ -161,6 +161,9 @@ pub trait StorageConnectionAccess<T: MarfTrieId> {
 /// This trait defines functions that are defined for both
 ///  MARF structs and MarfTransactions
 ///
+// The supertrait is crate-private on purpose: it keeps `with_conn` out of other
+// crates' reach and seals this trait.
+#[allow(private_bounds)]
 pub trait MarfConnection<T: MarfTrieId>: StorageConnectionAccess<T> {
     /// The SQLite database this MARF keeps its tables in. Users of the MARF may
     /// keep their own tables in the same database.
@@ -172,7 +175,7 @@ pub trait MarfConnection<T: MarfTrieId>: StorageConnectionAccess<T> {
     }
 
     /// The metadata recorded when this MARF was squashed, or `None` if it wasn't.
-    fn get_squash_info(&self) -> Result<Option<SqlSquashInfo>, Error> {
+    fn get_squash_info(&self) -> Result<Option<SquashInfo>, Error> {
         trie_sql::read_squash_info(self.sqlite_conn())
     }
 

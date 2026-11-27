@@ -72,7 +72,7 @@ mod test;
 pub use crate::marf::{MARFOpenOpts, MarfConnection, MarfTransaction, MARF};
 pub use crate::squash::{SquashStats, SquashStepDurations};
 pub use crate::storage::TrieHashCalculationMode;
-pub use crate::trie_sql::{bulk_read_squashed_blocks, SqlSquashInfo};
+pub use crate::trie_sql::{bulk_read_squashed_blocks, SquashInfo};
 
 /// Helpers for other crates' test suites.
 #[cfg(any(test, feature = "testing"))]

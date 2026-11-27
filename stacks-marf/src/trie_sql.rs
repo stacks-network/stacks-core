@@ -172,14 +172,15 @@ pub fn create_tables_if_needed(conn: &mut Connection) -> Result<(), Error> {
     tx.commit().map_err(|e| e.into())
 }
 
-/// Row read from the `marf_squash_info` table.
-#[derive(Debug)]
-pub struct SqlSquashInfo {
-    /// Root hash the archival MARF had at the squash tip.
+/// The metadata recorded when a MARF is squashed, kept in the `marf_squash_info` table.
+#[derive(Clone, Debug)]
+pub struct SquashInfo {
+    /// Archival MARF root hash committed to the chain at the squash boundary.
     pub archival_marf_root_hash: TrieHash,
-    /// Hash of the squashed trie's own root node.
+    /// Root node hash of the squash trie. i.e. `hash(consensus_bytes(root) || children_content_hashes)`
     pub squash_root_node_hash: TrieHash,
-    /// MARF height at the squash tip.
+    /// Backing MARF's own height at the squash tip - Stacks block height for
+    /// the clarity/index MARFs, sortition block height for the sortition MARF.
     pub squash_height: u32,
 }
 
@@ -202,7 +203,7 @@ pub fn write_squash_info(
 }
 
 /// Read the squash metadata row. Returns `None` for archival MARFs.
-pub fn read_squash_info(conn: &Connection) -> Result<Option<SqlSquashInfo>, Error> {
+pub fn read_squash_info(conn: &Connection) -> Result<Option<SquashInfo>, Error> {
     if !table_exists(conn, "marf_squash_info")? {
         return Ok(None);
     }
@@ -254,7 +255,7 @@ pub fn read_squash_info(conn: &Connection) -> Result<Option<SqlSquashInfo>, Erro
     let squash_height = u32::try_from(squash_height)
         .map_err(|_| Error::CorruptionError("Invalid squash height".to_string()))?;
 
-    Ok(Some(SqlSquashInfo {
+    Ok(Some(SquashInfo {
         archival_marf_root_hash,
         squash_root_node_hash,
         squash_height,
