@@ -113,6 +113,7 @@ use stacks_signer::signerdb::{BlockInfo, BlockState, ExtraBlockInfo, SignerDb};
 use stacks_signer::v0::SpawnedSigner;
 
 use crate::burnchains::bitcoin::core_controller::BitcoinCoreController;
+use crate::event_dispatcher::MinedNakamotoBlockEvent;
 use crate::nakamoto_node::miner::{
     fault_injection_stall_miner, fault_injection_unstall_miner, TestTransientError,
     TEST_BLOCK_ANNOUNCE_STALL, TEST_BROADCAST_PROPOSAL_STALL, TEST_MINE_TRANSIENT_ERRORS,
@@ -6184,7 +6185,21 @@ fn check_block_heights() {
     run_loop_thread.join().unwrap();
 }
 
-/// Test config parameter `nakamoto_attempt_time_ms`
+/// Test config parameter `nakamoto_attempt_time_ms`.
+///
+/// `nakamoto_attempt_time_ms` is the maximum time the miner may spend
+/// assembling a single block (it bounds both block building and the mempool
+/// walk). Once the deadline passes, the miner stops including transactions,
+/// proposes what it has, and leaves the rest of the mempool for the next block.
+///
+/// Subtests:
+/// 1. Blocks are produced within `nakamoto_attempt_time_ms` when there are
+///    pending transactions.
+/// 2. No blocks are produced when the mempool is empty: the attempt time
+///    bounds block assembly, it is not a block production heartbeat.
+/// 3. When the mempool holds more work than fits in `nakamoto_attempt_time_ms`,
+///    the block is cut at the deadline and the remaining transactions are
+///    mined in subsequent blocks.
 #[test]
 #[ignore]
 fn nakamoto_attempt_time() {
@@ -6236,9 +6251,9 @@ fn nakamoto_attempt_time() {
         })
         .collect::<Vec<_>>();
 
-    // only subscribe to the block proposal events
+    // only subscribe to the mined block events
     test_observer::spawn();
-    test_observer::register(&mut naka_conf, &[EventKeyType::BlockProposal]);
+    test_observer::register(&mut naka_conf, &[EventKeyType::MinedBlocks]);
 
     let mut btcd_controller = BitcoinCoreController::from_stx_config(&naka_conf);
     btcd_controller
@@ -6308,8 +6323,9 @@ fn nakamoto_attempt_time() {
     info!("Begin subtest 1");
 
     // Subtest 1
-    // Mine nakamoto tenures with a few transactions
-    // Blocks should be produced at least every 20 seconds
+    // Blocks are produced within `nakamoto_attempt_time_ms` when there are
+    // pending transactions: for each interim block, submit a few transactions
+    // and expect a new block (and a new tip) within the attempt time.
     for _ in 0..tenure_count {
         let commits_before = commits_submitted.load(Ordering::SeqCst);
         next_block_and_process_new_stacks_block(&btc_regtest_controller, 60, &coord_channel)
@@ -6398,7 +6414,9 @@ fn nakamoto_attempt_time() {
     info!("Begin subtest 2");
 
     // Subtest 2
-    // Confirm that no blocks are mined if there are no transactions
+    // No blocks are produced when the mempool is empty: wait twice the attempt
+    // time and expect the tip to be unchanged. The attempt time bounds block
+    // assembly, it does not trigger block production.
     for _ in 0..2 {
         let blocks_processed_before = coord_channel
             .lock()
@@ -6426,14 +6444,22 @@ fn nakamoto_attempt_time() {
     info!("Begin subtest 3");
 
     // Subtest 3
-    // Add more than `nakamoto_attempt_time_ms` worth of transactions into mempool
-    // Multiple blocks should be mined
+    // The block is cut at the deadline: when the mempool holds more work than
+    // fits in `nakamoto_attempt_time_ms`, the miner must stop assembling the
+    // block once the deadline passes and mine the remaining transactions in
+    // subsequent blocks. The transactions fit in a single block size-wise, so
+    // the attempt deadline is the only reason for splitting them.
     let info_before = get_chain_info_result(&naka_conf).unwrap();
 
     let blocks_processed_before = coord_channel
         .lock()
         .expect("Mutex poisoned")
         .get_stacks_blocks_processed();
+
+    // Stall the miner so that the mempool is fully populated before it starts
+    // walking it. Otherwise the miner races the submission loop below.
+    fault_injection_stall_miner();
+    let mined_blocks_before = test_observer::get_mined_nakamoto_blocks().len();
 
     let tx_limit = 1000;
     let tx_fee = 500;
@@ -6470,20 +6496,62 @@ fn nakamoto_attempt_time() {
 
     info!("Subtest 3 sent all transactions");
 
-    // Make sure that these transactions *could* fit into a single block
+    // Make sure that these transactions *could* fit into a single block,
+    // so the only reason to split them across blocks is the attempt deadline
     assert!(tx_total_size < MAX_BLOCK_LEN as usize);
 
-    // Wait long enough for 2 blocks to be made
-    thread::sleep(Duration::from_millis(nakamoto_attempt_time_ms * 2 + 100));
+    // Processing a stx-transfer takes ~1ms, so 1000 of them would never reach
+    // the deadline. Hold the first transaction of the mempool walk past
+    // `nakamoto_attempt_time_ms` to make this block assembly exceed it.
+    TEST_TX_STALL.set(true);
+    fault_injection_unstall_miner();
+    thread::sleep(Duration::from_millis(nakamoto_attempt_time_ms + 5_000));
+    TEST_TX_STALL.set(false);
 
-    // Check that 2 blocks were made
-    let blocks_processed = coord_channel
-        .lock()
-        .expect("Mutex poisoned")
-        .get_stacks_blocks_processed();
+    // Mined block events of this subtest, deduplicated in case of re-mining
+    let get_subtest_mined_blocks = || {
+        let mut seen = HashSet::new();
+        test_observer::get_mined_nakamoto_blocks()
+            .into_iter()
+            .skip(mined_blocks_before)
+            .filter(|block| seen.insert(block.block_hash.clone()))
+            .collect::<Vec<_>>()
+    };
+    // `tx_events` also reports transactions that failed processing, so only
+    // count the ones actually included in the block
+    let count_mined_txs = |block: &MinedNakamotoBlockEvent| {
+        block
+            .tx_events
+            .iter()
+            .filter(|event| matches!(event, TransactionEvent::Success(_)))
+            .count()
+    };
 
-    let blocks_mined = blocks_processed - blocks_processed_before;
-    assert!(blocks_mined > 2);
+    // Wait for all the transactions to be mined and the blocks processed
+    wait_for(60, || {
+        let mined_blocks = get_subtest_mined_blocks();
+        let mined_txs: usize = mined_blocks.iter().map(count_mined_txs).sum();
+        let blocks_processed = coord_channel
+            .lock()
+            .expect("Mutex poisoned")
+            .get_stacks_blocks_processed();
+        Ok(mined_txs >= tx_limit
+            && blocks_processed - blocks_processed_before >= mined_blocks.len() as u64)
+    })
+    .expect("Timed out waiting for all the transactions to be mined");
+
+    let mined_blocks = get_subtest_mined_blocks();
+    let tx_counts: Vec<_> = mined_blocks.iter().map(count_mined_txs).collect();
+    info!("Subtest 3 mined blocks"; "tx_counts" => ?tx_counts);
+
+    assert!(
+        mined_blocks.len() >= 2,
+        "Expected the transactions to be split across multiple blocks, got {tx_counts:?}"
+    );
+    assert!(
+        tx_counts[0] < tx_limit,
+        "First block should have been cut at the attempt deadline, got {tx_counts:?}"
+    );
 
     let info = get_chain_info_result(&naka_conf).unwrap();
     assert_ne!(info.stacks_tip, info_before.stacks_tip);
