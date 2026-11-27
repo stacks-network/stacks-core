@@ -1559,3 +1559,65 @@ fn test_http_delivery_always_blocks_if_queue_size_is_zero() {
 
     mock.assert();
 }
+
+/// `/attachments/new` must only reach observers subscribed via `"attachments"`
+/// or `"*"`. Observers with unrelated keys (here `"memtx"`, `"stx"` and a
+/// contract event) must receive nothing, since an observer that does not
+/// handle the path can stall the node by rejecting the request.
+#[test]
+fn test_attachments_only_sent_to_subscribed_observers() {
+    let contract_event_key = (
+        QualifiedContractIdentifier::parse("ST000000000000000000002AMW42H.sbtc-registry").unwrap(),
+        "print".to_string(),
+    );
+    let cases = [
+        (vec![EventKeyType::Attachments], 1),
+        (vec![EventKeyType::AnyEvent], 1),
+        (vec![EventKeyType::MemPoolTransactions], 0),
+        (vec![EventKeyType::STXEvent], 0),
+        (
+            vec![EventKeyType::SmartContractEvent(contract_event_key)],
+            0,
+        ),
+    ];
+
+    let dir = tempdir().unwrap();
+    let mut dispatcher = EventDispatcher::new(dir.path().to_path_buf());
+
+    let mut servers_and_mocks = vec![];
+    for (events_keys, expected_hits) in cases {
+        let mut server = mockito::Server::new();
+        let mock = server
+            .mock("POST", "/attachments/new")
+            .expect(expected_hits)
+            .create();
+        dispatcher.register_observer(&EventObserverConfig {
+            endpoint: server.url().strip_prefix("http://").unwrap().to_string(),
+            events_keys,
+            timeout_ms: 3_000,
+            disable_retries: true,
+            disable_contract_interface: false,
+        });
+        servers_and_mocks.push((server, mock));
+    }
+
+    let instance = AttachmentInstance {
+        content_hash: Hash160([0; 20]),
+        attachment_index: 0,
+        stacks_block_height: 1,
+        index_block_hash: StacksBlockId([0; 32]),
+        metadata: "".into(),
+        contract_id: boot_code_id("bns", false),
+        tx_id: Txid([0; 32]),
+        canonical_stacks_tip_height: None,
+    };
+    dispatcher.process_new_attachments(&[(instance, Attachment::new(vec![1, 2, 3]))]);
+
+    // Deliveries run in order on the worker thread, so once this returns every
+    // request that was going to be made has been made.
+    dispatcher.catch_up();
+
+    for (_server, mock) in servers_and_mocks {
+        mock.assert();
+    }
+}

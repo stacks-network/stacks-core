@@ -40,7 +40,7 @@ Note that this is only meant to deal with bursts of events. If your event observ
 ## Important Notes
 
 *   **`/new_microblocks` Endpoint Limitation:** Event delivery via the `/new_microblocks` endpoint (and by extension, events sourced from microblocks delivered to `/new_block`) is **only supported until epoch 2.5**. After this epoch, observers will no longer receive events on this path for new microblocks.
-*   **`/attachments/new` Implicit Subscription:** All observers, regardless of their `events_keys` configuration, implicitly receive payloads on the `/attachments/new` endpoint for new AtlasDB attachments.
+*   **`/attachments/new` Subscription:** Payloads on the `/attachments/new` endpoint are only delivered to observers subscribed with `"attachments"` or `"*"`. Earlier versions delivered them to every observer regardless of `events_keys`.
 
 
 ## Configuring Event Subscriptions (`events_keys`)
@@ -57,6 +57,7 @@ Below is a comprehensive list of valid keys and their behaviors:
         *   `/new_mempool_tx`: For new mempool transactions.
         *   `/drop_mempool_tx`: For dropped mempool transactions.
         *   `/new_burn_block`: For new burnchain blocks.
+        *   `/attachments/new`: For new AtlasDB attachments.
     *   **Note**: This key does NOT by itself subscribe to the StackerDB events (`/stackerdb_chunks`), or block proposal responses (`/proposal_response`).
 
 *   `"stx"`: Subscribes to STX token operation events.
@@ -89,6 +90,10 @@ Below is a comprehensive list of valid keys and their behaviors:
     *   **Description**: Captures validation responses for block proposals (relevant for Nakamoto consensus).
     *   **Events delivered to**: `/proposal_response`.
     *   **Note**: Requires specific subscription; not included in `*`.
+
+*   `"attachments"`: Subscribes to new AtlasDB attachment events.
+    *   **Description**: Captures attachments (e.g. BNS zonefiles) processed by the node's Atlas subsystem.
+    *   **Events delivered to**: `/attachments/new`.
 
 *   **Smart Contract Event**: Subscribes to a specific smart contract event.
     *   **Description**: Allows subscription to events emitted by a particular smart contract.
@@ -540,7 +545,7 @@ Delivers data related to mutations in a StackerDB replica this node subscribes t
 
 ### `POST /attachments/new`
 Delivers information about new AtlasDB attachments processed by the node.
-*   **Triggered by**: Implicitly for all observers.
+*   **Triggered by keys**: `*`, `"attachments"`.
 *   **Payload Summary**: A JSON array, where each object represents an attachment and includes its index, block details, content hash, contract ID, metadata, transaction ID, and raw content.
 
 *Example Payload:*
