@@ -173,9 +173,9 @@ const TENURE_HEIGHT_KEYWORD: SimpleKeywordAPI = SimpleKeywordAPI {
     snippet: "tenure-height",
     output_type: "uint",
     description: "Returns the number of tenures that have passed.
-At the start of epoch 3.0, `tenure-height` will return the same value as `block-height`, then it will continue to increase as each tenures passes.",
+At the start of epoch 3.0, `tenure-height` will return the same value as `block-height`, then it will continue to increase as each tenure passes.",
     example:
-        "(< tenure-height u140000) ;; returns true if the current tenure-height has passed 140,000 blocks.",
+        "(> tenure-height u140000) ;; returns true if the current tenure-height has passed 140,000 tenures.",
     notices: &[],
 };
 
@@ -186,7 +186,7 @@ const BLOCK_TIME_KEYWORD: SimpleKeywordAPI = SimpleKeywordAPI {
     description: "Returns the Unix timestamp (in seconds) of the current Stacks block. Introduced
 in Clarity 4. Provides access to the timestamp of the current block, which is
 not available with `get-stacks-block-info?`.",
-    example: "(>= stacks-block-time u1755820800) ;; returns true if current block timestamp is at or after 2025-07-22.",
+    example: "(>= stacks-block-time u1753142400) ;; returns true if current block timestamp is at or after 2025-07-22.",
     notices: &[DocNotice {
         level: "info",
         body: "This same timestamp can also be retrieved for previous blocks using `(get-stacks-block-info? time height)`, which exists since Clarity 3, but cannot be used for the current block.",
@@ -257,7 +257,7 @@ const NONE_KEYWORD: SimpleKeywordAPI = SimpleKeywordAPI {
     output_type: "(optional ?)",
     description: "Represents the _none_ option indicating no value for a given optional (analogous to a null value).",
     example: "
-(define-public (only-if-positive (a int))
+(define-read-only (only-if-positive (a int))
   (if (> a 0)
       (some a)
       none))
@@ -2029,7 +2029,7 @@ Stacks block at the given Stacks chain height.
 - `id-header-hash`: This property returns a `(buff 32)` value containing the _index block hash_ of a Stacks block.   This hash is globally unique, and is derived
 from the block hash and the history of accepted PoX operations.  This is also the block hash value you would pass into `(at-block)`.
 
-- `header-hash`: This property returns a `(buff 32)` value containing the header hash of a Stacks block, given a Stacks chain height.  **WARNING* this hash is
+- `header-hash`: This property returns a `(buff 32)` value containing the header hash of a Stacks block, given a Stacks chain height.  **WARNING** this hash is
 not guaranteed to be globally unique, since the same Stacks block can be mined in different PoX forks.  If you need global uniqueness, you should use `id-header-hash`.
 
 - `miner-address`: This property returns a `principal` value corresponding to the miner of the given block.  **WARNING** In Stacks 2.1, this is not guaranteed to
@@ -2112,7 +2112,7 @@ are as follows:
 - `id-header-hash`: This property returns a `(buff 32)` value containing the _index block hash_ of a Stacks block.   This hash is globally unique, and is derived
 from the block hash and the history of accepted PoX operations.  This is also the block hash value you would pass into `(at-block)`.
 
-- `header-hash`: This property returns a `(buff 32)` value containing the header hash of a Stacks block, given a Stacks chain height.  **WARNING* this hash is
+- `header-hash`: This property returns a `(buff 32)` value containing the header hash of a Stacks block, given a Stacks chain height.  **WARNING** this hash is
 not guaranteed to be globally unique, since the same Stacks block can be mined in different PoX forks.  If you need global uniqueness, you should use `id-header-hash`.
 
 - `time`: This property returns a `uint` value of the block header time field. This is a Unix epoch timestamp in seconds
