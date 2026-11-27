@@ -70,6 +70,37 @@ fn test_try_parse_request() {
 }
 
 #[test]
+fn test_try_parse_request_with_stop() {
+    let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 33333);
+    let mut http = StacksHttp::new(addr, &ConnectionOptions::default());
+
+    let block_id = StacksBlockId([0x11; 32]);
+    let stop_id = StacksBlockId([0x22; 32]);
+    let request = StacksHttpRequest::new_get_nakamoto_tenure(
+        addr.into(),
+        block_id.clone(),
+        Some(stop_id.clone()),
+    );
+    assert_eq!(
+        request.request_path(),
+        format!("/v3/tenures/{block_id}?stop={stop_id}")
+    );
+
+    let bytes = request.try_serialize().unwrap();
+    let (parsed_preamble, offset) = http.read_preamble(&bytes).unwrap();
+    let mut handler = gettenure::RPCNakamotoTenureRequestHandler::new();
+    http.handle_try_parse_request(
+        &mut handler,
+        &parsed_preamble.expect_request(),
+        &bytes[offset..],
+    )
+    .unwrap();
+
+    assert_eq!(handler.block_id, Some(block_id));
+    assert_eq!(handler.last_block_id, Some(stop_id));
+}
+
+#[test]
 fn test_try_make_response() {
     let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 33333);
 

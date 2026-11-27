@@ -554,7 +554,8 @@ impl NakamotoUnconfirmedTenureDownloader {
             // NOTE: this field can get updated by the downloader while this state-machine is in
             // this state.
             if let Some(highest_processed_block_id) = self.highest_processed_block_id.as_ref() {
-                if expected_block_id == highest_processed_block_id {
+                // `stop=` streams end at the highest processed block's child
+                if &block.header.parent_block_id == highest_processed_block_id {
                     // got all the blocks we asked for
                     debug!("Cancelling unconfirmed tenure download to {}: have processed block up to block {} already", &self.naddr, highest_processed_block_id);
                     finished_download = true;
