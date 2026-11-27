@@ -114,6 +114,7 @@ use stacks_signer::signerdb::{BlockInfo, BlockState, ExtraBlockInfo, SignerDb};
 use stacks_signer::v0::SpawnedSigner;
 
 use crate::burnchains::bitcoin::core_controller::BitcoinCoreController;
+use crate::event_dispatcher::MinedNakamotoBlockEvent;
 use crate::nakamoto_node::miner::{
     fault_injection_stall_miner, fault_injection_unstall_miner, TestTransientError,
     TEST_BLOCK_ANNOUNCE_STALL, TEST_BROADCAST_PROPOSAL_STALL, TEST_MINE_TRANSIENT_ERRORS,
@@ -6517,11 +6518,20 @@ fn nakamoto_attempt_time() {
             .filter(|block| seen.insert(block.block_hash.clone()))
             .collect::<Vec<_>>()
     };
+    // `tx_events` also reports transactions that failed processing, so only
+    // count the ones actually included in the block
+    let count_mined_txs = |block: &MinedNakamotoBlockEvent| {
+        block
+            .tx_events
+            .iter()
+            .filter(|event| matches!(event, TransactionEvent::Success(_)))
+            .count()
+    };
 
     // Wait for all the transactions to be mined and the blocks processed
     wait_for(60, || {
         let mined_blocks = get_subtest_mined_blocks();
-        let mined_txs: usize = mined_blocks.iter().map(|b| b.tx_events.len()).sum();
+        let mined_txs: usize = mined_blocks.iter().map(count_mined_txs).sum();
         let blocks_processed = coord_channel
             .lock()
             .expect("Mutex poisoned")
@@ -6532,7 +6542,7 @@ fn nakamoto_attempt_time() {
     .expect("Timed out waiting for all the transactions to be mined");
 
     let mined_blocks = get_subtest_mined_blocks();
-    let tx_counts: Vec<_> = mined_blocks.iter().map(|b| b.tx_events.len()).collect();
+    let tx_counts: Vec<_> = mined_blocks.iter().map(count_mined_txs).collect();
     info!("Subtest 3 mined blocks"; "tx_counts" => ?tx_counts);
 
     assert!(
