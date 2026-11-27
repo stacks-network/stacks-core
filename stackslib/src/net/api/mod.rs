@@ -17,6 +17,8 @@ use crate::net::http::Error;
 use crate::net::httpcore::RPCRoutesBuilder;
 use crate::net::Error as NetError;
 
+#[cfg(feature = "bench-hooks")]
+pub mod bench;
 pub mod blockreplay;
 pub mod blocksimulate;
 pub mod callreadonly;
@@ -175,6 +177,16 @@ impl RPCRoutesBuilder {
         self.register_rpc_endpoint(postmicroblock::RPCPostMicroblockRequestHandler::new());
         self.register_rpc_endpoint(poststackerdbchunk::RPCPostStackerDBChunkRequestHandler::new());
         self.register_rpc_endpoint(posttransaction::RPCPostTransactionRequestHandler::new());
+
+        #[cfg(feature = "bench-hooks")]
+        {
+            self.register_rpc_endpoint(bench::miner::RPCBenchMinerStatusRequestHandler::new(
+                self.auth_token.clone(),
+            ));
+            self.register_rpc_endpoint(bench::miner::RPCBenchMinerCommandRequestHandler::new(
+                self.auth_token.clone(),
+            ));
+        }
     }
 }
 
