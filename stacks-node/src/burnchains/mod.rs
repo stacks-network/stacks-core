@@ -1,5 +1,6 @@
 pub mod bitcoin;
 pub mod bitcoin_regtest_controller;
+mod replacement_pricing;
 pub mod rpc;
 
 use stacks::burnchains;
