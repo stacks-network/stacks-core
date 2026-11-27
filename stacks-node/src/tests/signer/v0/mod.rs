@@ -5519,7 +5519,7 @@ fn block_commit_delay() {
     next_block_and_process_new_stacks_block(
         &signer_test.running_nodes.btc_regtest_controller,
         60,
-        &signer_test.running_nodes.coord_channel,
+        &signer_test.running_nodes.conf,
     )
     .expect("Failed to mine first block");
 

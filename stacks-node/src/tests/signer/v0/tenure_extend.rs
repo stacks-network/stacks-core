@@ -3956,24 +3956,12 @@ fn empty_sortition_before_approval() {
     signer_test.boot_to_epoch_3();
 
     let Counters {
-        naka_submitted_commits: commits_submitted,
         naka_proposed_blocks: proposed_blocks,
         skip_commit_op,
         ..
     } = signer_test.running_nodes.counters.clone();
 
-    let commits_before = commits_submitted.load(Ordering::SeqCst);
-    next_block_and_process_new_stacks_block(
-        &signer_test.running_nodes.btc_regtest_controller,
-        60,
-        &signer_test.running_nodes.coord_channel,
-    )
-    .unwrap();
-
-    wait_for(30, || {
-        Ok(commits_submitted.load(Ordering::SeqCst) > commits_before)
-    })
-    .expect("Timed out waiting for commit to be submitted for Tenure A");
+    signer_test.mine_nakamoto_block(Duration::from_secs(30), true);
 
     let info = get_chain_info(&signer_test.running_nodes.conf);
     let stacks_height_before = info.stacks_tip_height;
@@ -4047,7 +4035,7 @@ fn empty_sortition_before_approval() {
     next_block_and_process_new_stacks_block(
         &signer_test.running_nodes.btc_regtest_controller,
         60,
-        &signer_test.running_nodes.coord_channel,
+        &signer_test.running_nodes.conf,
     )
     .expect("Failed to mine a normal tenure after the tenure extend");
 
@@ -4090,7 +4078,7 @@ fn empty_sortition_before_proposal() {
     next_block_and_process_new_stacks_block(
         &signer_test.running_nodes.btc_regtest_controller,
         60,
-        &signer_test.running_nodes.coord_channel,
+        &signer_test.running_nodes.conf,
     )
     .unwrap();
 
@@ -4192,7 +4180,7 @@ fn empty_sortition_before_proposal() {
     next_block_and_process_new_stacks_block(
         &signer_test.running_nodes.btc_regtest_controller,
         60,
-        &signer_test.running_nodes.coord_channel,
+        &signer_test.running_nodes.conf,
     )
     .expect("Failed to mine a normal tenure after the tenure extend");
     signer_test.check_signer_states_normal();
@@ -4302,7 +4290,6 @@ fn empty_sortition_before_tenure_start_signed() {
     signer_test.boot_to_epoch_3();
 
     let Counters {
-        naka_submitted_commits: commits_submitted,
         naka_proposed_blocks: proposed_blocks,
         skip_commit_op,
         ..
@@ -4311,17 +4298,7 @@ fn empty_sortition_before_tenure_start_signed() {
     // Mine a normal tenure first and wait for the block-commit for the next
     // tenure to be submitted, so that tenure A has a sortition even though
     // block-commits are paused right afterwards.
-    let commits_before = commits_submitted.load(Ordering::SeqCst);
-    next_block_and_process_new_stacks_block(
-        &signer_test.running_nodes.btc_regtest_controller,
-        60,
-        &signer_test.running_nodes.coord_channel,
-    )
-    .unwrap();
-    wait_for(30, || {
-        Ok(commits_submitted.load(Ordering::SeqCst) > commits_before)
-    })
-    .expect("Timed out waiting for the block-commit for tenure A to be submitted");
+    signer_test.mine_nakamoto_block(Duration::from_secs(30), true);
 
     let stacks_height_before = get_chain_info(&signer_test.running_nodes.conf).stacks_tip_height;
 
@@ -4489,7 +4466,7 @@ fn empty_sortition_before_tenure_start_signed() {
     next_block_and_process_new_stacks_block(
         &signer_test.running_nodes.btc_regtest_controller,
         60,
-        &signer_test.running_nodes.coord_channel,
+        &signer_test.running_nodes.conf,
     )
     .expect("Failed to mine a normal tenure after the tenure extend");
     signer_test.check_signer_states_normal();
@@ -4566,23 +4543,12 @@ fn empty_sortition_with_lost_tenure_start_proposal() {
     signer_test.boot_to_epoch_3();
 
     let Counters {
-        naka_submitted_commits: commits_submitted,
         naka_proposed_blocks: proposed_blocks,
         skip_commit_op,
         ..
     } = signer_test.running_nodes.counters.clone();
 
-    let commits_before = commits_submitted.load(Ordering::SeqCst);
-    next_block_and_process_new_stacks_block(
-        &signer_test.running_nodes.btc_regtest_controller,
-        60,
-        &signer_test.running_nodes.coord_channel,
-    )
-    .unwrap();
-    wait_for(30, || {
-        Ok(commits_submitted.load(Ordering::SeqCst) > commits_before)
-    })
-    .expect("Timed out waiting for the block-commit for tenure A to be submitted");
+    signer_test.mine_nakamoto_block(Duration::from_secs(30), true);
 
     let stacks_height_before = get_chain_info(&signer_test.running_nodes.conf).stacks_tip_height;
 
@@ -4716,7 +4682,7 @@ fn empty_sortition_with_lost_tenure_start_proposal() {
     next_block_and_process_new_stacks_block(
         &signer_test.running_nodes.btc_regtest_controller,
         60,
-        &signer_test.running_nodes.coord_channel,
+        &signer_test.running_nodes.conf,
     )
     .expect("Failed to mine a normal tenure after the tenure extend");
     signer_test.check_signer_states_normal();
@@ -4792,25 +4758,11 @@ fn empty_sortition_while_block_in_flight() {
 
     signer_test.boot_to_epoch_3();
 
-    let Counters {
-        naka_submitted_commits: commits_submitted,
-        skip_commit_op,
-        ..
-    } = signer_test.running_nodes.counters.clone();
+    let Counters { skip_commit_op, .. } = signer_test.running_nodes.counters.clone();
 
     // Wait for the block-commit for tenure A, so that tenure A has a sortition even
     // though block-commits are paused right afterwards.
-    let commits_before = commits_submitted.load(Ordering::SeqCst);
-    next_block_and_process_new_stacks_block(
-        &signer_test.running_nodes.btc_regtest_controller,
-        60,
-        &signer_test.running_nodes.coord_channel,
-    )
-    .unwrap();
-    wait_for(30, || {
-        Ok(commits_submitted.load(Ordering::SeqCst) > commits_before)
-    })
-    .expect("Timed out waiting for the block-commit for tenure A to be submitted");
+    signer_test.mine_nakamoto_block(Duration::from_secs(30), true);
 
     info!("Pausing block commits so that the burn block after tenure A has no sortition");
     skip_commit_op.set(true);
@@ -4819,7 +4771,7 @@ fn empty_sortition_while_block_in_flight() {
     next_block_and_process_new_stacks_block(
         &signer_test.running_nodes.btc_regtest_controller,
         60,
-        &signer_test.running_nodes.coord_channel,
+        &signer_test.running_nodes.conf,
     )
     .expect("Failed to mine tenure A");
     let info_a = get_chain_info(&signer_test.running_nodes.conf);
@@ -4874,7 +4826,7 @@ fn empty_sortition_while_block_in_flight() {
     next_block_and_process_new_stacks_block(
         &signer_test.running_nodes.btc_regtest_controller,
         60,
-        &signer_test.running_nodes.coord_channel,
+        &signer_test.running_nodes.conf,
     )
     .expect("Failed to mine a normal tenure after the tenure extend");
     signer_test.check_signer_states_normal();
@@ -4947,17 +4899,7 @@ fn empty_sortition_while_block_in_flight_never_lands() {
 
     // Wait for the block-commit for tenure A, so that tenure A has a sortition even
     // though block-commits are paused right afterwards.
-    let commits_before = commits_submitted.load(Ordering::SeqCst);
-    next_block_and_process_new_stacks_block(
-        &signer_test.running_nodes.btc_regtest_controller,
-        60,
-        &signer_test.running_nodes.coord_channel,
-    )
-    .unwrap();
-    wait_for(30, || {
-        Ok(commits_submitted.load(Ordering::SeqCst) > commits_before)
-    })
-    .expect("Timed out waiting for the block-commit for tenure A to be submitted");
+    signer_test.mine_nakamoto_block(Duration::from_secs(30), true);
 
     info!("Pausing block commits so that the burn block after tenure A has no sortition");
     skip_commit_op.set(true);
@@ -4966,7 +4908,7 @@ fn empty_sortition_while_block_in_flight_never_lands() {
     next_block_and_process_new_stacks_block(
         &signer_test.running_nodes.btc_regtest_controller,
         60,
-        &signer_test.running_nodes.coord_channel,
+        &signer_test.running_nodes.conf,
     )
     .expect("Failed to mine tenure A");
     let info_a = get_chain_info(&signer_test.running_nodes.conf);
@@ -5043,7 +4985,7 @@ fn empty_sortition_while_block_in_flight_never_lands() {
     next_block_and_process_new_stacks_block(
         &signer_test.running_nodes.btc_regtest_controller,
         60,
-        &signer_test.running_nodes.coord_channel,
+        &signer_test.running_nodes.conf,
     )
     .expect("Failed to mine a normal tenure after the tenure extend");
     signer_test.check_signer_states_normal();
@@ -5686,7 +5628,7 @@ fn fast_sortition() {
     next_block_and_process_new_stacks_block(
         &signer_test.running_nodes.btc_regtest_controller,
         60,
-        &signer_test.running_nodes.coord_channel,
+        &signer_test.running_nodes.conf,
     )
     .expect("Failed to mine a block");
 
@@ -6223,7 +6165,7 @@ fn tenure_extend_across_reward_cycle_boundary() {
     next_block_and_process_new_stacks_block(
         &signer_test.running_nodes.btc_regtest_controller,
         60,
-        &signer_test.running_nodes.coord_channel,
+        &signer_test.running_nodes.conf,
     )
     .expect("Failed to mine the last tenure of cycle N");
 
@@ -6327,7 +6269,7 @@ fn tenure_extend_across_reward_cycle_boundary() {
     next_block_and_process_new_stacks_block(
         &signer_test.running_nodes.btc_regtest_controller,
         60,
-        &signer_test.running_nodes.coord_channel,
+        &signer_test.running_nodes.conf,
     )
     .expect("Failed to mine a normal tenure after the tenure extend");
     let new_tenure_block =
